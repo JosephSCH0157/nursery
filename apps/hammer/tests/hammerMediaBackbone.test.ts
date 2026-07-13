@@ -13,16 +13,23 @@ import {
 
 {
   const runtime = buildHammerMediaBackboneRuntimeSummary();
-  const plan = resolveHammerAudioPolishExecutionPlan({
+  const sourceRequest = Object.freeze({
     runtime,
-    mediaKind: "recording_audio",
-    sourceExtension: ".wav",
+    mediaKind: "recording_audio" as const,
+    sourceExtension: ".wav" as const,
   });
+  const before = { mediaKind: sourceRequest.mediaKind, sourceExtension: sourceRequest.sourceExtension };
+  const plan = resolveHammerAudioPolishExecutionPlan(sourceRequest);
   assert.equal(plan.readiness, "ready_now");
   assert.equal(plan.executable, true);
   assert.equal(plan.backend, "builtin");
   assert.equal(plan.current_strategy, "builtin_wav_v1");
   assert.equal(plan.requires_ffmpeg, false);
+  assert.deepEqual(
+    { mediaKind: sourceRequest.mediaKind, sourceExtension: sourceRequest.sourceExtension },
+    before,
+    "Execution planning must not mutate source-media identity.",
+  );
 }
 
 {

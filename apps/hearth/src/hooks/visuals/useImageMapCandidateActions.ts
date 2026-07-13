@@ -11,6 +11,7 @@ import {
 } from "../../lib/hearth-image-map-repo";
 import { resolveAiThumbnailAutoApproveFromStorage } from "../../lib/hearth-chat-api";
 import type { EpisodeImageMapEntry, EpisodePackageV2 } from "../../lib/episode-package-v2";
+import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 
 type CanonicalScriptResult =
   | {
@@ -25,6 +26,7 @@ type CanonicalScriptResult =
     };
 
 type UseImageMapCandidateActionsArgs = {
+  operationAuthority: HearthOperationAuthority;
   workpieceId: string | null;
   workspaceId: string | null;
   episodePackage: EpisodePackageV2 | null;
@@ -94,6 +96,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
 
     let expectedMetadataUpdatedAt = args.imageMapMetadataUpdatedAt;
     let context: { before: string | null; after: string | null };
+    const operation = args.operationAuthority.begin("image-map.candidates.generate");
 
     if (args.selectedImageMapEntry.beat_anchor) {
       const beatContext = resolveBulletBeatContext({
@@ -106,6 +109,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
       };
     } else {
       const canonicalScript = await args.readCanonicalScriptForImageMapGeneration();
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!canonicalScript.ok) {
         args.setImageMapCandidateError(canonicalScript.message);
         return;
@@ -147,6 +151,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
           : entry
       ));
       const sourceSaved = await args.persistImageMapEntries({ entries: updatedEntries });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!sourceSaved.ok) {
         args.setImageMapCandidateError(sourceSaved.error);
         return;
@@ -175,6 +180,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
       );
 
       let generated = await requestCandidateGeneration(expectedMetadataUpdatedAt);
+      if (!args.operationAuthority.isCurrent(operation)) return;
 
       if (!generated.ok && generated.reason === "conflict" && generated.latest) {
         const latest = generated.latest;
@@ -183,6 +189,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
         ));
         args.setImageMapMetadataUpdatedAt(latest.metadataUpdatedAt);
         generated = await requestCandidateGeneration(latest.metadataUpdatedAt);
+        if (!args.operationAuthority.isCurrent(operation)) return;
       }
 
       if (!generated.ok) {
@@ -230,6 +237,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
         severity: "success",
       });
     } catch (error) {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       const message = error instanceof Error ? error.message : "Still-candidate generation failed.";
       args.setImageMapCandidateError(message);
       args.publishForgeNotice({
@@ -239,7 +247,9 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
         severity: "error",
       });
     } finally {
-      args.setIsImageMapCandidateGenerating(false);
+      if (args.operationAuthority.isCurrent(operation)) {
+        args.setIsImageMapCandidateGenerating(false);
+      }
     }
   }, [args]);
 
@@ -261,6 +271,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
       args.setImageMapCandidateSelectionError(null);
       return;
     }
+    const operation = args.operationAuthority.begin("image-map.candidates.select");
 
     args.setIsImageMapCandidateSelecting(true);
     args.setImageMapCandidateSelectionError(null);
@@ -280,6 +291,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
           asset: null,
         },
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
 
       if (!selected.ok) {
         const latest = selected.reason === "conflict" ? selected.latest ?? null : null;
@@ -309,10 +321,13 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
       args.setImageMapCandidateSelectionError(null);
       args.setImageMapExportMessage("Selected still candidate saved canonically for this visual beat.");
     } catch (error) {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       const message = error instanceof Error ? error.message : "Unable to save the selected still candidate.";
       args.setImageMapCandidateSelectionError(message);
     } finally {
-      args.setIsImageMapCandidateSelecting(false);
+      if (args.operationAuthority.isCurrent(operation)) {
+        args.setIsImageMapCandidateSelecting(false);
+      }
     }
   }, [args]);
 
@@ -328,6 +343,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
       args.setImageMapCandidateSelectionError("Workspace or workpiece is missing.");
       return;
     }
+    const operation = args.operationAuthority.begin("image-map.candidates.upload");
 
     args.setIsImageMapCandidateSelecting(true);
     args.setImageMapCandidateSelectionError(null);
@@ -339,6 +355,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
         file,
         source: "upload",
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!uploaded.ok) {
         args.setImageMapCandidateSelectionError(uploaded.error);
         return;
@@ -359,6 +376,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
       });
 
       const saved = await args.persistImageMapEntries({ entries: updatedEntries });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setImageMapCandidateSelectionError(saved.error);
         return;
@@ -372,10 +390,13 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
         severity: "success",
       });
     } catch (error) {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       const message = error instanceof Error ? error.message : "Unable to upload this visual asset.";
       args.setImageMapCandidateSelectionError(message);
     } finally {
-      args.setIsImageMapCandidateSelecting(false);
+      if (args.operationAuthority.isCurrent(operation)) {
+        args.setIsImageMapCandidateSelecting(false);
+      }
     }
   }, [args]);
 

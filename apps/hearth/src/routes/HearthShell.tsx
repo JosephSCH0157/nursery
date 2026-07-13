@@ -14,6 +14,7 @@ import {
   enqueueBarStockSpark,
   resolveBarStockSparkHearthWorkpieceId,
   resolveBarstockSparkIdFromQuery,
+  shouldDisplaySparkInHearthLibrary,
   upsertBarStockSpark,
   writeBarStockSparks,
 } from "../lib/barstock-sparks";
@@ -79,6 +80,7 @@ import {
 import { useHearthAutosave } from "../hooks/useHearthAutosave";
 import { useApprovalFlow } from "../hooks/useApprovalFlow";
 import { useHearthVisualsWorkspace } from "../hooks/useHearthVisualsWorkspace";
+import { useHearthOperationAuthority } from "../hooks/useHearthOperationAuthority";
 import { useHearthFocusOpenActions } from "../hooks/useHearthFocusOpenActions";
 import { useHearthInitialLoader } from "../hooks/useHearthInitialLoader";
 import { useHearthWorkspaceResetLifecycle } from "../hooks/useHearthWorkspaceResetLifecycle";
@@ -130,8 +132,18 @@ import { useMediaMapConversationBootstrap } from "../hooks/visuals/useMediaMapCo
 import { useCanonicalImageMapScriptStateLoader } from "../hooks/visuals/useCanonicalImageMapScriptStateLoader";
 import { useVisualSelectionHydration } from "../hooks/visuals/useVisualSelectionHydration";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
+import {
+  NO_CANONICAL_SCRIPT_APPROVAL,
+  isScriptApprovalStateEqual,
+  nextApprovedScriptVersion,
+  resolveCanonicalScriptApproval,
+  type ScriptApprovalState,
+} from "../lib/hearth-approval-authority";
 import { createHearthStore } from "../storage/store-factory";
-import type { HearthStoreKind } from "../storage/hearth-store";
+import {
+  isCanonicalHearthRevisionSave,
+  type HearthStoreKind,
+} from "../storage/hearth-store";
 import { LocalSessionStore } from "../storage/local-session-store";
 import {
   applyHearthOps,
@@ -355,12 +367,6 @@ type ForgeNoticeDetail = {
   workpieceId?: string;
   severity: ForgeNoticeSeverity;
   timestamp: number;
-};
-
-type ScriptApprovalState = {
-  hasApprovedScript: boolean;
-  approvedScriptVersion: number | null;
-  approvedAt: number | null;
 };
 
 type ApprovalPersistenceStatus = {
@@ -994,88 +1000,13 @@ function writeChatHistoryCache(historyKey: string | null, messages: HearthChatMe
   }
 }
 
-function readScriptApprovalState(workpieceId: string | null): ScriptApprovalState {
-  const fallback: ScriptApprovalState = {
-    hasApprovedScript: false,
-    approvedScriptVersion: null,
-    approvedAt: null,
-  };
-  if (!workpieceId || typeof window === "undefined") return fallback;
-  try {
-    const raw = window.localStorage.getItem(`${SCRIPT_APPROVAL_STORAGE_PREFIX}${workpieceId}`);
-    if (!raw) return fallback;
-    const parsed = JSON.parse(raw) as Partial<ScriptApprovalState>;
-    const version = typeof parsed.approvedScriptVersion === "number" && parsed.approvedScriptVersion > 0
-      ? parsed.approvedScriptVersion
-      : null;
-    const approvedAt = typeof parsed.approvedAt === "number" && Number.isFinite(parsed.approvedAt)
-      ? parsed.approvedAt
-      : null;
-    return {
-      hasApprovedScript: Boolean(parsed.hasApprovedScript && version),
-      approvedScriptVersion: version,
-      approvedAt,
-    };
-  } catch {
-    return fallback;
-  }
-}
-
-function writeScriptApprovalState(workpieceId: string | null, value: ScriptApprovalState): void {
+function writeScriptApprovalRecoveryEvidence(workpieceId: string | null, value: ScriptApprovalState): void {
   if (!workpieceId || typeof window === "undefined") return;
   try {
     window.localStorage.setItem(`${SCRIPT_APPROVAL_STORAGE_PREFIX}${workpieceId}`, JSON.stringify(value));
   } catch {
     // ignore storage failures
   }
-}
-
-function parseApprovedVersionFromNote(note: string | undefined): number | null {
-  if (!note) return null;
-  const normalized = note.trim();
-  if (!normalized) return null;
-  const tagged = normalized.match(/script_version_approved:v(\d+)/i);
-  if (tagged) {
-    const parsed = Number.parseInt(tagged[1] ?? "", 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-  }
-  const plain = normalized.match(/script\s+version\s+(\d+)\s+approved/i);
-  if (plain) {
-    const parsed = Number.parseInt(plain[1] ?? "", 10);
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-  }
-  return null;
-}
-
-function nextApprovedScriptVersion(revisions: Revision[]): number {
-  const maxVersion = revisions.reduce((max, revision) => {
-    if (revision.kind !== "milestone") return max;
-    const parsed = parseApprovedVersionFromNote(revision.note);
-    return parsed && parsed > max ? parsed : max;
-  }, 0);
-  return maxVersion + 1;
-}
-
-function findLatestApprovedScript(revisions: Revision[]): { version: number; approvedAt: number } | null {
-  let latest: { version: number; approvedAt: number } | null = null;
-  for (const revision of revisions) {
-    if (revision.kind !== "milestone") continue;
-    const version = parseApprovedVersionFromNote(revision.note);
-    if (!version) continue;
-    if (!latest || version > latest.version || (version === latest.version && revision.createdAt > latest.approvedAt)) {
-      latest = {
-        version,
-        approvedAt: revision.createdAt,
-      };
-    }
-  }
-  return latest;
-}
-
-function isScriptApprovalStateEqual(a: ScriptApprovalState, b: ScriptApprovalState): boolean {
-  return a.hasApprovedScript === b.hasApprovedScript
-    && a.approvedScriptVersion === b.approvedScriptVersion
-    && a.approvedAt === b.approvedAt;
 }
 
 function hasExplicitWorkpieceQuery(): boolean {
@@ -2031,6 +1962,7 @@ export default function HearthShell({
   const [sparks, setSparks] = useState<BarStockSpark[]>([]);
   const [isSparksLoading, setIsSparksLoading] = useState<boolean>(() => Boolean(normalizeUuid(resolveWorkspaceId())));
   const [sparkDiscoveryWorkspaceId, setSparkDiscoveryWorkspaceId] = useState<string | null>(null);
+  const [sparkDiscoveryError, setSparkDiscoveryError] = useState<string | null>(null);
   const [selectedSparkId, setSelectedSparkId] = useState<string | null>(null);
   const [forgeError, setForgeError] = useState<string | null>(null);
   const [isForging, setIsForging] = useState(false);
@@ -2142,9 +2074,7 @@ export default function HearthShell({
   const [selectedWritingFormat, setSelectedWritingFormat] = useState<HearthWritingFormat>(() => readLastHearthWritingFormat());
   const [scriptCompletionBadge, setScriptCompletionBadge] = useState<ScriptCompletionBadge | null>(null);
   const [scriptCompletionReasons, setScriptCompletionReasons] = useState<string[]>([]);
-  const [scriptApprovalState, setScriptApprovalState] = useState<ScriptApprovalState>(() =>
-    readScriptApprovalState(incomingBarStockIntakeRoute ? null : resolveWorkpieceId()),
-  );
+  const [scriptApprovalState, setScriptApprovalState] = useState<ScriptApprovalState>(NO_CANONICAL_SCRIPT_APPROVAL);
   const [approvalPersistenceStatus, setApprovalPersistenceStatus] = useState<ApprovalPersistenceStatus | null>(null);
   const [activeProductionAction, setActiveProductionAction] = useState<ProductionAction | null>(null);
   const [writingProfile, setWritingProfile] = useState<WritingProfile | null>(null);
@@ -2165,6 +2095,7 @@ export default function HearthShell({
     ),
   );
   const [presenceRows, setPresenceRows] = useState<HearthWorkpiecePresence[]>([]);
+  const [presenceState, setPresenceState] = useState<"idle" | "loading" | "available" | "unavailable" | "failed">("idle");
   const [draftConflictState, setDraftConflictState] = useState<DraftConflictState | null>(null);
   const [mobileOverlayView, setMobileOverlayView] = useState<"editor" | "ready" | null>(null);
   const { acknowledgeCopy, isCopyAcknowledged } = useClipboardButtonAcks();
@@ -2659,12 +2590,24 @@ export default function HearthShell({
       updatedAt: params.updatedAt,
       createRevision: { kind: "manual", note: "Restored from revision" },
     }),
-    saveRevisionRecord: (workpieceId, revision) => store.saveRevision(workpieceId, revision),
+    saveRevisionRecord: async (workpieceId, revision) => {
+      const acknowledgement = await store.saveRevision(workpieceId, revision);
+      if (!isCanonicalHearthRevisionSave(acknowledgement)) {
+        throw new Error("revision_snapshot_sync_failed");
+      }
+    },
     refreshRevisions,
     reportRevisionPersistenceWarning,
     setAiRuntimeWarning,
     setError,
     confirmRestore: (message) => window.confirm(message),
+  });
+  const operationAuthority = useHearthOperationAuthority({
+    workspaceId,
+    workpieceId,
+    draftId: activeDraft?.id ?? null,
+    draftVersion: draftEditVersionRef.current,
+    revisionId: selectedRevision?.id ?? null,
   });
   useEffect(() => {
     setSelectedRevision((prev) => {
@@ -2748,6 +2691,7 @@ export default function HearthShell({
   const sessionSparkId = planningSession?.origin?.spark_id ?? planningSession?.links?.spark_id ?? null;
   const sourcesState = useSourcesState(workspaceId, workpieceId, activeDraft?.body ?? "", {
     mode: mode === "focus" && focusTab === "sources" ? "full" : "summary",
+    operationAuthority,
   });
   const workpieceSources = sourcesState.workpieceSources;
   const sourceIndexById = sourcesState.sourceIndexById;
@@ -3180,6 +3124,7 @@ export default function HearthShell({
     persistMediaMap,
     persistReferenceClipPlan,
   } = useVisualsPersistence({
+    operationAuthority,
     episodePackage,
     workpieceId,
     workspaceId,
@@ -3245,6 +3190,7 @@ export default function HearthShell({
     onDeleteMediaMapEntry,
     onActivateEpisodeMediaMap,
   } = useMediaMapEntryActions({
+    operationAuthority,
     episodePackage,
     workpieceId,
     selectedMediaMapEntry,
@@ -3286,6 +3232,7 @@ export default function HearthShell({
     onGenerateEpisodeMediaMapFromPlans,
     onBuildAndApplyMediaMapFromConversation,
   } = useMediaMapGenerationActions({
+    operationAuthority,
     episodePackage,
     isMediaMapBusy,
     approvedScriptVersion,
@@ -3380,12 +3327,14 @@ export default function HearthShell({
       setChatAttachmentError(null);
       return;
     }
+    const operation = operationAuthority.begin("attachments.refresh");
 
     setIsAttachmentsLoading(true);
     const result = await listHearthAttachments({
       workspaceId: activeWorkspaceId,
       episodeId,
     });
+    if (!operationAuthority.isCurrent(operation)) return;
     if (!result.ok) {
       setChatAttachmentError(result.error);
       setIsAttachmentsLoading(false);
@@ -3407,7 +3356,7 @@ export default function HearthShell({
     })));
     setChatAttachmentError(null);
     setIsAttachmentsLoading(false);
-  }, [workpieceId, workspaceId]);
+  }, [operationAuthority, workpieceId, workspaceId]);
 
   useEffect(() => {
     void refreshChatAttachments();
@@ -3417,6 +3366,7 @@ export default function HearthShell({
     const episodeId = workpieceId?.trim();
     const activeWorkspaceId = workspaceId?.trim();
     if (!episodeId || !activeWorkspaceId || !files || files.length === 0) return;
+    const operation = operationAuthority.begin("attachments.upload");
 
     const uploadItems = Array.from(files);
     for (const file of uploadItems) {
@@ -3443,6 +3393,7 @@ export default function HearthShell({
         episodeId,
         file,
       });
+      if (!operationAuthority.isCurrent(operation)) return;
 
       if (!upload.ok) {
         setChatAttachments((prev) => prev.map((entry) => (
@@ -3476,7 +3427,7 @@ export default function HearthShell({
           : entry
       )));
     }
-  }, [workpieceId, workspaceId]);
+  }, [operationAuthority, workpieceId, workspaceId]);
 
   const onRemoveChatAttachment = useCallback((id: string) => {
     setChatAttachments((prev) => prev.filter((entry) => entry.id !== id));
@@ -3485,11 +3436,13 @@ export default function HearthShell({
   const onPasteAttachmentText = useCallback(async (attachmentId: string, text: string) => {
     const activeWorkspaceId = workspaceId?.trim();
     if (!activeWorkspaceId) return;
+    const operation = operationAuthority.begin(`attachments.text:${attachmentId}`);
     const result = await updateHearthAttachmentExtractedText({
       attachmentId,
       workspaceId: activeWorkspaceId,
       extractedText: text,
     });
+    if (!operationAuthority.isCurrent(operation)) return;
     if (!result.ok) {
       setChatAttachments((prev) => prev.map((entry) =>
         entry.id === attachmentId
@@ -3503,12 +3456,13 @@ export default function HearthShell({
         ? { ...entry, status: "attached", error: null }
         : entry,
     ));
-  }, [workspaceId]);
+  }, [operationAuthority, workspaceId]);
 
   const {
     onFixScriptFormattingNoAi,
     onAskAiRepairScript,
   } = useHearthScriptRepairActions({
+    operationAuthority,
     activeDraft,
     isRepairingScript,
     isAiProcessing,
@@ -3562,6 +3516,7 @@ export default function HearthShell({
     EpisodeContext,
     HearthOp
   >({
+    operationAuthority,
     isAiProcessing,
     aiTokenBalance,
     chatDraft,
@@ -3631,6 +3586,7 @@ export default function HearthShell({
     },
   });
   const { onToggleMic } = useChatWorkspaceStt({
+    operationAuthority,
     workpieceId,
     devMode,
     hasBrowserSpeech,
@@ -4067,7 +4023,7 @@ export default function HearthShell({
     [routeProjectId, routeSparkId, sparks],
   );
   const visibleSparks = useMemo(
-    () => sortedSparks.filter((spark) => spark.status !== "archived"),
+    () => sortedSparks.filter((spark) => spark.status !== "archived" && shouldDisplaySparkInHearthLibrary(spark)),
     [sortedSparks],
   );
   const selectedSpark = useMemo(() => {
@@ -4503,8 +4459,8 @@ export default function HearthShell({
   }, [activeDraft?.id, sparks, workpieceId]);
 
   const refreshEpisodePackage = useEpisodePackageLoader({
+    operationAuthority,
     workpieceId,
-    replaceEpisodePackageImageMap,
     resetReleasePrepState,
     setEpisodePackage,
     setImageMapMetadataUpdatedAt,
@@ -4554,6 +4510,8 @@ export default function HearthShell({
   const {
     persistApprovedDraft,
     publishApprovedScript,
+    readCanonicalApprovalRevisions,
+    commitCanonicalApprovalRevision,
     appendApprovalMarker,
   } = useHearthApprovalPersistenceActions({
     persistDraft,
@@ -4561,15 +4519,18 @@ export default function HearthShell({
     chatHistoryMaxMessages: CHAT_HISTORY_MAX_MESSAGES,
     flushChatHistoryNow,
     setChatMessages,
+    readCanonicalRevisions: (episodeId, draftId) => store.readCanonicalRevisions(episodeId, draftId),
+    saveRevision: (episodeId, revision) => store.saveRevision(episodeId, revision),
+    refreshRevisions,
   });
   const {
     isApprovingScript,
     onApproveScript,
   } = useApprovalFlow({
+    operationAuthority,
     activeDraft,
     workpieceId,
     workspaceId,
-    revisions,
     isSaving,
     isAiProcessing,
     setError,
@@ -4584,6 +4545,8 @@ export default function HearthShell({
     nextApprovedScriptVersion,
     persistApprovedDraft,
     publishApprovedScript,
+    readCanonicalApprovalRevisions,
+    commitCanonicalApprovalRevision,
     mirrorApprovedScript: async (params) => mirrorApprovedScriptToLocal({
       workspaceId: params.workspaceId,
       workpieceId: params.workpieceId,
@@ -4592,7 +4555,7 @@ export default function HearthShell({
     }),
     graduateLinkedSpark,
     setScriptApprovalState,
-    writeScriptApprovalState,
+    writeScriptApprovalRecoveryEvidence,
     updateStyleProfileFromReadyCheckpoint,
     appendApprovalMarker,
     refreshReadyScripts,
@@ -4604,6 +4567,7 @@ export default function HearthShell({
     onDeleteBrollBeat,
     onRegenerateBrollBeat,
   } = useBrollCoreActions({
+    operationAuthority,
     isApprovingScript,
     isAiProcessing,
     isBrollBusy,
@@ -4647,6 +4611,7 @@ export default function HearthShell({
     onSelectBrollCandidate,
     onRetryBrollCandidateIngestion,
   } = useBrollBridgeActions({
+    operationAuthority,
     episodePackage,
     selectedBrollBeat,
     brollProviders,
@@ -4681,6 +4646,7 @@ export default function HearthShell({
     onGenerateReferenceClipInForge,
     onRegenerateReferenceClipEntryStub,
   } = useReferenceClipCoreActions({
+    operationAuthority,
     episodePackage,
     workpieceId,
     workspaceId,
@@ -4732,6 +4698,7 @@ export default function HearthShell({
     onUploadReferenceClipAsset,
     onSelectReferenceClipCandidate,
   } = useReferenceClipBridgeActions({
+    operationAuthority,
     episodePackage,
     selectedReferenceClipEntry,
     activeVisualPromptPackForReferenceClip,
@@ -4767,6 +4734,7 @@ export default function HearthShell({
     onSelectLaunchVariant,
     onSaveLaunchVariant,
   } = useThumbnailConceptActions({
+    operationAuthority,
     episodePackage,
     thumbnailVersions,
     launchVariants,
@@ -4804,6 +4772,7 @@ export default function HearthShell({
     onRemoveThumbnailBrandLogo,
     onUploadThumbnailImage,
   } = useThumbnailGenerationActions({
+    operationAuthority,
     workpieceId,
     workspaceId,
     episodePackage,
@@ -4846,6 +4815,7 @@ export default function HearthShell({
     onConvertImageMapToGlobalVisual,
     onLeaveImageMapOrphaned,
   } = useImageMapReanchorActions({
+    operationAuthority,
     episodePackage,
     selectedImageMapEntry,
     imageMapReanchorDisabledReason,
@@ -4869,6 +4839,7 @@ export default function HearthShell({
     onSelectImageMapCandidate,
     onUploadImageMapAsset,
   } = useImageMapCandidateActions({
+    operationAuthority,
     workpieceId,
     workspaceId,
     episodePackage,
@@ -4905,6 +4876,7 @@ export default function HearthShell({
     onDuplicateImageMapEntry,
     onDeleteImageMapEntry,
   } = useImageMapEntryCrudActions({
+    operationAuthority,
     episodePackage,
     selectedImageMapEntry,
     selectedImageMapEntryId,
@@ -4918,6 +4890,7 @@ export default function HearthShell({
     onCopyImageMapExportJson,
     onDownloadImageMapExportJson,
   } = useImageMapSeedExportActions({
+    operationAuthority,
     workpieceId,
     episodePackage,
     selectedImageMapEntryId,
@@ -5004,6 +4977,7 @@ export default function HearthShell({
     const normalizedWorkpieceId = normalizeUuid(workpiece);
     if (!normalizedWorkspaceId || !normalizedWorkpieceId) {
       setPresenceRows([]);
+      setPresenceState("idle");
       return;
     }
 
@@ -5011,6 +4985,7 @@ export default function HearthShell({
     let timer: number | null = null;
 
     const syncPresence = async () => {
+      if (!cancelled) setPresenceState((previous) => previous === "available" ? previous : "loading");
       try {
         const ownPresence = await upsertHearthWorkpiecePresence({
           workspaceId: normalizedWorkspaceId,
@@ -5018,20 +4993,32 @@ export default function HearthShell({
           mode: localPresenceMode,
           displayName: activeUserDisplayName,
         });
-        if (!cancelled && ownPresence?.userId) {
+        if (cancelled) return;
+        if (ownPresence.kind !== "success") {
+          setPresenceRows([]);
+          setPresenceState(ownPresence.kind);
+          return;
+        }
+        if (ownPresence.value.userId) {
           setHearthUser((prev) => (
-            prev.userId === ownPresence.userId
+            prev.userId === ownPresence.value.userId
               ? prev
-              : { ...prev, userId: ownPresence.userId }
+              : { ...prev, userId: ownPresence.value.userId }
           ));
         }
-        const rows = await listHearthWorkpiecePresence(normalizedWorkspaceId, normalizedWorkpieceId);
-        if (!cancelled) {
-          setPresenceRows(rows);
+        const presenceResult = await listHearthWorkpiecePresence(normalizedWorkspaceId, normalizedWorkpieceId);
+        if (cancelled) return;
+        if (presenceResult.kind === "success") {
+          setPresenceRows(presenceResult.value);
+          setPresenceState("available");
+        } else {
+          setPresenceRows([]);
+          setPresenceState(presenceResult.kind);
         }
       } catch {
         if (!cancelled) {
           setPresenceRows([]);
+          setPresenceState("failed");
         }
       }
     };
@@ -5643,6 +5630,7 @@ export default function HearthShell({
     onWorkspaceChanged: () => {
       setSparks([]);
       setSparkDiscoveryWorkspaceId(null);
+      setSparkDiscoveryError(null);
       setIsSparksLoading(Boolean(normalizeUuid(workspaceId)));
       setWorkpieceId(null);
       setPlanningSession(null);
@@ -5670,6 +5658,7 @@ export default function HearthShell({
     workspaceId,
     sparkDiscoveryWorkspaceId,
     isSparksLoading,
+    sparkDiscoveryError,
     routeSpark,
     projectIntakeHandledRef,
     sparkIntakeHandledRef,
@@ -5699,6 +5688,7 @@ export default function HearthShell({
     setSparks,
     setSparkDiscoveryWorkspaceId,
     setIsSparksLoading,
+    setSparkDiscoveryError,
   });
 
   useEffect(() => {
@@ -6075,57 +6065,29 @@ export default function HearthShell({
   }, [activeWorkpieceTab, workpieceId, workspaceId]);
 
   useEffect(() => {
-    const stored = readScriptApprovalState(workpieceId);
-    setScriptApprovalState(stored);
+    setScriptApprovalState(NO_CANONICAL_SCRIPT_APPROVAL);
     setApprovalPersistenceStatus(null);
   }, [workpieceId]);
 
   useEffect(() => {
-    if (!workpieceId) {
-      const fallback: ScriptApprovalState = {
-        hasApprovedScript: false,
-        approvedScriptVersion: null,
-        approvedAt: null,
-      };
-      setScriptApprovalState((prev) => (isScriptApprovalStateEqual(prev, fallback) ? prev : fallback));
+    const episodeId = workpieceId?.trim() ?? "";
+    const draftId = activeDraft?.id ?? null;
+    const operation = operationAuthority.begin("approval.canonical.read");
+    setScriptApprovalState((prev) => (
+      isScriptApprovalStateEqual(prev, NO_CANONICAL_SCRIPT_APPROVAL)
+        ? prev
+        : NO_CANONICAL_SCRIPT_APPROVAL
+    ));
+    if (!episodeId || !draftId) {
       return;
     }
-
-    const stored = readScriptApprovalState(workpieceId);
-    const scopedRevisions = activeDraft
-      ? revisions.filter((revision) => revision.draftId === activeDraft.id)
-      : [];
-    const latestApproved = findLatestApprovedScript(scopedRevisions);
-    const fromRevisions: ScriptApprovalState = latestApproved
-      ? {
-          hasApprovedScript: true,
-          approvedScriptVersion: latestApproved.version,
-          approvedAt: latestApproved.approvedAt,
-        }
-      : {
-          hasApprovedScript: false,
-          approvedScriptVersion: null,
-          approvedAt: null,
-        };
-
-    const shouldPreferRevisions = Boolean(
-      fromRevisions.hasApprovedScript
-      && (
-        !stored.hasApprovedScript
-        || (fromRevisions.approvedScriptVersion ?? 0) > (stored.approvedScriptVersion ?? 0)
-        || (
-          fromRevisions.approvedScriptVersion === stored.approvedScriptVersion
-          && (fromRevisions.approvedAt ?? 0) > (stored.approvedAt ?? 0)
-        )
-      ),
-    );
-
-    const resolved = shouldPreferRevisions ? fromRevisions : stored;
-    setScriptApprovalState((prev) => (isScriptApprovalStateEqual(prev, resolved) ? prev : resolved));
-    if (!isScriptApprovalStateEqual(stored, resolved)) {
-      writeScriptApprovalState(workpieceId, resolved);
-    }
-  }, [activeDraft, revisions, workpieceId]);
+    void store.readCanonicalRevisions(episodeId, draftId).then((result) => {
+      if (!operationAuthority.isCurrent(operation) || !result.ok) return;
+      const resolved = resolveCanonicalScriptApproval(result.revisions, draftId);
+      setScriptApprovalState((prev) => (isScriptApprovalStateEqual(prev, resolved) ? prev : resolved));
+      writeScriptApprovalRecoveryEvidence(episodeId, resolved);
+    });
+  }, [activeDraft?.id, operationAuthority, revisions, store, workpieceId]);
 
   useEffect(() => {
     if (!activeDraft) {
@@ -6744,18 +6706,21 @@ export default function HearthShell({
   }, [isMobile]);
 
   const resolveWorkpiecePresenceBadge = useCallback((targetWorkpieceId: string): string => {
-    if (workpieceId !== targetWorkpieceId) return "Idle";
+    if (workpieceId !== targetWorkpieceId) return "Not checked";
+    if (presenceState === "loading") return "Checking...";
+    if (presenceState === "unavailable" || presenceState === "failed") return "Presence unavailable";
     if (editingPeers.length > 0) return `${activeEditorName} editing`;
     if (viewingPeers.length > 0) return `${activeViewerName} viewing`;
     return "Idle";
-  }, [activeEditorName, editingPeers.length, activeViewerName, viewingPeers.length, workpieceId]);
+  }, [activeEditorName, editingPeers.length, activeViewerName, presenceState, viewingPeers.length, workpieceId]);
 
   const resolveWorkpiecePresenceClass = useCallback((targetWorkpieceId: string): string => {
     if (workpieceId !== targetWorkpieceId) return "is-idle";
+    if (presenceState === "unavailable" || presenceState === "failed") return "is-unavailable";
     if (editingPeers.length > 0) return "is-editing";
     if (viewingPeers.length > 0) return "is-viewing";
     return "is-idle";
-  }, [editingPeers.length, viewingPeers.length, workpieceId]);
+  }, [editingPeers.length, presenceState, viewingPeers.length, workpieceId]);
 
   const renderSparksView = () => {
     return (
@@ -6784,6 +6749,7 @@ export default function HearthShell({
         forgeError={forgeError}
         visibleSparks={visibleSparks}
         isSparksLoading={isSparksLoading}
+        sparkDiscoveryError={sparkDiscoveryError}
         setSelectedSparkId={setSelectedSparkId}
         onActivateSpark={onActivateSpark}
         formatSparkDate={formatSparkDate}

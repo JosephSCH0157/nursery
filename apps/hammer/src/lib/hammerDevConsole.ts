@@ -100,15 +100,18 @@ export function createHammerDevConsoleLogger(args: {
 
   const log = (event: string, data?: Record<string, unknown>) => {
     if (!enabled) return;
-    data ? logFn(prefix, event, data) : logFn(prefix, event);
+    if (data) logFn(prefix, event, data);
+    else logFn(prefix, event);
   };
   const warn = (event: string, data?: Record<string, unknown>) => {
     if (!enabled) return;
-    data ? warnFn(prefix, event, data) : warnFn(prefix, event);
+    if (data) warnFn(prefix, event, data);
+    else warnFn(prefix, event);
   };
   const error = (event: string, data?: Record<string, unknown>) => {
     if (!enabled) return;
-    data ? errorFn(prefix, event, data) : errorFn(prefix, event);
+    if (data) errorFn(prefix, event, data);
+    else errorFn(prefix, event);
   };
 
   const run = (title: string, data?: Record<string, unknown>): HammerDevConsoleRun => {

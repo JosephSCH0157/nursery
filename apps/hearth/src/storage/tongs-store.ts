@@ -20,7 +20,13 @@ import {
   type HearthRevisionSnapshot,
 } from "../lib/hearth-revisions-contract";
 import type { HearthChatMessage } from "../lib/hearth-chat-api";
-import type { HearthStore, SaveDraftOptions } from "./hearth-store";
+import type {
+  HearthCanonicalRevisionsResult,
+  HearthDraftSaveAcknowledgement,
+  HearthRevisionSaveAcknowledgement,
+  HearthStore,
+  SaveDraftOptions,
+} from "./hearth-store";
 import {
   cloneRevision,
   loadRevisionSnapshotFallback,
@@ -589,7 +595,7 @@ async function commitDraftSnapshot(
   writtenBy: WrittenBy,
   options?: { expectedPreviousUpdatedAt?: string; reason?: string },
 ): Promise<
-  | { ok: true; fileUpdatedAt: string | null }
+  | { ok: true; fileUpdatedAt: string }
   | { ok: false; status: number; reason: "request_failed" | "conflict" | "invalid_response"; details?: CommitConflictDetails }
 > {
   const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/commit-file`, {
@@ -642,6 +648,9 @@ async function commitDraftSnapshot(
   const fileUpdatedAt = readString(
     (body as { data?: { file_row?: { updated_at?: unknown } } })?.data?.file_row?.updated_at,
   );
+  if (!fileUpdatedAt) {
+    return { ok: false, status: response.status, reason: "invalid_response" };
+  }
   return { ok: true, fileUpdatedAt };
 }
 
@@ -734,20 +743,39 @@ function parseHearthRevisionSnapshot(
 async function readHearthRevisionSnapshotFromTongs(
   workpieceId: string,
 ): Promise<{ snapshot: HearthRevisionSnapshot; fileUpdatedAt: string | null } | null> {
+  const result = await readCanonicalHearthRevisionSnapshotFromTongs(workpieceId);
+  return result.ok
+    ? { snapshot: result.snapshot, fileUpdatedAt: result.fileUpdatedAt }
+    : null;
+}
+
+async function readCanonicalHearthRevisionSnapshotFromTongs(
+  workpieceId: string,
+): Promise<
+  | { ok: true; snapshot: HearthRevisionSnapshot; fileUpdatedAt: string | null }
+  | { ok: false; reason: "not_found" | "request_failed" | "invalid_response"; status: number | null }
+> {
   const url = `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(
     HEARTH_REVISIONS_PATH,
   )}`;
   const result = await readJsonFromTongs(url);
-  if (!result.ok) return null;
+  if (!result.ok) {
+    const reason = result.reason === "not_found" || result.reason === "invalid_response"
+      ? result.reason
+      : "request_failed";
+    return { ok: false, reason, status: result.status ?? null };
+  }
   if (result.data == null) {
     return {
+      ok: true,
       snapshot: createEmptyRevisionSnapshot(workpieceId),
       fileUpdatedAt: result.fileUpdatedAt,
     };
   }
   const snapshot = parseHearthRevisionSnapshot(workpieceId, result.data);
-  if (!snapshot) return null;
+  if (!snapshot) return { ok: false, reason: "invalid_response", status: 200 };
   return {
+    ok: true,
     snapshot,
     fileUpdatedAt: result.fileUpdatedAt,
   };
@@ -759,7 +787,7 @@ async function commitHearthRevisionSnapshot(
   writtenBy: WrittenBy,
   options?: { expectedPreviousUpdatedAt?: string; reason?: string },
 ): Promise<
-  | { ok: true; fileUpdatedAt: string | null }
+  | { ok: true; fileUpdatedAt: string }
   | { ok: false; status: number; reason: "request_failed" | "conflict" | "invalid_response"; details?: CommitConflictDetails }
 > {
   const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/commit-file`, {
@@ -814,6 +842,9 @@ async function commitHearthRevisionSnapshot(
   const fileUpdatedAt = readString(
     (body as { data?: { file_row?: { updated_at?: unknown } } })?.data?.file_row?.updated_at,
   );
+  if (!fileUpdatedAt) {
+    return { ok: false, status: response.status, reason: "invalid_response" };
+  }
   return { ok: true, fileUpdatedAt };
 }
 
@@ -1054,7 +1085,7 @@ export class TongsHearthStore implements HearthStore {
     return found ? cloneDraft(found) : null;
   }
 
-  async saveDraft(draft: Draft, options?: SaveDraftOptions): Promise<void> {
+  async saveDraft(draft: Draft, options?: SaveDraftOptions): Promise<HearthDraftSaveAcknowledgement> {
     const normalized = normalizeDraft(draft);
     if (!normalized) {
       throw new Error("Invalid draft payload");
@@ -1068,7 +1099,19 @@ export class TongsHearthStore implements HearthStore {
     cache.drafts[normalized.id] = cloneDraft(normalized);
     cache.draftWorkspaceById[normalized.id] = workspaceId;
     writeCache(cache);
-    await this.syncDraftsToTongs(cache, workspaceId, options?.reason);
+    try {
+      return await this.syncDraftsToTongs(cache, workspaceId, options?.reason);
+    } catch (error) {
+      if ((error as { code?: unknown } | null)?.code === "draft_conflict") throw error;
+      return {
+        ok: false,
+        kind: "recovery_only",
+        authority: "browser_cache",
+        artifact: "draft_snapshot",
+        reason: "canonical_request_failed",
+        status: null,
+      };
+    }
   }
 
   async deleteDraft(id: DraftId): Promise<void> {
@@ -1173,7 +1216,7 @@ export class TongsHearthStore implements HearthStore {
   async appendHearthRevisionEntry(
     workpieceId: string,
     entry: HearthRevisionEntry,
-  ): Promise<HearthRevisionSnapshot> {
+  ): Promise<{ snapshot: HearthRevisionSnapshot; fileUpdatedAt: string }> {
     const normalizedWorkpieceId = normalizeUuid(workpieceId);
     if (!normalizedWorkpieceId) {
       throw new Error("missing_workpiece");
@@ -1211,7 +1254,7 @@ export class TongsHearthStore implements HearthStore {
 
     if (firstTry.ok) {
       saveRevisionSnapshotFallback(normalizedWorkpieceId, nextSnapshot);
-      return nextSnapshot;
+      return { snapshot: nextSnapshot, fileUpdatedAt: firstTry.fileUpdatedAt };
     }
 
     if (firstTry.reason === "conflict") {
@@ -1231,7 +1274,7 @@ export class TongsHearthStore implements HearthStore {
 
         if (secondTry.ok) {
           saveRevisionSnapshotFallback(normalizedWorkpieceId, nextSnapshot);
-          return nextSnapshot;
+          return { snapshot: nextSnapshot, fileUpdatedAt: secondTry.fileUpdatedAt };
         }
       }
     }
@@ -1320,6 +1363,55 @@ export class TongsHearthStore implements HearthStore {
       .map(cloneRevision);
   }
 
+  async readCanonicalRevisions(
+    workpieceId: string,
+    draftId?: DraftId | null,
+  ): Promise<HearthCanonicalRevisionsResult> {
+    const normalizedWorkpieceId = normalizeUuid(workpieceId);
+    if (!normalizedWorkpieceId) {
+      return {
+        ok: false,
+        kind: "unavailable",
+        authority: "none",
+        reason: "not_found",
+        status: null,
+      };
+    }
+    let result: Awaited<ReturnType<typeof readCanonicalHearthRevisionSnapshotFromTongs>>;
+    try {
+      result = await readCanonicalHearthRevisionSnapshotFromTongs(normalizedWorkpieceId);
+    } catch {
+      return {
+        ok: false,
+        kind: "unavailable",
+        authority: "none",
+        reason: "request_failed",
+        status: null,
+      };
+    }
+    if (!result.ok) {
+      return {
+        ok: false,
+        kind: "unavailable",
+        authority: "none",
+        reason: result.reason,
+        status: result.status,
+      };
+    }
+    let revisions = result.snapshot.revisions.map((entry) => entryToRevision(entry));
+    if (draftId?.trim()) {
+      revisions = revisions.filter((revision) => revision.draftId === draftId);
+    }
+    return {
+      ok: true,
+      kind: "canonical",
+      authority: "tongs",
+      workpieceId: normalizedWorkpieceId,
+      fileUpdatedAt: result.fileUpdatedAt,
+      revisions: revisions.sort((a, b) => b.createdAt - a.createdAt).map(cloneRevision),
+    };
+  }
+
   async getRevision(workpieceId: string, id: RevisionId): Promise<Revision | null> {
     const revisionId = typeof id === "string" ? id.trim() : "";
     if (!revisionId) return null;
@@ -1333,13 +1425,31 @@ export class TongsHearthStore implements HearthStore {
     return cloneRevision(entryToRevision(entry));
   }
 
-  async saveRevision(workpieceId: string, revision: Revision): Promise<void> {
+  async saveRevision(workpieceId: string, revision: Revision): Promise<HearthRevisionSaveAcknowledgement> {
     const normalized = normalizeRevision(revision);
     if (!normalized) {
       throw new Error("Invalid revision payload");
     }
 
-    await this.appendHearthRevisionEntry(workpieceId, revisionToEntry(normalized));
+    try {
+      const committed = await this.appendHearthRevisionEntry(workpieceId, revisionToEntry(normalized));
+      return {
+        ok: true,
+        kind: "canonical",
+        authority: "tongs",
+        artifact: "revision_snapshot",
+        workpieceId,
+        committedAt: committed.fileUpdatedAt,
+      };
+    } catch {
+      return {
+        ok: false,
+        kind: "recovery_only",
+        authority: "browser_cache",
+        artifact: "revision_snapshot",
+        reason: "canonical_commit_failed",
+      };
+    }
   }
 
   async restoreRevision(workpieceId: string, id: RevisionId): Promise<{ title: string; body: string } | null> {
@@ -1369,16 +1479,34 @@ export class TongsHearthStore implements HearthStore {
     cache: TongsCacheV1,
     workspaceIdInput?: string | null,
     reason?: string,
-  ): Promise<void> {
+  ): Promise<HearthDraftSaveAcknowledgement> {
     const workspaceId = workspaceIdInput ?? resolveWorkspaceId();
-    if (!workspaceId) return;
+    if (!workspaceId) {
+      return {
+        ok: false,
+        kind: "recovery_only",
+        authority: "browser_cache",
+        artifact: "draft_snapshot",
+        reason: "canonical_target_unavailable",
+        status: null,
+      };
+    }
 
     const writtenBy = buildWrittenBy();
     let workpieceId = resolveCachedWorkpieceId(workspaceId, cache);
 
     if (!workpieceId) {
       workpieceId = await createCradle(workspaceId, writtenBy);
-      if (!workpieceId) return;
+      if (!workpieceId) {
+        return {
+          ok: false,
+          kind: "recovery_only",
+          authority: "browser_cache",
+          artifact: "draft_snapshot",
+          reason: "canonical_target_unavailable",
+          status: null,
+        };
+      }
       persistWorkpieceId(workspaceId, workpieceId, cache);
     }
 
@@ -1398,29 +1526,72 @@ export class TongsHearthStore implements HearthStore {
     if (firstTry.ok) {
       writeDraftSnapshotUpdatedAt(cache, workspaceId, firstTry.fileUpdatedAt);
       writeCache(cache);
-      return;
+      return {
+        ok: true,
+        kind: "canonical",
+        authority: "tongs",
+        artifact: "draft_snapshot",
+        workspaceId,
+        workpieceId,
+        committedAt: firstTry.fileUpdatedAt,
+      };
     }
     if (firstTry.reason === "conflict") {
       throw createDraftConflictError(firstTry.details);
     }
     if (firstTry.status !== 404) {
-      throw new Error("draft_snapshot_sync_failed");
+      return {
+        ok: false,
+        kind: "recovery_only",
+        authority: "browser_cache",
+        artifact: "draft_snapshot",
+        reason: firstTry.reason === "invalid_response"
+          ? "canonical_response_invalid"
+          : "canonical_commit_failed",
+        status: firstTry.status,
+      };
     }
 
     const replacementId = await createCradle(workspaceId, writtenBy);
-    if (!replacementId) return;
+    if (!replacementId) {
+      return {
+        ok: false,
+        kind: "recovery_only",
+        authority: "browser_cache",
+        artifact: "draft_snapshot",
+        reason: "canonical_target_unavailable",
+        status: 404,
+      };
+    }
     persistWorkpieceId(workspaceId, replacementId, cache);
     writeDraftSnapshotUpdatedAt(cache, workspaceId, null);
     const secondTry = await commitDraftSnapshot(replacementId, snapshot, writtenBy, { reason });
     if (secondTry.ok) {
       writeDraftSnapshotUpdatedAt(cache, workspaceId, secondTry.fileUpdatedAt);
       writeCache(cache);
-      return;
+      return {
+        ok: true,
+        kind: "canonical",
+        authority: "tongs",
+        artifact: "draft_snapshot",
+        workspaceId,
+        workpieceId: replacementId,
+        committedAt: secondTry.fileUpdatedAt,
+      };
     }
     if (secondTry.reason === "conflict") {
       throw createDraftConflictError(secondTry.details);
     }
-    throw new Error("draft_snapshot_sync_failed");
+    return {
+      ok: false,
+      kind: "recovery_only",
+      authority: "browser_cache",
+      artifact: "draft_snapshot",
+      reason: secondTry.reason === "invalid_response"
+        ? "canonical_response_invalid"
+        : "canonical_commit_failed",
+      status: secondTry.status,
+    };
   }
 
   private async syncChatsToTongs(cache: TongsCacheV1, workspaceIdInput?: string | null): Promise<void> {

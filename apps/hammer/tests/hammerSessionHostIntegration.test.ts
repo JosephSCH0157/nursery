@@ -27,7 +27,7 @@ function caseAssert(condition: boolean, context: FailureContext): void {
 
 async function run() {
   const source = await readFile(
-    "D:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceEditor.tsx",
+    new URL("../src/editor/HammerWorkspaceEditor.tsx", import.meta.url),
     "utf-8",
   );
 
@@ -46,7 +46,7 @@ async function run() {
 
   caseAssert(
     source.includes("applyHostLoopState(resolveHammerReloadFailure(")
-      && source.includes("catch(async () => {"),
+      && source.includes(".catch(async (error) => {"),
     {
       title: "reload failure preserves harder truth in host loop",
       setup: "Operator clicks `Reload latest` but canonical hydration fails.",

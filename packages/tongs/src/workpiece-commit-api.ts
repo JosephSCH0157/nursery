@@ -10127,7 +10127,8 @@ export class TongsCommitService {
       .schema("tongs")
       .from("episodes")
       .select("id,workspace_id,label,created_at,updated_at,archived_at,archived_by,archive_reason")
-      .eq("workspace_id", workspaceId);
+      .eq("workspace_id", workspaceId)
+      .is("deleted_at", null);
 
     if (!options?.includeArchived) {
       query = query.is("archived_at", null);
@@ -10373,6 +10374,12 @@ export class TongsCommitService {
     const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
     if ((cradle.archive_reason ?? "").startsWith("deleted:")) {
       throw new HttpError(409, "already_deleted", "This workpiece has already been deleted.");
+    }
+    if (!cradle.archived_at) {
+      throw new HttpError(409, "archive_required", "Archive this episode before deleting it.", {
+        workspace_id: input.workspace_id,
+        workpiece_id: workpieceId,
+      });
     }
 
     const warnings: string[] = [];
@@ -10649,32 +10656,58 @@ export class TongsCommitService {
     await this.getWorkspaceOrThrow(input.workspace_id);
     const cradle = await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
     const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
-
-    try {
-      console.warn("[tongs-archive-blocked]", {
-        mode: "archive",
-        blocked_reason: "archive_storage_not_configured",
-        workspace_id: input.workspace_id,
-        workpiece_id: workpieceId,
-        actor_user_id: auth.userId,
-        current_archive_state: cradle.archived_at ? "archived" : "active",
-      });
-    } catch {
-      // Logging should never break the request path.
+    if ((cradle.archive_reason ?? "").startsWith("deleted:")) {
+      throw new HttpError(409, "already_deleted", "This workpiece has already been deleted.");
+    }
+    if (cradle.archived_at) {
+      return toWorkspaceEpisodeSummary(cradle);
     }
 
-    throw new HttpError(
-      409,
-      "archive_storage_not_configured",
-      "Archive is not available because long-term storage is not configured.",
-      {
-        mode: "archive_episode",
-        archive_enabled: false,
-        blocked_reason: "archive_storage_not_configured",
-        workspace_id: input.workspace_id,
-        workpiece_id: workpieceId,
-      },
-    );
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("episodes")
+      .update({
+        archived_at: new Date().toISOString(),
+        archived_by: auth.userId,
+        archive_reason: input.reason ?? "archived",
+      })
+      .eq("id", workpieceId)
+      .eq("workspace_id", input.workspace_id)
+      .select("id,workspace_id,label,created_at,updated_at,archived_at,archived_by,archive_reason")
+      .single();
+
+    if (error) {
+      throw new HttpError(502, "db_write_failed", "Failed to archive workpiece", {
+        reason: error.message,
+      });
+    }
+    if (!data) {
+      throw new HttpError(502, "db_write_failed", "episodes archive update returned no row");
+    }
+
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as {
+      from: (table: string) => {
+        update: (value: Record<string, unknown>) => {
+          eq: (column: string, target: unknown) => {
+            eq: (nextColumn: string, nextTarget: unknown) => Promise<{ data: unknown; error: { message: string } | null }>;
+          };
+        };
+      };
+    };
+    const lifecycleUpdate = await tongsUntyped
+      .from("episodes")
+      .update({
+        lifecycle_state: "archived",
+      })
+      .eq("id", workpieceId)
+      .eq("workspace_id", input.workspace_id);
+    if (lifecycleUpdate.error) {
+      throw new HttpError(502, "db_write_failed", "Failed to update episode lifecycle on archive", {
+        reason: lifecycleUpdate.error.message,
+      });
+    }
+
+    return toWorkspaceEpisodeSummary(data);
   }
 
   async restoreWorkpiece(

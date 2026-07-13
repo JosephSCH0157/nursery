@@ -77,6 +77,8 @@ function buildSnapshot(): HammerHistorySnapshotV1 {
         },
       ],
       visualPlacements: null,
+      visualTimeline: null,
+      audioEdit: null,
       studioRack: createDefaultHammerStudioRackState(),
       editorialAuthorityGraph: null,
       outputSelection: {

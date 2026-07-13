@@ -41,11 +41,13 @@ import { buildHammerMediaPrepOutputsPackage } from "../src/lib/hammerMediaPrepOu
       settings_summary: {
         supported_source: true,
       },
+      analysis: null,
       source_media_id: "media_01",
       source_media_signature: "sig_01",
       processor_version: "forge-v1.2.0/audio-polish.v4",
       prepared_at: "2026-03-14T10:00:00.000Z",
       output_local_relpath: "hammer/prep/audio-polish/example.wav",
+      output_workpiece_path: null,
       output_mime_type: "audio/wav",
       output_duration_ms: 8_000,
       failure_code: null,
@@ -101,11 +103,13 @@ import { buildHammerMediaPrepOutputsPackage } from "../src/lib/hammerMediaPrepOu
       settings_summary: {
         source_extension: ".mp4",
       },
+      analysis: null,
       source_media_id: "media_02",
       source_media_signature: "sig_02",
       processor_version: "forge-v1.2.0/audio-polish.v4",
       prepared_at: null,
       output_local_relpath: null,
+      output_workpiece_path: null,
       output_mime_type: null,
       output_duration_ms: null,
       failure_code: "unsupported_source",
@@ -118,7 +122,7 @@ import { buildHammerMediaPrepOutputsPackage } from "../src/lib/hammerMediaPrepOu
   assert.equal(model.summaries[2]?.status_label, "Raw Fallback");
   assert.equal(model.actions.find((action) => action.id === "review_audio")?.label, "Review Raw Audio Fallback");
   assert.equal(model.actions.find((action) => action.id === "review_visuals")?.recommended, true);
-  assert.equal(model.actions.some((action) => action.id === "macro_later"), false);
+  assert.equal(model.actions.some((action) => String(action.id) === "macro_later"), false);
 }
 
 {
@@ -166,11 +170,13 @@ import { buildHammerMediaPrepOutputsPackage } from "../src/lib/hammerMediaPrepOu
       settings_summary: {
         supported_source: true,
       },
+      analysis: null,
       source_media_id: "media_03",
       source_media_signature: "sig_03",
       processor_version: "forge-v1.2.0/audio-polish.v4",
       prepared_at: "2026-03-18T10:05:00.000Z",
       output_local_relpath: "hammer/prep/audio-polish/original.wav",
+      output_workpiece_path: null,
       output_mime_type: "audio/wav",
       output_duration_ms: 8_000,
       failure_code: null,
@@ -198,11 +204,13 @@ import { buildHammerMediaPrepOutputsPackage } from "../src/lib/hammerMediaPrepOu
       settings_summary: {
         supported_source: true,
       },
+      analysis: null,
       source_media_id: "media_03",
       source_media_signature: "sig_03",
       processor_version: "forge-v1.2.0/audio-polish.v4",
       prepared_at: "2026-03-18T10:05:00.000Z",
       output_local_relpath: "hammer/prep/audio-polish/original.wav",
+      output_workpiece_path: null,
       output_mime_type: "audio/wav",
       output_duration_ms: 8_000,
       failure_code: null,

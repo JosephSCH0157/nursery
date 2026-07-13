@@ -43,7 +43,7 @@ function installMockWindow(): () => void {
   };
 }
 
-test("listHearthAttachments returns an empty list when attachment route is unavailable", async () => {
+test("listHearthAttachments reports unavailable when the attachment route is absent", async () => {
   const restoreWindow = installMockWindow();
   const originalFetch = globalThis.fetch;
 
@@ -61,9 +61,11 @@ test("listHearthAttachments returns an empty list when attachment route is unava
       episodeId: "22222222-2222-4222-8222-222222222222",
     });
 
-    assert.equal(result.ok, true);
+    assert.equal(result.ok, false);
     assert.equal(result.status, 404);
-    assert.deepEqual(result.attachments, []);
+    if (result.ok) assert.fail("Expected an unavailable result.");
+    assert.equal(result.reason, "unavailable");
+    assert.match(result.error, /unavailable/i);
   } finally {
     globalThis.fetch = originalFetch;
     restoreWindow();

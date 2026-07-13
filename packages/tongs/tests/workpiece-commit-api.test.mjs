@@ -2509,31 +2509,41 @@ function createReadyQueueSupabase({
               },
               update(patch) {
                 const filters = {};
+                const applyEpisodePatch = () => {
+                  const index = episodes.findIndex((candidate) => (
+                    matchesFilters(candidate, filters)
+                  ));
+                  if (index < 0) {
+                    return { data: null, error: { message: "No rows" } };
+                  }
+                  episodes[index] = {
+                    ...episodes[index],
+                    ...patch,
+                    updated_at: "2026-03-11T14:00:00.000Z",
+                  };
+                  return {
+                    data: { ...episodes[index] },
+                    error: null,
+                  };
+                };
+                const buildSelectChain = () => ({
+                  async single() {
+                    return applyEpisodePatch();
+                  },
+                });
+                const buildEqChain = () => ({
+                  eq(nextField, nextValue) {
+                    filters[nextField] = nextValue;
+                    return Object.assign(Promise.resolve(applyEpisodePatch()), {
+                      select: buildSelectChain,
+                    });
+                  },
+                  select: buildSelectChain,
+                });
                 return {
                   eq(field, value) {
                     filters[field] = value;
-                    return this;
-                  },
-                  select() {
-                    return {
-                      async single() {
-                        const index = episodes.findIndex((candidate) => (
-                          matchesFilters(candidate, filters)
-                        ));
-                        if (index < 0) {
-                          return { data: null, error: { message: "No rows" } };
-                        }
-                        episodes[index] = {
-                          ...episodes[index],
-                          ...patch,
-                          updated_at: "2026-03-11T14:00:00.000Z",
-                        };
-                        return {
-                          data: { ...episodes[index] },
-                          error: null,
-                        };
-                      },
-                    };
+                    return buildEqChain();
                   },
                 };
               },
@@ -5159,16 +5169,8 @@ test("GET /tongs/workpieces/:id/assets/:assetId/variant dispatches resolveWorkpi
   assert.equal(body.data?.status, "resolved");
 });
 
-test("POST /tongs/workpieces/:id/archive returns stable 409 payload when archive is disabled", async () => {
+test("POST /tongs/workpieces/:id/archive preserves successful archive payload", async () => {
   const { service, calls } = mockService();
-  service.archiveWorkpiece = async (workpieceId, input, options) => {
-    calls.archiveWorkpiece.push({ workpieceId, input, options: options ?? null });
-    throw {
-      status: 409,
-      code: "archive_storage_not_configured",
-      message: "Archive is not available because long-term storage is not configured.",
-    };
-  };
   const handler = createTongsCommitApiHandlerWithService(service);
 
   const request = new Request(
@@ -5189,15 +5191,11 @@ test("POST /tongs/workpieces/:id/archive returns stable 409 payload when archive
   const response = await handler(request);
   const body = await response.json();
 
-  assert.equal(response.status, 409);
+  assert.equal(response.status, 200);
   assert.equal(calls.archiveWorkpiece.length, 1);
-  assert.deepEqual(body, {
-    ok: false,
-    code: "archive_storage_not_configured",
-    message: "Archive is not available because long-term storage is not configured.",
-    mode: "archive_episode",
-    archive_enabled: false,
-  });
+  assert.equal(body.ok, true);
+  assert.equal(body.data?.workpiece?.archived_at, "2026-03-11T14:00:00.000Z");
+  assert.equal(body.data?.workpiece?.archive_reason, "archive for later");
 });
 
 test("POST /tongs/workpieces/:id/restore dispatches restoreWorkpiece", async () => {
@@ -5714,13 +5712,66 @@ test("TongsCommitService.listWorkspaceEpisodes includes archived rows when reque
   assert.equal(result[0]?.archived_at, "2026-03-11T09:00:00.000Z");
 });
 
-test("TongsCommitService.archiveWorkpiece is hard-blocked when archive storage is not configured", async () => {
+test("TongsCommitService.listWorkspaceEpisodes excludes deleted tombstones even when archived rows are requested", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+
+  const { ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: "11111111-1111-4111-8111-111111111111",
+        workspace_id: workspaceId,
+        label: "Archived Episode",
+        updated_at: "2026-03-11T10:00:00.000Z",
+        created_at: "2026-03-01T10:00:00.000Z",
+        archived_at: "2026-03-11T09:00:00.000Z",
+        archived_by: viewerId,
+        archive_reason: "cleanup",
+        deleted_at: null,
+      },
+      {
+        id: "22222222-2222-4222-8222-222222222222",
+        workspace_id: workspaceId,
+        label: "Deleted Tombstone",
+        updated_at: "2026-03-12T10:00:00.000Z",
+        created_at: "2026-03-01T09:00:00.000Z",
+        archived_at: "2026-03-12T09:00:00.000Z",
+        archived_by: viewerId,
+        archive_reason: "deleted:full_delete",
+        deleted_at: "2026-03-12T09:01:00.000Z",
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: viewerId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: viewerId, role: "viewer" });
+
+  const result = await service.listWorkspaceEpisodes(workspaceId, {
+    userAccessToken: "viewer_token",
+    includeArchived: true,
+  });
+
+  assert.deepEqual(
+    result.map((row) => row.id),
+    ["11111111-1111-4111-8111-111111111111"],
+  );
+});
+
+test("TongsCommitService.archiveWorkpiece marks episode archived in-place", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const editorId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
   const workpieceId = "11111111-1111-4111-8111-111111111111";
   const events = [];
 
-  const { ...supabase } = createReadyQueueSupabase({
+  const { state, ...supabase } = createReadyQueueSupabase({
     workspaceId,
     episodes: [
       {
@@ -5747,25 +5798,64 @@ test("TongsCommitService.archiveWorkpiece is hard-blocked when archive storage i
   });
   service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: editorId, role: "editor" });
 
+  const archived = await service.archiveWorkpiece(workpieceId, {
+    workspace_id: workspaceId,
+    reason: "duplicate cleanup",
+  }, {
+    userAccessToken: "editor_token",
+  });
+
+  assert.ok(archived.archived_at);
+  assert.equal(archived.archive_reason, "duplicate cleanup");
+  assert.equal(state.readyMetaRows.length, 0);
+  assert.equal(events.length, 0);
+});
+
+test("TongsCommitService.deleteWorkpiece requires archived episode state", async () => {
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const editorId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+
+  const { ...supabase } = createReadyQueueSupabase({
+    workspaceId,
+    episodes: [
+      {
+        id: workpieceId,
+        workspace_id: workspaceId,
+        label: "Delete Guard Episode",
+        updated_at: "2026-03-10T10:00:00.000Z",
+        created_at: "2026-03-01T10:00:00.000Z",
+        archived_at: null,
+        archived_by: null,
+        archive_reason: null,
+      },
+    ],
+  });
+
+  const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.getWorkspaceOrThrow = async () => ({
+    id: workspaceId,
+    created_by: editorId,
+    created_at: "2026-03-01T00:00:00.000Z",
+    updated_at: "2026-03-01T00:00:00.000Z",
+    storage_profile: null,
+  });
+  service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: editorId, role: "editor" });
+
   await assert.rejects(
-    service.archiveWorkpiece(workpieceId, {
+    service.deleteWorkpiece(workpieceId, {
       workspace_id: workspaceId,
-      reason: "duplicate cleanup",
+      deletion_mode: "delete_keep_performance",
     }, {
       userAccessToken: "editor_token",
     }),
     (error) => {
       assert.equal(error?.status, 409);
-      assert.equal(error?.code, "archive_storage_not_configured");
-      assert.equal(
-        error?.message,
-        "Archive is not available because long-term storage is not configured.",
-      );
+      assert.equal(error?.code, "archive_required");
+      assert.equal(error?.message, "Archive this episode before deleting it.");
       return true;
     },
   );
-
-  assert.equal(events.length, 0);
 });
 
 test("TongsCommitService.restoreWorkpiece clears active ready eligibility without deleting planner history", async () => {

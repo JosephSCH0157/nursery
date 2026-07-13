@@ -10,11 +10,6 @@ async function testLabelMismatchIsAdvisoryWhenPathMatches() {
       media_id: "media_1",
       kind: "recording_audio",
       local_relpath: "takes/episode-alpha.wav",
-      cloud_uri: null,
-      source_hint: null,
-      sha256: null,
-      byte_size: null,
-      duration_ms: null,
     },
   });
 
@@ -32,11 +27,6 @@ async function testActualMismatchRequiresIdentityConflict() {
       media_id: "media_2",
       kind: "recording_audio",
       local_relpath: "takes/episode-beta.wav",
-      cloud_uri: null,
-      source_hint: null,
-      sha256: null,
-      byte_size: null,
-      duration_ms: null,
     },
   });
 

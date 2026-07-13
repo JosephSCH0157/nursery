@@ -4,6 +4,9 @@ import type { Revision } from "../domain/revision";
 import type { ScriptValidationResult } from "@forge/shared/script-tags";
 import type { MirrorApprovedScriptResult } from "../lib/hearth-script-mirror";
 import { buildHearthApprovedScriptReplacement } from "../lib/hearth-script-approval";
+import type { HearthCanonicalRevisionsResult } from "../storage/hearth-store";
+import { commitCanonicalScriptApproval } from "../lib/hearth-approval-commit";
+import type { HearthOperationAuthority } from "../lib/hearth-operation-authority";
 
 type ScriptApprovalStateLike = {
   hasApprovedScript: boolean;
@@ -30,10 +33,10 @@ type StyleUpdateResult = {
 };
 
 type UseApprovalFlowArgs = {
+  operationAuthority: HearthOperationAuthority;
   activeDraft: Draft | null;
   workpieceId: string | null | undefined;
   workspaceId: string | null;
-  revisions: Revision[];
   isSaving: boolean;
   isAiProcessing: boolean;
   setError: (value: string | null) => void;
@@ -48,13 +51,21 @@ type UseApprovalFlowArgs = {
   };
   buildValidationReport: (validation: ScriptValidationResult) => string;
   buildPersistedValidationMeta: (validation: ScriptValidationResult) => Draft["scriptValidationMeta"];
-  nextApprovedScriptVersion: (revisions: Revision[]) => number;
+  nextApprovedScriptVersion: (revisions: readonly Revision[]) => number;
   persistApprovedDraft: (args: {
     draft: Draft;
     updatedAt: number;
-    approvalNote: string;
   }) => Promise<boolean>;
   publishApprovedScript: (args: { episodeId: string; scriptText: string }) => Promise<boolean>;
+  readCanonicalApprovalRevisions: (args: {
+    episodeId: string;
+    draftId: string;
+  }) => Promise<HearthCanonicalRevisionsResult>;
+  commitCanonicalApprovalRevision: (args: {
+    episodeId: string;
+    draft: Draft;
+    approvalNote: string;
+  }) => Promise<{ ok: true; approvedAt: number } | { ok: false }>;
   mirrorApprovedScript: (args: {
     workspaceId: string | null;
     workpieceId: string;
@@ -62,7 +73,7 @@ type UseApprovalFlowArgs = {
   }) => Promise<MirrorApprovedScriptResult>;
   graduateLinkedSpark: (episodeId: string) => Promise<string | null> | string | null;
   setScriptApprovalState: (next: ScriptApprovalStateLike) => void;
-  writeScriptApprovalState: (episodeId: string, next: ScriptApprovalStateLike) => void;
+  writeScriptApprovalRecoveryEvidence: (episodeId: string, next: ScriptApprovalStateLike) => void;
   updateStyleProfileFromReadyCheckpoint: (args: {
     workspaceId: string | null;
     scriptText: string;
@@ -110,32 +121,45 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
       return false;
     }
 
-    const scopedRevisions = args.revisions.filter((revision) => revision.draftId === approvalDraft.id);
-    const nextVersion = args.nextApprovedScriptVersion(scopedRevisions);
-    const approvalNote = `script_version_approved:v${nextVersion}`;
     args.clearScriptValidation();
     args.setError(null);
     args.setChatError(null);
     args.setAiRuntimeWarning(null);
     args.setApprovalPersistenceStatus(null);
+    const operation = args.operationAuthority.begin("approval.commit");
     setIsApprovingScript(true);
     try {
-      const now = Date.now();
-      const saved = await args.persistApprovedDraft({
-        draft: approvedReplacement.draft,
-        updatedAt: now,
-        approvalNote,
-      });
-      if (!saved) return false;
-
-      const published = await args.publishApprovedScript({
+      const approvalCommit = await commitCanonicalScriptApproval({
         episodeId,
-        scriptText: normalizedText,
+        draft: approvedReplacement.draft,
+        readCanonicalRevisions: args.readCanonicalApprovalRevisions,
+        nextApprovedVersion: args.nextApprovedScriptVersion,
+        persistDraft: (input) => args.persistApprovedDraft(input),
+        publishScript: args.publishApprovedScript,
+        commitApprovalRevision: args.commitCanonicalApprovalRevision,
       });
-      if (!published) {
-        args.setError("Failed to publish approved script to Tongs. Try approving again.");
+      if (!args.operationAuthority.isCurrent(operation)) return false;
+      if (!approvalCommit.ok) {
+        const message = approvalCommit.stage === "canonical_read"
+          ? "Approval is unavailable because canonical Tongs revision history could not be verified."
+          : approvalCommit.stage === "script_publish"
+            ? "Failed to publish approved script to Tongs. Try approving again."
+            : approvalCommit.stage === "approval_commit"
+              ? "Script saved, but Tongs did not acknowledge canonical approval. Try approving again."
+              : "Tongs did not acknowledge the draft save. Approval was not committed.";
+        args.setError(message);
         return false;
       }
+
+      const approvedAt = approvalCommit.approvedAt;
+      const nextVersion = approvalCommit.version;
+      const nextState: ScriptApprovalStateLike = {
+        hasApprovedScript: true,
+        approvedScriptVersion: nextVersion,
+        approvedAt,
+      };
+      args.setScriptApprovalState(nextState);
+      args.writeScriptApprovalRecoveryEvidence(episodeId, nextState);
 
       const mirror = await args.mirrorApprovedScript({
         workspaceId: args.workspaceId,
@@ -143,6 +167,7 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
         scriptText: normalizedText,
       });
       const graduatedSparkId = await args.graduateLinkedSpark(episodeId);
+      if (!args.operationAuthority.isCurrent(operation)) return false;
       if (mirror.ok) {
         args.setApprovalPersistenceStatus({
           cloud: "ok",
@@ -180,20 +205,12 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
         }
       }
 
-      const approvedAt = Date.now();
-      const nextState: ScriptApprovalStateLike = {
-        hasApprovedScript: true,
-        approvedScriptVersion: nextVersion,
-        approvedAt,
-      };
-      args.setScriptApprovalState(nextState);
-      args.writeScriptApprovalState(episodeId, nextState);
-
       let styleAlignmentMarker: string | null = null;
       const styleUpdate = await args.updateStyleProfileFromReadyCheckpoint({
         workspaceId: args.workspaceId,
         scriptText: normalizedText,
       });
+      if (!args.operationAuthority.isCurrent(operation)) return false;
       if (styleUpdate.ok) {
         if (!styleUpdate.skipped) {
           const scriptsCount = styleUpdate.profile?.scriptsAnalyzedCount ?? 0;

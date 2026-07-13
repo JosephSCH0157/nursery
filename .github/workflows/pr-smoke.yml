@@ -15,6 +15,78 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  hammer-production-gates:
+    name: hammer:production
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Hammer lint gate
+        run: pnpm lint:hammer
+
+      - name: Build and verify Hammer production integration
+        run: pnpm build:hammer
+
+  hammer-complete-test-gate:
+    name: hammer:test-all
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run complete Hammer test and strict-registration gate
+        run: pnpm test:hammer
+
+  hammer-coverage-gate:
+    name: hammer:coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run complete Hammer coverage and no-regression gate
+        run: pnpm test:hammer:coverage
+
   vsm-evolution-check:
     name: vsm:evolution-check
     if: github.event_name == 'pull_request'
@@ -154,10 +226,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Prebuild @forge/tongs (fresh emit)
+      - name: Prebuild @forge/shared and @forge/tongs (fresh emit)
         run: |
+          rm -f packages/shared/tsconfig.tsbuildinfo
           rm -f packages/tongs/tsconfig.tsbuildinfo
+          pnpm --filter @forge/shared build
           pnpm --filter @forge/tongs build
+          test -f packages/shared/dist/script-tags/index.d.ts
           test -f packages/tongs/dist/index.d.ts
 
       - name: Run smoke:core

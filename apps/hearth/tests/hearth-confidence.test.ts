@@ -220,6 +220,7 @@ function buildImageMapEntryFixture(id: string, overrides?: Partial<EpisodeImageM
     description: "wide skyline",
     visual_intent: "wide skyline",
     prompt_basis: "wide skyline",
+    purpose: "coverage",
     intent: "cutaway",
     source_type: "stock",
     beat_order: 1,
@@ -1519,6 +1520,7 @@ async function testImageMapCandidateSelectionPersistsCanonicalSelectedAsset() {
       currentImageMap: {
         workpieceId: WORKPIECE_A,
         workspaceId: WORKSPACE_ID,
+        spokenBeats: [],
         entries: [
           buildImageMapEntryFixture("image-map-01", {
             source_type: "ai",
@@ -1573,6 +1575,7 @@ async function testImageMapCandidateSelectionRejectsDetachedCandidate() {
       currentImageMap: {
         workpieceId: WORKPIECE_A,
         workspaceId: WORKSPACE_ID,
+        spokenBeats: [],
         entries: [
           buildImageMapEntryFixture("image-map-01", {
             source_type: "ai",
@@ -1780,6 +1783,7 @@ function testEnsureImageMapV2RoundTripsStructuredEntries() {
   });
 
   const pkg = ensureImageMapV2({
+    ...createEmptyEpisodePackageV2(),
     schema: "forge.episode.package.v2",
     seo: { titles: [], tags: [], description_short: null, description_long: null },
     thumbnail: { concepts: [], versions: [], primary_version_id: null },
@@ -2351,6 +2355,7 @@ function testThumbnailTitleStylePartialMetadataDefaultsMissingFields() {
 
 function testThumbnailTitleStylePersistenceRoundTripsThroughEpisodePackage() {
   const episodePackage = ensureLaunchVariantsV2({
+    ...createEmptyEpisodePackageV2(),
     schema: "forge.episode.package.v2",
     seo: {
       titles: [],
@@ -2451,6 +2456,14 @@ function createThumbnailBrandTemplateFixture(
         border_color: "#FF2200",
         border_width: 4,
         corner_radius: 16,
+      },
+      logo: {
+        workpiece_id: null,
+        asset_path: null,
+        mime_type: null,
+        placement: "top_right",
+        width_percent: 20,
+        opacity: 1,
       },
     },
     isDefault: true,
@@ -3123,13 +3136,13 @@ async function testApplyHearthOpsRequestsSave() {
   let requestedSave = 0;
 
   await applyHearthOps({
-    setTitle: (value) => writes.push(`title:${value}`),
-    setTitleVariant: (slot, value) => writes.push(`variant:${slot}:${value}`),
-    setOutline: (value) => writes.push(`outline:${value}`),
-    setBody: (value) => writes.push(`body:${value}`),
-    addSource: (source) => writes.push(`add:${source.title ?? ""}`),
-    updateSource: (id, patch) => writes.push(`update:${id}:${patch.note ?? ""}`),
-    removeSource: (id) => writes.push(`remove:${id}`),
+    setTitle: (value) => { writes.push(`title:${value}`); },
+    setTitleVariant: (slot, value) => { writes.push(`variant:${slot}:${value}`); },
+    setOutline: (value) => { writes.push(`outline:${value}`); },
+    setBody: (value) => { writes.push(`body:${value}`); },
+    addSource: (source) => { writes.push(`add:${source.title ?? ""}`); },
+    updateSource: (id, patch) => { writes.push(`update:${id}:${patch.note ?? ""}`); },
+    removeSource: (id) => { writes.push(`remove:${id}`); },
     requestSave: (reason) => {
       assert.equal(reason, "ai_apply_ops");
       requestedSave += 1;
@@ -3196,11 +3209,13 @@ async function testAiRequestPayloadIncludesEpisodeId() {
     );
     assert.ok(result.ok, "AI request should succeed in mocked fetch");
     if (result.ok) {
-      assert.match(result.scriptText, /^\[s1\]\nHello\n(?:\n)?\[\/s1\]\n?$/);
-      assert.deepEqual(result.ops, [{ op: "set_body", value: result.scriptText }]);
+      const scriptText = result.scriptText ?? "";
+      assert.match(scriptText, /^\[s1\]\nHello\n(?:\n)?\[\/s1\]\n?$/);
+      assert.deepEqual(result.ops, [{ op: "set_body", value: scriptText }]);
       assert.equal((result.tagAudit as { speaker_blocks_closed?: boolean } | undefined)?.speaker_blocks_closed, true);
     }
-    assert.equal(capturedBody?.episode_context && (capturedBody.episode_context as { episodeId?: string }).episodeId, "episode-123");
+    const submittedBody = capturedBody as unknown as Record<string, unknown>;
+    assert.equal((submittedBody.episode_context as { episodeId?: string } | undefined)?.episodeId, "episode-123");
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -3246,8 +3261,9 @@ async function testAiRequestTreatsScriptTextOnlyAsDeliverable() {
     assert.ok(result.ok, "script_text alone should still count as a deliverable");
     if (result.ok) {
       assert.equal(result.assistantText, "");
-      assert.match(result.scriptText, /^\[s1\]\nCold open\n(?:\n)?\[\/s1\]\n?$/);
-      assert.deepEqual(result.ops, [{ op: "set_body", value: result.scriptText }]);
+      const scriptText = result.scriptText ?? "";
+      assert.match(scriptText, /^\[s1\]\nCold open\n(?:\n)?\[\/s1\]\n?$/);
+      assert.deepEqual(result.ops, [{ op: "set_body", value: scriptText }]);
     }
   } finally {
     globalThis.fetch = originalFetch;
@@ -3304,12 +3320,13 @@ async function testAiRequestPromotesCanonicalAssistantTextToScriptPayload() {
     );
     assert.ok(result.ok, "canonical assistant text should still populate the script panel");
     if (result.ok) {
-      assert.match(result.scriptText, /\[s1\]/);
-      assert.match(result.scriptText, /Open with the basic fact\./);
-      assert.match(result.scriptText, /Frame the episode as a media-framing comparison\./);
-      assert.match(result.scriptText, /\[s2\]/);
-      assert.match(result.scriptText, /Close with the practical takeaway\./);
-      assert.deepEqual(result.ops, [{ op: "set_body", value: result.scriptText }]);
+      const scriptText = result.scriptText ?? "";
+      assert.match(scriptText, /\[s1\]/);
+      assert.match(scriptText, /Open with the basic fact\./);
+      assert.match(scriptText, /Frame the episode as a media-framing comparison\./);
+      assert.match(scriptText, /\[s2\]/);
+      assert.match(scriptText, /Close with the practical takeaway\./);
+      assert.deepEqual(result.ops, [{ op: "set_body", value: scriptText }]);
     }
   } finally {
     globalThis.fetch = originalFetch;

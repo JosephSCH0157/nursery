@@ -239,8 +239,6 @@ test("selectPreviewClips follows playhead time during playback regardless of sel
   const candidates = selectPreviewClips({
     state,
     playheadSec: 4.5,
-    selectedClipId: "clip_a",
-    focusSelectedClipWhenPaused: true,
     isPlaybackActive: true,
     isScrubbing: false,
   });
@@ -248,7 +246,7 @@ test("selectPreviewClips follows playhead time during playback regardless of sel
   assert.deepEqual(candidates.map((clip) => clip.clip_id), ["clip_b"]);
 });
 
-test("selectPreviewClips focuses selected clip when paused in direct manipulation mode", () => {
+test("selectPreviewClips stays playhead-driven when paused", () => {
   const state = createEmptyVisualTimelineState({
     clips: [
       buildClip({ clip_id: "clip_a", start_sec: 0, end_sec: 2 }),
@@ -265,11 +263,9 @@ test("selectPreviewClips focuses selected clip when paused in direct manipulatio
   const candidates = selectPreviewClips({
     state,
     playheadSec: 4.5,
-    selectedClipId: "clip_a",
-    focusSelectedClipWhenPaused: true,
     isPlaybackActive: false,
     isScrubbing: false,
   });
 
-  assert.deepEqual(candidates.map((clip) => clip.clip_id), ["clip_a"]);
+  assert.deepEqual(candidates.map((clip) => clip.clip_id), ["clip_b"]);
 });

@@ -48,7 +48,7 @@ test("hearthMediaMapBootstrap: existing image-map entries are reused as-is", () 
     description: "Opening skyline",
     visual_intent: "Opening skyline",
     prompt_basis: "Opening skyline",
-    style_preset: "documentary_cinematic",
+    style_preset: "cinematic_realism",
     intent: "cutaway",
     source_type: "stock",
     visual_priority: "supporting",

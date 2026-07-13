@@ -7,6 +7,10 @@ import {
   persistHearthDraftMeta,
   type DraftConflictState,
 } from "../lib/hearth-draft-persistence";
+import type {
+  HearthDraftSaveAcknowledgement,
+  HearthRevisionSaveAcknowledgement,
+} from "../storage/hearth-store";
 
 type PersistDraftArgs = {
   draft: Draft;
@@ -47,8 +51,8 @@ type UseHearthDraftPersistenceActionsArgs = {
   draftEditVersionRef: { current: number };
   activeDraftRef: { current: Draft | null };
   store: {
-    saveRevision: (workpieceId: string, revision: Revision) => Promise<void>;
-    saveDraft: (draft: Draft, options?: { reason?: string }) => Promise<void>;
+    saveRevision: (workpieceId: string, revision: Revision) => Promise<HearthRevisionSaveAcknowledgement>;
+    saveDraft: (draft: Draft, options?: { reason?: string }) => Promise<HearthDraftSaveAcknowledgement>;
   };
   setIsSaving: (next: boolean) => void;
   setDraftConflictState: (next: DraftConflictState | null) => void;
@@ -110,6 +114,7 @@ export function useHearthDraftPersistenceActions(args: UseHearthDraftPersistence
       buildDraftAttribution: args.buildDraftAttribution,
       dedupeDraftListById: args.dedupeDraftListById,
       store: args.store,
+      setError: args.setError,
       setScriptValidation: () => args.setScriptValidation(null),
       setDrafts: args.setDrafts,
       setActiveDraft: args.setActiveDraft as (next: Draft) => void,

@@ -104,7 +104,7 @@ test("listHearthAttachments returns normalized attachment records on success", a
   }
 });
 
-test("listHearthAttachments returns empty array on 404", async () => {
+test("listHearthAttachments reports unavailable on 404", async () => {
   const restoreWindow = installWindowAuthStub();
   const restore = installFetchStub(() =>
     Promise.resolve(new Response(null, { status: 404 })),
@@ -115,9 +115,9 @@ test("listHearthAttachments returns empty array on 404", async () => {
       workspaceId: "11111111-1111-4111-8111-111111111111",
       episodeId: "22222222-2222-4222-8222-222222222222",
     });
-    assert.ok(result.ok);
-    if (!result.ok) return;
-    assert.equal(result.attachments.length, 0);
+    assert.equal(result.ok, false);
+    if (result.ok) return;
+    assert.equal(result.reason, "unavailable");
   } finally {
     restore();
     restoreWindow();
@@ -231,11 +231,12 @@ test("uploadHearthAttachment returns normalized record on success", async () => 
     assert.equal(result.attachment.extracted_text, "# Research notes");
 
     // Confirm form fields were sent
-    assert.ok(capturedFormData instanceof FormData, "FormData should be sent");
-    assert.equal((capturedFormData as FormData).get("workspace_id"), "11111111-1111-4111-8111-111111111111");
-    assert.equal((capturedFormData as FormData).get("episode_id"), "22222222-2222-4222-8222-222222222222");
-    assert.equal((capturedFormData as FormData).get("original_filename"), "research.md");
-    assert.equal((capturedFormData as FormData).get("mime_type"), "text/markdown");
+    const submittedFormData = capturedFormData as unknown;
+    assert.ok(submittedFormData instanceof FormData, "FormData should be sent");
+    assert.equal(submittedFormData.get("workspace_id"), "11111111-1111-4111-8111-111111111111");
+    assert.equal(submittedFormData.get("episode_id"), "22222222-2222-4222-8222-222222222222");
+    assert.equal(submittedFormData.get("original_filename"), "research.md");
+    assert.equal(submittedFormData.get("mime_type"), "text/markdown");
   } finally {
     restore();
     restoreWindow();

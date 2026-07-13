@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from "react";
 import type { ScriptSource, SourceIndexEntry, WorkpieceSourceRef } from "../domain/source";
 import {
   isSourceRegistryKey,
@@ -17,6 +17,7 @@ import {
   readWorkspaceSource,
   readWorkspaceSourcesIndex,
 } from "../lib/sources-repo";
+import type { HearthOperationAuthority, HearthOperationToken } from "../lib/hearth-operation-authority";
 
 type SourcesStatusKind = "idle" | "saving" | "success" | "error";
 
@@ -37,7 +38,10 @@ export type NewSourceInput = {
 };
 
 type WorkpieceCommitRequest = {
+  workspaceId: string;
+  workpieceId: string;
   refs: WorkpieceSourceRef[];
+  operation: HearthOperationToken;
   allowEmpty?: boolean;
   silent?: boolean;
 };
@@ -97,13 +101,56 @@ export function useSourcesState(
   workspaceId: string | null,
   workpieceId: string | null,
   draftText: string | null | undefined,
-  options?: { mode?: "summary" | "full" },
+  options: { mode?: "summary" | "full"; operationAuthority: HearthOperationAuthority },
 ): SourcesState {
-  const mode = options?.mode ?? "summary";
-  const [workpieceSources, setWorkpieceSources] = useState<WorkpieceSourceRef[]>(() => readWorkpieceSources());
-  const [sourceIndexEntries, setSourceIndexEntries] = useState<SourceIndexEntry[]>(() => readSourceIndex());
-  const [workspaceIndexExists, setWorkspaceIndexExists] = useState<boolean | null>(null);
-  const [sourceDetails, setSourceDetails] = useState<Record<string, ScriptSource>>({});
+  const mode = options.mode ?? "summary";
+  const operationAuthority = options.operationAuthority;
+  const workspaceScopeKey = workspaceId?.trim().toLowerCase() ?? "";
+  const sourceScopeKey = `${workspaceScopeKey}:${workpieceId?.trim().toLowerCase() ?? ""}`;
+  const [workpieceSourcesState, setWorkpieceSourcesState] = useState(() => ({
+    scopeKey: sourceScopeKey,
+    refs: readWorkpieceSources(workspaceId, workpieceId),
+  }));
+  const [sourceIndexState, setSourceIndexState] = useState(() => ({
+    scopeKey: workspaceScopeKey,
+    entries: readSourceIndex(workspaceId),
+  }));
+  const [sourceDetailsState, setSourceDetailsState] = useState<{
+    scopeKey: string;
+    details: Record<string, ScriptSource>;
+  }>({ scopeKey: workspaceScopeKey, details: {} });
+  const [workspaceIndexState, setWorkspaceIndexState] = useState<{
+    scopeKey: string;
+    exists: boolean | null;
+  }>({ scopeKey: workspaceScopeKey, exists: null });
+  const workpieceSources = workpieceSourcesState.scopeKey === sourceScopeKey ? workpieceSourcesState.refs : [];
+  const sourceIndexEntries = sourceIndexState.scopeKey === workspaceScopeKey ? sourceIndexState.entries : [];
+  const sourceDetails = sourceDetailsState.scopeKey === workspaceScopeKey ? sourceDetailsState.details : {};
+  const workspaceIndexExists = workspaceIndexState.scopeKey === workspaceScopeKey ? workspaceIndexState.exists : null;
+  const setWorkpieceSources = useCallback((next: SetStateAction<WorkpieceSourceRef[]>) => {
+    setWorkpieceSourcesState((previous) => {
+      const current = previous.scopeKey === sourceScopeKey ? previous.refs : [];
+      const refs = typeof next === "function" ? next(current) : next;
+      return { scopeKey: sourceScopeKey, refs };
+    });
+  }, [sourceScopeKey]);
+  const setSourceIndexEntries = useCallback((next: SetStateAction<SourceIndexEntry[]>) => {
+    setSourceIndexState((previous) => {
+      const current = previous.scopeKey === workspaceScopeKey ? previous.entries : [];
+      const entries = typeof next === "function" ? next(current) : next;
+      return { scopeKey: workspaceScopeKey, entries };
+    });
+  }, [workspaceScopeKey]);
+  const setSourceDetails = useCallback((next: SetStateAction<Record<string, ScriptSource>>) => {
+    setSourceDetailsState((previous) => {
+      const current = previous.scopeKey === workspaceScopeKey ? previous.details : {};
+      const details = typeof next === "function" ? next(current) : next;
+      return { scopeKey: workspaceScopeKey, details };
+    });
+  }, [workspaceScopeKey]);
+  const setWorkspaceIndexExists = useCallback((exists: boolean | null) => {
+    setWorkspaceIndexState({ scopeKey: workspaceScopeKey, exists });
+  }, [workspaceScopeKey]);
   const [status, setStatus] = useState<SourcesStatus>({ kind: "idle" });
 
   const statusTimer = useRef<number | null>(null);
@@ -184,8 +231,18 @@ export function useSourcesState(
   }, []);
 
   const queueWorkpieceCommit = useCallback((refs: WorkpieceSourceRef[], options?: { allowEmpty?: boolean; silent?: boolean }) => {
-    if (!workpieceId) return;
-    pendingWorkpieceCommit.current = { refs, allowEmpty: options?.allowEmpty, silent: options?.silent };
+    const activeWorkspaceId = workspaceId?.trim() ?? "";
+    const activeWorkpieceId = workpieceId?.trim() ?? "";
+    if (!activeWorkspaceId || !activeWorkpieceId) return;
+    const operation = operationAuthority.begin("sources.workpiece.commit");
+    pendingWorkpieceCommit.current = {
+      workspaceId: activeWorkspaceId,
+      workpieceId: activeWorkpieceId,
+      refs,
+      operation,
+      allowEmpty: options?.allowEmpty,
+      silent: options?.silent,
+    };
     if (workpieceCommitInFlight.current) {
       workpieceCommitQueued.current = true;
       return;
@@ -198,16 +255,22 @@ export function useSourcesState(
           workpieceCommitQueued.current = false;
           const pending = pendingWorkpieceCommit.current;
           if (!pending) return;
-          const fingerprint = JSON.stringify({ workpieceId, refs: pending.refs });
+          if (!operationAuthority.isCurrent(pending.operation)) continue;
+          const fingerprint = JSON.stringify({
+            workspaceId: pending.workspaceId,
+            workpieceId: pending.workpieceId,
+            refs: pending.refs,
+          });
           if (fingerprint === workpieceCommitRef.current) {
             continue;
           }
           if (!pending.silent) {
             setStatusWithTimeout({ kind: "saving", message: "Saving sources..." }, 0);
           }
-          const result = await commitWorkpieceSourceRefs(workpieceId, pending.refs, {
+          const result = await commitWorkpieceSourceRefs(pending.workpieceId, pending.refs, {
             allowEmpty: pending.allowEmpty,
           });
+          if (!operationAuthority.isCurrent(pending.operation)) continue;
           if (result.ok && !result.skipped) {
             workpieceCommitRef.current = fingerprint;
             if (!pending.silent) {
@@ -223,7 +286,7 @@ export function useSourcesState(
     };
 
     void run();
-  }, [workpieceId, setStatusWithTimeout]);
+  }, [operationAuthority, workpieceId, workspaceId, setStatusWithTimeout]);
 
   const attachSourceToWorkpiece = useCallback((sourceId: string) => {
     if (!workpieceId) {
@@ -236,11 +299,11 @@ export function useSourcesState(
     setWorkpieceSources((prev) => {
       if (prev.some((ref) => normalizeSourceId(ref.source_id) === normalized)) return prev;
       const next = [...prev, { source_id: trimmed }];
-      writeWorkpieceSourcesCache(next);
+      writeWorkpieceSourcesCache(workspaceId, workpieceId, next);
       queueWorkpieceCommit(next, { allowEmpty: true });
       return next;
     });
-  }, [setStatusWithTimeout, workpieceId, queueWorkpieceCommit]);
+  }, [setStatusWithTimeout, workspaceId, workpieceId, queueWorkpieceCommit]);
 
   const removeSourceFromWorkpiece = useCallback((sourceId: string) => {
     if (!workpieceId) {
@@ -251,11 +314,11 @@ export function useSourcesState(
     setWorkpieceSources((prev) => {
       const next = prev.filter((ref) => normalizeSourceId(ref.source_id) !== normalized);
       if (next.length === prev.length) return prev;
-      writeWorkpieceSourcesCache(next);
+      writeWorkpieceSourcesCache(workspaceId, workpieceId, next);
       queueWorkpieceCommit(next, { allowEmpty: true });
       return next;
     });
-  }, [setStatusWithTimeout, workpieceId, queueWorkpieceCommit]);
+  }, [setStatusWithTimeout, workspaceId, workpieceId, queueWorkpieceCommit]);
 
   const updateWorkpieceSourceNotes = useCallback((sourceId: string, notes: string) => {
     const normalized = normalizeSourceId(sourceId);
@@ -271,11 +334,11 @@ export function useSourcesState(
         return ref;
       });
       if (!changed) return prev;
-      writeWorkpieceSourcesCache(next);
+      writeWorkpieceSourcesCache(workspaceId, workpieceId, next);
       queueWorkpieceCommit(next, { allowEmpty: true, silent: true });
       return next;
     });
-  }, [queueWorkpieceCommit]);
+  }, [queueWorkpieceCommit, workspaceId, workpieceId]);
 
   const loadSourceDetails = useCallback(async (sourceId: string) => {
     if (mode !== "full") return null;
@@ -285,17 +348,19 @@ export function useSourcesState(
       setStatusWithTimeout({ kind: "error", message: "Workspace not resolved." });
       return null;
     }
+    const operation = operationAuthority.begin(`sources.details:${normalized}`);
     const result = await readWorkspaceSource(workspaceId, sourceId);
+    if (!operationAuthority.isCurrent(operation)) return null;
     if (result) {
       setSourceDetails((prev) => ({ ...prev, [normalized]: result }));
       if (!sourceIndexById.has(normalized)) {
         const nextIndex = upsertIndexEntry(sourceIndexEntries, buildIndexEntryFromSource(result));
         setSourceIndexEntries(nextIndex);
-        writeSourceIndexCache(nextIndex);
+        writeSourceIndexCache(workspaceId, nextIndex);
       }
     }
     return result;
-  }, [mode, sourceDetails, workspaceId, setStatusWithTimeout, sourceIndexById, sourceIndexEntries]);
+  }, [mode, operationAuthority, sourceDetails, workspaceId, setStatusWithTimeout, sourceIndexById, sourceIndexEntries]);
 
   const addSourceToLibrary = useCallback(async (
     input: NewSourceInput,
@@ -316,9 +381,11 @@ export function useSourcesState(
       published_at: normalizeOptional(input.published_at),
       notes: normalizeOptional(input.notes),
     };
+    const operation = operationAuthority.begin("sources.library.add");
 
     setStatusWithTimeout({ kind: "saving", message: "Saving source..." }, 0);
     const sourceResult = await commitWorkspaceSource(workspaceId, source);
+    if (!operationAuthority.isCurrent(operation)) return null;
     if (!sourceResult.ok) {
       setStatusWithTimeout({ kind: "error", message: "Failed to save source." });
       return null;
@@ -326,10 +393,11 @@ export function useSourcesState(
 
     const nextIndex = upsertIndexEntry(sourceIndexEntries, buildIndexEntryFromSource(source));
     setSourceIndexEntries(nextIndex);
-    writeSourceIndexCache(nextIndex);
+    writeSourceIndexCache(workspaceId, nextIndex);
     setSourceDetails((prev) => ({ ...prev, [normalizeSourceId(source.source_id)]: source }));
 
     const indexResult = await commitWorkspaceSourcesIndex(workspaceId, nextIndex);
+    if (!operationAuthority.isCurrent(operation)) return null;
     if (!indexResult.ok) {
       setStatusWithTimeout({ kind: "error", message: "Saved source, but index update failed." });
       return source;
@@ -342,7 +410,7 @@ export function useSourcesState(
     }
 
     return source;
-  }, [workspaceId, sourceIndexEntries, setStatusWithTimeout, workpieceId, attachSourceToWorkpiece]);
+  }, [operationAuthority, workspaceId, sourceIndexEntries, setStatusWithTimeout, workpieceId, attachSourceToWorkpiece]);
 
   const updateSourceInLibrary = useCallback(async (
     sourceId: string,
@@ -354,7 +422,9 @@ export function useSourcesState(
     }
 
     const normalized = normalizeSourceId(sourceId);
+    const operation = operationAuthority.begin(`sources.library.update:${normalized}`);
     const existing = sourceDetails[normalized] ?? await readWorkspaceSource(workspaceId, sourceId);
+    if (!operationAuthority.isCurrent(operation)) return null;
     if (!existing) {
       setStatusWithTimeout({ kind: "error", message: "Source not found." });
       return null;
@@ -369,6 +439,7 @@ export function useSourcesState(
 
     setStatusWithTimeout({ kind: "saving", message: "Updating source..." }, 0);
     const sourceResult = await commitWorkspaceSource(workspaceId, nextSource);
+    if (!operationAuthority.isCurrent(operation)) return null;
     if (!sourceResult.ok) {
       setStatusWithTimeout({ kind: "error", message: "Failed to update source." });
       return null;
@@ -376,10 +447,11 @@ export function useSourcesState(
 
     const nextIndex = upsertIndexEntry(sourceIndexEntries, buildIndexEntryFromSource(nextSource));
     setSourceIndexEntries(nextIndex);
-    writeSourceIndexCache(nextIndex);
+    writeSourceIndexCache(workspaceId, nextIndex);
     setSourceDetails((prev) => ({ ...prev, [normalized]: nextSource }));
 
     const indexResult = await commitWorkspaceSourcesIndex(workspaceId, nextIndex);
+    if (!operationAuthority.isCurrent(operation)) return null;
     if (!indexResult.ok) {
       setStatusWithTimeout({ kind: "error", message: "Updated source, but index update failed." });
       return nextSource;
@@ -387,7 +459,7 @@ export function useSourcesState(
 
     setStatusWithTimeout({ kind: "success", message: "Source updated." });
     return nextSource;
-  }, [workspaceId, setStatusWithTimeout, sourceDetails, sourceIndexEntries]);
+  }, [operationAuthority, workspaceId, setStatusWithTimeout, sourceDetails, sourceIndexEntries]);
 
   const syncSources = useCallback((options?: { silent?: boolean }) => {
     if (!workpieceId) return;
@@ -397,8 +469,12 @@ export function useSourcesState(
   useEffect(() => {
     if (typeof window === "undefined") return;
     const refreshSources = () => {
-      setWorkpieceSources(readWorkpieceSources());
-      setSourceIndexEntries(readSourceIndex());
+      setWorkpieceSources(readWorkpieceSources(workspaceId, workpieceId));
+      setSourceIndexEntries(readSourceIndex(workspaceId));
+      setSourceDetails({});
+      setWorkspaceIndexExists(null);
+      setStatus({ kind: "idle" });
+      workpieceCommitRef.current = null;
     };
     refreshSources();
     const onStorage = (event: StorageEvent) => {
@@ -407,12 +483,13 @@ export function useSourcesState(
     };
     window.addEventListener("storage", onStorage);
     return () => window.removeEventListener("storage", onStorage);
-  }, []);
+  }, [workspaceId, workpieceId]);
 
   useEffect(() => {
     const shouldReadWorkspaceIndex = Boolean(workspaceId) && mode === "full";
     if (!shouldReadWorkspaceIndex && !workpieceId) return;
     let cancelled = false;
+    const operation = operationAuthority.begin("sources.canonical.refresh");
 
     const refreshFromTongs = async () => {
       const tasks: Promise<void>[] = [];
@@ -421,10 +498,10 @@ export function useSourcesState(
         tasks.push(
           readWorkpieceSourceRefs(workpieceId)
             .then((refs) => {
-              if (cancelled || !refs) return;
+              if (cancelled || !operationAuthority.isCurrent(operation) || !refs) return;
               setWorkpieceSources(refs);
-              writeWorkpieceSourcesCache(refs);
-              workpieceCommitRef.current = JSON.stringify({ workpieceId, refs });
+              writeWorkpieceSourcesCache(workspaceId, workpieceId, refs);
+              workpieceCommitRef.current = JSON.stringify({ workspaceId, workpieceId, refs });
             })
             .catch(() => {}),
         );
@@ -434,9 +511,9 @@ export function useSourcesState(
         tasks.push(
           readWorkspaceSourcesIndex(workspaceId)
             .then((index) => {
-              if (cancelled || !index) return;
+              if (cancelled || !operationAuthority.isCurrent(operation) || !index) return;
               setSourceIndexEntries(index.entries);
-              writeSourceIndexCache(index.entries);
+              writeSourceIndexCache(workspaceId, index.entries);
               setWorkspaceIndexExists(index.exists);
             })
             .catch(() => {}),
@@ -452,7 +529,7 @@ export function useSourcesState(
     return () => {
       cancelled = true;
     };
-  }, [mode, workspaceId, workpieceId]);
+  }, [mode, operationAuthority, workspaceId, workpieceId]);
 
   useEffect(() => () => {
     if (statusTimer.current) {

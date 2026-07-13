@@ -1,6 +1,12 @@
 import { createRevision, type Revision, type RevisionKind } from "../domain/revision";
 import type { Draft } from "../domain/draft";
 import type { ScriptValidationResult } from "@forge/shared/script-tags";
+import {
+  isCanonicalHearthDraftSave,
+  isCanonicalHearthRevisionSave,
+  type HearthDraftSaveAcknowledgement,
+  type HearthRevisionSaveAcknowledgement,
+} from "../storage/hearth-store";
 
 export type DraftConflictState = {
   message: string;
@@ -24,6 +30,15 @@ export function parseHearthDraftConflictError(error: unknown): DraftConflictStat
     message: `This draft changed on another client at ${currentLabel}. Reload latest to continue.`,
     localBody: "",
   };
+}
+
+export function formatHearthDraftSaveAcknowledgementFailure(
+  result: Extract<HearthDraftSaveAcknowledgement, { ok: false }>,
+): string {
+  if (result.reason === "local_store") {
+    return "Draft kept in the local development store, but Tongs did not acknowledge a canonical save.";
+  }
+  return "Draft kept as browser recovery evidence, but Tongs did not acknowledge the canonical save.";
 }
 
 type PersistDraftArgs = {
@@ -64,8 +79,8 @@ type PersistDraftDeps = {
   draftEditVersionRef: { current: number };
   activeDraftRef: { current: Draft | null };
   store: {
-    saveRevision: (workpieceId: string, revision: Revision) => Promise<void>;
-    saveDraft: (draft: Draft, options?: { reason?: string }) => Promise<void>;
+    saveRevision: (workpieceId: string, revision: Revision) => Promise<HearthRevisionSaveAcknowledgement>;
+    saveDraft: (draft: Draft, options?: { reason?: string }) => Promise<HearthDraftSaveAcknowledgement>;
   };
   setIsSaving: (next: boolean) => void;
   setDraftConflictState: (next: DraftConflictState | null) => void;
@@ -135,7 +150,10 @@ export async function persistHearthDraft(
         );
       } else {
         try {
-          await deps.store.saveRevision(activeRevisionWorkpieceId, createdRevision);
+          const revisionAcknowledgement = await deps.store.saveRevision(activeRevisionWorkpieceId, createdRevision);
+          if (!isCanonicalHearthRevisionSave(revisionAcknowledgement)) {
+            throw new Error("revision_snapshot_sync_failed");
+          }
           if (args.createRevision.kind === "autosave") {
             deps.setAiAutosaveWarning(null);
           } else {
@@ -166,7 +184,16 @@ export async function persistHearthDraft(
       scriptValidationMeta: deps.buildPersistedValidationMeta(validation),
     };
 
-    await deps.store.saveDraft(toSave, { reason: args.saveReason });
+    const saveAcknowledgement = await deps.store.saveDraft(toSave, { reason: args.saveReason });
+    if (!isCanonicalHearthDraftSave(saveAcknowledgement)) {
+      const message = formatHearthDraftSaveAcknowledgementFailure(saveAcknowledgement);
+      if (quietFailure) {
+        deps.setAiAutosaveWarning(message);
+      } else {
+        deps.setError(message);
+      }
+      return false;
+    }
 
     const latestActiveDraft = deps.activeDraftRef.current;
     const hasNewerEdits = latestActiveDraft?.id === toSave.id
@@ -237,8 +264,9 @@ type PersistDraftMetaDeps = {
   };
   dedupeDraftListById: (input: Draft[]) => Draft[];
   store: {
-    saveDraft: (draft: Draft, options?: { reason?: string }) => Promise<void>;
+    saveDraft: (draft: Draft, options?: { reason?: string }) => Promise<HearthDraftSaveAcknowledgement>;
   };
+  setError: (next: string | null) => void;
   setScriptValidation: (next: null) => void;
   setDrafts: (next: Draft[] | ((prev: Draft[]) => Draft[])) => void;
   setActiveDraft: (next: Draft) => void;
@@ -249,7 +277,7 @@ export async function persistHearthDraftMeta(
   draft: Draft,
   updates: Partial<Draft>,
   deps: PersistDraftMetaDeps,
-): Promise<void> {
+): Promise<boolean> {
   const now = Date.now();
   const toSave: Draft = {
     ...draft,
@@ -260,10 +288,15 @@ export async function persistHearthDraftMeta(
     updatedBy: deps.buildDraftAttribution(deps.hearthUser),
   };
   deps.setScriptValidation(null);
-  await deps.store.saveDraft(toSave);
+  const saveAcknowledgement = await deps.store.saveDraft(toSave);
+  if (!isCanonicalHearthDraftSave(saveAcknowledgement)) {
+    deps.setError(formatHearthDraftSaveAcknowledgementFailure(saveAcknowledgement));
+    return false;
+  }
   deps.setDrafts((prev) => deps.dedupeDraftListById(prev.map((d) => (d.id === toSave.id ? toSave : d))));
   if (deps.activeDraftId === toSave.id) {
     deps.setActiveDraft(toSave);
     deps.setDraftSnapshot({ title: toSave.title, body: toSave.body, updatedAt: toSave.updatedAt });
   }
+  return true;
 }

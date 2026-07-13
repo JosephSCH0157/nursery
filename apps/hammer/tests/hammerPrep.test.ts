@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import type { HammerLaunchContext } from "../../../packages/contracts/hammer/launch-context.contract";
 import { projectEditorialAuthorityGraphFromEditPlan } from "../src/editor/hammerRenderAssembly";
 import { buildHammerPersistenceSaveRequest } from "../src/persistence/hammerPersistence";
+import type { HammerPersistenceSnapshot } from "../src/persistence/hammerPersistenceContract";
 import type { HammerWorkspaceSnapshot } from "../src/editor/hammerWorkspaceSnapshot";
 import {
   buildHammerPrepOverlayViewModel,
@@ -90,6 +91,11 @@ function buildWorkspaceSnapshot(): HammerWorkspaceSnapshot {
     ],
     selectedSegmentId: "turn_001",
     selectedOverlayRowId: "turn_001",
+    visualPreviewSettings: {
+      white_balance: 0,
+      color_amount: 0,
+      background_blur: false,
+    },
     mediaRef: {
       media_id: "media_01",
       kind: "recording_video",
@@ -103,6 +109,9 @@ function buildWorkspaceSnapshot(): HammerWorkspaceSnapshot {
       local_root_abs: "D:\\ForgeMedia\\workspace",
     },
     mediaSourceLabel: "tongs:media_01",
+    selectedMacroRecipeRef: null,
+    lastMacroRunRef: null,
+    structuredTranscript: persistedPreparedSnapshot.structured_transcript.data,
     editPlan,
     editorialAuthorityGraph: projectEditorialAuthorityGraphFromEditPlan({
       editPlan,
@@ -115,7 +124,7 @@ function buildWorkspaceSnapshot(): HammerWorkspaceSnapshot {
   };
 }
 
-const persistedPreparedSnapshot = {
+const persistedPreparedSnapshot: HammerPersistenceSnapshot = {
   schema_version: 1 as const,
   state: {
     workspace_id: "11111111-1111-4111-8111-111111111111",
@@ -128,8 +137,10 @@ const persistedPreparedSnapshot = {
     },
     editor_session_path: "hammer/session/editor-state.v1.json",
     transcript_artifact_path: "hammer/transcript/structured.v1.json",
+    transcript_versions_artifact_path: "hammer/transcript/version-registry.v1.json",
     speaker_map_artifact_path: "hammer/transcript/speaker-map.v1.json",
     visual_placement_artifact_path: null,
+    visual_timeline_artifact_path: null,
     audio_polish_artifact_path: null,
     edit_plan_artifact_path: null,
     editorial_authority_artifact_path: null,
@@ -229,7 +240,21 @@ const persistedPreparedSnapshot = {
       mappings: [],
     },
   },
+  transcript_version_registry: {
+    path: "hammer/transcript/version-registry.v1.json",
+    updated_at: "2026-03-14T09:30:02.250Z",
+    data: {
+      schema_version: 1 as const,
+      active_version_id: "hammer_transcript_prepared",
+      versions: [],
+    },
+  },
   visual_placements: {
+    path: null,
+    updated_at: null,
+    data: null,
+  },
+  visual_timeline: {
     path: null,
     updated_at: null,
     data: null,
@@ -255,10 +280,10 @@ const persistedPreparedSnapshot = {
   },
 };
 
-const persistedFailedSnapshotWithReusableTranscript = {
+const persistedFailedSnapshotWithReusableTranscript: HammerPersistenceSnapshot = {
   ...persistedPreparedSnapshot,
   state: {
-    ...persistedPreparedSnapshot.state,
+    ...persistedPreparedSnapshot.state!,
     prep_status: "prep_failed" as const,
   },
 };
@@ -446,11 +471,13 @@ function testPrepPersistenceSeedWritesAudioPolishArtifact() {
         supported_source: true,
         source_extension: ".wav",
       },
+      analysis: null,
       source_media_id: "media_01",
       source_media_signature: "media_sig_01",
       processor_version: "forge-v1.2.0/audio-polish.v4",
       prepared_at: "2026-03-14T09:45:00.000Z",
       output_local_relpath: "hammer/prep/audio-polish/workpiece/episode-1.wav",
+      output_workpiece_path: "hammer/prep/audio-polish/workpiece/episode-1.wav",
       output_mime_type: "audio/wav",
       output_duration_ms: 67_000,
       failure_code: null,

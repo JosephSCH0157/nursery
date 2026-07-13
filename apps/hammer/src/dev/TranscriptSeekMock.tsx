@@ -6829,6 +6829,8 @@ export default function TranscriptSeekMock(
     </div>
   );
 
+  const showLegacyTranscriptControls = false;
+
   return (
     <section
       className={cx(
@@ -6847,7 +6849,7 @@ export default function TranscriptSeekMock(
             className="hammer-pane hammer-pane--left hammer-left-workspace is-assets-view"
           >
             <div className="hammer-pane__scroll">
-        {false ? (
+        {showLegacyTranscriptControls ? (
         <>
         <HammerPaneSection
           title="Transcript Controls"

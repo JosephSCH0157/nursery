@@ -18,6 +18,8 @@ import type {
 } from "../../lib/episode-package-v2";
 import { DEFAULT_HEARTH_VISUAL_STYLE } from "../../lib/hearth-visual-styles";
 import { DEFAULT_TITLE_STYLE } from "../../lib/hearth-title-fonts";
+import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
+import { retainCanonicalVisualArtifacts } from "../../lib/hearth-visual-artifact-authority";
 
 type PersistThumbnailEpisodePackage = (
   nextEpisodePackage: EpisodePackageV2,
@@ -26,6 +28,7 @@ type PersistThumbnailEpisodePackage = (
 ) => Promise<EpisodePackageV2 | null>;
 
 type UseThumbnailGenerationActionsArgs = {
+  operationAuthority: HearthOperationAuthority;
   workpieceId: string | null;
   workspaceId: string | null;
   episodePackage: EpisodePackageV2 | null;
@@ -111,6 +114,7 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
       ? true
       : window.confirm("Generate thumbnail? This will spend credits.");
     if (!confirmed) return;
+    const operation = args.operationAuthority.begin("thumbnail.generate");
 
     args.setIsThumbnailGenerating(true);
     args.setThumbnailGenerateError(null);
@@ -127,6 +131,7 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
         confirmSpend: confirmed,
         alwaysApproveAiSpend: alwaysApproveSpend,
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!generated.ok) {
         args.setThumbnailGenerateError(generated.error);
         const failedVersionId = args.createThumbnailClientId("thumb-failed-version");
@@ -155,6 +160,7 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
           "hearth.thumbnail.version.failed.v1",
           { version_id: failedVersion.id, concept_id: failedVersion.concept_id },
         );
+        if (!args.operationAuthority.isCurrent(operation)) return;
         if (savedFailed) {
           args.setSelectedThumbnailVersionId(failedVersion.id);
         }
@@ -167,11 +173,15 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
         return;
       }
 
-      let nextEpisodePackage = generated.updatedEpisodePackage;
+      let nextEpisodePackage = retainCanonicalVisualArtifacts(
+        generated.updatedEpisodePackage,
+        args.episodePackage,
+      );
       const refreshedImageMap = await getWorkpieceImageMap(episodeId);
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (refreshedImageMap.ok) {
         nextEpisodePackage = args.replaceEpisodePackageImageMap(
-          generated.updatedEpisodePackage,
+          nextEpisodePackage,
           refreshedImageMap.imageMap.entries,
           refreshedImageMap.imageMap.spokenBeats,
         );
@@ -193,6 +203,7 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
         severity: "success",
       });
     } catch (error) {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       const message = error instanceof Error ? error.message : "Thumbnail generation failed.";
       args.setThumbnailGenerateError(message);
       args.publishForgeNotice({
@@ -202,7 +213,9 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
         severity: "error",
       });
     } finally {
-      args.setIsThumbnailGenerating(false);
+      if (args.operationAuthority.isCurrent(operation)) {
+        args.setIsThumbnailGenerating(false);
+      }
     }
   }, [args]);
 
@@ -221,6 +234,7 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
       args.setThumbnailBrandLogoError("Select a brand template before uploading a logo.");
       return;
     }
+    const operation = args.operationAuthority.begin("thumbnail.brand-logo.upload");
 
     args.setIsThumbnailBrandLogoUploading(true);
     args.setThumbnailBrandLogoError(null);
@@ -231,6 +245,7 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
         templateId: template.id,
         file,
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!uploaded.ok) {
         args.setThumbnailBrandLogoError(uploaded.error);
         return;
@@ -249,6 +264,7 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
       const updated = await updateWorkspaceThumbnailBrandTemplate(workspace, template.id, {
         templateJson: updatedTemplateJson,
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!updated.ok) {
         args.setThumbnailBrandLogoError(updated.error);
         return;
@@ -266,7 +282,9 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
         severity: "success",
       });
     } finally {
-      args.setIsThumbnailBrandLogoUploading(false);
+      if (args.operationAuthority.isCurrent(operation)) {
+        args.setIsThumbnailBrandLogoUploading(false);
+      }
     }
   }, [args]);
 
@@ -277,6 +295,7 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
       args.setThumbnailBrandLogoError("Select a brand template before removing a logo.");
       return;
     }
+    const operation = args.operationAuthority.begin("thumbnail.brand-logo.remove");
 
     args.setIsThumbnailBrandLogoUploading(true);
     args.setThumbnailBrandLogoError(null);
@@ -293,6 +312,7 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
           },
         },
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!updated.ok) {
         args.setThumbnailBrandLogoError(updated.error);
         return;
@@ -305,7 +325,9 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
       args.setThumbnailBrandLogoError(null);
       args.setThumbnailBrandLogoStatus(`Logo removed from "${updated.data.name}".`);
     } finally {
-      args.setIsThumbnailBrandLogoUploading(false);
+      if (args.operationAuthority.isCurrent(operation)) {
+        args.setIsThumbnailBrandLogoUploading(false);
+      }
     }
   }, [args]);
 
@@ -319,6 +341,7 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
       args.setThumbnailUploadError("Select an Episode before uploading.");
       return;
     }
+    const operation = args.operationAuthority.begin("thumbnail.upload");
 
     const selectedConcept = args.selectedThumbnailConceptId
       ? args.episodePackage.thumbnail.concepts.find((concept) => concept.id === args.selectedThumbnailConceptId) ?? null
@@ -353,6 +376,7 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
         concept: effectiveConcept,
         file,
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!uploaded.ok) {
         args.setThumbnailUploadError(uploaded.error);
         return;
@@ -372,11 +396,14 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
         "hearth.thumbnail.upload.version.saved.v1",
         { version_id: uploaded.version.id, concept_id: uploaded.version.concept_id },
       );
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved) return;
       args.setSelectedThumbnailConceptId(uploaded.version.concept_id);
       args.setSelectedThumbnailVersionId(uploaded.version.id);
     } finally {
-      args.setIsThumbnailUploading(false);
+      if (args.operationAuthority.isCurrent(operation)) {
+        args.setIsThumbnailUploading(false);
+      }
     }
   }, [args]);
 

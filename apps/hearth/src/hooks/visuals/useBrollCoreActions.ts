@@ -2,12 +2,14 @@ import { useCallback } from "react";
 import { buildBrollPlanFromScript, regenerateBrollBeatFromDescription } from "../../lib/hearth-broll-plan";
 import { advanceExternalRequestTracker } from "../../lib/hearth-visual-actionability";
 import type { EpisodeBrollPlan, EpisodeBrollPlanBeat, EpisodePackageV2 } from "../../lib/episode-package-v2";
+import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 
 type PersistBrollPlanResult =
   | { ok: true; episodePackage: EpisodePackageV2 }
   | { ok: false; error: string };
 
 type UseBrollCoreActionsArgs = {
+  operationAuthority: HearthOperationAuthority;
   isApprovingScript: boolean;
   isAiProcessing: boolean;
   isBrollBusy: boolean;
@@ -52,7 +54,9 @@ export function useBrollCoreActions(args: UseBrollCoreActionsArgs) {
   const onGenerateBrollPlan = useCallback(async () => {
     if (args.isApprovingScript || args.isAiProcessing || args.isBrollBusy) return;
     if (!args.episodePackage) return;
+    const operation = args.operationAuthority.begin("broll.plan.generate");
     const canonicalScript = await args.readCanonicalScriptForImageMapGeneration();
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!canonicalScript.ok) {
       args.setBrollSaveError(canonicalScript.message);
       args.setBrollSaveState("error");
@@ -82,6 +86,7 @@ export function useBrollCoreActions(args: UseBrollCoreActionsArgs) {
           source: canonicalScript.source,
         },
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setBrollSaveError(saved.error);
         args.setBrollSaveState("error");
@@ -91,13 +96,14 @@ export function useBrollCoreActions(args: UseBrollCoreActionsArgs) {
       args.setBrollSaveState("saved");
       args.setBrollMessage(`Generated ${plan.beats.length} B-roll beats from the canonical script.`);
     } finally {
-      args.setIsBrollBusy(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsBrollBusy(false);
     }
   }, [args]);
 
   const onSaveBrollBeat = useCallback(async () => {
     if (!args.episodePackage || !args.selectedBrollBeat) return;
     if (args.isBrollBusy) return;
+    const operation = args.operationAuthority.begin("broll.beat.save");
     const nextMotionIntent = args.brollMotionIntentDraft as EpisodeBrollPlanBeat["motion_intent"];
     const nextDataVisualSpec = args.resolveBrollDataVisualSpecFromDraft(nextMotionIntent);
     const nextKeywords = args.brollKeywordsDraft
@@ -150,6 +156,7 @@ export function useBrollCoreActions(args: UseBrollCoreActionsArgs) {
         eventName: "hearth.broll_plan.beat_updated.v1",
         eventPayload: { beat_id: args.selectedBrollBeat.id },
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setBrollSaveError(saved.error);
         args.setBrollSaveState("error");
@@ -158,10 +165,11 @@ export function useBrollCoreActions(args: UseBrollCoreActionsArgs) {
       args.setBrollSaveState("saved");
       args.setBrollMessage("B-roll beat saved.");
     } catch {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       args.setBrollSaveError("Unable to save this B-roll beat.");
       args.setBrollSaveState("error");
     } finally {
-      args.setIsBrollBusy(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsBrollBusy(false);
     }
   }, [args]);
 
@@ -170,6 +178,7 @@ export function useBrollCoreActions(args: UseBrollCoreActionsArgs) {
     if (args.isBrollBusy) return;
     const confirmed = window.confirm("Delete this B-roll beat?");
     if (!confirmed) return;
+    const operation = args.operationAuthority.begin("broll.beat.delete");
     const nextBeats = args.episodePackage.broll_plan.beats.filter((beat) => beat.id !== args.selectedBrollBeat?.id);
     const nextPlan: EpisodeBrollPlan = {
       ...args.episodePackage.broll_plan,
@@ -186,6 +195,7 @@ export function useBrollCoreActions(args: UseBrollCoreActionsArgs) {
         eventName: "hearth.broll_plan.beat_deleted.v1",
         eventPayload: { beat_id: args.selectedBrollBeat.id },
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setBrollSaveError(saved.error);
         args.setBrollSaveState("error");
@@ -195,16 +205,18 @@ export function useBrollCoreActions(args: UseBrollCoreActionsArgs) {
       args.setBrollSaveState("saved");
       args.setBrollMessage("B-roll beat removed.");
     } catch {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       args.setBrollSaveError("Unable to delete this B-roll beat.");
       args.setBrollSaveState("error");
     } finally {
-      args.setIsBrollBusy(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsBrollBusy(false);
     }
   }, [args]);
 
   const onRegenerateBrollBeat = useCallback(async () => {
     if (!args.episodePackage || !args.selectedBrollBeat) return;
     if (args.isBrollBusy) return;
+    const operation = args.operationAuthority.begin("broll.beat.regenerate");
     const regenerated = regenerateBrollBeatFromDescription({
       ...args.selectedBrollBeat,
       description: args.brollDescriptionDraft.trim() || args.selectedBrollBeat.description,
@@ -224,6 +236,7 @@ export function useBrollCoreActions(args: UseBrollCoreActionsArgs) {
         eventName: "hearth.broll_plan.beat_regenerated.v1",
         eventPayload: { beat_id: args.selectedBrollBeat.id },
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setBrollSaveError(saved.error);
         args.setBrollSaveState("error");
@@ -232,10 +245,11 @@ export function useBrollCoreActions(args: UseBrollCoreActionsArgs) {
       args.setBrollSaveState("saved");
       args.setBrollMessage("B-roll beat regenerated.");
     } catch {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       args.setBrollSaveError("Unable to regenerate this B-roll beat.");
       args.setBrollSaveState("error");
     } finally {
-      args.setIsBrollBusy(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsBrollBusy(false);
     }
   }, [args]);
 

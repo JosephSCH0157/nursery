@@ -1,8 +1,13 @@
 import { useCallback, type Dispatch, type SetStateAction } from "react";
 import type { Draft } from "../domain/draft";
-import type { RevisionKind } from "../domain/revision";
+import { createRevision, type Revision, type RevisionKind } from "../domain/revision";
 import type { HearthChatMessage } from "../lib/hearth-chat-api";
 import { commitHearthPrimaryScript } from "../lib/hearth-script-repo";
+import {
+  isCanonicalHearthRevisionSave,
+  type HearthCanonicalRevisionsResult,
+  type HearthRevisionSaveAcknowledgement,
+} from "../storage/hearth-store";
 
 type PersistDraft = (args: {
   draft: Draft;
@@ -22,13 +27,15 @@ type UseHearthApprovalPersistenceActionsArgs = {
   chatHistoryMaxMessages: number;
   flushChatHistoryNow: (args?: { draftId?: string | null; messages?: HearthChatMessage[] }) => void;
   setChatMessages: Dispatch<SetStateAction<HearthChatMessage[]>>;
+  readCanonicalRevisions: (workpieceId: string, draftId?: string | null) => Promise<HearthCanonicalRevisionsResult>;
+  saveRevision: (workpieceId: string, revision: Revision) => Promise<HearthRevisionSaveAcknowledgement>;
+  refreshRevisions: (workpieceId: string, draftId?: string | null) => Promise<Revision[]>;
 };
 
 export function useHearthApprovalPersistenceActions(args: UseHearthApprovalPersistenceActionsArgs) {
   const persistApprovedDraft = useCallback(async (params: {
     draft: Draft;
     updatedAt: number;
-    approvalNote: string;
   }): Promise<boolean> => (
     args.persistDraft({
       draft: {
@@ -36,12 +43,35 @@ export function useHearthApprovalPersistenceActions(args: UseHearthApprovalPersi
         updatedAt: params.updatedAt,
       },
       updatedAt: params.updatedAt,
-      createRevision: { kind: "milestone", note: params.approvalNote },
+      createRevision: null,
       syncSources: false,
       syncSession: false,
       validateForAnvil: true,
     })
   ), [args]);
+
+  const readCanonicalApprovalRevisions = useCallback((params: {
+    episodeId: string;
+    draftId: string;
+  }) => args.readCanonicalRevisions(params.episodeId, params.draftId), [args]);
+
+  const commitCanonicalApprovalRevision = useCallback(async (params: {
+    episodeId: string;
+    draft: Draft;
+    approvalNote: string;
+  }): Promise<{ ok: true; approvedAt: number } | { ok: false }> => {
+    const revision = createRevision({
+      draftId: params.draft.id,
+      title: params.draft.title,
+      body: params.draft.body,
+      kind: "milestone",
+      note: params.approvalNote,
+    });
+    const acknowledgement = await args.saveRevision(params.episodeId, revision);
+    if (!isCanonicalHearthRevisionSave(acknowledgement)) return { ok: false };
+    await args.refreshRevisions(params.episodeId, params.draft.id);
+    return { ok: true, approvedAt: revision.createdAt };
+  }, [args]);
 
   const publishApprovedScript = useCallback(async (params: {
     episodeId: string;
@@ -64,6 +94,8 @@ export function useHearthApprovalPersistenceActions(args: UseHearthApprovalPersi
 
   return {
     persistApprovedDraft,
+    readCanonicalApprovalRevisions,
+    commitCanonicalApprovalRevision,
     publishApprovedScript,
     appendApprovalMarker,
   };

@@ -12,7 +12,7 @@ type MediaMapReadResult =
   | { ok: false; status: number; error: string };
 
 type MediaMapSaveResult =
-  | { ok: true; status: number }
+  | { ok: true; status: number; mediaMap: EpisodeMediaMap; artifactUpdatedAt: string }
   | { ok: false; status: number; error: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -41,11 +41,26 @@ async function readJsonBody(response: Response): Promise<unknown> {
   }
 }
 
+function readCanonicalCommitUpdatedAt(payload: unknown, expectedPath: string): string | null {
+  if (!isRecord(payload) || payload.ok !== true || !isRecord(payload.data)) return null;
+  if (readString(payload.data.path) !== expectedPath || !isRecord(payload.data.file_row)) return null;
+  return readString(payload.data.file_row.updated_at);
+}
+
 export async function readWorkpieceEpisodeMediaMap(workpieceId: string): Promise<MediaMapReadResult> {
-  const response = await tongsFetch(
-    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(HEARTH_MEDIA_MAP_PATH)}`,
-    { method: "GET" },
-  );
+  let response: Response;
+  try {
+    response = await tongsFetch(
+      `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(HEARTH_MEDIA_MAP_PATH)}`,
+      { method: "GET" },
+    );
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      error: "Unable to read Episode Media Map.",
+    };
+  }
   const payload = await readJsonBody(response);
   if (response.status === 404) {
     return { ok: true, mediaMap: null };
@@ -113,15 +128,20 @@ export async function saveWorkpieceEpisodeMediaMap(args: {
     },
   );
   const payload = await readJsonBody(response);
-  if (!response.ok) {
+  const artifactUpdatedAt = readCanonicalCommitUpdatedAt(payload, HEARTH_MEDIA_MAP_PATH);
+  if (!response.ok || !artifactUpdatedAt) {
     return {
       ok: false,
       status: response.status,
-      error: readErrorMessage(payload, "Unable to save Episode Media Map."),
+      error: response.ok
+        ? "Episode Media Map save returned an invalid canonical acknowledgement."
+        : readErrorMessage(payload, "Unable to save Episode Media Map."),
     };
   }
   return {
     ok: true,
     status: response.status,
+    mediaMap: args.mediaMap,
+    artifactUpdatedAt,
   };
 }

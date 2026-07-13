@@ -9,8 +9,7 @@ function resolveTranscriptPrepDebugEnabled(): boolean {
   const runtimeWindow = runtimeGlobal.window ?? null;
   if (!runtimeWindow) return false;
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    if (Boolean((import.meta as any)?.env?.DEV)) return true;
+    if ((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV) return true;
   } catch {
     // ignore
   }

@@ -51,7 +51,7 @@ export type WorkpieceImageMapCandidateAssetView = {
 
 export type GetWorkpieceImageMapResult =
   | { ok: true; imageMap: WorkpieceImageMapView }
-  | { ok: false; status: number; reason: string };
+  | { ok: false; status: number; reason: string; error?: string };
 
 export type SaveWorkpieceImageMapResult =
   | { ok: true; imageMap: WorkpieceImageMapView }
@@ -307,9 +307,19 @@ async function readLatestImageMap(workpieceId: string): Promise<WorkpieceImageMa
 }
 
 export async function getWorkpieceImageMap(workpieceId: string): Promise<GetWorkpieceImageMapResult> {
-  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/image-map`, {
-    method: "GET",
-  });
+  let response: Response;
+  try {
+    response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/image-map`, {
+      method: "GET",
+    });
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      reason: "request_failed",
+      error: "Unable to load the canonical image map.",
+    };
+  }
   const body = await readBodyAsJson(response);
   if (!response.ok) {
     const error = readApiErrorMessage(body);

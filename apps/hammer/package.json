@@ -5,9 +5,18 @@
   "type": "module",
   "scripts": {
     "dev": "node -e \"console.log('Hammer runs through Nursery.')\"",
-    "build": "node -e \"console.log('Hammer builds through Nursery.')\"",
+    "build": "pnpm --dir ../nursery run build:hammer-integration",
+    "lint": "node scripts/check-lint-ratchet.mjs",
+    "lint:report": "eslint src tests",
     "preview": "node -e \"console.log('Hammer previews through Nursery.')\"",
     "types": "tsc -p tsconfig.json --noEmit",
+    "types:ratchet": "node scripts/check-type-safety-ratchet.mjs",
+    "types:test-boundary": "tsc -p tsconfig.test-boundary.json --noEmit",
+    "test": "pnpm run test:all",
+    "test:all": "pnpm run types:ratchet && node scripts/run-all-tests.mjs",
+    "test:all:shuffled": "pnpm run types:ratchet && node scripts/run-all-tests.mjs --shuffle-seed=260710",
+    "test:coverage:collect": "c8 node scripts/run-all-tests.mjs",
+    "test:coverage": "pnpm run types:ratchet && pnpm run test:coverage:collect && node scripts/check-coverage-ratchet.mjs",
     "test:prep": "tsx tests/hammerPrep.test.ts",
     "test:audio-polish-api": "tsx tests/hammerAudioPolishApi.test.ts",
     "test:persistence": "tsx tests/hammerPersistence.test.ts",
@@ -24,6 +33,7 @@
     "test:render-assembly": "tsx tests/hammerRenderAssembly.test.ts",
     "test:visual-effects-export-contract": "tsx tests/hammerVisualEffectsExportContract.test.ts",
     "test:eye-contact": "tsx tests/hammerEyeContactAssist.test.ts",
+    "test:face-analysis": "tsx tests/hammerFaceAnalysisAuthority.test.ts",
     "test:output-selection-guard": "tsx tests/hammerOutputSelectionGuard.test.ts",
     "test:workspace-authority": "tsx tests/hammerWorkspaceAuthority.test.ts",
     "test:runtime-data": "tsx tests/hammerRuntimeData.test.ts",
@@ -33,7 +43,7 @@
     "test:candidate-queue": "tsx tests/hammerCandidateQueue.test.ts",
     "test:snapshot-production": "tsx tests/hammerSnapshotProduction.test.ts",
     "test:snapshot-recovery-flow": "tsx tests/hammerSnapshotRecoveryFlow.test.ts",
-    "test:autosave-commit-gap": "node tests/hammerAutosaveCommitGap.test.js",
+    "test:autosave-commit-gap": "tsx tests/hammerAutosaveCommitGap.test.ts",
     "test:polish-result-summary": "tsx tests/hammerPolishResultSummary.test.ts",
     "test:workspace-core": "pnpm run test:workspace-timeline && pnpm run test:workspace-transcript && pnpm run test:workspace-history && pnpm run test:workspace-authority && pnpm run test:runtime-data && pnpm run test:audio-backend && pnpm run test:cleanup-execution && pnpm run test:audio-timeline-render-plan && pnpm run test:studio-rack-ffmpeg-plan && pnpm run test:source-desk-media && pnpm run test:source-desk-preview-churn && pnpm run test:transcript-selection && pnpm run test:snapshot-production && pnpm run test:snapshot-recovery-flow && pnpm run test:polish-result-summary",
     "test:source-desk-media": "tsx tests/hammerSourceDeskMediaApi.test.ts",
@@ -42,7 +52,7 @@
     "test:transcript-authority": "tsx tests/hammerTranscriptAuthorityEnforcement.test.ts",
     "test:transcript-hardening": "tsx tests/hammerTranscriptHardening.test.ts",
     "test:cleanup-tools": "tsx tests/hammerCleanupTools.test.ts",
-    "test:visual-effects-matte": "tsx tests/hammerVisualEffectsTemporalMatteSmoothing.test.ts",
+    "test:visual-effects-matte": "tsx tests/hammerSimpleMatteRefiner.test.ts && tsx tests/hammerVisualEffectsTemporalMatteSmoothing.test.ts",
     "test:dead-air-closure": "tsx tests/hammerDeadAirClosure.test.ts",
     "test:audio-backend": "tsx tests/hammerAudioProcessingBackend.test.ts",
     "test:studio-rack-ffmpeg-plan": "tsx tests/hammerStudioRackFfmpegPlan.test.ts",
@@ -54,7 +64,7 @@
     "test:legacy-retirement-gate": "tsx tests/hammerLegacyRetirementGate.test.ts",
     "test:cleanup-execution": "tsx tests/hammerCleanupExecution.test.ts",
     "test:waveform-cut-refinement": "tsx tests/hammerWaveformCutRefinement.test.ts",
-    "test:auto-placement": "tsx src/features/auto-placement/__tests__/maskAwarePlacement.test.ts && tsx tests/hammerAutoPlacementDiagnosticsVm.test.ts && tsx tests/hammerPlacementPersistenceGuard.test.ts && tsx tests/hammerAutoPreviewPosition.test.ts"
+    "test:auto-placement": "tsx src/features/auto-placement/__tests__/maskAwarePlacement.test.ts && tsx tests/hammerAutomaticPlacementIntegration.test.ts && tsx tests/hammerAutomaticPlacementLifecycle.test.ts && tsx tests/hammerAutoPlacementAuthorityPolicy.test.ts && tsx tests/hammerAutoPlacementDiagnosticsVm.test.ts && tsx tests/hammerPlacementPersistenceGuard.test.ts && tsx tests/hammerAutoPreviewPosition.test.ts"
   },
   "dependencies": {
     "@mediapipe/selfie_segmentation": "^0.1.1675465747",
@@ -64,9 +74,18 @@
     "react-router-dom": "^7.13.1"
   },
   "devDependencies": {
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
+    "c8": "^10.1.3",
+    "eslint": "^9.39.1",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "globals": "^16.5.0",
     "tsx": "^4.21.0",
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "typescript-eslint": "8.57.2"
   }
 }

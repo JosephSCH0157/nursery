@@ -345,7 +345,14 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
             <article
               key={project.workpieceId}
               className={`hammer-project-library__card${isSelected ? " is-selected" : ""}`}
+              tabIndex={0}
               onClick={() => {
+                setSelectedWorkpieceId(project.workpieceId);
+                openProject(project);
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") return;
+                event.preventDefault();
                 setSelectedWorkpieceId(project.workpieceId);
                 openProject(project);
               }}
@@ -421,7 +428,7 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
                     </span>
                   ) : null}
                 </div>
-                <div className="hammer-project-library__card-actions" onClick={(event) => event.stopPropagation()}>
+                <div className="hammer-project-library__card-actions">
                   <button
                     type="button"
                     className="hammer-project-library__button hammer-project-library__button--secondary hammer-project-library__button--card"

@@ -15,7 +15,7 @@ async function main(): Promise<void> {
       key: () => null,
       length: 0,
     },
-  };
+  } as unknown as Window & typeof globalThis;
 
   globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     assert.equal(String(input), HAMMER_AUDIO_POLISH_ROUTE);
@@ -389,7 +389,7 @@ main()
   .finally(() => {
     globalThis.fetch = originalFetch;
     if (originalWindow === undefined) {
-      delete (globalThis as typeof globalThis & { window?: unknown }).window;
+      Reflect.deleteProperty(globalThis, "window");
     } else {
       (globalThis as typeof globalThis & { window?: unknown }).window = originalWindow;
     }

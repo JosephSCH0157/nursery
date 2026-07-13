@@ -144,7 +144,15 @@ export function loadHammerVisualTimelineStateFromSnapshot(
     ?? snapshot?.visual_placements.updated_at
     ?? snapshot?.editor_session.updated_at
     ?? "1970-01-01T00:00:00.000Z";
-  const canonical = normalizeCanonicalTimeline(snapshot?.visual_timeline.data ?? null);
+  const rawCanonical = snapshot?.visual_timeline.data ?? null;
+  let canonical: HammerVisualTimelineState | null = null;
+  if (rawCanonical) {
+    try {
+      canonical = assertValidTimelineState({ ...rawCanonical, debug_origin: "canonical_load" });
+    } catch {
+      canonical = normalizeCanonicalTimeline(rawCanonical);
+    }
+  }
   const timeline = migratePersistedVisualState({
     canonical_timeline: canonical,
     legacy_visual_placements: snapshot?.visual_placements.data ?? null,

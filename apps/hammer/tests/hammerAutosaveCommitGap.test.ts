@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const WORKSPACE_EDITOR_PATH = "d:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceEditor.tsx";
-const SNAPSHOT_EMITTER_PATH = "d:/nursery/nursery/apps/hammer/src/editor/hammerWorkspaceShellSnapshotEmitter.ts";
-const WORKSPACE_SHELL_PATH = "d:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceShell.tsx";
+const WORKSPACE_EDITOR_PATH = new URL("../src/editor/HammerWorkspaceEditor.tsx", import.meta.url);
+const SNAPSHOT_EMITTER_PATH = new URL("../src/editor/hammerWorkspaceShellSnapshotEmitter.ts", import.meta.url);
+const WORKSPACE_SHELL_PATH = new URL("../src/editor/HammerWorkspaceShell.tsx", import.meta.url);
 
 async function run() {
   const emitterSource = await readFile(SNAPSHOT_EMITTER_PATH, "utf-8");

@@ -196,7 +196,6 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const selectedAutoPreviewActive = ctx.selectedAutoPreviewActive as boolean;
   const previewAutoPositionStatus = ctx.previewAutoPositionStatus as string | null;
   const previewAutoPosition = ctx.previewAutoPosition as (() => void) | undefined;
-  const forcePreviewAutoPosition = ctx.forcePreviewAutoPosition as (() => void) | undefined;
   const resetPreviewAutoPosition = ctx.resetPreviewAutoPosition as (() => void) | undefined;
   const previewDiagnosticsSummary = ctx.previewDiagnosticsSummary as {
     diagnosticsEnabled: boolean;
@@ -228,12 +227,10 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const selectedClipPresent = Boolean(selectedVisualClip?.clip_id);
   const previewAutoPositionDisabledReason = !selectedImagePlacement
     ? "No selected image placement."
-    : !previewDiagnosticsSummary?.diagnosticsEnabled
-    ? "Diagnostics disabled."
-    : !previewDiagnosticsSummary.resolvedPlacementExists
-    ? `No resolved placement: ${previewDiagnosticsSummary.resolverReason}`
+    : !selectedOverlayAssetPresent && !selectedVisualAssetPresent
+    ? "Selected placement has no visual asset."
     : !previewAutoPosition
-    ? "Preview action unavailable (not wired)."
+    ? "Automatic placement action unavailable (not wired)."
     : null;
   const resetPreviewPositionDisabledReason = !selectedImagePlacement
     ? "No selected image placement."
@@ -513,7 +510,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           Review filler candidates first, then retake candidates below. Shortcuts: Fillers (1), Retakes (2), Approve (A), Reject (R), Prev/Next (K/J).
                         </div>
 
-                    <div onMouseDown={() => {
+                    <div role="group" aria-label="Filler cleanup" onFocusCapture={() => {
                       setActiveReviewKind("fillers");
                       setActiveTranscriptToolSection("fillers");
                     }}>
@@ -632,7 +629,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
 
                     <hr className="hammer-divider" />
 
-                    <div onMouseDown={() => {
+                    <div role="group" aria-label="Retake review" onFocusCapture={() => {
                       setActiveReviewKind("retakes");
                       setActiveTranscriptToolSection("retakes");
                     }}>
@@ -741,7 +738,11 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
 
                     <hr className="hammer-divider" />
 
-                    <div onMouseDown={() => setActiveTranscriptToolSection("silence_gaps")}>
+                    <div
+                      role="group"
+                      aria-label="Silence gap cleanup"
+                      onFocusCapture={() => setActiveTranscriptToolSection("silence_gaps")}
+                    >
                       <header className="hammer-cleanup-tool__head">
                         <strong>Silence Gaps</strong>
                         <span>Intent: Trim long silent pauses between spoken segments without changing transcript wording.</span>
@@ -2877,13 +2878,6 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                         >
                           Reset Preview Position
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => forcePreviewAutoPosition?.()}
-                          disabled={!selectedImagePlacement || !forcePreviewAutoPosition}
-                        >
-                          FORCE PREVIEW
-                        </button>
                       </div>
                       <div>
                         Preview button: {previewAutoPositionDisabledReason ? `disabled - ${previewAutoPositionDisabledReason}` : "enabled"}
@@ -2986,6 +2980,13 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           />
                         </label>
                         <div className="hammer-source-card__actions">
+                          <button
+                            type="button"
+                            onClick={() => previewAutoPosition?.()}
+                            disabled={Boolean(previewAutoPositionDisabledReason)}
+                          >
+                            Apply Auto Position
+                          </button>
                           <button
                             type="button"
                             onClick={() => commitVisualAnchorRefinement({

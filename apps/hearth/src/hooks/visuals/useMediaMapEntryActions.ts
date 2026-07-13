@@ -11,12 +11,14 @@ import type {
   EpisodePackageV2,
   EpisodeReferenceClipPlan,
 } from "../../lib/episode-package-v2";
+import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 
 type PersistMediaMapResult =
   | { ok: true; episodePackage: EpisodePackageV2 }
   | { ok: false; error: string };
 
 type UseMediaMapEntryActionsArgs = {
+  operationAuthority: HearthOperationAuthority;
   episodePackage: EpisodePackageV2 | null;
   workpieceId: string | null;
   selectedMediaMapEntry: EpisodeMediaMapEntry | null;
@@ -94,6 +96,7 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
   const onAddMediaMapEntry = useCallback(async () => {
     if (!args.episodePackage) return;
     if (args.isMediaMapBusy) return;
+    const operation = args.operationAuthority.begin("media-map.entry.create");
     const nowIso = new Date().toISOString();
     const entry: EpisodeMediaMapEntry = {
       id: createMediaMapEntryId(),
@@ -139,6 +142,7 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
         eventName: "hearth.media_map.entry_created.v1",
         eventPayload: { entry_id: entry.id },
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setMediaMapSaveError(saved.error);
         args.setMediaMapSaveState("error");
@@ -148,16 +152,18 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
       args.setMediaMapSaveState("saved");
       args.setMediaMapMessage("Media map entry created.");
     } catch {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       args.setMediaMapSaveError("Unable to create media map entry.");
       args.setMediaMapSaveState("error");
     } finally {
-      args.setIsMediaMapBusy(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsMediaMapBusy(false);
     }
   }, [args]);
 
   const onSaveMediaMapEntry = useCallback(async () => {
     if (!args.episodePackage || !args.selectedMediaMapEntry) return;
     if (args.isMediaMapBusy) return;
+    const operation = args.operationAuthority.begin("media-map.entry.save");
     const nowIso = new Date().toISOString();
     const nextFinalMediaKind = (
       args.mediaMapTypeDraft === "b_roll"
@@ -257,6 +263,7 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
         eventName: "hearth.media_map.entry_updated.v1",
         eventPayload: { entry_id: args.selectedMediaMapEntry.id },
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setMediaMapSaveError(saved.error);
         args.setMediaMapSaveState("error");
@@ -265,10 +272,11 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
       args.setMediaMapSaveState("saved");
       args.setMediaMapMessage("Media map entry saved.");
     } catch {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       args.setMediaMapSaveError("Unable to save media map entry.");
       args.setMediaMapSaveState("error");
     } finally {
-      args.setIsMediaMapBusy(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsMediaMapBusy(false);
     }
   }, [args]);
 
@@ -276,6 +284,7 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
     if (!args.episodePackage || !args.selectedMediaMapEntry) return;
     if (args.isMediaMapBusy) return;
     if (!window.confirm("Delete this media map entry?")) return;
+    const operation = args.operationAuthority.begin("media-map.entry.delete");
     const nextEntries = args.episodePackage.media_map.entries.filter((entry) => entry.id !== args.selectedMediaMapEntry?.id);
     const nextMap: EpisodeMediaMap = {
       ...args.episodePackage.media_map,
@@ -299,6 +308,7 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
         eventName: "hearth.media_map.entry_deleted.v1",
         eventPayload: { entry_id: args.selectedMediaMapEntry.id },
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setMediaMapSaveError(saved.error);
         args.setMediaMapSaveState("error");
@@ -308,10 +318,11 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
       args.setMediaMapSaveState("saved");
       args.setMediaMapMessage("Media map entry removed.");
     } catch {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       args.setMediaMapSaveError("Unable to delete media map entry.");
       args.setMediaMapSaveState("error");
     } finally {
-      args.setIsMediaMapBusy(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsMediaMapBusy(false);
     }
   }, [args]);
 
@@ -324,6 +335,7 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
       args.setMediaMapSaveState("error");
       return;
     }
+    const operation = args.operationAuthority.begin("media-map.activate");
     const nowIso = new Date().toISOString();
     let mapForActivation: EpisodeMediaMap = {
       ...args.episodePackage.media_map,
@@ -530,6 +542,7 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
       const syncedImage = await args.persistImageMapEntries({
         entries: syncedImageEntries,
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!syncedImage.ok) {
         args.setMediaMapSaveError(syncedImage.error);
         args.setMediaMapSaveState("error");
@@ -553,6 +566,7 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
         },
         baseEpisodePackage: syncedEpisodePackage,
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!syncedBroll.ok) {
         args.setMediaMapSaveError(syncedBroll.error);
         args.setMediaMapSaveState("error");
@@ -576,6 +590,7 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
         },
         baseEpisodePackage: syncedEpisodePackage,
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!syncedReference.ok) {
         args.setMediaMapSaveError(syncedReference.error);
         args.setMediaMapSaveState("error");
@@ -593,6 +608,7 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
         },
         baseEpisodePackage: syncedEpisodePackage,
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setMediaMapSaveError(saved.error);
         args.setMediaMapSaveState("error");
@@ -603,10 +619,11 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
         `Media plan activated and synchronized (timeline images: ${syncedImageEntries.length}, B-roll: ${syncedBrollBeats.length}, reference clips: ${syncedReferenceEntries.length})${includedPendingEntryEdits ? " with pending editor changes." : "."}`,
       );
     } catch {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       args.setMediaMapSaveError("Unable to activate Episode Media Map.");
       args.setMediaMapSaveState("error");
     } finally {
-      args.setIsMediaMapBusy(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsMediaMapBusy(false);
     }
   }, [args]);
 

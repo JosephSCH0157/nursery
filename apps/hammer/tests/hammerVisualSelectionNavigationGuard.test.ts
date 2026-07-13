@@ -3,19 +3,19 @@ import { readFile } from "node:fs/promises";
 
 async function run() {
   const selectionSource = await readFile(
-    "d:/nursery/nursery/apps/hammer/src/editor/useHammerWorkspaceShellSelection.ts",
+    new URL("../src/editor/useHammerWorkspaceShellSelection.ts", import.meta.url),
     "utf-8",
   );
   const shellSource = await readFile(
-    "d:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceShell.tsx",
+    new URL("../src/editor/HammerWorkspaceShell.tsx", import.meta.url),
     "utf-8",
   );
   const sourceBaySource = await readFile(
-    "d:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceShellSourceBay.tsx",
+    new URL("../src/editor/HammerWorkspaceShellSourceBay.tsx", import.meta.url),
     "utf-8",
   );
   const viewModelSource = await readFile(
-    "d:/nursery/nursery/apps/hammer/src/editor/hammerWorkspaceShellViewModels.ts",
+    new URL("../src/editor/hammerWorkspaceShellViewModels.ts", import.meta.url),
     "utf-8",
   );
 

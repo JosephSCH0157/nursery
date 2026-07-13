@@ -16,7 +16,7 @@ type FakeStorage = {
 };
 
 function withFakeWindow(fn: (storage: Map<string, string>) => void): void {
-  const runtime = globalThis as typeof globalThis & {
+  const runtime = globalThis as unknown as {
     window?: { localStorage: FakeStorage };
   };
   const previousWindow = runtime.window;
@@ -33,7 +33,7 @@ function withFakeWindow(fn: (storage: Map<string, string>) => void): void {
     fn(backing);
   } finally {
     if (previousWindow === undefined) {
-      delete runtime.window;
+      Reflect.deleteProperty(runtime, "window");
     } else {
       runtime.window = previousWindow;
     }

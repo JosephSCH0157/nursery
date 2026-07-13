@@ -320,7 +320,7 @@ async function testRetakeRemovalProductionBackwardExplicitCueFixture() {
   assert.equal(preview.resultSegments.some((segment) => segment.segment_id === "prod_back_a"), false);
   const kept = preview.resultSegments.find((segment) => segment.segment_id === "prod_back_b");
   assert.equal(kept?.text, "In the years that followed, changes started to be made.");
-  assert.match(preview.suggestions.some((sugg) => /explicit restart cue/i.test(sugg.description)), true);
+  assert.equal(preview.suggestions.some((sugg) => /explicit restart cue/i.test(sugg.description)), true);
 }
 
 async function testRetakeRemovalProductionShortLeadInFixture() {

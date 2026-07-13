@@ -1,5 +1,5 @@
-import type { HammerPersistedAudioPolish } from "../persistence/hammerPersistenceContract";
 import type {
+  HammerPersistedAudioPolish,
   HammerAudioPolishAnalysis,
   HammerAudioPolishFailureCode,
   HammerAudioPolishPass,

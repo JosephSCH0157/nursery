@@ -8,7 +8,8 @@ import type {
   Rect,
 } from "./types";
 import { deriveDefaultReservedZones, intersectionArea, rectIntersectsAny } from "./reservedZones";
-import { buildPaddedSpeakerBounds, candidateHardRejectReason, deriveFaceSafeZonesFromSpeakerBounds, scoreCandidate } from "./placementScoring";
+import { buildPaddedSpeakerBounds, candidateHardRejectReason, resolveFaceSafeZones, scoreCandidate } from "./placementScoring";
+import { createPlacementMatteOverlapIndex } from "./matteOverlap";
 
 const DEFAULT_SAFE_MARGIN_PX = 24;
 const DEFAULT_SCALE_STEPS = [1, 0.95, 0.9, 0.85, 0.8, 0.75];
@@ -80,7 +81,7 @@ function nudgeRectAvoidingFaceSafeZones(args: {
   frame: { width: number; height: number };
   faceSafeZones: Rect[];
 }): Rect {
-  let current = nudgeRectIntoFrame(args.rect, args.frame);
+  const current = nudgeRectIntoFrame(args.rect, args.frame);
   if (!rectIntersectsAnyFaceSafeZone(current, args.faceSafeZones)) return current;
   const verticalSteps = [16, 28, 40, 56, 72, 96, 128, 160, 192, 224];
   const horizontalSteps = [18, 32, 52, 72, 96, 128, 160];
@@ -252,8 +253,11 @@ export function evaluateMaskAwarePlacementCandidates(input: MaskAwarePlacementIn
 } {
   const margin = Math.max(0, input.safeMarginPx ?? DEFAULT_SAFE_MARGIN_PX);
   const paddedSpeakerBounds = buildPaddedSpeakerBounds(input);
-  const faceSafeZones = deriveFaceSafeZonesFromSpeakerBounds(input.speakerMaskBounds)
+  const faceSafeZones = resolveFaceSafeZones(input)
     .map((rect) => nudgeRectIntoFrame(rect, input.frame));
+  const matteOverlapIndex = input.canonicalMatte
+    ? createPlacementMatteOverlapIndex({ frame: input.frame, matte: input.canonicalMatte })
+    : null;
   const reservedZones = (input.reservedZones?.length ? input.reservedZones : deriveDefaultReservedZones());
   const candidates: PlacementCandidate[] = generateBaseCandidates(input, margin, faceSafeZones);
   const backgroundOpen = generateBackgroundOpenCandidate({
@@ -295,6 +299,7 @@ export function evaluateMaskAwarePlacementCandidates(input: MaskAwarePlacementIn
       candidate,
       paddedSpeakerBounds,
       reservedZones,
+      matteOverlapIndex,
     });
     if (scored) {
       return {
@@ -306,6 +311,7 @@ export function evaluateMaskAwarePlacementCandidates(input: MaskAwarePlacementIn
         whySelected: scored.whySelected,
         compositionScore: scored.compositionScore,
         overlapPenalty: scored.overlapPenalty,
+        matteOverlap: scored.matteOverlap,
         facePenalty: scored.facePenalty,
         edgePenalty: scored.edgePenalty,
         rejectionReason: null,
@@ -438,6 +444,7 @@ export function resolveMaskAwarePlacementWithScaleFallback(input: MaskAwarePlace
         score: finalScore,
         compositionScore: selected.compositionScore ?? 0,
         overlapPenalty: selected.overlapPenalty ?? 0,
+        matteOverlap: selected.matteOverlap,
         facePenalty: selected.facePenalty ?? 0,
         scalePenalty,
         edgePenalty: selected.edgePenalty ?? 0,

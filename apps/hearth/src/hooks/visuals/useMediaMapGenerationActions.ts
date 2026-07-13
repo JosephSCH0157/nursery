@@ -7,6 +7,7 @@ import {
   type MediaMapGenerationScope,
 } from "../../lib/hearth-media-map-conversation";
 import type { EpisodeMediaMap, EpisodePackageV2 } from "../../lib/episode-package-v2";
+import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 
 type PersistMediaMapResult =
   | { ok: true; episodePackage: EpisodePackageV2 }
@@ -23,6 +24,7 @@ type PrepareSourceEpisodePackageResult =
   | { ok: false; error: string };
 
 type UseMediaMapGenerationActionsArgs = {
+  operationAuthority: HearthOperationAuthority;
   episodePackage: EpisodePackageV2 | null;
   isMediaMapBusy: boolean;
   approvedScriptVersion: number | null;
@@ -51,12 +53,14 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
   const onGenerateEpisodeMediaMapFromPlans = useCallback(async () => {
     if (!args.episodePackage) return;
     if (args.isMediaMapBusy) return;
+    const operation = args.operationAuthority.begin("media-map.generate");
     const scriptVersionId = args.approvedScriptVersion ? String(args.approvedScriptVersion) : null;
     args.setIsMediaMapBusy(true);
     args.setMediaMapSaveState("saving");
     args.setMediaMapSaveError(null);
     try {
       const prepared = await args.prepareSourceEpisodePackageForMediaMapGeneration(args.mediaMapGenerationScope);
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!prepared.ok) {
         args.setMediaMapSaveError(prepared.error);
         args.setMediaMapSaveState("error");
@@ -84,6 +88,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
         },
         baseEpisodePackage: prepared.episodePackage,
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setMediaMapSaveError(saved.error);
         args.setMediaMapSaveState("error");
@@ -97,10 +102,11 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
         `${prepared.bootstrappedImageCount > 0 ? `Seeded ${prepared.bootstrappedImageCount} timeline image beat${prepared.bootstrappedImageCount === 1 ? "" : "s"} from the canonical script. ` : ""}${prepared.bootstrappedBrollCount > 0 ? `Seeded ${prepared.bootstrappedBrollCount} B-roll beat${prepared.bootstrappedBrollCount === 1 ? "" : "s"} from the canonical script. ` : ""}${prepared.bootstrappedReferenceClipCount > 0 ? `Seeded ${prepared.bootstrappedReferenceClipCount} Reference Clip${prepared.bootstrappedReferenceClipCount === 1 ? "" : "s"} from explanatory Timeline Image beats. ` : ""}Generated ${nextMap.entries.length} media map entries from the current visual plans using scope: ${args.mediaMapGenerationScope.replaceAll("_", " ")} (image: ${nextMap.entries.filter((entry) => entry.final_media_kind === "image").length}, b-roll: ${brollCount}, reference clips: ${referenceClipCount}). Next: Frame the episode (titles, SEO, tags).`,
       );
     } catch {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       args.setMediaMapSaveError("Unable to generate Episode Media Map.");
       args.setMediaMapSaveState("error");
     } finally {
-      args.setIsMediaMapBusy(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsMediaMapBusy(false);
     }
   }, [args]);
 
@@ -111,6 +117,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
   }): Promise<boolean> => {
     if (!args.episodePackage) return false;
     if (args.isMediaMapBusy) return false;
+    const operation = args.operationAuthority.begin("media-map.conversation.apply");
     const scriptVersionId = args.approvedScriptVersion ? String(args.approvedScriptVersion) : null;
     const conversationScope = resolveMediaMapConversationScope({
       directionId: conversationArgs.directionId,
@@ -123,6 +130,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
     args.setMediaMapSaveError(null);
     try {
       const prepared = await args.prepareSourceEpisodePackageForMediaMapGeneration(conversationScope);
+      if (!args.operationAuthority.isCurrent(operation)) return false;
       if (!prepared.ok) {
         args.setMediaMapSaveError(prepared.error);
         args.setMediaMapSaveState("error");
@@ -160,6 +168,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
         },
         baseEpisodePackage: prepared.episodePackage,
       });
+      if (!args.operationAuthority.isCurrent(operation)) return false;
       if (!saved.ok) {
         args.setMediaMapSaveError(saved.error);
         args.setMediaMapSaveState("error");
@@ -172,11 +181,12 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
       );
       return true;
     } catch {
+      if (!args.operationAuthority.isCurrent(operation)) return false;
       args.setMediaMapSaveError("Unable to build and apply the Episode Media Map.");
       args.setMediaMapSaveState("error");
       return false;
     } finally {
-      args.setIsMediaMapBusy(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsMediaMapBusy(false);
     }
   }, [args]);
 

@@ -3,6 +3,7 @@ import type { Draft } from "../domain/draft";
 import type { EpisodeContext, HearthOp } from "../lib/hearth-ai-ops";
 import type { HearthAiLane, HearthChatMessage } from "../lib/hearth-chat-api";
 import { evaluateHearthScriptValidation } from "../lib/hearth-script-tag-policy";
+import type { HearthOperationAuthority } from "../lib/hearth-operation-authority";
 import { normalizeScriptTags, repairScriptTags, type ScriptValidationResult } from "@forge/shared/script-tags";
 
 type ScriptValidationState = {
@@ -50,6 +51,7 @@ type RefreshCreditsResult = {
 };
 
 type UseHearthScriptRepairActionsArgs = {
+  operationAuthority: HearthOperationAuthority;
   activeDraft: Draft | null;
   isRepairingScript: boolean;
   isAiProcessing: boolean;
@@ -86,6 +88,7 @@ type UseHearthScriptRepairActionsArgs = {
 export function useHearthScriptRepairActions(args: UseHearthScriptRepairActionsArgs) {
   const onFixScriptFormattingNoAi = useCallback(async () => {
     if (!args.activeDraft) return;
+    const operation = args.operationAuthority.begin("script.format");
     const normalized = normalizeScriptTags(args.activeDraft.body);
     const repaired = repairScriptTags(normalized);
     const { validation } = evaluateHearthScriptValidation(repaired.text);
@@ -108,6 +111,7 @@ export function useHearthScriptRepairActions(args: UseHearthScriptRepairActionsA
       syncSession: false,
       saveReason: "repair:deterministic",
     });
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!saved) return;
 
     const fixedCount = repaired.repairedIssues.length;
@@ -132,6 +136,7 @@ export function useHearthScriptRepairActions(args: UseHearthScriptRepairActionsA
       args.setChatError("Select an Episode or Spark to start.");
       return;
     }
+    const operation = args.operationAuthority.begin("script.repair.ai");
 
     const lane = args.resolveAiLaneFromStorage();
     args.setAiBillingMode(lane);
@@ -164,6 +169,7 @@ export function useHearthScriptRepairActions(args: UseHearthScriptRepairActionsA
         episodeContext,
         { signal: controller.signal },
       );
+      if (!args.operationAuthority.isCurrent(operation)) return;
 
       args.setAiBillingMode(result.runtime.billingMode);
       if (result.runtime.billingMode === "byo") {
@@ -226,6 +232,7 @@ export function useHearthScriptRepairActions(args: UseHearthScriptRepairActionsA
       }
 
       const refreshedCredits = await args.refreshMyAiCredits();
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (refreshedCredits.ok) {
         args.setAiBillingMode(refreshedCredits.runtime.billingMode);
         args.setAiTokenBalance(refreshedCredits.runtime.tokenBalance);
@@ -233,9 +240,13 @@ export function useHearthScriptRepairActions(args: UseHearthScriptRepairActionsA
     } finally {
       if (args.aiRequestControllerRef.current === controller) {
         args.aiRequestControllerRef.current = null;
-        args.setIsAiProcessing(false);
+        if (args.operationAuthority.isCurrent(operation)) {
+          args.setIsAiProcessing(false);
+        }
       }
-      args.setIsRepairingScript(false);
+      if (args.operationAuthority.isCurrent(operation)) {
+        args.setIsRepairingScript(false);
+      }
     }
   }, [args]);
 

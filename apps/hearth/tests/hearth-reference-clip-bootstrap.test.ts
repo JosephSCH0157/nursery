@@ -18,6 +18,8 @@ test("hearthReferenceClipBootstrap: rejects explanatory image beats without an e
         beat_id: "beat-1",
         speaker: "s1",
         beat_index: 2,
+        speaker_order: 1,
+        speaker_turn: 2,
         beat_label: "permit timeline gap",
         cue_phrase: null,
         purpose: "explanation",
@@ -26,7 +28,7 @@ test("hearthReferenceClipBootstrap: rejects explanatory image beats without an e
       description: "Show the permit timeline the headline skipped.",
       visual_intent: "Permit timeline explainer",
       prompt_basis: "permit dates, march route, enforcement shift",
-      style_preset: "documentary_cinematic",
+      style_preset: "cinematic_realism",
       intent: "graphic",
       source_type: "stock",
       visual_priority: "primary",
@@ -63,6 +65,8 @@ test("hearthReferenceClipBootstrap: seeds structured reference clips only from s
         beat_id: "beat-1",
         speaker: "s1",
         beat_index: 2,
+        speaker_order: 1,
+        speaker_turn: 2,
         beat_label: "lobbying spend over time",
         cue_phrase: null,
         purpose: "explanation",
@@ -71,7 +75,7 @@ test("hearthReferenceClipBootstrap: seeds structured reference clips only from s
       description: "Source: OpenSecrets. Show lobbying spend over time from 2000-2024.",
       visual_intent: "OpenSecrets lobbying spend trend graph",
       prompt_basis: "OpenSecrets lobbying spending trend 2000-2024",
-      style_preset: "documentary_cinematic",
+      style_preset: "cinematic_realism",
       intent: "graphic",
       source_type: "stock",
       visual_priority: "primary",
@@ -98,7 +102,7 @@ test("hearthReferenceClipBootstrap: seeds structured reference clips only from s
   assert.equal(result.entries[0]?.description, "Source: OpenSecrets. Show lobbying spend over time from 2000-2024.");
   assert.equal(result.entries[0]?.placement_hint, "exact_timestamp");
   assert.equal(result.entries[0]?.purpose, "explanation");
-  assert.equal(result.entries[0]?.visual_style, "documentary_cinematic");
+  assert.equal(result.entries[0]?.visual_style, "cinematic_realism");
   assert.equal(result.entries[0]?.source, "OpenSecrets");
   assert.equal(result.entries[0]?.subtype, "timeline");
   assert.match(result.entries[0]?.context ?? "", /2000-2024/i);

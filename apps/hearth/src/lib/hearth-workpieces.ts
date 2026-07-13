@@ -1,4 +1,5 @@
 import { tongsFetch } from "./tongs-fetch";
+import { classifyHttpDependencyFailure, HearthDependencyError } from "./hearth-dependency-state";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -182,15 +183,69 @@ export async function listHearthWorkpieces(
   if (!normalizedWorkspaceId) return [];
 
   const search = options?.includeArchived ? "?include_archived=1" : "";
-  const response = await tongsFetch(`/tongs/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/episodes${search}`, {
-    method: "GET",
-  });
+  let response: Response;
+  try {
+    response = await tongsFetch(`/tongs/workspaces/${encodeURIComponent(normalizedWorkspaceId)}/episodes${search}`, {
+      method: "GET",
+    });
+  } catch (error) {
+    throw new HearthDependencyError({
+      dependency: "workpieces",
+      kind: "failed",
+      message: "Failed to load Episodes.",
+      cause: error,
+    });
+  }
   if (!response.ok) {
-    throw new Error("workpiece_list_failed");
+    throw new HearthDependencyError({
+      dependency: "workpieces",
+      kind: classifyHttpDependencyFailure(response.status),
+      status: response.status,
+      message: response.status === 404 || response.status === 501 || response.status === 503
+        ? "Episode discovery is currently unavailable."
+        : "Failed to load Episodes.",
+    });
   }
 
-  const body = await response.json();
-  return parseHearthWorkpiecesPayload(normalizedWorkspaceId, body);
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch (error) {
+    throw new HearthDependencyError({
+      dependency: "workpieces",
+      kind: "failed",
+      status: response.status,
+      message: "Episode discovery returned an unreadable response.",
+      cause: error,
+    });
+  }
+  const episodes = (
+    body
+    && typeof body === "object"
+    && (body as { ok?: unknown }).ok === true
+    && (body as { data?: unknown }).data
+    && typeof (body as { data?: unknown }).data === "object"
+  )
+    ? (body as { data: { episodes?: unknown } }).data.episodes
+    : null;
+  if (!Array.isArray(episodes)) {
+    throw new HearthDependencyError({
+      dependency: "workpieces",
+      kind: "failed",
+      status: response.status,
+      message: "Episode discovery returned a malformed response.",
+    });
+  }
+  const parsed = parseHearthWorkpiecesPayload(normalizedWorkspaceId, body);
+  if (episodes.length > 0 && parsed.length === 0) {
+    throw new HearthDependencyError({
+      dependency: "workpieces",
+      kind: "failed",
+      status: response.status,
+      message: "Episode discovery returned no structurally usable entries.",
+    });
+  }
+  return parsed;
 }
 
 export async function archiveHearthWorkpiece(

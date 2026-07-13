@@ -1,7 +1,17 @@
 import type { JSX, MutableRefObject, MouseEvent, RefObject } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import BackgroundBlurPreviewLayer from "../features/visual-effects/render/backgroundBlurPreviewLayer";
 import EyeContactAssistPreviewLayer from "../features/eye-contact-assist/render/eyeContactAssistPreviewLayer";
+import FaceAnalysisPreviewLayer from "../features/eye-contact-assist/render/faceAnalysisPreviewLayer";
+import type { FaceAnalysisFrame, FaceAnalysisResult } from "../features/eye-contact-assist/types";
+import {
+  resolveCanonicalAutomaticPlacement,
+  type CanonicalAutomaticPlacementResult,
+  type FrameBoundPlacementMatteResult,
+  PlacementAnalysisLifecycle,
+  type FrameBoundPlacementEvidencePair,
+} from "../features/auto-placement";
+import { sameFaceAnalysisFrame } from "../features/eye-contact-assist/analysis/faceAnalysisAuthority";
 import VisualPreviewComposer, { type VisualPreviewOverlayModel } from "../visuals/components/VisualPreviewComposer";
 import { isAutoPlacementDebugFlagEnabled } from "./hammerAutoPlacementDebugFlag";
 
@@ -169,6 +179,14 @@ export type HammerWorkspaceShellPreviewBayVM = {
     debugOverlay: boolean;
     onStatus: (status: any) => void;
   };
+  faceAnalysisDemand?: boolean;
+  automaticPlacement?: {
+    enabled: boolean;
+    overlay: { widthPct: number; heightPct: number } | null;
+    selectionSeed: number;
+    sourcePresentationTimeSec: number;
+    onResult?: (result: CanonicalAutomaticPlacementResult | null) => void;
+  };
 
   visualPreview: {
     isAuthority: boolean;
@@ -184,6 +202,16 @@ export type HammerWorkspaceShellPreviewBayVM = {
 export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorkspaceShellPreviewBayVM }): JSX.Element {
   const vm = props.vm;
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [faceAnalysisResult, setFaceAnalysisResult] = useState<FaceAnalysisResult | null>(null);
+  const [analysisFrame, setAnalysisFrame] = useState<FaceAnalysisFrame | null>(null);
+  const [placementPair, setPlacementPair] = useState<FrameBoundPlacementEvidencePair | null>(null);
+  const placementLifecycle = useMemo(() => new PlacementAnalysisLifecycle(), []);
+  const automaticPlacementEnabled = vm.automaticPlacement?.enabled ?? false;
+  const automaticPlacementOverlayWidthPct = vm.automaticPlacement?.overlay?.widthPct ?? null;
+  const automaticPlacementOverlayHeightPct = vm.automaticPlacement?.overlay?.heightPct ?? null;
+  const automaticPlacementSelectionSeed = vm.automaticPlacement?.selectionSeed ?? 0;
+  const automaticPlacementSourceTimeSec = vm.automaticPlacement?.sourcePresentationTimeSec ?? 0;
+  const onAutomaticPlacementResult = vm.automaticPlacement?.onResult;
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false);
   const visualFx = vm.diagnostics?.snapshot?.visualEffects ?? null;
   const segmentationSummary = (() => {
@@ -215,6 +243,59 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
   const diagnosticsJson = useMemo(() => (
     diagnosticsOpen ? JSON.stringify(vm.diagnostics.snapshot, null, 2) : ""
   ), [diagnosticsOpen, vm.diagnostics.snapshot]);
+
+  const handleCapturedAnalysisFrame = useCallback((frame: FaceAnalysisFrame): void => {
+    setAnalysisFrame(frame);
+    setPlacementPair(placementLifecycle.requestFrame(frame.frameRef));
+  }, [placementLifecycle]);
+  const handleFaceAnalysisResult = useCallback((result: FaceAnalysisResult | null): void => {
+    setFaceAnalysisResult(result);
+    if (!result) return;
+    setPlacementPair(placementLifecycle.acceptFace(result));
+  }, [placementLifecycle]);
+  const handlePlacementMatte = useCallback((matte: FrameBoundPlacementMatteResult): void => {
+    setPlacementPair(placementLifecycle.acceptMatte(matte));
+  }, [placementLifecycle]);
+  const canonicalPlacementResult = useMemo(() => {
+    if (
+      !automaticPlacementEnabled
+      || automaticPlacementOverlayWidthPct === null
+      || automaticPlacementOverlayHeightPct === null
+      || !placementPair
+      || !analysisFrame
+    ) return null;
+    if (!sameFaceAnalysisFrame(placementPair.frameRef, analysisFrame.frameRef)) return null;
+    if (Math.abs(placementPair.frameRef.sourcePresentationTimeSec - automaticPlacementSourceTimeSec) > 0.001) return null;
+    return resolveCanonicalAutomaticPlacement({
+      requestedFrameRef: placementPair.frameRef,
+      matteResult: placementPair.matte,
+      faceResult: placementPair.face,
+      overlay: {
+        width: Math.max(1, placementPair.frameRef.width * (automaticPlacementOverlayWidthPct / 100)),
+        height: Math.max(1, placementPair.frameRef.height * (automaticPlacementOverlayHeightPct / 100)),
+      },
+      selectionSeed: automaticPlacementSelectionSeed,
+      diagnosticsAvailable: vm.diagnostics.enabled,
+    });
+  }, [
+    analysisFrame,
+    automaticPlacementEnabled,
+    automaticPlacementOverlayHeightPct,
+    automaticPlacementOverlayWidthPct,
+    automaticPlacementSelectionSeed,
+    automaticPlacementSourceTimeSec,
+    placementPair,
+    vm.diagnostics.enabled,
+  ]);
+  useEffect(() => {
+    if (automaticPlacementEnabled) return;
+    setAnalysisFrame(null);
+    setPlacementPair(null);
+    placementLifecycle.reset();
+  }, [automaticPlacementEnabled, placementLifecycle]);
+  useEffect(() => {
+    onAutomaticPlacementResult?.(canonicalPlacementResult);
+  }, [canonicalPlacementResult, onAutomaticPlacementResult]);
 
   async function handleCopyDiagnostics(): Promise<void> {
     const payload = JSON.stringify(vm.diagnostics.snapshot, null, 2);
@@ -339,6 +420,8 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
               aria-hidden="true"
             />
           ) : null}
+          {/* The editor exposes the synchronized transcript beside this source preview. */}
+          {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
           <video
             ref={vm.previewAudioRef}
             src={vm.playbackMediaSrc ?? undefined}
@@ -363,6 +446,14 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
             maskPreviewMode={vm.backgroundEffect.maskPreviewMode}
             maskPreviewStage={vm.backgroundEffect.maskPreviewStage}
             onCanvas={vm.backgroundEffect.onCanvas}
+            analysisFrame={vm.automaticPlacement?.enabled ? analysisFrame : null}
+            onPlacementMatte={handlePlacementMatte}
+          />
+          <FaceAnalysisPreviewLayer
+            demand={Boolean(vm.faceAnalysisDemand ?? vm.eyeContactAssist.enabled)}
+            videoRef={vm.previewVideoRef}
+            onResult={handleFaceAnalysisResult}
+            onCapturedFrame={vm.automaticPlacement?.enabled ? handleCapturedAnalysisFrame : undefined}
           />
           <EyeContactAssistPreviewLayer
             enabled={vm.eyeContactAssist.enabled}
@@ -375,6 +466,7 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
             useBackgroundCanvasAsSource={vm.eyeContactAssist.useBackgroundCanvasAsSource}
             debugOverlay={vm.eyeContactAssist.debugOverlay}
             onStatus={vm.eyeContactAssist.onStatus}
+            faceAnalysisResult={faceAnalysisResult}
           />
           <div className="hammer-preview-surface__label">{vm.previewSurfaceLabel}</div>
           <VisualPreviewComposer

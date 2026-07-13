@@ -107,8 +107,15 @@ export function hydrateHammerOpenLaunchContext(args: {
   hydratedSnapshot: HammerPersistenceSnapshot | null;
   initialLaunchContext: HammerLaunchContext | undefined;
   bootstrapLaunchContext: HammerLaunchContext | undefined;
+  allowLegacyEditPlanProjection?: boolean;
 }): HammerOpenHydrationResult {
-  const { target, hydratedSnapshot, initialLaunchContext, bootstrapLaunchContext } = args;
+  const {
+    target,
+    hydratedSnapshot,
+    initialLaunchContext,
+    bootstrapLaunchContext,
+    allowLegacyEditPlanProjection,
+  } = args;
   const persistedCanonicalMissing = Boolean(
     hydratedSnapshot
     && (hydratedSnapshot.state
@@ -151,6 +158,7 @@ export function hydrateHammerOpenLaunchContext(args: {
       target,
       hydratedSnapshot,
       launchContext,
+      { allowLegacyEditPlanProjection },
     );
     if (hydrated) {
       return {
@@ -171,6 +179,7 @@ export function hydrateHammerOpenLaunchContext(args: {
       target,
       hydratedSnapshot,
       launchContext,
+      { allowLegacyEditPlanProjection },
     );
     if (merged) {
       return {

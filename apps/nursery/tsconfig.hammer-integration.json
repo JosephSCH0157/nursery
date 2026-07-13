@@ -1,0 +1,7 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.hammer-integration.tsbuildinfo"
+  },
+  "include": ["src/hammer-production-gate-entry.tsx"]
+}

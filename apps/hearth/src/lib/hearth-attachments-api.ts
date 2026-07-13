@@ -29,7 +29,7 @@ export type HearthUpdateExtractedTextResult =
 
 export type HearthListAttachmentsResult =
   | { ok: true; status: number; attachments: HearthAttachmentRecord[] }
-  | { ok: false; status: number; error: string };
+  | { ok: false; status: number; reason: "unavailable" | "failed"; error: string };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -98,9 +98,19 @@ export async function listHearthAttachments(args: {
     episode_id: args.episodeId,
   });
 
-  const response = await tongsFetch(`/tongs/hearth/attachments?${params.toString()}`, {
-    method: "GET",
-  });
+  let response: Response;
+  try {
+    response = await tongsFetch(`/tongs/hearth/attachments?${params.toString()}`, {
+      method: "GET",
+    });
+  } catch {
+    return {
+      ok: false,
+      status: 0,
+      reason: "failed",
+      error: "Unable to load attachments.",
+    };
+  }
 
   let payload: unknown = null;
   try {
@@ -111,9 +121,10 @@ export async function listHearthAttachments(args: {
 
   if (response.status === 404) {
     return {
-      ok: true,
+      ok: false,
       status: response.status,
-      attachments: [],
+      reason: "unavailable",
+      error: "Attachment discovery is currently unavailable.",
     };
   }
 
@@ -124,19 +135,35 @@ export async function listHearthAttachments(args: {
     return {
       ok: false,
       status: response.status,
+      reason: response.status === 501 || response.status === 503 ? "unavailable" : "failed",
       error: readApiError(payload, fallback),
     };
   }
 
-  const rows = isRecord(payload) && isRecord(payload.data) && Array.isArray(payload.data.attachments)
-    ? payload.data.attachments
-    : [];
+  if (!isRecord(payload) || payload.ok !== true || !isRecord(payload.data) || !Array.isArray(payload.data.attachments)) {
+    return {
+      ok: false,
+      status: response.status,
+      reason: "failed",
+      error: "Attachment discovery returned a malformed response.",
+    };
+  }
+  const rows = payload.data.attachments;
+  const attachments = rows
+    .map((row) => normalizeAttachment(row))
+    .filter((row): row is HearthAttachmentRecord => !!row);
+  if (rows.length > 0 && attachments.length === 0) {
+    return {
+      ok: false,
+      status: response.status,
+      reason: "failed",
+      error: "Attachment discovery returned no structurally usable entries.",
+    };
+  }
   return {
     ok: true,
     status: response.status,
-    attachments: rows
-      .map((row) => normalizeAttachment(row))
-      .filter((row): row is HearthAttachmentRecord => !!row),
+    attachments,
   };
 }
 

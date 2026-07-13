@@ -1,8 +1,10 @@
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { JSX } from "react";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
-import { normalizeHammerOrchestrationState } from "../../../../packages/tongs/src/hammer-orchestration-contract";
-import { HAMMER_PASS_ORDER_VERSION } from "../../../../packages/tongs/src/hammer-orchestration-contract";
+import {
+  HAMMER_PASS_ORDER_VERSION,
+  normalizeHammerOrchestrationState,
+} from "../../../../packages/tongs/src/hammer-orchestration-contract";
 import HammerWorkspaceShell from "./HammerWorkspaceShell";
 import type { HammerPlacementOutboundDiagnostics, HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
 import {
@@ -21,7 +23,13 @@ import {
   normalizeTranscriptVersionRegistry,
   HAMMER_TRANSCRIPT_VERSIONS_ARTIFACT_PATH,
 } from "../transcript/hammerTranscriptVersionRegistry";
-import type { HammerPersistedTranscriptVersionRegistry } from "../persistence/hammerPersistenceContract";
+import type {
+  HammerPersistedTranscriptVersionRegistry,
+  HammerPersistenceSaveRequest,
+  HammerPersistenceSnapshot,
+  HammerPersistenceTarget,
+  HammerPresenceRow,
+} from "../persistence/hammerPersistenceContract";
 import { applyHammerSessionAction } from "./hammerSessionActions";
 import {
   resolveHammerReloadFailure,
@@ -34,6 +42,8 @@ import { deriveHammerIssueDiagnostics, type HammerIssueFixActionId } from "./ham
 import { HammerWorkspaceDiagnosticsBanner } from "./HammerWorkspaceDiagnosticsBanner";
 import { HammerIngestDiagnosticsPanel } from "./HammerIngestDiagnosticsPanel";
 import { deriveRegenProgressLabel, resolveIngestSelectedSource } from "./hammerRegenTranscriptUiState";
+import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
+import { deriveLegacyVisualPlacementsFromTimeline } from "../visuals/persistence/hammerVisualTimelineLegacyAdapter";
 
 type HammerAiTranscriptRegenerationResult = {
   finished_at: string;
@@ -111,12 +121,6 @@ import {
   saveHammerPersistenceSnapshot,
   upsertHammerPresence,
 } from "../persistence/hammerPersistence";
-import type {
-  HammerPersistenceSaveRequest,
-  HammerPersistenceSnapshot,
-  HammerPersistenceTarget,
-  HammerPresenceRow,
-} from "../persistence/hammerPersistenceContract";
 import {
   loadHammerCanonicalBaselineArtifacts,
   loadHammerRecordingRevisionArtifacts,
@@ -225,6 +229,7 @@ export interface HammerWorkspaceEditorProps {
   prepAiNoticeResolutionError?: string | null;
   onPrepAiNoticeAcknowledgeLane?: (laneSignature: string) => void | Promise<void>;
   onRequestAiSettings?: () => void;
+  visualTimelineOverride?: HammerVisualTimelineState | null;
 }
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -239,6 +244,7 @@ type HammerCanonicalOpenHydrationResult = {
   reloadOutcome: "success" | "failure";
   effectiveLaunchContext?: HammerLaunchContext;
   hasCanonicalBasis: boolean;
+  reopenPersistenceSource: "persistence" | "launch" | "bootstrap" | "transitional" | "none";
   loadedPersistenceSnapshot: HammerPersistenceSnapshot | null;
   activeCanonicalRecording: HammerCanonicalRecordingRecord | null;
   activeRevision: HammerRecordingRevisionRecord | null;
@@ -631,6 +637,9 @@ export default function HammerWorkspaceEditor(
   );
   const [hydrationReady, setHydrationReady] = useState(persistenceMode !== "canonical");
   const [hasCanonicalBasis, setHasCanonicalBasis] = useState(Boolean(incomingLaunchContext));
+  const [reopenPersistenceSource, setReopenPersistenceSource] = useState<
+    "persistence" | "launch" | "bootstrap" | "transitional" | "none" | null
+  >(incomingLaunchContext ? "launch" : null);
   const [workspaceSnapshot, setWorkspaceSnapshot] = useState<HammerWorkspaceSnapshot | null>(null);
   const [prepVoiceLine, setPrepVoiceLine] = useState<string | null>(null);
   const [prepVoiceOpacity, setPrepVoiceOpacity] = useState(1);
@@ -1510,6 +1519,7 @@ export default function HammerWorkspaceEditor(
       setPrepState(createHammerPrepState("idle", null));
       setHydrationReady(true);
       setHasCanonicalBasis(Boolean(incomingLaunchContext));
+      setReopenPersistenceSource(incomingLaunchContext ? "launch" : "none");
       return;
     }
 
@@ -1520,6 +1530,7 @@ export default function HammerWorkspaceEditor(
       setPrepState(createHammerPrepState("preparing", "loading_context"));
       setHydrationReady(false);
       setHasCanonicalBasis(Boolean(incomingLaunchContext));
+      setReopenPersistenceSource(incomingLaunchContext ? "launch" : "none");
       return;
     }
 
@@ -1528,6 +1539,7 @@ export default function HammerWorkspaceEditor(
     let active = true;
     setHydrationReady(false);
     setHasCanonicalBasis(Boolean(incomingLaunchContext));
+    setReopenPersistenceSource(incomingLaunchContext ? "launch" : "none");
     setPrepState(createHammerPrepState("preparing", "loading_context"));
 
     const canonicalOpenKey = `${targetKey ?? "hammer"}:reload:${reloadRequestNonce}`;
@@ -1575,11 +1587,13 @@ export default function HammerWorkspaceEditor(
 
         let nextLaunchContext = incomingLaunchContext;
         let nextHasCanonicalBasis = Boolean(nextLaunchContext);
+        let nextReopenPersistenceSource: HammerCanonicalOpenHydrationResult["reopenPersistenceSource"] =
+          incomingLaunchContext ? "launch" : "none";
 
         let hydratedSnapshot: HammerPersistenceSnapshot | null = null;
         let nextActiveCanonicalRecording: HammerCanonicalRecordingRecord | null = null;
         let nextActiveRevision: HammerRecordingRevisionRecord | null = null;
-        let revisionTranscriptLoadOk = false;
+        const revisionTranscriptLoadOk = false;
         let transcriptSource = "none";
         let registeredTranscriptPath: string | null = null;
 
@@ -1609,6 +1623,7 @@ export default function HammerWorkspaceEditor(
             reloadOutcome: "success",
             effectiveLaunchContext: nextLaunchContext,
             hasCanonicalBasis: false,
+            reopenPersistenceSource: nextReopenPersistenceSource,
             loadedPersistenceSnapshot: null,
             activeCanonicalRecording: null,
             activeRevision: null,
@@ -1782,7 +1797,7 @@ export default function HammerWorkspaceEditor(
               timestamp: new Date().toISOString(),
             });
 
-            let localAnvilRecoveryResult: {
+            const localAnvilRecoveryResult: {
               scan_attempted: boolean;
               match_found: boolean;
               capture_session_id: string | null;
@@ -1897,6 +1912,7 @@ export default function HammerWorkspaceEditor(
           });
           nextLaunchContext = withSessionId(openHydration.launchContext);
           nextHasCanonicalBasis = openHydration.hasCanonicalBasis;
+          nextReopenPersistenceSource = openHydration.persistenceSource;
 
           if (nextLaunchContext && hydratedTranscript?.segments.length) {
             nextLaunchContext = {
@@ -1940,9 +1956,11 @@ export default function HammerWorkspaceEditor(
             });
             nextLaunchContext = withSessionId(mergedHydration.launchContext);
             nextHasCanonicalBasis = mergedHydration.hasCanonicalBasis;
+            nextReopenPersistenceSource = mergedHydration.persistenceSource;
           } catch {
             nextLaunchContext = undefined;
             nextHasCanonicalBasis = false;
+            nextReopenPersistenceSource = incomingLaunchContext ? "launch" : "none";
           }
         }
 
@@ -1950,6 +1968,7 @@ export default function HammerWorkspaceEditor(
           reloadOutcome: "success",
           effectiveLaunchContext: nextLaunchContext,
           hasCanonicalBasis: nextHasCanonicalBasis,
+          reopenPersistenceSource: nextReopenPersistenceSource,
           loadedPersistenceSnapshot: hydratedSnapshot,
           activeCanonicalRecording: nextActiveCanonicalRecording,
           activeRevision: nextActiveRevision,
@@ -1985,6 +2004,7 @@ export default function HammerWorkspaceEditor(
         setEffectiveLaunchContext(result.effectiveLaunchContext);
         applyHostLoopState(resolveHammerReloadSuccess(hostLoopStateRef.current));
         setHasCanonicalBasis(result.hasCanonicalBasis);
+        setReopenPersistenceSource(result.reopenPersistenceSource);
         setHydrationReady(true);
       })
       .catch(async (error) => {
@@ -2015,6 +2035,7 @@ export default function HammerWorkspaceEditor(
         });
         applyHostLoopState(resolveHammerReloadFailure(hostLoopStateRef.current));
         setHasCanonicalBasis(nextHasCanonicalBasis);
+        setReopenPersistenceSource(nextLaunchContext ? "bootstrap" : "none");
         if (ingestDiagnosticRef.current && persistenceTarget) {
           ingestDiagnosticRef.current.final_status = "blocked";
           ingestDiagnosticRef.current.timestamp = new Date().toISOString();
@@ -4057,7 +4078,11 @@ export default function HammerWorkspaceEditor(
     authState: authBootGateState,
   });
   const shouldRenderEditor = persistenceMode !== "canonical" || prepState.status === "prepared";
-  const visualPlacementData = loadedPersistenceSnapshot?.visual_placements.data ?? null;
+  const visualPlacementData = useMemo(() => (
+    props.visualTimelineOverride
+      ? deriveLegacyVisualPlacementsFromTimeline(props.visualTimelineOverride)
+      : loadedPersistenceSnapshot?.visual_placements.data ?? null
+  ), [loadedPersistenceSnapshot?.visual_placements.data, props.visualTimelineOverride]);
   const visualPlacementCounts = useMemo(() => {
     if (!visualPlacementData) {
       return { total: null as number | null, uncertain: null as number | null };
@@ -4070,8 +4095,8 @@ export default function HammerWorkspaceEditor(
     return { total, uncertain };
   }, [visualPlacementData]);
   const visualTimelineData = useMemo(
-    () => loadHammerVisualTimelineStateFromSnapshot(loadedPersistenceSnapshot),
-    [loadedPersistenceSnapshot],
+    () => props.visualTimelineOverride ?? loadHammerVisualTimelineStateFromSnapshot(loadedPersistenceSnapshot),
+    [loadedPersistenceSnapshot, props.visualTimelineOverride],
   );
   const audioPolishData = loadedPersistenceSnapshot?.audio_polish.data ?? null;
   const handoffMediaPrepOutputs = useMemo(
@@ -4145,9 +4170,11 @@ export default function HammerWorkspaceEditor(
     mediaLabelMismatchWarning: workspaceSnapshot?.diagnostics?.mediaLabelMismatchWarning ?? null,
     actualRecordingMismatchWarning: workspaceSnapshot?.diagnostics?.actualRecordingMismatchWarning ?? null,
     jobsStatusUnavailable,
+    reopenPersistenceSource,
   }), [
     handoffMediaPrepOutputs,
     jobsStatusUnavailable,
+    reopenPersistenceSource,
     sessionState,
     workspaceSnapshot?.diagnostics?.actualRecordingMismatchWarning,
     workspaceSnapshot?.diagnostics?.mediaLabelMismatchWarning,

@@ -1,5 +1,6 @@
 import { useCallback, useRef, type Dispatch, type SetStateAction } from "react";
 import type { HearthReadyScript } from "../lib/hearth-ready-scripts";
+import { describeHearthDependencyFailure } from "../lib/hearth-dependency-state";
 
 type UseHearthReadyScriptsLifecycleArgs = {
   workspaceId: string | null;
@@ -42,11 +43,11 @@ export function useHearthReadyScriptsLifecycle(args: UseHearthReadyScriptsLifecy
       if (readyScriptsRequestSeqRef.current !== requestSeq) return;
       setReadyScripts(entries);
       setReadyScriptsWorkspaceId(workspace);
-    } catch {
+    } catch (error) {
       if (readyScriptsRequestSeqRef.current !== requestSeq) return;
       setReadyScripts([]);
       setReadyScriptsWorkspaceId(null);
-      setReadyScriptsError("Failed to load Ready to Record list.");
+      setReadyScriptsError(describeHearthDependencyFailure(error, "Failed to load Ready to Record list."));
     } finally {
       if (readyScriptsRequestSeqRef.current === requestSeq) {
         setIsReadyScriptsLoading(false);

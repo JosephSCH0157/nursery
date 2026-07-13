@@ -8,19 +8,13 @@ import {
 import {
   readWorkpieceEpisodeMediaMap,
 } from "../../lib/hearth-media-map-repo";
-import type {
-  EpisodeImageMapEntry,
-  EpisodePackageV2,
-  EpisodeSpokenBeat,
-} from "../../lib/episode-package-v2";
+import type { EpisodePackageV2 } from "../../lib/episode-package-v2";
+import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
+import { resolveCanonicalVisualArtifacts } from "../../lib/hearth-visual-artifact-authority";
 
 type UseEpisodePackageLoaderArgs = {
+  operationAuthority: HearthOperationAuthority;
   workpieceId: string | null;
-  replaceEpisodePackageImageMap: (
-    episodePackage: EpisodePackageV2,
-    entries: EpisodeImageMapEntry[],
-    spokenBeats: EpisodeSpokenBeat[],
-  ) => EpisodePackageV2;
   resetReleasePrepState: () => void;
   setEpisodePackage: Dispatch<SetStateAction<EpisodePackageV2 | null>>;
   setImageMapMetadataUpdatedAt: Dispatch<SetStateAction<string | null>>;
@@ -106,10 +100,17 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
       artifactStateWorkpieceIdRef.current = null;
       return;
     }
+    const operation = currentArgs.operationAuthority.begin("visuals.package.load");
 
     try {
-      const loaded = await readEpisodePackageForWorkpiece(episodeId);
+      const [loaded, imageMapLoaded, mediaMapLoaded] = await Promise.all([
+        readEpisodePackageForWorkpiece(episodeId),
+        getWorkpieceImageMap(episodeId),
+        readWorkpieceEpisodeMediaMap(episodeId),
+      ]);
       if (
+        !currentArgs.operationAuthority.isCurrent(operation)
+        ||
         episodePackageRequestSeqRef.current !== requestSeq
         || (latestArgsRef.current.workpieceId?.trim() ?? "") !== episodeId
       ) {
@@ -123,58 +124,58 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
         return;
       }
 
-      // Paint baseline episode package immediately so the primary list content can render
-      // before slower image/media map hydration calls complete.
-      currentArgs.setEpisodePackage(loaded.episodePackage);
-      artifactStateWorkpieceIdRef.current = episodeId;
-      currentArgs.setThumbnailGenerateError(null);
-      currentArgs.setImageMapSaveError(null);
-      {
-        const versions = loaded.episodePackage.thumbnail.versions;
-        const preferredVersionId = loaded.episodePackage.thumbnail.primary_version_id
-          ?? versions[versions.length - 1]?.id
-          ?? null;
-        currentArgs.setSelectedThumbnailVersionId(preferredVersionId);
-        const initialImageEntries = loaded.episodePackage.image_map.entries;
-        currentArgs.setSelectedImageMapEntryId((prev) => {
-          if (prev && initialImageEntries.some((entry) => entry.id === prev)) return prev;
-          return initialImageEntries[0]?.id ?? null;
-        });
-      }
-
-      const [imageMapLoaded, mediaMapLoaded] = await Promise.all([
-        getWorkpieceImageMap(episodeId),
-        readWorkpieceEpisodeMediaMap(episodeId),
-      ]);
-      if (
-        episodePackageRequestSeqRef.current !== requestSeq
-        || (latestArgsRef.current.workpieceId?.trim() ?? "") !== episodeId
-      ) {
-        return;
-      }
-
-      let nextEpisodePackage = loaded.episodePackage;
+      const nextEpisodePackage = resolveCanonicalVisualArtifacts({
+        metadataPackage: loaded.episodePackage,
+        imageMap: imageMapLoaded.ok
+          ? {
+            kind: "available",
+            value: {
+              entries: imageMapLoaded.imageMap.entries,
+              spokenBeats: imageMapLoaded.imageMap.spokenBeats,
+            },
+          }
+          : { kind: "unavailable" },
+        mediaMap: mediaMapLoaded.ok && mediaMapLoaded.mediaMap
+          ? {
+            kind: "available",
+            value: {
+              ...mediaMapLoaded.mediaMap,
+              workpiece_id: episodeId,
+            },
+          }
+          : mediaMapLoaded.ok
+            ? { kind: "missing" }
+            : { kind: "unavailable" },
+      });
       if (imageMapLoaded.ok) {
-        nextEpisodePackage = currentArgs.replaceEpisodePackageImageMap(
-          loaded.episodePackage,
-          imageMapLoaded.imageMap.entries,
-          imageMapLoaded.imageMap.spokenBeats,
-        );
         currentArgs.setImageMapMetadataUpdatedAt(imageMapLoaded.imageMap.metadataUpdatedAt);
+        currentArgs.setImageMapSaveState("saved");
+        currentArgs.setImageMapSaveError(null);
       } else {
         currentArgs.setImageMapMetadataUpdatedAt(null);
+        currentArgs.setImageMapSaveState("error");
+        currentArgs.setImageMapSaveError(
+          "error" in imageMapLoaded && typeof imageMapLoaded.error === "string"
+            ? imageMapLoaded.error
+            : "Image-map discovery is currently unavailable.",
+        );
       }
-      if (mediaMapLoaded.ok && mediaMapLoaded.mediaMap) {
-        nextEpisodePackage = {
-          ...nextEpisodePackage,
-          media_map: {
-            ...mediaMapLoaded.mediaMap,
-            workpiece_id: episodeId,
-          },
-        };
+      if (mediaMapLoaded.ok) {
+        currentArgs.setMediaMapSaveState("saved");
+        currentArgs.setMediaMapSaveError(null);
+      } else {
+        currentArgs.setMediaMapSaveState("error");
+        currentArgs.setMediaMapSaveError(mediaMapLoaded.error);
       }
 
       currentArgs.setEpisodePackage(nextEpisodePackage);
+      artifactStateWorkpieceIdRef.current = episodeId;
+      currentArgs.setThumbnailGenerateError(null);
+      const versions = nextEpisodePackage.thumbnail.versions;
+      const preferredVersionId = nextEpisodePackage.thumbnail.primary_version_id
+        ?? versions[versions.length - 1]?.id
+        ?? null;
+      currentArgs.setSelectedThumbnailVersionId(preferredVersionId);
       const imageEntries = nextEpisodePackage.image_map.entries;
       currentArgs.setSelectedImageMapEntryId((prev) => {
         if (prev && imageEntries.some((entry) => entry.id === prev)) return prev;
@@ -182,6 +183,8 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
       });
     } catch {
       if (
+        !currentArgs.operationAuthority.isCurrent(operation)
+        ||
         episodePackageRequestSeqRef.current !== requestSeq
         || (latestArgsRef.current.workpieceId?.trim() ?? "") !== episodeId
       ) {

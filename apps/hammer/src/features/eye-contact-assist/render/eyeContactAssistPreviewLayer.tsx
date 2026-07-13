@@ -5,12 +5,13 @@ import type {
   FaceLandmarkProviderReadiness,
   FaceLandmarksFrame,
   GazeEstimate,
+  FaceAnalysisResult,
 } from "../types";
-import { createFaceLandmarkProvider, isFaceLandmarkProviderId, type FaceLandmarkProviderId } from "../providers/faceLandmarkProviderRegistry";
 import { estimateGaze } from "../analysis/gazeEstimator";
 import { decideEyeContactAssistApplicability, type EyeRegionStabilityHistory } from "../analysis/applicability";
 import { smoothGazeCorrection, type TemporalGazeState } from "../analysis/temporalGazeSmoother";
 import { EyeContactAssistRenderer } from "./eyeContactAssistRenderer";
+import { selectEyeContactEvidence } from "../analysis/faceAnalysisAuthority";
 
 export type HammerEyeContactAssistRuntimeStatus = {
   provider: {
@@ -66,27 +67,6 @@ function computeCanvasSize(args: { element: HTMLCanvasElement; dpr: number }): {
   return { width, height };
 }
 
-function useDefaultFaceLandmarkProvider(enabled: boolean, providerId: FaceLandmarkProviderId) {
-  const providerRef = useRef<ReturnType<typeof createFaceLandmarkProvider> | null>(null);
-  const lastProviderIdRef = useRef<FaceLandmarkProviderId | null>(null);
-
-  if (!providerRef.current || lastProviderIdRef.current !== providerId) {
-    void providerRef.current?.dispose();
-    providerRef.current = createFaceLandmarkProvider(providerId);
-    lastProviderIdRef.current = providerId;
-  }
-
-  useEffect(() => {
-    if (!enabled) return;
-    void providerRef.current?.initialize();
-    return () => {
-      // Keep provider alive while editor is open. Dispose on unmount only.
-    };
-  }, [enabled]);
-
-  return providerRef.current!;
-}
-
 function computeContainTransform(args: {
   canvasWidth: number;
   canvasHeight: number;
@@ -112,14 +92,11 @@ export default function EyeContactAssistPreviewLayer(props: {
   backgroundCanvasRef?: React.RefObject<HTMLCanvasElement | null>;
   useBackgroundCanvasAsSource?: boolean;
   onStatus?: (status: HammerEyeContactAssistRuntimeStatus) => void;
+  faceAnalysisResult: FaceAnalysisResult | null;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const resolvedProviderId: FaceLandmarkProviderId = isFaceLandmarkProviderId(props.providerId)
-    ? props.providerId
-    : "mediapipe_face_landmarker";
-  const provider = useDefaultFaceLandmarkProvider(props.enabled, resolvedProviderId);
-
   const renderer = useMemo(() => new EyeContactAssistRenderer(), []);
+  const providerName = "mediapipe_face_landmarker";
 
   const baseFrameCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const baseFrameCtxRef = useRef<CanvasRenderingContext2D | null>(null);
@@ -132,7 +109,7 @@ export default function EyeContactAssistPreviewLayer(props: {
   const lastProcessedAtMsRef = useRef<number | null>(null);
 
   const [runtimeStatus, setRuntimeStatus] = useState<HammerEyeContactAssistRuntimeStatus>(() => ({
-    provider: { name: provider.name, readiness: provider.getReadiness() },
+    provider: { name: providerName, readiness: { status: "idle" } },
     enabled: props.settings.enabled,
     strength: props.settings.strength,
     active: false,
@@ -187,7 +164,7 @@ export default function EyeContactAssistPreviewLayer(props: {
         ctx?.clearRect(0, 0, canvas?.width ?? 0, canvas?.height ?? 0);
         setRuntimeStatus((prev) => ({
           ...prev,
-          provider: { name: provider.name, readiness: provider.getReadiness() },
+          provider: { name: providerName, readiness: { status: "idle" } },
           enabled: props.settings.enabled,
           strength: props.settings.strength,
           active: false,
@@ -248,37 +225,18 @@ export default function EyeContactAssistPreviewLayer(props: {
 
       let frame: FaceLandmarksFrame | null = null;
       let gaze: GazeEstimate | null = null;
-      let providerMs: number | null = null;
+      const providerMs: number | null = null;
       const warnings: string[] = [];
-      const readiness = provider.getReadiness();
-
-      try {
-        const providerStart = nowMs();
-        frame = await provider.analyzeFrame({ video, timestampSec: video.currentTime });
-        const providerEnd = nowMs();
-        providerMs = roundToTenth(providerEnd - providerStart);
-      } catch (error) {
-        warnings.push(`provider_error:${error instanceof Error ? error.message : String(error)}`);
-        const ctx = canvas.getContext("2d");
-        ctx?.clearRect(0, 0, canvas.width, canvas.height);
-        setRuntimeStatus((prev) => ({
-          ...prev,
-          provider: { name: provider.name, readiness: provider.getReadiness() },
-          enabled: props.settings.enabled,
-          strength: props.settings.strength,
-          active: false,
-          disabledReason: "low_confidence",
-          disabledDetail: "provider_error",
-          timing: {
-            ...prev.timing,
-            lastProviderMs: providerMs,
-            avgProviderMs: prev.timing.avgProviderMs,
-          },
-          warnings,
-          debug: props.debugOverlay ? { applicabilityReasons: [], smoothingResetReasons: [] } : undefined,
-        }));
-        return;
-      }
+      const analysis = props.faceAnalysisResult;
+      const readiness: FaceLandmarkProviderReadiness = analysis?.kind === "unavailable"
+        ? { status: "failed", error: analysis.reason }
+        : analysis ? { status: "ready" } : { status: "idle" };
+      if (analysis?.kind === "success") {
+        frame = selectEyeContactEvidence(analysis.faces);
+        warnings.push(...analysis.warnings);
+        if (!frame && analysis.faces.length > 0) warnings.push("no_eye_contact_eligible_face");
+      } else if (analysis?.kind === "failed") warnings.push(`provider_error:${analysis.reason}`);
+      else if (analysis?.kind === "unavailable") warnings.push(`provider_unavailable:${analysis.reason}`);
 
       if (frame) {
         gaze = estimateGaze(frame);
@@ -297,7 +255,7 @@ export default function EyeContactAssistPreviewLayer(props: {
       const smoothing = smoothGazeCorrection({
         previous: temporalRef.current,
         next: {
-          providerName: provider.name,
+          providerName,
           timestampSec: frame?.sourceTimestampSec ?? video.currentTime,
           confidence: gaze?.confidenceScore ?? 0,
           correctionX: gaze?.combined.correctionX ?? 0,
@@ -343,7 +301,7 @@ export default function EyeContactAssistPreviewLayer(props: {
       warnings.push(...result.warnings);
 
       setRuntimeStatus({
-        provider: { name: provider.name, readiness },
+        provider: { name: providerName, readiness },
         enabled: props.settings.enabled,
         strength: props.settings.strength,
         active: Boolean(result.applied) && applicability.active,
@@ -376,8 +334,12 @@ export default function EyeContactAssistPreviewLayer(props: {
     }
 
     const video = props.videoRef.current;
-    const requestVideoFrameCallback = video ? (video as any).requestVideoFrameCallback?.bind(video) as ((cb: () => void) => number) | null : null;
-    const cancelVideoFrameCallback = video ? (video as any).cancelVideoFrameCallback?.bind(video) as ((handle: number) => void) | null : null;
+    const videoFrameSource = video as (HTMLVideoElement & {
+      requestVideoFrameCallback?: (callback: () => void) => number;
+      cancelVideoFrameCallback?: (handle: number) => void;
+    }) | null;
+    const requestVideoFrameCallback = videoFrameSource?.requestVideoFrameCallback?.bind(videoFrameSource) ?? null;
+    const cancelVideoFrameCallback = videoFrameSource?.cancelVideoFrameCallback?.bind(videoFrameSource) ?? null;
     if (video && typeof requestVideoFrameCallback === "function") {
       let handle = 0;
       const loop = () => {
@@ -402,10 +364,10 @@ export default function EyeContactAssistPreviewLayer(props: {
       window.cancelAnimationFrame(raf);
     };
   }, [
-    provider,
     props.backgroundCanvasRef,
     props.debugOverlay,
     props.enabled,
+    props.faceAnalysisResult,
     props.settings,
     props.useBackgroundCanvasAsSource,
     props.videoRef,

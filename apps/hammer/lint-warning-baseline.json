@@ -1,0 +1,21 @@
+{
+  "description": "Per-file ceilings for pre-existing react-hooks/exhaustive-deps warnings. New lint errors and all other warnings fail immediately.",
+  "files": {
+    "src/editor/HammerWorkspaceDiagnosticsBanner.tsx": 1,
+    "src/editor/HammerWorkspaceEditor.tsx": 12,
+    "src/editor/HammerWorkspaceShell.tsx": 25,
+    "src/editor/HammerWorkspaceShellPreviewBay.tsx": 1,
+    "src/editor/HammerWorkspaceShellSourceBay.tsx": 1,
+    "src/editor/hammerWorkspaceShellHistoryController.ts": 1,
+    "src/editor/hammerWorkspaceShellSnapshotEmitter.ts": 1,
+    "src/editor/useHammerWorkspaceShellPlayback.ts": 20,
+    "src/editor/useHammerWorkspaceShellPreviewRuntime.ts": 2,
+    "src/editor/useHammerWorkspaceShellReleasePrep.ts": 3,
+    "src/editor/useHammerWorkspaceShellSourceDeskController.ts": 4,
+    "src/editor/useHammerWorkspaceShellVisualEditing.ts": 8,
+    "src/features/eye-contact-assist/render/eyeContactAssistPreviewLayer.tsx": 1,
+    "src/features/eye-contact-assist/render/faceAnalysisPreviewLayer.tsx": 1,
+    "src/features/visual-effects/render/backgroundBlurPreviewLayer.tsx": 2,
+    "src/visuals/state/useHammerVisualTimeline.ts": 1
+  }
+}

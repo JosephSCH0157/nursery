@@ -5,13 +5,11 @@ import {
   moveSegmentTiming,
   resolvePlayheadSegment,
   trimSegmentEndTiming,
-  trimSegmentStartTiming,
   updateSegmentInTimeline,
 } from "../src/editor/hammerWorkspaceTimeline";
 import {
   resolveSelectedSegmentId,
   syncEditableTranscriptSegments,
-  updateTranscriptSegmentSpeaker,
   updateTranscriptSegmentText,
 } from "../src/editor/hammerWorkspaceTranscript";
 
@@ -90,7 +88,7 @@ async function keeps_selection_locked_during_timing_edits() {
 
 async function playhead_updates_active_segment_without_scroll_thrash() {
   const source = await readFile(
-    "d:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceShell.tsx",
+    new URL("../src/editor/HammerWorkspaceShell.tsx", import.meta.url),
     "utf-8",
   );
 
@@ -140,7 +138,7 @@ async function timing_clamp_shows_hint_only_when_adjusted() {
   assert.equal(trimmedEnd.end_sec, 2.1);
 
   const source = await readFile(
-    "d:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceShell.tsx",
+    new URL("../src/editor/HammerWorkspaceShell.tsx", import.meta.url),
     "utf-8",
   );
 
@@ -159,7 +157,7 @@ async function timing_clamp_shows_hint_only_when_adjusted() {
 
 async function modified_markers_persist_until_authoritative_acceptance() {
   const source = await readFile(
-    "d:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceShell.tsx",
+    new URL("../src/editor/HammerWorkspaceShell.tsx", import.meta.url),
     "utf-8",
   );
 

@@ -121,7 +121,7 @@ function buildContext(overrides: Partial<HammerPassSelectorContext> = {}): Hamme
   assert.equal(persistedPosture.currentPass, "image_animation");
   assert.equal(result.status, "blocked");
   assert.equal(result.isComplete, false);
-  assert.equal(getPassReloadExpectation("image_animation").code, "restore_image_animation");
+  assert.equal(getPassReloadExpectation("image_animation").code, "restore_visual_basis");
 }
 
 {

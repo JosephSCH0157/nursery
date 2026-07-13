@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 import type {
   EpisodeLaunchVariant,
   EpisodePackageV2,
@@ -7,6 +8,7 @@ import type {
 } from "../../lib/episode-package-v2";
 
 type UseThumbnailConceptActionsArgs = {
+  operationAuthority: HearthOperationAuthority;
   episodePackage: EpisodePackageV2 | null;
   thumbnailVersions: EpisodeThumbnailVersion[];
   launchVariants: EpisodeLaunchVariant[];
@@ -77,6 +79,7 @@ export function useThumbnailConceptActions(args: UseThumbnailConceptActionsArgs)
     };
 
     args.setIsThumbnailConceptSaving(true);
+    const operation = args.operationAuthority.begin("thumbnail.concept.create");
     args.setThumbnailGenerateError(null);
     try {
       const saved = await args.persistThumbnailEpisodePackage(
@@ -84,10 +87,11 @@ export function useThumbnailConceptActions(args: UseThumbnailConceptActionsArgs)
         "hearth.thumbnail.concept.created.v1",
         { concept_id: concept.id },
       );
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved) return;
       args.setSelectedThumbnailConceptId(concept.id);
     } finally {
-      args.setIsThumbnailConceptSaving(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsThumbnailConceptSaving(false);
     }
   }, [args]);
 
@@ -124,6 +128,7 @@ export function useThumbnailConceptActions(args: UseThumbnailConceptActionsArgs)
     };
 
     args.setIsThumbnailConceptSaving(true);
+    const operation = args.operationAuthority.begin("thumbnail.concept.save");
     args.setThumbnailGenerateError(null);
     try {
       await args.persistThumbnailEpisodePackage(
@@ -131,8 +136,9 @@ export function useThumbnailConceptActions(args: UseThumbnailConceptActionsArgs)
         "hearth.thumbnail.concept.updated.v1",
         { concept_id: args.selectedThumbnailConceptId },
       );
+      if (!args.operationAuthority.isCurrent(operation)) return;
     } finally {
-      args.setIsThumbnailConceptSaving(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsThumbnailConceptSaving(false);
     }
   }, [args]);
 
@@ -161,6 +167,7 @@ export function useThumbnailConceptActions(args: UseThumbnailConceptActionsArgs)
     };
 
     args.setIsThumbnailConceptSaving(true);
+    const operation = args.operationAuthority.begin("thumbnail.concept.delete");
     args.setThumbnailGenerateError(null);
     try {
       const saved = await args.persistThumbnailEpisodePackage(
@@ -168,11 +175,12 @@ export function useThumbnailConceptActions(args: UseThumbnailConceptActionsArgs)
         "hearth.thumbnail.concept.deleted.v1",
         { concept_id: args.selectedThumbnailConceptId },
       );
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved) return;
       args.setSelectedThumbnailConceptId(nextSelectedConceptId);
       args.setSelectedThumbnailVersionId(nextSelectedVersionId);
     } finally {
-      args.setIsThumbnailConceptSaving(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsThumbnailConceptSaving(false);
     }
   }, [args]);
 
@@ -181,6 +189,7 @@ export function useThumbnailConceptActions(args: UseThumbnailConceptActionsArgs)
     if (!args.episodePackage) return;
     const version = args.episodePackage.thumbnail.versions.find((entry) => entry.id === versionId);
     if (!version || version.status !== "ready") return;
+    const operation = args.operationAuthority.begin("thumbnail.primary.set");
 
     const nextEpisodePackage: EpisodePackageV2 = {
       ...args.episodePackage,
@@ -195,6 +204,7 @@ export function useThumbnailConceptActions(args: UseThumbnailConceptActionsArgs)
       "hearth.thumbnail.primary.set.v1",
       { version_id: versionId },
     );
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!saved) return;
     args.setSelectedThumbnailConceptId(version.concept_id);
     args.setSelectedThumbnailVersionId(versionId);
@@ -298,6 +308,7 @@ export function useThumbnailConceptActions(args: UseThumbnailConceptActionsArgs)
     };
 
     args.setThumbnailPairingError(null);
+    const operation = args.operationAuthority.begin("thumbnail.launch-variant.save");
     const saved = await args.persistThumbnailEpisodePackage(
       nextEpisodePackage,
       existingVariant ? "hearth.launch.variant.updated.v1" : "hearth.launch.variant.created.v1",
@@ -308,6 +319,7 @@ export function useThumbnailConceptActions(args: UseThumbnailConceptActionsArgs)
         status,
       },
     );
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!saved) {
       args.setThumbnailPairingError("Unable to save launch variant.");
       return;

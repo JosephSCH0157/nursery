@@ -43,7 +43,7 @@ test("buildBrollPlanFromScript creates episode-wide beats with canonical default
       "map_animation",
       "stat_card",
     ].includes(beat.asset_category ?? "stock_video"));
-    assert.ok(["unresolved", "candidate_assets_available", "resolved", "stale"].includes(beat.fulfillment_state));
+    assert.ok(["unresolved", "candidate_assets_available", "resolved", "stale"].includes(beat.fulfillment_state ?? "unresolved"));
   }
 });
 

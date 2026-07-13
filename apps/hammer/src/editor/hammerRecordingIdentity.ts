@@ -13,7 +13,7 @@ function normalizeLabelForComparison(value: string | null | undefined): string {
   if (!raw) return "";
   return raw
     .toLowerCase()
-    .replace(/[_\-]+/g, " ")
+    .replace(/[_-]+/g, " ")
     .replace(/[^a-z0-9 ]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();

@@ -8,16 +8,87 @@ export type SaveDraftOptions = {
   reason?: string;
 };
 
+export type HearthDraftSaveAcknowledgement =
+  | Readonly<{
+      ok: true;
+      kind: "canonical";
+      authority: "tongs";
+      artifact: "draft_snapshot";
+      workspaceId: string;
+      workpieceId: string;
+      committedAt: string;
+    }>
+  | Readonly<{
+      ok: false;
+      kind: "recovery_only";
+      authority: "browser_cache";
+      artifact: "draft_snapshot";
+      reason:
+        | "local_store"
+        | "canonical_target_unavailable"
+        | "canonical_commit_failed"
+        | "canonical_response_invalid"
+        | "canonical_request_failed";
+      status: number | null;
+    }>;
+
+export function isCanonicalHearthDraftSave(
+  result: HearthDraftSaveAcknowledgement,
+): result is Extract<HearthDraftSaveAcknowledgement, { ok: true }> {
+  return result.ok && result.kind === "canonical" && result.authority === "tongs";
+}
+
+export type HearthRevisionSaveAcknowledgement =
+  | Readonly<{
+      ok: true;
+      kind: "canonical";
+      authority: "tongs";
+      artifact: "revision_snapshot";
+      workpieceId: string;
+      committedAt: string;
+    }>
+  | Readonly<{
+      ok: false;
+      kind: "recovery_only";
+      authority: "browser_cache";
+      artifact: "revision_snapshot";
+      reason: "local_store" | "canonical_read_failed" | "canonical_commit_failed";
+    }>;
+
+export type HearthCanonicalRevisionsResult =
+  | Readonly<{
+      ok: true;
+      kind: "canonical";
+      authority: "tongs";
+      workpieceId: string;
+      fileUpdatedAt: string | null;
+      revisions: readonly Revision[];
+    }>
+  | Readonly<{
+      ok: false;
+      kind: "unavailable";
+      authority: "none";
+      reason: "local_store" | "not_found" | "request_failed" | "invalid_response";
+      status: number | null;
+    }>;
+
+export function isCanonicalHearthRevisionSave(
+  result: HearthRevisionSaveAcknowledgement,
+): result is Extract<HearthRevisionSaveAcknowledgement, { ok: true }> {
+  return result.ok && result.kind === "canonical" && result.authority === "tongs";
+}
+
 export interface HearthStore {
   listDrafts(): Promise<Draft[]>;
   listWorkpieceDrafts(workpieceId: string): Promise<Draft[]>;
   getDraft(id: DraftId): Promise<Draft | null>;
-  saveDraft(draft: Draft, options?: SaveDraftOptions): Promise<void>;
+  saveDraft(draft: Draft, options?: SaveDraftOptions): Promise<HearthDraftSaveAcknowledgement>;
   deleteDraft(id: DraftId): Promise<void>;
   getChatHistory(draftId: DraftId): Promise<HearthChatMessage[]>;
   saveChatHistory(draftId: DraftId, messages: HearthChatMessage[]): Promise<void>;
+  readCanonicalRevisions(workpieceId: string, draftId?: DraftId | null): Promise<HearthCanonicalRevisionsResult>;
   listRevisions(workpieceId: string, draftId?: DraftId | null): Promise<Revision[]>;
   getRevision(workpieceId: string, id: RevisionId): Promise<Revision | null>;
-  saveRevision(workpieceId: string, revision: Revision): Promise<void>;
+  saveRevision(workpieceId: string, revision: Revision): Promise<HearthRevisionSaveAcknowledgement>;
   restoreRevision(workpieceId: string, id: RevisionId): Promise<{ title: string; body: string } | null>;
 }

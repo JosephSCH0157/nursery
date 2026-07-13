@@ -4,7 +4,11 @@ import type {
   FaceLandmarksFrame,
   FacePoint2D,
   FacePoseHint,
+  FaceAnalysisFrame,
+  FaceAnalysisResult,
+  AnalyzedFace,
 } from "../types";
+import { deriveFaceBoundsPx, deriveHeadSafeBoundsPx, MAX_ANALYZED_FACES } from "../analysis/faceAnalysisAuthority";
 
 type FaceLandmarkerModule = typeof import("@mediapipe/tasks-vision");
 
@@ -15,7 +19,7 @@ type MediapipeLandmark = {
 };
 
 type MediapipeFaceLandmarker = {
-  detectForVideo(video: HTMLVideoElement, timestampMs: number): {
+  detectForVideo(video: CanvasImageSource, timestampMs: number): {
     faceLandmarks: MediapipeLandmark[][];
     facialTransformationMatrixes?: Array<{ data: Float32Array | number[] }>;
   };
@@ -202,7 +206,7 @@ export class MediapipeFaceLandmarkerProvider implements FaceLandmarkProvider {
           modelAssetPath,
         },
         runningMode: "VIDEO",
-        numFaces: 1,
+        numFaces: MAX_ANALYZED_FACES,
         outputFaceBlendshapes: false,
         outputFacialTransformationMatrixes: true,
       });
@@ -230,69 +234,95 @@ export class MediapipeFaceLandmarkerProvider implements FaceLandmarkProvider {
     this.modulePromise = null;
   }
 
-  public async analyzeFrame(args: { video: HTMLVideoElement; timestampSec: number }): Promise<FaceLandmarksFrame | null> {
+  public async analyzeFrame(frame: FaceAnalysisFrame): Promise<FaceAnalysisResult> {
     if (!this.engine) {
       await this.initialize();
     }
     if (!this.engine) {
-      throw new Error(this.readiness.status === "failed" ? this.readiness.error : "Face landmarker provider unavailable.");
+      return { kind: "unavailable", reason: this.readiness.status === "failed" ? this.readiness.error : "Face landmarker provider unavailable." };
     }
 
     const started = nowMs();
-    const requestedTimestampMs = Math.max(0, Math.round(args.timestampSec * 1000));
+    const requestedTimestampMs = Math.max(0, Math.round(frame.frameRef.inferenceTimestampMs));
     const timestampMs = this.lastTimestampMs == null
       ? requestedTimestampMs
       : Math.max(requestedTimestampMs, this.lastTimestampMs + 1);
     this.lastTimestampMs = timestampMs;
-    const result = this.engine.detectForVideo(args.video, timestampMs);
+    let result: ReturnType<MediapipeFaceLandmarker["detectForVideo"]>;
+    try {
+      result = this.engine.detectForVideo(frame.pixels, timestampMs);
+    } catch (error) {
+      return { kind: "failed", frameRef: frame.frameRef, reason: "provider_inference_failed", warnings: [error instanceof Error ? error.message : String(error)] };
+    }
     const finished = nowMs();
     const processingMs = Math.max(0, Math.round((finished - started) * 10) / 10);
 
-    const landmarks = Array.isArray(result.faceLandmarks) ? result.faceLandmarks[0] : null;
-    if (!landmarks || landmarks.length === 0) {
-      return null;
+    if (!Array.isArray(result.faceLandmarks)) {
+      return { kind: "failed", frameRef: frame.frameRef, reason: "malformed_provider_result", warnings: [] };
     }
+    if (result.faceLandmarks.length === 0) return { kind: "success", frameRef: frame.frameRef, faces: [], warnings: [] };
+    const faces: AnalyzedFace[] = [];
+    const aggregateWarnings: string[] = [];
+    for (let providerIndex = 0; providerIndex < result.faceLandmarks.length; providerIndex += 1) {
+      const landmarks = result.faceLandmarks[providerIndex];
+      if (!Array.isArray(landmarks) || landmarks.length === 0) {
+        aggregateWarnings.push(`malformed_face_rejected:${providerIndex}`);
+        continue;
+      }
+      const normalizedLandmarks = landmarks.map((value) => toPoint(value)).filter((value): value is FacePoint2D => value != null);
+      const faceBoundsPx = deriveFaceBoundsPx(normalizedLandmarks, frame.frameRef);
+      if (!faceBoundsPx || normalizedLandmarks.length !== landmarks.length) {
+        aggregateWarnings.push(`malformed_face_rejected:${providerIndex}`);
+        continue;
+      }
+      const warnings: string[] = [];
+      const left = buildEye({ landmarks, spec: LEFT_EYE, warnings });
+      const right = buildEye({ landmarks, spec: RIGHT_EYE, warnings });
 
-    const warnings: string[] = [];
-    const left = buildEye({ landmarks, spec: LEFT_EYE, warnings });
-    const right = buildEye({ landmarks, spec: RIGHT_EYE, warnings });
-    if (!left || !right) {
-      warnings.push("missing_eye_landmarks");
-      return null;
-    }
-
-    const interOcular = Math.hypot(
+      let eyeContactEvidence: FaceLandmarksFrame | null = null;
+      if (left && right) {
+      const interOcular = Math.hypot(
       ((left.eye.outerCorner.x + left.eye.innerCorner.x) / 2) - ((right.eye.outerCorner.x + right.eye.innerCorner.x) / 2),
       ((left.eye.outerCorner.y + left.eye.innerCorner.y) / 2) - ((right.eye.outerCorner.y + right.eye.innerCorner.y) / 2),
     );
-    if (interOcular < 0.04) warnings.push("face_too_small");
+      if (interOcular < 0.04) warnings.push("face_too_small");
 
-    let confidence = 1;
+      let confidence = 1;
     if (interOcular < 0.04) confidence *= 0.35;
     if (left.irisMissing || right.irisMissing) confidence *= 0.45;
     if ((left.ear != null && left.ear < 0.12) || (right.ear != null && right.ear < 0.12)) confidence *= 0.75;
     confidence = clamp01(confidence);
 
-    const poseFromMatrix = computePoseFromMatrix(result.facialTransformationMatrixes?.[0]?.data);
+      const poseFromMatrix = computePoseFromMatrix(result.facialTransformationMatrixes?.[providerIndex]?.data);
     const pose: FacePoseHint = {
       yawDeg: poseFromMatrix.yawDeg,
       pitchDeg: poseFromMatrix.pitchDeg,
       rollDeg: poseFromMatrix.rollDeg,
     };
 
-    if (pose.rollDeg == null) {
-      pose.rollDeg = computeRollFromEyes({ leftOuter: left.eye.outerCorner, rightOuter: right.eye.outerCorner });
+      if (pose.rollDeg == null) pose.rollDeg = computeRollFromEyes({ leftOuter: left.eye.outerCorner, rightOuter: right.eye.outerCorner });
+      eyeContactEvidence = {
+        providerName: this.name,
+        sourceTimestampSec: frame.frameRef.sourcePresentationTimeSec,
+        processingMs,
+        confidenceScore: clamp01(confidence),
+        warnings,
+        pose,
+        leftEye: left.eye,
+        rightEye: right.eye,
+      };
+      } else {
+        aggregateWarnings.push(`face_retained_without_eye_contact_evidence:${providerIndex}`);
+      }
+      faces.push(Object.freeze({
+        providerIndex,
+        normalizedLandmarks: Object.freeze(normalizedLandmarks.map((point) => Object.freeze({ ...point }))),
+        faceBoundsPx: Object.freeze(faceBoundsPx),
+        headSafeBoundsPx: Object.freeze(deriveHeadSafeBoundsPx(faceBoundsPx, frame.frameRef)),
+        eyeContactEvidence,
+      }));
     }
-
-    return {
-      providerName: this.name,
-      sourceTimestampSec: args.timestampSec,
-      processingMs,
-      confidenceScore: clamp01(confidence),
-      warnings,
-      pose,
-      leftEye: left.eye,
-      rightEye: right.eye,
-    };
+    if (faces.length === 0) return { kind: "failed", frameRef: frame.frameRef, reason: "no_structurally_usable_faces", warnings: aggregateWarnings };
+    return { kind: "success", frameRef: frame.frameRef, faces, warnings: aggregateWarnings };
   }
 }

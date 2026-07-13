@@ -330,9 +330,12 @@ import { useHammerWorkspaceShellHistoryController } from "./hammerWorkspaceShell
 import { buildVisualTimelineDiagnostics } from "./hammerVisualTimelineHydrationGuard";
 import { isAutoPlacementDebugFlagEnabled } from "./hammerAutoPlacementDebugFlag";
 import {
-  applyPreviewOverride,
+  evaluatePlacementFrameAgainstDisplay,
+  readPlacementDisplaySnapshot,
+  type CanonicalAutomaticPlacementResult,
+} from "../features/auto-placement";
+import {
   clearPreviewOverride,
-  toPreviewTransformFromAutoPlacementOverlay,
   type PreviewPlacementTransform,
 } from "./hammerAutoPreviewPosition";
 import { useHammerWorkspaceShellSnapshotEmitter } from "./hammerWorkspaceShellSnapshotEmitter";
@@ -1178,6 +1181,7 @@ function HammerWorkspaceShellWithContext(
   const editableVisualTimelineRef = useRef<HammerVisualTimelineState | null>(props.visualTimeline ?? null);
   const [previewAutoPositionOverrides, setPreviewAutoPositionOverrides] = useState<Record<string, PreviewPlacementTransform>>({});
   const [previewAutoPositionStatus, setPreviewAutoPositionStatus] = useState<string | null>(null);
+  const [canonicalAutoPlacementResult, setCanonicalAutoPlacementResult] = useState<CanonicalAutomaticPlacementResult | null>(null);
   const placementOutboundDiagnosticsRef = useRef<HammerPlacementOutboundDiagnostics>({
     reason: "init",
     source: "shell_boot",
@@ -7154,6 +7158,7 @@ function HammerWorkspaceShellWithContext(
     episodeId: (launchContext as any)?.episode_id ?? null,
     expectedMediaPath: preferredPlayback.workpiece_path ?? preferredPlayback.local_relpath ?? mediaRef?.local_relpath ?? null,
     actualMediaPath: effectivePlaybackMediaSrc ?? null,
+    onCanonicalAutoPlacementResult: setCanonicalAutoPlacementResult,
   }), [
     activeTool,
     activeVisualTool,
@@ -7169,6 +7174,7 @@ function HammerWorkspaceShellWithContext(
     isPlaybackActive,
     isVisualPreviewAuthority,
     actualRecordingMismatchWarning,
+    setCanonicalAutoPlacementResult,
     mediaLabelMismatchWarning,
     packagingIntroPlacement,
     packagingLogoPlacement,
@@ -7226,46 +7232,59 @@ function HammerWorkspaceShellWithContext(
     visualPlacementEditingEnabled,
   ]);
   const previewAutoPosition = useCallback((): void => {
-    if (!autoPlacementDebugEnabled) {
-      setPreviewAutoPositionStatus("Auto preview is dev-only and requires ?hammer_auto_placement_debug=1.");
-      return;
-    }
     if (!selectedImagePlacement) {
-      setPreviewAutoPositionStatus("Auto preview unavailable: select an image clip first.");
+      setPreviewAutoPositionStatus("Automatic placement unavailable: select an image clip first.");
       return;
     }
-    const diagnostics = previewBayVM.autoPlacementDiagnostics;
-    if (!diagnostics?.enabled || diagnostics.state !== "resolved" || !diagnostics.overlay) {
+    if (!canonicalAutoPlacementResult) {
+      setPreviewAutoPositionStatus("Automatic placement is waiting for exact-current matte and face analysis.");
+      return;
+    }
+    if (canonicalAutoPlacementResult.decision.kind === "refused" || !canonicalAutoPlacementResult.placement) {
+      const reason = canonicalAutoPlacementResult.decision.kind === "refused"
+        ? canonicalAutoPlacementResult.decision.detail
+        : "No safe placement candidate was returned.";
+      setPreviewAutoPositionStatus(`Automatic placement refused: ${reason} Manual placement remains available.`);
+      return;
+    }
+    const displayedFrame = readPlacementDisplaySnapshot({
+      video: previewVideoRef.current,
+      playbackActive: isPlaybackActive,
+    });
+    if (!displayedFrame) {
+      setCanonicalAutoPlacementResult(null);
+      setPreviewAutoPositionStatus("Automatic placement refused: the displayed preview frame is unavailable. Manual placement remains available.");
+      return;
+    }
+    const displayEvaluation = evaluatePlacementFrameAgainstDisplay(
+      canonicalAutoPlacementResult.requestedFrameRef,
+      displayedFrame,
+    );
+    if (displayEvaluation.kind === "changed") {
+      setCanonicalAutoPlacementResult(null);
       setPreviewAutoPositionStatus(
-        `Auto preview unavailable: ${diagnostics?.enabled ? diagnostics.statusLabel : "resolver diagnostics unavailable."}`,
+        `Automatic placement refused: the displayed frame changed (${displayEvaluation.reason}). Manual placement remains available.`,
       );
       return;
     }
-    const transform = toPreviewTransformFromAutoPlacementOverlay(diagnostics.overlay);
-    setPreviewAutoPositionOverrides((current) => applyPreviewOverride(current, selectedImagePlacement.id, transform));
-    setPreviewAutoPositionStatus("AUTO PREVIEW ACTIVE (unsaved)");
-  }, [autoPlacementDebugEnabled, previewBayVM.autoPlacementDiagnostics, selectedImagePlacement]);
-  const forcePreviewAutoPosition = useCallback((): void => {
-    if (!selectedImagePlacement) {
-      setPreviewAutoPositionStatus("Force preview unavailable: select an image clip first.");
-      return;
-    }
-    const diagnostics = previewBayVM.autoPlacementDiagnostics;
-    if (!diagnostics?.enabled) {
-      setPreviewAutoPositionStatus("Force preview unavailable: resolver diagnostics are disabled.");
-      return;
-    }
-    if (!diagnostics.overlay) {
-      const why = diagnostics.firstBlockingReason
-        ?? diagnostics.statusLabel
-        ?? "resolver did not return a placement.";
-      setPreviewAutoPositionStatus(`Force preview unavailable: ${why}`);
-      return;
-    }
-    const transform = toPreviewTransformFromAutoPlacementOverlay(diagnostics.overlay);
-    setPreviewAutoPositionOverrides((current) => applyPreviewOverride(current, selectedImagePlacement.id, transform));
-    setPreviewAutoPositionStatus("AUTO PREVIEW ACTIVE (unsaved) · force applied.");
-  }, [previewBayVM.autoPlacementDiagnostics, selectedImagePlacement]);
+    const frame = canonicalAutoPlacementResult.requestedFrameRef;
+    const rect = canonicalAutoPlacementResult.placement.rect;
+    const transform = {
+      leftPct: (rect.x / frame.width) * 100,
+      topPct: (rect.y / frame.height) * 100,
+      widthPct: (rect.width / frame.width) * 100,
+      heightPct: (rect.height / frame.height) * 100,
+    };
+    const committed = commitImagePlacementTransform(
+      selectedImagePlacement.id,
+      transform,
+      "Apply automatic visual placement",
+    );
+    setPreviewAutoPositionOverrides((current) => clearPreviewOverride(current, selectedImagePlacement.id));
+    setPreviewAutoPositionStatus(committed
+      ? `Automatic placement saved (${canonicalAutoPlacementResult.placement.zone}).`
+      : "Automatic placement already matches the canonical saved geometry.");
+  }, [canonicalAutoPlacementResult, commitImagePlacementTransform, isPlaybackActive, previewVideoRef, selectedImagePlacement]);
   const previewDiagnosticsSummary = useMemo(() => {
     const diagnostics = previewBayVM.autoPlacementDiagnostics;
     const gateById = new Map((diagnostics?.enabled ? diagnostics.gates : []).map((gate) => [gate.id, gate]));
@@ -8117,7 +8136,6 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     selectedAutoPreviewActive,
     previewAutoPositionStatus,
     previewAutoPosition,
-    forcePreviewAutoPosition,
     resetPreviewAutoPosition,
     previewDiagnosticsSummary,
     episodeHealthSnapshot,
@@ -8578,6 +8596,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
             ref={imageAnimationContextMenuRef}
             className="hammer-context-menu"
             role="menu"
+            tabIndex={-1}
             aria-label="Image animation preset menu"
             onMouseDown={(event) => {
               event.stopPropagation();

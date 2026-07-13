@@ -4,7 +4,12 @@
   "packageManager": "pnpm@10.30.3",
   "scripts": {
     "dev": "pnpm --filter nursery dev",
-    "test": "pnpm --filter @forge/hammer run types && pnpm --filter @forge/hammer run test:workspace-core",
+    "test": "pnpm test:hammer",
+    "build:hammer:deps": "pnpm --filter @forge/shared build && pnpm --filter @forge/tongs build",
+    "test:hammer": "pnpm build:hammer:deps && pnpm --filter @forge/hammer run types && pnpm --filter @forge/hammer run test:all",
+    "test:hammer:coverage": "pnpm build:hammer:deps && pnpm --filter @forge/hammer run types && pnpm --filter @forge/hammer run test:coverage",
+    "build:hammer": "pnpm build:hammer:deps && pnpm --filter @forge/hammer run build",
+    "lint:hammer": "pnpm --filter @forge/hammer run lint",
     "build": "pnpm --filter @forge/ui-mobile build && pnpm -r --filter=!@forge/ui-mobile build",
     "lint": "pnpm --filter nursery lint && pnpm --filter @forge/tongs lint",
     "types": "pnpm --filter @forge/ui-mobile typecheck && pnpm --filter nursery typecheck && pnpm --filter @forge/tongs typecheck",

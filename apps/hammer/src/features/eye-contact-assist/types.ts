@@ -19,6 +19,26 @@ export type FacePoint2D = {
   z?: number; // optional provider hint (typically normalized depth)
 };
 
+export type FaceAnalysisFrameRef = Readonly<{
+  captureEpoch: string;
+  captureRevision: number;
+  sourceIdentity: string;
+  sourcePresentationTimeSec: number;
+  inferenceTimestampMs: number;
+  width: number;
+  height: number;
+  coordinateSpace: "placement_source_pixels";
+  geometricRevision: string;
+}>;
+
+export type FaceAnalysisPixelBounds = Readonly<{ x: number; y: number; width: number; height: number }>;
+
+export type FaceAnalysisFrame = Readonly<{
+  pixels: CanvasImageSource;
+  frameRef: FaceAnalysisFrameRef;
+  release(): void;
+}>;
+
 export type EyeLandmarks = {
   innerCorner: FacePoint2D;
   outerCorner: FacePoint2D;
@@ -44,6 +64,23 @@ export type FaceLandmarksFrame = {
   rightEye: EyeLandmarks;
 };
 
+export type AnalyzedFace = Readonly<{
+  providerIndex: number;
+  normalizedLandmarks: readonly FacePoint2D[];
+  faceBoundsPx: FaceAnalysisPixelBounds;
+  headSafeBoundsPx: FaceAnalysisPixelBounds;
+  eyeContactEvidence: FaceLandmarksFrame | null;
+}>;
+
+export type FaceAnalysisResult =
+  | Readonly<{ kind: "success"; frameRef: FaceAnalysisFrameRef; faces: readonly AnalyzedFace[]; warnings: readonly string[] }>
+  | Readonly<{ kind: "unavailable"; reason: string }>
+  | Readonly<{ kind: "failed"; frameRef: FaceAnalysisFrameRef; reason: string; warnings: readonly string[] }>;
+
+export type EvaluatedFaceAnalysis =
+  | Readonly<{ kind: "current"; result: FaceAnalysisResult }>
+  | Readonly<{ kind: "stale"; result: Exclude<FaceAnalysisResult, { kind: "unavailable" }>; requestedFrameRef: FaceAnalysisFrameRef }>;
+
 export type GazeEstimate = {
   confidenceScore: number; // 0..1
   warnings: string[];
@@ -66,6 +103,6 @@ export interface FaceLandmarkProvider {
   initialize(): Promise<void>;
   isReady(): boolean;
   getReadiness(): FaceLandmarkProviderReadiness;
-  analyzeFrame(args: { video: HTMLVideoElement; timestampSec: number }): Promise<FaceLandmarksFrame | null>;
+  analyzeFrame(frame: FaceAnalysisFrame): Promise<FaceAnalysisResult>;
   dispose(): Promise<void>;
 }

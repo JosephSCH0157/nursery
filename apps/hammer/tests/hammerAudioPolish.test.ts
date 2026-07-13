@@ -21,8 +21,10 @@ const prepSource: HammerPrepSource = {
     workspace_id: "11111111-1111-4111-8111-111111111111",
     local_root_abs: "D:\\ForgeMedia\\workspace",
   },
+  source_kind: "local_workspace_media",
   local_root_abs: "D:\\ForgeMedia\\workspace",
   local_relpath: "recordings/episode-1.wav",
+  canonical_workpiece_path: "recordings/episode-1.wav",
   media_signature: "media_01|recording_audio|recordings/episode-1.wav||1024000|8000|sha_episode_1",
 };
 
@@ -74,12 +76,15 @@ const prepSource: HammerPrepSource = {
         chunks: [
           {
             id: "chunk_1",
+            chunk_index: 0,
             start_sec: 0,
             end_sec: 8,
             duration_sec: 8,
+            boundary_reason: "short_file",
             source: "short_file",
           },
         ],
+        chunk_count: 1,
       },
       channel_characterization: {
         channel_count: 1,
@@ -289,7 +294,7 @@ const prepSource: HammerPrepSource = {
       waveform_proxy: null,
     },
   });
-  assert.equal(preparedNoWaveform.analysis.waveform_proxy, null, "null waveform_proxy preserved through buildPreparedHammerAudioPolish");
+  assert.equal(preparedNoWaveform.analysis?.waveform_proxy, null, "null waveform_proxy preserved through buildPreparedHammerAudioPolish");
   assert.equal(preparedNoWaveform.audio_edit, null, "missing audio_edit defaults to null");
 }
 

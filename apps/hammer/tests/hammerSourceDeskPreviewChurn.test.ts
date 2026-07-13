@@ -75,11 +75,11 @@ async function stable_key_changes_when_preview_set_changes() {
 
 async function source_desk_effect_depends_on_stable_key() {
   const source = await readFile(
-    "d:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceShell.tsx",
+    new URL("../src/editor/HammerWorkspaceShell.tsx", import.meta.url),
     "utf-8",
   );
   const hookSource = await readFile(
-    "d:/nursery/nursery/apps/hammer/src/editor/hammerWorkspaceShellSourceDeskPreviews.ts",
+    new URL("../src/editor/hammerWorkspaceShellSourceDeskPreviews.ts", import.meta.url),
     "utf-8",
   );
 
@@ -114,7 +114,7 @@ async function source_desk_effect_depends_on_stable_key() {
 
 async function timeline_transforms_do_not_request_preview_media() {
   const visualEditingSource = await readFile(
-    "d:/nursery/nursery/apps/hammer/src/editor/useHammerWorkspaceShellVisualEditing.ts",
+    new URL("../src/editor/useHammerWorkspaceShellVisualEditing.ts", import.meta.url),
     "utf-8",
   );
   const dragEffectMatch = visualEditingSource.match(

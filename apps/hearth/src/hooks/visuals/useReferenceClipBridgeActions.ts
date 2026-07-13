@@ -18,12 +18,14 @@ import type {
   EpisodePackageV2,
   EpisodeReferenceClipPlan,
 } from "../../lib/episode-package-v2";
+import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 
 type PersistReferenceClipPlanResult =
   | { ok: true; episodePackage: EpisodePackageV2 }
   | { ok: false; error: string };
 
 type UseReferenceClipBridgeActionsArgs = {
+  operationAuthority: HearthOperationAuthority;
   episodePackage: EpisodePackageV2 | null;
   selectedReferenceClipEntry: EpisodeContextualDataCompositePlan | null;
   activeVisualPromptPackForReferenceClip: {
@@ -60,6 +62,7 @@ type UseReferenceClipBridgeActionsArgs = {
 export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeActionsArgs) {
   const onMarkReferenceClipRequestState = useCallback(async (nextState: EpisodeExternalRequestState) => {
     if (!args.episodePackage || !args.selectedReferenceClipEntry) return;
+    const operation = args.operationAuthority.begin("reference-clip.request-state.update");
     const nextEntry: EpisodeContextualDataCompositePlan = {
       ...args.selectedReferenceClipEntry,
       external_request: advanceExternalRequestTracker(args.selectedReferenceClipEntry.external_request, nextState, {
@@ -83,6 +86,7 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
       eventName: "hearth.cdc_plan.request_state.updated.v1",
       eventPayload: { cdc_id: args.selectedReferenceClipEntry.id, request_state: nextState },
     });
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!saved.ok) {
       args.setReferenceClipSaveError(saved.error);
       args.setReferenceClipSaveState("error");
@@ -93,6 +97,7 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
 
   const onClearReferenceClipRequestState = useCallback(async () => {
     if (!args.episodePackage || !args.selectedReferenceClipEntry) return;
+    const operation = args.operationAuthority.begin("reference-clip.request-state.clear");
     const nextEntry: EpisodeContextualDataCompositePlan = {
       ...args.selectedReferenceClipEntry,
       external_request: {
@@ -112,6 +117,7 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
       eventName: "hearth.cdc_plan.request_state.cleared.v1",
       eventPayload: { cdc_id: args.selectedReferenceClipEntry.id },
     });
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!saved.ok) {
       args.setReferenceClipSaveError(saved.error);
       args.setReferenceClipSaveState("error");
@@ -123,7 +129,9 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
 
   const onCopyReferenceClipPrompt = useCallback(async () => {
     if (!args.episodePackage || !args.selectedReferenceClipEntry || !args.activeVisualPromptPackForReferenceClip) return false;
+    const operation = args.operationAuthority.begin("reference-clip.prompt.copy");
     const copied = await args.writeTextToClipboard(args.activeVisualPromptPackForReferenceClip.pack.prompt);
+    if (!args.operationAuthority.isCurrent(operation)) return false;
     if (!copied) {
       args.setReferenceClipSaveError("Unable to copy prompt to clipboard.");
       args.setReferenceClipSaveState("error");
@@ -154,6 +162,7 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
         provider: args.activeVisualPromptPackForReferenceClip.provider.id,
       },
     });
+    if (!args.operationAuthority.isCurrent(operation)) return false;
     if (!saved.ok) {
       args.setReferenceClipSaveError(saved.error);
       args.setReferenceClipSaveState("error");
@@ -166,7 +175,9 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
 
   const onCopyReferenceClipNegativePrompt = useCallback(async () => {
     if (!args.episodePackage || !args.selectedReferenceClipEntry || !args.activeVisualPromptPackForReferenceClip?.pack.negative) return false;
+    const operation = args.operationAuthority.begin("reference-clip.negative-prompt.copy");
     const copied = await args.writeTextToClipboard(args.activeVisualPromptPackForReferenceClip.pack.negative);
+    if (!args.operationAuthority.isCurrent(operation)) return false;
     if (!copied) {
       args.setReferenceClipSaveError("Unable to copy negative prompt to clipboard.");
       args.setReferenceClipSaveState("error");
@@ -179,6 +190,7 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
 
   const onDownloadReferenceClipPromptPack = useCallback(async () => {
     if (!args.episodePackage || !args.selectedReferenceClipEntry || !args.activeVisualPromptPackForReferenceClip) return;
+    const operation = args.operationAuthority.begin("reference-clip.prompt-pack.download");
     const suffix = (args.workpieceId?.slice(0, 8) ?? "episode").toLowerCase();
     args.downloadTextFile({
       text: serializePromptPack(args.activeVisualPromptPackForReferenceClip.pack),
@@ -210,6 +222,7 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
         provider: args.activeVisualPromptPackForReferenceClip.provider.id,
       },
     });
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!saved.ok) {
       args.setReferenceClipSaveError(saved.error);
       args.setReferenceClipSaveState("error");
@@ -221,6 +234,7 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
 
   const onDownloadReferenceClipBrief = useCallback(async (format: "text" | "json") => {
     if (!args.episodePackage || !args.selectedReferenceClipEntry) return;
+    const operation = args.operationAuthority.begin("reference-clip.brief.download");
     const brief = buildReferenceClipBrief({
       entry: {
         ...args.selectedReferenceClipEntry,
@@ -265,6 +279,7 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
       eventName: "hearth.cdc_plan.brief_downloaded.v1",
       eventPayload: { cdc_id: args.selectedReferenceClipEntry.id, format },
     });
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!saved.ok) {
       args.setReferenceClipSaveError(saved.error);
       args.setReferenceClipSaveState("error");
@@ -276,6 +291,7 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
 
   const onOpenReferenceClipProvider = useCallback(async () => {
     if (!args.selectedReferenceClipEntry) return;
+    const operation = args.operationAuthority.begin("reference-clip.provider.open");
     const provider = args.referenceClipProviders.find((entry) => entry.id === args.referenceClipProviderIdDraft) ?? null;
     if (!provider) {
       args.setReferenceClipSaveError("Choose a provider before opening a manual bridge.");
@@ -284,16 +300,19 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
     }
     if (args.activeVisualPromptPackForReferenceClip) {
       await args.writeTextToClipboard(args.activeVisualPromptPackForReferenceClip.pack.prompt);
+      if (!args.operationAuthority.isCurrent(operation)) return;
     }
     if (typeof window !== "undefined") {
       window.open(provider.launchUrl, "_blank", "noopener,noreferrer");
     }
     await onMarkReferenceClipRequestState("sent_external");
+    if (!args.operationAuthority.isCurrent(operation)) return;
     args.setReferenceClipMessage(`Opened ${provider.name}. ${args.activeVisualPromptPackForReferenceClip?.provider.label ?? "Prompt"} copied for manual paste.`);
   }, [args, onMarkReferenceClipRequestState]);
 
   const onAttachReferenceClipResultFromUrl = useCallback(async () => {
     if (!args.episodePackage || !args.selectedReferenceClipEntry) return;
+    const operation = args.operationAuthority.begin("reference-clip.result-url.attach");
     const sourceUrl = args.referenceClipSourceUrlDraft.trim();
     if (!sourceUrl) {
       args.setReferenceClipSaveError("Add a source URL before attaching a result.");
@@ -338,6 +357,7 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
       eventName: "hearth.cdc_plan.result_url_attached.v1",
       eventPayload: { cdc_id: args.selectedReferenceClipEntry.id },
     });
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!saved.ok) {
       args.setReferenceClipSaveError(saved.error);
       args.setReferenceClipSaveState("error");
@@ -356,6 +376,7 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
       args.setReferenceClipSaveState("error");
       return;
     }
+    const operation = args.operationAuthority.begin("reference-clip.asset.upload");
     args.setIsReferenceClipBusy(true);
     args.setReferenceClipSaveState("saving");
     args.setReferenceClipSaveError(null);
@@ -371,6 +392,7 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
         providerNote: args.referenceClipProviderNoteDraft,
         usageNote: args.referenceClipUsageNoteDraft,
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!uploaded.ok) {
         args.setReferenceClipSaveError(uploaded.error);
         args.setReferenceClipSaveState("error");
@@ -406,6 +428,7 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
         eventName: "hearth.cdc_plan.asset_uploaded.v1",
         eventPayload: { cdc_id: args.selectedReferenceClipEntry.id, source: "upload" },
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setReferenceClipSaveError(saved.error);
         args.setReferenceClipSaveState("error");
@@ -414,10 +437,11 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
       args.setReferenceClipSaveState("saved");
       args.setReferenceClipMessage("Uploaded asset selected for this reference clip.");
     } catch {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       args.setReferenceClipSaveError("Unable to upload this reference clip asset.");
       args.setReferenceClipSaveState("error");
     } finally {
-      args.setIsReferenceClipBusy(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsReferenceClipBusy(false);
     }
   }, [args]);
 
@@ -431,6 +455,7 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
       args.setReferenceClipSaveState("error");
       return;
     }
+    const operation = args.operationAuthority.begin("reference-clip.candidate.select");
     const nextEntry: EpisodeContextualDataCompositePlan = {
       ...args.selectedReferenceClipEntry,
       source_type: candidate.source,
@@ -463,6 +488,7 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
         eventName: "hearth.cdc_plan.asset_selected.v1",
         eventPayload: { cdc_id: args.selectedReferenceClipEntry.id, candidate_id: candidate.asset_id },
       });
+      if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setReferenceClipSaveError(saved.error);
         args.setReferenceClipSaveState("error");
@@ -471,10 +497,11 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
       args.setReferenceClipSaveState("saved");
       args.setReferenceClipMessage("Selected asset attached to reference clip.");
     } catch {
+      if (!args.operationAuthority.isCurrent(operation)) return;
       args.setReferenceClipSaveError("Unable to select this reference clip candidate.");
       args.setReferenceClipSaveState("error");
     } finally {
-      args.setIsReferenceClipBusy(false);
+      if (args.operationAuthority.isCurrent(operation)) args.setIsReferenceClipBusy(false);
     }
   }, [args]);
 

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { Link, useLocation, useOutletContext } from "react-router-dom";
+import { Link, useLocation, useNavigate, useOutletContext } from "react-router-dom";
 import { useLayoutMode } from "@forge/ui-mobile";
 import {
   ALL_MOUNT_ROLES,
@@ -13,7 +13,7 @@ import {
   type WorkpieceStorageListing,
 } from "@forge/tongs";
 import { useMountRegistry } from "../hooks/useMountRegistry";
-import { parseForgeRouteContext } from "../lib/forge-route-context";
+import { buildForgeRouteHref, parseForgeRouteContext } from "../lib/forge-route-context";
 import { getHandle } from "../lib/handle-vault";
 import { loadLastMirrorStatus, type MirrorLastStatus } from "../lib/mirror";
 import { tongsApiRequest } from "../lib/tongs-api";
@@ -99,6 +99,38 @@ type DeleteWorkpieceResult = {
   };
 };
 
+type WorkpieceSummary = {
+  id: string;
+  label: string | null;
+  updated_at: string | null;
+  archived_at: string | null;
+  archive_reason: string | null;
+};
+
+type WorkpieceListResponse = {
+  episodes?: Array<{
+    id?: string;
+    archived_at?: string | null;
+    archive_reason?: string | null;
+  }>;
+};
+
+type ArchiveWorkpieceResponse = {
+  workpiece?: {
+    id?: string;
+    archived_at?: string | null;
+    archive_reason?: string | null;
+  };
+};
+
+type RestoreWorkpieceResponse = {
+  workpiece?: {
+    id?: string;
+    archived_at?: string | null;
+    archive_reason?: string | null;
+  };
+};
+
 const ROLE_POLICY_MAP = new Map(MOUNT_ROLE_POLICY.map((policy) => [policy.role, policy] as const));
 const MAX_TREE_DEPTH = 3;
 const MAX_TREE_ITEMS_PER_DIRECTORY = 80;
@@ -140,6 +172,29 @@ function formatBytes(bytes: number | null | undefined): string | null {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function normalizeWorkpieceSummary(value: unknown): WorkpieceSummary | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value as {
+    id?: unknown;
+    label?: unknown;
+    updated_at?: unknown;
+    archived_at?: unknown;
+    archive_reason?: unknown;
+  };
+  if (typeof row.id !== "string" || !row.id.trim()) return null;
+  return {
+    id: row.id,
+    label: typeof row.label === "string" && row.label.trim() ? row.label : null,
+    updated_at: typeof row.updated_at === "string" && row.updated_at.trim() ? row.updated_at : null,
+    archived_at: typeof row.archived_at === "string" && row.archived_at.trim() ? row.archived_at : null,
+    archive_reason: typeof row.archive_reason === "string" && row.archive_reason.trim() ? row.archive_reason : null,
+  };
+}
+
+function isDeletedWorkpieceSummary(summary: WorkpieceSummary | null | undefined): boolean {
+  return Boolean(summary?.archive_reason?.startsWith("deleted:"));
 }
 
 function summarizeMirrorStatus(root: RootViewModel): string {
@@ -514,6 +569,7 @@ function StorageListingPanel({
 export default function TongsStorage() {
   const shell = useOutletContext<AppShellContext>();
   const location = useLocation();
+  const navigate = useNavigate();
   const routeContext = useMemo(() => parseForgeRouteContext(location.search), [location.search]);
   const workspaceId = shell?.workspaceId ?? null;
   const workpieceId = routeContext.workpieceId;
@@ -558,6 +614,11 @@ export default function TongsStorage() {
   }, []);
   const [copyNotice, setCopyNotice] = useState<string | null>(null);
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [storageTab, setStorageTab] = useState<"storage" | "archive">("storage");
+  const [workspaceEpisodes, setWorkspaceEpisodes] = useState<WorkpieceSummary[]>([]);
+  const [archiveBusy, setArchiveBusy] = useState(false);
+  const [restoreBusyId, setRestoreBusyId] = useState<string | null>(null);
+  const [archiveNotice, setArchiveNotice] = useState<string | null>(null);
   const [deleteMode, setDeleteMode] = useState<WorkpieceDeletionMode>("delete_keep_performance");
   const [deleteConfirmText, setDeleteConfirmText] = useState("");
   const [deleteBusy, setDeleteBusy] = useState(false);
@@ -590,6 +651,37 @@ export default function TongsStorage() {
     () => roots.find((root) => root.role === selectedRole) ?? roots[0] ?? null,
     [roots, selectedRole],
   );
+
+  useEffect(() => {
+    if (!workspaceId || !workpieceId) {
+      if (!workspaceId) {
+        setWorkspaceEpisodes([]);
+      }
+      setArchiveBusy(false);
+      if (!workspaceId) return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const data = await tongsApiRequest<WorkpieceListResponse>(
+          `/tongs/workspaces/${encodeURIComponent(workspaceId)}/episodes?include_archived=1`,
+        );
+        if (cancelled) return;
+        const episodes = (data.episodes ?? [])
+          .map((episode) => normalizeWorkpieceSummary(episode))
+          .filter((episode): episode is WorkpieceSummary => !!episode);
+        setWorkspaceEpisodes(episodes);
+      } catch {
+        if (cancelled) return;
+        setWorkspaceEpisodes([]);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId, workpieceId, refreshNonce]);
 
   useEffect(() => {
     if (!workpieceId) {
@@ -929,6 +1021,21 @@ export default function TongsStorage() {
     : workpieceTreeState.status === "error"
     ? "Unable to load contents"
     : "Workpiece context required";
+  const activeWorkpieceSummary = workpieceId
+    ? workspaceEpisodes.find((episode) => episode.id === workpieceId) ?? null
+    : null;
+  const archivedEpisodes = useMemo(
+    () => workspaceEpisodes
+      .filter((episode) => episode.archived_at && !isDeletedWorkpieceSummary(episode))
+      .sort((left, right) => (right.updated_at ?? "").localeCompare(left.updated_at ?? "")),
+    [workspaceEpisodes],
+  );
+  const workpieceArchiveStatusLabel = !workpieceId
+    ? "No workpiece selected"
+    : activeWorkpieceSummary?.archived_at
+      ? "Episode archived"
+      : "Episode active";
+  const canDeleteArchivedWorkpiece = Boolean(workpieceId && activeWorkpieceSummary?.archived_at);
 
   async function copyDiagnosticsToClipboard() {
     const payload = [
@@ -946,17 +1053,87 @@ export default function TongsStorage() {
     }
   }
 
-  async function deleteCurrentWorkpiece() {
-    if (!workspaceId || !workpieceId || deleteBusy) return;
+  async function archiveCurrentWorkpiece() {
+    if (!workspaceId || !workpieceId || archiveBusy) return;
+    setArchiveBusy(true);
+    setArchiveNotice("Archiving episode...");
+    try {
+      const response = await tongsApiRequest<ArchiveWorkpieceResponse>(
+        `/tongs/workpieces/${encodeURIComponent(workpieceId)}/archive`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            workspace_id: workspaceId,
+            reason: "storage_review",
+          }),
+        },
+      );
+      const summary = normalizeWorkpieceSummary(response.workpiece);
+      setArchiveNotice(
+        summary?.archived_at
+          ? `Archived. Review it in the Archive tab and clear it when you're ready.`
+          : "Archived.",
+      );
+      setStorageTab("archive");
+      setRefreshNonce((value) => value + 1);
+    } catch (error) {
+      setArchiveNotice(error instanceof Error ? error.message : "Episode archive failed.");
+    } finally {
+      setArchiveBusy(false);
+    }
+  }
+
+  async function restoreWorkpieceById(targetWorkpieceId: string) {
+    if (!workspaceId || !targetWorkpieceId || restoreBusyId === targetWorkpieceId) return false;
+    setRestoreBusyId(targetWorkpieceId);
+    setArchiveNotice("Restoring episode...");
+    try {
+      const response = await tongsApiRequest<RestoreWorkpieceResponse>(
+        `/tongs/workpieces/${encodeURIComponent(targetWorkpieceId)}/restore`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            workspace_id: workspaceId,
+          }),
+        },
+      );
+      const summary = normalizeWorkpieceSummary(response.workpiece);
+      setArchiveNotice(
+        summary?.archived_at
+          ? "Restore did not complete."
+          : "Restored. It is back in the active lane.",
+      );
+      setRefreshNonce((value) => value + 1);
+      setStorageTab("storage");
+      return true;
+    } catch (error) {
+      setArchiveNotice(error instanceof Error ? error.message : "Episode restore failed.");
+      return false;
+    } finally {
+      setRestoreBusyId((current) => (current === targetWorkpieceId ? null : current));
+    }
+  }
+
+  async function deleteWorkpieceById(targetWorkpieceId: string) {
+    if (!workspaceId || !targetWorkpieceId || deleteBusy) return false;
+    const targetSummary = workspaceEpisodes.find((episode) => episode.id === targetWorkpieceId) ?? null;
+    if (isDeletedWorkpieceSummary(targetSummary)) {
+      setDeleteNotice("This archived episode has already been cleared.");
+      return false;
+    }
+    if (!targetSummary?.archived_at) {
+      setDeleteNotice("Archive this episode before deleting it.");
+      return false;
+    }
     if (deleteMode === "full_delete" && deleteConfirmText.trim().toUpperCase() !== "DELETE") {
       setDeleteNotice("Full delete requires typing DELETE.");
-      return;
+      return false;
     }
     setDeleteBusy(true);
     setDeleteNotice("Deleting episode...");
     try {
       const response = await tongsApiRequest<DeleteWorkpieceResult>(
-        `/tongs/workpieces/${encodeURIComponent(workpieceId)}/delete`,
+        `/tongs/workpieces/${encodeURIComponent(targetWorkpieceId)}/delete`,
         {
           method: "POST",
           body: JSON.stringify({
@@ -973,12 +1150,94 @@ export default function TongsStorage() {
         `reusable kept: ${row.retained_reusable_assets}, performance stub: ${row.retained_performance_stub ? "yes" : "no"}.`,
       );
       setDeleteConfirmText("");
+      if (targetWorkpieceId === workpieceId) {
+        const nextHref = buildForgeRouteHref(location.pathname, {
+          search: location.search,
+          workspaceId,
+          workpieceId: null,
+        });
+        navigate(nextHref, { replace: true });
+      }
       setRefreshNonce((value) => value + 1);
+      return true;
     } catch (error) {
       setDeleteNotice(error instanceof Error ? error.message : "Episode delete failed.");
+      return false;
     } finally {
       setDeleteBusy(false);
     }
+  }
+
+  async function deleteCurrentWorkpiece() {
+    if (!workpieceId) return;
+    await deleteWorkpieceById(workpieceId);
+  }
+
+  async function clearArchivedEpisodes() {
+    if (deleteBusy || restoreBusyId) return;
+    if (archivedEpisodes.length === 0) {
+      setDeleteNotice("No archived episodes are available to clear.");
+      return;
+    }
+    if (deleteMode === "full_delete" && deleteConfirmText.trim().toUpperCase() !== "DELETE") {
+      setDeleteNotice("Full delete requires typing DELETE.");
+      return;
+    }
+
+    const targetIds = archivedEpisodes.map((episode) => episode.id);
+    let totalBytesReclaimed = 0;
+    let deletedCount = 0;
+
+    for (const targetId of targetIds) {
+      if (!workspaceEpisodes.some((episode) => (
+        episode.id === targetId
+        && episode.archived_at
+        && !isDeletedWorkpieceSummary(episode)
+      ))) {
+        continue;
+      }
+
+      setDeleteBusy(true);
+      setDeleteNotice(
+        `Clearing archived episodes (${deletedCount + 1} of ${targetIds.length})...`,
+      );
+      try {
+        const response = await tongsApiRequest<DeleteWorkpieceResult>(
+          `/tongs/workpieces/${encodeURIComponent(targetId)}/delete`,
+          {
+            method: "POST",
+            body: JSON.stringify({
+              workspace_id: workspaceId,
+              deletion_mode: deleteMode,
+            }),
+          },
+        );
+        deletedCount += 1;
+        totalBytesReclaimed += Math.max(0, response.result.bytes_removed_estimate);
+
+        if (targetId === workpieceId) {
+          const nextHref = buildForgeRouteHref(location.pathname, {
+            search: location.search,
+            workspaceId,
+            workpieceId: null,
+          });
+          navigate(nextHref, { replace: true });
+        }
+        setRefreshNonce((value) => value + 1);
+      } catch (error) {
+        setDeleteNotice(error instanceof Error ? error.message : "Archived episode clear failed.");
+        setDeleteBusy(false);
+        return;
+      }
+    }
+
+    setDeleteBusy(false);
+    setDeleteConfirmText("");
+    setDeleteNotice(
+      deletedCount === 0
+        ? "No archived episodes were cleared."
+        : `Cleared ${deletedCount} archived ${deletedCount === 1 ? "episode" : "episodes"} using ${deleteMode}. Reclaimed ~${formatBytes(totalBytesReclaimed) ?? `${totalBytesReclaimed} B`}.`,
+    );
   }
 
   return (
@@ -1003,7 +1262,29 @@ export default function TongsStorage() {
 
       {diagnostics ? <div className="tongs-storage__diagnostic">{diagnostics}</div> : null}
       {copyNotice ? <div className="tongs-storage__diagnostic">{copyNotice}</div> : null}
+      <div className="tongs-storage__tabs" role="tablist" aria-label="Tongs storage views">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={storageTab === "storage"}
+          className={`tongs-storage__tab${storageTab === "storage" ? " is-active" : ""}`}
+          onClick={() => setStorageTab("storage")}
+        >
+          Storage
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={storageTab === "archive"}
+          className={`tongs-storage__tab${storageTab === "archive" ? " is-active" : ""}`}
+          onClick={() => setStorageTab("archive")}
+        >
+          Archive
+          <span className="tongs-storage__tab-count">{archivedEpisodes.length}</span>
+        </button>
+      </div>
 
+      {storageTab === "storage" ? (
       <section className="tongs-storage__panel">
         <div className="tongs-storage__panel-header">
           <div>
@@ -1025,6 +1306,7 @@ export default function TongsStorage() {
             {workpieceId ? "Workpiece selected" : "No workpiece selected"}
           </span>
           <span className="tongs-storage__badge tongs-storage__badge--status">{workpieceStatusLabel}</span>
+          <span className="tongs-storage__badge tongs-storage__badge--status">{workpieceArchiveStatusLabel}</span>
           <span className="tongs-storage__badge tongs-storage__badge--status">
             Source: {workpieceTreeState.source?.badgeLabel ?? "route context"}
           </span>
@@ -1034,18 +1316,20 @@ export default function TongsStorage() {
           <section className="tongs-storage__archive-panel">
             <h4 className="tongs-storage__archive-title">Archive Episode</h4>
             <p className="tongs-storage__archive-copy">
-              Coming soon. Archive will move this episode to long-term storage, remove it from active workspaces, and keep it restorable.
+              Archive removes this episode from active lanes while keeping it reviewable and restorable from Tongs.
             </p>
             <button
               type="button"
-              disabled
-              title="Archive is not available yet because long-term storage is not configured."
+              onClick={() => void archiveCurrentWorkpiece()}
+              disabled={archiveBusy || Boolean(activeWorkpieceSummary?.archived_at)}
+              title={activeWorkpieceSummary?.archived_at ? "This episode is already archived." : "Archive episode"}
             >
-              Archive Episode (Coming soon)
+              {archiveBusy ? "Archiving..." : activeWorkpieceSummary?.archived_at ? "Episode Archived" : "Archive Episode"}
             </button>
             <p className="tongs-storage__archive-copy">
-              Archive remains non-destructive and is currently disabled until cold storage is configured.
+              Archived episodes appear in the Archive tab, where they can be reviewed, restored, or cleared deliberately.
             </p>
+            {archiveNotice ? <div className="tongs-storage__delete-notice">{archiveNotice}</div> : null}
           </section>
         ) : null}
 
@@ -1053,7 +1337,7 @@ export default function TongsStorage() {
           <section className="tongs-storage__delete-panel">
             <h4 className="tongs-storage__delete-title">Episode Deletion</h4>
             <p className="tongs-storage__delete-copy">
-              Delete by episode/workpiece boundary. File-level delete remains intentionally disabled.
+              Delete by episode/workpiece boundary. Only archived episodes can be cleared.
             </p>
             <label className="tongs-storage__delete-field">
               <span>Deletion mode</span>
@@ -1074,6 +1358,11 @@ export default function TongsStorage() {
                 ? "Removes production footprint but keeps published performance tracking identity."
                 : "Removes episode production footprint while retaining explicitly reusable assets."}
             </p>
+            {!canDeleteArchivedWorkpiece ? (
+              <p className="tongs-storage__delete-copy">
+                Archive this episode before deleting it.
+              </p>
+            ) : null}
             {deleteMode === "full_delete" ? (
               <label className="tongs-storage__delete-field">
                 <span>Type DELETE to confirm full delete</span>
@@ -1085,7 +1374,7 @@ export default function TongsStorage() {
                 />
               </label>
             ) : null}
-            <button type="button" onClick={() => void deleteCurrentWorkpiece()} disabled={deleteBusy}>
+            <button type="button" onClick={() => void deleteCurrentWorkpiece()} disabled={deleteBusy || !canDeleteArchivedWorkpiece}>
               {deleteBusy ? "Deleting..." : deleteMode === "full_delete" ? "Confirm Full Delete" : "Delete Episode"}
             </button>
             {deleteNotice ? <div className="tongs-storage__delete-notice">{deleteNotice}</div> : null}
@@ -1129,6 +1418,110 @@ export default function TongsStorage() {
           footnote={READ_ONLY_FOOTNOTE}
         />
       </section>
+      ) : null}
+
+      {storageTab === "archive" ? (
+        <section className="tongs-storage__panel">
+          <div className="tongs-storage__panel-header">
+            <div>
+              <h3 className="tongs-storage__panel-title">Archived Episodes</h3>
+              <p className="tongs-storage__panel-subtitle">
+                Review archived episodes here, restore them if needed, or clear them when you want to reclaim storage.
+              </p>
+            </div>
+          </div>
+          <form
+            className="tongs-storage__delete-panel"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void clearArchivedEpisodes();
+            }}
+          >
+            <h4 className="tongs-storage__delete-title">Clear Archived Episodes</h4>
+            <p className="tongs-storage__delete-copy">
+              Archived episodes are the only ones eligible for destructive clear.
+            </p>
+            <label className="tongs-storage__delete-field">
+              <span>Deletion mode</span>
+              <select
+                value={deleteMode}
+                onChange={(event) => setDeleteMode(event.target.value as WorkpieceDeletionMode)}
+                disabled={deleteBusy}
+              >
+                <option value="full_delete">Delete everything</option>
+                <option value="delete_keep_performance">Delete episode, keep performance</option>
+                <option value="delete_keep_reusable_media">Delete episode, keep reusable media</option>
+              </select>
+            </label>
+            {deleteMode === "full_delete" ? (
+              <label className="tongs-storage__delete-field">
+                <span>Type DELETE to confirm full delete</span>
+                <input
+                  value={deleteConfirmText}
+                  onChange={(event) => setDeleteConfirmText(event.target.value)}
+                  placeholder="DELETE"
+                  disabled={deleteBusy}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void clearArchivedEpisodes();
+                    }
+                  }}
+                />
+              </label>
+            ) : null}
+            <button type="submit" disabled={deleteBusy || Boolean(restoreBusyId) || archivedEpisodes.length === 0}>
+              {deleteBusy ? "Clearing..." : deleteMode === "full_delete" ? "Clear All Archived Episodes" : "Clear Archived Episodes"}
+            </button>
+            {deleteNotice ? <div className="tongs-storage__delete-notice">{deleteNotice}</div> : null}
+          </form>
+          {archivedEpisodes.length === 0 ? (
+            <div className="tongs-storage__tree-placeholder">No archived episodes yet.</div>
+          ) : (
+            <div className="tongs-storage__archive-list">
+              {archivedEpisodes.map((episode) => {
+                const archiveHref = buildForgeRouteHref(location.pathname, {
+                  search: location.search,
+                  workspaceId,
+                  workpieceId: episode.id,
+                });
+                const title = episode.label ?? `Episode ${episode.id.slice(0, 8)}`;
+                return (
+                  <div key={episode.id} className="tongs-storage__archive-card">
+                    <div className="tongs-storage__archive-card-row">
+                      <div>
+                        <div className="tongs-storage__archive-card-title">{title}</div>
+                        <div className="tongs-storage__archive-card-meta">
+                          Archived {formatDateTime(episode.archived_at)}{episode.archive_reason ? ` • ${episode.archive_reason}` : ""}
+                        </div>
+                      </div>
+                      <div className="tongs-storage__archive-card-actions">
+                        <button type="button" onClick={() => navigate(archiveHref)}>
+                          Review storage
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void restoreWorkpieceById(episode.id)}
+                          disabled={deleteBusy || restoreBusyId === episode.id}
+                        >
+                          {restoreBusyId === episode.id ? "Restoring..." : "Restore to active"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void deleteWorkpieceById(episode.id)}
+                          disabled={deleteBusy || restoreBusyId === episode.id}
+                        >
+                          {deleteBusy ? "Clearing..." : "Clear archived episode"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+      ) : null}
 
       <section className="tongs-storage__panel">
         <div className="tongs-storage__panel-header">

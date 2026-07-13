@@ -3,20 +3,16 @@ import { deriveRegenProgressLabel, resolveIngestSelectedSource } from "../src/ed
 
 async function testRunningAtOnePercentUsesStagedLabel() {
   const label = deriveRegenProgressLabel({
-    jobId: "job_1",
     status: "running",
     progressPercent: 1,
-    errorMessage: null,
   });
   assert.equal(label, "Receiving transcript chunks…");
 }
 
 async function testRunningWithProgressUsesPercentLabel() {
   const label = deriveRegenProgressLabel({
-    jobId: "job_1",
     status: "running",
     progressPercent: 42,
-    errorMessage: null,
   });
   assert.equal(label, "Progress 42%");
 }

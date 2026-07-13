@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import type { HammerHistorySnapshotV1 } from "../src/lib/hammerSnapshotArtifactApi";
+import type { HammerEditorStateSerializable } from "../src/editor/hammerWorkspaceHistory";
 import {
   buildHammerHistorySnapshot,
   createHammerSnapshotRef,
@@ -8,7 +10,7 @@ import {
 } from "../src/editor/hammerSnapshotProduction";
 import { createDefaultHammerStudioRackState } from "../src/editor/hammerStudioRack";
 
-const editorState = {
+const editorState: HammerEditorStateSerializable = {
   transcriptSegments: [
     {
       segment_id: "seg-1",
@@ -19,6 +21,8 @@ const editorState = {
     },
   ],
   visualPlacements: null,
+  visualTimeline: null,
+  audioEdit: null,
   studioRack: createDefaultHammerStudioRackState(),
   editorialAuthorityGraph: null,
   outputSelection: {
@@ -124,7 +128,7 @@ function testRepeatedSnapshotWriteReplacesExistingRef() {
     headEntryId: "entry-120",
   });
 
-  const first = {
+  const first: HammerHistorySnapshotV1 = {
     version: 1 as const,
     snapshotRef,
     createdAt: "2026-03-24T15:02:00.000Z",
@@ -136,7 +140,7 @@ function testRepeatedSnapshotWriteReplacesExistingRef() {
     redoDepth: 0,
     editorState,
   };
-  const second = {
+  const second: HammerHistorySnapshotV1 = {
     ...first,
     createdAt: "2026-03-24T15:02:10.000Z",
   };
