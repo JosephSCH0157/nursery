@@ -31,7 +31,7 @@ export type HammerRenderPlanV1 = Readonly<{
   composition_revision: number;
   composition_fingerprint: string;
   source_fingerprints: Readonly<Record<string, string>>;
-  packaging: Readonly<{ intro_operation_id: string | null; outro_operation_id: string | null; thumbnail_asset_id: string | null }>;
+  packaging: Readonly<{ intro_operation_id: string | null; outro_operation_id: string | null; thumbnail_asset_id: string | null; reference_asset_ids: readonly string[] }>;
   duration_sec: number;
   operations: readonly HammerRenderOperationV1[];
   audio_graph: HammerAudioGraphV1;
@@ -160,7 +160,7 @@ export function compileHammerRenderPlan(composition: HammerCompositionV2): Hamme
     composition_revision: composition.revision,
     composition_fingerprint: composition.fingerprint,
     source_fingerprints: Object.freeze(Object.fromEntries(composition.source_media.map((source) => [source.media_id, source.content_fingerprint]))),
-    packaging: Object.freeze({ intro_operation_id: findPackageOperation(composition.packaging.intro_clip_id), outro_operation_id: findPackageOperation(composition.packaging.outro_clip_id), thumbnail_asset_id: composition.packaging.thumbnail_asset_id }),
+    packaging: Object.freeze({ intro_operation_id: findPackageOperation(composition.packaging.intro_clip_id), outro_operation_id: findPackageOperation(composition.packaging.outro_clip_id), thumbnail_asset_id: composition.packaging.thumbnail_asset_id, reference_asset_ids: composition.packaging.reference_asset_ids ?? [] }),
     duration_sec: Math.max(0, ...operations.map((row) => row.end_sec)),
     operations,
     audio_graph: audioGraph,

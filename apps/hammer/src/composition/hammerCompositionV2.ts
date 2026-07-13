@@ -49,7 +49,7 @@ export type HammerCompositionV2 = Readonly<{
   audio_treatments: readonly HammerAudioTreatmentV1[];
   editorial_authority: Readonly<Record<string, unknown>>;
   automated_placements: readonly Readonly<{ placement_id: string; payload: Readonly<Record<string, unknown>> }>[];
-  packaging: Readonly<{ intro_clip_id: string | null; outro_clip_id: string | null; thumbnail_asset_id: string | null }>;
+  packaging: Readonly<{ intro_clip_id: string | null; outro_clip_id: string | null; thumbnail_asset_id: string | null; reference_asset_ids?: readonly string[] }>;
   history_head_id: string | null;
   fingerprint: string;
 }>;
@@ -76,7 +76,7 @@ export type HammerCompositionCommand =
   | Readonly<{ type: "set_automated_placement"; placement_id: string; payload: Readonly<Record<string, unknown>> }>
   | Readonly<{ type: "set_clip_payload"; clip_id: string; payload: Readonly<Record<string, unknown>> }>
   | Readonly<{ type: "set_audio_treatments"; treatments: readonly HammerAudioTreatmentV1[] }>
-  | Readonly<{ type: "set_packaging"; intro_clip_id: string | null; outro_clip_id: string | null; thumbnail_asset_id: string | null }>;
+  | Readonly<{ type: "set_packaging"; intro_clip_id: string | null; outro_clip_id: string | null; thumbnail_asset_id: string | null; reference_asset_ids?: readonly string[] }>;
 
 export type HammerCompositionHistoryEntryV2 = Readonly<{
   entry_id: string;

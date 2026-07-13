@@ -21,6 +21,7 @@ import { buildHammerReleasePacketV2, validateHammerReleasePacketV2ForQuench } fr
 import { compileHammerAudioGraphV1, diagnoseHammerAudioMaster, selectHammerAudioGraphExecution, type HammerAudioTreatmentV1 } from "../src/composition/hammerAudioGraphV1";
 import { acceptHammerAngleProposal, buildHammerVisualClipCommand, buildHammerVisualCompositionCommand, createHammerSourceGroupV1, diagnoseHammerSourceGroupDrift, type HammerVisualCompositionV1 } from "../src/composition/hammerVisualCompositionV1";
 import { buildHammerCaptionArtifactCommand, buildHammerCaptionArtifactFromTranscriptV1, buildHammerCaptionCueEditCommand, buildHammerGraphicTemplateCommand, reconcileHammerCaptionArtifactAfterTranscriptChangeV1, validateHammerGraphicTemplateV1, type HammerGraphicTemplateV1 } from "../src/composition/hammerCaptionGraphicsTemplatesV1";
+import { buildHammerProgramPackageCommand, proveHammerFullProgramPackageAssemblyV1 } from "../src/composition/hammerProgramPackageV1";
 
 test("Tongs fails closed before any V2 artifact write when the migration is unavailable", () => {
   const source = readFileSync(new URL("../../../packages/tongs/src/workpiece-commit-api.ts", import.meta.url), "utf8");
@@ -202,9 +203,9 @@ test("golden semantic plan resolves ranges, angles, layers, captions, graphics, 
   const plan = compileHammerRenderPlan(composition);
   const second = compileHammerRenderPlan(JSON.parse(JSON.stringify(composition)));
   assert.equal(second.fingerprint, plan.fingerprint);
-  assert.equal(plan.fingerprint, "fnv1a:c3d724f7");
+  assert.equal(plan.fingerprint, "fnv1a:c50aa074");
   assert.equal(plan.duration_sec, 70);
-  assert.deepEqual(plan.packaging, { intro_operation_id: "clip:intro", outro_operation_id: "clip:outro", thumbnail_asset_id: "thumb:semantic" });
+  assert.deepEqual(plan.packaging, { intro_operation_id: "clip:intro", outro_operation_id: "clip:outro", thumbnail_asset_id: "thumb:semantic", reference_asset_ids: [] });
   assert.deepEqual(plan.operations.find((row) => row.operation_id === "clip:camera-b"), {
     operation_id: "clip:camera-b", kind: "video", track_id: "video", track_role: "program_camera", layer_index: 0,
     start_sec: 35, end_sec: 65, source_start_sec: 0, source_end_sec: 30, source_media_id: "cam-b", source_fingerprint: "sha256:cam-b", source_group_id: null, source_sync_offset_sec: 0, package_role: "program",
@@ -228,7 +229,7 @@ test("interactive preview is a plan-only semantic projection with stable layer o
   assert.equal(frame.placements.length, 1);
   assert.equal(Object.keys(frame.resolved_sources).sort().join(","), "clip:camera-a,clip:music-bed");
   assert.equal(buildHammerInteractivePreviewFrameV1({ plan, expectedCompositionFingerprint: composition.fingerprint, atSec: 7, provenance: composition.source_media }).semantic_fingerprint, frame.semantic_fingerprint);
-  assert.equal(frame.semantic_fingerprint, "fnv1a:a8244e58");
+  assert.equal(frame.semantic_fingerprint, "fnv1a:96dede9b");
   assert.throws(() => buildHammerInteractivePreviewFrameV1({ plan, expectedCompositionFingerprint: "stale", atSec: 7, provenance: composition.source_media }), /preview_plan_stale/);
   assert.throws(() => buildHammerInteractivePreviewFrameV1({ plan, expectedCompositionFingerprint: composition.fingerprint, atSec: 7, provenance: composition.source_media.map((source) => source.media_id === "cam-a" ? { ...source, content_fingerprint: "changed" } : source) }), /preview_source_set_stale/);
   assert.throws(() => buildHammerInteractivePreviewFrameV1({ plan: { ...plan, duration_sec: 71 }, expectedCompositionFingerprint: composition.fingerprint, atSec: 7, provenance: composition.source_media }), /render_plan_fingerprint_mismatch/);
@@ -535,5 +536,75 @@ test("bounded graphic templates cover lower thirds, chapter cards, quote cards, 
   assert.equal(buildHammerInteractivePreviewFrameV1({ plan, expectedCompositionFingerprint: composition.fingerprint, atSec: 7.5, provenance: composition.source_media }).visual_layers.some((operation) => operation.operation_id === "clip:graphic:lower_third"), true);
   assert.throws(() => validateHammerGraphicTemplateV1({ template_id: "bad", template_version: "template.v1", kind: "lower_third", style_preset_id: "forge-brand", safe_area: { left: 0, top: 0, right: 1, bottom: 1 }, keyframes: [{ property: "opacity", at_sec: 0, value: 2, min: 0, max: 1 }] }), /graphic_keyframe_out_of_bounds/);
   for (let index = 0; index < kinds.length; index += 1) history = undoHammerComposition(history);
+  assert.deepEqual(readHammerCompositionAtHead(history), base);
+});
+
+function buildPhase8PackagedHistory() {
+  const base = HAMMER_COMPOSITION_FIXTURES.semanticPlan;
+  const sourceGroup = createHammerSourceGroupV1({ sourceGroupId: "phase8-interview", primarySourceMediaId: "cam-a", method: "manual", sources: [
+    { source_media_id: "cam-a", manual_offset_sec: 0, evidence_fingerprint: "manual:a" },
+    { source_media_id: "cam-b", manual_offset_sec: 0.08, evidence_fingerprint: "manual:b" },
+  ] });
+  const captions = buildHammerCaptionArtifactFromTranscriptV1({
+    artifactId: "captions:phase8",
+    transcriptId: base.transcript.transcript_id!,
+    stylePresetId: "podcast-readable",
+    templateVersion: "caption-template.v1",
+    segments: [
+      { segment_id: "s1", speaker: "Host", text: "Intro lands cleanly.", start_sec: 5, end_sec: 8 },
+      { segment_id: "s2", speaker: "Guest", text: "The package stays continuous.", start_sec: 35, end_sec: 38 },
+      { segment_id: "s3", speaker: "Host", text: "Outro is ready.", start_sec: 62, end_sec: 65 },
+    ],
+  });
+  const template: HammerGraphicTemplateV1 = {
+    template_id: "template:phase8-brand",
+    template_version: "template.v1",
+    kind: "brand_package",
+    style_preset_id: "forge-brand",
+    safe_area: { left: 0.06, top: 0.08, right: 0.94, bottom: 0.92 },
+    keyframes: [{ property: "opacity", at_sec: 5, value: 1, min: 0, max: 1 }],
+  };
+  let history = createHammerCompositionHistory(base);
+  history = commitHammerCompositionCommand(history, { type: "upsert_source_group", source_group: sourceGroup }, "Sync cameras");
+  history = commitHammerCompositionCommand(history, buildHammerCaptionArtifactCommand(captions), "Build package captions");
+  history = commitHammerCompositionCommand(history, buildHammerGraphicTemplateCommand({ clip_id: "graphic:phase8-brand", track_id: "graphics", kind: "graphic", source_media_id: null, source_start_sec: 0, source_end_sec: 0, timeline_start_sec: 5, timeline_end_sec: 65, enabled: true, linked_group_id: null, payload: { text: "Forge" } }, template), "Add brand package");
+  history = commitHammerCompositionCommand(history, buildHammerProgramPackageCommand({ intro_clip_id: "intro", outro_clip_id: "outro", thumbnail_asset_id: "thumb:phase8", reference_asset_ids: ["ref:thumbnail", "ref:show-notes"] }), "Assemble full program");
+  return history;
+}
+
+test("Phase 8 proves intro-program-outro as one continuous package with all mounted creative elements", () => {
+  const history = buildPhase8PackagedHistory();
+  const composition = readHammerCompositionAtHead(history);
+  const plan = compileHammerRenderPlan(composition);
+  const proof = proveHammerFullProgramPackageAssemblyV1({ composition, plan });
+  assert.deepEqual(proof.sequence, ["intro", "program", "outro"]);
+  assert.deepEqual(proof.boundaries, { intro_start_sec: 0, program_start_sec: 5, outro_start_sec: 65, end_sec: 70 });
+  assert.deepEqual(proof.includes, { music: true, graphics: true, captions: true, final_audio_treatment: true, transitions: true, thumbnail: true, references: true, multicamera: true });
+  assert.deepEqual(plan.packaging, { intro_operation_id: "clip:intro", outro_operation_id: "clip:outro", thumbnail_asset_id: "thumb:phase8", reference_asset_ids: ["ref:thumbnail", "ref:show-notes"] });
+  assert.equal(selectHammerPreviewOperations(plan, 2).some((operation) => operation.package_role === "intro"), true);
+  assert.equal(selectHammerPreviewOperations(plan, 20).some((operation) => operation.package_role === "program"), true);
+  assert.equal(selectHammerPreviewOperations(plan, 68).some((operation) => operation.package_role === "outro"), true);
+  assert.equal(buildHammerInteractivePreviewFrameV1({ plan, expectedCompositionFingerprint: composition.fingerprint, atSec: 36, provenance: composition.source_media }).captions.some((operation) => operation.operation_id === "caption-artifact:cue:s2"), true);
+});
+
+test("Phase 8 package assembly fails closed for missing assets, boundary gaps, and unacknowledged stale reopen", () => {
+  const history = buildPhase8PackagedHistory();
+  const composition = readHammerCompositionAtHead(history);
+  assert.throws(() => compileHammerRenderPlan(applyHammerCompositionCommand(composition, { type: "set_packaging", intro_clip_id: "missing-intro", outro_clip_id: "outro", thumbnail_asset_id: "thumb:phase8" })), /package_intro_unresolved/);
+  const missingThumbnail = applyHammerCompositionCommand(composition, { type: "set_packaging", intro_clip_id: "intro", outro_clip_id: "outro", thumbnail_asset_id: null });
+  assert.throws(() => proveHammerFullProgramPackageAssemblyV1({ composition: missingThumbnail, plan: compileHammerRenderPlan(missingThumbnail) }), /thumbnail_missing/);
+  const gapped = applyHammerCompositionCommand(composition, { type: "trim_clip", clip_id: "camera-a", start_sec: 6, end_sec: 35 });
+  assert.throws(() => proveHammerFullProgramPackageAssemblyV1({ composition: gapped, plan: compileHammerRenderPlan(gapped) }), /intro_boundary_gap/);
+  const transaction = prepareHammerCompositionTransactionV2({ history, command: { type: "set_packaging", intro_clip_id: "intro", outro_clip_id: "outro", thumbnail_asset_id: "thumb:phase8:ack", reference_asset_ids: ["ref:thumbnail"] }, label: "Update package thumbnail", expectedRevisionUpdatedAt: composition.updated_at });
+  const head = transaction.history.entries[transaction.history.head_index]!.entry_id;
+  const reopened = readAcknowledgedHammerCompositionV2({ transaction, recordingRevisionId: composition.recording_revision_id, acknowledgedRevision: transaction.composition.revision, acknowledgedFingerprint: transaction.composition.fingerprint, acknowledgedHistoryHeadId: head });
+  assert.equal(proveHammerFullProgramPackageAssemblyV1({ composition: reopened, plan: compileHammerRenderPlan(reopened) }).includes.references, true);
+  assert.throws(() => readAcknowledgedHammerCompositionV2({ transaction, recordingRevisionId: composition.recording_revision_id, acknowledgedRevision: transaction.composition.revision - 1, acknowledgedFingerprint: transaction.composition.fingerprint, acknowledgedHistoryHeadId: head }), /not_acknowledged/);
+});
+
+test("Phase 8 package edits participate in canonical history and repeated Undo restores raw package state", () => {
+  let history = buildPhase8PackagedHistory();
+  const base = HAMMER_COMPOSITION_FIXTURES.semanticPlan;
+  for (let index = 0; index < 4; index += 1) history = undoHammerComposition(history);
   assert.deepEqual(readHammerCompositionAtHead(history), base);
 });
