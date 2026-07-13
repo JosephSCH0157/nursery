@@ -6,7 +6,7 @@ Run with: node tools/rec_smoke.js
 (async function(){
   const results = [];
   function pass(name){ results.push({ name, ok:true }); console.log('PASS -', name); }
-  function fail(name, msg){ results.push({ name, ok:false, msg }); console.log('FAIL -', name, msg||''); }
+  function fail(name, msg){ results.push({ name, ok:false, msg }); process.exitCode = 1; console.log('FAIL -', name, msg||''); }
 
   // Minimal window/EventTarget polyfill for rec:state events
   global.window = global.window || {};
@@ -31,6 +31,10 @@ Run with: node tools/rec_smoke.js
 
   try {
     const rec = await import('../recorders.js');
+    // recorders.js initializes built-in adapters asynchronously at module load.
+    // Let that registration settle before installing deterministic test doubles,
+    // otherwise the late built-ins can overwrite the fakes mid-suite.
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     // Fake adapters
     let startCount = 0;
@@ -161,6 +165,6 @@ Run with: node tools/rec_smoke.js
   // Gate hard exit for CI or direct script run; avoid yanking embedded runners
   try {
     const wantHardExit = (process?.env?.SMOKE_HARD_EXIT === '1') || (typeof require !== 'undefined' && require?.main === module);
-    if (wantHardExit) setImmediate(() => { try { process.exit(0); } catch {} });
+    if (wantHardExit) setImmediate(() => { try { process.exit(process.exitCode || 0); } catch {} });
   } catch {}
 });

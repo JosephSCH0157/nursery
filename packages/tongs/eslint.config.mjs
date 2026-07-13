@@ -11,6 +11,17 @@ export default [
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
+    files: ["tests/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        Blob: "readonly",
+        Buffer: "readonly",
+        FormData: "readonly",
+        process: "readonly",
+      },
+    },
+  },
+  {
     files: ["**/*.{ts,tsx}"],
     languageOptions: {
       parser: tseslint.parser,

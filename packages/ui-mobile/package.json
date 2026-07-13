@@ -8,7 +8,9 @@
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test:contract": "vitest run tests/contract.test.tsx"
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run tests/contract.test.tsx",
+    "test:contract": "pnpm test"
   },
   "exports": {
     ".": {

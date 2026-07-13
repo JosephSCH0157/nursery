@@ -140,6 +140,9 @@ importers:
       eslint:
         specifier: ^9.39.2
         version: 9.39.4
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
       typescript:
         specifier: ^5.5.0
         version: 5.9.3
@@ -345,8 +348,23 @@ importers:
         specifier: ~5.9.3
         version: 5.9.3
 
+  packages/contracts:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.10.1
+        version: 24.12.0
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
+      typescript:
+        specifier: ~5.9.3
+        version: 5.9.3
+
   packages/shared:
     devDependencies:
+      tsx:
+        specifier: ^4.21.0
+        version: 4.21.0
       typescript:
         specifier: ~5.9.3
         version: 5.9.3

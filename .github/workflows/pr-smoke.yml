@@ -15,6 +15,98 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  nursery-fast-gate:
+    name: nursery:fast
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm gate:fast
+
+  nursery-production-build:
+    name: nursery:build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm build
+
+  nursery-integration-gate:
+    name: nursery:integration
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm gate:integration
+
+  nursery-media-gate:
+    name: nursery:media
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm gate:media
+
+  nursery-browser-gate:
+    name: nursery:browser
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      CI: "true"
+      VITE_SUPABASE_URL: ${{ secrets.NURSERY_SUPABASE_URL }}
+      VITE_SUPABASE_ANON_KEY: ${{ secrets.NURSERY_SUPABASE_ANON_KEY }}
+      TONGS_SERVICE_ROLE_KEY: ${{ secrets.NURSERY_SUPABASE_SERVICE_ROLE_KEY }}
+      FORGE_CI_AUTH_EMAIL: ${{ secrets.NURSERY_PLAYWRIGHT_EMAIL }}
+      FORGE_CI_AUTH_PASSWORD: ${{ secrets.NURSERY_PLAYWRIGHT_PASSWORD }}
+      FORGE_TEST_WORKSPACE_ID: ${{ secrets.NURSERY_HEARTH_PHASE4_WORKSPACE_ID }}
+      FORGE_TEST_WORKPIECE_ID: ${{ secrets.NURSERY_HEARTH_PHASE4_WORKPIECE_ID }}
+      FORGE_TEST_HAMMER_WORKPIECE_ID: ${{ secrets.NURSERY_HEARTH_PHASE4_WORKPIECE_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.0
+          cache: pnpm
+      - name: Validate required live browser fixtures
+        run: |
+          test -n "${VITE_SUPABASE_URL}"
+          test -n "${VITE_SUPABASE_ANON_KEY}"
+          test -n "${TONGS_SERVICE_ROLE_KEY}"
+          test -n "${FORGE_CI_AUTH_EMAIL}"
+          test -n "${FORGE_CI_AUTH_PASSWORD}"
+          test -n "${FORGE_TEST_WORKSPACE_ID}"
+          test -n "${FORGE_TEST_WORKPIECE_ID}"
+          test -n "${FORGE_TEST_HAMMER_WORKPIECE_ID}"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter nursery exec playwright install --with-deps chromium
+      - run: pnpm --filter nursery generate:playwright:auth
+      - run: pnpm gate:browser
+
   hammer-production-gates:
     name: hammer:production
     runs-on: ubuntu-latest
