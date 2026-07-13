@@ -43,6 +43,8 @@ export type HammerCompositionV2 = Readonly<{
   transcript: Readonly<{ transcript_id: string | null; corrections: readonly { segment_id: string; corrected_text: string }[] }>;
   captions: Readonly<{ artifact_id: string | null; based_on_transcript_id: string | null; stale: boolean }>;
   audio_treatments: readonly Readonly<Record<string, unknown>>[];
+  editorial_authority: Readonly<Record<string, unknown>>;
+  automated_placements: readonly Readonly<{ placement_id: string; payload: Readonly<Record<string, unknown>> }>[];
   packaging: Readonly<{ intro_clip_id: string | null; outro_clip_id: string | null; thumbnail_asset_id: string | null }>;
   history_head_id: string | null;
   fingerprint: string;
@@ -55,6 +57,13 @@ export type HammerCompositionCommand =
   | Readonly<{ type: "set_track_state"; track_id: string; locked?: boolean; muted?: boolean; solo?: boolean; visible?: boolean }>
   | Readonly<{ type: "correct_transcript"; segment_id: string; corrected_text: string }>
   | Readonly<{ type: "correct_caption"; clip_id: string; corrected_text: string }>
+  | Readonly<{ type: "delete_transcript_range"; start_sec: number; end_sec: number; ripple: boolean }>
+  | Readonly<{ type: "set_angle"; clip_id: string; source_media_id: string }>
+  | Readonly<{ type: "set_transition"; clip_id: string; transition: Readonly<Record<string, unknown>> }>
+  | Readonly<{ type: "upsert_graphic"; clip: HammerCompositionClipV2 }>
+  | Readonly<{ type: "set_caption_artifact"; artifact_id: string | null; based_on_transcript_id: string | null }>
+  | Readonly<{ type: "set_editorial_authority"; authority: Readonly<Record<string, unknown>> }>
+  | Readonly<{ type: "set_automated_placement"; placement_id: string; payload: Readonly<Record<string, unknown>> }>
   | Readonly<{ type: "set_clip_payload"; clip_id: string; payload: Readonly<Record<string, unknown>> }>
   | Readonly<{ type: "set_audio_treatments"; treatments: readonly Readonly<Record<string, unknown>>[] }>
   | Readonly<{ type: "set_packaging"; intro_clip_id: string | null; outro_clip_id: string | null; thumbnail_asset_id: string | null }>;
@@ -101,7 +110,13 @@ export function applyHammerCompositionCommand(composition: HammerCompositionV2, 
   if (command.type === "set_track_state") return withRevision(composition, { tracks: composition.tracks.map((track) => track.track_id === command.track_id ? Object.freeze({ ...track, ...command }) : track) });
   if (command.type === "correct_transcript") return withRevision(composition, { transcript: Object.freeze({ ...composition.transcript, corrections: [...composition.transcript.corrections.filter((row) => row.segment_id !== command.segment_id), { segment_id: command.segment_id, corrected_text: command.corrected_text }] }), captions: Object.freeze({ ...composition.captions, stale: true }) });
   if (command.type === "set_audio_treatments") return withRevision(composition, { audio_treatments: command.treatments });
+  if (command.type === "set_editorial_authority") return withRevision(composition, { editorial_authority: command.authority });
+  if (command.type === "set_caption_artifact") return withRevision(composition, { captions: Object.freeze({ artifact_id: command.artifact_id, based_on_transcript_id: command.based_on_transcript_id, stale: false }) });
+  if (command.type === "set_automated_placement") return withRevision(composition, { automated_placements: [...composition.automated_placements.filter((row) => row.placement_id !== command.placement_id), Object.freeze({ placement_id: command.placement_id, payload: command.payload })] });
   if (command.type === "set_packaging") return withRevision(composition, { packaging: Object.freeze({ ...command }) });
+  if (command.type === "upsert_graphic") return withRevision(composition, { tracks: composition.tracks.map((track) => track.track_id === command.clip.track_id ? Object.freeze({ ...track, clips: [...track.clips.filter((clip) => clip.clip_id !== command.clip.clip_id), command.clip] }) : track) });
+  if (command.type === "set_angle") return withRevision(composition, { tracks: mapClips(composition, (clip) => clip.clip_id === command.clip_id ? Object.freeze({ ...clip, source_media_id: command.source_media_id }) : clip) });
+  if (command.type === "set_transition") return withRevision(composition, { tracks: mapClips(composition, (clip) => clip.clip_id === command.clip_id ? Object.freeze({ ...clip, payload: Object.freeze({ ...clip.payload, transition: command.transition }) }) : clip) });
   if (command.type === "correct_caption" || command.type === "set_clip_payload") return withRevision(composition, { tracks: mapClips(composition, (clip) => clip.clip_id === command.clip_id ? Object.freeze({ ...clip, payload: command.type === "correct_caption" ? Object.freeze({ ...clip.payload, corrected_text: command.corrected_text }) : command.payload }) : clip) });
   if (command.type === "trim_clip") return withRevision(composition, { tracks: mapClips(composition, (clip) => clip.clip_id === command.clip_id ? Object.freeze({ ...clip, timeline_start_sec: command.start_sec, timeline_end_sec: command.end_sec }) : clip) });
   if (command.type === "split_clip") return withRevision(composition, { tracks: mapClips(composition, (clip) => clip.clip_id !== command.clip_id || command.at_sec <= clip.timeline_start_sec || command.at_sec >= clip.timeline_end_sec ? clip : [Object.freeze({ ...clip, clip_id: `${clip.clip_id}:a`, timeline_end_sec: command.at_sec, source_end_sec: clip.source_start_sec + (command.at_sec - clip.timeline_start_sec) }), Object.freeze({ ...clip, clip_id: `${clip.clip_id}:b`, timeline_start_sec: command.at_sec, source_start_sec: clip.source_start_sec + (command.at_sec - clip.timeline_start_sec) })]) });
@@ -115,8 +130,11 @@ export function createHammerCompositionHistory(base: HammerCompositionV2): Hamme
 
 export function commitHammerCompositionCommand(history: HammerCompositionHistoryV2, command: HammerCompositionCommand, label: string): HammerCompositionHistoryV2 {
   const before = history.head_index >= 0 ? history.entries[history.head_index].after : history.base;
-  const after = applyHammerCompositionCommand(before, command);
-  const entries = [...history.entries.slice(0, history.head_index + 1), Object.freeze({ entry_id: `history:${after.revision}:${hammerStableFingerprint(command)}`, label, command, before, after, created_at: after.updated_at })];
+  const applied = applyHammerCompositionCommand(before, command);
+  const entryId = `history:${applied.revision}:${hammerStableFingerprint(command)}`;
+  const next = { ...applied, history_head_id: entryId, fingerprint: "" };
+  const after = Object.freeze({ ...next, fingerprint: hammerStableFingerprint({ ...next, fingerprint: undefined }) });
+  const entries = [...history.entries.slice(0, history.head_index + 1), Object.freeze({ entry_id: entryId, label, command, before, after, created_at: after.updated_at })];
   return Object.freeze({ ...history, entries, head_index: entries.length - 1 });
 }
 

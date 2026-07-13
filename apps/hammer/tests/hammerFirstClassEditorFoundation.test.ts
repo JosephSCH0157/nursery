@@ -9,7 +9,8 @@ import {
   undoHammerComposition,
 } from "../src/composition/hammerCompositionV2";
 import { HAMMER_COMPOSITION_FIXTURES } from "../src/composition/hammerCompositionFixtures";
-import { projectLegacyHammerCompositionV2 } from "../src/composition/hammerLegacyCompositionProjection";
+import { prepareHammerCompositionTransactionV2, readAcknowledgedHammerCompositionV2 } from "../src/composition/hammerCompositionTransactionV2";
+import { projectLegacyHammerCompositionV2, resolveHammerCreativeAuthority } from "../src/composition/hammerLegacyCompositionProjection";
 import { diagnoseHammerMedia, evaluateHammerMediaRelink, hammerDerivedArtifactKey, isHammerDerivedArtifactCurrent, registerHammerDerivedArtifact, resolveHammerMediaSource, selectCurrentHammerDerivedArtifact, type HammerDerivedArtifact } from "../src/composition/hammerMediaProvenance";
 import { compileHammerRenderPlan, resolveHammerPreviewSource, selectHammerPreviewOperations } from "../src/composition/hammerRenderPlanV1";
 import { acknowledgeHammerRenderJob, createHammerRenderJob, settleHammerRenderJob } from "../src/composition/hammerRenderJobV1";
@@ -118,6 +119,59 @@ test("every creative command enters one history and repeated undo returns untouc
   assert.equal(readHammerCompositionAtHead(history).tracks[0].clips.length, 2);
 });
 
+test("all Phase 2 creative authorities participate in the same canonical history", () => {
+  let history = createHammerCompositionHistory(HAMMER_COMPOSITION_FIXTURES.interview);
+  const commands = [
+    { type: "delete_transcript_range", start_sec: 2, end_sec: 3, ripple: true },
+    { type: "set_angle", clip_id: "angle-a", source_media_id: "cam-b" },
+    { type: "set_audio_treatments", treatments: [{ kind: "gain", db: -2 }] },
+    { type: "set_transition", clip_id: "angle-b", transition: { kind: "crossfade" } },
+    { type: "set_caption_artifact", artifact_id: "captions:2", based_on_transcript_id: "transcript:1" },
+    { type: "set_editorial_authority", authority: { owner: "composition_v2" } },
+    { type: "set_automated_placement", placement_id: "placement:1", payload: { x: 0.2, y: 0.8 } },
+    { type: "set_packaging", intro_clip_id: null, outro_clip_id: null, thumbnail_asset_id: "thumb:2" },
+  ] as const;
+  for (const command of commands) history = commitHammerCompositionCommand(history, command, command.type);
+  assert.equal(history.entries.length, commands.length);
+  assert.equal(readHammerCompositionAtHead(history).history_head_id, history.entries.at(-1)?.entry_id);
+  for (let index = 0; index < commands.length; index += 1) history = undoHammerComposition(history);
+  assert.deepEqual(readHammerCompositionAtHead(history), HAMMER_COMPOSITION_FIXTURES.interview);
+});
+
+test("composition and history save/reload only become canonical after matching acknowledgement", () => {
+  const raw = HAMMER_COMPOSITION_FIXTURES.solo;
+  const transaction = prepareHammerCompositionTransactionV2({ history: createHammerCompositionHistory(raw), command: { type: "trim_clip", clip_id: "solo-program", start_sec: 1, end_sec: 59 }, label: "Trim", expectedRevisionUpdatedAt: "2026-07-13T01:00:00.000Z" });
+  const head = transaction.history.entries[transaction.history.head_index].entry_id;
+  const reopened = readAcknowledgedHammerCompositionV2({ transaction: JSON.parse(JSON.stringify(transaction)), recordingRevisionId: raw.recording_revision_id, acknowledgedRevision: transaction.composition.revision, acknowledgedFingerprint: transaction.composition.fingerprint, acknowledgedHistoryHeadId: head });
+  assert.equal(reopened.fingerprint, transaction.composition.fingerprint);
+  assert.throws(() => readAcknowledgedHammerCompositionV2({ transaction, recordingRevisionId: raw.recording_revision_id, acknowledgedRevision: transaction.composition.revision - 1, acknowledgedFingerprint: transaction.composition.fingerprint, acknowledgedHistoryHeadId: head }), /not_acknowledged/);
+  assert.throws(() => readAcknowledgedHammerCompositionV2({ transaction, recordingRevisionId: "other", acknowledgedRevision: transaction.composition.revision, acknowledgedFingerprint: transaction.composition.fingerprint, acknowledgedHistoryHeadId: head }), /identity_mismatch/);
+  assert.throws(() => readAcknowledgedHammerCompositionV2({ transaction: { ...transaction, history: { ...transaction.history, head_index: -1 } }, recordingRevisionId: raw.recording_revision_id, acknowledgedRevision: transaction.composition.revision, acknowledgedFingerprint: transaction.composition.fingerprint, acknowledgedHistoryHeadId: head }), /fingerprint_mismatch/);
+});
+
+test("an acknowledged V2 transaction wins and a stale V2 transaction never falls back to legacy authority", () => {
+  const raw = HAMMER_COMPOSITION_FIXTURES.solo;
+  const legacy = { workspace_id: raw.workspace_id, workpiece_id: raw.workpiece_id, recording_revision_id: raw.recording_revision_id, canonical_recording_id: "canonical-solo", created_at: raw.created_at, source_media: raw.source_media, projected_tracks: raw.tracks, transcript_id: raw.transcript.transcript_id, caption_artifact_id: raw.captions.artifact_id };
+  assert.equal(resolveHammerCreativeAuthority({ legacy }).kind, "legacy_projection_pending");
+  const transaction = prepareHammerCompositionTransactionV2({ history: createHammerCompositionHistory(raw), command: { type: "correct_transcript", segment_id: "s1", corrected_text: "correct" }, label: "Correct", expectedRevisionUpdatedAt: raw.updated_at });
+  const head = transaction.history.entries.at(-1)!.entry_id;
+  const canonical = resolveHammerCreativeAuthority({ legacy, transaction, acknowledgedRevision: transaction.composition.revision, acknowledgedFingerprint: transaction.composition.fingerprint, acknowledgedHistoryHeadId: head });
+  assert.equal(canonical.kind, "canonical_v2");
+  assert.throws(() => resolveHammerCreativeAuthority({ legacy, transaction, acknowledgedRevision: transaction.composition.revision - 1, acknowledgedFingerprint: transaction.composition.fingerprint, acknowledgedHistoryHeadId: head }), /not_acknowledged/);
+});
+
+test("Tongs composition pointer acknowledgement is compare-and-swap guarded", () => {
+  const source = readFileSync(new URL("../../../packages/tongs/src/workpiece-commit-api.ts", import.meta.url), "utf8");
+  assert.match(source, /select\("composition_v2_path,media_provenance_path,render_jobs_path,release_packet_path,composition_revision,composition_fingerprint,composition_history_head_id"\)/);
+  assert.ok(source.indexOf("composition_history_head_id\")") < source.indexOf("commitRevisionArtifact(\"composition_v2\""));
+  assert.match(source, /composition_expected_revision_required/);
+  assert.match(source, /updateQuery\.eq\("updated_at", input\.expected_revision_updated_at\)/);
+  assert.match(source, /composition_revision_conflict/);
+  const migration = readFileSync(new URL("../../../supabase/migrations/20260713043000_tongs_hammer_composition_v2_concurrency.sql", import.meta.url), "utf8");
+  assert.match(migration, /composition_revision bigint/);
+  assert.match(migration, /composition_history_head_id text/);
+});
+
 test("transcript correction does not claim media changed and caption correction is isolated", () => {
   let history = createHammerCompositionHistory(HAMMER_COMPOSITION_FIXTURES.packaged);
   history = commitHammerCompositionCommand(history, { type: "correct_transcript", segment_id: "s1", corrected_text: "words" }, "Transcript correction");
@@ -135,6 +189,10 @@ test("render plan deterministically drives continuous intro-program-outro previe
   assert.equal(selectHammerPreviewOperations(first, 20).some((row) => row.operation_id === "clip:program"), true);
   assert.equal(selectHammerPreviewOperations(first, 68).some((row) => row.operation_id === "clip:outro"), true);
   assert.equal(first.operations.some((row) => row.kind === "audio_treatment"), true);
+});
+
+test("preview/render compilation rejects non-V2 creative representations", () => {
+  assert.throws(() => compileHammerRenderPlan({ schema_version: 1 } as never), /composition_v2_invalid/);
 });
 
 test("render completion becomes stale after composition changes and cannot enter Quench packet", () => {

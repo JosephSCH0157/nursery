@@ -4,6 +4,7 @@ import {
   type HammerCompositionV2,
 } from "./hammerCompositionV2";
 import type { HammerMediaProvenance } from "./hammerMediaProvenance";
+import { readAcknowledgedHammerCompositionV2, type HammerCompositionTransactionV2 } from "./hammerCompositionTransactionV2";
 
 export type HammerLegacyCompositionProjectionInput = Readonly<{
   workspace_id: string;
@@ -15,6 +16,9 @@ export type HammerLegacyCompositionProjectionInput = Readonly<{
   projected_tracks: readonly HammerCompositionTrackV2[];
   transcript_id: string | null;
   caption_artifact_id: string | null;
+  audio_treatments?: readonly Readonly<Record<string, unknown>>[];
+  editorial_authority?: Readonly<Record<string, unknown>>;
+  automated_placements?: readonly Readonly<{ placement_id: string; payload: Readonly<Record<string, unknown>> }>[];
   intro_clip_id?: string | null;
   outro_clip_id?: string | null;
   thumbnail_asset_id?: string | null;
@@ -60,7 +64,9 @@ export function projectLegacyHammerCompositionV2(
     tracks: input.projected_tracks,
     transcript: Object.freeze({ transcript_id: input.transcript_id, corrections: [] }),
     captions: Object.freeze({ artifact_id: input.caption_artifact_id, based_on_transcript_id: input.transcript_id, stale: false }),
-    audio_treatments: [],
+    audio_treatments: input.audio_treatments ?? [],
+    editorial_authority: input.editorial_authority ?? Object.freeze({}),
+    automated_placements: input.automated_placements ?? [],
     packaging: Object.freeze({
       intro_clip_id: input.intro_clip_id ?? null,
       outro_clip_id: input.outro_clip_id ?? null,
@@ -70,4 +76,28 @@ export function projectLegacyHammerCompositionV2(
     fingerprint: "",
   };
   return Object.freeze({ ...seed, fingerprint: hammerStableFingerprint({ ...seed, fingerprint: undefined }) });
+}
+
+export type HammerCreativeAuthorityResolution =
+  | Readonly<{ kind: "canonical_v2"; composition: HammerCompositionV2 }>
+  | Readonly<{ kind: "legacy_projection_pending"; candidate: HammerCompositionV2 }>;
+
+export function resolveHammerCreativeAuthority(args: {
+  legacy: HammerLegacyCompositionProjectionInput;
+  transaction?: HammerCompositionTransactionV2 | null;
+  acknowledgedRevision?: number | null;
+  acknowledgedFingerprint?: string | null;
+  acknowledgedHistoryHeadId?: string | null;
+}): HammerCreativeAuthorityResolution {
+  if (!args.transaction) return Object.freeze({ kind: "legacy_projection_pending", candidate: projectLegacyHammerCompositionV2(args.legacy) });
+  return Object.freeze({
+    kind: "canonical_v2",
+    composition: readAcknowledgedHammerCompositionV2({
+      transaction: args.transaction,
+      recordingRevisionId: args.legacy.recording_revision_id,
+      acknowledgedRevision: args.acknowledgedRevision ?? null,
+      acknowledgedFingerprint: args.acknowledgedFingerprint ?? null,
+      acknowledgedHistoryHeadId: args.acknowledgedHistoryHeadId ?? null,
+    }),
+  });
 }

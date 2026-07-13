@@ -1,4 +1,5 @@
 import { hammerStableFingerprint, type HammerCompositionV2 } from "./hammerCompositionV2";
+import { assertHammerCompositionV2 } from "./hammerCompositionTransactionV2";
 import { resolveHammerMediaSource, type HammerDerivedArtifact, type HammerMediaProvenance, type HammerResolvedMediaSource } from "./hammerMediaProvenance";
 
 export type HammerRenderOperationV1 = Readonly<{
@@ -24,6 +25,7 @@ export type HammerRenderPlanV1 = Readonly<{
 }>;
 
 export function compileHammerRenderPlan(composition: HammerCompositionV2): HammerRenderPlanV1 {
+  assertHammerCompositionV2(composition);
   const sourceById = new Map(composition.source_media.map((source) => [source.media_id, source]));
   const clipOperations = composition.tracks.flatMap((track) => track.clips.filter((clip) => clip.enabled && track.visible && !track.muted).map((clip) => Object.freeze({
     operation_id: `clip:${clip.clip_id}`,

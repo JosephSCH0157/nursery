@@ -10,6 +10,7 @@ import type {
 } from "./hammerPersistenceContract";
 import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
 import type { HammerCompositionV2, HammerCompositionHistoryV2 } from "../composition/hammerCompositionV2";
+import type { HammerCompositionTransactionV2 } from "../composition/hammerCompositionTransactionV2";
 import type { HammerMediaProvenanceManifest } from "../composition/hammerMediaProvenance";
 import type { HammerRenderJobV1 } from "../composition/hammerRenderJobV1";
 import type { HammerReleasePacketV2 } from "../composition/hammerReleasePacketV2";
@@ -62,6 +63,9 @@ export type HammerRecordingRevisionRecord = {
   media_provenance_path?: string | null;
   render_jobs_path?: string | null;
   release_packet_path?: string | null;
+  composition_revision?: number | null;
+  composition_fingerprint?: string | null;
+  composition_history_head_id?: string | null;
 };
 
 type PersistenceResult<T> =
@@ -248,6 +252,7 @@ export type HammerRevisionArtifacts = {
   visual_timeline: HammerVisualTimelineState | null;
   visual_placements: HammerPersistedVisualPlacements | null;
   composition_v2: HammerCompositionV2 | null;
+  composition_transaction: HammerCompositionTransactionV2 | null;
   history_v2: HammerCompositionHistoryV2 | null;
   media_provenance: HammerMediaProvenanceManifest | null;
   render_jobs: readonly HammerRenderJobV1[] | null;
@@ -285,7 +290,7 @@ export async function loadHammerRecordingRevisionArtifacts(
     revision.visual_placements_path
       ? readWorkpieceJsonFile<HammerPersistedVisualPlacements>(workpieceId, revision.visual_placements_path, 20_000)
       : Promise.resolve({ ok: true as const, exists: false, data: null }),
-    revision.composition_v2_path ? readWorkpieceJsonFile<HammerCompositionV2>(workpieceId, revision.composition_v2_path) : Promise.resolve({ ok: true as const, exists: false, data: null }),
+    revision.composition_v2_path ? readWorkpieceJsonFile<HammerCompositionTransactionV2>(workpieceId, revision.composition_v2_path) : Promise.resolve({ ok: true as const, exists: false, data: null }),
     revision.history_path ? readWorkpieceJsonFile<unknown>(workpieceId, revision.history_path) : Promise.resolve({ ok: true as const, exists: false, data: null }),
     revision.media_provenance_path ? readWorkpieceJsonFile<HammerMediaProvenanceManifest>(workpieceId, revision.media_provenance_path) : Promise.resolve({ ok: true as const, exists: false, data: null }),
     revision.render_jobs_path ? readWorkpieceJsonFile<readonly HammerRenderJobV1[]>(workpieceId, revision.render_jobs_path) : Promise.resolve({ ok: true as const, exists: false, data: null }),
@@ -317,8 +322,11 @@ export async function loadHammerRecordingRevisionArtifacts(
       audio_polish: audioPolishResult.ok ? audioPolishResult.data : null,
       visual_timeline: visualTimelineResult.ok ? visualTimelineResult.data : null,
       visual_placements: visualPlacementsResult.ok ? visualPlacementsResult.data : null,
-      composition_v2: compositionResult.ok ? compositionResult.data : null,
-      history_v2: historyResult.ok && isHammerCompositionHistoryV2(historyResult.data) ? historyResult.data : null,
+      composition_v2: compositionResult.ok && compositionResult.data?.schema_version === 2 ? compositionResult.data.composition : null,
+      composition_transaction: compositionResult.ok ? compositionResult.data : null,
+      history_v2: compositionResult.ok && compositionResult.data?.history?.schema_version === 2
+        ? compositionResult.data.history
+        : historyResult.ok && isHammerCompositionHistoryV2(historyResult.data) ? historyResult.data : null,
       media_provenance: provenanceResult.ok ? provenanceResult.data : null,
       render_jobs: renderJobsResult.ok ? renderJobsResult.data : null,
       release_packet: releasePacketResult.ok ? releasePacketResult.data : null,
@@ -351,6 +359,7 @@ export async function loadLegacyHammerTranscriptArtifacts(
 
 export type SaveHammerRecordingRevisionRequest = {
   written_by: typeof HAMMER_RUNTIME_WRITTEN_BY;
+  expected_revision_updated_at?: string;
   label?: string | null;
   editor_session?: { data: unknown; expected_previous_updated_at?: string | null };
   revision_transcript?: { data: unknown; expected_previous_updated_at?: string | null };
@@ -359,7 +368,7 @@ export type SaveHammerRecordingRevisionRequest = {
   visual_placements?: { data: unknown; expected_previous_updated_at?: string | null };
   history?: { data: unknown; expected_previous_updated_at?: string | null };
   snapshots_manifest?: { data: unknown; expected_previous_updated_at?: string | null };
-  composition_v2?: { data: HammerCompositionV2; expected_previous_updated_at?: string | null };
+  composition_v2?: { data: HammerCompositionTransactionV2; expected_previous_updated_at?: string | null };
   media_provenance?: { data: HammerMediaProvenanceManifest; expected_previous_updated_at?: string | null };
   render_jobs?: { data: readonly HammerRenderJobV1[]; expected_previous_updated_at?: string | null };
   release_packet?: { data: HammerReleasePacketV2; expected_previous_updated_at?: string | null };
@@ -370,6 +379,9 @@ export async function saveHammerRecordingRevision(
   revisionId: string,
   request: Omit<SaveHammerRecordingRevisionRequest, "written_by">,
 ): Promise<PersistenceResult<{ revision: HammerRecordingRevisionRecord }>> {
+  if (request.composition_v2 && !request.expected_revision_updated_at) {
+    return { ok: false, status: 428, error: "Composition V2 writes require the last acknowledged recording revision timestamp." };
+  }
   let response: Response;
   try {
     response = await tongsFetch(

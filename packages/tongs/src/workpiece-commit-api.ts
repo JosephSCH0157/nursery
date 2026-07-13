@@ -721,6 +721,9 @@ export type RecordingRevisionRecord = {
   media_provenance_path: string | null;
   render_jobs_path: string | null;
   release_packet_path: string | null;
+  composition_revision: number | null;
+  composition_fingerprint: string | null;
+  composition_history_head_id: string | null;
   created_at: string;
   created_by: string;
   updated_at: string;
@@ -742,6 +745,7 @@ export type HammerRevisionArtifactKey =
 
 export type SaveHammerRecordingRevisionRequest = {
   written_by: WrittenBy;
+  expected_revision_updated_at?: string;
   label?: string | null;
   editor_session?: HammerArtifactWriteRequest;
   revision_transcript?: HammerArtifactWriteRequest;
@@ -3211,6 +3215,9 @@ function normalizeResetHammerWorkpieceToRawRequest(
       : normalizeNonEmptyString(body.reason, "reason");
   return {
     written_by: writtenBy,
+    ...(typeof body.expected_revision_updated_at === "undefined"
+      ? {}
+      : { expected_revision_updated_at: normalizeIsoTimestamp(body.expected_revision_updated_at, "expected_revision_updated_at") }),
     ...(typeof reason === "undefined" ? {} : { reason }),
   };
 }
@@ -7348,7 +7355,7 @@ export class TongsCommitService {
     if (usesHammerV2) {
       const schemaProbe = await (this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient)
         .from("recording_revisions")
-        .select("composition_v2_path,media_provenance_path,render_jobs_path,release_packet_path")
+        .select("composition_v2_path,media_provenance_path,render_jobs_path,release_packet_path,composition_revision,composition_fingerprint,composition_history_head_id")
         .eq("workspace_id", workspaceId)
         .eq("workpiece_id", workpieceId)
         .eq("id", revisionId)
@@ -7365,6 +7372,39 @@ export class TongsCommitService {
           workpiece_id: workpieceId,
           revision_id: revisionId,
         });
+      }
+    }
+
+    let compositionRevision: number | undefined;
+    let compositionFingerprint: string | undefined;
+    let compositionHistoryHeadId: string | null | undefined;
+    if (input.composition_v2) {
+      if (!input.expected_revision_updated_at) {
+        throw new HttpError(428, "composition_expected_revision_required", "Composition V2 writes require the last acknowledged recording revision timestamp.");
+      }
+      const envelope = input.composition_v2.data;
+      const envelopeRow = envelope && typeof envelope === "object" && !Array.isArray(envelope) ? envelope as Record<string, unknown> : null;
+      const compositionRow = envelopeRow?.composition && typeof envelopeRow.composition === "object" && !Array.isArray(envelopeRow.composition)
+        ? envelopeRow.composition as Record<string, unknown>
+        : null;
+      const historyRow = envelopeRow?.history && typeof envelopeRow.history === "object" && !Array.isArray(envelopeRow.history)
+        ? envelopeRow.history as Record<string, unknown>
+        : null;
+      const entries = Array.isArray(historyRow?.entries) ? historyRow.entries : [];
+      const headIndex = typeof historyRow?.head_index === "number" ? historyRow.head_index : -1;
+      const head = headIndex >= 0 && entries[headIndex] && typeof entries[headIndex] === "object" ? entries[headIndex] as Record<string, unknown> : null;
+      if (envelopeRow?.schema_version !== 2 || compositionRow?.schema_version !== 2
+        || compositionRow.recording_revision_id !== revisionId
+        || typeof compositionRow.revision !== "number" || typeof compositionRow.fingerprint !== "string"
+        || historyRow?.schema_version !== 2
+        || envelopeRow.expected_revision_updated_at !== input.expected_revision_updated_at) {
+        throw new HttpError(400, "composition_transaction_invalid", "Composition V2 must be saved as one identity-bound composition/history transaction.");
+      }
+      compositionRevision = compositionRow.revision;
+      compositionFingerprint = compositionRow.fingerprint;
+      compositionHistoryHeadId = typeof head?.entry_id === "string" ? head.entry_id : null;
+      if (compositionRow.history_head_id !== compositionHistoryHeadId) {
+        throw new HttpError(400, "composition_history_head_mismatch", "Composition and canonical history head do not agree.");
       }
     }
 
@@ -7432,18 +7472,29 @@ export class TongsCommitService {
     if (typeof mediaProvenancePath !== "undefined") updateValues.media_provenance_path = mediaProvenancePath;
     if (typeof renderJobsPath !== "undefined") updateValues.render_jobs_path = renderJobsPath;
     if (typeof releasePacketPath !== "undefined") updateValues.release_packet_path = releasePacketPath;
+    if (typeof compositionRevision !== "undefined") updateValues.composition_revision = compositionRevision;
+    if (typeof compositionFingerprint !== "undefined") updateValues.composition_fingerprint = compositionFingerprint;
+    if (typeof compositionHistoryHeadId !== "undefined") updateValues.composition_history_head_id = compositionHistoryHeadId;
 
-    const updated = await tongsUntyped
+    let updateQuery = tongsUntyped
       .from("recording_revisions")
       .update(updateValues)
       .eq("workspace_id", workspaceId)
       .eq("workpiece_id", workpieceId)
-      .eq("id", revisionId)
+      .eq("id", revisionId);
+    if (input.composition_v2 && input.expected_revision_updated_at) updateQuery = updateQuery.eq("updated_at", input.expected_revision_updated_at);
+    const updated = await updateQuery
       .select("*")
-      .single();
+      .maybeSingle();
     if (updated.error) {
       throw new HttpError(502, "db_write_failed", "Failed to update recording revision pointers", {
         reason: updated.error.message,
+      });
+    }
+    if (!updated.data) {
+      throw new HttpError(409, "composition_revision_conflict", "Composition V2 acknowledgement lost an optimistic concurrency race.", {
+        revision_id: revisionId,
+        expected_revision_updated_at: input.expected_revision_updated_at ?? null,
       });
     }
 

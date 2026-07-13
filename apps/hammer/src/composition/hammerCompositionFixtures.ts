@@ -21,7 +21,7 @@ function build(id: string, sources: readonly HammerMediaProvenance[], clips: rea
     revision: 1, parent_revision: null, created_at: at, updated_at: at, source_media: sources,
     tracks: [Object.freeze({ track_id: "program", kind: "video" as const, role: "program", locked: false, muted: false, solo: false, visible: true, clips })],
     transcript: Object.freeze({ transcript_id: "transcript:1", corrections: [] }), captions: Object.freeze({ artifact_id: null, based_on_transcript_id: "transcript:1", stale: false }),
-    audio_treatments: [], packaging: Object.freeze({ intro_clip_id: null, outro_clip_id: null, thumbnail_asset_id: "thumb:1" }), history_head_id: null,
+    audio_treatments: [], editorial_authority: Object.freeze({}), automated_placements: [], packaging: Object.freeze({ intro_clip_id: null, outro_clip_id: null, thumbnail_asset_id: "thumb:1" }), history_head_id: null,
     ...extras, fingerprint: "",
   };
   return Object.freeze({ ...draft, fingerprint: hammerStableFingerprint({ ...draft, fingerprint: undefined }) });
