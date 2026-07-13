@@ -12,7 +12,7 @@ const PACING_RE = /^\[(pause|beat|reflective pause)\]$/i;
 const PAREN_PACING_RE = /^\((pause|beat|reflective pause)\)$/i;
 const TAG_TOKEN_RE = /^\[[^\]\n]+\]$/;
 const TARGET_LINE_LENGTH = 76;
-const MAX_SPEAKER_SPOKEN_LINES = 5;
+const MAX_SPEAKER_SPOKEN_LINES = 3;
 const TARGET_SPEAKER_SPOKEN_LINES = 3;
 const MIN_WORDS_PER_BLOCK = 12;
 const MAX_WORDS_PER_BLOCK = 45;
@@ -206,8 +206,10 @@ function compactRecordingReadyLines(lines: string[]): string[] {
     }
 
     const previousIsCue = isPacingLine(previous ?? "");
+    const previousIsSpeakerClose = SPEAKER_CLOSE_RE.test(previous ?? "");
+    const nextIsSpeakerOpen = SPEAKER_OPEN_RE.test(next ?? "");
     const adjacentSpeakerTag = isSpeakerTagLine(previous ?? "") || isSpeakerTagLine(next ?? "");
-    if (adjacentSpeakerTag && !previousIsCue) continue;
+    if (adjacentSpeakerTag && !previousIsCue && !(previousIsSpeakerClose && nextIsSpeakerOpen)) continue;
 
     pushIntentionalBlank(out);
   }
@@ -238,7 +240,16 @@ function mergeAndThinSpeakerBlocks(lines: string[]): string[] {
       return;
     }
     const previous = sections[sections.length - 1];
-    if (previous && previous.speaker === activeSpeaker) {
+    const combinedSpokenLines = (previous?.spoken.length ?? 0) + activeSpoken.length;
+    const combinedWords = previous
+      ? [...previous.spoken, ...activeSpoken].reduce((sum, line) => sum + countWords(line), 0)
+      : 0;
+    if (
+      previous
+      && previous.speaker === activeSpeaker
+      && combinedSpokenLines <= MAX_SPEAKER_SPOKEN_LINES
+      && combinedWords <= MAX_WORDS_PER_BLOCK
+    ) {
       previous.spoken.push(...activeSpoken);
       previous.cues.push(...activeCues);
     } else {

@@ -2368,7 +2368,8 @@ export function createHammerPrepMiddleware() {
       const originalExtension = extension;
       const originalFileName = path.basename(originalSourceLabel);
       const uploadMode = resolveTranscriptUploadMode(req);
-      const directAcceptableForOpenAi = originalFileBytes.byteLength <= MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES;
+      const directAcceptableForOpenAi = originalFileBytes.byteLength <= MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES
+        && !originalContentType.toLowerCase().startsWith("video/");
       stageTimer.mark("media:upload:original:selected", {
         original_artifact_selected: true,
         original_file_path_or_id: originalSourceLabel,

@@ -9,6 +9,7 @@ import {
   AI_REASON_MESSAGES,
   getAiReasonMessage,
   isAiAllowDecision,
+  resolveAiPolicy,
 } from "../dist/index.js";
 
 test("AI contract constants are frozen to Milestone A values", () => {
@@ -76,5 +77,45 @@ test("ALLOW classification helper only returns true for ALLOW", () => {
       effectivePolicySnapshot: {},
     }),
     false,
+  );
+});
+
+function policyClient(data, error = null) {
+  return {
+    schema() {
+      return this;
+    },
+    async rpc() {
+      return { data, error };
+    },
+  };
+}
+
+const policyInput = {
+  orgId: null,
+  workspaceId: "11111111-1111-4111-8111-111111111111",
+  userId: "22222222-2222-4222-8222-222222222222",
+  tool: "hearth",
+};
+
+test("policy resolver accepts the complete current RPC response shape", async () => {
+  const result = await resolveAiPolicy(policyClient([{
+    decision_type: "ALLOW",
+    reason_code: null,
+    selected_funding_source: "forge_managed_credits",
+    fallback_available: false,
+    fallback_used: false,
+    effective_policy_snapshot: { source: "test" },
+  }]), policyInput);
+  assert.equal(result.decisionType, "ALLOW");
+  assert.equal(result.selectedFundingSource, "forge_managed_credits");
+});
+
+test("policy resolver fails closed for missing, malformed, and unavailable authority", async () => {
+  await assert.rejects(resolveAiPolicy(policyClient([]), policyInput), /no rows/);
+  await assert.rejects(resolveAiPolicy(policyClient([{ decision_type: "ALLOW" }]), policyInput), /invalid|funding source|malformed/);
+  await assert.rejects(
+    resolveAiPolicy(policyClient(null, { message: "unavailable" }), policyInput),
+    (error) => error?.message === "unavailable",
   );
 });

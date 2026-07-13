@@ -36,6 +36,8 @@ type DeltaRpcRow = {
   p_provider_request_id?: string;
 };
 
+type PolicyReply = "allow" | "soft_deny" | "hard_deny" | "missing" | "malformed" | "unavailable";
+
 class MockMatrixBackend {
   public usageEvents: UsageEventRow[] = [];
   public deltaCalls: DeltaRpcRow[] = [];
@@ -45,6 +47,7 @@ class MockMatrixBackend {
   public tokenBalance: number;
   public failDeduction = false;
   public chatTemperature400Once = false;
+  public policyReply: PolicyReply = "allow";
 
   private readonly originalFetch: typeof fetch;
   private chatTemperature400Used = false;
@@ -123,6 +126,25 @@ class MockMatrixBackend {
           this.usageEvents.push(body as UsageEventRow);
         }
         return jsonResponse(201, [{}]);
+      }
+
+      if (url.includes("/rest/v1/user_ai_keys") && (!init?.method || init.method === "GET")) {
+        return jsonResponse(200, []);
+      }
+
+      if (url.endsWith("/rest/v1/rpc/resolve_ai_policy") && init?.method === "POST") {
+        if (this.policyReply === "unavailable") return jsonResponse(503, { message: "policy unavailable" });
+        if (this.policyReply === "missing") return jsonResponse(200, []);
+        if (this.policyReply === "malformed") return jsonResponse(200, [{ decision_type: "ALLOW" }]);
+        const denied = this.policyReply === "soft_deny" || this.policyReply === "hard_deny";
+        return jsonResponse(200, [{
+          decision_type: this.policyReply === "soft_deny" ? "SOFT_DENY" : this.policyReply === "hard_deny" ? "HARD_DENY" : "ALLOW",
+          reason_code: denied ? "NO_VALID_FUNDING_SOURCE" : null,
+          selected_funding_source: denied ? null : "forge_managed_credits",
+          fallback_available: false,
+          fallback_used: false,
+          effective_policy_snapshot: { source: "money_path_matrix" },
+        }]);
       }
 
       if (url.endsWith("/rest/v1/rpc/apply_ai_token_delta") && init?.method === "POST") {
@@ -248,7 +270,7 @@ async function runTest1HearthChatHappyPath(): Promise<void> {
       }),
     }));
 
-    assert.equal(response.status, 200);
+    assert.equal(response.status, 200, await response.clone().text());
     const payload = await response.json() as Record<string, unknown>;
     assert.equal(payload.ok, true);
     assert((payload.actual_cost_usd as number) > 0);
@@ -287,7 +309,7 @@ async function runTest2HearthSttHappyPath(): Promise<void> {
       }),
     }));
 
-    assert.equal(response.status, 200);
+    assert.equal(response.status, 200, await response.clone().text());
     const payload = await response.json() as Record<string, unknown>;
     assert.equal(payload.ok, true);
     assert((payload.actual_cost_usd as number) > 0);
@@ -529,12 +551,11 @@ async function runTest6DuplicateActionRetryNoDoubleCharge(): Promise<void> {
   }
 }
 
-async function runTest7TemperatureFallbackAttempt(): Promise<void> {
+async function runTest7CurrentGpt5RequestShape(): Promise<void> {
   const backend = new MockMatrixBackend();
-  backend.chatTemperature400Once = true;
   backend.install();
   try {
-    const handler = createHearthAiHandler(buildHearthConfig({ model: "gpt-4o-mini" }));
+    const handler = createHearthAiHandler(buildHearthConfig({ model: "gpt-5.3" }));
     const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
       method: "POST",
       headers: {
@@ -544,17 +565,72 @@ async function runTest7TemperatureFallbackAttempt(): Promise<void> {
       body: JSON.stringify({
         lane: "forge",
         action_id: "77777777-8888-4999-8aaa-bbbbbbbbbbbb",
-        messages: [{ role: "user", content: "Fallback check" }],
+        messages: [{ role: "user", content: "Draft a complete podcast intro about runtime contract verification. Do not ask questions." }],
         episode_context: buildEpisodeContext(),
         behavior: "creative",
       }),
     }));
 
-    // Current production allowlist is capped to GPT-5.1/5.2/5.3, so this path is blocked before upstream call.
-    assert.equal(response.status, 503);
+    assert.equal(response.status, 200, await response.clone().text());
     const payload = await response.json() as Record<string, unknown>;
-    assert.equal(payload.code, "model_not_allowlisted");
+    assert.equal(payload.ok, true);
+    assert.equal(backend.chatCalls, 1);
+  } finally {
+    backend.restore();
+  }
+}
+
+async function runPolicyAuthorityMatrix(): Promise<void> {
+  for (const policyReply of ["soft_deny", "hard_deny", "missing", "malformed", "unavailable"] as const) {
+    const backend = new MockMatrixBackend();
+    backend.policyReply = policyReply;
+    backend.install();
+    try {
+      const handler = createHearthAiHandler(buildHearthConfig());
+      const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: `Bearer ${ACCESS_TOKEN}` },
+        body: JSON.stringify({
+          lane: "forge",
+          action_id: `88888888-8888-4888-8888-${String(["soft_deny", "hard_deny", "missing", "malformed", "unavailable"].indexOf(policyReply) + 1).padStart(12, "0")}`,
+          messages: [{ role: "user", content: "Draft a complete podcast introduction about authority testing. Use the supplied episode context and do not ask clarifying questions." }],
+          episode_context: buildEpisodeContext(),
+          behavior: "creative",
+        }),
+      }));
+      const body = await response.clone().text();
+      assert.notEqual(response.status, 200, `${policyReply} unexpectedly allowed: ${body}`);
+      assert.equal(backend.chatCalls, 0, `${policyReply} reached generation`);
+      assert.equal(backend.deltaCalls.length, 0, `${policyReply} reached billing`);
+      if (policyReply === "soft_deny" || policyReply === "hard_deny") {
+        assert.equal(response.status, 403, `${policyReply} response: ${body}`);
+      } else {
+        assert.equal(response.status, 500, `${policyReply} response: ${body}`);
+      }
+    } finally {
+      backend.restore();
+    }
+  }
+}
+
+async function runInsufficientFundsBlockedBeforeGeneration(): Promise<void> {
+  const backend = new MockMatrixBackend(0);
+  backend.install();
+  try {
+    const handler = createHearthAiHandler(buildHearthConfig({ initialTokenBalance: 0 }));
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${ACCESS_TOKEN}` },
+      body: JSON.stringify({
+        lane: "forge",
+        action_id: "99999999-9999-4999-8999-999999999999",
+        messages: [{ role: "user", content: "Do not spend unavailable credits" }],
+        episode_context: buildEpisodeContext(),
+      }),
+    }));
+    assert.equal(response.status, 402, await response.clone().text());
     assert.equal(backend.chatCalls, 0);
+    assert.equal(backend.deltaCalls.length, 0);
   } finally {
     backend.restore();
   }
@@ -567,9 +643,11 @@ async function main(): Promise<void> {
   await runTest4MissingAuthBlocked();
   await runTest5ForcedDeductionFailure();
   await runTest6DuplicateActionRetryNoDoubleCharge();
-  await runTest7TemperatureFallbackAttempt();
+  await runTest7CurrentGpt5RequestShape();
+  await runPolicyAuthorityMatrix();
+  await runInsufficientFundsBlockedBeforeGeneration();
 
-  console.log("Forge money-path matrix passed (Tests 1-6) and Test 7 is policy-blocked by model allowlist as expected.");
+  console.log("Forge money-path matrix passed, including policy denial/failure, billing, insufficient funds, and idempotent replay.");
 }
 
 main().catch((error) => {
