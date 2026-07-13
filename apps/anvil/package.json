@@ -4,8 +4,9 @@
   "version": "1.8.5",
   "private": true,
   "engines": {
-    "node": "20.x"
+    "node": "20.20.0"
   },
+  "volta": { "node": "20.20.0" },
   "scripts": {
     "lint": "node tools/run-eslint.mjs",
     "lint:strict": "node tools/run-eslint.mjs --max-warnings=0",

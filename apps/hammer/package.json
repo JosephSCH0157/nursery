@@ -3,6 +3,8 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": { "node": "20.20.0" },
+  "volta": { "node": "20.20.0" },
   "scripts": {
     "dev": "node -e \"console.log('Hammer runs through Nursery.')\"",
     "build": "pnpm --dir ../nursery run build:hammer-integration",

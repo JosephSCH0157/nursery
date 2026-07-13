@@ -3,6 +3,8 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": { "node": "20.20.0" },
+  "volta": { "node": "20.20.0" },
   "scripts": {
     "sync:anvil": "node scripts/sync-anvil-dist.mjs",
     "gen:forge-nav": "tsx scripts/generate-forge-nav.ts",
