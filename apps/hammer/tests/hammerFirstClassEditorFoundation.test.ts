@@ -22,6 +22,7 @@ import { compileHammerAudioGraphV1, diagnoseHammerAudioMaster, selectHammerAudio
 import { acceptHammerAngleProposal, buildHammerVisualClipCommand, buildHammerVisualCompositionCommand, createHammerSourceGroupV1, diagnoseHammerSourceGroupDrift, type HammerVisualCompositionV1 } from "../src/composition/hammerVisualCompositionV1";
 import { buildHammerCaptionArtifactCommand, buildHammerCaptionArtifactFromTranscriptV1, buildHammerCaptionCueEditCommand, buildHammerGraphicTemplateCommand, reconcileHammerCaptionArtifactAfterTranscriptChangeV1, validateHammerGraphicTemplateV1, type HammerGraphicTemplateV1 } from "../src/composition/hammerCaptionGraphicsTemplatesV1";
 import { buildHammerProgramPackageCommand, proveHammerFullProgramPackageAssemblyV1 } from "../src/composition/hammerProgramPackageV1";
+import { acceptHammerAiProposalV1, auditHammerPermanentExpansionGateV1, createHammerAiProposalV1, createHammerBoundedCacheV1, deleteHammerBoundedCacheEntryV1, evaluateHammerPerformanceBudgetsV1, HAMMER_PERFORMANCE_BUDGETS_V1, HAMMER_PERMANENT_EXPANSION_RULES_V1, putHammerBoundedCacheEntryV1, readHammerBoundedCacheEntryV1 } from "../src/composition/hammerExpansionGateV1";
 
 test("Tongs fails closed before any V2 artifact write when the migration is unavailable", () => {
   const source = readFileSync(new URL("../../../packages/tongs/src/workpiece-commit-api.ts", import.meta.url), "utf8");
@@ -648,4 +649,105 @@ test("Phase 8 package edits participate in canonical history and repeated Undo r
   const base = HAMMER_COMPOSITION_FIXTURES.semanticPlan;
   for (let index = 0; index < 4; index += 1) history = undoHammerComposition(history);
   assert.deepEqual(readHammerCompositionAtHead(history), base);
+});
+
+test("Phase 10 performance budgets identify the required optimization boundary without creating authority", () => {
+  const passing = evaluateHammerPerformanceBudgetsV1(HAMMER_PERFORMANCE_BUDGETS_V1);
+  assert.equal(passing.passed, true);
+  assert.equal(passing.rows.every((row) => row.required_boundary === "none"), true);
+
+  const measured = evaluateHammerPerformanceBudgetsV1({
+    ...HAMMER_PERFORMANCE_BUDGETS_V1,
+    long_form_startup_ms: HAMMER_PERFORMANCE_BUDGETS_V1.long_form_startup_ms + 1,
+    seek_latency_ms: HAMMER_PERFORMANCE_BUDGETS_V1.seek_latency_ms + 1,
+    analysis_incremental_ms: HAMMER_PERFORMANCE_BUDGETS_V1.analysis_incremental_ms + 1,
+  });
+  assert.equal(measured.passed, false);
+  assert.equal(measured.rows.find((row) => row.key === "long_form_startup_ms")?.required_boundary, "virtualization");
+  assert.equal(measured.rows.find((row) => row.key === "seek_latency_ms")?.required_boundary, "bounded_cache");
+  assert.equal(measured.rows.find((row) => row.key === "analysis_incremental_ms")?.required_boundary, "worker");
+});
+
+test("Phase 10 bounded caches are disposable accelerators keyed by source fingerprint and generator version", () => {
+  const composition = HAMMER_COMPOSITION_FIXTURES.semanticPlan;
+  const source = composition.source_media[0]!;
+  let cache = createHammerBoundedCacheV1<string>({ maxEntries: 2, maxBytes: 20 });
+  cache = putHammerBoundedCacheEntryV1({ cache, cacheId: "waveform", sourceFingerprint: source.content_fingerprint, generatorVersion: "waveform.v1", value: "peaks", byteSize: 5, touchedAtMs: 1 });
+  cache = putHammerBoundedCacheEntryV1({ cache, cacheId: "thumbnail", sourceFingerprint: source.content_fingerprint, generatorVersion: "thumb.v1", value: "image", byteSize: 5, touchedAtMs: 2 });
+  cache = putHammerBoundedCacheEntryV1({ cache, cacheId: "proxy", sourceFingerprint: source.content_fingerprint, generatorVersion: "proxy.v1", value: "bytes", byteSize: 5, touchedAtMs: 3 });
+  assert.equal(readHammerBoundedCacheEntryV1({ cache, cacheId: "waveform", sourceFingerprint: source.content_fingerprint, generatorVersion: "waveform.v1" }), null);
+  assert.equal(readHammerBoundedCacheEntryV1({ cache, cacheId: "proxy", sourceFingerprint: source.content_fingerprint, generatorVersion: "proxy.v1" })?.value, "bytes");
+  cache = deleteHammerBoundedCacheEntryV1({ cache, cacheId: "proxy", sourceFingerprint: source.content_fingerprint, generatorVersion: "proxy.v1" });
+  assert.equal(readHammerBoundedCacheEntryV1({ cache, cacheId: "proxy", sourceFingerprint: source.content_fingerprint, generatorVersion: "proxy.v1" }), null);
+  assert.deepEqual(composition, HAMMER_COMPOSITION_FIXTURES.semanticPlan);
+});
+
+test("Phase 10 AI assistance remains proposal-only, identity-bound, and stale-result rejected", () => {
+  const composition = HAMMER_COMPOSITION_FIXTURES.semanticPlan;
+  const proposal = createHammerAiProposalV1({
+    proposalId: "ai:caption-correction:1",
+    kind: "caption_correction",
+    composition,
+    proposedCommands: [{ type: "correct_caption", clip_id: "caption-1", corrected_text: "Welcome!" }],
+    explanation: "Fix punctuation in a caption artifact only.",
+    createdAt: "2026-07-13T00:00:00.000Z",
+  });
+  let history = createHammerCompositionHistory(composition);
+  assert.deepEqual(readHammerCompositionAtHead(history), composition);
+  const [command] = acceptHammerAiProposalV1({ composition, proposal });
+  assert.deepEqual(command, { type: "correct_caption", clip_id: "caption-1", corrected_text: "Welcome!" });
+  history = commitHammerCompositionCommand(history, command!, "Accept AI caption proposal");
+  const accepted = readHammerCompositionAtHead(history);
+  assert.equal(history.entries.length, 1);
+  assert.equal(accepted.tracks.find((track) => track.track_id === "captions")?.clips[0]?.payload.corrected_text, "Welcome!");
+  assert.deepEqual(readHammerCompositionAtHead(undoHammerComposition(history)), composition);
+  assert.throws(() => acceptHammerAiProposalV1({ composition: accepted, proposal }), /hammer_ai_proposal_stale/);
+  assert.equal(history.entries.length, 1);
+  assert.throws(() => acceptHammerAiProposalV1({ composition: { ...composition, source_media: [{ ...composition.source_media[0]!, content_fingerprint: "sha256:changed" }, ...composition.source_media.slice(1)] }, proposal }), /hammer_ai_proposal_source_mismatch/);
+  assert.deepEqual(readHammerCompositionAtHead(createHammerCompositionHistory(composition)), composition);
+});
+
+test("Phase 10 permanent expansion gate preserves Composition V2, preview/render parity, and full-program proof", () => {
+  const history = buildPhase8PackagedHistory();
+  const composition = readHammerCompositionAtHead(history);
+  const plan = compileHammerRenderPlan(composition);
+  const frame = buildHammerInteractivePreviewFrameV1({ plan, expectedCompositionFingerprint: composition.fingerprint, atSec: 36, provenance: composition.source_media });
+  const packageProof = proveHammerFullProgramPackageAssemblyV1({ composition, plan });
+  const performance = evaluateHammerPerformanceBudgetsV1({
+    long_form_startup_ms: 2_000,
+    seek_latency_ms: 120,
+    edit_latency_ms: 80,
+    save_acknowledgement_ms: 900,
+    memory_mb: 640,
+    analysis_incremental_ms: 350,
+    render_plan_compile_ms: 200,
+  });
+  const report = auditHammerPermanentExpansionGateV1({
+    performance,
+    aiProposalOnly: true,
+    boundedCacheDeletionProven: true,
+    previewRenderParityProven: frame.plan_fingerprint === plan.fingerprint && frame.visual_layers.length > 0 && frame.captions.length > 0,
+    fullProgramFixtureProven: packageProof.render_plan_fingerprint === plan.fingerprint,
+    migrationRlsDisposition: "none_required",
+    explicitDeferrals: ["deep_collaboration", "review_portals", "custom_shortcuts", "dual_monitor_layouts", "broader_motion_design"],
+  });
+  assert.equal(report.passed, true);
+  assert.deepEqual(report.rules, HAMMER_PERMANENT_EXPANSION_RULES_V1);
+  assert.equal(report.migration_rls_disposition, "none_required");
+});
+
+test("Phase 10 permanent gates are wired into discovery, ratchets, coverage, lint, and build scripts", () => {
+  const packageJson = readFileSync(new URL("../package.json", import.meta.url), "utf8");
+  const architectureRatchet = readFileSync(new URL("../scripts/check-architecture-ratchet.mjs", import.meta.url), "utf8");
+  const coverageRatchet = readFileSync(new URL("../scripts/check-coverage-ratchet.mjs", import.meta.url), "utf8");
+  const runAllTests = readFileSync(new URL("../scripts/run-all-tests.mjs", import.meta.url), "utf8");
+  const persistence = readFileSync(new URL("../src/persistence/hammerRecordingRevisionPersistence.ts", import.meta.url), "utf8");
+  assert.match(packageJson, /"test:all": "pnpm run types:ratchet && node scripts\/run-all-tests\.mjs"/);
+  assert.match(packageJson, /"test:coverage": "pnpm run types:ratchet && pnpm run test:coverage:collect && node scripts\/check-coverage-ratchet\.mjs"/);
+  assert.match(packageJson, /"lint": "node scripts\/check-lint-ratchet\.mjs"/);
+  assert.match(architectureRatchet, /localStorage\|sessionStorage/);
+  assert.equal(architectureRatchet.includes(`${"@ts-" + "nocheck"} is prohibited`), true);
+  assert.match(coverageRatchet, /coverage/);
+  assert.match(runAllTests, /tests/);
+  assert.doesNotMatch(persistence, /localStorage|sessionStorage/);
 });

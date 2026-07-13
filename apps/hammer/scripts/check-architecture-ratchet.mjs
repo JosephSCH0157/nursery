@@ -40,6 +40,19 @@ for (const [pattern, message] of [
 const shell = inspect("src/editor/HammerWorkspaceShell.tsx").text;
 if (!shell.includes("resolveHammerAutomaticPlacementCommand")) failures.push("HammerWorkspaceShell must route automatic placement through resolveHammerAutomaticPlacementCommand.");
 
+const expansionGate = inspect("src/composition/hammerExpansionGateV1.ts").text;
+for (const required of [
+  "HAMMER_PERFORMANCE_BUDGETS_V1",
+  "createHammerAiProposalV1",
+  "acceptHammerAiProposalV1",
+  "hammer_ai_proposal_stale",
+  "HAMMER_PERMANENT_EXPANSION_RULES_V1",
+  "no_browser_acknowledgement",
+]) {
+  if (!expansionGate.includes(required)) failures.push(`src/composition/hammerExpansionGateV1.ts: permanent expansion gate lost ${required}.`);
+}
+if (/\b(?:localStorage|sessionStorage)\b/.test(expansionGate)) failures.push("src/composition/hammerExpansionGateV1.ts: expansion gate must not acquire browser-storage acknowledgement.");
+
 const productionAndTests = [];
 for (const directory of [join(root, "src"), join(root, "tests")]) {
   const visit = (current) => {
@@ -65,4 +78,4 @@ if (failures.length) {
   failures.forEach((failure) => console.error(`[hammer:architecture] ${failure}`));
   process.exit(1);
 }
-console.log("Hammer architecture ratchet passed: principal concentration, controller size, typing, presentation ownership, placement boundary, and ts-nocheck rules are locked.");
+console.log("Hammer architecture ratchet passed: principal concentration, controller size, typing, presentation ownership, placement boundary, permanent expansion gate, and ts-nocheck rules are locked.");
