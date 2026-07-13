@@ -13,6 +13,7 @@ import { prepareHammerCompositionTransactionV2, readAcknowledgedHammerCompositio
 import { projectLegacyHammerCompositionV2, resolveHammerCreativeAuthority } from "../src/composition/hammerLegacyCompositionProjection";
 import { diagnoseHammerMedia, evaluateHammerMediaRelink, hammerDerivedArtifactKey, isHammerDerivedArtifactCurrent, registerHammerDerivedArtifact, resolveHammerMediaSource, selectCurrentHammerDerivedArtifact, type HammerDerivedArtifact } from "../src/composition/hammerMediaProvenance";
 import { compileHammerRenderPlan, resolveHammerPreviewSource, selectHammerPreviewOperations } from "../src/composition/hammerRenderPlanV1";
+import { buildHammerInteractivePreviewFrameV1 } from "../src/composition/hammerInteractivePreviewV1";
 import { acknowledgeHammerRenderJob, createHammerRenderJob, settleHammerRenderJob } from "../src/composition/hammerRenderJobV1";
 import { buildHammerReleasePacketV2, validateHammerReleasePacketV2ForQuench } from "../src/composition/hammerReleasePacketV2";
 
@@ -189,6 +190,43 @@ test("render plan deterministically drives continuous intro-program-outro previe
   assert.equal(selectHammerPreviewOperations(first, 20).some((row) => row.operation_id === "clip:program"), true);
   assert.equal(selectHammerPreviewOperations(first, 68).some((row) => row.operation_id === "clip:outro"), true);
   assert.equal(first.operations.some((row) => row.kind === "audio_treatment"), true);
+});
+
+test("golden semantic plan resolves ranges, angles, layers, captions, graphics, transitions, packaging, placements, and audio intent", () => {
+  const composition = HAMMER_COMPOSITION_FIXTURES.semanticPlan;
+  const plan = compileHammerRenderPlan(composition);
+  const second = compileHammerRenderPlan(JSON.parse(JSON.stringify(composition)));
+  assert.equal(second.fingerprint, plan.fingerprint);
+  assert.equal(plan.fingerprint, "fnv1a:20b03748");
+  assert.equal(plan.duration_sec, 70);
+  assert.deepEqual(plan.packaging, { intro_operation_id: "clip:intro", outro_operation_id: "clip:outro", thumbnail_asset_id: "thumb:semantic" });
+  assert.deepEqual(plan.operations.find((row) => row.operation_id === "clip:camera-b"), {
+    operation_id: "clip:camera-b", kind: "video", track_id: "video", track_role: "program_camera", layer_index: 0,
+    start_sec: 35, end_sec: 65, source_start_sec: 0, source_end_sec: 30, source_media_id: "cam-b", source_fingerprint: "sha256:cam-b", package_role: "program",
+    payload: { angle: "b", transform: { x: 0.1, y: 0, scale: 0.9 }, transition: { kind: "crossfade", duration_sec: 0.5 } },
+  });
+  assert.equal(plan.operations.some((row) => row.kind === "caption"), true);
+  assert.equal(plan.operations.some((row) => row.kind === "graphic"), true);
+  assert.equal(plan.operations.filter((row) => row.kind === "transition").length, 3);
+  assert.equal(plan.operations.filter((row) => row.kind === "audio_treatment").length, 2);
+  assert.equal(plan.operations.some((row) => row.kind === "placement"), true);
+});
+
+test("interactive preview is a plan-only semantic projection with stable layer ordering", () => {
+  const composition = HAMMER_COMPOSITION_FIXTURES.semanticPlan;
+  const plan = compileHammerRenderPlan(composition);
+  const frame = buildHammerInteractivePreviewFrameV1({ plan, expectedCompositionFingerprint: composition.fingerprint, atSec: 7, provenance: composition.source_media });
+  assert.deepEqual(frame.visual_layers.map((row) => row.operation_id), ["clip:camera-a", "clip:lower-third"]);
+  assert.deepEqual(frame.audio_layers.map((row) => row.operation_id), ["clip:music-bed"]);
+  assert.deepEqual(frame.captions.map((row) => row.operation_id), ["clip:caption-1"]);
+  assert.equal(frame.audio_treatments.length, 2);
+  assert.equal(frame.placements.length, 1);
+  assert.equal(Object.keys(frame.resolved_sources).sort().join(","), "clip:camera-a,clip:music-bed");
+  assert.equal(buildHammerInteractivePreviewFrameV1({ plan, expectedCompositionFingerprint: composition.fingerprint, atSec: 7, provenance: composition.source_media }).semantic_fingerprint, frame.semantic_fingerprint);
+  assert.equal(frame.semantic_fingerprint, "fnv1a:6ebf6774");
+  assert.throws(() => buildHammerInteractivePreviewFrameV1({ plan, expectedCompositionFingerprint: "stale", atSec: 7, provenance: composition.source_media }), /preview_plan_stale/);
+  assert.throws(() => buildHammerInteractivePreviewFrameV1({ plan, expectedCompositionFingerprint: composition.fingerprint, atSec: 7, provenance: composition.source_media.map((source) => source.media_id === "cam-a" ? { ...source, content_fingerprint: "changed" } : source) }), /preview_source_set_stale/);
+  assert.throws(() => buildHammerInteractivePreviewFrameV1({ plan: { ...plan, duration_sec: 71 }, expectedCompositionFingerprint: composition.fingerprint, atSec: 7, provenance: composition.source_media }), /render_plan_fingerprint_mismatch/);
 });
 
 test("preview/render compilation rejects non-V2 creative representations", () => {
