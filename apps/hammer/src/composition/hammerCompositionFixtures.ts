@@ -49,4 +49,10 @@ export const HAMMER_COMPOSITION_FIXTURES = Object.freeze({
     audio_treatments: [Object.freeze({ kind: "loudness", target_lufs: -16 }), Object.freeze({ kind: "limiter", ceiling_dbtp: -1 })],
     automated_placements: [Object.freeze({ placement_id: "placement:lower-third", payload: Object.freeze({ start_sec: 6, end_sec: 12, x: 0.08, y: 0.82 }) })],
   }),
+  linkedPodcast: build("fixture:linked-podcast", [media("linked-video", "program_video", 30_000), media("linked-audio", "program_audio", 30_000)], [], {
+    tracks: [
+      Object.freeze({ track_id: "video", kind: "video" as const, role: "program_video", locked: false, muted: false, solo: false, visible: true, clips: [Object.freeze({ ...clip("video-main", "video", "linked-video", 0, 20), linked_group_id: "av:1" }), clip("video-tail", "video", "linked-video", 20, 30)] }),
+      Object.freeze({ track_id: "audio", kind: "audio" as const, role: "dialogue", locked: false, muted: false, solo: false, visible: true, clips: [Object.freeze({ ...clip("audio-main", "audio", "linked-audio", 0, 20), linked_group_id: "av:1" }), clip("audio-tail", "audio", "linked-audio", 20, 30)] }),
+    ],
+  }),
 });

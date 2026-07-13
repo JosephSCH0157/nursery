@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
+  applyHammerCompositionCommand,
   commitHammerCompositionCommand,
   createHammerCompositionHistory,
   readHammerCompositionAtHead,
@@ -14,6 +15,7 @@ import { projectLegacyHammerCompositionV2, resolveHammerCreativeAuthority } from
 import { diagnoseHammerMedia, evaluateHammerMediaRelink, hammerDerivedArtifactKey, isHammerDerivedArtifactCurrent, registerHammerDerivedArtifact, resolveHammerMediaSource, selectCurrentHammerDerivedArtifact, type HammerDerivedArtifact } from "../src/composition/hammerMediaProvenance";
 import { compileHammerRenderPlan, resolveHammerPreviewSource, selectHammerPreviewOperations } from "../src/composition/hammerRenderPlanV1";
 import { buildHammerInteractivePreviewFrameV1 } from "../src/composition/hammerInteractivePreviewV1";
+import { buildHammerCaptionCorrectionCommand, buildHammerRangeDeleteCommand, buildHammerSplitCommand, buildHammerTranscriptCorrectionCommand, buildHammerTranscriptMediaDeleteCommand, buildHammerTrimCommand, navigateHammerSpeaker, searchHammerTranscript, selectHammerTimelineRange, selectHammerTranscriptRange, snapHammerPlayheadFrame } from "../src/composition/hammerPodcastEditingV1";
 import { acknowledgeHammerRenderJob, createHammerRenderJob, settleHammerRenderJob } from "../src/composition/hammerRenderJobV1";
 import { buildHammerReleasePacketV2, validateHammerReleasePacketV2ForQuench } from "../src/composition/hammerReleasePacketV2";
 
@@ -123,7 +125,6 @@ test("every creative command enters one history and repeated undo returns untouc
 test("all Phase 2 creative authorities participate in the same canonical history", () => {
   let history = createHammerCompositionHistory(HAMMER_COMPOSITION_FIXTURES.interview);
   const commands = [
-    { type: "delete_transcript_range", start_sec: 2, end_sec: 3, ripple: true },
     { type: "set_angle", clip_id: "angle-a", source_media_id: "cam-b" },
     { type: "set_audio_treatments", treatments: [{ kind: "gain", db: -2 }] },
     { type: "set_transition", clip_id: "angle-b", transition: { kind: "crossfade" } },
@@ -131,6 +132,7 @@ test("all Phase 2 creative authorities participate in the same canonical history
     { type: "set_editorial_authority", authority: { owner: "composition_v2" } },
     { type: "set_automated_placement", placement_id: "placement:1", payload: { x: 0.2, y: 0.8 } },
     { type: "set_packaging", intro_clip_id: null, outro_clip_id: null, thumbnail_asset_id: "thumb:2" },
+    { type: "delete_transcript_range", start_sec: 2, end_sec: 3, ripple: true },
   ] as const;
   for (const command of commands) history = commitHammerCompositionCommand(history, command, command.type);
   assert.equal(history.entries.length, commands.length);
@@ -231,6 +233,76 @@ test("interactive preview is a plan-only semantic projection with stable layer o
 
 test("preview/render compilation rejects non-V2 creative representations", () => {
   assert.throws(() => compileHammerRenderPlan({ schema_version: 1 } as never), /composition_v2_invalid/);
+});
+
+test("frame-accurate linked split and trim compile identically for audio and video", () => {
+  const rate = { numerator: 30, denominator: 1 };
+  let history = createHammerCompositionHistory(HAMMER_COMPOSITION_FIXTURES.linkedPodcast);
+  history = commitHammerCompositionCommand(history, buildHammerSplitCommand({ clipId: "video-main", frame: 300, frameRate: rate }), "Split linked AV");
+  const split = readHammerCompositionAtHead(history);
+  assert.deepEqual(split.tracks[0].clips.slice(0, 2).map((clip) => [clip.timeline_start_sec, clip.timeline_end_sec]), [[0, 10], [10, 20]]);
+  assert.deepEqual(split.tracks[1].clips.slice(0, 2).map((clip) => [clip.timeline_start_sec, clip.timeline_end_sec]), [[0, 10], [10, 20]]);
+
+  history = createHammerCompositionHistory(HAMMER_COMPOSITION_FIXTURES.linkedPodcast);
+  history = commitHammerCompositionCommand(history, buildHammerTrimCommand({ clipId: "video-main", startFrame: 30, endFrame: 570, frameRate: rate }), "Trim linked AV");
+  const trimmed = readHammerCompositionAtHead(history);
+  for (const track of trimmed.tracks) {
+    assert.deepEqual([track.clips[0].timeline_start_sec, track.clips[0].timeline_end_sec, track.clips[0].source_start_sec, track.clips[0].source_end_sec], [1, 19, 1, 19]);
+  }
+});
+
+test("lift preserves a gap while ripple deletion closes it across linked tracks and shared plan timing", () => {
+  const rate = { numerator: 30, denominator: 1 };
+  const base = HAMMER_COMPOSITION_FIXTURES.linkedPodcast;
+  const liftHistory = commitHammerCompositionCommand(createHammerCompositionHistory(base), buildHammerRangeDeleteCommand({ startFrame: 150, endFrame: 300, frameRate: rate, mode: "lift" }), "Lift");
+  const lifted = readHammerCompositionAtHead(liftHistory);
+  assert.equal(lifted.tracks[0].clips.some((clip) => clip.timeline_end_sec === 5), true);
+  assert.equal(lifted.tracks[0].clips.some((clip) => clip.timeline_start_sec === 10), true);
+  assert.equal(compileHammerRenderPlan(lifted).duration_sec, 30);
+
+  const rippleHistory = commitHammerCompositionCommand(createHammerCompositionHistory(base), buildHammerRangeDeleteCommand({ startFrame: 150, endFrame: 300, frameRate: rate, mode: "ripple" }), "Ripple delete");
+  const rippled = readHammerCompositionAtHead(rippleHistory);
+  for (const track of rippled.tracks) {
+    assert.equal(track.clips.some((clip) => clip.timeline_end_sec === 5), true);
+    assert.equal(track.clips.filter((clip) => clip.timeline_start_sec === 5).length, 1);
+    assert.equal(track.clips.at(-1)?.timeline_end_sec, 25);
+  }
+  assert.equal(compileHammerRenderPlan(rippled).duration_sec, 25);
+  assert.deepEqual(readHammerCompositionAtHead(undoHammerComposition(rippleHistory)), base);
+});
+
+test("track state, locks, source roles, snapping, and bidirectional transcript selection are canonical", () => {
+  const base = HAMMER_COMPOSITION_FIXTURES.linkedPodcast;
+  const soloAudio = applyHammerCompositionCommand(base, { type: "set_track_state", track_id: "audio", solo: true });
+  assert.deepEqual(compileHammerRenderPlan(soloAudio).operations.filter((row) => row.source_media_id).map((row) => row.track_id), ["audio", "audio"]);
+  const hiddenAudio = applyHammerCompositionCommand(soloAudio, { type: "set_track_state", track_id: "audio", visible: false });
+  assert.equal(compileHammerRenderPlan(hiddenAudio).operations.length, 0);
+  const locked = applyHammerCompositionCommand(base, { type: "set_track_state", track_id: "video", locked: true, visible: false });
+  assert.equal(locked.tracks[0].role, "program_video");
+  assert.throws(() => applyHammerCompositionCommand(locked, { type: "split_clip", clip_id: "video-main", at_sec: 10 }), /track_locked/);
+  assert.equal(snapHammerPlayheadFrame({ frame: 298, candidateFrames: [150, 300, 450], toleranceFrames: 3 }), 300);
+  const segments = [
+    { segment_id: "s1", speaker: "Host", text: "Opening", start_sec: 0, end_sec: 5 },
+    { segment_id: "s2", speaker: "Guest", text: "Answer", start_sec: 5, end_sec: 10 },
+    { segment_id: "s3", speaker: "Host", text: "Follow up", start_sec: 10, end_sec: 15 },
+  ];
+  const transcriptSelection = selectHammerTranscriptRange({ segments, segmentIds: ["s2"], composition: base, frameRate: { numerator: 30, denominator: 1 } });
+  assert.deepEqual([transcriptSelection.start_frame, transcriptSelection.end_frame], [150, 300]);
+  assert.deepEqual(selectHammerTimelineRange({ composition: base, startFrame: 150, endFrame: 300, frameRate: { numerator: 30, denominator: 1 }, segments }).selected_transcript_segment_ids, ["s2"]);
+  assert.equal(navigateHammerSpeaker({ segments, speaker: "Host", fromSec: 5, direction: "next" })?.segment_id, "s3");
+  assert.deepEqual(searchHammerTranscript(segments, "guest").map((segment) => segment.segment_id), ["s2"]);
+});
+
+test("transcript correction, caption correction, search, and recorded-speech deletion remain separate semantics", () => {
+  const semantic = HAMMER_COMPOSITION_FIXTURES.semanticPlan;
+  const transcriptCorrected = applyHammerCompositionCommand(semantic, buildHammerTranscriptCorrectionCommand("s1", "Correct words"));
+  assert.deepEqual(transcriptCorrected.source_media, semantic.source_media);
+  assert.equal(transcriptCorrected.captions.stale, true);
+  const captionCorrected = applyHammerCompositionCommand(semantic, buildHammerCaptionCorrectionCommand("caption-1", "Caption words"));
+  assert.deepEqual(captionCorrected.transcript, semantic.transcript);
+  assert.equal(captionCorrected.tracks.flatMap((track) => track.clips).find((clip) => clip.clip_id === "caption-1")?.payload.corrected_text, "Caption words");
+  const deletion = applyHammerCompositionCommand(HAMMER_COMPOSITION_FIXTURES.linkedPodcast, buildHammerTranscriptMediaDeleteCommand({ startFrame: 150, endFrame: 300, frameRate: { numerator: 30, denominator: 1 }, ripple: true }));
+  assert.equal(deletion.tracks[0].clips.at(-1)?.timeline_end_sec, 25);
 });
 
 test("render completion becomes stale after composition changes and cannot enter Quench packet", () => {
