@@ -4329,6 +4329,10 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                   "BALANCED_1: <real title>",
                   "BALANCED_2: <real title>",
                   "BALANCED_3: <real title>",
+                  "SHORT_DESCRIPTION:",
+                  "<one real concise episode summary of 160 characters or fewer>",
+                  "LONG_DESCRIPTION:",
+                  "<one real detailed YouTube-ready description paragraph>",
                   "Do not return JSON, markdown, commentary, placeholders, or an explanation.",
                 ].join("\n")
               : [

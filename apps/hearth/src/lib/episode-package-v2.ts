@@ -1312,6 +1312,24 @@ function readProductionArray(rawText: string, keys: string[]): unknown[] {
   return [];
 }
 
+function readProductionString(rawText: string, keys: string[]): string | null {
+  const parsed = parseProductionJson(rawText);
+  if (!parsed) return null;
+  for (const key of keys) {
+    const value = readString(parsed[key]);
+    if (value) return value;
+  }
+  for (const containerKey of ["seo", "framing", "result", "data", "descriptions"]) {
+    const container = parsed[containerKey];
+    if (!container || typeof container !== "object" || Array.isArray(container)) continue;
+    for (const key of keys) {
+      const value = readString((container as Record<string, unknown>)[key]);
+      if (value) return value;
+    }
+  }
+  return null;
+}
+
 export function parseSeoTitlesFromText(rawText: string): EpisodeSeoTitle[] {
   const jsonTitles = readProductionArray(rawText, ["titles", "seo_titles", "seoTitles"])
     .map((value) => typeof value === "string"
@@ -1352,6 +1370,19 @@ export function parseDescriptionFromSeoText(rawText: string): {
   shortDescription: string | null;
   longDescription: string | null;
 } {
+  const jsonShort = readProductionString(rawText, ["short_description", "description_short", "shortDescription"]);
+  const jsonLong = readProductionString(rawText, ["long_description", "description_long", "longDescription", "description"]);
+  if (jsonShort || jsonLong) {
+    return { shortDescription: jsonShort, longDescription: jsonLong };
+  }
+  const explicitShort = parseSectionBody(rawText, "SHORT_DESCRIPTION").trim() || null;
+  const explicitLong = parseSectionBody(rawText, "LONG_DESCRIPTION").trim() || null;
+  if (explicitShort || explicitLong) {
+    return {
+      shortDescription: explicitShort,
+      longDescription: explicitLong,
+    };
+  }
   const body = parseSectionBody(rawText, "DESCRIPTION");
   if (!body) return { shortDescription: null, longDescription: null };
   const longDescription = body.trim() || null;

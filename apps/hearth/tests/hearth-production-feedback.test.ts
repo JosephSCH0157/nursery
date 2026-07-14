@@ -70,7 +70,11 @@ test("hearthProductionFeedback: markdown output parses and placeholders cannot c
 test("hearthProductionFeedback: structured title and tag arrays remain usable", () => {
   const titles = validateHearthProductionArtifactOutput({
     action: "seo",
-    assistantText: JSON.stringify({ titles: ["First", "Second", "Third", "Fourth", "Fifth"] }),
+    assistantText: JSON.stringify({
+      titles: ["First", "Second", "Third", "Fourth", "Fifth"],
+      short_description: "A concise episode summary.",
+      long_description: "A detailed YouTube-ready episode description.",
+    }),
   });
   assert.equal(titles.ok, true);
   if (titles.ok) assert.deepEqual(titles.feedback.titles.map((title) => title.text), ["First", "Second", "Third", "Fourth", "Fifth"]);
@@ -81,6 +85,15 @@ test("hearthProductionFeedback: structured title and tag arrays remain usable", 
   });
   assert.equal(tags.ok, true);
   if (tags.ok) assert.deepEqual(tags.feedback.tags, ["florida-citrus", "orange-history", "agriculture"]);
+});
+
+test("hearthProductionFeedback: titles without both descriptions are an incomplete failure", () => {
+  const result = validateHearthProductionArtifactOutput({
+    action: "seo",
+    assistantText: "SEO_TITLES:\nSAFE: First\nSPICY: Second\nBALANCED_1: Third",
+  });
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.match(result.error, /both short and long descriptions/i);
 });
 
 test("hearthProductionFeedback: tags replies hydrate tags and warn on empty structured output", () => {

@@ -430,7 +430,7 @@ test("createHearthAiHandler isolates production generation from chat history and
     upstreamMessages = request.messages ?? [];
     return new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({
-        assistantText: "SEO_TITLES:\nSAFE: First title\nSPICY: Second title\nBALANCED_1: Third title",
+        assistantText: "SEO_TITLES:\nSAFE: First title\nSPICY: Second title\nBALANCED_1: Third title\nSHORT_DESCRIPTION:\nA concise summary.\nLONG_DESCRIPTION:\nA detailed episode description.",
         ops: [],
       }) } }],
       usage: { prompt_tokens: 40, completion_tokens: 12, total_tokens: 52 },
@@ -470,6 +470,8 @@ test("createHearthAiHandler recovers production arrays that are outside assistan
     choices: [{ message: { content: JSON.stringify({
       assistantText: "Generated the requested options.",
       titles: ["First real title", "Second real title", "Third real title", "Fourth real title", "Fifth real title"],
+      short_description: "A concise summary.",
+      long_description: "A detailed episode description.",
       ops: [],
     }) } }],
     usage: { prompt_tokens: 40, completion_tokens: 12, total_tokens: 52 },
@@ -503,7 +505,7 @@ test("createHearthAiHandler repairs one malformed production response before bil
     calls += 1;
     const assistantText = calls === 1
       ? "I generated some ideas, but they are not in the requested structure."
-      : "SEO_TITLES:\nSAFE: First repaired title\nSPICY: Second repaired title\nBALANCED_1: Third repaired title\nBALANCED_2: Fourth repaired title\nBALANCED_3: Fifth repaired title";
+      : "SEO_TITLES:\nSAFE: First repaired title\nSPICY: Second repaired title\nBALANCED_1: Third repaired title\nBALANCED_2: Fourth repaired title\nBALANCED_3: Fifth repaired title\nSHORT_DESCRIPTION:\nA concise summary.\nLONG_DESCRIPTION:\nA detailed episode description.";
     return new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({ assistantText, ops: [] }) } }],
       usage: { prompt_tokens: 40, completion_tokens: 12, total_tokens: 52 },

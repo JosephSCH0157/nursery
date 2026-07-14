@@ -39,9 +39,11 @@ export function resolveHearthProductionArtifactFeedback(args: {
       descriptionShort: descriptions.shortDescription,
       descriptionLong: descriptions.longDescription,
       tags: [],
-      warning: titles.length >= 3
-        ? null
-        : "Generate Titles failed because Hearth did not return at least three usable titles.",
+      warning: titles.length < 3
+        ? "Generate Titles failed because Hearth did not return at least three usable titles."
+        : !descriptions.shortDescription || !descriptions.longDescription
+          ? "Generate Titles failed because Hearth did not return both short and long descriptions."
+          : null,
     };
   }
 
@@ -81,6 +83,9 @@ export function validateHearthProductionArtifactOutput(args: {
   if (args.action === "seo" && feedback.titles.length < 3) {
     return { ok: false, error: feedback.warning ?? "Generated title output was unusable.", feedback };
   }
+  if (args.action === "seo" && (!feedback.descriptionShort || !feedback.descriptionLong)) {
+    return { ok: false, error: feedback.warning ?? "Generated descriptions were incomplete.", feedback };
+  }
   if (args.action === "tags" && feedback.tags.length === 0) {
     return { ok: false, error: feedback.warning ?? "Generated tag output was unusable.", feedback };
   }
@@ -98,9 +103,12 @@ export function canonicalizeHearthProductionArtifactOutput(args: {
     return [
       "SEO_TITLES:",
       ...validation.feedback.titles.map((title, index) => `${labels[index] ?? `OPTION_${index + 1}`}: ${title.text}`),
-      ...(validation.feedback.descriptionLong
-        ? ["", "DESCRIPTION:", validation.feedback.descriptionLong]
-        : []),
+      "",
+      "SHORT_DESCRIPTION:",
+      validation.feedback.descriptionShort ?? "",
+      "",
+      "LONG_DESCRIPTION:",
+      validation.feedback.descriptionLong ?? "",
     ].join("\n");
   }
   if (args.action === "tags") {
