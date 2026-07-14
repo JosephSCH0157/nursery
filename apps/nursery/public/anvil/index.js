@@ -42605,6 +42605,104 @@ function createAsrScrollDriver(options = {}) {
   let lastAcceptedMatchedLineIdx = -1;
   let lastAcceptedMatchedLineSim = Number.NaN;
   let lastAcceptedMatchedAt = 0;
+  let acceptedForwardOpportunity = null;
+  const clearAcceptedForwardOpportunity = (reason) => {
+    if (!acceptedForwardOpportunity) return;
+    if (isDevMode4()) {
+      try {
+        console.info("[ASR_ACCEPTED_FORWARD_OPPORTUNITY_CLEARED]", {
+          reason,
+          targetLineIdx: acceptedForwardOpportunity.targetLineIdx,
+          firstEligibleAtMs: acceptedForwardOpportunity.firstEligibleAtMs,
+          lastConfirmedAtMs: acceptedForwardOpportunity.lastConfirmedAtMs
+        });
+      } catch {
+      }
+    }
+    acceptedForwardOpportunity = null;
+  };
+  const noteAcceptedForwardOpportunity = (args) => {
+    const semanticCursor = Math.max(0, Math.floor(Number(args.semanticCursor) || 0));
+    const targetLineIdx = Math.max(0, Math.floor(Number(args.targetLineIdx) || 0));
+    if (args.contradiction) {
+      clearAcceptedForwardOpportunity("contradiction");
+      return null;
+    }
+    if (targetLineIdx <= semanticCursor) return acceptedForwardOpportunity;
+    const runKey = String(args.runKey || "");
+    const runGeneration = Number.isFinite(args.runGeneration) ? Math.floor(Number(args.runGeneration)) : null;
+    const sameAuthority = !!acceptedForwardOpportunity && acceptedForwardOpportunity.semanticCursorAtOpen === semanticCursor && acceptedForwardOpportunity.runKey === runKey && acceptedForwardOpportunity.runGeneration === runGeneration;
+    if (!sameAuthority) {
+      acceptedForwardOpportunity = {
+        targetLineIdx,
+        confidence: Number(args.confidence),
+        matchId: args.matchId ? String(args.matchId) : null,
+        transcriptSeq: Number.isFinite(args.transcriptSeq) ? Math.floor(Number(args.transcriptSeq)) : null,
+        runKey,
+        runGeneration,
+        semanticCursorAtOpen: semanticCursor,
+        firstEligibleAtMs: args.nowMs,
+        lastConfirmedAtMs: args.nowMs
+      };
+      if (isDevMode4()) {
+        try {
+          console.info("[ASR_ACCEPTED_FORWARD_OPPORTUNITY_OPENED]", { ...acceptedForwardOpportunity });
+        } catch {
+        }
+      }
+      return acceptedForwardOpportunity;
+    }
+    const currentOpportunity = acceptedForwardOpportunity;
+    if (!currentOpportunity) return null;
+    if (targetLineIdx < currentOpportunity.targetLineIdx) {
+      return currentOpportunity;
+    }
+    const advanced = targetLineIdx > currentOpportunity.targetLineIdx;
+    acceptedForwardOpportunity = {
+      ...currentOpportunity,
+      targetLineIdx,
+      confidence: Number(args.confidence),
+      matchId: args.matchId ? String(args.matchId) : currentOpportunity.matchId,
+      transcriptSeq: Number.isFinite(args.transcriptSeq) ? Math.floor(Number(args.transcriptSeq)) : currentOpportunity.transcriptSeq,
+      lastConfirmedAtMs: args.nowMs
+    };
+    if (isDevMode4()) {
+      try {
+        console.info(
+          advanced ? "[ASR_ACCEPTED_FORWARD_OPPORTUNITY_ADVANCED]" : "[ASR_ACCEPTED_FORWARD_OPPORTUNITY_CONFIRMED]",
+          { ...acceptedForwardOpportunity }
+        );
+      } catch {
+      }
+    }
+    return acceptedForwardOpportunity;
+  };
+  const evaluateAcceptedForwardOpportunity = (args) => {
+    const opportunity = acceptedForwardOpportunity;
+    if (!opportunity) return { promote: false, reason: "no_opportunity", targetLineIdx: null, starvationAgeMs: 0, evidenceAgeMs: Number.POSITIVE_INFINITY };
+    const semanticCursor = Math.max(0, Math.floor(Number(args.semanticCursor) || 0));
+    const starvationAgeMs = Math.max(0, args.nowMs - opportunity.firstEligibleAtMs);
+    const evidenceAgeMs = Math.max(0, args.nowMs - opportunity.lastConfirmedAtMs);
+    let reason = "eligible";
+    if (semanticCursor !== opportunity.semanticCursorAtOpen) reason = "semantic_cursor_changed";
+    else if (opportunity.targetLineIdx <= semanticCursor) reason = "target_not_forward";
+    else if (!args.runIdentityCurrent) reason = "stale_run_identity";
+    else if (args.noMatchOrOffscript) reason = "offscript_or_nomatch";
+    else if (args.contradiction) reason = "contradiction";
+    else if (args.manualRepositioning) reason = "manual_repositioning";
+    else if (args.stopped) reason = "speech_stopped";
+    else if (args.authorityLost) reason = "authority_lost";
+    else if (args.terminalUnsafe) reason = "terminal_unsafe";
+    else if (!args.speechFresh || evidenceAgeMs > 1800) reason = "evidence_stale";
+    else if (starvationAgeMs < DEFAULT_STARVATION_COMMIT_GAP_MS) reason = "starvation_window_open";
+    return {
+      promote: reason === "eligible",
+      reason,
+      targetLineIdx: opportunity.targetLineIdx,
+      starvationAgeMs,
+      evidenceAgeMs
+    };
+  };
   let stabilizerShadowState = createInitialAsrEvidenceStabilizerState(0);
   let stabilizerShadowLastScriptHash = "";
   let latestStabilizerShadowEvaluation = null;
@@ -45927,6 +46025,7 @@ function createAsrScrollDriver(options = {}) {
     lastCommittedLine = normalized;
     lastFreshProofLine = normalized;
     pendingSpeakableBridgeState = null;
+    clearAcceptedForwardOpportunity("manual-adopt");
     earlyBridgeTrapHoldCountByKey.clear();
     matchAnchorIdx = normalized;
     lastEvidenceAt = now3;
@@ -46197,6 +46296,7 @@ function createAsrScrollDriver(options = {}) {
     pursuitActive = false;
     microPursuitUntil = 0;
     pendingSpeakableBridgeState = null;
+    clearAcceptedForwardOpportunity(reason);
     preservedAsrAuthorityTargetTop = null;
     preservedAsrAuthorityTargetReason = reason;
     preservedAsrAuthorityTargetSourcePath = reason;
@@ -64208,6 +64308,9 @@ function createAsrScrollDriver(options = {}) {
           }
         }
         lastLineIndex = Math.max(lastLineIndex, effectiveSemanticCommitTargetLine);
+        if (effectiveSemanticCommitTargetLine > prevLineIndex) {
+          clearAcceptedForwardOpportunity("semantic_progress");
+        }
         if (shortLineStagedCatchupApplied && effectiveSemanticCommitTargetLine > prevLineIndex) {
           for (let stagedStepLine = prevLineIndex + 1; stagedStepLine <= effectiveSemanticCommitTargetLine; stagedStepLine += 1) {
             try {
@@ -67288,6 +67391,78 @@ function createAsrScrollDriver(options = {}) {
           lastAcceptedMatchedLineSim = freshBestSim;
           lastAcceptedMatchedAt = now3;
           lastSemanticProgressAt = now3;
+          const contradictionActive = String(lastAsrGuardReason || "").toLowerCase().includes("contradiction") || String(lastAsrHudGuardText || "").toLowerCase().includes("contradiction");
+          const opportunity = noteAcceptedForwardOpportunity({
+            semanticCursor: currentCursorIndex,
+            targetLineIdx: freshBestIdx,
+            confidence: freshBestSim,
+            matchId: typeof detail?.matchId === "string" ? detail.matchId : null,
+            transcriptSeq: Number(detail?.transcriptSeq),
+            runKey: transcriptRunKey || lastFinalTranscriptRunKey,
+            runGeneration: transcriptRunGeneration ?? lastFinalTranscriptRunGeneration,
+            nowMs: now3,
+            contradiction: contradictionActive
+          });
+          const opportunityDecision = evaluateAcceptedForwardOpportunity({
+            semanticCursor: currentCursorIndex,
+            nowMs: now3,
+            speechFresh: asrRuntimeSpeechRunningActual || hasRecentActualSpeech(now3) || hasRecentVadSpeechNow(now3),
+            runIdentityCurrent: !isRunIdentityStale({
+              runKey: opportunity?.runKey,
+              runGeneration: opportunity?.runGeneration
+            }),
+            noMatchOrOffscript: false,
+            contradiction: contradictionActive,
+            stopped: asrRuntimeSpeechEverTrue && !asrRuntimeSpeechRunningActual && !hasRecentActualSpeech(now3),
+            authorityLost: !isSessionLivePhase() || !isSessionAsrArmed() || getScrollMode3() !== "asr",
+            terminalUnsafe: getTotalLines() > 0 && freshBestIdx >= getTotalLines()
+          });
+          const acceptedForwardOwnsPendingBridge = !pendingSpeakableBridgeState || pendingSpeakableBridgeState.sourceBranch === "accepted_forward_starvation";
+          if (opportunityDecision.promote && opportunityDecision.targetLineIdx != null && opportunityDecision.targetLineIdx > currentCursorIndex && acceptedForwardOwnsPendingBridge) {
+            const visualReducedTarget = resolveForwardSpeakableTarget2(
+              currentCursorIndex,
+              opportunityDecision.targetLineIdx,
+              1
+            );
+            pendingSpeakableBridgeState = {
+              semanticFrom: currentCursorIndex,
+              semanticTarget: opportunityDecision.targetLineIdx,
+              visualCurrent: currentCursorIndex,
+              visualReducedTarget: visualReducedTarget > currentCursorIndex ? visualReducedTarget : Math.min(opportunityDecision.targetLineIdx, currentCursorIndex + 1),
+              skippedVisibleRows: Math.max(
+                0,
+                opportunityDecision.targetLineIdx - Math.max(currentCursorIndex + 1, visualReducedTarget)
+              ),
+              proofSource: "accepted_forward_starvation",
+              sourceBranch: "accepted_forward_starvation",
+              createdAtMs: opportunity?.firstEligibleAtMs ?? now3,
+              runKey: opportunity?.runKey || transcriptRunKey || lastFinalTranscriptRunKey,
+              runGeneration: opportunity?.runGeneration ?? transcriptRunGeneration ?? lastFinalTranscriptRunGeneration
+            };
+            try {
+              console.warn("[ASR_ACCEPTED_FORWARD_STARVATION_PROMOTED]", {
+                semanticCursor: currentCursorIndex,
+                semanticTarget: opportunityDecision.targetLineIdx,
+                visualReducedTarget: pendingSpeakableBridgeState.visualReducedTarget,
+                starvationAgeMs: opportunityDecision.starvationAgeMs,
+                evidenceAgeMs: opportunityDecision.evidenceAgeMs,
+                matchId: opportunity?.matchId ?? null,
+                transcriptSeq: opportunity?.transcriptSeq ?? null
+              });
+            } catch {
+            }
+          } else if (isDevMode4() && opportunity) {
+            try {
+              console.debug("[ASR_ACCEPTED_FORWARD_STARVATION_HELD]", {
+                reason: opportunityDecision.reason,
+                semanticCursor: currentCursorIndex,
+                semanticTarget: opportunity.targetLineIdx,
+                starvationAgeMs: opportunityDecision.starvationAgeMs,
+                evidenceAgeMs: opportunityDecision.evidenceAgeMs
+              });
+            } catch {
+            }
+          }
         }
       }
     }
@@ -67327,6 +67502,7 @@ function createAsrScrollDriver(options = {}) {
     }
     if (noMatch && !incomingMatch) {
       lastRescueNoMatchAt = now3;
+      clearAcceptedForwardOpportunity("explicit_no_match");
     }
     if (noMatch && !incomingMatch) {
       rawMatchId = null;
@@ -71177,6 +71353,7 @@ function createAsrScrollDriver(options = {}) {
     pendingMatch = null;
     terminalBoundaryAuthority.dispose();
     pendingSpeakableBridgeState = null;
+    clearAcceptedForwardOpportunity("dispose");
     liveAsrTerminalScriptHoldActive = false;
     lastAsr4ShadowSnapshot = null;
     earlyBridgeTrapHoldCountByKey.clear();
@@ -71304,6 +71481,7 @@ function createAsrScrollDriver(options = {}) {
   };
   const setLastLineIndex = (index) => {
     if (!Number.isFinite(index)) return;
+    clearAcceptedForwardOpportunity("manual_reposition");
     clearShortLinePreReanchorGraceState("setLastLineIndex");
     clearReanchorPendingState("setLastLineIndex");
     clearReanchorLandingState("setLastLineIndex");
@@ -71418,6 +71596,7 @@ function createAsrScrollDriver(options = {}) {
     pendingMatch = null;
     terminalBoundaryAuthority.clear();
     pendingSpeakableBridgeState = null;
+    clearAcceptedForwardOpportunity("sync-index");
     lastAsr4ShadowSnapshot = null;
     liveBridgeDownstreamBlockUntilByKey.clear();
     earlyBridgeTrapHoldCountByKey.clear();
@@ -73063,6 +73242,11 @@ function createAsrScrollDriver(options = {}) {
     overshootSettleLockTargetScrollTop: overshootSettleLockState?.targetScrollTop ?? Number.NaN,
     visualDebtRecoveryBudgetUsedPx
   });
+  const debugNoteAcceptedForwardOpportunity = (args) => {
+    const opportunity = noteAcceptedForwardOpportunity(args);
+    return opportunity ? { ...opportunity } : null;
+  };
+  const debugEvaluateAcceptedForwardOpportunity = (args) => evaluateAcceptedForwardOpportunity(args);
   const driver = {
     ingest,
     dispose,
@@ -73070,6 +73254,9 @@ function createAsrScrollDriver(options = {}) {
     getLastLineIndex,
     getStats,
     __debugGetAuthoritySnapshot: debugGetAuthoritySnapshot,
+    __debugNoteAcceptedForwardOpportunity: debugNoteAcceptedForwardOpportunity,
+    __debugEvaluateAcceptedForwardOpportunity: debugEvaluateAcceptedForwardOpportunity,
+    __debugClearAcceptedForwardOpportunity: clearAcceptedForwardOpportunity,
     __debugSeedPendingSpeakableBridge: debugSeedPendingSpeakableBridge,
     __debugNoteShortLineAmbiguity: debugNoteShortLineAmbiguity,
     __debugGetShortLinePreReanchorGraceState: debugGetShortLinePreReanchorGraceState,
