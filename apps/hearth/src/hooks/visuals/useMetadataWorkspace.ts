@@ -11,7 +11,7 @@ import { saveEpisodePackageForWorkpiece } from "../../lib/hearth-thumbnail-api";
 import { retainCanonicalVisualArtifacts } from "../../lib/hearth-visual-artifact-authority";
 
 type MetadataPreviewMode = "youtube" | "rss" | "plain";
-type MetadataSaveState = "saved" | "editing" | "saving" | "error";
+type MetadataSaveState = "loading" | "saved" | "editing" | "saving" | "error";
 
 const METADATA_AUTOSAVE_DELAY_MS = 450;
 const METADATA_SAVE_TIMEOUT_MS = 10000;
@@ -45,11 +45,11 @@ export function useMetadataWorkspace(args: UseMetadataWorkspaceArgs) {
   const [metadataDescriptionShortDraft, setMetadataDescriptionShortDraft] = useState("");
   const [metadataDescriptionLongDraft, setMetadataDescriptionLongDraft] = useState("");
   const [metadataPreviewMode, setMetadataPreviewMode] = useState<MetadataPreviewMode>("youtube");
-  const [metadataSaveState, setMetadataSaveState] = useState<MetadataSaveState>("saved");
+  const [metadataSaveState, setMetadataSaveState] = useState<MetadataSaveState>("loading");
   const [metadataSaveError, setMetadataSaveError] = useState<string | null>(null);
 
   useEffect(() => {
-    setMetadataSaveState((prev) => (prev === "saved" ? prev : "saved"));
+    setMetadataSaveState("loading");
     setMetadataSaveError((prev) => (prev === null ? prev : null));
     setMetadataTagInputDraft((prev) => (prev === "" ? prev : ""));
   }, [workpieceId]);
@@ -61,7 +61,7 @@ export function useMetadataWorkspace(args: UseMetadataWorkspaceArgs) {
       setMetadataTagInputDraft((prev) => (prev === "" ? prev : ""));
       setMetadataDescriptionShortDraft((prev) => (prev === "" ? prev : ""));
       setMetadataDescriptionLongDraft((prev) => (prev === "" ? prev : ""));
-      setMetadataSaveState((prev) => (prev === "saved" ? prev : "saved"));
+      setMetadataSaveState("loading");
       setMetadataSaveError((prev) => (prev === null ? prev : null));
       return;
     }

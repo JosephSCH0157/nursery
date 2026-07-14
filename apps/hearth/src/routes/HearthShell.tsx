@@ -130,6 +130,7 @@ import { useImageMapCandidatePreviewLoader } from "../hooks/visuals/useImageMapC
 import { useVisualWorkspaceResetLifecycle } from "../hooks/visuals/useVisualWorkspaceResetLifecycle";
 import { useMediaMapConversationBootstrap } from "../hooks/visuals/useMediaMapConversationBootstrap";
 import { useCanonicalImageMapScriptStateLoader } from "../hooks/visuals/useCanonicalImageMapScriptStateLoader";
+import { hasCanonicalFraming } from "../lib/hearth-framing-authority";
 import { useVisualSelectionHydration } from "../hooks/visuals/useVisualSelectionHydration";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import {
@@ -3284,12 +3285,9 @@ export default function HearthShell({
   const mediaMapCoverageLevel = useMemo(() => resolveMediaPlanCoverageLevel(mediaMapEntries), [mediaMapEntries]);
   const mediaMapScopeLabel = useMemo(() => resolveMediaPlanScopeLabel(mediaMapEntries), [mediaMapEntries]);
   const framingTitleCount = thumbnailTitleOptions.length;
-  const metadataComplete = Boolean(
-    framingTitleCount > 0
-    && metadataTagsDraft.length > 0
-    && metadataDescriptionShortDraft.trim()
-    && metadataDescriptionLongDraft.trim(),
-  );
+  // Downstream readiness consumes the same hydrated Tongs-backed package as
+  // the Framing editor, never transient draft/proposal state.
+  const metadataComplete = hasCanonicalFraming(episodePackage);
   const thumbnailsSelected = Boolean(primaryThumbnailVersionId);
   const releaseReadiness = resolveReleaseReadinessChecklist({
     hasApprovedScript,

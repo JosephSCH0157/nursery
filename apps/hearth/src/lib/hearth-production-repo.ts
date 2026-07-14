@@ -2,7 +2,9 @@ import { tongsFetch } from "./tongs-fetch";
 import {
   applyProductionArtifactToEpisodePackage,
   buildDefaultMetadataDocument,
+  hydrateEpisodePackageV2,
 } from "./episode-package-v2";
+import { canonicalFramingEquals } from "./hearth-framing-authority";
 import { resolveImageMapScriptAnchorFromText } from "./hearth-image-map-beats";
 import { readHearthPrimaryScript } from "./hearth-script-repo";
 
@@ -265,12 +267,26 @@ async function syncEpisodePackageMetadata(args: {
     resolveImageMapScriptAnchor,
   });
 
-  return commitMetadataDocument({
+  const committed = await commitMetadataDocument({
     workpieceId: args.workpieceId,
     metadata: nextMetadata,
     action: args.kind,
     scriptVersion: args.scriptVersion,
   });
+  if (!committed.ok || (args.kind !== "seo" && args.kind !== "tags")) {
+    return committed;
+  }
+
+  // Production generation may update the editor only after the same metadata
+  // read used on page reload proves the framing survived the durable write.
+  const verifiedMetadata = await readWorkpieceMetadata(args.workpieceId);
+  if (!verifiedMetadata || !canonicalFramingEquals(
+    hydrateEpisodePackageV2(verifiedMetadata),
+    hydrateEpisodePackageV2(nextMetadata),
+  )) {
+    return { ok: false, status: 409, reason: "metadata_verification_failed" };
+  }
+  return committed;
 }
 
 export async function commitWorkpieceProductionArtifact(args: {

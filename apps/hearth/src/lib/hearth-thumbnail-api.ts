@@ -7,6 +7,7 @@ import {
   type EpisodeThumbnailConcept,
   type EpisodeThumbnailVersion,
 } from "./episode-package-v2";
+import { canonicalFramingEquals } from "./hearth-framing-authority";
 import { resolveAiLaneFromStorage, resolveForgeUserAccessToken } from "./hearth-chat-api";
 import { recordHearthBandwidthFetch } from "./hearthBandwidthTelemetry";
 import { tongsFetch } from "./tongs-fetch";
@@ -482,10 +483,32 @@ export async function saveEpisodePackageForWorkpiece(args: {
   });
   if (!committed.ok) return committed;
 
+  let acknowledgedEpisodePackage = hydrateEpisodePackageV2(nextMetadata);
+  if (args.eventName === "hearth.metadata.autosave.v1") {
+    // A commit acknowledgement is not enough to call framing Saved. Prove
+    // that the canonical reload path can recover the exact framing written.
+    const verified = await readEpisodePackageForWorkpiece(args.workpieceId);
+    if (!verified.ok) {
+      return {
+        ok: false,
+        status: verified.status,
+        error: "Framing was written, but Hearth could not verify the durable saved state.",
+      };
+    }
+    if (!canonicalFramingEquals(verified.episodePackage, acknowledgedEpisodePackage)) {
+      return {
+        ok: false,
+        status: 409,
+        error: "Framing save acknowledgement did not match the canonical reload state.",
+      };
+    }
+    acknowledgedEpisodePackage = verified.episodePackage;
+  }
+
   return {
     ok: true,
     status: committed.status,
-    episodePackage: hydrateEpisodePackageV2(nextMetadata),
+    episodePackage: acknowledgedEpisodePackage,
     metadataUpdatedAt: committed.metadataUpdatedAt,
   };
 }
