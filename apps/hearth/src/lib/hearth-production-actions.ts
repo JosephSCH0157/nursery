@@ -38,18 +38,15 @@ export const PRODUCTION_ACTION_ARTIFACT_KIND: Record<ProductionAction, Productio
 export function buildProductionPrompt(args: {
   action: ProductionAction;
   scriptVersion: number;
-  scriptText: string;
   episodeTitle: string;
 }): string {
   const header = [
     `Production mode request for approved Script Version ${args.scriptVersion}.`,
-    "Use the approved script text below as the only source for script-derived outputs.",
+    "Use the approved script in episode_context as the only source for script-derived outputs.",
     "Do not request topic basics. Do not output markdown tables.",
     "",
     `EPISODE_TITLE: ${args.episodeTitle || "Untitled Episode"}`,
     `SCRIPT_VERSION: ${args.scriptVersion}`,
-    "APPROVED_SCRIPT_TEXT:",
-    args.scriptText,
     "",
   ];
 
@@ -274,7 +271,6 @@ export async function runProductionAction(args: {
   const prompt = buildProductionPrompt({
     action: args.action,
     scriptVersion: args.approvedScriptVersion,
-    scriptText: args.activeDraft.body,
     episodeTitle: args.activeDraft.title || args.planningSessionTitle || "",
   });
   const displayContent = `${PRODUCTION_ACTION_LABEL[args.action]} for Script Version ${args.approvedScriptVersion}.`;

@@ -3529,7 +3529,10 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       const messages = rawMessages
         .map(toChatMessage)
         .filter((item): item is ChatMessage => Boolean(item))
-        .slice(-24);
+        // Production generation is a version-scoped command, not a continuation
+        // of conversational chat. Keeping prior production prompts here can replay
+        // the approved script many times and overflow the upstream context.
+        .slice(productionAction ? -1 : -24);
 
       if (!messages.length) {
         return jsonResponse(400, {
@@ -3547,7 +3550,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...buildBillingSnapshot(lane),
         });
       }
-      const attachmentContext = normalizeAttachmentContextRequest(bodyRaw.attachment_context);
+      const attachmentContext = productionAction
+        ? { includeEpisodeAttachments: false, attachmentIds: [] }
+        : normalizeAttachmentContextRequest(bodyRaw.attachment_context);
 
       const latestUserMessageIndex = [...messages]
         .map((message, index) => ({ message, index }))

@@ -421,6 +421,48 @@ test("createHearthAiHandler rejects unusable production output before successful
   }
 });
 
+test("createHearthAiHandler isolates production generation from chat history and attachments", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key", configuredBillingMode: "byo" }));
+  const originalFetch = globalThis.fetch;
+  let upstreamMessages: Array<{ role?: string; content?: string }> = [];
+  globalThis.fetch = async (_input, init) => {
+    const request = JSON.parse(String(init?.body ?? "{}")) as { messages?: Array<{ role?: string; content?: string }> };
+    upstreamMessages = request.messages ?? [];
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({
+        assistantText: "SEO_TITLES:\nSAFE: First title\nSPICY: Second title\nBALANCED_1: Third title",
+        ops: [],
+      }) } }],
+      usage: { prompt_tokens: 40, completion_tokens: 12, total_tokens: 52 },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [
+          { role: "user", content: `Old production prompt ${"duplicate script ".repeat(500)}` },
+          { role: "assistant", content: "Old response" },
+          { role: "user", content: "Generate Titles for approved Script Version 4." },
+        ],
+        episode_context: buildEpisodeContext(),
+        lane: "byo",
+        production_action: "seo",
+        production_script_version: 4,
+        attachment_context: { include_episode_attachments: true },
+      }),
+    }));
+    assert.equal(response.status, 200);
+    assert.equal(upstreamMessages.length, 2);
+    assert.equal(upstreamMessages[0]?.role, "system");
+    assert.equal(upstreamMessages[1]?.content, "Generate Titles for approved Script Version 4.");
+    assert.doesNotMatch(upstreamMessages.map((message) => message.content ?? "").join("\n"), /duplicate script/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("createHearthAiHandler shapes returned script blobs into Anvil output contract format", async () => {
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
   const originalFetch = globalThis.fetch;

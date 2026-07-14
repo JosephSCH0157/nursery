@@ -4,6 +4,19 @@ import {
   resolveHearthProductionArtifactFeedback,
   validateHearthProductionArtifactOutput,
 } from "../src/lib/hearth-production-feedback";
+import { buildProductionPrompt } from "../src/lib/hearth-production-actions";
+
+test("production prompts use the single approved-script copy in episode context", () => {
+  const secretScriptLine = "THIS SCRIPT LINE MUST NOT BE DUPLICATED INTO CHAT HISTORY";
+  const prompt = buildProductionPrompt({
+    action: "seo",
+    scriptVersion: 4,
+    episodeTitle: "Test episode",
+  });
+  assert.doesNotMatch(prompt, new RegExp(secretScriptLine));
+  assert.match(prompt, /approved script in episode_context/i);
+  assert.match(prompt, /SCRIPT_VERSION: 4/);
+});
 
 test("hearthProductionFeedback: seo replies hydrate titles and descriptions", () => {
   const feedback = resolveHearthProductionArtifactFeedback({

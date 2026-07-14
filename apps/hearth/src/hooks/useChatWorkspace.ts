@@ -519,7 +519,12 @@ export function useChatWorkspaceRuntime<
     const requestUserMessage: HearthChatMessage = { role: "user", content: requestContent };
     const displayUserMessage: HearthChatMessage = { role: "user", content: displayContent || requestContent };
     const baseMessages = args.chatMessagesRef.current;
-    const requestMessages = [...baseMessages, requestUserMessage].slice(-args.chatHistoryMaxMessages);
+    // Production prompts are self-contained and the approved script already lives in
+    // episode_context. Replaying prior production prompts duplicates the full script
+    // and can overflow the provider context before generation begins.
+    const requestMessages = isProductionRequest
+      ? [requestUserMessage]
+      : [...baseMessages, requestUserMessage].slice(-args.chatHistoryMaxMessages);
     const displayMessages = [...baseMessages, displayUserMessage].slice(-args.chatHistoryMaxMessages);
     args.setChatMessages(displayMessages);
     args.setChatDraft("");
@@ -579,7 +584,9 @@ export function useChatWorkspaceRuntime<
     args.setIsAiProcessing(true);
 
     try {
-      const attachmentContext = args.getAttachmentContext?.() ?? undefined;
+      const attachmentContext = isProductionRequest
+        ? { includeEpisodeAttachments: false, attachmentIds: [] }
+        : args.getAttachmentContext?.() ?? undefined;
       const result = await args.requestHearthChatReply(requestMessages, episodeContext, {
         signal: controller.signal,
         attachmentContext,
