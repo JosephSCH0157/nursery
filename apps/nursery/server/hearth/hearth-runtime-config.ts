@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { HearthAiLane } from "../../../hearth/src/lib/hearth-ai-runtime-contract";
 import { FORGE_ALLOWED_CHAT_MODELS } from "./ai-pricing";
+import { resolveOpenAiImageApiKey } from "../image-runtime-config";
 
 const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
 const DEFAULT_STT_BUCKET = "forge-workpieces";
@@ -102,7 +103,7 @@ export function resolveHearthRuntimeConfig(): HearthRuntimeConfig {
   const supabaseUrl = readEnv("TONGS_SUPABASE_URL") || readEnv("SUPABASE_URL") || null;
   const supabaseServiceRoleKey = readEnv("TONGS_SERVICE_ROLE_KEY") || readEnv("SUPABASE_SERVICE_ROLE_KEY") || null;
   const textApiKey = readEnv("OPENAI_TEXT_API_KEY") || readEnv("OPENAI_API_KEY") || null;
-  const imageApiKey = readEnv("OPENAI_IMAGE_API_KEY") || readEnv("OPENAI_API_KEY") || null;
+  const imageApiKey = resolveOpenAiImageApiKey();
   const researchApiKey = (
     readEnv("HEARTH_RESEARCH_API_KEY")
     || readEnv("HEARTH_RESEARCH_BRAVE_API_KEY")

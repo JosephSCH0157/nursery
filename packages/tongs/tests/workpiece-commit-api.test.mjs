@@ -2882,6 +2882,7 @@ function createImageMapAssetSupabase({ assets = [] } = {}) {
     assetRows: assets.map((row) => ({ ...row })),
     insertCalls: [],
     updateCalls: [],
+    rpcCalls: [],
   };
 
   function matchesFilters(row, filters, containsFilters) {
@@ -2899,6 +2900,10 @@ function createImageMapAssetSupabase({ assets = [] } = {}) {
     schema(schemaName) {
       assert.equal(schemaName, "tongs");
       return {
+        async rpc(fn, params) {
+          state.rpcCalls.push({ fn, params });
+          return { data: null, error: null };
+        },
         from(tableName) {
           if (tableName !== "assets") {
             throw new Error(`Unexpected table: ${tableName}`);
@@ -3916,6 +3921,9 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
     schema(schemaName) {
       assert.equal(schemaName, "tongs");
       return {
+        async rpc() {
+          return { data: null, error: null };
+        },
         from(tableName) {
           assert.equal(tableName, "assets");
           return {
@@ -4430,7 +4438,11 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
   assert.equal(result.image_map.entries[0]?.status, "candidates_generated");
   assert.equal(result.image_map.entries[0]?.selected_asset_id, null);
   assert.equal(result.image_map.entries[0]?.style_preset, "oil_painting");
-  assert.equal(result.token_balance, 777);
+  assert.equal(result.token_balance, undefined, "image generation must not return or mutate text-token balance");
+  assert.equal(state.rpcCalls.filter((call) => call.fn === "reserve_generation_allowance").length, 1);
+  assert.equal(state.rpcCalls.filter((call) => call.fn === "record_generation_outputs").length, 2);
+  assert.equal(state.rpcCalls.filter((call) => call.fn === "complete_generation_operation").length, 1);
+  assert.equal(state.rpcCalls.some((call) => call.fn === "apply_ai_token_delta"), false);
 
   const candidateSupersedeCall = state.updateCalls.find((row) => Array.isArray(row.id));
   assert.deepEqual([...candidateSupersedeCall.id].sort(), ["asset-old-candidate-a", "asset-old-candidate-b"]);

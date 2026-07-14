@@ -919,6 +919,48 @@ export async function refreshMyAiCredits(): Promise<HearthAiStatusResult> {
   };
 }
 
+export type HearthGenerationAllowances = {
+  image: { starterIncluded: number; available: number; reserved: number; generationAvailable: boolean };
+  bRoll: { starterIncluded: number; available: number; reserved: number; generationAvailable: boolean };
+};
+
+let latestGenerationAllowances: HearthGenerationAllowances | null = null;
+
+export function getCachedGenerationAllowances(): HearthGenerationAllowances | null {
+  return latestGenerationAllowances;
+}
+
+export async function refreshMyGenerationAllowances(): Promise<HearthGenerationAllowances | null> {
+  const config = readSupabaseConfig();
+  const accessToken = await readAccessTokenForRequest();
+  if (!config || !accessToken) return null;
+  const response = await fetch(`${config.url}/rest/v1/rpc/get_my_generation_allowances`, {
+    method: "POST",
+    headers: {
+      apikey: config.anonKey,
+      authorization: `Bearer ${accessToken}`,
+      "accept-profile": "tongs",
+      "content-profile": "tongs",
+      "content-type": "application/json",
+    },
+    body: "{}",
+  }).catch(() => null);
+  if (!response?.ok) return null;
+  const payload = await response.json().catch(() => null);
+  if (!Array.isArray(payload)) return null;
+  const read = (kind: "image" | "b_roll", starter: number) => {
+    const row = payload.find((item) => item && typeof item === "object" && item.generation_kind === kind) as Record<string, unknown> | undefined;
+    return {
+      starterIncluded: Number(row?.starter_included) || starter,
+      available: Number(row?.available) || 0,
+      reserved: Number(row?.reserved) || 0,
+      generationAvailable: row?.generation_available === true,
+    };
+  };
+  latestGenerationAllowances = { image: read("image", 500), bRoll: read("b_roll", 25) };
+  return latestGenerationAllowances;
+}
+
 export async function fetchHearthAiStatus(): Promise<HearthAiStatusResult> {
   const credits = await refreshMyAiCredits();
   if (credits.ok) {

@@ -1058,8 +1058,7 @@ export type GenerateImageMapCandidatesResponse = {
   image_map: WorkpieceImageMapResponseData["image_map"];
   asset: WorkpieceImageMapResponseData["asset"];
   generated_assets: ImageMapCandidateAssetSummary[];
-  credits_warning?: string;
-  token_balance?: number | null;
+  generation_allowances?: GenerationAllowances;
 };
 
 export type GenerateEpisodeThumbnailRequest = {
@@ -1093,8 +1092,19 @@ export type GenerateEpisodeThumbnailResponse = {
   };
   updated_episode_package: EpisodePackageRecord;
   primary_version_id: string | null;
-  credits_warning?: string;
-  token_balance?: number | null;
+  generation_allowances?: GenerationAllowances;
+};
+
+export type GenerationAllowance = {
+  starter_included: number;
+  available: number;
+  reserved: number;
+  generation_available: boolean;
+};
+
+export type GenerationAllowances = {
+  image: GenerationAllowance;
+  b_roll: GenerationAllowance;
 };
 
 export type WorkspaceReadyScript = {
@@ -4438,13 +4448,6 @@ function parseBase64ByteLength(base64: string): number {
   const clean = base64.replace(/\s+/g, "");
   const padding = clean.endsWith("==") ? 2 : clean.endsWith("=") ? 1 : 0;
   return Math.max(0, Math.floor((clean.length * 3) / 4) - padding);
-}
-
-function estimateImageTokenSpend(prompt: string, tokensFromProvider: number | null): number {
-  if (typeof tokensFromProvider === "number" && Number.isFinite(tokensFromProvider) && tokensFromProvider > 0) {
-    return Math.ceil(tokensFromProvider);
-  }
-  return Math.max(1, Math.ceil(prompt.length / 4));
 }
 
 function normalizeThumbnailConcept(value: unknown): EpisodeThumbnailConceptRecord | null {
@@ -8068,48 +8071,108 @@ export class TongsCommitService {
     };
   }
 
-  private async applyAiTokenDelta(args: {
-    userId: string;
-    spent: number;
-    requestId: string;
-    providerRequestId: string | null;
-    reason: string;
-  }): Promise<{ tokenBalance: number | null } | { warning: string }> {
-    const rpcClient = this.supabase.schema("tongs") as unknown as {
-      rpc: (
-        fn: string,
-        params: {
-          p_user_id: string;
-          p_delta: number;
-          p_reason: string;
-          p_request_id: string;
-          p_provider_request_id?: string;
-        },
-      ) => Promise<{ data: unknown; error: { message: string } | null }>;
+  private generationRpc(): {
+    rpc: (fn: string, params?: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string; details?: string } | null }>;
+  } {
+    return this.supabase.schema("tongs") as unknown as {
+      rpc: (fn: string, params?: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string; details?: string } | null }>;
     };
+  }
 
-    const { data, error } = await rpcClient.rpc("apply_ai_token_delta", {
-      p_user_id: args.userId,
-      p_delta: -Math.max(0, Math.ceil(args.spent)),
-      p_reason: args.reason,
-      p_request_id: args.requestId,
-      p_provider_request_id: args.providerRequestId ?? undefined,
+  private async reserveGeneration(args: {
+    userId: string; kind: "image" | "b_roll"; actionId: string;
+    maximum: number; workspaceId: string; workpieceId: string;
+  }): Promise<void> {
+    const { error } = await this.generationRpc().rpc("reserve_generation_allowance", {
+      p_billing_owner_id: args.userId, p_generation_kind: args.kind,
+      p_action_id: args.actionId, p_requested_maximum: args.maximum,
+      p_workspace_id: args.workspaceId, p_workpiece_id: args.workpieceId,
     });
-
-    if (error) {
-      return { warning: "Unable to update credits." };
+    if (!error) return;
+    const code = error.message.includes("image_allowance_exhausted") ? "image_allowance_exhausted"
+      : error.message.includes("broll_allowance_exhausted") ? "broll_allowance_exhausted" : null;
+    if (code) {
+      let details: Record<string, unknown> = {};
+      try { details = JSON.parse(error.details ?? "{}"); } catch { /* sanitized fallback */ }
+      const balances = await this.readGenerationBalancesForOwner(args.userId);
+      throw new HttpError(409, code, code === "image_allowance_exhausted"
+        ? "Image generation allowance is exhausted" : "B-roll generation allowance is exhausted", {
+          ...details,
+          ...(balances ? { balances } : {}),
+        });
     }
+    throw new HttpError(502, "generation_reservation_failed", "Unable to reserve generation allowance", { reason: error.message });
+  }
 
-    const row = Array.isArray(data) ? data[0] : data;
-    const tokenBalance = (
-      row
-      && typeof row === "object"
-      && typeof (row as Record<string, unknown>).token_balance === "number"
-    )
-      ? ((row as Record<string, unknown>).token_balance as number)
-      : null;
+  private async readGenerationBalancesForOwner(userId: string): Promise<GenerationAllowances | undefined> {
+    const table = this.supabase.schema("tongs") as unknown as {
+      from: (name: string) => { select: (columns: string) => { eq: (column: string, value: string) => Promise<{ data: unknown; error: unknown }> } };
+    };
+    const { data, error } = await table.from("generation_balances")
+      .select("generation_kind,available_quantity,reserved_quantity")
+      .eq("billing_owner_id", userId);
+    if (error || !Array.isArray(data)) return undefined;
+    const make = (kind: "image" | "b_roll", starter: number): GenerationAllowance => {
+      const row = data.find((item) => item && typeof item === "object" && (item as Record<string, unknown>).generation_kind === kind) as Record<string, unknown> | undefined;
+      const available = Number(row?.available_quantity) || 0;
+      return { starter_included: starter, available, reserved: Number(row?.reserved_quantity) || 0, generation_available: available > 0 };
+    };
+    return { image: make("image", 500), b_roll: make("b_roll", 25) };
+  }
 
-    return { tokenBalance };
+  private async recordGeneratedImage(args: {
+    userId: string; actionId: string; batchId: string; outputOrdinal: number;
+    providerRequestId: string | null; provider: string; model: string;
+    assetId: string; versionId?: string | null; costUsd: number;
+  }): Promise<void> {
+    const { error } = await this.generationRpc().rpc("record_generation_outputs", {
+      p_billing_owner_id: args.userId, p_generation_kind: "image", p_action_id: args.actionId,
+      p_provider_batch_id: args.batchId, p_provider_request_id: args.providerRequestId,
+      p_provider: args.provider, p_model: args.model,
+      p_outputs: [{ output_ordinal: args.outputOrdinal, asset_id: args.assetId,
+        version_id: args.versionId ?? null, estimated_cost_usd: args.costUsd, actual_cost_usd: args.costUsd }],
+    });
+    if (error) throw new HttpError(502, "generation_finalization_failed", "Unable to record generated output", { reason: error.message });
+  }
+
+  private async completeGeneration(userId: string, actionId: string): Promise<void> {
+    const { error } = await this.generationRpc().rpc("complete_generation_operation", {
+      p_billing_owner_id: userId, p_generation_kind: "image", p_action_id: actionId,
+    });
+    if (error) throw new HttpError(502, "generation_completion_failed", "Unable to complete generation accounting", { reason: error.message });
+  }
+
+  private async compensateGeneratedImages(userId: string, actionId: string, outputs: Array<{ batchId: string; outputOrdinal: number }>): Promise<void> {
+    if (!outputs.length) return;
+    const { error } = await this.generationRpc().rpc("compensate_generation_persistence_failures", {
+      p_billing_owner_id: userId, p_generation_kind: "image", p_action_id: actionId,
+      p_outputs: outputs.map((output) => ({ provider_batch_id: output.batchId, output_ordinal: output.outputOrdinal })),
+    });
+    if (error) throw new HttpError(502, "generation_compensation_failed", "Unable to compensate failed generated output", { reason: error.message });
+  }
+
+  private async readGenerationAllowances(userAccessToken: string | null | undefined): Promise<GenerationAllowances | undefined> {
+    const token = userAccessToken?.trim();
+    if (!token || !this.userClientFactory) return undefined;
+    const client = this.userClientFactory(token).schema("tongs") as unknown as {
+      rpc: (fn: string) => Promise<{ data: unknown; error: { message: string } | null }>;
+    };
+    const { data, error } = await client.rpc("get_my_generation_allowances");
+    if (error || !Array.isArray(data)) return undefined;
+    const zero = (starter: number): GenerationAllowance => ({ starter_included: starter, available: 0, reserved: 0, generation_available: false });
+    const result: GenerationAllowances = { image: zero(500), b_roll: zero(25) };
+    for (const item of data) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      const kind = row.generation_kind === "image" ? "image" : row.generation_kind === "b_roll" ? "b_roll" : null;
+      if (!kind) continue;
+      result[kind] = {
+        starter_included: Number(row.starter_included) || (kind === "image" ? 500 : 25),
+        available: Number(row.available) || 0, reserved: Number(row.reserved) || 0,
+        generation_available: row.generation_available === true,
+      };
+    }
+    return result;
   }
 
   private async recordAiUsageEvent(args: {
@@ -8131,6 +8194,7 @@ export class TongsCommitService {
     status: AiUsageStatus;
     actionId?: string | null;
     providerRequestId?: string | null;
+    modality?: "text" | "image" | "b_roll";
   }): Promise<void> {
     if (!isAiUsageTrigger(args.trigger)) {
       throw new Error(`Invalid ai_usage_events trigger '${String(args.trigger)}'`);
@@ -8167,6 +8231,7 @@ export class TongsCommitService {
         trigger: args.trigger,
         status: args.status,
         provider_request_id: args.providerRequestId ?? null,
+        modality: args.modality ?? "text",
         occurred_at_ms: Date.now(),
       });
 
@@ -8190,6 +8255,7 @@ export class TongsCommitService {
     reasoningEffort?: string | null;
     trigger: AiUsageTrigger;
     actionId?: string | null;
+    modality?: "text" | "image" | "b_roll";
     execute: () => Promise<{
       result: T;
       inputTokens: number;
@@ -8249,6 +8315,7 @@ export class TongsCommitService {
           status: AI_USAGE_STATUS.SUCCESS,
           actionId: args.actionId,
           providerRequestId: executed.providerRequestId ?? null,
+          modality: args.modality,
         });
       }
 
@@ -8283,6 +8350,7 @@ export class TongsCommitService {
           status: AI_USAGE_STATUS.ERROR,
           actionId: args.actionId,
           providerRequestId: null,
+          modality: args.modality,
         });
       }
       throw error;
@@ -9468,7 +9536,19 @@ export class TongsCommitService {
     ].filter(Boolean).join("\n\n");
 
     const thumbnailActionId = randomUuid();
-    const imageCall = await this.runAIRequest({
+    const providerBatchId = randomUuid();
+    const requestId = randomUuid();
+    const versionId = randomUuid();
+    const assetId = randomUuid();
+    const imageCostUsd = estimateImageProviderCostUsd(input.size ?? null, input.aspect ?? "16:9");
+    await this.reserveGeneration({
+      userId, kind: "image", actionId: thumbnailActionId, maximum: 1,
+      workspaceId: workspace.id, workpieceId,
+    });
+    let imageResult: Awaited<ReturnType<ImageProvider["generateImage"]>>;
+    let thumbnailDelivered = false;
+    try {
+      const imageCall = await this.runAIRequest({
       lane,
       userId,
       workspaceId: workspace.id,
@@ -9478,29 +9558,35 @@ export class TongsCommitService {
       model: "gpt-image-1",
       trigger: AI_USAGE_TRIGGER.USER,
       actionId: thumbnailActionId,
+      modality: "image",
       execute: async () => {
         const image = await this.imageProvider!.generateImage({
           prompt: finalPrompt,
           aspect: input.aspect ?? "16:9",
           size: input.size ?? null,
         } as GenerateImageInput);
-        const totalTokens = estimateImageTokenSpend(finalPrompt, image.tokensUsed);
-        const inputTokens = Math.min(totalTokens, Math.max(1, Math.ceil(finalPrompt.length / 4)));
-        const outputTokens = Math.max(0, totalTokens - inputTokens);
+        await this.recordGeneratedImage({
+          userId, actionId: thumbnailActionId, batchId: providerBatchId, outputOrdinal: 0,
+          providerRequestId: image.providerRequestId, provider: image.provider, model: "gpt-image-1",
+          assetId, versionId, costUsd: imageCostUsd,
+        });
         return {
           result: image,
-          inputTokens,
-          outputTokens,
-          totalTokens,
+          inputTokens: 0,
+          outputTokens: 0,
+          totalTokens: 0,
+          estimatedCostUsd: imageCostUsd,
+          actualCostUsd: imageCostUsd,
+          billableTokens: 0,
           providerRequestId: image.providerRequestId,
         };
       },
-    });
-    const imageResult = imageCall.result;
-
-    const requestId = randomUuid();
-    const versionId = randomUuid();
-    const assetId = randomUuid();
+      });
+      imageResult = imageCall.result;
+    } catch (error) {
+      await this.completeGeneration(userId, thumbnailActionId).catch(() => undefined);
+      throw error;
+    }
     const createdAt = new Date().toISOString();
     const extension = imageResult.mimeType.toLowerCase().includes("jpeg") ? "jpg" : "png";
     const assetPath = `${THUMBNAIL_ASSET_PREFIX}/${workpieceId}/${versionId}.${extension}`;
@@ -9512,6 +9598,7 @@ export class TongsCommitService {
       lane: "forge-managed",
     };
 
+    try {
     const assetCommit = await this.commitFile(workpieceId, {
       path: assetPath,
       content_type: imageResult.mimeType,
@@ -9601,23 +9688,9 @@ export class TongsCommitService {
       correlation_id: requestId,
     });
 
-    let creditsWarning: string | undefined;
-    let tokenBalance: number | null | undefined;
-    if (lane === "forge") {
-      const spent = estimateImageTokenSpend(finalPrompt, imageResult.tokensUsed);
-      const deltaResult = await this.applyAiTokenDelta({
-        userId,
-        spent,
-        requestId,
-        providerRequestId: imageResult.providerRequestId,
-        reason: "hearth:thumbnail_generate",
-      });
-      if ("warning" in deltaResult) {
-        creditsWarning = deltaResult.warning;
-      } else {
-        tokenBalance = deltaResult.tokenBalance;
-      }
-    }
+    thumbnailDelivered = true;
+    await this.completeGeneration(userId, thumbnailActionId);
+    const generationAllowances = await this.readGenerationAllowances(input.user_access_token);
 
     return {
       version,
@@ -9636,9 +9709,15 @@ export class TongsCommitService {
       },
       updated_episode_package: episodePackage,
       primary_version_id: episodePackage.thumbnail.primary_version_id,
-      ...(creditsWarning ? { credits_warning: creditsWarning } : {}),
-      ...(typeof tokenBalance === "number" ? { token_balance: tokenBalance } : {}),
+      ...(generationAllowances ? { generation_allowances: generationAllowances } : {}),
     };
+    } catch (error) {
+      if (!thumbnailDelivered) {
+        await this.compensateGeneratedImages(userId, thumbnailActionId, [{ batchId: providerBatchId, outputOrdinal: 0 }]);
+      }
+      await this.completeGeneration(userId, thumbnailActionId).catch(() => undefined);
+      throw error;
+    }
   }
 
   async createRecordingSessionRecord(input: CreateRecordingSessionRecordRequest): Promise<RecordingSessionRow> {
@@ -11221,8 +11300,16 @@ export class TongsCommitService {
       visualMode: string;
       prompt: string;
       image: Awaited<ReturnType<ImageProvider["generateImage"]>>;
+      batchId: string;
+      outputOrdinal: number;
+      assetId: string;
     }> = [];
     const imageMapActionId = randomUuid();
+    await this.reserveGeneration({
+      userId: auth.userId, kind: "image", actionId: imageMapActionId, maximum: 3,
+      workspaceId: input.workspace_id, workpieceId,
+    });
+    let providerOutputOrdinal = 0;
     for (const variant of variants) {
       const prompt = buildImageMapCandidatePrompt({
         entry,
@@ -11233,7 +11320,12 @@ export class TongsCommitService {
         spokenBeats: current.episodePackage.spoken_beats,
         divergenceHint: variant.divergenceHint,
       });
-      const imageCall = await this.runAIRequest({
+      const batchId = randomUuid();
+      const assetId = randomUuid();
+      const outputOrdinal = providerOutputOrdinal++;
+      let imageCall;
+      try {
+      imageCall = await this.runAIRequest({
         lane,
         userId: auth.userId,
         workspaceId: input.workspace_id,
@@ -11243,30 +11335,40 @@ export class TongsCommitService {
         model: "gpt-image-1",
         trigger: AI_USAGE_TRIGGER.USER,
         actionId: imageMapActionId,
+        modality: "image",
         execute: async () => {
           const image = await this.imageProvider!.generateImage({
             prompt,
             aspect,
             size,
           });
-          const totalTokens = estimateImageTokenSpend(prompt, image.tokensUsed);
-          const inputTokens = Math.min(totalTokens, Math.max(1, Math.ceil(prompt.length / 4)));
-          const outputTokens = Math.max(0, totalTokens - inputTokens);
+          const costUsd = estimateImageProviderCostUsd(size, aspect);
+          await this.recordGeneratedImage({
+            userId: auth.userId, actionId: imageMapActionId, batchId, outputOrdinal,
+            providerRequestId: image.providerRequestId, provider: image.provider, model: "gpt-image-1",
+            assetId, costUsd,
+          });
           return {
             result: image,
-            inputTokens,
-            outputTokens,
-            totalTokens,
+            inputTokens: 0, outputTokens: 0, totalTokens: 0,
+            estimatedCostUsd: costUsd, actualCostUsd: costUsd, billableTokens: 0,
             providerRequestId: image.providerRequestId,
           };
         },
       });
+      } catch (error) {
+        await this.completeGeneration(auth.userId, imageMapActionId).catch(() => undefined);
+        throw error;
+      }
       const image = imageCall.result;
       generatedOutputs.push({
         variantLabel: variant.label,
         visualMode,
         prompt,
         image,
+        batchId,
+        outputOrdinal,
+        assetId,
       });
     }
 
@@ -11280,7 +11382,12 @@ export class TongsCommitService {
         spokenBeats: current.episodePackage.spoken_beats,
         divergenceHint: "The prior variant was too similar. Produce a substantially different visual take with different framing, subject arrangement, and editorial emphasis.",
       });
-      const retryCall = await this.runAIRequest({
+      const retryBatchId = randomUuid();
+      const retryAssetId = randomUuid();
+      const retryOutputOrdinal = providerOutputOrdinal++;
+      let retryCall;
+      try {
+      retryCall = await this.runAIRequest({
         lane,
         userId: auth.userId,
         workspaceId: input.workspace_id,
@@ -11290,31 +11397,42 @@ export class TongsCommitService {
         model: "gpt-image-1",
         trigger: AI_USAGE_TRIGGER.SYSTEM,
         actionId: imageMapActionId,
+        modality: "image",
         execute: async () => {
           const image = await this.imageProvider!.generateImage({
             prompt: retryPrompt,
             aspect,
             size,
           });
-          const totalTokens = estimateImageTokenSpend(retryPrompt, image.tokensUsed);
-          const inputTokens = Math.min(totalTokens, Math.max(1, Math.ceil(retryPrompt.length / 4)));
-          const outputTokens = Math.max(0, totalTokens - inputTokens);
+          const costUsd = estimateImageProviderCostUsd(size, aspect);
+          await this.recordGeneratedImage({
+            userId: auth.userId, actionId: imageMapActionId, batchId: retryBatchId,
+            outputOrdinal: retryOutputOrdinal, providerRequestId: image.providerRequestId,
+            provider: image.provider, model: "gpt-image-1", assetId: retryAssetId, costUsd,
+          });
           return {
             result: image,
-            inputTokens,
-            outputTokens,
-            totalTokens,
+            inputTokens: 0, outputTokens: 0, totalTokens: 0,
+            estimatedCostUsd: costUsd, actualCostUsd: costUsd, billableTokens: 0,
             providerRequestId: image.providerRequestId,
           };
         },
       });
+      } catch (error) {
+        await this.completeGeneration(auth.userId, imageMapActionId).catch(() => undefined);
+        throw error;
+      }
       const retryImage = retryCall.result;
       generatedOutputs[1] = {
         ...generatedOutputs[1],
         prompt: retryPrompt,
         image: retryImage,
+        batchId: retryBatchId,
+        outputOrdinal: retryOutputOrdinal,
+        assetId: retryAssetId,
       };
       if (generatedOutputs[0]?.image.bytesBase64 === generatedOutputs[1]?.image.bytesBase64) {
+        await this.completeGeneration(auth.userId, imageMapActionId);
         throw new HttpError(502, "image_map_candidates_too_similar", "Generated candidates were not distinct enough to offer a real editorial choice");
       }
     }
@@ -11326,12 +11444,11 @@ export class TongsCommitService {
     };
     const generatedAssetRows: AssetRow[] = [];
     const generatedAssets: ImageMapCandidateAssetSummary[] = [];
-    let totalSpent = 0;
 
     try {
       for (const output of generatedOutputs) {
         const requestId = randomUuid();
-        const assetId = randomUuid();
+        const assetId = output.assetId;
         const assetPath = buildImageMapCandidateAssetPath({
           workpieceId,
           entryId: entry.id,
@@ -11387,8 +11504,6 @@ export class TongsCommitService {
           supersedes_asset_id: null,
         }, "Failed to register generated image-map candidate asset");
         generatedAssetRows.push(assetRow);
-        totalSpent += estimateImageTokenSpend(output.prompt, output.image.tokensUsed);
-
         const summary = normalizeImageMapCandidateAssetSummary(assetRow);
         if (!summary) {
           throw new HttpError(502, "invalid_generated_asset", "Generated image-map candidate asset could not be normalized");
@@ -11424,31 +11539,26 @@ export class TongsCommitService {
         "Failed to supersede prior image map candidate assets",
       );
 
-      let creditsWarning: string | undefined;
-      let tokenBalance: number | null | undefined;
-      if (lane === "forge") {
-        const deltaResult = await this.applyAiTokenDelta({
-          userId: auth.userId,
-          spent: totalSpent,
-          requestId: randomUuid(),
-          providerRequestId: generatedAssets[0]?.provider_request_id ?? null,
-          reason: "hearth:image_map_candidate_generate",
-        });
-        if ("warning" in deltaResult) {
-          creditsWarning = deltaResult.warning;
-        } else {
-          tokenBalance = deltaResult.tokenBalance;
-        }
-      }
+      await this.completeGeneration(auth.userId, imageMapActionId);
+      const generationAllowances = await this.readGenerationAllowances(userAccessToken);
 
       return {
         image_map: saved.image_map,
         asset: saved.asset,
         generated_assets: generatedAssets,
-        ...(creditsWarning ? { credits_warning: creditsWarning } : {}),
-        ...(typeof tokenBalance === "number" ? { token_balance: tokenBalance } : {}),
+        ...(generationAllowances ? { generation_allowances: generationAllowances } : {}),
       };
     } catch (error) {
+      const persistedAssetIds = new Set(generatedAssetRows.map((asset) => asset.id));
+      const failedOutputs = generatedAssetRows.length < generatedOutputs.length
+        ? generatedOutputs.filter((output) => !persistedAssetIds.has(output.assetId))
+        : generatedOutputs;
+      await this.compensateGeneratedImages(
+        auth.userId,
+        imageMapActionId,
+        failedOutputs.map((output) => ({ batchId: output.batchId, outputOrdinal: output.outputOrdinal })),
+      ).catch(() => undefined);
+      await this.completeGeneration(auth.userId, imageMapActionId).catch(() => undefined);
       try {
         await this.supersedeAssets(
           generatedAssetRows.map((asset) => asset.id),
@@ -12064,7 +12174,7 @@ export function createTongsCommitService(options: TongsCommitApiOptions): TongsC
     },
   });
 
-  const openAiImageApiKey = options.openAiImageApiKey?.trim() || options.openAiApiKey?.trim();
+  const openAiImageApiKey = options.openAiImageApiKey?.trim();
   const imageProvider = openAiImageApiKey
     ? new OpenAiImageProvider(openAiImageApiKey, options.openAiImageModel?.trim() || "gpt-image-1")
     : null;
@@ -12075,6 +12185,15 @@ export function createTongsCommitService(options: TongsCommitApiOptions): TongsC
   });
 
   return new TongsCommitService(supabase, bucket, imageProvider, userClientFactory);
+}
+
+function estimateImageProviderCostUsd(size: string | null | undefined, aspect?: string | null): number {
+  const normalized = size?.trim().toLowerCase() ?? "";
+  const normalizedAspect = aspect?.trim().toLowerCase() ?? "";
+  return normalized === "1536x1024" || normalized === "1024x1536"
+    || normalizedAspect === "16:9" || normalizedAspect === "9:16"
+    ? 0.25
+    : 0.167;
 }
 
 export function createTongsCommitApiHandlerWithService(

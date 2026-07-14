@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { TongsCommitApiOptions } from "../../../../packages/tongs/src/workpiece-commit-api.ts";
+import { resolveOpenAiImageApiKey } from "../image-runtime-config.ts";
 
 const ENV_FILES = [".env.local", ".env"];
 const ENV_ROOT_CANDIDATES = [
@@ -83,7 +84,7 @@ export function resolveTongsRuntimeConfig(): ResolvedTongsRuntimeConfig {
       supabaseServiceRoleKey: supabaseServiceRoleKey!,
       apiToken,
       bucket: readEnv("TONGS_WORKPIECE_BUCKET"),
-      openAiImageApiKey: readEnv("OPENAI_IMAGE_API_KEY") || readEnv("OPENAI_API_KEY"),
+      openAiImageApiKey: resolveOpenAiImageApiKey() ?? undefined,
       openAiImageModel: readEnv("HEARTH_IMAGE_MODEL") || readEnv("HEARTH_THUMBNAIL_MODEL"),
     },
     missing,
