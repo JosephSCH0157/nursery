@@ -495,6 +495,41 @@ test("createHearthAiHandler recovers production arrays that are outside assistan
   }
 });
 
+test("createHearthAiHandler repairs one malformed production response before billing success", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key", configuredBillingMode: "byo" }));
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    const assistantText = calls === 1
+      ? "I generated some ideas, but they are not in the requested structure."
+      : "SEO_TITLES:\nSAFE: First repaired title\nSPICY: Second repaired title\nBALANCED_1: Third repaired title\nBALANCED_2: Fourth repaired title\nBALANCED_3: Fifth repaired title";
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ assistantText, ops: [] }) } }],
+      usage: { prompt_tokens: 40, completion_tokens: 12, total_tokens: 52 },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Generate Titles for approved Script Version 4." }],
+        episode_context: buildEpisodeContext(),
+        lane: "byo",
+        production_action: "seo",
+        production_script_version: 4,
+      }),
+    }));
+    const payload = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(calls, 2);
+    assert.match(payload.assistant_text, /SAFE: First repaired title/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("createHearthAiHandler shapes returned script blobs into Anvil output contract format", async () => {
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
   const originalFetch = globalThis.fetch;

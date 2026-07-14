@@ -4095,16 +4095,17 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const callOpenAi = async (
           currentModel: string,
           allowTemperatureOverride: boolean,
+          messageOverride: ChatMessage[] = completionMessages,
         ): Promise<Response> => {
           const payload = allowTemperatureOverride
             ? {
                 model: currentModel,
                 temperature: requestedTemperature,
-                messages: completionMessages,
+                messages: messageOverride,
               }
             : {
                 model: currentModel,
-                messages: completionMessages,
+                messages: messageOverride,
               };
           return runAIRequest({
             lane: effectiveLane,
@@ -4219,8 +4220,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           }
         }
 
-        const payload = (await upstream.json()) as unknown;
-        const rawReply = extractAssistantReply(payload);
+        let payload = (await upstream.json()) as unknown;
+        let rawReply = extractAssistantReply(payload);
         if (!rawReply) {
           await recordAiUsageEvent({
             userId,
@@ -4253,7 +4254,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           });
         }
 
-        const structured = normalizeStructuredReply(rawReply) ?? {
+        let structured = normalizeStructuredReply(rawReply) ?? {
           assistantText: rawReply,
           ops: [],
           scriptText: null,
@@ -4319,6 +4320,65 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             }
           }
           if (!productionValidation.ok) {
+            const repairInstruction = productionAction === "seo"
+              ? [
+                  "Your prior response could not be parsed. Return ONLY this exact five-line title block, with real titles replacing the angle-bracket values:",
+                  "SEO_TITLES:",
+                  "SAFE: <real title>",
+                  "SPICY: <real title>",
+                  "BALANCED_1: <real title>",
+                  "BALANCED_2: <real title>",
+                  "BALANCED_3: <real title>",
+                  "Do not return JSON, markdown, commentary, placeholders, or an explanation.",
+                ].join("\n")
+              : [
+                  "Your prior response could not be parsed. Return ONLY this exact tag block with 20 to 35 real comma-separated tags:",
+                  "TAGS_FULL:",
+                  "<real tag 1>, <real tag 2>, <real tag 3>, ...",
+                  "Do not return JSON, markdown, commentary, placeholders, or an explanation.",
+                ].join("\n");
+            const repairMessages: ChatMessage[] = [
+              ...completionMessages,
+              { role: "assistant", content: rawReply },
+              { role: "user", content: repairInstruction },
+            ];
+            let repairUpstream: Response | null = null;
+            try {
+              repairUpstream = await callOpenAi(model, usedTemperatureOverride, repairMessages);
+            } catch {
+              repairUpstream = null;
+            }
+            if (repairUpstream?.ok) {
+              const repairPayload = (await repairUpstream.json()) as unknown;
+              const repairRawReply = extractAssistantReply(repairPayload);
+              const repairStructured = normalizeStructuredReply(repairRawReply) ?? {
+                assistantText: repairRawReply,
+                ops: [],
+                scriptText: null,
+                tagAudit: null,
+              };
+              repairStructured.assistantText = sanitizeHearthUserFacingOutput(repairStructured.assistantText);
+              const repairedCanonical = canonicalizeHearthProductionArtifactOutput({
+                action: productionAction,
+                assistantText: repairStructured.assistantText,
+              }) ?? canonicalizeHearthProductionArtifactOutput({
+                action: productionAction,
+                assistantText: repairRawReply,
+              });
+              if (repairedCanonical) {
+                payload = repairPayload;
+                rawReply = repairRawReply;
+                structured = repairStructured;
+                structured.assistantText = repairedCanonical;
+                productionValidation = validateHearthProductionArtifactOutput({
+                  action: productionAction,
+                  assistantText: repairedCanonical,
+                });
+                upstream = repairUpstream;
+              }
+            }
+          }
+          if (!productionValidation.ok) {
             const rejectedTokens = extractTotalTokens(payload) ?? estimateTokenFallback(messages, rawReply);
             const rejectedAccounting = buildUsageAccounting({
               model,
@@ -4356,6 +4416,12 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               error: productionValidation.error,
               code: "invalid_production_output",
               billable_tokens: 0,
+              output_diagnostic: {
+                action: productionAction,
+                assistant_text_chars: structured.assistantText.length,
+                raw_reply_chars: rawReply.length,
+                assistant_text_preview: structured.assistantText.slice(0, 240),
+              },
               ...buildBillingSnapshot(lane),
               ...resolutionSnapshot,
             });
