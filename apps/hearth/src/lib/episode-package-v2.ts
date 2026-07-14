@@ -1263,7 +1263,8 @@ function normalizeImageMapEntryPatch(args: {
 
 function parseSectionBody(rawText: string, sectionHeader: string): string {
   const lines = rawText.split(/\r?\n/);
-  const headerRe = new RegExp(`^\\s*${sectionHeader}\\s*:?\\s*$`, "i");
+  const flexibleHeader = sectionHeader.replace(/_/g, "[\\s_-]+");
+  const headerRe = new RegExp(`^\\s*${flexibleHeader}\\s*:?\\s*$`, "i");
   const genericHeaderRe = /^\s*[A-Z0-9_ ]{3,}\s*:\s*$/;
   let collecting = false;
   const collected: string[] = [];
@@ -1291,9 +1292,12 @@ export function parseSeoTitlesFromText(rawText: string): EpisodeSeoTitle[] {
     .filter(Boolean);
   const titles: EpisodeSeoTitle[] = [];
   for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i]?.replace(/^(?:[-*]|\d+[.)])\s*/, "") ?? "";
-    const labeled = line.match(/^\**([A-Z0-9_]+)\s*([:|-])\**\s*(.+)$/i);
-    const text = labeled?.[3]?.trim() ?? line.trim();
+    const line = (lines[i]?.replace(/^(?:[-*]|\d+[.)])\s*/, "") ?? "")
+      .replace(/\*\*/g, "")
+      .trim();
+    if (!line || /^```/.test(line)) continue;
+    const labeled = line.match(/^([A-Z0-9_]+)\s*(?::|\||-|—|–)\s*(.+)$/i);
+    const text = labeled?.[2]?.trim() ?? line.trim();
     if (!text) continue;
     const label = labeled?.[1]?.trim() ?? SEO_LABELS[i] ?? `V${i + 1}`;
     titles.push({
@@ -1329,6 +1333,8 @@ export function parseTagsFromText(rawText: string): string[] {
   if (full) return dedupeTags(parseCsvTags(full.replace(/^(?:[-*]|\d+[.)])\s*/gm, "")));
   const top10 = parseSectionBody(rawText, "TAGS_TOP10");
   if (top10) return dedupeTags(parseCsvTags(top10.replace(/^(?:[-*]|\d+[.)])\s*/gm, "")));
+  const generic = parseSectionBody(rawText, "TAGS");
+  if (generic) return dedupeTags(parseCsvTags(generic.replace(/^(?:[-*]|\d+[.)])\s*/gm, "")));
   return [];
 }
 

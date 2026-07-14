@@ -56,29 +56,35 @@ export function buildProductionPrompt(args: {
   if (args.action === "seo") {
     return [
       ...header,
-      "Return plain text with exact sections:",
+      "Return plain text only in this exact parseable shape. Replace every <...> value; do not add markdown, fences, or commentary:",
       "SEO_TITLES:",
-      "- 5 options total",
-      "- include labels: SAFE, SPICY, BALANCED_1, BALANCED_2, BALANCED_3",
-      `- every title must preserve a thumbnail-safe hook of ${HEARTH_THUMBNAIL_TITLE_CONTRACT.preferred_max_words} words or fewer`,
+      "SAFE: <title>",
+      "SPICY: <title>",
+      "BALANCED_1: <title>",
+      "BALANCED_2: <title>",
+      "BALANCED_3: <title>",
       "",
       "DESCRIPTION:",
-      "- one YouTube-ready description paragraph block",
+      "<one YouTube-ready description paragraph>",
       "",
       "PINNED_COMMENT_IDEAS:",
-      "- 3 concise options",
+      "- <concise option 1>",
+      "- <concise option 2>",
+      "- <concise option 3>",
+      "",
+      `Each title must preserve a thumbnail-safe hook of ${HEARTH_THUMBNAIL_TITLE_CONTRACT.preferred_max_words} words or fewer.`,
     ].join("\n");
   }
 
   if (args.action === "tags") {
     return [
       ...header,
-      "Return plain text with exact sections:",
+      "Return plain text only in this exact parseable shape. Replace every <...> value; do not add markdown, fences, or commentary:",
       "TAGS_TOP10:",
-      "- comma-separated (10 items)",
+      "<tag 1>, <tag 2>, <tag 3>, <tag 4>, <tag 5>, <tag 6>, <tag 7>, <tag 8>, <tag 9>, <tag 10>",
       "",
       "TAGS_FULL:",
-      "- comma-separated (20-35 items)",
+      "<20 to 35 comma-separated tags>",
     ].join("\n");
   }
 

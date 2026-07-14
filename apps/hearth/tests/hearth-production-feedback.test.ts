@@ -32,8 +32,8 @@ test("hearthProductionFeedback: markdown output parses and placeholders cannot c
     action: "seo",
     assistantText: [
       "## **SEO_TITLES:**",
-      "1. **SAFE:** A Real First Title",
-      "2. **SPICY:** A Real Second Title",
+      "1. **SAFE**: A Real First Title",
+      "2. **SPICY** — A Real Second Title",
       "3. **BALANCED_1:** A Real Third Title",
       "",
       "**DESCRIPTION:**",
