@@ -181,7 +181,6 @@ const RISK_NUDGE_RE = /\b(risk|risky|legal|defamation|liability|compliance|sensi
 const RECORD_ANYWAY_RE = /\b(record anyway|record now anyway|ok to record anyway|okay to record anyway|go ahead and record)\b/i;
 const CDC_REQUEST_RE = /\b(cdc|contextual data composite|chart|graph|plot|dataset|bar chart|line chart|pie chart)\b/i;
 const RESEARCH_INTENT_RE = /\b(browse|look up|lookup|find(?: me)?|search|research|retrieval|web research|live research|live web research|news|reports?|reporting|examples?|case studies?|incidents?|breach(?:es)?|source|sources|citations?|evidence)\b/i;
-const GENERIC_EPISODE_SOURCE_RE = /\b(source|sources|citation|citations|cite|cites|evidence|receipts)\b[\s\S]{0,80}\b(this episode|the episode|episode|show|script|draft)\b|\b(this episode|the episode|episode|show|script|draft)\b[\s\S]{0,80}\b(source|sources|citation|citations|cite|cites|evidence|receipts)\b/i;
 const URL_RE = /\bhttps?:\/\/[^\s<>"'`]+/gi;
 const CROSS_PROJECT_REFERENCE_RE = /\b(use|pull in|bring in|remember|recall|like|from)\b[\s\S]{0,120}\b(script|episode|project|conversation|workspace|last week|other chat|that)\b/i;
 const OPINION_DISCUSSION_RE = /\b(my interpretation is|i think this means|i think\b|what do you think|am i reading this right|does this argument work|does this framing work|help me pressure[- ]?test|pressure[- ]?test this|i disagree|here is my opinion|my opinion is)\b/i;
@@ -551,16 +550,50 @@ function stripResearchContextMarkup(input: string): string {
     .replace(URL_RE, " "));
 }
 
-function buildEpisodeContextResearchQuery(args: {
+const RESEARCH_SCAFFOLDING_PATTERNS: RegExp[] = [
+  /\bdraft intro goes here\.?\b/gi,
+  /\buntitled(?: episode| script| draft)?\b/gi,
+  /\b(?:start|add|write|enter) (?:your |the )?(?:intro|introduction|script|draft|section|content) (?:here|text here)\.?\b/gi,
+  /\bempty (?:intro|section|script|draft)\b/gi,
+  /\b(?:intro|introduction|section) placeholder\b/gi,
+];
+
+function stripResearchScaffolding(input: string): string {
+  let cleaned = stripResearchContextMarkup(input);
+  for (const pattern of RESEARCH_SCAFFOLDING_PATTERNS) {
+    cleaned = cleaned.replace(pattern, " ");
+  }
+  return condenseWhitespace(cleaned);
+}
+
+function selectResearchSourceFamilies(topic: string): string[] {
+  const normalized = topic.toLowerCase();
+  const isFloridaTopic = /\bflorida\b/.test(normalized);
+  const isCitrusOrAgricultureTopic = /\b(citrus|orange|grove|greening|huanglongbing|agriculture)\b/.test(normalized);
+  if (isFloridaTopic && isCitrusOrAgricultureTopic) {
+    return ["FDACS", "USDA NASS", "UF IFAS"];
+  }
+  if (isCitrusOrAgricultureTopic) {
+    return ["USDA NASS", "UF IFAS"];
+  }
+  if (/\b(congress|congressional|federal legislation|legislative|oversight|appropriation|accountability|lobbying disclosure|gao|crs)\b/.test(normalized)) {
+    return ["CRS", "GAO"];
+  }
+  if (/\b(health|disease|epidemic|public health|mortality|vaccine)\b/.test(normalized)) {
+    return ["CDC", "NIH"];
+  }
+  return [];
+}
+
+export function buildEpisodeContextResearchQuery(args: {
   requestText: string;
   episodeContext: EpisodeContext;
 }): string | null {
   const requestText = stripHearthInternalRequestInstructions(args.requestText);
-  if (!GENERIC_EPISODE_SOURCE_RE.test(requestText)) return null;
 
   const titleVariants = args.episodeContext.titleVariants ?? { A: "", B: "", C: "" };
+  const cleanTitle = stripResearchScaffolding(args.episodeContext.title);
   const contextParts = [
-    args.episodeContext.title,
     titleVariants.A,
     titleVariants.B,
     titleVariants.C,
@@ -568,13 +601,22 @@ function buildEpisodeContextResearchQuery(args: {
     args.episodeContext.body,
     ...args.episodeContext.sparks.map((spark) => spark.text),
   ];
-  const contextText = stripResearchContextMarkup(contextParts.filter(Boolean).join(" "));
-  if (!contextText || /^test episode$/i.test(contextText)) return null;
+  const contextText = stripResearchScaffolding(contextParts.filter(Boolean).join(" "));
+  const topicContext = condenseWhitespace(`${cleanTitle} ${contextText}`);
+  if (!topicContext || /^test episode$/i.test(topicContext)) return null;
 
-  const contextSnippet = contextText.length > 360
-    ? `${contextText.slice(0, 360).replace(/\s+\S*$/, "")}`
-    : contextText;
-  return condenseWhitespace(`${contextSnippet} primary sources official reports CRS GAO data`);
+  const meaningfulContext = contextText;
+  const contextSnippet = meaningfulContext.length > 360
+    ? `${meaningfulContext.slice(0, 360).replace(/\s+\S*$/, "")}`
+    : meaningfulContext;
+  const sourceFamilies = selectResearchSourceFamilies(`${topicContext} ${requestText}`);
+  return condenseWhitespace([
+    cleanTitle,
+    requestText,
+    contextSnippet,
+    sourceFamilies.join(" "),
+    "primary sources official reports data",
+  ].filter(Boolean).join(" "));
 }
 
 function buildLinkOnlyResearchResult(args: {
@@ -1331,6 +1373,9 @@ function buildSystemPrompt(
     "- Be opinionated when useful: clearly call out weak, muddy, repetitive, or off-tone writing.",
     "- Preserve user agency: suggest strongly, but keep ownership with the user.",
     "- Preserve user voice: illuminate and sharpen, do not hijack or overwrite their intent.",
+    "- Editorial honesty: never present a fictional, composite, or representative scene as the narrator's literal personal memory.",
+    "- Use first-person memory framing such as 'I remember' only when the user explicitly supplied that lived memory.",
+    "- For constructed scenes, use transparent documentary framing such as 'Picture a grove manager...', 'For growers, greening looks like...', or 'A grower walking those rows might see...'.",
     "- Never pressure the user or imply they must follow your preference.",
     "- Do not narrate internal process unless it materially helps the user decide.",
     "- Ask fewer follow-up questions. Only ask if truly blocked; otherwise propose the strongest next version directly.",
@@ -1872,6 +1917,10 @@ function fallbackResearchBodyFromResult(result: HearthResearchResult): string {
 
 function sanitizeResearchReplyBody(rawBody: string, result: HearthResearchResult): string {
   const lines = rawBody
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&(?:nbsp|amp|quot|#39);/gi, " ")
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
@@ -1918,11 +1967,11 @@ function buildResearchOutcomeLead(args: {
     .slice(0, 2);
 
   if (args.result.runtimeStatus === "no_results") {
-    return `Research outcome: No strong retrieval results were found for "${query}".`;
+    return "Research outcome: No strong retrieval results were found in this pass.";
   }
 
   if (args.result.runtimeStatus === "error" || args.result.mode === "knowledge_first") {
-    return `Research outcome: Live retrieval was unavailable in this run, so this answer is a knowledge-first fallback for "${query}".`;
+    return "Research outcome: Live retrieval was unavailable in this run, so this answer is a knowledge-first fallback.";
   }
 
   if (args.result.mode === "partial_retrieval" || args.result.runtimeStatus === "partial") {
@@ -1932,7 +1981,10 @@ function buildResearchOutcomeLead(args: {
     const findingsLine = keyPoints.length
       ? `Recovered findings: ${keyPoints.join(" ")}`
       : "Recovered findings are limited in this pass.";
-    return `Research outcome: Retrieval was partial for "${query}". ${artifactLine} ${findingsLine}`;
+    const unsupportedLine = args.result.synthesis.uncertainties.length
+      ? `Coverage remains incomplete: ${args.result.synthesis.uncertainties.slice(0, 2).join(" ")}`
+      : "Coverage remains incomplete; unsupported claims still need verification.";
+    return `Research outcome: Retrieval was partial. ${artifactLine} ${findingsLine} ${unsupportedLine}`;
   }
 
   const artifactLine = topArtifacts.length
@@ -1949,7 +2001,7 @@ function buildResearchOutcomeLead(args: {
     : `Research outcome: Retrieval found sources for "${query}". ${artifactLine} ${findingsLine}`;
 }
 
-function enforceResearchOutcomeReply(args: {
+export function enforceResearchOutcomeReply(args: {
   assistantText: string;
   request: HearthResearchRequest;
   result: HearthResearchResult;
@@ -1990,6 +2042,20 @@ function enforceCrossProjectScopeReply(args: {
   const normalizedBody = body.toLowerCase();
   if (normalizedBody.startsWith(normalizedLead)) return body;
   return `${lead}\n\n${body}`;
+}
+
+const REPRESENTATIVE_SCENE_REQUEST_RE = /\b(representative|composite|fictional|illustrative|constructed)\b[\s\S]{0,100}\b(scene|moment|grower|manager|worker)|\b(?:grower|manager|worker) scene\b/i;
+const SUPPLIED_PERSONAL_MEMORY_RE = /\b(i remember|i recall|when i was|i saw|i watched|i experienced|i used to|this happened to me|my memory)\b/i;
+
+export function enforceHearthEditorialHonesty(args: {
+  assistantText: string;
+  requestText: string;
+}): string {
+  if (!REPRESENTATIVE_SCENE_REQUEST_RE.test(args.requestText)) return args.assistantText;
+  if (SUPPLIED_PERSONAL_MEMORY_RE.test(args.requestText)) return args.assistantText;
+  return args.assistantText
+    .replace(/\bI remember(?:ed)?\b/gi, "Picture the scene:")
+    .replace(/\bframe (?:it|this) as (?:a )?(?:personal )?memory\b/gi, "frame it as a representative scene");
 }
 
 const FRAMING_PACK_INTERNAL_MARKERS: RegExp[] = [
@@ -3983,6 +4049,11 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         if (framingPackRequested) {
           structured.assistantText = sanitizeFramingPackReply(structured.assistantText);
         }
+
+        structured.assistantText = enforceHearthEditorialHonesty({
+          assistantText: structured.assistantText,
+          requestText: researchIntentText || requestText,
+        });
 
         structured.assistantText = sanitizeHearthUserFacingOutput(structured.assistantText);
 

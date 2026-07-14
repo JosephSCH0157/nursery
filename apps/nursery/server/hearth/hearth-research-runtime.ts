@@ -85,6 +85,50 @@ function compactWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
+function canonicalizeResearchUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    for (const key of Array.from(url.searchParams.keys())) {
+      if (/^(?:utm_|fbclid|gclid|ref$|source$)/i.test(key)) url.searchParams.delete(key);
+    }
+    url.hostname = url.hostname.toLowerCase();
+    url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+    return url.toString().replace(/\?$/, "").toLowerCase();
+  } catch {
+    return compactWhitespace(value).toLowerCase();
+  }
+}
+
+function normalizeSourceIdentity(value: string | null | undefined): string {
+  const normalized = compactWhitespace(String(value ?? ""))
+    .toLowerCase()
+    .replace(/&amp;/g, "and")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  if (/\bflorida department of agriculture(?: and consumer services)?\b|\bfdacs\b/.test(normalized)) return "fdacs";
+  if (/\bunited states department of agriculture\b|\busda\b/.test(normalized)) return "usda";
+  if (/\buniversity of florida\b.*\bifas\b|\buf ifas\b/.test(normalized)) return "uf-ifas";
+  return normalized;
+}
+
+export function dedupeHearthResearchSources(sources: HearthResearchSource[]): HearthResearchSource[] {
+  const deduped: HearthResearchSource[] = [];
+  const seenUrls = new Set<string>();
+  const seenIdentities = new Set<string>();
+  for (const source of sources) {
+    const urlKey = canonicalizeResearchUrl(source.canonicalUrl || source.resolvedUrl || source.url);
+    const identity = normalizeSourceIdentity(source.publisher || source.title);
+    const domain = String(source.domain || parseDomain(source.url) || "").toLowerCase();
+    const identityKey = identity ? `${domain}|${identity}` : "";
+    if ((urlKey && seenUrls.has(urlKey)) || (identityKey && seenIdentities.has(identityKey))) continue;
+    if (urlKey) seenUrls.add(urlKey);
+    if (identityKey) seenIdentities.add(identityKey);
+    deduped.push({ ...source, sourceId: `retrieval-${deduped.length + 1}` });
+  }
+  return deduped;
+}
+
 function toIsoDate(value: string | null): string | null {
   if (!value) return null;
   const parsed = Date.parse(value);
@@ -663,23 +707,33 @@ async function searchWithBrave(args: {
     if (!urlValue) continue;
     const domain = parseDomain(urlValue);
     normalized.push({
-      title: readText(item.title),
+      title: readText(item.title) ? stripHtmlToText(readText(item.title) as string) : null,
       url: urlValue,
       domain,
-      snippet: readText(item.description),
+      snippet: readText(item.description) ? truncate(stripHtmlToText(readText(item.description) as string), MAX_SNIPPET_CHARS) : null,
       publishedAt: normalizePublishedAt(readText(item.page_age) || readText(item.age)),
     });
   }
   const deduped: BraveSearchResult[] = [];
   const seen = new Set<string>();
   for (const result of normalized) {
-    const key = result.url.toLowerCase();
+    const key = canonicalizeResearchUrl(result.url);
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(result);
     if (deduped.length >= args.request.maxSources) break;
   }
   return deduped;
+}
+
+function buildDeterministicResearchRefinement(query: string): string | null {
+  const families = query.match(/\b(?:FDACS|USDA|NASS|UF IFAS|CRS|GAO|CDC|NIH)\b/gi) ?? [];
+  if (!families.length) return null;
+  const topic = compactWhitespace(query
+    .replace(/\bprimary sources official reports data\b/gi, " ")
+    .replace(/\b(?:find|strong|sources?|citations?|cite|for this episode|the episode)\b/gi, " "));
+  const refined = compactWhitespace(`${topic} ${Array.from(new Set(families.map((value) => value.toUpperCase()))).join(" ")} official data report`);
+  return refined && refined.toLowerCase() !== query.trim().toLowerCase() ? refined : null;
 }
 
 async function fetchReadableSource(args: {
@@ -1164,9 +1218,64 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
         });
       }
 
-      const extractionFailureCount = sources.length - extractionSuccessCount;
+      if (extractionSuccessCount < sources.length && !args.signal?.aborted) {
+        const refinedQuery = buildDeterministicResearchRefinement(args.request.query);
+        if (refinedQuery) {
+          try {
+            const refinementCandidates = await searchWithBrave({
+              apiKey: braveApiKey,
+              request: { ...args.request, query: refinedQuery, maxSources: 2 },
+              signal: args.signal,
+            });
+            const existingUrls = new Set(sources.map((source) => canonicalizeResearchUrl(source.url)));
+            for (const candidate of refinementCandidates) {
+              if (existingUrls.has(canonicalizeResearchUrl(candidate.url))) continue;
+              const retrievedAt = new Date().toISOString();
+              const refinedOutcome = await fetchReadableSource({ candidate, signal: args.signal });
+              const bestUrl = refinedOutcome.canonicalUrl || refinedOutcome.resolvedUrl || candidate.url;
+              sources.push({
+                sourceId: `refinement-${sources.length + 1}`,
+                title: refinedOutcome.title || candidate.title,
+                sourceType: refinedOutcome.sourceType,
+                ...(refinedOutcome.ingestMode ? { ingestMode: refinedOutcome.ingestMode } : {}),
+                publisher: refinedOutcome.publisher,
+                author: refinedOutcome.author,
+                url: bestUrl,
+                originalUrl: candidate.url,
+                resolvedUrl: refinedOutcome.resolvedUrl,
+                canonicalUrl: refinedOutcome.canonicalUrl,
+                domain: parseDomain(bestUrl) || candidate.domain,
+                publishedAt: refinedOutcome.publishedAt || normalizePublishedAt(candidate.publishedAt),
+                updatedAt: refinedOutcome.updatedAt,
+                retrievedAt,
+                warnings: refinedOutcome.warnings.length ? refinedOutcome.warnings : null,
+                transcriptAvailable: refinedOutcome.transcriptAvailable,
+                snippet: candidate.snippet ? truncate(candidate.snippet, MAX_SNIPPET_CHARS) : null,
+                extractedText: refinedOutcome.extractedText,
+                transcript: refinedOutcome.transcript,
+                transcriptSegments: refinedOutcome.transcriptSegments,
+                transcriptMeta: refinedOutcome.transcriptMeta,
+                attributedQuotes: refinedOutcome.attributedQuotes,
+                extractionStatus: refinedOutcome.extractionStatus,
+                extractionError: refinedOutcome.extractionError,
+              });
+              if (refinedOutcome.extractionStatus === "extracted") break;
+            }
+          } catch {
+            // The original partial result remains useful when deterministic refinement fails.
+          }
+        }
+      }
+
+      const prioritizedSources = [
+        ...sources.filter((source) => source.extractionStatus === "extracted"),
+        ...sources.filter((source) => source.extractionStatus !== "extracted"),
+      ];
+      const uniqueSources = dedupeHearthResearchSources(prioritizedSources).slice(0, args.request.maxSources);
+      extractionSuccessCount = uniqueSources.filter((source) => source.extractionStatus === "extracted").length;
+      const extractionFailureCount = uniqueSources.length - extractionSuccessCount;
       const outcome = deriveRetrievalOutcome({
-        sourceCount: sources.length,
+        sourceCount: uniqueSources.length,
         extractionSuccessCount,
         extractionFailureCount,
       });
@@ -1174,10 +1283,10 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
       return {
         mode: outcome.mode,
         runtimeStatus: outcome.runtimeStatus,
-        sources,
+        sources: uniqueSources,
         synthesis: buildSynthesis({
           request: args.request,
-          sources,
+          sources: uniqueSources,
           extractionSuccessCount,
           extractionFailureCount,
         }),

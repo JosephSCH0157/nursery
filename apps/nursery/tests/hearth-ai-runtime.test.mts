@@ -430,14 +430,9 @@ test("createHearthAiHandler shapes returned script blobs into Anvil output contr
     assert.equal(validateScriptTags(scriptText).ok, true);
     assert.match(scriptText, /^\[s1\]$/m);
     assert.match(scriptText, /^\[\/s1\]$/m);
-    assert.ok(
-      scriptText.split(/\r?\n/).some((line) => line.trim() === ""),
-      `recording shape omitted intentional spacing: ${JSON.stringify(scriptText)}`,
-    );
-    assert.ok(
-      scriptText.split(/\r?\n/).every((line) => line.length <= 90),
-      `recording shape exceeded the 90-character test ceiling: ${JSON.stringify(scriptText)}`,
-    );
+    const spokenLines = scriptText.split(/\r?\n/).filter((line) => line.trim() && !/^\[.*\]$/.test(line.trim()));
+    assert.equal(spokenLines.length, 2, `recording shape should split at semantic sentence boundaries: ${JSON.stringify(scriptText)}`);
+    assert.ok(spokenLines.every((line) => /[.!?]["'”’]?$/.test(line.trim())));
     assertMaxSpeakerSpokenLines(scriptText, 3);
   } finally {
     globalThis.fetch = originalFetch;
