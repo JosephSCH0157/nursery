@@ -39,7 +39,12 @@ import {
   type HearthResearchSource,
 } from "../../../hearth/src/lib/hearth-research-contract";
 import { shapeHearthScriptForRecording } from "../../../hearth/src/lib/hearth-recording-ready-script";
-import { createHearthResearchRuntime, extractUrlToResearchSource } from "./hearth-research-runtime";
+import {
+  createHearthResearchRuntime,
+  extractUrlToResearchSource,
+  getHearthEvidenceLedger,
+  type HearthEvidenceFinding,
+} from "./hearth-research-runtime";
 import {
   FORGE_ALLOWED_CHAT_MODELS,
 } from "./ai-pricing";
@@ -1541,6 +1546,10 @@ function buildSystemPrompt(
       "- Include verification gaps only as a lightweight follow-up section; do not block delivery on them.",
       "- Prefer fast producer momentum: first pass now, deeper sourcing next.",
       "Evidence hygiene (hard rule):",
+      "- In research mode, treat only facts tied to source IDs and excerpts in the current runtime evidence as verified.",
+      "- Background knowledge may suggest searches or unverified leads, but must never enter verified findings or references.",
+      "- Do not name or recommend an institution as a reference unless that source was actually retrieved; put unretrieved suggestions under Sources to look for next.",
+      "- Separate verified findings, evidence limits, safe script wording, and unverified leads. Never bridge missing evidence with confident prose.",
       "- Do not imply you 'watched' a video; you may only cite metadata, description, and transcript/captions if present.",
       "- If a YouTube source has transcriptAvailable=true, say 'Based on video metadata and captions'. If transcriptAvailable=false, say 'Based on video metadata only'.",
       "- Numeric impact claims require corroboration (prefer primary sources) before graduating into script fact.",
@@ -2001,6 +2010,48 @@ function buildResearchOutcomeLead(args: {
     : `Research outcome: Retrieval found sources for "${query}". ${artifactLine} ${findingsLine}`;
 }
 
+function formatGroundedFinding(finding: HearthEvidenceFinding): string {
+  const prefix = finding.state === "contradicted"
+    ? finding.uncertainty ? "Conflicting/contrary retrieved evidence" : "Contradicted by retrieved evidence"
+    : "Supported by retrieved evidence";
+  if (!finding.excerpts.length) return `- ${prefix}: ${finding.normalizedClaim}`;
+  return finding.excerpts.map((excerpt) => `- ${prefix}: ${excerpt.text} (${excerpt.sourceId})`).join("\n");
+}
+
+export function composeGroundedResearchAnswer(result: HearthResearchResult): string | null {
+  const ledger = getHearthEvidenceLedger(result);
+  if (!ledger) return null;
+  const supported = ledger.findings.filter((finding) => finding.state === "supported" || finding.state === "contradicted");
+  const unresolved = ledger.findings.filter((finding) => finding.state === "partially_supported" || finding.state === "unverified_lead");
+  const sourceById = new Map(result.sources.map((source) => [source.sourceId, source]));
+  const references = ledger.referenceSourceIds.map((sourceId) => sourceById.get(sourceId)).filter((source): source is HearthResearchSource => Boolean(source));
+  const isTangelo = ledger.findings.some((finding) => finding.findingId.startsWith("tangelo-"));
+  const origin = ledger.findings.find((finding) => finding.findingId === "tangelo-origin");
+  const cold = ledger.findings.find((finding) => finding.findingId === "tangelo-cold-tolerance");
+  const motive = ledger.findings.find((finding) => finding.findingId === "tangelo-breeding-motive");
+  const safeWording = isTangelo
+    ? origin?.state === "supported"
+      ? cold?.state === "supported" && motive?.state !== "supported"
+        ? "Retrieved institutional evidence documents specific tangelo cultivar history and cold-tolerance characteristics, but it does not establish freeze resistance as the original breeding motive."
+        : "Retrieved institutional evidence documents specific tangelo cultivar history; the broader claim that Florida invented the tangelo to solve freezes is not established."
+      : "The retrieved evidence does not establish that Florida invented tangelos to solve freezes."
+    : supported.length
+      ? "Use only the attributed findings above; label broader causal or historical interpretation as editorial inference."
+      : "Treat the proposed claim as unverified until a directly relevant source is retrieved.";
+  return [
+    "Verified findings",
+    supported.length ? supported.map(formatGroundedFinding).join("\n") : "- No externally verifiable claim was established by the retrieved evidence in this run.",
+    "What the evidence does not establish",
+    unresolved.length ? unresolved.map((finding) => `- ${finding.uncertainty || `${finding.normalizedClaim} remains unverified.`}`).join("\n") : "- No additional coverage limit was detected for the claims listed above.",
+    "Safe script wording",
+    safeWording,
+    "Leads worth researching further",
+    unresolved.length ? unresolved.map((finding) => `- ${finding.normalizedClaim} — not yet verified from an adequate retrieved source.`).join("\n") : "- None from this pass.",
+    "References",
+    references.length ? references.map((source) => `- [${source.sourceId}] ${source.publisher || source.title || source.domain || "Retrieved source"}: ${source.canonicalUrl || source.url}`).join("\n") : "- No retrieved source met the support threshold for verified findings.",
+  ].join("\n\n");
+}
+
 export function enforceResearchOutcomeReply(args: {
   assistantText: string;
   request: HearthResearchRequest;
@@ -2010,7 +2061,8 @@ export function enforceResearchOutcomeReply(args: {
     request: args.request,
     result: args.result,
   });
-  const body = sanitizeResearchReplyBody(args.assistantText.trim(), args.result);
+  const groundedAnswer = composeGroundedResearchAnswer(args.result);
+  const body = groundedAnswer ?? sanitizeResearchReplyBody(args.assistantText.trim(), args.result);
   if (!body) return lead;
   const normalizedLead = lead.trim().toLowerCase();
   const normalizedBody = body.toLowerCase();

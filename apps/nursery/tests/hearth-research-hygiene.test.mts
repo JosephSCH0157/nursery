@@ -3,10 +3,15 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   buildEpisodeContextResearchQuery,
+  composeGroundedResearchAnswer,
   enforceHearthEditorialHonesty,
   enforceResearchOutcomeReply,
 } from "../server/hearth/create-hearth-ai-handler";
-import { dedupeHearthResearchSources } from "../server/hearth/hearth-research-runtime";
+import {
+  createHearthResearchRuntime,
+  dedupeHearthResearchSources,
+  getHearthEvidenceLedger,
+} from "../server/hearth/hearth-research-runtime";
 import type { EpisodeContext } from "../../hearth/src/lib/hearth-ai-ops";
 import type { HearthResearchResult, HearthResearchSource } from "../../hearth/src/lib/hearth-research-contract";
 
@@ -143,4 +148,115 @@ test("representative scenes cannot be presented as personal memories", () => {
 test("research dispatch keeps workspace and workpiece identity explicit", () => {
   const handlerSource = readFileSync(new URL("../server/hearth/create-hearth-ai-handler.ts", import.meta.url), "utf8");
   assert.match(handlerSource, /researchRuntime\.run\(\{[\s\S]*workspaceId:\s*episodeContext\.workspaceId,[\s\S]*workpieceId:\s*episodeContext\.episodeId/);
+});
+
+test("weak tangelo retrieval triggers one focused refinement and cannot become verified cultivar history", async () => {
+  const originalFetch = globalThis.fetch;
+  const queries: string[] = [];
+  globalThis.fetch = async (input) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.startsWith("https://api.search.brave.com/res/v1/web/search")) {
+      const query = new URL(url).searchParams.get("q") || "";
+      queries.push(query);
+      const refinement = queries.length === 2;
+      return new Response(JSON.stringify({ web: { results: [{
+        title: refinement ? "Florida Farm & Family Tangelo Notes" : "Visit Florida Citrus Facts",
+        url: refinement ? "https://farmflorida.example/tangelo" : "https://visitflorida.example/citrus",
+        description: refinement ? "Tangelos are popular citrus fruit." : "Tour Florida and enjoy citrus attractions.",
+      }] } }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response(`<html><body><main>${"Florida citrus tourism and tangelos are popular with visitors. ".repeat(12)}</main></body></html>`, { status: 200, headers: { "content-type": "text/html" } });
+  };
+  try {
+    const runtime = createHearthResearchRuntime({ braveApiKey: "test" });
+    const result = await runtime.run({
+      request: { query: "Florida invented the tangelo to solve freezes because tangelos were weather resilient and similar to oranges.", intent: "background", recencyPreference: "none", maxSources: 6, requireDates: false, requireFullExtraction: false },
+      workspaceId: "workspace-a",
+      workpieceId: "workpiece-florida",
+    });
+    const ledger = getHearthEvidenceLedger(result);
+    const answer = composeGroundedResearchAnswer(result) || "";
+    const guardedReply = enforceResearchOutcomeReply({
+      assistantText: "Verified: USDA released Minneola in 1931 and UF/IFAS says freezes motivated the breeding program.",
+      request: { query: "Florida invented the tangelo to solve freezes.", intent: "background", recencyPreference: "none", maxSources: 6, requireDates: false, requireFullExtraction: false },
+      result,
+    });
+    assert.equal(queries.length, 2);
+    assert.match(queries[1] || "", /Orlando.*Minneola.*USDA.*GRIN.*breeding objective/i);
+    assert.equal(ledger?.workspaceId, "workspace-a");
+    assert.equal(ledger?.workpieceId, "workpiece-florida");
+    assert.match(ledger?.refinementIdentity || "", /refinement-1$/);
+    assert.ok(ledger?.findings.every((finding) => finding.state !== "supported"));
+    assert.match(answer, /does not establish that Florida invented tangelos to solve freezes/i);
+    assert.doesNotMatch(answer, /USDA:|UF\/IFAS:|release date/i);
+    assert.match(answer, /No retrieved source met the support threshold/i);
+    assert.doesNotMatch(guardedReply, /released Minneola in 1931|UF\/IFAS says/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("authoritative tangelo evidence supports origin and cold tolerance without inventing breeding motive", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.startsWith("https://api.search.brave.com/res/v1/web/search")) {
+      return new Response(JSON.stringify({ web: { results: [{
+        title: "USDA ARS Tangelo Cultivar Record",
+        url: "https://ars.usda.gov/citrus/tangelo-record",
+        description: "USDA cultivar record for Orlando tangelo.",
+      }] } }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response(`<html><body><main>${"USDA developed the Orlando tangelo hybrid and released the cultivar in 1931. The Orlando tangelo is described as cold tolerant. ".repeat(8)}</main></body></html>`, { status: 200, headers: { "content-type": "text/html" } });
+  };
+  try {
+    const result = await createHearthResearchRuntime({ braveApiKey: "test" }).run({
+      request: { query: "Fact-check Orlando tangelo cultivar origin, release date, cold tolerance, and whether freeze resistance was the breeding objective.", intent: "background", recencyPreference: "none", maxSources: 6, requireDates: true, requireFullExtraction: false },
+      workspaceId: "workspace-a", workpieceId: "workpiece-florida",
+    });
+    const ledger = getHearthEvidenceLedger(result);
+    const answer = composeGroundedResearchAnswer(result) || "";
+    assert.equal(ledger?.findings.find((finding) => finding.findingId === "tangelo-origin")?.state, "supported");
+    assert.equal(ledger?.findings.find((finding) => finding.findingId === "tangelo-cold-tolerance")?.state, "supported");
+    assert.notEqual(ledger?.findings.find((finding) => finding.findingId === "tangelo-breeding-motive")?.state, "supported");
+    assert.match(answer, /1931/);
+    assert.match(answer, /cold tolerant/i);
+    assert.match(answer, /does not establish freeze resistance as the original breeding motive/i);
+    assert.match(answer, /ars\.usda\.gov\/citrus\/tangelo-record/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("conflicting authoritative cultivar evidence is surfaced rather than silently resolved", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.startsWith("https://api.search.brave.com/res/v1/web/search")) {
+      return new Response(JSON.stringify({ web: { results: [
+        { title: "USDA Tangelo Record", url: "https://ars.usda.gov/record-a", description: "USDA developed the Orlando tangelo hybrid." },
+        { title: "University Cultivar Review", url: "https://citrus.example.edu/record-b", description: "The review says USDA did not develop the Orlando tangelo hybrid." },
+      ] } }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    const conflicting = url.includes("record-b");
+    const statement = conflicting
+      ? "The university review states USDA did not develop the Orlando tangelo hybrid."
+      : "The USDA record states USDA developed the Orlando tangelo hybrid and released it in 1931.";
+    return new Response(`<html><body><main>${`${statement} `.repeat(10)}</main></body></html>`, { status: 200, headers: { "content-type": "text/html" } });
+  };
+  try {
+    const result = await createHearthResearchRuntime({ braveApiKey: "test" }).run({
+      request: { query: "Who developed the Orlando tangelo?", intent: "background", recencyPreference: "none", maxSources: 6, requireDates: false, requireFullExtraction: false },
+      workspaceId: "workspace-a", workpieceId: "workpiece-florida",
+    });
+    const finding = getHearthEvidenceLedger(result)?.findings.find((entry) => entry.findingId === "tangelo-origin");
+    const answer = composeGroundedResearchAnswer(result) || "";
+    assert.equal(finding?.state, "contradicted");
+    assert.match(finding?.uncertainty || "", /conflicts/i);
+    assert.match(answer, /Conflicting\/contrary retrieved evidence/i);
+    assert.match(answer, /did not develop/i);
+    assert.match(answer, /developed the Orlando tangelo/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 });
