@@ -1088,6 +1088,7 @@
   font-size: 12px;
   font-weight: 700;
   cursor: pointer;
+  -webkit-backdrop-filter: blur(12px);
   backdrop-filter: blur(12px);
   pointer-events: auto;
 }
