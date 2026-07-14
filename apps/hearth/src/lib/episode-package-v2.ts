@@ -1268,11 +1268,15 @@ function parseSectionBody(rawText: string, sectionHeader: string): string {
   let collecting = false;
   const collected: string[] = [];
   for (const line of lines) {
+    const normalizedLine = line
+      .replace(/^\s*#{1,6}\s*/, "")
+      .replace(/^\s*\*\*(.*?)\*\*\s*$/, "$1")
+      .trim();
     if (!collecting) {
-      if (headerRe.test(line)) collecting = true;
+      if (headerRe.test(normalizedLine)) collecting = true;
       continue;
     }
-    if (genericHeaderRe.test(line)) break;
+    if (genericHeaderRe.test(normalizedLine)) break;
     collected.push(line);
   }
   return collected.join("\n").trim();
@@ -1287,9 +1291,9 @@ export function parseSeoTitlesFromText(rawText: string): EpisodeSeoTitle[] {
     .filter(Boolean);
   const titles: EpisodeSeoTitle[] = [];
   for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i]?.replace(/^[-*]\s*/, "") ?? "";
-    const labeled = line.match(/^([A-Z0-9_]+)\s*[:|-]\s*(.+)$/i);
-    const text = labeled?.[2]?.trim() ?? line.trim();
+    const line = lines[i]?.replace(/^(?:[-*]|\d+[.)])\s*/, "") ?? "";
+    const labeled = line.match(/^\**([A-Z0-9_]+)\s*([:|-])\**\s*(.+)$/i);
+    const text = labeled?.[3]?.trim() ?? line.trim();
     if (!text) continue;
     const label = labeled?.[1]?.trim() ?? SEO_LABELS[i] ?? `V${i + 1}`;
     titles.push({
@@ -1322,9 +1326,9 @@ export function parseDescriptionFromSeoText(rawText: string): {
 
 export function parseTagsFromText(rawText: string): string[] {
   const full = parseSectionBody(rawText, "TAGS_FULL");
-  if (full) return dedupeTags(parseCsvTags(full));
+  if (full) return dedupeTags(parseCsvTags(full.replace(/^(?:[-*]|\d+[.)])\s*/gm, "")));
   const top10 = parseSectionBody(rawText, "TAGS_TOP10");
-  if (top10) return dedupeTags(parseCsvTags(top10));
+  if (top10) return dedupeTags(parseCsvTags(top10.replace(/^(?:[-*]|\d+[.)])\s*/gm, "")));
   return [];
 }
 
@@ -2348,7 +2352,7 @@ export function applyProductionArtifactToEpisodePackage(args: {
     const titles = parseSeoTitlesFromText(args.rawText);
     const descriptions = parseDescriptionFromSeoText(args.rawText);
     if (titles.length) {
-      nextEpisode.seo.titles = titles;
+      nextEpisode.seo.titles = mergeGeneratedSeoTitlesIntoSlots(nextEpisode.seo.titles, titles);
     }
     if (descriptions.shortDescription) {
       nextEpisode.seo.description_short = descriptions.shortDescription;
@@ -2392,6 +2396,25 @@ export function applyProductionArtifactToEpisodePackage(args: {
 
 export function normalizeSeoTags(tags: string[]): string[] {
   return dedupeTags(tags);
+}
+
+export function mergeGeneratedSeoTitlesIntoSlots(
+  currentTitles: EpisodeSeoTitle[],
+  generatedTitles: EpisodeSeoTitle[],
+): EpisodeSeoTitle[] {
+  const normalized = ensureSeoV2({
+    ...createEmptyEpisodePackageV2(),
+    seo: { ...createEmptyEpisodePackageV2().seo, titles: currentTitles },
+  }).seo.titles;
+  const slots = normalized.filter((title) => SEO_CORE_LABELS.includes(title.label as (typeof SEO_CORE_LABELS)[number]));
+  return [
+    ...slots.map((slot, index) => ({
+      ...slot,
+      text: generatedTitles[index]?.text ?? slot.text,
+      thumbnail_text: generatedTitles[index]?.thumbnail_text ?? slot.thumbnail_text,
+    })),
+    ...generatedTitles.slice(3),
+  ];
 }
 
 export function ensureSeoV2(pkg: EpisodePackageV2): EpisodePackageV2 {

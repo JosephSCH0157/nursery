@@ -39,6 +39,7 @@ import {
   type HearthResearchSource,
 } from "../../../hearth/src/lib/hearth-research-contract";
 import { shapeHearthScriptForRecording } from "../../../hearth/src/lib/hearth-recording-ready-script";
+import { validateHearthProductionArtifactOutput } from "../../../hearth/src/lib/hearth-production-feedback";
 import {
   createHearthResearchRuntime,
   classifyResearchSourceAuthority,
@@ -186,6 +187,8 @@ type ReqBody = {
   lane?: unknown;
   action_id?: unknown;
   attachment_context?: unknown;
+  production_action?: unknown;
+  production_script_version?: unknown;
 };
 
 type AttachmentContextRequest = {
@@ -3494,6 +3497,13 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       }
 
       const bodyRaw = (await readJsonBody(request)) as ReqBody;
+      const productionAction = (
+        bodyRaw.production_action === "seo"
+        || bodyRaw.production_action === "tags"
+        || bodyRaw.production_action === "thumbnails"
+        || bodyRaw.production_action === "image_beat_sheet"
+        || bodyRaw.production_action === "release_prep_pack"
+      ) ? bodyRaw.production_action : null;
       const lane: BillingMode = isBillingMode(bodyRaw.lane) ? bodyRaw.lane : configuredBillingMode;
       const bearerToken = readBearerToken(request.headers.get("authorization"));
       const providedChatActionId = readOptionalString(bodyRaw.action_id);
@@ -4281,6 +4291,55 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         });
 
         structured.assistantText = sanitizeHearthUserFacingOutput(structured.assistantText);
+
+        if (productionAction === "seo" || productionAction === "tags") {
+          const productionValidation = validateHearthProductionArtifactOutput({
+            action: productionAction,
+            assistantText: structured.assistantText,
+          });
+          if (!productionValidation.ok) {
+            const rejectedTokens = extractTotalTokens(payload) ?? estimateTokenFallback(messages, rawReply);
+            const rejectedAccounting = buildUsageAccounting({
+              model,
+              payload,
+              fallbackTotalTokens: rejectedTokens,
+              preflightEstimatedCostUsd: aiRoute.estimatedCostUsd,
+              billableMode: "non-billable",
+            });
+            await recordAiUsageEvent({
+              userId,
+              lane: effectiveLane,
+              provider: "openai",
+              workspaceId: episodeContext.workspaceId,
+              workpieceId: episodeContext.episodeId,
+              sessionId: null,
+              feature: chatFeature.feature,
+              subfeature: chatFeature.subfeature,
+              model,
+              reasoningEffort,
+              inputTokens: rejectedAccounting.inputTokens,
+              outputTokens: rejectedAccounting.outputTokens,
+              totalTokens: rejectedTokens,
+              estimatedCostUsd: rejectedAccounting.estimatedCostUsd,
+              actualCostUsd: rejectedAccounting.estimatedCostUsd,
+              billableTokens: 0,
+              trigger: AI_USAGE_TRIGGER.USER,
+              status: AI_USAGE_STATUS.ERROR,
+              ...usageAttribution,
+              actionId: chatActionId,
+              providerRequestId: upstream.headers.get("x-request-id"),
+              correlationId: chatActionId,
+            });
+            return jsonResponse(502, {
+              ok: false,
+              error: productionValidation.error,
+              code: "invalid_production_output",
+              billable_tokens: 0,
+              ...buildBillingSnapshot(lane),
+              ...resolutionSnapshot,
+            });
+          }
+        }
 
         if (!structured.assistantText && structured.ops.length === 0) {
           return jsonResponse(502, {

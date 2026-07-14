@@ -399,6 +399,8 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp 
     episodeContext: TEpisodeContext,
     options: {
       signal: AbortSignal;
+      productionAction?: "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack";
+      productionScriptVersion?: number;
       attachmentContext?: {
         includeEpisodeAttachments?: boolean;
         attachmentIds?: string[];
@@ -581,6 +583,8 @@ export function useChatWorkspaceRuntime<
       const result = await args.requestHearthChatReply(requestMessages, episodeContext, {
         signal: controller.signal,
         attachmentContext,
+        productionAction: params.productionAction as "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack" | undefined,
+        productionScriptVersion: params.productionScriptVersion,
       });
       if (!args.operationAuthority.isCurrent(operation)) return;
       args.setAiBillingMode(result.runtime.billingMode);

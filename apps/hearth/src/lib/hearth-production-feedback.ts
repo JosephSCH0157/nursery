@@ -32,13 +32,16 @@ export function resolveHearthProductionArtifactFeedback(args: {
 }): HearthProductionArtifactFeedback {
   if (args.action === "seo") {
     const descriptions = parseDescriptionFromSeoText(args.assistantText);
+    const titles = parseSeoTitlesFromText(args.assistantText).filter((title) => !/^title\s*[abc]$/i.test(title.text.trim()));
     return {
       shouldRefreshEpisodePackage: true,
-      titles: parseSeoTitlesFromText(args.assistantText),
+      titles,
       descriptionShort: descriptions.shortDescription,
       descriptionLong: descriptions.longDescription,
       tags: [],
-      warning: null,
+      warning: titles.length >= 3
+        ? null
+        : "Generate Titles failed because Hearth did not return at least three usable titles.",
     };
   }
 
@@ -68,4 +71,18 @@ export function resolveHearthProductionArtifactFeedback(args: {
   }
 
   return EMPTY_FEEDBACK;
+}
+
+export function validateHearthProductionArtifactOutput(args: {
+  action: HearthProductionAction;
+  assistantText: string;
+}): { ok: true; feedback: HearthProductionArtifactFeedback } | { ok: false; error: string; feedback: HearthProductionArtifactFeedback } {
+  const feedback = resolveHearthProductionArtifactFeedback(args);
+  if (args.action === "seo" && feedback.titles.length < 3) {
+    return { ok: false, error: feedback.warning ?? "Generated title output was unusable.", feedback };
+  }
+  if (args.action === "tags" && feedback.tags.length === 0) {
+    return { ok: false, error: feedback.warning ?? "Generated tag output was unusable.", feedback };
+  }
+  return { ok: true, feedback };
 }

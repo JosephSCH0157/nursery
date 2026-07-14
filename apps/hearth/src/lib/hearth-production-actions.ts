@@ -1,10 +1,13 @@
 import { HEARTH_THUMBNAIL_TITLE_CONTRACT } from "./hearth-thumbnail-title-contract";
-import { resolveHearthProductionArtifactFeedback } from "./hearth-production-feedback";
+import { validateHearthProductionArtifactOutput } from "./hearth-production-feedback";
 import {
   commitWorkpieceProductionArtifact,
   type ProductionArtifactKind,
 } from "./hearth-production-repo";
-import type { EpisodeSeoTitle } from "./episode-package-v2";
+import {
+  mergeGeneratedSeoTitlesIntoSlots,
+  type EpisodeSeoTitle,
+} from "./episode-package-v2";
 
 export type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack";
 
@@ -155,7 +158,7 @@ export async function persistProductionArtifact(args: {
   refreshEpisodePackage: () => Promise<void>;
   loadLatestReleasePrepPack: (scriptVersion: number) => Promise<void>;
   setAiRuntimeWarning: (message: string | null) => void;
-  setMetadataTitlesDraft: (next: EpisodeSeoTitle[]) => void;
+  setMetadataTitlesDraft: (next: EpisodeSeoTitle[] | ((current: EpisodeSeoTitle[]) => EpisodeSeoTitle[])) => void;
   setMetadataDescriptionShortDraft: (next: string) => void;
   setMetadataDescriptionLongDraft: (next: string) => void;
   setMetadataTagsDraft: (next: string[]) => void;
@@ -165,6 +168,14 @@ export async function persistProductionArtifact(args: {
 
   const generatedAt = new Date().toISOString();
   const artifactKind = PRODUCTION_ACTION_ARTIFACT_KIND[args.action];
+  const validation = validateHearthProductionArtifactOutput({
+    action: args.action,
+    assistantText: args.assistantText,
+  });
+  if (!validation.ok) {
+    args.setAiRuntimeWarning(validation.error);
+    return;
+  }
   const payload = args.action === "image_beat_sheet"
     ? {
         script_version: args.scriptVersion,
@@ -193,12 +204,11 @@ export async function persistProductionArtifact(args: {
       args.setAiRuntimeWarning(`Saved response in chat, but failed to persist ${PRODUCTION_ACTION_LABEL[args.action]}.`);
       return;
     }
-    const artifactFeedback = resolveHearthProductionArtifactFeedback({
-      action: args.action,
-      assistantText: args.assistantText,
-    });
+    const artifactFeedback = validation.feedback;
     if (artifactFeedback.titles.length > 0) {
-      args.setMetadataTitlesDraft(artifactFeedback.titles);
+      args.setMetadataTitlesDraft((current) => {
+        return mergeGeneratedSeoTitlesIntoSlots(current, artifactFeedback.titles);
+      });
     }
     if (artifactFeedback.descriptionShort) {
       args.setMetadataDescriptionShortDraft(artifactFeedback.descriptionShort);

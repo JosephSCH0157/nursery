@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { resolveHearthProductionArtifactFeedback } from "../src/lib/hearth-production-feedback";
+import {
+  resolveHearthProductionArtifactFeedback,
+  validateHearthProductionArtifactOutput,
+} from "../src/lib/hearth-production-feedback";
 
 test("hearthProductionFeedback: seo replies hydrate titles and descriptions", () => {
   const feedback = resolveHearthProductionArtifactFeedback({
@@ -9,6 +12,7 @@ test("hearthProductionFeedback: seo replies hydrate titles and descriptions", ()
       "SEO_TITLES:",
       "SAFE: Calm, Clear Title",
       "SPICY: Sharper Hook Title",
+      "BALANCED_1: Grounded Middle Title",
       "",
       "DESCRIPTION:",
       "A long-form description block for the episode.",
@@ -16,11 +20,38 @@ test("hearthProductionFeedback: seo replies hydrate titles and descriptions", ()
   });
 
   assert.equal(feedback.shouldRefreshEpisodePackage, true);
-  assert.equal(feedback.titles.length, 2);
+  assert.equal(feedback.titles.length, 3);
   assert.equal(feedback.titles[0]?.text, "Calm, Clear Title");
   assert.equal(feedback.descriptionLong, "A long-form description block for the episode.");
   assert.match(feedback.descriptionShort ?? "", /long-form description/i);
   assert.equal(feedback.warning, null);
+});
+
+test("hearthProductionFeedback: markdown output parses and placeholders cannot count as generated titles", () => {
+  const parsed = validateHearthProductionArtifactOutput({
+    action: "seo",
+    assistantText: [
+      "## **SEO_TITLES:**",
+      "1. **SAFE:** A Real First Title",
+      "2. **SPICY:** A Real Second Title",
+      "3. **BALANCED_1:** A Real Third Title",
+      "",
+      "**DESCRIPTION:**",
+      "Episode description.",
+    ].join("\n"),
+  });
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) assert.deepEqual(parsed.feedback.titles.map((title) => title.text), [
+    "A Real First Title",
+    "A Real Second Title",
+    "A Real Third Title",
+  ]);
+
+  const placeholders = validateHearthProductionArtifactOutput({
+    action: "seo",
+    assistantText: "SEO_TITLES:\nSAFE: Title A\nSPICY: Title B\nBALANCED_1: Title C",
+  });
+  assert.equal(placeholders.ok, false);
 });
 
 test("hearthProductionFeedback: tags replies hydrate tags and warn on empty structured output", () => {
@@ -51,6 +82,12 @@ test("hearthProductionFeedback: tags replies hydrate tags and warn on empty stru
 
   assert.equal(empty.tags.length, 0);
   assert.match(empty.warning ?? "", /could not extract structured tags/i);
+
+  const markdownTags = validateHearthProductionArtifactOutput({
+    action: "tags",
+    assistantText: "## **TAGS_TOP10:**\n- florida citrus, orange groves, citrus greening",
+  });
+  assert.equal(markdownTags.ok, true);
 });
 
 test("hearthProductionFeedback: thumbnail replies warn when no structured concept brief is present", () => {

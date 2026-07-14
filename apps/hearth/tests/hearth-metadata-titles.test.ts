@@ -6,6 +6,7 @@ import {
   partitionMetadataTitles,
   shouldConfirmTitleSlotReplacement,
 } from "../src/lib/hearth-metadata-titles";
+import { mergeGeneratedSeoTitlesIntoSlots } from "../src/lib/episode-package-v2";
 
 function buildTitles(): EpisodeSeoTitle[] {
   return [
@@ -40,4 +41,20 @@ test("metadata titles: replacing a populated slot requests confirmation", () => 
   assert.equal(shouldConfirmTitleSlotReplacement("Existing title", "New title"), true);
   assert.equal(shouldConfirmTitleSlotReplacement("Existing title", "Existing title"), false);
   assert.equal(shouldConfirmTitleSlotReplacement("", "New title"), false);
+});
+
+test("metadata titles: generated titles replace A/B/C placeholders and retain extra suggestions", () => {
+  const generated = ["First real title", "Second real title", "Third real title", "Extra title"].map((text, index) => ({
+    id: `generated-${index}`,
+    label: `GENERATED_${index + 1}`,
+    text,
+    is_primary: false,
+  }));
+  const merged = mergeGeneratedSeoTitlesIntoSlots([], generated);
+  assert.deepEqual(merged.slice(0, 3).map((title) => [title.label, title.text]), [
+    ["A", "First real title"],
+    ["B", "Second real title"],
+    ["C", "Third real title"],
+  ]);
+  assert.equal(merged[3]?.text, "Extra title");
 });

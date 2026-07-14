@@ -2104,6 +2104,7 @@ export default function HearthShell({
   const [scriptApprovalState, setScriptApprovalState] = useState<ScriptApprovalState>(NO_CANONICAL_SCRIPT_APPROVAL);
   const [approvalPersistenceStatus, setApprovalPersistenceStatus] = useState<ApprovalPersistenceStatus | null>(null);
   const [activeProductionAction, setActiveProductionAction] = useState<ProductionAction | null>(null);
+  const productionActionInFlightRef = useRef(false);
   const [writingProfile, setWritingProfile] = useState<WritingProfile | null>(null);
   const [forgeGreetingName, setForgeGreetingName] = useState<string>(() => readGreetingNameFromStorage());
   const [hearthUser, setHearthUser] = useState<HearthUserContext>({
@@ -6557,23 +6558,29 @@ export default function HearthShell({
   }
 
   async function onRunProductionAction(action: ProductionAction) {
-    await runProductionAction({
-      action,
-      isAiProcessing,
-      isApprovingScript,
-      hasApprovedScript,
-      approvedScriptVersion,
-      activeDraft: activeDraft
-        ? {
-            body: activeDraft.body,
-            title: activeDraft.title,
-          }
-        : null,
-      planningSessionTitle: planningSession?.title ?? null,
-      setChatError,
-      setActiveProductionAction,
-      sendChatMessage,
-    });
+    if (productionActionInFlightRef.current) return;
+    productionActionInFlightRef.current = true;
+    try {
+      await runProductionAction({
+        action,
+        isAiProcessing,
+        isApprovingScript,
+        hasApprovedScript,
+        approvedScriptVersion,
+        activeDraft: activeDraft
+          ? {
+              body: activeDraft.body,
+              title: activeDraft.title,
+            }
+          : null,
+        planningSessionTitle: planningSession?.title ?? null,
+        setChatError,
+        setActiveProductionAction,
+        sendChatMessage,
+      });
+    } finally {
+      productionActionInFlightRef.current = false;
+    }
   }
 
   function resolveBrollDataVisualSpecFromDraft(intent: EpisodeBrollPlanBeat["motion_intent"]): EpisodeBrollDataVisualSpec | null {

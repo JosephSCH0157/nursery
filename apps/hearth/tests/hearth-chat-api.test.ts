@@ -205,6 +205,8 @@ test("requestHearthChatReply includes attachment context metadata in payload", a
         sparks: [],
       },
       {
+        productionAction: "seo",
+        productionScriptVersion: 7,
         attachmentContext: {
           includeEpisodeAttachments: true,
           attachmentIds: ["33333333-3333-4333-8333-333333333333"],
@@ -219,6 +221,8 @@ test("requestHearthChatReply includes attachment context metadata in payload", a
     assert.ok(attachmentContext);
     assert.equal(attachmentContext?.include_episode_attachments, true);
     assert.deepEqual(attachmentContext?.attachment_ids, ["33333333-3333-4333-8333-333333333333"]);
+    assert.equal(submittedBody.production_action, "seo");
+    assert.equal(submittedBody.production_script_version, 7);
   } finally {
     globalThis.fetch = originalFetch;
     (globalThis as { window?: unknown }).window = originalWindow;

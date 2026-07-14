@@ -381,6 +381,46 @@ test("createHearthAiHandler sends collaborator-style system prompt to upstream m
   }
 });
 
+test("createHearthAiHandler rejects unusable production output before successful billing", async () => {
+  const handler = createHearthAiHandler(buildConfig({
+    textApiKey: "test-key",
+    configuredBillingMode: "byo",
+  }));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (input) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url === "https://api.openai.com/v1/chat/completions") {
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({ assistantText: "SEO_TITLES:\nSAFE: Title A\nSPICY: Title B\nBALANCED_1: Title C", ops: [] }) } }],
+        usage: { prompt_tokens: 40, completion_tokens: 12, total_tokens: 52 },
+      }), { status: 200, headers: { "content-type": "application/json", "x-request-id": "req-invalid-production" } });
+    }
+    throw new Error(`Unexpected fetch: ${url}`);
+  };
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Generate Titles for Script Version 1." }],
+        episode_context: buildEpisodeContext(),
+        lane: "byo",
+        behavior: "careful",
+        production_action: "seo",
+        production_script_version: 1,
+      }),
+    }));
+    const payload = await response.json();
+    assert.equal(response.status, 502);
+    assert.equal(payload.ok, false);
+    assert.equal(payload.code, "invalid_production_output");
+    assert.equal(payload.billable_tokens, 0);
+    assert.match(payload.error, /three usable titles/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("createHearthAiHandler shapes returned script blobs into Anvil output contract format", async () => {
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
   const originalFetch = globalThis.fetch;
