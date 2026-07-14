@@ -7,6 +7,8 @@ jest.mock('../../src/forge/workpiece-commit', () => ({
   commitRecordingBytesToTongs: (...args: unknown[]) => mockCommitRecordingBytesToTongs(...args),
   commitRecordingJsonArtifactToTongs: jest.fn(async () => ({ ok: true })),
   appendRecordingDecisionToTongs: jest.fn(async () => ({ ok: true })),
+  transitionRecordingCompleted: jest.fn(async () => ({ ok: true, outcome: 'saved', completionId: '33333333-3333-4333-8333-333333333333' })),
+  transitionRecordingKept: jest.fn(async () => ({ ok: true, outcome: 'saved', keepId: '44444444-4444-4444-8444-444444444444' })),
   promoteRecordingTranscriptForHammer: jest.fn(async () => ({ ok: true })),
   HAMMER_STRUCTURED_TRANSCRIPT_PATH: 'hammer/transcript.json',
 }));
@@ -141,6 +143,10 @@ describe('local-auto recorder safety guards', () => {
       createdCradle: false,
       plannerRecordingSessionId: null,
       captureSessionId: 'cap-test-1',
+      mediaRevision: 1,
+      mediaHash: 'a'.repeat(64),
+      mediaBytes: 128,
+      mediaContentType: 'video/webm',
       status: 200,
     });
     jest.resetModules();

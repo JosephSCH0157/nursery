@@ -122,7 +122,6 @@ const READY_SCRIPT_PATH_CANDIDATES = [
   "scripts/script.source.md",
 ] as const;
 const READY_SCRIPT_PATH_SET = new Set<string>(READY_SCRIPT_PATH_CANDIDATES as readonly string[]);
-const TAKE_KEPT_EVENT = "take_kept";
 const CONTENT_CATEGORY_EVENT = "hearth.content_category.set.v1";
 const HEARTH_APPROVED_SCRIPT_EVENT = "hearth.script.published.v1";
 const CONTENT_CATEGORY_VALUES = [
@@ -542,7 +541,9 @@ export type AppendEventRequest = {
 };
 
 export type WorkpieceTakeReceipt = {
-  event_id: number;
+  event_id: number | null;
+  completion_id?: string;
+  keep_id?: string;
   created_at: string;
   file_path: string | null;
   recording_session_id: string | null;
@@ -1115,6 +1116,37 @@ export type WorkspaceReadyScript = {
   hidden_by: string | null;
 };
 
+export type AnvilTakeCompletionRequest = {
+  workspace_id: string;
+  capture_session_id: string;
+  ready_transition_id: string;
+  script_path: string;
+  expected_script_revision: number;
+  expected_script_hash: string;
+  media_path: string;
+  expected_media_revision: number;
+  expected_media_hash: string;
+  idempotency_key: string;
+  completion_evidence: Json;
+  user_access_token?: string | null;
+};
+
+export type AnvilTakeKeepRequest = {
+  workspace_id: string;
+  capture_session_id: string;
+  completion_id: string;
+  idempotency_key: string;
+  decision_evidence: Json;
+  user_access_token?: string | null;
+};
+
+export type AnvilTakeTransitionResult = {
+  outcome: "saved" | "duplicate" | "stale" | "conflict" | "denied" | "not_found";
+  reason?: string | null;
+  completion?: Record<string, unknown> | null;
+  keep?: Record<string, unknown> | null;
+};
+
 export type HearthReadyTransitionRequest = {
   workspace_id: string;
   script_path: string;
@@ -1324,6 +1356,14 @@ export type TongsCommitApiService = {
     workpieceId: string,
     input: HearthReadyTransitionRequest,
   ): Promise<HearthReadyTransitionResult>;
+  transitionAnvilTakeCompleted(
+    workpieceId: string,
+    input: AnvilTakeCompletionRequest,
+  ): Promise<AnvilTakeTransitionResult>;
+  transitionAnvilTakeKept(
+    workpieceId: string,
+    input: AnvilTakeKeepRequest,
+  ): Promise<AnvilTakeTransitionResult>;
   beginRecordingUploadSession(
     workpieceId: string,
     input: BeginRecordingUploadSessionRequest,
@@ -4762,31 +4802,6 @@ function readContentCategoryFromEventPayload(payload: Json): string | null {
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
   const row = payload as Record<string, unknown>;
   return normalizeContentCategory(row.content_category);
-}
-
-function readNullableString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function readNullableNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function readTakeReceiptFromEvent(row: Pick<WorkpieceEventRow, "id" | "created_at" | "payload">): WorkpieceTakeReceipt {
-  const payload = row.payload && typeof row.payload === "object" && !Array.isArray(row.payload)
-    ? row.payload as Record<string, unknown>
-    : {};
-  return {
-    event_id: row.id,
-    created_at: row.created_at,
-    file_path: readNullableString(payload.file_path ?? payload.path),
-    recording_session_id: readNullableString(payload.recording_session_id),
-    anvil_capture_session_id: readNullableString(payload.anvil_capture_session_id),
-    content_type: readNullableString(payload.content_type),
-    bytes: readNullableNumber(payload.bytes),
-    duration_ms: readNullableNumber(payload.duration_ms),
-    original_name: readNullableString(payload.original_name),
-  };
 }
 
 function pushCanonicalRecordingPathNode(
@@ -8844,6 +8859,76 @@ export class TongsCommitService {
     return data as HearthReadyTransitionResult;
   }
 
+  private async callAnvilRecordingAuthority(
+    rpcName: "anvil_transition_take_completed" | "anvil_transition_take_kept",
+    args: Record<string, unknown>,
+    accessToken: string | null | undefined,
+  ): Promise<AnvilTakeTransitionResult> {
+    const token = normalizeNonEmptyString(accessToken, "user_access_token");
+    if (!this.userClientFactory) {
+      throw new HttpError(503, "anvil_recording_authority_migration_required", "Anvil recording authority is unavailable; migration 20260713210000 is required.");
+    }
+    const rpcClient = this.userClientFactory(token).schema("tongs") as unknown as {
+      rpc: (name: string, args: Record<string, unknown>) => Promise<{
+        data: unknown;
+        error: { code?: string; message: string } | null;
+      }>;
+    };
+    const { data, error } = await rpcClient.rpc(rpcName, args);
+    if (error) {
+      const missing = error.code === "PGRST202" || new RegExp(rpcName, "i").test(error.message);
+      throw new HttpError(
+        missing ? 503 : 502,
+        missing ? "anvil_recording_authority_migration_required" : "anvil_recording_transition_failed",
+        missing
+          ? "Anvil recording authority is unavailable; migration 20260713210000 is required."
+          : "Anvil recording transition failed.",
+        { reason: error.message },
+      );
+    }
+    if (!isRecord(data) || typeof data.outcome !== "string") {
+      throw new HttpError(502, "anvil_recording_transition_malformed", "Anvil recording transition returned a malformed result.");
+    }
+    if (!new Set(["saved", "duplicate", "stale", "conflict", "denied", "not_found"]).has(data.outcome)) {
+      throw new HttpError(502, "anvil_recording_transition_ambiguous", "Anvil recording transition returned an ambiguous result.");
+    }
+    return data as AnvilTakeTransitionResult;
+  }
+
+  async transitionAnvilTakeCompleted(
+    workpieceId: string,
+    input: AnvilTakeCompletionRequest,
+  ): Promise<AnvilTakeTransitionResult> {
+    return this.callAnvilRecordingAuthority("anvil_transition_take_completed", {
+      p_workspace_id: input.workspace_id,
+      p_workpiece_id: workpieceId,
+      p_capture_session_id: input.capture_session_id,
+      p_ready_transition_id: input.ready_transition_id,
+      p_script_path: input.script_path,
+      p_expected_script_revision: input.expected_script_revision,
+      p_expected_script_hash: input.expected_script_hash.toLowerCase(),
+      p_media_path: input.media_path,
+      p_expected_media_revision: input.expected_media_revision,
+      p_expected_media_hash: input.expected_media_hash.toLowerCase(),
+      p_idempotency_key: input.idempotency_key,
+      p_completion_evidence: input.completion_evidence,
+    }, input.user_access_token);
+  }
+
+  async transitionAnvilTakeKept(
+    workpieceId: string,
+    input: AnvilTakeKeepRequest,
+  ): Promise<AnvilTakeTransitionResult> {
+    return this.callAnvilRecordingAuthority("anvil_transition_take_kept", {
+      p_workspace_id: input.workspace_id,
+      p_workpiece_id: workpieceId,
+      p_capture_session_id: input.capture_session_id,
+      p_completion_id: input.completion_id,
+      p_idempotency_key: input.idempotency_key,
+      p_decision_evidence: input.decision_evidence,
+    }, input.user_access_token);
+  }
+
   private async loadRecordingUploadSessionState(
     workpieceId: string,
     uploadId: string,
@@ -11543,23 +11628,37 @@ export class TongsCommitService {
 
     const { data, error } = await this.supabase
       .schema("tongs")
-      .from("workpiece_events")
-      .select("workpiece_id,event_name,payload,created_at,id")
+      .from("current_workpiece_recorded_takes")
+      .select("workpiece_id,completion_id,keep_id,capture_session_id,media_path,completion_evidence,completed_at,kept_at")
       .in("workpiece_id", [...workpieceIds])
-      .eq("event_name", TAKE_KEPT_EVENT)
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: false })
-      .limit(5000);
+      .order("kept_at", { ascending: false });
 
     if (error) {
-      throw new HttpError(502, "db_read_failed", "Failed to list kept-take events", {
+      const missing = error.code === "PGRST205" || /current_workpiece_recorded_takes/i.test(error.message);
+      throw new HttpError(missing ? 503 : 502, missing ? "anvil_recording_authority_migration_required" : "db_read_failed", missing
+        ? "Anvil recording authority is unavailable; migration 20260713210000 is required."
+        : "Failed to list canonical recorded takes", {
         reason: error.message,
       });
     }
 
     for (const row of data ?? []) {
       if (next.has(row.workpiece_id)) continue;
-      next.set(row.workpiece_id, readTakeReceiptFromEvent(row));
+      const evidence = isRecord(row.completion_evidence) ? row.completion_evidence : {};
+      const artifact = isRecord(evidence.artifact_validation) ? evidence.artifact_validation : {};
+      next.set(row.workpiece_id, {
+        event_id: null,
+        completion_id: row.completion_id,
+        keep_id: row.keep_id,
+        created_at: row.kept_at ?? row.completed_at,
+        file_path: row.media_path,
+        recording_session_id: null,
+        anvil_capture_session_id: row.capture_session_id,
+        content_type: typeof artifact.content_type === "string" ? artifact.content_type : null,
+        bytes: typeof artifact.bytes === "number" ? artifact.bytes : null,
+        duration_ms: typeof artifact.duration_ms === "number" ? artifact.duration_ms : null,
+        original_name: typeof artifact.original_name === "string" ? artifact.original_name : null,
+      });
     }
 
     return next;
@@ -12234,6 +12333,44 @@ export function createTongsCommitApiHandlerWithService(
           user_access_token: userAccessToken,
         };
         const result = await service.transitionHearthScriptReady(workpieceId, input);
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "recording-completion") {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        const result = await service.transitionAnvilTakeCompleted(workpieceId, {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          capture_session_id: normalizeUuid(body.capture_session_id, "capture_session_id"),
+          ready_transition_id: normalizeUuid(body.ready_transition_id, "ready_transition_id"),
+          script_path: normalizeRelativePath(normalizeNonEmptyString(body.script_path, "script_path")),
+          expected_script_revision: normalizePositiveInteger(body.expected_script_revision, "expected_script_revision"),
+          expected_script_hash: normalizeNonEmptyString(body.expected_script_hash, "expected_script_hash").toLowerCase(),
+          media_path: normalizeRelativePath(normalizeNonEmptyString(body.media_path, "media_path")),
+          expected_media_revision: normalizePositiveInteger(body.expected_media_revision, "expected_media_revision"),
+          expected_media_hash: normalizeNonEmptyString(body.expected_media_hash, "expected_media_hash").toLowerCase(),
+          idempotency_key: normalizeNonEmptyString(body.idempotency_key, "idempotency_key"),
+          completion_evidence: normalizeJsonValue(body.completion_evidence),
+          user_access_token: userAccessToken,
+        });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "recording-keep") {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        const result = await service.transitionAnvilTakeKept(workpieceId, {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          capture_session_id: normalizeUuid(body.capture_session_id, "capture_session_id"),
+          completion_id: normalizeUuid(body.completion_id, "completion_id"),
+          idempotency_key: normalizeNonEmptyString(body.idempotency_key, "idempotency_key"),
+          decision_evidence: normalizeJsonValue(body.decision_evidence),
+          user_access_token: userAccessToken,
+        });
         return jsonResponse(200, { ok: true, data: result });
       }
 

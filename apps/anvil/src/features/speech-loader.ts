@@ -292,7 +292,7 @@ type PendingAsrScriptEndStop = {
 };
 
 type AsrScriptEndConfirmationEvidence = {
-  source: 'route-line' | 'token-overlap';
+  source: 'route-line' | 'token-overlap' | 'canonical-terminal-authority';
   matchedLine: number | null;
   sharedAny: number;
   sharedMeaningful: number;
@@ -4833,6 +4833,22 @@ function ensureAsrDriverLifecycleHooks(): void {
       armedAt: Date.now(),
       targetLineTokens: normTokens(targetLineText),
     };
+    const canonicalTerminal = (window as any).__tpCanonicalAsrAuthority;
+    if (
+      canonicalTerminal?.schema === 'anvil.asr-authority-snapshot.v1' &&
+      canonicalTerminal.terminalCompleted === true &&
+      canonicalTerminal.postrollEligible === true &&
+      Number(canonicalTerminal.cursor) === targetLine
+    ) {
+      finalizePendingAsrScriptEndStop(pendingAsrScriptEndStop, {
+        source: 'canonical-terminal-authority',
+        matchedLine: targetLine,
+        sharedAny: 0,
+        sharedMeaningful: 0,
+        overlapRatio: 1,
+      });
+      return;
+    }
     emitHudSnapshot('script-end-pending', { force: true });
     if (isDevMode() && shouldLogTag('ASR:script-end-pending', 2, 1000)) {
       try {

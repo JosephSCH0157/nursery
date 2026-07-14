@@ -165,6 +165,7 @@ export const ScriptStore = {
           created: existing?.created || ready.updatedAt || new Date().toISOString(),
           updated: ready.updatedAt || new Date().toISOString(),
         };
+        (window as Window & { __forgeCanonicalReadyScript?: ReadyScriptReference }).__forgeCanonicalReadyScript = { ...ready };
         scriptsById.set(id, rec);
         return rec;
       } catch (err) {

@@ -81,6 +81,7 @@ describe('ASR backend restart adapter payload shaping', () => {
     const payload = buildBackendHeartbeatDiagnosticInput({
       transcriptAgeMs: 123.4,
       audioAgeMs: 567.8,
+      semanticProgressAgeMs: Number.NaN,
       recognizerAttached: true,
       speechActive: false,
       activeReadMode: true,
@@ -89,6 +90,7 @@ describe('ASR backend restart adapter payload shaping', () => {
     expect(payload).toEqual({
       transcriptAgeMs: 123.4,
       audioAgeMs: 567.8,
+      semanticProgressAgeMs: Number.NaN,
       recognizerAttached: true,
       speechActive: false,
       activeReadMode: true,

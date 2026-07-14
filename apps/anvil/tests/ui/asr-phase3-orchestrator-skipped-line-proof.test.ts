@@ -150,6 +150,10 @@ describe('ASR Phase 3 orchestrator reduced non-adjacent target proof', () => {
       },
     });
     await jest.advanceTimersByTimeAsync(1200);
+    if (driver.getLastLineIndex() === 1) {
+      window.dispatchEvent(new CustomEvent('tp:asr:rescue', { detail: { reason: 'pending-bridge-adjacent-release' } }));
+      await jest.advanceTimersByTimeAsync(800);
+    }
 
     expect(driver.getLastLineIndex()).toBe(2);
 

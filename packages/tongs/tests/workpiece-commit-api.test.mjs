@@ -2410,6 +2410,7 @@ function createReadyQueueSupabase({
   readyMeta = [],
   queueState = [],
   events = [],
+  recordedRows = [],
 } = {}) {
   const state = {
     fileRows: files.map((row) => ({ ...row })),
@@ -2830,6 +2831,25 @@ function createReadyQueueSupabase({
                             };
                           },
                         };
+                      },
+                    };
+                  },
+                };
+              },
+            };
+          }
+
+          if (tableName === "current_workpiece_recorded_takes") {
+            return {
+              select() {
+                return {
+                  in(field, values) {
+                    assert.equal(field, "workpiece_id");
+                    const idSet = new Set(values);
+                    return {
+                      async order(orderField, options) {
+                        assert.equal(orderField, "kept_at");
+                        return { data: sortRows(recordedRows.filter((row) => idSet.has(row.workpiece_id)), "kept_at", options?.ascending ?? true), error: null };
                       },
                     };
                   },
@@ -8291,38 +8311,26 @@ test("TongsCommitService.listWorkspaceCanonicalRecordings returns kept takes gro
         archive_reason: null,
       },
     ],
-    events: [
+    recordedRows: [
       {
-        id: 201,
         workpiece_id: "11111111-1111-4111-8111-111111111111",
-        event_name: "take_kept",
-        payload: {
-          file_path: "recordings/beta/episode-beta.mp4",
-          bytes: 4096,
-          content_type: "video/mp4",
-          original_name: "episode-beta.mp4",
-        },
-        correlation_id: null,
-        written_by_tool: "anvil",
-        written_by_tool_version: "1.0.0",
-        written_by_lane: "forge-managed",
-        created_at: "2026-03-18T12:00:00.000Z",
+        completion_id: "44444444-4444-4444-8444-444444444444",
+        keep_id: "55555555-5555-4555-8555-555555555555",
+        capture_session_id: "66666666-6666-4666-8666-666666666666",
+        media_path: "recordings/beta/episode-beta.mp4",
+        completion_evidence: { artifact_validation: { bytes: 4096, content_type: "video/mp4", original_name: "episode-beta.mp4" } },
+        completed_at: "2026-03-18T11:59:00.000Z",
+        kept_at: "2026-03-18T12:00:00.000Z",
       },
       {
-        id: 202,
         workpiece_id: "22222222-2222-4222-8222-222222222222",
-        event_name: "take_kept",
-        payload: {
-          file_path: "recordings/episode-alpha.wav",
-          bytes: 2048,
-          content_type: "audio/wav",
-          original_name: "episode-alpha.wav",
-        },
-        correlation_id: null,
-        written_by_tool: "anvil",
-        written_by_tool_version: "1.0.0",
-        written_by_lane: "forge-managed",
-        created_at: "2026-03-17T12:00:00.000Z",
+        completion_id: "77777777-7777-4777-8777-777777777777",
+        keep_id: "88888888-8888-4888-8888-888888888888",
+        capture_session_id: "99999999-9999-4999-8999-999999999999",
+        media_path: "recordings/episode-alpha.wav",
+        completion_evidence: { artifact_validation: { bytes: 2048, content_type: "audio/wav", original_name: "episode-alpha.wav" } },
+        completed_at: "2026-03-17T11:59:00.000Z",
+        kept_at: "2026-03-17T12:00:00.000Z",
       },
     ],
   });

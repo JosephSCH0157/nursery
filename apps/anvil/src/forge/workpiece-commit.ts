@@ -62,6 +62,10 @@ export type RecordingCommitResult =
       createdCradle: boolean;
       plannerRecordingSessionId: string | null;
       captureSessionId: string;
+      mediaRevision: number;
+      mediaHash: string;
+      mediaBytes: number;
+      mediaContentType: string;
       status: number;
     }
   | {
@@ -347,7 +351,10 @@ function getApiToken(): string | undefined {
 
 function getOrCreateCaptureSessionId(): string {
   const existing = readSessionStorage(CAPTURE_SESSION_KEY);
-  if (existing) return existing;
+  if (existing) {
+    (window as any).__tpAnvilCaptureSessionId = existing;
+    return existing;
+  }
 
   let next = "";
   try {
@@ -364,6 +371,7 @@ function getOrCreateCaptureSessionId(): string {
   }
 
   writeSessionStorage(CAPTURE_SESSION_KEY, next);
+  (window as any).__tpAnvilCaptureSessionId = next;
   return next;
 }
 
@@ -382,6 +390,7 @@ export function beginRecordingCaptureSession(): string {
     next = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   }
   writeSessionStorage(CAPTURE_SESSION_KEY, next);
+  (window as any).__tpAnvilCaptureSessionId = next;
   return next;
 }
 
@@ -1168,7 +1177,7 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
     path,
     content_type: contentType,
     written_by: writtenBy,
-    event_name: "take_completed",
+    event_name: "anvil.recording.artifact.saved.v1",
     event_payload: {
       source: "anvil.local-auto",
       file_path: path,
@@ -1258,6 +1267,38 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
       workpieceId,
     };
   }
+  const commitEnvelope = commit.body && typeof commit.body === "object" && !Array.isArray(commit.body)
+    ? commit.body as Record<string, unknown>
+    : {};
+  const commitData = commitEnvelope.data && typeof commitEnvelope.data === "object" && !Array.isArray(commitEnvelope.data)
+    ? commitEnvelope.data as Record<string, unknown>
+    : {};
+  const fileRow = commitData.file_row && typeof commitData.file_row === "object" && !Array.isArray(commitData.file_row)
+    ? commitData.file_row as Record<string, unknown>
+    : {};
+  const mediaRevision = typeof fileRow.revision === "number" && Number.isInteger(fileRow.revision) && fileRow.revision > 0
+    ? fileRow.revision
+    : null;
+  const mediaHash = typeof commitData.hash === "string" && /^[0-9a-f]{64}$/i.test(commitData.hash)
+    ? commitData.hash.toLowerCase()
+    : null;
+  if (!mediaRevision || !mediaHash) {
+    emitUploadStatus("failed", {
+      safeToLeave: false,
+      errorCode: "canonical_recording_contract_malformed",
+      errorMessage: "Tongs did not return the canonical recording revision and SHA-256 hash.",
+    });
+    return {
+      ok: false,
+      reason: "canonical_recording_contract_malformed",
+      status: 502,
+      errorCode: "canonical_recording_contract_malformed",
+      errorMessage: "Tongs did not return the canonical recording revision and SHA-256 hash.",
+      details: commit.body,
+      workspaceId,
+      workpieceId,
+    };
+  }
   emitUploadStatus("done", {
     safeToLeave: true,
     progressPct: 100,
@@ -1274,8 +1315,125 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
     createdCradle,
     plannerRecordingSessionId,
     captureSessionId,
+    mediaRevision,
+    mediaHash,
+    mediaBytes: input.bytes.byteLength,
+    mediaContentType: contentType,
     status: commit.status,
   };
+}
+
+export type RecordingAuthorityOutcome = {
+  ok: boolean;
+  outcome: "saved" | "duplicate" | "stale" | "conflict" | "denied" | "not_found" | "unavailable" | "malformed";
+  completionId?: string;
+  keepId?: string;
+  reason?: string;
+  details?: unknown;
+};
+
+function readAuthorityRowId(value: unknown, key: "completion" | "keep"): string | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = (value as Record<string, unknown>)[key];
+  if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+  return normalizeUuid((row as Record<string, unknown>).id);
+}
+
+export async function transitionRecordingCompleted(input: {
+  commit: Extract<RecordingCommitResult, { ok: true }>;
+  durationMs?: number | null;
+}): Promise<RecordingAuthorityOutcome> {
+  const ready = (window as any).__forgeCanonicalReadyScript as Record<string, unknown> | undefined;
+  const asr = (window as any).__tpCanonicalAsrAuthority as Record<string, unknown> | undefined;
+  const readyWorkspace = normalizeUuid(ready?.workspaceId);
+  const readyWorkpiece = normalizeUuid(ready?.workpieceId);
+  const readyTransition = normalizeUuid(ready?.transitionId);
+  const scriptPath = readString(ready?.path);
+  const scriptRevision = typeof ready?.scriptRevision === "number" && Number.isInteger(ready.scriptRevision) ? ready.scriptRevision : null;
+  const scriptHash = readString(ready?.scriptHash)?.toLowerCase() ?? null;
+  const unresolved = Array.isArray(asr?.unresolvedSkippedLines) ? asr.unresolvedSkippedLines : null;
+  const terminal = asr?.terminalCompleted === true;
+  if (!readyWorkspace || readyWorkpiece !== input.commit.workpieceId || !readyTransition || !scriptPath
+      || !scriptRevision || !scriptHash || !/^[0-9a-f]{64}$/.test(scriptHash)
+      || !terminal || !unresolved || unresolved.length !== 0 || input.commit.mediaBytes <= 0) {
+    return { ok: false, outcome: "malformed", reason: "recording_completion_evidence_incomplete" };
+  }
+  const evidence = {
+    schema: "anvil.recording-completion.v1",
+    completed: true,
+    capture_session_id: input.commit.captureSessionId,
+    coverage: {
+      terminal_line_completed: true,
+      unresolved_skipped_line_count: 0,
+      unresolved_skipped_lines: [],
+      covered_lines: Array.isArray(asr?.coveredLines) ? asr.coveredLines : [],
+    },
+    artifact_validation: {
+      ok: true,
+      sha256: input.commit.mediaHash,
+      bytes: input.commit.mediaBytes,
+      content_type: input.commit.mediaContentType,
+      duration_ms: typeof input.durationMs === "number" && Number.isFinite(input.durationMs) ? Math.max(0, Math.round(input.durationMs)) : null,
+      path: input.commit.path,
+    },
+  };
+  const idempotencyKey = `anvil-complete:${input.commit.captureSessionId}:${input.commit.mediaRevision}`;
+  try {
+    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-completion`, {
+      method: "POST",
+      headers: await buildHeaders(getApiToken()),
+      body: JSON.stringify({
+        workspace_id: readyWorkspace, capture_session_id: input.commit.captureSessionId,
+        ready_transition_id: readyTransition, script_path: scriptPath,
+        expected_script_revision: scriptRevision, expected_script_hash: scriptHash,
+        media_path: input.commit.path, expected_media_revision: input.commit.mediaRevision,
+        expected_media_hash: input.commit.mediaHash, idempotency_key: idempotencyKey,
+        completion_evidence: evidence,
+      }),
+    });
+    const body = await readBodyAsJson(response);
+    const data = body && typeof body === "object" && !Array.isArray(body) ? (body as any).data : null;
+    if (!response.ok) {
+      const apiError = extractApiError(body);
+      return { ok: false, outcome: "unavailable", reason: apiError.code ?? "recording_completion_unavailable", details: body };
+    }
+    const outcome = readString(data?.outcome);
+    if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) {
+      return { ok: false, outcome: "malformed", reason: "recording_completion_response_malformed", details: body };
+    }
+    const completionId = readAuthorityRowId(data, "completion");
+    const accepted = (outcome === "saved" || outcome === "duplicate") && !!completionId;
+    return { ok: accepted, outcome: outcome as RecordingAuthorityOutcome["outcome"], ...(completionId ? { completionId } : {}), reason: readString(data?.reason) ?? undefined, details: data };
+  } catch (error) {
+    return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_completion_unavailable" };
+  }
+}
+
+export async function transitionRecordingKept(input: {
+  commit: Extract<RecordingCommitResult, { ok: true }>;
+  completionId: string;
+}): Promise<RecordingAuthorityOutcome> {
+  const ready = (window as any).__forgeCanonicalReadyScript as Record<string, unknown> | undefined;
+  const workspaceId = normalizeUuid(ready?.workspaceId);
+  if (!workspaceId) return { ok: false, outcome: "malformed", reason: "ready_workspace_missing" };
+  const evidence = { schema: "anvil.take-decision.v1", decision: "keep", completion_id: input.completionId, capture_session_id: input.commit.captureSessionId };
+  try {
+    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-keep`, {
+      method: "POST", headers: await buildHeaders(getApiToken()),
+      body: JSON.stringify({ workspace_id: workspaceId, capture_session_id: input.commit.captureSessionId,
+        completion_id: input.completionId, idempotency_key: `anvil-keep:${input.completionId}`, decision_evidence: evidence }),
+    });
+    const body = await readBodyAsJson(response);
+    const data = body && typeof body === "object" && !Array.isArray(body) ? (body as any).data : null;
+    if (!response.ok) return { ok: false, outcome: "unavailable", reason: extractApiError(body).code ?? "recording_keep_unavailable", details: body };
+    const outcome = readString(data?.outcome);
+    const keepId = readAuthorityRowId(data, "keep");
+    const accepted = (outcome === "saved" || outcome === "duplicate") && !!keepId;
+    if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) return { ok: false, outcome: "malformed", reason: "recording_keep_response_malformed", details: body };
+    return { ok: accepted, outcome: outcome as RecordingAuthorityOutcome["outcome"], ...(keepId ? { keepId } : {}), reason: readString(data?.reason) ?? undefined, details: data };
+  } catch (error) {
+    return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_keep_unavailable" };
+  }
 }
 
 export async function appendRecordingDecisionToTongs(

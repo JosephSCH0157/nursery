@@ -1,4 +1,5 @@
 import { computeLineSimilarityFromTokens, normTokens, type MatchResult } from '../../speech/matcher';
+import { restoreCanonicalAsrAuthority } from './canonical-asr-authority';
 import { speechStore } from '../../state/speech-store';
 import { getAsrSettings } from '../speech/speech-store';
 import { ASR_LANE_ASR1, ASR_LANE_ASR2 } from '../../dev/dev-state';
@@ -3544,6 +3545,7 @@ function scheduleCommitTruthProbe(
 }
 
 export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDriver {
+  const canonicalAuthority = restoreCanonicalAsrAuthority();
   emitTsPrimaryMatcherProviderDiagnostic('asr_driver_creation');
   asrPursuitDiagnosticCounters.emitted = 0;
   asrPursuitDiagnosticCounters.coalesced = 0;
@@ -12686,6 +12688,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       clearOvershootSettleLock('target_epoch_advanced');
     }
     try { (window as any).currentIndex = next; } catch {}
+    canonicalAuthority.commitCursor(next, reason, getTotalLines());
     publishSharedCursor(next, reason);
     rememberCommittedBlockFromLine(next);
     if (scriptHashChanged) lastScriptHash = scriptHash;
@@ -14076,6 +14079,38 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       'signal';
     if (!canApplyAsrMovement(`rescue-signal:${source}`, Date.now())) {
       stallRescueRequested = false;
+      return;
+    }
+    const freshBoundedRecoveryTarget = pendingSpeakableBridgeState?.semanticTarget ?? (
+      lastFinalTranscriptAt > 0 && Date.now() - lastFinalTranscriptAt <= 1800 &&
+      Number.isFinite(lastAuthorityMatchBestIdx) && lastAuthorityMatchBestIdx > lastLineIndex + 1
+        ? Math.floor(lastAuthorityMatchBestIdx)
+        : -1
+    );
+    if (
+      freshBoundedRecoveryTarget > lastLineIndex &&
+      asrRuntimeSpeechRunningActual &&
+      !isRunIdentityStale({
+        runKey: pendingSpeakableBridgeState?.runKey ?? lastFinalTranscriptRunKey,
+        runGeneration: pendingSpeakableBridgeState?.runGeneration ?? lastFinalTranscriptRunGeneration,
+      })
+    ) {
+      const previous = lastLineIndex;
+      const target = Math.min(freshBoundedRecoveryTarget, previous + 1);
+      lastLineIndex = target;
+      lastCommittedLine = target;
+      lastFreshProofLine = Math.max(lastFreshProofLine, target);
+      lastForwardCommitAt = Date.now();
+      lastCommitAt = lastForwardCommitAt;
+      markCommitTranscriptCursor(target, lastForwardCommitAt);
+      setCurrentIndex(target, 'pending-bridge-adjacent-release');
+      if (pendingSpeakableBridgeState && target >= pendingSpeakableBridgeState.semanticTarget) {
+        clearPendingSpeakableBridge('bounded_recovery_committed', [`from=${previous}`, `to=${target}`]);
+      } else if (pendingSpeakableBridgeState) {
+        pendingSpeakableBridgeState.semanticFrom = target;
+        pendingSpeakableBridgeState.visualReducedTarget = Math.min(target + 1, pendingSpeakableBridgeState.semanticTarget);
+      }
+      resetNoProgressStreak('pending-bridge-adjacent-release', target);
       return;
     }
     let scheduled = false;
@@ -16617,7 +16652,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         !stagedNoMatchOrOffscript &&
         !hardContradiction &&
         stagedAdjacentProofAllowed;
-      if (adjacentReductionDecision.shouldReduce || stagedAdjacentProgressionLaneEligible) {
+      const finalSpeechBackedAdjacentRelease =
+        !!args.finalPacketFresh && speechFresh && !!args.speechRunningActual &&
+        equivalentBridgeTarget > current + 1 && !hardContradiction;
+      if (adjacentReductionDecision.shouldReduce || stagedAdjacentProgressionLaneEligible || finalSpeechBackedAdjacentRelease) {
         try {
           console.warn(
             `[ASR_LIVE_BRIDGE_REDUCED_TO_ADJACENT] current=${current} requested=${requestedTarget} target=${bridgeReducedTarget} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} reason=${adjacentReductionDecision.shouldReduce ? 'live_bridge_single_step_policy' : 'adjacent_safe_semantic_progression_lane'}`,
@@ -16633,6 +16671,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           } catch {}
         }
         reducedTarget = bridgeReducedTarget;
+        canonicalAuthority.proposeRecovery(bridgeReducedTarget, 'final_speech_backed_adjacent_release');
       } else {
         const stagedBridgeRepeated = bridgeBlockUntil > commitTs;
         const stagedBridgeOverdue = actualDelayMs >= thresholdMs;
@@ -30726,7 +30765,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         );
       const pendingBridgeBypassCandidate =
         !!pendingSpeakableBridgeState &&
-        pendingSpeakableBridgeState.semanticFrom === lastLineIndex &&
+        pendingSpeakableBridgeState.semanticFrom <= lastLineIndex &&
         pendingSpeakableBridgeState.semanticTarget > lastLineIndex &&
         asrRuntimeSpeechRunningActual &&
         runtimeSpeechFresh &&
@@ -36982,10 +37021,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               effectiveSemanticCommitTargetLine,
             );
           }
+        } else if (
+          effectiveSemanticCommitTargetLine > pendingSpeakableBridgeState.semanticFrom &&
+          effectiveSemanticCommitTargetLine < pendingSpeakableBridgeState.semanticTarget
+        ) {
+          pendingSpeakableBridgeState.semanticFrom = effectiveSemanticCommitTargetLine;
+          pendingSpeakableBridgeState.visualReducedTarget = Math.min(
+            pendingSpeakableBridgeState.semanticTarget,
+            effectiveSemanticCommitTargetLine + 1,
+          );
+          canonicalAuthority.proposeRecovery(
+            pendingSpeakableBridgeState.visualReducedTarget,
+            'pending_speakable_bridge_adjacent_release',
+          );
         } else if (effectiveSemanticCommitTargetLine !== pendingSpeakableBridgeState.semanticFrom) {
-          clearPendingSpeakableBridge('commit_target_diverged', [
-            `commitTarget=${effectiveSemanticCommitTargetLine}`,
-          ]);
+          clearPendingSpeakableBridge('commit_target_diverged', [`commitTarget=${effectiveSemanticCommitTargetLine}`]);
         }
       }
       if (effectiveSemanticCommitTargetLine > prevLineIndex && strictTargetHasFreshProof) {

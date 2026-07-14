@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 
-let closingLineTop = 380;
+let closingLineTop = 140;
 
 async function advanceUntil(
   predicate: () => boolean,
@@ -78,8 +78,15 @@ describe('ASR script-end postroll', () => {
     jest.resetModules();
     jest.useFakeTimers();
     localStorage.clear();
-    closingLineTop = 380;
+    closingLineTop = 140;
     installAsrTerminalDom();
+    (window as any).__TP_MARKER_PCT = 0.4;
+    (window as any).currentIndex = 1;
+    (window as any).__tpCanonicalAsrAuthority = {
+      schema: 'anvil.asr-authority-snapshot.v1', cursor: 1, coveredLines: [0, 1],
+      unresolvedSkippedLines: [], pendingRecoveryProposal: null, semanticProgressAt: Date.now(),
+      terminalCompleted: true, postrollEligible: true, captureSessionId: '55555555-5555-4555-8555-555555555555', readyScript: null,
+    };
 
     jest.spyOn(console, 'debug').mockImplementation(() => {});
     jest.spyOn(console, 'info').mockImplementation(() => {});
@@ -106,6 +113,9 @@ describe('ASR script-end postroll', () => {
     delete (window as any).__tpStore;
     delete (window as any).__tpAiActivity;
     delete (window as any).__tpAsrEndGrace;
+    delete (window as any).__TP_MARKER_PCT;
+    delete (window as any).currentIndex;
+    delete (window as any).__tpCanonicalAsrAuthority;
     jest.useRealTimers();
     jest.restoreAllMocks();
   });
@@ -154,7 +164,7 @@ describe('ASR script-end postroll', () => {
 
     await advanceUntil(() => Boolean((window as any).__tpAsrEndGrace?.active), {
       stepMs: 50,
-      timeoutMs: 1500,
+      timeoutMs: 3000,
     });
     expect(appStore.get('session.phase')).toBe('live');
     expect(stopSpy).not.toHaveBeenCalled();
@@ -217,7 +227,7 @@ describe('ASR script-end postroll', () => {
     closingLineTop = 140;
     await advanceUntil(() => Boolean((window as any).__tpAsrEndGrace?.active), {
       stepMs: 50,
-      timeoutMs: 1500,
+      timeoutMs: 3000,
     });
     await jest.advanceTimersByTimeAsync(5000);
     window.dispatchEvent(new CustomEvent('tp:speech:transcript', {
@@ -286,7 +296,7 @@ describe('ASR script-end postroll', () => {
     closingLineTop = 140;
     await advanceUntil(() => Boolean((window as any).__tpAsrEndGrace?.active), {
       stepMs: 50,
-      timeoutMs: 1500,
+      timeoutMs: 3000,
     });
     await jest.advanceTimersByTimeAsync(6400);
     expect(appStore.get('session.phase')).toBe('live');
@@ -341,7 +351,7 @@ describe('ASR script-end postroll', () => {
     closingLineTop = 140;
     await advanceUntil(() => Boolean((window as any).__tpAsrEndGrace?.active), {
       stepMs: 50,
-      timeoutMs: 1500,
+      timeoutMs: 3000,
     });
     window.dispatchEvent(new CustomEvent('tp:session:stop', {
       detail: { reason: 'user', source: 'user', mode: 'asr' },

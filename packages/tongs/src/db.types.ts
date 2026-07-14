@@ -1304,6 +1304,28 @@ export type Database = {
       }
     }
     Views: {
+      current_workpiece_recorded_takes: {
+        Row: {
+          workspace_id: string
+          workpiece_id: string
+          capture_session_id: string
+          completion_id: string
+          keep_id: string
+          ready_transition_id: string
+          script_revision: number
+          script_hash: string
+          media_path: string
+          media_revision: number
+          media_hash: string
+          completion_evidence: Json
+          decision_evidence: Json
+          completed_at: string
+          kept_at: string
+          completed_by: string
+          kept_by: string
+        }
+        Relationships: []
+      }
       current_workpiece_ready_scripts: {
         Row: {
           workspace_id: string
