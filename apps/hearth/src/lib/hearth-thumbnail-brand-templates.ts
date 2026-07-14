@@ -632,7 +632,7 @@ export function loadWorkspaceThumbnailBrandLogoPreview(args: {
 
   const request = (async (): Promise<LoadWorkspaceThumbnailBrandLogoPreviewResult> => {
     const response = await tongsFetch(
-      `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(assetPath)}&encoding=base64`,
+      `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(assetPath)}&encoding=base64&optional=1`,
       { method: "GET" },
     );
     const payload = await readResponseJson(response);

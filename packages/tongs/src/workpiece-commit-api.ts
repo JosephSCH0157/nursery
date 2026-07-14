@@ -13274,6 +13274,7 @@ export function createTongsCommitApiHandlerWithService(
         const url = new URL(request.url);
         const path = normalizeRelativePath(url.searchParams.get("path"));
         const encoding = (url.searchParams.get("encoding") ?? "").trim().toLowerCase();
+        const optionalRead = url.searchParams.get("optional") === "1";
 
         if (encoding === "binary") {
           const binaryCapableService = service as TongsCommitApiService & {
@@ -13291,7 +13292,7 @@ export function createTongsCommitApiHandlerWithService(
                 : { found: false as const }
             ));
           if (!result.found) {
-            return jsonResponse(404, {
+            return jsonResponse(optionalRead ? 200 : 404, {
               ok: true,
               exists: false,
             });
@@ -13310,7 +13311,7 @@ export function createTongsCommitApiHandlerWithService(
         if (encoding === "base64") {
           const result = await service.readWorkpieceBinary(workpieceId, path);
           if (!result.found) {
-            return jsonResponse(404, {
+            return jsonResponse(optionalRead ? 200 : 404, {
               ok: true,
               exists: false,
             });
