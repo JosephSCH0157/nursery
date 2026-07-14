@@ -260,7 +260,10 @@ import {
   resolveActiveVisualProvider,
   type VisualProviderId,
 } from "../lib/hearth-visual-provider-profiles";
-import { buildMediaMapFromExistingPlans } from "../lib/hearth-media-map-builder";
+import {
+  buildMediaMapFromExistingPlans,
+  deriveFullMediaBudgetPolicy,
+} from "../lib/hearth-media-map-builder";
 import type {
   EpisodeBrollDataVisualSpec,
   EpisodeExternalRequestState,
@@ -7036,6 +7039,7 @@ export default function HearthShell({
       message: mediaMapMessage,
       disabled: isApprovingScript || isMediaMapBusy || !episodePackage,
       generationScope: mediaMapGenerationScope,
+      budgetPolicy: deriveFullMediaBudgetPolicy({ wordCount }),
       draft: {
         type: mediaMapTypeDraft,
         anchorMode: mediaMapAnchorModeDraft,

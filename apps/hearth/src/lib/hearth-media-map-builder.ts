@@ -9,8 +9,7 @@ import {
 import type { MediaMapGenerationScope } from "./hearth-media-map-conversation";
 
 const MAX_MEDIA_MAP_VISUALS = 18;
-const FULL_MEDIA_MAX_PLACEMENTS = 16;
-const FULL_MEDIA_DEFAULT_MOTION_BUDGET = 2;
+export const HEARTH_DEFAULT_NARRATION_WPM = 150;
 const MOTION_OR_PROCESS_SIGNAL_RE = /\b(motion|move|moving|camera|pan|zoom|tracking|walk|run|drive|flow|process|workflow|sequence|timeline|action|transition)\b/i;
 const STATIC_OR_EXPLAINER_SIGNAL_RE = /\b(static|still|diagram|explainer|explain|emphasis|concept|graphic|chart|map|label|text)\b/i;
 const HIGH_VALUE_MOTION_SIGNAL_RE = /\b(harvest|harvesting|pick(?:ing)?|packing(?:\s+line)?|machinery|conveyor|drive|driving|hurricane|storm|wind|flood|handling|processing|operation|moving|transition)\b/i;
@@ -108,6 +107,78 @@ export type MediaMapModalitySummary = {
   generationBurden: "Low" | "Moderate" | "High";
 };
 
+export type FullMediaDurationSource = "explicit_expected_duration" | "configured_narration_wpm" | "default_narration_wpm";
+
+export type FullMediaBudgetPolicy = {
+  estimatedDurationSec: number;
+  durationSource: FullMediaDurationSource;
+  narrationWpm: number;
+  wordCount: number | null;
+  targetPlacements: number;
+  minimumPlacements: number;
+  maximumPlacements: number;
+  defaultMotionAllowance: number;
+};
+
+function countSpeakableWords(scriptText: string): number {
+  const withoutTags = scriptText.replace(/\[[^\]]+\]/g, " ");
+  return withoutTags.match(/\b[\p{L}\p{N}'’-]+\b/gu)?.length ?? 0;
+}
+
+export function deriveFullMediaBudgetPolicy(args: {
+  expectedDurationSec?: number | null;
+  scriptText?: string | null;
+  wordCount?: number | null;
+  narrationWpm?: number | null;
+}): FullMediaBudgetPolicy {
+  const explicitDuration = Number(args.expectedDurationSec);
+  const configuredWpm = Number(args.narrationWpm);
+  const narrationWpm = Number.isFinite(configuredWpm) && configuredWpm >= 60 && configuredWpm <= 260
+    ? configuredWpm
+    : HEARTH_DEFAULT_NARRATION_WPM;
+  const explicitWordCount = Number(args.wordCount);
+  const wordCount = Number.isFinite(explicitWordCount) && explicitWordCount > 0
+    ? Math.trunc(explicitWordCount)
+    : args.scriptText
+      ? countSpeakableWords(args.scriptText)
+      : 0;
+  const hasExplicitDuration = Number.isFinite(explicitDuration) && explicitDuration > 0;
+  const estimatedDurationSec = hasExplicitDuration
+    ? explicitDuration
+    : wordCount > 0
+      ? (wordCount / narrationWpm) * 60
+      : 9 * 60;
+  const durationSource: FullMediaDurationSource = hasExplicitDuration
+    ? "explicit_expected_duration"
+    : narrationWpm !== HEARTH_DEFAULT_NARRATION_WPM
+      ? "configured_narration_wpm"
+      : "default_narration_wpm";
+  const durationMinutes = Math.max(0.25, estimatedDurationSec / 60);
+  const minimumPlacements = durationMinutes <= 3
+    ? Math.max(1, Math.floor(durationMinutes))
+    : Math.max(1, Math.floor(durationMinutes * 1.2) + (durationMinutes >= 24 ? 0 : 2));
+  const maximumPlacements = durationMinutes <= 3
+    ? Math.max(minimumPlacements, Math.ceil(durationMinutes * 1.5))
+    : Math.max(minimumPlacements, Math.ceil(durationMinutes * 1.4) + (durationMinutes >= 24 ? 1 : 2));
+  const targetPlacements = Math.min(
+    maximumPlacements,
+    Math.max(minimumPlacements, Math.round(durationMinutes * 1.35)),
+  );
+  const durationMotionAllowance = Math.max(1, Math.ceil(durationMinutes / 4.5));
+  const placementMotionCap = Math.floor(maximumPlacements * 0.2);
+  const defaultMotionAllowance = Math.max(0, Math.min(durationMotionAllowance, placementMotionCap));
+  return {
+    estimatedDurationSec,
+    durationSource,
+    narrationWpm,
+    wordCount: wordCount || null,
+    targetPlacements,
+    minimumPlacements,
+    maximumPlacements,
+    defaultMotionAllowance,
+  };
+}
+
 export function summarizeMediaMapModalities(entries: readonly EpisodeMediaMapEntry[]): MediaMapModalitySummary {
   const referenceClips = entries.filter((entry) => entry.fulfillment_path === "reference_clip").length;
   const dataComposites = entries.filter((entry) => entry.final_media_kind === "contextual_data_composite" && entry.fulfillment_path !== "reference_clip").length;
@@ -125,7 +196,11 @@ export function summarizeMediaMapModalities(entries: readonly EpisodeMediaMapEnt
   };
 }
 
-export function selectBalancedFullMediaEntries(entries: EpisodeMediaMapEntry[], options: { videoHeavy?: boolean } = {}): EpisodeMediaMapEntry[] {
+export function selectBalancedFullMediaEntries(
+  entries: EpisodeMediaMapEntry[],
+  options: { videoHeavy?: boolean; budgetPolicy?: FullMediaBudgetPolicy } = {},
+): EpisodeMediaMapEntry[] {
+  const budgetPolicy = options.budgetPolicy ?? deriveFullMediaBudgetPolicy({});
   const consolidated = consolidateEquivalentSubjects(entries);
   const references = consolidated.filter(isReferenceEntry);
   const replacedIds = new Set<string>();
@@ -142,7 +217,12 @@ export function selectBalancedFullMediaEntries(entries: EpisodeMediaMapEntry[], 
   const motion = eligible
     .filter((entry) => entry.final_media_kind === "b_roll" && !isExistingEntry(entry))
     .sort((left, right) => motionSelectionScore(right) - motionSelectionScore(left));
-  const motionBudget = options.videoHeavy ? 4 : FULL_MEDIA_DEFAULT_MOTION_BUDGET;
+  const motionBudget = options.videoHeavy
+    ? Math.max(budgetPolicy.defaultMotionAllowance, Math.min(
+        Math.ceil(budgetPolicy.estimatedDurationSec / 60 / 3),
+        Math.floor(budgetPolicy.maximumPlacements * 0.3),
+      ))
+    : budgetPolicy.defaultMotionAllowance;
   const selectedMotion = motion
     .filter((entry) => motionSelectionScore(entry) > 0)
     .slice(0, motionBudget);
@@ -150,7 +230,7 @@ export function selectBalancedFullMediaEntries(entries: EpisodeMediaMapEntry[], 
   const selected: EpisodeMediaMapEntry[] = [...references, ...existing, ...selectedMotion];
   const selectedIds = new Set(selected.map((entry) => entry.id));
   for (const image of images) {
-    if (selected.length >= FULL_MEDIA_MAX_PLACEMENTS) break;
+    if (selected.length >= budgetPolicy.maximumPlacements) break;
     if (!selectedIds.has(image.id)) {
       selected.push(image);
       selectedIds.add(image.id);
@@ -160,7 +240,7 @@ export function selectBalancedFullMediaEntries(entries: EpisodeMediaMapEntry[], 
   // If the image planner was sparse, static B-roll candidates become still-image
   // treatments for the same beat rather than inflating the motion plan.
   for (const candidate of motion) {
-    if (selected.length >= FULL_MEDIA_MAX_PLACEMENTS) break;
+    if (selected.length >= budgetPolicy.maximumPlacements) break;
     if (selectedIds.has(candidate.id) || selectedMotion.some((entry) => entry.id === candidate.id)) continue;
     selected.push({
       ...candidate,
@@ -172,7 +252,7 @@ export function selectBalancedFullMediaEntries(entries: EpisodeMediaMapEntry[], 
 
   const sourceOrder = new Map(entries.map((entry, index) => [entry.id, index] as const));
   return selected
-    .slice(0, FULL_MEDIA_MAX_PLACEMENTS)
+    .slice(0, budgetPolicy.maximumPlacements)
     .sort((left, right) => {
       const leftSourceId = left.id.replace(/^mm_still_/, "mm_broll_");
       const rightSourceId = right.id.replace(/^mm_still_/, "mm_broll_");
@@ -182,13 +262,20 @@ export function selectBalancedFullMediaEntries(entries: EpisodeMediaMapEntry[], 
 
 export function validateFullMediaDistribution(
   entries: readonly EpisodeMediaMapEntry[],
-  options: { videoHeavy?: boolean } = {},
+  options: { videoHeavy?: boolean; budgetPolicy?: FullMediaBudgetPolicy } = {},
 ): { ok: true } | { ok: false; error: string } {
   const summary = summarizeMediaMapModalities(entries);
+  const budgetPolicy = options.budgetPolicy ?? deriveFullMediaBudgetPolicy({});
   if (summary.total === 0) return { ok: false, error: "Full Media produced no usable placements." };
   const motionBudget = options.videoHeavy
-    ? Math.max(4, Math.floor(summary.total * 0.45))
-    : FULL_MEDIA_DEFAULT_MOTION_BUDGET;
+    ? Math.max(
+        budgetPolicy.defaultMotionAllowance,
+        Math.min(
+          Math.ceil(budgetPolicy.estimatedDurationSec / 60 / 3),
+          Math.floor(Math.max(summary.total, budgetPolicy.maximumPlacements) * 0.3),
+        ),
+      )
+    : Math.min(budgetPolicy.defaultMotionAllowance, Math.floor(summary.total * 0.2));
   if (summary.generatedMotionBroll > motionBudget) {
     return { ok: false, error: `Full Media exceeded its motion budget (${summary.generatedMotionBroll}/${motionBudget}).` };
   }
@@ -372,7 +459,7 @@ export function buildMediaMapFromExistingPlans(
   current: EpisodePackageV2,
   scriptVersionId: string | null,
   scope: MediaMapGenerationScope,
-  options: { videoHeavy?: boolean } = {},
+  options: { videoHeavy?: boolean; budgetPolicy?: FullMediaBudgetPolicy } = {},
 ): EpisodeMediaMap {
   const nowIso = new Date().toISOString();
   const thumbnailVersionByConceptId = new Map<string, EpisodeThumbnailVersion>();

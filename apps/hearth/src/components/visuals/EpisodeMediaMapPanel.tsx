@@ -8,6 +8,7 @@ import {
 } from "../../lib/hearth-media-map-conversation";
 import { formatHearthVisualPurposeLabel } from "../../lib/hearth-visual-purpose";
 import { summarizeMediaMapModalities } from "../../lib/hearth-media-map-builder";
+import type { FullMediaBudgetPolicy } from "../../lib/hearth-media-map-builder";
 
 type EpisodeMediaMapPanelProps = {
   entries: EpisodeMediaMapEntry[];
@@ -20,6 +21,7 @@ type EpisodeMediaMapPanelProps = {
   message: string | null;
   disabled?: boolean;
   generationScope: string;
+  budgetPolicy: FullMediaBudgetPolicy;
   draft: {
     type: string;
     anchorMode: string;
@@ -271,6 +273,10 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
   );
   const beatCards = useMemo(() => buildMediaMapBeatCards(props.entries), [props.entries]);
   const modalitySummary = useMemo(() => summarizeMediaMapModalities(props.entries), [props.entries]);
+  const estimatedMinutes = Math.max(0.1, props.budgetPolicy.estimatedDurationSec / 60);
+  const cadenceSeconds = props.entries.length > 0
+    ? Math.round(props.budgetPolicy.estimatedDurationSec / props.entries.length)
+    : null;
   const [selectedDirectionId, setSelectedDirectionId] = useState<MediaMapConversationDirectionId | null>(null);
   const [constraintsText, setConstraintsText] = useState("");
   const [showPlanningConversation, setShowPlanningConversation] = useState(props.entries.length === 0);
@@ -331,6 +337,10 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
         <span className="hs-pill">Reference clips: {modalitySummary.referenceClips}</span>
         <span className="hs-pill">Data/graphics: {modalitySummary.dataComposites}</span>
         <span className="hs-pill">Generation burden: {modalitySummary.generationBurden}</span>
+        <span className="hs-pill">Sized for: {estimatedMinutes.toFixed(1)} min</span>
+        <span className="hs-pill">Target: {props.budgetPolicy.minimumPlacements}-{props.budgetPolicy.maximumPlacements}</span>
+        <span className="hs-pill">Motion allowance: {props.budgetPolicy.defaultMotionAllowance}</span>
+        {cadenceSeconds != null ? <span className="hs-pill">Cadence: {cadenceSeconds}s/placement</span> : null}
         <span className="hs-pill">Map: {props.mapStatus}</span>
         <span className="hs-pill">State: {props.saveState}</span>
         {props.entries.length > 0 ? (

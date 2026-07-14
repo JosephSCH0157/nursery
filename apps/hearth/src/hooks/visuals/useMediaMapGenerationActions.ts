@@ -10,6 +10,7 @@ import type { EpisodeMediaMap, EpisodePackageV2 } from "../../lib/episode-packag
 import {
   summarizeMediaMapModalities,
   validateFullMediaDistribution,
+  type FullMediaBudgetPolicy,
 } from "../../lib/hearth-media-map-builder";
 import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 
@@ -24,6 +25,7 @@ type PrepareSourceEpisodePackageResult =
     bootstrappedImageCount: number;
     bootstrappedBrollCount: number;
     bootstrappedReferenceClipCount: number;
+    budgetPolicy: FullMediaBudgetPolicy;
   }
   | { ok: false; error: string };
 
@@ -44,7 +46,7 @@ type UseMediaMapGenerationActionsArgs = {
     packageSource: EpisodePackageV2,
     scriptVersionId: string | null,
     scope: MediaMapGenerationScope,
-    options?: { videoHeavy?: boolean },
+    options?: { videoHeavy?: boolean; budgetPolicy?: FullMediaBudgetPolicy },
   ) => EpisodeMediaMap;
   persistMediaMap: (args: {
     map: EpisodeMediaMap;
@@ -76,6 +78,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
         prepared.episodePackage,
         scriptVersionId,
         args.mediaMapGenerationScope,
+        { budgetPolicy: prepared.budgetPolicy },
       );
       if (nextMap.entries.length === 0) {
         args.setMediaMapSaveState("saved");
@@ -83,7 +86,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
         return;
       }
       if (args.mediaMapGenerationScope === "full_media_plan") {
-        const validation = validateFullMediaDistribution(nextMap.entries);
+        const validation = validateFullMediaDistribution(nextMap.entries, { budgetPolicy: prepared.budgetPolicy });
         if (!validation.ok) {
           args.setMediaMapSaveError(validation.error);
           args.setMediaMapSaveState("error");
@@ -105,6 +108,15 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
           reference_clip_count: modalitySummary.referenceClips,
           data_composite_count: modalitySummary.dataComposites,
           generation_burden: modalitySummary.generationBurden.toLowerCase(),
+          estimated_duration_sec: Math.round(prepared.budgetPolicy.estimatedDurationSec),
+          duration_source: prepared.budgetPolicy.durationSource,
+          target_placement_min: prepared.budgetPolicy.minimumPlacements,
+          target_placement_target: prepared.budgetPolicy.targetPlacements,
+          target_placement_max: prepared.budgetPolicy.maximumPlacements,
+          default_motion_allowance: prepared.budgetPolicy.defaultMotionAllowance,
+          visual_cadence_sec_per_placement: nextMap.entries.length > 0
+            ? Math.round(prepared.budgetPolicy.estimatedDurationSec / nextMap.entries.length)
+            : null,
         },
         baseEpisodePackage: prepared.episodePackage,
       });
@@ -161,7 +173,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
         prepared.episodePackage,
         scriptVersionId,
         conversationScope,
-        { videoHeavy: videoHeavyRequested },
+        { videoHeavy: videoHeavyRequested, budgetPolicy: prepared.budgetPolicy },
       );
       if (generatedMap.entries.length === 0) {
         args.setMediaMapSaveState("saved");
@@ -171,6 +183,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
       if (conversationScope === "full_media_plan") {
         const validation = validateFullMediaDistribution(generatedMap.entries, {
           videoHeavy: videoHeavyRequested,
+          budgetPolicy: prepared.budgetPolicy,
         });
         if (!validation.ok) {
           args.setMediaMapSaveError(validation.error);
@@ -204,6 +217,15 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
           reference_clip_count: modalitySummary.referenceClips,
           data_composite_count: modalitySummary.dataComposites,
           generation_burden: modalitySummary.generationBurden.toLowerCase(),
+          estimated_duration_sec: Math.round(prepared.budgetPolicy.estimatedDurationSec),
+          duration_source: prepared.budgetPolicy.durationSource,
+          target_placement_min: prepared.budgetPolicy.minimumPlacements,
+          target_placement_target: prepared.budgetPolicy.targetPlacements,
+          target_placement_max: prepared.budgetPolicy.maximumPlacements,
+          default_motion_allowance: prepared.budgetPolicy.defaultMotionAllowance,
+          visual_cadence_sec_per_placement: activatedMap.entries.length > 0
+            ? Math.round(prepared.budgetPolicy.estimatedDurationSec / activatedMap.entries.length)
+            : null,
         },
         baseEpisodePackage: prepared.episodePackage,
       });

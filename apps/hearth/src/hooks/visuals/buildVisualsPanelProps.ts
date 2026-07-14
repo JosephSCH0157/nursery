@@ -16,6 +16,7 @@ import type {
   MediaMapGenerationScope,
 } from "../../lib/hearth-media-map-conversation";
 import type { ImageMapScriptSelection } from "../../lib/hearth-image-map-beats";
+import type { FullMediaBudgetPolicy } from "../../lib/hearth-media-map-builder";
 import { normalizeEpisodeThumbnailTitleStyle } from "../../lib/hearth-title-fonts";
 import type { TitleFontPreset, TitleShadowStrength } from "../../lib/hearth-title-fonts";
 
@@ -35,6 +36,7 @@ type BuildMediaMapPanelArgs = {
   message: string | null;
   disabled: boolean;
   generationScope: MediaMapGenerationScope;
+  budgetPolicy: FullMediaBudgetPolicy;
   draft: MediaMapPanelProps["draft"];
   conversationState: MediaMapPanelProps["conversation"]["state"];
   conversationSeed: MediaMapConversationSeed | null;
@@ -284,6 +286,7 @@ export function buildMediaMapPanelProps(args: BuildMediaMapPanelArgs): MediaMapP
     message: args.message,
     disabled: args.disabled,
     generationScope: args.generationScope,
+    budgetPolicy: args.budgetPolicy,
     draft: args.draft,
     conversation: {
       state: args.conversationState,

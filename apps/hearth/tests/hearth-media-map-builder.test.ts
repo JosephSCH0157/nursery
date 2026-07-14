@@ -8,6 +8,7 @@ import {
 import {
   buildMediaMapFromExistingPlans,
   dedupeVisualAssetsByAnchor,
+  deriveFullMediaBudgetPolicy,
   selectBalancedFullMediaEntries,
   summarizeMediaMapModalities,
   validateFullMediaDistribution,
@@ -497,6 +498,106 @@ test("hearthMediaMapBuilder: explicit video-heavy planning permits a bounded lar
   const defaultMap = buildMediaMapFromExistingPlans(packageSource, "script-1", "full_media_plan");
   const videoHeavyMap = buildMediaMapFromExistingPlans(packageSource, "script-1", "full_media_plan", { videoHeavy: true });
   assert.equal(summarizeMediaMapModalities(defaultMap.entries).generatedMotionBroll, 2);
-  assert.equal(summarizeMediaMapModalities(videoHeavyMap.entries).generatedMotionBroll, 4);
+  assert.equal(summarizeMediaMapModalities(videoHeavyMap.entries).generatedMotionBroll, 3);
   assert.equal(validateFullMediaDistribution(videoHeavyMap.entries, { videoHeavy: true }).ok, true);
+});
+
+test("hearthMediaMapBuilder: duration policy scales standard and long documentary budgets", () => {
+  const standard = deriveFullMediaBudgetPolicy({ expectedDurationSec: 9 * 60 });
+  const long = deriveFullMediaBudgetPolicy({ expectedDurationSec: 18.5 * 60 });
+  assert.ok(standard.minimumPlacements >= 10 && standard.maximumPlacements <= 16);
+  assert.equal(standard.defaultMotionAllowance, 2);
+  assert.ok(long.minimumPlacements >= 22 && long.maximumPlacements <= 30);
+  assert.ok(long.maximumPlacements > 16);
+  assert.ok(long.defaultMotionAllowance >= 4 && long.defaultMotionAllowance <= 5);
+  assert.ok(long.maximumPlacements > standard.maximumPlacements);
+  assert.ok(long.defaultMotionAllowance > standard.defaultMotionAllowance);
+});
+
+test("hearthMediaMapBuilder: doubling approved-script length increases both budgets", () => {
+  const shorter = deriveFullMediaBudgetPolicy({ wordCount: 1_350, narrationWpm: 150 });
+  const doubled = deriveFullMediaBudgetPolicy({ wordCount: 2_700, narrationWpm: 150 });
+  assert.equal(shorter.durationSource, "default_narration_wpm");
+  assert.equal(doubled.estimatedDurationSec, shorter.estimatedDurationSec * 2);
+  assert.ok(doubled.maximumPlacements > shorter.maximumPlacements);
+  assert.ok(doubled.defaultMotionAllowance > shorter.defaultMotionAllowance);
+
+  const explicit = deriveFullMediaBudgetPolicy({
+    expectedDurationSec: 19 * 60,
+    wordCount: 100,
+    narrationWpm: 200,
+  });
+  assert.equal(explicit.durationSource, "explicit_expected_duration");
+  assert.equal(explicit.estimatedDurationSec, 19 * 60);
+});
+
+test("hearthMediaMapBuilder: a long episode is not capped at sixteen meaningful placements", () => {
+  const base = createEmptyEpisodePackageV2();
+  const budgetPolicy = deriveFullMediaBudgetPolicy({ expectedDurationSec: 18.5 * 60 });
+  const imageEntries = Array.from({ length: 18 }, (_, index) => createImageEntry(index + 1, {
+    anchor: `Distinct historical subject ${index + 1}`,
+    beat_anchor: null,
+    description: `Documentary still for distinct historical subject ${index + 1}`,
+  }));
+  const motionDescriptions = [
+    "Workers harvesting oranges into field bins",
+    "Packing machinery sorting fruit on conveyors",
+    "Driving through a grove at sunrise",
+    "Hurricane wind bending citrus trees",
+    "Forklift handling crates in a warehouse",
+    "Irrigation water flowing between grove rows",
+    "Crew loading fruit onto transport trucks",
+    "Storm water moving through drainage canals",
+    "Mechanical juicing process inside a plant",
+    "Landscape transition across abandoned grove land",
+    "Cold wind moving frost cloth over young trees",
+    "Harvest baskets traveling down a packing line",
+    "Truck driving away from a roadside stand",
+    "Workers pruning branches in an active grove",
+    "Rain bands crossing an agricultural field",
+    "Fruit handling operation at a loading dock",
+    "Conveyor carrying oranges beneath inspection lights",
+    "Grower walking between damaged citrus rows",
+  ];
+  const map = buildMediaMapFromExistingPlans({
+    ...base,
+    image_map: { entries: imageEntries },
+    broll_plan: {
+      ...base.broll_plan,
+      beats: motionDescriptions.map((description, index) => createBrollBeat(index + 1, description, { description })),
+    },
+  }, "script-long", "full_media_plan", { budgetPolicy });
+  const summary = summarizeMediaMapModalities(map.entries);
+  assert.ok(summary.total > 16);
+  assert.ok(summary.total <= budgetPolicy.maximumPlacements);
+  assert.ok(summary.generatedMotionBroll <= budgetPolicy.defaultMotionAllowance);
+  assert.ok(summary.images > summary.generatedMotionBroll);
+});
+
+test("hearthMediaMapBuilder: word count, not speaker-block count, controls estimated duration", () => {
+  const words = Array.from({ length: 300 }, (_, index) => `word${index}`).join(" ");
+  const oneBlock = deriveFullMediaBudgetPolicy({ scriptText: `[s1]\n${words}\n[/s1]` });
+  const manyBlocks = deriveFullMediaBudgetPolicy({ scriptText: Array.from({ length: 30 }, (_, index) => `[s1]\n${words.split(" ").slice(index * 10, index * 10 + 10).join(" ")}\n[/s1]`).join("\n") });
+  assert.equal(oneBlock.wordCount, manyBlocks.wordCount);
+  assert.equal(oneBlock.estimatedDurationSec, manyBlocks.estimatedDurationSec);
+  assert.equal(oneBlock.maximumPlacements, manyBlocks.maximumPlacements);
+});
+
+test("hearthMediaMapBuilder: short scripts stay small and sparse candidates are not padded to quota", () => {
+  const shortPolicy = deriveFullMediaBudgetPolicy({ expectedDurationSec: 60 });
+  assert.ok(shortPolicy.maximumPlacements <= 2);
+  const base = createEmptyEpisodePackageV2();
+  const standardPolicy = deriveFullMediaBudgetPolicy({ expectedDurationSec: 9 * 60 });
+  const map = buildMediaMapFromExistingPlans({
+    ...base,
+    image_map: {
+      entries: ["Historic grove portrait", "Roadside citrus stand", "Greening symptom closeup"].map((subject, index) => createImageEntry(index + 1, {
+        anchor: subject,
+        beat_anchor: null,
+        description: subject,
+      })),
+    },
+  }, "script-sparse", "full_media_plan", { budgetPolicy: standardPolicy });
+  assert.equal(map.entries.length, 3);
+  assert.ok(map.entries.length < standardPolicy.minimumPlacements);
 });
