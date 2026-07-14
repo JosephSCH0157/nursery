@@ -68,8 +68,19 @@ test("validated publish sends the exact server revision/hash to Ready authority"
     assert.equal(transition.expected_script_hash, HASH);
     assert.equal(transition.workspace_id, WORKSPACE_ID);
     assert.equal(transition.script_path, "script/script.md");
+    assert.deepEqual(transition.publish_evidence, {
+      transition: "hearth.script.published.v1",
+      script_path: "script/script.md",
+      script_revision: 4,
+      script_hash: HASH,
+      validation: {
+        validator_version: "shared-script-tags-v1",
+        ok: true,
+        issue_count: 0,
+      },
+    });
     assert.deepEqual((transition.publish_evidence as { validation?: unknown }).validation, {
-      validator: "shared-script-tags-v1",
+      validator_version: "shared-script-tags-v1",
       ok: true,
       issue_count: 0,
     });

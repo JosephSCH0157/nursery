@@ -3373,8 +3373,10 @@ test("POST /tongs/workpieces/:id/ready-transition forwards exact revision/hash a
         idempotency_key: "hearth-publish:workpiece:7:hash",
         publish_evidence: {
           transition: "hearth.script.published.v1",
-          script: { path: "script/script.md", revision: 7, hash: "a".repeat(64) },
-          validation: { validator: "shared-script-tags-v1", ok: true, issue_count: 0 },
+          script_path: "script/script.md",
+          script_revision: 7,
+          script_hash: "a".repeat(64),
+          validation: { validator_version: "shared-script-tags-v1", ok: true, issue_count: 0 },
         },
       }),
     },

@@ -219,9 +219,11 @@ export async function commitHearthPrimaryScript(
         idempotency_key: idempotencyKey,
         publish_evidence: {
           transition: "hearth.script.published.v1",
-          script: { path: PRIMARY_SCRIPT_PATH, revision, hash },
+          script_path: PRIMARY_SCRIPT_PATH,
+          script_revision: revision,
+          script_hash: hash,
           validation: {
-            validator: validatorVersion,
+            validator_version: validatorVersion,
             ok: true,
             issue_count: validation.issues.length,
           },
