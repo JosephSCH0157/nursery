@@ -170,6 +170,13 @@ import {
   detectHearthScriptMutationIntent,
 } from "../lib/hearth-script-mutation";
 import {
+  buildHearthFormatOnlyPreview,
+  confirmHearthUserEditorialTransition,
+  evaluateHearthFormatOnlyPreservation,
+  formatHearthPreservationChanges,
+  type HearthFormatOnlyChangeCategory,
+} from "../lib/hearth-format-only";
+import {
   parseHearthDraftConflictError,
 } from "../lib/hearth-draft-persistence";
 import {
@@ -347,7 +354,8 @@ type HearthMode = "sparks" | "episodes" | "ready" | "series" | "focus";
 type UiDensity = "comfortable" | "compact";
 type FocusTab = "draft" | "planning" | "sources" | "revisions";
 type AiAutosaveReasonCode = "ai_outline" | "ai_script" | "ai_repair" | "ai_rewrite";
-type AiAutosaveReason = `autosave:${AiAutosaveReasonCode}`;
+type ProposalSaveReasonCode = AiAutosaveReasonCode | "format_only" | "user_editorial";
+type ProposalAutosaveReason = `autosave:${ProposalSaveReasonCode}`;
 type ForgeNoticeSeverity = "info" | "success" | "warning" | "error";
 type ForgeNoticeJob =
   | "image-generated"
@@ -1502,7 +1510,7 @@ function buildAssistantMessageContent(args: {
   return "I’m ready when you are.";
 }
 
-function toAiAutosaveReason(reasonCode: AiAutosaveReasonCode): AiAutosaveReason {
+function toProposalAutosaveReason(reasonCode: ProposalSaveReasonCode): ProposalAutosaveReason {
   return `autosave:${reasonCode}`;
 }
 
@@ -1660,8 +1668,26 @@ type PendingAiProposal = {
   selected: boolean[];
   context: EpisodeContext;
   fromGate: boolean;
-  autosaveReasonCode: AiAutosaveReasonCode;
+  autosaveReasonCode: ProposalSaveReasonCode;
+  proposalOrigin: "ai" | "format_only" | "user_editorial";
+  formatSourceBody: string | null;
+  formatOriginalBody: string | null;
+  formatChanges: HearthFormatOnlyChangeCategory[];
 };
+
+function reclassifyHearthFormatProposal(
+  proposal: PendingAiProposal,
+  body: string,
+): PendingAiProposal {
+  if (proposal.formatSourceBody === null) return proposal;
+  const preservation = evaluateHearthFormatOnlyPreservation(proposal.formatSourceBody, body);
+  return {
+    ...proposal,
+    proposalOrigin: preservation.preserved ? "format_only" : "user_editorial",
+    autosaveReasonCode: preservation.preserved ? "format_only" : "user_editorial",
+    formatChanges: preservation.changes,
+  };
+}
 
 type ChatAttachmentUi = {
   id: string;
@@ -2502,7 +2528,7 @@ export default function HearthShell({
     queueAiAutosave,
     onRetryAiAutosave,
     noteManualSaveSuccess,
-  } = useHearthAutosave<Draft, AiAutosaveReasonCode, RevisionKind>({
+  } = useHearthAutosave<Draft, ProposalSaveReasonCode, RevisionKind>({
     activeDraft,
     draftSnapshot,
     isDirty,
@@ -2513,7 +2539,7 @@ export default function HearthShell({
     autosaveRevisionGapMs: AUTOSAVE_REVISION_GAP_MS,
     autosaveRevisionKind: "autosave",
     persistAutosaveIO,
-    toAiAutosaveSaveReason: toAiAutosaveReason,
+    toAiAutosaveSaveReason: toProposalAutosaveReason,
     retryReasonCode: "ai_rewrite",
     setAiAutosaveWarning,
     setAiAutosaveStatusAt,
@@ -3560,6 +3586,38 @@ export default function HearthShell({
         context: proposalArgs.episodeContext,
         fromGate: proposalArgs.fromGate,
         autosaveReasonCode: proposalArgs.autosaveReasonCode ?? "ai_rewrite",
+        proposalOrigin: "ai",
+        formatSourceBody: null,
+        formatOriginalBody: null,
+        formatChanges: [],
+      };
+    },
+    createPendingFormatOnlyProposal: ({ episodeContext }) => {
+      const sourceBody = episodeContext.body;
+      const preview = buildHearthFormatOnlyPreview(sourceBody);
+      if (!preview.preservation.preserved) {
+        return {
+          ok: false,
+          error: `Formatting-only preview was blocked because protected content changed: ${formatHearthPreservationChanges(preview.preservation.changes)}.`,
+        };
+      }
+      const ops: HearthOp[] = [{ op: "set_body", value: preview.formatted }];
+      return {
+        ok: true,
+        assistantText: "I created a deterministic format-only preview. Wording, punctuation, speaker identity, notes, and pacing cues are unchanged.",
+        proposal: {
+          assistantText: "Deterministic format-only preview",
+          ops,
+          originalOps: cloneHearthProposalOps(ops),
+          selected: [true],
+          context: episodeContext,
+          fromGate: false,
+          autosaveReasonCode: "format_only",
+          proposalOrigin: "format_only",
+          formatSourceBody: sourceBody,
+          formatOriginalBody: preview.formatted,
+          formatChanges: [],
+        },
       };
     },
     resolveAiLaneFromStorage,
@@ -3739,7 +3797,7 @@ export default function HearthShell({
         sourcesChanged = true;
       },
       requestSave: (reason) => {
-        saveRequested = reason === "ai_apply_ops";
+        saveRequested = reason === "proposal_apply_ops";
       },
     };
 
@@ -3764,10 +3822,15 @@ export default function HearthShell({
           : [stagedDraft, ...prev];
         return dedupeDraftListById(next);
       });
+      const effectiveSaveReason: ProposalSaveReasonCode = args.proposal.formatSourceBody !== null
+        ? evaluateHearthFormatOnlyPreservation(args.proposal.formatSourceBody, stagedDraft.body).preserved
+          ? "format_only"
+          : "user_editorial"
+        : args.proposal.autosaveReasonCode;
       queueAiAutosave({
         draft: stagedDraft,
         previousBody,
-        reasonCode: args.proposal.autosaveReasonCode,
+        reasonCode: effectiveSaveReason,
       });
       if (bodyChanged) {
         publishForgeNotice({
@@ -3844,7 +3907,7 @@ export default function HearthShell({
       }
       return null;
     },
-    validateProposalApply: ({ opsToApply }) => {
+    validateProposalApply: ({ proposal, opsToApply }) => {
       const bodyWillChange = opsToApply.some((op) => op.op === "set_body");
       if (!bodyWillChange || !activeDraft) {
         return true;
@@ -3858,7 +3921,16 @@ export default function HearthShell({
         });
         setError(`Script tags must be valid before approval.\nFix the issues below to continue.\n\n${buildValidationReport(projectedValidation)}`);
       }
-      return projectedValidation.ok;
+      if (!projectedValidation.ok) return false;
+      if (proposal.formatSourceBody !== null) {
+        return confirmHearthUserEditorialTransition({
+          source: proposal.formatSourceBody,
+          result: projectedBody,
+          action: "apply",
+          confirm: (message) => window.confirm(message),
+        });
+      }
+      return true;
     },
     applyProposalOps: ({ proposal, opsToApply }) => applyProposalOpsToWorkspace({ proposal, opsToApply }),
     recordProposalApplied: ({ mode, totalOps, appliedOps, fromGate }) => {
@@ -3878,6 +3950,20 @@ export default function HearthShell({
     updateProposalBodyOps: (ops, index, value) => updateHearthProposalBodyOp(ops, index, value),
     resetProposalBodyOps: (ops, originalOps, index) => resetHearthProposalBodyOp(ops, originalOps, index),
     isProposalBodyDirty: (ops, originalOps, index) => isHearthProposalBodyOpDirty(ops, originalOps, index),
+    updateProposalAfterBodyEdit: (proposal, index, value) => {
+      const next = {
+        ...proposal,
+        ops: updateHearthProposalBodyOp(proposal.ops, index, value),
+      };
+      return reclassifyHearthFormatProposal(next, value);
+    },
+    resetProposalAfterBodyEdit: (proposal, index) => {
+      const ops = resetHearthProposalBodyOp(proposal.ops, proposal.originalOps, index);
+      const bodyOp = ops[index];
+      return bodyOp?.op === "set_body"
+        ? reclassifyHearthFormatProposal({ ...proposal, ops }, bodyOp.value)
+        : { ...proposal, ops };
+    },
   });
   const onApproveAiProposalAsScript = useCallback(async () => {
     if (!pendingAiProposal || isApplyingAiOps) return;
@@ -3894,6 +3980,16 @@ export default function HearthShell({
 
     const normalizedBodyOps = normalizeAiProposalOpsForScriptIngress(bodyOps);
     const nextBody = findNextBodyFromOps(activeDraft.body, normalizedBodyOps);
+    if (pendingAiProposal.formatSourceBody !== null) {
+      if (!confirmHearthUserEditorialTransition({
+        source: pendingAiProposal.formatSourceBody,
+        result: nextBody,
+        action: "approve",
+        confirm: (message) => window.confirm(message),
+      })) {
+        return;
+      }
+    }
     const nextScriptAuthoringMeta = pendingAiProposal.autosaveReasonCode === "ai_outline"
       ? deriveOutlineScriptAuthoringMeta({
         scriptText: nextBody,

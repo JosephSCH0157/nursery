@@ -221,6 +221,10 @@ test("stabilization contract: a late AI result from workpiece A cannot mutate wo
       episodeContext,
       ops: proposalOps,
     }),
+    createPendingFormatOnlyProposal: ({ episodeContext }) => ({
+      ok: true,
+      proposal: { episodeContext, ops: [{ op: "set_body" }] },
+    }),
     resolveAiLaneFromStorage: () => "forge",
     requestHearthChatReply: () => response.promise,
     persistProductionArtifact: async () => undefined,

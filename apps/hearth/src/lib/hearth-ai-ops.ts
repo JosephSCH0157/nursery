@@ -106,7 +106,7 @@ export type HearthOpsStore = {
   addSource: (source: { title?: string; url?: string; note?: string }) => void | Promise<void>;
   updateSource: (id: string, patch: { title?: string; url?: string; note?: string }) => void | Promise<void>;
   removeSource: (id: string) => void | Promise<void>;
-  requestSave: (reason: "ai_apply_ops") => void | Promise<void>;
+  requestSave: (reason: "proposal_apply_ops") => void | Promise<void>;
 };
 
 export async function applyHearthOps(store: HearthOpsStore, ops: HearthOp[]): Promise<void> {
@@ -137,7 +137,7 @@ export async function applyHearthOps(store: HearthOpsStore, ops: HearthOp[]): Pr
         break;
     }
   }
-  await store.requestSave("ai_apply_ops");
+  await store.requestSave("proposal_apply_ops");
 }
 
 export function describeHearthOp(op: HearthOp): string {

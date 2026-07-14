@@ -3006,6 +3006,9 @@ async function testActiveWorkpieceContextResolvesAttachedArtifactsWithoutCreatin
     path: "script/script.md",
     primaryScriptPath: "script/script.md",
     scriptPaths: ["script/script.md"],
+    scriptRevision: 1,
+    scriptHash: "a".repeat(64),
+    transitionId: "transition-ready-alpha",
     title: "Ready Alpha",
     updatedAt: "2026-03-10T12:00:00.000Z",
     contentCategory: null,
@@ -3149,7 +3152,7 @@ async function testApplyHearthOpsRequestsSave() {
     updateSource: (id, patch) => { writes.push(`update:${id}:${patch.note ?? ""}`); },
     removeSource: (id) => { writes.push(`remove:${id}`); },
     requestSave: (reason) => {
-      assert.equal(reason, "ai_apply_ops");
+      assert.equal(reason, "proposal_apply_ops");
       requestedSave += 1;
     },
   }, [
