@@ -1,5 +1,7 @@
 /** @jest-environment jsdom */
 
+import { captureWindowListeners } from '../helpers/window-listener-scope';
+
 jest.setTimeout(60000);
 
 function bootstrapDom(): void {
@@ -86,9 +88,12 @@ function bootstrapLongDom(lineCount = 16): void {
 }
 
 describe('ASR TS-primary matcher proof', () => {
+  let releaseWindowListeners: (() => void) | null = null;
   beforeEach(() => {
     jest.resetModules();
     jest.useFakeTimers();
+    releaseWindowListeners = captureWindowListeners();
+    sessionStorage.clear();
     jest.spyOn(console, 'log').mockImplementation(() => {});
     jest.spyOn(console, 'info').mockImplementation(() => {});
     jest.spyOn(console, 'debug').mockImplementation(() => {});
@@ -130,9 +135,14 @@ describe('ASR TS-primary matcher proof', () => {
       'Neon ads hum above the aisle.',
     ];
     (window as any).currentIndex = 0;
+    delete (window as any).__tpTsPrimaryMatcherProviderRuntime;
+    delete (window as any).__tpCanonicalAsrAuthority;
+    delete (window as any).__tpTsPrimaryMatcherBlocksReadyListenerInstalled;
   });
 
   afterEach(() => {
+    releaseWindowListeners?.();
+    releaseWindowListeners = null;
     jest.clearAllTimers();
     jest.useRealTimers();
     jest.restoreAllMocks();
@@ -146,6 +156,11 @@ describe('ASR TS-primary matcher proof', () => {
     delete (window as any).paraIndex;
     delete (window as any).__vParaIndex;
     delete (window as any).currentIndex;
+    delete (window as any).__tpTsPrimaryMatcherProviderRuntime;
+    delete (window as any).__tpCanonicalAsrAuthority;
+    delete (window as any).__tpAsrBlocksReady;
+    delete (window as any).__tpAsrBlockCount;
+    delete (window as any).__tpTsPrimaryMatcherBlocksReadyListenerInstalled;
   });
 
   function getGuardPayloads(warnSpy: jest.SpyInstance) {

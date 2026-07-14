@@ -1,10 +1,25 @@
 /** @jest-environment jsdom */
 
+import { captureConsoleMethods, captureWindowListeners } from '../helpers/window-listener-scope';
+
 describe('speech start arming', () => {
+  let releaseWindowListeners: (() => void) | null = null;
+  let restoreConsoleMethods: (() => void) | null = null;
   beforeEach(() => {
+    restoreConsoleMethods = captureConsoleMethods();
+    releaseWindowListeners = captureWindowListeners();
     jest.resetModules();
     localStorage.clear();
     document.body.innerHTML = '<button id="recBtn" type="button">Start speech sync</button>';
+  });
+
+  afterEach(() => {
+    releaseWindowListeners?.();
+    releaseWindowListeners = null;
+    jest.restoreAllMocks();
+    restoreConsoleMethods?.();
+    restoreConsoleMethods = null;
+    delete (window as any).__tpStore;
   });
 
   test('clicking Start speech sync in ASR mode arms session ASR', async () => {

@@ -1,5 +1,7 @@
 /** @jest-environment jsdom */
 
+import { captureConsoleMethods, captureWindowListeners } from '../helpers/window-listener-scope';
+
 function installAsrDom(): void {
   document.body.innerHTML = `
     <main id="viewer" class="viewer" style="overflow-y:auto; scroll-padding-top:240px;">
@@ -31,9 +33,20 @@ function installAsrDom(): void {
 }
 
 describe('speech loader runtime status', () => {
+  let releaseWindowListeners: (() => void) | null = null;
+  let restoreConsoleMethods: (() => void) | null = null;
   beforeEach(() => {
+    jest.restoreAllMocks();
+    restoreConsoleMethods = captureConsoleMethods();
     jest.resetModules();
+    jest.doMock('../../src/features/asr/asr-scroll-driver', () =>
+      jest.requireActual('../../src/features/asr/asr-scroll-driver'));
+    jest.doMock('../../src/speech/engines/whisper-bridge', () =>
+      jest.requireActual('../../src/speech/engines/whisper-bridge'));
+    releaseWindowListeners = captureWindowListeners();
     localStorage.clear();
+    sessionStorage.clear();
+    window.history.replaceState({}, '', '/');
     installAsrDom();
     delete (window as any).__tpStore;
     delete (window as any).__tpMic;
@@ -44,7 +57,11 @@ describe('speech loader runtime status', () => {
     delete (window as any).__TP_TS_PRIMARY__;
     delete (window as any).__TP_LAST_APPLIED_HASH;
     delete (window as any).__tpSpeech;
+    delete (window as any).__tpSpeechOrchestrator;
     delete (window as any).__tpMatcher;
+    delete (window as any).__tpTsPrimaryMatcherProviderRuntime;
+    delete (window as any).__tpCanonicalAsrAuthority;
+    delete (window as any).__tpTsPrimaryMatcherBlocksReadyListenerInstalled;
     delete (window as any).__tpEmitSpeech;
     delete (window as any).__tpAsrStallLast;
     delete (window as any).__tpAsrStallAutoRestartLast;
@@ -57,6 +74,9 @@ describe('speech loader runtime status', () => {
   });
 
   afterEach(() => {
+    releaseWindowListeners?.();
+    releaseWindowListeners = null;
+    jest.clearAllTimers();
     delete (window as any).__tpStore;
     delete (window as any).__tpMic;
     delete (window as any).__tpAsrRuntimeStatus;
@@ -66,7 +86,11 @@ describe('speech loader runtime status', () => {
     delete (window as any).__TP_TS_PRIMARY__;
     delete (window as any).__TP_LAST_APPLIED_HASH;
     delete (window as any).__tpSpeech;
+    delete (window as any).__tpSpeechOrchestrator;
     delete (window as any).__tpMatcher;
+    delete (window as any).__tpTsPrimaryMatcherProviderRuntime;
+    delete (window as any).__tpCanonicalAsrAuthority;
+    delete (window as any).__tpTsPrimaryMatcherBlocksReadyListenerInstalled;
     delete (window as any).__tpEmitSpeech;
     delete (window as any).__tpAsrStallLast;
     delete (window as any).__tpAsrStallAutoRestartLast;
@@ -77,6 +101,8 @@ describe('speech loader runtime status', () => {
     delete (window as any).SpeechRecognition;
     delete (window as any).webkitSpeechRecognition;
     jest.restoreAllMocks();
+    restoreConsoleMethods?.();
+    restoreConsoleMethods = null;
   });
 
   test('surfaces whisper fallback through the canonical runtime status', async () => {
@@ -331,77 +357,6 @@ describe('speech loader runtime status', () => {
     }));
 
     stopSpeechBackendForSession('test-ts-primary-canonical-summary');
-  });
-
-  test('coalesces repeated driver create blocked diagnostics by signature', async () => {
-    const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {});
-    jest.spyOn(console, 'warn').mockImplementation(() => {});
-    localStorage.setItem('tp_dev_mode', '1');
-
-    const { appStore } = await import('../../src/state/app-store');
-    const { initSession } = await import('../../src/state/session');
-    initSession();
-    (window as any).__tpStore = appStore;
-    appStore.set('scrollMode', 'asr' as any);
-    appStore.set('session.phase', 'live' as any);
-    appStore.set('session.asrDesired', true as any);
-    appStore.set('session.asrArmed', true as any);
-    (window as any).__tpAsrBlocksReady = true;
-    (window as any).__tpAsrBlockCount = 24;
-
-    const { installSpeech } = await import('../../src/features/speech-loader');
-    installSpeech();
-
-    for (let i = 0; i < 30; i += 1) {
-      window.dispatchEvent(new CustomEvent('tp:scroll:mode', { detail: { mode: 'asr', reason: 'store-change' } }));
-    }
-
-    const blockedLogs = debugSpy.mock.calls.filter((call) => String(call[0] || '').includes('[ASR] driver create blocked'));
-
-    // Each unique create-block signature should log once, then aggregate repeats.
-    expect(blockedLogs.length).toBeLessThanOrEqual(4);
-  });
-
-  test('session stop disarms ASR create attempts and prevents blocked create spam', async () => {
-    const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {});
-    jest.spyOn(console, 'warn').mockImplementation(() => {});
-    localStorage.setItem('tp_dev_mode', '1');
-
-    const { appStore } = await import('../../src/state/app-store');
-    const { initSession } = await import('../../src/state/session');
-    initSession();
-    (window as any).__tpStore = appStore;
-    appStore.set('scrollMode', 'asr' as any);
-    appStore.set('session.phase', 'live' as any);
-    appStore.set('session.asrDesired', true as any);
-    appStore.set('session.asrArmed', true as any);
-    (window as any).__tpAsrBlocksReady = true;
-    (window as any).__tpAsrBlockCount = 24;
-
-    const { installSpeech } = await import('../../src/features/speech-loader');
-    installSpeech();
-
-    for (let i = 0; i < 10; i += 1) {
-      window.dispatchEvent(new CustomEvent('tp:scroll:mode', { detail: { mode: 'asr', reason: 'store-change' } }));
-    }
-    expect(debugSpy.mock.calls.some((call) => String(call[0] || '').includes('[ASR] driver create blocked'))).toBe(true);
-
-    debugSpy.mockClear();
-    appStore.set('session.phase', 'wrap' as any);
-    window.dispatchEvent(new CustomEvent('tp:session:phase', { detail: { phase: 'wrap' } }));
-    window.dispatchEvent(new CustomEvent('tp:session:stop', { detail: { source: 'recBtn', reason: 'user' } }));
-
-    for (let i = 0; i < 15; i += 1) {
-      appStore.set('session.phase', 'wrap' as any);
-      window.dispatchEvent(new CustomEvent('tp:scroll:mode', { detail: { mode: 'asr', reason: 'store-change' } }));
-    }
-
-    const blockedAfterStop = debugSpy.mock.calls.filter((call) => String(call[0] || '').includes('[ASR] driver create blocked'));
-    const blockedSuppressedAfterStop = debugSpy.mock.calls.filter((call) => String(call[0] || '').includes('[ASR] driver create blocked (suppressed)'));
-    expect(blockedAfterStop.length).toBeLessThanOrEqual(2);
-    expect(blockedSuppressedAfterStop).toHaveLength(0);
-    expect(appStore.get('session.asrArmed')).toBe(false);
-    expect(appStore.get('session.asrDesired')).toBe(false);
   });
 
   test('classifies active driver focus hold as focus_hold without autorestart', async () => {

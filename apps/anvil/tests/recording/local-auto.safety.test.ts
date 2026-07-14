@@ -133,7 +133,10 @@ describe('local-auto recorder safety guards', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    localStorage.clear();
     FakeMediaRecorder.created = 0;
+    delete (window as any).__tpAutoRecord;
+    delete (window as any).__tpRecording;
     setupWindow();
     mockShowRecordingDecisionDialog.mockClear();
     mockCommitRecordingBytesToTongs.mockResolvedValue({
@@ -152,6 +155,19 @@ describe('local-auto recorder safety guards', () => {
     jest.resetModules();
     jest.doMock('../../src/fs/recording-dir', () => ({}));
     await import('../../src/recording/local-auto');
+  });
+
+  afterEach(() => {
+    delete (window as any).__tpAutoRecord;
+    delete (window as any).__tpRecording;
+    delete (window as any).__tpCamera;
+    delete (window as any).__tpMic;
+    delete (window as any).__tpRecDir;
+    delete (window as any).__tpStore;
+    delete (window as any).toast;
+    delete (window as any).AudioContext;
+    delete (window as any).webkitAudioContext;
+    jest.restoreAllMocks();
   });
 
   test('blocks start when recorder stream has no audio track even if ASR mic works', async () => {

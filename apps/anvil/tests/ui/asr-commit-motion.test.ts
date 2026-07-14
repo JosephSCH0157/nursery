@@ -2,6 +2,7 @@
 
 import fs from 'node:fs';
 import { createAsrScrollDriver } from '../../src/features/asr/asr-scroll-driver';
+import { captureWindowListeners } from '../helpers/window-listener-scope';
 
 function diagnosticCallMatches(
   call: any[],
@@ -693,6 +694,7 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
 };
 
 describe('ASR live commit motion', () => {
+  let releaseWindowListeners: (() => void) | null = null;
   let rafSpy: jest.SpyInstance<number, [FrameRequestCallback]>;
   let cafSpy: jest.SpyInstance<void, [number]>;
   let consoleErrorSpy: jest.SpyInstance<void, any[]>;
@@ -702,6 +704,7 @@ describe('ASR live commit motion', () => {
   let consoleWarnSpy: jest.SpyInstance<void, any[]>;
 
   beforeEach(() => {
+    releaseWindowListeners = captureWindowListeners();
     jest.useFakeTimers();
     window.history.replaceState({}, '', '/?dev=1');
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -771,6 +774,8 @@ describe('ASR live commit motion', () => {
 
   afterEach(() => {
     jest.clearAllTimers();
+    releaseWindowListeners?.();
+    releaseWindowListeners = null;
     jest.useRealTimers();
     consoleErrorSpy.mockRestore();
     consoleLogSpy.mockRestore();

@@ -165,6 +165,9 @@ export function initScrollModeRouter(deps: ModeRouterDeps) {
     phase: 'reinit',
   });
 
+  if (autoEngine !== deps.auto) lastAuto = false;
+  if (asrEngine !== deps.asr) lastAsr = false;
+  if (stepEngine !== deps.step) lastStep = false;
   autoEngine = deps.auto;
   asrEngine = deps.asr;
   stepEngine = deps.step;
@@ -198,6 +201,23 @@ export function initScrollModeRouter(deps: ModeRouterDeps) {
   });
   disposeSessionSub = typeof sessionUnsub === 'function' ? sessionUnsub : null;
   updateRouterDiag({ phase: 'session-subscribed' });
+}
+
+export function disposeScrollModeRouter(): void {
+  routerEpoch += 1;
+  try { disposeModeSub?.(); } catch {}
+  try { disposeSessionSub?.(); } catch {}
+  disposeModeSub = null;
+  disposeSessionSub = null;
+  autoEngine = null;
+  asrEngine = null;
+  stepEngine = null;
+  lastAuto = false;
+  lastAsr = false;
+  lastStep = false;
+  currentMode = 'hybrid';
+  currentSession = { state: 'idle', scrollAutoOnLive: false };
+  updateRouterDiag({ phase: 'disposed' });
 }
 
 // Back-compat wrapper for older call sites/tests expecting a router object.
@@ -288,7 +308,7 @@ export function createScrollModeRouter(deps: LegacyDeps): ScrollModeRouter {
       return currentMode;
     },
     dispose() {
-      // no-op placeholder to satisfy legacy signature
+      disposeScrollModeRouter();
     },
   };
 }

@@ -40590,6 +40590,10 @@ function createAsrScrollDriver(options = {}) {
   }
   let activeMotionPreset = calmModeEnabled ? "calm" : "normal";
   let motionTuning = { ...calmModeEnabled ? MOTION_PRESET_CALM : MOTION_PRESET_NORMAL };
+  guardLastAt.clear();
+  guardStatusLastAt.clear();
+  logLastAt.clear();
+  nanGuardLastAt.clear();
   frameDiagnosticLastSeen.clear();
   coalescedDiagnosticState.clear();
   let preservedAsrAuthorityTargetTop = null;
@@ -104284,6 +104288,9 @@ function initScrollModeRouter(deps) {
     initCount: Number((typeof window !== "undefined" ? window.__tpModeRouterDiag?.initCount : 0) || 0) + 1,
     phase: "reinit"
   });
+  if (autoEngine !== deps.auto) lastAuto = false;
+  if (asrEngine2 !== deps.asr) lastAsr = false;
+  if (stepEngine !== deps.step) lastStep = false;
   autoEngine = deps.auto;
   asrEngine2 = deps.asr;
   stepEngine = deps.step;

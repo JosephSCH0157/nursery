@@ -1,5 +1,7 @@
 /** @jest-environment jsdom */
 
+import { captureConsoleMethods, captureWindowListeners } from '../helpers/window-listener-scope';
+
 let closingLineTop = 140;
 
 async function advanceUntil(
@@ -74,8 +76,13 @@ function installAsrTerminalDom(): void {
 }
 
 describe('ASR script-end postroll', () => {
+  let releaseWindowListeners: (() => void) | null = null;
+  let restoreConsoleMethods: (() => void) | null = null;
   beforeEach(() => {
+    jest.restoreAllMocks();
+    restoreConsoleMethods = captureConsoleMethods();
     jest.resetModules();
+    releaseWindowListeners = captureWindowListeners();
     jest.useFakeTimers();
     localStorage.clear();
     closingLineTop = 140;
@@ -110,6 +117,9 @@ describe('ASR script-end postroll', () => {
   });
 
   afterEach(() => {
+    releaseWindowListeners?.();
+    releaseWindowListeners = null;
+    jest.clearAllTimers();
     delete (window as any).__tpStore;
     delete (window as any).__tpAiActivity;
     delete (window as any).__tpAsrEndGrace;
@@ -118,6 +128,8 @@ describe('ASR script-end postroll', () => {
     delete (window as any).__tpCanonicalAsrAuthority;
     jest.useRealTimers();
     jest.restoreAllMocks();
+    restoreConsoleMethods?.();
+    restoreConsoleMethods = null;
   });
 
   test('terminal line reached does not immediately stop ASR and completes after end grace', async () => {

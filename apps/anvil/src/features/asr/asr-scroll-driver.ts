@@ -5481,6 +5481,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   } catch {}
   let activeMotionPreset: 'normal' | 'calm' = calmModeEnabled ? 'calm' : 'normal';
   let motionTuning = { ...(calmModeEnabled ? MOTION_PRESET_CALM : MOTION_PRESET_NORMAL) };
+  guardLastAt.clear();
+  guardStatusLastAt.clear();
+  logLastAt.clear();
+  nanGuardLastAt.clear();
   frameDiagnosticLastSeen.clear();
   coalescedDiagnosticState.clear();
   let preservedAsrAuthorityTargetTop: number | null = null;
