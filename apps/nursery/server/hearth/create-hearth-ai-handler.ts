@@ -41,6 +41,7 @@ import {
 import { shapeHearthScriptForRecording } from "../../../hearth/src/lib/hearth-recording-ready-script";
 import {
   createHearthResearchRuntime,
+  classifyResearchSourceAuthority,
   extractUrlToResearchSource,
   getHearthEvidenceLedger,
   type HearthEvidenceFinding,
@@ -99,6 +100,52 @@ type WritingProfile = {
   lastUsedTonePreset: string | null;
   updatedAt: string | null;
 };
+
+export type HearthConversationClaimSnapshot = {
+  workspaceId: string | null;
+  workpieceId: string;
+  runIdentity: string;
+  refinementIdentity: string | null;
+  findings: Array<Pick<HearthEvidenceFinding, "findingId" | "normalizedClaim" | "supportingSourceIds" | "state" | "uncertainty">>;
+};
+
+export class HearthConversationResearchState {
+  private readonly claimsByScope = new Map<string, HearthConversationClaimSnapshot>();
+  private readonly activeScopeByActor = new Map<string, string>();
+
+  private scopeKey(actorId: string, workspaceId: string | null, workpieceId: string): string {
+    return `${actorId}:${workspaceId ?? "no-workspace"}:${workpieceId}`;
+  }
+
+  activate(actorId: string, workspaceId: string | null, workpieceId: string): void {
+    const next = this.scopeKey(actorId, workspaceId, workpieceId);
+    const prior = this.activeScopeByActor.get(actorId);
+    if (prior && prior !== next) this.claimsByScope.delete(prior);
+    this.activeScopeByActor.set(actorId, next);
+  }
+
+  replace(actorId: string, result: HearthResearchResult): void {
+    const ledger = getHearthEvidenceLedger(result);
+    if (!ledger) return;
+    this.claimsByScope.set(this.scopeKey(actorId, ledger.workspaceId, ledger.workpieceId), {
+      workspaceId: ledger.workspaceId,
+      workpieceId: ledger.workpieceId,
+      runIdentity: ledger.runIdentity,
+      refinementIdentity: ledger.refinementIdentity,
+      findings: ledger.findings.map(({ findingId, normalizedClaim, supportingSourceIds, state, uncertainty }) => ({
+        findingId, normalizedClaim, supportingSourceIds: [...supportingSourceIds], state, uncertainty,
+      })),
+    });
+  }
+
+  get(workspaceId: string | null, workpieceId: string, actorId = "anonymous"): HearthConversationClaimSnapshot | null {
+    return this.claimsByScope.get(this.scopeKey(actorId, workspaceId, workpieceId)) ?? null;
+  }
+
+  clear(workspaceId: string | null, workpieceId: string, actorId = "anonymous"): void {
+    this.claimsByScope.delete(this.scopeKey(actorId, workspaceId, workpieceId));
+  }
+}
 
 type StyleSample = {
   sampleId: string;
@@ -1270,6 +1317,7 @@ function buildSystemPrompt(
     researchMode?: boolean;
     researchRequest?: HearthResearchRequest | null;
     researchResult?: HearthResearchResult | null;
+    conversationResearchClaims?: HearthConversationClaimSnapshot | null;
     attachmentContextSnippet?: string | null;
   },
 ): string {
@@ -1575,6 +1623,13 @@ function buildSystemPrompt(
       baseLines.push(
         "Canonical research runtime result:",
         JSON.stringify(options.researchResult),
+      );
+    }
+    if (options.conversationResearchClaims) {
+      baseLines.push(
+        "Active workpiece research claim state (ephemeral authority for later editorial guidance):",
+        JSON.stringify(options.conversationResearchClaims),
+        "Preserve each claim's support distinction. Never promote partial, unverified, or contradicted claims into established script facts.",
       );
     }
   }
@@ -2010,12 +2065,55 @@ function buildResearchOutcomeLead(args: {
     : `Research outcome: Retrieval found sources for "${query}". ${artifactLine} ${findingsLine}`;
 }
 
-function formatGroundedFinding(finding: HearthEvidenceFinding): string {
-  const prefix = finding.state === "contradicted"
-    ? finding.uncertainty ? "Conflicting/contrary retrieved evidence" : "Contradicted by retrieved evidence"
-    : "Supported by retrieved evidence";
-  if (!finding.excerpts.length) return `- ${prefix}: ${finding.normalizedClaim}`;
-  return finding.excerpts.map((excerpt) => `- ${prefix}: ${excerpt.text} (${excerpt.sourceId})`).join("\n");
+const EPISODE_CLAIM_AREAS = [
+  { id: "historic production scale", pattern: /\b(production|boxes|acreage|industry|economic)\b/i },
+  { id: "Great Freeze chronology and movement south", pattern: /\b(great freeze|freeze of|moved south|movement south)\b/i },
+  { id: "development pressure and acreage loss", pattern: /\b(development|land conversion|acreage loss|urbanization)\b/i },
+  { id: "hurricane impacts", pattern: /\b(hurricane|storm damage)\b/i },
+  { id: "citrus greening / HLB", pattern: /\b(citrus greening|huanglongbing|HLB)\b/i },
+  { id: "production decline", pattern: /\b(production decline|declined|collapse|falling production)\b/i },
+  { id: "current research and recovery", pattern: /\b(research|recovery|treatment|resistant|resilience)\b/i },
+  { id: "tangelo or cultivar history", pattern: /\b(tangelo|cultivar|Minneola|Orlando|Seminole|Honeybell)\b/i },
+  { id: "cultural and landscape context", pattern: /\b(cultural|landscape|heritage|community|tourism)\b/i },
+] as const;
+
+function cleanResearchPresentationText(input: string | null | undefined): string {
+  return condenseWhitespace(String(input ?? "")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&(?:nbsp|amp|quot|#39);/gi, " ")
+    .replace(URL_RE, " ")
+    .replace(/\b(?:subscribe|sign up|share this|cookie policy|privacy policy|skip to content|navigation|read more)\b/gi, " "));
+}
+
+function sourceClaimAreas(source: HearthResearchSource): string[] {
+  const text = cleanResearchPresentationText([source.title, source.publisher, source.snippet, source.extractedText].filter(Boolean).join(" "));
+  return EPISODE_CLAIM_AREAS.filter((area) => area.pattern.test(text)).map((area) => area.id);
+}
+
+function authorityLabel(source: HearthResearchSource): string {
+  return classifyResearchSourceAuthority(source).replace(/_/g, " ");
+}
+
+function sourcePublisher(source: HearthResearchSource): string {
+  return cleanResearchPresentationText(source.publisher || source.title || source.domain || "Retrieved source");
+}
+
+function cleanSupportedClaim(finding: HearthEvidenceFinding, sourceById: Map<string, HearthResearchSource>): string {
+  const source = finding.supportingSourceIds.map((id) => sourceById.get(id)).find(Boolean);
+  const publisher = source ? sourcePublisher(source) : "A retrieved source";
+  if (finding.findingId === "tangelo-origin") {
+    if (finding.state === "contradicted") return "Retrieved authoritative sources conflict about named tangelo cultivar origin or development history.";
+    const year = finding.excerpts.map((excerpt) => excerpt.text.match(/\b(?:18|19|20)\d{2}\b/)?.[0]).find(Boolean);
+    return `${publisher} documents named tangelo cultivar origin, development, or release history${year ? `, including a retrieved date of ${year}` : ""}.`;
+  }
+  if (finding.findingId === "tangelo-cold-tolerance") return `${publisher} documents cold-tolerance characteristics for a tangelo cultivar.`;
+  if (finding.findingId === "tangelo-breeding-motive") return `${publisher} addresses the claimed breeding objective; the evidence must be read with the contradiction noted below.`;
+  const areas = source ? sourceClaimAreas(source) : [];
+  return areas.length
+    ? `${publisher} provides retrieved context for ${areas.slice(0, 3).join(", ")}.`
+    : `${publisher} supplied usable retrieved evidence for this research pass.`;
 }
 
 export function composeGroundedResearchAnswer(result: HearthResearchResult): string | null {
@@ -2025,6 +2123,29 @@ export function composeGroundedResearchAnswer(result: HearthResearchResult): str
   const unresolved = ledger.findings.filter((finding) => finding.state === "partially_supported" || finding.state === "unverified_lead");
   const sourceById = new Map(result.sources.map((source) => [source.sourceId, source]));
   const references = ledger.referenceSourceIds.map((sourceId) => sourceById.get(sourceId)).filter((source): source is HearthResearchSource => Boolean(source));
+  const sourceRows = result.sources.map((source) => ({ source, areas: sourceClaimAreas(source), authority: classifyResearchSourceAuthority(source) }));
+  const usableRows = sourceRows.filter(({ source, areas }) => source.extractionStatus === "extracted" && areas.length > 0);
+  const referencedIds = new Set(ledger.referenceSourceIds);
+  const coreRows = usableRows.filter(({ source, authority }) => referencedIds.has(source.sourceId) && ["primary_agricultural", "land_grant_university", "government_agricultural", "peer_reviewed"].includes(authority));
+  const secondaryRows = usableRows.filter(({ source, authority }) => referencedIds.has(source.sourceId) && authority === "reputable_secondary");
+  const peripheralRows = sourceRows.filter(({ source, authority, areas }) => source.extractionStatus !== "extracted" || authority === "promotional_or_general" || areas.length === 0);
+  const supportedAreas = new Set(usableRows.flatMap(({ areas }) => areas));
+  const floridaScope = result.sources.some((source) => /\b(florida|citrus|orange|grove|tangelo)\b/i.test(`${source.title ?? ""} ${source.snippet ?? ""} ${source.extractedText ?? ""}`));
+  const missingAreas = floridaScope ? EPISODE_CLAIM_AREAS.map((area) => area.id).filter((area) => !supportedAreas.has(area)) : [];
+  const unusableCount = result.sources.filter((source) => source.extractionStatus !== "extracted").length;
+  const refinementUsed = Boolean(ledger.refinementIdentity);
+  const formatSource = ({ source, areas }: { source: HearthResearchSource; areas: string[] }) => {
+    const publisher = sourcePublisher(source);
+    const title = cleanResearchPresentationText(source.title) || "Untitled retrieved source";
+    const heading = publisher.toLowerCase() === title.toLowerCase() ? publisher : `${publisher} — ${title}`;
+    return [
+    `- ${heading}`,
+    `  Authority: ${authorityLabel(source)}.`,
+    `  Supports: ${areas.join(", ")}.`,
+    `  Why useful: ${areas.length ? `Directly contributes evidence for ${areas.slice(0, 2).join(" and ")}.` : "Peripheral to the episode's central factual needs."}`,
+    `  ${source.canonicalUrl || source.url}`,
+    ].join("\n");
+  };
   const isTangelo = ledger.findings.some((finding) => finding.findingId.startsWith("tangelo-"));
   const origin = ledger.findings.find((finding) => finding.findingId === "tangelo-origin");
   const cold = ledger.findings.find((finding) => finding.findingId === "tangelo-cold-tolerance");
@@ -2040,15 +2161,26 @@ export function composeGroundedResearchAnswer(result: HearthResearchResult): str
       : "Treat the proposed claim as unverified until a directly relevant source is retrieved.";
   return [
     "Verified findings",
-    supported.length ? supported.map(formatGroundedFinding).join("\n") : "- No externally verifiable claim was established by the retrieved evidence in this run.",
+    supported.length ? supported.map((finding) => `- ${cleanSupportedClaim(finding, sourceById)}`).join("\n") : "- No externally verifiable claim was established by the retrieved evidence in this run.",
     "What the evidence does not establish",
-    unresolved.length ? unresolved.map((finding) => `- ${finding.uncertainty || `${finding.normalizedClaim} remains unverified.`}`).join("\n") : "- No additional coverage limit was detected for the claims listed above.",
+    [
+      ...unresolved.map((finding) => `- ${finding.uncertainty || `${finding.normalizedClaim} remains unverified.`}`),
+      ...missingAreas.map((area) => `- Strong coverage is still needed for ${area}.`),
+      ...(unusableCount ? [`- ${unusableCount} retrieved source${unusableCount === 1 ? " was" : "s were"} unusable because extraction was incomplete.`] : []),
+      `- The single refinement attempt ${refinementUsed ? "was used" : "was not needed"} in this run.`,
+    ].join("\n"),
     "Safe script wording",
     safeWording,
     "Leads worth researching further",
     unresolved.length ? unresolved.map((finding) => `- ${finding.normalizedClaim} — not yet verified from an adequate retrieved source.`).join("\n") : "- None from this pass.",
     "References",
-    references.length ? references.map((source) => `- [${source.sourceId}] ${source.publisher || source.title || source.domain || "Retrieved source"}: ${source.canonicalUrl || source.url}`).join("\n") : "- No retrieved source met the support threshold for verified findings.",
+    references.length ? references.map((source) => `- ${sourcePublisher(source)}: ${source.canonicalUrl || source.url}`).join("\n") : "- No retrieved source met the support threshold for verified findings.",
+    "Best sources to cite",
+    coreRows.length ? coreRows.map(formatSource).join("\n") : "- No core authoritative source was adequately retrieved.",
+    "Useful secondary context",
+    secondaryRows.length ? secondaryRows.map(formatSource).join("\n") : "- None recommended from this pass.",
+    "Sources retrieved but not recommended",
+    peripheralRows.length ? peripheralRows.map(({ source, authority, areas }) => `- ${sourcePublisher(source)} — ${authority === "promotional_or_general" ? "promotional/general-interest authority" : source.extractionStatus !== "extracted" ? "incomplete extraction" : areas.length === 0 ? "not relevant to a major episode claim" : "peripheral"}.`).join("\n") : "- None.",
   ].join("\n\n");
 }
 
@@ -2057,12 +2189,18 @@ export function enforceResearchOutcomeReply(args: {
   request: HearthResearchRequest;
   result: HearthResearchResult;
 }): string {
+  const groundedAnswer = composeGroundedResearchAnswer(args.result);
+  if (groundedAnswer) {
+    const groundedLead = args.result.runtimeStatus === "partial"
+      ? "Research outcome: Retrieval was partial; supported findings and remaining gaps are separated below."
+      : "Research outcome: Retrieved evidence was curated by claim relevance and source authority."
+    return `${groundedLead}\n\n${groundedAnswer}`;
+  }
   const lead = buildResearchOutcomeLead({
     request: args.request,
     result: args.result,
   });
-  const groundedAnswer = composeGroundedResearchAnswer(args.result);
-  const body = groundedAnswer ?? sanitizeResearchReplyBody(args.assistantText.trim(), args.result);
+  const body = sanitizeResearchReplyBody(args.assistantText.trim(), args.result);
   if (!body) return lead;
   const normalizedLead = lead.trim().toLowerCase();
   const normalizedBody = body.toLowerCase();
@@ -2108,6 +2246,27 @@ export function enforceHearthEditorialHonesty(args: {
   return args.assistantText
     .replace(/\bI remember(?:ed)?\b/gi, "Picture the scene:")
     .replace(/\bframe (?:it|this) as (?:a )?(?:personal )?memory\b/gi, "frame it as a representative scene");
+}
+
+export function enforceConversationalResearchState(args: {
+  assistantText: string;
+  claimState: HearthConversationClaimSnapshot | null;
+}): string {
+  if (!args.claimState) return args.assistantText;
+  const tangeloFindings = args.claimState.findings.filter((finding) => finding.findingId.startsWith("tangelo-"));
+  if (!tangeloFindings.length) return args.assistantText;
+  const unresolved = tangeloFindings.some((finding) => finding.state === "unverified_lead" || finding.state === "partially_supported");
+  const contradicted = tangeloFindings.some((finding) => finding.state === "contradicted");
+  if (!unresolved && !contradicted) return args.assistantText;
+  const cleaned = args.assistantText
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !/\b(?:Orlando|Seminole|Minneola|Honeybell)\b[\s\S]{0,100}\b(?:Florida-developed|developed in Florida|created in Florida|bred to survive freezes)\b/i.test(sentence))
+    .join(" ")
+    .trim();
+  const qualification = contradicted
+    ? "The retrieved evidence does not support that tangelo framing, so keep it out of the script as fact."
+    : "One tangelo beat could work once we verify the cultivar and exactly what the sources establish; for now it remains an unverified lead.";
+  return cleaned ? `${cleaned}\n\n${qualification}` : qualification;
 }
 
 const FRAMING_PACK_INTERNAL_MARKERS: RegExp[] = [
@@ -2195,6 +2354,7 @@ export function sanitizeHearthUserFacingOutput(input: string): string {
 }
 
 export function createHearthAiHandler(config: HearthRuntimeConfig) {
+  const conversationResearchState = new HearthConversationResearchState();
   const researchApiKey = (
     config.researchApiKey
     || process.env.HEARTH_RESEARCH_API_KEY
@@ -3389,6 +3549,11 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         : null;
       const requestText = latestUserMessage?.content ?? "";
       const userId = await resolveUserId(bearerToken);
+      const researchActorId = userId || (bearerToken ? crypto.createHash("sha256").update(bearerToken).digest("hex") : "anonymous");
+      conversationResearchState.activate(researchActorId, episodeContext.workspaceId, episodeContext.episodeId);
+      if (/\b(?:reset|clear|forget) (?:the )?research context\b/i.test(requestText)) {
+        conversationResearchState.clear(episodeContext.workspaceId, episodeContext.episodeId, researchActorId);
+      }
       const chatFeature = classifyChatFeature(requestText);
       const requestedReasoningEffort = isRecord(bodyRaw.behavior)
         ? readOptionalString((bodyRaw.behavior as Record<string, unknown>).reasoning_effort)
@@ -3693,6 +3858,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           });
         }
       }
+      if (researchResult && getHearthEvidenceLedger(researchResult)) {
+        conversationResearchState.replace(researchActorId, researchResult);
+      }
       if (researchRequest && researchResult) {
         await recordHearthEventForToken({
           accessToken: bearerToken,
@@ -3888,6 +4056,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             researchMode: researchModeRequested,
             researchRequest,
             researchResult,
+            conversationResearchClaims: conversationResearchState.get(episodeContext.workspaceId, episodeContext.episodeId, researchActorId),
             attachmentContextSnippet,
           },
         ),
@@ -4105,6 +4274,10 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         structured.assistantText = enforceHearthEditorialHonesty({
           assistantText: structured.assistantText,
           requestText: researchIntentText || requestText,
+        });
+        structured.assistantText = enforceConversationalResearchState({
+          assistantText: structured.assistantText,
+          claimState: conversationResearchState.get(episodeContext.workspaceId, episodeContext.episodeId, researchActorId),
         });
 
         structured.assistantText = sanitizeHearthUserFacingOutput(structured.assistantText);

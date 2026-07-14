@@ -941,9 +941,9 @@ test("createHearthAiHandler returns retrieval-backed canonical research results 
     assert.equal(payload.research_result?.sources?.[1]?.url, "https://example.org/two");
     assert.equal(payload.research_result?.sources?.[1]?.extractionStatus, "extracted");
     assert.match(String(payload.research_result?.synthesis?.summary ?? ""), /Retrieved 2 source/);
-    assert.match(String(payload.assistant_text ?? ""), /Research outcome: Retrieval found sources/i);
-    assert.match(String(payload.assistant_text ?? ""), /Sources found \(2\):/i);
-    assert.match(String(payload.assistant_text ?? ""), /Retrieved findings:/i);
+    assert.match(String(payload.assistant_text ?? ""), /Research outcome: Retrieved evidence was curated/i);
+    assert.match(String(payload.assistant_text ?? ""), /Verified findings/i);
+    assert.match(String(payload.assistant_text ?? ""), /References/i);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1385,7 +1385,7 @@ test("createHearthAiHandler marks partial retrieval honestly when some sources f
       /partial, failed, or skipped/i,
     );
     assert.match(String(payload.assistant_text ?? ""), /Research outcome: Retrieval was partial/i);
-    assert.match(String(payload.assistant_text ?? ""), /Recovered sources \(2\):/i);
+    assert.match(String(payload.assistant_text ?? ""), /1 retrieved source was unusable because extraction was incomplete/i);
   } finally {
     globalThis.fetch = originalFetch;
   }

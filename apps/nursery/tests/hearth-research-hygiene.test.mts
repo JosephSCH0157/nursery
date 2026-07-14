@@ -4,6 +4,8 @@ import test from "node:test";
 import {
   buildEpisodeContextResearchQuery,
   composeGroundedResearchAnswer,
+  enforceConversationalResearchState,
+  HearthConversationResearchState,
   enforceHearthEditorialHonesty,
   enforceResearchOutcomeReply,
 } from "../server/hearth/create-hearth-ai-handler";
@@ -176,6 +178,9 @@ test("weak tangelo retrieval triggers one focused refinement and cannot become v
     });
     const ledger = getHearthEvidenceLedger(result);
     const answer = composeGroundedResearchAnswer(result) || "";
+    const conversationState = new HearthConversationResearchState();
+    conversationState.activate("actor", "workspace-a", "workpiece-florida");
+    conversationState.replace("actor", result);
     const guardedReply = enforceResearchOutcomeReply({
       assistantText: "Verified: USDA released Minneola in 1931 and UF/IFAS says freezes motivated the breeding program.",
       request: { query: "Florida invented the tangelo to solve freezes.", intent: "background", recencyPreference: "none", maxSources: 6, requireDates: false, requireFullExtraction: false },
@@ -186,10 +191,14 @@ test("weak tangelo retrieval triggers one focused refinement and cannot become v
     assert.equal(ledger?.workspaceId, "workspace-a");
     assert.equal(ledger?.workpieceId, "workpiece-florida");
     assert.match(ledger?.refinementIdentity || "", /refinement-1$/);
+    assert.equal(conversationState.get("workspace-a", "workpiece-florida", "actor")?.findings.find((finding) => finding.findingId === "tangelo-origin")?.state, "unverified_lead");
     assert.ok(ledger?.findings.every((finding) => finding.state !== "supported"));
     assert.match(answer, /does not establish that Florida invented tangelos to solve freezes/i);
     assert.doesNotMatch(answer, /USDA:|UF\/IFAS:|release date/i);
     assert.match(answer, /No retrieved source met the support threshold/i);
+    assert.match(answer, /Great Freeze chronology|development pressure|production decline/i);
+    assert.match(answer, /single refinement attempt was used/i);
+    assert.doesNotMatch(answer, /retrieval-\d/i);
     assert.doesNotMatch(guardedReply, /released Minneola in 1931|UF\/IFAS says/i);
   } finally {
     globalThis.fetch = originalFetch;
@@ -216,13 +225,19 @@ test("authoritative tangelo evidence supports origin and cold tolerance without 
     });
     const ledger = getHearthEvidenceLedger(result);
     const answer = composeGroundedResearchAnswer(result) || "";
+    const conversationState = new HearthConversationResearchState();
+    conversationState.replace("actor", result);
     assert.equal(ledger?.findings.find((finding) => finding.findingId === "tangelo-origin")?.state, "supported");
+    assert.equal(conversationState.get("workspace-a", "workpiece-florida", "actor")?.findings.find((finding) => finding.findingId === "tangelo-origin")?.state, "supported");
     assert.equal(ledger?.findings.find((finding) => finding.findingId === "tangelo-cold-tolerance")?.state, "supported");
     assert.notEqual(ledger?.findings.find((finding) => finding.findingId === "tangelo-breeding-motive")?.state, "supported");
     assert.match(answer, /1931/);
-    assert.match(answer, /cold tolerant/i);
+    assert.match(answer, /cold-tolerance/i);
     assert.match(answer, /does not establish freeze resistance as the original breeding motive/i);
     assert.match(answer, /ars\.usda\.gov\/citrus\/tangelo-record/);
+    assert.match(answer, /Best sources to cite/i);
+    assert.match(answer, /Authority: primary agricultural/i);
+    assert.doesNotMatch(answer, /retrieval-\d|<html|<main|USDA developed the Orlando tangelo hybrid and released.*USDA developed/i);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -251,11 +266,80 @@ test("conflicting authoritative cultivar evidence is surfaced rather than silent
     });
     const finding = getHearthEvidenceLedger(result)?.findings.find((entry) => entry.findingId === "tangelo-origin");
     const answer = composeGroundedResearchAnswer(result) || "";
+    const conversationState = new HearthConversationResearchState();
+    conversationState.replace("actor", result);
     assert.equal(finding?.state, "contradicted");
+    assert.equal(conversationState.get("workspace-a", "workpiece-florida", "actor")?.findings.find((entry) => entry.findingId === "tangelo-origin")?.state, "contradicted");
     assert.match(finding?.uncertainty || "", /conflicts/i);
-    assert.match(answer, /Conflicting\/contrary retrieved evidence/i);
-    assert.match(answer, /did not develop/i);
-    assert.match(answer, /developed the Orlando tangelo/i);
+    assert.match(answer, /authoritative sources conflict/i);
+    assert.doesNotMatch(answer, /retrieval-\d/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("ephemeral claim state qualifies later editorial guidance and cannot cross workpieces", () => {
+  const store = new HearthConversationResearchState();
+  const unverified = {
+    workspaceId: "workspace-a",
+    workpieceId: "workpiece-a",
+    runIdentity: "run-a",
+    refinementIdentity: "run-a:refinement-1",
+    findings: [{
+      findingId: "tangelo-origin",
+      normalizedClaim: "Named tangelo cultivar origin",
+      supportingSourceIds: [],
+      state: "unverified_lead" as const,
+      uncertainty: "No authoritative cultivar record was retrieved.",
+    }],
+  };
+  store.activate("actor", "workspace-a", "workpiece-a");
+  const guarded = enforceConversationalResearchState({
+    assistantText: "Orlando, Seminole, and Minneola were Florida-developed varieties. Put that in the next beat.",
+    claimState: unverified,
+  });
+  assert.doesNotMatch(guarded, /Florida-developed varieties/i);
+  assert.match(guarded, /once we verify the cultivar/i);
+
+  store.activate("actor", "workspace-a", "workpiece-b");
+  assert.equal(store.get("workspace-a", "workpiece-a"), null);
+  assert.equal(store.get("workspace-b", "workpiece-a"), null);
+
+  const supported = { ...unverified, findings: [{ ...unverified.findings[0], supportingSourceIds: ["source-1"], state: "supported" as const, uncertainty: null }] };
+  assert.equal(enforceConversationalResearchState({ assistantText: "Use the sourced cultivar origin.", claimState: supported }), "Use the sourced cultivar origin.");
+});
+
+test("strong-source presentation ranks institutional evidence above secondary and peripheral pages", async () => {
+  const originalFetch = globalThis.fetch;
+  const rows = [
+    { title: "USDA NASS Florida Citrus Production", url: "https://nass.usda.gov/florida-citrus", description: "Official production decline and acreage data." },
+    { title: "Slate History of Florida's Great Freeze", url: "https://slate.com/florida-freeze", description: "Reported historical context on the Great Freeze." },
+    { title: "Visit Florida Orange Attractions", url: "https://visitflorida.example/oranges", description: "Tourism and citrus heritage attractions." },
+    { title: "Generic Food Safety Orange Facts", url: "https://foodsafety.example/oranges", description: "Storage and food safety information." },
+  ];
+  globalThis.fetch = async (input) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.startsWith("https://api.search.brave.com/res/v1/web/search")) {
+      return new Response(JSON.stringify({ web: { results: rows } }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    const row = rows.find((entry) => entry.url === url)!;
+    return new Response(`<html><body><nav>Subscribe Share this</nav><main>${`${row.description} `.repeat(14)}</main></body></html>`, { status: 200, headers: { "content-type": "text/html" } });
+  };
+  try {
+    const result = await createHearthResearchRuntime({ braveApiKey: "test" }).run({
+      request: { query: "Find strong sources to cite for this Florida citrus industry collapse episode covering production decline, the Great Freeze, HLB, and development pressure.", intent: "background", recencyPreference: "none", maxSources: 6, requireDates: false, requireFullExtraction: false },
+      workspaceId: "workspace-a", workpieceId: "workpiece-florida",
+    });
+    const answer = composeGroundedResearchAnswer(result) || "";
+    const core = answer.slice(answer.indexOf("Best sources to cite"), answer.indexOf("Useful secondary context"));
+    const secondary = answer.slice(answer.indexOf("Useful secondary context"), answer.indexOf("Sources retrieved but not recommended"));
+    const excluded = answer.slice(answer.indexOf("Sources retrieved but not recommended"));
+    assert.match(core, /USDA NASS/i);
+    assert.doesNotMatch(core, /Slate|Visit Florida|Food Safety/i);
+    assert.match(secondary, /Slate/i);
+    assert.match(excluded, /Visit Florida|Food Safety/i);
+    assert.doesNotMatch(answer, /Subscribe|Share this|retrieval-\d|<nav>|<main>/i);
+    assert.match(core, /Supports:.*production decline/i);
   } finally {
     globalThis.fetch = originalFetch;
   }

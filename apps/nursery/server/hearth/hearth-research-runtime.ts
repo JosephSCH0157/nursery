@@ -1084,13 +1084,13 @@ export async function extractUrlToResearchSource(
   };
 }
 
-function classifySourceAuthority(source: HearthResearchSource): HearthSourceAuthority {
+export function classifyResearchSourceAuthority(source: HearthResearchSource): HearthSourceAuthority {
   const identity = `${source.domain ?? ""} ${source.publisher ?? ""} ${source.title ?? ""}`.toLowerCase();
   if (/\b(usda|ars|nal|grin)\b|\.usda\.gov\b/.test(identity)) return "primary_agricultural";
   if (/\b(ifas|land.grant|university of florida)\b|\.edu\b/.test(identity)) return "land_grant_university";
   if (/\b(fdacs|department of agriculture)\b|\.gov\b/.test(identity)) return "government_agricultural";
   if (/\b(journal|doi|hortscience|peer.review)\b/.test(identity)) return "peer_reviewed";
-  if (/\b(visit|tourism|farm & family|lifestyle|trade|promotion)\b/.test(identity)) return "promotional_or_general";
+  if (/\b(visit|tourism|farm & family|lifestyle|trade|promotion|food safety|nutrition|generic facts)\b/.test(identity)) return "promotional_or_general";
   return "reputable_secondary";
 }
 
@@ -1126,7 +1126,7 @@ function buildFinding(args: {
   unsupportedReason: string;
 }): HearthEvidenceFinding {
   const matches = args.sources
-    .map((source) => ({ source, excerpt: excerptForTerms(source, args.terms), authority: classifySourceAuthority(source) }))
+    .map((source) => ({ source, excerpt: excerptForTerms(source, args.terms), authority: classifyResearchSourceAuthority(source) }))
     .filter((entry): entry is { source: HearthResearchSource; excerpt: string; authority: HearthSourceAuthority } => Boolean(entry.excerpt));
   const compatible = matches.filter((entry) => AUTHORITY_RANK[entry.authority] >= (args.requiredAuthority ?? 2));
   const strongest = compatible.sort((a, b) => AUTHORITY_RANK[b.authority] - AUTHORITY_RANK[a.authority])[0] ?? null;
@@ -1186,7 +1186,7 @@ function buildEvidenceLedger(args: {
     for (const source of args.sources.filter((entry) => entry.extractionStatus === "extracted")) {
       const excerpt = truncate(evidenceText(source), 440);
       if (!excerpt) continue;
-      const authority = classifySourceAuthority(source);
+      const authority = classifyResearchSourceAuthority(source);
       findings.push({
         findingId: `source-finding-${findings.length + 1}`,
         normalizedClaim: `${source.title || source.publisher || source.domain || "Retrieved source"} reports: ${excerpt}`,
