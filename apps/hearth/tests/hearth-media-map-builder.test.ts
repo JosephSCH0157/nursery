@@ -5,7 +5,13 @@ import {
   createEmptyEpisodePackageV2,
   type EpisodeImageMapEntry,
 } from "../src/lib/episode-package-v2";
-import { buildMediaMapFromExistingPlans, dedupeVisualAssetsByAnchor } from "../src/lib/hearth-media-map-builder";
+import {
+  buildMediaMapFromExistingPlans,
+  dedupeVisualAssetsByAnchor,
+  selectBalancedFullMediaEntries,
+  summarizeMediaMapModalities,
+  validateFullMediaDistribution,
+} from "../src/lib/hearth-media-map-builder";
 
 function createImageEntry(index: number, overrides: Partial<EpisodeImageMapEntry> = {}): EpisodeImageMapEntry {
   return {
@@ -326,4 +332,171 @@ test("hearthMediaMapBuilder: anchor normalization handles whitespace and case sa
   ]);
 
   assert.equal(deduped.length, 1);
+});
+
+test("hearthMediaMapBuilder: Full Media uses one budget with images as backbone and limited motion", () => {
+  const base = createEmptyEpisodePackageV2();
+  const staticSubjects = [
+    "Historic Florida orange groves",
+    "Roadside citrus stands",
+    "Florida citrus packing houses",
+    "Vintage citrus crate labels",
+    "The Citrus Tower landmark",
+    "Historic Florida production map",
+    "Citrus greening leaf symptoms",
+    "Grove land replaced by development",
+    "Newspaper clipping about the freezes",
+    "Orange advertising signs",
+    "Agricultural research facility",
+    "Florida acreage decline timeline",
+    "Portrait of a citrus grower",
+    "Frozen orange trees after a cold snap",
+  ];
+  const motionSubjects = [
+    "Workers harvesting oranges from trees",
+    "Packing line machinery moving fruit",
+    "Historic orange grove photograph",
+    "Roadside citrus stand sign",
+    "Citrus Tower archival photograph",
+    "Map of Florida citrus acreage",
+    "Citrus greening symptom closeup",
+    "Suburban development replacing groves",
+    "Vintage orange crate label",
+    "Packing house exterior photograph",
+    "Florida freeze newspaper clipping",
+    "Orange advertisement poster",
+    "Historic grower portrait",
+  ];
+  const map = buildMediaMapFromExistingPlans({
+    ...base,
+    image_map: {
+      entries: staticSubjects.map((subject, index) => createImageEntry(index + 1, {
+        anchor: subject,
+        beat_anchor: null,
+        description: subject,
+        visual_intent: subject,
+        prompt_basis: subject,
+        intent: /map|timeline/i.test(subject) ? "graphic" : "archival",
+        visual_type: /map|timeline/i.test(subject) ? "diagram" : "still_image",
+        source_type: /historic|vintage|newspaper|portrait/i.test(subject) ? "archival" : "stock",
+      })),
+    },
+    broll_plan: {
+      ...base.broll_plan,
+      beats: motionSubjects.map((subject, index) => createBrollBeat(index + 1, subject, {
+        description: subject,
+        motion_intent: /harvesting|machinery/i.test(subject) ? "broll" : "establishing",
+      })),
+    },
+  }, "script-florida-fixture", "full_media_plan");
+
+  const summary = summarizeMediaMapModalities(map.entries);
+  assert.ok(summary.total >= 10 && summary.total <= 16);
+  assert.ok(summary.images > summary.generatedMotionBroll);
+  assert.ok(summary.generatedMotionBroll <= 2);
+  assert.equal(validateFullMediaDistribution(map.entries).ok, true);
+});
+
+test("hearthMediaMapBuilder: Full Media rejects the former thirteen-motion zero-image failure", () => {
+  const entries = Array.from({ length: 13 }, (_, index) => ({
+    id: `motion-${index}`,
+    final_media_kind: "b_roll" as const,
+    purpose: "coverage" as const,
+    anchor: { mode: "phrase_match" as const, target: `Motion beat ${index}` },
+    timing: { in_offset_sec: 0, duration_sec: 5 },
+    description: `Generated motion beat ${index}`,
+    intent: "broll",
+    source: { status: "unresolved" as const, asset_id: null },
+    confidence: "medium" as const,
+    fulfillment_status: "planned" as const,
+    fulfillment_path: null,
+    optional: false,
+    critical: false,
+    stale: false,
+    created_at: "2026-07-14T00:00:00.000Z",
+    updated_at: "2026-07-14T00:00:00.000Z",
+  }));
+  const result = validateFullMediaDistribution(entries);
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.match(result.error, /motion budget|image backbone/i);
+});
+
+test("hearthMediaMapBuilder: modality preview summary is deterministic", () => {
+  const base = createEmptyEpisodePackageV2();
+  const map = buildMediaMapFromExistingPlans({
+    ...base,
+    image_map: { entries: [createImageEntry(1, { anchor: "Historic grove", beat_anchor: null })] },
+    broll_plan: { ...base.broll_plan, beats: [createBrollBeat(1, "Workers harvesting oranges")] },
+  }, "script-1", "full_media_plan");
+  assert.deepEqual(summarizeMediaMapModalities(map.entries), summarizeMediaMapModalities(map.entries));
+  assert.equal(summarizeMediaMapModalities(map.entries).total, map.entries.length);
+});
+
+test("hearthMediaMapBuilder: sourced reference clips replace matching generated candidates", () => {
+  const timestamp = "2026-07-14T00:00:00.000Z";
+  const common = {
+    purpose: "explanation" as const,
+    anchor: { mode: "phrase_match" as const, target: "Florida citrus acreage decline" },
+    timing: { in_offset_sec: 0, duration_sec: 6 },
+    confidence: "medium" as const,
+    fulfillment_status: "planned" as const,
+    optional: false,
+    critical: true,
+    stale: false,
+    created_at: timestamp,
+    updated_at: timestamp,
+  };
+  const selected = selectBalancedFullMediaEntries([
+    {
+      ...common,
+      id: "generated-acreage-image",
+      final_media_kind: "image",
+      description: "Florida citrus acreage decline historical chart",
+      intent: "graphic",
+      source: { status: "unresolved", asset_id: null },
+      fulfillment_path: null,
+    },
+    {
+      ...common,
+      id: "reference-acreage-chart",
+      final_media_kind: "contextual_data_composite",
+      description: "Florida citrus acreage decline historical chart from USDA",
+      intent: "timeline | source:USDA",
+      source: { status: "unresolved", asset_id: null },
+      fulfillment_path: "reference_clip",
+    },
+  ]);
+  assert.equal(selected.length, 1);
+  assert.equal(selected[0]?.id, "reference-acreage-chart");
+  assert.equal(selected[0]?.fulfillment_path, "reference_clip");
+});
+
+test("hearthMediaMapBuilder: explicit video-heavy planning permits a bounded larger motion minority", () => {
+  const base = createEmptyEpisodePackageV2();
+  const packageSource = {
+    ...base,
+    image_map: {
+      entries: Array.from({ length: 8 }, (_, index) => createImageEntry(index + 1, {
+        anchor: `Static documentary subject ${index + 1}`,
+        beat_anchor: null,
+        description: `Distinct historical documentary subject ${index + 1}`,
+      })),
+    },
+    broll_plan: {
+      ...base.broll_plan,
+      beats: [
+        "Workers harvesting oranges into field bins",
+        "Packing machinery sorting fruit on conveyors",
+        "Driving through a grove at sunrise",
+        "Hurricane wind bending citrus trees",
+        "Forklift handling crates in a warehouse",
+        "Irrigation water flowing between grove rows",
+      ].map((description, index) => createBrollBeat(index + 1, description, { description })),
+    },
+  };
+  const defaultMap = buildMediaMapFromExistingPlans(packageSource, "script-1", "full_media_plan");
+  const videoHeavyMap = buildMediaMapFromExistingPlans(packageSource, "script-1", "full_media_plan", { videoHeavy: true });
+  assert.equal(summarizeMediaMapModalities(defaultMap.entries).generatedMotionBroll, 2);
+  assert.equal(summarizeMediaMapModalities(videoHeavyMap.entries).generatedMotionBroll, 4);
+  assert.equal(validateFullMediaDistribution(videoHeavyMap.entries, { videoHeavy: true }).ok, true);
 });

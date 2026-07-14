@@ -7,6 +7,7 @@ import {
   type MediaMapConversationSeed,
 } from "../../lib/hearth-media-map-conversation";
 import { formatHearthVisualPurposeLabel } from "../../lib/hearth-visual-purpose";
+import { summarizeMediaMapModalities } from "../../lib/hearth-media-map-builder";
 
 type EpisodeMediaMapPanelProps = {
   entries: EpisodeMediaMapEntry[];
@@ -72,8 +73,8 @@ const GENERATION_SCOPES = [
 ];
 const CONSTRAINT_CHIPS = [
   "Keep it simple.",
-  "Balanced density: 12-18 visuals.",
-  "Only 2-3 generated clips.",
+  "Balanced density: 10-16 visuals.",
+  "Only 2 generated clips.",
   "Heavier on B-roll than graphics.",
   "Avoid branded visuals.",
 ];
@@ -269,6 +270,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
     [selectedEntry],
   );
   const beatCards = useMemo(() => buildMediaMapBeatCards(props.entries), [props.entries]);
+  const modalitySummary = useMemo(() => summarizeMediaMapModalities(props.entries), [props.entries]);
   const [selectedDirectionId, setSelectedDirectionId] = useState<MediaMapConversationDirectionId | null>(null);
   const [constraintsText, setConstraintsText] = useState("");
   const [showPlanningConversation, setShowPlanningConversation] = useState(props.entries.length === 0);
@@ -306,7 +308,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
             {props.stale ? " (needs review)" : ""}
           </p>
           <p className="hs-imap-help-text">
-            Recommended: 12-18 visuals for a 10-minute episode. Focus on key moments, not every line.
+            Recommended: 10-16 visuals for a 7-10 minute episode. Use stills as the backbone and reserve motion for moments that need it.
           </p>
         </div>
         <div className={`hs-imap-save-state is-${props.saveState}`}>
@@ -324,6 +326,11 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
           Generate Media Map
         </button>
         <span className="hs-pill">{props.entries.length} mapped beat{props.entries.length === 1 ? "" : "s"}</span>
+        <span className="hs-pill">Images: {modalitySummary.images}</span>
+        <span className="hs-pill">Motion B-roll: {modalitySummary.motionBroll}</span>
+        <span className="hs-pill">Reference clips: {modalitySummary.referenceClips}</span>
+        <span className="hs-pill">Data/graphics: {modalitySummary.dataComposites}</span>
+        <span className="hs-pill">Generation burden: {modalitySummary.generationBurden}</span>
         <span className="hs-pill">Map: {props.mapStatus}</span>
         <span className="hs-pill">State: {props.saveState}</span>
         {props.entries.length > 0 ? (
@@ -365,7 +372,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
             <div className="hs-imap-conversation-speaker">Hearth</div>
             <p>{conversation.seed?.lead ?? "I'm reading through the episode to find the cleanest visual package."}</p>
             <p>{conversation.seed?.ask ?? "Generate a visual plan, then refine or apply it."}</p>
-            <p>Default density is balanced: select the strongest beats, cap the map at 18 visuals, and only use Reference Clips when they have a source, context, and a reason to exist.</p>
+            <p>Default density is balanced: share a 10-16 placement budget, use images as the backbone, reserve generated motion for the strongest movement beats, and only use Reference Clips when they have a source, context, and a reason to exist.</p>
           </div>
 
           {conversation.error ? (

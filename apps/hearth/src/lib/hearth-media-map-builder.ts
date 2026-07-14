@@ -9,8 +9,13 @@ import {
 import type { MediaMapGenerationScope } from "./hearth-media-map-conversation";
 
 const MAX_MEDIA_MAP_VISUALS = 18;
+const FULL_MEDIA_MAX_PLACEMENTS = 16;
+const FULL_MEDIA_DEFAULT_MOTION_BUDGET = 2;
 const MOTION_OR_PROCESS_SIGNAL_RE = /\b(motion|move|moving|camera|pan|zoom|tracking|walk|run|drive|flow|process|workflow|sequence|timeline|action|transition)\b/i;
 const STATIC_OR_EXPLAINER_SIGNAL_RE = /\b(static|still|diagram|explainer|explain|emphasis|concept|graphic|chart|map|label|text)\b/i;
+const HIGH_VALUE_MOTION_SIGNAL_RE = /\b(harvest|harvesting|pick(?:ing)?|packing(?:\s+line)?|machinery|conveyor|drive|driving|hurricane|storm|wind|flood|handling|processing|operation|moving|transition)\b/i;
+const STATIC_SUBJECT_SIGNAL_RE = /\b(historic|historical|archive|archival|grove|roadside stand|packing house|tower|map|document|newspaper|clipping|label|sign|advertisement|symptom|disease|greening|portrait|facility|acreage|timeline|development)\b/i;
+const SUBJECT_STOP_WORDS = new Set(["about", "after", "again", "against", "before", "being", "between", "could", "every", "first", "from", "have", "into", "more", "other", "over", "that", "their", "there", "these", "this", "through", "under", "visual", "when", "where", "which", "with", "would"]);
 
 function hasReferenceClipEvidenceSource(entry: { source?: string | null }): boolean {
   return typeof entry.source === "string" && entry.source.trim().length > 0;
@@ -31,6 +36,166 @@ function normalizeAnchorKey(entry: EpisodeMediaMapEntry): string {
     .toLowerCase()
     .replace(/\s+/g, " ");
   return `${mode}::${normalizedTarget}`;
+}
+
+function visualSubjectTokens(entry: EpisodeMediaMapEntry): Set<string> {
+  return new Set(
+    [entry.anchor.target, entry.description]
+      .join(" ")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((token) => token.length >= 4 && !SUBJECT_STOP_WORDS.has(token)),
+  );
+}
+
+function visualSubjectSimilarity(left: EpisodeMediaMapEntry, right: EpisodeMediaMapEntry): number {
+  if (normalizeAnchorKey(left) === normalizeAnchorKey(right)) return 1;
+  const leftTokens = visualSubjectTokens(left);
+  const rightTokens = visualSubjectTokens(right);
+  if (!leftTokens.size || !rightTokens.size) return 0;
+  let intersection = 0;
+  for (const token of leftTokens) if (rightTokens.has(token)) intersection += 1;
+  if (intersection < 2) return 0;
+  return intersection / (leftTokens.size + rightTokens.size - intersection);
+}
+
+function isReferenceEntry(entry: EpisodeMediaMapEntry): boolean {
+  return entry.final_media_kind === "contextual_data_composite" || entry.fulfillment_path === "reference_clip";
+}
+
+function isExistingEntry(entry: EpisodeMediaMapEntry): boolean {
+  return entry.source.status === "selected" || entry.source.status === "attached";
+}
+
+function motionSelectionScore(entry: EpisodeMediaMapEntry): number {
+  const signature = [entry.anchor.target, entry.description, entry.intent].join(" ");
+  let score = 0;
+  if (HIGH_VALUE_MOTION_SIGNAL_RE.test(signature)) score += 10;
+  if (MOTION_OR_PROCESS_SIGNAL_RE.test(signature)) score += 4;
+  if (STATIC_SUBJECT_SIGNAL_RE.test(signature)) score -= 8;
+  if (entry.critical) score += 3;
+  if (entry.purpose === "coverage") score += 1;
+  return score;
+}
+
+function consolidateEquivalentSubjects(entries: EpisodeMediaMapEntry[]): EpisodeMediaMapEntry[] {
+  const retained: EpisodeMediaMapEntry[] = [];
+  for (const candidate of entries) {
+    const duplicateIndex = retained.findIndex((current) => visualSubjectSimilarity(current, candidate) >= 0.72);
+    if (duplicateIndex < 0) {
+      retained.push(candidate);
+      continue;
+    }
+    const current = retained[duplicateIndex]!;
+    const candidateWins = (
+      (isReferenceEntry(candidate) && !isReferenceEntry(current))
+      || (isExistingEntry(candidate) && !isExistingEntry(current))
+      || (candidate.final_media_kind === "image" && current.final_media_kind === "b_roll" && motionSelectionScore(current) <= 0)
+    );
+    if (candidateWins) retained[duplicateIndex] = candidate;
+  }
+  return retained;
+}
+
+export type MediaMapModalitySummary = {
+  images: number;
+  motionBroll: number;
+  generatedMotionBroll: number;
+  referenceClips: number;
+  dataComposites: number;
+  total: number;
+  generationBurden: "Low" | "Moderate" | "High";
+};
+
+export function summarizeMediaMapModalities(entries: readonly EpisodeMediaMapEntry[]): MediaMapModalitySummary {
+  const referenceClips = entries.filter((entry) => entry.fulfillment_path === "reference_clip").length;
+  const dataComposites = entries.filter((entry) => entry.final_media_kind === "contextual_data_composite" && entry.fulfillment_path !== "reference_clip").length;
+  const motionEntries = entries.filter((entry) => entry.final_media_kind === "b_roll");
+  const generatedMotionBroll = motionEntries.filter((entry) => !isExistingEntry(entry)).length;
+  const burdenScore = generatedMotionBroll * 4 + entries.filter((entry) => entry.final_media_kind === "image" && !isExistingEntry(entry)).length;
+  return {
+    images: entries.filter((entry) => entry.final_media_kind === "image").length,
+    motionBroll: motionEntries.length,
+    generatedMotionBroll,
+    referenceClips,
+    dataComposites,
+    total: entries.length,
+    generationBurden: burdenScore >= 14 ? "High" : burdenScore >= 6 ? "Moderate" : "Low",
+  };
+}
+
+export function selectBalancedFullMediaEntries(entries: EpisodeMediaMapEntry[], options: { videoHeavy?: boolean } = {}): EpisodeMediaMapEntry[] {
+  const consolidated = consolidateEquivalentSubjects(entries);
+  const references = consolidated.filter(isReferenceEntry);
+  const replacedIds = new Set<string>();
+  for (const reference of references) {
+    for (const candidate of consolidated) {
+      if (candidate.id === reference.id || isReferenceEntry(candidate)) continue;
+      if (visualSubjectSimilarity(reference, candidate) >= 0.5) replacedIds.add(candidate.id);
+    }
+  }
+
+  const eligible = consolidated.filter((entry) => !replacedIds.has(entry.id));
+  const existing = eligible.filter((entry) => isExistingEntry(entry) && !isReferenceEntry(entry));
+  const images = eligible.filter((entry) => entry.final_media_kind === "image" && !isExistingEntry(entry));
+  const motion = eligible
+    .filter((entry) => entry.final_media_kind === "b_roll" && !isExistingEntry(entry))
+    .sort((left, right) => motionSelectionScore(right) - motionSelectionScore(left));
+  const motionBudget = options.videoHeavy ? 4 : FULL_MEDIA_DEFAULT_MOTION_BUDGET;
+  const selectedMotion = motion
+    .filter((entry) => motionSelectionScore(entry) > 0)
+    .slice(0, motionBudget);
+
+  const selected: EpisodeMediaMapEntry[] = [...references, ...existing, ...selectedMotion];
+  const selectedIds = new Set(selected.map((entry) => entry.id));
+  for (const image of images) {
+    if (selected.length >= FULL_MEDIA_MAX_PLACEMENTS) break;
+    if (!selectedIds.has(image.id)) {
+      selected.push(image);
+      selectedIds.add(image.id);
+    }
+  }
+
+  // If the image planner was sparse, static B-roll candidates become still-image
+  // treatments for the same beat rather than inflating the motion plan.
+  for (const candidate of motion) {
+    if (selected.length >= FULL_MEDIA_MAX_PLACEMENTS) break;
+    if (selectedIds.has(candidate.id) || selectedMotion.some((entry) => entry.id === candidate.id)) continue;
+    selected.push({
+      ...candidate,
+      id: candidate.id.replace(/^mm_broll_/, "mm_still_"),
+      final_media_kind: "image",
+      fulfillment_path: null,
+    });
+  }
+
+  const sourceOrder = new Map(entries.map((entry, index) => [entry.id, index] as const));
+  return selected
+    .slice(0, FULL_MEDIA_MAX_PLACEMENTS)
+    .sort((left, right) => {
+      const leftSourceId = left.id.replace(/^mm_still_/, "mm_broll_");
+      const rightSourceId = right.id.replace(/^mm_still_/, "mm_broll_");
+      return (sourceOrder.get(leftSourceId) ?? 0) - (sourceOrder.get(rightSourceId) ?? 0);
+    });
+}
+
+export function validateFullMediaDistribution(
+  entries: readonly EpisodeMediaMapEntry[],
+  options: { videoHeavy?: boolean } = {},
+): { ok: true } | { ok: false; error: string } {
+  const summary = summarizeMediaMapModalities(entries);
+  if (summary.total === 0) return { ok: false, error: "Full Media produced no usable placements." };
+  const motionBudget = options.videoHeavy
+    ? Math.max(4, Math.floor(summary.total * 0.45))
+    : FULL_MEDIA_DEFAULT_MOTION_BUDGET;
+  if (summary.generatedMotionBroll > motionBudget) {
+    return { ok: false, error: `Full Media exceeded its motion budget (${summary.generatedMotionBroll}/${motionBudget}).` };
+  }
+  if (summary.images === 0 && summary.generatedMotionBroll > 0) {
+    return { ok: false, error: "Full Media cannot use generated motion without an image backbone." };
+  }
+  return { ok: true };
 }
 
 function resolvePrimaryVisualAssetType(entry: EpisodeMediaMapEntry): PrimaryVisualAssetType {
@@ -207,6 +372,7 @@ export function buildMediaMapFromExistingPlans(
   current: EpisodePackageV2,
   scriptVersionId: string | null,
   scope: MediaMapGenerationScope,
+  options: { videoHeavy?: boolean } = {},
 ): EpisodeMediaMap {
   const nowIso = new Date().toISOString();
   const thumbnailVersionByConceptId = new Map<string, EpisodeThumbnailVersion>();
@@ -304,7 +470,7 @@ export function buildMediaMapFromExistingPlans(
     },
     confidence: "medium",
     fulfillment_status: entry.selected_asset_id ? "resolved" : "planned",
-    fulfillment_path: entry.selected_asset_id ? "reference_clip" : null,
+    fulfillment_path: "reference_clip",
     optional: false,
     critical: true,
     stale: false,
@@ -315,7 +481,7 @@ export function buildMediaMapFromExistingPlans(
   const includeBroll = scope === "images_broll" || scope === "full_media_plan";
   const includeReferenceClips = scope === "images_reference_clips" || scope === "full_media_plan";
   const merged = [
-    ...(includeImages ? fromThumbnailPrompts : []),
+    ...(includeImages && scope !== "full_media_plan" ? fromThumbnailPrompts : []),
     ...(includeImages ? fromImageMap : []),
     ...(includeBroll ? fromBroll : []),
     ...(includeReferenceClips ? fromReferenceClips : []),
@@ -370,7 +536,9 @@ export function buildMediaMapFromExistingPlans(
     preserveBothAnchorKeys,
     existingAttachedTypeByAnchor,
   });
-  const selected = selectMediaMapVisualBeats(deduped);
+  const selected = scope === "full_media_plan"
+    ? selectBalancedFullMediaEntries(deduped, options)
+    : selectMediaMapVisualBeats(deduped);
   return {
     id: current.media_map.id || "media-map-v1",
     workpiece_id: current.media_map.workpiece_id,
