@@ -1283,13 +1283,50 @@ function parseSectionBody(rawText: string, sectionHeader: string): string {
   return collected.join("\n").trim();
 }
 
+function parseProductionJson(rawText: string): Record<string, unknown> | null {
+  const trimmed = rawText.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function readProductionArray(rawText: string, keys: string[]): unknown[] {
+  const parsed = parseProductionJson(rawText);
+  if (!parsed) return [];
+  for (const key of keys) {
+    if (Array.isArray(parsed[key])) return parsed[key] as unknown[];
+  }
+  for (const containerKey of ["seo", "framing", "result", "data"]) {
+    const container = parsed[containerKey];
+    if (!container || typeof container !== "object" || Array.isArray(container)) continue;
+    for (const key of keys) {
+      const value = (container as Record<string, unknown>)[key];
+      if (Array.isArray(value)) return value;
+    }
+  }
+  return [];
+}
+
 export function parseSeoTitlesFromText(rawText: string): EpisodeSeoTitle[] {
+  const jsonTitles = readProductionArray(rawText, ["titles", "seo_titles", "seoTitles"])
+    .map((value) => typeof value === "string"
+      ? value
+      : value && typeof value === "object"
+        ? readString((value as Record<string, unknown>).text) ?? readString((value as Record<string, unknown>).title)
+        : null)
+    .filter((value): value is string => Boolean(value));
   const body = parseSectionBody(rawText, "SEO_TITLES");
-  if (!body) return [];
+  if (!body && jsonTitles.length === 0) return [];
   const lines = body
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
+  if (jsonTitles.length) lines.push(...jsonTitles);
   const titles: EpisodeSeoTitle[] = [];
   for (let i = 0; i < lines.length; i += 1) {
     const line = (lines[i]?.replace(/^(?:[-*]|\d+[.)])\s*/, "") ?? "")
@@ -1329,6 +1366,10 @@ export function parseDescriptionFromSeoText(rawText: string): {
 }
 
 export function parseTagsFromText(rawText: string): string[] {
+  const jsonTags = readProductionArray(rawText, ["tags", "full_tags", "tags_full", "top_tags", "tags_top10"])
+    .map((value) => typeof value === "string" ? value : null)
+    .filter((value): value is string => Boolean(value));
+  if (jsonTags.length) return dedupeTags(jsonTags);
   const full = parseSectionBody(rawText, "TAGS_FULL");
   if (full) return dedupeTags(parseCsvTags(full.replace(/^(?:[-*]|\d+[.)])\s*/gm, "")));
   const top10 = parseSectionBody(rawText, "TAGS_TOP10");

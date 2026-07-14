@@ -39,7 +39,10 @@ import {
   type HearthResearchSource,
 } from "../../../hearth/src/lib/hearth-research-contract";
 import { shapeHearthScriptForRecording } from "../../../hearth/src/lib/hearth-recording-ready-script";
-import { validateHearthProductionArtifactOutput } from "../../../hearth/src/lib/hearth-production-feedback";
+import {
+  canonicalizeHearthProductionArtifactOutput,
+  validateHearthProductionArtifactOutput,
+} from "../../../hearth/src/lib/hearth-production-feedback";
 import {
   createHearthResearchRuntime,
   classifyResearchSourceAuthority,
@@ -4298,10 +4301,23 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         structured.assistantText = sanitizeHearthUserFacingOutput(structured.assistantText);
 
         if (productionAction === "seo" || productionAction === "tags") {
-          const productionValidation = validateHearthProductionArtifactOutput({
+          let productionValidation = validateHearthProductionArtifactOutput({
             action: productionAction,
             assistantText: structured.assistantText,
           });
+          if (!productionValidation.ok) {
+            const recoveredOutput = canonicalizeHearthProductionArtifactOutput({
+              action: productionAction,
+              assistantText: rawReply,
+            });
+            if (recoveredOutput) {
+              structured.assistantText = recoveredOutput;
+              productionValidation = validateHearthProductionArtifactOutput({
+                action: productionAction,
+                assistantText: recoveredOutput,
+              });
+            }
+          }
           if (!productionValidation.ok) {
             const rejectedTokens = extractTotalTokens(payload) ?? estimateTokenFallback(messages, rawReply);
             const rejectedAccounting = buildUsageAccounting({

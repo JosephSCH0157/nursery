@@ -67,6 +67,22 @@ test("hearthProductionFeedback: markdown output parses and placeholders cannot c
   assert.equal(placeholders.ok, false);
 });
 
+test("hearthProductionFeedback: structured title and tag arrays remain usable", () => {
+  const titles = validateHearthProductionArtifactOutput({
+    action: "seo",
+    assistantText: JSON.stringify({ titles: ["First", "Second", "Third", "Fourth", "Fifth"] }),
+  });
+  assert.equal(titles.ok, true);
+  if (titles.ok) assert.deepEqual(titles.feedback.titles.map((title) => title.text), ["First", "Second", "Third", "Fourth", "Fifth"]);
+
+  const tags = validateHearthProductionArtifactOutput({
+    action: "tags",
+    assistantText: JSON.stringify({ result: { tags: ["Florida citrus", "orange history", "agriculture"] } }),
+  });
+  assert.equal(tags.ok, true);
+  if (tags.ok) assert.deepEqual(tags.feedback.tags, ["florida-citrus", "orange-history", "agriculture"]);
+});
+
 test("hearthProductionFeedback: tags replies hydrate tags and warn on empty structured output", () => {
   const parsed = resolveHearthProductionArtifactFeedback({
     action: "tags",

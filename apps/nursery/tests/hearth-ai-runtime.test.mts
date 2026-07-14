@@ -463,6 +463,38 @@ test("createHearthAiHandler isolates production generation from chat history and
   }
 });
 
+test("createHearthAiHandler recovers production arrays that are outside assistantText", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key", configuredBillingMode: "byo" }));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    choices: [{ message: { content: JSON.stringify({
+      assistantText: "Generated the requested options.",
+      titles: ["First real title", "Second real title", "Third real title", "Fourth real title", "Fifth real title"],
+      ops: [],
+    }) } }],
+    usage: { prompt_tokens: 40, completion_tokens: 12, total_tokens: 52 },
+  }), { status: 200, headers: { "content-type": "application/json" } });
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Generate Titles for approved Script Version 4." }],
+        episode_context: buildEpisodeContext(),
+        lane: "byo",
+        production_action: "seo",
+        production_script_version: 4,
+      }),
+    }));
+    const payload = await response.json();
+    assert.equal(response.status, 200);
+    assert.match(payload.assistant_text, /SAFE: First real title/);
+    assert.match(payload.assistant_text, /BALANCED_1: Third real title/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("createHearthAiHandler shapes returned script blobs into Anvil output contract format", async () => {
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
   const originalFetch = globalThis.fetch;

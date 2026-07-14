@@ -86,3 +86,25 @@ export function validateHearthProductionArtifactOutput(args: {
   }
   return { ok: true, feedback };
 }
+
+export function canonicalizeHearthProductionArtifactOutput(args: {
+  action: HearthProductionAction;
+  assistantText: string;
+}): string | null {
+  const validation = validateHearthProductionArtifactOutput(args);
+  if (!validation.ok) return null;
+  if (args.action === "seo") {
+    const labels = ["SAFE", "SPICY", "BALANCED_1", "BALANCED_2", "BALANCED_3"];
+    return [
+      "SEO_TITLES:",
+      ...validation.feedback.titles.map((title, index) => `${labels[index] ?? `OPTION_${index + 1}`}: ${title.text}`),
+      ...(validation.feedback.descriptionLong
+        ? ["", "DESCRIPTION:", validation.feedback.descriptionLong]
+        : []),
+    ].join("\n");
+  }
+  if (args.action === "tags") {
+    return ["TAGS_FULL:", validation.feedback.tags.join(", ")].join("\n");
+  }
+  return args.assistantText;
+}
