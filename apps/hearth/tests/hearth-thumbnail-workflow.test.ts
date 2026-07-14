@@ -6,6 +6,7 @@ import {
   resolveThumbnailVersionSourceLabel,
   resolveThumbnailWorkspaceGuidance,
 } from "../src/lib/hearth-thumbnail-workflow";
+import { loadWorkspaceThumbnailBrandLogoPreview } from "../src/lib/hearth-thumbnail-brand-templates";
 
 test("hearthThumbnailWorkflow: panel meta emphasizes briefs and image versions", () => {
   assert.equal(formatThumbnailPanelMeta(1, 2), "1 brief · 2 image versions");
@@ -56,4 +57,42 @@ test("hearthThumbnailWorkflow: guidance makes the next step explicit", () => {
   const withImage = resolveThumbnailWorkspaceGuidance({ conceptCount: 2, versionCount: 1, titleCount: 2 });
   assert.equal(withImage.primaryAction, "upload_image");
   assert.match(withImage.cardLead, /image is back in/i);
+});
+
+test("brand-logo preview coalesces duplicate in-flight reads", async () => {
+  const originalFetch = globalThis.fetch;
+  const originalWindow = (globalThis as { window?: unknown }).window;
+  let fetchCount = 0;
+  let release: (() => void) | null = null;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    await gate;
+    return new Response(JSON.stringify({ error: "missing" }), {
+      status: 404,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  (globalThis as { window?: unknown }).window = {
+    __forgeTongsApiToken: "test-token",
+    location: { search: "" },
+    localStorage: { getItem: () => null },
+  };
+  try {
+    const args = {
+      workpieceId: "38a538ff-b49c-4955-ba28-ec1e9191b8b8",
+      assetPath: "assets/thumbnail-brand-logos/template/missing.png",
+    };
+    const first = loadWorkspaceThumbnailBrandLogoPreview(args);
+    const second = loadWorkspaceThumbnailBrandLogoPreview(args);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(fetchCount, 1);
+    release?.();
+    const [firstResult, secondResult] = await Promise.all([first, second]);
+    assert.equal(firstResult.ok, false);
+    assert.equal(secondResult.ok, false);
+  } finally {
+    globalThis.fetch = originalFetch;
+    (globalThis as { window?: unknown }).window = originalWindow;
+  }
 });

@@ -5880,23 +5880,17 @@ export default function HearthShell({
       if (cancelled) return;
       if (!loaded.ok) {
         setThumbnailBrandLogoDataUrl(null);
-        if (!isThumbnailBrandLogoUploading && !thumbnailBrandLogoError) {
-          setThumbnailBrandLogoError(loaded.error);
-        }
+        setThumbnailBrandLogoError((current) => current ?? loaded.error);
         return;
       }
       setThumbnailBrandLogoDataUrl(loaded.dataUrl);
-      if (!isThumbnailBrandLogoUploading && !thumbnailBrandLogoError) {
-        setThumbnailBrandLogoStatus("Brand logo loaded.");
-      }
+      setThumbnailBrandLogoStatus("Brand logo loaded.");
     })();
 
     return () => {
       cancelled = true;
     };
   }, [
-    isThumbnailBrandLogoUploading,
-    thumbnailBrandLogoError,
     workpieceId,
     selectedThumbnailBrandLogoWorkpieceId,
     selectedThumbnailBrandLogoAssetPath,
@@ -6004,6 +5998,12 @@ export default function HearthShell({
     setEpisodePackage((prev) => {
       if (!prev) return prev;
       if (prev.media_map.script_version_id === currentScriptVersion) return prev;
+      if (
+        prev.media_map.status === "needs_attention"
+        && prev.media_map.entries.every((entry) => entry.stale)
+      ) {
+        return prev;
+      }
       return {
         ...prev,
         media_map: {
