@@ -99,7 +99,7 @@ export function assertBaseVersionAuthority(pkg: EpisodePackageV3, base: Thumbnai
 export function proveThumbnailMutation(args: {
   expected: EpisodePackageV3;
   canonical: EpisodePackageV3;
-  kind: "concept_set" | "concept_revision" | "recipe" | "base_version" | "primary" | "launch_revision";
+  kind: "concept_set" | "concept_revision" | "recipe" | "base_version" | "primary" | "launch_revision" | "publication_event";
   entityId: string;
   revision?: number;
   protectedRelationships?: readonly { versionId: string; conceptRevisionId: string }[];
@@ -127,6 +127,7 @@ function findScoped(pkg: EpisodePackageV3, kind: Parameters<typeof proveThumbnai
     case "base_version": return pkg.thumbnail.base_versions.find((entry) => entry.id === id);
     case "primary": return pkg.thumbnail.primary_base_version_id === id ? id : null;
     case "launch_revision": return pkg.thumbnail.launch_variant_revisions.find((entry) => entry.launch_variant_id === id && entry.revision === revision);
+    case "publication_event": return pkg.thumbnail.publication_events.find((entry) => entry.id === id);
   }
 }
 

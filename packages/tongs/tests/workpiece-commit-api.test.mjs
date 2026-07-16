@@ -3560,7 +3560,7 @@ test("GET /tongs/workpieces/:id/recording-truth dispatches getWorkpieceRecording
   assert.equal(body.data?.truth?.latest_kept_take?.file_path, "recordings/episode-kept.webm");
 });
 
-test("POST /tongs/workpieces/:id/generate-thumbnail dispatches generateEpisodeThumbnail", async () => {
+test("POST /tongs/workpieces/:id/generate-thumbnail rejects legacy package mutation", async () => {
   const { service, calls } = mockService();
   const handler = createTongsCommitApiHandlerWithService(service);
 
@@ -3582,15 +3582,9 @@ test("POST /tongs/workpieces/:id/generate-thumbnail dispatches generateEpisodeTh
   const response = await handler(request);
   const body = await response.json();
 
-  assert.equal(response.status, 200);
-  assert.equal(calls.generateEpisodeThumbnail.length, 1);
-  assert.equal(calls.generateEpisodeThumbnail[0].workpieceId, "11111111-1111-4111-8111-111111111111");
-  assert.equal(calls.generateEpisodeThumbnail[0].input.concept_id, "concept-01");
-  assert.equal(calls.generateEpisodeThumbnail[0].input.user_access_token, "user_token_abc");
-  assert.equal(body.ok, true);
-  assert.equal(body.data?.version?.status, "ready");
-  assert.equal(typeof body.data?.asset?.storage_key, "string");
-  assert.equal(body.data?.primary_version_id, "44444444-4444-4444-8444-444444444444");
+  assert.equal(response.status, 410);
+  assert.equal(calls.generateEpisodeThumbnail.length, 0);
+  assert.equal(body.error.code, "legacy_thumbnail_generation_removed");
 });
 
 test("canonical thumbnail generation forwards exact v3 authority and stage-only intent", async () => {

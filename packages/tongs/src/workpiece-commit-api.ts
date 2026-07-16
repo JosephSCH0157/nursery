@@ -1,13 +1,10 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "./db.types.js";
 import { unzlibSync as fflateUnzlibSync, inflateSync as fflateInflateRawSync } from "fflate";
-import {
-  renderThumbnailComposite,
-  THUMBNAIL_BUNDLED_FONT_VERSION,
-  THUMBNAIL_COMPOSITION_ENGINE_VERSION,
-  type ThumbnailCompositeEncoding,
-  type ThumbnailCompositeRecipe,
-} from "./thumbnail-composite.js";
+import type { ThumbnailCompositeEncoding, ThumbnailCompositeRecipe } from "./thumbnail-composite.js";
+
+const THUMBNAIL_BUNDLED_FONT_VERSION = "inter-5.2.8-latin-700";
+const THUMBNAIL_COMPOSITION_ENGINE_VERSION = "forge-thumbnail-compositor-v1";
 
 type UntypedPostgrestResult = {
   data: unknown;
@@ -186,7 +183,6 @@ export type WorkpieceJobDTO = {
   created_at: string;
   updated_at: string;
 };
-const THUMBNAIL_ASSET_PREFIX = "assets/thumbnails";
 const THUMBNAIL_ASSET_KIND = "thumbnail_image" as const;
 const THUMBNAIL_ASSET_SCHEMA = "forge.thumbnail-image.v1" as const;
 const THUMBNAIL_EDITORIAL_BASE_HINT = "Clean, high-contrast YouTube thumbnail composition.";
@@ -1134,6 +1130,8 @@ export type ThumbnailAssetSummary = {
   content_hash: string;
   storage_bucket: string;
   storage_key: string;
+  provider: string;
+  provider_request_id: string | null;
   reference_committed_at: string | null;
   ready_at: string | null;
   failed_at: string | null;
@@ -3689,6 +3687,9 @@ function normalizeGenerateEpisodeThumbnailRequest(
     throw new HttpError(400, "missing_prompt", "concept_id or prompt is required");
   }
   const canonicalStageOnly = normalizeOptionalBoolean(body.canonical_stage_only, "canonical_stage_only");
+  if (canonicalStageOnly !== true) {
+    throw new HttpError(410, "legacy_thumbnail_generation_removed", "Thumbnail generation must use Episode Package v3 stage-only authority");
+  }
   if (canonicalStageOnly && (
     typeof body.concept_revision_id !== "string"
     || typeof body.render_recipe_id !== "string"
@@ -9781,7 +9782,6 @@ export class TongsCommitService {
     const metadata = metadataRead.found ? metadataRead.data : null;
     const results: ThumbnailAssetSummary[] = [];
     for (const row of pending ?? []) {
-      const asset = thumbnailAssetSummary(row);
       const assetMetadata = row.metadata_json && typeof row.metadata_json === "object" && !Array.isArray(row.metadata_json)
         ? row.metadata_json as Record<string, unknown> : {};
       const pointer = typeof assetMetadata.reference_pointer === "string" ? assetMetadata.reference_pointer : null;
@@ -9857,6 +9857,8 @@ export class TongsCommitService {
       });
     }
     if (reusable) return thumbnailAssetSummary(reusable);
+    const compositorModulePath = "./thumbnail-composite.js";
+    const { renderThumbnailComposite } = await import(/* @vite-ignore */ compositorModulePath);
     const rendered = await renderThumbnailComposite({
       baseBytes,
       width: input.width,
@@ -12759,6 +12761,8 @@ function thumbnailAssetSummary(row: AssetRow): ThumbnailAssetSummary {
     content_hash: contentHash,
     storage_bucket: row.storage_bucket,
     storage_key: row.storage_key,
+    provider: row.provider,
+    provider_request_id: row.provider_request_id,
     reference_committed_at: row.reference_committed_at,
     ready_at: row.ready_at,
     failed_at: row.failed_at,

@@ -42,6 +42,13 @@ export default function ThumbnailV3Panel(props: Props) {
   const [providerId, setProviderId] = useState("forge");
   const [aspect, setAspect] = useState<"16:9" | "1:1" | "9:16">("16:9");
   const [brandTemplateId, setBrandTemplateId] = useState("");
+  const [brandTemplateRevision, setBrandTemplateRevision] = useState(1);
+  const [textColor, setTextColor] = useState("#FFFFFF");
+  const [maxLines, setMaxLines] = useState(3);
+  const [verticalPlacement, setVerticalPlacement] = useState<"top" | "center" | "bottom">("bottom");
+  const [horizontalPadding, setHorizontalPadding] = useState(8);
+  const [shadowColor, setShadowColor] = useState("#000000");
+  const [shadowOpacity, setShadowOpacity] = useState(0.7);
   const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
   const wasGenerating = useRef(props.isGeneratingConcepts);
   const outsideUploadRef = useRef<HTMLInputElement | null>(null);
@@ -65,19 +72,41 @@ export default function ThumbnailV3Panel(props: Props) {
   useEffect(() => {
     if (saveState !== "editing") return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
+    const warnOnNavigation = (event: MouseEvent) => {
+      const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null;
+      if (anchor && !window.confirm("Discard unsaved thumbnail recipe changes?")) event.preventDefault();
+    };
     window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
+    document.addEventListener("click", warnOnNavigation, true);
+    return () => { window.removeEventListener("beforeunload", warn); document.removeEventListener("click", warnOnNavigation, true); };
   }, [saveState]);
   const activeSet = pkg?.thumbnail.concept_sets.find((set) => set.id === selectedSetId) ?? null;
   const revisions = useMemo(() => activeSet && pkg
-    ? activeSet.concept_revision_ids.map((id) => pkg.thumbnail.concept_revisions.find((entry) => entry.concept_revision_id === id)).filter(Boolean)
+    ? pkg.thumbnail.concept_revisions.filter((entry) => entry.concept_set_id === activeSet.id)
+      .sort((left, right) => left.concept_lineage_id.localeCompare(right.concept_lineage_id) || left.revision_number - right.revision_number)
     : [], [activeSet, pkg]);
-  const selectedConcept = pkg?.thumbnail.concept_revisions.find((entry) => entry.concept_revision_id === selectedRevisionId)
+  const selectedConcept = revisions.find((entry) => entry.concept_revision_id === selectedRevisionId)
     ?? revisions[0] ?? null;
   useEffect(() => { if (selectedConcept) setSelectedRevisionId(selectedConcept.concept_revision_id); }, [selectedConcept?.concept_revision_id]);
   const activeRecipe = pkg && selectedConcept
     ? [...pkg.thumbnail.render_recipes].filter((entry) => entry.concept_revision_id === selectedConcept.concept_revision_id).sort((a, b) => b.revision - a.revision)[0] ?? null
     : null;
+  useEffect(() => {
+    if (!activeRecipe) return;
+    const typography = activeRecipe.treatment.typography as Record<string, unknown>;
+    const placement = activeRecipe.treatment.placement as Record<string, unknown>;
+    const shadow = activeRecipe.treatment.shadow as Record<string, unknown>;
+    setTitleId(activeRecipe.title_id); setTitleText(activeRecipe.title_text); setProviderId(activeRecipe.provider_id);
+    setAspect(activeRecipe.intended_aspect_ratio); setBrandTemplateId(activeRecipe.brand_template_id ?? "");
+    setBrandTemplateRevision(activeRecipe.brand_template_revision ?? 1);
+    setTextColor(typeof typography.color === "string" ? typography.color : "#FFFFFF");
+    setMaxLines(typeof typography.max_lines === "number" ? typography.max_lines : 3);
+    setVerticalPlacement(placement.vertical === "top" || placement.vertical === "center" ? placement.vertical : "bottom");
+    setHorizontalPadding(typeof placement.horizontal_padding_percent === "number" ? placement.horizontal_padding_percent : 8);
+    setShadowColor(typeof shadow.color === "string" ? shadow.color : "#000000");
+    setShadowOpacity(typeof shadow.opacity === "number" ? shadow.opacity : 0.7);
+    setSaveState("saved");
+  }, [activeRecipe?.id, activeRecipe?.revision]);
   const promptPack = activeRecipe && selectedConcept ? deriveThumbnailPromptPack({ recipe: activeRecipe, concept: selectedConcept }) : null;
 
   const commitSetMutation = async (next: EpisodePackageV3, setId: string, eventName: string) => {
@@ -97,7 +126,12 @@ export default function ThumbnailV3Panel(props: Props) {
       id: activeRecipe?.id ?? crypto.randomUUID(), revision: (activeRecipe?.revision ?? 0) + 1,
       concept_revision_id: selectedConcept.concept_revision_id, title_id: title.id, title_revision: title.revision,
       provider_id: providerId, intended_aspect_ratio: aspect, brand_template_id: brandTemplateId || null,
-      brand_template_revision: brandTemplateId ? 1 : null, title_text: titleText.trim(), treatment: activeRecipe?.treatment ?? emptyTreatment,
+      brand_template_revision: brandTemplateId ? brandTemplateRevision : null, title_text: titleText.trim(), treatment: {
+        ...(activeRecipe?.treatment ?? emptyTreatment),
+        typography: { color: textColor, max_lines: maxLines },
+        placement: { vertical: verticalPlacement, horizontal_padding_percent: horizontalPadding },
+        shadow: { color: shadowColor, opacity: shadowOpacity },
+      },
       prompt_template_version: THUMBNAIL_PROMPT_TEMPLATE_VERSION,
       composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
       prompt_review_state: reviewed ? "reviewed" : "unreviewed",
@@ -139,7 +173,7 @@ export default function ThumbnailV3Panel(props: Props) {
   };
 
   const renderBase = async (source: "forge_ai" | "outside_tool", file?: File) => {
-    if (!pkg || !selectedConcept || !activeRecipe || activeRecipe.prompt_review_state !== "reviewed") {
+    if (!pkg || !selectedConcept || !activeRecipe || promptPack?.review_state !== "reviewed") {
       setLoadError("Review the prompt pack before choosing a renderer."); return;
     }
     setSaveState("saving"); const id = crypto.randomUUID(); const createdAt = new Date().toISOString();
@@ -199,11 +233,20 @@ export default function ThumbnailV3Panel(props: Props) {
       <label>Provider<input value={providerId} onChange={(event) => { setProviderId(event.target.value); setSaveState("editing"); }} /></label>
       <label>Aspect<select value={aspect} onChange={(event) => { setAspect(event.target.value as typeof aspect); setSaveState("editing"); }}><option>16:9</option><option>1:1</option><option>9:16</option></select></label>
       <label>Brand template<input value={brandTemplateId} onChange={(event) => { setBrandTemplateId(event.target.value); setSaveState("editing"); }} placeholder="Optional template ID" /></label>
+      {brandTemplateId ? <label>Brand template revision<input type="number" min={1} value={brandTemplateRevision} onChange={(event) => { setBrandTemplateRevision(Number(event.target.value)); setSaveState("editing"); }} /></label> : null}
+      <fieldset><legend>Title treatment</legend>
+        <label>Text color<input type="color" value={textColor} onChange={(event) => { setTextColor(event.target.value); setSaveState("editing"); }} /></label>
+        <label>Maximum lines<input type="number" min={1} max={5} value={maxLines} onChange={(event) => { setMaxLines(Number(event.target.value)); setSaveState("editing"); }} /></label>
+        <label>Placement<select value={verticalPlacement} onChange={(event) => { setVerticalPlacement(event.target.value as typeof verticalPlacement); setSaveState("editing"); }}><option value="top">Top</option><option value="center">Center</option><option value="bottom">Bottom</option></select></label>
+        <label>Horizontal safe padding (%)<input type="number" min={0} max={30} value={horizontalPadding} onChange={(event) => { setHorizontalPadding(Number(event.target.value)); setSaveState("editing"); }} /></label>
+        <label>Shadow color<input type="color" value={shadowColor} onChange={(event) => { setShadowColor(event.target.value); setSaveState("editing"); }} /></label>
+        <label>Shadow opacity<input type="range" min={0} max={1} step={0.05} value={shadowOpacity} onChange={(event) => { setShadowOpacity(Number(event.target.value)); setSaveState("editing"); }} /></label>
+      </fieldset>
       <button type="button" onClick={() => void saveRecipe(false)}>Save recipe</button>
       {promptPack ? <div><h4>Derived prompt pack</h4><pre>{promptPack.positive_prompt}</pre><p>Negative: {promptPack.negative_prompt}</p><button type="button" onClick={() => void saveRecipe(true)}>{promptPack.review_state === "reviewed" ? "Reviewed" : "Review and approve prompt"}</button></div> : null}
       <div className="hs-thumbnail-renderer-choices" aria-label="Choose renderer">
-        <button type="button" onClick={() => void renderBase("forge_ai")}>Generate with Forge AI</button>
-        <button type="button" onClick={() => outsideUploadRef.current?.click()}>Use an outside image tool</button>
+        <button type="button" disabled={promptPack?.review_state !== "reviewed"} onClick={() => void renderBase("forge_ai")}>Generate with Forge AI</button>
+        <button type="button" disabled={promptPack?.review_state !== "reviewed"} onClick={() => outsideUploadRef.current?.click()}>Use an outside image tool</button>
         <input ref={outsideUploadRef} hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => { const file = event.target.files?.[0]; if (file) void renderBase("outside_tool", file); }} />
       </div>
     </section> : <p>Generate or select a concept set to begin.</p>}

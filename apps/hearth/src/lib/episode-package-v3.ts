@@ -306,14 +306,22 @@ export function serializeEpisodePackageV3(pkg: EpisodePackageV3): EpisodePackage
 export function validateConceptGenerationSet(concepts: readonly Omit<ThumbnailConceptRevision, "concept_set_id">[]): string[] {
   const errors: string[] = [];
   if (concepts.length !== 5) errors.push("A generation set must contain exactly five concepts.");
-  const seen = new Set<string>();
+  const seen = { headline: new Set<string>(), image: new Set<string>(), basis: new Set<string>() };
   concepts.forEach((concept, index) => {
     const fields = [concept.headline, concept.image_concept, concept.mood_style, concept.normalized_prompt_basis];
     if (fields.some((field) => !field.trim())) errors.push(`Concept ${index + 1} is incomplete.`);
-    if (fields.some((field) => /^(todo|tbd|placeholder|concept\s*\d*)$/i.test(field.trim()))) errors.push(`Concept ${index + 1} contains placeholder content.`);
-    const identity = `${concept.headline.trim().toLowerCase()}\u0000${concept.normalized_prompt_basis.trim().toLowerCase()}`;
-    if (seen.has(identity)) errors.push(`Concept ${index + 1} duplicates another concept.`);
-    seen.add(identity);
+    if (fields.some((field) => /\b(todo|tbd|placeholder|lorem ipsum)\b/i.test(field) || /^concept\s*\d*$/i.test(field.trim()))) {
+      errors.push(`Concept ${index + 1} contains placeholder content.`);
+    }
+    const identities = {
+      headline: concept.headline.trim().toLowerCase().replace(/\s+/g, " "),
+      image: concept.image_concept.trim().toLowerCase().replace(/\s+/g, " "),
+      basis: concept.normalized_prompt_basis.trim().toLowerCase().replace(/\s+/g, " "),
+    };
+    if (seen.headline.has(identities.headline) || seen.image.has(identities.image) || seen.basis.has(identities.basis)) {
+      errors.push(`Concept ${index + 1} duplicates another concept.`);
+    }
+    seen.headline.add(identities.headline); seen.image.add(identities.image); seen.basis.add(identities.basis);
   });
   return errors;
 }

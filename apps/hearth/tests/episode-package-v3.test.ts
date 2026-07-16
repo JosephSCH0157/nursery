@@ -7,6 +7,7 @@ import {
   THUMBNAIL_PROMPT_TEMPLATE_VERSION,
   deriveThumbnailPromptPack,
   hydrateEpisodePackageV3,
+  validateConceptGenerationSet,
   type ThumbnailConceptRevision,
   type ThumbnailConceptSet,
   type ThumbnailRenderRecipe,
@@ -15,6 +16,7 @@ import {
   appendConceptSet,
   appendLaunchSnapshot,
   appendPublicationEvent,
+  canReuseLaunchSnapshotForPublish,
   proveThumbnailMutation,
   refineConcept,
   saveRenderRecipe,
@@ -89,6 +91,13 @@ test("concept generation is atomic, additive, exact-five, and refinement preserv
   assert.equal(appended.thumbnail.concept_sets.length, 2);
   assert.equal(imported.thumbnail.concept_sets.length, 1);
   assert.throws(() => appendConceptSet({ episodePackage: imported, conceptSet: { ...set, concept_revision_ids: set.concept_revision_ids.slice(0, 4) }, concepts: concepts.slice(0, 4) }));
+  assert.ok(validateConceptGenerationSet([]).length > 0);
+  assert.ok(validateConceptGenerationSet(concepts.slice(0, 4).map(({ concept_set_id: _ignored, ...concept }) => concept)).length > 0);
+  assert.ok(validateConceptGenerationSet([...concepts, concepts[0]!].map(({ concept_set_id: _ignored, ...concept }) => concept)).length > 0);
+  assert.ok(validateConceptGenerationSet(concepts.map(({ concept_set_id: _ignored, ...concept }, index) => index === 0
+    ? { ...concept, image_concept: "placeholder" } : concept)).length > 0);
+  assert.ok(validateConceptGenerationSet(concepts.map(({ concept_set_id: _ignored, ...concept }, index) => index === 1
+    ? { ...concept, image_concept: concepts[0]!.image_concept } : concept)).length > 0);
   const refined = refineConcept({
     episodePackage: appended,
     revision: { ...concepts[0]!, concept_revision_id: "revision-0-v2", revision_number: 2, supersedes_revision_id: "revision-0", headline: "Refined" },
@@ -171,6 +180,12 @@ test("launch and publication snapshots append immutable revisions", () => {
   } });
   assert.equal(published.thumbnail.publication_events.length, 1);
   assert.equal(revised.thumbnail.publication_events.length, 0);
+  assert.equal(canReuseLaunchSnapshotForPublish({ launchRevision: revised.thumbnail.launch_variant_revisions[1]!,
+    recipeRevision: 1, compositionEngineVersion: THUMBNAIL_COMPOSITION_ENGINE_VERSION, contentHash: hash }), true);
+  assert.equal(canReuseLaunchSnapshotForPublish({ launchRevision: revised.thumbnail.launch_variant_revisions[1]!,
+    recipeRevision: 2, compositionEngineVersion: THUMBNAIL_COMPOSITION_ENGINE_VERSION, contentHash: hash }), false);
+  assert.deepEqual(proveThumbnailMutation({ expected: published, canonical: structuredClone(published),
+    kind: "publication_event", entityId: "publish-1" }), { ok: true });
 });
 
 test("legacy non-thumbnail production writes preserve v3 thumbnail authority and emit v3", () => {

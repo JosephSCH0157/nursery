@@ -291,36 +291,6 @@ function createClientId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function extensionFromMimeType(mimeType: string): string {
-  const normalized = mimeType.trim().toLowerCase();
-  if (normalized.includes("png")) return "png";
-  if (normalized.includes("jpeg") || normalized.includes("jpg")) return "jpg";
-  if (normalized.includes("webp")) return "webp";
-  return "png";
-}
-
-function resolveUploadMimeType(file: File): string {
-  const trimmed = file.type.trim().toLowerCase();
-  if (trimmed) return trimmed;
-  const lowerName = file.name.toLowerCase();
-  if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) return "image/jpeg";
-  if (lowerName.endsWith(".webp")) return "image/webp";
-  return "image/png";
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  if (typeof btoa !== "function") {
-    throw new Error("Base64 encoding is unavailable in this browser.");
-  }
-  const chunkSize = 0x8000;
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    const slice = bytes.subarray(offset, Math.min(bytes.length, offset + chunkSize));
-    binary += String.fromCharCode(...slice);
-  }
-  return btoa(binary);
-}
-
 function resolveCandidateAssetPaths(workpieceId: string, version: EpisodeThumbnailVersion): string[] {
   const candidates: string[] = [];
   const direct = normalizeWorkpieceRelativePathOrNull(workpieceId, version.asset_path);
@@ -652,7 +622,7 @@ export async function loadThumbnailPreviewDataUrl(args: {
   };
 }
 
-export async function uploadThumbnailImageVersion(args: {
+export async function uploadThumbnailImageVersion(_args: {
   workpieceId: string;
   concept: EpisodeThumbnailConcept | null;
   file: File;

@@ -7,9 +7,10 @@ import {
   type EpisodePackageV3,
   type ThumbnailBaseVersion,
   type ThumbnailCompositeSnapshot,
+  type ThumbnailPublicationEvent,
   type ThumbnailRenderRecipe,
 } from "./episode-package-v3";
-import { appendLaunchSnapshot, proveThumbnailMutation, type ThumbnailMutationProof } from "./hearth-thumbnail-v3-authority";
+import { appendLaunchSnapshot, appendPublicationEvent, canReuseLaunchSnapshotForPublish, proveThumbnailMutation, type ThumbnailMutationProof } from "./hearth-thumbnail-v3-authority";
 import { resolveForgeUserAccessToken } from "./hearth-chat-api";
 import { tongsFetch } from "./tongs-fetch";
 
@@ -184,7 +185,11 @@ export async function commitThumbnailBaseArtwork(args: {
   const recipe = args.episodePackage.thumbnail.render_recipes.find(
     (entry) => entry.id === args.baseVersion.render_recipe_id && entry.revision === args.baseVersion.render_recipe_revision,
   );
-  if (!recipe || recipe.prompt_review_state !== "reviewed") {
+  const concept = recipe && args.episodePackage.thumbnail.concept_revisions.find(
+    (entry) => entry.concept_revision_id === recipe.concept_revision_id,
+  );
+  const promptPack = recipe && concept ? deriveThumbnailPromptPack({ recipe, concept }) : null;
+  if (!recipe || !concept || promptPack?.review_state !== "reviewed") {
     return { ok: false, saveState: "error", status: 409, error: "Review the canonical prompt pack before rendering base artwork." };
   }
   const stageResponse = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/thumbnail-assets/stage`, {
@@ -321,6 +326,8 @@ export async function generateForgeAiBaseArtwork(args: {
   const assetPath = readString(asset?.path);
   const contentHash = readString(asset?.content_hash);
   const mimeType = readString(asset?.mime_type);
+  const canonicalProvider = readString(asset?.provider);
+  const canonicalProviderRequestId = readString(asset?.provider_request_id);
   if (!response.ok || data?.canonical_stage_only !== true || !assetId || !assetPath || !contentHash || !mimeType) {
     return { ok: false, saveState: "error", status: response.status, error: errorMessage(body, "Forge could not stage canonical base artwork.") };
   }
@@ -329,7 +336,7 @@ export async function generateForgeAiBaseArtwork(args: {
     expectedMetadataUpdatedAt: args.expectedMetadataUpdatedAt, episodePackage: args.episodePackage,
     base: {
       ...args.baseVersion, asset_id: assetId, asset_path: assetPath, content_hash: contentHash,
-      source_type: "forge_ai", provider_id: "forge", provider_request_id: null,
+      source_type: "forge_ai", provider_id: canonicalProvider ?? "forge", provider_request_id: canonicalProviderRequestId,
       mime_type: mimeType, status: "pending", error_details: null,
     },
     token,
@@ -477,6 +484,103 @@ export async function commitThumbnailLaunchComposite(args: {
   const canonical = await readCanonicalEpisodePackageV3(args.workpieceId);
   const latest = next.thumbnail.launch_variant_revisions[launchIndex]!;
   const proof = proveThumbnailMutation({ expected: next, canonical: canonical.episodePackage, kind: "launch_revision", entityId: args.launchVariantId, revision: latest.revision });
+  if (!proof.ok) return { ok: false, saveState: "error", status: 409, error: proof.reason, canonical };
+  return { ok: true, saveState: "saved", ...canonical };
+}
+
+export async function commitThumbnailPublicationSnapshot(args: {
+  workpieceId: string;
+  workspaceId: string;
+  expectedMetadataUpdatedAt: string | null;
+  episodePackage: EpisodePackageV3;
+  publicationEventId: string;
+  launchVariantId: string;
+  launchVariantRevision: number;
+  destination: string;
+  operationId: string;
+  width: number;
+  height: number;
+  encoding: { format: "png" | "jpeg" | "webp"; quality: number };
+  publishedAt: string;
+}): Promise<V3MutationResult> {
+  const launch = args.episodePackage.thumbnail.launch_variant_revisions.find(
+    (entry) => entry.launch_variant_id === args.launchVariantId && entry.revision === args.launchVariantRevision,
+  );
+  if (!launch) return { ok: false, saveState: "error", status: 409, error: "Publish requires an exact launch revision." };
+  const recipe = [...args.episodePackage.thumbnail.render_recipes]
+    .filter((entry) => entry.id === launch.recipe_id)
+    .sort((left, right) => right.revision - left.revision)[0];
+  if (!recipe) return { ok: false, saveState: "error", status: 409, error: "Publish recipe authority is unavailable." };
+  const token = await requireThumbnailUserToken();
+  const launchAssetResponse = await tongsFetch(
+    `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/thumbnail-assets/${encodeURIComponent(launch.snapshot.asset_id)}`,
+    { method: "GET", headers: { "x-forge-user-authorization": `Bearer ${token}` } },
+  );
+  const launchAssetBody = await json(launchAssetResponse);
+  const launchAsset = isRecord(launchAssetBody) && isRecord(launchAssetBody.data) ? launchAssetBody.data : null;
+  const launchAssetIsCanonical = launchAssetResponse.ok
+    && readString(launchAsset?.status) === "ready"
+    && readString(launchAsset?.content_hash) === launch.snapshot.content_hash;
+
+  let snapshot = launch.snapshot;
+  let stagedNewAsset = false;
+  if (!launchAssetIsCanonical || !canReuseLaunchSnapshotForPublish({
+    launchRevision: launch,
+    recipeRevision: recipe.revision,
+    compositionEngineVersion: recipe.composition_engine_version,
+    contentHash: launch.snapshot.content_hash,
+  })) {
+    const base = args.episodePackage.thumbnail.base_versions.find((entry) => entry.id === launch.base_version_id);
+    if (!base || base.status !== "ready") return { ok: false, saveState: "error", status: 409, error: "Publish requires hash-verified base artwork." };
+    const recipeSnapshot = compositorRecipe(recipe);
+    const recipeHash = await sha256Canonical(recipeSnapshot);
+    const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/thumbnail-assets/render-composite`, {
+      method: "POST", headers: { "x-forge-user-authorization": `Bearer ${token}` },
+      json: { workspace_id: args.workspaceId, operation_id: args.operationId, base_asset_id: base.asset_id,
+        recipe_snapshot: recipeSnapshot, recipe_snapshot_hash: recipeHash,
+        width: args.width, height: args.height, encoding: args.encoding },
+    });
+    const body = await json(response);
+    const asset = isRecord(body) && isRecord(body.data) ? body.data : null;
+    const assetId = readString(asset?.id); const assetPath = readString(asset?.path); const contentHash = readString(asset?.content_hash);
+    if (!response.ok || !assetId || !assetPath || !contentHash) {
+      return { ok: false, saveState: "error", status: response.status, error: errorMessage(body, "Unable to render publish snapshot.") };
+    }
+    snapshot = { asset_id: assetId, asset_path: assetPath, content_hash: contentHash,
+      composition_engine_version: recipe.composition_engine_version, recipe_snapshot: structuredClone(recipe),
+      recipe_snapshot_hash: recipeHash, exported_at: args.publishedAt };
+    stagedNewAsset = true;
+  }
+
+  const event: ThumbnailPublicationEvent = { id: args.publicationEventId, launch_variant_id: launch.launch_variant_id,
+    launch_variant_revision: launch.revision, snapshot, published_at: args.publishedAt, destination: args.destination };
+  const next = appendPublicationEvent({ episodePackage: args.episodePackage, event });
+  if (!stagedNewAsset) {
+    return commitEpisodePackageV3Mutation({ workpieceId: args.workpieceId,
+      expectedMetadataUpdatedAt: args.expectedMetadataUpdatedAt, nextEpisodePackage: next,
+      mutation: { kind: "publication_event", entityId: event.id }, eventName: "hearth.thumbnail.publication.recorded.v3" });
+  }
+
+  const before = await readCanonicalEpisodePackageV3(args.workpieceId);
+  if ((before.metadataUpdatedAt ?? null) !== (args.expectedMetadataUpdatedAt ?? null)) {
+    return { ok: false, saveState: "error", status: 409, error: "Thumbnail state changed while the publish snapshot was rendering.", canonical: before };
+  }
+  const eventIndex = next.thumbnail.publication_events.length - 1;
+  const reference = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/thumbnail-assets/commit-reference`, {
+    method: "POST", headers: { "x-forge-user-authorization": `Bearer ${token}` },
+    json: { workspace_id: args.workspaceId, asset_id: snapshot.asset_id,
+      expected_metadata_updated_at: args.expectedMetadataUpdatedAt,
+      metadata_document: { ...before.metadata, updated_at: args.publishedAt, episode: next },
+      reference_pointer: `/episode/thumbnail/publication_events/${eventIndex}/snapshot/asset_id` },
+  });
+  if (!reference.ok) return { ok: false, saveState: "error", status: reference.status, error: errorMessage(await json(reference), "Unable to commit publish snapshot reference.") };
+  const ready = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/thumbnail-assets/transition`, {
+    method: "POST", headers: { "x-forge-user-authorization": `Bearer ${token}` },
+    json: { workspace_id: args.workspaceId, asset_id: snapshot.asset_id, target_status: "ready" },
+  });
+  if (!ready.ok) return { ok: false, saveState: "error", status: ready.status, error: errorMessage(await json(ready), "Publish snapshot remains recoverable but is not ready.") };
+  const canonical = await readCanonicalEpisodePackageV3(args.workpieceId);
+  const proof = proveThumbnailMutation({ expected: next, canonical: canonical.episodePackage, kind: "publication_event", entityId: event.id });
   if (!proof.ok) return { ok: false, saveState: "error", status: 409, error: proof.reason, canonical };
   return { ok: true, saveState: "saved", ...canonical };
 }
