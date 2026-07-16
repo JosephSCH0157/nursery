@@ -7423,6 +7423,7 @@ export default function HearthShell({
           activeVisualProviderBanner: hearthVisualsWorkspace.status.activeVisualProviderBanner,
           activeVisualProviderHelperText: hearthVisualsWorkspace.status.activeVisualProviderHelperText,
           thumbnailPanelProps: visualsPanelContracts.thumbnail.panelProps,
+          thumbnailAuthority: { workspaceId: workspaceId ?? null, workpieceId: workpieceId ?? null },
           mediaMapPanelProps: visualsPanelContracts.mediaMap.panelProps,
           imageMapPanelProps: visualsPanelContracts.imageMap.panelProps,
           brollPlanPanelProps: visualsPanelContracts.broll.panelProps,

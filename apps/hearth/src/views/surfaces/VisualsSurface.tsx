@@ -5,6 +5,7 @@ import EpisodeMediaMapPanel from "../../components/visuals/EpisodeMediaMapPanel"
 import ImageMapPanel from "../../components/visuals/ImageMapPanel";
 import ReferenceClipPlanPanel from "../../components/visuals/ReferenceClipPlanPanel";
 import ThumbnailPanel from "../../components/visuals/ThumbnailPanel";
+import ThumbnailV3Panel from "../../components/visuals/ThumbnailV3Panel";
 import {
   HEARTH_VISUALS_PANEL_SECTION_IDS,
   toggleHearthVisualsPanel,
@@ -26,6 +27,7 @@ type VisualsSurfaceProps = {
   activeVisualProviderBanner: string;
   activeVisualProviderHelperText: string;
   thumbnailPanelProps: ComponentProps<typeof ThumbnailPanel>;
+  thumbnailAuthority: { workspaceId: string | null; workpieceId: string | null };
   mediaMapPanelProps: ComponentProps<typeof EpisodeMediaMapPanel>;
   imageMapPanelProps: ComponentProps<typeof ImageMapPanel>;
   brollPlanPanelProps: ComponentProps<typeof BrollPlanPanel>;
@@ -110,7 +112,15 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
         collapsible
         priority="secondary"
       >
-        <ThumbnailPanel {...props.thumbnailPanelProps} />
+        {props.thumbnailAuthority.workspaceId && props.thumbnailAuthority.workpieceId ? (
+          <ThumbnailV3Panel
+            workspaceId={props.thumbnailAuthority.workspaceId}
+            workpieceId={props.thumbnailAuthority.workpieceId}
+            approvedScriptVersion={props.approvedScriptVersion}
+            onGenerateConcepts={props.thumbnailPanelProps.onGenerateConcepts ?? (() => undefined)}
+            isGeneratingConcepts={props.thumbnailPanelProps.isGeneratingConcepts ?? false}
+          />
+        ) : <p>Select an episode before opening its canonical thumbnail workspace.</p>}
       </CollapsibleFocusPanel>
 
       <CollapsibleFocusPanel

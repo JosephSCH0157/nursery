@@ -3,7 +3,11 @@ import {
   applyProductionArtifactToEpisodePackage,
   buildDefaultMetadataDocument,
   hydrateEpisodePackageV2,
+  parseThumbnailConceptsFromText,
 } from "./episode-package-v2";
+import { canonicalSerialize, validateConceptGenerationSet, type ThumbnailConceptRevision } from "./episode-package-v3";
+import { appendConceptSet } from "./hearth-thumbnail-v3-authority";
+import { commitEpisodePackageV3Mutation, readCanonicalEpisodePackageV3 } from "./hearth-thumbnail-v3-api";
 import { canonicalFramingEquals } from "./hearth-framing-authority";
 import { resolveImageMapScriptAnchorFromText } from "./hearth-image-map-beats";
 import { readHearthPrimaryScript } from "./hearth-script-repo";
@@ -215,6 +219,40 @@ async function syncEpisodePackageMetadata(args: {
 }): Promise<ProductionCommitResult> {
   if (args.kind === "pack") {
     return { ok: true };
+  }
+
+  if (args.kind === "thumbnails") {
+    const rawText = readRawTextFromPayload(args.payload);
+    const parsed = parseThumbnailConceptsFromText(rawText);
+    if (parsed.length !== 5) return { ok: false, status: 422, reason: "thumbnail_concept_set_invalid" };
+    const canonical = await readCanonicalEpisodePackageV3(args.workpieceId);
+    const createdAt = readGeneratedAtFromPayload(args.payload);
+    const setId = crypto.randomUUID();
+    const concepts: ThumbnailConceptRevision[] = parsed.map((concept) => ({
+      concept_lineage_id: crypto.randomUUID(), concept_revision_id: crypto.randomUUID(), revision_number: 1,
+      supersedes_revision_id: null, concept_set_id: setId, headline: concept.label,
+      image_concept: concept.prompt_text, mood_style: concept.style_preset ?? "unspecified",
+      normalized_prompt_basis: concept.prompt_text.trim().replace(/\s+/g, " "), created_at: createdAt,
+      provenance: { source: "hearth_generation", script_version: args.scriptVersion },
+    }));
+    if (validateConceptGenerationSet(concepts.map(({ concept_set_id: _ignored, ...concept }) => concept)).length) {
+      return { ok: false, status: 422, reason: "thumbnail_concept_set_invalid" };
+    }
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalSerialize(rawText)));
+    const sourceHash = Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    const next = appendConceptSet({ episodePackage: canonical.episodePackage, concepts, conceptSet: {
+      id: setId, name: `Concept Set ${canonical.episodePackage.thumbnail.concept_sets.length + 1}`,
+      created_at: createdAt, state: "active", approved_script_version: args.scriptVersion,
+      generation_provenance: { source: "hearth_generation" }, prompt_schema_version: "hearth-thumbnail-concepts-v1",
+      source_response_hash: sourceHash, concept_revision_ids: concepts.map((entry) => entry.concept_revision_id),
+    } });
+    const saved = await commitEpisodePackageV3Mutation({
+      workpieceId: args.workpieceId, expectedMetadataUpdatedAt: canonical.metadataUpdatedAt,
+      nextEpisodePackage: next, mutation: { kind: "concept_set", entityId: setId },
+      eventName: "hearth.thumbnail.concept-set.generated.v3",
+      eventPayload: { script_version: args.scriptVersion, concept_set_id: setId },
+    });
+    return saved.ok ? { ok: true } : { ok: false, status: saved.status, reason: saved.error };
   }
 
   const nowIso = new Date().toISOString();
