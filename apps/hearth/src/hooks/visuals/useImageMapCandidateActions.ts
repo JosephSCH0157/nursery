@@ -9,7 +9,6 @@ import {
   selectWorkpieceImageMapCandidate,
   uploadWorkpieceImageMapCandidateAsset,
 } from "../../lib/hearth-image-map-repo";
-import { getCachedGenerationAllowances } from "../../lib/hearth-chat-api";
 import { resolveAiThumbnailAutoApproveFromStorage } from "../../lib/hearth-chat-api";
 import type { EpisodeImageMapEntry, EpisodePackageV2 } from "../../lib/episode-package-v2";
 import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
@@ -90,9 +89,8 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
       args.setImageMapCandidateError("Save the image-map entry before generating candidates.");
       return;
     }
-    const imageAllowance = getCachedGenerationAllowances()?.image;
-    if (imageAllowance && imageAllowance.available < 3) {
-      args.setImageMapCandidateError("Image generation allowance exhausted. Prompt packs and uploads are still available.");
+    if (args.aiBillingMode === "forge" && args.aiTokenBalance != null && args.aiTokenBalance <= 0) {
+      args.setImageMapCandidateError("No AI credits remaining.");
       return;
     }
 
@@ -136,8 +134,8 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
       ? true
       : window.confirm(
           mode === "stock"
-            ? "Generate stock-style candidates — uses up to 3 image generations?"
-            : "Generate candidates — uses up to 3 image generations?",
+            ? "Find stock-style still candidates for this visual beat? This will spend AI credits."
+            : "Generate two still candidates for this visual beat? This will spend AI credits.",
         );
     if (!confirmed) return;
 

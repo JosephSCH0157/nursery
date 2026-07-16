@@ -322,7 +322,6 @@ export async function getWorkpieceImageMap(workpieceId: string): Promise<GetWork
   }
   const body = await readBodyAsJson(response);
   if (!response.ok) {
-    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") window.dispatchEvent(new Event("forge:generation-allowances-changed"));
     const error = readApiErrorMessage(body);
     return {
       ok: false,
@@ -432,9 +431,6 @@ export async function generateWorkpieceImageMapCandidates(args: {
   );
   const body = await readBodyAsJson(response);
 
-  if (!response.ok && typeof window !== "undefined" && typeof window.dispatchEvent === "function") {
-    window.dispatchEvent(new Event("forge:generation-allowances-changed"));
-  }
   if (response.status === 409) {
     const latest = await readLatestImageMap(args.workpieceId);
     return {
@@ -491,7 +487,6 @@ export async function generateWorkpieceImageMapCandidates(args: {
     };
   }
 
-  if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") window.dispatchEvent(new Event("forge:generation-allowances-changed"));
   return {
     ok: true,
     imageMap,

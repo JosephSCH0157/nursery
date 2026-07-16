@@ -544,7 +544,6 @@ export async function generateEpisodeThumbnail(args: GenerateEpisodeThumbnailArg
   const body = await readBodyAsJson(response);
 
   if (!response.ok) {
-    if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") window.dispatchEvent(new Event("forge:generation-allowances-changed"));
     const parsed = readErrorBody(body, "Thumbnail generation failed.");
     return {
       ok: false,
@@ -573,7 +572,6 @@ export async function generateEpisodeThumbnail(args: GenerateEpisodeThumbnailArg
     };
   }
 
-  if (typeof window !== "undefined" && typeof window.dispatchEvent === "function") window.dispatchEvent(new Event("forge:generation-allowances-changed"));
   return {
     ok: true,
     status: response.status,

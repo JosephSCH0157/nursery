@@ -10,7 +10,6 @@ import {
   toggleHearthVisualsPanel,
   type HearthVisualsPanelId,
 } from "../../lib/hearth-visuals-panel";
-import { refreshMyGenerationAllowances, type HearthGenerationAllowances } from "../../lib/hearth-chat-api";
 
 type VisualsSurfaceProps = {
   visible: boolean;
@@ -36,15 +35,6 @@ type VisualsSurfaceProps = {
 export default function VisualsSurface(props: VisualsSurfaceProps) {
   const [openPanel, setOpenPanel] = useState<HearthVisualsPanelId | null>("media_map");
   const openPanelRef = useRef<HearthVisualsPanelId | null>("media_map");
-  const [generationAllowances, setGenerationAllowances] = useState<HearthGenerationAllowances | null>(null);
-
-  useEffect(() => {
-    if (!props.visible) return;
-    const refresh = () => { void refreshMyGenerationAllowances().then(setGenerationAllowances); };
-    refresh();
-    window.addEventListener("forge:generation-allowances-changed", refresh);
-    return () => window.removeEventListener("forge:generation-allowances-changed", refresh);
-  }, [props.visible]);
 
   const queueScrollToPanel = useCallback((panel: HearthVisualsPanelId) => {
     if (typeof window === "undefined" || typeof document === "undefined") return;
@@ -97,14 +87,6 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
         </div>
         <div>{props.activeVisualProviderBanner}</div>
         <div className="hs-media-plan-helper">{props.activeVisualProviderHelperText}</div>
-        {generationAllowances ? (
-          <div className="hs-media-plan-helper" aria-label="Generation allowances">
-            Images remaining: {generationAllowances.image.available} — {generationAllowances.image.starterIncluded} included
-            {generationAllowances.image.reserved > 0 ? ` (${generationAllowances.image.reserved} reserved)` : ""}
-            {" · "}
-            B-roll generations: {generationAllowances.bRoll.available} included — internal generation not yet available
-          </div>
-        ) : null}
       </section>
 
       <CollapsibleFocusPanel

@@ -3,7 +3,6 @@ import {
   generateEpisodeThumbnail,
   uploadThumbnailImageVersion,
 } from "../../lib/hearth-thumbnail-api";
-import { getCachedGenerationAllowances } from "../../lib/hearth-chat-api";
 import { getWorkpieceImageMap } from "../../lib/hearth-image-map-repo";
 import {
   updateWorkspaceThumbnailBrandTemplate,
@@ -109,16 +108,11 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
       args.setThumbnailGenerateError("Prompt is empty.");
       return;
     }
-    const imageAllowance = getCachedGenerationAllowances()?.image;
-    if (imageAllowance && imageAllowance.available < 1) {
-      args.setThumbnailGenerateError("Image generation allowance exhausted. Prompt packs and uploads are still available.");
-      return;
-    }
 
     const alwaysApproveSpend = resolveAiThumbnailAutoApproveFromStorage();
     const confirmed = alwaysApproveSpend
       ? true
-      : window.confirm("Generate 1 image — uses 1 image generation?");
+      : window.confirm("Generate thumbnail? This will spend credits.");
     if (!confirmed) return;
     const operation = args.operationAuthority.begin("thumbnail.generate");
 
