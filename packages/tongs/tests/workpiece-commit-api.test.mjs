@@ -6,6 +6,29 @@ import { TextEncoder } from "node:util";
 import { TongsCommitService, createTongsCommitApiHandlerWithService, extractPdfTextParserA, extractPdfTextParserB, extractPdfTextFallbackChain } from "../dist/workpiece-commit-api.js";
 import { deflateSync } from "node:zlib";
 
+function thumbnailAssetFixture(workpieceId, workspaceId, operationId, status) {
+  return {
+    id: "55555555-5555-4555-8555-555555555555",
+    workspace_id: workspaceId,
+    workpiece_id: workpieceId,
+    operation_id: operationId,
+    asset_kind: "thumbnail_image",
+    status,
+    path: `assets/thumbnails/${workpieceId}/${operationId}.png`,
+    mime_type: "image/png",
+    bytes: 8,
+    content_hash: "a".repeat(64),
+    storage_bucket: "forge-workpieces",
+    storage_key: `workpieces/${workpieceId}/assets/thumbnails/${operationId}.png`,
+    reference_committed_at: null,
+    ready_at: status === "ready" ? "2026-07-15T12:00:00.000Z" : null,
+    failed_at: status === "failed" ? "2026-07-15T12:00:00.000Z" : null,
+    failure_code: status === "failed" ? "test_failure" : null,
+    failure_message: status === "failed" ? "Test failure" : null,
+    metadata: {},
+  };
+}
+
 function mockService() {
   const calls = {
     createCradle: [],
@@ -15,6 +38,12 @@ function mockService() {
     listHearthAttachments: [],
     updateHearthAttachmentExtractedText: [],
     generateEpisodeThumbnail: [],
+    stageThumbnailAsset: [],
+    commitThumbnailAssetReference: [],
+    transitionThumbnailAsset: [],
+    readThumbnailAsset: [],
+    reconcileThumbnailAssets: [],
+    renderThumbnailComposite: [],
     generateImageMapCandidates: [],
     createRecordingSessionRecord: [],
     listRecordingSessionsForPlanner: [],
@@ -267,6 +296,30 @@ function mockService() {
         },
         primary_version_id: "44444444-4444-4444-8444-444444444444",
       };
+    },
+    async stageThumbnailAsset(workpieceId, input, options) {
+      calls.stageThumbnailAsset.push({ workpieceId, input, options: options ?? null });
+      return thumbnailAssetFixture(workpieceId, input.workspace_id, input.operation_id, "pending");
+    },
+    async commitThumbnailAssetReference(workpieceId, input, options) {
+      calls.commitThumbnailAssetReference.push({ workpieceId, input, options: options ?? null });
+      return { ...thumbnailAssetFixture(workpieceId, input.workspace_id, "22222222-2222-4222-8222-222222222222", "pending"), reference_committed_at: "2026-07-15T12:00:00.000Z" };
+    },
+    async transitionThumbnailAsset(workpieceId, input, options) {
+      calls.transitionThumbnailAsset.push({ workpieceId, input, options: options ?? null });
+      return thumbnailAssetFixture(workpieceId, input.workspace_id, "22222222-2222-4222-8222-222222222222", input.target_status);
+    },
+    async readThumbnailAsset(workpieceId, assetId, options) {
+      calls.readThumbnailAsset.push({ workpieceId, assetId, options: options ?? null });
+      return thumbnailAssetFixture(workpieceId, "33333333-3333-4333-8333-333333333333", "22222222-2222-4222-8222-222222222222", "ready");
+    },
+    async reconcileThumbnailAssets(workpieceId, input, options) {
+      calls.reconcileThumbnailAssets.push({ workpieceId, input, options: options ?? null });
+      return { assets: [], reconciled_count: 0 };
+    },
+    async renderThumbnailComposite(workpieceId, input, options) {
+      calls.renderThumbnailComposite.push({ workpieceId, input, options: options ?? null });
+      return { ...thumbnailAssetFixture(workpieceId, input.workspace_id, input.operation_id, "pending"), asset_kind: "thumbnail_composite" };
     },
     async generateImageMapCandidates(workpieceId, input, options) {
       calls.generateImageMapCandidates.push({ workpieceId, input, options: options ?? null });
@@ -3777,6 +3830,83 @@ test("GET /tongs/workpieces/:id/read-file?encoding=base64 dispatches readWorkpie
   assert.equal(body.ok, true);
   assert.equal(body.data?.content_type, "image/png");
   assert.equal(body.data?.bytes_base64, "AQID");
+});
+
+test("thumbnail asset lifecycle routes require and forward canonical operation identity", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const workspaceId = "33333333-3333-4333-8333-333333333333";
+  const operationId = "22222222-2222-4222-8222-222222222222";
+  const response = await handler(new Request(`http://localhost/tongs/workpieces/${workpieceId}/thumbnail-assets/stage`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer user_token_abc" },
+    body: JSON.stringify({
+      workspace_id: workspaceId,
+      operation_id: operationId,
+      asset_kind: "thumbnail_image",
+      mime_type: "image/png",
+      bytes_base64: "iVBORw0KGgo=",
+      provider: "upload",
+      reference_pointer: "/episode/thumbnail/base_versions/0/asset_id",
+    }),
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(calls.stageThumbnailAsset.length, 1);
+  assert.equal(calls.stageThumbnailAsset[0].input.operation_id, operationId);
+  assert.equal(calls.stageThumbnailAsset[0].options.userAccessToken, "user_token_abc");
+  const body = await response.json();
+  assert.equal(body.data.status, "pending");
+  assert.equal(body.data.operation_id, operationId);
+});
+
+test("thumbnail package reference route preserves optimistic concurrency input", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const assetId = "55555555-5555-4555-8555-555555555555";
+  const pointer = "/episode/thumbnail/base_versions/0/asset_id";
+  const response = await handler(new Request(`http://localhost/tongs/workpieces/${workpieceId}/thumbnail-assets/commit-reference`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer user_token_abc" },
+    body: JSON.stringify({
+      workspace_id: "33333333-3333-4333-8333-333333333333",
+      asset_id: assetId,
+      expected_metadata_updated_at: "2026-07-15T10:00:00.000Z",
+      metadata_document: { episode: { thumbnail: { base_versions: [{ asset_id: assetId }] } } },
+      reference_pointer: pointer,
+    }),
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(calls.commitThumbnailAssetReference.length, 1);
+  assert.equal(calls.commitThumbnailAssetReference[0].input.reference_pointer, pointer);
+  assert.equal(calls.commitThumbnailAssetReference[0].input.expected_metadata_updated_at, "2026-07-15T10:00:00.000Z");
+});
+
+test("thumbnail composite route carries versioned deterministic render inputs", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const response = await handler(new Request(`http://localhost/tongs/workpieces/${workpieceId}/thumbnail-assets/render-composite`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer user_token_abc" },
+    body: JSON.stringify({
+      workspace_id: "33333333-3333-4333-8333-333333333333",
+      operation_id: "22222222-2222-4222-8222-222222222222",
+      base_asset_id: "55555555-5555-4555-8555-555555555555",
+      recipe_snapshot_hash: "a".repeat(64),
+      recipe_snapshot: {
+        title_text: "Canonical title", title_revision: 2, template_revision: 3,
+        text_color: "#FFFFFF", shadow_color: "#000000", shadow_opacity: 0.7,
+        placement: "bottom", max_lines: 2, horizontal_padding_percent: 8,
+      },
+      width: 1280, height: 720, encoding: { format: "png", quality: 100 },
+    }),
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(calls.renderThumbnailComposite.length, 1);
+  assert.equal(calls.renderThumbnailComposite[0].input.recipe_snapshot.title_revision, 2);
+  assert.equal(calls.renderThumbnailComposite[0].input.encoding.format, "png");
 });
 
 test("GET optional base64 read returns a non-error missing payload", async () => {

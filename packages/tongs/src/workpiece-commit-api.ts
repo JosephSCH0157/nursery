@@ -1,6 +1,13 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "./db.types.js";
 import { unzlibSync as fflateUnzlibSync, inflateSync as fflateInflateRawSync } from "fflate";
+import {
+  renderThumbnailComposite,
+  THUMBNAIL_BUNDLED_FONT_VERSION,
+  THUMBNAIL_COMPOSITION_ENGINE_VERSION,
+  type ThumbnailCompositeEncoding,
+  type ThumbnailCompositeRecipe,
+} from "./thumbnail-composite.js";
 
 type UntypedPostgrestResult = {
   data: unknown;
@@ -1095,6 +1102,82 @@ export type GenerateEpisodeThumbnailResponse = {
   generation_allowances?: GenerationAllowances;
 };
 
+export type ThumbnailAssetStatus = "pending" | "ready" | "failed" | "superseded";
+export type ThumbnailAssetKind = "thumbnail_image" | "thumbnail_composite";
+
+export type ThumbnailAssetSummary = {
+  id: string;
+  workspace_id: string;
+  workpiece_id: string;
+  operation_id: string;
+  asset_kind: ThumbnailAssetKind;
+  status: ThumbnailAssetStatus;
+  path: string;
+  mime_type: string;
+  bytes: number;
+  content_hash: string;
+  storage_bucket: string;
+  storage_key: string;
+  reference_committed_at: string | null;
+  ready_at: string | null;
+  failed_at: string | null;
+  failure_code: string | null;
+  failure_message: string | null;
+  metadata: Json;
+};
+
+export type StageThumbnailAssetRequest = {
+  workspace_id: string;
+  operation_id: string;
+  asset_kind: ThumbnailAssetKind;
+  mime_type: string;
+  bytes_base64: string;
+  provider: string;
+  provider_request_id?: string | null;
+  prompt?: string | null;
+  metadata?: Json;
+  reference_pointer?: string | null;
+  reuse_identity?: string | null;
+};
+
+export type CommitThumbnailAssetReferenceRequest = {
+  workspace_id: string;
+  asset_id: string;
+  expected_metadata_updated_at: string | null;
+  metadata_document: Json;
+  reference_pointer: string;
+};
+
+export type TransitionThumbnailAssetRequest = {
+  workspace_id: string;
+  asset_id: string;
+  target_status: "ready" | "failed" | "superseded";
+  failure_code?: string | null;
+  failure_message?: string | null;
+};
+
+export type ReconcileThumbnailAssetsRequest = {
+  workspace_id: string;
+  operation_id?: string | null;
+};
+
+export type ReconcileThumbnailAssetsResponse = {
+  assets: ThumbnailAssetSummary[];
+  reconciled_count: number;
+};
+
+export type RenderThumbnailCompositeRequest = {
+  workspace_id: string;
+  operation_id: string;
+  base_asset_id: string;
+  recipe_snapshot: ThumbnailCompositeRecipe;
+  recipe_snapshot_hash: string;
+  width: number;
+  height: number;
+  encoding: ThumbnailCompositeEncoding;
+  reference_pointer?: string | null;
+};
+
 export type GenerationAllowance = {
   starter_included: number;
   available: number;
@@ -1400,6 +1483,36 @@ export type TongsCommitApiService = {
     options?: { userAccessToken?: string | null },
   ): Promise<ReturnType<typeof resolveForgeAssetVariant>>;
   generateEpisodeThumbnail(workpieceId: string, input: GenerateEpisodeThumbnailRequest): Promise<GenerateEpisodeThumbnailResponse>;
+  stageThumbnailAsset(
+    workpieceId: string,
+    input: StageThumbnailAssetRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailAssetSummary>;
+  commitThumbnailAssetReference(
+    workpieceId: string,
+    input: CommitThumbnailAssetReferenceRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailAssetSummary>;
+  transitionThumbnailAsset(
+    workpieceId: string,
+    input: TransitionThumbnailAssetRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailAssetSummary>;
+  readThumbnailAsset(
+    workpieceId: string,
+    assetId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailAssetSummary>;
+  reconcileThumbnailAssets(
+    workpieceId: string,
+    input: ReconcileThumbnailAssetsRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ReconcileThumbnailAssetsResponse>;
+  renderThumbnailComposite(
+    workpieceId: string,
+    input: RenderThumbnailCompositeRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailAssetSummary>;
   createRecordingSessionRecord(input: CreateRecordingSessionRecordRequest): Promise<RecordingSessionRow>;
   listRecordingSessionsForPlanner(options?: RecordingSessionListOptions): Promise<RecordingSessionRow[]>;
   getRecordingSessionRecord(sessionId: string): Promise<RecordingSessionRecord>;
@@ -9454,6 +9567,362 @@ export class TongsCommitService {
     };
   }
 
+  private async getThumbnailAssetRow(workpieceId: string, assetId: string): Promise<AssetRow> {
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .select("*")
+      .eq("id", assetId)
+      .eq("workpiece_id", workpieceId)
+      .maybeSingle();
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to read thumbnail asset", { reason: error.message });
+    }
+    if (!data || (data.asset_kind !== "thumbnail_image" && data.asset_kind !== "thumbnail_composite")) {
+      throw new HttpError(404, "thumbnail_asset_not_found", "Thumbnail asset was not found");
+    }
+    return data;
+  }
+
+  async stageThumbnailAsset(
+    workpieceId: string,
+    input: StageThumbnailAssetRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailAssetSummary> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const operationId = normalizeThumbnailOperationId(input.operation_id);
+    const assetKind = normalizeThumbnailAssetKind(input.asset_kind);
+    const mimeType = normalizeThumbnailMimeType(input.mime_type);
+    const bytes = decodeBase64(input.bytes_base64);
+    if (bytes.length === 0) throw new HttpError(400, "empty_thumbnail_asset", "Thumbnail asset bytes cannot be empty");
+    const contentHash = await sha256Hex(bytes);
+    const operationFingerprint = await sha256Hex(canonicalJsonBytes({
+      operation_id: operationId,
+      asset_kind: assetKind,
+      mime_type: mimeType,
+      content_hash: contentHash,
+      provider: input.provider,
+      provider_request_id: input.provider_request_id ?? null,
+      prompt: input.prompt ?? null,
+      metadata: input.metadata ?? {},
+      reference_pointer: input.reference_pointer ?? null,
+      reuse_identity: input.reuse_identity ?? null,
+    }));
+
+    const { data: existing, error: existingError } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .select("*")
+      .eq("workspace_id", input.workspace_id)
+      .eq("workpiece_id", workpieceId)
+      .eq("asset_kind", assetKind)
+      .eq("operation_id", operationId)
+      .maybeSingle();
+    if (existingError) {
+      throw new HttpError(502, "db_read_failed", "Failed to resolve thumbnail operation", { reason: existingError.message });
+    }
+    const replay = resolveThumbnailOperationReplay(existing, operationFingerprint);
+    if (replay) return replay;
+
+    const path = `assets/thumbnails/${workpieceId}/${operationId}.${thumbnailExtension(mimeType)}`;
+    const committed = await this.commitFile(workpieceId, {
+      path,
+      content_type: mimeType,
+      file_type: assetKind,
+      bytes_base64: input.bytes_base64,
+      written_by: DEFAULT_WRITTEN_BY,
+      event_name: "hearth.thumbnail.asset.staged.v1",
+      event_payload: { operation_id: operationId, asset_kind: assetKind, content_hash: contentHash },
+      correlation_id: operationId,
+    });
+    if (committed.hash.toLowerCase() !== contentHash) {
+      throw new HttpError(502, "thumbnail_hash_mismatch", "Committed thumbnail bytes did not match the staged content hash");
+    }
+    const assetId = randomUuid();
+    let row: AssetRow;
+    try {
+      row = await this.insertAssetRow({
+        id: assetId,
+        workspace_id: input.workspace_id,
+        workpiece_id: workpieceId,
+        path,
+        mime_type: mimeType,
+        bytes: bytes.length,
+        storage_bucket: committed.file_row.storage_bucket,
+        storage_key: committed.storage_key,
+        provider: normalizeNonEmptyString(input.provider, "provider"),
+        provider_request_id: input.provider_request_id ?? null,
+        request_id: operationId,
+        prompt: input.prompt ?? null,
+        created_by: auth.userId,
+        asset_kind: assetKind,
+        status: "pending",
+        metadata_json: {
+          ...((input.metadata && typeof input.metadata === "object" && !Array.isArray(input.metadata)) ? input.metadata : {}),
+          reference_pointer: input.reference_pointer ?? null,
+        } as Json,
+        operation_id: operationId,
+        operation_fingerprint: operationFingerprint,
+        reuse_identity: input.reuse_identity ?? null,
+        content_hash: contentHash,
+        failure_code: null,
+        failure_message: null,
+        failed_at: null,
+        ready_at: null,
+        reference_committed_at: null,
+        supersedes_asset_id: null,
+      }, "Failed to register pending thumbnail asset");
+    } catch (error) {
+      let racedQuery = this.supabase
+        .schema("tongs")
+        .from("assets")
+        .select("*")
+        .eq("workspace_id", input.workspace_id)
+        .eq("workpiece_id", workpieceId)
+        .eq("asset_kind", assetKind);
+      racedQuery = input.reuse_identity
+        ? racedQuery.eq("reuse_identity", input.reuse_identity).in("status", ["pending", "ready"])
+        : racedQuery.eq("operation_id", operationId);
+      const { data: raced } = await racedQuery.maybeSingle();
+      if (!raced || (raced.operation_id === operationId && raced.operation_fingerprint !== operationFingerprint)) throw error;
+      row = raced;
+    }
+    return thumbnailAssetSummary(row);
+  }
+
+  async commitThumbnailAssetReference(
+    workpieceId: string,
+    input: CommitThumbnailAssetReferenceRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailAssetSummary> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const asset = await this.getThumbnailAssetRow(workpieceId, input.asset_id);
+    if (asset.reference_committed_at) {
+      const canonical = await this.readWorkpieceJson(workpieceId, "metadata.json");
+      if (canonical.found && jsonPointerValue(canonical.data, input.reference_pointer) === asset.id) {
+        return thumbnailAssetSummary(asset);
+      }
+    }
+    if (asset.status !== "pending") {
+      if (asset.reference_committed_at) return thumbnailAssetSummary(asset);
+      throw new HttpError(409, "thumbnail_asset_not_pending", "Only pending thumbnail assets can receive a package reference");
+    }
+    if (jsonPointerValue(input.metadata_document, input.reference_pointer) !== asset.id) {
+      throw new HttpError(400, "thumbnail_reference_mismatch", "metadata_document does not reference the asset at reference_pointer");
+    }
+    const committed = await this.commitFile(workpieceId, {
+      path: "metadata.json",
+      content_type: "application/json",
+      json: input.metadata_document,
+      written_by: DEFAULT_WRITTEN_BY,
+      event_name: "hearth.thumbnail.asset.reference-committed.v1",
+      event_payload: { asset_id: asset.id, operation_id: asset.operation_id, reference_pointer: input.reference_pointer },
+      correlation_id: asset.operation_id ?? undefined,
+      ...(input.expected_metadata_updated_at ? { expected_previous_updated_at: input.expected_metadata_updated_at } : {}),
+    });
+    const referenceCommittedAt = committed.file_row.updated_at;
+    const canonical = await this.readWorkpieceJson(workpieceId, "metadata.json");
+    if (!canonical.found || jsonPointerValue(canonical.data, input.reference_pointer) !== asset.id) {
+      throw new HttpError(409, "thumbnail_reference_verification_failed", "Canonical metadata readback did not recover the committed thumbnail reference");
+    }
+    const metadata = (asset.metadata_json && typeof asset.metadata_json === "object" && !Array.isArray(asset.metadata_json))
+      ? asset.metadata_json as Record<string, Json | undefined>
+      : {};
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .update({
+        reference_committed_at: referenceCommittedAt,
+        metadata_json: { ...metadata, reference_pointer: input.reference_pointer },
+        failure_code: null,
+        failure_message: null,
+        failed_at: null,
+      })
+      .eq("id", asset.id)
+      .eq("status", "pending")
+      .select("*")
+      .single();
+    if (error || !data) {
+      throw new HttpError(502, "db_write_failed", "Failed to acknowledge thumbnail package reference", { reason: error?.message });
+    }
+    return thumbnailAssetSummary(data);
+  }
+
+  async transitionThumbnailAsset(
+    workpieceId: string,
+    input: TransitionThumbnailAssetRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailAssetSummary> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const asset = await this.getThumbnailAssetRow(workpieceId, input.asset_id);
+    if (asset.status === input.target_status) return thumbnailAssetSummary(asset);
+    if (asset.status === "superseded") throw new HttpError(409, "thumbnail_asset_terminal", "Superseded assets cannot transition");
+    const nowIso = new Date().toISOString();
+    const patch: Database["tongs"]["Tables"]["assets"]["Update"] = input.target_status === "ready"
+      ? {
+          status: "ready", ready_at: nowIso, failure_code: null, failure_message: null, failed_at: null,
+        }
+      : input.target_status === "failed"
+        ? {
+            status: "failed", ready_at: null, failed_at: nowIso,
+            failure_code: normalizeNonEmptyString(input.failure_code, "failure_code"),
+            failure_message: normalizeNonEmptyString(input.failure_message, "failure_message"),
+          }
+        : {
+            status: "superseded", ready_at: null, failure_code: null, failure_message: null, failed_at: null,
+          };
+    if (input.target_status === "ready") {
+      if (!asset.reference_committed_at) {
+        throw new HttpError(409, "thumbnail_reference_required", "Thumbnail asset cannot become ready before its package reference is committed");
+      }
+      const stored = await downloadStorageObject(this.supabase, asset.storage_bucket, asset.storage_key);
+      if (!stored || await sha256Hex(stored) !== asset.content_hash) {
+        throw new HttpError(409, "thumbnail_stored_hash_mismatch", "Stored thumbnail bytes do not match the canonical content hash");
+      }
+    }
+    const { data, error } = await this.supabase.schema("tongs").from("assets").update(patch).eq("id", asset.id).select("*").single();
+    if (error || !data) throw new HttpError(502, "db_write_failed", "Failed to transition thumbnail asset", { reason: error?.message });
+    return thumbnailAssetSummary(data);
+  }
+
+  async readThumbnailAsset(
+    workpieceId: string,
+    assetId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailAssetSummary> {
+    const cradle = await this.getCradleOrThrow(workpieceId);
+    await this.assertWorkspaceRoleFromAccessToken(cradle.workspace_id, "viewer", options?.userAccessToken);
+    return thumbnailAssetSummary(await this.getThumbnailAssetRow(workpieceId, assetId));
+  }
+
+  async reconcileThumbnailAssets(
+    workpieceId: string,
+    input: ReconcileThumbnailAssetsRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ReconcileThumbnailAssetsResponse> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    let query = this.supabase.schema("tongs").from("assets").select("*")
+      .eq("workpiece_id", workpieceId).eq("status", "pending");
+    if (input.operation_id) query = query.eq("operation_id", normalizeThumbnailOperationId(input.operation_id));
+    const { data: pending, error } = await query;
+    if (error) throw new HttpError(502, "db_read_failed", "Failed to list pending thumbnail assets", { reason: error.message });
+    const metadataRead = await this.readWorkpieceJson(workpieceId, "metadata.json");
+    const metadata = metadataRead.found ? metadataRead.data : null;
+    const results: ThumbnailAssetSummary[] = [];
+    for (const row of pending ?? []) {
+      const asset = thumbnailAssetSummary(row);
+      const assetMetadata = row.metadata_json && typeof row.metadata_json === "object" && !Array.isArray(row.metadata_json)
+        ? row.metadata_json as Record<string, unknown> : {};
+      const pointer = typeof assetMetadata.reference_pointer === "string" ? assetMetadata.reference_pointer : null;
+      const stored = pointer ? await downloadStorageObject(this.supabase, row.storage_bucket, row.storage_key) : null;
+      const outcome = resolveThumbnailReconciliationOutcome({
+        assetId: row.id,
+        referencedAssetId: pointer ? jsonPointerValue(metadata, pointer) : undefined,
+        canonicalHash: row.content_hash ?? "",
+        storedHash: stored ? await sha256Hex(stored) : null,
+      });
+      if (outcome.target === "failed") {
+        results.push(await this.transitionThumbnailAsset(workpieceId, {
+          workspace_id: input.workspace_id, asset_id: row.id, target_status: "failed",
+          failure_code: outcome.code, failure_message: outcome.message,
+        }, options));
+      } else {
+        if (!row.reference_committed_at) {
+          const { data: acknowledged, error: ackError } = await this.supabase.schema("tongs").from("assets")
+            .update({ reference_committed_at: new Date().toISOString() }).eq("id", row.id).select("*").single();
+          if (ackError || !acknowledged) throw new HttpError(502, "db_write_failed", "Failed to recover thumbnail reference acknowledgement");
+        }
+        results.push(await this.transitionThumbnailAsset(workpieceId, {
+          workspace_id: input.workspace_id, asset_id: row.id, target_status: "ready",
+        }, options));
+      }
+    }
+    return { assets: results, reconciled_count: results.length };
+  }
+
+  async renderThumbnailComposite(
+    workpieceId: string,
+    input: RenderThumbnailCompositeRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailAssetSummary> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const base = await this.getThumbnailAssetRow(workpieceId, input.base_asset_id);
+    if (base.asset_kind !== "thumbnail_image" || base.status !== "ready" || !base.content_hash) {
+      throw new HttpError(409, "thumbnail_base_not_ready", "Composite rendering requires a ready base thumbnail with a canonical hash");
+    }
+    const baseBytes = await downloadStorageObject(this.supabase, base.storage_bucket, base.storage_key);
+    if (!baseBytes || await sha256Hex(baseBytes) !== base.content_hash) {
+      throw new HttpError(409, "thumbnail_base_hash_mismatch", "Base thumbnail bytes are missing or do not match the canonical hash");
+    }
+    const canonicalRecipeHash = await sha256Hex(canonicalJsonBytes(input.recipe_snapshot));
+    if (canonicalRecipeHash !== input.recipe_snapshot_hash.toLowerCase()) {
+      throw new HttpError(400, "thumbnail_recipe_hash_mismatch", "recipe_snapshot_hash does not match the canonical recipe snapshot");
+    }
+    const reuseIdentity = await sha256Hex(canonicalJsonBytes({
+      base_asset_hash: base.content_hash,
+      recipe_snapshot_hash: canonicalRecipeHash,
+      title_revision: input.recipe_snapshot.title_revision,
+      template_revision: input.recipe_snapshot.template_revision,
+      composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
+      bundled_font_version: THUMBNAIL_BUNDLED_FONT_VERSION,
+      width: input.width,
+      height: input.height,
+      encoding: input.encoding,
+    }));
+    const { data: reusable, error: reusableError } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .select("*")
+      .eq("workspace_id", input.workspace_id)
+      .eq("workpiece_id", workpieceId)
+      .eq("asset_kind", "thumbnail_composite")
+      .eq("reuse_identity", reuseIdentity)
+      .in("status", ["pending", "ready"])
+      .maybeSingle();
+    if (reusableError) {
+      throw new HttpError(502, "db_read_failed", "Failed to resolve canonical thumbnail composite reuse", {
+        reason: reusableError.message,
+      });
+    }
+    if (reusable) return thumbnailAssetSummary(reusable);
+    const rendered = await renderThumbnailComposite({
+      baseBytes,
+      width: input.width,
+      height: input.height,
+      recipe: input.recipe_snapshot,
+      encoding: input.encoding,
+    });
+    return this.stageThumbnailAsset(workpieceId, {
+      workspace_id: input.workspace_id,
+      operation_id: input.operation_id,
+      asset_kind: "thumbnail_composite",
+      mime_type: rendered.mimeType,
+      bytes_base64: encodeBase64(rendered.bytes),
+      provider: "forge-compositor",
+      provider_request_id: null,
+      prompt: null,
+      reference_pointer: input.reference_pointer ?? null,
+      reuse_identity: reuseIdentity,
+      metadata: {
+        base_asset_id: base.id,
+        base_asset_hash: base.content_hash,
+        recipe_snapshot: input.recipe_snapshot as unknown as Json,
+        recipe_snapshot_hash: canonicalRecipeHash,
+        reuse_identity: reuseIdentity,
+        composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
+        bundled_font_version: THUMBNAIL_BUNDLED_FONT_VERSION,
+        width: input.width,
+        height: input.height,
+        encoding: input.encoding as unknown as Json,
+      },
+    }, options);
+  }
+
   async generateEpisodeThumbnail(
     workpieceId: string,
     input: GenerateEpisodeThumbnailRequest,
@@ -12187,6 +12656,210 @@ export function createTongsCommitService(options: TongsCommitApiOptions): TongsC
   return new TongsCommitService(supabase, bucket, imageProvider, userClientFactory);
 }
 
+function normalizeStageThumbnailAssetRequest(body: Record<string, unknown>): StageThumbnailAssetRequest {
+  return {
+    workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+    operation_id: normalizeThumbnailOperationId(body.operation_id),
+    asset_kind: normalizeThumbnailAssetKind(body.asset_kind),
+    mime_type: normalizeThumbnailMimeType(body.mime_type),
+    bytes_base64: normalizeNonEmptyString(body.bytes_base64, "bytes_base64"),
+    provider: normalizeNonEmptyString(body.provider, "provider"),
+    provider_request_id: body.provider_request_id == null ? null : normalizeNonEmptyString(body.provider_request_id, "provider_request_id"),
+    prompt: body.prompt == null ? null : normalizeNonEmptyString(body.prompt, "prompt"),
+    metadata: typeof body.metadata === "undefined" ? {} : normalizeJsonValue(body.metadata),
+    reference_pointer: body.reference_pointer == null ? null : normalizeNonEmptyString(body.reference_pointer, "reference_pointer"),
+    reuse_identity: body.reuse_identity == null ? null : normalizeSha256(body.reuse_identity, "reuse_identity"),
+  };
+}
+
+function normalizeCommitThumbnailAssetReferenceRequest(body: Record<string, unknown>): CommitThumbnailAssetReferenceRequest {
+  return {
+    workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+    asset_id: normalizeUuid(body.asset_id, "asset_id"),
+    expected_metadata_updated_at: body.expected_metadata_updated_at == null
+      ? null
+      : normalizeIsoTimestamp(body.expected_metadata_updated_at, "expected_metadata_updated_at"),
+    metadata_document: normalizeJsonValue(body.metadata_document),
+    reference_pointer: normalizeNonEmptyString(body.reference_pointer, "reference_pointer"),
+  };
+}
+
+function normalizeTransitionThumbnailAssetRequest(body: Record<string, unknown>): TransitionThumbnailAssetRequest {
+  const target = body.target_status;
+  if (target !== "ready" && target !== "failed" && target !== "superseded") {
+    throw new HttpError(400, "invalid_thumbnail_asset_status", "target_status must be ready, failed, or superseded");
+  }
+  return {
+    workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+    asset_id: normalizeUuid(body.asset_id, "asset_id"),
+    target_status: target,
+    failure_code: body.failure_code == null ? null : normalizeNonEmptyString(body.failure_code, "failure_code"),
+    failure_message: body.failure_message == null ? null : normalizeNonEmptyString(body.failure_message, "failure_message"),
+  };
+}
+
+function normalizeRenderThumbnailCompositeRequest(body: Record<string, unknown>): RenderThumbnailCompositeRequest {
+  const recipeRaw = body.recipe_snapshot;
+  if (!recipeRaw || typeof recipeRaw !== "object" || Array.isArray(recipeRaw)) {
+    throw new HttpError(400, "invalid_thumbnail_recipe", "recipe_snapshot must be an object");
+  }
+  const recipe = recipeRaw as Record<string, unknown>;
+  const placement = recipe.placement;
+  if (placement !== "top" && placement !== "center" && placement !== "bottom") {
+    throw new HttpError(400, "invalid_thumbnail_placement", "recipe_snapshot.placement must be top, center, or bottom");
+  }
+  const encodingRaw = body.encoding;
+  if (!encodingRaw || typeof encodingRaw !== "object" || Array.isArray(encodingRaw)) {
+    throw new HttpError(400, "invalid_thumbnail_encoding", "encoding must be an object");
+  }
+  const encodingRecord = encodingRaw as Record<string, unknown>;
+  const format = encodingRecord.format;
+  if (format !== "png" && format !== "jpeg" && format !== "webp") {
+    throw new HttpError(400, "invalid_thumbnail_encoding", "encoding.format must be png, jpeg, or webp");
+  }
+  const quality = normalizePositiveInteger(encodingRecord.quality, "encoding.quality");
+  if (quality > 100) throw new HttpError(400, "invalid_thumbnail_quality", "encoding.quality must be at most 100");
+  const opacity = Number(recipe.shadow_opacity);
+  const padding = Number(recipe.horizontal_padding_percent);
+  if (!Number.isFinite(opacity) || opacity < 0 || opacity > 1 || !Number.isFinite(padding) || padding < 0 || padding > 100) {
+    throw new HttpError(400, "invalid_thumbnail_recipe", "Recipe opacity or padding is outside the supported range");
+  }
+  const textColor = normalizeNonEmptyString(recipe.text_color, "recipe_snapshot.text_color").toUpperCase();
+  const shadowColor = normalizeNonEmptyString(recipe.shadow_color, "recipe_snapshot.shadow_color").toUpperCase();
+  if (!/^#[0-9A-F]{6}$/.test(textColor) || !/^#[0-9A-F]{6}$/.test(shadowColor)) {
+    throw new HttpError(400, "invalid_thumbnail_color", "Recipe colors must be six-digit hex colors");
+  }
+  return {
+    workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+    operation_id: normalizeThumbnailOperationId(body.operation_id),
+    base_asset_id: normalizeUuid(body.base_asset_id, "base_asset_id"),
+    recipe_snapshot: {
+      title_text: normalizeNonEmptyString(recipe.title_text, "recipe_snapshot.title_text"),
+      title_revision: normalizePositiveInteger(recipe.title_revision, "recipe_snapshot.title_revision"),
+      template_revision: normalizePositiveInteger(recipe.template_revision, "recipe_snapshot.template_revision"),
+      text_color: textColor,
+      shadow_color: shadowColor,
+      shadow_opacity: opacity,
+      placement,
+      max_lines: normalizePositiveInteger(recipe.max_lines, "recipe_snapshot.max_lines"),
+      horizontal_padding_percent: padding,
+    },
+    recipe_snapshot_hash: normalizeNonEmptyString(body.recipe_snapshot_hash, "recipe_snapshot_hash").toLowerCase(),
+    width: normalizePositiveInteger(body.width, "width"),
+    height: normalizePositiveInteger(body.height, "height"),
+    encoding: { format, quality },
+    reference_pointer: body.reference_pointer == null ? null : normalizeNonEmptyString(body.reference_pointer, "reference_pointer"),
+  };
+}
+
+function normalizeThumbnailOperationId(value: unknown): string {
+  return normalizeUuid(value, "operation_id");
+}
+
+function normalizeSha256(value: unknown, field: string): string {
+  const normalized = normalizeNonEmptyString(value, field).toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(normalized)) {
+    throw new HttpError(400, `invalid_${field}`, `${field} must be a canonical SHA-256 hash`);
+  }
+  return normalized;
+}
+
+function normalizeThumbnailAssetKind(value: unknown): ThumbnailAssetKind {
+  if (value === "thumbnail_image" || value === "thumbnail_composite") return value;
+  throw new HttpError(400, "invalid_thumbnail_asset_kind", "asset_kind must be thumbnail_image or thumbnail_composite");
+}
+
+function normalizeThumbnailMimeType(value: unknown): string {
+  const mimeType = normalizeNonEmptyString(value, "mime_type").toLowerCase();
+  if (!/^image\/(?:png|jpeg|webp)$/.test(mimeType)) {
+    throw new HttpError(400, "invalid_thumbnail_mime_type", "Thumbnail assets must be PNG, JPEG, or WebP images");
+  }
+  return mimeType;
+}
+
+function thumbnailExtension(mimeType: string): string {
+  if (mimeType === "image/jpeg") return "jpg";
+  if (mimeType === "image/webp") return "webp";
+  return "png";
+}
+
+function jsonPointerValue(document: unknown, pointer: string): unknown {
+  if (!pointer.startsWith("/")) {
+    throw new HttpError(400, "invalid_reference_pointer", "reference_pointer must be an absolute JSON Pointer");
+  }
+  let current: unknown = document;
+  for (const rawSegment of pointer.slice(1).split("/")) {
+    const segment = rawSegment.replaceAll("~1", "/").replaceAll("~0", "~");
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      if (!Number.isInteger(index) || index < 0 || index >= current.length) return undefined;
+      current = current[index];
+    } else if (current && typeof current === "object") {
+      current = (current as Record<string, unknown>)[segment];
+    } else {
+      return undefined;
+    }
+  }
+  return current;
+}
+
+function thumbnailAssetSummary(row: AssetRow): ThumbnailAssetSummary {
+  const operationId = typeof row.operation_id === "string" ? row.operation_id : "";
+  const contentHash = typeof row.content_hash === "string" ? row.content_hash : "";
+  if (!operationId || !contentHash) {
+    throw new HttpError(502, "invalid_thumbnail_asset", "Canonical thumbnail asset is missing operation identity or content hash");
+  }
+  return {
+    id: row.id,
+    workspace_id: row.workspace_id,
+    workpiece_id: row.workpiece_id,
+    operation_id: operationId,
+    asset_kind: normalizeThumbnailAssetKind(row.asset_kind),
+    status: row.status as ThumbnailAssetStatus,
+    path: row.path,
+    mime_type: row.mime_type,
+    bytes: row.bytes,
+    content_hash: contentHash,
+    storage_bucket: row.storage_bucket,
+    storage_key: row.storage_key,
+    reference_committed_at: row.reference_committed_at,
+    ready_at: row.ready_at,
+    failed_at: row.failed_at,
+    failure_code: row.failure_code,
+    failure_message: row.failure_message,
+    metadata: row.metadata_json,
+  };
+}
+
+export function resolveThumbnailOperationReplay(
+  existing: AssetRow | null,
+  operationFingerprint: string,
+): ThumbnailAssetSummary | null {
+  if (!existing) return null;
+  if (existing.operation_fingerprint !== operationFingerprint) {
+    throw new HttpError(409, "thumbnail_operation_conflict", "operation_id was already used with different asset input");
+  }
+  return thumbnailAssetSummary(existing);
+}
+
+export function resolveThumbnailReconciliationOutcome(args: {
+  assetId: string;
+  referencedAssetId: unknown;
+  canonicalHash: string;
+  storedHash: string | null;
+}): { target: "ready" } | { target: "failed"; code: string; message: string } {
+  if (args.referencedAssetId !== args.assetId) {
+    return { target: "failed", code: "package_reference_missing", message: "Canonical metadata does not reference this pending thumbnail asset." };
+  }
+  if (!args.storedHash) {
+    return { target: "failed", code: "asset_bytes_missing", message: "Canonical thumbnail bytes are missing from storage." };
+  }
+  if (args.storedHash !== args.canonicalHash) {
+    return { target: "failed", code: "asset_hash_mismatch", message: "Stored thumbnail bytes do not match the canonical content hash." };
+  }
+  return { target: "ready" };
+}
+
 function estimateImageProviderCostUsd(size: string | null | undefined, aspect?: string | null): number {
   const normalized = size?.trim().toLowerCase() ?? "";
   const normalizedAspect = aspect?.trim().toLowerCase() ?? "";
@@ -12594,6 +13267,81 @@ export function createTongsCommitApiHandlerWithService(
         const userAccessToken = readUserAccessTokenHeader(request);
         const payload = normalizeCommitFileRequest(body, userAccessToken);
         const result = await service.commitWorkspaceFile(workspaceId, payload);
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces"
+        && parts[3] === "thumbnail-assets" && parts[4] === "stage"
+      ) {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.stageThumbnailAsset(workpieceId, normalizeStageThumbnailAssetRequest(body), { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces"
+        && parts[3] === "thumbnail-assets" && parts[4] === "commit-reference"
+      ) {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.commitThumbnailAssetReference(workpieceId, normalizeCommitThumbnailAssetReferenceRequest(body), { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces"
+        && parts[3] === "thumbnail-assets" && parts[4] === "transition"
+      ) {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.transitionThumbnailAsset(workpieceId, normalizeTransitionThumbnailAssetRequest(body), { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces"
+        && parts[3] === "thumbnail-assets" && parts[4] === "reconcile"
+      ) {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.reconcileThumbnailAssets(workpieceId, {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          operation_id: body.operation_id == null ? null : normalizeThumbnailOperationId(body.operation_id),
+        }, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces"
+        && parts[3] === "thumbnail-assets" && parts[4] === "render-composite"
+      ) {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.renderThumbnailComposite(workpieceId, normalizeRenderThumbnailCompositeRequest(body), { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces"
+        && parts[3] === "thumbnail-assets"
+      ) {
+        requireMethod(request, "GET");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const assetId = normalizeUuid(decodeURIComponent(parts[4]), "asset_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.readThumbnailAsset(workpieceId, assetId, { userAccessToken });
         return jsonResponse(200, { ok: true, data: result });
       }
 

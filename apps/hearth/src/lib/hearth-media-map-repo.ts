@@ -47,6 +47,10 @@ function readCanonicalCommitUpdatedAt(payload: unknown, expectedPath: string): s
   return readString(payload.data.file_row.updated_at);
 }
 
+function mediaMapsEqual(left: EpisodeMediaMap, right: EpisodeMediaMap): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 export async function readWorkpieceEpisodeMediaMap(workpieceId: string): Promise<MediaMapReadResult> {
   let response: Response;
   try {
@@ -138,10 +142,28 @@ export async function saveWorkpieceEpisodeMediaMap(args: {
         : readErrorMessage(payload, "Unable to save Episode Media Map."),
     };
   }
+
+  // A write acknowledgement only proves that Tongs accepted the request. Do not
+  // tell the user the map is saved until the same cold-boot read path recovers it.
+  const verified = await readWorkpieceEpisodeMediaMap(args.workpieceId);
+  if (!verified.ok) {
+    return {
+      ok: false,
+      status: verified.status,
+      error: "Episode Media Map was written, but Hearth could not verify the durable saved state.",
+    };
+  }
+  if (!verified.mediaMap || !mediaMapsEqual(verified.mediaMap, args.mediaMap)) {
+    return {
+      ok: false,
+      status: 409,
+      error: "Episode Media Map save acknowledgement did not match the canonical reload state.",
+    };
+  }
   return {
     ok: true,
     status: response.status,
-    mediaMap: args.mediaMap,
+    mediaMap: verified.mediaMap,
     artifactUpdatedAt,
   };
 }

@@ -104,68 +104,120 @@ export type Database = {
       assets: {
         Row: {
           asset_kind: string
+          cache_control: string | null
+          content_hash: string | null
           id: string
           bytes: number
           created_by: string
           created_at: string
+          failed_at: string | null
+          failure_code: string | null
+          failure_message: string | null
+          height: number | null
           metadata_json: Json
           mime_type: string
+          operation_fingerprint: string | null
+          operation_id: string | null
+          reuse_identity: string | null
           path: string
           prompt: string | null
           provider: string
           provider_request_id: string | null
           request_id: string | null
+          ready_at: string | null
+          reference_committed_at: string | null
           status: string
           storage_bucket: string
           storage_key: string
+          source_asset_id: string | null
           supersedes_asset_id: string | null
           updated_at: string
           workpiece_id: string
           workspace_id: string
+          variant_kind: string
+          variant_version: number
+          width: number | null
         }
         Insert: {
           asset_kind?: string
+          cache_control?: string | null
+          content_hash?: string | null
           id?: string
           bytes: number
           created_by: string
           created_at?: string
+          failed_at?: string | null
+          failure_code?: string | null
+          failure_message?: string | null
+          height?: number | null
           metadata_json?: Json
           mime_type: string
+          operation_fingerprint?: string | null
+          operation_id?: string | null
+          reuse_identity?: string | null
           path: string
           prompt?: string | null
           provider: string
           provider_request_id?: string | null
           request_id?: string | null
+          ready_at?: string | null
+          reference_committed_at?: string | null
           status?: string
           storage_bucket?: string
           storage_key: string
+          source_asset_id?: string | null
           supersedes_asset_id?: string | null
           updated_at?: string
           workpiece_id: string
           workspace_id: string
+          variant_kind?: string
+          variant_version?: number
+          width?: number | null
         }
         Update: {
           asset_kind?: string
+          cache_control?: string | null
+          content_hash?: string | null
           id?: string
           bytes?: number
           created_by?: string
           created_at?: string
+          failed_at?: string | null
+          failure_code?: string | null
+          failure_message?: string | null
+          height?: number | null
           metadata_json?: Json
           mime_type?: string
+          operation_fingerprint?: string | null
+          operation_id?: string | null
+          reuse_identity?: string | null
           path?: string
           prompt?: string | null
           provider?: string
           provider_request_id?: string | null
           request_id?: string | null
+          ready_at?: string | null
+          reference_committed_at?: string | null
           status?: string
           storage_bucket?: string
           storage_key?: string
+          source_asset_id?: string | null
           supersedes_asset_id?: string | null
           updated_at?: string
           workpiece_id?: string
           workspace_id?: string
+          variant_kind?: string
+          variant_version?: number
+          width?: number | null
         }
         Relationships: [
+          {
+            foreignKeyName: "assets_source_asset_id_fkey"
+            columns: ["source_asset_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "assets_workspace_id_fkey"
             columns: ["workspace_id"]

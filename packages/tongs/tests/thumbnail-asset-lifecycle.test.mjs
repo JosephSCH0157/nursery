@@ -1,0 +1,118 @@
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+import test from "node:test";
+import sharp from "sharp";
+import {
+  renderThumbnailComposite,
+  THUMBNAIL_BUNDLED_FONT_VERSION,
+  THUMBNAIL_COMPOSITION_ENGINE_VERSION,
+} from "../dist/thumbnail-composite.js";
+import {
+  resolveThumbnailOperationReplay,
+  resolveThumbnailReconciliationOutcome,
+} from "../dist/workpiece-commit-api.js";
+
+const root = new URL("../../../", import.meta.url);
+
+test("thumbnail lifecycle migration defines canonical states, kinds, hashes, diagnostics, and idempotency", async () => {
+  const sql = await readFile(new URL("supabase/migrations/20260715153000_tongs_thumbnail_asset_lifecycle.sql", root), "utf8");
+  assert.match(sql, /status in \('pending', 'ready', 'failed', 'superseded'\)/);
+  assert.match(sql, /'thumbnail_composite'/);
+  assert.match(sql, /content_hash ~ '\^\[0-9a-f\]\{64\}\$'/);
+  assert.match(sql, /failure_code is not null[\s\S]*failure_message is not null/);
+  assert.match(sql, /assets_thumbnail_operation_unique_idx/);
+  assert.match(sql, /workspace_id, workpiece_id, asset_kind, operation_id/);
+  assert.match(sql, /assets_thumbnail_composite_reuse_unique_idx/);
+  assert.match(sql, /workspace_id, workpiece_id, reuse_identity/);
+  assert.match(sql, /assets_thumbnail_reconciliation_idx/);
+  assert.match(sql, /assets_thumbnail_ready_hash_check/);
+});
+
+test("existing workspace RLS policies cover every asset state and kind without filtering either field", async () => {
+  const sql = await readFile(new URL("supabase/migrations/20260228170000_tongs_assets_table.sql", root), "utf8");
+  for (const operation of ["select", "insert", "update"]) {
+    assert.match(sql, new RegExp(`assets_${operation}_if_workspace_access`));
+  }
+  assert.match(sql, /using \(tongs\.can_access_workspace\(workspace_id\)\)/);
+  assert.match(sql, /with check \(tongs\.can_access_workspace\(workspace_id\)\)/);
+  const policyBodies = sql.match(/create policy assets_(?:select|insert|update)_if_workspace_access[\s\S]*?(?=drop policy|alter table|$)/g) ?? [];
+  assert.equal(policyBodies.length, 3);
+  for (const policy of policyBodies) {
+    assert.doesNotMatch(policy, /asset_kind|status/);
+  }
+});
+
+test("server compositor is deterministic for identical versioned inputs", async () => {
+  assert.equal(THUMBNAIL_COMPOSITION_ENGINE_VERSION, "forge-thumbnail-compositor-v1");
+  assert.equal(THUMBNAIL_BUNDLED_FONT_VERSION, "inter-5.2.8-latin-700");
+  const baseBytes = await sharp({
+    create: { width: 640, height: 360, channels: 4, background: "#234567" },
+  }).png().toBuffer();
+  const input = {
+    baseBytes,
+    width: 640,
+    height: 360,
+    recipe: {
+      title_text: "A Durable Thumbnail",
+      title_revision: 2,
+      template_revision: 3,
+      text_color: "#FFFFFF",
+      shadow_color: "#000000",
+      shadow_opacity: 0.75,
+      placement: "bottom",
+      max_lines: 2,
+      horizontal_padding_percent: 8,
+    },
+    encoding: { format: "png", quality: 100 },
+  };
+  const first = await renderThumbnailComposite(input);
+  const second = await renderThumbnailComposite(input);
+  assert.equal(first.mimeType, "image/png");
+  assert.deepEqual(first.bytes, second.bytes);
+  assert.ok(first.bytes.length > baseBytes.length);
+});
+
+test("lost stage acknowledgement reuses the canonical asset and conflicting input is rejected", () => {
+  const existing = {
+    id: "55555555-5555-4555-8555-555555555555",
+    workspace_id: "33333333-3333-4333-8333-333333333333",
+    workpiece_id: "11111111-1111-4111-8111-111111111111",
+    operation_id: "22222222-2222-4222-8222-222222222222",
+    operation_fingerprint: "a".repeat(64),
+    asset_kind: "thumbnail_image",
+    status: "pending",
+    path: "assets/thumbnails/asset.png",
+    mime_type: "image/png",
+    bytes: 12,
+    content_hash: "b".repeat(64),
+    storage_bucket: "forge-workpieces",
+    storage_key: "workpieces/1/assets/thumbnails/asset.png",
+    reference_committed_at: null,
+    ready_at: null,
+    failed_at: null,
+    failure_code: null,
+    failure_message: null,
+    metadata_json: {},
+  };
+  const replay = resolveThumbnailOperationReplay(existing, "a".repeat(64));
+  assert.equal(replay.id, existing.id);
+  assert.equal(replay.status, "pending");
+  assert.throws(() => resolveThumbnailOperationReplay(existing, "c".repeat(64)), /operation_id was already used/i);
+});
+
+test("reconciliation decisions are deterministic and fail closed", () => {
+  const assetId = "55555555-5555-4555-8555-555555555555";
+  const hash = "a".repeat(64);
+  assert.deepEqual(resolveThumbnailReconciliationOutcome({
+    assetId, referencedAssetId: assetId, canonicalHash: hash, storedHash: hash,
+  }), { target: "ready" });
+  assert.equal(resolveThumbnailReconciliationOutcome({
+    assetId, referencedAssetId: null, canonicalHash: hash, storedHash: hash,
+  }).code, "package_reference_missing");
+  assert.equal(resolveThumbnailReconciliationOutcome({
+    assetId, referencedAssetId: assetId, canonicalHash: hash, storedHash: null,
+  }).code, "asset_bytes_missing");
+  assert.equal(resolveThumbnailReconciliationOutcome({
+    assetId, referencedAssetId: assetId, canonicalHash: hash, storedHash: "b".repeat(64),
+  }).code, "asset_hash_mismatch");
+});

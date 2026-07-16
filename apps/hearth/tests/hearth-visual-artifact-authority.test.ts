@@ -290,13 +290,17 @@ test("visual artifact authority: exact media-map acknowledgement returns the com
   const originalWindow = globalWithWindow.window;
   const originalFetch = globalThis.fetch;
   globalWithWindow.window = createWindowStub();
-  globalThis.fetch = async () => new Response(JSON.stringify({
-    ok: true,
-    data: {
-      path: "hearth/media_map.v1.json",
-      file_row: { updated_at: "2026-07-12T12:02:00.000Z" },
-    },
-  }), {
+  globalThis.fetch = async (_input, init) => new Response(JSON.stringify(
+    (init?.method ?? "GET") === "GET"
+      ? { ok: true, data: mediaMap }
+      : {
+          ok: true,
+          data: {
+            path: "hearth/media_map.v1.json",
+            file_row: { updated_at: "2026-07-12T12:02:00.000Z" },
+          },
+        },
+  ), {
     status: 200,
     headers: { "content-type": "application/json" },
   });
@@ -309,7 +313,7 @@ test("visual artifact authority: exact media-map acknowledgement returns the com
     assert.equal(saved.ok, true);
     if (!saved.ok) assert.fail("Expected an exact acknowledgement to succeed.");
     assert.equal(saved.artifactUpdatedAt, "2026-07-12T12:02:00.000Z");
-    assert.equal(saved.mediaMap, mediaMap);
+    assert.deepEqual(saved.mediaMap, mediaMap);
   } finally {
     globalThis.fetch = originalFetch;
     if (originalWindow === undefined) {
@@ -317,5 +321,40 @@ test("visual artifact authority: exact media-map acknowledgement returns the com
     } else {
       globalWithWindow.window = originalWindow;
     }
+  }
+});
+
+test("visual artifact authority: media-map save rejects a cold-boot reload mismatch", async () => {
+  const requested = createMediaMap("requested-media");
+  const stale = createMediaMap("stale-media");
+  const globalWithWindow = globalThis as typeof globalThis & { window?: Window & typeof globalThis };
+  const originalWindow = globalWithWindow.window;
+  const originalFetch = globalThis.fetch;
+  globalWithWindow.window = createWindowStub();
+  globalThis.fetch = async (_input, init) => new Response(JSON.stringify(
+    (init?.method ?? "GET") === "GET"
+      ? { ok: true, data: stale }
+      : {
+          ok: true,
+          data: {
+            path: "hearth/media_map.v1.json",
+            file_row: { updated_at: "2026-07-12T12:02:00.000Z" },
+          },
+        },
+  ), { status: 200, headers: { "content-type": "application/json" } });
+
+  try {
+    const saved = await saveWorkpieceEpisodeMediaMap({
+      workpieceId: WORKPIECE_ID,
+      mediaMap: requested,
+    });
+    assert.equal(saved.ok, false);
+    if (saved.ok) assert.fail("Expected a mismatched cold-boot reload to be rejected.");
+    assert.equal(saved.status, 409);
+    assert.match(saved.error, /canonical reload state/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (originalWindow === undefined) Reflect.deleteProperty(globalWithWindow, "window");
+    else globalWithWindow.window = originalWindow;
   }
 });

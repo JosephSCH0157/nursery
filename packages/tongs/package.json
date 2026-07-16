@@ -3,8 +3,12 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "engines": { "node": "20.20.0" },
-  "volta": { "node": "20.20.0" },
+  "engines": {
+    "node": "20.20.0"
+  },
+  "volta": {
+    "node": "20.20.0"
+  },
   "main": "dist/index.js",
   "types": "src/index.ts",
   "exports": {
@@ -37,7 +41,7 @@
     "migrate:cloud-role-roots": "tsc -p tsconfig.json && node ./dev/migrate-cloud-role-roots.mjs",
     "test:commit-api": "tsc -p tsconfig.json && node --test tests/workpiece-commit-api.test.mjs",
     "test:storage-registry": "tsc -p tsconfig.json && node --test tests/storage-registry-migration.test.mjs",
-    "test": "tsc -p tsconfig.json && node --test tests/ai-policy.test.mjs tests/asset-variant-resolver.test.mjs tests/storage-registry-migration.test.mjs tests/workpiece-commit-api.test.mjs"
+    "test": "tsc -p tsconfig.json && node --test tests/ai-policy.test.mjs tests/asset-variant-resolver.test.mjs tests/storage-registry-migration.test.mjs tests/thumbnail-asset-lifecycle.test.mjs tests/workpiece-commit-api.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
@@ -47,8 +51,10 @@
     "typescript-eslint": "8.57.2"
   },
   "dependencies": {
+    "@fontsource/inter": "^5.2.8",
     "@forge/shared": "workspace:*",
     "@supabase/supabase-js": "^2.98.0",
-    "fflate": "^0.8.2"
+    "fflate": "^0.8.2",
+    "sharp": "^0.35.3"
   }
 }
