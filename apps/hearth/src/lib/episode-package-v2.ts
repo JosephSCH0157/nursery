@@ -1430,9 +1430,18 @@ export function parseTagsFromText(rawText: string): string[] {
   return [];
 }
 
-export function parseThumbnailConceptsFromText(rawText: string): EpisodeThumbnailConcept[] {
+export type ThumbnailConceptParseDiagnostic = {
+  branch: "line_blocks";
+  concepts: EpisodeThumbnailConcept[];
+  recognizedHeaders: number;
+  completeBlocks: number;
+  structuralErrors: string[];
+};
+
+export function diagnoseThumbnailConceptParsing(rawText: string): ThumbnailConceptParseDiagnostic {
   const lines = rawText.split(/\r?\n/);
   const concepts: EpisodeThumbnailConcept[] = [];
+  let recognizedHeaders = 0;
   let currentId: string | null = null;
   let headline: string | null = null;
   let imageConcept: string | null = null;
@@ -1472,6 +1481,7 @@ export function parseThumbnailConceptsFromText(rawText: string): EpisodeThumbnai
     const header = line.match(/^THUMBNAIL[_\s-]*(\d{1,3})\s*[:.-]?$/i);
     if (header) {
       flush();
+      recognizedHeaders += 1;
       currentId = header[1]?.padStart(2, "0") ?? "01";
       continue;
     }
@@ -1493,7 +1503,18 @@ export function parseThumbnailConceptsFromText(rawText: string): EpisodeThumbnai
   }
 
   flush();
-  return concepts;
+  const structuralErrors: string[] = [];
+  if (recognizedHeaders === 0) {
+    structuralErrors.push("No THUMBNAIL 1-5 concept headers were present in the stored response.");
+  } else if (concepts.length !== recognizedHeaders) {
+    structuralErrors.push(`${recognizedHeaders - concepts.length} recognized concept block(s) were missing a headline, image concept, or mood/style field.`);
+  }
+  if (concepts.length !== 5) structuralErrors.push(`Expected exactly 5 complete, distinct concept blocks; recognized ${concepts.length}.`);
+  return { branch: "line_blocks", concepts, recognizedHeaders, completeBlocks: concepts.length, structuralErrors };
+}
+
+export function parseThumbnailConceptsFromText(rawText: string): EpisodeThumbnailConcept[] {
+  return diagnoseThumbnailConceptParsing(rawText).concepts;
 }
 
 export function parseImageMapEntriesFromText(rawText: string): EpisodeImageMapEntry[] {

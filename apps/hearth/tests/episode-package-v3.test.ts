@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyProductionArtifactToEpisodePackage, hydrateEpisodePackageV2 } from "../src/lib/episode-package-v2";
+import { applyProductionArtifactToEpisodePackage, diagnoseThumbnailConceptParsing, hydrateEpisodePackageV2 } from "../src/lib/episode-package-v2";
 import {
   EPISODE_PACKAGE_V3_SCHEMA,
   THUMBNAIL_COMPOSITION_ENGINE_VERSION,
@@ -21,6 +21,7 @@ import {
   refineConcept,
   saveRenderRecipe,
 } from "../src/lib/hearth-thumbnail-v3-authority";
+import { isValidThumbnailPair, resolveCanonicalThumbnailPair } from "../src/lib/hearth-thumbnail-pairing";
 
 const legacyMetadata = {
   updated_at: "2026-07-14T19:00:00.000Z",
@@ -129,8 +130,47 @@ test("render recipe is sole live presentation authority and prompt reconstructio
   const first = deriveThumbnailPromptPack({ recipe, concept });
   const second = deriveThumbnailPromptPack({ recipe: structuredClone(recipe), concept: structuredClone(concept) });
   assert.deepEqual(first, second);
-  assert.equal(first.positive_prompt.includes("DURABLE"), false);
+  assert.equal(first.positive_prompt.includes("DURABLE"), true);
+  assert.equal(first.canonical_serialized.includes('"id":"title-1"'), true);
   assert.equal(deriveThumbnailPromptPack({ recipe, concept, templateVersion: "v2" }).review_state, "needs_review");
+});
+
+test("active render recipe restores the exact independent concept/title pairing", () => {
+  const imported = hydrateEpisodePackageV3(legacyMetadata);
+  imported.seo.titles.push({ id: "title-2", label: "B", text: "A second title", thumbnail_text: "SECOND", is_primary: false, revision: 3 });
+  const secondConcept = imported.thumbnail.concept_revisions[1]!;
+  const recipe: ThumbnailRenderRecipe = {
+    id: "pairing", revision: 1, concept_revision_id: secondConcept.concept_revision_id,
+    title_id: "title-2", title_revision: 3, title_text: "SECOND", provider_id: "forge", intended_aspect_ratio: "16:9",
+    brand_template_id: null, brand_template_revision: null,
+    treatment: { typography: {}, placement: {}, safe_zone: {}, shadow: {}, treatment: {} },
+    prompt_template_version: THUMBNAIL_PROMPT_TEMPLATE_VERSION,
+    composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
+    prompt_review_state: "unreviewed", last_reviewed_template_version: null,
+    created_at: "2026-07-16T12:00:00.000Z", updated_at: "2026-07-16T12:00:00.000Z",
+  };
+  const saved = saveRenderRecipe({ episodePackage: imported, recipe });
+  const pair = resolveCanonicalThumbnailPair(saved);
+  assert.equal(pair.concept?.concept_revision_id, secondConcept.concept_revision_id);
+  assert.equal(pair.title?.id, "title-2");
+  assert.equal(pair.title?.revision, 3);
+  assert.equal(isValidThumbnailPair(pair), true);
+
+  const changedTitle = saveRenderRecipe({ episodePackage: saved, recipe: { ...recipe, revision: 2, title_id: "title-1", title_revision: 1, title_text: "DURABLE" } });
+  assert.equal(resolveCanonicalThumbnailPair(changedTitle).concept?.concept_revision_id, secondConcept.concept_revision_id);
+  assert.equal(resolveCanonicalThumbnailPair(changedTitle).title?.id, "title-1");
+  assert.equal(imported.thumbnail.concept_revisions[1]?.headline, secondConcept.headline);
+  assert.equal(imported.seo.titles[0]?.text, "A durable title");
+});
+
+test("stored fallback summary reports its exact zero-concept parser structure", () => {
+  const stored = "Research outcome: Live retrieval was unavailable in this run, so this answer is a knowledge-first fallback.\n\nHere are five thumbnail concepts that stay faithful to Script V1’s core images: the lost smell, the empty roadside stands, the invisible disease, and the 90% collapse.";
+  const diagnostic = diagnoseThumbnailConceptParsing(stored);
+  assert.equal(diagnostic.branch, "line_blocks");
+  assert.equal(diagnostic.recognizedHeaders, 0);
+  assert.equal(diagnostic.completeBlocks, 0);
+  assert.deepEqual(diagnostic.concepts, []);
+  assert.match(diagnostic.structuralErrors.join(" "), /No THUMBNAIL 1-5 concept headers/);
 });
 
 test("mutation proof is scoped and ignores unrelated package changes", () => {

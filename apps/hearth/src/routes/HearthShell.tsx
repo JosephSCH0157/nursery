@@ -7602,6 +7602,7 @@ export default function HearthShell({
           thumbnailAuthority: { workspaceId: workspaceId ?? null, workpieceId: workpieceId ?? null },
           onGenerateThumbnailConcepts: () => onRunProductionAction("thumbnails"),
           onRecoverThumbnailConcepts,
+          onOpenThumbnailFraming: () => requestWorkpieceTabChange("metadata"),
           onCanonicalThumbnailProgress,
           mediaMapPanelProps: visualsPanelContracts.mediaMap.panelProps,
           imageMapPanelProps: visualsPanelContracts.imageMap.panelProps,

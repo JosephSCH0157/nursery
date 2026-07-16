@@ -362,9 +362,15 @@ export function deriveThumbnailPromptPack(args: {
       mood_style: args.concept.mood_style,
       prompt_basis: args.concept.normalized_prompt_basis,
     },
-    exclusions: ["text", "logos", "watermarks", "branding", "title treatment"],
+    canonical_title: {
+      id: args.recipe.title_id,
+      revision: args.recipe.title_revision,
+      text: args.recipe.title_text,
+    },
+    exclusions: ["unrequested text", "logos", "watermarks", "branding"],
   };
-  const positive = [args.concept.normalized_prompt_basis, args.concept.image_concept, args.concept.mood_style]
+  const positive = [args.concept.normalized_prompt_basis, args.concept.image_concept, args.concept.mood_style,
+    `Reserve composition space for the exact approved title applied by the compositor: ${args.recipe.title_text}`]
     .map((value) => value.trim()).filter(Boolean).join(". ");
   return {
     template_version: templateVersion,
@@ -373,7 +379,7 @@ export function deriveThumbnailPromptPack(args: {
     provider_id: args.recipe.provider_id,
     intended_aspect_ratio: args.recipe.intended_aspect_ratio,
     positive_prompt: positive,
-    negative_prompt: "text, typography, logos, watermarks, branding, burned-in title",
+    negative_prompt: "burned-in text, logos, watermarks, branding, altered title wording",
     canonical_serialized: canonicalSerialize(payload),
   };
 }

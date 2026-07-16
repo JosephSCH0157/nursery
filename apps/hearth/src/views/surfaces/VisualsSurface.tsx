@@ -30,6 +30,7 @@ type VisualsSurfaceProps = {
   thumbnailAuthority: { workspaceId: string | null; workpieceId: string | null };
   onGenerateThumbnailConcepts: ComponentProps<typeof ThumbnailV3Panel>["onGenerateConcepts"];
   onRecoverThumbnailConcepts: ComponentProps<typeof ThumbnailV3Panel>["onRecoverConcepts"];
+  onOpenThumbnailFraming: ComponentProps<typeof ThumbnailV3Panel>["onOpenFraming"];
   onCanonicalThumbnailProgress: NonNullable<ComponentProps<typeof ThumbnailV3Panel>["onCanonicalProgress"]>;
   mediaMapPanelProps: ComponentProps<typeof EpisodeMediaMapPanel>;
   imageMapPanelProps: ComponentProps<typeof ImageMapPanel>;
@@ -122,6 +123,7 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
             approvedScriptVersion={props.approvedScriptVersion}
             onGenerateConcepts={props.onGenerateThumbnailConcepts}
             onRecoverConcepts={props.onRecoverThumbnailConcepts}
+            onOpenFraming={props.onOpenThumbnailFraming}
             isGeneratingConcepts={props.thumbnailPanelProps.isGeneratingConcepts ?? false}
             onCanonicalProgress={props.onCanonicalThumbnailProgress}
           />

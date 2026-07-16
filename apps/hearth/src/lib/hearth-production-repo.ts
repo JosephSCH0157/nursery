@@ -3,7 +3,7 @@ import {
   applyProductionArtifactToEpisodePackage,
   buildDefaultMetadataDocument,
   hydrateEpisodePackageV2,
-  parseThumbnailConceptsFromText,
+  diagnoseThumbnailConceptParsing,
 } from "./episode-package-v2";
 import { canonicalSerialize, validateConceptGenerationSet, type ThumbnailConceptRevision, type ThumbnailConceptSet } from "./episode-package-v3";
 import { appendConceptSet } from "./hearth-thumbnail-v3-authority";
@@ -236,10 +236,12 @@ async function syncEpisodePackageMetadata(args: {
 
   if (args.kind === "thumbnails") {
     const rawText = readRawTextFromPayload(args.payload);
-    const parsed = parseThumbnailConceptsFromText(rawText);
+    const parseDiagnostic = diagnoseThumbnailConceptParsing(rawText);
+    const parsed = parseDiagnostic.concepts;
     if (parsed.length !== 5) return {
       ok: false, status: 422, reason: `Parsed ${parsed.length} of 5 required thumbnail concepts.`,
-      stage: "parse", errors: [`Expected exactly 5 concept blocks; found ${parsed.length}.`],
+      stage: "parse",
+      errors: [`Parser branch: ${parseDiagnostic.branch}.`, ...parseDiagnostic.structuralErrors],
     };
     const canonical = await readCanonicalEpisodePackageV3(args.workpieceId);
     const createdAt = readGeneratedAtFromPayload(args.payload);
