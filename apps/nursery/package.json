@@ -47,7 +47,8 @@
     "test:playwright:surgical": "playwright test -c playwright.config.ts playwright/library_to_session_switching.spec.ts",
     "test:playwright:hammer-triad-lock": "playwright test -c playwright.config.ts playwright/hammer.triad-lock.spec.ts --workers=1",
     "test:playwright:hearth-phase4": "pnpm preflight:hearth-phase4 && playwright test -c playwright.config.ts playwright/hearth.phase4.*.spec.ts",
-    "test:playwright:hearth-phase5-slice1": "pnpm preflight:hearth-phase4 && playwright test -c playwright.config.ts playwright/hearth.phase5.image-map.spec.ts"
+    "test:playwright:hearth-phase5-slice1": "pnpm preflight:hearth-phase4 && playwright test -c playwright.config.ts playwright/hearth.phase5.image-map.spec.ts",
+    "test:playwright:thumbnail-v3": "playwright test -c playwright.config.ts playwright/hearth.thumbnail-v3.spec.ts --workers=1"
   },
   "dependencies": {
     "@forge/bellows": "workspace:*",
