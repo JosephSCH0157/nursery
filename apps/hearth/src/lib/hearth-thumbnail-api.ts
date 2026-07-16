@@ -7,6 +7,7 @@ import {
   type EpisodeThumbnailConcept,
   type EpisodeThumbnailVersion,
 } from "./episode-package-v2";
+import { EPISODE_PACKAGE_V3_SCHEMA, hydrateEpisodePackageV3, type EpisodePackageV3 } from "./episode-package-v3";
 import { canonicalFramingEquals } from "./hearth-framing-authority";
 import { resolveAiLaneFromStorage, resolveForgeUserAccessToken } from "./hearth-chat-api";
 import { recordHearthBandwidthFetch } from "./hearthBandwidthTelemetry";
@@ -467,11 +468,31 @@ export async function saveEpisodePackageForWorkpiece(args: {
     persistedEpisodePackage,
   );
 
-  const nextMetadata = mirrorEpisodePackageV2ToLegacy({
-    ...metadata,
-    updated_at: nowIso,
-    episode: metadataOwnedEpisodePackage,
-  });
+  const existingEpisode = isRecord(metadata.episode) ? metadata.episode : null;
+  const nextMetadata = existingEpisode?.schema === EPISODE_PACKAGE_V3_SCHEMA
+    ? (() => {
+        const v3 = hydrateEpisodePackageV3(metadata);
+        const titles = metadataOwnedEpisodePackage.seo.titles.map((title) => {
+          const prior = v3.seo.titles.find((entry) => entry.id === title.id);
+          const changed = !prior || prior.text !== title.text || (prior.thumbnail_text ?? null) !== (title.thumbnail_text ?? null);
+          return { ...title, revision: prior ? prior.revision + (changed ? 1 : 0) : 1 };
+        });
+        const episode: EpisodePackageV3 = {
+          ...v3,
+          seo: { ...metadataOwnedEpisodePackage.seo, titles },
+          spoken_beats: metadataOwnedEpisodePackage.spoken_beats,
+          media_map: metadataOwnedEpisodePackage.media_map,
+          image_map: metadataOwnedEpisodePackage.image_map,
+          broll_plan: metadataOwnedEpisodePackage.broll_plan,
+          cdc_plan: metadataOwnedEpisodePackage.cdc_plan,
+        };
+        return { ...metadata, updated_at: nowIso, episode };
+      })()
+    : mirrorEpisodePackageV2ToLegacy({
+        ...metadata,
+        updated_at: nowIso,
+        episode: metadataOwnedEpisodePackage,
+      });
 
   const committed = await commitMetadataDocument({
     workpieceId: args.workpieceId,

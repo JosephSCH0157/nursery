@@ -2371,6 +2371,8 @@ export function hydrateEpisodePackageV2(metadata: Record<string, unknown>): Epis
 
 export function mirrorEpisodePackageV2ToLegacy(metadata: Record<string, unknown>): Record<string, unknown> {
   const episode = hydrateEpisodePackageV2(metadata);
+  const originalEpisode = isRecord(metadata.episode) ? metadata.episode : null;
+  const canonicalEpisode = originalEpisode?.schema === "forge.episode.package.v3" ? originalEpisode : episode;
   const legacyBeatSheetEntries: ImageBeatLegacyEntry[] = episode.image_map.entries.map((entry) => ({
     id: entry.id,
     attach_after: entry.anchor,
@@ -2381,7 +2383,7 @@ export function mirrorEpisodePackageV2ToLegacy(metadata: Record<string, unknown>
 
   return {
     ...metadata,
-    episode,
+    episode: canonicalEpisode,
     seo_titles: episode.seo.titles,
     tags: episode.seo.tags,
     description_short: episode.seo.description_short,
@@ -2463,6 +2465,32 @@ export function applyProductionArtifactToEpisodePackage(args: {
     if (entries.length) {
       nextEpisode.image_map.entries = entries;
     }
+  }
+
+  const originalEpisode = isRecord(args.metadata.episode) ? args.metadata.episode : null;
+  if (originalEpisode?.schema === "forge.episode.package.v3") {
+    const priorSeo = isRecord(originalEpisode.seo) ? originalEpisode.seo : {};
+    const priorTitles = Array.isArray(priorSeo.titles) ? priorSeo.titles : [];
+    const titles = nextEpisode.seo.titles.map((title) => {
+      const prior = priorTitles.find((entry) => isRecord(entry) && entry.id === title.id);
+      const priorRevision = isRecord(prior) && typeof prior.revision === "number" ? Math.max(1, Math.trunc(prior.revision)) : 1;
+      const changed = !isRecord(prior) || prior.text !== title.text || (prior.thumbnail_text ?? null) !== (title.thumbnail_text ?? null);
+      return { ...title, revision: changed && prior ? priorRevision + 1 : priorRevision };
+    });
+    return {
+      ...args.metadata,
+      updated_at: normalizeIso(args.generatedAt, normalizeIso(args.metadata.updated_at)),
+      episode: {
+        ...originalEpisode,
+        schema: "forge.episode.package.v3",
+        seo: { ...nextEpisode.seo, titles },
+        spoken_beats: nextEpisode.spoken_beats,
+        media_map: nextEpisode.media_map,
+        image_map: nextEpisode.image_map,
+        broll_plan: nextEpisode.broll_plan,
+        cdc_plan: nextEpisode.cdc_plan,
+      },
+    };
   }
 
   return mirrorEpisodePackageV2ToLegacy({

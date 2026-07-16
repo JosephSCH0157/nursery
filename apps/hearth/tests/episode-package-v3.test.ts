@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { applyProductionArtifactToEpisodePackage } from "../src/lib/episode-package-v2";
 import {
   EPISODE_PACKAGE_V3_SCHEMA,
   THUMBNAIL_COMPOSITION_ENGINE_VERSION,
@@ -170,4 +171,16 @@ test("launch and publication snapshots append immutable revisions", () => {
   } });
   assert.equal(published.thumbnail.publication_events.length, 1);
   assert.equal(revised.thumbnail.publication_events.length, 0);
+});
+
+test("legacy non-thumbnail production writes preserve v3 thumbnail authority and emit v3", () => {
+  const v3 = hydrateEpisodePackageV3(legacyMetadata);
+  const metadata = { ...legacyMetadata, episode: v3 };
+  const updated = applyProductionArtifactToEpisodePackage({
+    metadata, action: "tags", rawText: JSON.stringify({ tags: ["durable", "canonical"] }), generatedAt: "2026-07-15T13:00:00.000Z",
+  });
+  const episode = updated.episode as EpisodePackageV3;
+  assert.equal(episode.schema, EPISODE_PACKAGE_V3_SCHEMA);
+  assert.deepEqual(episode.thumbnail, v3.thumbnail);
+  assert.deepEqual(episode.seo.tags, ["durable", "canonical"]);
 });
