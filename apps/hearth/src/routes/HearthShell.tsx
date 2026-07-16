@@ -2125,6 +2125,7 @@ export default function HearthShell({
   const [episodePackage, setEpisodePackage] = useState<EpisodePackageV2 | null>(null);
   const [episodePackageState, setEpisodePackageState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
   const [episodePackageError, setEpisodePackageError] = useState<string | null>(null);
+  const [recoverableMediaMap, setRecoverableMediaMap] = useState<EpisodeMediaMap | null>(null);
   const [generatedTagProposal, setGeneratedTagProposal] = useState<{
     tags: string[];
     scriptVersion: number;
@@ -3351,6 +3352,30 @@ export default function HearthShell({
     buildMediaMapFromExistingPlans,
     persistMediaMap,
   });
+  const onRecoverLastMediaMapGeneration = useCallback(async () => {
+    if (!recoverableMediaMap || !episodePackage || isMediaMapBusy) return;
+    setIsMediaMapBusy(true);
+    setMediaMapSaveState("saving");
+    setMediaMapSaveError(null);
+    try {
+      const recovered = await persistMediaMap({
+        map: recoverableMediaMap,
+        eventName: "hearth.media_map.generation.recovered.v1",
+        eventPayload: { entry_count: recoverableMediaMap.entries.length, source: "last_generation_artifact" },
+      });
+      if (!recovered.ok) {
+        setMediaMapSaveState("error");
+        setMediaMapSaveError(recovered.error);
+        return;
+      }
+      setRecoverableMediaMap(null);
+      setSelectedMediaMapEntryId(recovered.episodePackage.media_map.entries[0]?.id ?? null);
+      setMediaMapSaveState("saved");
+      setMediaMapMessage("Recovered the last generated media map without a new AI request.");
+    } finally {
+      setIsMediaMapBusy(false);
+    }
+  }, [episodePackage, isMediaMapBusy, persistMediaMap, recoverableMediaMap, setIsMediaMapBusy, setMediaMapMessage, setMediaMapSaveError, setMediaMapSaveState, setSelectedMediaMapEntryId]);
   const approvedAtText = scriptApprovalState.approvedAt
     ? formatUpdatedAt(scriptApprovalState.approvedAt)
     : "Unknown";
@@ -4637,6 +4662,7 @@ export default function HearthShell({
     setEpisodePackage,
     setEpisodePackageState,
     setEpisodePackageError,
+    setRecoverableMediaMap,
     setImageMapMetadataUpdatedAt,
     setSelectedThumbnailTitleId,
     setSelectedThumbnailConceptId,
@@ -7162,7 +7188,7 @@ export default function HearthShell({
       packageState: episodePackageState,
       packageError: episodePackageError,
       generateDisabledReason: episodePackageState === "loading"
-        ? "The episode package is still loading."
+        ? "Episode package is loading."
         : episodePackageState === "error"
           ? (episodePackageError ?? "The episode package failed to load.")
           : episodePackageState !== "loaded" || !episodePackage
@@ -7172,6 +7198,12 @@ export default function HearthShell({
               : isMediaMapBusy
                 ? "A media-map operation is already in progress."
                 : null,
+      onRetryLoad: () => void refreshEpisodePackage(),
+      canRecoverLastGeneration: Boolean(
+        recoverableMediaMap
+        && JSON.stringify(recoverableMediaMap) !== JSON.stringify(mediaMap)
+      ),
+      onRecoverLastGeneration: () => void onRecoverLastMediaMapGeneration(),
       message: mediaMapMessage,
       disabled: isApprovingScript || isMediaMapBusy || !episodePackage,
       generationScope: mediaMapGenerationScope,

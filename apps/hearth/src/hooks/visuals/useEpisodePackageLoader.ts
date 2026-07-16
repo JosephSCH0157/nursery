@@ -7,8 +7,9 @@ import {
 } from "../../lib/hearth-image-map-repo";
 import {
   readWorkpieceEpisodeMediaMap,
+  readRecoverableEpisodeMediaMap,
 } from "../../lib/hearth-media-map-repo";
-import type { EpisodePackageV2 } from "../../lib/episode-package-v2";
+import type { EpisodeMediaMap, EpisodePackageV2 } from "../../lib/episode-package-v2";
 import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 import { resolveCanonicalVisualArtifacts } from "../../lib/hearth-visual-artifact-authority";
 
@@ -19,6 +20,7 @@ type UseEpisodePackageLoaderArgs = {
   setEpisodePackage: Dispatch<SetStateAction<EpisodePackageV2 | null>>;
   setEpisodePackageState: Dispatch<SetStateAction<"idle" | "loading" | "loaded" | "error">>;
   setEpisodePackageError: Dispatch<SetStateAction<string | null>>;
+  setRecoverableMediaMap: Dispatch<SetStateAction<EpisodeMediaMap | null>>;
   setImageMapMetadataUpdatedAt: Dispatch<SetStateAction<string | null>>;
   setSelectedThumbnailTitleId: Dispatch<SetStateAction<string | null>>;
   setSelectedThumbnailConceptId: Dispatch<SetStateAction<string>>;
@@ -69,6 +71,7 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
       currentArgs.setEpisodePackage(null);
       currentArgs.setEpisodePackageState(episodeId ? "loading" : "idle");
       currentArgs.setEpisodePackageError(null);
+      currentArgs.setRecoverableMediaMap(null);
       currentArgs.setImageMapMetadataUpdatedAt(null);
       currentArgs.setSelectedThumbnailTitleId(null);
       currentArgs.setSelectedThumbnailConceptId("");
@@ -106,17 +109,22 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
     }
     currentArgs.setEpisodePackageState("loading");
     currentArgs.setEpisodePackageError(null);
-    const operation = currentArgs.operationAuthority.begin("visuals.package.load");
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     try {
-      const [loaded, imageMapLoaded, mediaMapLoaded] = await Promise.all([
-        readEpisodePackageForWorkpiece(episodeId),
-        getWorkpieceImageMap(episodeId),
-        readWorkpieceEpisodeMediaMap(episodeId),
+      const [loaded, imageMapLoaded, mediaMapLoaded, recoverableMediaMapLoaded] = await Promise.race([
+        Promise.all([
+          readEpisodePackageForWorkpiece(episodeId),
+          getWorkpieceImageMap(episodeId),
+          readWorkpieceEpisodeMediaMap(episodeId),
+          readRecoverableEpisodeMediaMap(episodeId),
+        ]),
+        new Promise<never>((_resolve, reject) => {
+          timeoutId = setTimeout(() => reject(new Error("Episode package load timed out. Retry Load.")), 15_000);
+        }),
       ]);
+      if (timeoutId) clearTimeout(timeoutId);
       if (
-        !currentArgs.operationAuthority.isCurrent(operation)
-        ||
         episodePackageRequestSeqRef.current !== requestSeq
         || (latestArgsRef.current.workpieceId?.trim() ?? "") !== episodeId
       ) {
@@ -175,6 +183,13 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
         currentArgs.setMediaMapSaveState("error");
         currentArgs.setMediaMapSaveError(mediaMapLoaded.error);
       }
+      currentArgs.setRecoverableMediaMap(
+        recoverableMediaMapLoaded.ok
+        && recoverableMediaMapLoaded.mediaMap
+        && recoverableMediaMapLoaded.mediaMap.entries.length > 0
+          ? recoverableMediaMapLoaded.mediaMap
+          : null,
+      );
 
       currentArgs.setEpisodePackage(nextEpisodePackage);
       currentArgs.setEpisodePackageState("loaded");
@@ -192,9 +207,8 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
         return imageEntries[0]?.id ?? null;
       });
     } catch (error) {
+      if (timeoutId) clearTimeout(timeoutId);
       if (
-        !currentArgs.operationAuthority.isCurrent(operation)
-        ||
         episodePackageRequestSeqRef.current !== requestSeq
         || (latestArgsRef.current.workpieceId?.trim() ?? "") !== episodeId
       ) {

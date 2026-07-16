@@ -6,6 +6,7 @@ import {
 import { tongsFetch } from "./tongs-fetch";
 
 export const HEARTH_MEDIA_MAP_PATH = "hearth/media_map.v1.json";
+export const HEARTH_MEDIA_MAP_RECOVERY_PATH = "hearth/media_map.last-generation.v1.json";
 
 type MediaMapReadResult =
   | { ok: true; mediaMap: EpisodeMediaMap | null }
@@ -166,4 +167,48 @@ export async function saveWorkpieceEpisodeMediaMap(args: {
     mediaMap: verified.mediaMap,
     artifactUpdatedAt,
   };
+}
+
+export async function readRecoverableEpisodeMediaMap(workpieceId: string): Promise<MediaMapReadResult> {
+  let response: Response;
+  try {
+    response = await tongsFetch(
+      `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(HEARTH_MEDIA_MAP_RECOVERY_PATH)}`,
+      { method: "GET" },
+    );
+  } catch {
+    return { ok: false, status: 0, error: "Unable to read the recoverable media-map generation." };
+  }
+  const payload = await readJsonBody(response);
+  if (response.status === 404 || (response.ok && isRecord(payload) && payload.ok === true && (payload.exists === false || payload.data == null))) {
+    return { ok: true, mediaMap: null };
+  }
+  if (!response.ok || !isRecord(payload) || payload.ok !== true || !isRecord(payload.data)) {
+    return { ok: false, status: response.status, error: readErrorMessage(payload, "Unable to read the recoverable media-map generation.") };
+  }
+  return {
+    ok: true,
+    mediaMap: ensureMediaMapV2({ ...createEmptyEpisodePackageV2(), media_map: payload.data as unknown as EpisodeMediaMap }).media_map,
+  };
+}
+
+export async function saveRecoverableEpisodeMediaMap(args: {
+  workpieceId: string;
+  mediaMap: EpisodeMediaMap;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`, {
+    method: "POST",
+    json: {
+      path: HEARTH_MEDIA_MAP_RECOVERY_PATH,
+      content_type: "application/json",
+      json: args.mediaMap,
+      written_by: { tool: "hearth", tool_version: "forge-v1.2.0", lane: "recovery" },
+      event_name: "hearth.media_map.generation.staged.v1",
+      event_payload: { entry_count: args.mediaMap.entries.length, script_version_id: args.mediaMap.script_version_id },
+    },
+  });
+  const payload = await readJsonBody(response);
+  return response.ok && readCanonicalCommitUpdatedAt(payload, HEARTH_MEDIA_MAP_RECOVERY_PATH)
+    ? { ok: true }
+    : { ok: false, error: readErrorMessage(payload, "Unable to stage the recoverable media-map generation.") };
 }

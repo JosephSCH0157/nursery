@@ -14,7 +14,7 @@ import { replaceEpisodePackageImageMap } from "../../lib/hearth-episode-package-
 import { saveEpisodePackageForWorkpiece } from "../../lib/hearth-thumbnail-api";
 import { saveWorkpieceImageMap } from "../../lib/hearth-image-map-repo";
 import { syncMediaMapImageEntriesFromImageMap } from "../../lib/hearth-media-map-sync";
-import { saveWorkpieceEpisodeMediaMap } from "../../lib/hearth-media-map-repo";
+import { saveRecoverableEpisodeMediaMap, saveWorkpieceEpisodeMediaMap } from "../../lib/hearth-media-map-repo";
 import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 import { retainCanonicalVisualArtifacts } from "../../lib/hearth-visual-artifact-authority";
 
@@ -269,6 +269,7 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
       ...baseEpisodePackage,
       media_map: canonicalMediaMap,
     };
+    await saveRecoverableEpisodeMediaMap({ workpieceId: episodeId, mediaMap: canonicalMediaMap });
     const mediaMapSaved = await saveWorkpieceEpisodeMediaMap({
       workpieceId: episodeId,
       mediaMap: canonicalMediaMap,

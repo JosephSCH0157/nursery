@@ -36,6 +36,9 @@ type BuildMediaMapPanelArgs = {
   packageState: MediaMapPanelProps["packageState"];
   packageError: string | null;
   generateDisabledReason: string | null;
+  onRetryLoad: () => void;
+  canRecoverLastGeneration: boolean;
+  onRecoverLastGeneration: () => void;
   message: string | null;
   disabled: boolean;
   generationScope: MediaMapGenerationScope;
@@ -289,6 +292,9 @@ export function buildMediaMapPanelProps(args: BuildMediaMapPanelArgs): MediaMapP
     packageState: args.packageState,
     packageError: args.packageError,
     generateDisabledReason: args.generateDisabledReason,
+    onRetryLoad: args.onRetryLoad,
+    canRecoverLastGeneration: args.canRecoverLastGeneration,
+    onRecoverLastGeneration: args.onRecoverLastGeneration,
     message: args.message,
     disabled: args.disabled,
     generationScope: args.generationScope,

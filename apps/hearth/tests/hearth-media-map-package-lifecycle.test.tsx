@@ -41,6 +41,9 @@ const baseProps = {
   onAddEntry: noop,
   onSaveEntry: noop,
   onDeleteEntry: noop,
+  onRetryLoad: noop,
+  canRecoverLastGeneration: false,
+  onRecoverLastGeneration: noop,
 };
 
 function render(packageState: "idle" | "loading" | "loaded" | "error", disabled: boolean, packageError: string | null = null) {
@@ -55,9 +58,9 @@ function render(packageState: "idle" | "loading" | "loaded" | "error", disabled:
 
 test("workpiece loading masks editor save state", () => {
   const html = render("loading", true);
-  assert.match(html, /Loading the episode package/);
+  assert.match(html, /Episode package is loading/);
   assert.doesNotMatch(html, />saved</);
-  assert.match(html, /Generate Media Map[\s\S]*?disabled/);
+  assert.doesNotMatch(html, /Generate Media Map|No media map is applied yet|0 mapped beats/);
 });
 
 test("successful zero-entry package load shows saved and enables generation", () => {
@@ -70,7 +73,18 @@ test("successful zero-entry package load shows saved and enables generation", ()
 test("failed package load shows its error and never shows saved", () => {
   const html = render("error", true, "Canonical metadata request failed.");
   assert.match(html, /Episode package unavailable: Canonical metadata request failed/);
+  assert.match(html, /Retry Load/);
   assert.doesNotMatch(html, />saved</);
+  assert.doesNotMatch(html, /No media map is applied yet|Generate Media Map/);
+});
+
+test("recoverable generation is explicit and does not mask the loaded empty state", () => {
+  const html = renderToStaticMarkup(createElement(EpisodeMediaMapPanel, {
+    ...baseProps, packageState: "loaded", packageError: null, disabled: false,
+    generateDisabledReason: null, canRecoverLastGeneration: true,
+  }));
+  assert.match(html, /Generate Media Map/);
+  assert.match(html, /Recover last generation/);
 });
 
 test("package lifecycle and media-map save lifecycle have independent writers", () => {
@@ -79,6 +93,8 @@ test("package lifecycle and media-map save lifecycle have independent writers", 
   assert.match(loader, /setEpisodePackageState\("loading"\)/);
   assert.match(loader, /setEpisodePackageState\("loaded"\)/);
   assert.match(loader, /setEpisodePackageState\("error"\)/);
+  assert.match(loader, /Episode package load timed out\. Retry Load\./);
+  assert.doesNotMatch(loader, /operationAuthority\.isCurrent\(operation\)/);
   const switchBody = loader.match(/if \(artifactStateWorkpieceIdRef\.current !== episodeId\) \{[\s\S]*?\n    \}/)?.[0] ?? "";
   assert.doesNotMatch(switchBody, /setMediaMapSaveState\("saved"\)/);
   const resetBody = workspace.match(/const resetMediaMapWorkspaceForWorkpieceSwitch[\s\S]*?\}, \[\]\);/)?.[0] ?? "";

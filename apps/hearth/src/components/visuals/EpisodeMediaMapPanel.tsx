@@ -21,6 +21,9 @@ type EpisodeMediaMapPanelProps = {
   packageState: "idle" | "loading" | "loaded" | "error";
   packageError: string | null;
   generateDisabledReason: string | null;
+  onRetryLoad: () => void;
+  canRecoverLastGeneration: boolean;
+  onRecoverLastGeneration: () => void;
   message: string | null;
   disabled?: boolean;
   generationScope: string;
@@ -307,6 +310,24 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
     }
   }, [props.entries.length]);
 
+  if (props.packageState !== "loaded") {
+    return (
+      <div className="hs-imap-panel">
+        <div className="hs-imap-header"><div><h4 className="hs-imap-title">Episode Media Map</h4></div></div>
+        {props.packageState === "loading" ? (
+          <div className="hs-imap-message" role="status">Episode package is loading.</div>
+        ) : props.packageState === "error" ? (
+          <div className="hs-imap-error" role="alert">
+            <div>Episode package unavailable: {props.packageError ?? "Unable to load the canonical episode package."}</div>
+            <button type="button" onClick={props.onRetryLoad}>Retry Load</button>
+          </div>
+        ) : (
+          <div className="hs-imap-message" role="status">Select an episode to load its media map.</div>
+        )}
+      </div>
+    );
+  }
+
   return (
     <div className="hs-imap-panel">
       <div className="hs-imap-header">
@@ -325,16 +346,6 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
         ) : null}
       </div>
 
-      {props.packageState === "loading" ? (
-        <div className="hs-imap-message" role="status">Loading the episode package…</div>
-      ) : props.packageState === "error" ? (
-        <div className="hs-imap-error" role="alert">
-          Episode package unavailable: {props.packageError ?? "Unable to load the canonical episode package. Refresh to try again."}
-        </div>
-      ) : props.packageState === "idle" ? (
-        <div className="hs-imap-message" role="status">Select an episode to load its media map.</div>
-      ) : null}
-
       <div className="hs-imap-toolbar">
         <button
           type="button"
@@ -343,8 +354,13 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
           disabled={props.disabled}
           title={props.generateDisabledReason ?? undefined}
         >
-          Generate Media Map
+          {props.entries.length > 0 ? "Regenerate Media Map" : "Generate Media Map"}
         </button>
+        {props.canRecoverLastGeneration ? (
+          <button type="button" className="hs-secondary-btn" onClick={props.onRecoverLastGeneration} disabled={props.disabled}>
+            Recover last generation
+          </button>
+        ) : null}
         <span className="hs-pill">{props.entries.length} mapped beat{props.entries.length === 1 ? "" : "s"}</span>
         <span className="hs-pill">Images: {modalitySummary.images}</span>
         <span className="hs-pill">Motion B-roll: {modalitySummary.motionBroll}</span>
