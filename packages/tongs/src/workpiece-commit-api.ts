@@ -1184,7 +1184,8 @@ export type RenderThumbnailCompositeRequest = {
   workspace_id: string;
   operation_id: string;
   base_asset_id: string;
-  recipe_snapshot: ThumbnailCompositeRecipe;
+  recipe_snapshot: JsonObject;
+  composition_recipe: ThumbnailCompositeRecipe;
   recipe_snapshot_hash: string;
   width: number;
   height: number;
@@ -9833,8 +9834,8 @@ export class TongsCommitService {
     const reuseIdentity = await sha256Hex(canonicalJsonBytes({
       base_asset_hash: base.content_hash,
       recipe_snapshot_hash: canonicalRecipeHash,
-      title_revision: input.recipe_snapshot.title_revision,
-      template_revision: input.recipe_snapshot.template_revision,
+      title_revision: input.composition_recipe.title_revision,
+      template_revision: input.composition_recipe.template_revision,
       composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
       bundled_font_version: THUMBNAIL_BUNDLED_FONT_VERSION,
       width: input.width,
@@ -9857,13 +9858,16 @@ export class TongsCommitService {
       });
     }
     if (reusable) return thumbnailAssetSummary(reusable);
-    const compositorModulePath = "./thumbnail-composite.js";
-    const { renderThumbnailComposite } = await import(/* @vite-ignore */ compositorModulePath);
+    const compositorModuleUrl = new URL("../dist/thumbnail-composite.js", import.meta.url).href;
+    const nativeImport = new Function("specifier", "return import(specifier)") as (
+      specifier: string,
+    ) => Promise<typeof import("./thumbnail-composite.js")>;
+    const { renderThumbnailComposite } = await nativeImport(compositorModuleUrl);
     const rendered = await renderThumbnailComposite({
       baseBytes,
       width: input.width,
       height: input.height,
-      recipe: input.recipe_snapshot,
+      recipe: input.composition_recipe,
       encoding: input.encoding,
     });
     return this.stageThumbnailAsset(workpieceId, {
@@ -12668,11 +12672,16 @@ function normalizeRenderThumbnailCompositeRequest(body: Record<string, unknown>)
   if (!/^#[0-9A-F]{6}$/.test(textColor) || !/^#[0-9A-F]{6}$/.test(shadowColor)) {
     throw new HttpError(400, "invalid_thumbnail_color", "Recipe colors must be six-digit hex colors");
   }
+  const recipeSnapshot = normalizeJsonValue(recipeRaw);
+  if (!isRecord(recipeSnapshot)) {
+    throw new HttpError(400, "invalid_thumbnail_recipe", "recipe_snapshot must be an object");
+  }
   return {
     workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
     operation_id: normalizeThumbnailOperationId(body.operation_id),
     base_asset_id: normalizeUuid(body.base_asset_id, "base_asset_id"),
-    recipe_snapshot: {
+    recipe_snapshot: recipeSnapshot,
+    composition_recipe: {
       title_text: normalizeNonEmptyString(recipe.title_text, "recipe_snapshot.title_text"),
       title_revision: normalizePositiveInteger(recipe.title_revision, "recipe_snapshot.title_revision"),
       template_revision: normalizePositiveInteger(recipe.template_revision, "recipe_snapshot.template_revision"),

@@ -90,7 +90,15 @@ export type ThumbnailCompositeSnapshot = {
   asset_path: string;
   content_hash: string;
   composition_engine_version: string;
-  recipe_snapshot: Readonly<ThumbnailRenderRecipe>;
+  recipe_snapshot: Readonly<ThumbnailRenderRecipe & {
+    template_revision: number;
+    text_color: string;
+    shadow_color: string;
+    shadow_opacity: number;
+    placement: "top" | "center" | "bottom";
+    max_lines: number;
+    horizontal_padding_percent: number;
+  }>;
   recipe_snapshot_hash: string;
   exported_at: string;
 };
@@ -268,6 +276,17 @@ function importLaunchVariants(legacy: EpisodeLaunchVariant[], bases: ThumbnailBa
   return legacy.flatMap((variant) => {
     const base = bases.find((entry) => entry.id === deterministicUuid("thumbnail-imported-base-version", variant.thumbnail_version_id));
     if (!base) return [];
+    const legacyRecipeSnapshot: ThumbnailCompositeSnapshot["recipe_snapshot"] = {
+      id: base.render_recipe_id, revision: 1, concept_revision_id: base.concept_revision_id,
+      title_id: variant.title_id, title_revision: 1, provider_id: base.provider_id,
+      intended_aspect_ratio: base.intended_aspect_ratio, brand_template_id: null, brand_template_revision: null,
+      title_text: "", treatment: { typography: {}, placement: {}, safe_zone: {}, shadow: {}, treatment: {} },
+      prompt_template_version: "legacy-v2", composition_engine_version: "legacy-v2",
+      prompt_review_state: "needs_review", last_reviewed_template_version: null,
+      created_at: variant.created_at || createdAt, updated_at: variant.updated_at || createdAt,
+      template_revision: 1, text_color: "#FFFFFF", shadow_color: "#000000", shadow_opacity: 0.7,
+      placement: "bottom", max_lines: 3, horizontal_padding_percent: 8,
+    };
     return [{
       launch_variant_id: variant.id,
       revision: 1,
@@ -283,7 +302,7 @@ function importLaunchVariants(legacy: EpisodeLaunchVariant[], bases: ThumbnailBa
         asset_path: base.asset_path,
         content_hash: base.content_hash,
         composition_engine_version: "legacy-v2",
-        recipe_snapshot: {} as ThumbnailRenderRecipe,
+        recipe_snapshot: legacyRecipeSnapshot,
         recipe_snapshot_hash: "",
         exported_at: variant.updated_at || createdAt,
       },

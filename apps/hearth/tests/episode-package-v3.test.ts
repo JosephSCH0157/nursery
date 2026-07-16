@@ -120,6 +120,10 @@ test("render recipe is sole live presentation authority and prompt reconstructio
     created_at: "2026-07-15T12:00:00.000Z", updated_at: "2026-07-15T12:00:00.000Z",
   };
   const saved = saveRenderRecipe({ episodePackage: imported, recipe });
+  const revisionTwo = saveRenderRecipe({ episodePackage: saved, recipe: { ...recipe, revision: 2, prompt_review_state: "unreviewed" } });
+  const revisionThree = saveRenderRecipe({ episodePackage: revisionTwo, recipe: { ...recipe, revision: 3 } });
+  assert.deepEqual(revisionThree.thumbnail.render_recipes.map((entry) => entry.revision), [1, 2, 3]);
+  assert.throws(() => saveRenderRecipe({ episodePackage: revisionThree, recipe: { ...recipe, revision: 3 } }));
   assert.equal(saved.thumbnail.render_recipes[0]?.brand_template_id, "brand-1");
   assert.equal("brand_template_id" in concept, false);
   const first = deriveThumbnailPromptPack({ recipe, concept });
@@ -167,7 +171,9 @@ test("launch and publication snapshots append immutable revisions", () => {
   const snapshot = {
     asset_id: "composite-1", asset_path: "composite.png", content_hash: hash,
     composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
-    recipe_snapshot: recipe, recipe_snapshot_hash: hash, exported_at: recipe.created_at,
+    recipe_snapshot: { ...recipe, template_revision: 1, text_color: "#FFFFFF", shadow_color: "#000000",
+      shadow_opacity: 0.7, placement: "bottom" as const, max_lines: 2, horizontal_padding_percent: 8 },
+    recipe_snapshot_hash: hash, exported_at: recipe.created_at,
   };
   const launched = appendLaunchSnapshot({ episodePackage: withBase, launchVariantId: "launch-1", baseVersionId: "base-1", snapshot, createdAt: recipe.created_at });
   const revised = appendLaunchSnapshot({ episodePackage: launched, launchVariantId: "launch-1", baseVersionId: "base-1", snapshot: { ...snapshot, asset_id: "composite-2" }, createdAt: recipe.updated_at });

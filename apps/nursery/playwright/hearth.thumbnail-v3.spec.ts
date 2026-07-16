@@ -169,10 +169,16 @@ test("authenticated cold boot preserves recipe and both renderers converge on v3
   await expect(currentPanel.getByText(/outside_tool · 16:9 · ready/)).toBeVisible();
   await currentPanel.getByRole("button", { name: "Generate with Forge AI" }).click();
   await expect(currentPanel.getByText(/forge_ai · 16:9 · ready/)).toBeVisible();
+  await currentPanel.getByRole("button", { name: "Commit immutable launch composite" }).click();
+  await expect(currentPanel.getByText(/Revision 1 · ready/)).toBeVisible({ timeout: 30_000 });
   expect(forgeRequests).toBe(1);
   const canonical = await fixture.admin.schema("tongs").from("assets")
     .select("status,content_hash,provider").eq("workpiece_id", fixture.workpieceId).eq("asset_kind", "thumbnail_image");
   expect(canonical.error).toBeNull();
   expect(canonical.data?.filter((asset) => asset.status === "ready" && /^[a-f0-9]{64}$/.test(asset.content_hash ?? "")).length).toBeGreaterThanOrEqual(2);
   expect(createHash("sha256").update(ORANGE_PNG).digest("hex")).toBe(canonical.data?.find((asset) => asset.provider === "outside_tool")?.content_hash);
+  const composites = await fixture.admin.schema("tongs").from("assets")
+    .select("status,content_hash").eq("workpiece_id", fixture.workpieceId).eq("asset_kind", "thumbnail_composite");
+  expect(composites.error).toBeNull();
+  expect(composites.data?.some((asset) => asset.status === "ready" && /^[a-f0-9]{64}$/.test(asset.content_hash ?? ""))).toBe(true);
 });

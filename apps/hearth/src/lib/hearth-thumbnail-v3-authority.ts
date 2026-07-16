@@ -76,7 +76,9 @@ export function saveRenderRecipe(args: {
   }
   const title = args.episodePackage.seo.titles.find((entry) => entry.id === args.recipe.title_id);
   if (!title || title.revision !== args.recipe.title_revision) throw new Error("Render recipe must reference an exact title revision.");
-  const prior = args.episodePackage.thumbnail.render_recipes.find((entry) => entry.id === args.recipe.id);
+  const prior = args.episodePackage.thumbnail.render_recipes
+    .filter((entry) => entry.id === args.recipe.id)
+    .sort((left, right) => right.revision - left.revision)[0];
   if (prior && args.recipe.revision !== prior.revision + 1) throw new Error("Recipe updates must create the next immutable recipe revision.");
   const recipes = prior
     ? [...args.episodePackage.thumbnail.render_recipes, args.recipe]

@@ -390,11 +390,12 @@ export function commitOutsideToolBaseArtwork(args: Parameters<typeof commitThumb
   return commitThumbnailBaseArtwork(args);
 }
 
-function compositorRecipe(recipe: ThumbnailRenderRecipe): Record<string, unknown> {
+function compositorRecipe(recipe: ThumbnailRenderRecipe): ThumbnailCompositeSnapshot["recipe_snapshot"] {
   const typography = isRecord(recipe.treatment.typography) ? recipe.treatment.typography : {};
   const placement = isRecord(recipe.treatment.placement) ? recipe.treatment.placement : {};
   const shadow = isRecord(recipe.treatment.shadow) ? recipe.treatment.shadow : {};
   return {
+    ...structuredClone(recipe),
     title_text: recipe.title_text,
     title_revision: recipe.title_revision,
     template_revision: recipe.brand_template_revision ?? 1,
@@ -455,7 +456,7 @@ export async function commitThumbnailLaunchComposite(args: {
   const snapshot: ThumbnailCompositeSnapshot = {
     asset_id: assetId, asset_path: assetPath, content_hash: contentHash,
     composition_engine_version: recipe.composition_engine_version,
-    recipe_snapshot: structuredClone(recipe), recipe_snapshot_hash: recipeHash, exported_at: args.createdAt,
+    recipe_snapshot: recipeSnapshot, recipe_snapshot_hash: recipeHash, exported_at: args.createdAt,
   };
   const next = appendLaunchSnapshot({
     episodePackage: args.episodePackage, launchVariantId: args.launchVariantId,
@@ -547,7 +548,7 @@ export async function commitThumbnailPublicationSnapshot(args: {
       return { ok: false, saveState: "error", status: response.status, error: errorMessage(body, "Unable to render publish snapshot.") };
     }
     snapshot = { asset_id: assetId, asset_path: assetPath, content_hash: contentHash,
-      composition_engine_version: recipe.composition_engine_version, recipe_snapshot: structuredClone(recipe),
+      composition_engine_version: recipe.composition_engine_version, recipe_snapshot: recipeSnapshot,
       recipe_snapshot_hash: recipeHash, exported_at: args.publishedAt };
     stagedNewAsset = true;
   }
