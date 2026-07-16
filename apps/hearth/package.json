@@ -20,7 +20,8 @@
     "test:broll-thumb-guard": "node tests/hearth-broll-thumb-guard.node.cjs",
     "test:ai-proposal": "tsx tests/hearth-ai-proposal.test.ts",
     "test:thumbnail-lint": "tsx tests/thumbnail-lint.test.ts",
-    "test:thumbnail-ctr": "tsx tests/thumbnail-ctr-evaluator.test.ts"
+    "test:thumbnail-ctr": "tsx tests/thumbnail-ctr-evaluator.test.ts",
+    "test:thumbnail-v3": "tsx --test tests/episode-package-v3.test.ts"
   },
   "dependencies": {
     "@forge/shared": "workspace:*",
