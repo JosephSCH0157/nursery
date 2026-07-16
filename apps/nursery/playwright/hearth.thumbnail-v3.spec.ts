@@ -10,6 +10,10 @@ const RECOVERABLE_CONCEPTS = Array.from({ length: 5 }, (_, index) => [
   `### **THUMBNAIL_0${index + 1}**`, `- **Headline:** Recovered concept ${index + 1}`,
   `- **Image concept:** Recovered distinct scene ${index + 1}`, `- **Mood/style:** recovered editorial ${index + 1}`,
 ].join("\n")).join("\n\n");
+const RECOVERABLE_SEO = ["SEO_TITLES:", "SAFE: Durable title one", "SPICY: Durable title two",
+  "BALANCED_1: Durable title three", "BALANCED_2: Durable title four", "BALANCED_3: Durable title five", "",
+  "SHORT_DESCRIPTION:", "A durable short description.", "", "LONG_DESCRIPTION:", "A durable long description for authenticated recovery."].join("\n");
+const RECOVERABLE_TAGS = "TAGS_FULL:\ndurable one, durable two, durable three, durable four, durable five";
 
 type Fixture = {
   admin: SupabaseClient;
@@ -103,6 +107,11 @@ test.beforeAll(async () => {
   await service.commitFile(workpieceId, { path: "production/v1/thumbnails.json", content_type: "application/json",
     json: { script_version: 1, generated_at: "2026-07-15T12:00:00.000Z", action: "thumbnails", raw_text: RECOVERABLE_CONCEPTS },
     written_by: { tool: "hearth", tool_version: "3", lane: "canonical" } });
+  for (const [path, action, rawText] of [
+    ["production/v1/seo.json", "seo", RECOVERABLE_SEO], ["production/v1/tags.json", "tags", RECOVERABLE_TAGS],
+  ] as const) await service.commitFile(workpieceId, { path, content_type: "application/json",
+    json: { script_version: 1, generated_at: "2026-07-15T12:00:00.000Z", action, raw_text: rawText },
+    written_by: { tool: "hearth", tool_version: "3", lane: "canonical" } });
   fixture = { admin, bucket: env.bucket, orgId, workspaceId, workpieceId, ownerId, session: signedIn.data.session, service };
 });
 
@@ -164,6 +173,7 @@ test("authenticated cold boot preserves recipe and both renderers converge on v3
   await panel.getByRole("button", { name: "Save recipe" }).click();
   await expect(panel.getByText("saved", { exact: true })).toBeVisible();
   await page.reload();
+  await expect(page.getByRole("tab", { name: "Visuals" })).toContainText("5 briefs");
   await page.getByRole("tab", { name: "Visuals" }).click();
   await page.locator("#hearth-thumbnail-panel").getByRole("button", { name: "Open" }).click();
   await expect(page.locator("#hearth-thumbnail-panel").getByLabel("Overlay text")).toHaveValue("COLD BOOT SAVED");
@@ -193,4 +203,14 @@ test("authenticated cold boot preserves recipe and both renderers converge on v3
   const recovered = await fixture.service.readWorkpieceJson(fixture.workpieceId, "metadata.json");
   expect((recovered.data as { episode?: { thumbnail?: { concept_sets?: unknown[] } } }).episode?.thumbnail?.concept_sets).toHaveLength(2);
   expect(forgeRequests).toBe(1);
+  await page.getByRole("tab", { name: "Framing" }).click();
+  await page.getByRole("button", { name: "Recover generated titles and tags" }).click();
+  await expect.poll(async () => {
+    const metadata = await fixture.service.readWorkpieceJson(fixture.workpieceId, "metadata.json");
+    const episode = (metadata.data as { episode?: { seo?: { titles?: unknown[]; tags?: unknown[] } } }).episode;
+    return [episode?.seo?.titles?.length ?? 0, episode?.seo?.tags?.length ?? 0];
+  }).toEqual([5, 5]);
+  await page.reload();
+  await expect(page.getByRole("tab", { name: "Framing" })).toContainText("5 titles · 5 tags · Complete");
+  await expect(page.getByRole("tab", { name: "Visuals" })).toContainText("10 briefs");
 });

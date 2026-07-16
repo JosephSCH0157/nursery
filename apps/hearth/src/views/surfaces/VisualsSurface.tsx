@@ -30,6 +30,7 @@ type VisualsSurfaceProps = {
   thumbnailAuthority: { workspaceId: string | null; workpieceId: string | null };
   onGenerateThumbnailConcepts: () => Promise<void>;
   onRecoverThumbnailConcepts: () => Promise<void>;
+  onCanonicalThumbnailProgress: NonNullable<ComponentProps<typeof ThumbnailV3Panel>["onCanonicalProgress"]>;
   mediaMapPanelProps: ComponentProps<typeof EpisodeMediaMapPanel>;
   imageMapPanelProps: ComponentProps<typeof ImageMapPanel>;
   brollPlanPanelProps: ComponentProps<typeof BrollPlanPanel>;
@@ -122,6 +123,7 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
             onGenerateConcepts={props.onGenerateThumbnailConcepts}
             onRecoverConcepts={props.onRecoverThumbnailConcepts}
             isGeneratingConcepts={props.thumbnailPanelProps.isGeneratingConcepts ?? false}
+            onCanonicalProgress={props.onCanonicalThumbnailProgress}
           />
         ) : <p>Select an episode before opening its canonical thumbnail workspace.</p>}
       </CollapsibleFocusPanel>

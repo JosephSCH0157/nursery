@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { applyProductionArtifactToEpisodePackage } from "../src/lib/episode-package-v2";
+import { applyProductionArtifactToEpisodePackage, hydrateEpisodePackageV2 } from "../src/lib/episode-package-v2";
 import {
   EPISODE_PACKAGE_V3_SCHEMA,
   THUMBNAIL_COMPOSITION_ENGINE_VERSION,
@@ -204,4 +204,22 @@ test("legacy non-thumbnail production writes preserve v3 thumbnail authority and
   assert.equal(episode.schema, EPISODE_PACKAGE_V3_SCHEMA);
   assert.deepEqual(episode.thumbnail, v3.thumbnail);
   assert.deepEqual(episode.seo.tags, ["durable", "canonical"]);
+});
+
+test("v2 workspace projection preserves v3 thumbnail progress for cold-boot summaries", () => {
+  const v3 = hydrateEpisodePackageV3(legacyMetadata);
+  const projected = hydrateEpisodePackageV2({ ...legacyMetadata, episode: v3 });
+  assert.equal(projected.thumbnail.concepts.length, v3.thumbnail.concept_revisions.length);
+  assert.deepEqual(projected.thumbnail.concepts.map((entry) => entry.id), v3.thumbnail.concept_revisions.map((entry) => entry.concept_revision_id));
+
+  const withBase = { ...v3, thumbnail: { ...v3.thumbnail, base_versions: [{
+    id: "base-projection", asset_id: "asset-projection", asset_path: "thumb.png", content_hash: "a".repeat(64),
+    source_type: "forge_ai" as const, provider_id: "forge", provider_request_id: null, created_at: "2026-07-15T14:00:00.000Z",
+    concept_revision_id: v3.thumbnail.concept_revisions[0]!.concept_revision_id,
+    render_recipe_id: "recipe-projection", render_recipe_revision: 1, intended_aspect_ratio: "16:9" as const,
+    mime_type: "image/png" as const, status: "ready" as const, error_details: null,
+  }], primary_base_version_id: "base-projection" } };
+  const projectedWithBase = hydrateEpisodePackageV2({ ...legacyMetadata, episode: withBase });
+  assert.equal(projectedWithBase.thumbnail.versions.length, 1);
+  assert.equal(projectedWithBase.thumbnail.primary_version_id, "base-projection");
 });

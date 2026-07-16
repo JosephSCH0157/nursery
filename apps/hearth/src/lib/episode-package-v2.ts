@@ -720,7 +720,7 @@ function normalizeThumbnailConcepts(value: unknown): EpisodeThumbnailConcept[] {
         ?? readString(entry.headline)
         ?? `Concept ${i + 1}`;
       out.push({
-        id: readString(entry.id) ?? `concept-${String(i + 1).padStart(2, "0")}`,
+        id: readString(entry.id) ?? readString(entry.concept_revision_id) ?? `concept-${String(i + 1).padStart(2, "0")}`,
         label,
         prompt_text: promptText,
         style_preset: normalizeHearthVisualStyle(readString(entry.style_preset) ?? readString(entry.mood_style) ?? null),
@@ -1281,6 +1281,26 @@ function parseSectionBody(rawText: string, sectionHeader: string): string {
     collected.push(line);
   }
   return collected.join("\n").trim();
+}
+
+function projectV3BaseVersions(value: unknown): EpisodeThumbnailVersion[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry, index) => {
+    if (!isRecord(entry)) return [];
+    const id = readString(entry.id) ?? `thumb-base-${index + 1}`;
+    const conceptId = readString(entry.concept_revision_id);
+    const assetId = readString(entry.asset_id);
+    const status = readString(entry.status);
+    if (!conceptId || !assetId || !status) return [];
+    const errorDetails = isRecord(entry.error_details) ? entry.error_details : null;
+    return [{
+      id, concept_id: conceptId, created_at: normalizeIso(entry.created_at),
+      provider: readString(entry.provider_id) ?? readString(entry.source_type) ?? "unknown",
+      prompt: "", asset_id: assetId, status,
+      provider_request_id: readString(entry.provider_request_id), asset_path: readString(entry.asset_path),
+      mime_type: readString(entry.mime_type), error: errorDetails ? JSON.stringify(errorDetails) : null,
+    }];
+  });
 }
 
 function parseProductionJson(rawText: string): Record<string, unknown> | null {
@@ -2315,17 +2335,24 @@ export function hydrateEpisodePackageV2(metadata: Record<string, unknown>): Epis
       ? (descriptionLong.length > 180 ? `${descriptionLong.slice(0, 177).trimEnd()}...` : descriptionLong)
       : null);
 
+  const v3Concepts = normalizeThumbnailConcepts(thumbnailRoot?.concept_revisions);
   const concepts = normalizeThumbnailConcepts(thumbnailRoot?.concepts).length
     ? normalizeThumbnailConcepts(thumbnailRoot?.concepts)
+    : v3Concepts.length
+      ? v3Concepts
     : normalizeThumbnailConcepts(metadata.thumbnail_concepts).length
       ? normalizeThumbnailConcepts(metadata.thumbnail_concepts)
       : normalizeThumbnailConcepts(metadata.thumbnails);
 
+  const v3BaseVersions = projectV3BaseVersions(thumbnailRoot?.base_versions);
   const versions = normalizeThumbnailVersions(thumbnailRoot?.versions).length
     ? normalizeThumbnailVersions(thumbnailRoot?.versions)
+    : v3BaseVersions.length
+      ? v3BaseVersions
     : normalizeThumbnailVersions(metadata.thumbnail_versions);
 
   const primaryVersionId = readString(thumbnailRoot?.primary_version_id)
+    ?? readString(thumbnailRoot?.primary_base_version_id)
     ?? readString(metadata.primary_thumbnail_version_id)
     ?? null;
   const launchVariants = normalizeLaunchVariants(

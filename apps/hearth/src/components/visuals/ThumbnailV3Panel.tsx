@@ -23,6 +23,7 @@ type Props = {
   onGenerateConcepts: () => Promise<void>;
   onRecoverConcepts: () => Promise<void>;
   isGeneratingConcepts: boolean;
+  onCanonicalProgress?: (progress: { conceptRevisionCount: number; baseVersionCount: number }) => void;
 };
 
 const emptyTreatment = {
@@ -57,6 +58,10 @@ export default function ThumbnailV3Panel(props: Props) {
     try {
       const canonical = await readCanonicalThumbnailWorkspaceV3({ workpieceId: props.workpieceId, workspaceId: props.workspaceId });
       setPkg(canonical.episodePackage); setToken(canonical.metadataUpdatedAt); setLoadError(null);
+      props.onCanonicalProgress?.({
+        conceptRevisionCount: canonical.episodePackage.thumbnail.concept_revisions.length,
+        baseVersionCount: canonical.episodePackage.thumbnail.base_versions.length,
+      });
       setSelectedSetId((current) => current && canonical.episodePackage.thumbnail.concept_sets.some((set) => set.id === current)
         ? current : canonical.episodePackage.thumbnail.active_concept_set_id);
       setTitleId((current) => current || canonical.episodePackage.seo.titles[0]?.id || "");
@@ -64,7 +69,7 @@ export default function ThumbnailV3Panel(props: Props) {
       return canonical;
     } catch (error) { setLoadError(error instanceof Error ? error.message : "Unable to load thumbnail authority."); }
     return null;
-  }, [props.workpieceId, props.workspaceId]);
+  }, [props.onCanonicalProgress, props.workpieceId, props.workspaceId]);
 
   useEffect(() => { void reload(); }, [reload]);
   useEffect(() => {

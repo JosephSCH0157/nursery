@@ -1,4 +1,4 @@
-import type { ComponentProps } from "react";
+import { useState, type ComponentProps } from "react";
 import CollapsibleFocusPanel from "../../components/focus/CollapsibleFocusPanel";
 import MetadataPanel from "../../components/metadata/MetadataPanel";
 
@@ -25,9 +25,11 @@ type MetadataSurfaceProps = {
   onGenerateTags: () => void;
   onGenerateFramingPack: () => void;
   onRefreshFramingPack: () => void;
+  onRecoverFraming: () => Promise<void>;
 };
 
 export default function MetadataSurface(props: MetadataSurfaceProps) {
+  const [isRecovering, setIsRecovering] = useState(false);
   if (!props.visible || !props.hasApprovedScript || !props.approvedScriptVersion) return null;
 
   return (
@@ -80,6 +82,15 @@ export default function MetadataSurface(props: MetadataSurfaceProps) {
               {props.activeProductionAction === "release_prep_pack" && props.isAiProcessing
                 ? "Generating..."
                 : "Generate Framing Pack"}
+            </button>
+            <button
+              type="button"
+              className="hs-production-action-secondary"
+              onClick={() => { setIsRecovering(true); void props.onRecoverFraming().finally(() => setIsRecovering(false)); }}
+              disabled={props.isAiProcessing || isRecovering}
+              aria-label="Recover generated titles and tags"
+            >
+              {isRecovering ? "Recovering..." : "Recover generated titles & tags"}
             </button>
           </div>
         </section>
