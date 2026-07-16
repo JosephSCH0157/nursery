@@ -3593,6 +3593,31 @@ test("POST /tongs/workpieces/:id/generate-thumbnail dispatches generateEpisodeTh
   assert.equal(body.data?.primary_version_id, "44444444-4444-4444-8444-444444444444");
 });
 
+test("canonical thumbnail generation forwards exact v3 authority and stage-only intent", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request("http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/generate-thumbnail", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer user-token" },
+    body: JSON.stringify({
+      workspace_id: "33333333-3333-4333-8333-333333333333",
+      operation_id: "22222222-2222-4222-8222-222222222222",
+      prompt: "derived prompt export",
+      canonical_stage_only: true,
+      concept_revision_id: "concept-revision-7",
+      render_recipe_id: "recipe-9",
+      render_recipe_revision: 4,
+      aspect: "16:9",
+    }),
+  });
+  const response = await handler(request);
+  assert.equal(response.status, 200);
+  assert.equal(calls.generateEpisodeThumbnail[0].input.canonical_stage_only, true);
+  assert.equal(calls.generateEpisodeThumbnail[0].input.concept_revision_id, "concept-revision-7");
+  assert.equal(calls.generateEpisodeThumbnail[0].input.render_recipe_id, "recipe-9");
+  assert.equal(calls.generateEpisodeThumbnail[0].input.render_recipe_revision, 4);
+});
+
 test("POST /tongs/workpieces/:id/image-map/generate-candidates dispatches generateImageMapCandidates", async () => {
   const { service, calls } = mockService();
   const handler = createTongsCommitApiHandlerWithService(service);

@@ -1,6 +1,7 @@
 import {
   EPISODE_PACKAGE_V3_SCHEMA,
   canonicalSerialize,
+  deriveThumbnailPromptPack,
   hydrateEpisodePackageV3,
   serializeEpisodePackageV3,
   type EpisodePackageV3,
@@ -280,6 +281,101 @@ export async function commitThumbnailBaseArtwork(args: {
 export function commitForgeAiBaseArtwork(args: Parameters<typeof commitThumbnailBaseArtwork>[0]) {
   if (args.artwork.sourceType !== "forge_ai") throw new Error("Forge renderer requires forge_ai source authority.");
   return commitThumbnailBaseArtwork(args);
+}
+
+export async function generateForgeAiBaseArtwork(args: {
+  workpieceId: string;
+  workspaceId: string;
+  expectedMetadataUpdatedAt: string | null;
+  episodePackage: EpisodePackageV3;
+  baseVersion: Omit<ThumbnailBaseVersion, "asset_id" | "asset_path" | "content_hash" | "status" | "error_details" | "source_type" | "provider_id" | "provider_request_id" | "mime_type">;
+  operationId: string;
+  confirmSpend: boolean;
+  alwaysApproveAiSpend: boolean;
+}): Promise<V3MutationResult> {
+  const token = await requireThumbnailUserToken();
+  const recipe = args.episodePackage.thumbnail.render_recipes.find(
+    (entry) => entry.id === args.baseVersion.render_recipe_id && entry.revision === args.baseVersion.render_recipe_revision,
+  );
+  const concept = recipe && args.episodePackage.thumbnail.concept_revisions.find((entry) => entry.concept_revision_id === recipe.concept_revision_id);
+  if (!recipe || !concept || recipe.prompt_review_state !== "reviewed") {
+    return { ok: false, saveState: "error", status: 409, error: "Review the exact canonical prompt pack before Forge rendering." };
+  }
+  const promptPack = deriveThumbnailPromptPack({ recipe, concept });
+  if (promptPack.review_state !== "reviewed") return { ok: false, saveState: "error", status: 409, error: "Prompt template changed and requires review." };
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/generate-thumbnail`, {
+    method: "POST", headers: { "x-forge-user-authorization": `Bearer ${token}` },
+    json: {
+      workspace_id: args.workspaceId, episode_id: args.workpieceId, operation_id: args.operationId,
+      prompt: `${promptPack.positive_prompt}\n\nAvoid: ${promptPack.negative_prompt}`,
+      aspect: recipe.intended_aspect_ratio, lane: "forge",
+      confirm_spend: args.confirmSpend, always_approve_ai_spend: args.alwaysApproveAiSpend,
+      canonical_stage_only: true, concept_revision_id: concept.concept_revision_id,
+      render_recipe_id: recipe.id, render_recipe_revision: recipe.revision,
+    },
+  });
+  const body = await json(response);
+  const data = isRecord(body) && isRecord(body.data) ? body.data : null;
+  const asset = data && isRecord(data.asset) ? data.asset : null;
+  const assetId = readString(asset?.id);
+  const assetPath = readString(asset?.path);
+  const contentHash = readString(asset?.content_hash);
+  const mimeType = readString(asset?.mime_type);
+  if (!response.ok || data?.canonical_stage_only !== true || !assetId || !assetPath || !contentHash || !mimeType) {
+    return { ok: false, saveState: "error", status: response.status, error: errorMessage(body, "Forge could not stage canonical base artwork.") };
+  }
+  return attachCanonicalPendingBase({
+    workpieceId: args.workpieceId, workspaceId: args.workspaceId,
+    expectedMetadataUpdatedAt: args.expectedMetadataUpdatedAt, episodePackage: args.episodePackage,
+    base: {
+      ...args.baseVersion, asset_id: assetId, asset_path: assetPath, content_hash: contentHash,
+      source_type: "forge_ai", provider_id: "forge", provider_request_id: null,
+      mime_type: mimeType, status: "pending", error_details: null,
+    },
+    token,
+  });
+}
+
+async function attachCanonicalPendingBase(args: {
+  workpieceId: string;
+  workspaceId: string;
+  expectedMetadataUpdatedAt: string | null;
+  episodePackage: EpisodePackageV3;
+  base: ThumbnailBaseVersion;
+  token: string;
+}): Promise<V3MutationResult> {
+  const next: EpisodePackageV3 = {
+    ...args.episodePackage,
+    thumbnail: { ...args.episodePackage.thumbnail, base_versions: [...args.episodePackage.thumbnail.base_versions, args.base] },
+  };
+  const before = await readCanonicalEpisodePackageV3(args.workpieceId);
+  if ((before.metadataUpdatedAt ?? null) !== (args.expectedMetadataUpdatedAt ?? null)) {
+    return { ok: false, saveState: "error", status: 409, error: "Thumbnail state changed while artwork was staging.", canonical: before };
+  }
+  const index = next.thumbnail.base_versions.length - 1;
+  const reference = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/thumbnail-assets/commit-reference`, {
+    method: "POST", headers: { "x-forge-user-authorization": `Bearer ${args.token}` },
+    json: {
+      workspace_id: args.workspaceId, asset_id: args.base.asset_id,
+      expected_metadata_updated_at: args.expectedMetadataUpdatedAt,
+      metadata_document: { ...before.metadata, updated_at: new Date().toISOString(), episode: next },
+      reference_pointer: `/episode/thumbnail/base_versions/${index}/asset_id`,
+    },
+  });
+  if (!reference.ok) return { ok: false, saveState: "error", status: reference.status, error: errorMessage(await json(reference), "Unable to attach staged Forge artwork.") };
+  const transition = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/thumbnail-assets/transition`, {
+    method: "POST", headers: { "x-forge-user-authorization": `Bearer ${args.token}` },
+    json: { workspace_id: args.workspaceId, asset_id: args.base.asset_id, target_status: "ready" },
+  });
+  if (!transition.ok) return { ok: false, saveState: "error", status: transition.status, error: errorMessage(await json(transition), "Forge artwork remains recoverable but is not ready.") };
+  const canonical = await readCanonicalThumbnailWorkspaceV3({ workpieceId: args.workpieceId, workspaceId: args.workspaceId });
+  const expected = {
+    ...next,
+    thumbnail: { ...next.thumbnail, base_versions: next.thumbnail.base_versions.map((entry) => entry.id === args.base.id ? { ...entry, status: "ready" as const } : entry) },
+  };
+  const proof = proveThumbnailMutation({ expected, canonical: canonical.episodePackage, kind: "base_version", entityId: args.base.id });
+  if (!proof.ok) return { ok: false, saveState: "error", status: 409, error: proof.reason, canonical };
+  return { ok: true, saveState: "saved", ...canonical };
 }
 
 export function commitOutsideToolBaseArtwork(args: Parameters<typeof commitThumbnailBaseArtwork>[0]) {

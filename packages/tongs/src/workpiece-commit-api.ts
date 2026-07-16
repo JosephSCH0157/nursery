@@ -1082,9 +1082,13 @@ export type GenerateEpisodeThumbnailRequest = {
   confirm_spend?: boolean;
   always_approve_ai_spend?: boolean;
   user_access_token?: string | null;
+  canonical_stage_only?: boolean;
+  concept_revision_id?: string;
+  render_recipe_id?: string;
+  render_recipe_revision?: number;
 };
 
-export type GenerateEpisodeThumbnailResponse = {
+export type LegacyGenerateEpisodeThumbnailResponse = {
   version: ThumbnailVersionRecord;
   asset: {
     id: string;
@@ -1104,6 +1108,15 @@ export type GenerateEpisodeThumbnailResponse = {
   credits_warning?: string;
   token_balance?: number | null;
 };
+
+export type CanonicalGenerateEpisodeThumbnailStageResponse = {
+  canonical_stage_only: true;
+  asset: ThumbnailAssetSummary;
+  credits_warning?: string;
+  token_balance?: number | null;
+};
+
+export type GenerateEpisodeThumbnailResponse = LegacyGenerateEpisodeThumbnailResponse | CanonicalGenerateEpisodeThumbnailStageResponse;
 
 export type ThumbnailAssetStatus = "pending" | "ready" | "failed" | "superseded";
 export type ThumbnailAssetKind = "thumbnail_image" | "thumbnail_composite";
@@ -3675,6 +3688,14 @@ function normalizeGenerateEpisodeThumbnailRequest(
   if (!conceptId && !prompt) {
     throw new HttpError(400, "missing_prompt", "concept_id or prompt is required");
   }
+  const canonicalStageOnly = normalizeOptionalBoolean(body.canonical_stage_only, "canonical_stage_only");
+  if (canonicalStageOnly && (
+    typeof body.concept_revision_id !== "string"
+    || typeof body.render_recipe_id !== "string"
+    || typeof body.render_recipe_revision === "undefined"
+  )) {
+    throw new HttpError(400, "missing_thumbnail_authority", "Canonical generation requires exact concept and render-recipe revision identities");
+  }
 
   return {
     workspace_id: workspaceId,
@@ -3688,6 +3709,10 @@ function normalizeGenerateEpisodeThumbnailRequest(
     lane: normalizeOptionalLane(body.lane),
     confirm_spend: normalizeOptionalBoolean(body.confirm_spend, "confirm_spend"),
     always_approve_ai_spend: normalizeOptionalBoolean(body.always_approve_ai_spend, "always_approve_ai_spend"),
+    canonical_stage_only: canonicalStageOnly,
+    concept_revision_id: typeof body.concept_revision_id === "string" ? normalizeNonEmptyString(body.concept_revision_id, "concept_revision_id") : undefined,
+    render_recipe_id: typeof body.render_recipe_id === "string" ? normalizeNonEmptyString(body.render_recipe_id, "render_recipe_id") : undefined,
+    render_recipe_revision: typeof body.render_recipe_revision === "undefined" ? undefined : normalizePositiveInteger(body.render_recipe_revision, "render_recipe_revision"),
     user_access_token: userAccessTokenFromHeader ?? (typeof body.user_access_token === "string" ? normalizeNonEmptyString(body.user_access_token, "user_access_token") : undefined),
   };
 }
@@ -9980,18 +10005,50 @@ export class TongsCommitService {
       bytes_base64: imageResult.bytesBase64,
       provider: imageResult.provider,
       provider_request_id: imageResult.providerRequestId,
-      prompt: finalPrompt,
-      metadata: buildThumbnailAssetMetadata({
-        conceptId,
-        conceptLabel,
-        conceptPrompt,
-        stylePreset,
-        aspect: input.aspect ?? "16:9",
-        size: input.size ?? null,
-        finalPrompt,
-        revisedPrompt: imageResult.revisedPrompt ?? null,
-      }),
+      prompt: input.canonical_stage_only ? null : finalPrompt,
+      metadata: input.canonical_stage_only
+        ? {
+            authority: "episode_package_v3",
+            concept_revision_id: input.concept_revision_id ?? conceptId,
+            render_recipe_id: input.render_recipe_id ?? null,
+            render_recipe_revision: input.render_recipe_revision ?? null,
+            intended_aspect_ratio: input.aspect ?? "16:9",
+            prompt_persisted: false,
+          }
+        : buildThumbnailAssetMetadata({
+            conceptId,
+            conceptLabel,
+            conceptPrompt,
+            stylePreset,
+            aspect: input.aspect ?? "16:9",
+            size: input.size ?? null,
+            finalPrompt,
+            revisedPrompt: imageResult.revisedPrompt ?? null,
+          }),
     }, { userAccessToken: input.user_access_token });
+
+    if (input.canonical_stage_only) {
+      let creditsWarning: string | undefined;
+      let tokenBalance: number | null | undefined;
+      if (lane === "forge") {
+        const spent = estimateImageTokenSpend(finalPrompt, imageResult.tokensUsed);
+        const deltaResult = await this.applyAiTokenDelta({
+          userId,
+          spent,
+          requestId,
+          providerRequestId: imageResult.providerRequestId,
+          reason: "hearth:thumbnail_generate",
+        });
+        if ("warning" in deltaResult) creditsWarning = deltaResult.warning;
+        else tokenBalance = deltaResult.tokenBalance;
+      }
+      return {
+        canonical_stage_only: true,
+        asset: stagedAsset,
+        ...(creditsWarning ? { credits_warning: creditsWarning } : {}),
+        ...(typeof tokenBalance !== "undefined" ? { token_balance: tokenBalance } : {}),
+      };
+    }
 
     const version: ThumbnailVersionRecord = {
       id: versionId,
