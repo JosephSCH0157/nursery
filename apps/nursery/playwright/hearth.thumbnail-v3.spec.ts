@@ -6,6 +6,10 @@ import { createTongsCommitService } from "../../../packages/tongs/src/workpiece-
 
 const BLUE_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 const ORANGE_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=", "base64");
+const RECOVERABLE_CONCEPTS = Array.from({ length: 5 }, (_, index) => [
+  `### **THUMBNAIL_0${index + 1}**`, `- **Headline:** Recovered concept ${index + 1}`,
+  `- **Image concept:** Recovered distinct scene ${index + 1}`, `- **Mood/style:** recovered editorial ${index + 1}`,
+].join("\n")).join("\n\n");
 
 type Fixture = {
   admin: SupabaseClient;
@@ -96,6 +100,9 @@ test.beforeAll(async () => {
   await service.commitFile(workpieceId, { path: "metadata.json", content_type: "application/json",
     json: { workspace_id: workspaceId, status: "approved", episode: episodePackage(workpieceId) },
     written_by: { tool: "hearth", tool_version: "3", lane: "canonical" } });
+  await service.commitFile(workpieceId, { path: "production/v1/thumbnails.json", content_type: "application/json",
+    json: { script_version: 1, generated_at: "2026-07-15T12:00:00.000Z", action: "thumbnails", raw_text: RECOVERABLE_CONCEPTS },
+    written_by: { tool: "hearth", tool_version: "3", lane: "canonical" } });
   fixture = { admin, bucket: env.bucket, orgId, workspaceId, workpieceId, ownerId, session: signedIn.data.session, service };
 });
 
@@ -181,4 +188,9 @@ test("authenticated cold boot preserves recipe and both renderers converge on v3
     .select("status,content_hash").eq("workpiece_id", fixture.workpieceId).eq("asset_kind", "thumbnail_composite");
   expect(composites.error).toBeNull();
   expect(composites.data?.some((asset) => asset.status === "ready" && /^[a-f0-9]{64}$/.test(asset.content_hash ?? ""))).toBe(true);
+  await currentPanel.getByRole("button", { name: "Recover last generation" }).click();
+  await expect(currentPanel.getByText("saved", { exact: true })).toBeVisible();
+  const recovered = await fixture.service.readWorkpieceJson(fixture.workpieceId, "metadata.json");
+  expect((recovered.data as { episode?: { thumbnail?: { concept_sets?: unknown[] } } }).episode?.thumbnail?.concept_sets).toHaveLength(2);
+  expect(forgeRequests).toBe(1);
 });

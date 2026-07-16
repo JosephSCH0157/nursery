@@ -1443,7 +1443,11 @@ export function parseThumbnailConceptsFromText(rawText: string): EpisodeThumbnai
   };
 
   for (const rawLine of lines) {
-    const line = rawLine.trim();
+    const line = rawLine.trim()
+      .replace(/^#{1,6}\s*/, "")
+      .replace(/^(?:[-+*>]|\d+[.)])\s+/, "")
+      .replace(/\*\*|__/g, "")
+      .trim();
     if (!line) continue;
     const header = line.match(/^THUMBNAIL_(\d{1,3})$/i);
     if (header) {

@@ -178,7 +178,7 @@ export async function persistProductionArtifact(args: {
     action: args.action,
     assistantText: args.assistantText,
   });
-  if (!validation.ok) {
+  if (!validation.ok && args.action !== "thumbnails") {
     args.setAiRuntimeWarning(validation.error);
     return;
   }
@@ -207,7 +207,13 @@ export async function persistProductionArtifact(args: {
     });
 
     if (!committed.ok) {
-      args.setAiRuntimeWarning(`Saved response in chat, but failed to persist ${PRODUCTION_ACTION_LABEL[args.action]}.`);
+      args.setAiRuntimeWarning(validation.ok
+        ? `Saved response in chat, but failed to persist ${PRODUCTION_ACTION_LABEL[args.action]}.`
+        : `${validation.error} The paid response remains recoverable from the saved production artifact.`);
+      return;
+    }
+    if (!validation.ok) {
+      args.setAiRuntimeWarning(validation.error);
       return;
     }
     const artifactFeedback = validation.feedback;

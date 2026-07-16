@@ -132,24 +132,30 @@ test("hearthProductionFeedback: tags replies hydrate tags and warn on empty stru
   assert.equal(markdownTags.ok, true);
 });
 
-test("hearthProductionFeedback: thumbnail replies warn when no structured concept brief is present", () => {
+test("hearthProductionFeedback: thumbnail replies require exactly five concepts and accept harmless markdown", () => {
   const parsed = resolveHearthProductionArtifactFeedback({
     action: "thumbnails",
-    assistantText: [
-      "THUMBNAIL_01",
-      "Headline: Smoke and Signals",
-      "Image concept: Split screen of protest crowd and studio anchor",
-      "Mood/style: urgent editorial still",
-    ].join("\n"),
+    assistantText: Array.from({ length: 5 }, (_, index) => [
+      `### **THUMBNAIL_0${index + 1}**`,
+      `- **Headline:** Smoke and Signals ${index + 1}`,
+      `- **Image concept:** Distinct editorial scene ${index + 1}`,
+      `- **Mood/style:** urgent editorial still ${index + 1}`,
+    ].join("\n")).join("\n\n"),
   });
 
   assert.equal(parsed.shouldRefreshEpisodePackage, true);
   assert.equal(parsed.warning, null);
+
+  const partial = validateHearthProductionArtifactOutput({
+    action: "thumbnails",
+    assistantText: "THUMBNAIL_01\nHeadline: One\nImage concept: Only one\nMood/style: editorial",
+  });
+  assert.equal(partial.ok, false);
 
   const empty = resolveHearthProductionArtifactFeedback({
     action: "thumbnails",
     assistantText: "A few thumbnail ideas, but not in the expected block format.",
   });
 
-  assert.match(empty.warning ?? "", /could not extract structured concept briefs/i);
+  assert.match(empty.warning ?? "", /exactly five complete, distinct concept briefs/i);
 });

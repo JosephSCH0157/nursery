@@ -28,6 +28,8 @@ type VisualsSurfaceProps = {
   activeVisualProviderHelperText: string;
   thumbnailPanelProps: ComponentProps<typeof ThumbnailPanel>;
   thumbnailAuthority: { workspaceId: string | null; workpieceId: string | null };
+  onGenerateThumbnailConcepts: () => Promise<void>;
+  onRecoverThumbnailConcepts: () => Promise<void>;
   mediaMapPanelProps: ComponentProps<typeof EpisodeMediaMapPanel>;
   imageMapPanelProps: ComponentProps<typeof ImageMapPanel>;
   brollPlanPanelProps: ComponentProps<typeof BrollPlanPanel>;
@@ -117,7 +119,8 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
             workspaceId={props.thumbnailAuthority.workspaceId}
             workpieceId={props.thumbnailAuthority.workpieceId}
             approvedScriptVersion={props.approvedScriptVersion}
-            onGenerateConcepts={props.thumbnailPanelProps.onGenerateConcepts ?? (() => undefined)}
+            onGenerateConcepts={props.onGenerateThumbnailConcepts}
+            onRecoverConcepts={props.onRecoverThumbnailConcepts}
             isGeneratingConcepts={props.thumbnailPanelProps.isGeneratingConcepts ?? false}
           />
         ) : <p>Select an episode before opening its canonical thumbnail workspace.</p>}

@@ -20,7 +20,8 @@ type Props = {
   workspaceId: string;
   workpieceId: string;
   approvedScriptVersion: number;
-  onGenerateConcepts: () => void;
+  onGenerateConcepts: () => Promise<void>;
+  onRecoverConcepts: () => Promise<void>;
   isGeneratingConcepts: boolean;
 };
 
@@ -50,7 +51,6 @@ export default function ThumbnailV3Panel(props: Props) {
   const [shadowColor, setShadowColor] = useState("#000000");
   const [shadowOpacity, setShadowOpacity] = useState(0.7);
   const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
-  const wasGenerating = useRef(props.isGeneratingConcepts);
   const outsideUploadRef = useRef<HTMLInputElement | null>(null);
 
   const reload = useCallback(async () => {
@@ -61,14 +61,12 @@ export default function ThumbnailV3Panel(props: Props) {
         ? current : canonical.episodePackage.thumbnail.active_concept_set_id);
       setTitleId((current) => current || canonical.episodePackage.seo.titles[0]?.id || "");
       setTitleText((current) => current || canonical.episodePackage.seo.titles[0]?.thumbnail_text || canonical.episodePackage.seo.titles[0]?.text || "");
+      return canonical;
     } catch (error) { setLoadError(error instanceof Error ? error.message : "Unable to load thumbnail authority."); }
+    return null;
   }, [props.workpieceId, props.workspaceId]);
 
   useEffect(() => { void reload(); }, [reload]);
-  useEffect(() => {
-    if (wasGenerating.current && !props.isGeneratingConcepts) void reload();
-    wasGenerating.current = props.isGeneratingConcepts;
-  }, [props.isGeneratingConcepts, reload]);
   useEffect(() => {
     if (saveState !== "editing") return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
@@ -108,6 +106,22 @@ export default function ThumbnailV3Panel(props: Props) {
     setSaveState("saved");
   }, [activeRecipe?.id, activeRecipe?.revision]);
   const promptPack = activeRecipe && selectedConcept ? deriveThumbnailPromptPack({ recipe: activeRecipe, concept: selectedConcept }) : null;
+  const conceptSaveLabel = pkg?.thumbnail.concept_sets.length === 0 && saveState === "saved" ? "not saved" : saveState;
+
+  const runConceptPersistence = async (action: () => Promise<void>, failureMessage: string) => {
+    const beforeIds = new Set(pkg?.thumbnail.concept_sets.map((set) => set.id) ?? []);
+    setLoadError(null); setSaveState("saving");
+    try { await action(); }
+    catch (error) {
+      setSaveState("error");
+      setLoadError(error instanceof Error ? error.message : failureMessage);
+      return;
+    }
+    const canonical = await reload();
+    const created = canonical?.episodePackage.thumbnail.concept_sets.some((set) => !beforeIds.has(set.id)) ?? false;
+    if (!created) { setSaveState("error"); setLoadError(failureMessage); return; }
+    setSaveState("saved");
+  };
 
   const commitSetMutation = async (next: EpisodePackageV3, setId: string, eventName: string) => {
     setSaveState("saving");
@@ -215,8 +229,9 @@ export default function ThumbnailV3Panel(props: Props) {
   if (loadError && !pkg) return <div className="hs-inline-error">{loadError}<button type="button" onClick={() => void reload()}>Retry</button></div>;
   if (!pkg) return <div>Loading canonical thumbnail workspace…</div>;
   return <div className="hs-thumbnail-v3">
-    <div className="hs-row"><strong>Concept Brief sets</strong><span aria-live="polite">{saveState}</span>
-      <button type="button" disabled={props.isGeneratingConcepts} onClick={props.onGenerateConcepts}>{props.isGeneratingConcepts ? "Generating five…" : "Generate five concepts"}</button></div>
+    <div className="hs-row"><strong>Concept Brief sets</strong><span aria-live="polite">{conceptSaveLabel}</span>
+      <button type="button" disabled={props.isGeneratingConcepts || saveState === "saving"} onClick={() => void runConceptPersistence(props.onGenerateConcepts, "The AI response was not saved as a canonical five-concept set. No saved result is being claimed.")}>{props.isGeneratingConcepts ? "Generating five…" : "Generate five concepts"}</button>
+      <button type="button" disabled={props.isGeneratingConcepts || saveState === "saving"} onClick={() => void runConceptPersistence(props.onRecoverConcepts, "No recoverable five-concept generation was found for this approved script version.")}>Recover last generation</button></div>
     {loadError ? <div className="hs-inline-error">{loadError}</div> : null}
     <div className="hs-row">
       <select value={selectedSetId ?? ""} onChange={(event) => setSelectedSetId(event.target.value)} aria-label="Concept set">

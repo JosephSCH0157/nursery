@@ -240,6 +240,7 @@ import {
   runProductionAction,
   type ProductionAction,
 } from "../lib/hearth-production-actions";
+import { readWorkpieceProductionArtifact } from "../lib/hearth-production-repo";
 import {
   assessImageMapScriptAnchor,
   buildImageMapAnchorPickerParagraphs,
@@ -6584,6 +6585,17 @@ export default function HearthShell({
     }
   }
 
+  async function onRecoverThumbnailConcepts() {
+    if (!workpieceId) { setAiRuntimeWarning("Select an Episode before recovering thumbnail concepts."); return; }
+    if (!approvedScriptVersion) { setAiRuntimeWarning("Approve a Script Version before recovering thumbnail concepts."); return; }
+    const artifact = await readWorkpieceProductionArtifact({ workpieceId, scriptVersion: approvedScriptVersion, kind: "thumbnails" });
+    const payload = artifact.ok && artifact.payload && typeof artifact.payload === "object" && !Array.isArray(artifact.payload)
+      ? artifact.payload as Record<string, unknown> : null;
+    const rawText = typeof payload?.raw_text === "string" ? payload.raw_text : "";
+    if (!rawText.trim()) { setAiRuntimeWarning("No saved thumbnail generation response exists for this approved script version."); return; }
+    await persistProductionArtifact({ action: "thumbnails", scriptVersion: approvedScriptVersion, assistantText: rawText });
+  }
+
   function resolveBrollDataVisualSpecFromDraft(intent: EpisodeBrollPlanBeat["motion_intent"]): EpisodeBrollDataVisualSpec | null {
     if (intent !== "data_visual") return null;
     const labels = brollDataLabelsDraft
@@ -7424,6 +7436,8 @@ export default function HearthShell({
           activeVisualProviderHelperText: hearthVisualsWorkspace.status.activeVisualProviderHelperText,
           thumbnailPanelProps: visualsPanelContracts.thumbnail.panelProps,
           thumbnailAuthority: { workspaceId: workspaceId ?? null, workpieceId: workpieceId ?? null },
+          onGenerateThumbnailConcepts: () => onRunProductionAction("thumbnails"),
+          onRecoverThumbnailConcepts,
           mediaMapPanelProps: visualsPanelContracts.mediaMap.panelProps,
           imageMapPanelProps: visualsPanelContracts.imageMap.panelProps,
           brollPlanPanelProps: visualsPanelContracts.broll.panelProps,

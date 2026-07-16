@@ -63,12 +63,16 @@ export function resolveHearthProductionArtifactFeedback(args: {
 
   if (args.action === "thumbnails") {
     const concepts = parseThumbnailConceptsFromText(args.assistantText);
+    const complete = concepts.length === 5
+      && concepts.every((concept) => concept.label.trim() && concept.prompt_text.trim())
+      && new Set(concepts.map((concept) => concept.label.trim().toLowerCase())).size === 5
+      && new Set(concepts.map((concept) => concept.prompt_text.trim().toLowerCase())).size === 5;
     return {
       ...EMPTY_FEEDBACK,
       shouldRefreshEpisodePackage: true,
-      warning: concepts.length
+      warning: complete
         ? null
-        : "Thumbnail briefing finished, but Hearth could not extract structured concept briefs from the reply.",
+        : "Thumbnail briefing was not saved because Hearth did not return exactly five complete, distinct concept briefs.",
     };
   }
 
@@ -88,6 +92,9 @@ export function validateHearthProductionArtifactOutput(args: {
   }
   if (args.action === "tags" && feedback.tags.length === 0) {
     return { ok: false, error: feedback.warning ?? "Generated tag output was unusable.", feedback };
+  }
+  if (args.action === "thumbnails" && feedback.warning) {
+    return { ok: false, error: feedback.warning, feedback };
   }
   return { ok: true, feedback };
 }
