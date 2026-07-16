@@ -3573,6 +3573,7 @@ test("POST /tongs/workpieces/:id/generate-thumbnail dispatches generateEpisodeTh
     body: JSON.stringify({
       workspace_id: "11111111-1111-4111-8111-111111111111",
       episode_id: "11111111-1111-4111-8111-111111111111",
+      operation_id: "22222222-2222-4222-8222-222222222222",
       concept_id: "concept-01",
       confirm_spend: true,
     }),
@@ -4027,6 +4028,9 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   const providerCalls = [];
   const assetInsertCalls = [];
   const commitCalls = [];
+  const stageCalls = [];
+  const referenceCalls = [];
+  const transitionCalls = [];
 
   const imageProvider = {
     async generateImage(input) {
@@ -4075,6 +4079,38 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   };
 
   const service = new TongsCommitService(supabase, "forge-workpieces", imageProvider);
+  const stagedAsset = {
+    id: "55555555-5555-4555-8555-555555555555",
+    workspace_id: workspaceId,
+    workpiece_id: workpieceId,
+    operation_id: "44444444-4444-4444-8444-444444444444",
+    asset_kind: "thumbnail_image",
+    status: "pending",
+    path: `assets/thumbnails/${workpieceId}/44444444-4444-4444-8444-444444444444.png`,
+    mime_type: "image/png",
+    bytes: 3,
+    content_hash: "a".repeat(64),
+    storage_bucket: "forge-workpieces",
+    storage_key: `workpieces/${workpieceId}/assets/thumbnails/44444444-4444-4444-8444-444444444444.png`,
+    reference_committed_at: null,
+    ready_at: null,
+    failed_at: null,
+    failure_code: null,
+    failure_message: null,
+    metadata: {},
+  };
+  service.stageThumbnailAsset = async (inputWorkpieceId, input) => {
+    stageCalls.push({ inputWorkpieceId, input });
+    return stagedAsset;
+  };
+  service.commitThumbnailAssetReference = async (inputWorkpieceId, input) => {
+    referenceCalls.push({ inputWorkpieceId, input });
+    return { ...stagedAsset, reference_committed_at: "2026-02-28T02:00:00.000Z" };
+  };
+  service.transitionThumbnailAsset = async (inputWorkpieceId, input) => {
+    transitionCalls.push({ inputWorkpieceId, input });
+    return { ...stagedAsset, status: "ready", ready_at: "2026-02-28T02:00:01.000Z" };
+  };
 
   service.getWorkspaceOrThrow = async () => ({
     id: workspaceId,
@@ -4096,6 +4132,7 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   service.resolveUserIdFromAccessToken = async () => userId;
   service.readWorkpieceJson = async () => ({
     found: true,
+    file_row: { updated_at: "2026-02-28T01:59:00.000Z" },
     data: {
       schema: "forge.metadata.v1",
       workpiece_id: workpieceId,
@@ -4227,6 +4264,7 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   const result = await service.generateEpisodeThumbnail(workpieceId, {
     workspace_id: workspaceId,
     episode_id: workpieceId,
+    operation_id: "44444444-4444-4444-8444-444444444444",
     concept_id: "concept-01",
     confirm_spend: true,
     lane: "forge",
@@ -4237,23 +4275,18 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   assert.equal(providerCalls[0].aspect, "16:9");
   assert.match(providerCalls[0].prompt, /Host in studio with neon glow/);
   assert.match(providerCalls[0].prompt, /Visual style: Studio Photography\./);
-  assert.equal(assetInsertCalls.length, 1);
-  assert.equal(assetInsertCalls[0].workspace_id, workspaceId);
-  assert.equal(assetInsertCalls[0].workpiece_id, workpieceId);
-  assert.equal(assetInsertCalls[0].bytes, 3);
-  assert.equal(assetInsertCalls[0].asset_kind, "thumbnail_image");
-  assert.equal(assetInsertCalls[0].status, "ready");
-  assert.equal(assetInsertCalls[0].metadata_json.schema, "forge.thumbnail-image.v1");
-  assert.equal(assetInsertCalls[0].metadata_json.concept_id, "concept-01");
-  assert.equal(assetInsertCalls[0].metadata_json.style_preset, "studio_photography");
-  assert.equal(commitCalls.length, 2);
-  assert.equal(commitCalls[0].input.path.startsWith("assets/thumbnails/"), true);
-  assert.equal(commitCalls[1].input.path, "metadata.json");
-  assert.equal(commitCalls[1].input.json.episode.thumbnail.concepts[0].style_preset, "studio_photography");
-  assert.equal(commitCalls[1].input.json.episode.thumbnail.versions.length, 2);
-  assert.equal(commitCalls[1].input.json.episode.thumbnail.primary_version_id, result.version.id);
-  assert.equal(commitCalls[1].input.json.episode.launch_variants.length, 1);
-  assert.equal(commitCalls[1].input.json.launch_variants.length, 1);
+  assert.equal(assetInsertCalls.length, 0);
+  assert.equal(commitCalls.length, 0);
+  assert.equal(stageCalls.length, 1);
+  assert.equal(stageCalls[0].input.operation_id, "44444444-4444-4444-8444-444444444444");
+  assert.equal(stageCalls[0].input.asset_kind, "thumbnail_image");
+  assert.equal(referenceCalls.length, 1);
+  assert.equal(referenceCalls[0].input.reference_pointer, "/episode/thumbnail/versions/1/asset_id");
+  assert.equal(referenceCalls[0].input.metadata_document.episode.thumbnail.concepts[0].style_preset, "studio_photography");
+  assert.equal(referenceCalls[0].input.metadata_document.episode.thumbnail.versions.length, 2);
+  assert.equal(referenceCalls[0].input.metadata_document.episode.launch_variants.length, 1);
+  assert.equal(transitionCalls.length, 1);
+  assert.equal(transitionCalls[0].input.target_status, "ready");
   assert.equal(result.version.status, "ready");
   assert.equal(result.primary_version_id, result.version.id);
   assert.equal(result.updated_episode_package.launch_variants.length, 1);

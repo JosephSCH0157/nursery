@@ -532,6 +532,7 @@ export async function generateEpisodeThumbnail(args: GenerateEpisodeThumbnailArg
     json: {
       workspace_id: args.workspaceId,
       episode_id: args.workpieceId,
+      operation_id: createClientId("thumbnail-generate"),
       ...(args.conceptId ? { concept_id: args.conceptId } : {}),
       ...(args.prompt ? { prompt: args.prompt } : {}),
       ...(args.preset ? { preset: args.preset } : {}),
@@ -635,65 +636,9 @@ export async function uploadThumbnailImageVersion(args: {
   concept: EpisodeThumbnailConcept | null;
   file: File;
 }): Promise<UploadThumbnailImageResult> {
-  const mimeType = resolveUploadMimeType(args.file);
-  const extension = extensionFromMimeType(mimeType);
-  const versionId = createClientId("thumb-upload-version");
-  const uploadPath = `assets/thumbnails/${args.workpieceId}/${versionId}.${extension}`;
-  const uploadedAt = new Date().toISOString();
-
-  let bytesBase64: string;
-  try {
-    const bytes = new Uint8Array(await args.file.arrayBuffer());
-    bytesBase64 = bytesToBase64(bytes);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to read selected image file.";
-    return {
-      ok: false,
-      error: message,
-    };
-  }
-
-  const committed = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`, {
-    method: "POST",
-    json: {
-      path: uploadPath,
-      content_type: mimeType,
-      file_type: "thumbnail_image",
-      bytes_base64: bytesBase64,
-      written_by: buildWrittenBy(),
-      event_name: "hearth.thumbnail.uploaded.v1",
-      event_payload: {
-        source: "thumbnail_panel",
-        file_name: args.file.name,
-        mime_type: mimeType,
-      },
-      correlation_id: nextCorrelationId("hearth-thumbnail-upload"),
-    },
-  });
-  const body = await readBodyAsJson(committed);
-  if (!committed.ok || !isCommitAck(body)) {
-    const parsed = readErrorBody(body, "Upload failed.");
-    return {
-      ok: false,
-      error: parsed.error,
-      status: committed.status,
-    };
-  }
-
   return {
-    ok: true,
-    version: {
-      id: versionId,
-      concept_id: args.concept?.id ?? "uploaded",
-      created_at: uploadedAt,
-      provider: "upload",
-      prompt: args.file.name || "uploaded-image",
-      asset_id: `path:${uploadPath}`,
-      status: "ready",
-      asset_path: uploadPath,
-      mime_type: mimeType,
-      error: null,
-      provider_request_id: null,
-    },
+    ok: false,
+    status: 503,
+    error: "Outside-tool thumbnail upload is temporarily unavailable while its canonical asset lifecycle is being upgraded.",
   };
 }

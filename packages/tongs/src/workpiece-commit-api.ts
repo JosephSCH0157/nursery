@@ -1072,6 +1072,7 @@ export type GenerateImageMapCandidatesResponse = {
 export type GenerateEpisodeThumbnailRequest = {
   workspace_id: string;
   episode_id: string;
+  operation_id: string;
   concept_id?: string;
   prompt?: string;
   preset?: string | null;
@@ -3678,6 +3679,7 @@ function normalizeGenerateEpisodeThumbnailRequest(
   return {
     workspace_id: workspaceId,
     episode_id: episodeId,
+    operation_id: normalizeThumbnailOperationId(body.operation_id),
     concept_id: conceptId,
     prompt,
     preset: typeof body.preset === "undefined" ? undefined : (body.preset === null ? null : normalizeNonEmptyString(body.preset, "preset")),
@@ -9967,53 +9969,19 @@ export class TongsCommitService {
     });
     const imageResult = imageCall.result;
 
-    const requestId = randomUuid();
+    const requestId = input.operation_id;
     const versionId = randomUuid();
-    const assetId = randomUuid();
     const createdAt = new Date().toISOString();
-    const extension = imageResult.mimeType.toLowerCase().includes("jpeg") ? "jpg" : "png";
-    const assetPath = `${THUMBNAIL_ASSET_PREFIX}/${workpieceId}/${versionId}.${extension}`;
-    const bytes = parseBase64ByteLength(imageResult.bytesBase64);
-
-    const writtenBy: WrittenBy = {
-      tool: "hearth",
-      tool_version: "0.0.0",
-      lane: "forge-managed",
-    };
-
-    const assetCommit = await this.commitFile(workpieceId, {
-      path: assetPath,
-      content_type: imageResult.mimeType,
-      file_type: "thumbnail_image",
-      bytes_base64: imageResult.bytesBase64,
-      written_by: writtenBy,
-      event_name: "hearth.thumbnail.asset.generated.v1",
-      event_payload: {
-        request_id: requestId,
-        provider: imageResult.provider,
-        provider_request_id: imageResult.providerRequestId,
-        concept_id: conceptId,
-      } as Json,
-      correlation_id: requestId,
-    });
-
-    const assetRow = await this.insertAssetRow({
-      id: assetId,
+    const stagedAsset = await this.stageThumbnailAsset(workpieceId, {
       workspace_id: workspace.id,
-      workpiece_id: workpieceId,
-      path: assetPath,
+      operation_id: requestId,
+      asset_kind: THUMBNAIL_ASSET_KIND,
       mime_type: imageResult.mimeType,
-      bytes,
-      storage_bucket: assetCommit.file_row.storage_bucket,
-      storage_key: assetCommit.storage_key,
+      bytes_base64: imageResult.bytesBase64,
       provider: imageResult.provider,
       provider_request_id: imageResult.providerRequestId,
-      request_id: requestId,
       prompt: finalPrompt,
-      created_by: userId,
-      asset_kind: THUMBNAIL_ASSET_KIND,
-      status: "ready",
-      metadata_json: buildThumbnailAssetMetadata({
+      metadata: buildThumbnailAssetMetadata({
         conceptId,
         conceptLabel,
         conceptPrompt,
@@ -10023,8 +9991,7 @@ export class TongsCommitService {
         finalPrompt,
         revisedPrompt: imageResult.revisedPrompt ?? null,
       }),
-      supersedes_asset_id: null,
-    }, "Failed to register generated thumbnail asset");
+    }, { userAccessToken: input.user_access_token });
 
     const version: ThumbnailVersionRecord = {
       id: versionId,
@@ -10033,8 +10000,8 @@ export class TongsCommitService {
       provider: imageResult.provider,
       prompt: finalPrompt,
       provider_request_id: imageResult.providerRequestId,
-      asset_id: assetId,
-      asset_path: assetPath,
+      asset_id: stagedAsset.id,
+      asset_path: stagedAsset.path,
       mime_type: imageResult.mimeType,
       status: "ready",
       error: null,
@@ -10054,21 +10021,19 @@ export class TongsCommitService {
       episodePackage,
     );
 
-    await this.commitFile(workpieceId, {
-      path: "metadata.json",
-      content_type: "application/json",
-      json: nextMetadata,
-      written_by: writtenBy,
-      event_name: "hearth.thumbnail.version.generated.v1",
-      event_payload: {
-        request_id: requestId,
-        provider_request_id: imageResult.providerRequestId,
-        version_id: versionId,
-        concept_id: conceptId,
-        asset_id: assetId,
-      } as Json,
-      correlation_id: requestId,
-    });
+    const referencePointer = `/episode/thumbnail/versions/${nextVersions.length - 1}/asset_id`;
+    await this.commitThumbnailAssetReference(workpieceId, {
+      workspace_id: workspace.id,
+      asset_id: stagedAsset.id,
+      expected_metadata_updated_at: metadataRead.found ? metadataRead.file_row?.updated_at ?? null : null,
+      metadata_document: nextMetadata as Json,
+      reference_pointer: referencePointer,
+    }, { userAccessToken: input.user_access_token });
+    const assetRow = await this.transitionThumbnailAsset(workpieceId, {
+      workspace_id: workspace.id,
+      asset_id: stagedAsset.id,
+      target_status: "ready",
+    }, { userAccessToken: input.user_access_token });
 
     let creditsWarning: string | undefined;
     let tokenBalance: number | null | undefined;
@@ -10099,9 +10064,9 @@ export class TongsCommitService {
         storage_key: assetRow.storage_key,
         mime_type: assetRow.mime_type,
         bytes: assetRow.bytes,
-        provider: assetRow.provider,
-        provider_request_id: assetRow.provider_request_id,
-        request_id: assetRow.request_id ?? requestId,
+        provider: imageResult.provider,
+        provider_request_id: imageResult.providerRequestId,
+        request_id: requestId,
       },
       updated_episode_package: episodePackage,
       primary_version_id: episodePackage.thumbnail.primary_version_id,
