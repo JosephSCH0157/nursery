@@ -8,6 +8,7 @@ import {
   type ThumbnailConceptRevision,
   type ThumbnailConceptSet,
   type ThumbnailLaunchVariantRevision,
+  type ThumbnailPublicationEvent,
   type ThumbnailRenderRecipe,
 } from "./episode-package-v3";
 
@@ -179,4 +180,37 @@ export function rebuildActivePromptPack(pkg: EpisodePackageV3) {
   const concept = pkg.thumbnail.concept_revisions.find((entry) => entry.concept_revision_id === recipe.concept_revision_id);
   if (!concept) return null;
   return deriveThumbnailPromptPack({ recipe, concept });
+}
+
+export function canReuseLaunchSnapshotForPublish(args: {
+  launchRevision: ThumbnailLaunchVariantRevision;
+  recipeRevision: number;
+  compositionEngineVersion: string;
+  contentHash: string;
+}): boolean {
+  return args.launchRevision.recipe_revision === args.recipeRevision
+    && args.launchRevision.snapshot.composition_engine_version === args.compositionEngineVersion
+    && args.launchRevision.snapshot.content_hash === args.contentHash;
+}
+
+export function appendPublicationEvent(args: {
+  episodePackage: EpisodePackageV3;
+  event: ThumbnailPublicationEvent;
+}): EpisodePackageV3 {
+  if (args.episodePackage.thumbnail.publication_events.some((entry) => entry.id === args.event.id)) {
+    throw new Error("Publication event IDs are immutable and unique.");
+  }
+  const launch = args.episodePackage.thumbnail.launch_variant_revisions.find(
+    (entry) => entry.launch_variant_id === args.event.launch_variant_id
+      && entry.revision === args.event.launch_variant_revision,
+  );
+  if (!launch) throw new Error("Publication must reference an exact launch revision.");
+  if (!/^[a-f0-9]{64}$/i.test(args.event.snapshot.content_hash)) throw new Error("Publication snapshot requires a canonical SHA-256 hash.");
+  return {
+    ...args.episodePackage,
+    thumbnail: {
+      ...args.episodePackage.thumbnail,
+      publication_events: [...args.episodePackage.thumbnail.publication_events, args.event],
+    },
+  };
 }

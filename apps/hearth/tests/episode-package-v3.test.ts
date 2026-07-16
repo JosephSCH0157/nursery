@@ -12,6 +12,8 @@ import {
 } from "../src/lib/episode-package-v3";
 import {
   appendConceptSet,
+  appendLaunchSnapshot,
+  appendPublicationEvent,
   proveThumbnailMutation,
   refineConcept,
   saveRenderRecipe,
@@ -125,4 +127,47 @@ test("mutation proof is scoped and ignores unrelated package changes", () => {
   assert.deepEqual(proveThumbnailMutation({ expected, canonical, kind: "concept_set", entityId: setId }), { ok: true });
   canonical.thumbnail.concept_sets[0]!.name = "Changed authority";
   assert.equal(proveThumbnailMutation({ expected, canonical, kind: "concept_set", entityId: setId }).ok, false);
+});
+
+test("launch and publication snapshots append immutable revisions", () => {
+  const imported = hydrateEpisodePackageV3(legacyMetadata);
+  const concept = imported.thumbnail.concept_revisions[0]!;
+  const recipe: ThumbnailRenderRecipe = {
+    id: "recipe-snapshot", revision: 1, concept_revision_id: concept.concept_revision_id,
+    title_id: "title-1", title_revision: 1, provider_id: "forge", intended_aspect_ratio: "16:9",
+    brand_template_id: null, brand_template_revision: null, title_text: "DURABLE",
+    treatment: { typography: {}, placement: {}, safe_zone: {}, shadow: {}, treatment: {} },
+    prompt_template_version: THUMBNAIL_PROMPT_TEMPLATE_VERSION,
+    composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
+    prompt_review_state: "reviewed", last_reviewed_template_version: THUMBNAIL_PROMPT_TEMPLATE_VERSION,
+    created_at: "2026-07-15T12:00:00.000Z", updated_at: "2026-07-15T12:00:00.000Z",
+  };
+  const withRecipe = saveRenderRecipe({ episodePackage: imported, recipe });
+  const hash = "a".repeat(64);
+  const withBase = {
+    ...withRecipe,
+    thumbnail: { ...withRecipe.thumbnail, base_versions: [{
+      id: "base-1", asset_id: "asset-base", asset_path: "base.png", content_hash: hash,
+      source_type: "forge_ai" as const, provider_id: "forge", provider_request_id: null,
+      created_at: recipe.created_at, concept_revision_id: concept.concept_revision_id,
+      render_recipe_id: recipe.id, render_recipe_revision: 1, intended_aspect_ratio: "16:9" as const,
+      mime_type: "image/png", status: "ready" as const, error_details: null,
+    }] },
+  };
+  const snapshot = {
+    asset_id: "composite-1", asset_path: "composite.png", content_hash: hash,
+    composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
+    recipe_snapshot: recipe, recipe_snapshot_hash: hash, exported_at: recipe.created_at,
+  };
+  const launched = appendLaunchSnapshot({ episodePackage: withBase, launchVariantId: "launch-1", baseVersionId: "base-1", snapshot, createdAt: recipe.created_at });
+  const revised = appendLaunchSnapshot({ episodePackage: launched, launchVariantId: "launch-1", baseVersionId: "base-1", snapshot: { ...snapshot, asset_id: "composite-2" }, createdAt: recipe.updated_at });
+  assert.deepEqual(revised.thumbnail.launch_variant_revisions.map((entry) => entry.revision), [1, 2]);
+  assert.equal(revised.thumbnail.launch_variant_revisions[0]?.snapshot.asset_id, "composite-1");
+  const published = appendPublicationEvent({ episodePackage: revised, event: {
+    id: "publish-1", launch_variant_id: "launch-1", launch_variant_revision: 2,
+    snapshot: revised.thumbnail.launch_variant_revisions[1]!.snapshot,
+    published_at: recipe.updated_at, destination: "youtube",
+  } });
+  assert.equal(published.thumbnail.publication_events.length, 1);
+  assert.equal(revised.thumbnail.publication_events.length, 0);
 });

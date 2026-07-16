@@ -1,11 +1,14 @@
 import {
   EPISODE_PACKAGE_V3_SCHEMA,
+  canonicalSerialize,
   hydrateEpisodePackageV3,
   serializeEpisodePackageV3,
   type EpisodePackageV3,
   type ThumbnailBaseVersion,
+  type ThumbnailCompositeSnapshot,
+  type ThumbnailRenderRecipe,
 } from "./episode-package-v3";
-import { proveThumbnailMutation, type ThumbnailMutationProof } from "./hearth-thumbnail-v3-authority";
+import { appendLaunchSnapshot, proveThumbnailMutation, type ThumbnailMutationProof } from "./hearth-thumbnail-v3-authority";
 import { resolveForgeUserAccessToken } from "./hearth-chat-api";
 import { tongsFetch } from "./tongs-fetch";
 
@@ -282,4 +285,102 @@ export function commitForgeAiBaseArtwork(args: Parameters<typeof commitThumbnail
 export function commitOutsideToolBaseArtwork(args: Parameters<typeof commitThumbnailBaseArtwork>[0]) {
   if (args.artwork.sourceType !== "outside_tool") throw new Error("Outside renderer requires outside_tool source authority.");
   return commitThumbnailBaseArtwork(args);
+}
+
+function compositorRecipe(recipe: ThumbnailRenderRecipe): Record<string, unknown> {
+  const typography = isRecord(recipe.treatment.typography) ? recipe.treatment.typography : {};
+  const placement = isRecord(recipe.treatment.placement) ? recipe.treatment.placement : {};
+  const shadow = isRecord(recipe.treatment.shadow) ? recipe.treatment.shadow : {};
+  return {
+    title_text: recipe.title_text,
+    title_revision: recipe.title_revision,
+    template_revision: recipe.brand_template_revision ?? 1,
+    text_color: readString(typography.color) ?? "#FFFFFF",
+    shadow_color: readString(shadow.color) ?? "#000000",
+    shadow_opacity: typeof shadow.opacity === "number" ? shadow.opacity : 0.7,
+    placement: placement.vertical === "top" || placement.vertical === "center" ? placement.vertical : "bottom",
+    max_lines: typeof typography.max_lines === "number" ? typography.max_lines : 3,
+    horizontal_padding_percent: typeof placement.horizontal_padding_percent === "number" ? placement.horizontal_padding_percent : 8,
+  };
+}
+
+async function sha256Canonical(value: unknown): Promise<string> {
+  const bytes = new TextEncoder().encode(canonicalSerialize(value));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export async function commitThumbnailLaunchComposite(args: {
+  workpieceId: string;
+  workspaceId: string;
+  expectedMetadataUpdatedAt: string | null;
+  episodePackage: EpisodePackageV3;
+  launchVariantId: string;
+  baseVersionId: string;
+  operationId: string;
+  width: number;
+  height: number;
+  encoding: { format: "png" | "jpeg" | "webp"; quality: number };
+  createdAt: string;
+}): Promise<V3MutationResult> {
+  const token = await requireThumbnailUserToken();
+  const base = args.episodePackage.thumbnail.base_versions.find((entry) => entry.id === args.baseVersionId);
+  if (!base || base.status !== "ready") return { ok: false, saveState: "error", status: 409, error: "Launch requires ready base artwork." };
+  const recipe = args.episodePackage.thumbnail.render_recipes.find(
+    (entry) => entry.id === base.render_recipe_id && entry.revision === base.render_recipe_revision,
+  );
+  if (!recipe) return { ok: false, saveState: "error", status: 409, error: "Exact launch recipe revision is unavailable." };
+  const recipeSnapshot = compositorRecipe(recipe);
+  const recipeHash = await sha256Canonical(recipeSnapshot);
+  const renderResponse = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/thumbnail-assets/render-composite`, {
+    method: "POST",
+    headers: { "x-forge-user-authorization": `Bearer ${token}` },
+    json: {
+      workspace_id: args.workspaceId, operation_id: args.operationId, base_asset_id: base.asset_id,
+      recipe_snapshot: recipeSnapshot, recipe_snapshot_hash: recipeHash,
+      width: args.width, height: args.height, encoding: args.encoding,
+    },
+  });
+  const renderBody = await json(renderResponse);
+  const asset = isRecord(renderBody) && isRecord(renderBody.data) ? renderBody.data : null;
+  const assetId = readString(asset?.id);
+  const assetPath = readString(asset?.path);
+  const contentHash = readString(asset?.content_hash);
+  if (!renderResponse.ok || !assetId || !assetPath || !contentHash) {
+    return { ok: false, saveState: "error", status: renderResponse.status, error: errorMessage(renderBody, "Unable to render launch composite.") };
+  }
+  const snapshot: ThumbnailCompositeSnapshot = {
+    asset_id: assetId, asset_path: assetPath, content_hash: contentHash,
+    composition_engine_version: recipe.composition_engine_version,
+    recipe_snapshot: structuredClone(recipe), recipe_snapshot_hash: recipeHash, exported_at: args.createdAt,
+  };
+  const next = appendLaunchSnapshot({
+    episodePackage: args.episodePackage, launchVariantId: args.launchVariantId,
+    baseVersionId: base.id, snapshot, createdAt: args.createdAt,
+  });
+  const launchIndex = next.thumbnail.launch_variant_revisions.length - 1;
+  const before = await readCanonicalEpisodePackageV3(args.workpieceId);
+  if ((before.metadataUpdatedAt ?? null) !== (args.expectedMetadataUpdatedAt ?? null)) {
+    return { ok: false, saveState: "error", status: 409, error: "Thumbnail state changed while the composite was rendering.", canonical: before };
+  }
+  const pointer = `/episode/thumbnail/launch_variant_revisions/${launchIndex}/snapshot/asset_id`;
+  const referenceResponse = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/thumbnail-assets/commit-reference`, {
+    method: "POST", headers: { "x-forge-user-authorization": `Bearer ${token}` },
+    json: {
+      workspace_id: args.workspaceId, asset_id: assetId,
+      expected_metadata_updated_at: args.expectedMetadataUpdatedAt,
+      metadata_document: { ...before.metadata, updated_at: args.createdAt, episode: next }, reference_pointer: pointer,
+    },
+  });
+  if (!referenceResponse.ok) return { ok: false, saveState: "error", status: referenceResponse.status, error: errorMessage(await json(referenceResponse), "Unable to commit launch snapshot reference.") };
+  const readyResponse = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/thumbnail-assets/transition`, {
+    method: "POST", headers: { "x-forge-user-authorization": `Bearer ${token}` },
+    json: { workspace_id: args.workspaceId, asset_id: assetId, target_status: "ready" },
+  });
+  if (!readyResponse.ok) return { ok: false, saveState: "error", status: readyResponse.status, error: errorMessage(await json(readyResponse), "Launch snapshot remains recoverable but is not ready.") };
+  const canonical = await readCanonicalEpisodePackageV3(args.workpieceId);
+  const latest = next.thumbnail.launch_variant_revisions[launchIndex]!;
+  const proof = proveThumbnailMutation({ expected: next, canonical: canonical.episodePackage, kind: "launch_revision", entityId: args.launchVariantId, revision: latest.revision });
+  if (!proof.ok) return { ok: false, saveState: "error", status: 409, error: proof.reason, canonical };
+  return { ok: true, saveState: "saved", ...canonical };
 }
