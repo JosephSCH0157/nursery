@@ -102,18 +102,38 @@ try {
   }
   assert(conflictObserved, "Conflicting operation replay did not fail with 409");
 
-  const metadata = { episode: { thumbnail: { versions: [{ asset_id: staged.id }] } } };
+  const metadata = { episode: { schema: "forge.episode.package.v3", thumbnail: { base_versions: [{ id: randomUUID(), source_type: "forge_ai", asset_id: staged.id }] } } };
   await service.commitThumbnailAssetReference(ids.workpiece, {
     workspace_id: ids.workspace,
     asset_id: staged.id,
     expected_metadata_updated_at: null,
     metadata_document: metadata,
-    reference_pointer: "/episode/thumbnail/versions/0/asset_id",
+    reference_pointer: "/episode/thumbnail/base_versions/0/asset_id",
   }, { userAccessToken: ownerToken });
   const ready = await service.transitionThumbnailAsset(ids.workpiece, {
     workspace_id: ids.workspace, asset_id: staged.id, target_status: "ready",
   }, { userAccessToken: ownerToken });
   assert(ready.status === "ready" && ready.ready_at, "Referenced asset did not become ready");
+
+  const outsideStaged = await service.stageThumbnailAsset(ids.workpiece, {
+    ...stageInput, operation_id: randomUUID(), provider: "outside-tool-live-verification",
+    bytes_base64: pngB.toString("base64"), metadata: { source_type: "outside_tool" },
+  }, { userAccessToken: ownerToken });
+  storageKeys.add(outsideStaged.storage_key);
+  const afterForge = await service.readWorkpieceJson(ids.workpiece, "metadata.json");
+  assert(afterForge.found, "V3 package was not readable after Forge reference commit");
+  const outsideMetadata = structuredClone(afterForge.data);
+  outsideMetadata.episode.thumbnail.base_versions.push({ id: randomUUID(), source_type: "outside_tool", asset_id: outsideStaged.id });
+  await service.commitThumbnailAssetReference(ids.workpiece, {
+    workspace_id: ids.workspace, asset_id: outsideStaged.id,
+    expected_metadata_updated_at: afterForge.file_row?.updated_at ?? null,
+    metadata_document: outsideMetadata,
+    reference_pointer: "/episode/thumbnail/base_versions/1/asset_id",
+  }, { userAccessToken: ownerToken });
+  const outsideReady = await service.transitionThumbnailAsset(ids.workpiece, {
+    workspace_id: ids.workspace, asset_id: outsideStaged.id, target_status: "ready",
+  }, { userAccessToken: ownerToken });
+  assert(outsideReady.status === "ready" && outsideReady.content_hash === createHash("sha256").update(pngB).digest("hex"), "Outside-tool branch did not reach equivalent ready authority");
 
   const stale = await service.stageThumbnailAsset(ids.workpiece, {
     ...stageInput, operation_id: randomUUID(), bytes_base64: pngB.toString("base64"),
@@ -207,6 +227,7 @@ try {
 
   console.log(JSON.stringify({
     pending_reference_ready: true,
+    v3_forge_and_outside_branches: true,
     exact_content_hash: true,
     operation_idempotency: true,
     optimistic_concurrency: true,
