@@ -7953,7 +7953,7 @@ export class TongsCommitService {
     const model = typeof payloadJson.model === "string" ? payloadJson.model.trim() : null;
     let policy: AiPolicyResolveResult;
     try {
-      policy = await resolveAiPolicy(this.supabase, {
+      policy = await resolveAiPolicy(this.supabase as unknown as SupabaseClient, {
         orgId: null,
         workspaceId,
         userId: auth.userId,
@@ -10805,7 +10805,7 @@ export class TongsCommitService {
     const rows = data ?? [];
     const keptTakeByWorkpiece = await this.listLatestKeptTakeByWorkpieceIds(rows.map((row) => row.id));
 
-    return rows.map((row) => toWorkspaceEpisodeSummary(row, {
+    return rows.map((row) => toWorkspaceEpisodeSummary(row as EpisodeRow, {
       recorded: keptTakeByWorkpiece.has(row.id),
       latest_kept_take: keptTakeByWorkpiece.get(row.id) ?? null,
     }));
@@ -11365,7 +11365,7 @@ export class TongsCommitService {
       });
     }
 
-    return toWorkspaceEpisodeSummary(data);
+    return toWorkspaceEpisodeSummary(data as EpisodeRow);
   }
 
   async restoreWorkpiece(
@@ -11447,7 +11447,7 @@ export class TongsCommitService {
       correlationId: null,
     });
 
-    return toWorkspaceEpisodeSummary(data);
+    return toWorkspaceEpisodeSummary(data as EpisodeRow);
   }
 
   async resolveWorkpieceAssetVariant(
@@ -12077,14 +12077,17 @@ export class TongsCommitService {
     }
 
     for (const row of data ?? []) {
+      if (!row.workpiece_id) continue;
       if (next.has(row.workpiece_id)) continue;
+      const receiptCreatedAt = row.kept_at ?? row.completed_at;
+      if (!receiptCreatedAt || !row.media_path) continue;
       const evidence = isRecord(row.completion_evidence) ? row.completion_evidence : {};
       const artifact = isRecord(evidence.artifact_validation) ? evidence.artifact_validation : {};
       next.set(row.workpiece_id, {
         event_id: null,
-        completion_id: row.completion_id,
-        keep_id: row.keep_id,
-        created_at: row.kept_at ?? row.completed_at,
+        completion_id: row.completion_id ?? undefined,
+        keep_id: row.keep_id ?? undefined,
+        created_at: receiptCreatedAt,
         file_path: row.media_path,
         recording_session_id: null,
         anvil_capture_session_id: row.capture_session_id,
@@ -12246,6 +12249,7 @@ export class TongsCommitService {
       }
 
       for (const row of readyMetaRows ?? []) {
+        if (!row.workpiece_id || !row.script_path) continue;
         if (!READY_SCRIPT_PATH_SET.has(row.script_path)) continue;
         const readyKey = readyScriptMetaKey(row.workpiece_id, row.script_path);
         if (!fileByWorkpiecePath.has(readyKey)) continue;
