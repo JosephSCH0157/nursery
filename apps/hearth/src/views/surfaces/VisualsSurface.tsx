@@ -28,8 +28,8 @@ type VisualsSurfaceProps = {
   activeVisualProviderHelperText: string;
   thumbnailPanelProps: ComponentProps<typeof ThumbnailPanel>;
   thumbnailAuthority: { workspaceId: string | null; workpieceId: string | null };
-  onGenerateThumbnailConcepts: () => Promise<void>;
-  onRecoverThumbnailConcepts: () => Promise<void>;
+  onGenerateThumbnailConcepts: ComponentProps<typeof ThumbnailV3Panel>["onGenerateConcepts"];
+  onRecoverThumbnailConcepts: ComponentProps<typeof ThumbnailV3Panel>["onRecoverConcepts"];
   onCanonicalThumbnailProgress: NonNullable<ComponentProps<typeof ThumbnailV3Panel>["onCanonicalProgress"]>;
   mediaMapPanelProps: ComponentProps<typeof EpisodeMediaMapPanel>;
   imageMapPanelProps: ComponentProps<typeof ImageMapPanel>;

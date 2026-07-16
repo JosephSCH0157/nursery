@@ -26,6 +26,11 @@ type MetadataSurfaceProps = {
   onGenerateFramingPack: () => void;
   onRefreshFramingPack: () => void;
   onRecoverFraming: () => Promise<void>;
+  tagProposal: { tags: string[]; scriptVersion: number; generatedAt: string } | null;
+  canonicalTags: string[];
+  onReplaceTagProposal: () => void;
+  onMergeTagProposal: () => void;
+  onCancelTagProposal: () => void;
 };
 
 export default function MetadataSurface(props: MetadataSurfaceProps) {
@@ -94,6 +99,25 @@ export default function MetadataSurface(props: MetadataSurfaceProps) {
             </button>
           </div>
         </section>
+        {props.tagProposal ? (
+          <section className="hs-release-prep-viewer__section" aria-label="Generated tag suggestion">
+            <header>Generated suggestion · Script v{props.tagProposal.scriptVersion}</header>
+            <p className="hs-field-label-muted">Current canonical tags remain unchanged until you choose Replace or Merge.</p>
+            <div><strong>Current canonical tags</strong></div>
+            <div className="hs-tag-list" aria-label="Current canonical tags">
+              {props.canonicalTags.map((tag) => <span className="hs-tag" key={tag}>{tag}</span>)}
+            </div>
+            <div><strong>Proposed tags</strong></div>
+            <div className="hs-tag-list" aria-label="Proposed tags">
+              {props.tagProposal.tags.map((tag) => <span className="hs-tag" key={tag}>{tag}</span>)}
+            </div>
+            <div className="hs-production-action-row">
+              <button type="button" onClick={props.onReplaceTagProposal}>Replace canonical tags</button>
+              <button type="button" onClick={props.onMergeTagProposal}>Merge into canonical tags</button>
+              <button type="button" onClick={props.onCancelTagProposal}>Cancel</button>
+            </div>
+          </section>
+        ) : null}
         <div className="hs-release-prep-viewer__meta">
           <span>
             {props.releasePrepScriptVersion

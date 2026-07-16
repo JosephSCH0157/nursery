@@ -1,5 +1,4 @@
 import {
-  parseDescriptionFromSeoText,
   parseSeoTitlesFromText,
   parseTagsFromText,
   parseThumbnailConceptsFromText,
@@ -31,19 +30,16 @@ export function resolveHearthProductionArtifactFeedback(args: {
   assistantText: string;
 }): HearthProductionArtifactFeedback {
   if (args.action === "seo") {
-    const descriptions = parseDescriptionFromSeoText(args.assistantText);
     const titles = parseSeoTitlesFromText(args.assistantText).filter((title) => !/^title\s*[abc]$/i.test(title.text.trim()));
     return {
       shouldRefreshEpisodePackage: true,
       titles,
-      descriptionShort: descriptions.shortDescription,
-      descriptionLong: descriptions.longDescription,
+      descriptionShort: null,
+      descriptionLong: null,
       tags: [],
       warning: titles.length < 3
         ? "Generate Titles failed because Hearth did not return at least three usable titles."
-        : !descriptions.shortDescription || !descriptions.longDescription
-          ? "Generate Titles failed because Hearth did not return both short and long descriptions."
-          : null,
+        : null,
     };
   }
 
@@ -87,9 +83,6 @@ export function validateHearthProductionArtifactOutput(args: {
   if (args.action === "seo" && feedback.titles.length < 3) {
     return { ok: false, error: feedback.warning ?? "Generated title output was unusable.", feedback };
   }
-  if (args.action === "seo" && (!feedback.descriptionShort || !feedback.descriptionLong)) {
-    return { ok: false, error: feedback.warning ?? "Generated descriptions were incomplete.", feedback };
-  }
   if (args.action === "tags" && feedback.tags.length === 0) {
     return { ok: false, error: feedback.warning ?? "Generated tag output was unusable.", feedback };
   }
@@ -110,12 +103,6 @@ export function canonicalizeHearthProductionArtifactOutput(args: {
     return [
       "SEO_TITLES:",
       ...validation.feedback.titles.map((title, index) => `${labels[index] ?? `OPTION_${index + 1}`}: ${title.text}`),
-      "",
-      "SHORT_DESCRIPTION:",
-      validation.feedback.descriptionShort ?? "",
-      "",
-      "LONG_DESCRIPTION:",
-      validation.feedback.descriptionLong ?? "",
     ].join("\n");
   }
   if (args.action === "tags") {

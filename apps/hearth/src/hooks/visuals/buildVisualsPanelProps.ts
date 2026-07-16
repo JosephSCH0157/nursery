@@ -33,6 +33,9 @@ type BuildMediaMapPanelArgs = {
   mediaMap: EpisodeMediaMap | null;
   saveState: MediaMapPanelProps["saveState"];
   saveError: string | null;
+  packageState: MediaMapPanelProps["packageState"];
+  packageError: string | null;
+  generateDisabledReason: string | null;
   message: string | null;
   disabled: boolean;
   generationScope: MediaMapGenerationScope;
@@ -283,6 +286,9 @@ export function buildMediaMapPanelProps(args: BuildMediaMapPanelArgs): MediaMapP
     ),
     saveState: args.saveState,
     saveError: args.saveError,
+    packageState: args.packageState,
+    packageError: args.packageError,
+    generateDisabledReason: args.generateDisabledReason,
     message: args.message,
     disabled: args.disabled,
     generationScope: args.generationScope,

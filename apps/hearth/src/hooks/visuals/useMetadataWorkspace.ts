@@ -267,6 +267,11 @@ export function useMetadataWorkspace(args: UseMetadataWorkspaceArgs) {
     markMetadataEditing();
   }
 
+  function onMetadataApplyTags(tags: string[]): void {
+    setMetadataTagsDraft(normalizeSeoTags(tags));
+    markMetadataEditing();
+  }
+
   function onMetadataDescriptionShortChange(nextValue: string): void {
     setMetadataDescriptionShortDraft(nextValue);
     markMetadataEditing();
@@ -315,6 +320,7 @@ export function useMetadataWorkspace(args: UseMetadataWorkspaceArgs) {
     onMetadataAddTagFromInput,
     onMetadataRemoveTag,
     onMetadataAddTagSuggestion,
+    onMetadataApplyTags,
     onMetadataDescriptionShortChange,
     onMetadataDescriptionLongChange,
     onMetadataPreviewModeChange,

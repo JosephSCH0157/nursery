@@ -5,9 +5,19 @@ import {
   type ProductionArtifactKind,
 } from "./hearth-production-repo";
 import {
-  mergeGeneratedSeoTitlesIntoSlots,
+  normalizeSeoTags,
   type EpisodeSeoTitle,
 } from "./episode-package-v2";
+
+export function resolveAcceptedTagProposal(args: {
+  canonicalTags: string[];
+  proposedTags: string[];
+  mode: "replace" | "merge";
+}): string[] {
+  return args.mode === "replace"
+    ? normalizeSeoTags(args.proposedTags)
+    : normalizeSeoTags([...args.canonicalTags, ...args.proposedTags]);
+}
 
 export type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack";
 
@@ -60,17 +70,6 @@ export function buildProductionPrompt(args: {
       "BALANCED_1: <title>",
       "BALANCED_2: <title>",
       "BALANCED_3: <title>",
-      "",
-      "SHORT_DESCRIPTION:",
-      "<one concise YouTube summary of 160 characters or fewer>",
-      "",
-      "LONG_DESCRIPTION:",
-      "<one detailed YouTube-ready description paragraph>",
-      "",
-      "PINNED_COMMENT_IDEAS:",
-      "- <concise option 1>",
-      "- <concise option 2>",
-      "- <concise option 3>",
       "",
       `Each title must preserve a thumbnail-safe hook of ${HEARTH_THUMBNAIL_TITLE_CONTRACT.preferred_max_words} words or fewer.`,
     ].join("\n");
@@ -168,11 +167,14 @@ export async function persistProductionArtifact(args: {
   setMetadataDescriptionShortDraft: (next: string) => void;
   setMetadataDescriptionLongDraft: (next: string) => void;
   setMetadataTagsDraft: (next: string[]) => void;
+  onTagProposal?: (proposal: { tags: string[]; scriptVersion: number; generatedAt: string }) => void;
+  generatedAt?: string;
+  reuseStoredArtifact?: boolean;
 }) {
   const episodeId = args.workpieceId?.trim();
   if (!episodeId) return;
 
-  const generatedAt = new Date().toISOString();
+  const generatedAt = args.generatedAt ?? new Date().toISOString();
   const artifactKind = PRODUCTION_ACTION_ARTIFACT_KIND[args.action];
   const validation = validateHearthProductionArtifactOutput({
     action: args.action,
@@ -204,33 +206,24 @@ export async function persistProductionArtifact(args: {
       scriptVersion: args.scriptVersion,
       kind: artifactKind,
       payload,
+      syncCanonical: args.action !== "tags",
+      artifactAlreadyPersisted: args.reuseStoredArtifact,
     });
 
     if (!committed.ok) {
-      args.setAiRuntimeWarning(validation.ok
-        ? `Saved response in chat, but failed to persist ${PRODUCTION_ACTION_LABEL[args.action]}.`
-        : `${validation.error} The paid response remains recoverable from the saved production artifact.`);
-      return;
+      const stage = committed.stage ? ` at ${committed.stage}` : "";
+      args.setAiRuntimeWarning(`${PRODUCTION_ACTION_LABEL[args.action]} failed${stage}: ${committed.reason} The paid response remains recoverable from the saved production artifact.`);
+      return committed;
     }
     if (!validation.ok) {
       args.setAiRuntimeWarning(validation.error);
       return;
     }
+    if (args.action === "tags") {
+      args.onTagProposal?.({ tags: validation.feedback.tags, scriptVersion: args.scriptVersion, generatedAt });
+      return committed;
+    }
     const artifactFeedback = validation.feedback;
-    if (artifactFeedback.titles.length > 0) {
-      args.setMetadataTitlesDraft((current) => {
-        return mergeGeneratedSeoTitlesIntoSlots(current, artifactFeedback.titles);
-      });
-    }
-    if (artifactFeedback.descriptionShort) {
-      args.setMetadataDescriptionShortDraft(artifactFeedback.descriptionShort);
-    }
-    if (artifactFeedback.descriptionLong) {
-      args.setMetadataDescriptionLongDraft(artifactFeedback.descriptionLong);
-    }
-    if (artifactFeedback.tags.length > 0) {
-      args.setMetadataTagsDraft(artifactFeedback.tags);
-    }
     if (artifactFeedback.warning) {
       args.setAiRuntimeWarning(artifactFeedback.warning);
     }
@@ -240,8 +233,10 @@ export async function persistProductionArtifact(args: {
     if (args.action === "release_prep_pack") {
       await args.loadLatestReleasePrepPack(args.scriptVersion);
     }
+    return committed;
   } catch {
     args.setAiRuntimeWarning(`Saved response in chat, but failed to persist ${PRODUCTION_ACTION_LABEL[args.action]}.`);
+    return { ok: false as const, reason: "Unexpected persistence failure.", stage: "commit" as const };
   }
 }
 

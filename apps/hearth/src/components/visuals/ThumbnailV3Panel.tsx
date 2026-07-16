@@ -20,11 +20,21 @@ type Props = {
   workspaceId: string;
   workpieceId: string;
   approvedScriptVersion: number;
-  onGenerateConcepts: () => Promise<void>;
-  onRecoverConcepts: () => Promise<void>;
+  onGenerateConcepts: () => Promise<{ ok: boolean; reason?: string; entityId?: string; disposition?: "created" | "existing"; stage?: string } | void>;
+  onRecoverConcepts: () => Promise<{ ok: boolean; reason?: string; entityId?: string; disposition?: "created" | "existing"; stage?: string } | void>;
   isGeneratingConcepts: boolean;
   onCanonicalProgress?: (progress: { conceptRevisionCount: number; baseVersionCount: number }) => void;
 };
+
+export function resolveConceptSetPresentation(sets: EpisodePackageV3["thumbnail"]["concept_sets"]) {
+  const available = sets.filter((set) => set.state !== "archived");
+  const archived = sets.filter((set) => set.state === "archived");
+  return {
+    available,
+    archived,
+    mode: available.length === 0 ? "empty" as const : available.length === 1 ? "label" as const : "selector" as const,
+  };
+}
 
 const emptyTreatment = {
   typography: { color: "#FFFFFF", max_lines: 3 },
@@ -83,7 +93,10 @@ export default function ThumbnailV3Panel(props: Props) {
     document.addEventListener("click", warnOnNavigation, true);
     return () => { window.removeEventListener("beforeunload", warn); document.removeEventListener("click", warnOnNavigation, true); };
   }, [saveState]);
-  const activeSet = pkg?.thumbnail.concept_sets.find((set) => set.id === selectedSetId) ?? null;
+  const conceptSetPresentation = resolveConceptSetPresentation(pkg?.thumbnail.concept_sets ?? []);
+  const availableSets = conceptSetPresentation.available;
+  const archivedSets = conceptSetPresentation.archived;
+  const activeSet = availableSets.find((set) => set.id === selectedSetId) ?? availableSets[0] ?? null;
   const revisions = useMemo(() => activeSet && pkg
     ? pkg.thumbnail.concept_revisions.filter((entry) => entry.concept_set_id === activeSet.id)
       .sort((left, right) => left.concept_lineage_id.localeCompare(right.concept_lineage_id) || left.revision_number - right.revision_number)
@@ -113,17 +126,27 @@ export default function ThumbnailV3Panel(props: Props) {
   const promptPack = activeRecipe && selectedConcept ? deriveThumbnailPromptPack({ recipe: activeRecipe, concept: selectedConcept }) : null;
   const conceptSaveLabel = pkg?.thumbnail.concept_sets.length === 0 && saveState === "saved" ? "not saved" : saveState;
 
-  const runConceptPersistence = async (action: () => Promise<void>, failureMessage: string) => {
+  const runConceptPersistence = async (action: () => Promise<unknown>, failureMessage: string, recovery = false) => {
     const beforeIds = new Set(pkg?.thumbnail.concept_sets.map((set) => set.id) ?? []);
     setLoadError(null); setSaveState("saving");
-    try { await action(); }
+    let outcome: unknown;
+    try { outcome = await action(); }
     catch (error) {
       setSaveState("error");
       setLoadError(error instanceof Error ? error.message : failureMessage);
       return;
     }
     const canonical = await reload();
+    const result = outcome && typeof outcome === "object" ? outcome as { ok?: boolean; reason?: string; entityId?: string; disposition?: string; stage?: string } : null;
+    if (result?.ok === false) {
+      setSaveState("error");
+      setLoadError(`${result.stage ? `${result.stage}: ` : ""}${result.reason ?? failureMessage}`);
+      return;
+    }
     const created = canonical?.episodePackage.thumbnail.concept_sets.some((set) => !beforeIds.has(set.id)) ?? false;
+    if (recovery && result?.ok && result.disposition === "existing" && result.entityId) {
+      setSelectedSetId(result.entityId); setSaveState("saved"); setLoadError("This stored generation was already recovered; the existing canonical concept set is selected."); return;
+    }
     if (!created) { setSaveState("error"); setLoadError(failureMessage); return; }
     setSaveState("saved");
   };
@@ -171,6 +194,30 @@ export default function ThumbnailV3Panel(props: Props) {
     const name = window.prompt("Concept set name", activeSet.name)?.trim();
     if (!name || name === activeSet.name) return;
     await commitSetMutation({ ...current, thumbnail: { ...current.thumbnail, concept_sets: current.thumbnail.concept_sets.map((set) => set.id === activeSet.id ? { ...set, name } : set) } }, activeSet.id, "hearth.thumbnail.concept-set.renamed.v3");
+  };
+
+  const archiveActiveSet = async () => {
+    if (!activeSet || !pkg) return;
+    const nextAvailable = availableSets.filter((set) => set.id !== activeSet.id);
+    const nextActiveId = pkg.thumbnail.active_concept_set_id === activeSet.id
+      ? (nextAvailable[0]?.id ?? null)
+      : pkg.thumbnail.active_concept_set_id;
+    await commitSetMutation({ ...pkg, thumbnail: {
+      ...pkg.thumbnail,
+      active_concept_set_id: nextActiveId,
+      concept_sets: pkg.thumbnail.concept_sets.map((set) => set.id === activeSet.id ? { ...set, state: "archived" } : set),
+    } }, activeSet.id, "hearth.thumbnail.concept-set.state.v3");
+    setSelectedSetId(nextActiveId);
+  };
+
+  const restoreSet = async (setId: string) => {
+    if (!pkg) return;
+    await commitSetMutation({ ...pkg, thumbnail: {
+      ...pkg.thumbnail,
+      active_concept_set_id: pkg.thumbnail.active_concept_set_id ?? setId,
+      concept_sets: pkg.thumbnail.concept_sets.map((set) => set.id === setId ? { ...set, state: "active" } : set),
+    } }, setId, "hearth.thumbnail.concept-set.state.v3");
+    setSelectedSetId(setId);
   };
 
   const refineSelected = async () => {
@@ -236,16 +283,20 @@ export default function ThumbnailV3Panel(props: Props) {
   return <div className="hs-thumbnail-v3">
     <div className="hs-row"><strong>Concept Brief sets</strong><span aria-live="polite">{conceptSaveLabel}</span>
       <button type="button" disabled={props.isGeneratingConcepts || saveState === "saving"} onClick={() => void runConceptPersistence(props.onGenerateConcepts, "The AI response was not saved as a canonical five-concept set. No saved result is being claimed.")}>{props.isGeneratingConcepts ? "Generating five…" : "Generate five concepts"}</button>
-      <button type="button" disabled={props.isGeneratingConcepts || saveState === "saving"} onClick={() => void runConceptPersistence(props.onRecoverConcepts, "No recoverable five-concept generation was found for this approved script version.")}>Recover last generation</button></div>
+      <button type="button" disabled={props.isGeneratingConcepts || saveState === "saving"} onClick={() => void runConceptPersistence(props.onRecoverConcepts, "No recoverable five-concept generation was found for this approved script version.", true)}>Recover last generation</button></div>
     {loadError ? <div className="hs-inline-error">{loadError}</div> : null}
     <div className="hs-row">
-      <select value={selectedSetId ?? ""} onChange={(event) => setSelectedSetId(event.target.value)} aria-label="Concept set">
-        {pkg.thumbnail.concept_sets.map((set) => <option key={set.id} value={set.id}>{set.name}{set.state === "archived" ? " (archived)" : ""}</option>)}
-      </select>
+      {conceptSetPresentation.mode === "label" && activeSet ? <span><strong>Concept set:</strong> {activeSet.name}</span> : null}
+      {conceptSetPresentation.mode === "selector" ? <label>Concept set<select value={activeSet?.id ?? ""} onChange={(event) => setSelectedSetId(event.target.value)} aria-label="Concept set">
+        {availableSets.map((set) => <option key={set.id} value={set.id}>{set.name}</option>)}
+      </select></label> : null}
       {activeSet ? <><button type="button" onClick={() => void commitSetMutation({ ...pkg, thumbnail: { ...pkg.thumbnail, active_concept_set_id: activeSet.id } }, activeSet.id, "hearth.thumbnail.concept-set.selected.v3")}>Make active</button>
         <button type="button" onClick={() => void renameSet()}>Rename</button>
-        <button type="button" onClick={() => void commitSetMutation({ ...pkg, thumbnail: { ...pkg.thumbnail, concept_sets: pkg.thumbnail.concept_sets.map((set) => set.id === activeSet.id ? { ...set, state: set.state === "active" ? "archived" : "active" } : set) } }, activeSet.id, "hearth.thumbnail.concept-set.state.v3")}>{activeSet.state === "active" ? "Archive" : "Restore"}</button></> : null}
+        <button type="button" onClick={() => void archiveActiveSet()}>Archive</button></> : null}
     </div>
+    {archivedSets.length ? <details><summary>Archived concept sets ({archivedSets.length})</summary>{archivedSets.map((set) => (
+      <div key={set.id}><span>{set.name}</span><button type="button" onClick={() => void restoreSet(set.id)}>Restore</button></div>
+    ))}</details> : null}
     <div className="hs-thumb-concept-grid">{revisions.map((concept) => concept ? <button type="button" key={concept.concept_revision_id} className={concept.concept_revision_id === selectedConcept?.concept_revision_id ? "is-selected" : ""} onClick={() => setSelectedRevisionId(concept.concept_revision_id)}><strong>{concept.headline}</strong><span>{concept.image_concept}</span><small>Revision {concept.revision_number}</small></button> : null)}</div>
     {selectedConcept ? <section><h4>Render recipe</h4><button type="button" onClick={() => void refineSelected()}>Refine as new revision</button>
       <label>Title<select value={titleId} onChange={(event) => { setTitleId(event.target.value); const title = pkg.seo.titles.find((entry) => entry.id === event.target.value); setTitleText(title?.thumbnail_text || title?.text || ""); setSaveState("editing"); }}>{pkg.seo.titles.map((title) => <option key={title.id} value={title.id}>{title.text} (r{title.revision})</option>)}</select></label>

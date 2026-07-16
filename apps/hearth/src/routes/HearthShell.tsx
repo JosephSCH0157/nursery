@@ -238,10 +238,11 @@ import { buildHearthThumbnailPanelProps } from "../views/modes/buildHearthThumbn
 import { buildHearthMediaMapPanelProps } from "../views/modes/buildHearthMediaMapPanelProps";
 import {
   persistProductionArtifact as persistHearthProductionArtifact,
+  resolveAcceptedTagProposal,
   runProductionAction,
   type ProductionAction,
 } from "../lib/hearth-production-actions";
-import { readWorkpieceProductionArtifact } from "../lib/hearth-production-repo";
+import { readWorkpieceProductionArtifact, type ProductionCommitResult } from "../lib/hearth-production-repo";
 import {
   assessImageMapScriptAnchor,
   buildImageMapAnchorPickerParagraphs,
@@ -2111,6 +2112,7 @@ export default function HearthShell({
   const [approvalPersistenceStatus, setApprovalPersistenceStatus] = useState<ApprovalPersistenceStatus | null>(null);
   const [activeProductionAction, setActiveProductionAction] = useState<ProductionAction | null>(null);
   const productionActionInFlightRef = useRef(false);
+  const lastProductionCommitResultRef = useRef<ProductionCommitResult | null>(null);
   const [writingProfile, setWritingProfile] = useState<WritingProfile | null>(null);
   const [forgeGreetingName, setForgeGreetingName] = useState<string>(() => readGreetingNameFromStorage());
   const [hearthUser, setHearthUser] = useState<HearthUserContext>({
@@ -2121,6 +2123,13 @@ export default function HearthShell({
   const [aiBillingMode, setAiBillingMode] = useState<HearthAiLane>(() => resolveAiLaneFromStorage());
   const [defaultVisualProvider, setDefaultVisualProvider] = useState<VisualProviderId>(() => resolveDefaultVisualProviderFromStorage());
   const [episodePackage, setEpisodePackage] = useState<EpisodePackageV2 | null>(null);
+  const [episodePackageState, setEpisodePackageState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
+  const [episodePackageError, setEpisodePackageError] = useState<string | null>(null);
+  const [generatedTagProposal, setGeneratedTagProposal] = useState<{
+    tags: string[];
+    scriptVersion: number;
+    generatedAt: string;
+  } | null>(null);
   const [scriptPanelCopyMessage, setScriptPanelCopyMessage] = useState<string | null>(null);
   const [activeWorkpieceTab, setActiveWorkpieceTab] = useState<WorkpieceWorkspaceTab>(() =>
     readWorkpieceWorkspaceTab(
@@ -2414,6 +2423,7 @@ export default function HearthShell({
     onMetadataAddTagFromInput,
     onMetadataRemoveTag,
     onMetadataAddTagSuggestion,
+    onMetadataApplyTags,
     onMetadataDescriptionShortChange,
     onMetadataDescriptionLongChange,
     onMetadataPreviewModeChange,
@@ -4625,6 +4635,8 @@ export default function HearthShell({
     workpieceId,
     resetReleasePrepState,
     setEpisodePackage,
+    setEpisodePackageState,
+    setEpisodePackageError,
     setImageMapMetadataUpdatedAt,
     setSelectedThumbnailTitleId,
     setSelectedThumbnailConceptId,
@@ -6604,11 +6616,15 @@ export default function HearthShell({
     action: ProductionAction;
     scriptVersion: number;
     assistantText: string;
+    generatedAt?: string;
+    reuseStoredArtifact?: boolean;
   }) {
-    await persistHearthProductionArtifact({
+    const result = await persistHearthProductionArtifact({
       action: args.action,
       scriptVersion: args.scriptVersion,
       assistantText: args.assistantText,
+      generatedAt: args.generatedAt,
+      reuseStoredArtifact: args.reuseStoredArtifact,
       workpieceId,
       workspaceId,
       refreshEpisodePackage,
@@ -6618,12 +6634,16 @@ export default function HearthShell({
       setMetadataDescriptionShortDraft,
       setMetadataDescriptionLongDraft,
       setMetadataTagsDraft,
+      onTagProposal: setGeneratedTagProposal,
     });
+    lastProductionCommitResultRef.current = result ?? null;
+    return result;
   }
 
   async function onRunProductionAction(action: ProductionAction) {
     if (productionActionInFlightRef.current) return;
     productionActionInFlightRef.current = true;
+    lastProductionCommitResultRef.current = null;
     try {
       await runProductionAction({
         action,
@@ -6642,20 +6662,22 @@ export default function HearthShell({
         setActiveProductionAction,
         sendChatMessage,
       });
+      return lastProductionCommitResultRef.current ?? undefined;
     } finally {
       productionActionInFlightRef.current = false;
     }
   }
 
   async function onRecoverThumbnailConcepts() {
-    if (!workpieceId) { setAiRuntimeWarning("Select an Episode before recovering thumbnail concepts."); return; }
-    if (!approvedScriptVersion) { setAiRuntimeWarning("Approve a Script Version before recovering thumbnail concepts."); return; }
+    if (!workpieceId) { const reason = "Select an Episode before recovering thumbnail concepts."; setAiRuntimeWarning(reason); return { ok: false as const, reason }; }
+    if (!approvedScriptVersion) { const reason = "Approve a Script Version before recovering thumbnail concepts."; setAiRuntimeWarning(reason); return { ok: false as const, reason }; }
     const artifact = await readWorkpieceProductionArtifact({ workpieceId, scriptVersion: approvedScriptVersion, kind: "thumbnails" });
     const payload = artifact.ok && artifact.payload && typeof artifact.payload === "object" && !Array.isArray(artifact.payload)
       ? artifact.payload as Record<string, unknown> : null;
     const rawText = typeof payload?.raw_text === "string" ? payload.raw_text : "";
-    if (!rawText.trim()) { setAiRuntimeWarning("No saved thumbnail generation response exists for this approved script version."); return; }
-    await persistProductionArtifact({ action: "thumbnails", scriptVersion: approvedScriptVersion, assistantText: rawText });
+    if (!rawText.trim()) { const reason = "No saved thumbnail generation response exists for this approved script version."; setAiRuntimeWarning(reason); return { ok: false as const, reason, stage: "artifact" as const }; }
+    const generatedAt = typeof payload?.generated_at === "string" ? payload.generated_at : undefined;
+    return persistProductionArtifact({ action: "thumbnails", scriptVersion: approvedScriptVersion, assistantText: rawText, generatedAt, reuseStoredArtifact: true });
   }
 
   async function onRecoverFraming() {
@@ -6669,10 +6691,22 @@ export default function HearthShell({
       const rawText = typeof payload?.raw_text === "string" ? payload.raw_text : "";
       if (!rawText.trim()) continue;
       found += 1;
-      await persistProductionArtifact({ action, scriptVersion: approvedScriptVersion, assistantText: rawText });
+      const generatedAt = typeof payload?.generated_at === "string" ? payload.generated_at : undefined;
+      await persistProductionArtifact({ action, scriptVersion: approvedScriptVersion, assistantText: rawText, generatedAt, reuseStoredArtifact: true });
     }
     if (!found) { setAiRuntimeWarning("No saved title or tag generation responses exist for this approved script version."); return; }
     await refreshEpisodePackage();
+  }
+
+  function onAcceptGeneratedTags(mode: "replace" | "merge") {
+    if (!generatedTagProposal) return;
+    const nextTags = resolveAcceptedTagProposal({
+      canonicalTags: metadataTagsDraft,
+      proposedTags: generatedTagProposal.tags,
+      mode,
+    });
+    onMetadataApplyTags(nextTags);
+    setGeneratedTagProposal(null);
   }
 
   function resolveBrollDataVisualSpecFromDraft(intent: EpisodeBrollPlanBeat["motion_intent"]): EpisodeBrollDataVisualSpec | null {
@@ -7125,6 +7159,19 @@ export default function HearthShell({
       mediaMap,
       saveState: mediaMapSaveState,
       saveError: mediaMapSaveError,
+      packageState: episodePackageState,
+      packageError: episodePackageError,
+      generateDisabledReason: episodePackageState === "loading"
+        ? "The episode package is still loading."
+        : episodePackageState === "error"
+          ? (episodePackageError ?? "The episode package failed to load.")
+          : episodePackageState !== "loaded" || !episodePackage
+            ? "No episode package is available."
+            : isApprovingScript
+              ? "Script approval is in progress."
+              : isMediaMapBusy
+                ? "A media-map operation is already in progress."
+                : null,
       message: mediaMapMessage,
       disabled: isApprovingScript || isMediaMapBusy || !episodePackage,
       generationScope: mediaMapGenerationScope,
@@ -7499,6 +7546,11 @@ export default function HearthShell({
           onGenerateFramingPack: hearthVisualsWorkspace.commands.onGenerateFramingPack,
           onRefreshFramingPack: hearthVisualsWorkspace.commands.onRefreshFramingPack,
           onRecoverFraming,
+          tagProposal: generatedTagProposal,
+          canonicalTags: metadataTagsDraft,
+          onReplaceTagProposal: () => onAcceptGeneratedTags("replace"),
+          onMergeTagProposal: () => onAcceptGeneratedTags("merge"),
+          onCancelTagProposal: () => setGeneratedTagProposal(null),
         }}
         visualsSurfaceProps={{
           visible: isVisualsWorkspaceTab,

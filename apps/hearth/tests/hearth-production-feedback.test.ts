@@ -4,7 +4,7 @@ import {
   resolveHearthProductionArtifactFeedback,
   validateHearthProductionArtifactOutput,
 } from "../src/lib/hearth-production-feedback";
-import { buildProductionPrompt } from "../src/lib/hearth-production-actions";
+import { buildProductionPrompt, resolveAcceptedTagProposal } from "../src/lib/hearth-production-actions";
 
 test("production prompts use the single approved-script copy in episode context", () => {
   const secretScriptLine = "THIS SCRIPT LINE MUST NOT BE DUPLICATED INTO CHAT HISTORY";
@@ -18,7 +18,7 @@ test("production prompts use the single approved-script copy in episode context"
   assert.match(prompt, /SCRIPT_VERSION: 4/);
 });
 
-test("hearthProductionFeedback: seo replies hydrate titles and descriptions", () => {
+test("hearthProductionFeedback: seo replies hydrate titles only", () => {
   const feedback = resolveHearthProductionArtifactFeedback({
     action: "seo",
     assistantText: [
@@ -35,8 +35,8 @@ test("hearthProductionFeedback: seo replies hydrate titles and descriptions", ()
   assert.equal(feedback.shouldRefreshEpisodePackage, true);
   assert.equal(feedback.titles.length, 3);
   assert.equal(feedback.titles[0]?.text, "Calm, Clear Title");
-  assert.equal(feedback.descriptionLong, "A long-form description block for the episode.");
-  assert.match(feedback.descriptionShort ?? "", /long-form description/i);
+  assert.equal(feedback.descriptionLong, null);
+  assert.equal(feedback.descriptionShort, null);
   assert.equal(feedback.warning, null);
 });
 
@@ -87,13 +87,31 @@ test("hearthProductionFeedback: structured title and tag arrays remain usable", 
   if (tags.ok) assert.deepEqual(tags.feedback.tags, ["florida-citrus", "orange-history", "agriculture"]);
 });
 
-test("hearthProductionFeedback: titles without both descriptions are an incomplete failure", () => {
+test("hearthProductionFeedback: titles do not require descriptions", () => {
   const result = validateHearthProductionArtifactOutput({
     action: "seo",
     assistantText: "SEO_TITLES:\nSAFE: First\nSPICY: Second\nBALANCED_1: Third",
   });
-  assert.equal(result.ok, false);
-  if (!result.ok) assert.match(result.error, /both short and long descriptions/i);
+  assert.equal(result.ok, true);
+});
+
+test("production prompts keep titles, tags, and framing pack contracts separate", () => {
+  const titles = buildProductionPrompt({ action: "seo", scriptVersion: 1, episodeTitle: "Episode" });
+  const tags = buildProductionPrompt({ action: "tags", scriptVersion: 1, episodeTitle: "Episode" });
+  const pack = buildProductionPrompt({ action: "release_prep_pack", scriptVersion: 1, episodeTitle: "Episode" });
+  assert.match(titles, /SEO_TITLES:/);
+  assert.doesNotMatch(titles, /SHORT_DESCRIPTION|TAGS_FULL|MONETIZATION_ANGLE/);
+  assert.match(tags, /TAGS_FULL:/);
+  assert.doesNotMatch(tags, /SEO_TITLES|SHORT_DESCRIPTION|MONETIZATION_ANGLE/);
+  assert.match(pack, /MONETIZATION_ANGLE:/);
+  assert.doesNotMatch(pack, /TAGS_FULL|SEO_TITLES:/);
+});
+
+test("tag proposal acceptance only reintroduces visible proposed tags", () => {
+  const canonical = ["kept-tag"];
+  assert.deepEqual(resolveAcceptedTagProposal({ canonicalTags: canonical, proposedTags: ["new-tag"], mode: "merge" }), ["kept-tag", "new-tag"]);
+  assert.deepEqual(resolveAcceptedTagProposal({ canonicalTags: canonical, proposedTags: ["deleted-tag"], mode: "merge" }), ["kept-tag", "deleted-tag"]);
+  assert.deepEqual(resolveAcceptedTagProposal({ canonicalTags: canonical, proposedTags: ["replacement"], mode: "replace" }), ["replacement"]);
 });
 
 test("hearthProductionFeedback: tags replies hydrate tags and warn on empty structured output", () => {

@@ -5,7 +5,7 @@ import {
   hydrateEpisodePackageV2,
   parseThumbnailConceptsFromText,
 } from "./episode-package-v2";
-import { canonicalSerialize, validateConceptGenerationSet, type ThumbnailConceptRevision } from "./episode-package-v3";
+import { canonicalSerialize, validateConceptGenerationSet, type ThumbnailConceptRevision, type ThumbnailConceptSet } from "./episode-package-v3";
 import { appendConceptSet } from "./hearth-thumbnail-v3-authority";
 import { commitEpisodePackageV3Mutation, readCanonicalEpisodePackageV3 } from "./hearth-thumbnail-v3-api";
 import { canonicalFramingEquals } from "./hearth-framing-authority";
@@ -21,8 +21,8 @@ type WrittenBy = {
 export type ProductionArtifactKind = "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "pack";
 
 export type ProductionCommitResult =
-  | { ok: true }
-  | { ok: false; status?: number; reason: string };
+  | { ok: true; entityId?: string; disposition?: "created" | "existing" }
+  | { ok: false; status?: number; reason: string; stage?: "artifact" | "parse" | "normalize" | "validate" | "commit" | "readback"; errors?: string[] };
 
 export type ProductionArtifactReadResult =
   | { ok: true; payload: unknown }
@@ -73,6 +73,19 @@ function readRawTextFromPayload(payload: unknown): string {
 function readGeneratedAtFromPayload(payload: unknown): string {
   if (!isRecord(payload)) return new Date().toISOString();
   return normalizeIso(payload.generated_at);
+}
+
+export function findRecoveredConceptSet(args: {
+  sets: readonly ThumbnailConceptSet[];
+  sourceResponseHash: string;
+  generatedAt: string;
+  scriptVersion: number;
+}): ThumbnailConceptSet | null {
+  return args.sets.find((set) => (
+    set.source_response_hash === args.sourceResponseHash
+    && set.created_at === args.generatedAt
+    && set.approved_script_version === args.scriptVersion
+  )) ?? null;
 }
 
 function resolveLane(): string {
@@ -224,9 +237,21 @@ async function syncEpisodePackageMetadata(args: {
   if (args.kind === "thumbnails") {
     const rawText = readRawTextFromPayload(args.payload);
     const parsed = parseThumbnailConceptsFromText(rawText);
-    if (parsed.length !== 5) return { ok: false, status: 422, reason: "thumbnail_concept_set_invalid" };
+    if (parsed.length !== 5) return {
+      ok: false, status: 422, reason: `Parsed ${parsed.length} of 5 required thumbnail concepts.`,
+      stage: "parse", errors: [`Expected exactly 5 concept blocks; found ${parsed.length}.`],
+    };
     const canonical = await readCanonicalEpisodePackageV3(args.workpieceId);
     const createdAt = readGeneratedAtFromPayload(args.payload);
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalSerialize(rawText)));
+    const sourceHash = Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    const existingSet = findRecoveredConceptSet({
+      sets: canonical.episodePackage.thumbnail.concept_sets,
+      sourceResponseHash: sourceHash,
+      generatedAt: createdAt,
+      scriptVersion: args.scriptVersion,
+    });
+    if (existingSet) return { ok: true, entityId: existingSet.id, disposition: "existing" };
     const setId = crypto.randomUUID();
     const concepts: ThumbnailConceptRevision[] = parsed.map((concept) => ({
       concept_lineage_id: crypto.randomUUID(), concept_revision_id: crypto.randomUUID(), revision_number: 1,
@@ -235,11 +260,10 @@ async function syncEpisodePackageMetadata(args: {
       normalized_prompt_basis: concept.prompt_text.trim().replace(/\s+/g, " "), created_at: createdAt,
       provenance: { source: "hearth_generation", script_version: args.scriptVersion },
     }));
-    if (validateConceptGenerationSet(concepts.map(({ concept_set_id: _ignored, ...concept }) => concept)).length) {
-      return { ok: false, status: 422, reason: "thumbnail_concept_set_invalid" };
+    const validationErrors = validateConceptGenerationSet(concepts.map(({ concept_set_id: _ignored, ...concept }) => concept));
+    if (validationErrors.length) {
+      return { ok: false, status: 422, reason: validationErrors.join(" "), stage: "validate", errors: validationErrors };
     }
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalSerialize(rawText)));
-    const sourceHash = Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
     const next = appendConceptSet({ episodePackage: canonical.episodePackage, concepts, conceptSet: {
       id: setId, name: `Concept Set ${canonical.episodePackage.thumbnail.concept_sets.length + 1}`,
       created_at: createdAt, state: "active", approved_script_version: args.scriptVersion,
@@ -252,7 +276,13 @@ async function syncEpisodePackageMetadata(args: {
       eventName: "hearth.thumbnail.concept-set.generated.v3",
       eventPayload: { script_version: args.scriptVersion, concept_set_id: setId },
     });
-    return saved.ok ? { ok: true } : { ok: false, status: saved.status, reason: saved.error };
+    if (!saved.ok) return { ok: false, status: saved.status, reason: saved.error, stage: "commit", errors: [saved.error] };
+    const verified = await readCanonicalEpisodePackageV3(args.workpieceId);
+    const verifiedSet = verified.episodePackage.thumbnail.concept_sets.find((set) => set.id === setId);
+    if (!verifiedSet || verifiedSet.source_response_hash !== sourceHash) {
+      return { ok: false, status: 409, reason: "Canonical readback did not contain the committed concept set.", stage: "readback" };
+    }
+    return { ok: true, entityId: setId, disposition: "created" };
   }
 
   const nowIso = new Date().toISOString();
@@ -333,46 +363,40 @@ export async function commitWorkpieceProductionArtifact(args: {
   scriptVersion: number;
   kind: ProductionArtifactKind;
   payload: unknown;
+  syncCanonical?: boolean;
+  artifactAlreadyPersisted?: boolean;
 }): Promise<ProductionCommitResult> {
-  const url = `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`;
-  const response = await tongsFetch(url, {
-    method: "POST",
-    json: {
-      path: artifactPath(args.kind, args.scriptVersion),
-      content_type: "application/json",
-      json: args.payload,
-      written_by: buildWrittenBy(),
-      correlation_id: nextCorrelationId("hearth-production"),
-      event_name: "hearth.production.artifact.v1",
-      event_payload: {
-        kind: args.kind,
-        script_version: args.scriptVersion,
+  if (!args.artifactAlreadyPersisted) {
+    const url = `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`;
+    const response = await tongsFetch(url, {
+      method: "POST",
+      json: {
+        path: artifactPath(args.kind, args.scriptVersion),
+        content_type: "application/json",
+        json: args.payload,
+        written_by: buildWrittenBy(),
+        correlation_id: nextCorrelationId("hearth-production"),
+        event_name: "hearth.production.artifact.v1",
+        event_payload: {
+          kind: args.kind,
+          script_version: args.scriptVersion,
+        },
       },
-    },
-  });
+    });
 
-  if (!response.ok) {
-    return {
-      ok: false,
-      status: response.status,
-      reason: "request_failed",
-    };
+    if (!response.ok) {
+      return { ok: false, status: response.status, reason: "request_failed", stage: "artifact" };
+    }
+    const body = await readJsonBody(response);
+    if (!isRecord(body) || body.ok !== true) {
+      return { ok: false, status: response.status, reason: "invalid_response", stage: "artifact" };
+    }
   }
 
-  let body: unknown = null;
-  body = await readJsonBody(response);
-  if (!isRecord(body) || body.ok !== true) {
-    return {
-      ok: false,
-      status: response.status,
-      reason: "invalid_response",
-    };
-  }
-
+  if (args.syncCanonical === false) return { ok: true };
   const metadataResult = await syncEpisodePackageMetadata(args);
   if (!metadataResult.ok) {
     return metadataResult;
   }
-
-  return { ok: true };
+  return metadataResult;
 }

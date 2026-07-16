@@ -18,6 +18,9 @@ type EpisodeMediaMapPanelProps = {
   stale: boolean;
   saveState: "saved" | "editing" | "saving" | "error";
   saveError: string | null;
+  packageState: "idle" | "loading" | "loaded" | "error";
+  packageError: string | null;
+  generateDisabledReason: string | null;
   message: string | null;
   disabled?: boolean;
   generationScope: string;
@@ -317,10 +320,20 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
             Recommended: 10-16 visuals for a 7-10 minute episode. Use stills as the backbone and reserve motion for moments that need it.
           </p>
         </div>
-        <div className={`hs-imap-save-state is-${props.saveState}`}>
-          {props.saveState}
-        </div>
+        {props.packageState === "loaded" ? (
+          <div className={`hs-imap-save-state is-${props.saveState}`}>{props.saveState}</div>
+        ) : null}
       </div>
+
+      {props.packageState === "loading" ? (
+        <div className="hs-imap-message" role="status">Loading the episode package…</div>
+      ) : props.packageState === "error" ? (
+        <div className="hs-imap-error" role="alert">
+          Episode package unavailable: {props.packageError ?? "Unable to load the canonical episode package. Refresh to try again."}
+        </div>
+      ) : props.packageState === "idle" ? (
+        <div className="hs-imap-message" role="status">Select an episode to load its media map.</div>
+      ) : null}
 
       <div className="hs-imap-toolbar">
         <button
@@ -328,6 +341,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
           className="hs-imap-primary-action"
           onClick={props.onGenerateFromPlans}
           disabled={props.disabled}
+          title={props.generateDisabledReason ?? undefined}
         >
           Generate Media Map
         </button>
@@ -342,7 +356,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
         <span className="hs-pill">Motion allowance: {props.budgetPolicy.defaultMotionAllowance}</span>
         {cadenceSeconds != null ? <span className="hs-pill">Cadence: {cadenceSeconds}s/placement</span> : null}
         <span className="hs-pill">Map: {props.mapStatus}</span>
-        <span className="hs-pill">State: {props.saveState}</span>
+        {props.packageState === "loaded" ? <span className="hs-pill">State: {props.saveState}</span> : null}
         {props.entries.length > 0 ? (
           <button
             type="button"

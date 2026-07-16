@@ -166,7 +166,8 @@ test("authenticated cold boot preserves recipe and both renderers converge on v3
   const panel = page.locator("#hearth-thumbnail-panel");
   await expect(panel).toBeVisible({ timeout: 30_000 });
   await panel.getByRole("button", { name: "Open" }).click();
-  await expect(panel.getByLabel("Concept set").locator("option:checked")).toHaveText("Cold Boot Concepts");
+  await expect(panel.locator("span").filter({ hasText: "Concept set: Cold Boot Concepts" })).toBeVisible();
+  await expect(panel.getByLabel("Concept set")).toHaveCount(0);
   const overlay = panel.getByLabel("Overlay text");
   await expect(overlay).toHaveValue("COLD BOOT");
   await overlay.fill("COLD BOOT SAVED");
@@ -202,15 +203,21 @@ test("authenticated cold boot preserves recipe and both renderers converge on v3
   await expect(currentPanel.getByText("saved", { exact: true })).toBeVisible();
   const recovered = await fixture.service.readWorkpieceJson(fixture.workpieceId, "metadata.json");
   expect((recovered.data as { episode?: { thumbnail?: { concept_sets?: unknown[] } } }).episode?.thumbnail?.concept_sets).toHaveLength(2);
+  await currentPanel.getByRole("button", { name: "Recover last generation" }).click();
+  await expect(currentPanel.getByText(/already recovered/i)).toBeVisible();
+  const recoveredAgain = await fixture.service.readWorkpieceJson(fixture.workpieceId, "metadata.json");
+  expect((recoveredAgain.data as { episode?: { thumbnail?: { concept_sets?: unknown[] } } }).episode?.thumbnail?.concept_sets).toHaveLength(2);
   expect(forgeRequests).toBe(1);
   await page.getByRole("tab", { name: "Framing" }).click();
   await page.getByRole("button", { name: "Recover generated titles and tags" }).click();
+  await expect(page.getByRole("region", { name: "Generated tag suggestion" })).toBeVisible();
+  await page.getByRole("button", { name: "Replace canonical tags" }).click();
   await expect.poll(async () => {
     const metadata = await fixture.service.readWorkpieceJson(fixture.workpieceId, "metadata.json");
     const episode = (metadata.data as { episode?: { seo?: { titles?: unknown[]; tags?: unknown[] } } }).episode;
     return [episode?.seo?.titles?.length ?? 0, episode?.seo?.tags?.length ?? 0];
   }).toEqual([5, 5]);
   await page.reload();
-  await expect(page.getByRole("tab", { name: "Framing" })).toContainText("5 titles · 5 tags · Complete");
+  await expect(page.getByRole("tab", { name: "Framing" })).toContainText("5 titles · 5 tags · Needs work");
   await expect(page.getByRole("tab", { name: "Visuals" })).toContainText("10 briefs");
 });

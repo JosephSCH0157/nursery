@@ -1441,7 +1441,7 @@ export function parseThumbnailConceptsFromText(rawText: string): EpisodeThumbnai
   const flush = () => {
     if (!currentId) return;
     const promptText = [imageConcept, moodStyle].filter(Boolean).join(" | ");
-    if (!promptText) {
+    if (!headline || !imageConcept || !moodStyle) {
       currentId = null;
       headline = null;
       imageConcept = null;
@@ -1450,7 +1450,7 @@ export function parseThumbnailConceptsFromText(rawText: string): EpisodeThumbnai
     }
     concepts.push({
       id: `concept-${currentId.toLowerCase()}`,
-      label: headline || `THUMBNAIL_${currentId}`,
+      label: headline,
       prompt_text: promptText,
       style_preset: normalizeHearthVisualStyle(moodStyle),
       title_style: DEFAULT_TITLE_STYLE,
@@ -1469,24 +1469,24 @@ export function parseThumbnailConceptsFromText(rawText: string): EpisodeThumbnai
       .replace(/\*\*|__/g, "")
       .trim();
     if (!line) continue;
-    const header = line.match(/^THUMBNAIL_(\d{1,3})$/i);
+    const header = line.match(/^THUMBNAIL[_\s-]*(\d{1,3})\s*[:.-]?$/i);
     if (header) {
       flush();
       currentId = header[1]?.padStart(2, "0") ?? "01";
       continue;
     }
     if (!currentId) continue;
-    const headlineMatch = line.match(/^Headline:\s*(.+)$/i);
+    const headlineMatch = line.match(/^(?:Headline|Title|Hook):\s*(.+)$/i);
     if (headlineMatch?.[1]) {
       headline = headlineMatch[1].trim();
       continue;
     }
-    const imageMatch = line.match(/^Image concept:\s*(.+)$/i);
+    const imageMatch = line.match(/^(?:Image concept|Visual concept|Image|Visual):\s*(.+)$/i);
     if (imageMatch?.[1]) {
       imageConcept = imageMatch[1].trim();
       continue;
     }
-    const moodMatch = line.match(/^Mood\/style:\s*(.+)$/i);
+    const moodMatch = line.match(/^(?:Mood\s*\/\s*style|Mood and style|Mood|Style):\s*(.+)$/i);
     if (moodMatch?.[1]) {
       moodStyle = moodMatch[1].trim();
     }
@@ -2461,15 +2461,8 @@ export function applyProductionArtifactToEpisodePackage(args: {
 
   if (args.action === "seo") {
     const titles = parseSeoTitlesFromText(args.rawText);
-    const descriptions = parseDescriptionFromSeoText(args.rawText);
     if (titles.length) {
       nextEpisode.seo.titles = mergeGeneratedSeoTitlesIntoSlots(nextEpisode.seo.titles, titles);
-    }
-    if (descriptions.shortDescription) {
-      nextEpisode.seo.description_short = descriptions.shortDescription;
-    }
-    if (descriptions.longDescription) {
-      nextEpisode.seo.description_long = descriptions.longDescription;
     }
   }
 
