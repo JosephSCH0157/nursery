@@ -9543,6 +9543,14 @@ export class TongsCommitService {
     return data;
   }
 
+  private async getThumbnailAssetByOperation(workpieceId: string, workspaceId: string, operationId: string): Promise<AssetRow | null> {
+    const { data, error } = await this.supabase.schema("tongs").from("assets").select("*")
+      .eq("workpiece_id", workpieceId).eq("workspace_id", workspaceId).eq("operation_id", operationId)
+      .in("asset_kind", ["thumbnail_image", "thumbnail_composite"]).maybeSingle();
+    if (error) throw new HttpError(502, "db_read_failed", "Failed to resolve thumbnail operation identity", { reason: error.message });
+    return data ?? null;
+  }
+
   async stageThumbnailAsset(
     workpieceId: string,
     input: StageThumbnailAssetRequest,
@@ -9912,6 +9920,19 @@ export class TongsCommitService {
     const userId = await this.resolveUserIdFromAccessToken(input.user_access_token);
     if (!userId) {
       throw new HttpError(401, "authentication_required", "User access token is required for thumbnail generation");
+    }
+
+    if (input.canonical_stage_only) {
+      const existing = await this.getThumbnailAssetByOperation(workpieceId, workspace.id, input.operation_id);
+      if (existing) {
+        const metadata = isRecord(existing.metadata_json) ? existing.metadata_json : {};
+        if (metadata.concept_revision_id !== input.concept_revision_id
+          || metadata.render_recipe_id !== input.render_recipe_id
+          || metadata.render_recipe_revision !== input.render_recipe_revision) {
+          throw new HttpError(409, "thumbnail_operation_conflict", "operation_id is already bound to different thumbnail authority");
+        }
+        return { canonical_stage_only: true, asset: thumbnailAssetSummary(existing) };
+      }
     }
 
     const metadataRead = await this.readWorkpieceJson(workpieceId, "metadata.json");

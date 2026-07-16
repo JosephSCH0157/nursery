@@ -4316,6 +4316,25 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   assert.equal(result.primary_version_id, result.version.id);
   assert.equal(result.updated_episode_package.launch_variants.length, 1);
   assert.equal(result.asset.storage_bucket, "forge-workpieces");
+
+  service.getThumbnailAssetByOperation = async () => ({
+    id: stagedAsset.id, workspace_id: workspaceId, workpiece_id: workpieceId,
+    operation_id: "66666666-6666-4666-8666-666666666666", asset_kind: "thumbnail_image", status: "pending",
+    path: stagedAsset.path, mime_type: "image/png", bytes: 3, content_hash: "b".repeat(64),
+    storage_bucket: stagedAsset.storage_bucket, storage_key: stagedAsset.storage_key,
+    reference_committed_at: null, ready_at: null, failed_at: null, failure_code: null, failure_message: null,
+    metadata_json: { concept_revision_id: "concept-revision-1", render_recipe_id: "recipe-1", render_recipe_revision: 2 },
+  });
+  const replayResult = await service.generateEpisodeThumbnail(workpieceId, {
+    workspace_id: workspaceId, episode_id: workpieceId,
+    operation_id: "66666666-6666-4666-8666-666666666666", prompt: "derived prompt",
+    canonical_stage_only: true, concept_revision_id: "concept-revision-1",
+    render_recipe_id: "recipe-1", render_recipe_revision: 2,
+    confirm_spend: true, lane: "forge", user_access_token: "token_abc",
+  });
+  assert.equal(replayResult.canonical_stage_only, true);
+  assert.equal(replayResult.asset.id, stagedAsset.id);
+  assert.equal(providerCalls.length, 1, "Canonical operation replay called the image provider again");
 });
 
 test("TongsCommitService.generateImageMapCandidates writes candidate assets and canonical image-map refs", async () => {
