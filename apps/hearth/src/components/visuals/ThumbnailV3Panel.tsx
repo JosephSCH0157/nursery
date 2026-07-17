@@ -29,6 +29,7 @@ import {
   readCanonicalThumbnailWorkspaceV3,
   type ThumbnailSaveState,
 } from "../../lib/hearth-thumbnail-v3-api";
+import { ensureCanonicalBrandBinding } from "../../lib/hearth-brand-library";
 
 type Props = {
   workspaceId: string;
@@ -94,7 +95,8 @@ export default function ThumbnailV3Panel(props: Props) {
 
   const reload = useCallback(async () => {
     try {
-      const canonical = await readCanonicalThumbnailWorkspaceV3({ workpieceId: props.workpieceId, workspaceId: props.workspaceId });
+      let canonical = await readCanonicalThumbnailWorkspaceV3({ workpieceId: props.workpieceId, workspaceId: props.workspaceId });
+      canonical = await ensureCanonicalBrandBinding({ workspaceId: props.workspaceId, workpieceId: props.workpieceId, canonical });
       setPkg(canonical.episodePackage); setToken(canonical.metadataUpdatedAt); setLoadError(null);
       props.onCanonicalProgress?.({
         conceptRevisionCount: canonical.episodePackage.thumbnail.concept_revisions.length,

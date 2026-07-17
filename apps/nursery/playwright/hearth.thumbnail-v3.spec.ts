@@ -17,6 +17,7 @@ const RECOVERABLE_TAGS = "TAGS_FULL:\ndurable one, durable two, durable three, d
 
 type Fixture = {
   admin: SupabaseClient;
+  user: SupabaseClient;
   bucket: string;
   orgId: string;
   workspaceId: string;
@@ -112,7 +113,7 @@ test.beforeAll(async () => {
   ] as const) await service.commitFile(workpieceId, { path, content_type: "application/json",
     json: { script_version: 1, generated_at: "2026-07-15T12:00:00.000Z", action, raw_text: rawText },
     written_by: { tool: "hearth", tool_version: "3", lane: "canonical" } });
-  fixture = { admin, bucket: env.bucket, orgId, workspaceId, workpieceId, ownerId, session: signedIn.data.session, service };
+  fixture = { admin, user: auth, bucket: env.bucket, orgId, workspaceId, workpieceId, ownerId, session: signedIn.data.session, service };
 });
 
 test.afterAll(async () => {
@@ -129,6 +130,23 @@ test.afterAll(async () => {
   await tongs.from("org_members").delete().eq("org_id", fixture.orgId);
   await tongs.from("orgs").delete().eq("id", fixture.orgId);
   await fixture.admin.auth.admin.deleteUser(fixture.ownerId);
+});
+
+test("brand ensure-binding and explicit mutations are concurrency-safe", async () => {
+  const rpc=(name:string,args:Record<string,unknown>)=>fixture.user.schema("tongs").rpc(name as never,args as never) as unknown as Promise<{data:unknown;error:{message:string}|null}>;
+  const resolutions=await Promise.all(["hearth","hammer","quench"].map((tool,index)=>rpc("resolve_workpiece_brand_default",{p_workspace_id:fixture.workspaceId,p_workpiece_id:fixture.workpieceId,p_operation_id:`${tool}-${randomUUID()}`,p_operation_fingerprint:String(index+1).repeat(64)})));
+  for(const result of resolutions)expect(result.error).toBeNull();
+  const payloads=resolutions.map((entry)=>entry.data as {disposition:string;binding:{id:string;revision:number;state:string}});
+  expect(payloads.filter((entry)=>entry.disposition==="created_binding")).toHaveLength(1);
+  expect(new Set(payloads.map((entry)=>entry.binding.id)).size).toBe(1); expect(new Set(payloads.map((entry)=>entry.binding.revision))).toEqual(new Set([1]));
+  const rows=await fixture.admin.schema("tongs").from("workpiece_brand_bindings").select("id,revision,state").eq("workpiece_id",fixture.workpieceId);expect(rows.error).toBeNull();expect(rows.data).toHaveLength(1);expect(rows.data?.[0]?.state).toBe("disabled");
+  const late=await rpc("resolve_workpiece_brand_default",{p_workspace_id:fixture.workspaceId,p_workpiece_id:fixture.workpieceId,p_operation_id:`late-${randomUUID()}`,p_operation_fingerprint:"a".repeat(64)});expect(late.error).toBeNull();expect((late.data as {disposition:string}).disposition).toBe("existing_binding");
+  const rules={public_identity:{program_name:"Browser Brand",tagline:"Canonical"},palette:{primary:"#111827",secondary:"#f8fafc",accent:"#f97316"},typography:{heading_family:"bold_sans",body_family:"sans-serif",heading_weight:700,body_weight:400},logo:{placement:"bottom_right",watermark_opacity:0.7},audio:{music_volume:0.2,ducking:0.35},asset_revision_ids:{}};
+  const created=await rpc("create_brand_profile",{p_workspace_id:fixture.workspaceId,p_internal_label:"Browser Brand",p_rules:rules,p_operation_id:randomUUID()});expect(created.error).toBeNull();const brand=created.data as {profile_id:string;profile_revision_id:string;bindable:boolean};expect(brand.bindable).toBe(true);
+  const mutations=await Promise.all(["select-a","select-b"].map((label,index)=>rpc("mutate_workpiece_brand_binding",{p_workspace_id:fixture.workspaceId,p_workpiece_id:fixture.workpieceId,p_intent:"select_profile_revision",p_operation_id:`${label}-${randomUUID()}`,p_operation_fingerprint:String(index+3).repeat(64),p_expected_current_revision:1,p_profile_id:brand.profile_id,p_profile_revision_id:brand.profile_revision_id})));
+  for(const result of mutations)expect(result.error).toBeNull();
+  expect(mutations.map((entry)=>(entry.data as {disposition:string}).disposition).sort()).toEqual(["created_revision","revision_conflict"]);
+  const after=await fixture.admin.schema("tongs").from("workpiece_brand_bindings").select("revision").eq("workpiece_id",fixture.workpieceId);expect(after.data).toHaveLength(2);
 });
 
 test("authenticated cold boot preserves recipe and both renderers converge on v3 base authority", async ({ page }) => {

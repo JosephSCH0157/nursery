@@ -7,6 +7,7 @@ import {
   type EpisodeThumbnailConcept,
   type EpisodeThumbnailVersion,
 } from "./episode-package-v2";
+import type { BrandApplicationProvenance, BrandBindingProjection } from "@forge/shared";
 
 export const EPISODE_PACKAGE_V3_SCHEMA = "forge.episode.package.v3" as const;
 export const THUMBNAIL_PROMPT_TEMPLATE_VERSION = "hearth-thumbnail-prompt-v1" as const;
@@ -232,6 +233,7 @@ export type EpisodeSeoTitleV3 = EpisodeSeoTitle & { revision: number };
 
 export type EpisodePackageV3 = Omit<EpisodePackageV2, "schema" | "seo" | "thumbnail" | "launch_variants"> & {
   schema: typeof EPISODE_PACKAGE_V3_SCHEMA;
+  brand: { binding: BrandBindingProjection | null; application_history: Array<BrandApplicationProvenance & { artifact_identity: string; applied_at: string }> };
   seo: Omit<EpisodePackageV2["seo"], "titles"> & { titles: EpisodeSeoTitleV3[] };
   thumbnail: {
     authority_version: typeof THUMBNAIL_AUTHORITY_VERSION;
@@ -384,6 +386,7 @@ function hydrateLegacy(metadata: Record<string, unknown>): EpisodePackageV3 {
   return {
     ...legacy,
     schema: EPISODE_PACKAGE_V3_SCHEMA,
+    brand: { binding: null, application_history: [] },
     seo: { ...legacy.seo, titles: legacy.seo.titles.map((title) => ({ ...title, revision: 1 })) },
     thumbnail: {
       authority_version: THUMBNAIL_AUTHORITY_VERSION,
@@ -538,7 +541,7 @@ export function hydrateEpisodePackageV3(metadata: Record<string, unknown>): Epis
       title_revision: recipe.title_revision, title_text: recipe.title_text, treatment: recipe.treatment,
       canonical_serialized: serialized, content_hash: canonicalContentHash(serialized), created_at: recipe.updated_at };
   });
-  return { ...source, thumbnail: { ...thumbnail, authority_version: THUMBNAIL_AUTHORITY_VERSION,
+  return { ...source, brand: source.brand ?? { binding: null, application_history: [] }, thumbnail: { ...thumbnail, authority_version: THUMBNAIL_AUTHORITY_VERSION,
     creative_strategies: strategies, active_creative_strategy_id: thumbnail.active_creative_strategy_id ?? strategies.at(-1)?.id ?? null,
     creative_briefs: briefs, concept_revisions: concepts, render_recipes: recipes,
     composition_revisions: compositions,

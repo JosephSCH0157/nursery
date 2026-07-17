@@ -25,6 +25,8 @@ export interface PlatformMetadataOverride {
   thumbnail_asset_id?: string | null;
 }
 
+export interface ReleaseBrandProvenance { binding_id: string; binding_revision: number; profile_revision_id: string | null; profile_content_hash: string | null; asset_revision_ids: string[] }
+
 export interface ReleasePacket {
   release_packet_id: string;
   workspace_id: string;
@@ -41,6 +43,7 @@ export interface ReleasePacket {
   rss_ready: boolean;
   platform_overrides: Partial<Record<QuenchPlatform, PlatformMetadataOverride>>;
   seo_metadata?: ReleasePacketSeoMetadata | null;
+  brand_provenance?: ReleaseBrandProvenance | null;
 }
 
 export interface PlatformPublishOptions {

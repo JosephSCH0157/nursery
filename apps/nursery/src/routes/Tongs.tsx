@@ -4,9 +4,10 @@ import TongsCalendar from "./TongsCalendar";
 import TongsReleasePrep from "./TongsReleasePrep";
 import TongsRecordingSessions from "./TongsRecordingSessions";
 import TongsStorage from "./TongsStorage";
+import TongsBranding from "./TongsBranding";
 import "./Tongs.css";
 
-type TongsMode = "calendar" | "sessions" | "release" | "storage";
+type TongsMode = "calendar" | "sessions" | "release" | "storage" | "branding";
 type TongsRouteMode = TongsMode | "team";
 
 const MODE_STORAGE_KEY = "forge_tongs_mode_v1";
@@ -15,7 +16,7 @@ function readStoredMode(): TongsMode {
   if (typeof window === "undefined") return "sessions";
   try {
     const raw = window.localStorage.getItem(MODE_STORAGE_KEY);
-    if (raw === "calendar" || raw === "sessions" || raw === "release" || raw === "storage") {
+    if (raw === "calendar" || raw === "sessions" || raw === "release" || raw === "storage" || raw === "branding") {
       return raw;
     }
     if (raw === "team") return "sessions";
@@ -37,7 +38,7 @@ function writeStoredMode(mode: TongsMode): void {
 function readModeFromSearch(search: string): TongsRouteMode | null {
   const params = new URLSearchParams(search);
   const raw = params.get("mode")?.trim().toLowerCase() ?? "";
-  if (raw === "calendar" || raw === "sessions" || raw === "team" || raw === "release" || raw === "storage") {
+  if (raw === "calendar" || raw === "sessions" || raw === "team" || raw === "release" || raw === "storage" || raw === "branding") {
     return raw;
   }
   return null;
@@ -90,6 +91,11 @@ export default function TongsRoute() {
     <div className="tongs-page">
       <div className="tongs-mode-row">
         <ModeButton
+          active={activeMode === "branding"}
+          label="Branding"
+          onClick={() => setModeAndPersist("branding")}
+        />
+        <ModeButton
           active={activeMode === "sessions"}
           label="Recording Sessions"
           onClick={() => setModeAndPersist("sessions")}
@@ -119,6 +125,8 @@ export default function TongsRoute() {
         ? <TongsStorage />
         : activeMode === "release"
         ? <TongsReleasePrep />
+        : activeMode === "branding"
+        ? <TongsBranding />
         : <TongsRecordingSessions />}
     </div>
   );
