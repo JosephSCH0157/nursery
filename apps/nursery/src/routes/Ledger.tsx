@@ -12,6 +12,7 @@ import {
 import type { AppShellContext } from "./AppShell";
 import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
 import "./Ledger.css";
+import { loadThumbnailLedgerIntelligence } from "../lib/thumbnail-ledger";
 
 type LedgerEventRow = {
   created_at: string | null;
@@ -64,6 +65,8 @@ export default function LedgerRoute() {
   const [events, setEvents] = useState<LedgerUsageEvent[]>([]);
   const [episodeTitles, setEpisodeTitles] = useState<Record<string, string>>({});
   const [timeRange, setTimeRange] = useState<LedgerTimeRange>("today");
+  const [thumbnailIntelligence, setThumbnailIntelligence] = useState<Awaited<ReturnType<typeof loadThumbnailLedgerIntelligence>> | null>(null);
+  const [thumbnailError, setThumbnailError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -73,6 +76,8 @@ export default function LedgerRoute() {
     const load = async () => {
       setLoading(true);
       setError(null);
+      void loadThumbnailLedgerIntelligence(workspaceId).then((value) => { if (!cancelled) { setThumbnailIntelligence(value); setThumbnailError(null); } })
+        .catch((reason: unknown) => { if (!cancelled) setThumbnailError(reason instanceof Error ? reason.message : "Thumbnail intelligence is unavailable."); });
 
       const aiUsageClient = tongsSupabase as unknown as AiUsageEventsTableClient;
 
@@ -222,6 +227,18 @@ export default function LedgerRoute() {
             ))}
           </ul>
         )}
+      </section>
+      <section className="ledger-route__episodes" aria-label="Thumbnail intelligence">
+        <div className="ledger-route__episodes-head"><h3>Thumbnail Intelligence</h3><span>{thumbnailIntelligence?.analysis.freshness.state ?? "unavailable"}</span></div>
+        {thumbnailError ? <p className="ledger-route__empty">Thumbnail evidence is unavailable: {thumbnailError}</p> : <>
+          <p className="ledger-card__hint">Provider-neutral historical evidence. Ledger observes; it never edits or publishes a thumbnail.</p>
+          <div className="ledger-route__grid">
+            <article className="ledger-card"><h4 className="ledger-card__label">Launch intervals</h4><p className="ledger-card__value">{thumbnailIntelligence?.launchIntervals.length ?? 0}</p></article>
+            <article className="ledger-card"><h4 className="ledger-card__label">Platform observations</h4><p className="ledger-card__value">{thumbnailIntelligence?.performanceObservations.length ?? 0}</p></article>
+            <article className="ledger-card"><h4 className="ledger-card__label">Historical analyses</h4><p className="ledger-card__value">{thumbnailIntelligence?.analyses.length ?? 0}</p></article>
+          </div>
+          <p className="ledger-card__hint">Last collection: {thumbnailIntelligence?.analysis.freshness.last_collected_at ?? "No provider observations yet"}</p>
+        </>}
       </section>
     </section>
   );

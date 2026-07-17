@@ -35,6 +35,7 @@ import {
 } from "../workspace/useEpisodeWorkspaceReadModel";
 import type { AppShellContext } from "./AppShell";
 import "./Quench.css";
+import { appendQuenchThumbnailExperiment } from "../lib/thumbnail-ledger";
 
 const QUENCH_ADAPTERS = [new YouTubeAdapter(), new RssAdapter()];
 
@@ -380,6 +381,10 @@ export default function QuenchRoute() {
     description: string;
     tags: string[];
   } | null>(null);
+  const [experimentHypothesis, setExperimentHypothesis] = useState("");
+  const [experimentSnapshots, setExperimentSnapshots] = useState("");
+  const [experimentState, setExperimentState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [experimentMessage, setExperimentMessage] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -771,6 +776,20 @@ export default function QuenchRoute() {
     });
   }
 
+  async function createThumbnailExperiment() {
+    if (!shell.workspaceId || !selectedCase) return;
+    const snapshots = experimentSnapshots.split(/[,\n]/).map((entry) => entry.trim()).filter((entry) => /^[a-f0-9]{64}$/.test(entry));
+    setExperimentState("saving"); setExperimentMessage(null);
+    try {
+      const experiment = await appendQuenchThumbnailExperiment({ workspaceId: shell.workspaceId,
+        publicationId: `${selectedCase.packet.episode_id}:${selectedPlatforms[0] ?? "unassigned"}`,
+        hypothesis: experimentHypothesis, launchSnapshotHashes: snapshots, primaryMetric: "ctr",
+        guardrails: ["retention_30_seconds", "average_percentage_viewed"], windowKind: "first_72h",
+        stoppingConditions: ["72-hour window is mature", "retention guardrails are available"] });
+      setExperimentState("saved"); setExperimentMessage(`Experiment ${experiment.identity.slice(0, 8)} saved as immutable publication history.`);
+    } catch (error) { setExperimentState("error"); setExperimentMessage(error instanceof Error ? error.message : "Unable to save experiment."); }
+  }
+
   return (
     <section className="quench-console">
       <header className="quench-console__header">
@@ -1121,6 +1140,14 @@ export default function QuenchRoute() {
             <h2>Adapters</h2>
             <span>contract-driven cards</span>
           </div>
+          <section className="quench-console__card" aria-label="Thumbnail launch experiment">
+            <div className="quench-console__card-head"><h3>Thumbnail experiment</h3><span>Quench authority</span></div>
+            <p className="quench-console__empty-note">Experiments reference immutable launch snapshot hashes. Ledger evaluates evidence but cannot publish a winner.</p>
+            <label><span>Hypothesis</span><textarea value={experimentHypothesis} onChange={(event) => setExperimentHypothesis(event.target.value)} placeholder="State why these published treatments are being compared." /></label>
+            <label><span>Immutable launch snapshot hashes</span><textarea value={experimentSnapshots} onChange={(event) => setExperimentSnapshots(event.target.value)} placeholder="One 64-character hash per line (minimum two)" /></label>
+            <button type="button" disabled={experimentState === "saving" || !experimentHypothesis.trim()} onClick={() => void createThumbnailExperiment()}>{experimentState === "saving" ? "Saving experiment…" : "Create 72-hour experiment"}</button>
+            {experimentMessage ? <p className={experimentState === "error" ? "quench-console__issue is-bad" : "quench-console__empty-note"}>{experimentMessage}</p> : null}
+          </section>
           <div className="quench-console__adapter-list">
             {QUENCH_ADAPTERS.map((adapter) => {
               const platform = adapter.platform;

@@ -197,6 +197,7 @@ test("authenticated cold boot preserves recipe and both renderers converge on v3
   await currentPanel.getByRole("button", { name: "Commit immutable launch composite" }).click();
   await expect(currentPanel.getByText(/Revision 1 · ready/)).toBeVisible({ timeout: 30_000 });
   await expect(currentPanel.getByText("1 launch facts", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(currentPanel.getByRole("heading", { name: "Ledger Intelligence" })).toBeVisible();
   await currentPanel.getByLabel("Workspace editorial note").fill("The close-up treatment should be varied in the next episode.");
   await currentPanel.getByRole("button", { name: "Save interpretation revision" }).click();
   await expect(currentPanel.getByText("The close-up treatment should be varied in the next episode.", { exact: true })).toBeVisible();

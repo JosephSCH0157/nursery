@@ -1,5 +1,6 @@
 import { resolveForgeUserAccessToken } from "./hearth-chat-api";
 import { canonicalContentHash, canonicalSerialize, type EpisodePackageV3, type ThumbnailCreativeBrief, type ThumbnailRenderRecipe } from "./episode-package-v3";
+import type { ThumbnailHistoricalObservation, ThumbnailLedgerAnalysis } from "@forge/shared";
 
 export type ThumbnailLaunchFact = {
   id: string;
@@ -26,6 +27,12 @@ export type ThumbnailMemoryInterpretation = {
 export type ThumbnailMemoryProjection = {
   launchFacts: ThumbnailLaunchFact[];
   activeInterpretations: ThumbnailMemoryInterpretation[];
+};
+
+export type ThumbnailLedgerProjection = ThumbnailLedgerAnalysis & {
+  launchIntervals: Array<Record<string, unknown>>;
+  performanceObservations: Array<Record<string, unknown>>;
+  experiments: Array<Record<string, unknown>>;
 };
 
 export type ThumbnailEditorialCritique = {
@@ -89,6 +96,21 @@ export async function projectThumbnailLaunchFacts(args: { workspaceId: string; w
       p_launch_identity: projected.identity, p_launch_snapshot_hash: launch.snapshot.content_hash,
       p_published_at: projected.publication?.published_at ?? null, p_destination: projected.publication?.destination ?? null,
       p_fact_json: projected.fact });
+    if (projected.publication) {
+      const attribution = { schema_version: "forge.thumbnail-ledger.v1", identity: projected.identity,
+        workspace_id: args.workspaceId, workpiece_id: args.workpieceId, publication_id: projected.publication.id,
+        launch_identity: projected.identity, launch_snapshot_hash: launch.snapshot.content_hash,
+        platform: projected.publication.destination, strategy_id: projected.fact.strategy_id, strategy_revision: projected.fact.strategy_revision,
+        creative_brief_id: projected.fact.creative_brief_id, creative_brief_revision: projected.fact.creative_brief_revision,
+        concept_revision_id: projected.fact.concept_revision_id, title_id: launch.title_id, title_revision: launch.title_revision,
+        recipe_id: launch.recipe_id, recipe_revision: launch.recipe_revision, artwork_id: projected.fact.base_version_id,
+        composition_revision: projected.fact.composition_revision ?? 1 };
+      const contentHash = canonicalContentHash(canonicalSerialize(attribution));
+      await rpc("append_thumbnail_launch_interval", { p_workspace_id: args.workspaceId, p_workpiece_id: args.workpieceId,
+        p_publication_id: projected.publication.id, p_launch_identity: projected.identity, p_launch_snapshot_hash: launch.snapshot.content_hash,
+        p_platform: projected.publication.destination, p_state: "active", p_started_at: projected.publication.published_at,
+        p_attribution_json: { ...attribution, content_hash: contentHash }, p_content_hash: contentHash });
+    }
   }
 }
 
@@ -103,6 +125,32 @@ export async function appendThumbnailMemoryInterpretation(args: { workspaceId: s
   evidence: string[]; interpretation: Record<string, unknown> }) {
   return rpc("append_thumbnail_memory_interpretation", { p_workspace_id: args.workspaceId, p_interpretation_key: args.key,
     p_observation_type: args.type, p_evidence_launch_identities: args.evidence, p_interpretation_json: args.interpretation });
+}
+
+export async function loadThumbnailLedgerProjection(workspaceId: string): Promise<ThumbnailLedgerProjection> {
+  const rows = await rpc<Array<Record<string, unknown>>>("list_thumbnail_ledger_intelligence", { p_workspace_id: workspaceId, p_limit: 200 });
+  const row = Array.isArray(rows) ? rows[0] ?? {} : {};
+  const analyses = Array.isArray(row.analyses) ? row.analyses as Array<Record<string, unknown>> : [];
+  const entries = analyses.map((entry) => entry.analysis_json).filter((entry): entry is ThumbnailHistoricalObservation => Boolean(entry && typeof entry === "object" && typeof (entry as { summary?: unknown }).summary === "string"));
+  const byClass = (value: ThumbnailHistoricalObservation["evidence_class"]) => entries.filter((entry) => entry.evidence_class === value);
+  const freshness = row.freshness && typeof row.freshness === "object"
+    ? row.freshness as ThumbnailLedgerAnalysis["freshness"]
+    : { last_collected_at: null, state: "unavailable" as const };
+  return {
+    measured_facts: byClass("measured_fact"), historical_observations: byClass("historical_observation"),
+    heuristic_guidance: byClass("heuristic_guidance"), unknowns_and_limitations: byClass("unknown_limitation"), freshness,
+    launchIntervals: Array.isArray(row.launch_intervals) ? row.launch_intervals as Array<Record<string, unknown>> : [],
+    performanceObservations: Array.isArray(row.performance_observations) ? row.performance_observations as Array<Record<string, unknown>> : [],
+    experiments: Array.isArray(row.experiments) ? row.experiments as Array<Record<string, unknown>> : [],
+  };
+}
+
+export async function applyLedgerObservationAsEditorialRevision(args: { workspaceId: string; observation: ThumbnailHistoricalObservation }) {
+  return appendThumbnailMemoryInterpretation({ workspaceId: args.workspaceId, key: `ledger-guidance:${args.observation.identity}`,
+    type: "editorial_note", evidence: args.observation.supporting_launch_identities,
+    interpretation: { schema_version: "forge.thumbnail-ledger-application.v1", summary: args.observation.summary,
+      ledger_observation_identity: args.observation.identity, ledger_analysis_version: args.observation.analysis_version,
+      applied_explicitly: true } });
 }
 
 function stringField(fact: ThumbnailLaunchFact, key: string): string {

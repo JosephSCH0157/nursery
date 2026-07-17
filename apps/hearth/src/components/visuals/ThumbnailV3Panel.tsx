@@ -15,8 +15,11 @@ import {
   appendThumbnailMemoryInterpretation,
   critiqueThumbnailDirection,
   loadThumbnailMemoryProjection,
+  loadThumbnailLedgerProjection,
+  applyLedgerObservationAsEditorialRevision,
   projectThumbnailLaunchFacts,
   type ThumbnailMemoryProjection,
+  type ThumbnailLedgerProjection,
 } from "../../lib/hearth-thumbnail-editorial-memory";
 import {
   commitEpisodePackageV3Mutation,
@@ -76,6 +79,9 @@ export default function ThumbnailV3Panel(props: Props) {
   const [shadowOpacity, setShadowOpacity] = useState(0.7);
   const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
   const [memoryProjection, setMemoryProjection] = useState<ThumbnailMemoryProjection>({ launchFacts: [], activeInterpretations: [] });
+  const [ledgerProjection, setLedgerProjection] = useState<ThumbnailLedgerProjection | null>(null);
+  const [ledgerState, setLedgerState] = useState<"loading" | "loaded" | "unavailable">("loading");
+  const [ledgerError, setLedgerError] = useState<string | null>(null);
   const [memoryState, setMemoryState] = useState<"loading" | "loaded" | "unavailable">("loading");
   const [memoryError, setMemoryError] = useState<string | null>(null);
   const [editorialNote, setEditorialNote] = useState("");
@@ -111,6 +117,13 @@ export default function ThumbnailV3Panel(props: Props) {
       } catch (error) {
         setMemoryState("unavailable");
         setMemoryError(error instanceof Error ? error.message : "Workspace thumbnail memory is unavailable.");
+      }
+      setLedgerState("loading");
+      try {
+        setLedgerProjection(await loadThumbnailLedgerProjection(props.workspaceId)); setLedgerState("loaded"); setLedgerError(null);
+      } catch (error) {
+        setLedgerProjection(null); setLedgerState("unavailable");
+        setLedgerError(error instanceof Error ? error.message : "Ledger Intelligence is unavailable.");
       }
       return canonical;
     } catch (error) { setLoadError(error instanceof Error ? error.message : "Unable to load thumbnail authority."); }
@@ -370,6 +383,18 @@ export default function ThumbnailV3Panel(props: Props) {
     finally { setInterpretationSaving(false); }
   };
 
+  const applyLedgerGuidance = async (identity: string) => {
+    const observation = ledgerProjection?.historical_observations.find((entry) => entry.identity === identity)
+      ?? ledgerProjection?.heuristic_guidance.find((entry) => entry.identity === identity);
+    if (!observation) return;
+    setInterpretationSaving(true);
+    try {
+      await applyLedgerObservationAsEditorialRevision({ workspaceId: props.workspaceId, observation });
+      setMemoryProjection(await loadThumbnailMemoryProjection(props.workspaceId)); setMemoryState("loaded"); setMemoryError(null);
+    } catch (error) { setLedgerError(error instanceof Error ? error.message : "Unable to apply Ledger guidance."); }
+    finally { setInterpretationSaving(false); }
+  };
+
   const generateVariationBatch = async () => {
     if (!pkg || !activeRecipe) return;
     setSaveState("saving");
@@ -470,6 +495,19 @@ export default function ThumbnailV3Panel(props: Props) {
           </div>
         </div>
         <small>Measurements describe history; guidance is heuristic. Forge does not predict CTR.</small>
+      </> : null}
+    </section>
+    <section className="hs-thumb-editorial-memory" aria-label="Ledger thumbnail intelligence">
+      <div className="hs-row"><h4>Ledger Intelligence</h4><span>{ledgerState === "loading" ? "Loading evidence…" : ledgerState === "loaded" ? ledgerProjection?.freshness.state : "Unavailable"}</span></div>
+      {ledgerState === "unavailable" ? <p className="hs-inline-note">Ledger is advisory and does not block authoring. {ledgerError}</p> : null}
+      {ledgerProjection ? <>
+        <small>Last collection: {ledgerProjection.freshness.last_collected_at ?? "No provider observations yet"}. Historical evidence only; Forge does not predict CTR.</small>
+        <div className="hs-thumb-memory-columns">
+          <div><h5>Measured platform facts</h5>{ledgerProjection.measured_facts.length ? <ul>{ledgerProjection.measured_facts.map((entry) => <li key={entry.identity}>{entry.summary}</li>)}</ul> : <p>No measured thumbnail facts are available.</p>}</div>
+          <div><h5>Creator-specific observations</h5>{ledgerProjection.historical_observations.length ? <ul>{ledgerProjection.historical_observations.map((entry) => <li key={entry.identity}><span>{entry.summary} ({entry.confidence} confidence)</span> <button type="button" disabled={interpretationSaving} onClick={() => void applyLedgerGuidance(entry.identity)}>Apply as new editorial revision</button></li>)}</ul> : <p>Insufficient comparable launch evidence.</p>}</div>
+          <div><h5>Heuristic editorial guidance</h5>{ledgerProjection.heuristic_guidance.length ? <ul>{ledgerProjection.heuristic_guidance.map((entry) => <li key={entry.identity}><span>{entry.summary}</span> <button type="button" disabled={interpretationSaving} onClick={() => void applyLedgerGuidance(entry.identity)}>Apply as new editorial revision</button></li>)}</ul> : <p>No Ledger heuristic guidance.</p>}</div>
+          <div><h5>Unknowns and limitations</h5>{ledgerProjection.unknowns_and_limitations.length ? <ul>{ledgerProjection.unknowns_and_limitations.map((entry) => <li key={entry.identity}>{entry.summary}</li>)}</ul> : <p>Provider metrics are unavailable or evidence is not yet mature.</p>}</div>
+        </div>
       </> : null}
     </section>
     {persistedPairIsSelected && activeRecipe ? <section className="hs-thumb-variations" aria-label="Controlled creative variations">

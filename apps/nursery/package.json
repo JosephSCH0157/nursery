@@ -33,6 +33,7 @@
     "test:hearth-runtime": "tsx tests/hearth-ai-runtime.test.mts",
     "test:forge-ai-router": "tsx tests/forge-ai-policy-router.test.mts",
     "test:ledger": "tsx tests/ledger-costs.test.mts",
+    "test:thumbnail-ledger": "tsx --test tests/thumbnail-ledger-intelligence.test.mts",
     "test:admin-panel": "tsx tests/admin-panel.test.mts",
     "test:workspace-label": "tsx tests/workspace-label.test.mts",
     "test:workspace-access-union": "tsx tests/workspace-access-union.test.mts",
