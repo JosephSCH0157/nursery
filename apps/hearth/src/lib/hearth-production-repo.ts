@@ -4,8 +4,10 @@ import {
   buildDefaultMetadataDocument,
   hydrateEpisodePackageV2,
   diagnoseThumbnailConceptParsing,
+  parseThumbnailCreativeAuthorityFromText,
 } from "./episode-package-v2";
-import { canonicalSerialize, validateConceptGenerationSet, type ThumbnailConceptRevision, type ThumbnailConceptSet } from "./episode-package-v3";
+import { canonicalSerialize, validateConceptGenerationSet, type ThumbnailConceptRevision, type ThumbnailConceptSet,
+  type ThumbnailCreativeBrief, type ThumbnailCreativeStrategy } from "./episode-package-v3";
 import { appendConceptSet } from "./hearth-thumbnail-v3-authority";
 import { commitEpisodePackageV3Mutation, readCanonicalEpisodePackageV3 } from "./hearth-thumbnail-v3-api";
 import { canonicalFramingEquals } from "./hearth-framing-authority";
@@ -255,9 +257,45 @@ async function syncEpisodePackageMetadata(args: {
     });
     if (existingSet) return { ok: true, entityId: existingSet.id, disposition: "existing" };
     const setId = crypto.randomUUID();
-    const concepts: ThumbnailConceptRevision[] = parsed.map((concept) => ({
+    const parsedAuthority = parseThumbnailCreativeAuthorityFromText(rawText);
+    const strategyId = crypto.randomUUID();
+    const strategy: ThumbnailCreativeStrategy = parsedAuthority ? {
+      id: strategyId, revision: 1, approved_script_version: args.scriptVersion,
+      episode_promise: parsedAuthority.strategy.episodePromise,
+      intended_viewer: parsedAuthority.strategy.intendedViewer,
+      curiosity_mechanism: parsedAuthority.strategy.curiosityMechanism,
+      editorial_positioning: parsedAuthority.strategy.editorialPositioning,
+      expectation_integrity: { truthful_connection: parsedAuthority.strategy.truthfulConnection,
+        prohibited_exaggerations: parsedAuthority.strategy.prohibitedExaggerations },
+      created_at: createdAt, provenance: { source: "hearth_generation", artifact_path: artifactPath("thumbnails", args.scriptVersion) },
+    } : {
+      id: strategyId, revision: 1, approved_script_version: args.scriptVersion,
+      episode_promise: "Preserve the approved episode promise.", intended_viewer: "The intended episode audience.",
+      curiosity_mechanism: "A truthful visual curiosity gap.", editorial_positioning: "Use the paid canonical concept response without unsupported exaggeration.",
+      expectation_integrity: { truthful_connection: "Recovered from a legacy five-concept generation artifact.", prohibited_exaggerations: [] },
+      created_at: createdAt, provenance: { source: "legacy_generation_recovery", artifact_path: artifactPath("thumbnails", args.scriptVersion) },
+    };
+    const briefs: ThumbnailCreativeBrief[] = parsed.map((concept, index) => {
+      const parsedBrief = parsedAuthority?.briefs[index];
+      return {
+        id: crypto.randomUUID(), revision: 1, strategy_id: strategy.id, strategy_revision: strategy.revision, concept_slot: index + 1,
+        subject_direction: parsedBrief?.subjectDirection ?? concept.label,
+        focal_action: parsedBrief?.focalAction ?? concept.prompt_text,
+        composition_direction: parsedBrief?.compositionDirection ?? concept.prompt_text,
+        emotional_tone: parsedBrief?.emotionalTone ?? concept.style_preset ?? "unspecified",
+        visual_hierarchy: parsedBrief?.visualHierarchy ?? "Make the primary subject immediately legible.",
+        title_compatibility: parsedBrief?.titleCompatibility ?? "Reserve clean negative space for local canonical typography.",
+        expectation_integrity_rationale: parsedBrief?.expectationIntegrityRationale ?? strategy.expectation_integrity.truthful_connection,
+        provider_neutral_render_direction: parsedBrief?.providerNeutralRenderDirection ?? concept.prompt_text,
+        subject_classification: "unspecified", composition_classification: "unspecified", dominant_colors: [],
+        created_at: createdAt, provenance: { source: parsedAuthority ? "hearth_generation" : "legacy_generation_recovery" },
+      };
+    });
+    const concepts: ThumbnailConceptRevision[] = parsed.map((concept, index) => ({
       concept_lineage_id: crypto.randomUUID(), concept_revision_id: crypto.randomUUID(), revision_number: 1,
       supersedes_revision_id: null, concept_set_id: setId, headline: concept.label,
+      strategy_id: strategy.id, strategy_revision: strategy.revision,
+      creative_brief_id: briefs[index]!.id, creative_brief_revision: briefs[index]!.revision,
       image_concept: concept.prompt_text, mood_style: concept.style_preset ?? "unspecified",
       normalized_prompt_basis: concept.prompt_text.trim().replace(/\s+/g, " "), created_at: createdAt,
       provenance: { source: "hearth_generation", script_version: args.scriptVersion },
@@ -266,7 +304,11 @@ async function syncEpisodePackageMetadata(args: {
     if (validationErrors.length) {
       return { ok: false, status: 422, reason: validationErrors.join(" "), stage: "validate", errors: validationErrors };
     }
-    const next = appendConceptSet({ episodePackage: canonical.episodePackage, concepts, conceptSet: {
+    const withAuthority = { ...canonical.episodePackage, thumbnail: { ...canonical.episodePackage.thumbnail,
+      creative_strategies: [...canonical.episodePackage.thumbnail.creative_strategies, strategy],
+      active_creative_strategy_id: strategy.id,
+      creative_briefs: [...canonical.episodePackage.thumbnail.creative_briefs, ...briefs] } };
+    const next = appendConceptSet({ episodePackage: withAuthority, concepts, conceptSet: {
       id: setId, name: `Concept Set ${canonical.episodePackage.thumbnail.concept_sets.length + 1}`,
       created_at: createdAt, state: "active", approved_script_version: args.scriptVersion,
       generation_provenance: { source: "hearth_generation" }, prompt_schema_version: "hearth-thumbnail-concepts-v1",

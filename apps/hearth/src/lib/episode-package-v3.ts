@@ -11,6 +11,45 @@ import {
 export const EPISODE_PACKAGE_V3_SCHEMA = "forge.episode.package.v3" as const;
 export const THUMBNAIL_PROMPT_TEMPLATE_VERSION = "hearth-thumbnail-prompt-v1" as const;
 export const THUMBNAIL_COMPOSITION_ENGINE_VERSION = "forge-thumbnail-compositor-v1" as const;
+export const THUMBNAIL_AUTHORITY_VERSION = "hearth-thumbnail-authority-v1" as const;
+export const THUMBNAIL_PROMPT_SERIALIZATION_VERSION = "hearth-thumbnail-prompt-canonical-v1" as const;
+
+export type ThumbnailCreativeStrategy = {
+  id: string;
+  revision: number;
+  approved_script_version: number;
+  episode_promise: string;
+  intended_viewer: string;
+  curiosity_mechanism: string;
+  editorial_positioning: string;
+  expectation_integrity: {
+    truthful_connection: string;
+    prohibited_exaggerations: readonly string[];
+  };
+  created_at: string;
+  provenance: Readonly<Record<string, unknown>>;
+};
+
+export type ThumbnailCreativeBrief = {
+  id: string;
+  revision: number;
+  strategy_id: string;
+  strategy_revision: number;
+  concept_slot: number;
+  subject_direction: string;
+  focal_action: string;
+  composition_direction: string;
+  emotional_tone: string;
+  visual_hierarchy: string;
+  title_compatibility: string;
+  expectation_integrity_rationale: string;
+  provider_neutral_render_direction: string;
+  subject_classification: string;
+  composition_classification: string;
+  dominant_colors: readonly string[];
+  created_at: string;
+  provenance: Readonly<Record<string, unknown>>;
+};
 
 export type ThumbnailConceptRevision = {
   concept_lineage_id: string;
@@ -18,6 +57,10 @@ export type ThumbnailConceptRevision = {
   revision_number: number;
   supersedes_revision_id: string | null;
   concept_set_id: string;
+  strategy_id: string;
+  strategy_revision: number;
+  creative_brief_id: string;
+  creative_brief_revision: number;
   headline: string;
   image_concept: string;
   mood_style: string;
@@ -51,9 +94,14 @@ export type ThumbnailRenderRecipe = {
   id: string;
   revision: number;
   concept_revision_id: string;
+  strategy_id: string;
+  strategy_revision: number;
+  creative_brief_id: string;
+  creative_brief_revision: number;
   title_id: string;
   title_revision: number;
   provider_id: string;
+  provider_settings: Readonly<Record<string, unknown>>;
   intended_aspect_ratio: "16:9" | "1:1" | "9:16";
   brand_template_id: string | null;
   brand_template_revision: number | null;
@@ -61,10 +109,63 @@ export type ThumbnailRenderRecipe = {
   treatment: ThumbnailTreatment;
   prompt_template_version: string;
   composition_engine_version: string;
+  composition_revision: number;
   prompt_review_state: "unreviewed" | "reviewed" | "needs_review";
   last_reviewed_template_version: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type ThumbnailCompositionRevision = {
+  id: string;
+  revision: number;
+  render_recipe_id: string;
+  render_recipe_revision: number;
+  composition_engine_version: string;
+  title_id: string;
+  title_revision: number;
+  title_text: string;
+  treatment: ThumbnailTreatment;
+  canonical_serialized: string;
+  content_hash: string;
+  created_at: string;
+};
+
+export type ThumbnailVariationProperty = "concept" | "title" | "subject" | "composition" | "emotional_tone" | "color_palette" | "typography" | "brand_template" | "provider";
+export type ThumbnailVariationLocks = Readonly<Record<ThumbnailVariationProperty, boolean>>;
+export type ThumbnailBrandMode = "strict_brand" | "flexible_brand" | "editorial_experiment";
+
+export type ThumbnailRecipeVariation = {
+  id: string;
+  ordinal: number;
+  label: string;
+  change_specification: Readonly<Record<string, unknown>>;
+  candidate_recipe: Readonly<ThumbnailRenderRecipe>;
+  canonical_serialized: string;
+  content_hash: string;
+};
+
+export type ThumbnailVariationBatch = {
+  id: string;
+  source_recipe_id: string;
+  source_recipe_revision: number;
+  brand_mode: ThumbnailBrandMode;
+  locks: ThumbnailVariationLocks;
+  requested_count: number;
+  generation_kind: "deterministic_recipe";
+  estimated_ai_credits: 0;
+  source_identity: string;
+  variations: readonly ThumbnailRecipeVariation[];
+  created_at: string;
+};
+
+export type ThumbnailVariationPromotion = {
+  id: string;
+  variation_batch_id: string;
+  variation_id: string;
+  promoted_recipe_id: string;
+  promoted_recipe_revision: number;
+  created_at: string;
 };
 
 export type ThumbnailBaseVersion = {
@@ -133,11 +234,20 @@ export type EpisodePackageV3 = Omit<EpisodePackageV2, "schema" | "seo" | "thumbn
   schema: typeof EPISODE_PACKAGE_V3_SCHEMA;
   seo: Omit<EpisodePackageV2["seo"], "titles"> & { titles: EpisodeSeoTitleV3[] };
   thumbnail: {
+    authority_version: typeof THUMBNAIL_AUTHORITY_VERSION;
+    creative_strategies: ThumbnailCreativeStrategy[];
+    active_creative_strategy_id: string | null;
+    creative_briefs: ThumbnailCreativeBrief[];
     concept_sets: ThumbnailConceptSet[];
     concept_revisions: ThumbnailConceptRevision[];
     active_concept_set_id: string | null;
     render_recipes: ThumbnailRenderRecipe[];
     active_render_recipe_id: string | null;
+    composition_revisions: ThumbnailCompositionRevision[];
+    active_composition_revision_id: string | null;
+    variation_batches: ThumbnailVariationBatch[];
+    active_variation_batch_id: string | null;
+    variation_promotions: ThumbnailVariationPromotion[];
     base_versions: ThumbnailBaseVersion[];
     primary_base_version_id: string | null;
     launch_variant_revisions: ThumbnailLaunchVariantRevision[];
@@ -154,6 +264,8 @@ export type DerivedThumbnailPromptPack = {
   positive_prompt: string;
   negative_prompt: string;
   canonical_serialized: string;
+  canonical_hash: string;
+  serialization_version: typeof THUMBNAIL_PROMPT_SERIALIZATION_VERSION;
 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -177,8 +289,13 @@ function stableHex(input: string): string {
     a = Math.imul(a ^ input.charCodeAt(i), 0x01000193) >>> 0;
     b = Math.imul(b ^ (input.charCodeAt(i) + i), 0x85ebca6b) >>> 0;
   }
-  const part = (n: number) => n.toString(16).padStart(8, "0");
+  const part = (n: number) => (n >>> 0).toString(16).padStart(8, "0");
   return `${part(a)}${part(b)}${part(a ^ 0xa5a5a5a5)}${part(b ^ 0x5a5a5a5a)}`;
+}
+
+export function canonicalContentHash(value: unknown): string {
+  const serialized = typeof value === "string" ? value : canonicalSerialize(value);
+  return ["a", "b"].map((salt) => stableHex(`${salt}\u0000${serialized}`)).join("");
 }
 
 export function deterministicUuid(namespace: string, identity: string): string {
@@ -191,7 +308,7 @@ function importedTimestamp(metadata: Record<string, unknown>): string {
   return raw && Number.isFinite(Date.parse(raw)) ? new Date(raw).toISOString() : "1970-01-01T00:00:00.000Z";
 }
 
-function importConcept(concept: EpisodeThumbnailConcept, setId: string, index: number, createdAt: string): ThumbnailConceptRevision {
+function importConcept(concept: EpisodeThumbnailConcept, setId: string, strategy: ThumbnailCreativeStrategy, brief: ThumbnailCreativeBrief, index: number, createdAt: string): ThumbnailConceptRevision {
   const identity = canonicalSerialize({ concept, index });
   const lineageId = deterministicUuid("thumbnail-imported-lineage", identity);
   return {
@@ -200,6 +317,10 @@ function importConcept(concept: EpisodeThumbnailConcept, setId: string, index: n
     revision_number: 1,
     supersedes_revision_id: null,
     concept_set_id: setId,
+    strategy_id: strategy.id,
+    strategy_revision: strategy.revision,
+    creative_brief_id: brief.id,
+    creative_brief_revision: brief.revision,
     headline: concept.label.trim() || `Imported concept ${index + 1}`,
     image_concept: concept.prompt_text.trim(),
     mood_style: concept.style_preset ?? "unspecified",
@@ -238,7 +359,25 @@ function hydrateLegacy(metadata: Record<string, unknown>): EpisodePackageV3 {
   const createdAt = importedTimestamp(metadata);
   const setIdentity = canonicalSerialize(legacy.thumbnail.concepts);
   const setId = deterministicUuid("thumbnail-imported-set", setIdentity);
-  const revisions = legacy.thumbnail.concepts.map((concept, index) => importConcept(concept, setId, index, createdAt));
+  const strategy: ThumbnailCreativeStrategy = {
+    id: deterministicUuid("thumbnail-imported-strategy", setIdentity), revision: 1, approved_script_version: 1,
+    episode_promise: "Imported thumbnail strategy", intended_viewer: "Existing episode audience",
+    curiosity_mechanism: "Imported visual direction", editorial_positioning: "Preserve the prior canonical thumbnail intent.",
+    expectation_integrity: { truthful_connection: "Derived from the previously saved episode thumbnail concepts.", prohibited_exaggerations: [] },
+    created_at: createdAt, provenance: { source: EPISODE_PACKAGE_V2_SCHEMA },
+  };
+  const briefs: ThumbnailCreativeBrief[] = legacy.thumbnail.concepts.map((concept, index) => ({
+    id: deterministicUuid("thumbnail-imported-brief", canonicalSerialize({ setIdentity, index })), revision: 1,
+    strategy_id: strategy.id, strategy_revision: strategy.revision, concept_slot: index + 1,
+    subject_direction: concept.label || `Imported concept ${index + 1}`, focal_action: concept.prompt_text,
+    composition_direction: concept.prompt_text, emotional_tone: concept.style_preset ?? "unspecified",
+    visual_hierarchy: "Preserve the imported focal subject.", title_compatibility: "Compatible with a canonical framing title.",
+    expectation_integrity_rationale: "Imported from the prior canonical episode package.",
+    provider_neutral_render_direction: concept.prompt_text, subject_classification: "imported",
+    composition_classification: "imported", dominant_colors: [], created_at: createdAt,
+    provenance: { source: EPISODE_PACKAGE_V2_SCHEMA, legacy_concept_id: concept.id },
+  }));
+  const revisions = legacy.thumbnail.concepts.map((concept, index) => importConcept(concept, setId, strategy, briefs[index]!, index, createdAt));
   const conceptRevisionIds = revisions.map((entry) => entry.concept_revision_id);
   const baseVersions = legacy.thumbnail.versions.map((version) => importedBaseVersion(version, revisions));
   const primaryLegacy = legacy.thumbnail.versions.find((entry) => entry.id === legacy.thumbnail.primary_version_id);
@@ -247,6 +386,10 @@ function hydrateLegacy(metadata: Record<string, unknown>): EpisodePackageV3 {
     schema: EPISODE_PACKAGE_V3_SCHEMA,
     seo: { ...legacy.seo, titles: legacy.seo.titles.map((title) => ({ ...title, revision: 1 })) },
     thumbnail: {
+      authority_version: THUMBNAIL_AUTHORITY_VERSION,
+      creative_strategies: revisions.length ? [strategy] : [],
+      active_creative_strategy_id: revisions.length ? strategy.id : null,
+      creative_briefs: briefs,
       concept_sets: revisions.length ? [{
         id: setId,
         name: "Imported Concepts",
@@ -262,6 +405,11 @@ function hydrateLegacy(metadata: Record<string, unknown>): EpisodePackageV3 {
       active_concept_set_id: revisions.length ? setId : null,
       render_recipes: [],
       active_render_recipe_id: null,
+      composition_revisions: [],
+      active_composition_revision_id: null,
+      variation_batches: [],
+      active_variation_batch_id: null,
+      variation_promotions: [],
       base_versions: baseVersions,
       primary_base_version_id: primaryLegacy
         ? deterministicUuid("thumbnail-imported-base-version", primaryLegacy.id)
@@ -278,10 +426,14 @@ function importLaunchVariants(legacy: EpisodeLaunchVariant[], bases: ThumbnailBa
     if (!base) return [];
     const legacyRecipeSnapshot: ThumbnailCompositeSnapshot["recipe_snapshot"] = {
       id: base.render_recipe_id, revision: 1, concept_revision_id: base.concept_revision_id,
+      strategy_id: deterministicUuid("thumbnail-imported-strategy", base.concept_revision_id), strategy_revision: 1,
+      creative_brief_id: deterministicUuid("thumbnail-imported-brief", base.concept_revision_id), creative_brief_revision: 1,
       title_id: variant.title_id, title_revision: 1, provider_id: base.provider_id,
+      provider_settings: {},
       intended_aspect_ratio: base.intended_aspect_ratio, brand_template_id: null, brand_template_revision: null,
       title_text: "", treatment: { typography: {}, placement: {}, safe_zone: {}, shadow: {}, treatment: {} },
       prompt_template_version: "legacy-v2", composition_engine_version: "legacy-v2",
+      composition_revision: 1,
       prompt_review_state: "needs_review", last_reviewed_template_version: null,
       created_at: variant.created_at || createdAt, updated_at: variant.updated_at || createdAt,
       template_revision: 1, text_color: "#FFFFFF", shadow_color: "#000000", shadow_opacity: 0.7,
@@ -315,7 +467,86 @@ function importLaunchVariants(legacy: EpisodeLaunchVariant[], bases: ThumbnailBa
 export function hydrateEpisodePackageV3(metadata: Record<string, unknown>): EpisodePackageV3 {
   const episode = isRecord(metadata.episode) ? metadata.episode : metadata;
   if (episode.schema !== EPISODE_PACKAGE_V3_SCHEMA) return hydrateLegacy(metadata);
-  return episode as unknown as EpisodePackageV3;
+  const source = structuredClone(episode) as unknown as EpisodePackageV3;
+  const thumbnail = source.thumbnail;
+  const createdAt = importedTimestamp(metadata);
+  const existingStrategies = Array.isArray(thumbnail.creative_strategies) ? thumbnail.creative_strategies : [];
+  const existingBriefs = Array.isArray(thumbnail.creative_briefs) ? thumbnail.creative_briefs : [];
+  const strategies = [...existingStrategies];
+  const briefs = [...existingBriefs];
+  const concepts = thumbnail.concept_revisions.map((concept, index) => {
+    const partial = concept as ThumbnailConceptRevision & Partial<Pick<ThumbnailConceptRevision,
+      "strategy_id" | "strategy_revision" | "creative_brief_id" | "creative_brief_revision">>;
+    const set = thumbnail.concept_sets.find((entry) => entry.id === concept.concept_set_id);
+    let strategy = strategies.find((entry) => entry.id === partial.strategy_id && entry.revision === partial.strategy_revision);
+    if (!strategy) {
+      const identity = set?.source_response_hash || set?.id || concept.concept_set_id;
+      strategy = {
+        id: deterministicUuid("thumbnail-v3-derived-strategy", identity), revision: 1,
+        approved_script_version: set?.approved_script_version ?? 1,
+        episode_promise: "Preserve the approved episode promise.", intended_viewer: "The intended episode audience.",
+        curiosity_mechanism: "A truthful visual curiosity gap derived from the approved script.",
+        editorial_positioning: "Present the episode clearly without unsupported exaggeration.",
+        expectation_integrity: { truthful_connection: "Derived from the canonical concept set.", prohibited_exaggerations: [] },
+        created_at: set?.created_at ?? concept.created_at ?? createdAt,
+        provenance: { source: "v3_backward_compatible_hydration", concept_set_id: concept.concept_set_id },
+      };
+      if (!strategies.some((entry) => entry.id === strategy!.id && entry.revision === strategy!.revision)) strategies.push(strategy);
+    }
+    let brief = briefs.find((entry) => entry.id === partial.creative_brief_id && entry.revision === partial.creative_brief_revision);
+    if (!brief) {
+      brief = {
+        id: deterministicUuid("thumbnail-v3-derived-brief", concept.concept_revision_id), revision: 1,
+        strategy_id: strategy.id, strategy_revision: strategy.revision,
+        concept_slot: Math.max(1, (set?.concept_revision_ids.indexOf(concept.concept_revision_id) ?? index) + 1),
+        subject_direction: concept.headline, focal_action: concept.image_concept,
+        composition_direction: concept.image_concept, emotional_tone: concept.mood_style,
+        visual_hierarchy: "Make the primary subject immediately legible.",
+        title_compatibility: "Reserve clean negative space for locally composed canonical typography.",
+        expectation_integrity_rationale: "The visual direction remains grounded in the canonical concept.",
+        provider_neutral_render_direction: concept.normalized_prompt_basis,
+        subject_classification: "unspecified", composition_classification: "unspecified", dominant_colors: [],
+        created_at: concept.created_at ?? createdAt,
+        provenance: { source: "v3_backward_compatible_hydration", concept_revision_id: concept.concept_revision_id },
+      };
+      briefs.push(brief);
+    }
+    return { ...concept, strategy_id: strategy.id, strategy_revision: strategy.revision,
+      creative_brief_id: brief.id, creative_brief_revision: brief.revision };
+  });
+  const recipes = thumbnail.render_recipes.map((recipe) => {
+    const partial = recipe as ThumbnailRenderRecipe & Partial<Pick<ThumbnailRenderRecipe,
+      "strategy_id" | "strategy_revision" | "creative_brief_id" | "creative_brief_revision" | "provider_settings" | "composition_revision">>;
+    const concept = concepts.find((entry) => entry.concept_revision_id === recipe.concept_revision_id);
+    return { ...recipe,
+      strategy_id: partial.strategy_id ?? concept?.strategy_id ?? strategies[0]?.id ?? "",
+      strategy_revision: partial.strategy_revision ?? concept?.strategy_revision ?? 1,
+      creative_brief_id: partial.creative_brief_id ?? concept?.creative_brief_id ?? briefs[0]?.id ?? "",
+      creative_brief_revision: partial.creative_brief_revision ?? concept?.creative_brief_revision ?? 1,
+      provider_settings: partial.provider_settings ?? {}, composition_revision: partial.composition_revision ?? recipe.revision };
+  });
+  const existingCompositions = Array.isArray(thumbnail.composition_revisions) ? thumbnail.composition_revisions : [];
+  const variationBatches = Array.isArray(thumbnail.variation_batches) ? thumbnail.variation_batches : [];
+  const variationPromotions = Array.isArray(thumbnail.variation_promotions) ? thumbnail.variation_promotions : [];
+  const compositions = existingCompositions.length ? existingCompositions : recipes.map((recipe) => {
+    const serialized = canonicalSerialize({ recipe_id: recipe.id, recipe_revision: recipe.revision,
+      composition_engine_version: recipe.composition_engine_version, title_id: recipe.title_id,
+      title_revision: recipe.title_revision, title_text: recipe.title_text, treatment: recipe.treatment });
+    return { id: deterministicUuid("thumbnail-v3-composition", `${recipe.id}:${recipe.revision}`), revision: recipe.composition_revision,
+      render_recipe_id: recipe.id, render_recipe_revision: recipe.revision,
+      composition_engine_version: recipe.composition_engine_version, title_id: recipe.title_id,
+      title_revision: recipe.title_revision, title_text: recipe.title_text, treatment: recipe.treatment,
+      canonical_serialized: serialized, content_hash: canonicalContentHash(serialized), created_at: recipe.updated_at };
+  });
+  return { ...source, thumbnail: { ...thumbnail, authority_version: THUMBNAIL_AUTHORITY_VERSION,
+    creative_strategies: strategies, active_creative_strategy_id: thumbnail.active_creative_strategy_id ?? strategies.at(-1)?.id ?? null,
+    creative_briefs: briefs, concept_revisions: concepts, render_recipes: recipes,
+    composition_revisions: compositions,
+    active_composition_revision_id: thumbnail.active_composition_revision_id
+      ?? compositions.find((entry) => entry.render_recipe_id === thumbnail.active_render_recipe_id)?.id ?? null,
+    variation_batches: variationBatches,
+    active_variation_batch_id: thumbnail.active_variation_batch_id ?? variationBatches.at(-1)?.id ?? null,
+    variation_promotions: variationPromotions } };
 }
 
 export function serializeEpisodePackageV3(pkg: EpisodePackageV3): EpisodePackageV3 {
@@ -348,14 +579,45 @@ export function validateConceptGenerationSet(concepts: readonly Omit<ThumbnailCo
 export function deriveThumbnailPromptPack(args: {
   recipe: ThumbnailRenderRecipe;
   concept: ThumbnailConceptRevision;
+  strategy?: ThumbnailCreativeStrategy | null;
+  brief?: ThumbnailCreativeBrief | null;
   templateVersion?: string;
 }): DerivedThumbnailPromptPack {
   const templateVersion = args.templateVersion ?? THUMBNAIL_PROMPT_TEMPLATE_VERSION;
   const regenerated = args.recipe.prompt_template_version !== templateVersion;
   const payload = {
+    serialization_version: THUMBNAIL_PROMPT_SERIALIZATION_VERSION,
     template_version: templateVersion,
     provider_id: args.recipe.provider_id,
+    provider_settings: args.recipe.provider_settings,
     aspect_ratio: args.recipe.intended_aspect_ratio,
+    authority: {
+      strategy_id: args.recipe.strategy_id,
+      strategy_revision: args.recipe.strategy_revision,
+      creative_brief_id: args.recipe.creative_brief_id,
+      creative_brief_revision: args.recipe.creative_brief_revision,
+      concept_revision_id: args.recipe.concept_revision_id,
+      render_recipe_id: args.recipe.id,
+      render_recipe_revision: args.recipe.revision,
+      composition_revision: args.recipe.composition_revision,
+    },
+    strategy: args.strategy ? {
+      episode_promise: args.strategy.episode_promise,
+      intended_viewer: args.strategy.intended_viewer,
+      curiosity_mechanism: args.strategy.curiosity_mechanism,
+      editorial_positioning: args.strategy.editorial_positioning,
+      expectation_integrity: args.strategy.expectation_integrity,
+    } : null,
+    creative_brief: args.brief ? {
+      subject_direction: args.brief.subject_direction,
+      focal_action: args.brief.focal_action,
+      composition_direction: args.brief.composition_direction,
+      emotional_tone: args.brief.emotional_tone,
+      visual_hierarchy: args.brief.visual_hierarchy,
+      title_compatibility: args.brief.title_compatibility,
+      expectation_integrity_rationale: args.brief.expectation_integrity_rationale,
+      provider_neutral_render_direction: args.brief.provider_neutral_render_direction,
+    } : null,
     creative: {
       headline: args.concept.headline,
       image_concept: args.concept.image_concept,
@@ -367,11 +629,13 @@ export function deriveThumbnailPromptPack(args: {
       revision: args.recipe.title_revision,
       text: args.recipe.title_text,
     },
-    exclusions: ["unrequested text", "logos", "watermarks", "branding"],
+    exclusions: ["all burned-in text", "unrequested text", "logos", "watermarks", "unsupported claims"],
   };
-  const positive = [args.concept.normalized_prompt_basis, args.concept.image_concept, args.concept.mood_style,
+  const positive = [args.brief?.provider_neutral_render_direction, args.brief?.composition_direction,
+    args.concept.normalized_prompt_basis, args.concept.image_concept, args.concept.mood_style,
     `Reserve composition space for the exact approved title applied by the compositor: ${args.recipe.title_text}`]
-    .map((value) => value.trim()).filter(Boolean).join(". ");
+    .map((value) => value?.trim() ?? "").filter(Boolean).join(". ");
+  const canonicalSerialized = canonicalSerialize(payload);
   return {
     template_version: templateVersion,
     review_state: regenerated ? "needs_review" : args.recipe.prompt_review_state,
@@ -379,8 +643,10 @@ export function deriveThumbnailPromptPack(args: {
     provider_id: args.recipe.provider_id,
     intended_aspect_ratio: args.recipe.intended_aspect_ratio,
     positive_prompt: positive,
-    negative_prompt: "burned-in text, logos, watermarks, branding, altered title wording",
-    canonical_serialized: canonicalSerialize(payload),
+    negative_prompt: "all text, typography, letters, words, captions, logos, watermarks, unsupported claims",
+    canonical_serialized: canonicalSerialized,
+    canonical_hash: canonicalContentHash(canonicalSerialized),
+    serialization_version: THUMBNAIL_PROMPT_SERIALIZATION_VERSION,
   };
 }
 

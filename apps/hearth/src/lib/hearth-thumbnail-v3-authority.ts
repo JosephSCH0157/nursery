@@ -1,5 +1,7 @@
 import {
   canonicalSerialize,
+  canonicalContentHash,
+  deterministicUuid,
   deriveThumbnailPromptPack,
   validateConceptGenerationSet,
   type EpisodePackageV3,
@@ -7,6 +9,7 @@ import {
   type ThumbnailCompositeSnapshot,
   type ThumbnailConceptRevision,
   type ThumbnailConceptSet,
+  type ThumbnailCompositionRevision,
   type ThumbnailLaunchVariantRevision,
   type ThumbnailPublicationEvent,
   type ThumbnailRenderRecipe,
@@ -25,6 +28,17 @@ export function appendConceptSet(args: {
   if (errors.length) throw new Error(errors.join(" "));
   if (args.concepts.some((concept) => concept.concept_set_id !== args.conceptSet.id)) {
     throw new Error("Every concept revision must belong to the new concept set.");
+  }
+  for (const concept of args.concepts) {
+    const strategy = args.episodePackage.thumbnail.creative_strategies.find(
+      (entry) => entry.id === concept.strategy_id && entry.revision === concept.strategy_revision,
+    );
+    const brief = args.episodePackage.thumbnail.creative_briefs.find(
+      (entry) => entry.id === concept.creative_brief_id && entry.revision === concept.creative_brief_revision,
+    );
+    if (!strategy || !brief || brief.strategy_id !== strategy.id || brief.strategy_revision !== strategy.revision) {
+      throw new Error("Every concept must reference an exact canonical strategy and creative brief revision.");
+    }
   }
   if (args.conceptSet.concept_revision_ids.length !== 5
     || args.conceptSet.concept_revision_ids.some((id, index) => id !== args.concepts[index]?.concept_revision_id)) {
@@ -76,16 +90,47 @@ export function saveRenderRecipe(args: {
   }
   const title = args.episodePackage.seo.titles.find((entry) => entry.id === args.recipe.title_id);
   if (!title || title.revision !== args.recipe.title_revision) throw new Error("Render recipe must reference an exact title revision.");
+  const strategy = args.episodePackage.thumbnail.creative_strategies.find(
+    (entry) => entry.id === args.recipe.strategy_id && entry.revision === args.recipe.strategy_revision,
+  );
+  const brief = args.episodePackage.thumbnail.creative_briefs.find(
+    (entry) => entry.id === args.recipe.creative_brief_id && entry.revision === args.recipe.creative_brief_revision,
+  );
+  if (!strategy || !brief || brief.strategy_id !== strategy.id || brief.strategy_revision !== strategy.revision) {
+    throw new Error("Render recipe must reference an exact strategy and creative brief revision.");
+  }
+  const concept = args.episodePackage.thumbnail.concept_revisions.find((entry) => entry.concept_revision_id === args.recipe.concept_revision_id)!;
+  if (concept.strategy_id !== strategy.id || concept.strategy_revision !== strategy.revision
+    || concept.creative_brief_id !== brief.id || concept.creative_brief_revision !== brief.revision) {
+    throw new Error("Render recipe authority chain does not match the selected concept revision.");
+  }
   const prior = args.episodePackage.thumbnail.render_recipes
     .filter((entry) => entry.id === args.recipe.id)
     .sort((left, right) => right.revision - left.revision)[0];
   if (prior && args.recipe.revision !== prior.revision + 1) throw new Error("Recipe updates must create the next immutable recipe revision.");
+  if (prior && args.recipe.composition_revision !== prior.composition_revision + 1) {
+    throw new Error("Composition revisions must increase with immutable render-recipe revisions.");
+  }
   const recipes = prior
     ? [...args.episodePackage.thumbnail.render_recipes, args.recipe]
     : [...args.episodePackage.thumbnail.render_recipes, args.recipe];
+  const compositionSerialized = canonicalSerialize({ render_recipe_id: args.recipe.id,
+    render_recipe_revision: args.recipe.revision, composition_engine_version: args.recipe.composition_engine_version,
+    title_id: args.recipe.title_id, title_revision: args.recipe.title_revision,
+    title_text: args.recipe.title_text, treatment: args.recipe.treatment });
+  const composition: ThumbnailCompositionRevision = {
+    id: deterministicUuid("thumbnail-composition", `${args.recipe.id}:${args.recipe.revision}`),
+    revision: args.recipe.composition_revision, render_recipe_id: args.recipe.id,
+    render_recipe_revision: args.recipe.revision, composition_engine_version: args.recipe.composition_engine_version,
+    title_id: args.recipe.title_id, title_revision: args.recipe.title_revision, title_text: args.recipe.title_text,
+    treatment: args.recipe.treatment, canonical_serialized: compositionSerialized,
+    content_hash: canonicalContentHash(compositionSerialized), created_at: args.recipe.updated_at,
+  };
   return {
     ...args.episodePackage,
-    thumbnail: { ...args.episodePackage.thumbnail, render_recipes: recipes, active_render_recipe_id: args.recipe.id },
+    thumbnail: { ...args.episodePackage.thumbnail, render_recipes: recipes, active_render_recipe_id: args.recipe.id,
+      composition_revisions: [...args.episodePackage.thumbnail.composition_revisions, composition],
+      active_composition_revision_id: composition.id },
   };
 }
 
@@ -101,7 +146,7 @@ export function assertBaseVersionAuthority(pkg: EpisodePackageV3, base: Thumbnai
 export function proveThumbnailMutation(args: {
   expected: EpisodePackageV3;
   canonical: EpisodePackageV3;
-  kind: "concept_set" | "concept_revision" | "recipe" | "base_version" | "primary" | "launch_revision" | "publication_event";
+  kind: "concept_set" | "concept_revision" | "recipe" | "base_version" | "primary" | "launch_revision" | "publication_event" | "variation_batch" | "variation_promotion";
   entityId: string;
   revision?: number;
   protectedRelationships?: readonly { versionId: string; conceptRevisionId: string }[];
@@ -125,11 +170,20 @@ function findScoped(pkg: EpisodePackageV3, kind: Parameters<typeof proveThumbnai
   switch (kind) {
     case "concept_set": return pkg.thumbnail.concept_sets.find((entry) => entry.id === id);
     case "concept_revision": return pkg.thumbnail.concept_revisions.find((entry) => entry.concept_revision_id === id);
-    case "recipe": return pkg.thumbnail.render_recipes.find((entry) => entry.id === id && (revision == null || entry.revision === revision));
+    case "recipe": {
+      const recipe = pkg.thumbnail.render_recipes.find((entry) => entry.id === id && (revision == null || entry.revision === revision));
+      if (!recipe) return null;
+      const composition = pkg.thumbnail.composition_revisions.find(
+        (entry) => entry.render_recipe_id === recipe.id && entry.render_recipe_revision === recipe.revision,
+      );
+      return { recipe, composition };
+    }
     case "base_version": return pkg.thumbnail.base_versions.find((entry) => entry.id === id);
     case "primary": return pkg.thumbnail.primary_base_version_id === id ? id : null;
     case "launch_revision": return pkg.thumbnail.launch_variant_revisions.find((entry) => entry.launch_variant_id === id && entry.revision === revision);
     case "publication_event": return pkg.thumbnail.publication_events.find((entry) => entry.id === id);
+    case "variation_batch": return pkg.thumbnail.variation_batches.find((entry) => entry.id === id);
+    case "variation_promotion": return pkg.thumbnail.variation_promotions.find((entry) => entry.id === id);
   }
 }
 
@@ -182,7 +236,9 @@ export function rebuildActivePromptPack(pkg: EpisodePackageV3) {
   if (!recipe) return null;
   const concept = pkg.thumbnail.concept_revisions.find((entry) => entry.concept_revision_id === recipe.concept_revision_id);
   if (!concept) return null;
-  return deriveThumbnailPromptPack({ recipe, concept });
+  const strategy = pkg.thumbnail.creative_strategies.find((entry) => entry.id === recipe.strategy_id && entry.revision === recipe.strategy_revision);
+  const brief = pkg.thumbnail.creative_briefs.find((entry) => entry.id === recipe.creative_brief_id && entry.revision === recipe.creative_brief_revision);
+  return deriveThumbnailPromptPack({ recipe, concept, strategy, brief });
 }
 
 export function canReuseLaunchSnapshotForPublish(args: {

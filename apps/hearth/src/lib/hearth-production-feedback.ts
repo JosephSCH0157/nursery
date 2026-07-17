@@ -2,6 +2,7 @@ import {
   parseSeoTitlesFromText,
   parseTagsFromText,
   parseThumbnailConceptsFromText,
+  parseThumbnailCreativeAuthorityFromText,
   type EpisodeSeoTitle,
 } from "./episode-package-v2";
 
@@ -59,6 +60,7 @@ export function resolveHearthProductionArtifactFeedback(args: {
 
   if (args.action === "thumbnails") {
     const concepts = parseThumbnailConceptsFromText(args.assistantText);
+    const authority = parseThumbnailCreativeAuthorityFromText(args.assistantText);
     const complete = concepts.length === 5
       && concepts.every((concept) => concept.label.trim() && concept.prompt_text.trim())
       && new Set(concepts.map((concept) => concept.label.trim().toLowerCase())).size === 5
@@ -66,8 +68,10 @@ export function resolveHearthProductionArtifactFeedback(args: {
     return {
       ...EMPTY_FEEDBACK,
       shouldRefreshEpisodePackage: true,
-      warning: complete
+      warning: complete && authority
         ? null
+        : complete
+          ? "Thumbnail briefing was not saved because the creative strategy or one of its five actionable briefs was incomplete."
         : "Thumbnail briefing was not saved because Hearth did not return exactly five complete, distinct concept briefs.",
     };
   }

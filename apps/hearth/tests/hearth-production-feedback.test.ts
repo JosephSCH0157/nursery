@@ -153,12 +153,28 @@ test("hearthProductionFeedback: tags replies hydrate tags and warn on empty stru
 test("hearthProductionFeedback: thumbnail replies require exactly five concepts and accept harmless markdown", () => {
   const parsed = resolveHearthProductionArtifactFeedback({
     action: "thumbnails",
-    assistantText: Array.from({ length: 5 }, (_, index) => [
-      `### **THUMBNAIL_0${index + 1}**`,
-      `- **Headline:** Smoke and Signals ${index + 1}`,
-      `- **Image concept:** Distinct editorial scene ${index + 1}`,
-      `- **Mood/style:** urgent editorial still ${index + 1}`,
-    ].join("\n")).join("\n\n"),
+    assistantText: [
+      "### **THUMBNAIL_STRATEGY**",
+      "- **Episode promise:** Explain the approved episode faithfully.",
+      "- **Intended viewer:** Curious documentary viewers.",
+      "- **Curiosity mechanism:** An unresolved visual contrast.",
+      "- **Editorial positioning:** Evidence-led and restrained.",
+      "- **Truthful connection:** Every image maps to the script.",
+      "- **Prohibited exaggerations:** No invented outcomes.",
+      ...Array.from({ length: 5 }, (_, index) => [
+        `### **THUMBNAIL_0${index + 1}**`,
+        `- **Headline:** Smoke and Signals ${index + 1}`,
+        `- **Subject:** Documentary subject ${index + 1}`,
+        `- **Focal action:** Distinct action ${index + 1}`,
+        `- **Composition:** Distinct editorial scene ${index + 1}`,
+        `- **Emotional tone:** Restrained urgency ${index + 1}`,
+        `- **Visual hierarchy:** One focal subject ${index + 1}`,
+        `- **Title compatibility:** Clear negative space ${index + 1}`,
+        `- **Integrity rationale:** Supported by the approved script ${index + 1}`,
+        `- **Render direction:** Clean artwork without text ${index + 1}`,
+        `- **Mood/style:** urgent editorial still ${index + 1}`,
+      ].join("\n")),
+    ].join("\n\n"),
   });
 
   assert.equal(parsed.shouldRefreshEpisodePackage, true);

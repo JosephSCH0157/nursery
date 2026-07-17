@@ -188,7 +188,9 @@ export async function commitThumbnailBaseArtwork(args: {
   const concept = recipe && args.episodePackage.thumbnail.concept_revisions.find(
     (entry) => entry.concept_revision_id === recipe.concept_revision_id,
   );
-  const promptPack = recipe && concept ? deriveThumbnailPromptPack({ recipe, concept }) : null;
+  const strategy = recipe ? args.episodePackage.thumbnail.creative_strategies.find((entry) => entry.id === recipe.strategy_id && entry.revision === recipe.strategy_revision) : null;
+  const brief = recipe ? args.episodePackage.thumbnail.creative_briefs.find((entry) => entry.id === recipe.creative_brief_id && entry.revision === recipe.creative_brief_revision) : null;
+  const promptPack = recipe && concept ? deriveThumbnailPromptPack({ recipe, concept, strategy, brief }) : null;
   if (!recipe || !concept || promptPack?.review_state !== "reviewed") {
     return { ok: false, saveState: "error", status: 409, error: "Review the canonical prompt pack before rendering base artwork." };
   }
@@ -306,7 +308,10 @@ export async function generateForgeAiBaseArtwork(args: {
   if (!recipe || !concept || recipe.prompt_review_state !== "reviewed") {
     return { ok: false, saveState: "error", status: 409, error: "Review the exact canonical prompt pack before Forge rendering." };
   }
-  const promptPack = deriveThumbnailPromptPack({ recipe, concept });
+  const strategy = args.episodePackage.thumbnail.creative_strategies.find((entry) => entry.id === recipe.strategy_id && entry.revision === recipe.strategy_revision);
+  const brief = args.episodePackage.thumbnail.creative_briefs.find((entry) => entry.id === recipe.creative_brief_id && entry.revision === recipe.creative_brief_revision);
+  if (!strategy || !brief) return { ok: false, saveState: "error", status: 409, error: "Canonical strategy or creative brief authority is unavailable." };
+  const promptPack = deriveThumbnailPromptPack({ recipe, concept, strategy, brief });
   if (promptPack.review_state !== "reviewed") return { ok: false, saveState: "error", status: 409, error: "Prompt template changed and requires review." };
   const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/generate-thumbnail`, {
     method: "POST", headers: { "x-forge-user-authorization": `Bearer ${token}` },
@@ -317,6 +322,9 @@ export async function generateForgeAiBaseArtwork(args: {
       confirm_spend: args.confirmSpend, always_approve_ai_spend: args.alwaysApproveAiSpend,
       canonical_stage_only: true, concept_revision_id: concept.concept_revision_id,
       render_recipe_id: recipe.id, render_recipe_revision: recipe.revision,
+      prompt_package_hash: promptPack.canonical_hash,
+      prompt_serialization_version: promptPack.serialization_version,
+      provider_settings: recipe.provider_settings,
     },
   });
   const body = await json(response);

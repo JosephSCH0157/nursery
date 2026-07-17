@@ -90,13 +90,30 @@ export function buildProductionPrompt(args: {
   if (args.action === "thumbnails") {
     return [
       ...header,
-      "Return plain text with exactly 5 concepts in this format:",
-      "THUMBNAIL_01",
-      "Headline: ...",
-      "Image concept: ...",
-      "Mood/style: ...",
+      "Return plain text only in this exact structure. Do not add research commentary, markdown, fences, or explanations:",
+      "THUMBNAIL_STRATEGY",
+      "Episode promise: <the truthful promise this episode fulfills>",
+      "Intended viewer: <the specific viewer this should attract>",
+      "Curiosity mechanism: <why the right viewer will want to click>",
+      "Editorial positioning: <the honest angle that differentiates this episode>",
+      "Truthful connection: <how the strategy is supported by the approved script>",
+      "Prohibited exaggerations: <comma-separated claims or implications the thumbnail must avoid>",
       "",
-      "Repeat THUMBNAIL_02 ... THUMBNAIL_05 with same fields.",
+      "THUMBNAIL_01",
+      "Headline: <short internal concept name, not rendered text>",
+      "Subject: <primary subject>",
+      "Focal action: <what the subject is doing or expressing>",
+      "Composition: <provider-neutral layout and crop>",
+      "Emotional tone: <intended feeling>",
+      "Visual hierarchy: <what is noticed first, second, and last>",
+      "Title compatibility: <how canonical title text fits without duplicating the image>",
+      "Integrity rationale: <why this image truthfully represents the approved script>",
+      "Render direction: <clean base-art direction with no text, letters, logos, or watermarks>",
+      "Mood/style: <visual style>",
+      "",
+      "Repeat THUMBNAIL_02 through THUMBNAIL_05 with every field present.",
+      "The five concepts must use meaningfully different subjects or compositions.",
+      "Never request burned-in typography; Forge composes the canonical title locally.",
     ].join("\n");
   }
 
@@ -216,6 +233,10 @@ export async function persistProductionArtifact(args: {
       return committed;
     }
     if (!validation.ok) {
+      if (args.action === "thumbnails") {
+        await args.refreshEpisodePackage();
+        return committed;
+      }
       args.setAiRuntimeWarning(validation.error);
       return;
     }

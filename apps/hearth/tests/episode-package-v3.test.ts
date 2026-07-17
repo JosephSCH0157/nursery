@@ -22,6 +22,7 @@ import {
   saveRenderRecipe,
 } from "../src/lib/hearth-thumbnail-v3-authority";
 import { isValidThumbnailPair, resolveCanonicalThumbnailPair } from "../src/lib/hearth-thumbnail-pairing";
+import { DEFAULT_VARIATION_LOCKS, appendVariationBatch, createDeterministicVariationBatch, promoteRecipeVariation } from "../src/lib/hearth-thumbnail-variations";
 
 const legacyMetadata = {
   updated_at: "2026-07-14T19:00:00.000Z",
@@ -64,13 +65,17 @@ test("v2 hydration is deterministic, in-memory only, and separates presentation 
   assert.equal(first.seo.titles[0]?.revision, 1);
 });
 
-function generatedConcepts(setId: string): ThumbnailConceptRevision[] {
+function generatedConcepts(setId: string, authority?: ReturnType<typeof hydrateEpisodePackageV3>): ThumbnailConceptRevision[] {
   return Array.from({ length: 5 }, (_, index) => ({
     concept_lineage_id: `lineage-${index}`,
     concept_revision_id: `revision-${index}`,
     revision_number: 1,
     supersedes_revision_id: null,
     concept_set_id: setId,
+    strategy_id: authority?.thumbnail.creative_strategies[0]?.id ?? "strategy",
+    strategy_revision: authority?.thumbnail.creative_strategies[0]?.revision ?? 1,
+    creative_brief_id: authority?.thumbnail.creative_briefs[index]?.id ?? `brief-${index}`,
+    creative_brief_revision: authority?.thumbnail.creative_briefs[index]?.revision ?? 1,
     headline: `Headline ${index}`,
     image_concept: `Image concept ${index}`,
     mood_style: `Mood ${index}`,
@@ -82,7 +87,7 @@ function generatedConcepts(setId: string): ThumbnailConceptRevision[] {
 
 test("concept generation is atomic, additive, exact-five, and refinement preserves lineage", () => {
   const imported = hydrateEpisodePackageV3(legacyMetadata);
-  const concepts = generatedConcepts("set-new");
+  const concepts = generatedConcepts("set-new", imported);
   const set: ThumbnailConceptSet = {
     id: "set-new", name: "New set", created_at: "2026-07-15T12:00:00.000Z", state: "active",
     approved_script_version: 7, generation_provenance: { model: "test" }, prompt_schema_version: "v1",
@@ -112,17 +117,21 @@ test("render recipe is sole live presentation authority and prompt reconstructio
   const concept = imported.thumbnail.concept_revisions[0]!;
   const recipe: ThumbnailRenderRecipe = {
     id: "recipe-1", revision: 1, concept_revision_id: concept.concept_revision_id,
+    strategy_id: concept.strategy_id, strategy_revision: concept.strategy_revision,
+    creative_brief_id: concept.creative_brief_id, creative_brief_revision: concept.creative_brief_revision,
     title_id: "title-1", title_revision: 1, provider_id: "forge", intended_aspect_ratio: "16:9",
+    provider_settings: {},
     brand_template_id: "brand-1", brand_template_revision: 4, title_text: "DURABLE",
     treatment: { typography: { font: "Inter" }, placement: { x: 0.1 }, safe_zone: { enabled: true }, shadow: {}, treatment: {} },
     prompt_template_version: THUMBNAIL_PROMPT_TEMPLATE_VERSION,
     composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
+    composition_revision: 1,
     prompt_review_state: "reviewed", last_reviewed_template_version: THUMBNAIL_PROMPT_TEMPLATE_VERSION,
     created_at: "2026-07-15T12:00:00.000Z", updated_at: "2026-07-15T12:00:00.000Z",
   };
   const saved = saveRenderRecipe({ episodePackage: imported, recipe });
-  const revisionTwo = saveRenderRecipe({ episodePackage: saved, recipe: { ...recipe, revision: 2, prompt_review_state: "unreviewed" } });
-  const revisionThree = saveRenderRecipe({ episodePackage: revisionTwo, recipe: { ...recipe, revision: 3 } });
+  const revisionTwo = saveRenderRecipe({ episodePackage: saved, recipe: { ...recipe, revision: 2, composition_revision: 2, prompt_review_state: "unreviewed" } });
+  const revisionThree = saveRenderRecipe({ episodePackage: revisionTwo, recipe: { ...recipe, revision: 3, composition_revision: 3 } });
   assert.deepEqual(revisionThree.thumbnail.render_recipes.map((entry) => entry.revision), [1, 2, 3]);
   assert.throws(() => saveRenderRecipe({ episodePackage: revisionThree, recipe: { ...recipe, revision: 3 } }));
   assert.equal(saved.thumbnail.render_recipes[0]?.brand_template_id, "brand-1");
@@ -130,8 +139,18 @@ test("render recipe is sole live presentation authority and prompt reconstructio
   const first = deriveThumbnailPromptPack({ recipe, concept });
   const second = deriveThumbnailPromptPack({ recipe: structuredClone(recipe), concept: structuredClone(concept) });
   assert.deepEqual(first, second);
+  assert.equal(first.canonical_serialized, second.canonical_serialized);
+  assert.equal(first.canonical_hash, second.canonical_hash);
+  assert.equal(first.canonical_hash.length, 64);
   assert.equal(first.positive_prompt.includes("DURABLE"), true);
   assert.equal(first.canonical_serialized.includes('"id":"title-1"'), true);
+  const changedProviderSettings = deriveThumbnailPromptPack({
+    recipe: { ...recipe, provider_settings: { guidance: 7 } },
+    concept,
+  });
+  assert.notEqual(changedProviderSettings.canonical_hash, first.canonical_hash);
+  assert.equal(saved.thumbnail.composition_revisions[0]?.render_recipe_id, recipe.id);
+  assert.equal(saved.thumbnail.composition_revisions[0]?.revision, recipe.composition_revision);
   assert.equal(deriveThumbnailPromptPack({ recipe, concept, templateVersion: "v2" }).review_state, "needs_review");
 });
 
@@ -141,11 +160,15 @@ test("active render recipe restores the exact independent concept/title pairing"
   const secondConcept = imported.thumbnail.concept_revisions[1]!;
   const recipe: ThumbnailRenderRecipe = {
     id: "pairing", revision: 1, concept_revision_id: secondConcept.concept_revision_id,
+    strategy_id: secondConcept.strategy_id, strategy_revision: secondConcept.strategy_revision,
+    creative_brief_id: secondConcept.creative_brief_id, creative_brief_revision: secondConcept.creative_brief_revision,
     title_id: "title-2", title_revision: 3, title_text: "SECOND", provider_id: "forge", intended_aspect_ratio: "16:9",
+    provider_settings: {},
     brand_template_id: null, brand_template_revision: null,
     treatment: { typography: {}, placement: {}, safe_zone: {}, shadow: {}, treatment: {} },
     prompt_template_version: THUMBNAIL_PROMPT_TEMPLATE_VERSION,
     composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
+    composition_revision: 1,
     prompt_review_state: "unreviewed", last_reviewed_template_version: null,
     created_at: "2026-07-16T12:00:00.000Z", updated_at: "2026-07-16T12:00:00.000Z",
   };
@@ -156,11 +179,42 @@ test("active render recipe restores the exact independent concept/title pairing"
   assert.equal(pair.title?.revision, 3);
   assert.equal(isValidThumbnailPair(pair), true);
 
-  const changedTitle = saveRenderRecipe({ episodePackage: saved, recipe: { ...recipe, revision: 2, title_id: "title-1", title_revision: 1, title_text: "DURABLE" } });
+  const changedTitle = saveRenderRecipe({ episodePackage: saved, recipe: { ...recipe, revision: 2, composition_revision: 2, title_id: "title-1", title_revision: 1, title_text: "DURABLE" } });
   assert.equal(resolveCanonicalThumbnailPair(changedTitle).concept?.concept_revision_id, secondConcept.concept_revision_id);
   assert.equal(resolveCanonicalThumbnailPair(changedTitle).title?.id, "title-1");
   assert.equal(imported.thumbnail.concept_revisions[1]?.headline, secondConcept.headline);
   assert.equal(imported.seo.titles[0]?.text, "A durable title");
+});
+
+test("controlled variations are deterministic, respect locks, and promote non-destructively", () => {
+  const imported = hydrateEpisodePackageV3(legacyMetadata);
+  imported.seo.titles.push({ id: "title-2", label: "B", text: "Alternate title", thumbnail_text: "ALTERNATE", is_primary: false, revision: 1 });
+  const concept = imported.thumbnail.concept_revisions[0]!;
+  const recipe: ThumbnailRenderRecipe = { id: "variation-source", revision: 1, concept_revision_id: concept.concept_revision_id,
+    strategy_id: concept.strategy_id, strategy_revision: concept.strategy_revision, creative_brief_id: concept.creative_brief_id,
+    creative_brief_revision: concept.creative_brief_revision, title_id: "title-1", title_revision: 1, title_text: "DURABLE",
+    provider_id: "forge", provider_settings: {}, intended_aspect_ratio: "16:9", brand_template_id: "brand", brand_template_revision: 1,
+    treatment: { typography: { color: "#FFFFFF" }, placement: { vertical: "bottom" }, safe_zone: {}, shadow: {}, treatment: {} },
+    prompt_template_version: THUMBNAIL_PROMPT_TEMPLATE_VERSION, composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
+    composition_revision: 1, prompt_review_state: "reviewed", last_reviewed_template_version: THUMBNAIL_PROMPT_TEMPLATE_VERSION,
+    created_at: "2026-07-17T10:00:00.000Z", updated_at: "2026-07-17T10:00:00.000Z" };
+  const saved = saveRenderRecipe({ episodePackage: imported, recipe });
+  const locks = { ...DEFAULT_VARIATION_LOCKS, title: false };
+  const first = createDeterministicVariationBatch({ episodePackage: saved, sourceRecipe: recipe, brandMode: "strict_brand", locks, count: 3, createdAt: "2026-07-17T11:00:00.000Z" });
+  const second = createDeterministicVariationBatch({ episodePackage: saved, sourceRecipe: recipe, brandMode: "strict_brand", locks, count: 3, createdAt: "2026-07-17T12:00:00.000Z" });
+  assert.equal(first.source_identity, second.source_identity);
+  assert.deepEqual(first.variations.map((entry) => entry.content_hash), second.variations.map((entry) => entry.content_hash));
+  assert.equal(first.estimated_ai_credits, 0);
+  assert.ok(first.variations.every((entry) => entry.candidate_recipe.concept_revision_id === recipe.concept_revision_id));
+  assert.ok(first.variations.every((entry) => entry.candidate_recipe.brand_template_id === recipe.brand_template_id));
+  const withBatch = appendVariationBatch(saved, first);
+  const promoted = promoteRecipeVariation({ episodePackage: withBatch, batchId: first.id, variationId: first.variations[0]!.id, createdAt: "2026-07-17T13:00:00.000Z" });
+  assert.equal(saved.thumbnail.render_recipes.length, 1);
+  assert.equal(promoted.thumbnail.render_recipes.length, 2);
+  assert.equal(promoted.thumbnail.variation_promotions.length, 1);
+  assert.equal(promoted.thumbnail.variation_batches[0]?.variations.length, 3);
+  const promotedAgain = promoteRecipeVariation({ episodePackage: promoted, batchId: first.id, variationId: first.variations[0]!.id, createdAt: "2026-07-17T14:00:00.000Z" });
+  assert.equal(promotedAgain.thumbnail.variation_promotions.length, 1);
 });
 
 test("stored fallback summary reports its exact zero-concept parser structure", () => {
@@ -188,11 +242,15 @@ test("launch and publication snapshots append immutable revisions", () => {
   const concept = imported.thumbnail.concept_revisions[0]!;
   const recipe: ThumbnailRenderRecipe = {
     id: "recipe-snapshot", revision: 1, concept_revision_id: concept.concept_revision_id,
+    strategy_id: concept.strategy_id, strategy_revision: concept.strategy_revision,
+    creative_brief_id: concept.creative_brief_id, creative_brief_revision: concept.creative_brief_revision,
     title_id: "title-1", title_revision: 1, provider_id: "forge", intended_aspect_ratio: "16:9",
+    provider_settings: {},
     brand_template_id: null, brand_template_revision: null, title_text: "DURABLE",
     treatment: { typography: {}, placement: {}, safe_zone: {}, shadow: {}, treatment: {} },
     prompt_template_version: THUMBNAIL_PROMPT_TEMPLATE_VERSION,
     composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
+    composition_revision: 1,
     prompt_review_state: "reviewed", last_reviewed_template_version: THUMBNAIL_PROMPT_TEMPLATE_VERSION,
     created_at: "2026-07-15T12:00:00.000Z", updated_at: "2026-07-15T12:00:00.000Z",
   };

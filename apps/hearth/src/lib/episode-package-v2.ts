@@ -1491,7 +1491,7 @@ export function diagnoseThumbnailConceptParsing(rawText: string): ThumbnailConce
       headline = headlineMatch[1].trim();
       continue;
     }
-    const imageMatch = line.match(/^(?:Image concept|Visual concept|Image|Visual):\s*(.+)$/i);
+    const imageMatch = line.match(/^(?:Image concept|Visual concept|Render direction|Image|Visual):\s*(.+)$/i);
     if (imageMatch?.[1]) {
       imageConcept = imageMatch[1].trim();
       continue;
@@ -1515,6 +1515,68 @@ export function diagnoseThumbnailConceptParsing(rawText: string): ThumbnailConce
 
 export function parseThumbnailConceptsFromText(rawText: string): EpisodeThumbnailConcept[] {
   return diagnoseThumbnailConceptParsing(rawText).concepts;
+}
+
+export type ParsedThumbnailCreativeAuthority = {
+  strategy: {
+    episodePromise: string;
+    intendedViewer: string;
+    curiosityMechanism: string;
+    editorialPositioning: string;
+    truthfulConnection: string;
+    prohibitedExaggerations: string[];
+  };
+  briefs: Array<{
+    subjectDirection: string;
+    focalAction: string;
+    compositionDirection: string;
+    emotionalTone: string;
+    visualHierarchy: string;
+    titleCompatibility: string;
+    expectationIntegrityRationale: string;
+    providerNeutralRenderDirection: string;
+  }>;
+};
+
+export function parseThumbnailCreativeAuthorityFromText(rawText: string): ParsedThumbnailCreativeAuthority | null {
+  const fields = new Map<string, string>();
+  const briefFields: Array<Map<string, string>> = [];
+  let currentBrief: Map<string, string> | null = null;
+  for (const rawLine of rawText.split(/\r?\n/)) {
+    const line = rawLine.trim().replace(/^#{1,6}\s*/, "").replace(/\*\*|__/g, "").trim();
+    const header = line.match(/^THUMBNAIL[_\s-]*(\d{1,3})\s*[:.-]?$/i);
+    if (header) {
+      currentBrief = new Map<string, string>();
+      briefFields[Number(header[1]) - 1] = currentBrief;
+      continue;
+    }
+    const match = line.match(/^([^:]+):\s*(.+)$/);
+    if (!match?.[1] || !match[2]) continue;
+    const key = match[1].trim().toLowerCase().replace(/[^a-z]+/g, "_").replace(/^_|_$/g, "");
+    (currentBrief ?? fields).set(key, match[2].trim());
+  }
+  const strategyValues = ["episode_promise", "intended_viewer", "curiosity_mechanism", "editorial_positioning", "truthful_connection"];
+  if (strategyValues.some((key) => !fields.get(key)?.trim()) || briefFields.length !== 5) return null;
+  const briefs = briefFields.map((brief) => ({
+    subjectDirection: brief?.get("subject") ?? "",
+    focalAction: brief?.get("focal_action") ?? "",
+    compositionDirection: brief?.get("composition") ?? "",
+    emotionalTone: brief?.get("emotional_tone") ?? brief?.get("mood_style") ?? "",
+    visualHierarchy: brief?.get("visual_hierarchy") ?? "",
+    titleCompatibility: brief?.get("title_compatibility") ?? "",
+    expectationIntegrityRationale: brief?.get("integrity_rationale") ?? "",
+    providerNeutralRenderDirection: brief?.get("render_direction") ?? brief?.get("image_concept") ?? "",
+  }));
+  if (briefs.some((brief) => Object.values(brief).some((value) => !value.trim()))) return null;
+  return {
+    strategy: {
+      episodePromise: fields.get("episode_promise")!, intendedViewer: fields.get("intended_viewer")!,
+      curiosityMechanism: fields.get("curiosity_mechanism")!, editorialPositioning: fields.get("editorial_positioning")!,
+      truthfulConnection: fields.get("truthful_connection")!,
+      prohibitedExaggerations: (fields.get("prohibited_exaggerations") ?? "").split(",").map((value) => value.trim()).filter(Boolean),
+    },
+    briefs,
+  };
 }
 
 export function parseImageMapEntriesFromText(rawText: string): EpisodeImageMapEntry[] {

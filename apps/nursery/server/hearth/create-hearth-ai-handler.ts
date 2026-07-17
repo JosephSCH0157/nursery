@@ -3800,7 +3800,11 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       const textWithoutUrls = removeUrls(requestText);
       const researchIntentText = stripHearthInternalRequestInstructions(textWithoutUrls || requestText);
       const linkModeRequested = urlsInRequest.length > 0;
-      const researchModeRequested = linkModeRequested || isResearchIntentRequest(researchIntentText || requestText);
+      // Production commands are version-scoped transformations of the approved
+      // script. Words such as "source" in their strict output contract must not
+      // route them through research or prepend a research outcome envelope.
+      const researchModeRequested = !productionAction
+        && (linkModeRequested || isResearchIntentRequest(researchIntentText || requestText));
       const estimatedInputTokens = Math.max(
         1,
         Math.ceil(
@@ -4301,7 +4305,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
 
         structured.assistantText = sanitizeHearthUserFacingOutput(structured.assistantText);
 
-        if (productionAction === "seo" || productionAction === "tags") {
+        if (productionAction === "seo" || productionAction === "tags" || productionAction === "thumbnails") {
           let productionValidation = validateHearthProductionArtifactOutput({
             action: productionAction,
             assistantText: structured.assistantText,
@@ -4319,7 +4323,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               });
             }
           }
-          if (!productionValidation.ok) {
+          if (!productionValidation.ok && productionAction !== "thumbnails") {
             const repairInstruction = productionAction === "seo"
               ? [
                   "Your prior response could not be parsed. Return ONLY this exact five-line title block, with real titles replacing the angle-bracket values:",

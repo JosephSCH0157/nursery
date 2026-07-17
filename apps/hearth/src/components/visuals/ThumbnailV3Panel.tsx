@@ -4,10 +4,20 @@ import {
   THUMBNAIL_PROMPT_TEMPLATE_VERSION,
   deriveThumbnailPromptPack,
   type EpisodePackageV3,
+  type ThumbnailBrandMode,
   type ThumbnailRenderRecipe,
+  type ThumbnailVariationLocks,
 } from "../../lib/episode-package-v3";
 import { refineConcept, saveRenderRecipe } from "../../lib/hearth-thumbnail-v3-authority";
 import { isValidThumbnailPair, resolveCanonicalThumbnailPair } from "../../lib/hearth-thumbnail-pairing";
+import { DEFAULT_VARIATION_LOCKS, appendVariationBatch, createDeterministicVariationBatch, promoteRecipeVariation } from "../../lib/hearth-thumbnail-variations";
+import {
+  appendThumbnailMemoryInterpretation,
+  critiqueThumbnailDirection,
+  loadThumbnailMemoryProjection,
+  projectThumbnailLaunchFacts,
+  type ThumbnailMemoryProjection,
+} from "../../lib/hearth-thumbnail-editorial-memory";
 import {
   commitEpisodePackageV3Mutation,
   commitOutsideToolBaseArtwork,
@@ -65,6 +75,15 @@ export default function ThumbnailV3Panel(props: Props) {
   const [shadowColor, setShadowColor] = useState("#000000");
   const [shadowOpacity, setShadowOpacity] = useState(0.7);
   const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
+  const [memoryProjection, setMemoryProjection] = useState<ThumbnailMemoryProjection>({ launchFacts: [], activeInterpretations: [] });
+  const [memoryState, setMemoryState] = useState<"loading" | "loaded" | "unavailable">("loading");
+  const [memoryError, setMemoryError] = useState<string | null>(null);
+  const [editorialNote, setEditorialNote] = useState("");
+  const [interpretationSaving, setInterpretationSaving] = useState(false);
+  const [variationLocks, setVariationLocks] = useState<ThumbnailVariationLocks>(DEFAULT_VARIATION_LOCKS);
+  const [variationBrandMode, setVariationBrandMode] = useState<ThumbnailBrandMode>("strict_brand");
+  const [variationCount, setVariationCount] = useState(3);
+  const [selectedVariationId, setSelectedVariationId] = useState<string | null>(null);
   const outsideUploadRef = useRef<HTMLInputElement | null>(null);
 
   const reload = useCallback(async () => {
@@ -84,6 +103,15 @@ export default function ThumbnailV3Panel(props: Props) {
       setTitleId(pair.title?.id ?? "");
       setTitleRevision(pair.title?.revision ?? null);
       setTitleText(pair.recipe?.title_text ?? "");
+      setMemoryState("loading");
+      try {
+        await projectThumbnailLaunchFacts({ workspaceId: props.workspaceId, workpieceId: props.workpieceId, episodePackage: canonical.episodePackage });
+        setMemoryProjection(await loadThumbnailMemoryProjection(props.workspaceId));
+        setMemoryState("loaded"); setMemoryError(null);
+      } catch (error) {
+        setMemoryState("unavailable");
+        setMemoryError(error instanceof Error ? error.message : "Workspace thumbnail memory is unavailable.");
+      }
       return canonical;
     } catch (error) { setLoadError(error instanceof Error ? error.message : "Unable to load thumbnail authority."); }
     return null;
@@ -132,13 +160,31 @@ export default function ThumbnailV3Panel(props: Props) {
     setSaveState("saved");
   }, [activeRecipe?.id, activeRecipe?.revision]);
   const selectedTitle = pkg?.seo.titles.find((entry) => entry.id === titleId && entry.revision === titleRevision) ?? null;
+  const selectedStrategy = pkg && selectedConcept ? pkg.thumbnail.creative_strategies.find(
+    (entry) => entry.id === selectedConcept.strategy_id && entry.revision === selectedConcept.strategy_revision,
+  ) ?? null : null;
+  const selectedBrief = pkg && selectedConcept ? pkg.thumbnail.creative_briefs.find(
+    (entry) => entry.id === selectedConcept.creative_brief_id && entry.revision === selectedConcept.creative_brief_revision,
+  ) ?? null : null;
+  const editorialCritique = useMemo(() => critiqueThumbnailDirection({ projection: memoryProjection,
+    currentBrief: selectedBrief, currentRecipe: activeRecipe }), [activeRecipe, memoryProjection, selectedBrief]);
+  const activeVariationBatch = pkg?.thumbnail.variation_batches.find((entry) => entry.id === pkg.thumbnail.active_variation_batch_id)
+    ?? pkg?.thumbnail.variation_batches.at(-1) ?? null;
+  const selectedVariation = activeVariationBatch?.variations.find((entry) => entry.id === selectedVariationId)
+    ?? activeVariationBatch?.variations[0] ?? null;
+  const variationConcept = selectedVariation && pkg ? pkg.thumbnail.concept_revisions.find(
+    (entry) => entry.concept_revision_id === selectedVariation.candidate_recipe.concept_revision_id) ?? null : null;
+  const variationBrief = variationConcept && pkg ? pkg.thumbnail.creative_briefs.find(
+    (entry) => entry.id === variationConcept.creative_brief_id && entry.revision === variationConcept.creative_brief_revision) ?? null : null;
+  const variationCritique = useMemo(() => critiqueThumbnailDirection({ projection: memoryProjection,
+    currentBrief: variationBrief, currentRecipe: selectedVariation?.candidate_recipe ?? null }), [memoryProjection, selectedVariation, variationBrief]);
   const persistedPairIsSelected = Boolean(activeRecipe && selectedConcept && selectedTitle
     && activeRecipe.concept_revision_id === selectedConcept.concept_revision_id
     && activeRecipe.title_id === selectedTitle.id
     && activeRecipe.title_revision === selectedTitle.revision);
   const validSelectedPair = isValidThumbnailPair({ concept: selectedConcept, title: selectedTitle });
   const promptPack = persistedPairIsSelected && activeRecipe && selectedConcept
-    ? deriveThumbnailPromptPack({ recipe: activeRecipe, concept: selectedConcept }) : null;
+    ? deriveThumbnailPromptPack({ recipe: activeRecipe, concept: selectedConcept, strategy: selectedStrategy, brief: selectedBrief }) : null;
   const conceptSaveLabel = pkg?.thumbnail.concept_sets.length === 0 && saveState === "saved" ? "not saved" : saveState;
 
   const runConceptPersistence = async (action: () => Promise<unknown>, failureMessage: string, recovery = false) => {
@@ -186,7 +232,10 @@ export default function ThumbnailV3Panel(props: Props) {
     const recipe: ThumbnailRenderRecipe = {
       id: activeRecipe?.id ?? crypto.randomUUID(), revision: (activeRecipe?.revision ?? 0) + 1,
       concept_revision_id: selectedConcept.concept_revision_id, title_id: title.id, title_revision: title.revision,
-      provider_id: providerId, intended_aspect_ratio: aspect, brand_template_id: brandTemplateId || null,
+      strategy_id: selectedConcept.strategy_id, strategy_revision: selectedConcept.strategy_revision,
+      creative_brief_id: selectedConcept.creative_brief_id, creative_brief_revision: selectedConcept.creative_brief_revision,
+      provider_id: providerId, provider_settings: activeRecipe?.provider_settings ?? {},
+      intended_aspect_ratio: aspect, brand_template_id: brandTemplateId || null,
       brand_template_revision: brandTemplateId ? brandTemplateRevision : null,
       title_text: (title.thumbnail_text || title.text).trim(), treatment: {
         ...(activeRecipe?.treatment ?? emptyTreatment),
@@ -196,6 +245,7 @@ export default function ThumbnailV3Panel(props: Props) {
       },
       prompt_template_version: THUMBNAIL_PROMPT_TEMPLATE_VERSION,
       composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
+      composition_revision: (activeRecipe?.composition_revision ?? 0) + 1,
       prompt_review_state: reviewed ? "reviewed" : "unreviewed",
       last_reviewed_template_version: reviewed ? THUMBNAIL_PROMPT_TEMPLATE_VERSION : null,
       created_at: activeRecipe?.created_at ?? now, updated_at: now,
@@ -206,6 +256,10 @@ export default function ThumbnailV3Panel(props: Props) {
       eventName: reviewed ? "hearth.thumbnail.prompt.reviewed.v3" : "hearth.thumbnail.recipe.saved.v3" });
     if (!result.ok) { setSaveState("error"); setLoadError(result.error); return; }
     setPkg(result.episodePackage); setToken(result.metadataUpdatedAt); setSaveState("saved");
+    try {
+      await projectThumbnailLaunchFacts({ workspaceId: props.workspaceId, workpieceId: props.workpieceId, episodePackage: result.episodePackage });
+      setMemoryProjection(await loadThumbnailMemoryProjection(props.workspaceId)); setMemoryState("loaded"); setMemoryError(null);
+    } catch (error) { setMemoryState("unavailable"); setMemoryError(error instanceof Error ? error.message : "Workspace thumbnail memory is unavailable."); }
   };
 
   const renameSet = async () => {
@@ -296,6 +350,57 @@ export default function ThumbnailV3Panel(props: Props) {
       encoding: { format: "png", quality: 100 }, createdAt: new Date().toISOString() });
     if (!result.ok) { setSaveState("error"); setLoadError(result.error); return; }
     setPkg(result.episodePackage); setToken(result.metadataUpdatedAt); setSaveState("saved");
+    try {
+      await projectThumbnailLaunchFacts({ workspaceId: props.workspaceId, workpieceId: props.workpieceId, episodePackage: result.episodePackage });
+      setMemoryProjection(await loadThumbnailMemoryProjection(props.workspaceId)); setMemoryState("loaded"); setMemoryError(null);
+    } catch (error) { setMemoryState("unavailable"); setMemoryError(error instanceof Error ? error.message : "Workspace thumbnail memory is unavailable."); }
+  };
+
+  const saveEditorialInterpretation = async () => {
+    const summary = editorialNote.trim();
+    if (!summary) return;
+    setInterpretationSaving(true);
+    try {
+      await appendThumbnailMemoryInterpretation({ workspaceId: props.workspaceId, key: "workspace-editorial-note",
+        type: "editorial_note", evidence: memoryProjection.launchFacts.slice(0, 5).map((entry) => entry.launch_identity),
+        interpretation: { summary } });
+      setMemoryProjection(await loadThumbnailMemoryProjection(props.workspaceId));
+      setEditorialNote(""); setMemoryState("loaded"); setMemoryError(null);
+    } catch (error) { setMemoryState("unavailable"); setMemoryError(error instanceof Error ? error.message : "Unable to save interpretation revision."); }
+    finally { setInterpretationSaving(false); }
+  };
+
+  const generateVariationBatch = async () => {
+    if (!pkg || !activeRecipe) return;
+    setSaveState("saving");
+    try {
+      const batch = createDeterministicVariationBatch({ episodePackage: pkg, sourceRecipe: activeRecipe,
+        brandMode: variationBrandMode, locks: variationLocks, count: variationCount, createdAt: new Date().toISOString() });
+      const next = appendVariationBatch(pkg, batch);
+      const result = await commitEpisodePackageV3Mutation({ workpieceId: props.workpieceId, expectedMetadataUpdatedAt: token,
+        nextEpisodePackage: next, mutation: { kind: "variation_batch", entityId: batch.id },
+        eventName: "hearth.thumbnail.variation-batch.created.v3", eventPayload: { batch_id: batch.id, source_recipe_id: activeRecipe.id,
+          source_recipe_revision: activeRecipe.revision, estimated_ai_credits: 0 } });
+      if (!result.ok) { setSaveState("error"); setLoadError(result.error); return; }
+      setPkg(result.episodePackage); setToken(result.metadataUpdatedAt); setSelectedVariationId(batch.variations[0]?.id ?? null); setSaveState("saved");
+    } catch (error) { setSaveState("error"); setLoadError(error instanceof Error ? error.message : "Unable to create controlled variations."); }
+  };
+
+  const promoteVariation = async () => {
+    if (!pkg || !activeVariationBatch || !selectedVariation) return;
+    setSaveState("saving");
+    try {
+      const next = promoteRecipeVariation({ episodePackage: pkg, batchId: activeVariationBatch.id,
+        variationId: selectedVariation.id, createdAt: new Date().toISOString() });
+      const promotion = next.thumbnail.variation_promotions.find((entry) => entry.variation_batch_id === activeVariationBatch.id && entry.variation_id === selectedVariation.id);
+      if (!promotion) throw new Error("Variation promotion did not create canonical authority.");
+      const result = await commitEpisodePackageV3Mutation({ workpieceId: props.workpieceId, expectedMetadataUpdatedAt: token,
+        nextEpisodePackage: next, mutation: { kind: "variation_promotion", entityId: promotion.id },
+        eventName: "hearth.thumbnail.variation.promoted.v3", eventPayload: { batch_id: activeVariationBatch.id,
+          variation_id: selectedVariation.id, recipe_id: promotion.promoted_recipe_id, recipe_revision: promotion.promoted_recipe_revision } });
+      if (!result.ok) { setSaveState("error"); setLoadError(result.error); return; }
+      setPkg(result.episodePackage); setToken(result.metadataUpdatedAt); setSaveState("saved");
+    } catch (error) { setSaveState("error"); setLoadError(error instanceof Error ? error.message : "Unable to promote variation."); }
   };
 
   if (loadError && !pkg) return <div className="hs-inline-error">{loadError}<button type="button" onClick={() => void reload()}>Retry</button></div>;
@@ -305,6 +410,15 @@ export default function ThumbnailV3Panel(props: Props) {
       <button type="button" disabled={props.isGeneratingConcepts || saveState === "saving"} onClick={() => void runConceptPersistence(props.onGenerateConcepts, "The AI response was not saved as a canonical five-concept set. No saved result is being claimed.")}>{props.isGeneratingConcepts ? "Generating five…" : "Generate five concepts"}</button>
       <button type="button" disabled={props.isGeneratingConcepts || saveState === "saving"} onClick={() => void runConceptPersistence(props.onRecoverConcepts, "No recoverable five-concept generation was found for this approved script version.", true)}>Recover last generation</button></div>
     {loadError ? <div className="hs-inline-error">{loadError}</div> : null}
+    {selectedStrategy ? <section className="hs-thumb-strategy" aria-label="Active thumbnail creative strategy">
+      <div className="hs-row"><h4>Creative Strategy</h4><small>Revision {selectedStrategy.revision} · approved script v{selectedStrategy.approved_script_version}</small></div>
+      <p><strong>Episode promise:</strong> {selectedStrategy.episode_promise}</p>
+      <p><strong>Intended viewer:</strong> {selectedStrategy.intended_viewer}</p>
+      <p><strong>Curiosity mechanism:</strong> {selectedStrategy.curiosity_mechanism}</p>
+      <p><strong>Editorial positioning:</strong> {selectedStrategy.editorial_positioning}</p>
+      <p><strong>Expectation integrity:</strong> {selectedStrategy.expectation_integrity.truthful_connection}</p>
+      {selectedStrategy.expectation_integrity.prohibited_exaggerations.length ? <p><strong>Do not imply:</strong> {selectedStrategy.expectation_integrity.prohibited_exaggerations.join(", ")}</p> : null}
+    </section> : null}
     <div className="hs-row">
       {conceptSetPresentation.mode === "label" && activeSet ? <span><strong>Concept set:</strong> {activeSet.name}</span> : null}
       {conceptSetPresentation.mode === "selector" ? <label>Concept set<select value={activeSet?.id ?? ""} onChange={(event) => setSelectedSetId(event.target.value)} aria-label="Concept set">
@@ -319,17 +433,95 @@ export default function ThumbnailV3Panel(props: Props) {
     ))}</details> : null}
     <div className="hs-thumbnail-authoring-pair" style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: "1rem" }}>
       <section aria-label="Concept selection"><h4>Concept revisions</h4>
-        <div className="hs-thumb-concept-grid">{revisions.map((concept) => concept ? <button type="button" key={concept.concept_revision_id} className={concept.concept_revision_id === selectedConcept?.concept_revision_id ? "is-selected" : ""} aria-pressed={concept.concept_revision_id === selectedConcept?.concept_revision_id} onClick={() => { setSelectedRevisionId(concept.concept_revision_id); setSaveState("editing"); }}><strong>{concept.headline}</strong><span>{concept.image_concept}</span><small>Revision {concept.revision_number}</small></button> : null)}</div>
+        <div className="hs-thumb-concept-grid">{revisions.map((concept, index) => concept ? <button type="button" key={concept.concept_revision_id} className={`hs-thumb-pair-option${concept.concept_revision_id === selectedConcept?.concept_revision_id ? " is-selected" : ""}`} aria-label={`Concept ${index + 1}: ${concept.headline}`} aria-pressed={concept.concept_revision_id === selectedConcept?.concept_revision_id} onClick={() => { setSelectedRevisionId(concept.concept_revision_id); setSaveState("editing"); }}>
+          <span className="hs-thumb-pair-option-heading"><strong>Concept {index + 1}: {concept.headline}</strong><span className="hs-thumb-pair-selected-mark" aria-hidden="true">✓ Selected</span></span>
+          <span>{pkg.thumbnail.creative_briefs.find((entry) => entry.id === concept.creative_brief_id && entry.revision === concept.creative_brief_revision)?.subject_direction ?? concept.image_concept}</span>
+          <small>Brief {index + 1} · concept revision {concept.revision_number}</small>
+        </button> : null)}</div>
       </section>
       <section aria-label="Framing title selection"><h4>Framing title revisions</h4>
-        {pkg.seo.titles.length ? <div className="hs-thumb-title-grid">{pkg.seo.titles.map((title) => (
-          <button type="button" key={`${title.id}:${title.revision}`} className={title.id === selectedTitle?.id && title.revision === selectedTitle.revision ? "is-selected" : ""} aria-pressed={title.id === selectedTitle?.id && title.revision === selectedTitle.revision} onClick={() => { setTitleId(title.id); setTitleRevision(title.revision); setTitleText(title.thumbnail_text || title.text); setSaveState("editing"); }}>
-            <strong>{title.text}</strong><small>Title revision {title.revision}</small>
+        {pkg.seo.titles.length ? <div className="hs-thumb-title-grid">{pkg.seo.titles.map((title, index) => (
+          <button type="button" key={`${title.id}:${title.revision}`} className={`hs-thumb-pair-option${title.id === selectedTitle?.id && title.revision === selectedTitle.revision ? " is-selected" : ""}`} aria-label={`Title ${index + 1}: ${title.text}`} aria-pressed={title.id === selectedTitle?.id && title.revision === selectedTitle.revision} onClick={() => { setTitleId(title.id); setTitleRevision(title.revision); setTitleText(title.thumbnail_text || title.text); setSaveState("editing"); }}>
+            <span className="hs-thumb-pair-option-heading"><strong>Title {index + 1}: {title.text}</strong><span className="hs-thumb-pair-selected-mark" aria-hidden="true">✓ Selected</span></span>
+            <small>Canonical title revision {title.revision}</small>
           </button>
         ))}</div> : <div className="hs-thumb-empty"><p>No canonical framing titles exist for approved script v{props.approvedScriptVersion}.</p><button type="button" onClick={props.onOpenFraming}>Open Framing</button></div>}
       </section>
     </div>
+    <section className="hs-thumb-pair-summary" aria-live="polite">
+      <strong>Selected render pair</strong>
+      {validSelectedPair ? <span>{selectedConcept?.headline} + {selectedTitle?.text}</span> : <span>Select one concept and one title.</span>}
+      <span className={`hs-thumb-pair-state is-${saveState}`}>{saveState === "editing" ? "Unsaved pairing" : saveState}</span>
+    </section>
+    <section className="hs-thumb-editorial-memory" aria-label="Thumbnail editorial memory">
+      <div className="hs-row"><h4>Editorial Memory</h4><span>{memoryState === "loading" ? "Loading history…" : memoryState === "loaded" ? `${memoryProjection.launchFacts.length} launch facts` : "Unavailable"}</span></div>
+      {memoryState === "unavailable" ? <p className="hs-inline-note">Memory is optional and does not block authoring. {memoryError}</p> : null}
+      {memoryState === "loaded" ? <>
+        <div className="hs-thumb-memory-measurements">{editorialCritique.measurements.map((entry) => <div key={entry.label}><span>{entry.label}</span><strong>{entry.value}</strong></div>)}</div>
+        <div className="hs-thumb-memory-columns">
+          <div><h5>Heuristic guidance</h5>{editorialCritique.heuristicGuidance.length
+            ? <ul>{editorialCritique.heuristicGuidance.map((entry) => <li key={entry}>{entry}</li>)}</ul>
+            : <p>No strong repetition signal in the available launch history.</p>}</div>
+          <div><h5>Historical observations</h5>{editorialCritique.historicalObservations.length
+            ? <ul>{editorialCritique.historicalObservations.map((entry) => <li key={entry}>{entry}</li>)}</ul>
+            : <p>No editable workspace interpretations have been recorded yet.</p>}
+            <label>Workspace editorial note<textarea value={editorialNote} onChange={(event) => setEditorialNote(event.target.value)} placeholder="Record an observation; saving creates a new immutable revision." /></label>
+            <button type="button" disabled={!editorialNote.trim() || interpretationSaving} onClick={() => void saveEditorialInterpretation()}>{interpretationSaving ? "Saving revision…" : "Save interpretation revision"}</button>
+          </div>
+        </div>
+        <small>Measurements describe history; guidance is heuristic. Forge does not predict CTR.</small>
+      </> : null}
+    </section>
+    {persistedPairIsSelected && activeRecipe ? <section className="hs-thumb-variations" aria-label="Controlled creative variations">
+      <div className="hs-row"><h4>Controlled Creative Expansion</h4><span>Recipe variations: 0 AI credits</span></div>
+      <p>Create reproducible alternatives from recipe revision {activeRecipe.revision}. Artwork generation remains a separate, disclosed provider charge.</p>
+      <div className="hs-thumb-variation-controls">
+        <label>Brand mode<select value={variationBrandMode} onChange={(event) => { const mode = event.target.value as ThumbnailBrandMode;
+          setVariationBrandMode(mode); if (mode === "strict_brand") setVariationLocks((current) => ({ ...current, typography: true, brand_template: true })); }}>
+          <option value="strict_brand">Strict brand</option><option value="flexible_brand">Flexible brand</option><option value="editorial_experiment">Editorial experiment</option>
+        </select></label>
+        <label>Variation count<select value={variationCount} onChange={(event) => setVariationCount(Number(event.target.value))}><option value={2}>2</option><option value={3}>3</option><option value={4}>4</option><option value={5}>5</option></select></label>
+      </div>
+      <fieldset><legend>Lock properties</legend><div className="hs-thumb-variation-locks">
+        {(Object.keys(variationLocks) as Array<keyof ThumbnailVariationLocks>).map((property) => <label key={property}>
+          <input type="checkbox" checked={variationLocks[property]} disabled={variationBrandMode === "strict_brand" && (property === "typography" || property === "brand_template")}
+            onChange={(event) => setVariationLocks((current) => ({ ...current, [property]: event.target.checked }))} />{property.replaceAll("_", " ")}
+        </label>)}
+      </div></fieldset>
+      <button type="button" disabled={saveState === "saving"} onClick={() => void generateVariationBatch()}>Generate controlled recipe variations</button>
+      {activeVariationBatch ? <>
+        <div className="hs-row"><strong>Variation batch</strong><span>{activeVariationBatch.brand_mode.replaceAll("_", " ")} · {activeVariationBatch.variations.length} alternatives · {activeVariationBatch.estimated_ai_credits} AI credits</span></div>
+        <div className="hs-thumb-variation-options">{activeVariationBatch.variations.map((variation) => <button type="button" key={variation.id}
+          className={variation.id === selectedVariation?.id ? "is-selected" : ""} aria-pressed={variation.id === selectedVariation?.id}
+          onClick={() => setSelectedVariationId(variation.id)}><strong>{variation.label}</strong><span>{String(variation.change_specification.changed_properties ?? "")}</span></button>)}</div>
+        {selectedVariation ? <div className="hs-thumb-variation-comparison">
+          <div><h5>Current recipe</h5><div className="hs-thumb-local-preview is-mobile"><span className="hs-thumb-local-preview-art">{selectedBrief?.subject_direction ?? selectedConcept?.image_concept}</span><strong>{activeRecipe.title_text}</strong></div></div>
+          <div><h5>{selectedVariation.label}</h5><div className="hs-thumb-local-preview is-mobile"><span className="hs-thumb-local-preview-art">{variationBrief?.subject_direction ?? variationConcept?.image_concept}</span><strong style={{ color: String(selectedVariation.candidate_recipe.treatment.typography.color ?? "#FFFFFF") }}>{selectedVariation.candidate_recipe.title_text}</strong></div></div>
+          <div className="hs-thumb-variation-memory"><h5>Memory guidance</h5>{variationCritique.heuristicGuidance.length
+            ? <ul>{variationCritique.heuristicGuidance.map((entry) => <li key={entry}>{entry}</li>)}</ul>
+            : <p>No strong repetition signal for this variation.</p>}</div>
+        </div> : null}
+        {selectedVariation ? <button type="button" disabled={saveState === "saving" || pkg.thumbnail.variation_promotions.some((entry) => entry.variation_id === selectedVariation.id)} onClick={() => void promoteVariation()}>
+          {pkg.thumbnail.variation_promotions.some((entry) => entry.variation_id === selectedVariation.id) ? "Promoted" : "Promote as new canonical recipe"}</button> : null}
+      </> : null}
+    </section> : null}
+    {validSelectedPair ? <section className="hs-thumb-preview-workspace" aria-label="Deterministic thumbnail previews">
+      <div><h4>Working preview</h4><div className={`hs-thumb-local-preview is-${aspect.replace(":", "-")}`}>
+        <span className="hs-thumb-local-preview-art">{selectedBrief?.subject_direction ?? selectedConcept?.image_concept}</span>
+        <strong style={{ color: textColor, textShadow: `0 2px 6px ${shadowColor}` }}>{titleText}</strong>
+      </div></div>
+      <div><h4>Mobile preview</h4><div className="hs-thumb-local-preview is-mobile">
+        <span className="hs-thumb-local-preview-art" aria-hidden="true">{selectedBrief?.subject_direction ?? selectedConcept?.image_concept}</span>
+        <strong style={{ color: textColor, textShadow: `0 1px 3px ${shadowColor}` }}>{titleText}</strong>
+      </div><small>Same canonical composition revision at feed size.</small></div>
+    </section> : null}
     {validSelectedPair ? <section><h4>Render recipe pairing</h4><p>Concept revision {selectedConcept?.revision_number} + title revision {selectedTitle?.revision}</p><button type="button" onClick={() => void refineSelected()}>Refine concept as new revision</button>
+      {selectedBrief ? <details><summary>Creative Brief {selectedBrief.concept_slot}</summary>
+        <p><strong>Subject:</strong> {selectedBrief.subject_direction}</p><p><strong>Focal action:</strong> {selectedBrief.focal_action}</p>
+        <p><strong>Composition:</strong> {selectedBrief.composition_direction}</p><p><strong>Emotional tone:</strong> {selectedBrief.emotional_tone}</p>
+        <p><strong>Visual hierarchy:</strong> {selectedBrief.visual_hierarchy}</p><p><strong>Title compatibility:</strong> {selectedBrief.title_compatibility}</p>
+        <p><strong>Integrity:</strong> {selectedBrief.expectation_integrity_rationale}</p>
+      </details> : null}
       <p><strong>Exact title text:</strong> {titleText}</p>
       <label>Provider<input value={providerId} onChange={(event) => { setProviderId(event.target.value); setSaveState("editing"); }} /></label>
       <label>Aspect<select value={aspect} onChange={(event) => { setAspect(event.target.value as typeof aspect); setSaveState("editing"); }}><option>16:9</option><option>1:1</option><option>9:16</option></select></label>

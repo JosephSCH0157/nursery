@@ -421,6 +421,95 @@ test("createHearthAiHandler rejects unusable production output before successful
   }
 });
 
+test("createHearthAiHandler rejects malformed thumbnail production output without a repair request or billing", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key", configuredBillingMode: "byo" }));
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({
+        assistantText: "Research outcome: Live retrieval was unavailable. Here are five thumbnail ideas.",
+        ops: [],
+      }) } }],
+      usage: { prompt_tokens: 40, completion_tokens: 12, total_tokens: 52 },
+    }), { status: 200, headers: { "content-type": "application/json", "x-request-id": "req-invalid-thumbnails" } });
+  };
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Use the approved script as the only source and generate five thumbnail concepts." }],
+        episode_context: buildEpisodeContext(),
+        lane: "byo",
+        production_action: "thumbnails",
+        production_script_version: 1,
+      }),
+    }));
+    const payload = await response.json();
+    assert.equal(response.status, 502);
+    assert.equal(payload.code, "invalid_production_output");
+    assert.equal(payload.billable_tokens, 0);
+    assert.equal(calls, 1);
+    assert.match(payload.error, /exactly five complete, distinct concept briefs/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler does not route thumbnail production contracts through research", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key", configuredBillingMode: "byo" }));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    choices: [{ message: { content: JSON.stringify({
+      assistantText: [
+        "THUMBNAIL_STRATEGY",
+        "Episode promise: Explain the approved episode without exaggeration.",
+        "Intended viewer: Curious beginning podcasters.",
+        "Curiosity mechanism: Reveal an unexpected production tradeoff.",
+        "Editorial positioning: Practical and evidence-led.",
+        "Truthful connection: Every visual maps to the approved script.",
+        "Prohibited exaggerations: No guaranteed growth or invented outcomes.",
+        ...Array.from({ length: 5 }, (_, index) => [
+          `THUMBNAIL_0${index + 1}`,
+          `Headline: Distinct headline ${index + 1}`,
+          `Subject: Distinct subject ${index + 1}`,
+          `Focal action: Distinct focal action ${index + 1}`,
+          `Composition: Distinct visual composition ${index + 1}`,
+          `Emotional tone: Documentary tension ${index + 1}`,
+          `Visual hierarchy: One subject, one focal action, clear negative space ${index + 1}`,
+          `Title compatibility: Supports canonical title option ${index + 1}`,
+          `Integrity rationale: Depicts only claims supported by the approved script ${index + 1}`,
+          `Render direction: Clean provider-neutral artwork with no text ${index + 1}`,
+          `Mood/style: Documentary style ${index + 1}`,
+        ].join("\n")),
+      ].join("\n\n"),
+      ops: [],
+    }) } }],
+    usage: { prompt_tokens: 40, completion_tokens: 100, total_tokens: 140 },
+  }), { status: 200, headers: { "content-type": "application/json" } });
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Use the approved script as the only source and generate five thumbnail concepts." }],
+        episode_context: buildEpisodeContext(),
+        lane: "byo",
+        production_action: "thumbnails",
+        production_script_version: 1,
+      }),
+    }));
+    const payload = await response.json();
+    assert.equal(response.status, 200);
+    assert.doesNotMatch(String(payload.assistant_text), /Research outcome:/i);
+    assert.match(String(payload.assistant_text), /THUMBNAIL_05/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("createHearthAiHandler isolates production generation from chat history and attachments", async () => {
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key", configuredBillingMode: "byo" }));
   const originalFetch = globalThis.fetch;
