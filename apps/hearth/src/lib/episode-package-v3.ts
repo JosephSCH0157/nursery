@@ -202,6 +202,8 @@ export type ThumbnailCompositeSnapshot = {
     horizontal_padding_percent: number;
   }>;
   recipe_snapshot_hash: string;
+  brand_application_provenance?: Readonly<Record<string, unknown>> | null;
+  brand_logo_asset_revision_id?: string | null;
   exported_at: string;
 };
 

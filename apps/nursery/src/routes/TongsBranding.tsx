@@ -28,10 +28,10 @@ export default function TongsBranding() {
         <button disabled={busy||!library?.profiles.some((p)=>p.is_default)} onClick={()=>void run(()=>clearDefaultBrandProfile(workspaceId))}>Clear workspace default</button>
       </aside>
       <main className="tongs-storage-card">{selected?<>
-        <div><h3>{selected.internal_label}</h3><span>{revisions[0]?.validation.bindable?"Bindable":"Not bindable"} · revision {revisions[0]?.revision??0}</span></div>
+        <div><h3>{selected.internal_label}</h3><span>{revisions[0]?.validation?.bindable?"Bindable":"Not bindable"} · revision {revisions[0]?.revision??0}</span></div>
         <label>Internal label<input value={selected.internal_label} onChange={(e)=>setLibrary((current)=>current?{...current,profiles:current.profiles.map((p)=>p.id===selected.id?{...p,internal_label:e.target.value}:p)}:current)}/></label>
         <button disabled={busy} onClick={()=>void run(()=>renameBrandProfile(workspaceId,selected.id,selected.internal_label))}>Save label only</button>
-        <button disabled={busy||Boolean(selected.archived_at)||!revisions[0]?.validation.bindable} onClick={()=>void run(()=>setDefaultBrandProfile(workspaceId,selected.id))}>Set as workspace default</button>
+        <button disabled={busy||Boolean(selected.archived_at)||!revisions[0]?.validation?.bindable} onClick={()=>void run(()=>setDefaultBrandProfile(workspaceId,selected.id))}>Set as workspace default</button>
         <button disabled={busy} onClick={()=>void run(()=>setBrandProfileArchived({workspaceId,profileId:selected.id,archived:!selected.archived_at,clearDefault:Boolean(selected.is_default)}))}>{selected.archived_at?"Restore profile":"Archive and explicitly clear default"}</button>
         <fieldset><legend>Revisioned public identity and rules</legend>
           <label>Program name<input value={draft.public_identity.program_name} onChange={(e)=>setDraft({...draft,public_identity:{...draft.public_identity,program_name:e.target.value}})}/></label>
@@ -43,7 +43,7 @@ export default function TongsBranding() {
           <label>Ducking<input type="range" min="0" max="1" step="0.05" value={draft.audio.ducking} onChange={(e)=>setDraft({...draft,audio:{...draft.audio,ducking:Number(e.target.value)}})}/></label>
         </fieldset>
         <button disabled={busy||Boolean(selected.archived_at)} onClick={()=>void run(()=>appendBrandProfileRevision(workspaceId,selected.id,draft))}>Save immutable brand revision</button>
-        <details><summary>Revision history ({revisions.length})</summary>{revisions.map((revision)=><article key={revision.id}><strong>Revision {revision.revision}</strong><span>{revision.validation.bindable?"Bind­able":"Ineligible"} · {revision.content_hash.slice(0,12)}</span>{revision.validation.errors.length?<ul>{revision.validation.errors.map((entry)=><li key={entry}>{entry}</li>)}</ul>:null}</article>)}</details>
+        <details><summary>Revision history ({revisions.length})</summary>{revisions.map((revision)=><article key={revision.id}><strong>Revision {revision.revision}</strong><span>{revision.validation?.bindable?"Bind­able":"Ineligible"} · {revision.content_hash.slice(0,12)}</span>{revision.validation?.errors?.length?<ul>{revision.validation.errors.map((entry)=><li key={entry}>{entry}</li>)}</ul>:null}</article>)}</details>
         <section><h3>Brand assets</h3><p>Assets are revisioned independently. Upload readback must verify before a revision becomes ready; attach it by saving a new profile revision.</p>
           <label>Asset role<select value={assetRole} onChange={(e)=>setAssetRole(e.target.value as BrandAssetRole)}>{["primary_logo","secondary_logo","alternate_logo","transparent_logo","watermark_logo","intro_media","outro_media","theme_music","intro_stinger","outro_stinger","music_bed"].map((role)=><option key={role}>{role}</option>)}</select></label>
           <input type="file" accept={assetRole.includes("logo")?"image/*":assetRole.includes("media")?"video/*":"audio/*"} disabled={busy||Boolean(selected.archived_at)} onChange={(event)=>{const file=event.target.files?.[0];if(!file)return;void run(async()=>{const revision=await uploadBrandAssetRevision({workspaceId,profileId:selected.id,role:assetRole,label:file.name,file});setDraft((current)=>({...current,asset_revision_ids:{...current.asset_revision_ids,[assetRole]:revision.id}}));});}}/>

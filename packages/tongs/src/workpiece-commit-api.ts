@@ -1193,6 +1193,33 @@ export type RenderThumbnailCompositeRequest = {
   reference_pointer?: string | null;
 };
 
+export type ThumbnailBrandStatusRequest = {
+  workspace_id: string;
+  projected_binding_id?: string | null;
+  projected_binding_revision?: number | null;
+};
+
+export type ThumbnailBrandStatus = {
+  state: "unresolved" | "canonical_branded" | "canonical_unbranded" | "stale_projection" | "verification_blocked";
+  binding: Record<string, Json> | null;
+  profile_label: string | null;
+  message: string;
+};
+
+type ResolvedThumbnailBrand = {
+  provenance: {
+    binding_id: string;
+    binding_revision: number;
+    profile_revision_id: string | null;
+    profile_content_hash: string | null;
+    asset_revision_ids: string[];
+  };
+  treatment: ThumbnailCompositeRecipe["brand"];
+  logoBytes: Uint8Array | null;
+  logoAssetRevisionId: string | null;
+  profileLabel: string | null;
+};
+
 export type WorkspaceReadyScript = {
   workspace_id: string;
   workpiece_id: string;
@@ -1516,6 +1543,11 @@ export type TongsCommitApiService = {
     input: RenderThumbnailCompositeRequest,
     options?: { userAccessToken?: string | null },
   ): Promise<ThumbnailAssetSummary>;
+  getThumbnailBrandStatus(
+    workpieceId: string,
+    input: ThumbnailBrandStatusRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailBrandStatus>;
   createRecordingSessionRecord(input: CreateRecordingSessionRecordRequest): Promise<RecordingSessionRow>;
   listRecordingSessionsForPlanner(options?: RecordingSessionListOptions): Promise<RecordingSessionRow[]>;
   getRecordingSessionRecord(sessionId: string): Promise<RecordingSessionRecord>;
@@ -9812,6 +9844,131 @@ export class TongsCommitService {
     return { assets: results, reconciled_count: results.length };
   }
 
+  private async resolveThumbnailBrand(
+    workpieceId: string,
+    workspaceId: string,
+    accessToken: string | null | undefined,
+    options: { establishBinding: boolean; verifySources: boolean } = { establishBinding: true, verifySources: true },
+  ): Promise<ResolvedThumbnailBrand | null> {
+    const token = accessToken?.trim();
+    if (!token || !this.userClientFactory) {
+      throw new HttpError(503, "brand_resolution_unavailable", "Authenticated Brand Library resolution is unavailable");
+    }
+    const operationId = randomUuid();
+    const fingerprint = await sha256Hex(canonicalJsonBytes({ intent: "resolve_default", workspaceId, workpieceId }));
+    const rpcClient = this.userClientFactory(token).schema("tongs") as unknown as {
+      rpc: (name: string, args: Record<string, unknown>) => Promise<UntypedPostgrestResult>;
+    };
+    const { data, error } = options.establishBinding
+      ? await rpcClient.rpc("resolve_workpiece_brand_default", { p_workspace_id: workspaceId, p_workpiece_id: workpieceId, p_operation_id: operationId, p_operation_fingerprint: fingerprint })
+      : await rpcClient.rpc("get_workpiece_brand_binding", { p_workspace_id: workspaceId, p_workpiece_id: workpieceId });
+    if (error) throw new HttpError(502, "brand_resolution_failed", "Failed to resolve the workpiece Brand Profile", { reason: error.message });
+    const result = isRecord(data) ? data : null;
+    const binding = options.establishBinding ? (result && isRecord(result.binding) ? result.binding : null) : result;
+    if (!binding) return null;
+    const bindingId = readStringField(binding, "id");
+    const profileRevisionId = readStringField(binding, "profile_revision_id");
+    const profileContentHash = readStringField(binding, "profile_content_hash");
+    const bindingRevision = typeof binding.revision === "number" && Number.isFinite(binding.revision) ? binding.revision : null;
+    const boundAssetIds = Array.isArray(binding.asset_revision_ids)
+      ? binding.asset_revision_ids.filter((value): value is string => typeof value === "string")
+      : [];
+    if (!bindingId || bindingRevision == null) {
+      throw new HttpError(409, "invalid_brand_binding", "The canonical workpiece Brand Profile binding is incomplete");
+    }
+    const provenance = { binding_id: bindingId, binding_revision: bindingRevision, profile_revision_id: profileRevisionId, profile_content_hash: profileContentHash, asset_revision_ids: boundAssetIds };
+    if (binding.state === "disabled") return { provenance, treatment: null, logoBytes: null, logoAssetRevisionId: null, profileLabel: null };
+    if (!profileRevisionId || !profileContentHash) throw new HttpError(409, "invalid_brand_binding", "The canonical workpiece Brand Profile binding is incomplete");
+    if (!options.verifySources) {
+      return { provenance, treatment: null, logoBytes: null, logoAssetRevisionId: null, profileLabel: null };
+    }
+
+    const tongs = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const revisionResult = await tongs.from("brand_profile_revisions").select("id,rules_json,content_hash,state,eligible_for_new_use,validation_json")
+      .eq("workspace_id", workspaceId).eq("id", profileRevisionId).single();
+    if (revisionResult.error || !isRecord(revisionResult.data)) {
+      throw new HttpError(502, "brand_revision_read_failed", "Failed to read the bound Brand Profile revision", { reason: revisionResult.error?.message });
+    }
+    const revision = revisionResult.data;
+    if (revision.content_hash !== profileContentHash || revision.state !== "committed" || revision.eligible_for_new_use !== true) {
+      throw new HttpError(409, "brand_revision_not_bindable", "The bound Brand Profile revision is no longer eligible for rendering");
+    }
+    const rules = isRecord(revision.rules_json) ? revision.rules_json : null;
+    const profileResult = await tongs.from("brand_profiles").select("internal_label").eq("workspace_id", workspaceId).eq("id", readStringField(binding, "profile_id") ?? "").single();
+    const profileLabel = !profileResult.error && isRecord(profileResult.data) ? readStringField(profileResult.data, "internal_label") : null;
+    const palette = rules && isRecord(rules.palette) ? rules.palette : null;
+    const logoRule = rules && isRecord(rules.logo) ? rules.logo : null;
+    const assetMap = rules && isRecord(rules.asset_revision_ids) ? rules.asset_revision_ids : null;
+    const textColor = palette ? readStringField(palette, "secondary") : null;
+    const shadowColor = palette ? readStringField(palette, "primary") : null;
+    const logoPlacement = logoRule ? readStringField(logoRule, "placement") : null;
+    const logoOpacity = logoRule && typeof logoRule.watermark_opacity === "number" && Number.isFinite(logoRule.watermark_opacity)
+      ? logoRule.watermark_opacity : null;
+    if (!textColor || !shadowColor || !/^#[0-9a-f]{6}$/i.test(textColor) || !/^#[0-9a-f]{6}$/i.test(shadowColor)
+      || !logoPlacement || !["top_left", "top_right", "bottom_left", "bottom_right"].includes(logoPlacement)
+      || logoOpacity == null || logoOpacity < 0 || logoOpacity > 1) {
+      throw new HttpError(409, "invalid_brand_rules", "The bound Brand Profile does not contain renderable thumbnail rules");
+    }
+
+    const logoAssetRevisionId = assetMap
+      ? ["transparent_logo", "primary_logo", "watermark_logo"].map((role) => readStringField(assetMap, role)).find((id) => id && boundAssetIds.includes(id)) ?? null
+      : null;
+    let logoBytes: Uint8Array | null = null;
+    if (logoAssetRevisionId) {
+      const assetResult = await tongs.from("brand_asset_revisions").select("id,state,storage_bucket,storage_key,mime_type,content_hash")
+        .eq("workspace_id", workspaceId).eq("id", logoAssetRevisionId).single();
+      if (assetResult.error || !isRecord(assetResult.data)) {
+        throw new HttpError(502, "brand_logo_read_failed", "Failed to read the bound brand logo revision", { reason: assetResult.error?.message });
+      }
+      const asset = assetResult.data;
+      const bucket = readStringField(asset, "storage_bucket");
+      const key = readStringField(asset, "storage_key");
+      const hash = readStringField(asset, "content_hash");
+      const mimeType = readStringField(asset, "mime_type");
+      if (asset.state !== "ready" || !bucket || !key || !hash || !mimeType?.startsWith("image/")) {
+        throw new HttpError(409, "brand_logo_not_ready", "The bound brand logo revision is not a ready image");
+      }
+      logoBytes = await downloadStorageObject(this.supabase, bucket, key);
+      if (!logoBytes || await sha256Hex(logoBytes) !== hash) {
+        throw new HttpError(409, "brand_logo_hash_mismatch", "The bound brand logo failed canonical readback verification");
+      }
+    }
+    return {
+      provenance,
+      treatment: { text_color: textColor.toUpperCase(), shadow_color: shadowColor.toUpperCase(), logo_placement: logoPlacement as NonNullable<ResolvedThumbnailBrand["treatment"]>["logo_placement"], logo_opacity: logoOpacity },
+      logoBytes,
+      logoAssetRevisionId,
+      profileLabel,
+    };
+  }
+
+  async getThumbnailBrandStatus(
+    workpieceId: string,
+    input: ThumbnailBrandStatusRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailBrandStatus> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "viewer", options?.userAccessToken);
+    const token = options?.userAccessToken?.trim();
+    if (!token || !this.userClientFactory) throw new HttpError(503, "brand_resolution_unavailable", "Authenticated Brand Library resolution is unavailable");
+    const client = this.userClientFactory(token).schema("tongs") as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<UntypedPostgrestResult> };
+    const current = await client.rpc("get_workpiece_brand_binding", { p_workspace_id: input.workspace_id, p_workpiece_id: workpieceId });
+    if (current.error) throw new HttpError(502, "brand_status_failed", "Failed to read thumbnail branding status", { reason: current.error.message });
+    const binding = isRecord(current.data) ? current.data : null;
+    if (!binding) return { state: "unresolved", binding: null, profile_label: null, message: "Branding will be resolved by Tongs when the first thumbnail render begins." };
+    const bindingId = readStringField(binding, "id");
+    const bindingRevision = typeof binding.revision === "number" ? binding.revision : null;
+    const stale = input.projected_binding_id !== bindingId || input.projected_binding_revision !== bindingRevision;
+    if (binding.state === "disabled") return { state: stale ? "stale_projection" : "canonical_unbranded", binding: binding as Record<string, Json>, profile_label: null, message: stale ? "The Hearth projection is stale; Tongs has authoritative unbranded state." : "This workpiece is canonically unbranded." };
+    try {
+      const verified = await this.resolveThumbnailBrand(workpieceId, input.workspace_id, token, { establishBinding: false, verifySources: true });
+      if (!verified) throw new Error("The canonical Brand Profile binding is unavailable.");
+      return { state: stale ? "stale_projection" : "canonical_branded", binding: binding as Record<string, Json>, profile_label: verified.profileLabel, message: stale ? "The Hearth projection is stale; Tongs has a newer canonical brand binding." : "Canonical Brand Profile verified for thumbnail rendering." };
+    } catch (error) {
+      return { state: "verification_blocked", binding: binding as Record<string, Json>, profile_label: null, message: error instanceof Error ? error.message : "Brand verification is blocked." };
+    }
+  }
+
   async renderThumbnailComposite(
     workpieceId: string,
     input: RenderThumbnailCompositeRequest,
@@ -9819,6 +9976,7 @@ export class TongsCommitService {
   ): Promise<ThumbnailAssetSummary> {
     await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
     await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const brandIdentity = await this.resolveThumbnailBrand(workpieceId, input.workspace_id, options?.userAccessToken, { establishBinding: true, verifySources: false });
     const base = await this.getThumbnailAssetRow(workpieceId, input.base_asset_id);
     if (base.asset_kind !== "thumbnail_image" || base.status !== "ready" || !base.content_hash) {
       throw new HttpError(409, "thumbnail_base_not_ready", "Composite rendering requires a ready base thumbnail with a canonical hash");
@@ -9838,6 +9996,7 @@ export class TongsCommitService {
       template_revision: input.composition_recipe.template_revision,
       composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
       bundled_font_version: THUMBNAIL_BUNDLED_FONT_VERSION,
+      brand_provenance: brandIdentity?.provenance ?? null,
       width: input.width,
       height: input.height,
       encoding: input.encoding,
@@ -9858,6 +10017,10 @@ export class TongsCommitService {
       });
     }
     if (reusable) return thumbnailAssetSummary(reusable);
+    const brand = await this.resolveThumbnailBrand(workpieceId, input.workspace_id, options?.userAccessToken, { establishBinding: true, verifySources: true });
+    if (brandIdentity && (!brand || brand.provenance.binding_id !== brandIdentity.provenance.binding_id || brand.provenance.binding_revision !== brandIdentity.provenance.binding_revision)) {
+      throw new HttpError(409, "brand_binding_changed", "The canonical brand binding changed while thumbnail composition was starting");
+    }
     const compositorModuleUrl = new URL("../dist/thumbnail-composite.js", import.meta.url).href;
     const nativeImport = new Function("specifier", "return import(specifier)") as (
       specifier: string,
@@ -9867,8 +10030,9 @@ export class TongsCommitService {
       baseBytes,
       width: input.width,
       height: input.height,
-      recipe: input.composition_recipe,
+      recipe: { ...input.composition_recipe, brand: brand?.treatment ?? null },
       encoding: input.encoding,
+      logoBytes: brand?.logoBytes ?? null,
     });
     return this.stageThumbnailAsset(workpieceId, {
       workspace_id: input.workspace_id,
@@ -9886,6 +10050,8 @@ export class TongsCommitService {
         base_asset_hash: base.content_hash,
         recipe_snapshot: input.recipe_snapshot as unknown as Json,
         recipe_snapshot_hash: canonicalRecipeHash,
+        brand_application_provenance: (brand?.provenance ?? null) as unknown as Json,
+        brand_logo_asset_revision_id: brand?.logoAssetRevisionId ?? null,
         reuse_identity: reuseIdentity,
         composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
         bundled_font_version: THUMBNAIL_BUNDLED_FONT_VERSION,
@@ -13258,6 +13424,22 @@ export function createTongsCommitApiHandlerWithService(
         const result = await service.reconcileThumbnailAssets(workpieceId, {
           workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
           operation_id: body.operation_id == null ? null : normalizeThumbnailOperationId(body.operation_id),
+        }, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces"
+        && parts[3] === "thumbnail-assets" && parts[4] === "brand-status"
+      ) {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.getThumbnailBrandStatus(workpieceId, {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          projected_binding_id: body.projected_binding_id == null ? null : normalizeUuid(body.projected_binding_id, "projected_binding_id"),
+          projected_binding_revision: body.projected_binding_revision == null ? null : normalizePositiveInteger(body.projected_binding_revision, "projected_binding_revision"),
         }, { userAccessToken });
         return jsonResponse(200, { ok: true, data: result });
       }

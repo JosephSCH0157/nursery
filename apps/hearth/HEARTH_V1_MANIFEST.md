@@ -1,15 +1,15 @@
-# Hearth v1.0 - Canonical Manifest
+# Hearth - Canonical Product Manifest
 
-> Historical frozen baseline. This is not current executable authority. Current behavior is
-> governed by `HEARTH_CANONICAL_AUTHORITY.md` and `../../FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`.
+> Current product philosophy. Executable authority and lifecycle semantics are governed by
+> `HEARTH_CANONICAL_AUTHORITY.md` and `../../FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`.
 
 ## Purpose
 
-Hearth is the conversational script-forging tool in the Podcaster's Forge ecosystem. Its sole purpose is to help creators transform raw ideas (Bar Stock sparks) into record-ready scripts that conform strictly to Anvil tag rules.
+Hearth is the pre-production forge in the Podcaster's Forge ecosystem. It helps creators transform raw ideas (Bar Stock sparks) into coherent, production-ready workpieces: scripts, public metadata, visual direction, and generated or curated visual assets.
 
 Release status: included in **Forge v1.2.0 Fire Burning** (`forge-v1.2.0`).
 
-Hearth is not a teleprompter, recorder, editor, publisher, or SEO tool. It is the thinking fire that gives Anvil power.
+Hearth owns editorial intent and pre-production asset creation. It may generate thumbnails, still images, B-roll assets, reference clips, and their prompts or briefs when the user explicitly requests them. Hearth is not a teleprompter, recorder, timeline editor, or publisher. Hammer owns executable edit decisions, timing, placement, and final-media truth.
 
 ---
 
@@ -37,15 +37,28 @@ Hearth is not a teleprompter, recorder, editor, publisher, or SEO tool. It is th
 * Multi-host / guest-aware scripting
 * Accessibility-conscious formatting
 * Cadence, pacing, and readability
+* Titles, descriptions, SEO, and other public-facing editorial metadata
+* Thumbnail concepts, generation, deterministic composition, revisions, and brand application
+* Still-image generation and curation
+* B-roll planning, prompts, generation, and asset curation
+* Reference-clip planning and generation
+* Workpiece-scoped visual briefs, media maps, placement hints, and downstream asset handoff
 * Strict Anvil-compatible tags only:
 
   * [s1], [s2], [g1], [g2]
   * [pause], [beat], [reflective pause]
   * [note] (hidden in Anvil)
 
+Generated and curated assets are canonical workpiece artifacts only after Tongs acknowledges their persisted identity, revision, and storage state. Hearth may suggest placement, but it does not create or control Hammer's executable timeline.
 
+### Excluded
 
-If it does not help a human read the script aloud in Anvil, it does not exist in V1.
+* Audio or video capture
+* Recording-device control
+* Destructive or non-linear editing of recorded media
+* Executable timeline ownership or final asset placement
+* Final render authority
+* Platform upload, scheduling, or publishing
 
 ---
 
@@ -175,4 +188,4 @@ Anvil emits metadata-only receipts to Tongs:
 
 ## One-Line North Star
 
-Hearth shapes words for the voice - and nothing else.
+Hearth shapes the story and forges its production-ready editorial assets; downstream tools execute the recording, edit, and release.

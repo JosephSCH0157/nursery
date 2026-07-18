@@ -72,6 +72,37 @@ test("server compositor is deterministic for identical versioned inputs", async 
   assert.ok(first.bytes.length > baseBytes.length);
 });
 
+test("server compositor deterministically applies Brand Profile palette and logo", async () => {
+  const baseBytes = await sharp({ create: { width: 640, height: 360, channels: 4, background: "#202020" } }).png().toBuffer();
+  const logoBytes = await sharp({ create: { width: 120, height: 60, channels: 4, background: "#FF5500" } }).png().toBuffer();
+  const input = {
+    baseBytes, logoBytes, width: 640, height: 360,
+    recipe: {
+      title_text: "Branded Episode", title_revision: 1, template_revision: 1,
+      text_color: "#FFFFFF", shadow_color: "#000000", shadow_opacity: 0.7,
+      placement: "bottom", max_lines: 2, horizontal_padding_percent: 8,
+      brand: { text_color: "#F8FAFC", shadow_color: "#111827", logo_placement: "top_right", logo_opacity: 0.8 },
+    },
+    encoding: { format: "png", quality: 100 },
+  };
+  const first = await renderThumbnailComposite(input);
+  const second = await renderThumbnailComposite(input);
+  const unbranded = await renderThumbnailComposite({ ...input, logoBytes: null, recipe: { ...input.recipe, brand: null } });
+  assert.deepEqual(first.bytes, second.bytes);
+  assert.notDeepEqual(first.bytes, unbranded.bytes);
+});
+
+test("thumbnail render authority resolves canonical brand bindings and records provenance", async () => {
+  const source = await readFile(new URL("packages/tongs/src/workpiece-commit-api.ts", root), "utf8");
+  assert.match(source, /resolve_workpiece_brand_default/);
+  assert.match(source, /brand_application_provenance/);
+  assert.match(source, /brand_logo_asset_revision_id/);
+  assert.match(source, /brand_logo_hash_mismatch/);
+  assert.match(source, /establishBinding: false/);
+  assert.match(source, /if \(reusable\) return thumbnailAssetSummary\(reusable\);[\s\S]*verifySources: true/);
+  assert.match(source, /"unresolved" \| "canonical_branded" \| "canonical_unbranded" \| "stale_projection" \| "verification_blocked"/);
+});
+
 test("lost stage acknowledgement reuses the canonical asset and conflicting input is rejected", () => {
   const existing = {
     id: "55555555-5555-4555-8555-555555555555",

@@ -132,21 +132,12 @@ test.afterAll(async () => {
   await fixture.admin.auth.admin.deleteUser(fixture.ownerId);
 });
 
-test("brand ensure-binding and explicit mutations are concurrency-safe", async () => {
+test("workspace brand default does not bind the workpiece before its first thumbnail render", async () => {
   const rpc=(name:string,args:Record<string,unknown>)=>fixture.user.schema("tongs").rpc(name as never,args as never) as unknown as Promise<{data:unknown;error:{message:string}|null}>;
-  const resolutions=await Promise.all(["hearth","hammer","quench"].map((tool,index)=>rpc("resolve_workpiece_brand_default",{p_workspace_id:fixture.workspaceId,p_workpiece_id:fixture.workpieceId,p_operation_id:`${tool}-${randomUUID()}`,p_operation_fingerprint:String(index+1).repeat(64)})));
-  for(const result of resolutions)expect(result.error).toBeNull();
-  const payloads=resolutions.map((entry)=>entry.data as {disposition:string;binding:{id:string;revision:number;state:string}});
-  expect(payloads.filter((entry)=>entry.disposition==="created_binding")).toHaveLength(1);
-  expect(new Set(payloads.map((entry)=>entry.binding.id)).size).toBe(1); expect(new Set(payloads.map((entry)=>entry.binding.revision))).toEqual(new Set([1]));
-  const rows=await fixture.admin.schema("tongs").from("workpiece_brand_bindings").select("id,revision,state").eq("workpiece_id",fixture.workpieceId);expect(rows.error).toBeNull();expect(rows.data).toHaveLength(1);expect(rows.data?.[0]?.state).toBe("disabled");
-  const late=await rpc("resolve_workpiece_brand_default",{p_workspace_id:fixture.workspaceId,p_workpiece_id:fixture.workpieceId,p_operation_id:`late-${randomUUID()}`,p_operation_fingerprint:"a".repeat(64)});expect(late.error).toBeNull();expect((late.data as {disposition:string}).disposition).toBe("existing_binding");
   const rules={public_identity:{program_name:"Browser Brand",tagline:"Canonical"},palette:{primary:"#111827",secondary:"#f8fafc",accent:"#f97316"},typography:{heading_family:"bold_sans",body_family:"sans-serif",heading_weight:700,body_weight:400},logo:{placement:"bottom_right",watermark_opacity:0.7},audio:{music_volume:0.2,ducking:0.35},asset_revision_ids:{}};
   const created=await rpc("create_brand_profile",{p_workspace_id:fixture.workspaceId,p_internal_label:"Browser Brand",p_rules:rules,p_operation_id:randomUUID()});expect(created.error).toBeNull();const brand=created.data as {profile_id:string;profile_revision_id:string;bindable:boolean};expect(brand.bindable).toBe(true);
-  const mutations=await Promise.all(["select-a","select-b"].map((label,index)=>rpc("mutate_workpiece_brand_binding",{p_workspace_id:fixture.workspaceId,p_workpiece_id:fixture.workpieceId,p_intent:"select_profile_revision",p_operation_id:`${label}-${randomUUID()}`,p_operation_fingerprint:String(index+3).repeat(64),p_expected_current_revision:1,p_profile_id:brand.profile_id,p_profile_revision_id:brand.profile_revision_id})));
-  for(const result of mutations)expect(result.error).toBeNull();
-  expect(mutations.map((entry)=>(entry.data as {disposition:string}).disposition).sort()).toEqual(["created_revision","revision_conflict"]);
-  const after=await fixture.admin.schema("tongs").from("workpiece_brand_bindings").select("revision").eq("workpiece_id",fixture.workpieceId);expect(after.data).toHaveLength(2);
+  const selected=await rpc("set_workspace_default_brand_profile",{p_workspace_id:fixture.workspaceId,p_profile_id:brand.profile_id});expect(selected.error).toBeNull();
+  const rows=await fixture.admin.schema("tongs").from("workpiece_brand_bindings").select("id").eq("workpiece_id",fixture.workpieceId);expect(rows.error).toBeNull();expect(rows.data).toHaveLength(0);
 });
 
 test("authenticated cold boot preserves recipe and both renderers converge on v3 base authority", async ({ page }) => {
@@ -184,6 +175,11 @@ test("authenticated cold boot preserves recipe and both renderers converge on v3
   const panel = page.locator("#hearth-thumbnail-panel");
   await expect(panel).toBeVisible({ timeout: 30_000 });
   await panel.getByRole("button", { name: "Open" }).click();
+  await expect(panel.getByText("unresolved", { exact: true })).toBeVisible();
+  await expect(panel.getByText(/resolved by Tongs when the first thumbnail render begins/i)).toBeVisible();
+  await expect(panel.locator('input[placeholder="Optional template ID"]')).toHaveCount(0);
+  await expect(panel.locator('label').filter({ hasText: /^Brand template revision$/ }).locator('input[type="number"]')).toHaveCount(0);
+  const beforeRenderBindings=await fixture.admin.schema("tongs").from("workpiece_brand_bindings").select("id").eq("workpiece_id",fixture.workpieceId);expect(beforeRenderBindings.data).toHaveLength(0);
   await expect(panel.locator("span").filter({ hasText: "Concept set: Cold Boot Concepts" })).toBeVisible();
   await expect(panel.getByLabel("Concept set")).toHaveCount(0);
   await expect(panel.getByText("Exact title text:")).toBeVisible();
@@ -216,6 +212,7 @@ test("authenticated cold boot preserves recipe and both renderers converge on v3
   await expect(currentPanel.getByText(/Revision 1 · ready/)).toBeVisible({ timeout: 30_000 });
   await expect(currentPanel.getByText("1 launch facts", { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(currentPanel.getByRole("heading", { name: "Ledger Intelligence" })).toBeVisible();
+  const renderBindings=await fixture.admin.schema("tongs").from("workpiece_brand_bindings").select("id,revision,state,profile_revision_id,profile_content_hash,asset_revision_ids").eq("workpiece_id",fixture.workpieceId);expect(renderBindings.error).toBeNull();expect(renderBindings.data).toHaveLength(1);expect(renderBindings.data?.[0]?.state).toBe("profile");
   await currentPanel.getByLabel("Workspace editorial note").fill("The close-up treatment should be varied in the next episode.");
   await currentPanel.getByRole("button", { name: "Save interpretation revision" }).click();
   await expect(currentPanel.getByText("The close-up treatment should be varied in the next episode.", { exact: true })).toBeVisible();
@@ -226,9 +223,15 @@ test("authenticated cold boot preserves recipe and both renderers converge on v3
   expect(canonical.data?.filter((asset) => asset.status === "ready" && /^[a-f0-9]{64}$/.test(asset.content_hash ?? "")).length).toBeGreaterThanOrEqual(2);
   expect(createHash("sha256").update(ORANGE_PNG).digest("hex")).toBe(canonical.data?.find((asset) => asset.provider === "outside_tool")?.content_hash);
   const composites = await fixture.admin.schema("tongs").from("assets")
-    .select("status,content_hash").eq("workpiece_id", fixture.workpieceId).eq("asset_kind", "thumbnail_composite");
+    .select("status,content_hash,metadata_json").eq("workpiece_id", fixture.workpieceId).eq("asset_kind", "thumbnail_composite");
   expect(composites.error).toBeNull();
   expect(composites.data?.some((asset) => asset.status === "ready" && /^[a-f0-9]{64}$/.test(asset.content_hash ?? ""))).toBe(true);
+  expect((composites.data?.[0]?.metadata_json as {brand_application_provenance?:{binding_id?:string}})?.brand_application_provenance?.binding_id).toBe(renderBindings.data?.[0]?.id);
+  await page.reload();
+  await page.getByRole("tab", { name: "Visuals" }).click();
+  await page.locator("#hearth-thumbnail-panel").getByRole("button", { name: "Open" }).click();
+  await expect(page.locator("#hearth-thumbnail-panel").getByText("stale projection", { exact: true })).toBeVisible();
+  await expect(page.locator("#hearth-thumbnail-panel").getByText(/Brand Profile:\s*Browser Brand/)).toBeVisible();
   await currentPanel.getByRole("button", { name: "Recover last generation" }).click();
   await expect(currentPanel.locator(".hs-thumb-pair-state.is-saved")).toHaveText("saved");
   const recovered = await fixture.service.readWorkpieceJson(fixture.workpieceId, "metadata.json");

@@ -23,6 +23,12 @@ export type CanonicalEpisodePackageV3 = {
 };
 
 export type ThumbnailSaveState = "editing" | "saving" | "saved" | "error";
+export type ThumbnailBrandAuthorityStatus = {
+  state: "unresolved" | "canonical_branded" | "canonical_unbranded" | "stale_projection" | "verification_blocked";
+  binding: Record<string, unknown> | null;
+  profile_label: string | null;
+  message: string;
+};
 
 export type V3MutationResult =
   | ({ ok: true; saveState: "saved" } & CanonicalEpisodePackageV3)
@@ -44,6 +50,22 @@ function errorMessage(body: unknown, fallback: string): string {
   if (!isRecord(body)) return fallback;
   const error = isRecord(body.error) ? body.error : null;
   return readString(error?.message) ?? readString(body.message) ?? fallback;
+}
+
+export async function readThumbnailBrandAuthorityStatus(args: {
+  workpieceId: string;
+  workspaceId: string;
+  projectedBindingId?: string | null;
+  projectedBindingRevision?: number | null;
+}): Promise<ThumbnailBrandAuthorityStatus> {
+  const token = await requireThumbnailUserToken();
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/thumbnail-assets/brand-status`, {
+    method: "POST", headers: { "x-forge-user-authorization": `Bearer ${token}` },
+    json: { workspace_id: args.workspaceId, projected_binding_id: args.projectedBindingId ?? null, projected_binding_revision: args.projectedBindingRevision ?? null },
+  });
+  const body = await json(response);
+  if (!response.ok || !isRecord(body) || !isRecord(body.data)) throw new Error(errorMessage(body, "Unable to read canonical thumbnail branding status."));
+  return body.data as ThumbnailBrandAuthorityStatus;
 }
 
 export async function readCanonicalEpisodePackageV3(workpieceId: string): Promise<CanonicalEpisodePackageV3> {
@@ -406,7 +428,7 @@ function compositorRecipe(recipe: ThumbnailRenderRecipe): ThumbnailCompositeSnap
     ...structuredClone(recipe),
     title_text: recipe.title_text,
     title_revision: recipe.title_revision,
-    template_revision: recipe.brand_template_revision ?? 1,
+    template_revision: 1,
     text_color: readString(typography.color) ?? "#FFFFFF",
     shadow_color: readString(shadow.color) ?? "#000000",
     shadow_opacity: typeof shadow.opacity === "number" ? shadow.opacity : 0.7,
@@ -458,13 +480,16 @@ export async function commitThumbnailLaunchComposite(args: {
   const assetId = readString(asset?.id);
   const assetPath = readString(asset?.path);
   const contentHash = readString(asset?.content_hash);
+  const assetMetadata = isRecord(asset?.metadata) ? asset.metadata : {};
   if (!renderResponse.ok || !assetId || !assetPath || !contentHash) {
     return { ok: false, saveState: "error", status: renderResponse.status, error: errorMessage(renderBody, "Unable to render launch composite.") };
   }
   const snapshot: ThumbnailCompositeSnapshot = {
     asset_id: assetId, asset_path: assetPath, content_hash: contentHash,
     composition_engine_version: recipe.composition_engine_version,
-    recipe_snapshot: recipeSnapshot, recipe_snapshot_hash: recipeHash, exported_at: args.createdAt,
+    recipe_snapshot: recipeSnapshot, recipe_snapshot_hash: recipeHash,
+    brand_application_provenance: isRecord(assetMetadata.brand_application_provenance) ? assetMetadata.brand_application_provenance : null,
+    brand_logo_asset_revision_id: readString(assetMetadata.brand_logo_asset_revision_id), exported_at: args.createdAt,
   };
   const next = appendLaunchSnapshot({
     episodePackage: args.episodePackage, launchVariantId: args.launchVariantId,

@@ -20,6 +20,12 @@ export type ThumbnailCompositeRecipe = {
   placement: "top" | "center" | "bottom";
   max_lines: number;
   horizontal_padding_percent: number;
+  brand?: {
+    text_color: string;
+    shadow_color: string;
+    logo_placement: "top_left" | "top_right" | "bottom_left" | "bottom_right";
+    logo_opacity: number;
+  } | null;
 };
 
 let fontDataPromise: Promise<string> | null = null;
@@ -56,6 +62,7 @@ export async function renderThumbnailComposite(args: {
   height: number;
   recipe: ThumbnailCompositeRecipe;
   encoding: ThumbnailCompositeEncoding;
+  logoBytes?: Uint8Array | null;
 }): Promise<{ bytes: Uint8Array; mimeType: string }> {
   const { width, height, recipe } = args;
   if (!Number.isInteger(width) || width < 320 || width > 7680 || !Number.isInteger(height) || height < 180 || height > 4320) {
@@ -76,13 +83,25 @@ export async function renderThumbnailComposite(args: {
   const text = lines.map((line, index) => (
     `<text x="${padding}" y="${startY + index * lineHeight}" class="title">${escapeXml(line)}</text>`
   )).join("");
+  const textColor = recipe.brand?.text_color ?? recipe.text_color;
+  const shadowColor = recipe.brand?.shadow_color ?? recipe.shadow_color;
   const svg = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
     <style>
       @font-face { font-family: 'ForgeInter'; src: url(data:font/woff2;base64,${fontData}) format('woff2'); font-weight: 700; }
-      .title { font-family: 'ForgeInter'; font-size: ${fontSize}px; font-weight: 700; fill: ${escapeXml(recipe.text_color)}; paint-order: stroke; stroke: ${escapeXml(recipe.shadow_color)}; stroke-width: ${Math.max(2, Math.round(fontSize * 0.08))}px; stroke-opacity: ${Math.max(0, Math.min(1, recipe.shadow_opacity))}; }
+      .title { font-family: 'ForgeInter'; font-size: ${fontSize}px; font-weight: 700; fill: ${escapeXml(textColor)}; paint-order: stroke; stroke: ${escapeXml(shadowColor)}; stroke-width: ${Math.max(2, Math.round(fontSize * 0.08))}px; stroke-opacity: ${Math.max(0, Math.min(1, recipe.shadow_opacity))}; }
     </style>${text}</svg>`);
 
-  let pipeline = sharp(args.baseBytes).resize(width, height, { fit: "cover" }).composite([{ input: svg }]);
+  const overlays: Array<{ input: Buffer; top?: number; left?: number; blend?: "over" }> = [{ input: svg }];
+  if (args.logoBytes?.length && recipe.brand) {
+    const logoWidth = Math.max(48, Math.round(width * 0.16));
+    const logoHeight = Math.max(32, Math.round(height * 0.16));
+    const logo = await sharp(args.logoBytes).resize(logoWidth, logoHeight, { fit: "inside", withoutEnlargement: true })
+      .ensureAlpha().linear([1, 1, 1, Math.max(0, Math.min(1, recipe.brand.logo_opacity))], [0, 0, 0, 0]).png().toBuffer();
+    const top = recipe.brand.logo_placement.startsWith("top") ? padding : height - logoHeight - padding;
+    const left = recipe.brand.logo_placement.endsWith("left") ? padding : width - logoWidth - padding;
+    overlays.push({ input: logo, top: Math.max(0, top), left: Math.max(0, left), blend: "over" });
+  }
+  let pipeline = sharp(args.baseBytes).resize(width, height, { fit: "cover" }).composite(overlays);
   if (args.encoding.format === "jpeg") pipeline = pipeline.jpeg({ quality: args.encoding.quality, chromaSubsampling: "4:4:4" });
   else if (args.encoding.format === "webp") pipeline = pipeline.webp({ quality: args.encoding.quality, smartSubsample: true });
   else pipeline = pipeline.png({ compressionLevel: 9, adaptiveFiltering: false });

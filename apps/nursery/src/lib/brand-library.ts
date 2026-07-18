@@ -6,6 +6,28 @@ const client = tongsSupabase as unknown as RpcClient;
 async function rpc<T>(name: string, params: Record<string, unknown>): Promise<T> { const { data, error } = await client.rpc(name, params); if (error) throw new Error(error.message); return data as T; }
 
 export type BrandLibraryProjection = { profiles: Array<BrandProfile & { is_default: boolean }>; revisions: BrandProfileRevision[]; assets: unknown[]; asset_revisions: unknown[] };
+type BrandRevisionRpcRow = BrandProfileRevision & { rules_json?: BrandRules; validation_json?: BrandProfileRevision["validation"] };
+
+export function normalizeBrandLibraryProjection(projection: BrandLibraryProjection): BrandLibraryProjection {
+  return {
+    ...projection,
+    revisions: projection.revisions.map((revision) => {
+      const row = revision as BrandRevisionRpcRow;
+      const validation = row.validation ?? row.validation_json;
+      return {
+        ...revision,
+        rules: row.rules ?? row.rules_json,
+        validation: validation ?? {
+          valid: false,
+          bindable: false,
+          errors: ["Brand revision validation metadata is unavailable."],
+          verified_at: null,
+          verification_version: "unavailable",
+        },
+      } as BrandProfileRevision;
+    }),
+  };
+}
 export const defaultBrandRules = (programName = "Untitled Program"): BrandRules => ({ public_identity: { program_name: programName, tagline: null },
   palette: { primary: "#111827", secondary: "#F8FAFC", accent: "#F97316" }, typography: { heading_family: "bold_sans", body_family: "sans-serif", heading_weight: 700, body_weight: 400 },
   logo: { placement: "bottom_right", watermark_opacity: 0.7 }, audio: { music_volume: 0.2, ducking: 0.35 }, asset_revision_ids: {} });
@@ -16,7 +38,9 @@ export async function operationFingerprint(value: unknown): Promise<string> {
   const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(stable(value))); return [...new Uint8Array(digest)].map((byte)=>byte.toString(16).padStart(2,"0")).join("");
 }
 
-export const loadBrandLibrary = (workspaceId: string, includeArchived = true) => rpc<BrandLibraryProjection>("list_workspace_brand_library", { p_workspace_id: workspaceId, p_include_archived: includeArchived });
+export const loadBrandLibrary = async (workspaceId: string, includeArchived = true) => normalizeBrandLibraryProjection(
+  await rpc<BrandLibraryProjection>("list_workspace_brand_library", { p_workspace_id: workspaceId, p_include_archived: includeArchived }),
+);
 export const createBrandProfile = (workspaceId: string, label: string, rules: BrandRules) => rpc("create_brand_profile", { p_workspace_id: workspaceId, p_internal_label: label, p_rules: rules, p_operation_id: crypto.randomUUID() });
 export const appendBrandProfileRevision = (workspaceId: string, profileId: string, rules: BrandRules) => rpc("append_brand_profile_revision", { p_workspace_id: workspaceId, p_profile_id: profileId, p_rules: rules, p_operation_id: crypto.randomUUID() });
 export const setDefaultBrandProfile = (workspaceId: string, profileId: string) => rpc("set_workspace_default_brand_profile", { p_workspace_id: workspaceId, p_profile_id: profileId });

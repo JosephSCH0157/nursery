@@ -27,9 +27,10 @@ import {
   commitThumbnailLaunchComposite,
   generateForgeAiBaseArtwork,
   readCanonicalThumbnailWorkspaceV3,
+  readThumbnailBrandAuthorityStatus,
+  type ThumbnailBrandAuthorityStatus,
   type ThumbnailSaveState,
 } from "../../lib/hearth-thumbnail-v3-api";
-import { ensureCanonicalBrandBinding } from "../../lib/hearth-brand-library";
 
 type Props = {
   workspaceId: string;
@@ -70,8 +71,7 @@ export default function ThumbnailV3Panel(props: Props) {
   const [titleText, setTitleText] = useState("");
   const [providerId, setProviderId] = useState("forge");
   const [aspect, setAspect] = useState<"16:9" | "1:1" | "9:16">("16:9");
-  const [brandTemplateId, setBrandTemplateId] = useState("");
-  const [brandTemplateRevision, setBrandTemplateRevision] = useState(1);
+  const [brandStatus, setBrandStatus] = useState<ThumbnailBrandAuthorityStatus | null>(null);
   const [textColor, setTextColor] = useState("#FFFFFF");
   const [maxLines, setMaxLines] = useState(3);
   const [verticalPlacement, setVerticalPlacement] = useState<"top" | "center" | "bottom">("bottom");
@@ -95,8 +95,10 @@ export default function ThumbnailV3Panel(props: Props) {
 
   const reload = useCallback(async () => {
     try {
-      let canonical = await readCanonicalThumbnailWorkspaceV3({ workpieceId: props.workpieceId, workspaceId: props.workspaceId });
-      canonical = await ensureCanonicalBrandBinding({ workspaceId: props.workspaceId, workpieceId: props.workpieceId, canonical });
+      const canonical = await readCanonicalThumbnailWorkspaceV3({ workpieceId: props.workpieceId, workspaceId: props.workspaceId });
+      const projected = canonical.episodePackage.brand.binding?.active;
+      setBrandStatus(await readThumbnailBrandAuthorityStatus({ workspaceId: props.workspaceId, workpieceId: props.workpieceId,
+        projectedBindingId: projected?.id ?? null, projectedBindingRevision: projected?.revision ?? null }));
       setPkg(canonical.episodePackage); setToken(canonical.metadataUpdatedAt); setLoadError(null);
       props.onCanonicalProgress?.({
         conceptRevisionCount: canonical.episodePackage.thumbnail.concept_revisions.length,
@@ -164,8 +166,7 @@ export default function ThumbnailV3Panel(props: Props) {
     const shadow = activeRecipe.treatment.shadow as Record<string, unknown>;
     setSelectedRevisionId(activeRecipe.concept_revision_id);
     setTitleId(activeRecipe.title_id); setTitleRevision(activeRecipe.title_revision); setTitleText(activeRecipe.title_text); setProviderId(activeRecipe.provider_id);
-    setAspect(activeRecipe.intended_aspect_ratio); setBrandTemplateId(activeRecipe.brand_template_id ?? "");
-    setBrandTemplateRevision(activeRecipe.brand_template_revision ?? 1);
+    setAspect(activeRecipe.intended_aspect_ratio);
     setTextColor(typeof typography.color === "string" ? typography.color : "#FFFFFF");
     setMaxLines(typeof typography.max_lines === "number" ? typography.max_lines : 3);
     setVerticalPlacement(placement.vertical === "top" || placement.vertical === "center" ? placement.vertical : "bottom");
@@ -250,8 +251,8 @@ export default function ThumbnailV3Panel(props: Props) {
       strategy_id: selectedConcept.strategy_id, strategy_revision: selectedConcept.strategy_revision,
       creative_brief_id: selectedConcept.creative_brief_id, creative_brief_revision: selectedConcept.creative_brief_revision,
       provider_id: providerId, provider_settings: activeRecipe?.provider_settings ?? {},
-      intended_aspect_ratio: aspect, brand_template_id: brandTemplateId || null,
-      brand_template_revision: brandTemplateId ? brandTemplateRevision : null,
+      intended_aspect_ratio: aspect, brand_template_id: null,
+      brand_template_revision: null,
       title_text: (title.thumbnail_text || title.text).trim(), treatment: {
         ...(activeRecipe?.treatment ?? emptyTreatment),
         typography: { color: textColor, max_lines: maxLines },
@@ -437,6 +438,11 @@ export default function ThumbnailV3Panel(props: Props) {
       <button type="button" disabled={props.isGeneratingConcepts || saveState === "saving"} onClick={() => void runConceptPersistence(props.onGenerateConcepts, "The AI response was not saved as a canonical five-concept set. No saved result is being claimed.")}>{props.isGeneratingConcepts ? "Generating five…" : "Generate five concepts"}</button>
       <button type="button" disabled={props.isGeneratingConcepts || saveState === "saving"} onClick={() => void runConceptPersistence(props.onRecoverConcepts, "No recoverable five-concept generation was found for this approved script version.", true)}>Recover last generation</button></div>
     {loadError ? <div className="hs-inline-error">{loadError}</div> : null}
+    <section className="hs-thumbnail-brand-authority" aria-label="Canonical thumbnail branding">
+      <div className="hs-row"><h4>Branding</h4><strong>{brandStatus?.state.replaceAll("_", " ") ?? "Loading authority…"}</strong></div>
+      {brandStatus ? <><p>{brandStatus.message}</p>{brandStatus.profile_label ? <p><strong>Brand Profile:</strong> {brandStatus.profile_label}</p> : null}
+        {brandStatus.binding ? <small>Binding {String(brandStatus.binding.id ?? "unknown")} · revision {String(brandStatus.binding.revision ?? "unknown")}</small> : null}</> : null}
+    </section>
     {selectedStrategy ? <section className="hs-thumb-strategy" aria-label="Active thumbnail creative strategy">
       <div className="hs-row"><h4>Creative Strategy</h4><small>Revision {selectedStrategy.revision} · approved script v{selectedStrategy.approved_script_version}</small></div>
       <p><strong>Episode promise:</strong> {selectedStrategy.episode_promise}</p>
@@ -565,8 +571,6 @@ export default function ThumbnailV3Panel(props: Props) {
       <p><strong>Exact title text:</strong> {titleText}</p>
       <label>Provider<input value={providerId} onChange={(event) => { setProviderId(event.target.value); setSaveState("editing"); }} /></label>
       <label>Aspect<select value={aspect} onChange={(event) => { setAspect(event.target.value as typeof aspect); setSaveState("editing"); }}><option>16:9</option><option>1:1</option><option>9:16</option></select></label>
-      <label>Brand template<input value={brandTemplateId} onChange={(event) => { setBrandTemplateId(event.target.value); setSaveState("editing"); }} placeholder="Optional template ID" /></label>
-      {brandTemplateId ? <label>Brand template revision<input type="number" min={1} value={brandTemplateRevision} onChange={(event) => { setBrandTemplateRevision(Number(event.target.value)); setSaveState("editing"); }} /></label> : null}
       <fieldset><legend>Title treatment</legend>
         <label>Text color<input type="color" value={textColor} onChange={(event) => { setTextColor(event.target.value); setSaveState("editing"); }} /></label>
         <label>Maximum lines<input type="number" min={1} max={5} value={maxLines} onChange={(event) => { setMaxLines(Number(event.target.value)); setSaveState("editing"); }} /></label>

@@ -44,6 +44,7 @@ function mockService() {
     readThumbnailAsset: [],
     reconcileThumbnailAssets: [],
     renderThumbnailComposite: [],
+    getThumbnailBrandStatus: [],
     generateImageMapCandidates: [],
     createRecordingSessionRecord: [],
     listRecordingSessionsForPlanner: [],
@@ -320,6 +321,10 @@ function mockService() {
     async renderThumbnailComposite(workpieceId, input, options) {
       calls.renderThumbnailComposite.push({ workpieceId, input, options: options ?? null });
       return { ...thumbnailAssetFixture(workpieceId, input.workspace_id, input.operation_id, "pending"), asset_kind: "thumbnail_composite" };
+    },
+    async getThumbnailBrandStatus(workpieceId, input, options) {
+      calls.getThumbnailBrandStatus.push({ workpieceId, input, options: options ?? null });
+      return { state: "unresolved", binding: null, profile_label: null, message: "Branding will be resolved on render." };
     },
     async generateImageMapCandidates(workpieceId, input, options) {
       calls.generateImageMapCandidates.push({ workpieceId, input, options: options ?? null });
