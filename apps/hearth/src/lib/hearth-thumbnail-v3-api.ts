@@ -1,6 +1,7 @@
 import {
   EPISODE_PACKAGE_V3_SCHEMA,
   canonicalSerialize,
+  deterministicUuid,
   deriveThumbnailPromptPack,
   hydrateEpisodePackageV3,
   serializeEpisodePackageV3,
@@ -9,6 +10,7 @@ import {
   type ThumbnailCompositeSnapshot,
   type ThumbnailPublicationEvent,
   type ThumbnailRenderRecipe,
+  type ThumbnailCandidateSetProjection,
 } from "./episode-package-v3";
 import { appendLaunchSnapshot, appendPublicationEvent, canReuseLaunchSnapshotForPublish, proveThumbnailMutation, type ThumbnailMutationProof } from "./hearth-thumbnail-v3-authority";
 import { resolveForgeUserAccessToken } from "./hearth-chat-api";
@@ -29,6 +31,8 @@ export type ThumbnailBrandAuthorityStatus = {
   profile_label: string | null;
   message: string;
 };
+
+export type ThumbnailCandidateAuthorityProjection = { candidate_set: Record<string, unknown> | null; active_binding_id: string | null; active_binding_revision: number | null; candidates: Array<Record<string, unknown>> };
 
 export type V3MutationResult =
   | ({ ok: true; saveState: "saved" } & CanonicalEpisodePackageV3)
@@ -66,6 +70,39 @@ export async function readThumbnailBrandAuthorityStatus(args: {
   const body = await json(response);
   if (!response.ok || !isRecord(body) || !isRecord(body.data)) throw new Error(errorMessage(body, "Unable to read canonical thumbnail branding status."));
   return body.data as ThumbnailBrandAuthorityStatus;
+}
+
+export async function readThumbnailCandidateAuthorityProjection(args: { workpieceId: string; workspaceId: string }): Promise<ThumbnailCandidateAuthorityProjection> {
+  const token=await requireThumbnailUserToken(); const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/thumbnail-candidates/projection`,{method:"POST",headers:{"x-forge-user-authorization":`Bearer ${token}`},json:{workspace_id:args.workspaceId}}); const body=await json(response);
+  if(!response.ok||!isRecord(body)||!isRecord(body.data)) throw new Error(errorMessage(body,"Unable to read canonical thumbnail candidate set.")); const data=body.data;
+  return {candidate_set:isRecord(data.candidate_set)?data.candidate_set:null,active_binding_id:readString(data.active_binding_id),active_binding_revision:typeof data.active_binding_revision==="number"?data.active_binding_revision:null,candidates:Array.isArray(data.candidates)?data.candidates.filter(isRecord):[]};
+}
+
+export async function commitThumbnailCandidateSet(args:{workpieceId:string;workspaceId:string;expectedCurrentRevision:number;candidates:Array<Record<string,unknown>>;operationId:string;operationFingerprint:string}):Promise<Record<string,unknown>> {
+  const token=await requireThumbnailUserToken(); const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/thumbnail-candidates/commit-set`,{method:"POST",headers:{"x-forge-user-authorization":`Bearer ${token}`},json:{workspace_id:args.workspaceId,expected_current_revision:args.expectedCurrentRevision,candidates:args.candidates,operation_id:args.operationId,operation_fingerprint:args.operationFingerprint}}); const body=await json(response); if(!response.ok||!isRecord(body)||!isRecord(body.data)) throw new Error(errorMessage(body,"Unable to commit canonical thumbnail candidate set.")); return body.data;
+}
+
+export async function decideThumbnailCandidateHistoricalBrand(args:{workpieceId:string;workspaceId:string;candidateRevisionId:string;candidateSetId:string;activeBindingId:string;decision:"approved"|"revoked";reason:string;expectedDecisionId:string|null;expectedDecisionRevision:number}):Promise<Record<string,unknown>> {
+  const token=await requireThumbnailUserToken();const operationId=crypto.randomUUID();const intent={workspace_id:args.workspaceId,candidate_revision_id:args.candidateRevisionId,candidate_set_id:args.candidateSetId,active_binding_id:args.activeBindingId,decision:args.decision,reason:args.reason,expected_current_decision_id:args.expectedDecisionId,expected_current_decision_revision:args.expectedDecisionRevision,operation_id:operationId};const operationFingerprint=await sha256Canonical(intent);const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/thumbnail-candidates/brand-decision`,{method:"POST",headers:{"x-forge-user-authorization":`Bearer ${token}`},json:{...intent,operation_fingerprint:operationFingerprint}});const body=await json(response);if(!response.ok||!isRecord(body)||!isRecord(body.data))throw new Error(errorMessage(body,"Unable to record historical-brand authorization."));return body.data;
+}
+
+export function projectCanonicalCandidateSet(authority:ThumbnailCandidateAuthorityProjection,projectedAt:string):ThumbnailCandidateSetProjection|null {
+  const set=authority.candidate_set;if(!set)return null;const id=readString(set.id),hash=readString(set.content_hash);if(!id||!hash)return null;
+  return {candidate_set_id:id,revision:Number(set.revision),previous_candidate_set_id:readString(set.previous_candidate_set_id),content_hash:hash,distinction_contract_version:"forge.thumbnail-candidate-distinction.v1",candidates:authority.candidates.map((c)=>({candidate_revision_id:String(c.id),candidate_ordinal:Number(c.candidate_ordinal),recipe_id:String(c.recipe_id),recipe_revision:Number(c.recipe_revision),recipe_hash:String(c.recipe_hash),title_revision_id:String(c.title_revision_id),concept_revision_id:String(c.concept_revision_id),base_artwork_content_hash:String(c.base_artwork_content_hash),structural_composition_fingerprint:String(c.structural_composition_fingerprint),composite_asset_id:String(c.composite_asset_id),composite_content_hash:String(c.composite_content_hash),candidate_binding_id:String(c.candidate_binding_id),candidate_binding_revision:Number(c.candidate_binding_revision),readability_evidence_hash:String(c.readability_evidence_hash),eligibility_state:String(c.eligibility_state) as ThumbnailCandidateSetProjection["candidates"][number]["eligibility_state"]})),projected_at:projectedAt};
+}
+
+export async function commitReadyLaunchesAsCandidateSet(args:{workpieceId:string;workspaceId:string;episodePackage:EpisodePackageV3;expectedMetadataUpdatedAt:string|null}):Promise<V3MutationResult> {
+  const launches=args.episodePackage.thumbnail.launch_variant_revisions.filter((entry)=>entry.status==="ready"&&entry.snapshot.readability_evidence?.passed===true);
+  const unique=[...new Map(launches.map((entry)=>[entry.snapshot.asset_id,entry])).values()]; if(unique.length<3)return{ok:false,saveState:"error",status:409,error:"At least three complete readable composites are required before committing a candidate set."};
+  const existingByComposite=new Map(args.episodePackage.thumbnail.candidate_sets.flatMap((set)=>set.candidates).map((candidate)=>[candidate.composite_asset_id,candidate.candidate_revision_id]));
+  const candidates=unique.map((launch)=>{const existing=existingByComposite.get(launch.snapshot.asset_id);if(existing)return{candidate_revision_id:existing};const base=args.episodePackage.thumbnail.base_versions.find((entry)=>entry.id===launch.base_version_id);const recipe=args.episodePackage.thumbnail.render_recipes.find((entry)=>entry.id===launch.recipe_id&&entry.revision===launch.recipe_revision);const provenance=launch.snapshot.brand_application_provenance;const evidence=launch.snapshot.readability_evidence;if(!base||!recipe||!provenance||!evidence)throw new Error("Candidate launch provenance is incomplete.");
+    const placement=recipe.treatment.placement,typography=recipe.treatment.typography,treatment=recipe.treatment.treatment;
+    return{new_candidate_revision_id:deterministicUuid("thumbnail-candidate-revision",launch.snapshot.asset_id),recipe_id:recipe.id,recipe_revision:recipe.revision,recipe_hash:launch.snapshot.recipe_snapshot_hash,recipe_snapshot:launch.snapshot.recipe_snapshot,title_revision_id:deterministicUuid("thumbnail-title-revision",`${recipe.title_id}:${recipe.title_revision}`),title_revision:recipe.title_revision,concept_revision_id:recipe.concept_revision_id,base_artwork_asset_id:base.asset_id,base_artwork_content_hash:base.content_hash,structural_composition:{layout_family:placement.layout_family??"title-subject",title_block_zone:launch.snapshot.recipe_snapshot.placement,title_alignment:typography.alignment??"center",subject_zone:placement.subject_zone??null,subject_scale_class:placement.subject_scale_class??null,crop_mode:placement.crop_mode??"cover",foreground_layering:treatment.foreground_layering??null,background_treatment:treatment.background_treatment??null},composite_asset_id:launch.snapshot.asset_id,composite_content_hash:launch.snapshot.content_hash,candidate_binding_id:String(provenance.binding_id),candidate_binding_revision:Number(provenance.binding_revision),candidate_binding_content_hash:typeof provenance.profile_content_hash==="string"?provenance.profile_content_hash:null,readability_contract_version:evidence.contract_version,readability_evaluator_version:evidence.evaluator_version,readability_evidence_hash:evidence.evaluation_hash,compositor_version:launch.snapshot.composition_engine_version};});
+  const operationId=crypto.randomUUID();const operationFingerprint=await sha256Canonical({workspace_id:args.workspaceId,workpiece_id:args.workpieceId,expected_current_revision:args.episodePackage.thumbnail.candidate_sets.at(-1)?.revision??0,candidates});
+  const committed=await commitThumbnailCandidateSet({workpieceId:args.workpieceId,workspaceId:args.workspaceId,expectedCurrentRevision:args.episodePackage.thumbnail.candidate_sets.at(-1)?.revision??0,candidates,operationId,operationFingerprint}); if(committed.disposition!=="committed"&&committed.disposition!=="replayed")return{ok:false,saveState:"error",status:409,error:String(committed.code??committed.disposition)};
+  const authority=await readThumbnailCandidateAuthorityProjection({workpieceId:args.workpieceId,workspaceId:args.workspaceId});const projection=projectCanonicalCandidateSet(authority,new Date().toISOString());if(!projection)return{ok:false,saveState:"error",status:502,error:"Committed candidate set was not recovered from Tongs."};
+  const next={...args.episodePackage,thumbnail:{...args.episodePackage.thumbnail,candidate_sets:[...args.episodePackage.thumbnail.candidate_sets.filter((entry)=>entry.candidate_set_id!==projection.candidate_set_id),projection],active_candidate_set_id:projection.candidate_set_id}};
+  return commitEpisodePackageV3Mutation({workpieceId:args.workpieceId,expectedMetadataUpdatedAt:args.expectedMetadataUpdatedAt,nextEpisodePackage:next,mutation:{kind:"candidate_set",entityId:projection.candidate_set_id,revision:projection.revision},eventName:"hearth.thumbnail.candidate-set.projected.v3",eventPayload:{candidate_set_id:projection.candidate_set_id,revision:projection.revision,content_hash:projection.content_hash}});
 }
 
 export async function readCanonicalEpisodePackageV3(workpieceId: string): Promise<CanonicalEpisodePackageV3> {

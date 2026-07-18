@@ -321,3 +321,12 @@ test("v2 workspace projection preserves v3 thumbnail progress for cold-boot summ
   assert.equal(projectedWithBase.thumbnail.versions.length, 1);
   assert.equal(projectedWithBase.thumbnail.primary_version_id, "base-projection");
 });
+
+test("candidate-set projection preserves stable candidate identity across set revisions",()=>{
+  const v3=hydrateEpisodePackageV3(legacyMetadata); const candidate={candidate_revision_id:"candidate-stable",candidate_ordinal:1,recipe_id:"recipe",recipe_revision:1,recipe_hash:"a".repeat(64),title_revision_id:"title-revision",concept_revision_id:"concept",base_artwork_content_hash:"b".repeat(64),structural_composition_fingerprint:"c".repeat(64),composite_asset_id:"asset",composite_content_hash:"d".repeat(64),candidate_binding_id:"binding",candidate_binding_revision:1,readability_evidence_hash:"e".repeat(64),eligibility_state:"current" as const};
+  const first={candidate_set_id:"set-1",revision:1,previous_candidate_set_id:null,content_hash:"f".repeat(64),distinction_contract_version:"forge.thumbnail-candidate-distinction.v1" as const,candidates:[candidate],projected_at:"2026-07-18T00:00:00Z"};
+  const second={...first,candidate_set_id:"set-2",revision:2,previous_candidate_set_id:"set-1",content_hash:"1".repeat(64),candidates:[{...candidate,candidate_ordinal:2}]};
+  const hydrated=hydrateEpisodePackageV3({episode:{...v3,thumbnail:{...v3.thumbnail,candidate_sets:[first,second],active_candidate_set_id:"set-2"}}});
+  assert.equal(hydrated.thumbnail.candidate_sets[0]?.candidates[0]?.candidate_revision_id,"candidate-stable"); assert.equal(hydrated.thumbnail.candidate_sets[1]?.candidates[0]?.candidate_revision_id,"candidate-stable");
+  assert.deepEqual(proveThumbnailMutation({expected:hydrated,canonical:structuredClone(hydrated),kind:"candidate_set",entityId:"set-2",revision:2}),{ok:true});
+});

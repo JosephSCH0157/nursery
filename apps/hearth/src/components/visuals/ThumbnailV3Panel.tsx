@@ -25,9 +25,13 @@ import {
   commitEpisodePackageV3Mutation,
   commitOutsideToolBaseArtwork,
   commitThumbnailLaunchComposite,
+  commitReadyLaunchesAsCandidateSet,
+  decideThumbnailCandidateHistoricalBrand,
   generateForgeAiBaseArtwork,
   readCanonicalThumbnailWorkspaceV3,
   readThumbnailBrandAuthorityStatus,
+  readThumbnailCandidateAuthorityProjection,
+  type ThumbnailCandidateAuthorityProjection,
   type ThumbnailBrandAuthorityStatus,
   type ThumbnailSaveState,
 } from "../../lib/hearth-thumbnail-v3-api";
@@ -72,6 +76,7 @@ export default function ThumbnailV3Panel(props: Props) {
   const [providerId, setProviderId] = useState("forge");
   const [aspect, setAspect] = useState<"16:9" | "1:1" | "9:16">("16:9");
   const [brandStatus, setBrandStatus] = useState<ThumbnailBrandAuthorityStatus | null>(null);
+  const [candidateAuthority, setCandidateAuthority] = useState<ThumbnailCandidateAuthorityProjection | null>(null);
   const [textColor, setTextColor] = useState("#FFFFFF");
   const [maxLines, setMaxLines] = useState(3);
   const [verticalPlacement, setVerticalPlacement] = useState<"top" | "center" | "bottom">("bottom");
@@ -101,6 +106,7 @@ export default function ThumbnailV3Panel(props: Props) {
       const projected = canonical.episodePackage.brand.binding?.active;
       setBrandStatus(await readThumbnailBrandAuthorityStatus({ workspaceId: props.workspaceId, workpieceId: props.workpieceId,
         projectedBindingId: projected?.id ?? null, projectedBindingRevision: projected?.revision ?? null }));
+      setCandidateAuthority(await readThumbnailCandidateAuthorityProjection({workspaceId:props.workspaceId,workpieceId:props.workpieceId}));
       setPkg(canonical.episodePackage); setToken(canonical.metadataUpdatedAt); setLoadError(null);
       props.onCanonicalProgress?.({
         conceptRevisionCount: canonical.episodePackage.thumbnail.concept_revisions.length,
@@ -385,6 +391,9 @@ export default function ThumbnailV3Panel(props: Props) {
     } catch (error) { setMemoryState("unavailable"); setMemoryError(error instanceof Error ? error.message : "Workspace thumbnail memory is unavailable."); }
   };
 
+  const commitCandidateSet = async () => { if(!pkg)return;setSaveState("saving");try{const result=await commitReadyLaunchesAsCandidateSet({workpieceId:props.workpieceId,workspaceId:props.workspaceId,episodePackage:pkg,expectedMetadataUpdatedAt:token});if(!result.ok){setSaveState("error");setLoadError(result.error);return;}setPkg(result.episodePackage);setToken(result.metadataUpdatedAt);setCandidateAuthority(await readThumbnailCandidateAuthorityProjection({workspaceId:props.workspaceId,workpieceId:props.workpieceId}));setSaveState("saved");}catch(error){setSaveState("error");setLoadError(error instanceof Error?error.message:"Unable to commit candidate set.");}};
+  const decideHistoricalCandidate=async(candidate:Record<string,unknown>,decision:"approved"|"revoked")=>{const setId=candidateAuthority?.candidate_set?.id,activeBindingId=candidateAuthority?.active_binding_id;if(!setId||!activeBindingId)return;const reason=window.prompt(decision==="approved"?"Reason for approving this older-brand candidate":"Reason for revoking this approval")?.trim();if(!reason)return;setSaveState("saving");try{await decideThumbnailCandidateHistoricalBrand({workpieceId:props.workpieceId,workspaceId:props.workspaceId,candidateRevisionId:String(candidate.id),candidateSetId:String(setId),activeBindingId,decision,reason,expectedDecisionId:typeof candidate.current_decision_id==="string"?candidate.current_decision_id:null,expectedDecisionRevision:Number(candidate.current_decision_revision??0)});setCandidateAuthority(await readThumbnailCandidateAuthorityProjection({workspaceId:props.workspaceId,workpieceId:props.workpieceId}));setSaveState("saved");}catch(error){setSaveState("error");setLoadError(error instanceof Error?error.message:"Unable to record historical-brand authorization.");}};
+
   const saveEditorialInterpretation = async () => {
     const summary = editorialNote.trim();
     if (!summary) return;
@@ -463,6 +472,12 @@ export default function ThumbnailV3Panel(props: Props) {
         ? <p>The preferred brand presentation required a deterministic recipe-level correction. The Brand Profile was not changed.</p> : <p>The preferred brand presentation passed without correction.</p>}
       <small>Evidence {latestReadability.evaluation_hash} · {latestReadability.evaluator_version}</small>
     </section> : null}
+    <section className="hs-thumbnail-candidates" aria-label="Canonical thumbnail candidate set">
+      <div className="hs-row"><h4>Canonical candidate set</h4><strong>{candidateAuthority?.candidate_set?`Revision ${String(candidateAuthority.candidate_set.revision)}`:"Uncommitted"}</strong></div>
+      <p>Tongs atomically commits at least three complete, meaningfully distinct candidates. Readability-only and other presentation changes do not count as distinction.</p>
+      <button type="button" disabled={saveState==="saving"||pkg.thumbnail.launch_variant_revisions.filter((entry)=>entry.status==="ready"&&entry.snapshot.readability_evidence?.passed).length<3} onClick={()=>void commitCandidateSet()}>Commit ready composites as candidate set</button>
+      {candidateAuthority?.candidates.length?<ol>{candidateAuthority.candidates.map((candidate)=><li key={String(candidate.id)}><strong>Candidate {String(candidate.candidate_ordinal)}</strong> · {String(candidate.eligibility_state).replaceAll("_"," ")}<br/><small>Recipe {String(candidate.recipe_hash)} · final {String(candidate.composite_content_hash)} · binding r{String(candidate.candidate_binding_revision)}</small>{candidate.eligibility_state==="requires_reapproval"?<button type="button" onClick={()=>void decideHistoricalCandidate(candidate,"approved")}>Approve older brand for this binding</button>:candidate.eligibility_state==="approved_historical_brand"?<button type="button" onClick={()=>void decideHistoricalCandidate(candidate,"revoked")}>Revoke older-brand approval</button>:null}</li>)}</ol>:<p>No canonical candidate set yet. Create and render three distinct immutable recipes first.</p>}
+    </section>
     {selectedStrategy ? <section className="hs-thumb-strategy" aria-label="Active thumbnail creative strategy">
       <div className="hs-row"><h4>Creative Strategy</h4><small>Revision {selectedStrategy.revision} · approved script v{selectedStrategy.approved_script_version}</small></div>
       <p><strong>Episode promise:</strong> {selectedStrategy.episode_promise}</p>

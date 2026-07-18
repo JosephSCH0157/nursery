@@ -112,6 +112,10 @@ export type ThumbnailReadabilityEvidence = Readonly<Record<string, unknown>> & {
   evaluation_hash: string;
 };
 
+export type ThumbnailCandidateEligibility = "current" | "historical_brand" | "requires_reapproval" | "approved_historical_brand" | "blocked";
+export type ThumbnailCandidateProjection = { candidate_revision_id: string; candidate_ordinal: number; recipe_id: string; recipe_revision: number; recipe_hash: string; title_revision_id: string; concept_revision_id: string; base_artwork_content_hash: string; structural_composition_fingerprint: string; composite_asset_id: string; composite_content_hash: string; candidate_binding_id: string; candidate_binding_revision: number; readability_evidence_hash: string; eligibility_state: ThumbnailCandidateEligibility };
+export type ThumbnailCandidateSetProjection = { candidate_set_id: string; revision: number; previous_candidate_set_id: string | null; content_hash: string; distinction_contract_version: "forge.thumbnail-candidate-distinction.v1"; candidates: ThumbnailCandidateProjection[]; projected_at: string };
+
 export type ThumbnailRenderRecipe = {
   id: string;
   revision: number;
@@ -277,6 +281,8 @@ export type EpisodePackageV3 = Omit<EpisodePackageV2, "schema" | "seo" | "thumbn
     variation_promotions: ThumbnailVariationPromotion[];
     base_versions: ThumbnailBaseVersion[];
     primary_base_version_id: string | null;
+    candidate_sets: ThumbnailCandidateSetProjection[];
+    active_candidate_set_id: string | null;
     launch_variant_revisions: ThumbnailLaunchVariantRevision[];
     publication_events: ThumbnailPublicationEvent[];
   };
@@ -442,6 +448,8 @@ function hydrateLegacy(metadata: Record<string, unknown>): EpisodePackageV3 {
       primary_base_version_id: primaryLegacy
         ? deterministicUuid("thumbnail-imported-base-version", primaryLegacy.id)
         : null,
+      candidate_sets: [],
+      active_candidate_set_id: null,
       launch_variant_revisions: importLaunchVariants(legacy.launch_variants, baseVersions, createdAt),
       publication_events: [],
     },
@@ -574,7 +582,9 @@ export function hydrateEpisodePackageV3(metadata: Record<string, unknown>): Epis
       ?? compositions.find((entry) => entry.render_recipe_id === thumbnail.active_render_recipe_id)?.id ?? null,
     variation_batches: variationBatches,
     active_variation_batch_id: thumbnail.active_variation_batch_id ?? variationBatches.at(-1)?.id ?? null,
-    variation_promotions: variationPromotions } };
+    variation_promotions: variationPromotions,
+    candidate_sets: Array.isArray(thumbnail.candidate_sets) ? thumbnail.candidate_sets : [],
+    active_candidate_set_id: thumbnail.active_candidate_set_id ?? null } };
 }
 
 export function serializeEpisodePackageV3(pkg: EpisodePackageV3): EpisodePackageV3 {

@@ -146,7 +146,7 @@ export function assertBaseVersionAuthority(pkg: EpisodePackageV3, base: Thumbnai
 export function proveThumbnailMutation(args: {
   expected: EpisodePackageV3;
   canonical: EpisodePackageV3;
-  kind: "concept_set" | "concept_revision" | "recipe" | "base_version" | "primary" | "launch_revision" | "publication_event" | "variation_batch" | "variation_promotion" | "brand_binding";
+  kind: "concept_set" | "concept_revision" | "recipe" | "base_version" | "primary" | "launch_revision" | "publication_event" | "variation_batch" | "variation_promotion" | "brand_binding" | "candidate_set";
   entityId: string;
   revision?: number;
   protectedRelationships?: readonly { versionId: string; conceptRevisionId: string }[];
@@ -185,6 +185,7 @@ function findScoped(pkg: EpisodePackageV3, kind: Parameters<typeof proveThumbnai
     case "variation_batch": return pkg.thumbnail.variation_batches.find((entry) => entry.id === id);
     case "variation_promotion": return pkg.thumbnail.variation_promotions.find((entry) => entry.id === id);
     case "brand_binding": return pkg.brand.binding?.active.id === id ? pkg.brand.binding : null;
+    case "candidate_set": return pkg.thumbnail.candidate_sets.find((entry) => entry.candidate_set_id === id);
   }
 }
 

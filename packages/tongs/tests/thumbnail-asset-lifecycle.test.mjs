@@ -29,6 +29,31 @@ test("thumbnail lifecycle migration defines canonical states, kinds, hashes, dia
   assert.match(sql, /assets_thumbnail_ready_hash_check/);
 });
 
+test("candidate-set migration separates stable candidates from atomic ordered membership", async()=>{
+  const sql=await readFile(new URL("supabase/migrations/20260718130000_tongs_thumbnail_candidate_sets.sql",root),"utf8");
+  const candidateTable=sql.match(/create table tongs\.thumbnail_candidate_revisions \(([\s\S]*?)\n\);/)?.[1]??"";
+  assert.doesNotMatch(candidateTable,/candidate_set_id|candidate_ordinal/);
+  assert.match(sql,/create table tongs\.thumbnail_candidate_set_members/);
+  assert.match(sql,/unique\(candidate_set_id,candidate_revision_id\)/);
+  assert.match(sql,/unique\(candidate_set_id,candidate_ordinal\)/);
+  assert.match(sql,/composite_asset_id uuid not null unique references/);
+  assert.doesNotMatch(sql,/unique\s*\(candidate_set_id,\s*title_revision_id\)/);
+  assert.match(sql,/forge\.thumbnail-candidate-distinction\.v1/);
+  assert.match(sql,/forge\.thumbnail-structural-composition\.v1/);
+});
+
+test("candidate authority locks binding first and replays receipts before current-binding rejection",async()=>{
+  const sql=await readFile(new URL("supabase/migrations/20260718130000_tongs_thumbnail_candidate_sets.sql",root),"utf8");
+  const commit=sql.slice(sql.indexOf("create or replace function tongs.commit_thumbnail_candidate_set"),sql.indexOf("create or replace function tongs.decide_thumbnail_candidate_historical_brand"));
+  assert.ok(commit.indexOf(":brand',0")<commit.indexOf(":thumbnail-candidate-set',0"));
+  assert.ok(commit.indexOf("thumbnail_candidate_set_operations where")<commit.indexOf("stale_thumbnail_candidate_set_revision"));
+  const decision=sql.slice(sql.indexOf("create or replace function tongs.decide_thumbnail_candidate_historical_brand"),sql.indexOf("create or replace function tongs.get_thumbnail_candidate_set_projection"));
+  assert.ok(decision.indexOf(":brand',0")<decision.indexOf(":thumbnail-candidate-brand-decision',0"));
+  assert.ok(decision.indexOf("thumbnail_candidate_brand_decision_operations where")<decision.indexOf("stale_active_brand_binding"));
+  assert.match(sql,/set search_path=pg_catalog,tongs/); assert.doesNotMatch(sql,/set search_path[^\n]*public/);
+  assert.match(sql,/revoke insert,update,delete/); assert.match(sql,/for select to authenticated using\(tongs\.has_workspace_role/);
+});
+
 test("existing workspace RLS policies cover every asset state and kind without filtering either field", async () => {
   const sql = await readFile(new URL("supabase/migrations/20260228170000_tongs_assets_table.sql", root), "utf8");
   for (const operation of ["select", "insert", "update"]) {

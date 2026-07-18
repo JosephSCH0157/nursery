@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { createClient, type Session, type SupabaseClient } from "@supabase/supabase-js";
 import { expect, test } from "playwright/test";
 import { createTongsCommitService } from "../../../packages/tongs/src/workpiece-commit-api";
+import { canonicalSerialize } from "../../hearth/src/lib/episode-package-v3";
 
 const BLUE_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", "base64");
 const ORANGE_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9Zl1sAAAAASUVORK5CYII=", "base64");
@@ -231,10 +232,15 @@ test("authenticated cold boot preserves recipe and both renderers converge on v3
   expect(canonical.data?.filter((asset) => asset.status === "ready" && /^[a-f0-9]{64}$/.test(asset.content_hash ?? "")).length).toBeGreaterThanOrEqual(2);
   expect(createHash("sha256").update(ORANGE_PNG).digest("hex")).toBe(canonical.data?.find((asset) => asset.provider === "outside_tool")?.content_hash);
   const composites = await fixture.admin.schema("tongs").from("assets")
-    .select("status,content_hash,metadata_json").eq("workpiece_id", fixture.workpieceId).eq("asset_kind", "thumbnail_composite");
+    .select("id,status,content_hash,metadata_json").eq("workpiece_id", fixture.workpieceId).eq("asset_kind", "thumbnail_composite");
   expect(composites.error).toBeNull();
   expect(composites.data?.some((asset) => asset.status === "ready" && /^[a-f0-9]{64}$/.test(asset.content_hash ?? ""))).toBe(true);
   expect((composites.data?.[0]?.metadata_json as {brand_application_provenance?:{binding_id?:string}})?.brand_application_provenance?.binding_id).toBe(renderBindings.data?.[0]?.id);
+  const canonicalPackage=await fixture.service.readWorkpieceJson(fixture.workpieceId,"metadata.json"); const episode=(canonicalPackage.data as {episode:{thumbnail:{concept_revisions:Array<{concept_revision_id:string}>}}}).episode;
+  const original=composites.data?.[0] as {id:string;content_hash:string;metadata_json:Record<string,any>}; const baseId=String(original.metadata_json.base_asset_id); const snapshots=[original];
+  for(const concept of episode.thumbnail.concept_revisions.slice(1,3)){const recipe={...original.metadata_json.recipe_snapshot,id:randomUUID(),concept_revision_id:concept.concept_revision_id,title_text:`COLD BOOT ${snapshots.length+1}`};const recipeHash=createHash("sha256").update(Buffer.from(canonicalSerialize(recipe))).digest("hex");const rendered=await fixture.service.renderThumbnailComposite(fixture.workpieceId,{workspace_id:fixture.workspaceId,operation_id:randomUUID(),base_asset_id:baseId,recipe_snapshot:recipe,composition_recipe:recipe,recipe_snapshot_hash:recipeHash,width:1280,height:720,encoding:{format:"png",quality:100}},{userAccessToken:fixture.session.access_token});const readyAt=new Date().toISOString();const ready=await fixture.admin.schema("tongs").from("assets").update({status:"ready",ready_at:readyAt,reference_committed_at:readyAt}).eq("id",rendered.id);expect(ready.error).toBeNull();snapshots.push({id:rendered.id,content_hash:rendered.content_hash!,metadata_json:rendered.metadata as Record<string,any>});}
+  const candidatePayload=snapshots.map((asset,index)=>({new_candidate_revision_id:randomUUID(),recipe_id:asset.metadata_json.recipe_snapshot.id,recipe_revision:asset.metadata_json.recipe_snapshot.revision,recipe_hash:asset.metadata_json.recipe_snapshot_hash,recipe_snapshot:asset.metadata_json.recipe_snapshot,title_revision_id:randomUUID(),title_revision:asset.metadata_json.recipe_snapshot.title_revision,concept_revision_id:asset.metadata_json.recipe_snapshot.concept_revision_id,base_artwork_asset_id:asset.metadata_json.base_asset_id,base_artwork_content_hash:asset.metadata_json.base_asset_hash,structural_composition:{layout_family:"title-subject",title_block_zone:asset.metadata_json.recipe_snapshot.placement,title_alignment:"center",crop_mode:"cover"},composite_asset_id:asset.id,composite_content_hash:asset.content_hash,candidate_binding_id:asset.metadata_json.brand_application_provenance.binding_id,candidate_binding_revision:asset.metadata_json.brand_application_provenance.binding_revision,candidate_binding_content_hash:asset.metadata_json.brand_application_provenance.profile_content_hash,readability_contract_version:asset.metadata_json.readability_evidence.contract_version,readability_evaluator_version:asset.metadata_json.readability_evidence.evaluator_version,readability_evidence_hash:asset.metadata_json.readability_evidence.evaluation_hash,compositor_version:asset.metadata_json.composition_engine_version}));
+  const candidateOperation=randomUUID();const committed=await fixture.service.commitThumbnailCandidateSet(fixture.workpieceId,{workspace_id:fixture.workspaceId,expected_current_revision:0,candidates:candidatePayload,operation_id:candidateOperation,operation_fingerprint:createHash("sha256").update(canonicalSerialize(candidatePayload)).digest("hex")},{userAccessToken:fixture.session.access_token});expect(committed.disposition).toBe("committed");expect(committed.candidate_count).toBe(3);
   await page.reload();
   await page.getByRole("tab", { name: "Visuals" }).click();
   await page.locator("#hearth-thumbnail-panel").getByRole("button", { name: "Open" }).click();
@@ -242,6 +248,9 @@ test("authenticated cold boot preserves recipe and both renderers converge on v3
   await expect(page.locator("#hearth-thumbnail-panel").getByText(/Brand Profile:\s*Browser Brand/)).toBeVisible();
   await expect(page.locator("#hearth-thumbnail-panel").getByLabel("Readability treatment")).toHaveValue("backing");
   await expect(page.locator("#hearth-thumbnail-panel").getByText(/forge-thumbnail-contrast-evaluator-v1/)).toBeVisible();
+  await expect(page.locator("#hearth-thumbnail-panel").getByText("Revision 1",{exact:true})).toBeVisible();
+  await expect(page.locator("#hearth-thumbnail-panel .hs-thumbnail-candidates").getByRole("listitem")).toHaveCount(3);
+  await expect(page.locator("#hearth-thumbnail-panel").getByText(/Candidate 1/)).toBeVisible();
   await currentPanel.getByRole("button", { name: "Recover last generation" }).click();
   await expect(currentPanel.locator(".hs-thumb-pair-state.is-saved")).toHaveText("saved");
   const recovered = await fixture.service.readWorkpieceJson(fixture.workpieceId, "metadata.json");

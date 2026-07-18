@@ -1207,6 +1207,10 @@ export type ThumbnailBrandStatus = {
   message: string;
 };
 
+export type CommitThumbnailCandidateSetRequest = { workspace_id: string; expected_current_revision: number; candidates: Json[]; operation_id: string; operation_fingerprint: string };
+export type ThumbnailCandidateSetProjection = { candidate_set: Record<string, Json> | null; active_binding_id: string | null; active_binding_revision?: number | null; candidates: Record<string, Json>[] };
+export type DecideThumbnailCandidateBrandRequest = { workspace_id: string; candidate_revision_id: string; candidate_set_id?: string | null; active_binding_id: string; decision: "approved" | "revoked"; reason: string; expected_current_decision_id?: string | null; expected_current_decision_revision: number; operation_id: string; operation_fingerprint: string };
+
 type ResolvedThumbnailBrand = {
   provenance: {
     binding_id: string;
@@ -1549,6 +1553,9 @@ export type TongsCommitApiService = {
     input: ThumbnailBrandStatusRequest,
     options?: { userAccessToken?: string | null },
   ): Promise<ThumbnailBrandStatus>;
+  commitThumbnailCandidateSet(workpieceId: string,input: CommitThumbnailCandidateSetRequest,options?: { userAccessToken?: string | null }): Promise<Record<string, Json>>;
+  getThumbnailCandidateSetProjection(workpieceId: string,workspaceId: string,options?: { userAccessToken?: string | null }): Promise<ThumbnailCandidateSetProjection>;
+  decideThumbnailCandidateBrand(workpieceId: string,input: DecideThumbnailCandidateBrandRequest,options?: { userAccessToken?: string | null }): Promise<Record<string, Json>>;
   createRecordingSessionRecord(input: CreateRecordingSessionRecordRequest): Promise<RecordingSessionRow>;
   listRecordingSessionsForPlanner(options?: RecordingSessionListOptions): Promise<RecordingSessionRow[]>;
   getRecordingSessionRecord(sessionId: string): Promise<RecordingSessionRecord>;
@@ -9972,6 +9979,34 @@ export class TongsCommitService {
     }
   }
 
+  private thumbnailAuthorityClient(token?: string | null) {
+    const value = token?.trim();
+    if (!value || !this.userClientFactory) throw new HttpError(503,"thumbnail_candidate_authority_unavailable","Authenticated thumbnail candidate authority is unavailable");
+    return this.userClientFactory(value).schema("tongs") as unknown as { rpc: (name: string,args: Record<string, unknown>) => Promise<UntypedPostgrestResult> };
+  }
+
+  async commitThumbnailCandidateSet(workpieceId: string,input: CommitThumbnailCandidateSetRequest,options?: { userAccessToken?: string | null }): Promise<Record<string, Json>> {
+    await this.assertWorkpieceInWorkspace(workpieceId,input.workspace_id); await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"editor",options?.userAccessToken);
+    const client=this.thumbnailAuthorityClient(options?.userAccessToken); const candidates=await Promise.all(input.candidates.map(async(candidate)=>{ if(!isRecord(candidate)||readStringField(candidate,"candidate_revision_id")) return candidate; const structural=isRecord(candidate.structural_composition)?candidate.structural_composition:{}; const recipe=isRecord(candidate.recipe_snapshot)?candidate.recipe_snapshot:null; if(!recipe) throw new HttpError(400,"missing_candidate_recipe_snapshot","New candidates require an immutable recipe snapshot"); const [calculated,title]=await Promise.all([client.rpc("thumbnail_structural_fingerprint",{p_value:structural}),client.rpc("thumbnail_title_revision_identity",{p_recipe:recipe})]); if(calculated.error||typeof calculated.data!=="string") throw new HttpError(502,"structural_fingerprint_failed",calculated.error?.message??"Tongs could not compute the structural fingerprint"); if(title.error||typeof title.data!=="string") throw new HttpError(502,"title_identity_failed",title.error?.message??"Tongs could not compute the title revision identity"); return {...candidate,title_revision_id:title.data,structural_composition_fingerprint:calculated.data,structural_fingerprint_version:"forge.thumbnail-structural-composition.v1"} as Json; }));
+    const result = await client.rpc("commit_thumbnail_candidate_set",{ p_workspace_id: input.workspace_id,p_workpiece_id: workpieceId,p_expected_current_revision: input.expected_current_revision,p_candidates:candidates,p_operation_id: input.operation_id,p_operation_fingerprint: input.operation_fingerprint });
+    if (result.error) throw new HttpError(409,"thumbnail_candidate_set_commit_failed",result.error.message);
+    if (!isRecord(result.data)) throw new HttpError(502,"invalid_thumbnail_candidate_set_response","Tongs returned an invalid candidate-set response");
+    return result.data as Record<string, Json>;
+  }
+
+  async getThumbnailCandidateSetProjection(workpieceId: string,workspaceId: string,options?: { userAccessToken?: string | null }): Promise<ThumbnailCandidateSetProjection> {
+    await this.assertWorkpieceInWorkspace(workpieceId,workspaceId); await this.assertWorkspaceRoleFromAccessToken(workspaceId,"viewer",options?.userAccessToken);
+    const result = await this.thumbnailAuthorityClient(options?.userAccessToken).rpc("get_thumbnail_candidate_set_projection",{ p_workspace_id: workspaceId,p_workpiece_id: workpieceId });
+    if (result.error) throw new HttpError(502,"thumbnail_candidate_projection_failed",result.error.message); const data=isRecord(result.data)?result.data:{};
+    return { candidate_set:isRecord(data.candidate_set)?data.candidate_set as Record<string,Json>:null,active_binding_id:readStringField(data,"active_binding_id"),active_binding_revision:typeof data.active_binding_revision==="number"?data.active_binding_revision:null,candidates:Array.isArray(data.candidates)?data.candidates.filter(isRecord) as Record<string,Json>[]:[] };
+  }
+
+  async decideThumbnailCandidateBrand(workpieceId: string,input: DecideThumbnailCandidateBrandRequest,options?: { userAccessToken?: string | null }): Promise<Record<string, Json>> {
+    await this.assertWorkpieceInWorkspace(workpieceId,input.workspace_id); await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"editor",options?.userAccessToken);
+    const result=await this.thumbnailAuthorityClient(options?.userAccessToken).rpc("decide_thumbnail_candidate_historical_brand",{p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_candidate_revision_id:input.candidate_revision_id,p_candidate_set_id:input.candidate_set_id??null,p_active_binding_id:input.active_binding_id,p_decision:input.decision,p_reason:input.reason,p_expected_current_decision_id:input.expected_current_decision_id??null,p_expected_current_decision_revision:input.expected_current_decision_revision,p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint});
+    if(result.error) throw new HttpError(409,"thumbnail_candidate_brand_decision_failed",result.error.message); if(!isRecord(result.data)) throw new HttpError(502,"invalid_thumbnail_candidate_brand_response","Tongs returned an invalid authorization response"); return result.data as Record<string,Json>;
+  }
+
   async renderThumbnailComposite(
     workpieceId: string,
     input: RenderThumbnailCompositeRequest,
@@ -13467,6 +13502,22 @@ export function createTongsCommitApiHandlerWithService(
           projected_binding_revision: body.projected_binding_revision == null ? null : normalizePositiveInteger(body.projected_binding_revision, "projected_binding_revision"),
         }, { userAccessToken });
         return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="thumbnail-candidates"&&parts[4]==="commit-set") {
+        requireMethod(request,"POST"); const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id"); const body=await parseJsonBody(request); const userAccessToken=requireUserAccessTokenHeader(request);
+        const expected=Number(body.expected_current_revision); if(!Number.isInteger(expected)||expected<0) throw new HttpError(400,"invalid_candidate_set_revision","expected_current_revision must be a non-negative integer");
+        if(!Array.isArray(body.candidates)) throw new HttpError(400,"invalid_candidate_set","candidates must be an array"); const fingerprint=readStringField(body,"operation_fingerprint"); if(!fingerprint||!/^[a-f0-9]{64}$/.test(fingerprint)) throw new HttpError(400,"invalid_operation_fingerprint","operation_fingerprint must be SHA-256");
+        const result=await service.commitThumbnailCandidateSet(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),expected_current_revision:expected,candidates:body.candidates as Json[],operation_id:normalizeThumbnailOperationId(body.operation_id),operation_fingerprint:fingerprint},{userAccessToken}); return jsonResponse(200,{ok:true,data:result});
+      }
+
+      if (parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="thumbnail-candidates"&&parts[4]==="projection") {
+        requireMethod(request,"POST"); const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id"); const body=await parseJsonBody(request); const userAccessToken=requireUserAccessTokenHeader(request); const result=await service.getThumbnailCandidateSetProjection(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),{userAccessToken}); return jsonResponse(200,{ok:true,data:result});
+      }
+
+      if (parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="thumbnail-candidates"&&parts[4]==="brand-decision") {
+        requireMethod(request,"POST"); const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id"); const body=await parseJsonBody(request); const userAccessToken=requireUserAccessTokenHeader(request); const expected=Number(body.expected_current_decision_revision); if(!Number.isInteger(expected)||expected<0) throw new HttpError(400,"invalid_decision_revision","expected_current_decision_revision must be non-negative"); const decision=body.decision; if(decision!=="approved"&&decision!=="revoked") throw new HttpError(400,"invalid_brand_decision","decision must be approved or revoked"); const fingerprint=readStringField(body,"operation_fingerprint"); if(!fingerprint||!/^[a-f0-9]{64}$/.test(fingerprint)) throw new HttpError(400,"invalid_operation_fingerprint","operation_fingerprint must be SHA-256");
+        const result=await service.decideThumbnailCandidateBrand(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),candidate_revision_id:normalizeUuid(body.candidate_revision_id,"candidate_revision_id"),candidate_set_id:body.candidate_set_id==null?null:normalizeUuid(body.candidate_set_id,"candidate_set_id"),active_binding_id:normalizeUuid(body.active_binding_id,"active_binding_id"),decision,reason:String(body.reason??""),expected_current_decision_id:body.expected_current_decision_id==null?null:normalizeUuid(body.expected_current_decision_id,"expected_current_decision_id"),expected_current_decision_revision:expected,operation_id:normalizeThumbnailOperationId(body.operation_id),operation_fingerprint:fingerprint},{userAccessToken}); return jsonResponse(200,{ok:true,data:result});
       }
 
       if (
