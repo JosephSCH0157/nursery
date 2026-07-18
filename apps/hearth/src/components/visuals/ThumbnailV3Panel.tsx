@@ -10,6 +10,7 @@ import {
 } from "../../lib/episode-package-v3";
 import { refineConcept, saveRenderRecipe } from "../../lib/hearth-thumbnail-v3-authority";
 import { isValidThumbnailPair, resolveCanonicalThumbnailPair } from "../../lib/hearth-thumbnail-pairing";
+import { buildCandidateWorkspaceCards, candidateWorkspaceSummary } from "../../lib/hearth-thumbnail-candidate-workspace";
 import { DEFAULT_VARIATION_LOCKS, appendVariationBatch, createDeterministicVariationBatch, promoteRecipeVariation } from "../../lib/hearth-thumbnail-variations";
 import {
   appendThumbnailMemoryInterpretation,
@@ -77,6 +78,7 @@ export default function ThumbnailV3Panel(props: Props) {
   const [aspect, setAspect] = useState<"16:9" | "1:1" | "9:16">("16:9");
   const [brandStatus, setBrandStatus] = useState<ThumbnailBrandAuthorityStatus | null>(null);
   const [candidateAuthority, setCandidateAuthority] = useState<ThumbnailCandidateAuthorityProjection | null>(null);
+  const [candidateEditRecipeIdentity, setCandidateEditRecipeIdentity] = useState<{ id: string; revision: number } | null>(null);
   const [textColor, setTextColor] = useState("#FFFFFF");
   const [maxLines, setMaxLines] = useState(3);
   const [verticalPlacement, setVerticalPlacement] = useState<"top" | "center" | "bottom">("bottom");
@@ -166,7 +168,12 @@ export default function ThumbnailV3Panel(props: Props) {
     ?? revisions[0] ?? null;
   useEffect(() => { if (selectedConcept) setSelectedRevisionId(selectedConcept.concept_revision_id); }, [selectedConcept?.concept_revision_id]);
   const canonicalPair = pkg ? resolveCanonicalThumbnailPair(pkg) : { recipe: null, concept: null, title: null };
-  const activeRecipe = canonicalPair.recipe;
+  const candidateEditRecipe = candidateEditRecipeIdentity && pkg
+    ? pkg.thumbnail.render_recipes.find((recipe) => recipe.id === candidateEditRecipeIdentity.id && recipe.revision === candidateEditRecipeIdentity.revision) ?? null
+    : null;
+  const activeRecipe = candidateEditRecipe ?? canonicalPair.recipe;
+  const candidateCards = useMemo(() => pkg ? buildCandidateWorkspaceCards(pkg, candidateAuthority) : [], [candidateAuthority, pkg]);
+  const candidateSummary = useMemo(() => candidateWorkspaceSummary(candidateCards), [candidateCards]);
   useEffect(() => {
     if (!activeRecipe) return;
     const typography = activeRecipe.treatment.typography as Record<string, unknown>;
@@ -289,6 +296,7 @@ export default function ThumbnailV3Panel(props: Props) {
       eventName: reviewed ? "hearth.thumbnail.prompt.reviewed.v3" : "hearth.thumbnail.recipe.saved.v3" });
     if (!result.ok) { setSaveState("error"); setLoadError(result.error); return; }
     setPkg(result.episodePackage); setToken(result.metadataUpdatedAt); setSaveState("saved");
+    if (candidateEditRecipeIdentity) setCandidateEditRecipeIdentity({ id: recipe.id, revision: recipe.revision });
     try {
       await projectThumbnailLaunchFacts({ workspaceId: props.workspaceId, workpieceId: props.workpieceId, episodePackage: result.episodePackage });
       setMemoryProjection(await loadThumbnailMemoryProjection(props.workspaceId)); setMemoryState("loaded"); setMemoryError(null);
@@ -473,10 +481,32 @@ export default function ThumbnailV3Panel(props: Props) {
       <small>Evidence {latestReadability.evaluation_hash} · {latestReadability.evaluator_version}</small>
     </section> : null}
     <section className="hs-thumbnail-candidates" aria-label="Canonical thumbnail candidate set">
-      <div className="hs-row"><h4>Canonical candidate set</h4><strong>{candidateAuthority?.candidate_set?`Revision ${String(candidateAuthority.candidate_set.revision)}`:"Uncommitted"}</strong></div>
-      <p>Tongs atomically commits at least three complete, meaningfully distinct candidates. Readability-only and other presentation changes do not count as distinction.</p>
-      <button type="button" disabled={saveState==="saving"||pkg.thumbnail.launch_variant_revisions.filter((entry)=>entry.status==="ready"&&entry.snapshot.readability_evidence?.passed).length<3} onClick={()=>void commitCandidateSet()}>Commit ready composites as candidate set</button>
-      {candidateAuthority?.candidates.length?<ol>{candidateAuthority.candidates.map((candidate)=><li key={String(candidate.id)}><strong>Candidate {String(candidate.candidate_ordinal)}</strong> · {String(candidate.eligibility_state).replaceAll("_"," ")}<br/><small>Recipe {String(candidate.recipe_hash)} · final {String(candidate.composite_content_hash)} · binding r{String(candidate.candidate_binding_revision)}</small>{candidate.eligibility_state==="requires_reapproval"?<button type="button" onClick={()=>void decideHistoricalCandidate(candidate,"approved")}>Approve older brand for this binding</button>:candidate.eligibility_state==="approved_historical_brand"?<button type="button" onClick={()=>void decideHistoricalCandidate(candidate,"revoked")}>Revoke older-brand approval</button>:null}</li>)}</ol>:<p>No canonical candidate set yet. Create and render three distinct immutable recipes first.</p>}
+      <div className="hs-row"><h4>Candidate comparison</h4><strong>{candidateAuthority?.candidate_set?`Revision ${String(candidateAuthority.candidate_set.revision)}`:"Uncommitted"}</strong></div>
+      <p>Tongs owns completeness, distinction, and eligibility. Hearth explains and curates those canonical results; presentation-only changes never satisfy distinction.</p>
+      <p aria-live="polite"><strong>{candidateSummary.quenchEligibleCount} of {candidateCards.length}</strong> candidates would be included in a Quench handoff from the current Tongs projection.</p>
+      <button type="button" disabled={saveState==="saving"||pkg.thumbnail.launch_variant_revisions.filter((entry)=>entry.status==="ready"&&entry.snapshot.readability_evidence?.passed).length<3} onClick={()=>void commitCandidateSet()}>Commit or retry ready candidate set</button>
+      <small>Retrying the same complete payload uses the same operation identity and cannot duplicate the set.</small>
+      {candidateCards.length ? <div className="hs-thumbnail-candidate-grid" style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(16rem, 1fr))",gap:"1rem",marginTop:"1rem"}}>
+        {candidateCards.map((card)=><article key={card.id} className="hs-thumbnail-candidate-card" aria-label={`Candidate ${card.ordinal}`} style={{border:"1px solid var(--border-color, #555)",borderRadius:"0.5rem",padding:"0.75rem"}}>
+          <div className="hs-row"><h5>Candidate {card.ordinal}</h5><strong>{card.eligibility.replaceAll("_"," ")}</strong></div>
+          <p><strong>{card.title}</strong></p><p>{card.concept}</p>
+          <p><strong>Distinct by:</strong> {card.distinctionReasons.join(", ")}</p>
+          <p><strong>Branding:</strong> binding revision {card.bindingRevision}</p>
+          <p><strong>Readability:</strong> {card.readability.passed ? "passed" : "canonical evidence"}{card.readability.score === null ? "" : ` at ${card.readability.score.toFixed(2)}:1`} · {card.readability.treatment}</p>
+          <small>Artwork {card.artworkHash}<br/>Recipe {String(card.raw.recipe_hash)}<br/>Final {card.compositeHash}<br/>Readability evidence {card.readability.evidenceHash}</small>
+          <p><strong>{card.quenchEligible ? "Included in current Quench handoff" : "Not eligible for current Quench handoff"}</strong></p>
+          {card.recipe ? <button type="button" onClick={()=>{setCandidateEditRecipeIdentity({id:card.recipe!.id,revision:card.recipe!.revision});setSelectedRevisionId(card.recipe!.concept_revision_id);setTitleId(card.recipe!.title_id);setTitleRevision(card.recipe!.title_revision);setLoadError(null);}}>Revise this candidate</button> : <p><small>This immutable recipe is readable from Tongs but is not present in the current Hearth package projection.</small></p>}
+          {card.eligibility==="requires_reapproval"?<button type="button" onClick={()=>void decideHistoricalCandidate(card.raw,"approved")}>Approve older brand for this binding</button>:card.eligibility==="approved_historical_brand"?<button type="button" onClick={()=>void decideHistoricalCandidate(card.raw,"revoked")}>Revoke older-brand approval</button>:null}
+        </article>)}
+      </div> : <p>No canonical candidate set yet. Create and render three distinct immutable recipes first.</p>}
+      {candidateEditRecipe ? <div className="hs-inline-notice" role="status"><strong>Editing candidate recipe {candidateEditRecipe.id} revision {candidateEditRecipe.revision}.</strong> Saving creates its next immutable revision without changing sibling candidates or the committed set. <button type="button" onClick={()=>setCandidateEditRecipeIdentity(null)}>Return to canonical recipe</button></div> : null}
+      {pkg.thumbnail.candidate_sets.length > 1 ? <details><summary>Historical candidate sets ({pkg.thumbnail.candidate_sets.length - 1})</summary>
+        <p>These immutable package projections are retained for audit and reconstruction. Their recorded eligibility is historical, not a substitute for current Tongs eligibility.</p>
+        {[...pkg.thumbnail.candidate_sets].sort((a,b)=>b.revision-a.revision).filter((set)=>set.candidate_set_id!==candidateAuthority?.candidate_set?.id).map((set)=><article key={set.candidate_set_id}>
+          <strong>Revision {set.revision}</strong> · {set.candidates.length} candidates<br/><small>Set {set.candidate_set_id} · hash {set.content_hash} · projected {set.projected_at}</small>
+          <ol>{set.candidates.map((candidate)=><li key={candidate.candidate_revision_id}>Candidate {candidate.candidate_ordinal} · {candidate.candidate_revision_id} · final {candidate.composite_content_hash}</li>)}</ol>
+        </article>)}
+      </details> : null}
     </section>
     {selectedStrategy ? <section className="hs-thumb-strategy" aria-label="Active thumbnail creative strategy">
       <div className="hs-row"><h4>Creative Strategy</h4><small>Revision {selectedStrategy.revision} · approved script v{selectedStrategy.approved_script_version}</small></div>

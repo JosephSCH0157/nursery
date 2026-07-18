@@ -249,8 +249,14 @@ test("authenticated cold boot preserves recipe and both renderers converge on v3
   await expect(page.locator("#hearth-thumbnail-panel").getByLabel("Readability treatment")).toHaveValue("backing");
   await expect(page.locator("#hearth-thumbnail-panel").getByText(/forge-thumbnail-contrast-evaluator-v1/)).toBeVisible();
   await expect(page.locator("#hearth-thumbnail-panel").getByText("Revision 1",{exact:true})).toBeVisible();
-  await expect(page.locator("#hearth-thumbnail-panel .hs-thumbnail-candidates").getByRole("listitem")).toHaveCount(3);
-  await expect(page.locator("#hearth-thumbnail-panel").getByText(/Candidate 1/)).toBeVisible();
+  const candidateWorkspace=page.locator("#hearth-thumbnail-panel .hs-thumbnail-candidates");
+  await expect(candidateWorkspace.getByRole("heading",{name:"Candidate comparison"})).toBeVisible();
+  await expect(candidateWorkspace.locator(".hs-thumbnail-candidate-card")).toHaveCount(3);
+  await expect(candidateWorkspace.getByText("3 of 3",{exact:false})).toBeVisible();
+  await expect(candidateWorkspace.getByText(/Included in current Quench handoff/)).toHaveCount(3);
+  await expect(candidateWorkspace.getByText(/Distinct by:/)).toHaveCount(3);
+  await expect(candidateWorkspace.getByText(/Readability evidence/)).toHaveCount(3);
+  await expect(candidateWorkspace.getByRole("button",{name:"Revise this candidate"}).first()).toBeVisible();
   await currentPanel.getByRole("button", { name: "Recover last generation" }).click();
   await expect(currentPanel.locator(".hs-thumb-pair-state.is-saved")).toHaveText("saved");
   const recovered = await fixture.service.readWorkpieceJson(fixture.workpieceId, "metadata.json");
