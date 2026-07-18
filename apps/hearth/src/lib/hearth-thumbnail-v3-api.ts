@@ -435,6 +435,7 @@ function compositorRecipe(recipe: ThumbnailRenderRecipe): ThumbnailCompositeSnap
     placement: placement.vertical === "top" || placement.vertical === "center" ? placement.vertical : "bottom",
     max_lines: typeof typography.max_lines === "number" ? typography.max_lines : 3,
     horizontal_padding_percent: typeof placement.horizontal_padding_percent === "number" ? placement.horizontal_padding_percent : 8,
+    presentation_override: recipe.presentation_override ?? null,
   };
 }
 
@@ -490,6 +491,7 @@ export async function commitThumbnailLaunchComposite(args: {
     recipe_snapshot: recipeSnapshot, recipe_snapshot_hash: recipeHash,
     brand_application_provenance: isRecord(assetMetadata.brand_application_provenance) ? assetMetadata.brand_application_provenance : null,
     brand_logo_asset_revision_id: readString(assetMetadata.brand_logo_asset_revision_id), exported_at: args.createdAt,
+    readability_evidence: isRecord(assetMetadata.readability_evidence) ? assetMetadata.readability_evidence as ThumbnailCompositeSnapshot["readability_evidence"] : null,
   };
   const next = appendLaunchSnapshot({
     episodePackage: args.episodePackage, launchVariantId: args.launchVariantId,

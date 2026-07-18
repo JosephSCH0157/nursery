@@ -78,6 +78,8 @@ export default function ThumbnailV3Panel(props: Props) {
   const [horizontalPadding, setHorizontalPadding] = useState(8);
   const [shadowColor, setShadowColor] = useState("#000000");
   const [shadowOpacity, setShadowOpacity] = useState(0.7);
+  const [readabilityTreatment, setReadabilityTreatment] = useState<"automatic" | "none" | "outline" | "shadow" | "gradient" | "backing">("automatic");
+  const [logoVisible, setLogoVisible] = useState(true);
   const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
   const [memoryProjection, setMemoryProjection] = useState<ThumbnailMemoryProjection>({ launchFacts: [], activeInterpretations: [] });
   const [ledgerProjection, setLedgerProjection] = useState<ThumbnailLedgerProjection | null>(null);
@@ -173,6 +175,9 @@ export default function ThumbnailV3Panel(props: Props) {
     setHorizontalPadding(typeof placement.horizontal_padding_percent === "number" ? placement.horizontal_padding_percent : 8);
     setShadowColor(typeof shadow.color === "string" ? shadow.color : "#000000");
     setShadowOpacity(typeof shadow.opacity === "number" ? shadow.opacity : 0.7);
+    setReadabilityTreatment(activeRecipe.presentation_override?.decision_origin === "explicit_user" && activeRecipe.presentation_override.treatment
+      ? activeRecipe.presentation_override.treatment : "automatic");
+    setLogoVisible(activeRecipe.presentation_override?.logo_visible !== false);
     setSaveState("saved");
   }, [activeRecipe?.id, activeRecipe?.revision]);
   const selectedTitle = pkg?.seo.titles.find((entry) => entry.id === titleId && entry.revision === titleRevision) ?? null;
@@ -253,6 +258,12 @@ export default function ThumbnailV3Panel(props: Props) {
       provider_id: providerId, provider_settings: activeRecipe?.provider_settings ?? {},
       intended_aspect_ratio: aspect, brand_template_id: null,
       brand_template_revision: null,
+      presentation_override: readabilityTreatment === "automatic" && logoVisible ? null : {
+        text_color: readabilityTreatment === "automatic" ? null : textColor,
+        treatment: readabilityTreatment === "automatic" ? null : readabilityTreatment,
+        logo_visible: logoVisible, logo_placement: null, logo_opacity: null,
+        decision_origin: readabilityTreatment === "automatic" ? "automatic" : "explicit_user",
+      },
       title_text: (title.thumbnail_text || title.text).trim(), treatment: {
         ...(activeRecipe?.treatment ?? emptyTreatment),
         typography: { color: textColor, max_lines: maxLines },
@@ -285,6 +296,8 @@ export default function ThumbnailV3Panel(props: Props) {
     if (!name || name === activeSet.name) return;
     await commitSetMutation({ ...current, thumbnail: { ...current.thumbnail, concept_sets: current.thumbnail.concept_sets.map((set) => set.id === activeSet.id ? { ...set, name } : set) } }, activeSet.id, "hearth.thumbnail.concept-set.renamed.v3");
   };
+
+  const latestReadability = pkg?.thumbnail.launch_variant_revisions.at(-1)?.snapshot.readability_evidence ?? null;
 
   const archiveActiveSet = async () => {
     if (!activeSet || !pkg) return;
@@ -443,6 +456,13 @@ export default function ThumbnailV3Panel(props: Props) {
       {brandStatus ? <><p>{brandStatus.message}</p>{brandStatus.profile_label ? <p><strong>Brand Profile:</strong> {brandStatus.profile_label}</p> : null}
         {brandStatus.binding ? <small>Binding {String(brandStatus.binding.id ?? "unknown")} · revision {String(brandStatus.binding.revision ?? "unknown")}</small> : null}</> : null}
     </section>
+    {latestReadability ? <section className="hs-thumbnail-readability" aria-label="Thumbnail readability evidence">
+      <div className="hs-row"><h4>Readability correction</h4><strong>{latestReadability.passed ? "Passed" : "Blocked"}</strong></div>
+      <p>Applied {latestReadability.applied_color} with {latestReadability.applied_treatment}. Score {Number(latestReadability.aggregate_score).toFixed(2)}:1 against the 4.5:1 threshold.</p>
+      {latestReadability.preferred_brand_color !== latestReadability.applied_color || latestReadability.applied_treatment !== "none"
+        ? <p>The preferred brand presentation required a deterministic recipe-level correction. The Brand Profile was not changed.</p> : <p>The preferred brand presentation passed without correction.</p>}
+      <small>Evidence {latestReadability.evaluation_hash} · {latestReadability.evaluator_version}</small>
+    </section> : null}
     {selectedStrategy ? <section className="hs-thumb-strategy" aria-label="Active thumbnail creative strategy">
       <div className="hs-row"><h4>Creative Strategy</h4><small>Revision {selectedStrategy.revision} · approved script v{selectedStrategy.approved_script_version}</small></div>
       <p><strong>Episode promise:</strong> {selectedStrategy.episode_promise}</p>
@@ -578,6 +598,11 @@ export default function ThumbnailV3Panel(props: Props) {
         <label>Horizontal safe padding (%)<input type="number" min={0} max={30} value={horizontalPadding} onChange={(event) => { setHorizontalPadding(Number(event.target.value)); setSaveState("editing"); }} /></label>
         <label>Shadow color<input type="color" value={shadowColor} onChange={(event) => { setShadowColor(event.target.value); setSaveState("editing"); }} /></label>
         <label>Shadow opacity<input type="range" min={0} max={1} step={0.05} value={shadowOpacity} onChange={(event) => { setShadowOpacity(Number(event.target.value)); setSaveState("editing"); }} /></label>
+        <label>Readability treatment<select value={readabilityTreatment} onChange={(event) => { setReadabilityTreatment(event.target.value as typeof readabilityTreatment); setSaveState("editing"); }}>
+          <option value="automatic">Automatic hierarchy</option><option value="none">No corrective treatment</option><option value="outline">Outline</option><option value="shadow">Shadow</option><option value="gradient">Title-region gradient</option><option value="backing">Title backing</option>
+        </select></label>
+        <label><input type="checkbox" checked={logoVisible} onChange={(event) => { setLogoVisible(event.target.checked); setSaveState("editing"); }} />Show bound logo</label>
+        <small>Choosing a treatment creates a new immutable recipe revision. Tongs accepts it only when it independently passes forge.thumbnail-readability.v1.</small>
       </fieldset>
       <button type="button" onClick={() => void saveRecipe(false)}>Save concept/title pairing</button>
       {promptPack ? <div><h4>Derived prompt pack</h4><pre>{promptPack.positive_prompt}</pre><p>Negative: {promptPack.negative_prompt}</p><button type="button" onClick={() => void saveRecipe(true)}>{promptPack.review_state === "reviewed" ? "Reviewed" : "Review and approve prompt"}</button></div> : null}

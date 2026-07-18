@@ -91,6 +91,27 @@ export type ThumbnailTreatment = {
   treatment: Readonly<Record<string, unknown>>;
 };
 
+export type ThumbnailPresentationOverride = {
+  text_color: string | null;
+  treatment: "none" | "outline" | "shadow" | "gradient" | "backing" | null;
+  logo_visible: boolean | null;
+  logo_placement: "top_left" | "top_right" | "bottom_left" | "bottom_right" | null;
+  logo_opacity: number | null;
+  decision_origin: "automatic" | "explicit_user";
+};
+
+export type ThumbnailReadabilityEvidence = Readonly<Record<string, unknown>> & {
+  contract_version: "forge.thumbnail-readability.v1";
+  evaluator_version: "forge-thumbnail-contrast-evaluator-v1";
+  threshold: 4.5;
+  preferred_brand_color: string;
+  applied_color: string;
+  applied_treatment: "none" | "outline" | "shadow" | "gradient" | "backing";
+  aggregate_score: number;
+  passed: boolean;
+  evaluation_hash: string;
+};
+
 export type ThumbnailRenderRecipe = {
   id: string;
   revision: number;
@@ -106,6 +127,7 @@ export type ThumbnailRenderRecipe = {
   intended_aspect_ratio: "16:9" | "1:1" | "9:16";
   brand_template_id: string | null;
   brand_template_revision: number | null;
+  presentation_override?: ThumbnailPresentationOverride | null;
   title_text: string;
   treatment: ThumbnailTreatment;
   prompt_template_version: string;
@@ -204,6 +226,7 @@ export type ThumbnailCompositeSnapshot = {
   recipe_snapshot_hash: string;
   brand_application_provenance?: Readonly<Record<string, unknown>> | null;
   brand_logo_asset_revision_id?: string | null;
+  readability_evidence?: ThumbnailReadabilityEvidence | null;
   exported_at: string;
 };
 

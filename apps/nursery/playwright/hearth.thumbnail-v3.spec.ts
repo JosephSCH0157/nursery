@@ -211,6 +211,14 @@ test("authenticated cold boot preserves recipe and both renderers converge on v3
   await currentPanel.getByRole("button", { name: "Commit immutable launch composite" }).click();
   await expect(currentPanel.getByText(/Revision 1 · ready/)).toBeVisible({ timeout: 30_000 });
   await expect(currentPanel.getByText("1 launch facts", { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(currentPanel.getByRole("heading", { name: "Readability correction" })).toBeVisible();
+  await expect(currentPanel.getByText(/against the 4\.5:1 threshold/)).toBeVisible();
+  await expect(currentPanel.getByText(/forge-thumbnail-contrast-evaluator-v1/)).toBeVisible();
+  await currentPanel.getByLabel("Readability treatment").selectOption("backing");
+  await currentPanel.getByRole("button", { name: "Save concept/title pairing" }).click();
+  await expect(currentPanel.locator(".hs-thumb-pair-state.is-saved")).toHaveText("saved");
+  await currentPanel.getByRole("button", { name: "Review and approve prompt" }).click();
+  await expect(currentPanel.getByRole("button", { name: "Reviewed" })).toBeVisible();
   await expect(currentPanel.getByRole("heading", { name: "Ledger Intelligence" })).toBeVisible();
   const renderBindings=await fixture.admin.schema("tongs").from("workpiece_brand_bindings").select("id,revision,state,profile_revision_id,profile_content_hash,asset_revision_ids").eq("workpiece_id",fixture.workpieceId);expect(renderBindings.error).toBeNull();expect(renderBindings.data).toHaveLength(1);expect(renderBindings.data?.[0]?.state).toBe("profile");
   await currentPanel.getByLabel("Workspace editorial note").fill("The close-up treatment should be varied in the next episode.");
@@ -232,6 +240,8 @@ test("authenticated cold boot preserves recipe and both renderers converge on v3
   await page.locator("#hearth-thumbnail-panel").getByRole("button", { name: "Open" }).click();
   await expect(page.locator("#hearth-thumbnail-panel").getByText("stale projection", { exact: true })).toBeVisible();
   await expect(page.locator("#hearth-thumbnail-panel").getByText(/Brand Profile:\s*Browser Brand/)).toBeVisible();
+  await expect(page.locator("#hearth-thumbnail-panel").getByLabel("Readability treatment")).toHaveValue("backing");
+  await expect(page.locator("#hearth-thumbnail-panel").getByText(/forge-thumbnail-contrast-evaluator-v1/)).toBeVisible();
   await currentPanel.getByRole("button", { name: "Recover last generation" }).click();
   await expect(currentPanel.locator(".hs-thumb-pair-state.is-saved")).toHaveText("saved");
   const recovered = await fixture.service.readWorkpieceJson(fixture.workpieceId, "metadata.json");

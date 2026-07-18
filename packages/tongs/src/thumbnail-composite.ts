@@ -1,9 +1,13 @@
 import { createRequire } from "node:module";
 import { readFile } from "node:fs/promises";
 import sharp from "sharp";
+import { createHash } from "node:crypto";
+import { evaluateReadabilityMasks, parseHexColor, THUMBNAIL_CONTRAST_EVALUATOR_VERSION, THUMBNAIL_READABILITY_CONTRACT_VERSION,
+  THUMBNAIL_READABILITY_THRESHOLD, type ReadabilityTreatmentKind, type ThumbnailReadabilityEvidence } from "./thumbnail-readability.js";
 
 export const THUMBNAIL_COMPOSITION_ENGINE_VERSION = "forge-thumbnail-compositor-v1";
 export const THUMBNAIL_BUNDLED_FONT_VERSION = "inter-5.2.8-latin-700";
+export { THUMBNAIL_CONTRAST_EVALUATOR_VERSION, THUMBNAIL_READABILITY_CONTRACT_VERSION };
 
 export type ThumbnailCompositeEncoding = {
   format: "png" | "jpeg" | "webp";
@@ -23,8 +27,17 @@ export type ThumbnailCompositeRecipe = {
   brand?: {
     text_color: string;
     shadow_color: string;
+    palette_colors?: string[];
     logo_placement: "top_left" | "top_right" | "bottom_left" | "bottom_right";
     logo_opacity: number;
+  } | null;
+  presentation_override?: {
+    text_color?: string | null;
+    treatment?: ReadabilityTreatmentKind | null;
+    logo_visible?: boolean | null;
+    logo_placement?: "top_left" | "top_right" | "bottom_left" | "bottom_right" | null;
+    logo_opacity?: number | null;
+    decision_origin?: "automatic" | "explicit_user";
   } | null;
 };
 
@@ -63,7 +76,7 @@ export async function renderThumbnailComposite(args: {
   recipe: ThumbnailCompositeRecipe;
   encoding: ThumbnailCompositeEncoding;
   logoBytes?: Uint8Array | null;
-}): Promise<{ bytes: Uint8Array; mimeType: string }> {
+}): Promise<{ bytes: Uint8Array; mimeType: string; readability: ThumbnailReadabilityEvidence & { evaluation_hash: string } }> {
   const { width, height, recipe } = args;
   if (!Number.isInteger(width) || width < 320 || width > 7680 || !Number.isInteger(height) || height < 180 || height > 4320) {
     throw new Error("Composite dimensions are outside the supported range.");
@@ -80,34 +93,78 @@ export async function renderThumbnailComposite(args: {
     : recipe.placement === "center"
       ? Math.round((height - blockHeight) / 2) + fontSize
       : height - padding - blockHeight + fontSize;
-  const text = lines.map((line, index) => (
-    `<text x="${padding}" y="${startY + index * lineHeight}" class="title">${escapeXml(line)}</text>`
-  )).join("");
-  const textColor = recipe.brand?.text_color ?? recipe.text_color;
-  const shadowColor = recipe.brand?.shadow_color ?? recipe.shadow_color;
-  const svg = Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg">
-    <style>
-      @font-face { font-family: 'ForgeInter'; src: url(data:font/woff2;base64,${fontData}) format('woff2'); font-weight: 700; }
-      .title { font-family: 'ForgeInter'; font-size: ${fontSize}px; font-weight: 700; fill: ${escapeXml(textColor)}; paint-order: stroke; stroke: ${escapeXml(shadowColor)}; stroke-width: ${Math.max(2, Math.round(fontSize * 0.08))}px; stroke-opacity: ${Math.max(0, Math.min(1, recipe.shadow_opacity))}; }
-    </style>${text}</svg>`);
-
-  const overlays: Array<{ input: Buffer; top?: number; left?: number; blend?: "over" }> = [{ input: svg }];
-  if (args.logoBytes?.length && recipe.brand) {
+  const preferredColor = (recipe.brand?.text_color ?? recipe.text_color).toUpperCase(); parseHexColor(preferredColor);
+  const supportColor = (recipe.brand?.shadow_color ?? recipe.shadow_color).toUpperCase(); parseHexColor(supportColor);
+  const supportRadius = Math.max(2, Math.ceil(fontSize * 0.08));
+  const fontStyle = `@font-face { font-family:'ForgeInter';src:url(data:font/woff2;base64,${fontData}) format('woff2');font-weight:700}.title{font-family:'ForgeInter';font-size:${fontSize}px;font-weight:700}`;
+  const textNodes = (onlyLine: number | null = null, attrs = "") => lines.map((line, index) => onlyLine == null || onlyLine === index
+    ? `<text x="${padding}" y="${startY + index * lineHeight}" class="title" ${attrs}>${escapeXml(line)}</text>` : "").join("");
+  const svg = (body: string) => Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><style>${fontStyle}</style>${body}</svg>`);
+  const coreMaskSvg = svg(textNodes(null, `fill="#fff"`));
+  const lineMaskSvgs = lines.map((_line, index) => svg(textNodes(index, `fill="#fff"`)));
+  const untreated = await sharp(args.baseBytes).resize(width, height, { fit: "cover" }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const maskRaw = async (input: Buffer) => { const value = await sharp(input).ensureAlpha().raw().toBuffer({ resolveWithObject: true }); return { data: value.data, width: value.info.width, height: value.info.height, channels: value.info.channels }; };
+  const coreMask = await maskRaw(coreMaskSvg); const lineMasks = await Promise.all(lineMaskSvgs.map(maskRaw));
+  const treatments: ReadabilityTreatmentKind[] = ["none", "outline", "shadow", "gradient", "backing"];
+  const approvedColors = [preferredColor, ...(recipe.brand?.palette_colors ?? []).map((color) => color.toUpperCase())]
+    .filter((color, index, all) => /^#[0-9A-F]{6}$/.test(color) && all.indexOf(color) === index);
+  const choices = approvedColors.flatMap((color) => treatments.map((treatment) => ({ color, treatment })))
+    .concat(["#FFFFFF", "#000000"].map((color) => ({ color, treatment: "none" as const })));
+  const explicit = recipe.presentation_override?.decision_origin === "explicit_user";
+  const requestedColor = recipe.presentation_override?.text_color?.toUpperCase() ?? null;
+  const requestedTreatment = recipe.presentation_override?.treatment ?? null;
+  const orderedChoices = explicit ? choices.filter((choice) => (!requestedColor || choice.color === requestedColor) && (!requestedTreatment || choice.treatment === requestedTreatment)) : choices;
+  if (!orderedChoices.length) throw new Error("Explicit thumbnail presentation override is outside the approved treatment hierarchy.");
+  let selected: { bytes: Buffer; evidence: ThumbnailReadabilityEvidence } | null = null;
+  let hierarchyStep = 0;
+  for (const choice of orderedChoices) {
+    hierarchyStep += 1;
+    const blockTop = Math.max(0, startY - fontSize - supportRadius); const blockBottom = Math.min(height, startY + (lines.length - 1) * lineHeight + supportRadius);
+    const backgroundBody = choice.treatment === "gradient" ? `<defs><linearGradient id="g"><stop stop-color="#000" stop-opacity="0.82"/><stop offset="1" stop-color="#000" stop-opacity="0"/></linearGradient></defs><rect x="0" y="${blockTop}" width="${width}" height="${blockBottom - blockTop}" fill="url(#g)"/>`
+      : choice.treatment === "backing" ? `<rect x="${Math.max(0, padding - supportRadius)}" y="${blockTop}" width="${Math.min(width - padding, width) - Math.max(0, padding - supportRadius)}" height="${blockBottom - blockTop}" rx="${supportRadius}" fill="#000" fill-opacity="0.78"/>` : "";
+    const background = await sharp(args.baseBytes).resize(width, height, { fit: "cover" }).ensureAlpha().composite(backgroundBody ? [{ input: svg(backgroundBody) }] : []).png().toBuffer();
+    const supportAttrs = choice.treatment === "outline" ? `fill="none" stroke="${supportColor}" stroke-width="${supportRadius}" stroke-opacity="1" paint-order="stroke"`
+      : choice.treatment === "shadow" ? `fill="${supportColor}" fill-opacity="${Math.max(0, Math.min(1, recipe.shadow_opacity))}" transform="translate(${Math.max(2, Math.round(supportRadius / 2))} ${Math.max(2, Math.round(supportRadius / 2))})"` : `fill="none"`;
+    const supportSvg = svg(textNodes(null, supportAttrs));
+    const fillSvg = svg(textNodes(null, `fill="${choice.color}"`));
+    const finalBytes = await sharp(background).composite(choice.treatment === "outline" || choice.treatment === "shadow" ? [{ input: supportSvg }, { input: fillSvg }] : [{ input: fillSvg }]).png().toBuffer();
+    const backgroundRawValue = await sharp(background).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const finalRawValue = await sharp(finalBytes).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+    const supportMask = choice.treatment === "outline" || choice.treatment === "shadow" ? await maskRaw(supportSvg) : { data: Buffer.alloc(width * height * 4), width, height, channels: 4 };
+    const result = evaluateReadabilityMasks({ untreatedImage: { data: untreated.data, width, height, channels: untreated.info.channels },
+      treatedBackground: { data: backgroundRawValue.data, width, height, channels: backgroundRawValue.info.channels }, finalComposite: { data: finalRawValue.data, width, height, channels: finalRawValue.info.channels }, glyphCoreMask: coreMask, supportMask, lineMasks, supportRadiusPx: supportRadius });
+    const evidence: ThumbnailReadabilityEvidence = { contract_version: THUMBNAIL_READABILITY_CONTRACT_VERSION, evaluator_version: THUMBNAIL_CONTRAST_EVALUATOR_VERSION,
+      threshold: THUMBNAIL_READABILITY_THRESHOLD, output_width: width, output_height: height, glyph_core_alpha_threshold: 204, support_radius_px: supportRadius,
+      percentile: "nearest_rank_p10", preferred_brand_color: preferredColor, applied_color: choice.color, applied_treatment: choice.treatment,
+      treatment_parameters: { support_color: supportColor, support_radius_px: supportRadius, backing_opacity: choice.treatment === "backing" ? 0.78 : null, gradient_start_opacity: choice.treatment === "gradient" ? 0.82 : null },
+      line_scores: result.lineScores, aggregate_score: result.aggregateScore, evaluated_pixel_count: result.evaluatedPixelCount, hierarchy_step: hierarchyStep,
+      override_reason: choice.color === preferredColor && choice.treatment === "none" ? null : "Preferred brand presentation did not meet the deterministic readability threshold.",
+      decision_origin: explicit ? "explicit_user" : "automatic", passed: result.passed, compositor_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION, font_version: THUMBNAIL_BUNDLED_FONT_VERSION };
+    if (result.passed) { selected = { bytes: finalBytes, evidence }; break; }
+  }
+  if (!selected) throw new Error("No approved thumbnail presentation meets forge.thumbnail-readability.v1.");
+  const overlays: Array<{ input: Buffer; top?: number; left?: number; blend?: "over" }> = [];
+  const logoVisible = recipe.presentation_override?.logo_visible !== false;
+  if (logoVisible && args.logoBytes?.length && recipe.brand) {
     const logoWidth = Math.max(48, Math.round(width * 0.16));
     const logoHeight = Math.max(32, Math.round(height * 0.16));
+    const logoOpacity = recipe.presentation_override?.logo_opacity ?? recipe.brand.logo_opacity;
     const logo = await sharp(args.logoBytes).resize(logoWidth, logoHeight, { fit: "inside", withoutEnlargement: true })
-      .ensureAlpha().linear([1, 1, 1, Math.max(0, Math.min(1, recipe.brand.logo_opacity))], [0, 0, 0, 0]).png().toBuffer();
-    const top = recipe.brand.logo_placement.startsWith("top") ? padding : height - logoHeight - padding;
-    const left = recipe.brand.logo_placement.endsWith("left") ? padding : width - logoWidth - padding;
+      .ensureAlpha().linear([1, 1, 1, Math.max(0, Math.min(1, logoOpacity))], [0, 0, 0, 0]).png().toBuffer();
+    const logoPlacement = recipe.presentation_override?.logo_placement ?? recipe.brand.logo_placement;
+    const top = logoPlacement.startsWith("top") ? padding : height - logoHeight - padding;
+    const left = logoPlacement.endsWith("left") ? padding : width - logoWidth - padding;
     overlays.push({ input: logo, top: Math.max(0, top), left: Math.max(0, left), blend: "over" });
   }
-  let pipeline = sharp(args.baseBytes).resize(width, height, { fit: "cover" }).composite(overlays);
+  let pipeline = sharp(selected.bytes).composite(overlays);
   if (args.encoding.format === "jpeg") pipeline = pipeline.jpeg({ quality: args.encoding.quality, chromaSubsampling: "4:4:4" });
   else if (args.encoding.format === "webp") pipeline = pipeline.webp({ quality: args.encoding.quality, smartSubsample: true });
   else pipeline = pipeline.png({ compressionLevel: 9, adaptiveFiltering: false });
   const bytes = await pipeline.toBuffer();
+  const evaluationHash = createHash("sha256").update(JSON.stringify(selected.evidence)).digest("hex");
   return {
     bytes,
     mimeType: args.encoding.format === "jpeg" ? "image/jpeg" : args.encoding.format === "webp" ? "image/webp" : "image/png",
+    readability: { ...selected.evidence, evaluation_hash: evaluationHash },
   };
 }

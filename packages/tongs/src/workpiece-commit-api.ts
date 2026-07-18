@@ -5,6 +5,7 @@ import type { ThumbnailCompositeEncoding, ThumbnailCompositeRecipe } from "./thu
 
 const THUMBNAIL_BUNDLED_FONT_VERSION = "inter-5.2.8-latin-700";
 const THUMBNAIL_COMPOSITION_ENGINE_VERSION = "forge-thumbnail-compositor-v1";
+const THUMBNAIL_CONTRAST_EVALUATOR_VERSION = "forge-thumbnail-contrast-evaluator-v1";
 
 type UntypedPostgrestResult = {
   data: unknown;
@@ -9935,7 +9936,9 @@ export class TongsCommitService {
     }
     return {
       provenance,
-      treatment: { text_color: textColor.toUpperCase(), shadow_color: shadowColor.toUpperCase(), logo_placement: logoPlacement as NonNullable<ResolvedThumbnailBrand["treatment"]>["logo_placement"], logo_opacity: logoOpacity },
+      treatment: { text_color: textColor.toUpperCase(), shadow_color: shadowColor.toUpperCase(),
+        palette_colors: [readStringField(palette!, "primary"), readStringField(palette!, "secondary"), readStringField(palette!, "accent")].filter((value): value is string => Boolean(value)),
+        logo_placement: logoPlacement as NonNullable<ResolvedThumbnailBrand["treatment"]>["logo_placement"], logo_opacity: logoOpacity },
       logoBytes,
       logoAssetRevisionId,
       profileLabel,
@@ -9996,6 +9999,7 @@ export class TongsCommitService {
       template_revision: input.composition_recipe.template_revision,
       composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
       bundled_font_version: THUMBNAIL_BUNDLED_FONT_VERSION,
+      contrast_evaluator_version: THUMBNAIL_CONTRAST_EVALUATOR_VERSION,
       brand_provenance: brandIdentity?.provenance ?? null,
       width: input.width,
       height: input.height,
@@ -10052,9 +10056,11 @@ export class TongsCommitService {
         recipe_snapshot_hash: canonicalRecipeHash,
         brand_application_provenance: (brand?.provenance ?? null) as unknown as Json,
         brand_logo_asset_revision_id: brand?.logoAssetRevisionId ?? null,
+        readability_evidence: rendered.readability as unknown as Json,
         reuse_identity: reuseIdentity,
         composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
         bundled_font_version: THUMBNAIL_BUNDLED_FONT_VERSION,
+        contrast_evaluator_version: THUMBNAIL_CONTRAST_EVALUATOR_VERSION,
         width: input.width,
         height: input.height,
         encoding: input.encoding as unknown as Json,
@@ -12842,6 +12848,17 @@ function normalizeRenderThumbnailCompositeRequest(body: Record<string, unknown>)
   if (!isRecord(recipeSnapshot)) {
     throw new HttpError(400, "invalid_thumbnail_recipe", "recipe_snapshot must be an object");
   }
+  const overrideRaw = isRecord(recipe.presentation_override) ? recipe.presentation_override : null;
+  const overrideTreatment = overrideRaw?.treatment;
+  if (overrideTreatment != null && !["none", "outline", "shadow", "gradient", "backing"].includes(String(overrideTreatment))) {
+    throw new HttpError(400, "invalid_thumbnail_override", "Presentation treatment is outside the approved readability hierarchy");
+  }
+  const overrideColor = overrideRaw?.text_color == null ? null : normalizeNonEmptyString(overrideRaw.text_color, "recipe_snapshot.presentation_override.text_color").toUpperCase();
+  if (overrideColor && !/^#[0-9A-F]{6}$/.test(overrideColor)) throw new HttpError(400, "invalid_thumbnail_override", "Override text color must be a six-digit hex color");
+  const overrideLogoOpacity = overrideRaw?.logo_opacity == null ? null : Number(overrideRaw.logo_opacity);
+  if (overrideLogoOpacity != null && (!Number.isFinite(overrideLogoOpacity) || overrideLogoOpacity < 0 || overrideLogoOpacity > 1)) throw new HttpError(400, "invalid_thumbnail_override", "Override logo opacity must be between zero and one");
+  const overrideLogoPlacement = overrideRaw?.logo_placement;
+  if (overrideLogoPlacement != null && !["top_left", "top_right", "bottom_left", "bottom_right"].includes(String(overrideLogoPlacement))) throw new HttpError(400, "invalid_thumbnail_override", "Override logo placement is unsupported");
   return {
     workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
     operation_id: normalizeThumbnailOperationId(body.operation_id),
@@ -12857,6 +12874,14 @@ function normalizeRenderThumbnailCompositeRequest(body: Record<string, unknown>)
       placement,
       max_lines: normalizePositiveInteger(recipe.max_lines, "recipe_snapshot.max_lines"),
       horizontal_padding_percent: padding,
+      presentation_override: overrideRaw ? {
+        text_color: overrideColor,
+        treatment: overrideTreatment as ThumbnailCompositeRecipe["presentation_override"] extends infer T ? T extends { treatment?: infer K } ? K : never : never,
+        logo_visible: typeof overrideRaw.logo_visible === "boolean" ? overrideRaw.logo_visible : null,
+        logo_placement: overrideLogoPlacement as "top_left" | "top_right" | "bottom_left" | "bottom_right" | null,
+        logo_opacity: overrideLogoOpacity,
+        decision_origin: overrideRaw.decision_origin === "explicit_user" ? "explicit_user" : "automatic",
+      } : null,
     },
     recipe_snapshot_hash: normalizeNonEmptyString(body.recipe_snapshot_hash, "recipe_snapshot_hash").toLowerCase(),
     width: normalizePositiveInteger(body.width, "width"),

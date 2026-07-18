@@ -7,6 +7,7 @@ import {
   THUMBNAIL_BUNDLED_FONT_VERSION,
   THUMBNAIL_COMPOSITION_ENGINE_VERSION,
 } from "../dist/thumbnail-composite.js";
+import { contrastRatio, evaluateReadabilityMasks, nearestRankP10, THUMBNAIL_READABILITY_THRESHOLD } from "../dist/thumbnail-readability.js";
 import {
   resolveThumbnailOperationReplay,
   resolveThumbnailReconciliationOutcome,
@@ -90,6 +91,44 @@ test("server compositor deterministically applies Brand Profile palette and logo
   const unbranded = await renderThumbnailComposite({ ...input, logoBytes: null, recipe: { ...input.recipe, brand: null } });
   assert.deepEqual(first.bytes, second.bytes);
   assert.notDeepEqual(first.bytes, unbranded.bytes);
+});
+
+test("readability v1 locks the contrast formula and nearest-rank tenth percentile", () => {
+  assert.equal(contrastRatio([0, 0, 0], [255, 255, 255]), 21);
+  assert.equal(THUMBNAIL_READABILITY_THRESHOLD, 4.5);
+  assert.equal(nearestRankP10([9, 8, 7, 6, 5, 4, 3, 2, 1, 10]), 1);
+});
+
+test("readability v1 evaluates every multiline mask independently", () => {
+  const width = 2; const height = 2;
+  const rgba = (pixels) => ({ data: Buffer.from(pixels.flatMap(([r,g,b,a=255]) => [r,g,b,a])), width, height, channels: 4 });
+  const untreated = rgba([[0,0,0],[0,0,0],[255,255,255],[255,255,255]]);
+  const final = rgba([[255,255,255],[255,255,255],[255,255,255],[255,255,255]]);
+  const mask = rgba([[255,255,255],[255,255,255],[255,255,255],[255,255,255]]);
+  const empty = rgba([[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]]);
+  const lineOne = rgba([[255,255,255],[255,255,255],[0,0,0,0],[0,0,0,0]]);
+  const lineTwo = rgba([[0,0,0,0],[0,0,0,0],[255,255,255],[255,255,255]]);
+  const evidence = evaluateReadabilityMasks({ untreatedImage: untreated, treatedBackground: untreated, finalComposite: final,
+    glyphCoreMask: mask, supportMask: empty, lineMasks: [lineOne, lineTwo], supportRadiusPx: 2 });
+  assert.equal(evidence.lineScores[0].passed, true); assert.equal(evidence.lineScores[1].passed, false); assert.equal(evidence.passed, false);
+});
+
+test("compositor corrects the actual bright title region and rejects a failing explicit treatment", async () => {
+  const baseBytes = await sharp({ create: { width: 640, height: 360, channels: 4, background: "#FFFFFF" } }).png().toBuffer();
+  const input = { baseBytes, width: 640, height: 360, recipe: { title_text: "BRIGHT REGION", title_revision: 1, template_revision: 1,
+    text_color: "#FFFFFF", shadow_color: "#000000", shadow_opacity: 0.8, placement: "top", max_lines: 2, horizontal_padding_percent: 8,
+    brand: { text_color: "#FFFFFF", shadow_color: "#000000", palette_colors: ["#FFFFFF"], logo_placement: "bottom_right", logo_opacity: 1 } },
+    encoding: { format: "png", quality: 100 } };
+  const first = await renderThumbnailComposite(input); const second = await renderThumbnailComposite(input);
+  assert.equal(first.readability.passed, true); assert.notEqual(first.readability.applied_treatment, "none");
+  assert.equal(first.readability.evaluation_hash, second.readability.evaluation_hash); assert.deepEqual(first.bytes, second.bytes);
+  const explicitBacking = await renderThumbnailComposite({ ...input, recipe: { ...input.recipe, presentation_override: {
+    text_color: "#FFFFFF", treatment: "backing", decision_origin: "explicit_user" } } });
+  assert.equal(explicitBacking.readability.passed, true);
+  assert.equal(explicitBacking.readability.applied_treatment, "backing");
+  assert.equal(explicitBacking.readability.decision_origin, "explicit_user");
+  await assert.rejects(() => renderThumbnailComposite({ ...input, recipe: { ...input.recipe, presentation_override: {
+    text_color: "#FFFFFF", treatment: "none", decision_origin: "explicit_user" } } }), /No approved thumbnail presentation meets/);
 });
 
 test("thumbnail render authority resolves canonical brand bindings and records provenance", async () => {
