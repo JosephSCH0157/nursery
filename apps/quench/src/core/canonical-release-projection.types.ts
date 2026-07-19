@@ -9,13 +9,14 @@ export type QuenchCanonicalCandidate = {
   readability_evidence_hash: string; eligibility_state: "current"|"historical_brand"|"requires_reapproval"|"approved_historical_brand"|"blocked";
   authority_verified:boolean;verification_code:string;asset_path?:string;asset_mime_type?:string;asset_bytes?:number;
 };
+export type QuenchReleaseDecisionProjection={workspace_id:string;workpiece_id:string;destination_scope_id:string;current_decision_id:string|null;current_revision:number;decision?:Record<string,unknown>|null;assignments?:Array<Record<string,unknown>>;applicability?:{state:"current"|"requires_review"|"blocked"|"superseded";record_posture:string;reason_codes:string[]}};
 
 export type QuenchCanonicalReleaseProjection = {
   contract_version: typeof QUENCH_CANONICAL_RELEASE_PROJECTION_VERSION; workspace_id: string; workpiece_id: string;
   hammer: { manifest_snapshot_id:string; manifest_path:string; manifest_version:1; manifest_content_hash:string; manifest:HammerQuenchReleasePacketManifest; readiness:HammerQuenchReleasePacketManifest["readiness"] };
   metadata: { revision:number; content_hash:string; episode:Record<string,unknown> };
   thumbnails: { candidate_set:Record<string,unknown>|null; active_binding_id:string|null; active_binding_revision:number|null; candidates:QuenchCanonicalCandidate[]; historical_candidate_sets?:Array<{candidate_set:Record<string,unknown>;candidates:QuenchCanonicalCandidate[]}> };
-  destination_capabilities:Array<Record<string,unknown>>; current_decisions:Array<Record<string,unknown>>; projected_at:string;
+  destination_capabilities:Array<Record<string,unknown>>; current_decisions:QuenchReleaseDecisionProjection[]; projected_at:string;
 };
 
 export function isQuenchCanonicalReleaseProjection(value:unknown):value is QuenchCanonicalReleaseProjection{

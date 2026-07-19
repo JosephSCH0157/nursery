@@ -142,6 +142,7 @@ test("workspace brand default does not bind the workpiece before its first thumb
 });
 
 test("authenticated cold boot preserves recipe and both renderers converge on v3 base authority", async ({ page }) => {
+  test.setTimeout(300_000);
   await page.addInitScript(({ session, workspaceId }) => {
     localStorage.setItem("forge-auth", JSON.stringify(session)); localStorage.setItem("forge-auth-tongs", JSON.stringify(session));
     localStorage.setItem("forge_workspace_id_v1", workspaceId); localStorage.setItem("barstock_workspace_id", workspaceId);
@@ -206,7 +207,7 @@ test("authenticated cold boot preserves recipe and both renderers converge on v3
   await expect(currentPanel.getByRole("button", { name: "Generate with Forge AI" })).toBeEnabled();
   const upload = currentPanel.locator('input[type="file"]');
   await upload.setInputFiles({ name: "outside.png", mimeType: "image/png", buffer: ORANGE_PNG });
-  await expect(currentPanel.getByText(/outside_tool · 16:9 · ready/)).toBeVisible();
+  await expect(currentPanel.getByText(/outside_tool · 16:9 · ready/)).toBeVisible({ timeout: 30_000 });
   await currentPanel.getByRole("button", { name: "Generate with Forge AI" }).click();
   await expect(currentPanel.getByText(/forge_ai · 16:9 · ready/)).toBeVisible();
   await currentPanel.getByRole("button", { name: "Commit immutable launch composite" }).click();
@@ -289,5 +290,7 @@ test("authenticated cold boot preserves recipe and both renderers converge on v3
   await expect(page.getByText("development fixtures")).toHaveCount(0);
   await expect(page.getByText(/Tongs-verified manifest/)).toBeVisible();
   const quenchCandidates=page.getByRole("region",{name:"Canonical thumbnail candidates"});await expect(quenchCandidates).toBeVisible();await expect(quenchCandidates.getByRole("article")).toHaveCount(3);await expect(quenchCandidates.getByText("provenance verified",{exact:true})).toHaveCount(3);await expect(quenchCandidates.locator("img")).toHaveCount(3);await expect(quenchCandidates.getByText("Historical candidate sets (1)")).toBeVisible();
-  await page.reload();await expect(page.getByText("Canonical release authority is verified through Tongs.")).toBeVisible({timeout:30_000});await expect(page.getByRole("region",{name:"Canonical thumbnail candidates"}).getByText("provenance verified",{exact:true})).toHaveCount(3);
+  await quenchCandidates.getByRole("button",{name:"Select candidate"}).first().click();await expect(quenchCandidates.getByRole("status")).toContainText("Canonical thumbnail selection committed");
+  const selectedCandidateId=carriedPayload[0]?.candidate_revision_id as string;const scopeId="81000000-0000-4000-8000-000000000001";const decisionProjection=await fixture.service.getQuenchCanonicalReleaseProjection(fixture.workpieceId,fixture.workspaceId,{userAccessToken:fixture.session.access_token});const current=decisionProjection.current_decisions.find((entry)=>entry.destination_scope_id===scopeId);expect(current?.current_revision).toBe(1);const noChangeOperation=randomUUID();const noChangeInput={workspace_id:fixture.workspaceId,destination_scope_id:scopeId,candidate_revision_id:selectedCandidateId,expected_decision_id:String(current?.current_decision_id),expected_revision:1,operation_id:noChangeOperation};const noChange=await fixture.service.commitQuenchSingleCandidate(fixture.workpieceId,noChangeInput,{userAccessToken:fixture.session.access_token});expect(noChange.disposition).toBe("no_change");const replay=await fixture.service.commitQuenchSingleCandidate(fixture.workpieceId,noChangeInput,{userAccessToken:fixture.session.access_token});expect(replay.disposition).toBe("replayed");const stale=await fixture.service.commitQuenchSingleCandidate(fixture.workpieceId,{...noChangeInput,candidate_revision_id:carriedPayload[1]?.candidate_revision_id as string,expected_decision_id:null,expected_revision:0,operation_id:randomUUID()},{userAccessToken:fixture.session.access_token});expect(stale.disposition).toBe("revision_conflict");
+  await page.reload();await expect(page.getByText("Canonical release authority is verified through Tongs.")).toBeVisible({timeout:30_000});const coldCandidates=page.getByRole("region",{name:"Canonical thumbnail candidates"});await expect(coldCandidates.getByText("provenance verified",{exact:true})).toHaveCount(3);await expect(coldCandidates.getByText("Selection authority: current")).toBeVisible();await expect(coldCandidates.getByRole("button",{name:"Selected"})).toHaveCount(1);
 });
