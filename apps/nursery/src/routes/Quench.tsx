@@ -24,6 +24,7 @@ import {
   resolveReleaseAssets,
   isQuenchCanonicalReleaseProjection,
   type QuenchCanonicalReleaseProjection,
+  isQuenchCandidateSelectable,
 } from "@forge/quench";
 import type { HammerPreparedReleasePackage } from "../../../hammer/src/lib/hammerPreparedReleasePackage";
 import { tongsFetch } from "../../../hammer/src/lib/tongsFetch";
@@ -343,6 +344,11 @@ function getVerdictSummary(verdict: QuenchReleaseReadinessVerdict): string {
   }
 }
 
+function QuenchCandidatePreview({workpieceId,path,mimeType,ordinal}:{workpieceId:string;path?:string;mimeType?:string;ordinal:number}){
+  const [src,setSrc]=useState<string|null>(null);useEffect(()=>{let cancelled=false;if(!path){setSrc(null);return;}void(async()=>{try{const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(path)}&encoding=base64`,{method:"GET"});const payload=await response.json() as {data?:{bytes_base64?:string;content_type?:string}};if(!cancelled&&response.ok&&payload.data?.bytes_base64)setSrc(`data:${payload.data.content_type??mimeType??"image/png"};base64,${payload.data.bytes_base64}`);}catch{if(!cancelled)setSrc(null);}})();return()=>{cancelled=true;};},[mimeType,path,workpieceId]);
+  return src?<img src={src} alt={`Canonical thumbnail candidate ${ordinal}`} style={{width:"100%",aspectRatio:"16 / 9",objectFit:"cover",borderRadius:"0.4rem"}}/>:<div className="quench-console__empty-note">Verified preview unavailable.</div>;
+}
+
 export default function QuenchRoute() {
   const shell = useOutletContext<AppShellContext>();
   const location = useLocation();
@@ -607,6 +613,7 @@ export default function QuenchRoute() {
   }, [applySelectedCaseDefaults, releaseCases, selectedCaseId]);
 
   const selectedCase = releaseCases.find((entry) => entry.case_id === selectedCaseId) ?? releaseCases[0] ?? null;
+  const canonicalThumbnails=selectedCase?.canonical_projection?.thumbnails??null;
   const readinessVerdict = selectedCase
     ? deriveReleasePacketReadinessVerdict(selectedCase.packet, resolvedAssets, selectedPlatforms)
     : null;
@@ -1052,6 +1059,22 @@ export default function QuenchRoute() {
                   </div>
                 </section>
               </div>
+
+              {canonicalThumbnails?<section className="quench-console__card" aria-label="Canonical thumbnail candidates">
+                <div className="quench-console__card-head"><h3>Canonical thumbnail candidates</h3><span>{canonicalThumbnails.candidates.length} in active set</span></div>
+                <p className="quench-console__empty-note">Tongs verifies immutable candidate identity, exact composite bytes, branding, readability provenance, and current binding-relative eligibility. Quench cannot edit these recipes.</p>
+                {canonicalThumbnails.candidate_set?<div className="quench-console__detail-grid"><div><span>Candidate set</span><strong>{String(canonicalThumbnails.candidate_set.id)}</strong></div><div><span>Revision</span><strong>{String(canonicalThumbnails.candidate_set.revision)}</strong></div><div><span>Set hash</span><strong>{String(canonicalThumbnails.candidate_set.content_hash)}</strong></div><div><span>Active binding</span><strong>{canonicalThumbnails.active_binding_id??"none"} r{canonicalThumbnails.active_binding_revision??"?"}</strong></div></div>:<div className="quench-console__issue is-bad">No canonical thumbnail candidate set is available.</div>}
+                <div className="quench-console__asset-grid">
+                  {canonicalThumbnails.candidates.map((candidate)=><article key={candidate.id} className="quench-console__asset-card" aria-label={`Thumbnail candidate ${candidate.candidate_ordinal}`}>
+                    <QuenchCandidatePreview workpieceId={selectedCase.packet.workpiece_id} path={candidate.asset_path} mimeType={candidate.asset_mime_type} ordinal={candidate.candidate_ordinal}/>
+                    <div className="quench-console__asset-top"><strong>Candidate {candidate.candidate_ordinal}</strong><span className={isQuenchCandidateSelectable(candidate)?"is-good":"is-bad"}>{candidate.eligibility_state.replaceAll("_"," ")}</span></div>
+                    <div className="quench-console__issue-list"><div className={`quench-console__issue ${candidate.authority_verified?"is-good":"is-bad"}`}><strong>{candidate.authority_verified?"provenance verified":"verification blocked"}</strong><span>{candidate.verification_code}</span></div></div>
+                    <div className="quench-console__asset-id">Candidate revision {candidate.id}</div><div className="quench-console__asset-uri">Composite {candidate.composite_asset_id}</div>
+                    <small>Recipe {candidate.recipe_id} r{candidate.recipe_revision}<br/>Recipe hash {candidate.recipe_hash}<br/>Final hash {candidate.composite_content_hash}<br/>Binding {candidate.candidate_binding_id} r{candidate.candidate_binding_revision}<br/>Readability {candidate.readability_evidence_hash}</small>
+                  </article>)}
+                </div>
+                {canonicalThumbnails.historical_candidate_sets?.length?<details><summary>Historical candidate sets ({canonicalThumbnails.historical_candidate_sets.length})</summary><p>Historical sets remain readable and reconstructable. Their candidates are not silently treated as current publication choices.</p>{canonicalThumbnails.historical_candidate_sets.map((set)=><article key={String(set.candidate_set.id)}><strong>Revision {String(set.candidate_set.revision)}</strong> · {set.candidates.length} candidates<br/><small>{String(set.candidate_set.id)} · {String(set.candidate_set.content_hash)}</small><ol>{set.candidates.map((candidate)=><li key={candidate.id}>Candidate {candidate.candidate_ordinal} · {candidate.eligibility_state.replaceAll("_"," ")} · {candidate.authority_verified?"verified":"blocked"} · {candidate.composite_content_hash}</li>)}</ol></article>)}</details>:null}
+              </section>:null}
 
               <section className="quench-console__card">
                 <div className="quench-console__card-head">

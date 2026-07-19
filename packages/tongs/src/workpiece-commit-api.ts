@@ -1210,7 +1210,7 @@ export type ThumbnailBrandStatus = {
 };
 
 export type CommitThumbnailCandidateSetRequest = { workspace_id: string; expected_current_revision: number; candidates: Json[]; operation_id: string; operation_fingerprint: string };
-export type ThumbnailCandidateSetProjection = { candidate_set: Record<string, Json> | null; active_binding_id: string | null; active_binding_revision?: number | null; candidates: Record<string, Json>[] };
+export type ThumbnailCandidateSetProjection = { candidate_set: Record<string, Json> | null; active_binding_id: string | null; active_binding_revision?: number | null; candidates: Record<string, Json>[]; historical_candidate_sets?: Array<{candidate_set:Record<string,Json>;candidates:Record<string,Json>[]}> };
 export type QuenchCanonicalReleaseProjection = {
   contract_version: "forge.quench-release-projection.v2"; workspace_id: string; workpiece_id: string;
   hammer: { manifest_snapshot_id: string; manifest_path: string; manifest_version: number; manifest_content_hash: string; manifest: Record<string, Json>; readiness: Record<string, Json> };
@@ -10013,6 +10013,16 @@ export class TongsCommitService {
     return { candidate_set:isRecord(data.candidate_set)?data.candidate_set as Record<string,Json>:null,active_binding_id:readStringField(data,"active_binding_id"),active_binding_revision:typeof data.active_binding_revision==="number"?data.active_binding_revision:null,candidates:Array.isArray(data.candidates)?data.candidates.filter(isRecord) as Record<string,Json>[]:[] };
   }
 
+  private async verifyQuenchCandidateReadback(workpieceId:string,candidate:Record<string,Json>):Promise<Record<string,Json>>{
+    const assetId=readStringField(candidate,"composite_asset_id");const expectedHash=readStringField(candidate,"composite_content_hash");
+    if(!assetId||!expectedHash)return{...candidate,eligibility_state:"blocked",authority_verified:false,verification_code:"candidate_identity_incomplete"};
+    try{const asset=await this.getThumbnailAssetRow(workpieceId,assetId);const bytes=await downloadStorageObject(this.supabase,asset.storage_bucket,asset.storage_key);const bytesHash=bytes?await sha256Hex(bytes):null;
+      const metadata=isRecord(asset.metadata_json)?asset.metadata_json:{};const brand=isRecord(metadata.brand_application_provenance)?metadata.brand_application_provenance:{};const readability=isRecord(metadata.readability_evidence)?metadata.readability_evidence:{};
+      const verified=asset.asset_kind==="thumbnail_composite"&&asset.status==="ready"&&asset.content_hash===expectedHash&&bytesHash===expectedHash&&metadata.recipe_snapshot_hash===candidate.recipe_hash&&brand.binding_id===candidate.candidate_binding_id&&Number(brand.binding_revision)===Number(candidate.candidate_binding_revision)&&readability.evaluation_hash===candidate.readability_evidence_hash;
+      return{...candidate,eligibility_state:verified?candidate.eligibility_state:"blocked",authority_verified:verified,verification_code:verified?"verified":"candidate_provenance_mismatch",asset_path:asset.path,asset_mime_type:asset.mime_type,asset_bytes:asset.bytes};
+    }catch{return{...candidate,eligibility_state:"blocked",authority_verified:false,verification_code:"candidate_asset_unavailable"};}
+  }
+
   async getQuenchCanonicalReleaseProjection(workpieceId: string,workspaceId: string,options?: { userAccessToken?: string | null }): Promise<QuenchCanonicalReleaseProjection> {
     await this.assertWorkpieceInWorkspace(workpieceId,workspaceId); await this.assertWorkspaceRoleFromAccessToken(workspaceId,"viewer",options?.userAccessToken);
     const manifestPath="hammer/release-packet/manifest.v1.json";
@@ -10031,7 +10041,15 @@ export class TongsCommitService {
     if(metadataFileError||!metadataFile) throw new HttpError(409,"metadata_unavailable","Canonical episode metadata is unavailable.");
     const metadata=await this.readWorkpieceJson(workpieceId,"metadata.json");if(!metadata.found||!isRecord(metadata.data)||!isRecord(metadata.data.episode)) throw new HttpError(409,"metadata_invalid","Canonical episode metadata is invalid.");
     const thumbnails=await this.getThumbnailCandidateSetProjection(workpieceId,workspaceId,options);
+    thumbnails.candidates=await Promise.all(thumbnails.candidates.map((candidate)=>this.verifyQuenchCandidateReadback(workpieceId,candidate)));
     const raw=this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const setsResult=await raw.from("thumbnail_candidate_sets").select("id,workspace_id,workpiece_id,revision,previous_candidate_set_id,candidate_count,content_hash,distinction_contract_version,committed_at").eq("workspace_id",workspaceId).eq("workpiece_id",workpieceId).order("revision",{ascending:false}).limit(10);
+    if(setsResult.error)throw new HttpError(502,"historical_candidate_sets_unavailable","Historical thumbnail sets are unavailable.",{reason:setsResult.error.message});
+    const activeSetId=isRecord(thumbnails.candidate_set)?readStringField(thumbnails.candidate_set,"id"):null;const historical:Array<{candidate_set:Record<string,Json>;candidates:Record<string,Json>[]}>=[];
+    for(const set of Array.isArray(setsResult.data)?setsResult.data.filter(isRecord):[]){const setId=readStringField(set,"id");if(!setId||setId===activeSetId)continue;const membersResult=await raw.from("thumbnail_candidate_set_members").select("candidate_revision_id,candidate_ordinal").eq("candidate_set_id",setId).order("candidate_ordinal",{ascending:true});if(membersResult.error)throw new HttpError(502,"historical_candidate_members_unavailable","Historical thumbnail membership is unavailable.");const candidates:Record<string,Json>[]=[];
+      for(const member of Array.isArray(membersResult.data)?membersResult.data.filter(isRecord):[]){const id=readStringField(member,"candidate_revision_id");if(!id)continue;const rowResult=await raw.from("thumbnail_candidate_revisions").select("*").eq("id",id).maybeSingle();if(rowResult.error||!isRecord(rowResult.data))continue;const eligibility=thumbnails.active_binding_id?await authority.rpc("thumbnail_candidate_eligibility",{p_candidate_id:id,p_active_binding_id:thumbnails.active_binding_id}):{data:"blocked",error:null};const enriched={...rowResult.data,candidate_ordinal:Number(member.candidate_ordinal),eligibility_state:typeof eligibility.data==="string"?eligibility.data:"blocked"} as Record<string,Json>;candidates.push(await this.verifyQuenchCandidateReadback(workpieceId,enriched));}
+      historical.push({candidate_set:set as Record<string,Json>,candidates});}
+    thumbnails.historical_candidate_sets=historical;
     const scopesResult=await raw.from("quench_destination_scopes").select("id,workspace_id,scope_key,platform,adapter_id,execution_context,state,current_capability_revision_id");
     if(scopesResult.error) throw new HttpError(502,"destination_capabilities_unavailable","Destination scopes are unavailable.",{reason:scopesResult.error.message});
     const scopes=Array.isArray(scopesResult.data)?scopesResult.data.filter((row)=>isRecord(row)&&(row.workspace_id==null||row.workspace_id===workspaceId)) as Record<string,Json>[]:[];
