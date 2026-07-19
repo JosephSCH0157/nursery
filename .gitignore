@@ -19,6 +19,7 @@ packages/*/dist/
 # test artifacts
 apps/nursery/test-results/.last-run.json
 apps/nursery/test-results-smoke/.last-run.json
+/test-results/
 
 # env files
 *.env*
