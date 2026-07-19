@@ -17,6 +17,8 @@ type UntypedPostgrestBuilder = PromiseLike<UntypedPostgrestResult> & {
   eq: (column: string, value: unknown) => UntypedPostgrestBuilder;
   insert: (values: Record<string, unknown>) => UntypedPostgrestBuilder;
   update: (values: Record<string, unknown>) => UntypedPostgrestBuilder;
+  order: (column: string, options?: { ascending?: boolean }) => UntypedPostgrestBuilder;
+  limit: (count: number) => UntypedPostgrestBuilder;
   maybeSingle: () => Promise<UntypedPostgrestResult>;
   single: () => Promise<UntypedPostgrestResult>;
 };
@@ -1209,6 +1211,15 @@ export type ThumbnailBrandStatus = {
 
 export type CommitThumbnailCandidateSetRequest = { workspace_id: string; expected_current_revision: number; candidates: Json[]; operation_id: string; operation_fingerprint: string };
 export type ThumbnailCandidateSetProjection = { candidate_set: Record<string, Json> | null; active_binding_id: string | null; active_binding_revision?: number | null; candidates: Record<string, Json>[] };
+export type QuenchCanonicalReleaseProjection = {
+  contract_version: "forge.quench-release-projection.v2"; workspace_id: string; workpiece_id: string;
+  hammer: { manifest_snapshot_id: string; manifest_path: string; manifest_version: number; manifest_content_hash: string; manifest: Record<string, Json>; readiness: Record<string, Json> };
+  metadata: { revision: number; content_hash: string; episode: Record<string, Json> };
+  thumbnails: ThumbnailCandidateSetProjection;
+  destination_capabilities: Record<string, Json>[];
+  current_decisions: Record<string, Json>[];
+  projected_at: string;
+};
 export type DecideThumbnailCandidateBrandRequest = { workspace_id: string; candidate_revision_id: string; candidate_set_id?: string | null; active_binding_id: string; decision: "approved" | "revoked"; reason: string; expected_current_decision_id?: string | null; expected_current_decision_revision: number; operation_id: string; operation_fingerprint: string };
 
 type ResolvedThumbnailBrand = {
@@ -1754,6 +1765,7 @@ export type TongsCommitApiService = {
     workpieceId: string,
     options?: { userAccessToken?: string | null },
   ): Promise<WorkpieceVisualPackageResponseData>;
+  getQuenchCanonicalReleaseProjection(workpieceId: string, workspaceId: string, options?: { userAccessToken?: string | null }): Promise<QuenchCanonicalReleaseProjection>;
   generateImageMapCandidates(
     workpieceId: string,
     input: GenerateImageMapCandidatesRequest,
@@ -10001,6 +10013,33 @@ export class TongsCommitService {
     return { candidate_set:isRecord(data.candidate_set)?data.candidate_set as Record<string,Json>:null,active_binding_id:readStringField(data,"active_binding_id"),active_binding_revision:typeof data.active_binding_revision==="number"?data.active_binding_revision:null,candidates:Array.isArray(data.candidates)?data.candidates.filter(isRecord) as Record<string,Json>[]:[] };
   }
 
+  async getQuenchCanonicalReleaseProjection(workpieceId: string,workspaceId: string,options?: { userAccessToken?: string | null }): Promise<QuenchCanonicalReleaseProjection> {
+    await this.assertWorkpieceInWorkspace(workpieceId,workspaceId); await this.assertWorkspaceRoleFromAccessToken(workspaceId,"viewer",options?.userAccessToken);
+    const manifestPath="hammer/release-packet/manifest.v1.json";
+    const {data:file,error:fileError}=await this.supabase.schema("tongs").from("workpiece_files").select("revision,hash_value,storage_bucket,storage_key").eq("workpiece_id",workpieceId).eq("path",manifestPath).maybeSingle();
+    if(fileError) throw new HttpError(502,"manifest_authority_failed","Tongs could not read Hammer manifest authority",{reason:fileError.message});
+    if(!file) throw new HttpError(409,"manifest_unavailable","The canonical Hammer release manifest is unavailable.");
+    const bytes=await downloadStorageObject(this.supabase,file.storage_bucket,file.storage_key); if(!bytes) throw new HttpError(409,"manifest_unavailable","The canonical Hammer release manifest bytes are unavailable.");
+    const hash=await sha256Hex(bytes); if(hash!==String(file.hash_value).toLowerCase()) throw new HttpError(409,"manifest_unverified","Hammer manifest bytes do not match Tongs authority.");
+    let parsed:Record<string,Json>; try{const value=JSON.parse(textDecoder.decode(bytes)) as unknown;if(!isRecord(value))throw new Error("not object");parsed=value as Record<string,Json>;}catch{throw new HttpError(409,"manifest_invalid","The canonical Hammer release manifest is invalid JSON.");}
+    if(parsed.packet_kind!=="quench_release_packet"||parsed.version!==1||parsed.workpiece_id!==workpieceId||(typeof parsed.workspace_id==="string"&&parsed.workspace_id!==workspaceId)) throw new HttpError(409,"manifest_identity_mismatch","The Hammer manifest does not match the canonical workpiece.");
+    const readiness=isRecord(parsed.readiness)?parsed.readiness as Record<string,Json>:{};const status=readiness.status==="ready"?"ready":readiness.status==="needs_review"?"needs_review":"blocked";const ready=status==="ready"&&readiness.ready_for_quench===true;
+    const authority=this.supabase.schema("tongs") as unknown as {rpc:(name:string,args:Record<string,unknown>)=>Promise<UntypedPostgrestResult>};
+    const snap=await authority.rpc("snapshot_quench_release_manifest",{p_workspace_id:workspaceId,p_workpiece_id:workpieceId,p_source_revision:Number(file.revision),p_manifest_bytes:`\\x${Array.from(bytes,(value)=>value.toString(16).padStart(2,"0")).join("")}`,p_manifest_hash:hash,p_parsed:parsed,p_validation:{valid:true,contract_version:"forge.hammer-quench-manifest-validation.v1"},p_status:status,p_ready:ready});
+    if(snap.error||!isRecord(snap.data)||snap.data.disposition!=="verified") throw new HttpError(409,"manifest_unverified","Tongs could not establish immutable Hammer manifest evidence.",{reason:snap.error?.message??snap.data});
+    const {data:metadataFile,error:metadataFileError}=await this.supabase.schema("tongs").from("workpiece_files").select("revision,hash_value").eq("workpiece_id",workpieceId).eq("path","metadata.json").maybeSingle();
+    if(metadataFileError||!metadataFile) throw new HttpError(409,"metadata_unavailable","Canonical episode metadata is unavailable.");
+    const metadata=await this.readWorkpieceJson(workpieceId,"metadata.json");if(!metadata.found||!isRecord(metadata.data)||!isRecord(metadata.data.episode)) throw new HttpError(409,"metadata_invalid","Canonical episode metadata is invalid.");
+    const thumbnails=await this.getThumbnailCandidateSetProjection(workpieceId,workspaceId,options);
+    const raw=this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const scopesResult=await raw.from("quench_destination_scopes").select("id,workspace_id,scope_key,platform,adapter_id,execution_context,state,current_capability_revision_id");
+    if(scopesResult.error) throw new HttpError(502,"destination_capabilities_unavailable","Destination scopes are unavailable.",{reason:scopesResult.error.message});
+    const scopes=Array.isArray(scopesResult.data)?scopesResult.data.filter((row)=>isRecord(row)&&(row.workspace_id==null||row.workspace_id===workspaceId)) as Record<string,Json>[]:[];
+    const decisionsResult=await raw.from("quench_release_decision_sequences").select("workspace_id,workpiece_id,destination_scope_id,current_decision_id,current_revision").eq("workspace_id",workspaceId).eq("workpiece_id",workpieceId);
+    if(decisionsResult.error) throw new HttpError(502,"release_decisions_unavailable","Quench decisions are unavailable.",{reason:decisionsResult.error.message});
+    return {contract_version:"forge.quench-release-projection.v2",workspace_id:workspaceId,workpiece_id:workpieceId,hammer:{manifest_snapshot_id:String(snap.data.manifest_snapshot_id),manifest_path:manifestPath,manifest_version:1,manifest_content_hash:hash,manifest:parsed,readiness},metadata:{revision:Number(metadataFile.revision),content_hash:String(metadataFile.hash_value).toLowerCase(),episode:metadata.data.episode as Record<string,Json>},thumbnails,destination_capabilities:scopes,current_decisions:Array.isArray(decisionsResult.data)?decisionsResult.data.filter(isRecord) as Record<string,Json>[]:[],projected_at:new Date().toISOString()};
+  }
+
   async decideThumbnailCandidateBrand(workpieceId: string,input: DecideThumbnailCandidateBrandRequest,options?: { userAccessToken?: string | null }): Promise<Record<string, Json>> {
     await this.assertWorkpieceInWorkspace(workpieceId,input.workspace_id); await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"editor",options?.userAccessToken);
     const result=await this.thumbnailAuthorityClient(options?.userAccessToken).rpc("decide_thumbnail_candidate_historical_brand",{p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_candidate_revision_id:input.candidate_revision_id,p_candidate_set_id:input.candidate_set_id??null,p_active_binding_id:input.active_binding_id,p_decision:input.decision,p_reason:input.reason,p_expected_current_decision_id:input.expected_current_decision_id??null,p_expected_current_decision_revision:input.expected_current_decision_revision,p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint});
@@ -13513,6 +13552,11 @@ export function createTongsCommitApiHandlerWithService(
 
       if (parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="thumbnail-candidates"&&parts[4]==="projection") {
         requireMethod(request,"POST"); const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id"); const body=await parseJsonBody(request); const userAccessToken=requireUserAccessTokenHeader(request); const result=await service.getThumbnailCandidateSetProjection(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),{userAccessToken}); return jsonResponse(200,{ok:true,data:result});
+      }
+
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="quench"&&parts[4]==="release-projection"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);
+        const result=await service.getQuenchCanonicalReleaseProjection(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),{userAccessToken});return jsonResponse(200,{ok:true,data:result});
       }
 
       if (parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="thumbnail-candidates"&&parts[4]==="brand-decision") {

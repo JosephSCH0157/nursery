@@ -278,4 +278,12 @@ test("authenticated cold boot preserves recipe and both renderers converge on v3
   await page.reload();
   await expect(page.getByRole("tab", { name: "Framing" })).toContainText("5 titles · 5 tags · Needs work");
   await expect(page.getByRole("tab", { name: "Visuals" })).toContainText("10 briefs");
+  const manifest={version:1,packet_kind:"quench_release_packet",generated_by:"Hammer",generated_at:new Date().toISOString(),workpiece_id:fixture.workpieceId,workspace_id:fixture.workspaceId,episode_title:"Cold Boot Canonical Release",duration_seconds:120,audio:{kind:"polished",media_id:"audio-browser-proof",local_relpath:null,workpiece_path:"exports/audio.mp3",mime_type:"audio/mpeg",source_label:"browser proof"},captions:{srt_path:"hammer/release-packet/captions.srt",vtt_path:"hammer/release-packet/captions.vtt"},transcript:{text_path:"hammer/release-packet/transcript.txt",source_layer_id:null,source_recipe_ref:null,source_kind:"derived"},visuals:{placements_path:"hammer/release-packet/visuals.json",count:0},readiness:{status:"ready",ready_for_quench:true,overall_status:"ready",reason_codes:[],reasons_detail:[],blocking_reason_codes:[],blocking_reasons_detail:[],review_reason_codes:[],review_reasons_detail:[],reasons:[]}};
+  await fixture.service.commitFile(fixture.workpieceId,{path:"hammer/release-packet/manifest.v1.json",content_type:"application/json",json:manifest,written_by:{tool:"hammer",tool_version:"1",lane:"canonical"}});
+  await page.goto(`/app/quench?workspace_id=${fixture.workspaceId}&workpiece_id=${fixture.workpieceId}`);
+  await expect(page.getByText("Canonical release authority is verified through Tongs.")).toBeVisible({timeout:30_000});
+  await expect(page.getByText("Canonical Hammer Release",{exact:true})).toBeVisible();
+  await expect(page.getByText("canonical",{exact:true})).toBeVisible();
+  await expect(page.getByText("development fixtures")).toHaveCount(0);
+  await expect(page.getByText(/Tongs-verified manifest/)).toBeVisible();
 });

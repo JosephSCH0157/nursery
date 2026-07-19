@@ -45,6 +45,7 @@ function mockService() {
     reconcileThumbnailAssets: [],
     renderThumbnailComposite: [],
     getThumbnailBrandStatus: [],
+    getQuenchCanonicalReleaseProjection: [],
     generateImageMapCandidates: [],
     createRecordingSessionRecord: [],
     listRecordingSessionsForPlanner: [],
@@ -325,6 +326,12 @@ function mockService() {
     async getThumbnailBrandStatus(workpieceId, input, options) {
       calls.getThumbnailBrandStatus.push({ workpieceId, input, options: options ?? null });
       return { state: "unresolved", binding: null, profile_label: null, message: "Branding will be resolved on render." };
+    },
+    async getQuenchCanonicalReleaseProjection(workpieceId, workspaceId, options) {
+      calls.getQuenchCanonicalReleaseProjection.push({ workpieceId, workspaceId, options });
+      return { contract_version:"forge.quench-release-projection.v2", workspace_id:workspaceId, workpiece_id:workpieceId,
+        hammer:{manifest_snapshot_id:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",manifest_path:"hammer/release-packet/manifest.v1.json",manifest_version:1,manifest_content_hash:"a".repeat(64),manifest:{},readiness:{}},
+        metadata:{revision:1,content_hash:"b".repeat(64),episode:{}},thumbnails:{candidate_set:null,active_binding_id:null,active_binding_revision:null,candidates:[]},destination_capabilities:[],current_decisions:[],projected_at:"2026-07-19T00:00:00.000Z" };
     },
     async generateImageMapCandidates(workpieceId, input, options) {
       calls.generateImageMapCandidates.push({ workpieceId, input, options: options ?? null });
@@ -7970,6 +7977,22 @@ test("DELETE /tongs/workpieces/:id/ready-script requires x-forge-user-authorizat
   assert.equal(body.error?.code, "missing_user_token_header");
   assert.equal(typeof body.error?.request_id, "string");
   assert.equal(calls.deleteReadyScript.length, 0);
+});
+
+test("POST /tongs/workpieces/:id/quench/release-projection forwards canonical identity and user authority", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const response = await handler(new Request("http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/quench/release-projection", {
+    method:"POST",headers:{"content-type":"application/json","x-forge-user-authorization":"Bearer user_token_abc"},
+    body:JSON.stringify({workspace_id:"33333333-3333-4333-8333-333333333333"}),
+  }));
+  const body=await response.json();assert.equal(response.status,200);assert.equal(body.data?.contract_version,"forge.quench-release-projection.v2");
+  assert.deepEqual(calls.getQuenchCanonicalReleaseProjection[0],{workpieceId:"11111111-1111-4111-8111-111111111111",workspaceId:"33333333-3333-4333-8333-333333333333",options:{userAccessToken:"user_token_abc"}});
+});
+
+test("POST /tongs/workpieces/:id/quench/release-projection requires user authority", async () => {
+  const {service,calls}=mockService();const handler=createTongsCommitApiHandlerWithService(service);const response=await handler(new Request("http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/quench/release-projection",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({workspace_id:"33333333-3333-4333-8333-333333333333"})}));
+  assert.equal(response.status,401);assert.equal(calls.getQuenchCanonicalReleaseProjection.length,0);
 });
 
 test("POST /tongs/workpieces/:id/commit-file for ready path requires x-forge-user-authorization header", async () => {

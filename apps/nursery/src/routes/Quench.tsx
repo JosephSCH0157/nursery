@@ -22,6 +22,8 @@ import {
   YouTubeAdapter,
   listQuenchMockReleaseCases,
   resolveReleaseAssets,
+  isQuenchCanonicalReleaseProjection,
+  type QuenchCanonicalReleaseProjection,
 } from "@forge/quench";
 import type { HammerPreparedReleasePackage } from "../../../hammer/src/lib/hammerPreparedReleasePackage";
 import { tongsFetch } from "../../../hammer/src/lib/tongsFetch";
@@ -90,6 +92,7 @@ type QuenchPreparedReleaseResolvedHandoff = QuenchPreparedReleaseHandoff & {
   workpieceId: string;
   packagePath: string;
 };
+type QuenchReleaseConsoleCase = QuenchMockReleaseCase & { authority: "canonical"|"fixture"; canonical_projection?: QuenchCanonicalReleaseProjection };
 
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -225,6 +228,12 @@ function buildPreparedReleaseCase(args: {
   };
 }
 
+function buildCanonicalReleaseCase(projection:QuenchCanonicalReleaseProjection):QuenchReleaseConsoleCase{
+  const manifest=projection.hammer.manifest;const episode=projection.metadata.episode;const seo=readJsonObject(episode.seo);const titles=Array.isArray(seo?.titles)?seo.titles.map(readJsonObject).filter(Boolean):[];const primary=titles.find((entry)=>entry?.is_primary===true)??titles[0];
+  const title=readString(primary?.text)??readString(manifest.episode_title)??`Release ${projection.workpiece_id.slice(0,8)}`;const description=readString(seo?.description_long)??readString(seo?.description_short)??"Canonical release metadata is incomplete.";const tags=Array.isArray(seo?.tags)?seo.tags.map(readString).filter((value):value is string=>Boolean(value)):[];
+  const audioId=manifest.audio.media_id;return{authority:"canonical",canonical_projection:projection,case_id:`canonical:${projection.workpiece_id}:${projection.hammer.manifest_snapshot_id}`,label:"Canonical Hammer Release",summary:`Tongs-verified manifest ${projection.hammer.manifest_content_hash.slice(0,12)}…`,packet:{release_packet_id:projection.hammer.manifest_snapshot_id,workspace_id:projection.workspace_id,workpiece_id:projection.workpiece_id,episode_id:projection.workpiece_id,title,description,tags,thumbnail_asset_id:null,video_export_id:null,audio_export_id:audioId,shorts:[],asset_source:"cloud",rss_ready:projection.hammer.readiness.ready_for_quench===true,platform_overrides:{},seo_metadata:null},resolved_assets:{audio:audioId?{asset_id:audioId,kind:"audio",source:"cloud",uri:manifest.audio.workpiece_path??manifest.audio.local_relpath??`workpiece-media://${projection.workpiece_id}/${audioId}`,mime_type:manifest.audio.mime_type??undefined,duration_sec:manifest.duration_seconds??undefined,accessible:true}:null,shorts:[]},default_platforms:[],default_publish_options:{}};
+}
+
 async function readResponseJson(response: Response): Promise<unknown> {
   const text = await response.text();
   const raw = readString(text);
@@ -343,7 +352,7 @@ export default function QuenchRoute() {
     () => listQuenchMockReleaseCases({ workspaceId: shell.workspaceId }),
     [shell.workspaceId],
   );
-  const [handoffPreparedCase, setHandoffPreparedCase] = useState<QuenchMockReleaseCase | null>(null);
+  const [handoffPreparedCase, setHandoffPreparedCase] = useState<QuenchReleaseConsoleCase | null>(null);
   const [preparedHandoffState, setPreparedHandoffState] = useState<QuenchPreparedReleaseState>({
     status: "idle",
     handoff: null,
@@ -352,12 +361,9 @@ export default function QuenchRoute() {
     loadedFingerprint: null,
     loadedPreparedAt: null,
   });
-  const releaseCases = useMemo<QuenchMockReleaseCase[]>(() => {
-    if (!handoffPreparedCase) return mockReleaseCases;
-    return [
-      handoffPreparedCase,
-      ...mockReleaseCases.filter((entry) => entry.case_id !== handoffPreparedCase.case_id),
-    ];
+  const releaseCases = useMemo<QuenchReleaseConsoleCase[]>(() => {
+    if (!handoffPreparedCase) return import.meta.env.DEV ? mockReleaseCases.map((entry)=>({...entry,authority:"fixture" as const})) : [];
+    return [handoffPreparedCase];
   }, [handoffPreparedCase, mockReleaseCases]);
   const [selectedCaseId, setSelectedCaseId] = useState<string>(() =>
     listQuenchMockReleaseCases({ workspaceId: shell.workspaceId })[0]?.case_id ?? "",
@@ -390,6 +396,11 @@ export default function QuenchRoute() {
     let cancelled = false;
     const handoff = parsePreparedReleaseHandoff(location.search);
     if (!handoff) {
+      if(routeCtx.workpieceId&&shell.workspaceId){
+        queueMicrotask(()=>setPreparedHandoffState({status:"loading",handoff:null,message:null,warning:null,loadedFingerprint:null,loadedPreparedAt:null}));
+        void (async()=>{try{const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(routeCtx.workpieceId!)}/quench/release-projection`,{method:"POST",json:{workspace_id:shell.workspaceId},timeoutMs:45_000});const payload=await readResponseJson(response);const root=readJsonObject(payload);const projection=root?.ok===true?root.data:null;if(!response.ok||!isQuenchCanonicalReleaseProjection(projection))throw new Error(readString(readJsonObject(root?.error)?.message)??"Canonical Quench release authority is unavailable.");if(cancelled)return;setHandoffPreparedCase(buildCanonicalReleaseCase(projection));setPreparedHandoffState({status:"ready",handoff:null,message:null,warning:null,loadedFingerprint:projection.hammer.manifest_content_hash,loadedPreparedAt:projection.hammer.manifest.generated_at});}catch(error){if(cancelled)return;setHandoffPreparedCase(null);setPreparedHandoffState({status:"error",handoff:null,message:error instanceof Error?error.message:"Canonical Quench release authority is unavailable.",warning:null,loadedFingerprint:null,loadedPreparedAt:null});}})();
+        return()=>{cancelled=true;};
+      }
       queueMicrotask(() => {
         setHandoffPreparedCase(null);
         setPreparedHandoffState({
@@ -530,11 +541,14 @@ export default function QuenchRoute() {
           : activeHandoff.workspaceId && pkg.workspaceId && activeHandoff.workspaceId !== pkg.workspaceId
             ? "This prepared release belongs to a different workspace than the current route."
             : null;
-        const preparedCase = buildPreparedReleaseCase({
-          shellWorkspaceId: shell.workspaceId,
-          pkg,
-          packagePath: activeHandoff.packagePath,
-        });
+        const canonicalWorkspaceId=pkg.workspaceId??activeHandoff.workspaceId??shell.workspaceId;
+        if(!canonicalWorkspaceId)throw new Error("Canonical workspace context is required for Quench release resolution.");
+        const projectionResponse=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(activeHandoff.workpieceId)}/quench/release-projection`,{method:"POST",json:{workspace_id:canonicalWorkspaceId},timeoutMs:45_000});
+        const projectionPayload=await readResponseJson(projectionResponse);const projectionRoot=readJsonObject(projectionPayload);const projection=projectionRoot?.ok===true?projectionRoot.data:null;
+        if(!projectionResponse.ok||!isQuenchCanonicalReleaseProjection(projection)){
+          const code=readString(readJsonObject(projectionRoot?.error)?.code);throw new Error(code?`Canonical Quench release resolution failed: ${code.replaceAll("_"," ")}.`:"Canonical Quench release authority is unavailable.");
+        }
+        const preparedCase = buildCanonicalReleaseCase(projection);
         if (cancelled) return;
         setHandoffPreparedCase(preparedCase);
         setPreparedHandoffState({
@@ -566,9 +580,9 @@ export default function QuenchRoute() {
     return () => {
       cancelled = true;
     };
-  }, [location.search, shell.workspaceId]);
+  }, [location.search, routeCtx.workpieceId, shell.workspaceId]);
 
-  const applySelectedCaseDefaults = useCallback((nextCase: QuenchMockReleaseCase) => {
+  const applySelectedCaseDefaults = useCallback((nextCase: QuenchReleaseConsoleCase) => {
     setSelectedCaseId(nextCase.case_id);
     setSelectedPlatforms([...nextCase.default_platforms]);
     setPublishOptions(clonePublishOptions(nextCase.default_publish_options));
@@ -827,13 +841,13 @@ export default function QuenchRoute() {
         </div>
       </header>
 
-      {preparedHandoffState.handoff ? (
+      {preparedHandoffState.status !== "idle" ? (
         <div className="quench-console__banner">
           <strong>Release handoff:</strong>
           {" "}
           {preparedHandoffState.status === "loading" ? "Checking the latest prepared release for this episode..." : null}
           {preparedHandoffState.status === "ready"
-            ? "Prepared release is ready from Editing."
+            ? "Canonical release authority is verified through Tongs."
             : null}
           {preparedHandoffState.status === "error"
             ? preparedHandoffState.message ?? "Prepared release could not be resolved."
@@ -849,7 +863,7 @@ export default function QuenchRoute() {
         <aside className="quench-console__panel quench-console__panel--left">
           <div className="quench-console__panel-head">
             <h2>Release packets</h2>
-            <span>{releaseCases.length}{handoffPreparedCase ? " packets" : " mock cases"}</span>
+            <span>{releaseCases.length}{handoffPreparedCase ? " canonical packet" : " development fixtures"}</span>
           </div>
           <div className="quench-console__case-list">
             {releaseCases.map((entry) => {
@@ -867,7 +881,7 @@ export default function QuenchRoute() {
                   onClick={() => applySelectedCaseDefaults(entry)}
                 >
                   <div className="quench-console__case-top">
-                    <strong>{entry.label}</strong>
+                    <strong>{entry.label}</strong><small>{entry.authority}</small>
                     <span className={getVerdictTone(caseReadiness.status)}>
                       {caseReadiness.status === "blocked"
                         ? `${caseReadiness.blocking_reason_codes.length} blocked`
