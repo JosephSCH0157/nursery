@@ -25,6 +25,7 @@ import {
   isQuenchCanonicalReleaseProjection,
   type QuenchCanonicalReleaseProjection,
   isQuenchCandidateSelectable,
+  getQuenchExperimentCapability,
 } from "@forge/quench";
 import type { HammerPreparedReleasePackage } from "../../../hammer/src/lib/hammerPreparedReleasePackage";
 import { tongsFetch } from "../../../hammer/src/lib/tongsFetch";
@@ -38,7 +39,6 @@ import {
 } from "../workspace/useEpisodeWorkspaceReadModel";
 import type { AppShellContext } from "./AppShell";
 import "./Quench.css";
-import { appendQuenchThumbnailExperiment } from "../lib/thumbnail-ledger";
 
 const QUENCH_ADAPTERS = [new YouTubeAdapter(), new RssAdapter()];
 
@@ -393,8 +393,8 @@ export default function QuenchRoute() {
     description: string;
     tags: string[];
   } | null>(null);
-  const [experimentHypothesis, setExperimentHypothesis] = useState("");
-  const [experimentSnapshots, setExperimentSnapshots] = useState("");
+  const [experimentControlId,setExperimentControlId]=useState<string|null>(null);
+  const [experimentVariantIds,setExperimentVariantIds]=useState<string[]>([]);
   const [experimentState, setExperimentState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [experimentMessage, setExperimentMessage] = useState<string | null>(null);
   const [thumbnailSelectionState,setThumbnailSelectionState]=useState<"idle"|"saving"|"saved"|"conflict"|"error">("idle");
@@ -619,6 +619,8 @@ export default function QuenchRoute() {
   const canonicalProjection=selectedCase?.canonical_projection??null;
   const thumbnailSelectionScope=canonicalProjection?.destination_capabilities.find((scope)=>scope.platform==="youtube"&&scope.state==="active")??canonicalProjection?.destination_capabilities.find((scope)=>scope.state==="active")??null;
   const thumbnailSelectionDecision=thumbnailSelectionScope?canonicalProjection?.current_decisions.find((decision)=>decision.destination_scope_id===thumbnailSelectionScope.id)??null:null;
+  const experimentCapability=getQuenchExperimentCapability(thumbnailSelectionScope);
+  useEffect(()=>{if(thumbnailSelectionDecision?.decision?.decision_kind!=="experiment_intent"||thumbnailSelectionDecision.decision.intent_state!=="experiment_planned")return;const control=thumbnailSelectionDecision.assignments?.find((entry)=>entry.assignment_role==="control")?.candidate_revision_id;const variants=thumbnailSelectionDecision.assignments?.filter((entry)=>entry.assignment_role==="variant").map((entry)=>String(entry.candidate_revision_id))??[];setExperimentControlId(typeof control==="string"?control:null);setExperimentVariantIds(variants);},[thumbnailSelectionDecision]);
   const selectCanonicalThumbnail=useCallback(async(candidateId:string)=>{if(!canonicalProjection||!thumbnailSelectionScope)return;setThumbnailSelectionState("saving");setThumbnailSelectionMessage(null);try{const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(canonicalProjection.workpiece_id)}/quench/select-candidate`,{method:"POST",json:{workspace_id:canonicalProjection.workspace_id,destination_scope_id:thumbnailSelectionScope.id,candidate_revision_id:candidateId,expected_decision_id:thumbnailSelectionDecision?.current_decision_id??null,expected_revision:thumbnailSelectionDecision?.current_revision??0,operation_id:crypto.randomUUID()},timeoutMs:45_000});const payload=await readResponseJson(response);const root=readJsonObject(payload);const result=readJsonObject(root?.data);const disposition=readString(result?.disposition);if(!response.ok)throw new Error(readString(readJsonObject(root?.error)?.message)??"Selection failed.");if(disposition==="revision_conflict"){setThumbnailSelectionState("conflict");setThumbnailSelectionMessage("The canonical decision advanced. Reloaded the latest Tongs authority; review before retrying.");}else if(!["committed","replayed","no_change"].includes(disposition??"")){throw new Error(`Selection was not committed: ${(disposition??"blocked").replaceAll("_"," ")}.`);}else{setThumbnailSelectionState("saved");setThumbnailSelectionMessage(disposition==="no_change"?"That candidate is already the canonical selection.":disposition==="replayed"?"The original canonical selection was restored from its operation receipt.":"Canonical thumbnail selection committed.");}const refresh=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(canonicalProjection.workpiece_id)}/quench/release-projection`,{method:"POST",json:{workspace_id:canonicalProjection.workspace_id},timeoutMs:45_000});const refreshPayload=await readResponseJson(refresh);const refreshRoot=readJsonObject(refreshPayload);if(refresh.ok&&isQuenchCanonicalReleaseProjection(refreshRoot?.data))setHandoffPreparedCase(buildCanonicalReleaseCase(refreshRoot.data));}catch(error){setThumbnailSelectionState("error");setThumbnailSelectionMessage(error instanceof Error?error.message:"Selection failed.");}},[canonicalProjection,thumbnailSelectionDecision,thumbnailSelectionScope]);
   const readinessVerdict = selectedCase
     ? deriveReleasePacketReadinessVerdict(selectedCase.packet, resolvedAssets, selectedPlatforms)
@@ -803,19 +805,7 @@ export default function QuenchRoute() {
     });
   }
 
-  async function createThumbnailExperiment() {
-    if (!shell.workspaceId || !selectedCase) return;
-    const snapshots = experimentSnapshots.split(/[,\n]/).map((entry) => entry.trim()).filter((entry) => /^[a-f0-9]{64}$/.test(entry));
-    setExperimentState("saving"); setExperimentMessage(null);
-    try {
-      const experiment = await appendQuenchThumbnailExperiment({ workspaceId: shell.workspaceId,
-        publicationId: `${selectedCase.packet.episode_id}:${selectedPlatforms[0] ?? "unassigned"}`,
-        hypothesis: experimentHypothesis, launchSnapshotHashes: snapshots, primaryMetric: "ctr",
-        guardrails: ["retention_30_seconds", "average_percentage_viewed"], windowKind: "first_72h",
-        stoppingConditions: ["72-hour window is mature", "retention guardrails are available"] });
-      setExperimentState("saved"); setExperimentMessage(`Experiment ${experiment.identity.slice(0, 8)} saved as immutable publication history.`);
-    } catch (error) { setExperimentState("error"); setExperimentMessage(error instanceof Error ? error.message : "Unable to save experiment."); }
-  }
+  async function mutateThumbnailExperiment(cancel=false){if(!canonicalProjection||!thumbnailSelectionScope)return;setExperimentState("saving");setExperimentMessage(null);try{const assignments=cancel?[]:[experimentControlId,...experimentVariantIds].filter((id):id is string=>!!id).map((candidate_revision_id,index)=>({candidate_revision_id,assignment_role:index===0?"control":"variant",assignment_ordinal:index+1,allocation_basis_points:null}));const endpoint=cancel?"cancel-thumbnail-experiment":"plan-thumbnail-experiment";const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(canonicalProjection.workpiece_id)}/quench/${endpoint}`,{method:"POST",json:{workspace_id:canonicalProjection.workspace_id,destination_scope_id:thumbnailSelectionScope.id,expected_decision_id:thumbnailSelectionDecision?.current_decision_id??null,expected_revision:thumbnailSelectionDecision?.current_revision??0,operation_id:crypto.randomUUID(),...(cancel?{}:{assignments})},timeoutMs:45_000});const payload=await readResponseJson(response);const root=readJsonObject(payload);const result=readJsonObject(root?.data);const disposition=readString(result?.disposition);if(!response.ok)throw new Error(readString(readJsonObject(root?.error)?.message)??"Experiment intent failed.");if(disposition==="revision_conflict"){setExperimentState("error");setExperimentMessage("The canonical decision advanced. Reload the latest authority before retrying.");}else if(!["committed","replayed","no_change"].includes(disposition??"")){throw new Error(`Experiment intent was not committed: ${(disposition??"blocked").replaceAll("_"," ")}.`);}else{setExperimentState("saved");setExperimentMessage(cancel?"Experiment cancelled. This creates a new zero-assignment decision and does not restore the previous selected thumbnail.":disposition==="no_change"?"This exact experiment plan is already current.":"Canonical experiment intent planned. Automatic thumbnail rotation is not active.");}const refresh=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(canonicalProjection.workpiece_id)}/quench/release-projection`,{method:"POST",json:{workspace_id:canonicalProjection.workspace_id},timeoutMs:45_000});const refreshPayload=await readResponseJson(refresh);const refreshRoot=readJsonObject(refreshPayload);if(refresh.ok&&isQuenchCanonicalReleaseProjection(refreshRoot?.data))setHandoffPreparedCase(buildCanonicalReleaseCase(refreshRoot.data));}catch(error){setExperimentState("error");setExperimentMessage(error instanceof Error?error.message:"Unable to save experiment intent.");}}
 
   return (
     <section className="quench-console">
@@ -1079,7 +1069,7 @@ export default function QuenchRoute() {
                     <div className="quench-console__issue-list"><div className={`quench-console__issue ${candidate.authority_verified?"is-good":"is-bad"}`}><strong>{candidate.authority_verified?"provenance verified":"verification blocked"}</strong><span>{candidate.verification_code}</span></div></div>
                     <div className="quench-console__asset-id">Candidate revision {candidate.id}</div><div className="quench-console__asset-uri">Composite {candidate.composite_asset_id}</div>
                     <small>Recipe {candidate.recipe_id} r{candidate.recipe_revision}<br/>Recipe hash {candidate.recipe_hash}<br/>Final hash {candidate.composite_content_hash}<br/>Binding {candidate.candidate_binding_id} r{candidate.candidate_binding_revision}<br/>Readability {candidate.readability_evidence_hash}</small>
-                    <button type="button" disabled={!thumbnailSelectionScope||!isQuenchCandidateSelectable(candidate)||thumbnailSelectionState==="saving"} onClick={()=>void selectCanonicalThumbnail(candidate.id)}>{thumbnailSelectionDecision?.assignments?.some((assignment)=>assignment.candidate_revision_id===candidate.id)&&thumbnailSelectionDecision.applicability?.state==="current"?"Selected":"Select candidate"}</button>
+                    <button type="button" disabled={!thumbnailSelectionScope||!isQuenchCandidateSelectable(candidate)||thumbnailSelectionState==="saving"} onClick={()=>void selectCanonicalThumbnail(candidate.id)}>{thumbnailSelectionDecision?.decision?.decision_kind==="single_candidate"&&thumbnailSelectionDecision?.assignments?.some((assignment)=>assignment.assignment_role==="selected"&&assignment.candidate_revision_id===candidate.id)&&thumbnailSelectionDecision.applicability?.state==="current"?"Selected":"Select candidate"}</button>
                   </article>)}
                 </div>
                 {canonicalThumbnails.historical_candidate_sets?.length?<details><summary>Historical candidate sets ({canonicalThumbnails.historical_candidate_sets.length})</summary><p>Historical sets remain readable and reconstructable. Their candidates are not silently treated as current publication choices.</p>{canonicalThumbnails.historical_candidate_sets.map((set)=><article key={String(set.candidate_set.id)}><strong>Revision {String(set.candidate_set.revision)}</strong> · {set.candidates.length} candidates<br/><small>{String(set.candidate_set.id)} · {String(set.candidate_set.content_hash)}</small><ol>{set.candidates.map((candidate)=><li key={candidate.id}>Candidate {candidate.candidate_ordinal} · {candidate.eligibility_state.replaceAll("_"," ")} · {candidate.authority_verified?"verified":"blocked"} · {candidate.composite_content_hash}</li>)}</ol></article>)}</details>:null}
@@ -1188,10 +1178,13 @@ export default function QuenchRoute() {
           </div>
           <section className="quench-console__card" aria-label="Thumbnail launch experiment">
             <div className="quench-console__card-head"><h3>Thumbnail experiment</h3><span>Quench authority</span></div>
-            <p className="quench-console__empty-note">Experiments reference immutable launch snapshot hashes. Ledger evaluates evidence but cannot publish a winner.</p>
-            <label><span>Hypothesis</span><textarea value={experimentHypothesis} onChange={(event) => setExperimentHypothesis(event.target.value)} placeholder="State why these published treatments are being compared." /></label>
-            <label><span>Immutable launch snapshot hashes</span><textarea value={experimentSnapshots} onChange={(event) => setExperimentSnapshots(event.target.value)} placeholder="One 64-character hash per line (minimum two)" /></label>
-            <button type="button" disabled={experimentState === "saving" || !experimentHypothesis.trim()} onClick={() => void createThumbnailExperiment()}>{experimentState === "saving" ? "Saving experiment…" : "Create 72-hour experiment"}</button>
+            <p className="quench-console__empty-note">Choose exact Tongs-verified candidates. This commits provider-neutral intent; it does not activate thumbnail rotation or write Ledger evidence.</p>
+            <div className={`quench-console__issue ${experimentCapability.planning_supported?"is-good":"is-bad"}`}><strong>{experimentCapability.planning_supported?"Candidate experiment planning supported":"Experiment planning unsupported"}</strong><span>{experimentCapability.planning_supported?(experimentCapability.rotation_supported?"Adapter capability permits future execution, but no provider acknowledgement exists.":"Automatic thumbnail rotation is unsupported and not active."):experimentCapability.reason?.replaceAll("_"," ")}</span></div>
+            {canonicalThumbnails?.candidates.map((candidate)=><div key={`experiment-${candidate.id}`} className="quench-console__asset-top"><span>Candidate {candidate.candidate_ordinal}</span><label><input type="radio" name="experiment-control" checked={experimentControlId===candidate.id} disabled={!experimentCapability.planning_supported||!isQuenchCandidateSelectable(candidate)} onChange={()=>{setExperimentControlId(candidate.id);setExperimentVariantIds((current)=>current.filter((id)=>id!==candidate.id));}}/> Control</label><label><input type="checkbox" checked={experimentVariantIds.includes(candidate.id)} disabled={!experimentCapability.planning_supported||!isQuenchCandidateSelectable(candidate)||experimentControlId===candidate.id} onChange={(event)=>setExperimentVariantIds((current)=>event.target.checked?[...current,candidate.id]:current.filter((id)=>id!==candidate.id))}/> Variant</label></div>)}
+            <button type="button" disabled={experimentState === "saving" || !experimentCapability.planning_supported || !experimentControlId || experimentVariantIds.length<1} onClick={() => void mutateThumbnailExperiment(false)}>{experimentState === "saving" ? "Saving experiment…" : "Commit experiment plan"}</button>
+            {thumbnailSelectionDecision?.decision?.decision_kind==="experiment_intent"&&thumbnailSelectionDecision.decision.intent_state==="experiment_planned"?<button type="button" disabled={experimentState==="saving"} onClick={()=>void mutateThumbnailExperiment(true)}>Cancel experiment plan</button>:null}
+            <p className="quench-console__empty-note">Cancelling creates a new current zero-assignment decision. It does not restore the previously selected thumbnail automatically.</p>
+            {thumbnailSelectionDecision?.recent_history?.length?<details><summary>Canonical decision history ({thumbnailSelectionDecision.recent_history.length})</summary><ol>{thumbnailSelectionDecision.recent_history.map((decision)=><li key={String(decision.id)}>Revision {String(decision.revision)} · {String(decision.decision_kind).replaceAll("_"," ")} · {String(decision.intent_state).replaceAll("_"," ")} · {Array.isArray(decision.assignments)?decision.assignments.length:0} assignments</li>)}</ol></details>:null}
             {experimentMessage ? <p className={experimentState === "error" ? "quench-console__issue is-bad" : "quench-console__empty-note"}>{experimentMessage}</p> : null}
           </section>
           <div className="quench-console__adapter-list">
