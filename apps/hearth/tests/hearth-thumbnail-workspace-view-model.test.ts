@@ -1,10 +1,17 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildThumbnailDirections, creatorThumbnailError } from "../src/lib/hearth-thumbnail-workspace-view-model";
+import { buildThumbnailDirections, creatorBrandStatus, creatorThumbnailError } from "../src/lib/hearth-thumbnail-workspace-view-model";
 
 test("creator errors translate concurrency and distinction failures", () => {
   assert.match(creatorThumbnailError("Expected revision conflict"), /work is safe/i);
   assert.match(creatorThumbnailError("pairwise distinction failed"), /too similar/i);
+});
+
+test("branding is advisory and standard styling remains available", () => {
+  assert.equal(creatorBrandStatus(null).ready, true);
+  assert.match(creatorBrandStatus({ state: "canonical_unbranded", message: "unbranded", binding: null, profile_label: null } as never).label, /Forge standard/i);
+  assert.match(creatorBrandStatus({ state: "verification_blocked", message: "incomplete", binding: null, profile_label: null } as never).message, /optional/i);
+  assert.match(creatorBrandStatus({ state: "canonical_branded", message: "ready", binding: null, profile_label: "BS with Joe" } as never).label, /BS with Joe/i);
 });
 
 test("focused direction builder pairs concepts and titles into three complete choices", () => {

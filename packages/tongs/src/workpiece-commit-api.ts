@@ -6,6 +6,11 @@ import type { ThumbnailCompositeEncoding, ThumbnailCompositeRecipe } from "./thu
 const THUMBNAIL_BUNDLED_FONT_VERSION = "inter-5.2.8-latin-700";
 const THUMBNAIL_COMPOSITION_ENGINE_VERSION = "forge-thumbnail-compositor-v1";
 const THUMBNAIL_CONTRAST_EVALUATOR_VERSION = "forge-thumbnail-contrast-evaluator-v1";
+export const THUMBNAIL_STANDARD_RECIPE_ID = "forge-thumbnail-standard";
+export const THUMBNAIL_STANDARD_RECIPE_VERSION = 1;
+export const THUMBNAIL_STYLE_PROVENANCE_CONTRACT_VERSION = "forge.thumbnail-style-provenance.v1";
+export type ThumbnailRequestedStyleSource = "auto" | "brand_profile" | "forge_standard";
+export type ThumbnailResolvedStyleSource = Exclude<ThumbnailRequestedStyleSource, "auto">;
 
 type UntypedPostgrestResult = {
   data: unknown;
@@ -1194,6 +1199,7 @@ export type RenderThumbnailCompositeRequest = {
   height: number;
   encoding: ThumbnailCompositeEncoding;
   reference_pointer?: string | null;
+  requested_style_source?: ThumbnailRequestedStyleSource;
 };
 
 export type ThumbnailBrandStatusRequest = {
@@ -1238,6 +1244,15 @@ type ResolvedThumbnailBrand = {
   logoBytes: Uint8Array | null;
   logoAssetRevisionId: string | null;
   profileLabel: string | null;
+};
+
+type ResolvedThumbnailStyle = {
+  source: ThumbnailResolvedStyleSource;
+  brand: ResolvedThumbnailBrand | null;
+  bindingContext: ResolvedThumbnailBrand["provenance"];
+  resolutionBasis: string;
+  renderIdentity: Record<string, Json>;
+  auditProvenance: Record<string, Json>;
 };
 
 export type WorkspaceReadyScript = {
@@ -10024,8 +10039,10 @@ export class TongsCommitService {
     const assetId=readStringField(candidate,"composite_asset_id");const expectedHash=readStringField(candidate,"composite_content_hash");
     if(!assetId||!expectedHash)return{...candidate,eligibility_state:"blocked",authority_verified:false,verification_code:"candidate_identity_incomplete"};
     try{const asset=await this.getThumbnailAssetRow(workpieceId,assetId);const bytes=await downloadStorageObject(this.supabase,asset.storage_bucket,asset.storage_key);const bytesHash=bytes?await sha256Hex(bytes):null;
-      const metadata=isRecord(asset.metadata_json)?asset.metadata_json:{};const brand=isRecord(metadata.brand_application_provenance)?metadata.brand_application_provenance:{};const readability=isRecord(metadata.readability_evidence)?metadata.readability_evidence:{};
-      const verified=asset.asset_kind==="thumbnail_composite"&&asset.status==="ready"&&asset.content_hash===expectedHash&&bytesHash===expectedHash&&metadata.recipe_snapshot_hash===candidate.recipe_hash&&brand.binding_id===candidate.candidate_binding_id&&Number(brand.binding_revision)===Number(candidate.candidate_binding_revision)&&readability.evaluation_hash===candidate.readability_evidence_hash;
+      const metadata=isRecord(asset.metadata_json)?asset.metadata_json:{};const binding=isRecord(metadata.brand_binding_context)?metadata.brand_binding_context:isRecord(metadata.brand_application_provenance)?metadata.brand_application_provenance:{};const readability=isRecord(metadata.readability_evidence)?metadata.readability_evidence:{};
+      const styleSource=readStringField(candidate,"style_source")??"brand_profile";const styleHash=readStringField(candidate,"style_provenance_hash");
+      const styleVerified=styleSource==="forge_standard"||styleSource==="brand_profile"?metadata.style_source===styleSource&&(!styleHash||metadata.style_provenance_hash===styleHash):false;
+      const verified=asset.asset_kind==="thumbnail_composite"&&asset.status==="ready"&&asset.content_hash===expectedHash&&bytesHash===expectedHash&&metadata.recipe_snapshot_hash===candidate.recipe_hash&&binding.binding_id===candidate.candidate_binding_id&&Number(binding.binding_revision)===Number(candidate.candidate_binding_revision)&&styleVerified&&readability.evaluation_hash===candidate.readability_evidence_hash;
       return{...candidate,eligibility_state:verified?candidate.eligibility_state:"blocked",authority_verified:verified,verification_code:verified?"verified":"candidate_provenance_mismatch",asset_path:asset.path,asset_mime_type:asset.mime_type,asset_bytes:asset.bytes};
     }catch{return{...candidate,eligibility_state:"blocked",authority_verified:false,verification_code:"candidate_asset_unavailable"};}
   }
@@ -10086,6 +10103,42 @@ export class TongsCommitService {
     if(result.error) throw new HttpError(409,"thumbnail_candidate_brand_decision_failed",result.error.message); if(!isRecord(result.data)) throw new HttpError(502,"invalid_thumbnail_candidate_brand_response","Tongs returned an invalid authorization response"); return result.data as Record<string,Json>;
   }
 
+  private async resolveThumbnailStyle(workpieceId: string, workspaceId: string, requested: ThumbnailRequestedStyleSource,
+    accessToken: string | null | undefined): Promise<ResolvedThumbnailStyle> {
+    const context = await this.resolveThumbnailBrand(workpieceId, workspaceId, accessToken, { establishBinding: true, verifySources: false });
+    if (!context) throw new HttpError(409, "thumbnail_binding_context_unavailable", "Tongs could not establish thumbnail styling context");
+    let brand: ResolvedThumbnailBrand | null = null;
+    let resolutionBasis = requested === "forge_standard" ? "creator_selected_standard" : "complete_brand_available";
+    if (requested !== "forge_standard") {
+      try {
+        brand = await this.resolveThumbnailBrand(workpieceId, workspaceId, accessToken, { establishBinding: true, verifySources: true });
+        if (!brand?.treatment) {
+          if (requested === "brand_profile") throw new HttpError(409, "brand_style_unavailable", "The selected brand does not contain a complete thumbnail style");
+          brand = null; resolutionBasis = "no_active_brand";
+        }
+      } catch (error) {
+        if (requested === "brand_profile") throw new HttpError(409, "brand_style_unavailable", "Your brand could not be applied. Standard styling remains available.",
+          { reason: error instanceof Error ? error.message : "Brand rendering is unavailable" });
+        brand = null; resolutionBasis = error instanceof HttpError ? error.code : "brand_unavailable";
+      }
+    }
+    const source: ThumbnailResolvedStyleSource = brand ? "brand_profile" : "forge_standard";
+    const renderIdentity: Record<string, Json> = source === "brand_profile" ? {
+      contract_version: THUMBNAIL_STYLE_PROVENANCE_CONTRACT_VERSION, style_source: source,
+      applied_profile_revision_id: brand!.provenance.profile_revision_id, applied_profile_content_hash: brand!.provenance.profile_content_hash,
+      applied_asset_revision_ids: brand!.provenance.asset_revision_ids, compositor_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
+      font_version: THUMBNAIL_BUNDLED_FONT_VERSION, contrast_evaluator_version: THUMBNAIL_CONTRAST_EVALUATOR_VERSION,
+    } : {
+      contract_version: THUMBNAIL_STYLE_PROVENANCE_CONTRACT_VERSION, style_source: source,
+      standard_recipe_id: THUMBNAIL_STANDARD_RECIPE_ID, standard_recipe_version: THUMBNAIL_STANDARD_RECIPE_VERSION,
+      compositor_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION, font_version: THUMBNAIL_BUNDLED_FONT_VERSION,
+      contrast_evaluator_version: THUMBNAIL_CONTRAST_EVALUATOR_VERSION,
+    };
+    return { source, brand, bindingContext: context.provenance, resolutionBasis, renderIdentity,
+      auditProvenance: { ...renderIdentity, requested_style_source: requested, resolution_basis: resolutionBasis,
+        binding_context: context.provenance as unknown as Json } };
+  }
+
   async renderThumbnailComposite(
     workpieceId: string,
     input: RenderThumbnailCompositeRequest,
@@ -10093,7 +10146,7 @@ export class TongsCommitService {
   ): Promise<ThumbnailAssetSummary> {
     await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
     await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
-    const brandIdentity = await this.resolveThumbnailBrand(workpieceId, input.workspace_id, options?.userAccessToken, { establishBinding: true, verifySources: false });
+    const style = await this.resolveThumbnailStyle(workpieceId, input.workspace_id, input.requested_style_source ?? "auto", options?.userAccessToken);
     const base = await this.getThumbnailAssetRow(workpieceId, input.base_asset_id);
     if (base.asset_kind !== "thumbnail_image" || base.status !== "ready" || !base.content_hash) {
       throw new HttpError(409, "thumbnail_base_not_ready", "Composite rendering requires a ready base thumbnail with a canonical hash");
@@ -10114,7 +10167,7 @@ export class TongsCommitService {
       composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
       bundled_font_version: THUMBNAIL_BUNDLED_FONT_VERSION,
       contrast_evaluator_version: THUMBNAIL_CONTRAST_EVALUATOR_VERSION,
-      brand_provenance: brandIdentity?.provenance ?? null,
+      style_render_identity: style.renderIdentity,
       width: input.width,
       height: input.height,
       encoding: input.encoding,
@@ -10135,10 +10188,6 @@ export class TongsCommitService {
       });
     }
     if (reusable) return thumbnailAssetSummary(reusable);
-    const brand = await this.resolveThumbnailBrand(workpieceId, input.workspace_id, options?.userAccessToken, { establishBinding: true, verifySources: true });
-    if (brandIdentity && (!brand || brand.provenance.binding_id !== brandIdentity.provenance.binding_id || brand.provenance.binding_revision !== brandIdentity.provenance.binding_revision)) {
-      throw new HttpError(409, "brand_binding_changed", "The canonical brand binding changed while thumbnail composition was starting");
-    }
     const compositorModuleUrl = new URL("../dist/thumbnail-composite.js", import.meta.url).href;
     const nativeImport = new Function("specifier", "return import(specifier)") as (
       specifier: string,
@@ -10148,9 +10197,9 @@ export class TongsCommitService {
       baseBytes,
       width: input.width,
       height: input.height,
-      recipe: { ...input.composition_recipe, brand: brand?.treatment ?? null },
+      recipe: { ...input.composition_recipe, brand: style.brand?.treatment ?? null },
       encoding: input.encoding,
-      logoBytes: brand?.logoBytes ?? null,
+      logoBytes: style.brand?.logoBytes ?? null,
     });
     return this.stageThumbnailAsset(workpieceId, {
       workspace_id: input.workspace_id,
@@ -10168,8 +10217,21 @@ export class TongsCommitService {
         base_asset_hash: base.content_hash,
         recipe_snapshot: input.recipe_snapshot as unknown as Json,
         recipe_snapshot_hash: canonicalRecipeHash,
-        brand_application_provenance: (brand?.provenance ?? null) as unknown as Json,
-        brand_logo_asset_revision_id: brand?.logoAssetRevisionId ?? null,
+        // The legacy RPC reads binding_id/revision from this object. Standard
+        // styling records only a truthful non-application compatibility marker;
+        // it never copies a profile identity into applied-style provenance.
+        brand_application_provenance: (style.brand?.provenance ?? {
+          binding_id: style.bindingContext.binding_id,
+          binding_revision: style.bindingContext.binding_revision,
+          applied: false,
+          compatibility_kind: "binding_context_only",
+        }) as unknown as Json,
+        brand_binding_context: style.bindingContext as unknown as Json,
+        style_source: style.source,
+        style_application_provenance: style.auditProvenance as unknown as Json,
+        style_render_identity_hash: await sha256Hex(canonicalJsonBytes(style.renderIdentity)),
+        style_provenance_hash: await sha256Hex(canonicalJsonBytes(style.auditProvenance)),
+        brand_logo_asset_revision_id: style.brand?.logoAssetRevisionId ?? null,
         readability_evidence: rendered.readability as unknown as Json,
         reuse_identity: reuseIdentity,
         composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
@@ -12973,11 +13035,16 @@ function normalizeRenderThumbnailCompositeRequest(body: Record<string, unknown>)
   if (overrideLogoOpacity != null && (!Number.isFinite(overrideLogoOpacity) || overrideLogoOpacity < 0 || overrideLogoOpacity > 1)) throw new HttpError(400, "invalid_thumbnail_override", "Override logo opacity must be between zero and one");
   const overrideLogoPlacement = overrideRaw?.logo_placement;
   if (overrideLogoPlacement != null && !["top_left", "top_right", "bottom_left", "bottom_right"].includes(String(overrideLogoPlacement))) throw new HttpError(400, "invalid_thumbnail_override", "Override logo placement is unsupported");
+  const requestedStyleSource = body.requested_style_source ?? "auto";
+  if (!["auto", "brand_profile", "forge_standard"].includes(String(requestedStyleSource))) {
+    throw new HttpError(400, "invalid_thumbnail_style_source", "requested_style_source must be auto, brand_profile, or forge_standard");
+  }
   return {
     workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
     operation_id: normalizeThumbnailOperationId(body.operation_id),
     base_asset_id: normalizeUuid(body.base_asset_id, "base_asset_id"),
     recipe_snapshot: recipeSnapshot,
+    requested_style_source: requestedStyleSource as ThumbnailRequestedStyleSource,
     composition_recipe: {
       title_text: normalizeNonEmptyString(recipe.title_text, "recipe_snapshot.title_text"),
       title_revision: normalizePositiveInteger(recipe.title_revision, "recipe_snapshot.title_revision"),

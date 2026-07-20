@@ -7,6 +7,7 @@ import {
   type ThumbnailBrandMode,
   type ThumbnailRenderRecipe,
   type ThumbnailVariationLocks,
+  type ThumbnailRequestedStyleSource,
 } from "../../lib/episode-package-v3";
 import { refineConcept, saveRenderRecipe } from "../../lib/hearth-thumbnail-v3-authority";
 import { isValidThumbnailPair, resolveCanonicalThumbnailPair } from "../../lib/hearth-thumbnail-pairing";
@@ -78,6 +79,7 @@ export default function ThumbnailV3Panel(props: Props) {
   const [providerId, setProviderId] = useState("forge");
   const [aspect, setAspect] = useState<"16:9" | "1:1" | "9:16">("16:9");
   const [brandStatus, setBrandStatus] = useState<ThumbnailBrandAuthorityStatus | null>(null);
+  const [styleSource, setStyleSource] = useState<ThumbnailRequestedStyleSource>("auto");
   const [candidateAuthority, setCandidateAuthority] = useState<ThumbnailCandidateAuthorityProjection | null>(null);
   const [candidateEditRecipeIdentity, setCandidateEditRecipeIdentity] = useState<{ id: string; revision: number } | null>(null);
   const [textColor, setTextColor] = useState("#FFFFFF");
@@ -102,6 +104,7 @@ export default function ThumbnailV3Panel(props: Props) {
   const [variationCount, setVariationCount] = useState(3);
   const [selectedVariationId, setSelectedVariationId] = useState<string | null>(null);
   const outsideUploadRef = useRef<HTMLInputElement | null>(null);
+  const styleChoiceRef = useRef<HTMLElement | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -112,6 +115,8 @@ export default function ThumbnailV3Panel(props: Props) {
       const nextCandidateAuthority=await readThumbnailCandidateAuthorityProjection({workspaceId:props.workspaceId,workpieceId:props.workpieceId});
       setCandidateAuthority(nextCandidateAuthority);
       setPkg(canonical.episodePackage); setToken(canonical.metadataUpdatedAt); setLoadError(null);
+      const lastStyle = canonical.episodePackage.thumbnail.launch_variant_revisions.at(-1)?.snapshot.style_source;
+      setStyleSource((current) => current === "auto" && lastStyle ? lastStyle : current);
       props.onCanonicalProgress?.({
         conceptRevisionCount: canonical.episodePackage.thumbnail.concept_revisions.length,
         baseVersionCount: canonical.episodePackage.thumbnail.base_versions.length,
@@ -149,6 +154,9 @@ export default function ThumbnailV3Panel(props: Props) {
   }, [props.onCanonicalProgress, props.workpieceId, props.workspaceId]);
 
   useEffect(() => { void reload(); }, [reload]);
+  useEffect(() => {
+    if (pkg && new URLSearchParams(window.location.search).get("thumbnail_focus") === "style") styleChoiceRef.current?.focus();
+  }, [pkg]);
   useEffect(() => {
     if (saveState !== "editing") return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
@@ -396,7 +404,7 @@ export default function ThumbnailV3Panel(props: Props) {
       expectedMetadataUpdatedAt: token, episodePackage: pkg, launchVariantId: crypto.randomUUID(), baseVersionId: baseId,
       operationId: crypto.randomUUID(), width: aspect === "9:16" ? 1080 : aspect === "1:1" ? 1080 : 1280,
       height: aspect === "9:16" ? 1920 : aspect === "1:1" ? 1080 : 720,
-      encoding: { format: "png", quality: 100 }, createdAt: new Date().toISOString() });
+      encoding: { format: "png", quality: 100 }, createdAt: new Date().toISOString(), requestedStyleSource: styleSource });
     if (!result.ok) { setSaveState("error"); setLoadError(result.error); return; }
     setPkg(result.episodePackage); setToken(result.metadataUpdatedAt); setSaveState("saved");
     try {
@@ -482,10 +490,17 @@ export default function ThumbnailV3Panel(props: Props) {
         </div>
       </header>
 
-      {!brandPresentation.ready ? <section className="hs-thumbnail-friendly-blocker" role="alert">
-        <div><strong>Finish your brand before generating</strong><p>{brandPresentation.message}</p></div>
-        <button type="button" onClick={() => { const details = document.querySelector<HTMLDetailsElement>(".hs-thumbnail-advanced"); if (details) details.open = true; document.querySelector<HTMLElement>(".hs-thumbnail-brand-authority")?.scrollIntoView({ behavior: "smooth", block: "center" }); }}>Finish brand setup</button>
-      </section> : null}
+      <section className="hs-thumbnail-friendly-blocker" aria-label="Thumbnail styling" ref={styleChoiceRef} tabIndex={-1}>
+        <div><strong>Thumbnail style</strong><p>{brandPresentation.message}</p></div>
+        <label>Use
+          <select value={styleSource} onChange={(event) => setStyleSource(event.target.value as ThumbnailRequestedStyleSource)}>
+            <option value="auto">Automatic</option>
+            <option value="brand_profile">My brand</option>
+            <option value="forge_standard">Forge standard</option>
+          </select>
+        </label>
+        <a href={`/app/tongs?workspace_id=${encodeURIComponent(props.workspaceId)}&mode=branding&section=style&return_to=${encodeURIComponent(`${window.location.pathname}${window.location.search}${window.location.search ? "&" : "?"}thumbnail_focus=style`)}`}>Edit brand style in Tongs</a>
+      </section>
       {loadError ? <div className="hs-inline-error" role="alert">{creatorThumbnailError(loadError)} <button type="button" onClick={() => void reload()}>Retry</button></div> : null}
 
       <section className="hs-thumbnail-stage" aria-labelledby="thumbnail-directions-heading">
@@ -515,14 +530,14 @@ export default function ThumbnailV3Panel(props: Props) {
             return <article key={card.id} className="hs-thumbnail-focused-card" aria-label={`Thumbnail ${String.fromCharCode(65 + index)}`}>
               <div className="hs-thumbnail-card-heading"><span className="hs-thumbnail-letter">{String.fromCharCode(65 + index)}</span><div><strong>{index === 0 ? "Recommended" : index === 1 ? "Strong alternate" : "Experimental"}</strong><small>Advisory, you choose the test set</small></div></div>
               <div className="hs-thumbnail-candidate-preview" role="img" aria-label={`Full preview for thumbnail ${String.fromCharCode(65 + index)}: ${card.title}`}><span>{direction?.visual ?? card.concept}</span><strong>{card.title}</strong></div>
-              <div className="hs-thumbnail-card-status"><span>Brand {card.quenchEligible ? "verified" : "needs review"}</span><span>Text {card.readability.passed ? "readable" : "needs review"}</span></div>
+              <div className="hs-thumbnail-card-status"><span>{card.styleSource === "forge_standard" ? "Forge standard" : "Brand style"}</span><span>Text {card.readability.passed ? "readable" : "needs review"}</span></div>
               <div className="hs-thumbnail-feed-row"><div className="hs-thumbnail-feed-preview" role="img" aria-label={`Feed-size preview for thumbnail ${String.fromCharCode(65 + index)}`}><span>{direction?.visual ?? card.concept}</span><strong>{card.title}</strong></div><div><strong>Feed-size preview</strong><p>{ledgerProjection?.historical_observations[0]?.summary ?? "Editorial, branding, and readability evidence"}</p><small>{ledgerProjection?.historical_observations[0]?.confidence ? `${ledgerProjection.historical_observations[0].confidence} confidence` : "Early estimate"}</small></div></div>
               <div className="hs-thumbnail-card-actions"><button type="button" onClick={() => { if (!card.recipe) return; setCandidateEditRecipeIdentity({ id: card.recipe.id, revision: card.recipe.revision }); setSelectedRevisionId(card.recipe.concept_revision_id); setTitleId(card.recipe.title_id); setTitleRevision(card.recipe.title_revision); }}>Edit thumbnail {String.fromCharCode(65 + index)}</button><button type="button" onClick={() => { if (card.recipe) { setCandidateEditRecipeIdentity({ id: card.recipe.id, revision: card.recipe.revision }); } }}>Try more variations</button></div>
             </article>;
           })}
         </div> : <div className="hs-thumbnail-generation-empty">
           <div><strong>No finished thumbnails yet</strong><p>Save and review the selected direction’s image prompt, then create its artwork. Hearth will keep each immutable version as you build the set.</p></div>
-          <button type="button" className="is-primary" disabled={!persistedPairIsSelected || promptPack?.review_state !== "reviewed" || !brandPresentation.ready || saveState === "saving"} onClick={() => void renderBase("forge_ai")}>Generate selected thumbnail</button>
+          <button type="button" className="is-primary" disabled={!persistedPairIsSelected || promptPack?.review_state !== "reviewed" || saveState === "saving"} onClick={() => void renderBase("forge_ai")}>Generate selected thumbnail</button>
           <small>A three-image credit quote is not available from the current operation-cost API, so Hearth will not display or charge a made-up bundle price.</small>
         </div>}
         {ledgerState === "loaded" && !ledgerProjection?.measured_facts.length && !ledgerProjection?.historical_observations.length ? <p className="hs-thumbnail-calm-empty">No channel history yet. Hearth is ranking these using editorial, branding, and readability evidence.</p> : null}
@@ -534,7 +549,7 @@ export default function ThumbnailV3Panel(props: Props) {
       </aside> : null}
 
       <div className="hs-thumbnail-completion" role="status" aria-live="polite">
-        <div><strong>{candidateSummary.quenchEligibleCount === 3 ? "3 thumbnails ready" : `${candidateSummary.quenchEligibleCount} of 3 thumbnails ready`}</strong><span>Brand verified · Text readable · Candidates distinct</span></div>
+        <div><strong>{candidateSummary.quenchEligibleCount === 3 ? "3 thumbnails ready" : `${candidateSummary.quenchEligibleCount} of 3 thumbnails ready`}</strong><span>Style recorded · Text readable · Candidates distinct</span></div>
         <button type="button" className="is-primary" disabled={saveState === "saving" || candidateSummary.quenchEligibleCount !== 3 || candidateCards.length !== 3} onClick={() => void commitCandidateSet()}>Send test set to Quench</button>
       </div>
     </main>

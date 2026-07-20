@@ -41,13 +41,13 @@ export function buildThumbnailDirections(pkg: EpisodePackageV3, conceptSetId: st
 }
 
 export function creatorBrandStatus(status: ThumbnailBrandAuthorityStatus | null) {
-  if (!status) return { ready: false, label: "Checking brand…", message: "Hearth is checking the active brand profile." };
+  if (!status) return { ready: true, label: "Style: Automatic", message: "Hearth will use your brand when it is ready, or Forge standard styling." };
   const ready = status.state === "canonical_branded";
-  if (ready) return { ready, label: `Brand: ${status.profile_label ?? "Active profile"} — Active`, message: "Approved brand styles will be applied automatically." };
+  if (ready) return { ready: true, label: `Style: ${status.profile_label ?? "Brand profile"}`, message: "Automatic styling will use this brand profile." };
   return {
-    ready: false,
-    label: "Brand setup needed",
-    message: "Your brand profile needs a thumbnail text style before Hearth can create branded thumbnails.",
+    ready: true,
+    label: "Style: Forge standard",
+    message: "Branding is optional. Forge standard styling is ready now.",
   };
 }
 
@@ -56,6 +56,7 @@ export function creatorThumbnailError(message: string) {
   if (normalized.includes("expected") && normalized.includes("revision")) return "This episode changed in another window. Your work is safe. Review the latest changes, then retry.";
   if (normalized.includes("pairwise") || normalized.includes("distinction")) return "Two thumbnails are too similar for a useful test. Revise the closest-looking direction, then retry.";
   if (normalized.includes("readability")) return "One thumbnail is difficult to read at feed size. Edit its text treatment, then retry.";
-  if (normalized.includes("brand")) return "One thumbnail no longer matches the active brand. Review its brand treatment, then retry.";
+  if (normalized.includes("brand_style_unavailable") || normalized.includes("brand could not be applied")) return "That brand style is not ready for thumbnails. Choose Automatic or Forge standard, or finish the brand style in Tongs.";
+  if (normalized.includes("brand")) return "This branded thumbnail needs review. Forge standard thumbnails remain available.";
   return message;
 }

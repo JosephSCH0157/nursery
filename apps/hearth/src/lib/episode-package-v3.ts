@@ -113,7 +113,9 @@ export type ThumbnailReadabilityEvidence = Readonly<Record<string, unknown>> & {
 };
 
 export type ThumbnailCandidateEligibility = "current" | "historical_brand" | "requires_reapproval" | "approved_historical_brand" | "blocked";
-export type ThumbnailCandidateProjection = { candidate_revision_id: string; candidate_ordinal: number; recipe_id: string; recipe_revision: number; recipe_hash: string; title_revision_id: string; concept_revision_id: string; base_artwork_content_hash: string; structural_composition_fingerprint: string; composite_asset_id: string; composite_content_hash: string; candidate_binding_id: string; candidate_binding_revision: number; readability_evidence_hash: string; eligibility_state: ThumbnailCandidateEligibility };
+export type ThumbnailResolvedStyleSource = "brand_profile" | "forge_standard";
+export type ThumbnailRequestedStyleSource = "auto" | ThumbnailResolvedStyleSource;
+export type ThumbnailCandidateProjection = { candidate_revision_id: string; candidate_ordinal: number; recipe_id: string; recipe_revision: number; recipe_hash: string; title_revision_id: string; concept_revision_id: string; base_artwork_content_hash: string; structural_composition_fingerprint: string; composite_asset_id: string; composite_content_hash: string; candidate_binding_id: string; candidate_binding_revision: number; style_source?: ThumbnailResolvedStyleSource; style_provenance_hash?: string; readability_evidence_hash: string; eligibility_state: ThumbnailCandidateEligibility };
 export type ThumbnailCandidateSetProjection = { candidate_set_id: string; revision: number; previous_candidate_set_id: string | null; content_hash: string; distinction_contract_version: "forge.thumbnail-candidate-distinction.v1"; candidates: ThumbnailCandidateProjection[]; projected_at: string };
 
 export type ThumbnailRenderRecipe = {
@@ -228,6 +230,10 @@ export type ThumbnailCompositeSnapshot = {
     horizontal_padding_percent: number;
   }>;
   recipe_snapshot_hash: string;
+  style_source?: ThumbnailResolvedStyleSource;
+  style_application_provenance?: Readonly<Record<string, unknown>> | null;
+  style_provenance_hash?: string | null;
+  brand_binding_context?: Readonly<Record<string, unknown>> | null;
   brand_application_provenance?: Readonly<Record<string, unknown>> | null;
   brand_logo_asset_revision_id?: string | null;
   readability_evidence?: ThumbnailReadabilityEvidence | null;

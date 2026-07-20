@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useOutletContext } from "react-router-dom";
+import { useLocation, useOutletContext } from "react-router-dom";
 import type {
   BrandAssetRevision,
   BrandAssetRole,
@@ -336,6 +336,11 @@ function AssetCard({
 
 export default function TongsBranding() {
   const { workspaceId } = useOutletContext<AppShellContext>();
+  const location = useLocation();
+  const requestedSection = new URLSearchParams(location.search).get("section");
+  const requestedReturn = new URLSearchParams(location.search).get("return_to");
+  const returnTo = requestedReturn?.startsWith("/app/") ? requestedReturn : null;
+  const styleSectionRef = useRef<HTMLElement | null>(null);
   const [library, setLibrary] = useState<BrandLibraryProjection | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -345,7 +350,7 @@ export default function TongsBranding() {
   const [draft, setDraft] = useState<BrandRules>(defaultBrandRules());
   const [tab, setTab] = useState<
     "overview" | "assets" | "style" | "usage" | "history"
-  >("overview");
+  >(requestedSection === "style" ? "style" : "overview");
   const [showVariants, setShowVariants] = useState(false);
   const reload = async () => {
     if (!workspaceId) return;
@@ -382,6 +387,9 @@ export default function TongsBranding() {
   useEffect(() => {
     if (revisions[0]) setDraft(structuredClone(revisions[0].rules));
   }, [revisions[0]?.id]);
+  useEffect(() => {
+    if (requestedSection === "style" && tab === "style") styleSectionRef.current?.focus();
+  }, [requestedSection, tab]);
   const capabilities = useMemo(
     () => (selectedId ? capabilityReadiness(draft, library, selectedId) : []),
     [draft, library, selectedId],
@@ -896,7 +904,7 @@ export default function TongsBranding() {
             </section>
           ) : null}
           {tab === "style" ? (
-            <section className="brand-style">
+            <section className="brand-style" ref={styleSectionRef} tabIndex={-1}>
               <div>
                 <h3>Colors</h3>
                 {(["primary", "secondary", "accent"] as const).map((key) => (
@@ -1151,13 +1159,12 @@ export default function TongsBranding() {
               type="button"
               className="is-primary"
               disabled={busy || Boolean(selected.archived_at)}
-              onClick={() =>
-                void run(() =>
-                  appendBrandProfileRevision(workspaceId, selected.id, draft),
-                )
-              }
+              onClick={() => void run(async () => {
+                await appendBrandProfileRevision(workspaceId, selected.id, draft);
+                if (returnTo) window.location.assign(returnTo);
+              })}
             >
-              Save brand changes
+              {returnTo ? "Save and return to thumbnails" : "Save brand changes"}
             </button>
           </footer>
         </main>

@@ -6,6 +6,7 @@ export type QuenchCanonicalCandidate = {
   id: string; candidate_ordinal: number; recipe_id: string; recipe_revision: number; recipe_hash: string;
   title_revision_id?:string;concept_revision_id?:string;base_artwork_content_hash?:string;structural_composition_fingerprint?:string;
   composite_asset_id: string; composite_content_hash: string; candidate_binding_id: string; candidate_binding_revision: number;
+  style_source?: "brand_profile"|"forge_standard"; style_provenance_hash?: string;
   readability_evidence_hash: string; eligibility_state: "current"|"historical_brand"|"requires_reapproval"|"approved_historical_brand"|"blocked";
   authority_verified:boolean;verification_code:string;asset_path?:string;asset_mime_type?:string;asset_bytes?:number;
 };

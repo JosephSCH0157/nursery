@@ -163,8 +163,22 @@ test("thumbnail render authority resolves canonical brand bindings and records p
   assert.match(source, /brand_logo_asset_revision_id/);
   assert.match(source, /brand_logo_hash_mismatch/);
   assert.match(source, /establishBinding: false/);
-  assert.match(source, /if \(reusable\) return thumbnailAssetSummary\(reusable\);[\s\S]*verifySources: true/);
+  assert.match(source, /requested_style_source \?\? "auto"/);
+  assert.match(source, /THUMBNAIL_STANDARD_RECIPE_ID = "forge-thumbnail-standard"/);
+  assert.match(source, /style_application_provenance/);
+  assert.match(source, /style_render_identity/);
   assert.match(source, /"unresolved" \| "canonical_branded" \| "canonical_unbranded" \| "stale_projection" \| "verification_blocked"/);
+});
+
+test("thumbnail style-source migration backfills and keeps standard eligibility binding-independent", async () => {
+  const sql = await readFile(new URL("supabase/migrations/20260720130000_tongs_thumbnail_style_source_provenance.sql", root), "utf8");
+  assert.match(sql, /add column style_source text/);
+  assert.match(sql, /when b\.state = 'profile' then 'brand_profile' else 'forge_standard'/);
+  assert.match(sql, /if c\.style_source='forge_standard' then return 'current'/);
+  assert.match(sql, /'schema','forge\.thumbnail-candidate\.v2'/);
+  assert.match(sql, /style_provenance_hash/);
+  assert.match(sql, /rolling_deployment_legacy_composite/);
+  assert.match(sql, /brand_binding_context,binding_id[\s\S]*brand_application_provenance,binding_id/);
 });
 
 test("lost stage acknowledgement reuses the canonical asset and conflicting input is rejected", () => {

@@ -11,6 +11,7 @@ import {
   type ThumbnailPublicationEvent,
   type ThumbnailRenderRecipe,
   type ThumbnailCandidateSetProjection,
+  type ThumbnailRequestedStyleSource,
 } from "./episode-package-v3";
 import { appendLaunchSnapshot, appendPublicationEvent, canReuseLaunchSnapshotForPublish, proveThumbnailMutation, type ThumbnailMutationProof } from "./hearth-thumbnail-v3-authority";
 import { resolveForgeUserAccessToken } from "./hearth-chat-api";
@@ -88,16 +89,16 @@ export async function decideThumbnailCandidateHistoricalBrand(args:{workpieceId:
 
 export function projectCanonicalCandidateSet(authority:ThumbnailCandidateAuthorityProjection,projectedAt:string):ThumbnailCandidateSetProjection|null {
   const set=authority.candidate_set;if(!set)return null;const id=readString(set.id),hash=readString(set.content_hash);if(!id||!hash)return null;
-  return {candidate_set_id:id,revision:Number(set.revision),previous_candidate_set_id:readString(set.previous_candidate_set_id),content_hash:hash,distinction_contract_version:"forge.thumbnail-candidate-distinction.v1",candidates:authority.candidates.map((c)=>({candidate_revision_id:String(c.id),candidate_ordinal:Number(c.candidate_ordinal),recipe_id:String(c.recipe_id),recipe_revision:Number(c.recipe_revision),recipe_hash:String(c.recipe_hash),title_revision_id:String(c.title_revision_id),concept_revision_id:String(c.concept_revision_id),base_artwork_content_hash:String(c.base_artwork_content_hash),structural_composition_fingerprint:String(c.structural_composition_fingerprint),composite_asset_id:String(c.composite_asset_id),composite_content_hash:String(c.composite_content_hash),candidate_binding_id:String(c.candidate_binding_id),candidate_binding_revision:Number(c.candidate_binding_revision),readability_evidence_hash:String(c.readability_evidence_hash),eligibility_state:String(c.eligibility_state) as ThumbnailCandidateSetProjection["candidates"][number]["eligibility_state"]})),projected_at:projectedAt};
+  return {candidate_set_id:id,revision:Number(set.revision),previous_candidate_set_id:readString(set.previous_candidate_set_id),content_hash:hash,distinction_contract_version:"forge.thumbnail-candidate-distinction.v1",candidates:authority.candidates.map((c)=>({candidate_revision_id:String(c.id),candidate_ordinal:Number(c.candidate_ordinal),recipe_id:String(c.recipe_id),recipe_revision:Number(c.recipe_revision),recipe_hash:String(c.recipe_hash),title_revision_id:String(c.title_revision_id),concept_revision_id:String(c.concept_revision_id),base_artwork_content_hash:String(c.base_artwork_content_hash),structural_composition_fingerprint:String(c.structural_composition_fingerprint),composite_asset_id:String(c.composite_asset_id),composite_content_hash:String(c.composite_content_hash),candidate_binding_id:String(c.candidate_binding_id),candidate_binding_revision:Number(c.candidate_binding_revision),style_source:c.style_source==="forge_standard"?"forge_standard":"brand_profile",style_provenance_hash:readString(c.style_provenance_hash)??undefined,readability_evidence_hash:String(c.readability_evidence_hash),eligibility_state:String(c.eligibility_state) as ThumbnailCandidateSetProjection["candidates"][number]["eligibility_state"]})),projected_at:projectedAt};
 }
 
 export async function commitReadyLaunchesAsCandidateSet(args:{workpieceId:string;workspaceId:string;episodePackage:EpisodePackageV3;expectedMetadataUpdatedAt:string|null}):Promise<V3MutationResult> {
   const launches=args.episodePackage.thumbnail.launch_variant_revisions.filter((entry)=>entry.status==="ready"&&entry.snapshot.readability_evidence?.passed===true);
   const unique=[...new Map(launches.map((entry)=>[entry.snapshot.asset_id,entry])).values()]; if(unique.length<3)return{ok:false,saveState:"error",status:409,error:"At least three complete readable composites are required before committing a candidate set."};
   const existingByComposite=new Map(args.episodePackage.thumbnail.candidate_sets.flatMap((set)=>set.candidates).map((candidate)=>[candidate.composite_asset_id,candidate.candidate_revision_id]));
-  const candidates=unique.map((launch)=>{const existing=existingByComposite.get(launch.snapshot.asset_id);if(existing)return{candidate_revision_id:existing};const base=args.episodePackage.thumbnail.base_versions.find((entry)=>entry.id===launch.base_version_id);const recipe=args.episodePackage.thumbnail.render_recipes.find((entry)=>entry.id===launch.recipe_id&&entry.revision===launch.recipe_revision);const provenance=launch.snapshot.brand_application_provenance;const evidence=launch.snapshot.readability_evidence;if(!base||!recipe||!provenance||!evidence)throw new Error("Candidate launch provenance is incomplete.");
+  const candidates=unique.map((launch)=>{const existing=existingByComposite.get(launch.snapshot.asset_id);if(existing)return{candidate_revision_id:existing};const base=args.episodePackage.thumbnail.base_versions.find((entry)=>entry.id===launch.base_version_id);const recipe=args.episodePackage.thumbnail.render_recipes.find((entry)=>entry.id===launch.recipe_id&&entry.revision===launch.recipe_revision);const provenance=launch.snapshot.brand_binding_context??launch.snapshot.brand_application_provenance;const evidence=launch.snapshot.readability_evidence;if(!base||!recipe||!provenance||!evidence||!launch.snapshot.style_source||!launch.snapshot.style_provenance_hash)throw new Error("Candidate launch provenance is incomplete.");
     const placement=recipe.treatment.placement,typography=recipe.treatment.typography,treatment=recipe.treatment.treatment;
-    return{new_candidate_revision_id:deterministicUuid("thumbnail-candidate-revision",launch.snapshot.asset_id),recipe_id:recipe.id,recipe_revision:recipe.revision,recipe_hash:launch.snapshot.recipe_snapshot_hash,recipe_snapshot:launch.snapshot.recipe_snapshot,title_revision_id:deterministicUuid("thumbnail-title-revision",`${recipe.title_id}:${recipe.title_revision}`),title_revision:recipe.title_revision,concept_revision_id:recipe.concept_revision_id,base_artwork_asset_id:base.asset_id,base_artwork_content_hash:base.content_hash,structural_composition:{layout_family:placement.layout_family??"title-subject",title_block_zone:launch.snapshot.recipe_snapshot.placement,title_alignment:typography.alignment??"center",subject_zone:placement.subject_zone??null,subject_scale_class:placement.subject_scale_class??null,crop_mode:placement.crop_mode??"cover",foreground_layering:treatment.foreground_layering??null,background_treatment:treatment.background_treatment??null},composite_asset_id:launch.snapshot.asset_id,composite_content_hash:launch.snapshot.content_hash,candidate_binding_id:String(provenance.binding_id),candidate_binding_revision:Number(provenance.binding_revision),candidate_binding_content_hash:typeof provenance.profile_content_hash==="string"?provenance.profile_content_hash:null,readability_contract_version:evidence.contract_version,readability_evaluator_version:evidence.evaluator_version,readability_evidence_hash:evidence.evaluation_hash,compositor_version:launch.snapshot.composition_engine_version};});
+    return{new_candidate_revision_id:deterministicUuid("thumbnail-candidate-revision",launch.snapshot.asset_id),recipe_id:recipe.id,recipe_revision:recipe.revision,recipe_hash:launch.snapshot.recipe_snapshot_hash,recipe_snapshot:launch.snapshot.recipe_snapshot,title_revision_id:deterministicUuid("thumbnail-title-revision",`${recipe.title_id}:${recipe.title_revision}`),title_revision:recipe.title_revision,concept_revision_id:recipe.concept_revision_id,base_artwork_asset_id:base.asset_id,base_artwork_content_hash:base.content_hash,structural_composition:{layout_family:placement.layout_family??"title-subject",title_block_zone:launch.snapshot.recipe_snapshot.placement,title_alignment:typography.alignment??"center",subject_zone:placement.subject_zone??null,subject_scale_class:placement.subject_scale_class??null,crop_mode:placement.crop_mode??"cover",foreground_layering:treatment.foreground_layering??null,background_treatment:treatment.background_treatment??null},composite_asset_id:launch.snapshot.asset_id,composite_content_hash:launch.snapshot.content_hash,candidate_binding_id:String(provenance.binding_id),candidate_binding_revision:Number(provenance.binding_revision),candidate_binding_content_hash:typeof provenance.profile_content_hash==="string"?provenance.profile_content_hash:null,style_source:launch.snapshot.style_source,style_provenance_hash:launch.snapshot.style_provenance_hash,readability_contract_version:evidence.contract_version,readability_evaluator_version:evidence.evaluator_version,readability_evidence_hash:evidence.evaluation_hash,compositor_version:launch.snapshot.composition_engine_version};});
   const operationFingerprint=await sha256Canonical({workspace_id:args.workspaceId,workpiece_id:args.workpieceId,expected_current_revision:args.episodePackage.thumbnail.candidate_sets.at(-1)?.revision??0,candidates});const operationId=deterministicUuid("thumbnail-candidate-set-operation",operationFingerprint);
   const committed=await commitThumbnailCandidateSet({workpieceId:args.workpieceId,workspaceId:args.workspaceId,expectedCurrentRevision:args.episodePackage.thumbnail.candidate_sets.at(-1)?.revision??0,candidates,operationId,operationFingerprint}); if(committed.disposition!=="committed"&&committed.disposition!=="replayed")return{ok:false,saveState:"error",status:409,error:String(committed.code??committed.disposition)};
   const authority=await readThumbnailCandidateAuthorityProjection({workpieceId:args.workpieceId,workspaceId:args.workspaceId});const projection=projectCanonicalCandidateSet(authority,new Date().toISOString());if(!projection)return{ok:false,saveState:"error",status:502,error:"Committed candidate set was not recovered from Tongs."};
@@ -494,6 +495,7 @@ export async function commitThumbnailLaunchComposite(args: {
   height: number;
   encoding: { format: "png" | "jpeg" | "webp"; quality: number };
   createdAt: string;
+  requestedStyleSource?: ThumbnailRequestedStyleSource;
 }): Promise<V3MutationResult> {
   const token = await requireThumbnailUserToken();
   const base = args.episodePackage.thumbnail.base_versions.find((entry) => entry.id === args.baseVersionId);
@@ -510,6 +512,7 @@ export async function commitThumbnailLaunchComposite(args: {
     json: {
       workspace_id: args.workspaceId, operation_id: args.operationId, base_asset_id: base.asset_id,
       recipe_snapshot: recipeSnapshot, recipe_snapshot_hash: recipeHash,
+      requested_style_source: args.requestedStyleSource ?? "auto",
       width: args.width, height: args.height, encoding: args.encoding,
     },
   });
@@ -526,6 +529,10 @@ export async function commitThumbnailLaunchComposite(args: {
     asset_id: assetId, asset_path: assetPath, content_hash: contentHash,
     composition_engine_version: recipe.composition_engine_version,
     recipe_snapshot: recipeSnapshot, recipe_snapshot_hash: recipeHash,
+    style_source: assetMetadata.style_source === "forge_standard" ? "forge_standard" : "brand_profile",
+    style_application_provenance: isRecord(assetMetadata.style_application_provenance) ? assetMetadata.style_application_provenance : null,
+    style_provenance_hash: readString(assetMetadata.style_provenance_hash),
+    brand_binding_context: isRecord(assetMetadata.brand_binding_context) ? assetMetadata.brand_binding_context : null,
     brand_application_provenance: isRecord(assetMetadata.brand_application_provenance) ? assetMetadata.brand_application_provenance : null,
     brand_logo_asset_revision_id: readString(assetMetadata.brand_logo_asset_revision_id), exported_at: args.createdAt,
     readability_evidence: isRecord(assetMetadata.readability_evidence) ? assetMetadata.readability_evidence as ThumbnailCompositeSnapshot["readability_evidence"] : null,
@@ -611,17 +618,27 @@ export async function commitThumbnailPublicationSnapshot(args: {
       method: "POST", headers: { "x-forge-user-authorization": `Bearer ${token}` },
       json: { workspace_id: args.workspaceId, operation_id: args.operationId, base_asset_id: base.asset_id,
         recipe_snapshot: recipeSnapshot, recipe_snapshot_hash: recipeHash,
+        requested_style_source: launch.snapshot.style_source ?? "auto",
         width: args.width, height: args.height, encoding: args.encoding },
     });
     const body = await json(response);
     const asset = isRecord(body) && isRecord(body.data) ? body.data : null;
     const assetId = readString(asset?.id); const assetPath = readString(asset?.path); const contentHash = readString(asset?.content_hash);
+    const assetMetadata = isRecord(asset?.metadata) ? asset.metadata : {};
     if (!response.ok || !assetId || !assetPath || !contentHash) {
       return { ok: false, saveState: "error", status: response.status, error: errorMessage(body, "Unable to render publish snapshot.") };
     }
     snapshot = { asset_id: assetId, asset_path: assetPath, content_hash: contentHash,
       composition_engine_version: recipe.composition_engine_version, recipe_snapshot: recipeSnapshot,
-      recipe_snapshot_hash: recipeHash, exported_at: args.publishedAt };
+      recipe_snapshot_hash: recipeHash,
+      style_source: assetMetadata.style_source === "forge_standard" ? "forge_standard" : "brand_profile",
+      style_application_provenance: isRecord(assetMetadata.style_application_provenance) ? assetMetadata.style_application_provenance : null,
+      style_provenance_hash: readString(assetMetadata.style_provenance_hash),
+      brand_binding_context: isRecord(assetMetadata.brand_binding_context) ? assetMetadata.brand_binding_context : null,
+      brand_application_provenance: isRecord(assetMetadata.brand_application_provenance) ? assetMetadata.brand_application_provenance : null,
+      brand_logo_asset_revision_id: readString(assetMetadata.brand_logo_asset_revision_id),
+      readability_evidence: isRecord(assetMetadata.readability_evidence) ? assetMetadata.readability_evidence as ThumbnailCompositeSnapshot["readability_evidence"] : null,
+      exported_at: args.publishedAt };
     stagedNewAsset = true;
   }
 
