@@ -11,6 +11,7 @@ import {
 import { refineConcept, saveRenderRecipe } from "../../lib/hearth-thumbnail-v3-authority";
 import { isValidThumbnailPair, resolveCanonicalThumbnailPair } from "../../lib/hearth-thumbnail-pairing";
 import { buildCandidateWorkspaceCards, candidateWorkspaceSummary } from "../../lib/hearth-thumbnail-candidate-workspace";
+import { buildThumbnailDirections, creatorBrandStatus, creatorThumbnailError } from "../../lib/hearth-thumbnail-workspace-view-model";
 import { DEFAULT_VARIATION_LOCKS, appendVariationBatch, createDeterministicVariationBatch, promoteRecipeVariation } from "../../lib/hearth-thumbnail-variations";
 import {
   appendThumbnailMemoryInterpretation,
@@ -220,6 +221,8 @@ export default function ThumbnailV3Panel(props: Props) {
   const promptPack = persistedPairIsSelected && activeRecipe && selectedConcept
     ? deriveThumbnailPromptPack({ recipe: activeRecipe, concept: selectedConcept, strategy: selectedStrategy, brief: selectedBrief }) : null;
   const conceptSaveLabel = pkg?.thumbnail.concept_sets.length === 0 && saveState === "saved" ? "not saved" : saveState;
+  const directions = useMemo(() => pkg ? buildThumbnailDirections(pkg, activeSet?.id ?? null) : [], [activeSet?.id, pkg]);
+  const brandPresentation = creatorBrandStatus(brandStatus);
 
   const runConceptPersistence = async (action: () => Promise<unknown>, failureMessage: string, recovery = false) => {
     const beforeIds = new Set(pkg?.thumbnail.concept_sets.map((set) => set.id) ?? []);
@@ -464,6 +467,77 @@ export default function ThumbnailV3Panel(props: Props) {
   if (loadError && !pkg) return <div className="hs-inline-error">{loadError}<button type="button" onClick={() => void reload()}>Retry</button></div>;
   if (!pkg) return <div>Loading canonical thumbnail workspace…</div>;
   return <div className="hs-thumbnail-v3">
+    <main className="hs-thumbnail-workspace" aria-label="Thumbnail creation workspace">
+      <header className="hs-thumbnail-workspace-header">
+        <div>
+          <span className="hs-thumbnail-stage-label">Thumbnails</span>
+          <h3>Create a three-thumbnail test set</h3>
+          <p>Choose three distinct directions, compare them together, then send the finished set to Quench for testing.</p>
+        </div>
+        <div className="hs-thumbnail-readiness" aria-label="Episode readiness">
+          <span>Script ready</span><span>Media map ready</span><span className={brandPresentation.ready ? "is-ready" : "is-blocked"}>{brandPresentation.label}</span>
+        </div>
+      </header>
+
+      {!brandPresentation.ready ? <section className="hs-thumbnail-friendly-blocker" role="alert">
+        <div><strong>Finish your brand before generating</strong><p>{brandPresentation.message}</p></div>
+        <button type="button" onClick={() => { const details = document.querySelector<HTMLDetailsElement>(".hs-thumbnail-advanced"); if (details) details.open = true; document.querySelector<HTMLElement>(".hs-thumbnail-brand-authority")?.scrollIntoView({ behavior: "smooth", block: "center" }); }}>Finish brand setup</button>
+      </section> : null}
+      {loadError ? <div className="hs-inline-error" role="alert">{creatorThumbnailError(loadError)} <button type="button" onClick={() => void reload()}>Retry</button></div> : null}
+
+      <section className="hs-thumbnail-stage" aria-labelledby="thumbnail-directions-heading">
+        <div className="hs-thumbnail-stage-heading"><div><span>1</span><h4 id="thumbnail-directions-heading">Choose three directions</h4></div>
+          {directions.length < 3 ? <button type="button" className="is-primary" disabled={props.isGeneratingConcepts || saveState === "saving"} onClick={() => void runConceptPersistence(props.onGenerateConcepts, "Hearth could not save the generated thumbnail directions. Your existing work is safe.")}>{props.isGeneratingConcepts ? "Creating directions…" : "Create thumbnail directions"}</button> : <small>Three pairwise-distinct editorial approaches</small>}
+        </div>
+        {directions.length ? <div className="hs-thumbnail-direction-grid">
+          {directions.map((direction) => {
+            const selected = direction.conceptRevisionId === selectedConcept?.concept_revision_id && direction.titleId === selectedTitle?.id;
+            return <button type="button" key={direction.key} className={`hs-thumbnail-direction${selected ? " is-selected" : ""}`} aria-pressed={selected}
+              onClick={() => { setSelectedRevisionId(direction.conceptRevisionId); if (direction.titleId) { setTitleId(direction.titleId); setTitleRevision(direction.titleRevision); setTitleText(direction.thumbnailText); } setSaveState("editing"); }}>
+              <span className="hs-thumbnail-direction-name"><b>Direction {direction.key}</b><strong>{direction.name}</strong></span>
+              <span><small>Thumbnail text</small><b>{direction.thumbnailText}</b></span>
+              <span><small>Visual</small>{direction.visual}</span>
+              <span><small>Approach</small>{direction.approach}</span>
+              <span className="hs-thumbnail-direction-state">{selected ? "Selected direction" : "Choose direction"}</span>
+            </button>;
+          })}
+        </div> : <p className="hs-thumbnail-calm-empty">Hearth will curate three complete thumbnail directions from the approved episode.</p>}
+      </section>
+
+      <section className="hs-thumbnail-stage" aria-labelledby="thumbnail-compare-heading">
+        <div className="hs-thumbnail-stage-heading"><div><span>2</span><h4 id="thumbnail-compare-heading">Generate and compare</h4></div><small>{candidateCards.length ? "Compare the same final compositions at full and feed size" : "Artwork generation is available after a direction and prompt are ready"}</small></div>
+        {candidateCards.length ? <div className="hs-thumbnail-focused-grid">
+          {candidateCards.slice(0, 3).map((card, index) => {
+            const direction = directions[index];
+            return <article key={card.id} className="hs-thumbnail-focused-card" aria-label={`Thumbnail ${String.fromCharCode(65 + index)}`}>
+              <div className="hs-thumbnail-card-heading"><span className="hs-thumbnail-letter">{String.fromCharCode(65 + index)}</span><div><strong>{index === 0 ? "Recommended" : index === 1 ? "Strong alternate" : "Experimental"}</strong><small>Advisory, you choose the test set</small></div></div>
+              <div className="hs-thumbnail-candidate-preview" role="img" aria-label={`Full preview for thumbnail ${String.fromCharCode(65 + index)}: ${card.title}`}><span>{direction?.visual ?? card.concept}</span><strong>{card.title}</strong></div>
+              <div className="hs-thumbnail-card-status"><span>Brand {card.quenchEligible ? "verified" : "needs review"}</span><span>Text {card.readability.passed ? "readable" : "needs review"}</span></div>
+              <div className="hs-thumbnail-feed-row"><div className="hs-thumbnail-feed-preview" role="img" aria-label={`Feed-size preview for thumbnail ${String.fromCharCode(65 + index)}`}><span>{direction?.visual ?? card.concept}</span><strong>{card.title}</strong></div><div><strong>Feed-size preview</strong><p>{ledgerProjection?.historical_observations[0]?.summary ?? "Editorial, branding, and readability evidence"}</p><small>{ledgerProjection?.historical_observations[0]?.confidence ? `${ledgerProjection.historical_observations[0].confidence} confidence` : "Early estimate"}</small></div></div>
+              <div className="hs-thumbnail-card-actions"><button type="button" onClick={() => { if (!card.recipe) return; setCandidateEditRecipeIdentity({ id: card.recipe.id, revision: card.recipe.revision }); setSelectedRevisionId(card.recipe.concept_revision_id); setTitleId(card.recipe.title_id); setTitleRevision(card.recipe.title_revision); }}>Edit thumbnail {String.fromCharCode(65 + index)}</button><button type="button" onClick={() => { if (card.recipe) { setCandidateEditRecipeIdentity({ id: card.recipe.id, revision: card.recipe.revision }); } }}>Try more variations</button></div>
+            </article>;
+          })}
+        </div> : <div className="hs-thumbnail-generation-empty">
+          <div><strong>No finished thumbnails yet</strong><p>Save and review the selected direction’s image prompt, then create its artwork. Hearth will keep each immutable version as you build the set.</p></div>
+          <button type="button" className="is-primary" disabled={!persistedPairIsSelected || promptPack?.review_state !== "reviewed" || !brandPresentation.ready || saveState === "saving"} onClick={() => void renderBase("forge_ai")}>Generate selected thumbnail</button>
+          <small>A three-image credit quote is not available from the current operation-cost API, so Hearth will not display or charge a made-up bundle price.</small>
+        </div>}
+        {ledgerState === "loaded" && !ledgerProjection?.measured_facts.length && !ledgerProjection?.historical_observations.length ? <p className="hs-thumbnail-calm-empty">No channel history yet. Hearth is ranking these using editorial, branding, and readability evidence.</p> : null}
+      </section>
+
+      {candidateEditRecipe ? <aside className="hs-thumbnail-editor" aria-label="Thumbnail editor">
+        <div className="hs-thumbnail-editor-preview"><span>{selectedBrief?.subject_direction ?? selectedConcept?.image_concept}</span><strong style={{ color: textColor, textShadow: `0 2px 6px ${shadowColor}` }}>{titleText}</strong></div>
+        <div className="hs-thumbnail-editor-controls"><div><h4>Edit thumbnail</h4><button type="button" onClick={() => setCandidateEditRecipeIdentity(null)}>Close editor</button></div><label>Thumbnail text<input value={titleText} readOnly /></label><label>Maximum lines<input type="number" min={1} max={5} value={maxLines} onChange={(event) => { setMaxLines(Number(event.target.value)); setSaveState("editing"); }} /></label><label>Text placement<select value={verticalPlacement} onChange={(event) => { setVerticalPlacement(event.target.value as typeof verticalPlacement); setSaveState("editing"); }}><option value="top">Top</option><option value="center">Center</option><option value="bottom">Bottom</option></select></label><label><input type="checkbox" checked={logoVisible} onChange={(event) => { setLogoVisible(event.target.checked); setSaveState("editing"); }} /> Show approved logo</label><button type="button" className="is-primary" onClick={() => void saveRecipe(false)}>Save as new version</button></div>
+      </aside> : null}
+
+      <div className="hs-thumbnail-completion" role="status" aria-live="polite">
+        <div><strong>{candidateSummary.quenchEligibleCount === 3 ? "3 thumbnails ready" : `${candidateSummary.quenchEligibleCount} of 3 thumbnails ready`}</strong><span>Brand verified · Text readable · Candidates distinct</span></div>
+        <button type="button" className="is-primary" disabled={saveState === "saving" || candidateSummary.quenchEligibleCount !== 3 || candidateCards.length !== 3} onClick={() => void commitCandidateSet()}>Send test set to Quench</button>
+      </div>
+    </main>
+    <details className="hs-thumbnail-advanced">
+      <summary>History and technical details</summary>
+      <div className="hs-thumbnail-advanced-body">
     <div className="hs-row"><strong>Concept Brief sets</strong><span aria-live="polite">{conceptSaveLabel}</span>
       <button type="button" disabled={props.isGeneratingConcepts || saveState === "saving"} onClick={() => void runConceptPersistence(props.onGenerateConcepts, "The AI response was not saved as a canonical five-concept set. No saved result is being claimed.")}>{props.isGeneratingConcepts ? "Generating five…" : "Generate five concepts"}</button>
       <button type="button" disabled={props.isGeneratingConcepts || saveState === "saving"} onClick={() => void runConceptPersistence(props.onRecoverConcepts, "No recoverable five-concept generation was found for this approved script version.", true)}>Recover last generation</button></div>
@@ -659,5 +733,7 @@ export default function ThumbnailV3Panel(props: Props) {
     </section> : <p>Select one concept revision and one canonical framing title to create a render recipe.</p>}
     {persistedPairIsSelected ? <><section><h4>Base artwork history</h4>{pkg.thumbnail.base_versions.map((base) => <div key={base.id}><button type="button" onClick={() => setSelectedBaseId(base.id)}>{base.source_type} · {base.intended_aspect_ratio} · {base.status} · {base.content_hash.slice(0, 12)}</button>{base.status === "ready" ? <button type="button" onClick={() => void setPrimaryBase(base.id)}>{pkg.thumbnail.primary_base_version_id === base.id ? "Primary" : "Make primary"}</button> : null}</div>)}</section>
       <section><h4>Launch snapshots</h4><button type="button" onClick={() => void createLaunchSnapshot()}>Commit immutable launch composite</button>{pkg.thumbnail.launch_variant_revisions.map((launch) => <div key={`${launch.launch_variant_id}:${launch.revision}`}>Revision {launch.revision} · {launch.status} · {launch.snapshot.content_hash.slice(0, 12)}</div>)}</section></> : null}
+      </div>
+    </details>
   </div>;
 }

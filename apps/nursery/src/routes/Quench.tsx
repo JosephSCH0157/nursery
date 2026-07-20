@@ -10,7 +10,6 @@ import {
   type QuenchMockReleaseCase,
   type QuenchPlatform,
   type QuenchReleaseReadinessVerdict,
-  type ReleasePacket,
   type ReleaseMode,
   type ReleaseReadinessCheckKey,
   type ResolvedAsset,
@@ -162,71 +161,6 @@ function normalizePreparedReleasePackage(value: unknown): HammerPreparedReleaseP
   if (!readString(row.workpieceId)) return null;
   if (!readString(row.preparedAt)) return null;
   return row as unknown as HammerPreparedReleasePackage;
-}
-
-function buildPreparedReleaseCase(args: {
-  shellWorkspaceId: string | null;
-  pkg: HammerPreparedReleasePackage;
-  packagePath: string;
-}): QuenchMockReleaseCase {
-  const workspaceId = args.pkg.workspaceId ?? args.shellWorkspaceId ?? "";
-  const workpieceId = args.pkg.workpieceId;
-  const identityFingerprint = buildPreparedPackageIdentityFingerprint(args.pkg);
-  const caseId = `handoff_prepared_${workpieceId}_${identityFingerprint.slice(-8)}`;
-  const audioExportId = args.pkg.media.status === "ready"
-    ? (args.pkg.media.sourceMediaId ?? `prepared_audio_${identityFingerprint.slice(-8)}`)
-    : null;
-  const audioUri = args.pkg.media.sourceMediaId
-    ? `workpiece-media://${workpieceId}/${args.pkg.media.sourceMediaId}`
-    : `workpiece://${workpieceId}/${args.packagePath}`;
-  const packet: ReleasePacket = {
-    release_packet_id: `release_packet_${caseId}`,
-    workspace_id: workspaceId,
-    workpiece_id: workpieceId,
-    episode_id: workpieceId,
-    title: `Hammer prepared package ${workpieceId.slice(0, 8)}`,
-    description: `Prepared at ${args.pkg.preparedAt} with package status ${args.pkg.overallStatus}.`,
-    tags: ["hammer-prepared", "quench-handoff"],
-    thumbnail_asset_id: null,
-    video_export_id: null,
-    audio_export_id: audioExportId,
-    shorts: [],
-    asset_source: "cloud",
-    rss_ready: args.pkg.subtitles.srt.status === "ready" && args.pkg.media.status === "ready",
-    platform_overrides: {},
-    seo_metadata: {
-      transcript_asset_id: args.pkg.transcript.revisionId,
-      canonical_slug: `prepared-${workpieceId.slice(0, 8)}`,
-      keywords: ["prepared package", "hammer handoff"],
-    },
-  };
-
-  return {
-    case_id: caseId,
-    label: "Hammer Prepared Handoff",
-    summary: `Loaded from ${args.packagePath} (${args.pkg.overallStatus})`,
-    packet,
-    resolved_assets: {
-      ...(audioExportId
-        ? {
-          audio: {
-            asset_id: audioExportId,
-            kind: "audio",
-            source: "cloud",
-            uri: audioUri,
-            mime_type: "audio/mpeg",
-            duration_sec: typeof args.pkg.media.durationMs === "number"
-              ? Math.max(0, Math.round(args.pkg.media.durationMs / 1000))
-              : undefined,
-            accessible: true,
-          },
-        }
-        : {}),
-      shorts: [],
-    },
-    default_platforms: [],
-    default_publish_options: {},
-  };
 }
 
 function buildCanonicalReleaseCase(projection:QuenchCanonicalReleaseProjection):QuenchReleaseConsoleCase{
