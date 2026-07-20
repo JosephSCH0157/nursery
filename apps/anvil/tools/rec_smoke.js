@@ -142,7 +142,7 @@ Run with: node tools/rec_smoke.js
   }
   // 9) Teardown idempotent
   try {
-    const mod = await import('../recorders.js');
+    const mod = await import('../dist/recorders.js');
     try { await mod.teardownRecorders?.(); } catch {}
     try { await mod.teardownRecorders?.(); } catch {}
     pass('rec: teardown idempotent');
@@ -151,7 +151,7 @@ Run with: node tools/rec_smoke.js
   }
 })().finally(async () => {
   try {
-    const mod = await import('../recorders.js');
+    const mod = await import('../dist/recorders.js');
     try { await mod.teardownRecorders?.(); } catch {}
   } catch {}
   try { window.__recorder?.__finalizeForTests?.(); } catch {}

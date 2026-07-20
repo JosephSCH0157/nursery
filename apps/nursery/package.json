@@ -13,6 +13,7 @@
     "prebuild": "pnpm sync:anvil && pnpm gen:forge-nav && pnpm --filter @forge/shared build",
     "build": "tsc -b && node scripts/run-vite.mjs build --configLoader runner && node scripts/verify-hearth-bundle-budget.mjs",
     "verify:hearth-bundle": "node scripts/verify-hearth-bundle-budget.mjs",
+    "prebuild:hammer-integration": "pnpm --filter @forge/shared build && pnpm --filter @forge/tongs build",
     "build:hammer-integration": "tsc -p tsconfig.hammer-integration.json --noEmit && vite build --config vite.hammer.config.ts --configLoader runner && node scripts/verify-hammer-production-build.mjs",
     "types": "pnpm typecheck",
     "typecheck": "tsc -p tsconfig.json --noEmit",
