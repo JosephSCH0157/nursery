@@ -279,8 +279,8 @@ function getVerdictSummary(verdict: QuenchReleaseReadinessVerdict): string {
 }
 
 function QuenchCandidatePreview({workpieceId,path,mimeType,ordinal}:{workpieceId:string;path?:string;mimeType?:string;ordinal:number}){
-  const [src,setSrc]=useState<string|null>(null);useEffect(()=>{let cancelled=false;if(!path){setSrc(null);return;}void(async()=>{try{const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(path)}&encoding=base64`,{method:"GET"});const payload=await response.json() as {data?:{bytes_base64?:string;content_type?:string}};if(!cancelled&&response.ok&&payload.data?.bytes_base64)setSrc(`data:${payload.data.content_type??mimeType??"image/png"};base64,${payload.data.bytes_base64}`);}catch{if(!cancelled)setSrc(null);}})();return()=>{cancelled=true;};},[mimeType,path,workpieceId]);
-  return src?<img src={src} alt={`Canonical thumbnail candidate ${ordinal}`} style={{width:"100%",aspectRatio:"16 / 9",objectFit:"cover",borderRadius:"0.4rem"}}/>:<div className="quench-console__empty-note">Verified preview unavailable.</div>;
+  const [preview,setPreview]=useState<{path:string;src:string}|null>(null);useEffect(()=>{let cancelled=false;if(!path)return;void(async()=>{try{const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(path)}&encoding=base64`,{method:"GET"});const payload=await response.json() as {data?:{bytes_base64?:string;content_type?:string}};if(!cancelled&&response.ok&&payload.data?.bytes_base64)setPreview({path,src:`data:${payload.data.content_type??mimeType??"image/png"};base64,${payload.data.bytes_base64}`});}catch{if(!cancelled)setPreview(null);}})();return()=>{cancelled=true;};},[mimeType,path,workpieceId]);
+  const src=path&&preview?.path===path?preview.src:null;return src?<img src={src} alt={`Canonical thumbnail candidate ${ordinal}`} style={{width:"100%",aspectRatio:"16 / 9",objectFit:"cover",borderRadius:"0.4rem"}}/>:<div className="quench-console__empty-note">Verified preview unavailable.</div>;
 }
 
 export default function QuenchRoute() {

@@ -71,6 +71,7 @@ export async function projectThumbnailCreativeFeatures(args: { workspaceId: stri
 export async function appendHistoricalThumbnailObservation(args: Omit<ThumbnailHistoricalObservation, "schema_version" | "identity" | "analysis_version" | "created_at" | "content_hash"> & { workspaceId: string }): Promise<ThumbnailHistoricalObservation> {
   const createdAt = new Date().toISOString();
   const { workspaceId, ...observationInput } = args;
+  void workspaceId;
   const basis = { ...observationInput, analysisVersion: THUMBNAIL_ANALYSIS_VERSION };
   const identity = await contentHash(basis);
   const observation: ThumbnailHistoricalObservation = { schema_version: THUMBNAIL_LEDGER_SCHEMA_VERSION, identity, workspace_id: args.workspaceId,

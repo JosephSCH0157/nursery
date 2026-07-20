@@ -101,7 +101,9 @@ async function buildBarstockSnapshot(workspaceId: string, reason: MirrorReason, 
   const { data } = await supabase.auth.getSession();
   const userId = data.session?.user.id;
   if (!userId) throw new Error("Authentication is required to mirror canonical Bar-Stock data.");
-  const canonical = await createSupabaseBarStockRepository(supabase as any).hydrateWorkspace({ workspaceId, userId });
+  const canonical = await createSupabaseBarStockRepository(
+    supabase as Parameters<typeof createSupabaseBarStockRepository>[0],
+  ).hydrateWorkspace({ workspaceId, userId });
   return {
     version: "barstock_snapshot_v1",
     mirroredAt: new Date().toISOString(),

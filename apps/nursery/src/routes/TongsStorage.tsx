@@ -1024,12 +1024,9 @@ export default function TongsStorage() {
   const activeWorkpieceSummary = workpieceId
     ? workspaceEpisodes.find((episode) => episode.id === workpieceId) ?? null
     : null;
-  const archivedEpisodes = useMemo(
-    () => workspaceEpisodes
-      .filter((episode) => episode.archived_at && !isDeletedWorkpieceSummary(episode))
-      .sort((left, right) => (right.updated_at ?? "").localeCompare(left.updated_at ?? "")),
-    [workspaceEpisodes],
-  );
+  const archivedEpisodes = workspaceEpisodes
+    .filter((episode) => episode.archived_at && !isDeletedWorkpieceSummary(episode))
+    .sort((left, right) => (right.updated_at ?? "").localeCompare(left.updated_at ?? ""));
   const workpieceArchiveStatusLabel = !workpieceId
     ? "No workpiece selected"
     : activeWorkpieceSummary?.archived_at

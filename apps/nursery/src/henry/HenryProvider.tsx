@@ -186,6 +186,8 @@ export function HenryProvider({ children }: { children: ReactNode }) {
       mode: henryMode,
       suggestion: deterministicSuggestion,
       history: {
+        // The suppression contract compares against the observation time, not render identity.
+        // eslint-disable-next-line react-hooks/purity
         nowMs: Date.now(),
         explicitUserInvocation: false,
         userIsTyping: suppression.reasons.includes("typing-focus"),
