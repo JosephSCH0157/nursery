@@ -2,9 +2,9 @@ import type { MountRole } from "@forge/tongs";
 import { resolveMount } from "@forge/tongs";
 import { loadMountRegistry } from "./mount-registry";
 import { getHandle } from "./handle-vault";
-import { loadSparks } from "@barstock/lib/store";
-import { loadAssignments } from "@barstock/lib/assignments";
 import { buildExportPayload } from "@barstock/lib/io";
+import { createSupabaseBarStockRepository } from "@barstock/lib/bar-stock-repository";
+import { supabase } from "./supabase";
 
 export type MirrorReason = "manual" | "session_end";
 
@@ -97,9 +97,13 @@ async function writeJson(
   await writable.close();
 }
 
-function buildBarstockSnapshot(workspaceId: string, reason: MirrorReason, meta?: Record<string, unknown>) {
-  const sparks = loadSparks();
-  const assignments = loadAssignments();
+async function buildBarstockSnapshot(workspaceId: string, reason: MirrorReason, meta?: Record<string, unknown>) {
+  const { data } = await supabase.auth.getSession();
+  const userId = data.session?.user.id;
+  if (!userId) throw new Error("Authentication is required to mirror canonical Bar-Stock data.");
+  const canonical = await createSupabaseBarStockRepository(
+    supabase as Parameters<typeof createSupabaseBarStockRepository>[0],
+  ).hydrateWorkspace({ workspaceId, userId });
   return {
     version: "barstock_snapshot_v1",
     mirroredAt: new Date().toISOString(),
@@ -107,9 +111,9 @@ function buildBarstockSnapshot(workspaceId: string, reason: MirrorReason, meta?:
     role: "barstock",
     reason,
     meta,
-    data: buildExportPayload(sparks),
-    assignments,
-    sessions: assignments,
+    data: buildExportPayload(canonical.sparks),
+    assignments: canonical.assignments,
+    sessions: canonical.assignments,
   };
 }
 
@@ -361,13 +365,19 @@ export async function mirrorRoleSnapshot(
 
   let payload: unknown;
   let latestName = "latest.json";
-  if (role === "barstock") {
-    payload = buildBarstockSnapshot(workspaceId, reason, meta);
-  } else if (role === "scripts") {
-    payload = buildScriptsSnapshot(workspaceId, reason, meta);
-    latestName = "scripts-latest.json";
-  } else {
-    const error = `Mirroring not implemented for role: ${role}.`;
+  try {
+    if (role === "barstock") {
+      payload = await buildBarstockSnapshot(workspaceId, reason, meta);
+    } else if (role === "scripts") {
+      payload = buildScriptsSnapshot(workspaceId, reason, meta);
+      latestName = "scripts-latest.json";
+    } else {
+      const error = `Mirroring not implemented for role: ${role}.`;
+      saveLastMirrorStatus({ ...baseStatus, ok: false, error });
+      return { ok: false, error };
+    }
+  } catch (err) {
+    const error = err instanceof Error ? err.message : "Canonical mirror snapshot failed.";
     saveLastMirrorStatus({ ...baseStatus, ok: false, error });
     return { ok: false, error };
   }

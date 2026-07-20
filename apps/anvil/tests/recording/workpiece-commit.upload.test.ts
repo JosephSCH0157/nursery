@@ -1,9 +1,13 @@
+export {};
+
 jest.mock('../../src/forge/tongs-user-auth', () => ({
   appendForgeUserAuthorization: async (headers?: Headers) => headers ?? new Headers(),
 }));
 
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 const WORKPIECE_ID = "22222222-2222-4222-8222-222222222222";
+const MEDIA_HASH = "a".repeat(64);
+const canonicalCommitData = (path: string) => ({ workpiece_id: WORKPIECE_ID, path, hash: MEDIA_HASH, file_row: { revision: 1 } });
 
 function jsonResponse(status: number, body: unknown): Response {
   const raw = JSON.stringify(body);
@@ -38,7 +42,7 @@ describe('workpiece recording upload strategy', () => {
 
     (global as any).fetch = jest.fn(async (url: string) => {
       if (url.includes('/commit-file')) {
-        return jsonResponse(200, { ok: true, data: { ok: true } });
+        return jsonResponse(200, { ok: true, data: canonicalCommitData('recordings/Florida_Oranges.webm') });
       }
       throw new Error(`unexpected fetch url: ${url}`);
     });
@@ -179,7 +183,7 @@ describe('workpiece recording upload strategy', () => {
         }
         if (url.includes('/recording-upload/') && url.endsWith('/finalize')) {
           finalizeCalls += 1;
-          return jsonResponse(200, { ok: true, data: { workpiece_id: WORKPIECE_ID, path: 'recordings/ok.webm' } });
+          return jsonResponse(200, { ok: true, data: canonicalCommitData('recordings/ok.webm') });
         }
         throw new Error(`unexpected fetch url: ${url}`);
       });
@@ -231,7 +235,7 @@ describe('workpiece recording upload strategy', () => {
         return jsonResponse(200, { ok: true, data: { index: 0 } });
       }
       if (url.includes('/recording-upload/') && url.endsWith('/finalize')) {
-        return jsonResponse(200, { ok: true, data: { workpiece_id: WORKPIECE_ID, path: 'recordings/florida.webm' } });
+        return jsonResponse(200, { ok: true, data: canonicalCommitData('recordings/florida.webm') });
       }
       throw new Error(`unexpected fetch url: ${url}`);
     });

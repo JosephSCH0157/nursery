@@ -3,6 +3,7 @@ import test from "node:test";
 import { validateScriptTags } from "@forge/shared/script-tags";
 import { buildHearthApprovedScriptReplacement } from "../src/lib/hearth-script-approval";
 import { shapeHearthScriptForRecording } from "../src/lib/hearth-recording-ready-script";
+import { normalizeHearthAiScriptIngress } from "../src/lib/hearth-script-tag-policy";
 import { evaluateHearthScriptValidation } from "../src/lib/hearth-script-tag-policy";
 import type { Draft } from "../src/domain/draft";
 
@@ -151,7 +152,7 @@ test("shapeHearthScriptForRecording keeps pause gaps tight for Anvil scroll", ()
   assert.ok(pauseLines.length <= 2);
 });
 
-test("shapeHearthScriptForRecording merges tiny blocks and reduces beat overuse", () => {
+test("shapeHearthScriptForRecording merges tiny blocks without inventing or dropping cues", () => {
   const noisy = [
     "[s1]",
     "Exactly.",
@@ -182,8 +183,80 @@ test("shapeHearthScriptForRecording merges tiny blocks and reduces beat overuse"
   const shaped = shapeHearthScriptForRecording(noisy);
   assert.equal(validateScriptTags(shaped).ok, true);
   assert.ok(countSpeakerBlocks(shaped, "s1") < countSpeakerBlocks(noisy, "s1"));
-  assert.ok(countPacingTags(shaped) <= 2);
+  assert.equal(countPacingTags(shaped), countPacingTags(noisy));
   assertMaxBlankRun(shaped, 1);
+});
+
+test("shapeHearthScriptForRecording removes width wrapping while preserving canonical tokens", () => {
+  const wrapped = [
+    "[s1]",
+    "Driving through northern Orlando on Orange Blossom Trail used to smell",
+    "amazing.",
+    "Not “that’s nice” amazing.",
+    "Dr. A. J. Rivera measured 15.5 boxes in the U.S. report... then paused.",
+    "It landed right on the tip of your tongue, like your brain was",
+    "half-convinced you were tasting something.",
+    "[reflective pause]",
+    "[/s1]",
+    "",
+    "[s1]",
+    "It adapted.",
+    "They replanted.",
+    "[note]",
+    "Keep this exact note — including punctuation.",
+    "[/note]",
+    "They rebuilt.",
+    "[/s1]",
+  ].join("\n");
+
+  const shaped = shapeHearthScriptForRecording(wrapped);
+  const shapedAgain = shapeHearthScriptForRecording(shaped);
+  const orderedCanonicalTokens = (value: string) => (value.match(/\S+/g) ?? [])
+    .filter((token) => !/^\[\/?(?:s1|s2|g1|g2)\]$/i.test(token));
+
+  assert.equal(shapedAgain, shaped);
+  assert.deepEqual(orderedCanonicalTokens(shaped), orderedCanonicalTokens(wrapped));
+  assert.match(shaped, /^Driving through northern Orlando on Orange Blossom Trail used to smell amazing\.$/m);
+  assert.match(shaped, /^It landed right on the tip of your tongue, like your brain was half-convinced you were tasting something\.$/m);
+  assert.match(shaped, /^Dr\. A\. J\. Rivera measured 15\.5 boxes in the U\.S\. report\.\.\. then paused\.$/m);
+  assert.match(shaped, /^Not “that’s nice” amazing\.$/m);
+  assert.match(shaped, /^\[reflective pause\]$/m);
+  assert.match(shaped, /^Keep this exact note — including punctuation\.$/m);
+  assert.match(shaped, /^It adapted\.$/m);
+  assert.match(shaped, /^They replanted\.$/m);
+  assert.match(shaped, /^They rebuilt\.$/m);
+
+  const differentlyWrapped = wrapped
+    .replace(
+      "Driving through northern Orlando on Orange Blossom Trail used to smell\namazing.",
+      "Driving through northern Orlando on Orange\nBlossom Trail used to smell amazing.",
+    )
+    .replace(
+      "It landed right on the tip of your tongue, like your brain was\nhalf-convinced you were tasting something.",
+      "It landed right on the tip of your tongue,\nlike your brain was half-convinced you were tasting something.",
+    );
+  assert.equal(shapeHearthScriptForRecording(differentlyWrapped), shaped);
+
+  const ingress = normalizeHearthAiScriptIngress(wrapped);
+  const approval = buildHearthApprovedScriptReplacement({
+    draft: makeDraft(ingress.text),
+    evaluateScriptValidation: evaluateHearthScriptValidation,
+    buildPersistedValidationMeta: (validation) => ({
+      ok: validation.ok,
+      issueCount: validation.issues.length,
+      issues: validation.issues,
+      validatedAt: "2026-07-14T00:00:00.000Z",
+      validatorVersion: "test",
+    }),
+  });
+  assert.equal(ingress.text.trimEnd(), shaped);
+  assert.equal(approval.scriptText, ingress.text);
+
+  const speakableLines = shaped.split(/\r?\n/).filter((line) => {
+    const trimmed = line.trim();
+    return Boolean(trimmed) && !/^\[.*\]$/.test(trimmed);
+  });
+  assert.equal(speakableLines.length, 8);
 });
 
 test("shapeHearthScriptForRecording groups rapid-fire short lines for Anvil tracking", () => {

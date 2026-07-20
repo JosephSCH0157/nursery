@@ -46,6 +46,9 @@ type ReadyScriptApiRow = {
   queue_rank?: unknown;
   hidden_at?: unknown;
   hidden_by?: unknown;
+  script_revision?: unknown;
+  script_hash?: unknown;
+  transition_id?: unknown;
 };
 
 type WrittenBy = {
@@ -72,6 +75,9 @@ export type HearthReadyScript = {
   queueRank: number | null;
   hiddenAt: string | null;
   hiddenBy: string | null;
+  scriptRevision: number;
+  scriptHash: string;
+  transitionId: string;
 };
 
 export type HearthReadyQueueStateEntry = {
@@ -345,6 +351,15 @@ function parseReadyScriptsPayload(payload: unknown, workspaceId: string): Hearth
       droppedStats.missingTitle += 1;
       continue;
     }
+    const scriptRevision = typeof item.script_revision === "number" && Number.isInteger(item.script_revision) && item.script_revision > 0
+      ? item.script_revision
+      : null;
+    const scriptHash = readString(item.script_hash)?.toLowerCase() ?? null;
+    const transitionId = normalizeUuid(item.transition_id);
+    if (!scriptRevision || !scriptHash || !/^[0-9a-f]{64}$/.test(scriptHash) || !transitionId) {
+      droppedStats.invalidIdentity += 1;
+      continue;
+    }
     const normalizedScriptPaths = sortScriptPaths(scriptPaths.length
       ? (scriptPaths.includes(path) ? scriptPaths : [path, ...scriptPaths])
       : [path]);
@@ -363,6 +378,9 @@ function parseReadyScriptsPayload(payload: unknown, workspaceId: string): Hearth
       queueRank: normalizeQueueRank(item.queue_rank),
       hiddenAt: normalizeIso(item.hidden_at),
       hiddenBy: normalizeUuid(item.hidden_by),
+      scriptRevision,
+      scriptHash,
+      transitionId,
     };
 
     const existingIndex = byWorkpieceId.get(workpieceId);

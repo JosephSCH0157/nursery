@@ -8,7 +8,10 @@
     "paths": {
       "@forge/bellows": ["../bellows/dist/index.d.ts"],
       "@forge/shared": ["../../packages/shared/index.ts"],
-      "@forge/shared/*": ["../../packages/shared/*/index.ts"],
+      "@forge/shared/*": [
+        "../../packages/shared/*.ts",
+        "../../packages/shared/*/index.ts"
+      ],
       "@forge/quench": ["../quench/src/index.ts"],
       "@barstock/*": ["../bar-stock/src/*"],
       "@hearth/*": ["../hearth/src/*"],

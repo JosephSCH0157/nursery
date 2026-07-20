@@ -32,6 +32,7 @@ Guardrails:
 - Do not hide source/tool/timeline regions during normal editing.
 */
 .hammer-workspace-shell {
+  font-size: 16px;
   --hammer-shell-toolbar-width: 72px;
   --hammer-shell-left-min-width: 320px;
   --hammer-shell-right-min-width: 300px;

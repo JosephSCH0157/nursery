@@ -39,7 +39,17 @@ import {
   type HearthResearchSource,
 } from "../../../hearth/src/lib/hearth-research-contract";
 import { shapeHearthScriptForRecording } from "../../../hearth/src/lib/hearth-recording-ready-script";
-import { createHearthResearchRuntime, extractUrlToResearchSource } from "./hearth-research-runtime";
+import {
+  canonicalizeHearthProductionArtifactOutput,
+  validateHearthProductionArtifactOutput,
+} from "../../../hearth/src/lib/hearth-production-feedback";
+import {
+  createHearthResearchRuntime,
+  classifyResearchSourceAuthority,
+  extractUrlToResearchSource,
+  getHearthEvidenceLedger,
+  type HearthEvidenceFinding,
+} from "./hearth-research-runtime";
 import {
   FORGE_ALLOWED_CHAT_MODELS,
 } from "./ai-pricing";
@@ -95,6 +105,52 @@ type WritingProfile = {
   updatedAt: string | null;
 };
 
+export type HearthConversationClaimSnapshot = {
+  workspaceId: string | null;
+  workpieceId: string;
+  runIdentity: string;
+  refinementIdentity: string | null;
+  findings: Array<Pick<HearthEvidenceFinding, "findingId" | "normalizedClaim" | "supportingSourceIds" | "state" | "uncertainty">>;
+};
+
+export class HearthConversationResearchState {
+  private readonly claimsByScope = new Map<string, HearthConversationClaimSnapshot>();
+  private readonly activeScopeByActor = new Map<string, string>();
+
+  private scopeKey(actorId: string, workspaceId: string | null, workpieceId: string): string {
+    return `${actorId}:${workspaceId ?? "no-workspace"}:${workpieceId}`;
+  }
+
+  activate(actorId: string, workspaceId: string | null, workpieceId: string): void {
+    const next = this.scopeKey(actorId, workspaceId, workpieceId);
+    const prior = this.activeScopeByActor.get(actorId);
+    if (prior && prior !== next) this.claimsByScope.delete(prior);
+    this.activeScopeByActor.set(actorId, next);
+  }
+
+  replace(actorId: string, result: HearthResearchResult): void {
+    const ledger = getHearthEvidenceLedger(result);
+    if (!ledger) return;
+    this.claimsByScope.set(this.scopeKey(actorId, ledger.workspaceId, ledger.workpieceId), {
+      workspaceId: ledger.workspaceId,
+      workpieceId: ledger.workpieceId,
+      runIdentity: ledger.runIdentity,
+      refinementIdentity: ledger.refinementIdentity,
+      findings: ledger.findings.map(({ findingId, normalizedClaim, supportingSourceIds, state, uncertainty }) => ({
+        findingId, normalizedClaim, supportingSourceIds: [...supportingSourceIds], state, uncertainty,
+      })),
+    });
+  }
+
+  get(workspaceId: string | null, workpieceId: string, actorId = "anonymous"): HearthConversationClaimSnapshot | null {
+    return this.claimsByScope.get(this.scopeKey(actorId, workspaceId, workpieceId)) ?? null;
+  }
+
+  clear(workspaceId: string | null, workpieceId: string, actorId = "anonymous"): void {
+    this.claimsByScope.delete(this.scopeKey(actorId, workspaceId, workpieceId));
+  }
+}
+
 type StyleSample = {
   sampleId: string;
   sourceKind: string;
@@ -134,6 +190,8 @@ type ReqBody = {
   lane?: unknown;
   action_id?: unknown;
   attachment_context?: unknown;
+  production_action?: unknown;
+  production_script_version?: unknown;
 };
 
 type AttachmentContextRequest = {
@@ -181,7 +239,6 @@ const RISK_NUDGE_RE = /\b(risk|risky|legal|defamation|liability|compliance|sensi
 const RECORD_ANYWAY_RE = /\b(record anyway|record now anyway|ok to record anyway|okay to record anyway|go ahead and record)\b/i;
 const CDC_REQUEST_RE = /\b(cdc|contextual data composite|chart|graph|plot|dataset|bar chart|line chart|pie chart)\b/i;
 const RESEARCH_INTENT_RE = /\b(browse|look up|lookup|find(?: me)?|search|research|retrieval|web research|live research|live web research|news|reports?|reporting|examples?|case studies?|incidents?|breach(?:es)?|source|sources|citations?|evidence)\b/i;
-const GENERIC_EPISODE_SOURCE_RE = /\b(source|sources|citation|citations|cite|cites|evidence|receipts)\b[\s\S]{0,80}\b(this episode|the episode|episode|show|script|draft)\b|\b(this episode|the episode|episode|show|script|draft)\b[\s\S]{0,80}\b(source|sources|citation|citations|cite|cites|evidence|receipts)\b/i;
 const URL_RE = /\bhttps?:\/\/[^\s<>"'`]+/gi;
 const CROSS_PROJECT_REFERENCE_RE = /\b(use|pull in|bring in|remember|recall|like|from)\b[\s\S]{0,120}\b(script|episode|project|conversation|workspace|last week|other chat|that)\b/i;
 const OPINION_DISCUSSION_RE = /\b(my interpretation is|i think this means|i think\b|what do you think|am i reading this right|does this argument work|does this framing work|help me pressure[- ]?test|pressure[- ]?test this|i disagree|here is my opinion|my opinion is)\b/i;
@@ -551,16 +608,50 @@ function stripResearchContextMarkup(input: string): string {
     .replace(URL_RE, " "));
 }
 
-function buildEpisodeContextResearchQuery(args: {
+const RESEARCH_SCAFFOLDING_PATTERNS: RegExp[] = [
+  /\bdraft intro goes here\.?\b/gi,
+  /\buntitled(?: episode| script| draft)?\b/gi,
+  /\b(?:start|add|write|enter) (?:your |the )?(?:intro|introduction|script|draft|section|content) (?:here|text here)\.?\b/gi,
+  /\bempty (?:intro|section|script|draft)\b/gi,
+  /\b(?:intro|introduction|section) placeholder\b/gi,
+];
+
+function stripResearchScaffolding(input: string): string {
+  let cleaned = stripResearchContextMarkup(input);
+  for (const pattern of RESEARCH_SCAFFOLDING_PATTERNS) {
+    cleaned = cleaned.replace(pattern, " ");
+  }
+  return condenseWhitespace(cleaned);
+}
+
+function selectResearchSourceFamilies(topic: string): string[] {
+  const normalized = topic.toLowerCase();
+  const isFloridaTopic = /\bflorida\b/.test(normalized);
+  const isCitrusOrAgricultureTopic = /\b(citrus|orange|grove|greening|huanglongbing|agriculture)\b/.test(normalized);
+  if (isFloridaTopic && isCitrusOrAgricultureTopic) {
+    return ["FDACS", "USDA NASS", "UF IFAS"];
+  }
+  if (isCitrusOrAgricultureTopic) {
+    return ["USDA NASS", "UF IFAS"];
+  }
+  if (/\b(congress|congressional|federal legislation|legislative|oversight|appropriation|accountability|lobbying disclosure|gao|crs)\b/.test(normalized)) {
+    return ["CRS", "GAO"];
+  }
+  if (/\b(health|disease|epidemic|public health|mortality|vaccine)\b/.test(normalized)) {
+    return ["CDC", "NIH"];
+  }
+  return [];
+}
+
+export function buildEpisodeContextResearchQuery(args: {
   requestText: string;
   episodeContext: EpisodeContext;
 }): string | null {
   const requestText = stripHearthInternalRequestInstructions(args.requestText);
-  if (!GENERIC_EPISODE_SOURCE_RE.test(requestText)) return null;
 
   const titleVariants = args.episodeContext.titleVariants ?? { A: "", B: "", C: "" };
+  const cleanTitle = stripResearchScaffolding(args.episodeContext.title);
   const contextParts = [
-    args.episodeContext.title,
     titleVariants.A,
     titleVariants.B,
     titleVariants.C,
@@ -568,13 +659,22 @@ function buildEpisodeContextResearchQuery(args: {
     args.episodeContext.body,
     ...args.episodeContext.sparks.map((spark) => spark.text),
   ];
-  const contextText = stripResearchContextMarkup(contextParts.filter(Boolean).join(" "));
-  if (!contextText || /^test episode$/i.test(contextText)) return null;
+  const contextText = stripResearchScaffolding(contextParts.filter(Boolean).join(" "));
+  const topicContext = condenseWhitespace(`${cleanTitle} ${contextText}`);
+  if (!topicContext || /^test episode$/i.test(topicContext)) return null;
 
-  const contextSnippet = contextText.length > 360
-    ? `${contextText.slice(0, 360).replace(/\s+\S*$/, "")}`
-    : contextText;
-  return condenseWhitespace(`${contextSnippet} primary sources official reports CRS GAO data`);
+  const meaningfulContext = contextText;
+  const contextSnippet = meaningfulContext.length > 360
+    ? `${meaningfulContext.slice(0, 360).replace(/\s+\S*$/, "")}`
+    : meaningfulContext;
+  const sourceFamilies = selectResearchSourceFamilies(`${topicContext} ${requestText}`);
+  return condenseWhitespace([
+    cleanTitle,
+    requestText,
+    contextSnippet,
+    sourceFamilies.join(" "),
+    "primary sources official reports data",
+  ].filter(Boolean).join(" "));
 }
 
 function buildLinkOnlyResearchResult(args: {
@@ -1223,6 +1323,7 @@ function buildSystemPrompt(
     researchMode?: boolean;
     researchRequest?: HearthResearchRequest | null;
     researchResult?: HearthResearchResult | null;
+    conversationResearchClaims?: HearthConversationClaimSnapshot | null;
     attachmentContextSnippet?: string | null;
   },
 ): string {
@@ -1331,6 +1432,9 @@ function buildSystemPrompt(
     "- Be opinionated when useful: clearly call out weak, muddy, repetitive, or off-tone writing.",
     "- Preserve user agency: suggest strongly, but keep ownership with the user.",
     "- Preserve user voice: illuminate and sharpen, do not hijack or overwrite their intent.",
+    "- Editorial honesty: never present a fictional, composite, or representative scene as the narrator's literal personal memory.",
+    "- Use first-person memory framing such as 'I remember' only when the user explicitly supplied that lived memory.",
+    "- For constructed scenes, use transparent documentary framing such as 'Picture a grove manager...', 'For growers, greening looks like...', or 'A grower walking those rows might see...'.",
     "- Never pressure the user or imply they must follow your preference.",
     "- Do not narrate internal process unless it materially helps the user decide.",
     "- Ask fewer follow-up questions. Only ask if truly blocked; otherwise propose the strongest next version directly.",
@@ -1496,6 +1600,10 @@ function buildSystemPrompt(
       "- Include verification gaps only as a lightweight follow-up section; do not block delivery on them.",
       "- Prefer fast producer momentum: first pass now, deeper sourcing next.",
       "Evidence hygiene (hard rule):",
+      "- In research mode, treat only facts tied to source IDs and excerpts in the current runtime evidence as verified.",
+      "- Background knowledge may suggest searches or unverified leads, but must never enter verified findings or references.",
+      "- Do not name or recommend an institution as a reference unless that source was actually retrieved; put unretrieved suggestions under Sources to look for next.",
+      "- Separate verified findings, evidence limits, safe script wording, and unverified leads. Never bridge missing evidence with confident prose.",
       "- Do not imply you 'watched' a video; you may only cite metadata, description, and transcript/captions if present.",
       "- If a YouTube source has transcriptAvailable=true, say 'Based on video metadata and captions'. If transcriptAvailable=false, say 'Based on video metadata only'.",
       "- Numeric impact claims require corroboration (prefer primary sources) before graduating into script fact.",
@@ -1521,6 +1629,13 @@ function buildSystemPrompt(
       baseLines.push(
         "Canonical research runtime result:",
         JSON.stringify(options.researchResult),
+      );
+    }
+    if (options.conversationResearchClaims) {
+      baseLines.push(
+        "Active workpiece research claim state (ephemeral authority for later editorial guidance):",
+        JSON.stringify(options.conversationResearchClaims),
+        "Preserve each claim's support distinction. Never promote partial, unverified, or contradicted claims into established script facts.",
       );
     }
   }
@@ -1872,6 +1987,10 @@ function fallbackResearchBodyFromResult(result: HearthResearchResult): string {
 
 function sanitizeResearchReplyBody(rawBody: string, result: HearthResearchResult): string {
   const lines = rawBody
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&(?:nbsp|amp|quot|#39);/gi, " ")
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
@@ -1918,11 +2037,11 @@ function buildResearchOutcomeLead(args: {
     .slice(0, 2);
 
   if (args.result.runtimeStatus === "no_results") {
-    return `Research outcome: No strong retrieval results were found for "${query}".`;
+    return "Research outcome: No strong retrieval results were found in this pass.";
   }
 
   if (args.result.runtimeStatus === "error" || args.result.mode === "knowledge_first") {
-    return `Research outcome: Live retrieval was unavailable in this run, so this answer is a knowledge-first fallback for "${query}".`;
+    return "Research outcome: Live retrieval was unavailable in this run, so this answer is a knowledge-first fallback.";
   }
 
   if (args.result.mode === "partial_retrieval" || args.result.runtimeStatus === "partial") {
@@ -1932,7 +2051,10 @@ function buildResearchOutcomeLead(args: {
     const findingsLine = keyPoints.length
       ? `Recovered findings: ${keyPoints.join(" ")}`
       : "Recovered findings are limited in this pass.";
-    return `Research outcome: Retrieval was partial for "${query}". ${artifactLine} ${findingsLine}`;
+    const unsupportedLine = args.result.synthesis.uncertainties.length
+      ? `Coverage remains incomplete: ${args.result.synthesis.uncertainties.slice(0, 2).join(" ")}`
+      : "Coverage remains incomplete; unsupported claims still need verification.";
+    return `Research outcome: Retrieval was partial. ${artifactLine} ${findingsLine} ${unsupportedLine}`;
   }
 
   const artifactLine = topArtifacts.length
@@ -1949,11 +2071,137 @@ function buildResearchOutcomeLead(args: {
     : `Research outcome: Retrieval found sources for "${query}". ${artifactLine} ${findingsLine}`;
 }
 
-function enforceResearchOutcomeReply(args: {
+const EPISODE_CLAIM_AREAS = [
+  { id: "historic production scale", pattern: /\b(production|boxes|acreage|industry|economic)\b/i },
+  { id: "Great Freeze chronology and movement south", pattern: /\b(great freeze|freeze of|moved south|movement south)\b/i },
+  { id: "development pressure and acreage loss", pattern: /\b(development|land conversion|acreage loss|urbanization)\b/i },
+  { id: "hurricane impacts", pattern: /\b(hurricane|storm damage)\b/i },
+  { id: "citrus greening / HLB", pattern: /\b(citrus greening|huanglongbing|HLB)\b/i },
+  { id: "production decline", pattern: /\b(production decline|declined|collapse|falling production)\b/i },
+  { id: "current research and recovery", pattern: /\b(research|recovery|treatment|resistant|resilience)\b/i },
+  { id: "tangelo or cultivar history", pattern: /\b(tangelo|cultivar|Minneola|Orlando|Seminole|Honeybell)\b/i },
+  { id: "cultural and landscape context", pattern: /\b(cultural|landscape|heritage|community|tourism)\b/i },
+] as const;
+
+function cleanResearchPresentationText(input: string | null | undefined): string {
+  return condenseWhitespace(String(input ?? "")
+    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&(?:nbsp|amp|quot|#39);/gi, " ")
+    .replace(URL_RE, " ")
+    .replace(/\b(?:subscribe|sign up|share this|cookie policy|privacy policy|skip to content|navigation|read more)\b/gi, " "));
+}
+
+function sourceClaimAreas(source: HearthResearchSource): string[] {
+  const text = cleanResearchPresentationText([source.title, source.publisher, source.snippet, source.extractedText].filter(Boolean).join(" "));
+  return EPISODE_CLAIM_AREAS.filter((area) => area.pattern.test(text)).map((area) => area.id);
+}
+
+function authorityLabel(source: HearthResearchSource): string {
+  return classifyResearchSourceAuthority(source).replace(/_/g, " ");
+}
+
+function sourcePublisher(source: HearthResearchSource): string {
+  return cleanResearchPresentationText(source.publisher || source.title || source.domain || "Retrieved source");
+}
+
+function cleanSupportedClaim(finding: HearthEvidenceFinding, sourceById: Map<string, HearthResearchSource>): string {
+  const source = finding.supportingSourceIds.map((id) => sourceById.get(id)).find(Boolean);
+  const publisher = source ? sourcePublisher(source) : "A retrieved source";
+  if (finding.findingId === "tangelo-origin") {
+    if (finding.state === "contradicted") return "Retrieved authoritative sources conflict about named tangelo cultivar origin or development history.";
+    const year = finding.excerpts.map((excerpt) => excerpt.text.match(/\b(?:18|19|20)\d{2}\b/)?.[0]).find(Boolean);
+    return `${publisher} documents named tangelo cultivar origin, development, or release history${year ? `, including a retrieved date of ${year}` : ""}.`;
+  }
+  if (finding.findingId === "tangelo-cold-tolerance") return `${publisher} documents cold-tolerance characteristics for a tangelo cultivar.`;
+  if (finding.findingId === "tangelo-breeding-motive") return `${publisher} addresses the claimed breeding objective; the evidence must be read with the contradiction noted below.`;
+  const areas = source ? sourceClaimAreas(source) : [];
+  return areas.length
+    ? `${publisher} provides retrieved context for ${areas.slice(0, 3).join(", ")}.`
+    : `${publisher} supplied usable retrieved evidence for this research pass.`;
+}
+
+export function composeGroundedResearchAnswer(result: HearthResearchResult): string | null {
+  const ledger = getHearthEvidenceLedger(result);
+  if (!ledger) return null;
+  const supported = ledger.findings.filter((finding) => finding.state === "supported" || finding.state === "contradicted");
+  const unresolved = ledger.findings.filter((finding) => finding.state === "partially_supported" || finding.state === "unverified_lead");
+  const sourceById = new Map(result.sources.map((source) => [source.sourceId, source]));
+  const references = ledger.referenceSourceIds.map((sourceId) => sourceById.get(sourceId)).filter((source): source is HearthResearchSource => Boolean(source));
+  const sourceRows = result.sources.map((source) => ({ source, areas: sourceClaimAreas(source), authority: classifyResearchSourceAuthority(source) }));
+  const usableRows = sourceRows.filter(({ source, areas }) => source.extractionStatus === "extracted" && areas.length > 0);
+  const referencedIds = new Set(ledger.referenceSourceIds);
+  const coreRows = usableRows.filter(({ source, authority }) => referencedIds.has(source.sourceId) && ["primary_agricultural", "land_grant_university", "government_agricultural", "peer_reviewed"].includes(authority));
+  const secondaryRows = usableRows.filter(({ source, authority }) => referencedIds.has(source.sourceId) && authority === "reputable_secondary");
+  const peripheralRows = sourceRows.filter(({ source, authority, areas }) => source.extractionStatus !== "extracted" || authority === "promotional_or_general" || areas.length === 0);
+  const supportedAreas = new Set(usableRows.flatMap(({ areas }) => areas));
+  const floridaScope = result.sources.some((source) => /\b(florida|citrus|orange|grove|tangelo)\b/i.test(`${source.title ?? ""} ${source.snippet ?? ""} ${source.extractedText ?? ""}`));
+  const missingAreas = floridaScope ? EPISODE_CLAIM_AREAS.map((area) => area.id).filter((area) => !supportedAreas.has(area)) : [];
+  const unusableCount = result.sources.filter((source) => source.extractionStatus !== "extracted").length;
+  const refinementUsed = Boolean(ledger.refinementIdentity);
+  const formatSource = ({ source, areas }: { source: HearthResearchSource; areas: string[] }) => {
+    const publisher = sourcePublisher(source);
+    const title = cleanResearchPresentationText(source.title) || "Untitled retrieved source";
+    const heading = publisher.toLowerCase() === title.toLowerCase() ? publisher : `${publisher} — ${title}`;
+    return [
+    `- ${heading}`,
+    `  Authority: ${authorityLabel(source)}.`,
+    `  Supports: ${areas.join(", ")}.`,
+    `  Why useful: ${areas.length ? `Directly contributes evidence for ${areas.slice(0, 2).join(" and ")}.` : "Peripheral to the episode's central factual needs."}`,
+    `  ${source.canonicalUrl || source.url}`,
+    ].join("\n");
+  };
+  const isTangelo = ledger.findings.some((finding) => finding.findingId.startsWith("tangelo-"));
+  const origin = ledger.findings.find((finding) => finding.findingId === "tangelo-origin");
+  const cold = ledger.findings.find((finding) => finding.findingId === "tangelo-cold-tolerance");
+  const motive = ledger.findings.find((finding) => finding.findingId === "tangelo-breeding-motive");
+  const safeWording = isTangelo
+    ? origin?.state === "supported"
+      ? cold?.state === "supported" && motive?.state !== "supported"
+        ? "Retrieved institutional evidence documents specific tangelo cultivar history and cold-tolerance characteristics, but it does not establish freeze resistance as the original breeding motive."
+        : "Retrieved institutional evidence documents specific tangelo cultivar history; the broader claim that Florida invented the tangelo to solve freezes is not established."
+      : "The retrieved evidence does not establish that Florida invented tangelos to solve freezes."
+    : supported.length
+      ? "Use only the attributed findings above; label broader causal or historical interpretation as editorial inference."
+      : "Treat the proposed claim as unverified until a directly relevant source is retrieved.";
+  return [
+    "Verified findings",
+    supported.length ? supported.map((finding) => `- ${cleanSupportedClaim(finding, sourceById)}`).join("\n") : "- No externally verifiable claim was established by the retrieved evidence in this run.",
+    "What the evidence does not establish",
+    [
+      ...unresolved.map((finding) => `- ${finding.uncertainty || `${finding.normalizedClaim} remains unverified.`}`),
+      ...missingAreas.map((area) => `- Strong coverage is still needed for ${area}.`),
+      ...(unusableCount ? [`- ${unusableCount} retrieved source${unusableCount === 1 ? " was" : "s were"} unusable because extraction was incomplete.`] : []),
+      `- The single refinement attempt ${refinementUsed ? "was used" : "was not needed"} in this run.`,
+    ].join("\n"),
+    "Safe script wording",
+    safeWording,
+    "Leads worth researching further",
+    unresolved.length ? unresolved.map((finding) => `- ${finding.normalizedClaim} — not yet verified from an adequate retrieved source.`).join("\n") : "- None from this pass.",
+    "References",
+    references.length ? references.map((source) => `- ${sourcePublisher(source)}: ${source.canonicalUrl || source.url}`).join("\n") : "- No retrieved source met the support threshold for verified findings.",
+    "Best sources to cite",
+    coreRows.length ? coreRows.map(formatSource).join("\n") : "- No core authoritative source was adequately retrieved.",
+    "Useful secondary context",
+    secondaryRows.length ? secondaryRows.map(formatSource).join("\n") : "- None recommended from this pass.",
+    "Sources retrieved but not recommended",
+    peripheralRows.length ? peripheralRows.map(({ source, authority, areas }) => `- ${sourcePublisher(source)} — ${authority === "promotional_or_general" ? "promotional/general-interest authority" : source.extractionStatus !== "extracted" ? "incomplete extraction" : areas.length === 0 ? "not relevant to a major episode claim" : "peripheral"}.`).join("\n") : "- None.",
+  ].join("\n\n");
+}
+
+export function enforceResearchOutcomeReply(args: {
   assistantText: string;
   request: HearthResearchRequest;
   result: HearthResearchResult;
 }): string {
+  const groundedAnswer = composeGroundedResearchAnswer(args.result);
+  if (groundedAnswer) {
+    const groundedLead = args.result.runtimeStatus === "partial"
+      ? "Research outcome: Retrieval was partial; supported findings and remaining gaps are separated below."
+      : "Research outcome: Retrieved evidence was curated by claim relevance and source authority."
+    return `${groundedLead}\n\n${groundedAnswer}`;
+  }
   const lead = buildResearchOutcomeLead({
     request: args.request,
     result: args.result,
@@ -1990,6 +2238,41 @@ function enforceCrossProjectScopeReply(args: {
   const normalizedBody = body.toLowerCase();
   if (normalizedBody.startsWith(normalizedLead)) return body;
   return `${lead}\n\n${body}`;
+}
+
+const REPRESENTATIVE_SCENE_REQUEST_RE = /\b(representative|composite|fictional|illustrative|constructed)\b[\s\S]{0,100}\b(scene|moment|grower|manager|worker)|\b(?:grower|manager|worker) scene\b/i;
+const SUPPLIED_PERSONAL_MEMORY_RE = /\b(i remember|i recall|when i was|i saw|i watched|i experienced|i used to|this happened to me|my memory)\b/i;
+
+export function enforceHearthEditorialHonesty(args: {
+  assistantText: string;
+  requestText: string;
+}): string {
+  if (!REPRESENTATIVE_SCENE_REQUEST_RE.test(args.requestText)) return args.assistantText;
+  if (SUPPLIED_PERSONAL_MEMORY_RE.test(args.requestText)) return args.assistantText;
+  return args.assistantText
+    .replace(/\bI remember(?:ed)?\b/gi, "Picture the scene:")
+    .replace(/\bframe (?:it|this) as (?:a )?(?:personal )?memory\b/gi, "frame it as a representative scene");
+}
+
+export function enforceConversationalResearchState(args: {
+  assistantText: string;
+  claimState: HearthConversationClaimSnapshot | null;
+}): string {
+  if (!args.claimState) return args.assistantText;
+  const tangeloFindings = args.claimState.findings.filter((finding) => finding.findingId.startsWith("tangelo-"));
+  if (!tangeloFindings.length) return args.assistantText;
+  const unresolved = tangeloFindings.some((finding) => finding.state === "unverified_lead" || finding.state === "partially_supported");
+  const contradicted = tangeloFindings.some((finding) => finding.state === "contradicted");
+  if (!unresolved && !contradicted) return args.assistantText;
+  const cleaned = args.assistantText
+    .split(/(?<=[.!?])\s+/)
+    .filter((sentence) => !/\b(?:Orlando|Seminole|Minneola|Honeybell)\b[\s\S]{0,100}\b(?:Florida-developed|developed in Florida|created in Florida|bred to survive freezes)\b/i.test(sentence))
+    .join(" ")
+    .trim();
+  const qualification = contradicted
+    ? "The retrieved evidence does not support that tangelo framing, so keep it out of the script as fact."
+    : "One tangelo beat could work once we verify the cultivar and exactly what the sources establish; for now it remains an unverified lead.";
+  return cleaned ? `${cleaned}\n\n${qualification}` : qualification;
 }
 
 const FRAMING_PACK_INTERNAL_MARKERS: RegExp[] = [
@@ -2077,6 +2360,7 @@ export function sanitizeHearthUserFacingOutput(input: string): string {
 }
 
 export function createHearthAiHandler(config: HearthRuntimeConfig) {
+  const conversationResearchState = new HearthConversationResearchState();
   const researchApiKey = (
     config.researchApiKey
     || process.env.HEARTH_RESEARCH_API_KEY
@@ -3216,6 +3500,13 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       }
 
       const bodyRaw = (await readJsonBody(request)) as ReqBody;
+      const productionAction = (
+        bodyRaw.production_action === "seo"
+        || bodyRaw.production_action === "tags"
+        || bodyRaw.production_action === "thumbnails"
+        || bodyRaw.production_action === "image_beat_sheet"
+        || bodyRaw.production_action === "release_prep_pack"
+      ) ? bodyRaw.production_action : null;
       const lane: BillingMode = isBillingMode(bodyRaw.lane) ? bodyRaw.lane : configuredBillingMode;
       const bearerToken = readBearerToken(request.headers.get("authorization"));
       const providedChatActionId = readOptionalString(bodyRaw.action_id);
@@ -3241,7 +3532,10 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       const messages = rawMessages
         .map(toChatMessage)
         .filter((item): item is ChatMessage => Boolean(item))
-        .slice(-24);
+        // Production generation is a version-scoped command, not a continuation
+        // of conversational chat. Keeping prior production prompts here can replay
+        // the approved script many times and overflow the upstream context.
+        .slice(productionAction ? -1 : -24);
 
       if (!messages.length) {
         return jsonResponse(400, {
@@ -3259,7 +3553,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...buildBillingSnapshot(lane),
         });
       }
-      const attachmentContext = normalizeAttachmentContextRequest(bodyRaw.attachment_context);
+      const attachmentContext = productionAction
+        ? { includeEpisodeAttachments: false, attachmentIds: [] }
+        : normalizeAttachmentContextRequest(bodyRaw.attachment_context);
 
       const latestUserMessageIndex = [...messages]
         .map((message, index) => ({ message, index }))
@@ -3271,6 +3567,11 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         : null;
       const requestText = latestUserMessage?.content ?? "";
       const userId = await resolveUserId(bearerToken);
+      const researchActorId = userId || (bearerToken ? crypto.createHash("sha256").update(bearerToken).digest("hex") : "anonymous");
+      conversationResearchState.activate(researchActorId, episodeContext.workspaceId, episodeContext.episodeId);
+      if (/\b(?:reset|clear|forget) (?:the )?research context\b/i.test(requestText)) {
+        conversationResearchState.clear(episodeContext.workspaceId, episodeContext.episodeId, researchActorId);
+      }
       const chatFeature = classifyChatFeature(requestText);
       const requestedReasoningEffort = isRecord(bodyRaw.behavior)
         ? readOptionalString((bodyRaw.behavior as Record<string, unknown>).reasoning_effort)
@@ -3499,7 +3800,11 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       const textWithoutUrls = removeUrls(requestText);
       const researchIntentText = stripHearthInternalRequestInstructions(textWithoutUrls || requestText);
       const linkModeRequested = urlsInRequest.length > 0;
-      const researchModeRequested = linkModeRequested || isResearchIntentRequest(researchIntentText || requestText);
+      // Production commands are version-scoped transformations of the approved
+      // script. Words such as "source" in their strict output contract must not
+      // route them through research or prepend a research outcome envelope.
+      const researchModeRequested = !productionAction
+        && (linkModeRequested || isResearchIntentRequest(researchIntentText || requestText));
       const estimatedInputTokens = Math.max(
         1,
         Math.ceil(
@@ -3574,6 +3879,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             summary: "Research runtime failed before synthesis.",
           });
         }
+      }
+      if (researchResult && getHearthEvidenceLedger(researchResult)) {
+        conversationResearchState.replace(researchActorId, researchResult);
       }
       if (researchRequest && researchResult) {
         await recordHearthEventForToken({
@@ -3770,6 +4078,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             researchMode: researchModeRequested,
             researchRequest,
             researchResult,
+            conversationResearchClaims: conversationResearchState.get(episodeContext.workspaceId, episodeContext.episodeId, researchActorId),
             attachmentContextSnippet,
           },
         ),
@@ -3790,16 +4099,17 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const callOpenAi = async (
           currentModel: string,
           allowTemperatureOverride: boolean,
+          messageOverride: ChatMessage[] = completionMessages,
         ): Promise<Response> => {
           const payload = allowTemperatureOverride
             ? {
                 model: currentModel,
                 temperature: requestedTemperature,
-                messages: completionMessages,
+                messages: messageOverride,
               }
             : {
                 model: currentModel,
-                messages: completionMessages,
+                messages: messageOverride,
               };
           return runAIRequest({
             lane: effectiveLane,
@@ -3914,8 +4224,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           }
         }
 
-        const payload = (await upstream.json()) as unknown;
-        const rawReply = extractAssistantReply(payload);
+        let payload = (await upstream.json()) as unknown;
+        let rawReply = extractAssistantReply(payload);
         if (!rawReply) {
           await recordAiUsageEvent({
             userId,
@@ -3948,7 +4258,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           });
         }
 
-        const structured = normalizeStructuredReply(rawReply) ?? {
+        let structured = normalizeStructuredReply(rawReply) ?? {
           assistantText: rawReply,
           ops: [],
           scriptText: null,
@@ -3984,7 +4294,147 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           structured.assistantText = sanitizeFramingPackReply(structured.assistantText);
         }
 
+        structured.assistantText = enforceHearthEditorialHonesty({
+          assistantText: structured.assistantText,
+          requestText: researchIntentText || requestText,
+        });
+        structured.assistantText = enforceConversationalResearchState({
+          assistantText: structured.assistantText,
+          claimState: conversationResearchState.get(episodeContext.workspaceId, episodeContext.episodeId, researchActorId),
+        });
+
         structured.assistantText = sanitizeHearthUserFacingOutput(structured.assistantText);
+
+        if (productionAction === "seo" || productionAction === "tags" || productionAction === "thumbnails") {
+          let productionValidation = validateHearthProductionArtifactOutput({
+            action: productionAction,
+            assistantText: structured.assistantText,
+          });
+          if (!productionValidation.ok) {
+            const recoveredOutput = canonicalizeHearthProductionArtifactOutput({
+              action: productionAction,
+              assistantText: rawReply,
+            });
+            if (recoveredOutput) {
+              structured.assistantText = recoveredOutput;
+              productionValidation = validateHearthProductionArtifactOutput({
+                action: productionAction,
+                assistantText: recoveredOutput,
+              });
+            }
+          }
+          if (!productionValidation.ok && productionAction !== "thumbnails") {
+            const repairInstruction = productionAction === "seo"
+              ? [
+                  "Your prior response could not be parsed. Return ONLY this exact five-line title block, with real titles replacing the angle-bracket values:",
+                  "SEO_TITLES:",
+                  "SAFE: <real title>",
+                  "SPICY: <real title>",
+                  "BALANCED_1: <real title>",
+                  "BALANCED_2: <real title>",
+                  "BALANCED_3: <real title>",
+                  "SHORT_DESCRIPTION:",
+                  "<one real concise episode summary of 160 characters or fewer>",
+                  "LONG_DESCRIPTION:",
+                  "<one real detailed YouTube-ready description paragraph>",
+                  "Do not return JSON, markdown, commentary, placeholders, or an explanation.",
+                ].join("\n")
+              : [
+                  "Your prior response could not be parsed. Return ONLY this exact tag block with 20 to 35 real comma-separated tags:",
+                  "TAGS_FULL:",
+                  "<real tag 1>, <real tag 2>, <real tag 3>, ...",
+                  "Do not return JSON, markdown, commentary, placeholders, or an explanation.",
+                ].join("\n");
+            const repairMessages: ChatMessage[] = [
+              ...completionMessages,
+              { role: "assistant", content: rawReply },
+              { role: "user", content: repairInstruction },
+            ];
+            let repairUpstream: Response | null = null;
+            try {
+              repairUpstream = await callOpenAi(model, usedTemperatureOverride, repairMessages);
+            } catch {
+              repairUpstream = null;
+            }
+            if (repairUpstream?.ok) {
+              const repairPayload = (await repairUpstream.json()) as unknown;
+              const repairRawReply = extractAssistantReply(repairPayload);
+              const repairStructured = normalizeStructuredReply(repairRawReply) ?? {
+                assistantText: repairRawReply,
+                ops: [],
+                scriptText: null,
+                tagAudit: null,
+              };
+              repairStructured.assistantText = sanitizeHearthUserFacingOutput(repairStructured.assistantText);
+              const repairedCanonical = canonicalizeHearthProductionArtifactOutput({
+                action: productionAction,
+                assistantText: repairStructured.assistantText,
+              }) ?? canonicalizeHearthProductionArtifactOutput({
+                action: productionAction,
+                assistantText: repairRawReply,
+              });
+              if (repairedCanonical) {
+                payload = repairPayload;
+                rawReply = repairRawReply;
+                structured = repairStructured;
+                structured.assistantText = repairedCanonical;
+                productionValidation = validateHearthProductionArtifactOutput({
+                  action: productionAction,
+                  assistantText: repairedCanonical,
+                });
+                upstream = repairUpstream;
+              }
+            }
+          }
+          if (!productionValidation.ok) {
+            const rejectedTokens = extractTotalTokens(payload) ?? estimateTokenFallback(messages, rawReply);
+            const rejectedAccounting = buildUsageAccounting({
+              model,
+              payload,
+              fallbackTotalTokens: rejectedTokens,
+              preflightEstimatedCostUsd: aiRoute.estimatedCostUsd,
+              billableMode: "non-billable",
+            });
+            await recordAiUsageEvent({
+              userId,
+              lane: effectiveLane,
+              provider: "openai",
+              workspaceId: episodeContext.workspaceId,
+              workpieceId: episodeContext.episodeId,
+              sessionId: null,
+              feature: chatFeature.feature,
+              subfeature: chatFeature.subfeature,
+              model,
+              reasoningEffort,
+              inputTokens: rejectedAccounting.inputTokens,
+              outputTokens: rejectedAccounting.outputTokens,
+              totalTokens: rejectedTokens,
+              estimatedCostUsd: rejectedAccounting.estimatedCostUsd,
+              actualCostUsd: rejectedAccounting.estimatedCostUsd,
+              billableTokens: 0,
+              trigger: AI_USAGE_TRIGGER.USER,
+              status: AI_USAGE_STATUS.ERROR,
+              ...usageAttribution,
+              actionId: chatActionId,
+              providerRequestId: upstream.headers.get("x-request-id"),
+              correlationId: chatActionId,
+            });
+            return jsonResponse(502, {
+              ok: false,
+              error: productionValidation.error,
+              code: "invalid_production_output",
+              billable_tokens: 0,
+              output_diagnostic: {
+                action: productionAction,
+                assistant_text_chars: structured.assistantText.length,
+                raw_reply_chars: rawReply.length,
+                assistant_text_preview: structured.assistantText.slice(0, 240),
+              },
+              ...buildBillingSnapshot(lane),
+              ...resolutionSnapshot,
+            });
+          }
+        }
 
         if (!structured.assistantText && structured.ops.length === 0) {
           return jsonResponse(502, {

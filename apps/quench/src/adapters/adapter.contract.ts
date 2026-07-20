@@ -4,6 +4,7 @@ import type {
   QuenchPlatform,
   ReleasePacket,
 } from "../core/release-packet.types";
+import { canExecuteQuenchPublish, type QuenchPublishAuthorityVerdict } from "../core/publish-guard";
 
 export interface PlatformCapabilities {
   platform: QuenchPlatform;
@@ -51,6 +52,7 @@ export interface PublishContext {
   now_iso: string;
   resolved_assets?: Partial<ResolvedReleaseAssets>;
   request_id?: string;
+  readiness: QuenchPublishAuthorityVerdict;
 }
 
 export interface AdapterPublishResult {
@@ -114,4 +116,22 @@ export function createNotImplementedResult(
     message: `${platform} live publishing is not implemented yet.`,
     receipt: createStubReceipt(platform, options, context, summary, "failed"),
   };
+}
+
+export function createPublishAuthorityDeniedResult(
+  platform: QuenchPlatform,
+  options: PlatformPublishOptions,
+  context: PublishContext,
+  summary: Record<string, unknown>,
+): AdapterPublishResult {
+  return {
+    ok: false,
+    state: "failed",
+    message: "Quench publish authority denied execution because resolved readiness is not ready.",
+    receipt: createStubReceipt(platform, options, context, summary, "failed"),
+  };
+}
+
+export function publishContextAllowsExecution(context: PublishContext): boolean {
+  return canExecuteQuenchPublish(context.readiness);
 }

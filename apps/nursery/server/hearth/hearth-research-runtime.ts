@@ -22,6 +22,49 @@ export type HearthResearchRuntime = {
   run: (args: HearthResearchRuntimeRunArgs) => Promise<HearthResearchResult>;
 };
 
+export type HearthEvidenceSupportState =
+  | "supported"
+  | "partially_supported"
+  | "contradicted"
+  | "unverified_lead"
+  | "editorial_inference";
+
+export type HearthSourceAuthority =
+  | "primary_agricultural"
+  | "land_grant_university"
+  | "government_agricultural"
+  | "peer_reviewed"
+  | "reputable_secondary"
+  | "promotional_or_general";
+
+export type HearthEvidenceFinding = {
+  findingId: string;
+  normalizedClaim: string;
+  supportingSourceIds: string[];
+  excerpts: Array<{ sourceId: string; text: string }>;
+  strongestAuthority: HearthSourceAuthority | null;
+  runIdentity: string;
+  refinementIdentity: string | null;
+  supportStrength: "strong" | "moderate" | "weak" | "none";
+  state: HearthEvidenceSupportState;
+  uncertainty: string | null;
+};
+
+export type HearthEvidenceLedger = {
+  workspaceId: string | null;
+  workpieceId: string;
+  runIdentity: string;
+  refinementIdentity: string | null;
+  findings: HearthEvidenceFinding[];
+  referenceSourceIds: string[];
+};
+
+const evidenceLedgers = new WeakMap<HearthResearchResult, HearthEvidenceLedger>();
+
+export function getHearthEvidenceLedger(result: HearthResearchResult): HearthEvidenceLedger | null {
+  return evidenceLedgers.get(result) ?? null;
+}
+
 export type HearthExtractedUrlSourceArgs = {
   url: string;
   sourceId: string;
@@ -83,6 +126,50 @@ function truncate(text: string, maxChars: number): string {
 
 function compactWhitespace(value: string): string {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function canonicalizeResearchUrl(value: string): string {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    for (const key of Array.from(url.searchParams.keys())) {
+      if (/^(?:utm_|fbclid|gclid|ref$|source$)/i.test(key)) url.searchParams.delete(key);
+    }
+    url.hostname = url.hostname.toLowerCase();
+    url.pathname = url.pathname.replace(/\/+$/, "") || "/";
+    return url.toString().replace(/\?$/, "").toLowerCase();
+  } catch {
+    return compactWhitespace(value).toLowerCase();
+  }
+}
+
+function normalizeSourceIdentity(value: string | null | undefined): string {
+  const normalized = compactWhitespace(String(value ?? ""))
+    .toLowerCase()
+    .replace(/&amp;/g, "and")
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+  if (/\bflorida department of agriculture(?: and consumer services)?\b|\bfdacs\b/.test(normalized)) return "fdacs";
+  if (/\bunited states department of agriculture\b|\busda\b/.test(normalized)) return "usda";
+  if (/\buniversity of florida\b.*\bifas\b|\buf ifas\b/.test(normalized)) return "uf-ifas";
+  return normalized;
+}
+
+export function dedupeHearthResearchSources(sources: HearthResearchSource[]): HearthResearchSource[] {
+  const deduped: HearthResearchSource[] = [];
+  const seenUrls = new Set<string>();
+  const seenIdentities = new Set<string>();
+  for (const source of sources) {
+    const urlKey = canonicalizeResearchUrl(source.canonicalUrl || source.resolvedUrl || source.url);
+    const identity = normalizeSourceIdentity(source.publisher || source.title);
+    const domain = String(source.domain || parseDomain(source.url) || "").toLowerCase();
+    const identityKey = identity ? `${domain}|${identity}` : "";
+    if ((urlKey && seenUrls.has(urlKey)) || (identityKey && seenIdentities.has(identityKey))) continue;
+    if (urlKey) seenUrls.add(urlKey);
+    if (identityKey) seenIdentities.add(identityKey);
+    deduped.push({ ...source, sourceId: `retrieval-${deduped.length + 1}` });
+  }
+  return deduped;
 }
 
 function toIsoDate(value: string | null): string | null {
@@ -663,23 +750,36 @@ async function searchWithBrave(args: {
     if (!urlValue) continue;
     const domain = parseDomain(urlValue);
     normalized.push({
-      title: readText(item.title),
+      title: readText(item.title) ? stripHtmlToText(readText(item.title) as string) : null,
       url: urlValue,
       domain,
-      snippet: readText(item.description),
+      snippet: readText(item.description) ? truncate(stripHtmlToText(readText(item.description) as string), MAX_SNIPPET_CHARS) : null,
       publishedAt: normalizePublishedAt(readText(item.page_age) || readText(item.age)),
     });
   }
   const deduped: BraveSearchResult[] = [];
   const seen = new Set<string>();
   for (const result of normalized) {
-    const key = result.url.toLowerCase();
+    const key = canonicalizeResearchUrl(result.url);
     if (seen.has(key)) continue;
     seen.add(key);
     deduped.push(result);
     if (deduped.length >= args.request.maxSources) break;
   }
   return deduped;
+}
+
+function buildDeterministicResearchRefinement(query: string): string | null {
+  if (/\btangelo\b/i.test(query)) {
+    return "Orlando Minneola Seminole tangelo cultivar origin developer release USDA ARS GRIN UF IFAS cold tolerance breeding objective";
+  }
+  const families = query.match(/\b(?:FDACS|USDA|NASS|UF IFAS|CRS|GAO|CDC|NIH)\b/gi) ?? [];
+  if (!families.length) return null;
+  const topic = compactWhitespace(query
+    .replace(/\bprimary sources official reports data\b/gi, " ")
+    .replace(/\b(?:find|strong|sources?|citations?|cite|for this episode|the episode)\b/gi, " "));
+  const refined = compactWhitespace(`${topic} ${Array.from(new Set(families.map((value) => value.toUpperCase()))).join(" ")} official data report`);
+  return refined && refined.toLowerCase() !== query.trim().toLowerCase() ? refined : null;
 }
 
 async function fetchReadableSource(args: {
@@ -984,6 +1084,140 @@ export async function extractUrlToResearchSource(
   };
 }
 
+export function classifyResearchSourceAuthority(source: HearthResearchSource): HearthSourceAuthority {
+  const identity = `${source.domain ?? ""} ${source.publisher ?? ""} ${source.title ?? ""}`.toLowerCase();
+  if (/\b(usda|ars|nal|grin)\b|\.usda\.gov\b/.test(identity)) return "primary_agricultural";
+  if (/\b(ifas|land.grant|university of florida)\b|\.edu\b/.test(identity)) return "land_grant_university";
+  if (/\b(fdacs|department of agriculture)\b|\.gov\b/.test(identity)) return "government_agricultural";
+  if (/\b(journal|doi|hortscience|peer.review)\b/.test(identity)) return "peer_reviewed";
+  if (/\b(visit|tourism|farm & family|lifestyle|trade|promotion|food safety|nutrition|generic facts)\b/.test(identity)) return "promotional_or_general";
+  return "reputable_secondary";
+}
+
+const AUTHORITY_RANK: Record<HearthSourceAuthority, number> = {
+  primary_agricultural: 6,
+  land_grant_university: 5,
+  government_agricultural: 4,
+  peer_reviewed: 4,
+  reputable_secondary: 2,
+  promotional_or_general: 1,
+};
+
+function evidenceText(source: HearthResearchSource): string {
+  return compactWhitespace([source.title, source.snippet, source.extractedText, source.transcript].filter(Boolean).join(" "));
+}
+
+function excerptForTerms(source: HearthResearchSource, terms: RegExp): string | null {
+  const text = evidenceText(source);
+  if (!text || !terms.test(text)) return null;
+  terms.lastIndex = 0;
+  const match = terms.exec(text);
+  return truncate(text.slice(Math.max(0, (match?.index ?? 0) - 100), (match?.index ?? 0) + 340), 440);
+}
+
+function buildFinding(args: {
+  findingId: string;
+  claim: string;
+  sources: HearthResearchSource[];
+  terms: RegExp;
+  requiredAuthority?: number;
+  runIdentity: string;
+  refinementIdentity: string | null;
+  unsupportedReason: string;
+}): HearthEvidenceFinding {
+  const matches = args.sources
+    .map((source) => ({ source, excerpt: excerptForTerms(source, args.terms), authority: classifyResearchSourceAuthority(source) }))
+    .filter((entry): entry is { source: HearthResearchSource; excerpt: string; authority: HearthSourceAuthority } => Boolean(entry.excerpt));
+  const compatible = matches.filter((entry) => AUTHORITY_RANK[entry.authority] >= (args.requiredAuthority ?? 2));
+  const strongest = compatible.sort((a, b) => AUTHORITY_RANK[b.authority] - AUTHORITY_RANK[a.authority])[0] ?? null;
+  const negativeCount = compatible.filter(({ excerpt }) => /\b(?:not|never|no evidence|incorrect|false)\b/i.test(excerpt)).length;
+  const contradicted = negativeCount > 0;
+  const hasConflict = contradicted && negativeCount < compatible.length;
+  const state: HearthEvidenceSupportState = contradicted
+    ? "contradicted"
+    : compatible.length > 0 ? "supported" : matches.length > 0 ? "partially_supported" : "unverified_lead";
+  return {
+    findingId: args.findingId,
+    normalizedClaim: compactWhitespace(args.claim),
+    supportingSourceIds: compatible.map(({ source }) => source.sourceId),
+    excerpts: compatible.map(({ source, excerpt }) => ({ sourceId: source.sourceId, text: excerpt })),
+    strongestAuthority: strongest?.authority ?? null,
+    runIdentity: args.runIdentity,
+    refinementIdentity: args.refinementIdentity,
+    supportStrength: strongest ? (AUTHORITY_RANK[strongest.authority] >= 5 ? "strong" : "moderate") : matches.length > 0 ? "weak" : "none",
+    state,
+    uncertainty: hasConflict
+      ? "Retrieved authoritative evidence conflicts; both positions must be surfaced rather than silently resolved."
+      : state === "supported" || state === "contradicted" ? null : args.unsupportedReason,
+  };
+}
+
+function buildEvidenceLedger(args: {
+  request: HearthResearchRequest;
+  sources: HearthResearchSource[];
+  workspaceId: string | null;
+  workpieceId: string;
+  runIdentity: string;
+  refinementIdentity: string | null;
+}): HearthEvidenceLedger {
+  const findings: HearthEvidenceFinding[] = [];
+  if (/\btangelo\b/i.test(args.request.query)) {
+    findings.push(
+      buildFinding({
+        findingId: "tangelo-origin", claim: "Named tangelo cultivar origin, developer, or release history", sources: args.sources,
+        terms: /\b(?:tangelo|Minneola|Honeybell|Orlando|Seminole)\b[\s\S]{0,180}\b(?:developed|origin|released|introduced|hybrid|cross)\b|\b(?:developed|origin|released|introduced|hybrid|cross)\b[\s\S]{0,180}\b(?:tangelo|Minneola|Honeybell|Orlando|Seminole)\b/i,
+        requiredAuthority: 4, runIdentity: args.runIdentity, refinementIdentity: args.refinementIdentity,
+        unsupportedReason: "Tourism and general-interest sources cannot establish precise cultivar origin, developer, or release history.",
+      }),
+      buildFinding({
+        findingId: "tangelo-cold-tolerance", claim: "Documented cold tolerance for a tangelo or named cultivar", sources: args.sources,
+        terms: /\b(?:tangelo|Minneola|Honeybell|Orlando|Seminole)\b[\s\S]{0,160}\b(?:cold.hardy|cold tolerant|freeze|frost|weather resilient)\b|\b(?:cold.hardy|cold tolerant|freeze|frost|weather resilient)\b[\s\S]{0,160}\b(?:tangelo|Minneola|Honeybell|Orlando|Seminole)\b/i,
+        requiredAuthority: 4, runIdentity: args.runIdentity, refinementIdentity: args.refinementIdentity,
+        unsupportedReason: "The retrieved evidence does not adequately establish a technical cold-tolerance description.",
+      }),
+      buildFinding({
+        findingId: "tangelo-breeding-motive", claim: "Freeze resistance as the documented breeding objective for creating tangelos", sources: args.sources,
+        terms: /\b(?:bred|breeding|developed|created)\b[\s\S]{0,180}\b(?:because of|in response to|objective|purpose|resist|survive)\b[\s\S]{0,100}\b(?:freeze|frost|cold)\b/i,
+        requiredAuthority: 4, runIdentity: args.runIdentity, refinementIdentity: args.refinementIdentity,
+        unsupportedReason: "Cold tolerance does not prove that freeze resistance was the original breeding purpose.",
+      }),
+    );
+  } else {
+    for (const source of args.sources.filter((entry) => entry.extractionStatus === "extracted")) {
+      const excerpt = truncate(evidenceText(source), 440);
+      if (!excerpt) continue;
+      const authority = classifyResearchSourceAuthority(source);
+      findings.push({
+        findingId: `source-finding-${findings.length + 1}`,
+        normalizedClaim: `${source.title || source.publisher || source.domain || "Retrieved source"} reports: ${excerpt}`,
+        supportingSourceIds: [source.sourceId],
+        excerpts: [{ sourceId: source.sourceId, text: excerpt }],
+        strongestAuthority: authority,
+        runIdentity: args.runIdentity,
+        refinementIdentity: args.refinementIdentity,
+        supportStrength: AUTHORITY_RANK[authority] >= 4 ? "strong" : "moderate",
+        state: "supported",
+        uncertainty: null,
+      });
+    }
+    if (!findings.length) {
+      findings.push({
+        findingId: "retrieved-topic-coverage", normalizedClaim: args.request.query, supportingSourceIds: [], excerpts: [],
+        strongestAuthority: null, runIdentity: args.runIdentity, refinementIdentity: args.refinementIdentity,
+        supportStrength: "none", state: "unverified_lead", uncertainty: "No retrieved source directly establishes the requested claim.",
+      });
+    }
+  }
+  return {
+    workspaceId: args.workspaceId,
+    workpieceId: args.workpieceId,
+    runIdentity: args.runIdentity,
+    refinementIdentity: args.refinementIdentity,
+    findings,
+    referenceSourceIds: Array.from(new Set(findings.flatMap((finding) => finding.supportingSourceIds))),
+  };
+}
+
 function buildSynthesis(args: {
   request: HearthResearchRequest;
   sources: HearthResearchSource[];
@@ -1046,6 +1280,8 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
   const braveApiKey = readText(config.braveApiKey);
   return {
     async run(args): Promise<HearthResearchResult> {
+      const runIdentity = `${args.workspaceId ?? "no-workspace"}:${args.workpieceId}:${Date.now()}`;
+      let refinementIdentity: string | null = null;
       if (args.signal?.aborted) {
         return buildEmptyHearthResearchResult({
           mode: "knowledge_first",
@@ -1164,24 +1400,98 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
         });
       }
 
-      const extractionFailureCount = sources.length - extractionSuccessCount;
+      const initialLedger = buildEvidenceLedger({
+        request: args.request,
+        sources,
+        workspaceId: args.workspaceId,
+        workpieceId: args.workpieceId,
+        runIdentity,
+        refinementIdentity: null,
+      });
+      const hasUnsupportedClaim = initialLedger.findings.some((finding) => finding.state !== "supported" && finding.state !== "contradicted");
+      if ((extractionSuccessCount < sources.length || hasUnsupportedClaim) && !args.signal?.aborted) {
+        const refinedQuery = buildDeterministicResearchRefinement(args.request.query);
+        if (refinedQuery) {
+          refinementIdentity = `${runIdentity}:refinement-1`;
+          try {
+            const refinementCandidates = await searchWithBrave({
+              apiKey: braveApiKey,
+              request: { ...args.request, query: refinedQuery, maxSources: 2 },
+              signal: args.signal,
+            });
+            const existingUrls = new Set(sources.map((source) => canonicalizeResearchUrl(source.url)));
+            for (const candidate of refinementCandidates) {
+              if (existingUrls.has(canonicalizeResearchUrl(candidate.url))) continue;
+              const retrievedAt = new Date().toISOString();
+              const refinedOutcome = await fetchReadableSource({ candidate, signal: args.signal });
+              const bestUrl = refinedOutcome.canonicalUrl || refinedOutcome.resolvedUrl || candidate.url;
+              sources.push({
+                sourceId: `refinement-${sources.length + 1}`,
+                title: refinedOutcome.title || candidate.title,
+                sourceType: refinedOutcome.sourceType,
+                ...(refinedOutcome.ingestMode ? { ingestMode: refinedOutcome.ingestMode } : {}),
+                publisher: refinedOutcome.publisher,
+                author: refinedOutcome.author,
+                url: bestUrl,
+                originalUrl: candidate.url,
+                resolvedUrl: refinedOutcome.resolvedUrl,
+                canonicalUrl: refinedOutcome.canonicalUrl,
+                domain: parseDomain(bestUrl) || candidate.domain,
+                publishedAt: refinedOutcome.publishedAt || normalizePublishedAt(candidate.publishedAt),
+                updatedAt: refinedOutcome.updatedAt,
+                retrievedAt,
+                warnings: refinedOutcome.warnings.length ? refinedOutcome.warnings : null,
+                transcriptAvailable: refinedOutcome.transcriptAvailable,
+                snippet: candidate.snippet ? truncate(candidate.snippet, MAX_SNIPPET_CHARS) : null,
+                extractedText: refinedOutcome.extractedText,
+                transcript: refinedOutcome.transcript,
+                transcriptSegments: refinedOutcome.transcriptSegments,
+                transcriptMeta: refinedOutcome.transcriptMeta,
+                attributedQuotes: refinedOutcome.attributedQuotes,
+                extractionStatus: refinedOutcome.extractionStatus,
+                extractionError: refinedOutcome.extractionError,
+              });
+              if (refinedOutcome.extractionStatus === "extracted") break;
+            }
+          } catch {
+            // The original partial result remains useful when deterministic refinement fails.
+          }
+        }
+      }
+
+      const prioritizedSources = [
+        ...sources.filter((source) => source.extractionStatus === "extracted"),
+        ...sources.filter((source) => source.extractionStatus !== "extracted"),
+      ];
+      const uniqueSources = dedupeHearthResearchSources(prioritizedSources).slice(0, args.request.maxSources);
+      extractionSuccessCount = uniqueSources.filter((source) => source.extractionStatus === "extracted").length;
+      const extractionFailureCount = uniqueSources.length - extractionSuccessCount;
       const outcome = deriveRetrievalOutcome({
-        sourceCount: sources.length,
+        sourceCount: uniqueSources.length,
         extractionSuccessCount,
         extractionFailureCount,
       });
 
-      return {
+      const result: HearthResearchResult = {
         mode: outcome.mode,
         runtimeStatus: outcome.runtimeStatus,
-        sources,
+        sources: uniqueSources,
         synthesis: buildSynthesis({
           request: args.request,
-          sources,
+          sources: uniqueSources,
           extractionSuccessCount,
           extractionFailureCount,
         }),
       };
+      evidenceLedgers.set(result, buildEvidenceLedger({
+        request: args.request,
+        sources: uniqueSources,
+        workspaceId: args.workspaceId,
+        workpieceId: args.workpieceId,
+        runIdentity,
+        refinementIdentity,
+      }));
+      return result;
     },
   };
 }

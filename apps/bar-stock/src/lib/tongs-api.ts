@@ -232,7 +232,7 @@ export async function listWorkspaceProjects(workspaceId: string): Promise<Assign
   const { data, error } = await supabase
     .schema("tongs")
     .from("barstock_assignments")
-    .select("id,title,status,created_at,updated_at")
+    .select("id,title,status,revision,created_at,updated_at")
     .eq("workspace_id", normalizedWorkspaceId)
     .neq("status", "archived")
     .order("updated_at", { ascending: false });
@@ -247,6 +247,7 @@ export async function listWorkspaceProjects(workspaceId: string): Promise<Assign
     out.push({
       id,
       name: title,
+      revision: typeof (row as any).revision === "number" ? (row as any).revision : 0,
       createdAt: parseTimestampToMs((row as any).created_at),
       updatedAt: parseTimestampToMs((row as any).updated_at),
     });
@@ -262,7 +263,7 @@ export async function listWorkspaceSparks(workspaceId: string): Promise<Spark[]>
   const { data, error } = await supabase
     .schema("tongs")
     .from("barstock_sparks")
-    .select("id,assignment_id,title,body,tags,status,source,pinned,created_at,updated_at,deleted_at")
+    .select("id,assignment_id,title,body,tags,status,source,pinned,revision,created_at,updated_at,deleted_at")
     .eq("workspace_id", normalizedWorkspaceId)
     .is("deleted_at", null)
     .order("created_at", { ascending: false });
@@ -287,6 +288,7 @@ export async function listWorkspaceSparks(workspaceId: string): Promise<Spark[]>
 
     out.push({
       id,
+      revision: typeof (row as any).revision === "number" ? (row as any).revision : 0,
       assignmentId,
       title,
       body,

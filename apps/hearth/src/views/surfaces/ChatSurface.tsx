@@ -246,14 +246,33 @@ export default function ChatSurface(props: ChatSurfaceProps) {
         </div>
 
         {props.pendingAiProposal && props.pendingAiProposal.ops.length > 0 ? (
-          <div className="hs-ai-proposal" aria-label="Proposed AI changes">
+          <div className="hs-ai-proposal" aria-label="Proposed script changes">
             <div className="hs-ai-proposal-header">
-              <div className="hs-ai-proposal-title">First pass to review</div>
+              <div className="hs-ai-proposal-title">
+                {props.pendingAiProposal.proposalOrigin === "format_only"
+                  ? "Format-only preview"
+                  : props.pendingAiProposal.proposalOrigin === "user_editorial"
+                    ? "User editorial edit"
+                    : "First pass to review"}
+              </div>
               <div className="hs-ai-proposal-meta">
                 {props.pendingAiProposal.selected.filter(Boolean).length} selected · {props.pendingAiProposal.ops.length} total
-                {props.dirtyProposalBodyCount > 0 ? ` · ${props.dirtyProposalBodyCount} edited from AI` : ""}
+                {props.dirtyProposalBodyCount > 0 && props.pendingAiProposal.proposalOrigin === "ai"
+                  ? ` · ${props.dirtyProposalBodyCount} edited from AI`
+                  : ""}
               </div>
             </div>
+
+            {props.pendingAiProposal.proposalOrigin === "format_only" ? (
+              <div className="hs-field-label-muted">
+                Deterministic formatting only. Wording, punctuation, speaker identity, notes, and pacing cues are unchanged.
+              </div>
+            ) : props.pendingAiProposal.proposalOrigin === "user_editorial" ? (
+              <div className="hs-error-text-small">
+                Substantive user edits detected: {(props.pendingAiProposal.formatChanges ?? []).join(", ").replaceAll("_", " ")}.
+                Explicit confirmation is required before Apply or approval.
+              </div>
+            ) : null}
 
             <div className="hs-ai-proposal-list">
               {props.pendingAiProposal.ops.map((op: any, index: number) => {
@@ -289,7 +308,9 @@ export default function ChatSurface(props: ChatSurfaceProps) {
                             <span className="hs-field-label">
                               Editable proposed draft
                               {proposalBodyDirty ? (
-                                <span className="hs-ai-op-dirty-badge">Edited from AI</span>
+                                <span className="hs-ai-op-dirty-badge">
+                                  {props.pendingAiProposal.proposalOrigin === "user_editorial" ? "User editorial edit" : "Edited from AI"}
+                                </span>
                               ) : null}
                             </span>
                             <textarea
@@ -303,14 +324,16 @@ export default function ChatSurface(props: ChatSurfaceProps) {
                           {proposalBodyDirty ? (
                             <div className="hs-ai-op-dirty-actions">
                               <div className="hs-field-label-muted">
-                                This proposal now differs from the original AI suggestion.
+                                {props.pendingAiProposal.formatOriginalBody !== null
+                                  ? "This proposal now differs from the original deterministic format preview."
+                                  : "This proposal now differs from the original AI suggestion."}
                               </div>
                               <button
                                 type="button"
                                 onClick={() => props.onResetAiProposalBody(index)}
                                 disabled={props.isApplyingAiOps}
                               >
-                                Reset to AI version
+                                {props.pendingAiProposal.formatOriginalBody !== null ? "Reset to format-only version" : "Reset to AI version"}
                               </button>
                             </div>
                           ) : null}

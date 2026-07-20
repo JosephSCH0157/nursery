@@ -130,6 +130,8 @@ import { useImageMapCandidatePreviewLoader } from "../hooks/visuals/useImageMapC
 import { useVisualWorkspaceResetLifecycle } from "../hooks/visuals/useVisualWorkspaceResetLifecycle";
 import { useMediaMapConversationBootstrap } from "../hooks/visuals/useMediaMapConversationBootstrap";
 import { useCanonicalImageMapScriptStateLoader } from "../hooks/visuals/useCanonicalImageMapScriptStateLoader";
+import { hasCanonicalFraming } from "../lib/hearth-framing-authority";
+import { readCanonicalThumbnailWorkspaceV3, readThumbnailCandidateAuthorityProjection } from "../lib/hearth-thumbnail-v3-api";
 import { useVisualSelectionHydration } from "../hooks/visuals/useVisualSelectionHydration";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import {
@@ -169,6 +171,13 @@ import { insertVoiceTranscriptIntoScript } from "../lib/hearth-script-dictation"
 import {
   detectHearthScriptMutationIntent,
 } from "../lib/hearth-script-mutation";
+import {
+  buildHearthFormatOnlyPreview,
+  confirmHearthUserEditorialTransition,
+  evaluateHearthFormatOnlyPreservation,
+  formatHearthPreservationChanges,
+  type HearthFormatOnlyChangeCategory,
+} from "../lib/hearth-format-only";
 import {
   parseHearthDraftConflictError,
 } from "../lib/hearth-draft-persistence";
@@ -229,9 +238,11 @@ import { buildHearthThumbnailPanelProps } from "../views/modes/buildHearthThumbn
 import { buildHearthMediaMapPanelProps } from "../views/modes/buildHearthMediaMapPanelProps";
 import {
   persistProductionArtifact as persistHearthProductionArtifact,
+  resolveAcceptedTagProposal,
   runProductionAction,
   type ProductionAction,
 } from "../lib/hearth-production-actions";
+import { readWorkpieceProductionArtifact, type ProductionCommitResult } from "../lib/hearth-production-repo";
 import {
   assessImageMapScriptAnchor,
   buildImageMapAnchorPickerParagraphs,
@@ -253,7 +264,10 @@ import {
   resolveActiveVisualProvider,
   type VisualProviderId,
 } from "../lib/hearth-visual-provider-profiles";
-import { buildMediaMapFromExistingPlans } from "../lib/hearth-media-map-builder";
+import {
+  buildMediaMapFromExistingPlans,
+  deriveFullMediaBudgetPolicy,
+} from "../lib/hearth-media-map-builder";
 import type {
   EpisodeBrollDataVisualSpec,
   EpisodeExternalRequestState,
@@ -347,7 +361,8 @@ type HearthMode = "sparks" | "episodes" | "ready" | "series" | "focus";
 type UiDensity = "comfortable" | "compact";
 type FocusTab = "draft" | "planning" | "sources" | "revisions";
 type AiAutosaveReasonCode = "ai_outline" | "ai_script" | "ai_repair" | "ai_rewrite";
-type AiAutosaveReason = `autosave:${AiAutosaveReasonCode}`;
+type ProposalSaveReasonCode = AiAutosaveReasonCode | "format_only" | "user_editorial";
+type ProposalAutosaveReason = `autosave:${ProposalSaveReasonCode}`;
 type ForgeNoticeSeverity = "info" | "success" | "warning" | "error";
 type ForgeNoticeJob =
   | "image-generated"
@@ -1502,7 +1517,7 @@ function buildAssistantMessageContent(args: {
   return "I’m ready when you are.";
 }
 
-function toAiAutosaveReason(reasonCode: AiAutosaveReasonCode): AiAutosaveReason {
+function toProposalAutosaveReason(reasonCode: ProposalSaveReasonCode): ProposalAutosaveReason {
   return `autosave:${reasonCode}`;
 }
 
@@ -1660,8 +1675,26 @@ type PendingAiProposal = {
   selected: boolean[];
   context: EpisodeContext;
   fromGate: boolean;
-  autosaveReasonCode: AiAutosaveReasonCode;
+  autosaveReasonCode: ProposalSaveReasonCode;
+  proposalOrigin: "ai" | "format_only" | "user_editorial";
+  formatSourceBody: string | null;
+  formatOriginalBody: string | null;
+  formatChanges: HearthFormatOnlyChangeCategory[];
 };
+
+function reclassifyHearthFormatProposal(
+  proposal: PendingAiProposal,
+  body: string,
+): PendingAiProposal {
+  if (proposal.formatSourceBody === null) return proposal;
+  const preservation = evaluateHearthFormatOnlyPreservation(proposal.formatSourceBody, body);
+  return {
+    ...proposal,
+    proposalOrigin: preservation.preserved ? "format_only" : "user_editorial",
+    autosaveReasonCode: preservation.preserved ? "format_only" : "user_editorial",
+    formatChanges: preservation.changes,
+  };
+}
 
 type ChatAttachmentUi = {
   id: string;
@@ -2078,6 +2111,8 @@ export default function HearthShell({
   const [scriptApprovalState, setScriptApprovalState] = useState<ScriptApprovalState>(NO_CANONICAL_SCRIPT_APPROVAL);
   const [approvalPersistenceStatus, setApprovalPersistenceStatus] = useState<ApprovalPersistenceStatus | null>(null);
   const [activeProductionAction, setActiveProductionAction] = useState<ProductionAction | null>(null);
+  const productionActionInFlightRef = useRef(false);
+  const lastProductionCommitResultRef = useRef<ProductionCommitResult | null>(null);
   const [writingProfile, setWritingProfile] = useState<WritingProfile | null>(null);
   const [forgeGreetingName, setForgeGreetingName] = useState<string>(() => readGreetingNameFromStorage());
   const [hearthUser, setHearthUser] = useState<HearthUserContext>({
@@ -2088,6 +2123,14 @@ export default function HearthShell({
   const [aiBillingMode, setAiBillingMode] = useState<HearthAiLane>(() => resolveAiLaneFromStorage());
   const [defaultVisualProvider, setDefaultVisualProvider] = useState<VisualProviderId>(() => resolveDefaultVisualProviderFromStorage());
   const [episodePackage, setEpisodePackage] = useState<EpisodePackageV2 | null>(null);
+  const [episodePackageState, setEpisodePackageState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
+  const [episodePackageError, setEpisodePackageError] = useState<string | null>(null);
+  const [recoverableMediaMap, setRecoverableMediaMap] = useState<EpisodeMediaMap | null>(null);
+  const [generatedTagProposal, setGeneratedTagProposal] = useState<{
+    tags: string[];
+    scriptVersion: number;
+    generatedAt: string;
+  } | null>(null);
   const [scriptPanelCopyMessage, setScriptPanelCopyMessage] = useState<string | null>(null);
   const [activeWorkpieceTab, setActiveWorkpieceTab] = useState<WorkpieceWorkspaceTab>(() =>
     readWorkpieceWorkspaceTab(
@@ -2381,6 +2424,7 @@ export default function HearthShell({
     onMetadataAddTagFromInput,
     onMetadataRemoveTag,
     onMetadataAddTagSuggestion,
+    onMetadataApplyTags,
     onMetadataDescriptionShortChange,
     onMetadataDescriptionLongChange,
     onMetadataPreviewModeChange,
@@ -2502,7 +2546,7 @@ export default function HearthShell({
     queueAiAutosave,
     onRetryAiAutosave,
     noteManualSaveSuccess,
-  } = useHearthAutosave<Draft, AiAutosaveReasonCode, RevisionKind>({
+  } = useHearthAutosave<Draft, ProposalSaveReasonCode, RevisionKind>({
     activeDraft,
     draftSnapshot,
     isDirty,
@@ -2513,7 +2557,7 @@ export default function HearthShell({
     autosaveRevisionGapMs: AUTOSAVE_REVISION_GAP_MS,
     autosaveRevisionKind: "autosave",
     persistAutosaveIO,
-    toAiAutosaveSaveReason: toAiAutosaveReason,
+    toAiAutosaveSaveReason: toProposalAutosaveReason,
     retryReasonCode: "ai_rewrite",
     setAiAutosaveWarning,
     setAiAutosaveStatusAt,
@@ -2775,6 +2819,82 @@ export default function HearthShell({
     () => episodePackage?.thumbnail?.versions ?? [],
     [episodePackage?.thumbnail?.versions],
   );
+  const [canonicalThumbnailProgress, setCanonicalThumbnailProgress] = useState({
+    workpieceId: "",
+    conceptRevisionCount: 0,
+    baseVersionCount: 0,
+    candidateCount: 0,
+    eligibleCandidateCount: 0,
+    titleCount: 0,
+    tagCount: 0,
+    hasDescriptions: false,
+  });
+  const [visualPlanRevisionChanged, setVisualPlanRevisionChanged] = useState(false);
+  const visualPlanRevisionRef = useRef<{ workpieceId: string; version: number } | null>(null);
+  const onCanonicalThumbnailProgress = useCallback((progress: {
+    conceptRevisionCount: number;
+    baseVersionCount: number;
+    candidateCount: number;
+    eligibleCandidateCount: number;
+  }) => {
+    const currentWorkpieceId = workpieceId?.trim() ?? "";
+    setCanonicalThumbnailProgress((current) => ({
+      workpieceId: currentWorkpieceId,
+      ...progress,
+      titleCount: current.workpieceId === currentWorkpieceId ? current.titleCount : 0,
+      tagCount: current.workpieceId === currentWorkpieceId ? current.tagCount : 0,
+      hasDescriptions: current.workpieceId === currentWorkpieceId ? current.hasDescriptions : false,
+    }));
+  }, [workpieceId]);
+  useEffect(() => {
+    const canonicalWorkpieceId = workpieceId?.trim() ?? "";
+    const canonicalWorkspaceId = workspaceId?.trim() ?? "";
+    if (!canonicalWorkpieceId || !canonicalWorkspaceId) return;
+    let cancelled = false;
+    void Promise.all([readCanonicalThumbnailWorkspaceV3({
+      workpieceId: canonicalWorkpieceId,
+      workspaceId: canonicalWorkspaceId,
+    }),readThumbnailCandidateAuthorityProjection({workpieceId:canonicalWorkpieceId,workspaceId:canonicalWorkspaceId})]).then(([canonical,candidateAuthority]) => {
+      if (cancelled) return;
+      setCanonicalThumbnailProgress({
+        workpieceId: canonicalWorkpieceId,
+        conceptRevisionCount: canonical.episodePackage.thumbnail.concept_revisions.length,
+        baseVersionCount: canonical.episodePackage.thumbnail.base_versions.length,
+        candidateCount: candidateAuthority.candidates.length,
+        eligibleCandidateCount: candidateAuthority.candidates.filter((candidate)=>candidate.eligibility_state==="current"||candidate.eligibility_state==="approved_historical_brand").length,
+        titleCount: canonical.episodePackage.seo.titles.length,
+        tagCount: canonical.episodePackage.seo.tags.length,
+        hasDescriptions: Boolean(canonical.episodePackage.seo.description_short?.trim())
+          && Boolean(canonical.episodePackage.seo.description_long?.trim()),
+      });
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [workpieceId, workspaceId]);
+  useEffect(() => {
+    const currentWorkpieceId=workpieceId?.trim()??""; const version=episodePackage?.media_map.version??0;
+    const previous=visualPlanRevisionRef.current;
+    if(!currentWorkpieceId){visualPlanRevisionRef.current=null;setVisualPlanRevisionChanged(false);return;}
+    if(version <= 0) return;
+    if(previous?.workpieceId===currentWorkpieceId&&version>previous.version){
+      const hasDownstream=(episodePackage?.image_map.entries.some((entry)=>Boolean(entry.selected_asset_id))??false)||(episodePackage?.broll_plan.beats.some((beat)=>Boolean(beat.selected_asset_id))??false);
+      if(hasDownstream)setVisualPlanRevisionChanged(true);
+    }else if(!previous||previous.workpieceId!==currentWorkpieceId)setVisualPlanRevisionChanged(false);
+    visualPlanRevisionRef.current={workpieceId:currentWorkpieceId,version};
+  },[episodePackage?.broll_plan.beats,episodePackage?.image_map.entries,episodePackage?.media_map.version,workpieceId]);
+  const canonicalThumbnailConceptCount = canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "")
+    ? canonicalThumbnailProgress.conceptRevisionCount
+    : 0;
+  const canonicalThumbnailBaseVersionCount = canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "")
+    ? canonicalThumbnailProgress.baseVersionCount
+    : 0;
+  const displayedThumbnailConceptCount = Math.max(thumbnailConcepts.length, canonicalThumbnailConceptCount);
+  const displayedThumbnailVersionCount = Math.max(thumbnailVersions.length, canonicalThumbnailBaseVersionCount);
+  const canonicalFramingTitleCount = canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "")
+    ? canonicalThumbnailProgress.titleCount : 0;
+  const canonicalFramingTagCount = canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "")
+    ? canonicalThumbnailProgress.tagCount : 0;
+  const canonicalFramingHasDescriptions = canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "")
+    && canonicalThumbnailProgress.hasDescriptions;
   const launchVariants = useMemo(
     () => episodePackage?.launch_variants ?? [],
     [episodePackage?.launch_variants],
@@ -3090,12 +3210,28 @@ export default function HearthShell({
   const chatPanelMeta = chatMessages.length > 0
     ? `${chatMessages.length} message${chatMessages.length === 1 ? "" : "s"}`
     : "Ready";
-  const thumbnailPanelMeta = formatThumbnailPanelMeta(thumbnailConcepts.length, thumbnailVersions.length);
+  const thumbnailPanelMeta = formatThumbnailPanelMeta(displayedThumbnailConceptCount, displayedThumbnailVersionCount);
   const mediaMapPanelMeta = `${mediaMapEntries.length} visual${mediaMapEntries.length === 1 ? "" : "s"}`;
   const imageMapPanelMeta = `${imageMapEntries.length} anchor${imageMapEntries.length === 1 ? "" : "s"}`;
   const brollPanelMeta = `${brollBeats.length} beat${brollBeats.length === 1 ? "" : "s"} · coverage ${brollPlan?.coverage_strength ?? "low"}`;
+  const mediaWorkflowInput = {
+    hasApprovedScript: Boolean(scriptApprovalState.hasApprovedScript && scriptApprovalState.approvedScriptVersion && scriptApprovalState.approvedScriptVersion > 0),
+    visualPlan: {
+      status: mediaMap?.status ?? null,
+      total: mediaMapEntries.length,
+      images: mediaMapEntries.filter((entry) => entry.final_media_kind === "image").length,
+      broll: mediaMapEntries.filter((entry) => entry.final_media_kind === "b_roll").length,
+      version: mediaMap?.version ?? 0,
+    },
+    thumbnails: {
+      total: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "") ? canonicalThumbnailProgress.candidateCount : 0,
+      eligible: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "") ? canonicalThumbnailProgress.eligibleCandidateCount : 0,
+    },
+    images: { planned: imageMapEntries.length, completed: imageMapEntries.filter((entry) => Boolean(entry.selected_asset_id)).length },
+    broll: { planned: brollBeats.length, completed: brollBeats.filter((beat) => beat.fulfillment_state === "resolved" && Boolean(beat.selected_asset_id)).length },
+    upstreamChanged: visualPlanRevisionChanged,
+  };
   const referenceClipPanelMeta = `${referenceClipEntries.length} Reference Clip${referenceClipEntries.length === 1 ? "" : "s"}`;
-  const metadataPanelMeta = `${thumbnailTitleOptions.length} title${thumbnailTitleOptions.length === 1 ? "" : "s"} · ${metadataTagsDraft.length} tag${metadataTagsDraft.length === 1 ? "" : "s"}`;
   const hasBrowserSpeech = (
     typeof window !== "undefined"
     && hasBrowserSpeechRecognition(window)
@@ -3118,6 +3254,10 @@ export default function HearthShell({
     hasApprovedScript,
     approvedScriptVersion,
   });
+  const framingPackReady = releasePrepLoadState === "ready" && latestReleasePrepSections.length > 0;
+  const displayedFramingTitleCount = Math.max(thumbnailTitleOptions.length, canonicalFramingTitleCount);
+  const displayedFramingTagCount = Math.max(metadataTagsDraft.length, canonicalFramingTagCount);
+  const metadataPanelMeta = `${displayedFramingTitleCount} title${displayedFramingTitleCount === 1 ? "" : "s"} · ${displayedFramingTagCount} tag${displayedFramingTagCount === 1 ? "" : "s"}${framingPackReady ? " · Pack ready" : ""}`;
   const {
     persistThumbnailEpisodePackage,
     persistImageMapEntries,
@@ -3248,18 +3388,40 @@ export default function HearthShell({
     buildMediaMapFromExistingPlans,
     persistMediaMap,
   });
+  const onRecoverLastMediaMapGeneration = useCallback(async () => {
+    if (!recoverableMediaMap || !episodePackage || isMediaMapBusy) return;
+    setIsMediaMapBusy(true);
+    setMediaMapSaveState("saving");
+    setMediaMapSaveError(null);
+    try {
+      const recovered = await persistMediaMap({
+        map: recoverableMediaMap,
+        eventName: "hearth.media_map.generation.recovered.v1",
+        eventPayload: { entry_count: recoverableMediaMap.entries.length, source: "last_generation_artifact" },
+      });
+      if (!recovered.ok) {
+        setMediaMapSaveState("error");
+        setMediaMapSaveError(recovered.error);
+        return;
+      }
+      setRecoverableMediaMap(null);
+      setSelectedMediaMapEntryId(recovered.episodePackage.media_map.entries[0]?.id ?? null);
+      setMediaMapSaveState("saved");
+      setMediaMapMessage("Recovered the last generated visual plan without a new AI request.");
+    } finally {
+      setIsMediaMapBusy(false);
+    }
+  }, [episodePackage, isMediaMapBusy, persistMediaMap, recoverableMediaMap, setIsMediaMapBusy, setMediaMapMessage, setMediaMapSaveError, setMediaMapSaveState, setSelectedMediaMapEntryId]);
   const approvedAtText = scriptApprovalState.approvedAt
     ? formatUpdatedAt(scriptApprovalState.approvedAt)
     : "Unknown";
   const mediaMapCoverageLevel = useMemo(() => resolveMediaPlanCoverageLevel(mediaMapEntries), [mediaMapEntries]);
   const mediaMapScopeLabel = useMemo(() => resolveMediaPlanScopeLabel(mediaMapEntries), [mediaMapEntries]);
-  const framingTitleCount = thumbnailTitleOptions.length;
-  const metadataComplete = Boolean(
-    framingTitleCount > 0
-    && metadataTagsDraft.length > 0
-    && metadataDescriptionShortDraft.trim()
-    && metadataDescriptionLongDraft.trim(),
-  );
+  const framingTitleCount = displayedFramingTitleCount;
+  // Downstream readiness consumes the same hydrated Tongs-backed package as
+  // the Framing editor, never transient draft/proposal state.
+  const metadataComplete = hasCanonicalFraming(episodePackage)
+    || (canonicalFramingTitleCount > 0 && canonicalFramingTagCount > 0 && canonicalFramingHasDescriptions);
   const thumbnailsSelected = Boolean(primaryThumbnailVersionId);
   const releaseReadiness = resolveReleaseReadinessChecklist({
     hasApprovedScript,
@@ -3294,8 +3456,8 @@ export default function HearthShell({
       updatedAt: activeDraft?.updatedAt,
       formatUpdatedAt,
     }),
-    visuals: `${mediaMapEntries.length} visuals · ${String(mediaMap?.status ?? "draft").toUpperCase()} · ${mediaMapCoverageLevel}`,
-    metadata: `${framingTitleCount} title${framingTitleCount === 1 ? "" : "s"} · ${metadataTagsDraft.length} tags · ${metadataComplete ? "Complete" : "Needs work"}`,
+    visuals: `${mediaMapEntries.length} visuals${displayedThumbnailConceptCount ? ` · ${displayedThumbnailConceptCount} briefs` : ""} · ${String(mediaMap?.status ?? "draft").toUpperCase()} · ${mediaMapCoverageLevel}`,
+    metadata: `${framingTitleCount} title${framingTitleCount === 1 ? "" : "s"} · ${displayedFramingTagCount} tags · ${metadataComplete ? "Complete" : framingPackReady ? "Pack ready" : "Needs work"}`,
     release: `${releaseReadiness.completeCount}/${releaseReadiness.totalCount} ready · ${releaseReadiness.completeCount >= releaseReadiness.totalCount ? "Shippable" : "Pending"}`,
     history: `${revisions.length} revisions · ${latestMilestoneRevision ? `Milestone ${formatUpdatedAt(latestMilestoneRevision.createdAt)}` : resolveHistoryMilestoneMarker(revisions)}`,
   };
@@ -3560,6 +3722,38 @@ export default function HearthShell({
         context: proposalArgs.episodeContext,
         fromGate: proposalArgs.fromGate,
         autosaveReasonCode: proposalArgs.autosaveReasonCode ?? "ai_rewrite",
+        proposalOrigin: "ai",
+        formatSourceBody: null,
+        formatOriginalBody: null,
+        formatChanges: [],
+      };
+    },
+    createPendingFormatOnlyProposal: ({ episodeContext }) => {
+      const sourceBody = episodeContext.body;
+      const preview = buildHearthFormatOnlyPreview(sourceBody);
+      if (!preview.preservation.preserved) {
+        return {
+          ok: false,
+          error: `Formatting-only preview was blocked because protected content changed: ${formatHearthPreservationChanges(preview.preservation.changes)}.`,
+        };
+      }
+      const ops: HearthOp[] = [{ op: "set_body", value: preview.formatted }];
+      return {
+        ok: true,
+        assistantText: "I created a deterministic format-only preview. Wording, punctuation, speaker identity, notes, and pacing cues are unchanged.",
+        proposal: {
+          assistantText: "Deterministic format-only preview",
+          ops,
+          originalOps: cloneHearthProposalOps(ops),
+          selected: [true],
+          context: episodeContext,
+          fromGate: false,
+          autosaveReasonCode: "format_only",
+          proposalOrigin: "format_only",
+          formatSourceBody: sourceBody,
+          formatOriginalBody: preview.formatted,
+          formatChanges: [],
+        },
       };
     },
     resolveAiLaneFromStorage,
@@ -3739,7 +3933,7 @@ export default function HearthShell({
         sourcesChanged = true;
       },
       requestSave: (reason) => {
-        saveRequested = reason === "ai_apply_ops";
+        saveRequested = reason === "proposal_apply_ops";
       },
     };
 
@@ -3764,10 +3958,15 @@ export default function HearthShell({
           : [stagedDraft, ...prev];
         return dedupeDraftListById(next);
       });
+      const effectiveSaveReason: ProposalSaveReasonCode = args.proposal.formatSourceBody !== null
+        ? evaluateHearthFormatOnlyPreservation(args.proposal.formatSourceBody, stagedDraft.body).preserved
+          ? "format_only"
+          : "user_editorial"
+        : args.proposal.autosaveReasonCode;
       queueAiAutosave({
         draft: stagedDraft,
         previousBody,
-        reasonCode: args.proposal.autosaveReasonCode,
+        reasonCode: effectiveSaveReason,
       });
       if (bodyChanged) {
         publishForgeNotice({
@@ -3844,7 +4043,7 @@ export default function HearthShell({
       }
       return null;
     },
-    validateProposalApply: ({ opsToApply }) => {
+    validateProposalApply: ({ proposal, opsToApply }) => {
       const bodyWillChange = opsToApply.some((op) => op.op === "set_body");
       if (!bodyWillChange || !activeDraft) {
         return true;
@@ -3858,7 +4057,16 @@ export default function HearthShell({
         });
         setError(`Script tags must be valid before approval.\nFix the issues below to continue.\n\n${buildValidationReport(projectedValidation)}`);
       }
-      return projectedValidation.ok;
+      if (!projectedValidation.ok) return false;
+      if (proposal.formatSourceBody !== null) {
+        return confirmHearthUserEditorialTransition({
+          source: proposal.formatSourceBody,
+          result: projectedBody,
+          action: "apply",
+          confirm: (message) => window.confirm(message),
+        });
+      }
+      return true;
     },
     applyProposalOps: ({ proposal, opsToApply }) => applyProposalOpsToWorkspace({ proposal, opsToApply }),
     recordProposalApplied: ({ mode, totalOps, appliedOps, fromGate }) => {
@@ -3878,6 +4086,20 @@ export default function HearthShell({
     updateProposalBodyOps: (ops, index, value) => updateHearthProposalBodyOp(ops, index, value),
     resetProposalBodyOps: (ops, originalOps, index) => resetHearthProposalBodyOp(ops, originalOps, index),
     isProposalBodyDirty: (ops, originalOps, index) => isHearthProposalBodyOpDirty(ops, originalOps, index),
+    updateProposalAfterBodyEdit: (proposal, index, value) => {
+      const next = {
+        ...proposal,
+        ops: updateHearthProposalBodyOp(proposal.ops, index, value),
+      };
+      return reclassifyHearthFormatProposal(next, value);
+    },
+    resetProposalAfterBodyEdit: (proposal, index) => {
+      const ops = resetHearthProposalBodyOp(proposal.ops, proposal.originalOps, index);
+      const bodyOp = ops[index];
+      return bodyOp?.op === "set_body"
+        ? reclassifyHearthFormatProposal({ ...proposal, ops }, bodyOp.value)
+        : { ...proposal, ops };
+    },
   });
   const onApproveAiProposalAsScript = useCallback(async () => {
     if (!pendingAiProposal || isApplyingAiOps) return;
@@ -3894,6 +4116,16 @@ export default function HearthShell({
 
     const normalizedBodyOps = normalizeAiProposalOpsForScriptIngress(bodyOps);
     const nextBody = findNextBodyFromOps(activeDraft.body, normalizedBodyOps);
+    if (pendingAiProposal.formatSourceBody !== null) {
+      if (!confirmHearthUserEditorialTransition({
+        source: pendingAiProposal.formatSourceBody,
+        result: nextBody,
+        action: "approve",
+        confirm: (message) => window.confirm(message),
+      })) {
+        return;
+      }
+    }
     const nextScriptAuthoringMeta = pendingAiProposal.autosaveReasonCode === "ai_outline"
       ? deriveOutlineScriptAuthoringMeta({
         scriptText: nextBody,
@@ -4464,6 +4696,9 @@ export default function HearthShell({
     workpieceId,
     resetReleasePrepState,
     setEpisodePackage,
+    setEpisodePackageState,
+    setEpisodePackageError,
+    setRecoverableMediaMap,
     setImageMapMetadataUpdatedAt,
     setSelectedThumbnailTitleId,
     setSelectedThumbnailConceptId,
@@ -5784,23 +6019,17 @@ export default function HearthShell({
       if (cancelled) return;
       if (!loaded.ok) {
         setThumbnailBrandLogoDataUrl(null);
-        if (!isThumbnailBrandLogoUploading && !thumbnailBrandLogoError) {
-          setThumbnailBrandLogoError(loaded.error);
-        }
+        setThumbnailBrandLogoError((current) => current ?? loaded.error);
         return;
       }
       setThumbnailBrandLogoDataUrl(loaded.dataUrl);
-      if (!isThumbnailBrandLogoUploading && !thumbnailBrandLogoError) {
-        setThumbnailBrandLogoStatus("Brand logo loaded.");
-      }
+      setThumbnailBrandLogoStatus("Brand logo loaded.");
     })();
 
     return () => {
       cancelled = true;
     };
   }, [
-    isThumbnailBrandLogoUploading,
-    thumbnailBrandLogoError,
     workpieceId,
     selectedThumbnailBrandLogoWorkpieceId,
     selectedThumbnailBrandLogoAssetPath,
@@ -5908,6 +6137,12 @@ export default function HearthShell({
     setEpisodePackage((prev) => {
       if (!prev) return prev;
       if (prev.media_map.script_version_id === currentScriptVersion) return prev;
+      if (
+        prev.media_map.status === "needs_attention"
+        && prev.media_map.entries.every((entry) => entry.stale)
+      ) {
+        return prev;
+      }
       return {
         ...prev,
         media_map: {
@@ -6443,11 +6678,15 @@ export default function HearthShell({
     action: ProductionAction;
     scriptVersion: number;
     assistantText: string;
+    generatedAt?: string;
+    reuseStoredArtifact?: boolean;
   }) {
-    await persistHearthProductionArtifact({
+    const result = await persistHearthProductionArtifact({
       action: args.action,
       scriptVersion: args.scriptVersion,
       assistantText: args.assistantText,
+      generatedAt: args.generatedAt,
+      reuseStoredArtifact: args.reuseStoredArtifact,
       workpieceId,
       workspaceId,
       refreshEpisodePackage,
@@ -6457,27 +6696,79 @@ export default function HearthShell({
       setMetadataDescriptionShortDraft,
       setMetadataDescriptionLongDraft,
       setMetadataTagsDraft,
+      onTagProposal: setGeneratedTagProposal,
     });
+    lastProductionCommitResultRef.current = result ?? null;
+    return result;
   }
 
   async function onRunProductionAction(action: ProductionAction) {
-    await runProductionAction({
-      action,
-      isAiProcessing,
-      isApprovingScript,
-      hasApprovedScript,
-      approvedScriptVersion,
-      activeDraft: activeDraft
-        ? {
-            body: activeDraft.body,
-            title: activeDraft.title,
-          }
-        : null,
-      planningSessionTitle: planningSession?.title ?? null,
-      setChatError,
-      setActiveProductionAction,
-      sendChatMessage,
+    if (productionActionInFlightRef.current) return;
+    productionActionInFlightRef.current = true;
+    lastProductionCommitResultRef.current = null;
+    try {
+      await runProductionAction({
+        action,
+        isAiProcessing,
+        isApprovingScript,
+        hasApprovedScript,
+        approvedScriptVersion,
+        activeDraft: activeDraft
+          ? {
+              body: activeDraft.body,
+              title: activeDraft.title,
+            }
+          : null,
+        planningSessionTitle: planningSession?.title ?? null,
+        setChatError,
+        setActiveProductionAction,
+        sendChatMessage,
+      });
+      return lastProductionCommitResultRef.current ?? undefined;
+    } finally {
+      productionActionInFlightRef.current = false;
+    }
+  }
+
+  async function onRecoverThumbnailConcepts() {
+    if (!workpieceId) { const reason = "Select an Episode before recovering thumbnail concepts."; setAiRuntimeWarning(reason); return { ok: false as const, reason }; }
+    if (!approvedScriptVersion) { const reason = "Approve a Script Version before recovering thumbnail concepts."; setAiRuntimeWarning(reason); return { ok: false as const, reason }; }
+    const artifact = await readWorkpieceProductionArtifact({ workpieceId, scriptVersion: approvedScriptVersion, kind: "thumbnails" });
+    const payload = artifact.ok && artifact.payload && typeof artifact.payload === "object" && !Array.isArray(artifact.payload)
+      ? artifact.payload as Record<string, unknown> : null;
+    const rawText = typeof payload?.raw_text === "string" ? payload.raw_text : "";
+    if (!rawText.trim()) { const reason = "No saved thumbnail generation response exists for this approved script version."; setAiRuntimeWarning(reason); return { ok: false as const, reason, stage: "artifact" as const }; }
+    const generatedAt = typeof payload?.generated_at === "string" ? payload.generated_at : undefined;
+    return persistProductionArtifact({ action: "thumbnails", scriptVersion: approvedScriptVersion, assistantText: rawText, generatedAt, reuseStoredArtifact: true });
+  }
+
+  async function onRecoverFraming() {
+    if (!workpieceId) { setAiRuntimeWarning("Select an Episode before recovering framing outputs."); return; }
+    if (!approvedScriptVersion) { setAiRuntimeWarning("Approve a Script Version before recovering framing outputs."); return; }
+    let found = 0;
+    for (const action of ["seo", "tags"] as const) {
+      const artifact = await readWorkpieceProductionArtifact({ workpieceId, scriptVersion: approvedScriptVersion, kind: action });
+      const payload = artifact.ok && artifact.payload && typeof artifact.payload === "object" && !Array.isArray(artifact.payload)
+        ? artifact.payload as Record<string, unknown> : null;
+      const rawText = typeof payload?.raw_text === "string" ? payload.raw_text : "";
+      if (!rawText.trim()) continue;
+      found += 1;
+      const generatedAt = typeof payload?.generated_at === "string" ? payload.generated_at : undefined;
+      await persistProductionArtifact({ action, scriptVersion: approvedScriptVersion, assistantText: rawText, generatedAt, reuseStoredArtifact: true });
+    }
+    if (!found) { setAiRuntimeWarning("No saved title or tag generation responses exist for this approved script version."); return; }
+    await refreshEpisodePackage();
+  }
+
+  function onAcceptGeneratedTags(mode: "replace" | "merge") {
+    if (!generatedTagProposal) return;
+    const nextTags = resolveAcceptedTagProposal({
+      canonicalTags: metadataTagsDraft,
+      proposedTags: generatedTagProposal.tags,
+      mode,
     });
+    onMetadataApplyTags(nextTags);
+    setGeneratedTagProposal(null);
   }
 
   function resolveBrollDataVisualSpecFromDraft(intent: EpisodeBrollPlanBeat["motion_intent"]): EpisodeBrollDataVisualSpec | null {
@@ -6930,9 +7221,29 @@ export default function HearthShell({
       mediaMap,
       saveState: mediaMapSaveState,
       saveError: mediaMapSaveError,
+      packageState: episodePackageState,
+      packageError: episodePackageError,
+      generateDisabledReason: episodePackageState === "loading"
+        ? "Episode package is loading."
+        : episodePackageState === "error"
+          ? (episodePackageError ?? "The episode package failed to load.")
+          : episodePackageState !== "loaded" || !episodePackage
+            ? "No episode package is available."
+            : isApprovingScript
+              ? "Script approval is in progress."
+              : isMediaMapBusy
+                ? "A media-map operation is already in progress."
+                : null,
+      onRetryLoad: () => void refreshEpisodePackage(),
+      canRecoverLastGeneration: Boolean(
+        recoverableMediaMap
+        && JSON.stringify(recoverableMediaMap) !== JSON.stringify(mediaMap)
+      ),
+      onRecoverLastGeneration: () => void onRecoverLastMediaMapGeneration(),
       message: mediaMapMessage,
       disabled: isApprovingScript || isMediaMapBusy || !episodePackage,
       generationScope: mediaMapGenerationScope,
+      budgetPolicy: deriveFullMediaBudgetPolicy({ wordCount }),
       draft: {
         type: mediaMapTypeDraft,
         anchorMode: mediaMapAnchorModeDraft,
@@ -7302,22 +7613,27 @@ export default function HearthShell({
           onGenerateTags: hearthVisualsWorkspace.commands.onGenerateTags,
           onGenerateFramingPack: hearthVisualsWorkspace.commands.onGenerateFramingPack,
           onRefreshFramingPack: hearthVisualsWorkspace.commands.onRefreshFramingPack,
+          onRecoverFraming,
+          tagProposal: generatedTagProposal,
+          canonicalTags: metadataTagsDraft,
+          onReplaceTagProposal: () => onAcceptGeneratedTags("replace"),
+          onMergeTagProposal: () => onAcceptGeneratedTags("merge"),
+          onCancelTagProposal: () => setGeneratedTagProposal(null),
         }}
         visualsSurfaceProps={{
           visible: isVisualsWorkspaceTab,
           hasApprovedScript: hearthVisualsWorkspace.status.hasApprovedScript,
           approvedScriptVersion: hearthVisualsWorkspace.status.approvedScriptVersion,
-          mediaMapStatus: hearthVisualsWorkspace.status.mediaMapStatus,
-          mediaMapCoverageLevel: hearthVisualsWorkspace.status.mediaMapCoverageLevel,
-          mediaMapScopeLabel: hearthVisualsWorkspace.status.mediaMapScopeLabel,
-          thumbnailPanelMeta: visualsPanelContracts.thumbnail.meta,
-          mediaMapPanelMeta: visualsPanelContracts.mediaMap.meta,
-          imageMapPanelMeta: visualsPanelContracts.imageMap.meta,
-          brollPanelMeta: visualsPanelContracts.broll.meta,
-          referenceClipPanelMeta: visualsPanelContracts.referenceClips.meta,
+          workflowKey: workpieceId ?? "",
+          workflowInput: mediaWorkflowInput,
           activeVisualProviderBanner: hearthVisualsWorkspace.status.activeVisualProviderBanner,
           activeVisualProviderHelperText: hearthVisualsWorkspace.status.activeVisualProviderHelperText,
           thumbnailPanelProps: visualsPanelContracts.thumbnail.panelProps,
+          thumbnailAuthority: { workspaceId: workspaceId ?? null, workpieceId: workpieceId ?? null },
+          onGenerateThumbnailConcepts: () => onRunProductionAction("thumbnails"),
+          onRecoverThumbnailConcepts,
+          onOpenThumbnailFraming: () => requestWorkpieceTabChange("metadata"),
+          onCanonicalThumbnailProgress,
           mediaMapPanelProps: visualsPanelContracts.mediaMap.panelProps,
           imageMapPanelProps: visualsPanelContracts.imageMap.panelProps,
           brollPlanPanelProps: visualsPanelContracts.broll.panelProps,

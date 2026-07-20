@@ -52,23 +52,28 @@ async function listenServer(handler: http.RequestListener): Promise<{
 
 async function startForgeFfmpegStub(args: {
   responseBody: Buffer;
+  events: string[];
 }): Promise<{
   baseUrl: string;
   close: () => Promise<void>;
   calls: () => number;
+  setResponse: (status: number, body: Buffer) => void;
 }> {
   let callCount = 0;
+  let responseStatus = 200;
+  let responseBody = args.responseBody;
   const server = http.createServer((req, res) => {
     if (req.method === "POST" && req.url === "/transcode/wav") {
       callCount += 1;
+      args.events.push("ffmpeg");
       req.resume();
-      res.statusCode = 200;
+      res.statusCode = responseStatus;
       res.setHeader("content-type", "audio/wav");
       res.setHeader("x-forge-request-id", "ffmpeg_req_hammer_transcript");
       res.setHeader("x-forge-output-format", "wav_pcm_s16le");
       res.setHeader("x-forge-output-sample-rate", "16000");
       res.setHeader("x-forge-output-channels", "1");
-      res.end(args.responseBody);
+      res.end(responseBody);
       return;
     }
     res.statusCode = 404;
@@ -85,6 +90,10 @@ async function startForgeFfmpegStub(args: {
       await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
     },
     calls: () => callCount,
+    setResponse: (status, body) => {
+      responseStatus = status;
+      responseBody = body;
+    },
   };
 }
 
@@ -95,7 +104,11 @@ function countWords(text: string): number {
 async function main(): Promise<void> {
   const originalFetch = globalThis.fetch;
   const originalTranscriptBackend = process.env.HAMMER_TRANSCRIPT_AUDIO_TRANSCODE_BACKEND;
+  const originalForgeFfmpegBaseUrl = process.env.HAMMER_FORGE_FFMPEG_BASE_URL;
   const calls: FetchCall[] = [];
+  const events: string[] = [];
+  const transcriptionUploads: Array<{ type: string; name: string; bytes: Buffer }> = [];
+  let refuseWavTranscription = false;
 
   process.env.OPENAI_API_KEY = "test-openai-key";
   process.env.TONGS_SUPABASE_URL = "https://example.supabase.co";
@@ -105,6 +118,7 @@ async function main(): Promise<void> {
   const middleware = createHammerPrepMiddleware();
   const ffmpegServer = await startForgeFfmpegStub({
     responseBody: Buffer.from("RIFFfake-transcript-wave", "utf8"),
+    events,
   });
   process.env.HAMMER_FORGE_FFMPEG_BASE_URL = ffmpegServer.baseUrl;
   process.env.HAMMER_TRANSCRIPT_AUDIO_TRANSCODE_BACKEND = "forge";
@@ -156,10 +170,16 @@ async function main(): Promise<void> {
         return jsonResponse(200, [{ decision_type: "ALLOW", reason_code: null }]);
       }
       if (url === "https://api.openai.com/v1/audio/transcriptions") {
+        events.push("transcription");
         const body = init?.body;
         assert(body instanceof FormData, "expected OpenAI request body to be FormData");
         const file = body.get("file");
         assert(file instanceof Blob, "expected OpenAI request to include a file blob");
+        transcriptionUploads.push({
+          type: file.type,
+          name: file instanceof File ? file.name : "",
+          bytes: Buffer.from(await file.arrayBuffer()),
+        });
         if (file.type === "audio/webm") {
           return jsonResponse(400, {
             error: {
@@ -172,6 +192,9 @@ async function main(): Promise<void> {
         }
         if (calls.filter((call) => call.url === "https://api.openai.com/v1/audio/transcriptions").length >= 2) {
           assert.equal(file.type, "audio/wav", "expected fallback/transcoded upload to be WAV");
+        }
+        if (refuseWavTranscription && file.type === "audio/wav") {
+          return jsonResponse(422, { error: { message: "transcription refused normalized WAV" } });
         }
         const longText = [
           "Here is the weird part.",
@@ -268,6 +291,52 @@ async function main(): Promise<void> {
     assert.equal(videoResponse.status, 200, "expected transcoded video prep response");
     assert.equal(Boolean(videoPayload?.ok), true, "expected transcoded video ok flag");
     assert.equal(ffmpegServer.calls(), 2, "expected audio-webm and video sources to use Forge FFmpeg");
+    const videoUpload = transcriptionUploads.at(-1);
+    assert(videoUpload, "expected normalized video transcription upload");
+    assert.equal(videoUpload.type, "audio/wav");
+    assert.equal(videoUpload.name, "source.wav");
+    assert.deepEqual(videoUpload.bytes, Buffer.from("RIFFfake-transcript-wave", "utf8"));
+    assert.notDeepEqual(videoUpload.bytes, Buffer.from("fake-video-bytes"));
+    assert.deepEqual(events.slice(-2), ["ffmpeg", "transcription"], "FFmpeg must finish before transcription starts");
+
+    const openAiBeforeFailures = transcriptionUploads.length;
+    ffmpegServer.setResponse(500, Buffer.from("forced normalization failure"));
+    const normalizationFailure = await fetch(`${server.origin}/api/hammer/prep/transcript`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer test-user-access-token" },
+      body: JSON.stringify({ workspace_id: TEST_WORKSPACE_ID, workpiece_id: TEST_WORKPIECE_ID, media_kind: "recording_video", local_root_abs: tempRoot, local_relpath: "source.webm", mime_type: "video/webm" }),
+    });
+    assert.notEqual(normalizationFailure.status, 200);
+    assert.equal(transcriptionUploads.length, openAiBeforeFailures, "normalization failure must not submit original video");
+
+    ffmpegServer.setResponse(200, Buffer.alloc(0));
+    const emptyOutput = await fetch(`${server.origin}/api/hammer/prep/transcript`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer test-user-access-token" },
+      body: JSON.stringify({ workspace_id: TEST_WORKSPACE_ID, workpiece_id: TEST_WORKPIECE_ID, media_kind: "recording_video", local_root_abs: tempRoot, local_relpath: "source.webm", mime_type: "video/webm" }),
+    });
+    assert.notEqual(emptyOutput.status, 200);
+    assert.equal(transcriptionUploads.length, openAiBeforeFailures, "empty normalized output must not reach transcription");
+
+    process.env.HAMMER_FORGE_FFMPEG_BASE_URL = "http://127.0.0.1:1";
+    const unavailable = await fetch(`${server.origin}/api/hammer/prep/transcript`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer test-user-access-token" },
+      body: JSON.stringify({ workspace_id: TEST_WORKSPACE_ID, workpiece_id: TEST_WORKPIECE_ID, media_kind: "recording_video", local_root_abs: tempRoot, local_relpath: "source.webm", mime_type: "video/webm" }),
+    });
+    assert.notEqual(unavailable.status, 200);
+    assert.equal(transcriptionUploads.length, openAiBeforeFailures, "FFmpeg unavailability must not submit original video");
+    process.env.HAMMER_FORGE_FFMPEG_BASE_URL = ffmpegServer.baseUrl;
+
+    ffmpegServer.setResponse(200, Buffer.from("RIFFrefused-wave", "utf8"));
+    refuseWavTranscription = true;
+    const refused = await fetch(`${server.origin}/api/hammer/prep/transcript`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer test-user-access-token" },
+      body: JSON.stringify({ workspace_id: TEST_WORKSPACE_ID, workpiece_id: TEST_WORKPIECE_ID, media_kind: "recording_video", local_root_abs: tempRoot, local_relpath: "source.webm", mime_type: "video/webm" }),
+    });
+    assert.notEqual(refused.status, 200);
+    assert.equal(transcriptionUploads.at(-1)?.type, "audio/wav");
 
     console.log("Hammer transcript normalization tests passed.");
   } finally {
@@ -276,6 +345,11 @@ async function main(): Promise<void> {
       delete process.env.HAMMER_TRANSCRIPT_AUDIO_TRANSCODE_BACKEND;
     } else {
       process.env.HAMMER_TRANSCRIPT_AUDIO_TRANSCODE_BACKEND = originalTranscriptBackend;
+    }
+    if (typeof originalForgeFfmpegBaseUrl === "undefined") {
+      delete process.env.HAMMER_FORGE_FFMPEG_BASE_URL;
+    } else {
+      process.env.HAMMER_FORGE_FFMPEG_BASE_URL = originalForgeFfmpegBaseUrl;
     }
     await fsPromises.rm(tempRoot, { recursive: true, force: true });
     await server.close();

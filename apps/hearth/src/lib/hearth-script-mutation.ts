@@ -3,6 +3,7 @@ import { shouldKeepHearthOutlineInChatOnly } from "./hearth-chat-proposal-routin
 export type HearthChatDestination = "chat" | "script_body";
 
 export type HearthScriptMutationKind =
+  | "format_only"
   | "draft_script"
   | "rewrite"
   | "revise"
@@ -24,6 +25,8 @@ const INTEGRATE_PATTERN = /\b(integrate|merge|fold in|work in|add|include)\b[^.!
 const REPLACE_SECTION_PATTERN = /\b(replace|redo|rework|rewrite|revise|update)\b[^.!?\n]{0,40}\b(section|intro|opening|cold open|segment|body)\b/;
 const UPDATE_OUTLINE_PATTERN = /\b(update|rewrite|revise|redo|rework|tighten)\b[^.!?\n]{0,40}\boutline\b/;
 const DRAFT_SCRIPT_PATTERN = /\b(full script|write\b|draft\b|script this|turn\b|shape\b|make\b)\b/;
+const FORMAT_ONLY_PATTERN = /(?:\breformat\b|\bformat(?:ting)?\s+only\b|\bfix\s+(?:the\s+)?line\s*breaks?\b|\bmake\s+(?:this(?:\s+(?:script|draft))?|it|the\s+(?:script|draft))\s+anvil[- ]ready\b|\bnormalize\s+(?:the\s+)?speaker\s+blocks?\b|\brepair\s+(?:the\s+)?formatting\b|\bformat\b[^.!?\n]{0,50}\bwithout\s+changing\s+(?:the\s+)?wording\b)/;
+const EDITORIAL_CHANGE_PATTERN = /(?:\b(rewrite|redo|rework|revise|edit|polish|tighten|shorten|improve|punch up|integrate|merge|fold in|replace)\b|\b(?:add|include)\b[^.!?\n]{0,40}\b(?:words?|joke|section|research|detail|example|source|fact|point|story)\b)/;
 
 function normalizeMutationText(text: string): string {
   return text.replace(/\s+/g, " ").trim().toLowerCase();
@@ -36,6 +39,14 @@ export function detectHearthScriptMutationIntent(text: string): HearthScriptMuta
       destination: "chat",
       kind: null,
       targetsScriptBody: false,
+    };
+  }
+
+  if (FORMAT_ONLY_PATTERN.test(normalized) && !EDITORIAL_CHANGE_PATTERN.test(normalized)) {
+    return {
+      destination: "script_body",
+      kind: "format_only",
+      targetsScriptBody: true,
     };
   }
 
@@ -149,6 +160,9 @@ export function buildNoScriptChangesExplanation(intent: HearthScriptMutationInte
   }
   if (intent.kind === "draft_script") {
     return "No script changes made. Hearth did not return a canonical script-body draft to stage.";
+  }
+  if (intent.kind === "format_only") {
+    return "No script changes made. Hearth could not produce a formatting-only preview without changing protected script content.";
   }
   return "No script changes made. Hearth returned analysis only, so the script body stayed untouched.";
 }

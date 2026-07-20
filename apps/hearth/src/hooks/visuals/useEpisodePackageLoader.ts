@@ -7,8 +7,9 @@ import {
 } from "../../lib/hearth-image-map-repo";
 import {
   readWorkpieceEpisodeMediaMap,
+  readRecoverableEpisodeMediaMap,
 } from "../../lib/hearth-media-map-repo";
-import type { EpisodePackageV2 } from "../../lib/episode-package-v2";
+import type { EpisodeMediaMap, EpisodePackageV2 } from "../../lib/episode-package-v2";
 import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 import { resolveCanonicalVisualArtifacts } from "../../lib/hearth-visual-artifact-authority";
 
@@ -17,6 +18,9 @@ type UseEpisodePackageLoaderArgs = {
   workpieceId: string | null;
   resetReleasePrepState: () => void;
   setEpisodePackage: Dispatch<SetStateAction<EpisodePackageV2 | null>>;
+  setEpisodePackageState: Dispatch<SetStateAction<"idle" | "loading" | "loaded" | "error">>;
+  setEpisodePackageError: Dispatch<SetStateAction<string | null>>;
+  setRecoverableMediaMap: Dispatch<SetStateAction<EpisodeMediaMap | null>>;
   setImageMapMetadataUpdatedAt: Dispatch<SetStateAction<string | null>>;
   setSelectedThumbnailTitleId: Dispatch<SetStateAction<string | null>>;
   setSelectedThumbnailConceptId: Dispatch<SetStateAction<string>>;
@@ -65,6 +69,9 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
       // Clear stale artifact state as soon as the active workpiece changes so prior package
       // residue never renders as current truth for the new target.
       currentArgs.setEpisodePackage(null);
+      currentArgs.setEpisodePackageState(episodeId ? "loading" : "idle");
+      currentArgs.setEpisodePackageError(null);
+      currentArgs.setRecoverableMediaMap(null);
       currentArgs.setImageMapMetadataUpdatedAt(null);
       currentArgs.setSelectedThumbnailTitleId(null);
       currentArgs.setSelectedThumbnailConceptId("");
@@ -83,7 +90,6 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
       currentArgs.setImageMapSaveState("saved");
       currentArgs.setImageMapSaveError(null);
       currentArgs.setImageMapExportMessage(null);
-      currentArgs.setMediaMapSaveState("saved");
       currentArgs.setMediaMapSaveError(null);
       currentArgs.setMediaMapMessage(null);
       currentArgs.setBrollSaveState("saved");
@@ -98,25 +104,35 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
 
     if (!episodeId) {
       artifactStateWorkpieceIdRef.current = null;
+      currentArgs.setEpisodePackageState("idle");
       return;
     }
-    const operation = currentArgs.operationAuthority.begin("visuals.package.load");
+    currentArgs.setEpisodePackageState("loading");
+    currentArgs.setEpisodePackageError(null);
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
     try {
-      const [loaded, imageMapLoaded, mediaMapLoaded] = await Promise.all([
-        readEpisodePackageForWorkpiece(episodeId),
-        getWorkpieceImageMap(episodeId),
-        readWorkpieceEpisodeMediaMap(episodeId),
+      const [loaded, imageMapLoaded, mediaMapLoaded, recoverableMediaMapLoaded] = await Promise.race([
+        Promise.all([
+          readEpisodePackageForWorkpiece(episodeId),
+          getWorkpieceImageMap(episodeId),
+          readWorkpieceEpisodeMediaMap(episodeId),
+          readRecoverableEpisodeMediaMap(episodeId),
+        ]),
+        new Promise<never>((_resolve, reject) => {
+          timeoutId = setTimeout(() => reject(new Error("Episode package load timed out. Retry Load.")), 15_000);
+        }),
       ]);
+      if (timeoutId) clearTimeout(timeoutId);
       if (
-        !currentArgs.operationAuthority.isCurrent(operation)
-        ||
         episodePackageRequestSeqRef.current !== requestSeq
         || (latestArgsRef.current.workpieceId?.trim() ?? "") !== episodeId
       ) {
         return;
       }
       if (!loaded.ok) {
+        currentArgs.setEpisodePackageState("error");
+        currentArgs.setEpisodePackageError(loaded.error);
         currentArgs.setThumbnailGenerateError("Unable to load thumbnail metadata.");
         currentArgs.setThumbnailPreviewState("error");
         currentArgs.setThumbnailPreviewDataUrl(null);
@@ -167,8 +183,17 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
         currentArgs.setMediaMapSaveState("error");
         currentArgs.setMediaMapSaveError(mediaMapLoaded.error);
       }
+      currentArgs.setRecoverableMediaMap(
+        recoverableMediaMapLoaded.ok
+        && recoverableMediaMapLoaded.mediaMap
+        && recoverableMediaMapLoaded.mediaMap.entries.length > 0
+          ? recoverableMediaMapLoaded.mediaMap
+          : null,
+      );
 
       currentArgs.setEpisodePackage(nextEpisodePackage);
+      currentArgs.setEpisodePackageState("loaded");
+      currentArgs.setEpisodePackageError(null);
       artifactStateWorkpieceIdRef.current = episodeId;
       currentArgs.setThumbnailGenerateError(null);
       const versions = nextEpisodePackage.thumbnail.versions;
@@ -181,10 +206,9 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
         if (prev && imageEntries.some((entry) => entry.id === prev)) return prev;
         return imageEntries[0]?.id ?? null;
       });
-    } catch {
+    } catch (error) {
+      if (timeoutId) clearTimeout(timeoutId);
       if (
-        !currentArgs.operationAuthority.isCurrent(operation)
-        ||
         episodePackageRequestSeqRef.current !== requestSeq
         || (latestArgsRef.current.workpieceId?.trim() ?? "") !== episodeId
       ) {
@@ -194,6 +218,10 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
       currentArgs.setThumbnailPreviewState("error");
       currentArgs.setThumbnailPreviewDataUrl(null);
       currentArgs.setThumbnailPreviewError("Unable to load thumbnail metadata.");
+      currentArgs.setEpisodePackageState("error");
+      currentArgs.setEpisodePackageError(
+        error instanceof Error ? error.message : "Unable to load the episode package.",
+      );
     }
   }, [args.workpieceId]);
 }

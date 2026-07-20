@@ -80,13 +80,10 @@ export function useReleasePrepPackWorkspace(args: UseReleasePrepPackWorkspaceArg
       resetReleasePrepState();
       return;
     }
-    // Avoid eager fetch spam for pack.json (often legitimately absent).
-    // We load on explicit Refresh or when release_prep_pack generation completes.
-    setLatestReleasePrepRawText(null);
-    setLatestReleasePrepSections([]);
-    setReleasePrepLoadState("idle");
-    setReleasePrepScriptVersion(args.approvedScriptVersion);
-  }, [args.approvedScriptVersion, args.hasApprovedScript, resetReleasePrepState]);
+    // Framing Pack is durable versioned workpiece state. A reload must hydrate
+    // it without requiring the user to press Refresh or regenerate it.
+    void loadLatestReleasePrepPack(args.approvedScriptVersion);
+  }, [args.approvedScriptVersion, args.hasApprovedScript, loadLatestReleasePrepPack, resetReleasePrepState]);
 
   return {
     latestReleasePrepRawText,

@@ -33462,6 +33462,170 @@ var init_asr_threshold_store = __esm({
   }
 });
 
+// src/features/asr/canonical-asr-authority.ts
+function readReadyScript() {
+  const value = window.__forgeCanonicalReadyScript;
+  if (!value || typeof value !== "object") return null;
+  const row = value;
+  return typeof row.workspaceId === "string" && typeof row.workpieceId === "string" && typeof row.path === "string" && typeof row.scriptRevision === "number" && typeof row.scriptHash === "string" && typeof row.transitionId === "string" ? row : null;
+}
+function readCaptureSessionId() {
+  const value = window.__tpAnvilCaptureSessionId;
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+function restoreCanonicalAsrAuthority() {
+  try {
+    const raw = sessionStorage.getItem(STORAGE_KEY6);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.schema === "anvil.asr-authority-snapshot.v1") return new CanonicalAsrAuthority(parsed);
+    }
+  } catch {
+  }
+  return new CanonicalAsrAuthority();
+}
+var STORAGE_KEY6, CanonicalAsrAuthority;
+var init_canonical_asr_authority = __esm({
+  "src/features/asr/canonical-asr-authority.ts"() {
+    "use strict";
+    STORAGE_KEY6 = "anvil_asr_authority_snapshot_v1";
+    CanonicalAsrAuthority = class {
+      snapshot;
+      constructor(restored) {
+        this.snapshot = restored ?? {
+          schema: "anvil.asr-authority-snapshot.v1",
+          cursor: 0,
+          coveredLines: [0],
+          unresolvedSkippedLines: [],
+          pendingRecoveryProposal: null,
+          semanticProgressAt: null,
+          terminalCompleted: false,
+          postrollEligible: false,
+          captureSessionId: readCaptureSessionId(),
+          readyScript: readReadyScript()
+        };
+        this.publish();
+      }
+      proposeRecovery(target, reason) {
+        this.snapshot.pendingRecoveryProposal = { target: Math.max(0, Math.floor(target)), reason, proposedAt: Date.now() };
+        this.persist();
+      }
+      commitCursor(target, reason, totalLines) {
+        const next = Math.max(0, Math.floor(target));
+        const previous = this.snapshot.cursor;
+        if (next > previous + 1) {
+          for (let line = previous + 1; line < next; line += 1) {
+            if (!this.snapshot.unresolvedSkippedLines.includes(line)) this.snapshot.unresolvedSkippedLines.push(line);
+          }
+        }
+        for (let line = Math.min(previous, next); line <= next; line += 1) {
+          if (!this.snapshot.coveredLines.includes(line)) this.snapshot.coveredLines.push(line);
+        }
+        if (/bridge|recovery|rescue|adjacent/i.test(reason) && next <= previous + 1) {
+          this.snapshot.unresolvedSkippedLines = this.snapshot.unresolvedSkippedLines.filter((line) => line > next);
+          this.snapshot.pendingRecoveryProposal = null;
+        }
+        this.snapshot.cursor = next;
+        this.snapshot.semanticProgressAt = Date.now();
+        const terminal = totalLines > 0 && next === totalLines - 1 && this.snapshot.unresolvedSkippedLines.length === 0;
+        this.snapshot.terminalCompleted = terminal;
+        this.snapshot.postrollEligible = terminal;
+        this.snapshot.captureSessionId = readCaptureSessionId() ?? this.snapshot.captureSessionId;
+        this.snapshot.readyScript = readReadyScript() ?? this.snapshot.readyScript;
+        this.persist();
+        return this.getSnapshot();
+      }
+      getSnapshot() {
+        return JSON.parse(JSON.stringify(this.snapshot));
+      }
+      persist() {
+        try {
+          sessionStorage.setItem(STORAGE_KEY6, JSON.stringify(this.snapshot));
+        } catch {
+        }
+        this.publish();
+      }
+      publish() {
+        window.__tpCanonicalAsrAuthority = this.getSnapshot();
+        try {
+          window.dispatchEvent(new CustomEvent("tp:asr:canonical-authority", { detail: this.getSnapshot() }));
+        } catch {
+        }
+      }
+    };
+  }
+});
+
+// src/features/asr/terminal-boundary-authority.ts
+var classifyTerminalContradiction, evaluateTerminalProposal, TerminalBoundaryAuthority;
+var init_terminal_boundary_authority = __esm({
+  "src/features/asr/terminal-boundary-authority.ts"() {
+    "use strict";
+    classifyTerminalContradiction = (input) => {
+      const genuine = input.backwardRankedScoreContradiction && !input.tailProgressionOverride;
+      const competing = input.competingGuardContradiction && !input.tailProgressionOverride && !genuine;
+      return { blocked: genuine || competing, genuine, competing };
+    };
+    evaluateTerminalProposal = (proposal, current2) => {
+      if (proposal.targetLine !== proposal.currentLine + 1 || proposal.targetLine !== proposal.lastSpeakableLine) {
+        return { outcome: "stale", reason: "not_final_adjacent" };
+      }
+      if (!proposal.proofOwned || !proposal.responseFresh || !proposal.audioFresh) {
+        return { outcome: "stale", reason: "proof_or_freshness_missing" };
+      }
+      if (!proposal.responseAuthorityCurrent || !current2.responseAuthorityCurrent) {
+        return { outcome: "stale", reason: "response_authority_stale" };
+      }
+      if (current2.line !== proposal.currentLine) return { outcome: "stale", reason: "cursor_changed" };
+      if (current2.runKey !== proposal.runKey || current2.runGeneration !== proposal.runGeneration) {
+        return { outcome: "stale", reason: "run_identity_changed" };
+      }
+      if (proposal.genuineContradiction) return { outcome: "blocked", reason: "genuine_contradiction" };
+      if (proposal.competingContradiction && current2.competingContradictionActive) {
+        return { outcome: "blocked", reason: "competing_contradiction" };
+      }
+      return { outcome: "commit" };
+    };
+    TerminalBoundaryAuthority = class {
+      constructor(onReevaluate, delayMs = 500) {
+        this.onReevaluate = onReevaluate;
+        this.delayMs = delayMs;
+      }
+      proposal = null;
+      timer = null;
+      disposed = false;
+      preserve(proposal) {
+        if (this.disposed || proposal.targetLine !== proposal.currentLine + 1 || proposal.targetLine !== proposal.lastSpeakableLine || !proposal.proofOwned || !proposal.responseAuthorityCurrent || !proposal.responseFresh || !proposal.audioFresh) return false;
+        this.proposal = proposal;
+        this.schedule();
+        return true;
+      }
+      schedule() {
+        if (this.disposed || !this.proposal || this.timer) return;
+        this.timer = setTimeout(() => {
+          this.timer = null;
+          if (!this.disposed && this.proposal) this.onReevaluate(this.proposal);
+        }, this.delayMs);
+      }
+      noteRestart() {
+        this.schedule();
+      }
+      clear() {
+        this.proposal = null;
+        if (this.timer) clearTimeout(this.timer);
+        this.timer = null;
+      }
+      getPending() {
+        return this.proposal;
+      }
+      dispose() {
+        this.disposed = true;
+        this.clear();
+      }
+    };
+  }
+});
+
 // src/dev/dev-state.ts
 function readFlag(key, defaultValue = false) {
   if (typeof window === "undefined") return defaultValue;
@@ -36921,7 +37085,7 @@ function evaluateAsrVisualChairperson(input) {
   const activeRecoveryEpisode = !!input.activeRecoveryEpisode && input.activeRecoveryEpisode.expiresAt > input.nowMs && Number.isFinite(input.activeRecoveryEpisode.protectedTargetScrollTop);
   const chairpersonRecoveryDebtEligible = selectedTargetDebtPx >= CHAIRPERSON_RECOVERY_MIN_TARGET_DEBT_PX;
   const protectedTargetScrollTop = activeRecoveryEpisode ? clamp4(input.activeRecoveryEpisode.protectedTargetScrollTop, currentScrollTop, maxScrollTop) : Number.NaN;
-  const recoveryNeeded = activeRecoveryEpisode || chairpersonRecoveryDebtEligible && (pocketBand === "recovery" || semanticAheadLines >= 1);
+  const recoveryNeeded = activeRecoveryEpisode || semanticAheadLines >= 1 || chairpersonRecoveryDebtEligible && pocketBand === "recovery";
   let mode;
   if (blockersActive) mode = "hold";
   else if ((input.previousMode === "recover" || input.previousMode === "settle") && (activeRecoveryEpisode || input.settleUntilMs > input.nowMs) && (pocketBand === "preferred" || pocketBand === "tolerated")) mode = "settle";
@@ -39037,6 +39201,7 @@ function scheduleCommitTruthProbe(scroller, payload) {
   runAfterAnimationFrames(logFn, DEFAULT_SCROLL_TRUTH_SETTLE_FRAMES);
 }
 function createAsrScrollDriver(options = {}) {
+  const canonicalAuthority = restoreCanonicalAsrAuthority();
   emitTsPrimaryMatcherProviderDiagnostic("asr_driver_creation");
   asrPursuitDiagnosticCounters.emitted = 0;
   asrPursuitDiagnosticCounters.coalesced = 0;
@@ -40425,6 +40590,10 @@ function createAsrScrollDriver(options = {}) {
   }
   let activeMotionPreset = calmModeEnabled ? "calm" : "normal";
   let motionTuning = { ...calmModeEnabled ? MOTION_PRESET_CALM : MOTION_PRESET_NORMAL };
+  guardLastAt.clear();
+  guardStatusLastAt.clear();
+  logLastAt.clear();
+  nanGuardLastAt.clear();
   frameDiagnosticLastSeen.clear();
   coalescedDiagnosticState.clear();
   let preservedAsrAuthorityTargetTop = null;
@@ -42436,6 +42605,104 @@ function createAsrScrollDriver(options = {}) {
   let lastAcceptedMatchedLineIdx = -1;
   let lastAcceptedMatchedLineSim = Number.NaN;
   let lastAcceptedMatchedAt = 0;
+  let acceptedForwardOpportunity = null;
+  const clearAcceptedForwardOpportunity = (reason) => {
+    if (!acceptedForwardOpportunity) return;
+    if (isDevMode4()) {
+      try {
+        console.info("[ASR_ACCEPTED_FORWARD_OPPORTUNITY_CLEARED]", {
+          reason,
+          targetLineIdx: acceptedForwardOpportunity.targetLineIdx,
+          firstEligibleAtMs: acceptedForwardOpportunity.firstEligibleAtMs,
+          lastConfirmedAtMs: acceptedForwardOpportunity.lastConfirmedAtMs
+        });
+      } catch {
+      }
+    }
+    acceptedForwardOpportunity = null;
+  };
+  const noteAcceptedForwardOpportunity = (args) => {
+    const semanticCursor = Math.max(0, Math.floor(Number(args.semanticCursor) || 0));
+    const targetLineIdx = Math.max(0, Math.floor(Number(args.targetLineIdx) || 0));
+    if (args.contradiction) {
+      clearAcceptedForwardOpportunity("contradiction");
+      return null;
+    }
+    if (targetLineIdx <= semanticCursor) return acceptedForwardOpportunity;
+    const runKey = String(args.runKey || "");
+    const runGeneration = Number.isFinite(args.runGeneration) ? Math.floor(Number(args.runGeneration)) : null;
+    const sameAuthority = !!acceptedForwardOpportunity && acceptedForwardOpportunity.semanticCursorAtOpen === semanticCursor && acceptedForwardOpportunity.runKey === runKey && acceptedForwardOpportunity.runGeneration === runGeneration;
+    if (!sameAuthority) {
+      acceptedForwardOpportunity = {
+        targetLineIdx,
+        confidence: Number(args.confidence),
+        matchId: args.matchId ? String(args.matchId) : null,
+        transcriptSeq: Number.isFinite(args.transcriptSeq) ? Math.floor(Number(args.transcriptSeq)) : null,
+        runKey,
+        runGeneration,
+        semanticCursorAtOpen: semanticCursor,
+        firstEligibleAtMs: args.nowMs,
+        lastConfirmedAtMs: args.nowMs
+      };
+      if (isDevMode4()) {
+        try {
+          console.info("[ASR_ACCEPTED_FORWARD_OPPORTUNITY_OPENED]", { ...acceptedForwardOpportunity });
+        } catch {
+        }
+      }
+      return acceptedForwardOpportunity;
+    }
+    const currentOpportunity = acceptedForwardOpportunity;
+    if (!currentOpportunity) return null;
+    if (targetLineIdx < currentOpportunity.targetLineIdx) {
+      return currentOpportunity;
+    }
+    const advanced = targetLineIdx > currentOpportunity.targetLineIdx;
+    acceptedForwardOpportunity = {
+      ...currentOpportunity,
+      targetLineIdx,
+      confidence: Number(args.confidence),
+      matchId: args.matchId ? String(args.matchId) : currentOpportunity.matchId,
+      transcriptSeq: Number.isFinite(args.transcriptSeq) ? Math.floor(Number(args.transcriptSeq)) : currentOpportunity.transcriptSeq,
+      lastConfirmedAtMs: args.nowMs
+    };
+    if (isDevMode4()) {
+      try {
+        console.info(
+          advanced ? "[ASR_ACCEPTED_FORWARD_OPPORTUNITY_ADVANCED]" : "[ASR_ACCEPTED_FORWARD_OPPORTUNITY_CONFIRMED]",
+          { ...acceptedForwardOpportunity }
+        );
+      } catch {
+      }
+    }
+    return acceptedForwardOpportunity;
+  };
+  const evaluateAcceptedForwardOpportunity = (args) => {
+    const opportunity = acceptedForwardOpportunity;
+    if (!opportunity) return { promote: false, reason: "no_opportunity", targetLineIdx: null, starvationAgeMs: 0, evidenceAgeMs: Number.POSITIVE_INFINITY };
+    const semanticCursor = Math.max(0, Math.floor(Number(args.semanticCursor) || 0));
+    const starvationAgeMs = Math.max(0, args.nowMs - opportunity.firstEligibleAtMs);
+    const evidenceAgeMs = Math.max(0, args.nowMs - opportunity.lastConfirmedAtMs);
+    let reason = "eligible";
+    if (semanticCursor !== opportunity.semanticCursorAtOpen) reason = "semantic_cursor_changed";
+    else if (opportunity.targetLineIdx <= semanticCursor) reason = "target_not_forward";
+    else if (!args.runIdentityCurrent) reason = "stale_run_identity";
+    else if (args.noMatchOrOffscript) reason = "offscript_or_nomatch";
+    else if (args.contradiction) reason = "contradiction";
+    else if (args.manualRepositioning) reason = "manual_repositioning";
+    else if (args.stopped) reason = "speech_stopped";
+    else if (args.authorityLost) reason = "authority_lost";
+    else if (args.terminalUnsafe) reason = "terminal_unsafe";
+    else if (!args.speechFresh || evidenceAgeMs > 1800) reason = "evidence_stale";
+    else if (starvationAgeMs < DEFAULT_STARVATION_COMMIT_GAP_MS) reason = "starvation_window_open";
+    return {
+      promote: reason === "eligible",
+      reason,
+      targetLineIdx: opportunity.targetLineIdx,
+      starvationAgeMs,
+      evidenceAgeMs
+    };
+  };
   let stabilizerShadowState = createInitialAsrEvidenceStabilizerState(0);
   let stabilizerShadowLastScriptHash = "";
   let latestStabilizerShadowEvaluation = null;
@@ -44873,6 +45140,43 @@ function createAsrScrollDriver(options = {}) {
     return pendingMatch;
   };
   let pendingRaf = 0;
+  const terminalBoundaryAuthority = new TerminalBoundaryAuthority((proposal) => {
+    if (disposed || !isSessionLivePhase() || !isSessionAsrArmed()) {
+      terminalBoundaryAuthority.clear();
+      return;
+    }
+    const guardText = `${String(lastAsrGuardReason || "")}|${String(lastAsrHudGuardText || "")}`.toLowerCase();
+    const verdict = evaluateTerminalProposal(proposal, {
+      line: lastLineIndex,
+      runKey: resolveActiveRunKey() || null,
+      runGeneration: resolveActiveRunGeneration(),
+      responseAuthorityCurrent: proposal.provenance.transcriptAuthorityEpoch == null || Number(proposal.provenance.transcriptAuthorityEpoch) === commitAuthorityEpoch,
+      competingContradictionActive: guardText.includes("contradiction")
+    });
+    if (verdict.outcome === "commit") {
+      terminalBoundaryAuthority.clear();
+      try {
+        console.info(`[ASR_TERMINAL_PROPOSAL_REEVALUATED] outcome=commit current=${proposal.currentLine} target=${proposal.targetLine}`);
+      } catch {
+      }
+      adoptPendingMatch({ ...proposal.provenance });
+      schedulePending();
+      return;
+    }
+    if (verdict.outcome === "stale") {
+      terminalBoundaryAuthority.clear();
+      try {
+        console.warn(`[ASR_TERMINAL_PROPOSAL_REEVALUATED] outcome=stale reason=${verdict.reason} current=${lastLineIndex} target=${proposal.targetLine}`);
+      } catch {
+      }
+      return;
+    }
+    try {
+      console.warn(`[ASR_TERMINAL_PROPOSAL_REEVALUATED] outcome=blocked reason=${verdict.reason} current=${lastLineIndex} target=${proposal.targetLine}`);
+    } catch {
+    }
+    terminalBoundaryAuthority.schedule();
+  });
   let _postCommitReadabilitySeq = 0;
   let commitWindowActive = false;
   let commitWindowAuthority = null;
@@ -45569,6 +45873,7 @@ function createAsrScrollDriver(options = {}) {
       window.currentIndex = next;
     } catch {
     }
+    canonicalAuthority.commitCursor(next, reason, getTotalLines());
     publishSharedCursor(next, reason);
     rememberCommittedBlockFromLine(next);
     if (scriptHashChanged) lastScriptHash = scriptHash;
@@ -45720,6 +46025,7 @@ function createAsrScrollDriver(options = {}) {
     lastCommittedLine = normalized;
     lastFreshProofLine = normalized;
     pendingSpeakableBridgeState = null;
+    clearAcceptedForwardOpportunity("manual-adopt");
     earlyBridgeTrapHoldCountByKey.clear();
     matchAnchorIdx = normalized;
     lastEvidenceAt = now3;
@@ -45990,6 +46296,7 @@ function createAsrScrollDriver(options = {}) {
     pursuitActive = false;
     microPursuitUntil = 0;
     pendingSpeakableBridgeState = null;
+    clearAcceptedForwardOpportunity(reason);
     preservedAsrAuthorityTargetTop = null;
     preservedAsrAuthorityTargetReason = reason;
     preservedAsrAuthorityTargetSourcePath = reason;
@@ -46733,6 +47040,7 @@ function createAsrScrollDriver(options = {}) {
   };
   const runtimeStatusHandler = (event) => {
     noteRuntimeSpeechState(event?.detail);
+    if (!isSessionLivePhase() || !isSessionAsrArmed()) terminalBoundaryAuthority.clear();
   };
   const audioChunkHandler = (event) => {
     const detail = event?.detail || {};
@@ -46747,6 +47055,29 @@ function createAsrScrollDriver(options = {}) {
     const source = String(event?.detail?.reason || "").trim() || "signal";
     if (!canApplyAsrMovement(`rescue-signal:${source}`, Date.now())) {
       stallRescueRequested = false;
+      return;
+    }
+    const freshBoundedRecoveryTarget = pendingSpeakableBridgeState?.semanticTarget ?? (lastFinalTranscriptAt > 0 && Date.now() - lastFinalTranscriptAt <= 1800 && Number.isFinite(lastAuthorityMatchBestIdx) && lastAuthorityMatchBestIdx > lastLineIndex + 1 ? Math.floor(lastAuthorityMatchBestIdx) : -1);
+    if (freshBoundedRecoveryTarget > lastLineIndex && asrRuntimeSpeechRunningActual && !isRunIdentityStale({
+      runKey: pendingSpeakableBridgeState?.runKey ?? lastFinalTranscriptRunKey,
+      runGeneration: pendingSpeakableBridgeState?.runGeneration ?? lastFinalTranscriptRunGeneration
+    })) {
+      const previous = lastLineIndex;
+      const target = Math.min(freshBoundedRecoveryTarget, previous + 1);
+      lastLineIndex = target;
+      lastCommittedLine = target;
+      lastFreshProofLine = Math.max(lastFreshProofLine, target);
+      lastForwardCommitAt = Date.now();
+      lastCommitAt2 = lastForwardCommitAt;
+      markCommitTranscriptCursor(target, lastForwardCommitAt);
+      setCurrentIndex(target, "pending-bridge-adjacent-release");
+      if (pendingSpeakableBridgeState && target >= pendingSpeakableBridgeState.semanticTarget) {
+        clearPendingSpeakableBridge("bounded_recovery_committed", [`from=${previous}`, `to=${target}`]);
+      } else if (pendingSpeakableBridgeState) {
+        pendingSpeakableBridgeState.semanticFrom = target;
+        pendingSpeakableBridgeState.visualReducedTarget = Math.min(target + 1, pendingSpeakableBridgeState.semanticTarget);
+      }
+      resetNoProgressStreak("pending-bridge-adjacent-release", target);
       return;
     }
     let scheduled = false;
@@ -47853,6 +48184,7 @@ function createAsrScrollDriver(options = {}) {
       }, { lang: "en-US" });
     } catch {
     }
+    terminalBoundaryAuthority.noteRestart();
     const restartScroller = getScroller();
     const restartScrollTop = restartScroller ? restartScroller.scrollTop : 0;
     try {
@@ -48723,7 +49055,8 @@ function createAsrScrollDriver(options = {}) {
       const stagedAdjacentProofAllowed = stagedProofSourceLower.includes("live_strict_local_proof_ok") || stagedProofSourceLower.includes("live_strict_rescue_tail_progression_proof") || stagedProofSourceLower.includes("strict_adjacent_tail_progression") || stagedProofSourceLower.includes("adjacent_rescue_proofed") || stagedSourceBranchLower.includes("sustained_read") || stagedSourceBranchLower.includes("starvation_future_speech_reconcile") || stagedSourceBranchLower.includes("movement_authority_starvation_reconcile_single_step") || stagedSourceBranchLower.includes("stage_before_semantic_commit") || stagedSourceBranchLower.includes("live_bridge_single_step_policy");
       const stagedPendingBridgeCompatible = !pendingSpeakableBridgeState || String(pendingSpeakableBridgeState.sourceBranch || "").toLowerCase().includes("movement_authority_starvation_reconcile_single_step") || String(pendingSpeakableBridgeState.sourceBranch || "").toLowerCase().includes("starvation_future_speech_reconcile");
       const stagedAdjacentProgressionLaneEligible = bridgeReducedTarget === current2 + 1 && stagedPendingBridgeCompatible && stagedSpeechFresh && stagedResponseFresh && stagedAudioFreshOrUnavailable && stagedRunIdentityFresh && !stagedStaleResponseInvalidated && !stagedNoMatchOrOffscript && !hardContradiction && stagedAdjacentProofAllowed;
-      if (adjacentReductionDecision.shouldReduce || stagedAdjacentProgressionLaneEligible) {
+      const finalSpeechBackedAdjacentRelease = !!args.finalPacketFresh && speechFresh && !!args.speechRunningActual && equivalentBridgeTarget > current2 + 1 && !hardContradiction;
+      if (adjacentReductionDecision.shouldReduce || stagedAdjacentProgressionLaneEligible || finalSpeechBackedAdjacentRelease) {
         try {
           console.warn(
             `[ASR_LIVE_BRIDGE_REDUCED_TO_ADJACENT] current=${current2} requested=${requestedTarget} target=${bridgeReducedTarget} proofSource=${args.proofSource || "none"} sourceBranch=${args.sourceBranch || "unknown"} reason=${adjacentReductionDecision.shouldReduce ? "live_bridge_single_step_policy" : "adjacent_safe_semantic_progression_lane"}`
@@ -48741,6 +49074,7 @@ function createAsrScrollDriver(options = {}) {
           }
         }
         reducedTarget = bridgeReducedTarget;
+        canonicalAuthority.proposeRecovery(bridgeReducedTarget, "final_speech_backed_adjacent_release");
       } else {
         const stagedBridgeRepeated = bridgeBlockUntil > commitTs;
         const stagedBridgeOverdue = actualDelayMs >= thresholdMs;
@@ -59298,7 +59632,7 @@ function createAsrScrollDriver(options = {}) {
           rankedTopScores,
           baselineRequired
         );
-        const pendingBridgeBypassCandidate = !!pendingSpeakableBridgeState && pendingSpeakableBridgeState.semanticFrom === lastLineIndex && pendingSpeakableBridgeState.semanticTarget > lastLineIndex && asrRuntimeSpeechRunningActual && runtimeSpeechFresh && !isRunIdentityStale({
+        const pendingBridgeBypassCandidate = !!pendingSpeakableBridgeState && pendingSpeakableBridgeState.semanticFrom <= lastLineIndex && pendingSpeakableBridgeState.semanticTarget > lastLineIndex && asrRuntimeSpeechRunningActual && runtimeSpeechFresh && !isRunIdentityStale({
           runKey: pendingSpeakableBridgeState.runKey,
           runGeneration: pendingSpeakableBridgeState.runGeneration
         });
@@ -62679,7 +63013,12 @@ function createAsrScrollDriver(options = {}) {
           const adjacentProofOwnedLocalLineagePre = movementAuthorityHasAdjacentProof || movementAuthorityHasStrictLocalProof || nonPendingProofOwnedLineagePre;
           const terminalGuardTextPre = `${String(lastAsrGuardReason || "")}|${String(lastAsrHudGuardText || "")}`.toLowerCase();
           const terminalOffscriptOrNoMatchBlockedPre = terminalGuardTextPre.includes("no_match") || terminalGuardTextPre.includes("nomatch") || terminalGuardTextPre.includes("offscript");
-          const terminalContradictionBlockedPre = strictBackwardContradictionForCommit || terminalGuardTextPre.includes("contradiction");
+          const terminalContradictionPre = classifyTerminalContradiction({
+            backwardRankedScoreContradiction: strictBackwardContradictionForCommit,
+            tailProgressionOverride: liveSpeechForwardPushBackwardContradictionOverriddenByTail || !!directAdjacentTailProgressionProof?.stalePrefixIgnored && strictBackwardContradictionForCommit,
+            competingGuardContradiction: terminalGuardTextPre.includes("contradiction")
+          });
+          const terminalContradictionBlockedPre = terminalContradictionPre.blocked;
           const focusHoldStatePre = getAsrFocusHoldState(now3);
           const terminalFocusLossBlockedPre = focusHoldStatePre.active;
           const candidateScopedVoiceBridgeDecision = evaluateCandidateScopedVoiceBridgeEligibility({
@@ -62798,7 +63137,12 @@ function createAsrScrollDriver(options = {}) {
             const shortLineTerminalClampUnsafe = endGraceTerminalLine != null && acceptedForwardLine > Math.max(prevLineIndex, endGraceTerminalLine);
             const terminalGuardText = `${String(lastAsrGuardReason || "")}|${String(lastAsrHudGuardText || "")}`.toLowerCase();
             const terminalOffscriptOrNoMatchBlocked = terminalGuardText.includes("no_match") || terminalGuardText.includes("nomatch") || terminalGuardText.includes("offscript");
-            const terminalContradictionBlocked = strictBackwardContradictionForCommit || terminalGuardText.includes("contradiction");
+            const terminalContradiction = classifyTerminalContradiction({
+              backwardRankedScoreContradiction: strictBackwardContradictionForCommit,
+              tailProgressionOverride: liveSpeechForwardPushBackwardContradictionOverriddenByTail || !!directAdjacentTailProgressionProof?.stalePrefixIgnored && strictBackwardContradictionForCommit,
+              competingGuardContradiction: terminalGuardText.includes("contradiction")
+            });
+            const terminalContradictionBlocked = terminalContradiction.blocked;
             const focusHoldState = focusHoldStatePre;
             const terminalFocusLossBlocked = focusHoldState.active;
             const pendingBridgeLocalProofLane = pendingBridgeCompletionMode2 === 1 && !!pendingSpeakableBridgeState && freshnessProposedLineIdx === prevLineIndex + 1 && requestedTargetLine > freshnessProposedLineIdx && directAdjacentGuardReason === "target_reduced_before_terminal" && String(terminalSourceBranch || "").toLowerCase().includes("movement_authority_starvation_reconcile_single_step") && String(terminalProofSource || "").toLowerCase().includes("strict_speakable_bridge_landing");
@@ -62806,7 +63150,8 @@ function createAsrScrollDriver(options = {}) {
             const adjacentProofOwnedLocalLineage = movementAuthorityHasAdjacentProof || movementAuthorityHasStrictLocalProof || nonPendingProofOwnedLineage || String(terminalProofSource || "").toLowerCase().includes("strict_speakable_bridge_landing") || String(terminalSourceBranch || "").toLowerCase().includes("movement_authority_starvation_reconcile_single_step") || directAdjacentGuardReason === "target_reduced_before_terminal";
             const audioFreshEffectiveReason = !audioChunkStale ? "raw_audio_fresh" : isFinal && terminalDelta === 1 && freshnessProposedLineIdx === prevLineIndex + 1 && targetSpeakableOrBridgeEligible && runIdentityCurrent && responseAuthorityCurrent && terminalSafeAuthority && adjacentProofOwnedLocalLineage && !terminalOffscriptOrNoMatchBlocked && !terminalContradictionBlocked && !terminalFocusLossBlocked && !deadScreenTerminalCommitSuppressedByVisualGovernor && !liveAsrVisualGovernorHardHold && !shortLineTerminalClampUnsafe ? "current_generation_adjacent_proof_owned_local_step" : "audio_chunk_stale";
             const audioFreshEffective = audioFreshEffectiveReason !== "audio_chunk_stale";
-            const provenLocalFirstStepCandidate = commitFreshness.reason === "reader_silence_commit_blocked" && isFinal && terminalDelta === 1 && freshnessProposedLineIdx === prevLineIndex + 1 && targetSpeakableOrBridgeEligible && runIdentityCurrent && responseAuthorityCurrent && !responseStale && audioFreshEffective && !terminalOffscriptOrNoMatchBlocked && !terminalContradictionBlocked && !terminalFocusLossBlocked && !deadScreenTerminalCommitSuppressedByVisualGovernor && !liveAsrVisualGovernorHardHold && !shortLineTerminalClampUnsafe && terminalSafeAuthority;
+            const terminalProposalProofQualified = commitFreshness.reason === "reader_silence_commit_blocked" && isFinal && terminalDelta === 1 && freshnessProposedLineIdx === prevLineIndex + 1 && targetSpeakableOrBridgeEligible && runIdentityCurrent && responseAuthorityCurrent && !responseStale && audioFreshEffective && !terminalOffscriptOrNoMatchBlocked && !terminalFocusLossBlocked && !deadScreenTerminalCommitSuppressedByVisualGovernor && !liveAsrVisualGovernorHardHold && !shortLineTerminalClampUnsafe && terminalSafeAuthority && adjacentProofOwnedLocalLineage;
+            const provenLocalFirstStepCandidate = terminalProposalProofQualified && !terminalContradictionBlocked;
             const provenLocalProofOwnedStep = provenLocalFirstStepCandidate && adjacentProofOwnedLocalLineage;
             const readerSilencePendingBridgeCompletionBypass = provenLocalProofOwnedStep && pendingBridgeLocalProofLane && !disallowedPendingBridgeBypassPath && terminalVisualPursuitTargetLine === freshnessProposedLineIdx && terminalFreshnessTargetLine === freshnessProposedLineIdx;
             const readerSilenceNonPendingAdjacentProofBypass = provenLocalProofOwnedStep && !pendingSpeakableBridgeCompletion && pendingBridgeCompletionMode2 === 0 && !pendingBridgeFarTargetBlocked && !pendingBridgeVisualCapActive && !disallowedNonPendingBypassPathEffective;
@@ -63040,6 +63385,29 @@ function createAsrScrollDriver(options = {}) {
                   `target=${freshnessProposedLineIdx}`,
                   `current=${prevLineIndex}`
                 ]);
+              }
+              if (commitFreshness.reason === "reader_silence_commit_blocked" && isFinal && freshnessProposedLineIdx === prevLineIndex + 1 && freshnessProposedLineIdx === findLastSpeakableLineIndex() && terminalProposalProofQualified && runIdentityCurrent && responseAuthorityCurrent && !responseStale && audioFreshEffective) {
+                const genuineContradiction = terminalContradiction.genuine;
+                const preserved = terminalBoundaryAuthority.preserve({
+                  currentLine: prevLineIndex,
+                  targetLine: freshnessProposedLineIdx,
+                  lastSpeakableLine: findLastSpeakableLineIndex(),
+                  runKey: pendingRunKey || resolveActiveRunKey() || null,
+                  runGeneration: pendingRunGeneration ?? resolveActiveRunGeneration(),
+                  proofOwned: true,
+                  responseAuthorityCurrent: true,
+                  responseFresh: true,
+                  audioFresh: true,
+                  genuineContradiction,
+                  competingContradiction: terminalContradiction.competing,
+                  provenance: { ...pending }
+                });
+                if (preserved) {
+                  try {
+                    console.warn(`[ASR_TERMINAL_PROPOSAL_PRESERVED] current=${prevLineIndex} target=${freshnessProposedLineIdx} genuineContradiction=${genuineContradiction ? 1 : 0} competingContradiction=${terminalContradiction.competing ? 1 : 0}`);
+                  } catch {
+                  }
+                }
               }
               return;
             }
@@ -63940,6 +64308,9 @@ function createAsrScrollDriver(options = {}) {
           }
         }
         lastLineIndex = Math.max(lastLineIndex, effectiveSemanticCommitTargetLine);
+        if (effectiveSemanticCommitTargetLine > prevLineIndex) {
+          clearAcceptedForwardOpportunity("semantic_progress");
+        }
         if (shortLineStagedCatchupApplied && effectiveSemanticCommitTargetLine > prevLineIndex) {
           for (let stagedStepLine = prevLineIndex + 1; stagedStepLine <= effectiveSemanticCommitTargetLine; stagedStepLine += 1) {
             try {
@@ -64075,10 +64446,18 @@ function createAsrScrollDriver(options = {}) {
                 effectiveSemanticCommitTargetLine
               );
             }
+          } else if (effectiveSemanticCommitTargetLine > pendingSpeakableBridgeState.semanticFrom && effectiveSemanticCommitTargetLine < pendingSpeakableBridgeState.semanticTarget) {
+            pendingSpeakableBridgeState.semanticFrom = effectiveSemanticCommitTargetLine;
+            pendingSpeakableBridgeState.visualReducedTarget = Math.min(
+              pendingSpeakableBridgeState.semanticTarget,
+              effectiveSemanticCommitTargetLine + 1
+            );
+            canonicalAuthority.proposeRecovery(
+              pendingSpeakableBridgeState.visualReducedTarget,
+              "pending_speakable_bridge_adjacent_release"
+            );
           } else if (effectiveSemanticCommitTargetLine !== pendingSpeakableBridgeState.semanticFrom) {
-            clearPendingSpeakableBridge("commit_target_diverged", [
-              `commitTarget=${effectiveSemanticCommitTargetLine}`
-            ]);
+            clearPendingSpeakableBridge("commit_target_diverged", [`commitTarget=${effectiveSemanticCommitTargetLine}`]);
           }
         }
         if (effectiveSemanticCommitTargetLine > prevLineIndex && strictTargetHasFreshProof) {
@@ -67012,6 +67391,78 @@ function createAsrScrollDriver(options = {}) {
           lastAcceptedMatchedLineSim = freshBestSim;
           lastAcceptedMatchedAt = now3;
           lastSemanticProgressAt = now3;
+          const contradictionActive = String(lastAsrGuardReason || "").toLowerCase().includes("contradiction") || String(lastAsrHudGuardText || "").toLowerCase().includes("contradiction");
+          const opportunity = noteAcceptedForwardOpportunity({
+            semanticCursor: currentCursorIndex,
+            targetLineIdx: freshBestIdx,
+            confidence: freshBestSim,
+            matchId: typeof detail?.matchId === "string" ? detail.matchId : null,
+            transcriptSeq: Number(detail?.transcriptSeq),
+            runKey: transcriptRunKey || lastFinalTranscriptRunKey,
+            runGeneration: transcriptRunGeneration ?? lastFinalTranscriptRunGeneration,
+            nowMs: now3,
+            contradiction: contradictionActive
+          });
+          const opportunityDecision = evaluateAcceptedForwardOpportunity({
+            semanticCursor: currentCursorIndex,
+            nowMs: now3,
+            speechFresh: asrRuntimeSpeechRunningActual || hasRecentActualSpeech(now3) || hasRecentVadSpeechNow(now3),
+            runIdentityCurrent: !isRunIdentityStale({
+              runKey: opportunity?.runKey,
+              runGeneration: opportunity?.runGeneration
+            }),
+            noMatchOrOffscript: false,
+            contradiction: contradictionActive,
+            stopped: asrRuntimeSpeechEverTrue && !asrRuntimeSpeechRunningActual && !hasRecentActualSpeech(now3),
+            authorityLost: !isSessionLivePhase() || !isSessionAsrArmed() || getScrollMode3() !== "asr",
+            terminalUnsafe: getTotalLines() > 0 && freshBestIdx >= getTotalLines()
+          });
+          const acceptedForwardOwnsPendingBridge = !pendingSpeakableBridgeState || pendingSpeakableBridgeState.sourceBranch === "accepted_forward_starvation";
+          if (opportunityDecision.promote && opportunityDecision.targetLineIdx != null && opportunityDecision.targetLineIdx > currentCursorIndex && acceptedForwardOwnsPendingBridge) {
+            const visualReducedTarget = resolveForwardSpeakableTarget2(
+              currentCursorIndex,
+              opportunityDecision.targetLineIdx,
+              1
+            );
+            pendingSpeakableBridgeState = {
+              semanticFrom: currentCursorIndex,
+              semanticTarget: opportunityDecision.targetLineIdx,
+              visualCurrent: currentCursorIndex,
+              visualReducedTarget: visualReducedTarget > currentCursorIndex ? visualReducedTarget : Math.min(opportunityDecision.targetLineIdx, currentCursorIndex + 1),
+              skippedVisibleRows: Math.max(
+                0,
+                opportunityDecision.targetLineIdx - Math.max(currentCursorIndex + 1, visualReducedTarget)
+              ),
+              proofSource: "accepted_forward_starvation",
+              sourceBranch: "accepted_forward_starvation",
+              createdAtMs: opportunity?.firstEligibleAtMs ?? now3,
+              runKey: opportunity?.runKey || transcriptRunKey || lastFinalTranscriptRunKey,
+              runGeneration: opportunity?.runGeneration ?? transcriptRunGeneration ?? lastFinalTranscriptRunGeneration
+            };
+            try {
+              console.warn("[ASR_ACCEPTED_FORWARD_STARVATION_PROMOTED]", {
+                semanticCursor: currentCursorIndex,
+                semanticTarget: opportunityDecision.targetLineIdx,
+                visualReducedTarget: pendingSpeakableBridgeState.visualReducedTarget,
+                starvationAgeMs: opportunityDecision.starvationAgeMs,
+                evidenceAgeMs: opportunityDecision.evidenceAgeMs,
+                matchId: opportunity?.matchId ?? null,
+                transcriptSeq: opportunity?.transcriptSeq ?? null
+              });
+            } catch {
+            }
+          } else if (isDevMode4() && opportunity) {
+            try {
+              console.debug("[ASR_ACCEPTED_FORWARD_STARVATION_HELD]", {
+                reason: opportunityDecision.reason,
+                semanticCursor: currentCursorIndex,
+                semanticTarget: opportunity.targetLineIdx,
+                starvationAgeMs: opportunityDecision.starvationAgeMs,
+                evidenceAgeMs: opportunityDecision.evidenceAgeMs
+              });
+            } catch {
+            }
+          }
         }
       }
     }
@@ -67051,6 +67502,7 @@ function createAsrScrollDriver(options = {}) {
     }
     if (noMatch && !incomingMatch) {
       lastRescueNoMatchAt = now3;
+      clearAcceptedForwardOpportunity("explicit_no_match");
     }
     if (noMatch && !incomingMatch) {
       rawMatchId = null;
@@ -70899,7 +71351,9 @@ function createAsrScrollDriver(options = {}) {
       pendingRaf = 0;
     }
     pendingMatch = null;
+    terminalBoundaryAuthority.dispose();
     pendingSpeakableBridgeState = null;
+    clearAcceptedForwardOpportunity("dispose");
     liveAsrTerminalScriptHoldActive = false;
     lastAsr4ShadowSnapshot = null;
     earlyBridgeTrapHoldCountByKey.clear();
@@ -71027,6 +71481,7 @@ function createAsrScrollDriver(options = {}) {
   };
   const setLastLineIndex = (index) => {
     if (!Number.isFinite(index)) return;
+    clearAcceptedForwardOpportunity("manual_reposition");
     clearShortLinePreReanchorGraceState("setLastLineIndex");
     clearReanchorPendingState("setLastLineIndex");
     clearReanchorLandingState("setLastLineIndex");
@@ -71139,7 +71594,9 @@ function createAsrScrollDriver(options = {}) {
       pendingRaf = 0;
     }
     pendingMatch = null;
+    terminalBoundaryAuthority.clear();
     pendingSpeakableBridgeState = null;
+    clearAcceptedForwardOpportunity("sync-index");
     lastAsr4ShadowSnapshot = null;
     liveBridgeDownstreamBlockUntilByKey.clear();
     earlyBridgeTrapHoldCountByKey.clear();
@@ -72785,6 +73242,11 @@ function createAsrScrollDriver(options = {}) {
     overshootSettleLockTargetScrollTop: overshootSettleLockState?.targetScrollTop ?? Number.NaN,
     visualDebtRecoveryBudgetUsedPx
   });
+  const debugNoteAcceptedForwardOpportunity = (args) => {
+    const opportunity = noteAcceptedForwardOpportunity(args);
+    return opportunity ? { ...opportunity } : null;
+  };
+  const debugEvaluateAcceptedForwardOpportunity = (args) => evaluateAcceptedForwardOpportunity(args);
   const driver = {
     ingest,
     dispose,
@@ -72792,6 +73254,9 @@ function createAsrScrollDriver(options = {}) {
     getLastLineIndex,
     getStats,
     __debugGetAuthoritySnapshot: debugGetAuthoritySnapshot,
+    __debugNoteAcceptedForwardOpportunity: debugNoteAcceptedForwardOpportunity,
+    __debugEvaluateAcceptedForwardOpportunity: debugEvaluateAcceptedForwardOpportunity,
+    __debugClearAcceptedForwardOpportunity: clearAcceptedForwardOpportunity,
     __debugSeedPendingSpeakableBridge: debugSeedPendingSpeakableBridge,
     __debugNoteShortLineAmbiguity: debugNoteShortLineAmbiguity,
     __debugGetShortLinePreReanchorGraceState: debugGetShortLinePreReanchorGraceState,
@@ -72841,6 +73306,8 @@ var init_asr_scroll_driver = __esm({
   "src/features/asr/asr-scroll-driver.ts"() {
     "use strict";
     init_matcher();
+    init_canonical_asr_authority();
+    init_terminal_boundary_authority();
     init_speech_store();
     init_speech_store2();
     init_dev_state();
@@ -76938,7 +77405,7 @@ function readStorage() {
     };
   }
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY6);
+    const raw = window.localStorage.getItem(STORAGE_KEY7);
     if (!raw) throw new Error("missing");
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") throw new Error("bad");
@@ -76964,7 +77431,7 @@ function readStorage() {
 function writeStorage(state8) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(STORAGE_KEY6, JSON.stringify(state8));
+    window.localStorage.setItem(STORAGE_KEY7, JSON.stringify(state8));
   } catch {
   }
 }
@@ -77190,11 +77657,11 @@ function setProfileAsrTweaks(profileId, tweaks) {
   };
   persist();
 }
-var STORAGE_KEY6, BINDING_EVENT, ACTIVE_SPEAKER_EVENT, DEFAULT_PROFILES, DEFAULT_BINDINGS, DEFAULT_ACTIVE_SLOT, VALID_SLOTS, subscribers, activeSubscribers, stateSubscribers, state4;
+var STORAGE_KEY7, BINDING_EVENT, ACTIVE_SPEAKER_EVENT, DEFAULT_PROFILES, DEFAULT_BINDINGS, DEFAULT_ACTIVE_SLOT, VALID_SLOTS, subscribers, activeSubscribers, stateSubscribers, state4;
 var init_speaker_profiles_store = __esm({
   "src/ui/speaker-profiles-store.ts"() {
     "use strict";
-    STORAGE_KEY6 = "tp_speaker_profiles_v1";
+    STORAGE_KEY7 = "tp_speaker_profiles_v1";
     BINDING_EVENT = "tp:speaker:bindings";
     ACTIVE_SPEAKER_EVENT = "tp:speaker:active";
     DEFAULT_PROFILES = [
@@ -81644,6 +82111,17 @@ function ensureAsrDriverLifecycleHooks() {
       armedAt: Date.now(),
       targetLineTokens: normTokens(targetLineText)
     };
+    const canonicalTerminal = window.__tpCanonicalAsrAuthority;
+    if (canonicalTerminal?.schema === "anvil.asr-authority-snapshot.v1" && canonicalTerminal.terminalCompleted === true && canonicalTerminal.postrollEligible === true && Number(canonicalTerminal.cursor) === targetLine) {
+      finalizePendingAsrScriptEndStop(pendingAsrScriptEndStop, {
+        source: "canonical-terminal-authority",
+        matchedLine: targetLine,
+        sharedAny: 0,
+        sharedMeaningful: 0,
+        overlapRatio: 1
+      });
+      return;
+    }
     emitHudSnapshot("script-end-pending", { force: true });
     if (isDevMode5() && shouldLogTag("ASR:script-end-pending", 2, 1e3)) {
       try {
@@ -82750,7 +83228,7 @@ function loadState() {
     if (typeof window === "undefined") {
       return cloneState2(DEFAULT_STATE2);
     }
-    const raw = window.localStorage.getItem(STORAGE_KEY7);
+    const raw = window.localStorage.getItem(STORAGE_KEY8);
     if (!raw) return cloneState2(DEFAULT_STATE2);
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return cloneState2(DEFAULT_STATE2);
@@ -82775,7 +83253,7 @@ function persistState(state8) {
       configs: cloneState2(state8.configs)
     };
     toStore.configs.obs.password = "";
-    window.localStorage.setItem(STORAGE_KEY7, JSON.stringify(toStore));
+    window.localStorage.setItem(STORAGE_KEY8, JSON.stringify(toStore));
   } catch {
   }
 }
@@ -82832,11 +83310,11 @@ function setObsStatus(status2, lastError = null) {
   }
   notify2();
 }
-var STORAGE_KEY7, DEFAULT_OBS_URL, DEFAULT_STATE2, currentState, listeners;
+var STORAGE_KEY8, DEFAULT_OBS_URL, DEFAULT_STATE2, currentState, listeners;
 var init_recorder_settings = __esm({
   "src/state/recorder-settings.ts"() {
     "use strict";
-    STORAGE_KEY7 = "tp_rec_settings_v1";
+    STORAGE_KEY8 = "tp_rec_settings_v1";
     DEFAULT_OBS_URL = "ws://127.0.0.1:4455";
     DEFAULT_STATE2 = {
       enabled: {
@@ -90723,7 +91201,10 @@ function getApiToken() {
 }
 function getOrCreateCaptureSessionId() {
   const existing = readSessionStorage(CAPTURE_SESSION_KEY);
-  if (existing) return existing;
+  if (existing) {
+    window.__tpAnvilCaptureSessionId = existing;
+    return existing;
+  }
   let next = "";
   try {
     const randomUuid = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "";
@@ -90734,6 +91215,7 @@ function getOrCreateCaptureSessionId() {
     next = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   }
   writeSessionStorage(CAPTURE_SESSION_KEY, next);
+  window.__tpAnvilCaptureSessionId = next;
   return next;
 }
 function beginRecordingCaptureSession() {
@@ -90747,6 +91229,7 @@ function beginRecordingCaptureSession() {
     next = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   }
   writeSessionStorage(CAPTURE_SESSION_KEY, next);
+  window.__tpAnvilCaptureSessionId = next;
   return next;
 }
 function nextCorrelationId(prefix) {
@@ -91356,7 +91839,7 @@ async function commitRecordingBytesToTongs(input) {
     path,
     content_type: contentType,
     written_by: writtenBy,
-    event_name: "take_completed",
+    event_name: "anvil.recording.artifact.saved.v1",
     event_payload: {
       source: "anvil.local-auto",
       file_path: path,
@@ -91442,6 +91925,28 @@ async function commitRecordingBytesToTongs(input) {
       workpieceId
     };
   }
+  const commitEnvelope = commit.body && typeof commit.body === "object" && !Array.isArray(commit.body) ? commit.body : {};
+  const commitData = commitEnvelope.data && typeof commitEnvelope.data === "object" && !Array.isArray(commitEnvelope.data) ? commitEnvelope.data : {};
+  const fileRow = commitData.file_row && typeof commitData.file_row === "object" && !Array.isArray(commitData.file_row) ? commitData.file_row : {};
+  const mediaRevision = typeof fileRow.revision === "number" && Number.isInteger(fileRow.revision) && fileRow.revision > 0 ? fileRow.revision : null;
+  const mediaHash = typeof commitData.hash === "string" && /^[0-9a-f]{64}$/i.test(commitData.hash) ? commitData.hash.toLowerCase() : null;
+  if (!mediaRevision || !mediaHash) {
+    emitUploadStatus("failed", {
+      safeToLeave: false,
+      errorCode: "canonical_recording_contract_malformed",
+      errorMessage: "Tongs did not return the canonical recording revision and SHA-256 hash."
+    });
+    return {
+      ok: false,
+      reason: "canonical_recording_contract_malformed",
+      status: 502,
+      errorCode: "canonical_recording_contract_malformed",
+      errorMessage: "Tongs did not return the canonical recording revision and SHA-256 hash.",
+      details: commit.body,
+      workspaceId,
+      workpieceId
+    };
+  }
   emitUploadStatus("done", {
     safeToLeave: true,
     progressPct: 100,
@@ -91457,8 +91962,116 @@ async function commitRecordingBytesToTongs(input) {
     createdCradle,
     plannerRecordingSessionId,
     captureSessionId,
+    mediaRevision,
+    mediaHash,
+    mediaBytes: input.bytes.byteLength,
+    mediaContentType: contentType,
     status: commit.status
   };
+}
+function readAuthorityRowId(value, key) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const row = value[key];
+  if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+  return normalizeUuid2(row.id);
+}
+async function transitionRecordingCompleted(input) {
+  const ready = window.__forgeCanonicalReadyScript;
+  const asr = window.__tpCanonicalAsrAuthority;
+  const readyWorkspace = normalizeUuid2(ready?.workspaceId);
+  const readyWorkpiece = normalizeUuid2(ready?.workpieceId);
+  const readyTransition = normalizeUuid2(ready?.transitionId);
+  const scriptPath = readString7(ready?.path);
+  const scriptRevision = typeof ready?.scriptRevision === "number" && Number.isInteger(ready.scriptRevision) ? ready.scriptRevision : null;
+  const scriptHash = readString7(ready?.scriptHash)?.toLowerCase() ?? null;
+  const unresolved = Array.isArray(asr?.unresolvedSkippedLines) ? asr.unresolvedSkippedLines : null;
+  const terminal = asr?.terminalCompleted === true;
+  if (!readyWorkspace || readyWorkpiece !== input.commit.workpieceId || !readyTransition || !scriptPath || !scriptRevision || !scriptHash || !/^[0-9a-f]{64}$/.test(scriptHash) || !terminal || !unresolved || unresolved.length !== 0 || input.commit.mediaBytes <= 0) {
+    return { ok: false, outcome: "malformed", reason: "recording_completion_evidence_incomplete" };
+  }
+  const evidence = {
+    schema: "anvil.recording-completion.v1",
+    completed: true,
+    capture_session_id: input.commit.captureSessionId,
+    coverage: {
+      terminal_line_completed: true,
+      unresolved_skipped_line_count: 0,
+      unresolved_skipped_lines: [],
+      covered_lines: Array.isArray(asr?.coveredLines) ? asr.coveredLines : []
+    },
+    artifact_validation: {
+      ok: true,
+      sha256: input.commit.mediaHash,
+      bytes: input.commit.mediaBytes,
+      content_type: input.commit.mediaContentType,
+      duration_ms: typeof input.durationMs === "number" && Number.isFinite(input.durationMs) ? Math.max(0, Math.round(input.durationMs)) : null,
+      path: input.commit.path
+    }
+  };
+  const idempotencyKey = `anvil-complete:${input.commit.captureSessionId}:${input.commit.mediaRevision}`;
+  try {
+    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-completion`, {
+      method: "POST",
+      headers: await buildHeaders(getApiToken()),
+      body: JSON.stringify({
+        workspace_id: readyWorkspace,
+        capture_session_id: input.commit.captureSessionId,
+        ready_transition_id: readyTransition,
+        script_path: scriptPath,
+        expected_script_revision: scriptRevision,
+        expected_script_hash: scriptHash,
+        media_path: input.commit.path,
+        expected_media_revision: input.commit.mediaRevision,
+        expected_media_hash: input.commit.mediaHash,
+        idempotency_key: idempotencyKey,
+        completion_evidence: evidence
+      })
+    });
+    const body = await readBodyAsJson(response);
+    const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
+    if (!response.ok) {
+      const apiError = extractApiError(body);
+      return { ok: false, outcome: "unavailable", reason: apiError.code ?? "recording_completion_unavailable", details: body };
+    }
+    const outcome = readString7(data?.outcome);
+    if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) {
+      return { ok: false, outcome: "malformed", reason: "recording_completion_response_malformed", details: body };
+    }
+    const completionId = readAuthorityRowId(data, "completion");
+    const accepted = (outcome === "saved" || outcome === "duplicate") && !!completionId;
+    return { ok: accepted, outcome, ...completionId ? { completionId } : {}, reason: readString7(data?.reason) ?? void 0, details: data };
+  } catch (error) {
+    return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_completion_unavailable" };
+  }
+}
+async function transitionRecordingKept(input) {
+  const ready = window.__forgeCanonicalReadyScript;
+  const workspaceId = normalizeUuid2(ready?.workspaceId);
+  if (!workspaceId) return { ok: false, outcome: "malformed", reason: "ready_workspace_missing" };
+  const evidence = { schema: "anvil.take-decision.v1", decision: "keep", completion_id: input.completionId, capture_session_id: input.commit.captureSessionId };
+  try {
+    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-keep`, {
+      method: "POST",
+      headers: await buildHeaders(getApiToken()),
+      body: JSON.stringify({
+        workspace_id: workspaceId,
+        capture_session_id: input.commit.captureSessionId,
+        completion_id: input.completionId,
+        idempotency_key: `anvil-keep:${input.completionId}`,
+        decision_evidence: evidence
+      })
+    });
+    const body = await readBodyAsJson(response);
+    const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
+    if (!response.ok) return { ok: false, outcome: "unavailable", reason: extractApiError(body).code ?? "recording_keep_unavailable", details: body };
+    const outcome = readString7(data?.outcome);
+    const keepId = readAuthorityRowId(data, "keep");
+    const accepted = (outcome === "saved" || outcome === "duplicate") && !!keepId;
+    if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) return { ok: false, outcome: "malformed", reason: "recording_keep_response_malformed", details: body };
+    return { ok: accepted, outcome, ...keepId ? { keepId } : {}, reason: readString7(data?.reason) ?? void 0, details: data };
+  } catch (error) {
+    return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_keep_unavailable" };
+  }
 }
 async function appendRecordingDecisionToTongs(input) {
   const apiToken = getApiToken();
@@ -91586,12 +92199,6 @@ function resolveTongsApiToken2() {
   const w3 = window;
   const fromWindow = readString8(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
-  try {
-    const meta2 = import.meta;
-    const fromEnv = readString8(meta2.env?.VITE_TONGS_API_TOKEN);
-    if (fromEnv) return fromEnv;
-  } catch {
-  }
   return readLocalStorage3("forge_tongs_api_token_v1") ?? void 0;
 }
 async function withAuthHeaders() {
@@ -91644,7 +92251,10 @@ function parseReadyScriptsPayload(payload, workspaceId) {
     const primaryPath = normalizeScriptPath(item.primary_script_path) ?? normalizeScriptPath(item.path);
     const scriptPaths = normalizeScriptPaths(item.script_paths);
     const path = primaryPath ?? scriptPaths[0] ?? null;
-    if (!rowWorkspace || !workpieceId || !path) continue;
+    const scriptRevision = typeof item.script_revision === "number" && Number.isInteger(item.script_revision) && item.script_revision > 0 ? item.script_revision : null;
+    const scriptHash = readString8(item.script_hash)?.toLowerCase() ?? null;
+    const transitionId = normalizeUuid3(item.transition_id);
+    if (!rowWorkspace || !workpieceId || !path || !scriptRevision || !scriptHash || !/^[0-9a-f]{64}$/.test(scriptHash) || !transitionId) continue;
     const normalizedScriptPaths = scriptPaths.length ? scriptPaths.includes(path) ? scriptPaths : [path, ...scriptPaths] : [path];
     const title = readString8(item.title) ?? `Episode ${workpieceId.slice(0, 8)}`;
     scripts.push({
@@ -91657,7 +92267,10 @@ function parseReadyScriptsPayload(payload, workspaceId) {
       title,
       updatedAt: normalizeIso(item.updated_at),
       markedReadyBy: normalizeUuid3(item.marked_ready_by) ?? void 0,
-      markedReadyAt: normalizeIso(item.marked_ready_at)
+      markedReadyAt: normalizeIso(item.marked_ready_at),
+      scriptRevision,
+      scriptHash,
+      transitionId
     });
   }
   scripts.sort((a, b) => {
@@ -91714,17 +92327,23 @@ function toScriptReferenceFromSessionItem(args) {
   if (!workpieceId || !path) return null;
   const key = `${workpieceId}::${path}`;
   const matchedReady = args.readyByKey.get(key) ?? null;
+  if (!matchedReady) return null;
   const title = args.titleByKey.get(key) ?? args.fallbackTitle;
-  const scriptPaths = matchedReady ? Array.from(new Set([path, matchedReady.primaryPath, ...matchedReady.scriptPaths].filter(Boolean))) : [path];
+  const scriptPaths = Array.from(new Set([path, matchedReady.primaryPath, ...matchedReady.scriptPaths].filter(Boolean)));
   return {
     id: toReadyScriptId(workpieceId, path),
     workspaceId: args.workspaceId,
     workpieceId,
     path,
-    primaryPath: matchedReady?.primaryPath ?? path,
+    primaryPath: matchedReady.primaryPath,
     scriptPaths,
     title,
-    updatedAt: matchedReady?.updatedAt
+    updatedAt: matchedReady.updatedAt,
+    markedReadyBy: matchedReady.markedReadyBy,
+    markedReadyAt: matchedReady.markedReadyAt,
+    scriptRevision: matchedReady.scriptRevision,
+    scriptHash: matchedReady.scriptHash,
+    transitionId: matchedReady.transitionId
   };
 }
 async function listWorkspaceReadyScripts() {
@@ -91734,7 +92353,12 @@ async function listWorkspaceReadyScripts() {
     method: "GET",
     headers: await withAuthHeaders()
   });
-  if (!response.ok) return [];
+  if (!response.ok) {
+    if (response.status === 503) {
+      throw new Error("Hearth Ready authority unavailable: migration 20260713190000 is required.");
+    }
+    return [];
+  }
   let body = null;
   try {
     body = await response.json();
@@ -92060,6 +92684,7 @@ var init_scripts_store = __esm({
               created: existing?.created || ready.updatedAt || (/* @__PURE__ */ new Date()).toISOString(),
               updated: ready.updatedAt || (/* @__PURE__ */ new Date()).toISOString()
             };
+            window.__forgeCanonicalReadyScript = { ...ready };
             scriptsById.set(id, rec2);
             return rec2;
           } catch (err) {
@@ -93858,7 +94483,7 @@ var init_local_auto = __esm({
               showRecorderToast("Transcript could not be promoted into Hammer readiness path. Media was still kept.", "warning");
             }
           }
-          const result = await appendRecordingDecisionToTongs({
+          const result = eventName === "take_kept" ? await transitionRecordingKept({ commit: args.commitResult, completionId: args.completionId }) : await appendRecordingDecisionToTongs({
             workpieceId: args.commitResult.workpieceId,
             eventName,
             filePath: args.commitResult.path,
@@ -93877,7 +94502,8 @@ var init_local_auto = __esm({
           });
           if (!result.ok) {
             const summary = eventName === "take_kept" ? "Could not mark this take as kept in Tongs." : "Could not mark this take as discarded in Tongs.";
-            const detail = typeof result.errorMessage === "string" && result.errorMessage.trim() ? ` ${result.errorMessage.trim()}` : "";
+            const resultMessage = "errorMessage" in result ? result.errorMessage : result.reason;
+            const detail = typeof resultMessage === "string" && resultMessage.trim() ? ` ${resultMessage.trim()}` : "";
             throw new Error(`${summary}${detail}`);
           }
           clearPendingDecisionState();
@@ -93889,6 +94515,7 @@ var init_local_auto = __esm({
         writePendingDecisionState({
           takeName: args.name,
           workpieceId: args.commitResult.workpieceId,
+          completionId: args.completionId,
           filePath: args.commitResult.path,
           contentType: args.contentType,
           bytes: args.bytes,
@@ -93900,7 +94527,9 @@ var init_local_auto = __esm({
           transcriptStatus: args.transcriptFinalize?.status ?? null,
           transcriptSourcePath: args.transcriptFinalize?.finalPath ?? null,
           recordingMedium: args.strategy?.recordingMedium ?? null,
-          requiresPostNormalization: args.strategy?.requiresPostNormalization === true
+          requiresPostNormalization: args.strategy?.requiresPostNormalization === true,
+          mediaRevision: args.commitResult.mediaRevision,
+          mediaHash: args.commitResult.mediaHash
         });
         await showRecordingDecisionDialog({
           takeName: args.name,
@@ -94409,6 +95038,7 @@ var init_local_auto = __esm({
         showRecordingFinalizeIndicator({ takeName: name });
         let committed = false;
         let commitResultOk = null;
+        let acceptedCompletionId = null;
         let canonicalAttempted = false;
         let canonicalErrorCode = null;
         let canonicalErrorMessage = null;
@@ -94501,8 +95131,19 @@ var init_local_auto = __esm({
               });
               const commitResultSuccess = readCommitResultSuccess(commitResult);
               if (commitResultSuccess) {
-                committed = true;
                 commitResultOk = commitResultSuccess;
+                const completion = await transitionRecordingCompleted({
+                  commit: commitResultSuccess,
+                  durationMs: typeof opts.durationMs === "number" ? opts.durationMs : null
+                });
+                if (completion.ok && completion.completionId) {
+                  committed = true;
+                  acceptedCompletionId = completion.completionId;
+                } else {
+                  canonicalErrorCode = completion.reason ?? `recording_completion_${completion.outcome}`;
+                  canonicalErrorMessage = `Recording bytes were saved, but canonical completion remained incomplete (${completion.outcome}).`;
+                  showRecorderToast(canonicalErrorMessage, "warning");
+                }
                 if (opts.transcriptFinalize?.finalArtifact && opts.transcriptFinalize.finalPath) {
                   const artifact = {
                     ...opts.transcriptFinalize.finalArtifact,
@@ -94648,10 +95289,11 @@ var init_local_auto = __esm({
                     console.log("[core-recorder] saved file mirror", name);
                   } catch {
                   }
-                  if (commitResultOk) {
+                  if (commitResultOk && acceptedCompletionId) {
                     hideRecordingFinalizeIndicator();
                     await promptForTakeDecision({
                       commitResult: commitResultOk,
+                      completionId: acceptedCompletionId,
                       name,
                       contentType,
                       bytes: bytes.length,
@@ -94795,10 +95437,11 @@ var init_local_auto = __esm({
                   downloadFallbackSkippedReason
                 });
               }
-              if (commitResultOk) {
+              if (commitResultOk && acceptedCompletionId) {
                 hideRecordingFinalizeIndicator();
                 await promptForTakeDecision({
                   commitResult: commitResultOk,
+                  completionId: acceptedCompletionId,
                   name,
                   contentType,
                   bytes: bytes.length,
@@ -94943,7 +95586,22 @@ var init_local_auto = __esm({
         } catch {
         }
         const makeRecoveryDecision = async (eventName) => {
-          const result = await appendRecordingDecisionToTongs({
+          const result = eventName === "take_kept" ? await transitionRecordingKept({
+            completionId: state8.completionId,
+            commit: {
+              ok: true,
+              status: 200,
+              workpieceId: state8.workpieceId,
+              path: state8.filePath,
+              createdCradle: state8.createdCradle,
+              plannerRecordingSessionId: state8.plannerRecordingSessionId,
+              captureSessionId: state8.captureSessionId ?? "",
+              mediaRevision: state8.mediaRevision,
+              mediaHash: state8.mediaHash,
+              mediaBytes: state8.bytes,
+              mediaContentType: state8.contentType
+            }
+          }) : await appendRecordingDecisionToTongs({
             workpieceId: state8.workpieceId,
             eventName,
             filePath: state8.filePath,
@@ -94962,7 +95620,8 @@ var init_local_auto = __esm({
           });
           if (!result.ok) {
             const summary = eventName === "take_kept" ? "Could not mark this take as kept in Tongs." : "Could not mark this take as discarded in Tongs.";
-            const detail = typeof result.errorMessage === "string" && result.errorMessage.trim() ? ` ${result.errorMessage.trim()}` : "";
+            const resultMessage = "errorMessage" in result ? result.errorMessage : result.reason;
+            const detail = typeof resultMessage === "string" && resultMessage.trim() ? ` ${resultMessage.trim()}` : "";
             throw new Error(`${summary}${detail}`);
           }
           clearPendingDecisionState();
@@ -97003,7 +97662,7 @@ var init_scroll_strip = __esm({
 // src/hud/drag.ts
 function loadPos() {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY8);
+    const raw = localStorage.getItem(STORAGE_KEY9);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (typeof parsed.left === "number" && typeof parsed.top === "number") {
@@ -97017,7 +97676,7 @@ function savePos(root) {
   try {
     const rect = root.getBoundingClientRect();
     const pos = { left: rect.left, top: rect.top };
-    localStorage.setItem(STORAGE_KEY8, JSON.stringify(pos));
+    localStorage.setItem(STORAGE_KEY9, JSON.stringify(pos));
   } catch {
   }
 }
@@ -97120,11 +97779,11 @@ function attachHudDrag(root) {
   root.addEventListener("click", swallowIfNeeded, true);
   window.addEventListener("click", swallowIfNeeded, true);
 }
-var STORAGE_KEY8;
+var STORAGE_KEY9;
 var init_drag = __esm({
   "src/hud/drag.ts"() {
     "use strict";
-    STORAGE_KEY8 = "tp_hud_pos_v1";
+    STORAGE_KEY9 = "tp_hud_pos_v1";
   }
 });
 
@@ -103816,6 +104475,9 @@ function initScrollModeRouter(deps) {
     initCount: Number((typeof window !== "undefined" ? window.__tpModeRouterDiag?.initCount : 0) || 0) + 1,
     phase: "reinit"
   });
+  if (autoEngine !== deps.auto) lastAuto = false;
+  if (asrEngine2 !== deps.asr) lastAsr = false;
+  if (stepEngine !== deps.step) lastStep = false;
   autoEngine = deps.auto;
   asrEngine2 = deps.asr;
   stepEngine = deps.step;
@@ -105987,7 +106649,7 @@ function clamp10(v, min, max) {
 }
 function loadPos2() {
   try {
-    const s = window.localStorage.getItem(STORAGE_KEY9);
+    const s = window.localStorage.getItem(STORAGE_KEY10);
     if (!s) return null;
     const o = JSON.parse(s);
     if (typeof o.x === "number" && typeof o.y === "number") {
@@ -106003,7 +106665,7 @@ function savePos2(x, y) {
       x: Math.round(x),
       y: Math.round(y)
     };
-    window.localStorage.setItem(STORAGE_KEY9, JSON.stringify(payload));
+    window.localStorage.setItem(STORAGE_KEY10, JSON.stringify(payload));
   } catch {
   }
 }
@@ -106076,7 +106738,7 @@ function initCamDraggable() {
     el.style.right = "16px";
     el.style.bottom = "16px";
     try {
-      window.localStorage.removeItem(STORAGE_KEY9);
+      window.localStorage.removeItem(STORAGE_KEY10);
     } catch {
     }
   };
@@ -106101,11 +106763,11 @@ function autoInit() {
   } catch {
   }
 }
-var STORAGE_KEY9;
+var STORAGE_KEY10;
 var init_camera_drag = __esm({
   "src/ui/camera-drag.ts"() {
     "use strict";
-    STORAGE_KEY9 = "tp_cam_pos_v1";
+    STORAGE_KEY10 = "tp_cam_pos_v1";
     autoInit();
     if (typeof window !== "undefined" && !window.initCamDraggable) {
       window.initCamDraggable = initCamDraggable;
@@ -106775,7 +107437,7 @@ function clamp11(v, lo, hi) {
 }
 function readStore2() {
   try {
-    const raw = window.localStorage.getItem(STORAGE_KEY10);
+    const raw = window.localStorage.getItem(STORAGE_KEY11);
     return raw ? JSON.parse(raw) : {};
   } catch {
     return {};
@@ -106783,7 +107445,7 @@ function readStore2() {
 }
 function writeStore(st) {
   try {
-    window.localStorage.setItem(STORAGE_KEY10, JSON.stringify(st || {}));
+    window.localStorage.setItem(STORAGE_KEY11, JSON.stringify(st || {}));
   } catch {
   }
 }
@@ -106905,12 +107567,12 @@ function initTypography() {
   initGlobalWheelZoom();
   initLocalWheelZoom();
 }
-var STORAGE_KEY10, MIN_SIZE, MAX_SIZE, DEFAULT_SIZE, DEFAULT_LINE_HEIGHT, DISPLAY_ID;
+var STORAGE_KEY11, MIN_SIZE, MAX_SIZE, DEFAULT_SIZE, DEFAULT_LINE_HEIGHT, DISPLAY_ID;
 var init_typography2 = __esm({
   "src/ui/typography.ts"() {
     "use strict";
     init_typography_ssot();
-    STORAGE_KEY10 = "tp_typography_v1";
+    STORAGE_KEY11 = "tp_typography_v1";
     MIN_SIZE = 18;
     MAX_SIZE = 120;
     DEFAULT_SIZE = DEFAULT_SCRIPT_FONT_PX;
@@ -107787,7 +108449,7 @@ var init_welcome_intro = __esm({
 function readStoredIndex() {
   if (typeof window === "undefined") return -1;
   try {
-    const raw = window.localStorage?.getItem?.(STORAGE_KEY11);
+    const raw = window.localStorage?.getItem?.(STORAGE_KEY12);
     if (!raw) return -1;
     const parsed = parseInt(raw, 10);
     return Number.isNaN(parsed) ? -1 : parsed;
@@ -107798,7 +108460,7 @@ function readStoredIndex() {
 function persistIndex(index) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage?.setItem?.(STORAGE_KEY11, String(index));
+    window.localStorage?.setItem?.(STORAGE_KEY12, String(index));
   } catch {
   }
 }
@@ -107809,11 +108471,11 @@ function getNextSampleScript() {
   persistIndex(nextIndex);
   return SAMPLE_SCRIPTS[nextIndex];
 }
-var STORAGE_KEY11, SAMPLE_SCRIPTS;
+var STORAGE_KEY12, SAMPLE_SCRIPTS;
 var init_sample_scripts = __esm({
   "src/content/sample-scripts.ts"() {
     "use strict";
-    STORAGE_KEY11 = "tp_sample_idx";
+    STORAGE_KEY12 = "tp_sample_idx";
     SAMPLE_SCRIPTS = [
       `[s1]
 Welcome to Teleprompter Pro.

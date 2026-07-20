@@ -1,6 +1,16 @@
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "./db.types.js";
 import { unzlibSync as fflateUnzlibSync, inflateSync as fflateInflateRawSync } from "fflate";
+import type { ThumbnailCompositeEncoding, ThumbnailCompositeRecipe } from "./thumbnail-composite.js";
+
+const THUMBNAIL_BUNDLED_FONT_VERSION = "inter-5.2.8-latin-700";
+const THUMBNAIL_COMPOSITION_ENGINE_VERSION = "forge-thumbnail-compositor-v1";
+const THUMBNAIL_CONTRAST_EVALUATOR_VERSION = "forge-thumbnail-contrast-evaluator-v1";
+export const THUMBNAIL_STANDARD_RECIPE_ID = "forge-thumbnail-standard";
+export const THUMBNAIL_STANDARD_RECIPE_VERSION = 1;
+export const THUMBNAIL_STYLE_PROVENANCE_CONTRACT_VERSION = "forge.thumbnail-style-provenance.v1";
+export type ThumbnailRequestedStyleSource = "auto" | "brand_profile" | "forge_standard";
+export type ThumbnailResolvedStyleSource = Exclude<ThumbnailRequestedStyleSource, "auto">;
 
 type UntypedPostgrestResult = {
   data: unknown;
@@ -12,6 +22,8 @@ type UntypedPostgrestBuilder = PromiseLike<UntypedPostgrestResult> & {
   eq: (column: string, value: unknown) => UntypedPostgrestBuilder;
   insert: (values: Record<string, unknown>) => UntypedPostgrestBuilder;
   update: (values: Record<string, unknown>) => UntypedPostgrestBuilder;
+  order: (column: string, options?: { ascending?: boolean }) => UntypedPostgrestBuilder;
+  limit: (count: number) => UntypedPostgrestBuilder;
   maybeSingle: () => Promise<UntypedPostgrestResult>;
   single: () => Promise<UntypedPostgrestResult>;
 };
@@ -122,7 +134,6 @@ const READY_SCRIPT_PATH_CANDIDATES = [
   "scripts/script.source.md",
 ] as const;
 const READY_SCRIPT_PATH_SET = new Set<string>(READY_SCRIPT_PATH_CANDIDATES as readonly string[]);
-const TAKE_KEPT_EVENT = "take_kept";
 const CONTENT_CATEGORY_EVENT = "hearth.content_category.set.v1";
 const HEARTH_APPROVED_SCRIPT_EVENT = "hearth.script.published.v1";
 const CONTENT_CATEGORY_VALUES = [
@@ -180,7 +191,6 @@ export type WorkpieceJobDTO = {
   created_at: string;
   updated_at: string;
 };
-const THUMBNAIL_ASSET_PREFIX = "assets/thumbnails";
 const THUMBNAIL_ASSET_KIND = "thumbnail_image" as const;
 const THUMBNAIL_ASSET_SCHEMA = "forge.thumbnail-image.v1" as const;
 const THUMBNAIL_EDITORIAL_BASE_HINT = "Clean, high-contrast YouTube thumbnail composition.";
@@ -447,6 +457,7 @@ export type CommitFileRequest = {
 
 export type CommitFileResponse = {
   workpiece_id: string;
+  workspace_id: string;
   path: string;
   storage_key: string;
   hash: string;
@@ -541,7 +552,9 @@ export type AppendEventRequest = {
 };
 
 export type WorkpieceTakeReceipt = {
-  event_id: number;
+  event_id: number | null;
+  completion_id?: string;
+  keep_id?: string;
   created_at: string;
   file_path: string | null;
   recording_session_id: string | null;
@@ -717,6 +730,13 @@ export type RecordingRevisionRecord = {
   visual_placements_path: string | null;
   history_path: string | null;
   snapshots_manifest_path: string | null;
+  composition_v2_path: string | null;
+  media_provenance_path: string | null;
+  render_jobs_path: string | null;
+  release_packet_path: string | null;
+  composition_revision: number | null;
+  composition_fingerprint: string | null;
+  composition_history_head_id: string | null;
   created_at: string;
   created_by: string;
   updated_at: string;
@@ -730,10 +750,15 @@ export type HammerRevisionArtifactKey =
   | "visual_timeline"
   | "visual_placements"
   | "history"
-  | "snapshots_manifest";
+  | "snapshots_manifest"
+  | "composition_v2"
+  | "media_provenance"
+  | "render_jobs"
+  | "release_packet";
 
 export type SaveHammerRecordingRevisionRequest = {
   written_by: WrittenBy;
+  expected_revision_updated_at?: string;
   label?: string | null;
   editor_session?: HammerArtifactWriteRequest;
   revision_transcript?: HammerArtifactWriteRequest;
@@ -742,6 +767,10 @@ export type SaveHammerRecordingRevisionRequest = {
   visual_placements?: HammerArtifactWriteRequest;
   history?: HammerArtifactWriteRequest;
   snapshots_manifest?: HammerArtifactWriteRequest;
+  composition_v2?: HammerArtifactWriteRequest;
+  media_provenance?: HammerArtifactWriteRequest;
+  render_jobs?: HammerArtifactWriteRequest;
+  release_packet?: HammerArtifactWriteRequest;
 };
 
 export type ResetHammerRecordingRevisionRequest = {
@@ -1047,6 +1076,7 @@ export type GenerateImageMapCandidatesResponse = {
 export type GenerateEpisodeThumbnailRequest = {
   workspace_id: string;
   episode_id: string;
+  operation_id: string;
   concept_id?: string;
   prompt?: string;
   preset?: string | null;
@@ -1056,9 +1086,13 @@ export type GenerateEpisodeThumbnailRequest = {
   confirm_spend?: boolean;
   always_approve_ai_spend?: boolean;
   user_access_token?: string | null;
+  canonical_stage_only?: boolean;
+  concept_revision_id?: string;
+  render_recipe_id?: string;
+  render_recipe_revision?: number;
 };
 
-export type GenerateEpisodeThumbnailResponse = {
+export type LegacyGenerateEpisodeThumbnailResponse = {
   version: ThumbnailVersionRecord;
   asset: {
     id: string;
@@ -1079,6 +1113,148 @@ export type GenerateEpisodeThumbnailResponse = {
   token_balance?: number | null;
 };
 
+export type CanonicalGenerateEpisodeThumbnailStageResponse = {
+  canonical_stage_only: true;
+  asset: ThumbnailAssetSummary;
+  credits_warning?: string;
+  token_balance?: number | null;
+};
+
+export type GenerateEpisodeThumbnailResponse = LegacyGenerateEpisodeThumbnailResponse | CanonicalGenerateEpisodeThumbnailStageResponse;
+
+export type ThumbnailAssetStatus = "pending" | "ready" | "failed" | "superseded";
+export type ThumbnailAssetKind = "thumbnail_image" | "thumbnail_composite";
+
+export type ThumbnailAssetSummary = {
+  id: string;
+  workspace_id: string;
+  workpiece_id: string;
+  operation_id: string;
+  asset_kind: ThumbnailAssetKind;
+  status: ThumbnailAssetStatus;
+  path: string;
+  mime_type: string;
+  bytes: number;
+  content_hash: string;
+  storage_bucket: string;
+  storage_key: string;
+  provider: string;
+  provider_request_id: string | null;
+  reference_committed_at: string | null;
+  ready_at: string | null;
+  failed_at: string | null;
+  failure_code: string | null;
+  failure_message: string | null;
+  metadata: Json;
+};
+
+export type StageThumbnailAssetRequest = {
+  workspace_id: string;
+  operation_id: string;
+  asset_kind: ThumbnailAssetKind;
+  mime_type: string;
+  bytes_base64: string;
+  provider: string;
+  provider_request_id?: string | null;
+  prompt?: string | null;
+  metadata?: Json;
+  reference_pointer?: string | null;
+  reuse_identity?: string | null;
+};
+
+export type CommitThumbnailAssetReferenceRequest = {
+  workspace_id: string;
+  asset_id: string;
+  expected_metadata_updated_at: string | null;
+  metadata_document: Json;
+  reference_pointer: string;
+};
+
+export type TransitionThumbnailAssetRequest = {
+  workspace_id: string;
+  asset_id: string;
+  target_status: "ready" | "failed" | "superseded";
+  failure_code?: string | null;
+  failure_message?: string | null;
+};
+
+export type ReconcileThumbnailAssetsRequest = {
+  workspace_id: string;
+  operation_id?: string | null;
+};
+
+export type ReconcileThumbnailAssetsResponse = {
+  assets: ThumbnailAssetSummary[];
+  reconciled_count: number;
+};
+
+export type RenderThumbnailCompositeRequest = {
+  workspace_id: string;
+  operation_id: string;
+  base_asset_id: string;
+  recipe_snapshot: JsonObject;
+  composition_recipe: ThumbnailCompositeRecipe;
+  recipe_snapshot_hash: string;
+  width: number;
+  height: number;
+  encoding: ThumbnailCompositeEncoding;
+  reference_pointer?: string | null;
+  requested_style_source?: ThumbnailRequestedStyleSource;
+};
+
+export type ThumbnailBrandStatusRequest = {
+  workspace_id: string;
+  projected_binding_id?: string | null;
+  projected_binding_revision?: number | null;
+};
+
+export type ThumbnailBrandStatus = {
+  state: "unresolved" | "canonical_branded" | "canonical_unbranded" | "stale_projection" | "verification_blocked";
+  binding: Record<string, Json> | null;
+  profile_label: string | null;
+  message: string;
+};
+
+export type CommitThumbnailCandidateSetRequest = { workspace_id: string; expected_current_revision: number; candidates: Json[]; operation_id: string; operation_fingerprint: string };
+export type ThumbnailCandidateSetProjection = { candidate_set: Record<string, Json> | null; active_binding_id: string | null; active_binding_revision?: number | null; candidates: Record<string, Json>[]; historical_candidate_sets?: Array<{candidate_set:Record<string,Json>;candidates:Record<string,Json>[]}> };
+export type QuenchCanonicalReleaseProjection = {
+  contract_version: "forge.quench-release-projection.v2"; workspace_id: string; workpiece_id: string;
+  hammer: { manifest_snapshot_id: string; manifest_path: string; manifest_version: number; manifest_content_hash: string; manifest: Record<string, Json>; readiness: Record<string, Json> };
+  metadata: { revision: number; content_hash: string; episode: Record<string, Json> };
+  thumbnails: ThumbnailCandidateSetProjection;
+  destination_capabilities: Record<string, Json>[];
+  current_decisions: Record<string, Json>[];
+  projected_at: string;
+};
+export type CommitQuenchSingleCandidateRequest = { workspace_id:string; destination_scope_id:string; candidate_revision_id:string; expected_decision_id?:string|null; expected_revision:number; operation_id:string };
+export type QuenchDecisionAssignmentInput={candidate_revision_id:string;assignment_role:"selected"|"control"|"variant";assignment_ordinal:number;allocation_basis_points?:number|null};
+export type CommitQuenchDecisionRequest={workspace_id:string;destination_scope_id:string;expected_decision_id?:string|null;expected_revision:number;operation_id:string;decision_kind:"single_candidate"|"experiment_intent";intent_state:"selected"|"experiment_planned"|"cancelled";assignments:QuenchDecisionAssignmentInput[]};
+export type CommitQuenchExperimentRequest=Omit<CommitQuenchDecisionRequest,"decision_kind"|"intent_state">;
+export type DecideThumbnailCandidateBrandRequest = { workspace_id: string; candidate_revision_id: string; candidate_set_id?: string | null; active_binding_id: string; decision: "approved" | "revoked"; reason: string; expected_current_decision_id?: string | null; expected_current_decision_revision: number; operation_id: string; operation_fingerprint: string };
+
+type ResolvedThumbnailBrand = {
+  provenance: {
+    binding_id: string;
+    binding_revision: number;
+    profile_revision_id: string | null;
+    profile_content_hash: string | null;
+    asset_revision_ids: string[];
+  };
+  treatment: ThumbnailCompositeRecipe["brand"];
+  logoBytes: Uint8Array | null;
+  logoAssetRevisionId: string | null;
+  profileLabel: string | null;
+};
+
+type ResolvedThumbnailStyle = {
+  source: ThumbnailResolvedStyleSource;
+  brand: ResolvedThumbnailBrand | null;
+  bindingContext: ResolvedThumbnailBrand["provenance"];
+  resolutionBasis: string;
+  renderIdentity: Record<string, Json>;
+  auditProvenance: Record<string, Json>;
+};
+
 export type WorkspaceReadyScript = {
   workspace_id: string;
   workpiece_id: string;
@@ -1090,9 +1266,61 @@ export type WorkspaceReadyScript = {
   content_category: string | null;
   marked_ready_by: string | null;
   marked_ready_at: string | null;
+  script_revision: number;
+  script_hash: string;
+  transition_id: string;
   queue_rank: number | null;
   hidden_at: string | null;
   hidden_by: string | null;
+};
+
+export type AnvilTakeCompletionRequest = {
+  workspace_id: string;
+  capture_session_id: string;
+  ready_transition_id: string;
+  script_path: string;
+  expected_script_revision: number;
+  expected_script_hash: string;
+  media_path: string;
+  expected_media_revision: number;
+  expected_media_hash: string;
+  idempotency_key: string;
+  completion_evidence: Json;
+  user_access_token?: string | null;
+};
+
+export type AnvilTakeKeepRequest = {
+  workspace_id: string;
+  capture_session_id: string;
+  completion_id: string;
+  idempotency_key: string;
+  decision_evidence: Json;
+  user_access_token?: string | null;
+};
+
+export type AnvilTakeTransitionResult = {
+  outcome: "saved" | "duplicate" | "stale" | "conflict" | "denied" | "not_found";
+  reason?: string | null;
+  completion?: Record<string, unknown> | null;
+  keep?: Record<string, unknown> | null;
+};
+
+export type HearthReadyTransitionRequest = {
+  workspace_id: string;
+  script_path: string;
+  expected_script_revision: number;
+  expected_script_hash: string;
+  idempotency_key: string;
+  publish_evidence: Json;
+  user_access_token?: string | null;
+};
+
+export type HearthReadyTransitionResult = {
+  outcome: "saved" | "duplicate" | "stale" | "conflict" | "denied" | "not_found";
+  reason: string | null;
+  ready: Record<string, unknown> | null;
+  canonical_revision?: number;
+  canonical_hash?: string;
 };
 
 export type WorkspaceSparkSummary = {
@@ -1282,6 +1510,18 @@ export type TongsCommitApiOptions = {
 export type TongsCommitApiService = {
   createCradle(input: CreateCradleRequest): Promise<CreateCradleResponse>;
   commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse>;
+  transitionHearthScriptReady(
+    workpieceId: string,
+    input: HearthReadyTransitionRequest,
+  ): Promise<HearthReadyTransitionResult>;
+  transitionAnvilTakeCompleted(
+    workpieceId: string,
+    input: AnvilTakeCompletionRequest,
+  ): Promise<AnvilTakeTransitionResult>;
+  transitionAnvilTakeKept(
+    workpieceId: string,
+    input: AnvilTakeKeepRequest,
+  ): Promise<AnvilTakeTransitionResult>;
   beginRecordingUploadSession(
     workpieceId: string,
     input: BeginRecordingUploadSessionRequest,
@@ -1308,6 +1548,44 @@ export type TongsCommitApiService = {
     options?: { userAccessToken?: string | null },
   ): Promise<ReturnType<typeof resolveForgeAssetVariant>>;
   generateEpisodeThumbnail(workpieceId: string, input: GenerateEpisodeThumbnailRequest): Promise<GenerateEpisodeThumbnailResponse>;
+  stageThumbnailAsset(
+    workpieceId: string,
+    input: StageThumbnailAssetRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailAssetSummary>;
+  commitThumbnailAssetReference(
+    workpieceId: string,
+    input: CommitThumbnailAssetReferenceRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailAssetSummary>;
+  transitionThumbnailAsset(
+    workpieceId: string,
+    input: TransitionThumbnailAssetRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailAssetSummary>;
+  readThumbnailAsset(
+    workpieceId: string,
+    assetId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailAssetSummary>;
+  reconcileThumbnailAssets(
+    workpieceId: string,
+    input: ReconcileThumbnailAssetsRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ReconcileThumbnailAssetsResponse>;
+  renderThumbnailComposite(
+    workpieceId: string,
+    input: RenderThumbnailCompositeRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailAssetSummary>;
+  getThumbnailBrandStatus(
+    workpieceId: string,
+    input: ThumbnailBrandStatusRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailBrandStatus>;
+  commitThumbnailCandidateSet(workpieceId: string,input: CommitThumbnailCandidateSetRequest,options?: { userAccessToken?: string | null }): Promise<Record<string, Json>>;
+  getThumbnailCandidateSetProjection(workpieceId: string,workspaceId: string,options?: { userAccessToken?: string | null }): Promise<ThumbnailCandidateSetProjection>;
+  decideThumbnailCandidateBrand(workpieceId: string,input: DecideThumbnailCandidateBrandRequest,options?: { userAccessToken?: string | null }): Promise<Record<string, Json>>;
   createRecordingSessionRecord(input: CreateRecordingSessionRecordRequest): Promise<RecordingSessionRow>;
   listRecordingSessionsForPlanner(options?: RecordingSessionListOptions): Promise<RecordingSessionRow[]>;
   getRecordingSessionRecord(sessionId: string): Promise<RecordingSessionRecord>;
@@ -1506,6 +1784,10 @@ export type TongsCommitApiService = {
     workpieceId: string,
     options?: { userAccessToken?: string | null },
   ): Promise<WorkpieceVisualPackageResponseData>;
+  getQuenchCanonicalReleaseProjection(workpieceId: string, workspaceId: string, options?: { userAccessToken?: string | null }): Promise<QuenchCanonicalReleaseProjection>;
+  commitQuenchSingleCandidate(workpieceId:string,input:CommitQuenchSingleCandidateRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  commitQuenchExperiment(workpieceId:string,input:CommitQuenchExperimentRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  cancelQuenchExperiment(workpieceId:string,input:Omit<CommitQuenchExperimentRequest,"assignments">,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
   generateImageMapCandidates(
     workpieceId: string,
     input: GenerateImageMapCandidatesRequest,
@@ -3199,6 +3481,9 @@ function normalizeResetHammerWorkpieceToRawRequest(
       : normalizeNonEmptyString(body.reason, "reason");
   return {
     written_by: writtenBy,
+    ...(typeof body.expected_revision_updated_at === "undefined"
+      ? {}
+      : { expected_revision_updated_at: normalizeIsoTimestamp(body.expected_revision_updated_at, "expected_revision_updated_at") }),
     ...(typeof reason === "undefined" ? {} : { reason }),
   };
 }
@@ -3259,6 +3544,18 @@ function normalizeSaveHammerRecordingRevisionRequest(
     ...(typeof body.snapshots_manifest === "undefined"
       ? {}
       : { snapshots_manifest: normalizeHammerArtifactWriteRequest(body.snapshots_manifest, "snapshots_manifest") }),
+    ...(typeof body.composition_v2 === "undefined"
+      ? {}
+      : { composition_v2: normalizeHammerArtifactWriteRequest(body.composition_v2, "composition_v2") }),
+    ...(typeof body.media_provenance === "undefined"
+      ? {}
+      : { media_provenance: normalizeHammerArtifactWriteRequest(body.media_provenance, "media_provenance") }),
+    ...(typeof body.render_jobs === "undefined"
+      ? {}
+      : { render_jobs: normalizeHammerArtifactWriteRequest(body.render_jobs, "render_jobs") }),
+    ...(typeof body.release_packet === "undefined"
+      ? {}
+      : { release_packet: normalizeHammerArtifactWriteRequest(body.release_packet, "release_packet") }),
   };
 }
 
@@ -3464,10 +3761,22 @@ function normalizeGenerateEpisodeThumbnailRequest(
   if (!conceptId && !prompt) {
     throw new HttpError(400, "missing_prompt", "concept_id or prompt is required");
   }
+  const canonicalStageOnly = normalizeOptionalBoolean(body.canonical_stage_only, "canonical_stage_only");
+  if (canonicalStageOnly !== true) {
+    throw new HttpError(410, "legacy_thumbnail_generation_removed", "Thumbnail generation must use Episode Package v3 stage-only authority");
+  }
+  if (canonicalStageOnly && (
+    typeof body.concept_revision_id !== "string"
+    || typeof body.render_recipe_id !== "string"
+    || typeof body.render_recipe_revision === "undefined"
+  )) {
+    throw new HttpError(400, "missing_thumbnail_authority", "Canonical generation requires exact concept and render-recipe revision identities");
+  }
 
   return {
     workspace_id: workspaceId,
     episode_id: episodeId,
+    operation_id: normalizeThumbnailOperationId(body.operation_id),
     concept_id: conceptId,
     prompt,
     preset: typeof body.preset === "undefined" ? undefined : (body.preset === null ? null : normalizeNonEmptyString(body.preset, "preset")),
@@ -3476,6 +3785,10 @@ function normalizeGenerateEpisodeThumbnailRequest(
     lane: normalizeOptionalLane(body.lane),
     confirm_spend: normalizeOptionalBoolean(body.confirm_spend, "confirm_spend"),
     always_approve_ai_spend: normalizeOptionalBoolean(body.always_approve_ai_spend, "always_approve_ai_spend"),
+    canonical_stage_only: canonicalStageOnly,
+    concept_revision_id: typeof body.concept_revision_id === "string" ? normalizeNonEmptyString(body.concept_revision_id, "concept_revision_id") : undefined,
+    render_recipe_id: typeof body.render_recipe_id === "string" ? normalizeNonEmptyString(body.render_recipe_id, "render_recipe_id") : undefined,
+    render_recipe_revision: typeof body.render_recipe_revision === "undefined" ? undefined : normalizePositiveInteger(body.render_recipe_revision, "render_recipe_revision"),
     user_access_token: userAccessTokenFromHeader ?? (typeof body.user_access_token === "string" ? normalizeNonEmptyString(body.user_access_token, "user_access_token") : undefined),
   };
 }
@@ -4707,31 +5020,6 @@ function readContentCategoryFromEventPayload(payload: Json): string | null {
   return normalizeContentCategory(row.content_category);
 }
 
-function readNullableString(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function readNullableNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
-function readTakeReceiptFromEvent(row: Pick<WorkpieceEventRow, "id" | "created_at" | "payload">): WorkpieceTakeReceipt {
-  const payload = row.payload && typeof row.payload === "object" && !Array.isArray(row.payload)
-    ? row.payload as Record<string, unknown>
-    : {};
-  return {
-    event_id: row.id,
-    created_at: row.created_at,
-    file_path: readNullableString(payload.file_path ?? payload.path),
-    recording_session_id: readNullableString(payload.recording_session_id),
-    anvil_capture_session_id: readNullableString(payload.anvil_capture_session_id),
-    content_type: readNullableString(payload.content_type),
-    bytes: readNullableNumber(payload.bytes),
-    duration_ms: readNullableNumber(payload.duration_ms),
-    original_name: readNullableString(payload.original_name),
-  };
-}
-
 function pushCanonicalRecordingPathNode(
   nodes: WorkspaceStorageTreeNode[],
   parentPath: string,
@@ -5053,10 +5341,18 @@ export class TongsCommitService {
   readonly bucket: string;
   readonly imageProvider: ImageProvider | null;
 
-  constructor(supabase: SupabaseClient<Database>, bucket = TONGS_WORKPIECE_BUCKET, imageProvider: ImageProvider | null = null) {
+  readonly userClientFactory: ((accessToken: string) => SupabaseClient<Database>) | null;
+
+  constructor(
+    supabase: SupabaseClient<Database>,
+    bucket = TONGS_WORKPIECE_BUCKET,
+    imageProvider: ImageProvider | null = null,
+    userClientFactory: ((accessToken: string) => SupabaseClient<Database>) | null = null,
+  ) {
     this.supabase = supabase;
     this.bucket = bucket;
     this.imageProvider = imageProvider;
+    this.userClientFactory = userClientFactory;
   }
 
   private async getCradleOrThrow(workpieceId: string): Promise<EpisodeRow> {
@@ -5165,50 +5461,6 @@ export class TongsCommitService {
     }
 
     return (data ?? []).length;
-  }
-
-  private async upsertReadyScriptMeta(
-    workspaceId: string,
-    workpieceId: string,
-    scriptPath: string,
-    userId: string,
-  ): Promise<void> {
-    const payload: Database["tongs"]["Tables"]["workpiece_ready_script_meta"]["Insert"] = {
-      workspace_id: workspaceId,
-      workpiece_id: workpieceId,
-      script_path: scriptPath,
-      marked_ready_by: userId,
-      marked_ready_at: new Date().toISOString(),
-      updated_by: userId,
-    };
-
-    const { error } = await this.supabase
-      .schema("tongs")
-      .from("workpiece_ready_script_meta")
-      .upsert(payload, {
-        onConflict: "workpiece_id,script_path",
-      });
-
-    if (error) {
-      throw new HttpError(502, "db_write_failed", "Failed to upsert ready script metadata", {
-        reason: error.message,
-      });
-    }
-
-    // Ready queue invariant: exactly one active ready pointer per workpiece.
-    const { error: cleanupError } = await this.supabase
-      .schema("tongs")
-      .from("workpiece_ready_script_meta")
-      .delete()
-      .eq("workspace_id", workspaceId)
-      .eq("workpiece_id", workpieceId)
-      .neq("script_path", scriptPath);
-
-    if (cleanupError) {
-      throw new HttpError(502, "db_write_failed", "Failed to supersede previous ready script pointers", {
-        reason: cleanupError.message,
-      });
-    }
   }
 
   private async deleteReadyScriptMeta(
@@ -6774,7 +7026,11 @@ export class TongsCommitService {
     if (key === "visual_timeline") return `hammer/revisions/${revisionId}/visual-timeline.v1.json`;
     if (key === "visual_placements") return `hammer/revisions/${revisionId}/visual-placements.v1.json`;
     if (key === "history") return `hammer/revisions/${revisionId}/history.v1.json`;
-    return `hammer/revisions/${revisionId}/snapshots/manifest.v1.json`;
+    if (key === "snapshots_manifest") return `hammer/revisions/${revisionId}/snapshots/manifest.v1.json`;
+    if (key === "composition_v2") return `hammer/revisions/${revisionId}/composition.v2.json`;
+    if (key === "media_provenance") return `hammer/revisions/${revisionId}/media-provenance.v1.json`;
+    if (key === "render_jobs") return `hammer/revisions/${revisionId}/render-jobs.v1.json`;
+    return `hammer/revisions/${revisionId}/release-packet.v2.json`;
   }
 
   private assertRevisionWritable(revision: RecordingRevisionRecord): void {
@@ -7311,6 +7567,68 @@ export class TongsCommitService {
     const writtenBy = normalizeWrittenBy(input.written_by);
     const nowIso = new Date().toISOString();
 
+    const usesHammerV2 = Boolean(
+      input.composition_v2
+      || input.media_provenance
+      || input.render_jobs
+      || input.release_packet,
+    );
+    if (usesHammerV2) {
+      const schemaProbe = await (this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient)
+        .from("recording_revisions")
+        .select("composition_v2_path,media_provenance_path,render_jobs_path,release_packet_path,composition_revision,composition_fingerprint,composition_history_head_id")
+        .eq("workspace_id", workspaceId)
+        .eq("workpiece_id", workpieceId)
+        .eq("id", revisionId)
+        .maybeSingle();
+      if (schemaProbe.error) {
+        throw new HttpError(503, "hammer_v2_schema_unavailable", "Hammer V2 persistence is unavailable until its Tongs migration is deployed.", {
+          migration: "20260713023000_tongs_hammer_composition_v2.sql",
+          reason: schemaProbe.error.message,
+        });
+      }
+      if (!schemaProbe.data) {
+        throw new HttpError(409, "recording_revision_identity_mismatch", "The Hammer recording revision no longer belongs to this workpiece.", {
+          workspace_id: workspaceId,
+          workpiece_id: workpieceId,
+          revision_id: revisionId,
+        });
+      }
+    }
+
+    let compositionRevision: number | undefined;
+    let compositionFingerprint: string | undefined;
+    let compositionHistoryHeadId: string | null | undefined;
+    if (input.composition_v2) {
+      if (!input.expected_revision_updated_at) {
+        throw new HttpError(428, "composition_expected_revision_required", "Composition V2 writes require the last acknowledged recording revision timestamp.");
+      }
+      const envelope = input.composition_v2.data;
+      const envelopeRow = envelope && typeof envelope === "object" && !Array.isArray(envelope) ? envelope as Record<string, unknown> : null;
+      const compositionRow = envelopeRow?.composition && typeof envelopeRow.composition === "object" && !Array.isArray(envelopeRow.composition)
+        ? envelopeRow.composition as Record<string, unknown>
+        : null;
+      const historyRow = envelopeRow?.history && typeof envelopeRow.history === "object" && !Array.isArray(envelopeRow.history)
+        ? envelopeRow.history as Record<string, unknown>
+        : null;
+      const entries = Array.isArray(historyRow?.entries) ? historyRow.entries : [];
+      const headIndex = typeof historyRow?.head_index === "number" ? historyRow.head_index : -1;
+      const head = headIndex >= 0 && entries[headIndex] && typeof entries[headIndex] === "object" ? entries[headIndex] as Record<string, unknown> : null;
+      if (envelopeRow?.schema_version !== 2 || compositionRow?.schema_version !== 2
+        || compositionRow.recording_revision_id !== revisionId
+        || typeof compositionRow.revision !== "number" || typeof compositionRow.fingerprint !== "string"
+        || historyRow?.schema_version !== 2
+        || envelopeRow.expected_revision_updated_at !== input.expected_revision_updated_at) {
+        throw new HttpError(400, "composition_transaction_invalid", "Composition V2 must be saved as one identity-bound composition/history transaction.");
+      }
+      compositionRevision = compositionRow.revision;
+      compositionFingerprint = compositionRow.fingerprint;
+      compositionHistoryHeadId = typeof head?.entry_id === "string" ? head.entry_id : null;
+      if (compositionRow.history_head_id !== compositionHistoryHeadId) {
+        throw new HttpError(400, "composition_history_head_mismatch", "Composition and canonical history head do not agree.");
+      }
+    }
+
     const commitRevisionArtifact = async (
       key: HammerRevisionArtifactKey,
       request?: HammerArtifactWriteRequest,
@@ -7353,6 +7671,10 @@ export class TongsCommitService {
     const visualPlacementsPath = await commitRevisionArtifact("visual_placements", input.visual_placements);
     const historyPath = await commitRevisionArtifact("history", input.history);
     const snapshotsManifestPath = await commitRevisionArtifact("snapshots_manifest", input.snapshots_manifest);
+    const compositionV2Path = await commitRevisionArtifact("composition_v2", input.composition_v2);
+    const mediaProvenancePath = await commitRevisionArtifact("media_provenance", input.media_provenance);
+    const renderJobsPath = await commitRevisionArtifact("render_jobs", input.render_jobs);
+    const releasePacketPath = await commitRevisionArtifact("release_packet", input.release_packet);
 
     const tongsUntyped = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
     const updateValues: Record<string, unknown> = {
@@ -7367,18 +7689,33 @@ export class TongsCommitService {
     if (typeof visualPlacementsPath !== "undefined") updateValues.visual_placements_path = visualPlacementsPath;
     if (typeof historyPath !== "undefined") updateValues.history_path = historyPath;
     if (typeof snapshotsManifestPath !== "undefined") updateValues.snapshots_manifest_path = snapshotsManifestPath;
+    if (typeof compositionV2Path !== "undefined") updateValues.composition_v2_path = compositionV2Path;
+    if (typeof mediaProvenancePath !== "undefined") updateValues.media_provenance_path = mediaProvenancePath;
+    if (typeof renderJobsPath !== "undefined") updateValues.render_jobs_path = renderJobsPath;
+    if (typeof releasePacketPath !== "undefined") updateValues.release_packet_path = releasePacketPath;
+    if (typeof compositionRevision !== "undefined") updateValues.composition_revision = compositionRevision;
+    if (typeof compositionFingerprint !== "undefined") updateValues.composition_fingerprint = compositionFingerprint;
+    if (typeof compositionHistoryHeadId !== "undefined") updateValues.composition_history_head_id = compositionHistoryHeadId;
 
-    const updated = await tongsUntyped
+    let updateQuery = tongsUntyped
       .from("recording_revisions")
       .update(updateValues)
       .eq("workspace_id", workspaceId)
       .eq("workpiece_id", workpieceId)
-      .eq("id", revisionId)
+      .eq("id", revisionId);
+    if (input.composition_v2 && input.expected_revision_updated_at) updateQuery = updateQuery.eq("updated_at", input.expected_revision_updated_at);
+    const updated = await updateQuery
       .select("*")
-      .single();
+      .maybeSingle();
     if (updated.error) {
       throw new HttpError(502, "db_write_failed", "Failed to update recording revision pointers", {
         reason: updated.error.message,
+      });
+    }
+    if (!updated.data) {
+      throw new HttpError(409, "composition_revision_conflict", "Composition V2 acknowledgement lost an optimistic concurrency race.", {
+        revision_id: revisionId,
+        expected_revision_updated_at: input.expected_revision_updated_at ?? null,
       });
     }
 
@@ -7717,7 +8054,7 @@ export class TongsCommitService {
     const model = typeof payloadJson.model === "string" ? payloadJson.model.trim() : null;
     let policy: AiPolicyResolveResult;
     try {
-      policy = await resolveAiPolicy(this.supabase, {
+      policy = await resolveAiPolicy(this.supabase as unknown as SupabaseClient, {
         orgId: null,
         workspaceId,
         userId: auth.userId,
@@ -8255,7 +8592,6 @@ export class TongsCommitService {
     eventPayload?: Json;
     correlationId?: string;
     commitMode: "replace" | "append_jsonl" | "chunked_finalize";
-    readyScriptActor?: { userId: string; role: WorkspaceRole } | null;
   }): Promise<CommitFileResponse> {
     const nowIso = new Date().toISOString();
     const workpieceId = args.cradle.id;
@@ -8336,15 +8672,6 @@ export class TongsCommitService {
       },
     ]);
 
-    if (args.readyScriptActor) {
-      await this.upsertReadyScriptMeta(
-        args.cradle.workspace_id,
-        args.cradle.id,
-        args.path,
-        args.readyScriptActor.userId,
-      );
-    }
-
     const eventName = args.eventName?.trim() || "workpiece.file.committed";
     const eventPayload =
       typeof args.eventPayload === "undefined"
@@ -8413,6 +8740,7 @@ export class TongsCommitService {
 
     return {
       workpiece_id: workpieceId,
+      workspace_id: args.cradle.workspace_id,
       path: args.path,
       storage_key: storageKey,
       hash,
@@ -8628,12 +8956,11 @@ export class TongsCommitService {
   async commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse> {
     const cradle = await this.getCradleOrThrow(workpieceId);
     const path = normalizeRelativePath(input.path);
-    let readyScriptActor: { userId: string; role: WorkspaceRole } | null = null;
     if (path === MANIFEST_PATH) {
       throw new HttpError(400, "invalid_path", "manifest.json is managed by Tongs and cannot be committed directly");
     }
     if (READY_SCRIPT_PATH_SET.has(path)) {
-      readyScriptActor = await this.assertWorkspaceRoleFromAccessToken(
+      await this.assertWorkspaceRoleFromAccessToken(
         cradle.workspace_id,
         "editor",
         input.user_access_token,
@@ -8700,8 +9027,122 @@ export class TongsCommitService {
       eventPayload: input.event_payload,
       correlationId: input.correlation_id,
       commitMode,
-      readyScriptActor,
     });
+  }
+
+  async transitionHearthScriptReady(
+    workpieceId: string,
+    input: HearthReadyTransitionRequest,
+  ): Promise<HearthReadyTransitionResult> {
+    const accessToken = normalizeNonEmptyString(input.user_access_token, "user_access_token");
+    if (!this.userClientFactory) {
+      throw new HttpError(503, "hearth_ready_migration_required", "Hearth Ready authority is unavailable; migration 20260713190000 is required.");
+    }
+    const client = this.userClientFactory(accessToken);
+    const rpcClient = client.schema("tongs") as unknown as {
+      rpc: (name: string, args: Record<string, unknown>) => Promise<{
+        data: unknown;
+        error: { code?: string; message: string } | null;
+      }>;
+    };
+    const { data, error } = await rpcClient.rpc("hearth_transition_script_ready", {
+      p_workspace_id: input.workspace_id,
+      p_workpiece_id: workpieceId,
+      p_script_path: input.script_path,
+      p_expected_script_revision: input.expected_script_revision,
+      p_expected_script_hash: input.expected_script_hash,
+      p_idempotency_key: input.idempotency_key,
+      p_publish_evidence: input.publish_evidence,
+    });
+    if (error) {
+      const missing = error.code === "PGRST202" || /hearth_transition_script_ready/i.test(error.message);
+      throw new HttpError(
+        missing ? 503 : 502,
+        missing ? "hearth_ready_migration_required" : "hearth_ready_transition_failed",
+        missing
+          ? "Hearth Ready authority is unavailable; migration 20260713190000 is required."
+          : "Hearth Ready transition failed.",
+        { reason: error.message },
+      );
+    }
+    if (!isRecord(data) || typeof data.outcome !== "string") {
+      throw new HttpError(502, "hearth_ready_transition_malformed", "Hearth Ready transition returned a malformed result.");
+    }
+    const outcomes = new Set(["saved", "duplicate", "stale", "conflict", "denied", "not_found"]);
+    if (!outcomes.has(data.outcome)) {
+      throw new HttpError(502, "hearth_ready_transition_ambiguous", "Hearth Ready transition returned an ambiguous result.");
+    }
+    return data as HearthReadyTransitionResult;
+  }
+
+  private async callAnvilRecordingAuthority(
+    rpcName: "anvil_transition_take_completed" | "anvil_transition_take_kept",
+    args: Record<string, unknown>,
+    accessToken: string | null | undefined,
+  ): Promise<AnvilTakeTransitionResult> {
+    const token = normalizeNonEmptyString(accessToken, "user_access_token");
+    if (!this.userClientFactory) {
+      throw new HttpError(503, "anvil_recording_authority_migration_required", "Anvil recording authority is unavailable; migration 20260713210000 is required.");
+    }
+    const rpcClient = this.userClientFactory(token).schema("tongs") as unknown as {
+      rpc: (name: string, args: Record<string, unknown>) => Promise<{
+        data: unknown;
+        error: { code?: string; message: string } | null;
+      }>;
+    };
+    const { data, error } = await rpcClient.rpc(rpcName, args);
+    if (error) {
+      const missing = error.code === "PGRST202" || new RegExp(rpcName, "i").test(error.message);
+      throw new HttpError(
+        missing ? 503 : 502,
+        missing ? "anvil_recording_authority_migration_required" : "anvil_recording_transition_failed",
+        missing
+          ? "Anvil recording authority is unavailable; migration 20260713210000 is required."
+          : "Anvil recording transition failed.",
+        { reason: error.message },
+      );
+    }
+    if (!isRecord(data) || typeof data.outcome !== "string") {
+      throw new HttpError(502, "anvil_recording_transition_malformed", "Anvil recording transition returned a malformed result.");
+    }
+    if (!new Set(["saved", "duplicate", "stale", "conflict", "denied", "not_found"]).has(data.outcome)) {
+      throw new HttpError(502, "anvil_recording_transition_ambiguous", "Anvil recording transition returned an ambiguous result.");
+    }
+    return data as AnvilTakeTransitionResult;
+  }
+
+  async transitionAnvilTakeCompleted(
+    workpieceId: string,
+    input: AnvilTakeCompletionRequest,
+  ): Promise<AnvilTakeTransitionResult> {
+    return this.callAnvilRecordingAuthority("anvil_transition_take_completed", {
+      p_workspace_id: input.workspace_id,
+      p_workpiece_id: workpieceId,
+      p_capture_session_id: input.capture_session_id,
+      p_ready_transition_id: input.ready_transition_id,
+      p_script_path: input.script_path,
+      p_expected_script_revision: input.expected_script_revision,
+      p_expected_script_hash: input.expected_script_hash.toLowerCase(),
+      p_media_path: input.media_path,
+      p_expected_media_revision: input.expected_media_revision,
+      p_expected_media_hash: input.expected_media_hash.toLowerCase(),
+      p_idempotency_key: input.idempotency_key,
+      p_completion_evidence: input.completion_evidence,
+    }, input.user_access_token);
+  }
+
+  async transitionAnvilTakeKept(
+    workpieceId: string,
+    input: AnvilTakeKeepRequest,
+  ): Promise<AnvilTakeTransitionResult> {
+    return this.callAnvilRecordingAuthority("anvil_transition_take_kept", {
+      p_workspace_id: input.workspace_id,
+      p_workpiece_id: workpieceId,
+      p_capture_session_id: input.capture_session_id,
+      p_completion_id: input.completion_id,
+      p_idempotency_key: input.idempotency_key,
+      p_decision_evidence: input.decision_evidence,
+    }, input.user_access_token);
   }
 
   private async loadRecordingUploadSessionState(
@@ -8985,7 +9426,6 @@ export class TongsCommitService {
       eventPayload: state.event_payload ?? undefined,
       correlationId: state.correlation_id ?? undefined,
       commitMode: "chunked_finalize",
-      readyScriptActor: null,
     });
 
     const finalizedAt = new Date().toISOString();
@@ -9162,6 +9602,648 @@ export class TongsCommitService {
     };
   }
 
+  private async getThumbnailAssetRow(workpieceId: string, assetId: string): Promise<AssetRow> {
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .select("*")
+      .eq("id", assetId)
+      .eq("workpiece_id", workpieceId)
+      .maybeSingle();
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to read thumbnail asset", { reason: error.message });
+    }
+    if (!data || (data.asset_kind !== "thumbnail_image" && data.asset_kind !== "thumbnail_composite")) {
+      throw new HttpError(404, "thumbnail_asset_not_found", "Thumbnail asset was not found");
+    }
+    return data;
+  }
+
+  private async getThumbnailAssetByOperation(workpieceId: string, workspaceId: string, operationId: string): Promise<AssetRow | null> {
+    const { data, error } = await this.supabase.schema("tongs").from("assets").select("*")
+      .eq("workpiece_id", workpieceId).eq("workspace_id", workspaceId).eq("operation_id", operationId)
+      .in("asset_kind", ["thumbnail_image", "thumbnail_composite"]).maybeSingle();
+    if (error) throw new HttpError(502, "db_read_failed", "Failed to resolve thumbnail operation identity", { reason: error.message });
+    return data ?? null;
+  }
+
+  async stageThumbnailAsset(
+    workpieceId: string,
+    input: StageThumbnailAssetRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailAssetSummary> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const operationId = normalizeThumbnailOperationId(input.operation_id);
+    const assetKind = normalizeThumbnailAssetKind(input.asset_kind);
+    const mimeType = normalizeThumbnailMimeType(input.mime_type);
+    const bytes = decodeBase64(input.bytes_base64);
+    if (bytes.length === 0) throw new HttpError(400, "empty_thumbnail_asset", "Thumbnail asset bytes cannot be empty");
+    const contentHash = await sha256Hex(bytes);
+    const operationFingerprint = await sha256Hex(canonicalJsonBytes({
+      operation_id: operationId,
+      asset_kind: assetKind,
+      mime_type: mimeType,
+      content_hash: contentHash,
+      provider: input.provider,
+      provider_request_id: input.provider_request_id ?? null,
+      prompt: input.prompt ?? null,
+      metadata: input.metadata ?? {},
+      reference_pointer: input.reference_pointer ?? null,
+      reuse_identity: input.reuse_identity ?? null,
+    }));
+
+    const { data: existing, error: existingError } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .select("*")
+      .eq("workspace_id", input.workspace_id)
+      .eq("workpiece_id", workpieceId)
+      .eq("asset_kind", assetKind)
+      .eq("operation_id", operationId)
+      .maybeSingle();
+    if (existingError) {
+      throw new HttpError(502, "db_read_failed", "Failed to resolve thumbnail operation", { reason: existingError.message });
+    }
+    const replay = resolveThumbnailOperationReplay(existing, operationFingerprint);
+    if (replay) return replay;
+
+    const path = `assets/thumbnails/${workpieceId}/${operationId}.${thumbnailExtension(mimeType)}`;
+    const committed = await this.commitFile(workpieceId, {
+      path,
+      content_type: mimeType,
+      file_type: assetKind,
+      bytes_base64: input.bytes_base64,
+      written_by: DEFAULT_WRITTEN_BY,
+      event_name: "hearth.thumbnail.asset.staged.v1",
+      event_payload: { operation_id: operationId, asset_kind: assetKind, content_hash: contentHash },
+      correlation_id: operationId,
+    });
+    if (committed.hash.toLowerCase() !== contentHash) {
+      throw new HttpError(502, "thumbnail_hash_mismatch", "Committed thumbnail bytes did not match the staged content hash");
+    }
+    const assetId = randomUuid();
+    let row: AssetRow;
+    try {
+      row = await this.insertAssetRow({
+        id: assetId,
+        workspace_id: input.workspace_id,
+        workpiece_id: workpieceId,
+        path,
+        mime_type: mimeType,
+        bytes: bytes.length,
+        storage_bucket: committed.file_row.storage_bucket,
+        storage_key: committed.storage_key,
+        provider: normalizeNonEmptyString(input.provider, "provider"),
+        provider_request_id: input.provider_request_id ?? null,
+        request_id: operationId,
+        prompt: input.prompt ?? null,
+        created_by: auth.userId,
+        asset_kind: assetKind,
+        status: "pending",
+        metadata_json: {
+          ...((input.metadata && typeof input.metadata === "object" && !Array.isArray(input.metadata)) ? input.metadata : {}),
+          reference_pointer: input.reference_pointer ?? null,
+        } as Json,
+        operation_id: operationId,
+        operation_fingerprint: operationFingerprint,
+        reuse_identity: input.reuse_identity ?? null,
+        content_hash: contentHash,
+        failure_code: null,
+        failure_message: null,
+        failed_at: null,
+        ready_at: null,
+        reference_committed_at: null,
+        supersedes_asset_id: null,
+      }, "Failed to register pending thumbnail asset");
+    } catch (error) {
+      let racedQuery = this.supabase
+        .schema("tongs")
+        .from("assets")
+        .select("*")
+        .eq("workspace_id", input.workspace_id)
+        .eq("workpiece_id", workpieceId)
+        .eq("asset_kind", assetKind);
+      racedQuery = input.reuse_identity
+        ? racedQuery.eq("reuse_identity", input.reuse_identity).in("status", ["pending", "ready"])
+        : racedQuery.eq("operation_id", operationId);
+      const { data: raced } = await racedQuery.maybeSingle();
+      if (!raced || (raced.operation_id === operationId && raced.operation_fingerprint !== operationFingerprint)) throw error;
+      row = raced;
+    }
+    return thumbnailAssetSummary(row);
+  }
+
+  async commitThumbnailAssetReference(
+    workpieceId: string,
+    input: CommitThumbnailAssetReferenceRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailAssetSummary> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const asset = await this.getThumbnailAssetRow(workpieceId, input.asset_id);
+    if (asset.reference_committed_at) {
+      const canonical = await this.readWorkpieceJson(workpieceId, "metadata.json");
+      if (canonical.found && jsonPointerValue(canonical.data, input.reference_pointer) === asset.id) {
+        return thumbnailAssetSummary(asset);
+      }
+    }
+    if (asset.status !== "pending") {
+      if (asset.reference_committed_at) return thumbnailAssetSummary(asset);
+      throw new HttpError(409, "thumbnail_asset_not_pending", "Only pending thumbnail assets can receive a package reference");
+    }
+    if (jsonPointerValue(input.metadata_document, input.reference_pointer) !== asset.id) {
+      throw new HttpError(400, "thumbnail_reference_mismatch", "metadata_document does not reference the asset at reference_pointer");
+    }
+    const committed = await this.commitFile(workpieceId, {
+      path: "metadata.json",
+      content_type: "application/json",
+      json: input.metadata_document,
+      written_by: DEFAULT_WRITTEN_BY,
+      event_name: "hearth.thumbnail.asset.reference-committed.v1",
+      event_payload: { asset_id: asset.id, operation_id: asset.operation_id, reference_pointer: input.reference_pointer },
+      correlation_id: asset.operation_id ?? undefined,
+      ...(input.expected_metadata_updated_at ? { expected_previous_updated_at: input.expected_metadata_updated_at } : {}),
+    });
+    const referenceCommittedAt = committed.file_row.updated_at;
+    const canonical = await this.readWorkpieceJson(workpieceId, "metadata.json");
+    if (!canonical.found || jsonPointerValue(canonical.data, input.reference_pointer) !== asset.id) {
+      throw new HttpError(409, "thumbnail_reference_verification_failed", "Canonical metadata readback did not recover the committed thumbnail reference");
+    }
+    const metadata = (asset.metadata_json && typeof asset.metadata_json === "object" && !Array.isArray(asset.metadata_json))
+      ? asset.metadata_json as Record<string, Json | undefined>
+      : {};
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .update({
+        reference_committed_at: referenceCommittedAt,
+        metadata_json: { ...metadata, reference_pointer: input.reference_pointer },
+        failure_code: null,
+        failure_message: null,
+        failed_at: null,
+      })
+      .eq("id", asset.id)
+      .eq("status", "pending")
+      .select("*")
+      .single();
+    if (error || !data) {
+      throw new HttpError(502, "db_write_failed", "Failed to acknowledge thumbnail package reference", { reason: error?.message });
+    }
+    return thumbnailAssetSummary(data);
+  }
+
+  async transitionThumbnailAsset(
+    workpieceId: string,
+    input: TransitionThumbnailAssetRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailAssetSummary> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const asset = await this.getThumbnailAssetRow(workpieceId, input.asset_id);
+    if (asset.status === input.target_status) return thumbnailAssetSummary(asset);
+    if (asset.status === "superseded") throw new HttpError(409, "thumbnail_asset_terminal", "Superseded assets cannot transition");
+    const nowIso = new Date().toISOString();
+    const patch: Database["tongs"]["Tables"]["assets"]["Update"] = input.target_status === "ready"
+      ? {
+          status: "ready", ready_at: nowIso, failure_code: null, failure_message: null, failed_at: null,
+        }
+      : input.target_status === "failed"
+        ? {
+            status: "failed", ready_at: null, failed_at: nowIso,
+            failure_code: normalizeNonEmptyString(input.failure_code, "failure_code"),
+            failure_message: normalizeNonEmptyString(input.failure_message, "failure_message"),
+          }
+        : {
+            status: "superseded", ready_at: null, failure_code: null, failure_message: null, failed_at: null,
+          };
+    if (input.target_status === "ready") {
+      if (!asset.reference_committed_at) {
+        throw new HttpError(409, "thumbnail_reference_required", "Thumbnail asset cannot become ready before its package reference is committed");
+      }
+      const stored = await downloadStorageObject(this.supabase, asset.storage_bucket, asset.storage_key);
+      if (!stored || await sha256Hex(stored) !== asset.content_hash) {
+        throw new HttpError(409, "thumbnail_stored_hash_mismatch", "Stored thumbnail bytes do not match the canonical content hash");
+      }
+    }
+    const { data, error } = await this.supabase.schema("tongs").from("assets").update(patch).eq("id", asset.id).select("*").single();
+    if (error || !data) throw new HttpError(502, "db_write_failed", "Failed to transition thumbnail asset", { reason: error?.message });
+    return thumbnailAssetSummary(data);
+  }
+
+  async readThumbnailAsset(
+    workpieceId: string,
+    assetId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailAssetSummary> {
+    const cradle = await this.getCradleOrThrow(workpieceId);
+    await this.assertWorkspaceRoleFromAccessToken(cradle.workspace_id, "viewer", options?.userAccessToken);
+    return thumbnailAssetSummary(await this.getThumbnailAssetRow(workpieceId, assetId));
+  }
+
+  async reconcileThumbnailAssets(
+    workpieceId: string,
+    input: ReconcileThumbnailAssetsRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ReconcileThumbnailAssetsResponse> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    let query = this.supabase.schema("tongs").from("assets").select("*")
+      .eq("workpiece_id", workpieceId).eq("status", "pending");
+    if (input.operation_id) query = query.eq("operation_id", normalizeThumbnailOperationId(input.operation_id));
+    const { data: pending, error } = await query;
+    if (error) throw new HttpError(502, "db_read_failed", "Failed to list pending thumbnail assets", { reason: error.message });
+    const metadataRead = await this.readWorkpieceJson(workpieceId, "metadata.json");
+    const metadata = metadataRead.found ? metadataRead.data : null;
+    const results: ThumbnailAssetSummary[] = [];
+    for (const row of pending ?? []) {
+      const assetMetadata = row.metadata_json && typeof row.metadata_json === "object" && !Array.isArray(row.metadata_json)
+        ? row.metadata_json as Record<string, unknown> : {};
+      const pointer = typeof assetMetadata.reference_pointer === "string" ? assetMetadata.reference_pointer : null;
+      const stored = pointer ? await downloadStorageObject(this.supabase, row.storage_bucket, row.storage_key) : null;
+      const outcome = resolveThumbnailReconciliationOutcome({
+        assetId: row.id,
+        referencedAssetId: pointer ? jsonPointerValue(metadata, pointer) : undefined,
+        canonicalHash: row.content_hash ?? "",
+        storedHash: stored ? await sha256Hex(stored) : null,
+      });
+      if (outcome.target === "failed") {
+        results.push(await this.transitionThumbnailAsset(workpieceId, {
+          workspace_id: input.workspace_id, asset_id: row.id, target_status: "failed",
+          failure_code: outcome.code, failure_message: outcome.message,
+        }, options));
+      } else {
+        if (!row.reference_committed_at) {
+          const { data: acknowledged, error: ackError } = await this.supabase.schema("tongs").from("assets")
+            .update({ reference_committed_at: new Date().toISOString() }).eq("id", row.id).select("*").single();
+          if (ackError || !acknowledged) throw new HttpError(502, "db_write_failed", "Failed to recover thumbnail reference acknowledgement");
+        }
+        results.push(await this.transitionThumbnailAsset(workpieceId, {
+          workspace_id: input.workspace_id, asset_id: row.id, target_status: "ready",
+        }, options));
+      }
+    }
+    return { assets: results, reconciled_count: results.length };
+  }
+
+  private async resolveThumbnailBrand(
+    workpieceId: string,
+    workspaceId: string,
+    accessToken: string | null | undefined,
+    options: { establishBinding: boolean; verifySources: boolean } = { establishBinding: true, verifySources: true },
+  ): Promise<ResolvedThumbnailBrand | null> {
+    const token = accessToken?.trim();
+    if (!token || !this.userClientFactory) {
+      throw new HttpError(503, "brand_resolution_unavailable", "Authenticated Brand Library resolution is unavailable");
+    }
+    const operationId = randomUuid();
+    const fingerprint = await sha256Hex(canonicalJsonBytes({ intent: "resolve_default", workspaceId, workpieceId }));
+    const rpcClient = this.userClientFactory(token).schema("tongs") as unknown as {
+      rpc: (name: string, args: Record<string, unknown>) => Promise<UntypedPostgrestResult>;
+    };
+    const { data, error } = options.establishBinding
+      ? await rpcClient.rpc("resolve_workpiece_brand_default", { p_workspace_id: workspaceId, p_workpiece_id: workpieceId, p_operation_id: operationId, p_operation_fingerprint: fingerprint })
+      : await rpcClient.rpc("get_workpiece_brand_binding", { p_workspace_id: workspaceId, p_workpiece_id: workpieceId });
+    if (error) throw new HttpError(502, "brand_resolution_failed", "Failed to resolve the workpiece Brand Profile", { reason: error.message });
+    const result = isRecord(data) ? data : null;
+    const binding = options.establishBinding ? (result && isRecord(result.binding) ? result.binding : null) : result;
+    if (!binding) return null;
+    const bindingId = readStringField(binding, "id");
+    const profileRevisionId = readStringField(binding, "profile_revision_id");
+    const profileContentHash = readStringField(binding, "profile_content_hash");
+    const bindingRevision = typeof binding.revision === "number" && Number.isFinite(binding.revision) ? binding.revision : null;
+    const boundAssetIds = Array.isArray(binding.asset_revision_ids)
+      ? binding.asset_revision_ids.filter((value): value is string => typeof value === "string")
+      : [];
+    if (!bindingId || bindingRevision == null) {
+      throw new HttpError(409, "invalid_brand_binding", "The canonical workpiece Brand Profile binding is incomplete");
+    }
+    const provenance = { binding_id: bindingId, binding_revision: bindingRevision, profile_revision_id: profileRevisionId, profile_content_hash: profileContentHash, asset_revision_ids: boundAssetIds };
+    if (binding.state === "disabled") return { provenance, treatment: null, logoBytes: null, logoAssetRevisionId: null, profileLabel: null };
+    if (!profileRevisionId || !profileContentHash) throw new HttpError(409, "invalid_brand_binding", "The canonical workpiece Brand Profile binding is incomplete");
+    if (!options.verifySources) {
+      return { provenance, treatment: null, logoBytes: null, logoAssetRevisionId: null, profileLabel: null };
+    }
+
+    const tongs = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const revisionResult = await tongs.from("brand_profile_revisions").select("id,rules_json,content_hash,state,eligible_for_new_use,validation_json")
+      .eq("workspace_id", workspaceId).eq("id", profileRevisionId).single();
+    if (revisionResult.error || !isRecord(revisionResult.data)) {
+      throw new HttpError(502, "brand_revision_read_failed", "Failed to read the bound Brand Profile revision", { reason: revisionResult.error?.message });
+    }
+    const revision = revisionResult.data;
+    if (revision.content_hash !== profileContentHash || revision.state !== "committed" || revision.eligible_for_new_use !== true) {
+      throw new HttpError(409, "brand_revision_not_bindable", "The bound Brand Profile revision is no longer eligible for rendering");
+    }
+    const rules = isRecord(revision.rules_json) ? revision.rules_json : null;
+    const profileResult = await tongs.from("brand_profiles").select("internal_label").eq("workspace_id", workspaceId).eq("id", readStringField(binding, "profile_id") ?? "").single();
+    const profileLabel = !profileResult.error && isRecord(profileResult.data) ? readStringField(profileResult.data, "internal_label") : null;
+    const palette = rules && isRecord(rules.palette) ? rules.palette : null;
+    const logoRule = rules && isRecord(rules.logo) ? rules.logo : null;
+    const assetMap = rules && isRecord(rules.asset_revision_ids) ? rules.asset_revision_ids : null;
+    const textColor = palette ? readStringField(palette, "secondary") : null;
+    const shadowColor = palette ? readStringField(palette, "primary") : null;
+    const logoPlacement = logoRule ? readStringField(logoRule, "placement") : null;
+    const logoOpacity = logoRule && typeof logoRule.watermark_opacity === "number" && Number.isFinite(logoRule.watermark_opacity)
+      ? logoRule.watermark_opacity : null;
+    if (!textColor || !shadowColor || !/^#[0-9a-f]{6}$/i.test(textColor) || !/^#[0-9a-f]{6}$/i.test(shadowColor)
+      || !logoPlacement || !["top_left", "top_right", "bottom_left", "bottom_right"].includes(logoPlacement)
+      || logoOpacity == null || logoOpacity < 0 || logoOpacity > 1) {
+      throw new HttpError(409, "invalid_brand_rules", "The bound Brand Profile does not contain renderable thumbnail rules");
+    }
+
+    const logoAssetRevisionId = assetMap
+      ? ["transparent_logo", "primary_logo", "watermark_logo"].map((role) => readStringField(assetMap, role)).find((id) => id && boundAssetIds.includes(id)) ?? null
+      : null;
+    let logoBytes: Uint8Array | null = null;
+    if (logoAssetRevisionId) {
+      const assetResult = await tongs.from("brand_asset_revisions").select("id,state,storage_bucket,storage_key,mime_type,content_hash")
+        .eq("workspace_id", workspaceId).eq("id", logoAssetRevisionId).single();
+      if (assetResult.error || !isRecord(assetResult.data)) {
+        throw new HttpError(502, "brand_logo_read_failed", "Failed to read the bound brand logo revision", { reason: assetResult.error?.message });
+      }
+      const asset = assetResult.data;
+      const bucket = readStringField(asset, "storage_bucket");
+      const key = readStringField(asset, "storage_key");
+      const hash = readStringField(asset, "content_hash");
+      const mimeType = readStringField(asset, "mime_type");
+      if (asset.state !== "ready" || !bucket || !key || !hash || !mimeType?.startsWith("image/")) {
+        throw new HttpError(409, "brand_logo_not_ready", "The bound brand logo revision is not a ready image");
+      }
+      logoBytes = await downloadStorageObject(this.supabase, bucket, key);
+      if (!logoBytes || await sha256Hex(logoBytes) !== hash) {
+        throw new HttpError(409, "brand_logo_hash_mismatch", "The bound brand logo failed canonical readback verification");
+      }
+    }
+    return {
+      provenance,
+      treatment: { text_color: textColor.toUpperCase(), shadow_color: shadowColor.toUpperCase(),
+        palette_colors: [readStringField(palette!, "primary"), readStringField(palette!, "secondary"), readStringField(palette!, "accent")].filter((value): value is string => Boolean(value)),
+        logo_placement: logoPlacement as NonNullable<ResolvedThumbnailBrand["treatment"]>["logo_placement"], logo_opacity: logoOpacity },
+      logoBytes,
+      logoAssetRevisionId,
+      profileLabel,
+    };
+  }
+
+  async getThumbnailBrandStatus(
+    workpieceId: string,
+    input: ThumbnailBrandStatusRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailBrandStatus> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "viewer", options?.userAccessToken);
+    const token = options?.userAccessToken?.trim();
+    if (!token || !this.userClientFactory) throw new HttpError(503, "brand_resolution_unavailable", "Authenticated Brand Library resolution is unavailable");
+    const client = this.userClientFactory(token).schema("tongs") as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<UntypedPostgrestResult> };
+    const current = await client.rpc("get_workpiece_brand_binding", { p_workspace_id: input.workspace_id, p_workpiece_id: workpieceId });
+    if (current.error) throw new HttpError(502, "brand_status_failed", "Failed to read thumbnail branding status", { reason: current.error.message });
+    const binding = isRecord(current.data) ? current.data : null;
+    if (!binding) return { state: "unresolved", binding: null, profile_label: null, message: "Branding will be resolved by Tongs when the first thumbnail render begins." };
+    const bindingId = readStringField(binding, "id");
+    const bindingRevision = typeof binding.revision === "number" ? binding.revision : null;
+    const stale = input.projected_binding_id !== bindingId || input.projected_binding_revision !== bindingRevision;
+    if (binding.state === "disabled") return { state: stale ? "stale_projection" : "canonical_unbranded", binding: binding as Record<string, Json>, profile_label: null, message: stale ? "The Hearth projection is stale; Tongs has authoritative unbranded state." : "This workpiece is canonically unbranded." };
+    try {
+      const verified = await this.resolveThumbnailBrand(workpieceId, input.workspace_id, token, { establishBinding: false, verifySources: true });
+      if (!verified) throw new Error("The canonical Brand Profile binding is unavailable.");
+      return { state: stale ? "stale_projection" : "canonical_branded", binding: binding as Record<string, Json>, profile_label: verified.profileLabel, message: stale ? "The Hearth projection is stale; Tongs has a newer canonical brand binding." : "Canonical Brand Profile verified for thumbnail rendering." };
+    } catch (error) {
+      return { state: "verification_blocked", binding: binding as Record<string, Json>, profile_label: null, message: error instanceof Error ? error.message : "Brand verification is blocked." };
+    }
+  }
+
+  private thumbnailAuthorityClient(token?: string | null) {
+    const value = token?.trim();
+    if (!value || !this.userClientFactory) throw new HttpError(503,"thumbnail_candidate_authority_unavailable","Authenticated thumbnail candidate authority is unavailable");
+    return this.userClientFactory(value).schema("tongs") as unknown as { rpc: (name: string,args: Record<string, unknown>) => Promise<UntypedPostgrestResult> };
+  }
+
+  async commitThumbnailCandidateSet(workpieceId: string,input: CommitThumbnailCandidateSetRequest,options?: { userAccessToken?: string | null }): Promise<Record<string, Json>> {
+    await this.assertWorkpieceInWorkspace(workpieceId,input.workspace_id); await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"editor",options?.userAccessToken);
+    const client=this.thumbnailAuthorityClient(options?.userAccessToken); const candidates=await Promise.all(input.candidates.map(async(candidate)=>{ if(!isRecord(candidate)||readStringField(candidate,"candidate_revision_id")) return candidate; const structural=isRecord(candidate.structural_composition)?candidate.structural_composition:{}; const recipe=isRecord(candidate.recipe_snapshot)?candidate.recipe_snapshot:null; if(!recipe) throw new HttpError(400,"missing_candidate_recipe_snapshot","New candidates require an immutable recipe snapshot"); const [calculated,title]=await Promise.all([client.rpc("thumbnail_structural_fingerprint",{p_value:structural}),client.rpc("thumbnail_title_revision_identity",{p_recipe:recipe})]); if(calculated.error||typeof calculated.data!=="string") throw new HttpError(502,"structural_fingerprint_failed",calculated.error?.message??"Tongs could not compute the structural fingerprint"); if(title.error||typeof title.data!=="string") throw new HttpError(502,"title_identity_failed",title.error?.message??"Tongs could not compute the title revision identity"); return {...candidate,title_revision_id:title.data,structural_composition_fingerprint:calculated.data,structural_fingerprint_version:"forge.thumbnail-structural-composition.v1"} as Json; }));
+    const result = await client.rpc("commit_thumbnail_candidate_set",{ p_workspace_id: input.workspace_id,p_workpiece_id: workpieceId,p_expected_current_revision: input.expected_current_revision,p_candidates:candidates,p_operation_id: input.operation_id,p_operation_fingerprint: input.operation_fingerprint });
+    if (result.error) throw new HttpError(409,"thumbnail_candidate_set_commit_failed",result.error.message);
+    if (!isRecord(result.data)) throw new HttpError(502,"invalid_thumbnail_candidate_set_response","Tongs returned an invalid candidate-set response");
+    return result.data as Record<string, Json>;
+  }
+
+  async getThumbnailCandidateSetProjection(workpieceId: string,workspaceId: string,options?: { userAccessToken?: string | null }): Promise<ThumbnailCandidateSetProjection> {
+    await this.assertWorkpieceInWorkspace(workpieceId,workspaceId); await this.assertWorkspaceRoleFromAccessToken(workspaceId,"viewer",options?.userAccessToken);
+    const result = await this.thumbnailAuthorityClient(options?.userAccessToken).rpc("get_thumbnail_candidate_set_projection",{ p_workspace_id: workspaceId,p_workpiece_id: workpieceId });
+    if (result.error) throw new HttpError(502,"thumbnail_candidate_projection_failed",result.error.message); const data=isRecord(result.data)?result.data:{};
+    return { candidate_set:isRecord(data.candidate_set)?data.candidate_set as Record<string,Json>:null,active_binding_id:readStringField(data,"active_binding_id"),active_binding_revision:typeof data.active_binding_revision==="number"?data.active_binding_revision:null,candidates:Array.isArray(data.candidates)?data.candidates.filter(isRecord) as Record<string,Json>[]:[] };
+  }
+
+  private async verifyQuenchCandidateReadback(workpieceId:string,candidate:Record<string,Json>):Promise<Record<string,Json>>{
+    const assetId=readStringField(candidate,"composite_asset_id");const expectedHash=readStringField(candidate,"composite_content_hash");
+    if(!assetId||!expectedHash)return{...candidate,eligibility_state:"blocked",authority_verified:false,verification_code:"candidate_identity_incomplete"};
+    try{const asset=await this.getThumbnailAssetRow(workpieceId,assetId);const bytes=await downloadStorageObject(this.supabase,asset.storage_bucket,asset.storage_key);const bytesHash=bytes?await sha256Hex(bytes):null;
+      const metadata=isRecord(asset.metadata_json)?asset.metadata_json:{};const binding=isRecord(metadata.brand_binding_context)?metadata.brand_binding_context:isRecord(metadata.brand_application_provenance)?metadata.brand_application_provenance:{};const readability=isRecord(metadata.readability_evidence)?metadata.readability_evidence:{};
+      const styleSource=readStringField(candidate,"style_source")??"brand_profile";const styleHash=readStringField(candidate,"style_provenance_hash");
+      const styleVerified=styleSource==="forge_standard"||styleSource==="brand_profile"?metadata.style_source===styleSource&&(!styleHash||metadata.style_provenance_hash===styleHash):false;
+      const verified=asset.asset_kind==="thumbnail_composite"&&asset.status==="ready"&&asset.content_hash===expectedHash&&bytesHash===expectedHash&&metadata.recipe_snapshot_hash===candidate.recipe_hash&&binding.binding_id===candidate.candidate_binding_id&&Number(binding.binding_revision)===Number(candidate.candidate_binding_revision)&&styleVerified&&readability.evaluation_hash===candidate.readability_evidence_hash;
+      return{...candidate,eligibility_state:verified?candidate.eligibility_state:"blocked",authority_verified:verified,verification_code:verified?"verified":"candidate_provenance_mismatch",asset_path:asset.path,asset_mime_type:asset.mime_type,asset_bytes:asset.bytes};
+    }catch{return{...candidate,eligibility_state:"blocked",authority_verified:false,verification_code:"candidate_asset_unavailable"};}
+  }
+
+  async getQuenchCanonicalReleaseProjection(workpieceId: string,workspaceId: string,options?: { userAccessToken?: string | null }): Promise<QuenchCanonicalReleaseProjection> {
+    await this.assertWorkpieceInWorkspace(workpieceId,workspaceId); await this.assertWorkspaceRoleFromAccessToken(workspaceId,"viewer",options?.userAccessToken);
+    const manifestPath="hammer/release-packet/manifest.v1.json";
+    const {data:file,error:fileError}=await this.supabase.schema("tongs").from("workpiece_files").select("revision,hash_value,storage_bucket,storage_key").eq("workpiece_id",workpieceId).eq("path",manifestPath).maybeSingle();
+    if(fileError) throw new HttpError(502,"manifest_authority_failed","Tongs could not read Hammer manifest authority",{reason:fileError.message});
+    if(!file) throw new HttpError(409,"manifest_unavailable","The canonical Hammer release manifest is unavailable.");
+    const bytes=await downloadStorageObject(this.supabase,file.storage_bucket,file.storage_key); if(!bytes) throw new HttpError(409,"manifest_unavailable","The canonical Hammer release manifest bytes are unavailable.");
+    const hash=await sha256Hex(bytes); if(hash!==String(file.hash_value).toLowerCase()) throw new HttpError(409,"manifest_unverified","Hammer manifest bytes do not match Tongs authority.");
+    let parsed:Record<string,Json>; try{const value=JSON.parse(textDecoder.decode(bytes)) as unknown;if(!isRecord(value))throw new Error("not object");parsed=value as Record<string,Json>;}catch{throw new HttpError(409,"manifest_invalid","The canonical Hammer release manifest is invalid JSON.");}
+    if(parsed.packet_kind!=="quench_release_packet"||parsed.version!==1||parsed.workpiece_id!==workpieceId||(typeof parsed.workspace_id==="string"&&parsed.workspace_id!==workspaceId)) throw new HttpError(409,"manifest_identity_mismatch","The Hammer manifest does not match the canonical workpiece.");
+    const readiness=isRecord(parsed.readiness)?parsed.readiness as Record<string,Json>:{};const status=readiness.status==="ready"?"ready":readiness.status==="needs_review"?"needs_review":"blocked";const ready=status==="ready"&&readiness.ready_for_quench===true;
+    const authority=this.supabase.schema("tongs") as unknown as {rpc:(name:string,args:Record<string,unknown>)=>Promise<UntypedPostgrestResult>};
+    const snap=await authority.rpc("snapshot_quench_release_manifest",{p_workspace_id:workspaceId,p_workpiece_id:workpieceId,p_source_revision:Number(file.revision),p_manifest_bytes:`\\x${Array.from(bytes,(value)=>value.toString(16).padStart(2,"0")).join("")}`,p_manifest_hash:hash,p_parsed:parsed,p_validation:{valid:true,contract_version:"forge.hammer-quench-manifest-validation.v1"},p_status:status,p_ready:ready});
+    if(snap.error||!isRecord(snap.data)||snap.data.disposition!=="verified") throw new HttpError(409,"manifest_unverified","Tongs could not establish immutable Hammer manifest evidence.",{reason:snap.error?.message??snap.data});
+    const {data:metadataFile,error:metadataFileError}=await this.supabase.schema("tongs").from("workpiece_files").select("revision,hash_value").eq("workpiece_id",workpieceId).eq("path","metadata.json").maybeSingle();
+    if(metadataFileError||!metadataFile) throw new HttpError(409,"metadata_unavailable","Canonical episode metadata is unavailable.");
+    const metadata=await this.readWorkpieceJson(workpieceId,"metadata.json");if(!metadata.found||!isRecord(metadata.data)||!isRecord(metadata.data.episode)) throw new HttpError(409,"metadata_invalid","Canonical episode metadata is invalid.");
+    const thumbnails=await this.getThumbnailCandidateSetProjection(workpieceId,workspaceId,options);
+    thumbnails.candidates=await Promise.all(thumbnails.candidates.map((candidate)=>this.verifyQuenchCandidateReadback(workpieceId,candidate)));
+    const raw=this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const setsResult=await raw.from("thumbnail_candidate_sets").select("id,workspace_id,workpiece_id,revision,previous_candidate_set_id,candidate_count,content_hash,distinction_contract_version,committed_at").eq("workspace_id",workspaceId).eq("workpiece_id",workpieceId).order("revision",{ascending:false}).limit(10);
+    if(setsResult.error)throw new HttpError(502,"historical_candidate_sets_unavailable","Historical thumbnail sets are unavailable.",{reason:setsResult.error.message});
+    const activeSetId=isRecord(thumbnails.candidate_set)?readStringField(thumbnails.candidate_set,"id"):null;const historical:Array<{candidate_set:Record<string,Json>;candidates:Record<string,Json>[]}>=[];
+    for(const set of Array.isArray(setsResult.data)?setsResult.data.filter(isRecord):[]){const setId=readStringField(set,"id");if(!setId||setId===activeSetId)continue;const membersResult=await raw.from("thumbnail_candidate_set_members").select("candidate_revision_id,candidate_ordinal").eq("candidate_set_id",setId).order("candidate_ordinal",{ascending:true});if(membersResult.error)throw new HttpError(502,"historical_candidate_members_unavailable","Historical thumbnail membership is unavailable.");const candidates:Record<string,Json>[]=[];
+      for(const member of Array.isArray(membersResult.data)?membersResult.data.filter(isRecord):[]){const id=readStringField(member,"candidate_revision_id");if(!id)continue;const rowResult=await raw.from("thumbnail_candidate_revisions").select("*").eq("id",id).maybeSingle();if(rowResult.error||!isRecord(rowResult.data))continue;const eligibility=thumbnails.active_binding_id?await authority.rpc("thumbnail_candidate_eligibility",{p_candidate_id:id,p_active_binding_id:thumbnails.active_binding_id}):{data:"blocked",error:null};const enriched={...rowResult.data,candidate_ordinal:Number(member.candidate_ordinal),eligibility_state:typeof eligibility.data==="string"?eligibility.data:"blocked"} as Record<string,Json>;candidates.push(await this.verifyQuenchCandidateReadback(workpieceId,enriched));}
+      historical.push({candidate_set:set as Record<string,Json>,candidates});}
+    thumbnails.historical_candidate_sets=historical;
+    const scopesResult=await raw.from("quench_destination_scopes").select("id,workspace_id,scope_key,platform,adapter_id,execution_context,state,current_capability_revision_id");
+    if(scopesResult.error) throw new HttpError(502,"destination_capabilities_unavailable","Destination scopes are unavailable.",{reason:scopesResult.error.message});
+    const scopes:Record<string,Json>[]=[];for(const scope of Array.isArray(scopesResult.data)?scopesResult.data.filter((row)=>isRecord(row)&&(row.workspace_id==null||row.workspace_id===workspaceId)) as Record<string,Json>[]:[]){const capabilityId=readStringField(scope,"current_capability_revision_id");const capabilityResult=capabilityId?await raw.from("quench_destination_capability_revisions").select("id,revision,contract_version,capabilities_json,content_hash,adapter_version").eq("id",capabilityId).maybeSingle():{data:null,error:null};scopes.push({...scope,current_capability:isRecord(capabilityResult.data)?capabilityResult.data as Record<string,Json>:null});}
+    const decisionsResult=await raw.from("quench_release_decision_sequences").select("workspace_id,workpiece_id,destination_scope_id,current_decision_id,current_revision").eq("workspace_id",workspaceId).eq("workpiece_id",workpieceId);
+    if(decisionsResult.error) throw new HttpError(502,"release_decisions_unavailable","Quench decisions are unavailable.",{reason:decisionsResult.error.message});
+    const currentDecisions:Record<string,Json>[]=[];for(const sequence of Array.isArray(decisionsResult.data)?decisionsResult.data.filter(isRecord):[]){const decisionId=readStringField(sequence,"current_decision_id");if(!decisionId){currentDecisions.push({...sequence,applicability:{state:"blocked",record_posture:"current_revision",reason_codes:["decision_not_found"]},recent_history:[]});continue;}const decisionResult=await raw.from("quench_release_decision_revisions").select("*").eq("id",decisionId).maybeSingle();const assignmentsResult=await raw.from("quench_release_candidate_assignments").select("*").eq("decision_id",decisionId).order("assignment_ordinal",{ascending:true});const applicabilityResult=await authority.rpc("quench_release_decision_applicability",{p_decision_id:decisionId});const historyResult=await raw.from("quench_release_decision_revisions").select("*").eq("workspace_id",workspaceId).eq("workpiece_id",workpieceId).eq("destination_scope_id",String(sequence.destination_scope_id)).order("revision",{ascending:false}).limit(10);const recentHistory:Record<string,Json>[]=[];for(const historyDecision of Array.isArray(historyResult.data)?historyResult.data.filter(isRecord):[]){const historyId=readStringField(historyDecision,"id");if(!historyId)continue;const historyAssignments=await raw.from("quench_release_candidate_assignments").select("*").eq("decision_id",historyId).order("assignment_ordinal",{ascending:true});recentHistory.push({...historyDecision,assignments:Array.isArray(historyAssignments.data)?historyAssignments.data.filter(isRecord):[]} as Record<string,Json>);}currentDecisions.push({...sequence,decision:isRecord(decisionResult.data)?decisionResult.data:null,assignments:Array.isArray(assignmentsResult.data)?assignmentsResult.data.filter(isRecord):[],applicability:isRecord(applicabilityResult.data)?applicabilityResult.data:{state:"blocked",record_posture:"current_revision",reason_codes:["applicability_unavailable"]},recent_history:recentHistory} as Record<string,Json>);}
+    return {contract_version:"forge.quench-release-projection.v2",workspace_id:workspaceId,workpiece_id:workpieceId,hammer:{manifest_snapshot_id:String(snap.data.manifest_snapshot_id),manifest_path:manifestPath,manifest_version:1,manifest_content_hash:hash,manifest:parsed,readiness},metadata:{revision:Number(metadataFile.revision),content_hash:String(metadataFile.hash_value).toLowerCase(),episode:metadata.data.episode as Record<string,Json>},thumbnails,destination_capabilities:scopes,current_decisions:currentDecisions,projected_at:new Date().toISOString()};
+  }
+
+  private async commitCanonicalQuenchDecision(workpieceId:string,input:CommitQuenchDecisionRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"editor",options?.userAccessToken);const projection=await this.getQuenchCanonicalReleaseProjection(workpieceId,input.workspace_id,options);const set=projection.thumbnails.candidate_set;const scope=projection.destination_capabilities.find((row)=>row.id===input.destination_scope_id);if(!set||!scope)throw new HttpError(409,"release_authority_unavailable","The canonical candidate set or destination is unavailable.");const capability=isRecord(scope.current_capability)?scope.current_capability:{};const capabilityFlags=isRecord(capability.capabilities_json)?capability.capabilities_json:{};
+    if(input.intent_state==="experiment_planned"&&(capabilityFlags.supports_experiment_intent!==true||capabilityFlags.supports_thumbnail_selection!==true))throw new HttpError(409,"experiment_unsupported","This destination does not support candidate experiment intent.");if(input.intent_state==="selected"&&capabilityFlags.supports_thumbnail_selection!==true)throw new HttpError(409,"thumbnail_selection_unsupported","This destination does not support thumbnail selection.");
+    for(const assignment of input.assignments){const candidate=projection.thumbnails.candidates.find((row)=>row.id===assignment.candidate_revision_id);if(!candidate||candidate.authority_verified!==true||!(["current","approved_historical_brand"] as unknown[]).includes(candidate.eligibility_state))throw new HttpError(409,"candidate_ineligible","An assigned candidate is not currently selectable through Tongs.");}
+    const params={p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_destination_scope_id:input.destination_scope_id,p_expected_decision_id:input.expected_decision_id??null,p_expected_revision:input.expected_revision,p_decision_kind:input.decision_kind,p_intent_state:input.intent_state,p_manifest_snapshot_id:projection.hammer.manifest_snapshot_id,p_metadata_revision:projection.metadata.revision,p_metadata_hash:projection.metadata.content_hash,p_candidate_set_id:String(set.id),p_active_binding_id:projection.thumbnails.active_binding_id,p_capability_revision_id:String(scope.current_capability_revision_id),p_assignments:input.assignments,p_operation_id:input.operation_id,p_operation_fingerprint:"0".repeat(64)};
+    const client=this.thumbnailAuthorityClient(options?.userAccessToken);const raw=this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;const receipt=await raw.from("quench_release_operation_receipts").select("operation_fingerprint,workspace_id,workpiece_id,destination_scope_id").eq("operation_id",input.operation_id).maybeSingle();let fingerprint=isRecord(receipt.data)&&receipt.data.workspace_id===input.workspace_id&&receipt.data.workpiece_id===workpieceId&&receipt.data.destination_scope_id===input.destination_scope_id?readStringField(receipt.data,"operation_fingerprint"):null;
+    if(!fingerprint){const discovery=await client.rpc("commit_quench_release_decision",{...params,p_operation_id:`${input.operation_id}:fingerprint-probe`});if(discovery.error)throw new HttpError(502,"release_decision_failed","Tongs could not commit the release decision.",{reason:discovery.error.message});if(!isRecord(discovery.data))throw new HttpError(502,"release_decision_invalid","Tongs returned an invalid release decision result.");fingerprint=readStringField(discovery.data,"canonical_fingerprint");if(!fingerprint)return discovery.data as Record<string,Json>;}
+    const committed=await client.rpc("commit_quench_release_decision",{...params,p_operation_fingerprint:fingerprint});if(committed.error||!isRecord(committed.data))throw new HttpError(502,"release_decision_failed","Tongs could not commit the release decision.",{reason:committed.error?.message});return committed.data as Record<string,Json>;
+  }
+
+  async commitQuenchSingleCandidate(workpieceId:string,input:CommitQuenchSingleCandidateRequest,options?:{userAccessToken?:string|null}){return this.commitCanonicalQuenchDecision(workpieceId,{...input,decision_kind:"single_candidate",intent_state:"selected",assignments:[{candidate_revision_id:input.candidate_revision_id,assignment_role:"selected",assignment_ordinal:1,allocation_basis_points:null}]},options);}
+  async commitQuenchExperiment(workpieceId:string,input:CommitQuenchExperimentRequest,options?:{userAccessToken?:string|null}){return this.commitCanonicalQuenchDecision(workpieceId,{...input,decision_kind:"experiment_intent",intent_state:"experiment_planned"},options);}
+  async cancelQuenchExperiment(workpieceId:string,input:Omit<CommitQuenchExperimentRequest,"assignments">,options?:{userAccessToken?:string|null}){return this.commitCanonicalQuenchDecision(workpieceId,{...input,decision_kind:"experiment_intent",intent_state:"cancelled",assignments:[]},options);}
+
+  async decideThumbnailCandidateBrand(workpieceId: string,input: DecideThumbnailCandidateBrandRequest,options?: { userAccessToken?: string | null }): Promise<Record<string, Json>> {
+    await this.assertWorkpieceInWorkspace(workpieceId,input.workspace_id); await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"editor",options?.userAccessToken);
+    const result=await this.thumbnailAuthorityClient(options?.userAccessToken).rpc("decide_thumbnail_candidate_historical_brand",{p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_candidate_revision_id:input.candidate_revision_id,p_candidate_set_id:input.candidate_set_id??null,p_active_binding_id:input.active_binding_id,p_decision:input.decision,p_reason:input.reason,p_expected_current_decision_id:input.expected_current_decision_id??null,p_expected_current_decision_revision:input.expected_current_decision_revision,p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint});
+    if(result.error) throw new HttpError(409,"thumbnail_candidate_brand_decision_failed",result.error.message); if(!isRecord(result.data)) throw new HttpError(502,"invalid_thumbnail_candidate_brand_response","Tongs returned an invalid authorization response"); return result.data as Record<string,Json>;
+  }
+
+  private async resolveThumbnailStyle(workpieceId: string, workspaceId: string, requested: ThumbnailRequestedStyleSource,
+    accessToken: string | null | undefined): Promise<ResolvedThumbnailStyle> {
+    const context = await this.resolveThumbnailBrand(workpieceId, workspaceId, accessToken, { establishBinding: true, verifySources: false });
+    if (!context) throw new HttpError(409, "thumbnail_binding_context_unavailable", "Tongs could not establish thumbnail styling context");
+    let brand: ResolvedThumbnailBrand | null = null;
+    let resolutionBasis = requested === "forge_standard" ? "creator_selected_standard" : "complete_brand_available";
+    if (requested !== "forge_standard") {
+      try {
+        brand = await this.resolveThumbnailBrand(workpieceId, workspaceId, accessToken, { establishBinding: true, verifySources: true });
+        if (!brand?.treatment) {
+          if (requested === "brand_profile") throw new HttpError(409, "brand_style_unavailable", "The selected brand does not contain a complete thumbnail style");
+          brand = null; resolutionBasis = "no_active_brand";
+        }
+      } catch (error) {
+        if (requested === "brand_profile") throw new HttpError(409, "brand_style_unavailable", "Your brand could not be applied. Standard styling remains available.",
+          { reason: error instanceof Error ? error.message : "Brand rendering is unavailable" });
+        brand = null; resolutionBasis = error instanceof HttpError ? error.code : "brand_unavailable";
+      }
+    }
+    const source: ThumbnailResolvedStyleSource = brand ? "brand_profile" : "forge_standard";
+    const renderIdentity: Record<string, Json> = source === "brand_profile" ? {
+      contract_version: THUMBNAIL_STYLE_PROVENANCE_CONTRACT_VERSION, style_source: source,
+      applied_profile_revision_id: brand!.provenance.profile_revision_id, applied_profile_content_hash: brand!.provenance.profile_content_hash,
+      applied_asset_revision_ids: brand!.provenance.asset_revision_ids, compositor_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
+      font_version: THUMBNAIL_BUNDLED_FONT_VERSION, contrast_evaluator_version: THUMBNAIL_CONTRAST_EVALUATOR_VERSION,
+    } : {
+      contract_version: THUMBNAIL_STYLE_PROVENANCE_CONTRACT_VERSION, style_source: source,
+      standard_recipe_id: THUMBNAIL_STANDARD_RECIPE_ID, standard_recipe_version: THUMBNAIL_STANDARD_RECIPE_VERSION,
+      compositor_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION, font_version: THUMBNAIL_BUNDLED_FONT_VERSION,
+      contrast_evaluator_version: THUMBNAIL_CONTRAST_EVALUATOR_VERSION,
+    };
+    return { source, brand, bindingContext: context.provenance, resolutionBasis, renderIdentity,
+      auditProvenance: { ...renderIdentity, requested_style_source: requested, resolution_basis: resolutionBasis,
+        binding_context: context.provenance as unknown as Json } };
+  }
+
+  async renderThumbnailComposite(
+    workpieceId: string,
+    input: RenderThumbnailCompositeRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<ThumbnailAssetSummary> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const style = await this.resolveThumbnailStyle(workpieceId, input.workspace_id, input.requested_style_source ?? "auto", options?.userAccessToken);
+    const base = await this.getThumbnailAssetRow(workpieceId, input.base_asset_id);
+    if (base.asset_kind !== "thumbnail_image" || base.status !== "ready" || !base.content_hash) {
+      throw new HttpError(409, "thumbnail_base_not_ready", "Composite rendering requires a ready base thumbnail with a canonical hash");
+    }
+    const baseBytes = await downloadStorageObject(this.supabase, base.storage_bucket, base.storage_key);
+    if (!baseBytes || await sha256Hex(baseBytes) !== base.content_hash) {
+      throw new HttpError(409, "thumbnail_base_hash_mismatch", "Base thumbnail bytes are missing or do not match the canonical hash");
+    }
+    const canonicalRecipeHash = await sha256Hex(canonicalJsonBytes(input.recipe_snapshot));
+    if (canonicalRecipeHash !== input.recipe_snapshot_hash.toLowerCase()) {
+      throw new HttpError(400, "thumbnail_recipe_hash_mismatch", "recipe_snapshot_hash does not match the canonical recipe snapshot");
+    }
+    const reuseIdentity = await sha256Hex(canonicalJsonBytes({
+      base_asset_hash: base.content_hash,
+      recipe_snapshot_hash: canonicalRecipeHash,
+      title_revision: input.composition_recipe.title_revision,
+      template_revision: input.composition_recipe.template_revision,
+      composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
+      bundled_font_version: THUMBNAIL_BUNDLED_FONT_VERSION,
+      contrast_evaluator_version: THUMBNAIL_CONTRAST_EVALUATOR_VERSION,
+      style_render_identity: style.renderIdentity,
+      width: input.width,
+      height: input.height,
+      encoding: input.encoding,
+    }));
+    const { data: reusable, error: reusableError } = await this.supabase
+      .schema("tongs")
+      .from("assets")
+      .select("*")
+      .eq("workspace_id", input.workspace_id)
+      .eq("workpiece_id", workpieceId)
+      .eq("asset_kind", "thumbnail_composite")
+      .eq("reuse_identity", reuseIdentity)
+      .in("status", ["pending", "ready"])
+      .maybeSingle();
+    if (reusableError) {
+      throw new HttpError(502, "db_read_failed", "Failed to resolve canonical thumbnail composite reuse", {
+        reason: reusableError.message,
+      });
+    }
+    if (reusable) return thumbnailAssetSummary(reusable);
+    const compositorModuleUrl = new URL("../dist/thumbnail-composite.js", import.meta.url).href;
+    const nativeImport = new Function("specifier", "return import(specifier)") as (
+      specifier: string,
+    ) => Promise<typeof import("./thumbnail-composite.js")>;
+    const { renderThumbnailComposite } = await nativeImport(compositorModuleUrl);
+    const rendered = await renderThumbnailComposite({
+      baseBytes,
+      width: input.width,
+      height: input.height,
+      recipe: { ...input.composition_recipe, brand: style.brand?.treatment ?? null },
+      encoding: input.encoding,
+      logoBytes: style.brand?.logoBytes ?? null,
+    });
+    return this.stageThumbnailAsset(workpieceId, {
+      workspace_id: input.workspace_id,
+      operation_id: input.operation_id,
+      asset_kind: "thumbnail_composite",
+      mime_type: rendered.mimeType,
+      bytes_base64: encodeBase64(rendered.bytes),
+      provider: "forge-compositor",
+      provider_request_id: null,
+      prompt: null,
+      reference_pointer: input.reference_pointer ?? null,
+      reuse_identity: reuseIdentity,
+      metadata: {
+        base_asset_id: base.id,
+        base_asset_hash: base.content_hash,
+        recipe_snapshot: input.recipe_snapshot as unknown as Json,
+        recipe_snapshot_hash: canonicalRecipeHash,
+        // The legacy RPC reads binding_id/revision from this object. Standard
+        // styling records only a truthful non-application compatibility marker;
+        // it never copies a profile identity into applied-style provenance.
+        brand_application_provenance: (style.brand?.provenance ?? {
+          binding_id: style.bindingContext.binding_id,
+          binding_revision: style.bindingContext.binding_revision,
+          applied: false,
+          compatibility_kind: "binding_context_only",
+        }) as unknown as Json,
+        brand_binding_context: style.bindingContext as unknown as Json,
+        style_source: style.source,
+        style_application_provenance: style.auditProvenance as unknown as Json,
+        style_render_identity_hash: await sha256Hex(canonicalJsonBytes(style.renderIdentity)),
+        style_provenance_hash: await sha256Hex(canonicalJsonBytes(style.auditProvenance)),
+        brand_logo_asset_revision_id: style.brand?.logoAssetRevisionId ?? null,
+        readability_evidence: rendered.readability as unknown as Json,
+        reuse_identity: reuseIdentity,
+        composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
+        bundled_font_version: THUMBNAIL_BUNDLED_FONT_VERSION,
+        contrast_evaluator_version: THUMBNAIL_CONTRAST_EVALUATOR_VERSION,
+        width: input.width,
+        height: input.height,
+        encoding: input.encoding as unknown as Json,
+      },
+    }, options);
+  }
+
   async generateEpisodeThumbnail(
     workpieceId: string,
     input: GenerateEpisodeThumbnailRequest,
@@ -9192,6 +10274,19 @@ export class TongsCommitService {
     const userId = await this.resolveUserIdFromAccessToken(input.user_access_token);
     if (!userId) {
       throw new HttpError(401, "authentication_required", "User access token is required for thumbnail generation");
+    }
+
+    if (input.canonical_stage_only) {
+      const existing = await this.getThumbnailAssetByOperation(workpieceId, workspace.id, input.operation_id);
+      if (existing) {
+        const metadata = isRecord(existing.metadata_json) ? existing.metadata_json : {};
+        if (metadata.concept_revision_id !== input.concept_revision_id
+          || metadata.render_recipe_id !== input.render_recipe_id
+          || metadata.render_recipe_revision !== input.render_recipe_revision) {
+          throw new HttpError(409, "thumbnail_operation_conflict", "operation_id is already bound to different thumbnail authority");
+        }
+        return { canonical_stage_only: true, asset: thumbnailAssetSummary(existing) };
+      }
     }
 
     const metadataRead = await this.readWorkpieceJson(workpieceId, "metadata.json");
@@ -9274,64 +10369,61 @@ export class TongsCommitService {
     });
     const imageResult = imageCall.result;
 
-    const requestId = randomUuid();
+    const requestId = input.operation_id;
     const versionId = randomUuid();
-    const assetId = randomUuid();
     const createdAt = new Date().toISOString();
-    const extension = imageResult.mimeType.toLowerCase().includes("jpeg") ? "jpg" : "png";
-    const assetPath = `${THUMBNAIL_ASSET_PREFIX}/${workpieceId}/${versionId}.${extension}`;
-    const bytes = parseBase64ByteLength(imageResult.bytesBase64);
-
-    const writtenBy: WrittenBy = {
-      tool: "hearth",
-      tool_version: "0.0.0",
-      lane: "forge-managed",
-    };
-
-    const assetCommit = await this.commitFile(workpieceId, {
-      path: assetPath,
-      content_type: imageResult.mimeType,
-      file_type: "thumbnail_image",
-      bytes_base64: imageResult.bytesBase64,
-      written_by: writtenBy,
-      event_name: "hearth.thumbnail.asset.generated.v1",
-      event_payload: {
-        request_id: requestId,
-        provider: imageResult.provider,
-        provider_request_id: imageResult.providerRequestId,
-        concept_id: conceptId,
-      } as Json,
-      correlation_id: requestId,
-    });
-
-    const assetRow = await this.insertAssetRow({
-      id: assetId,
+    const stagedAsset = await this.stageThumbnailAsset(workpieceId, {
       workspace_id: workspace.id,
-      workpiece_id: workpieceId,
-      path: assetPath,
+      operation_id: requestId,
+      asset_kind: THUMBNAIL_ASSET_KIND,
       mime_type: imageResult.mimeType,
-      bytes,
-      storage_bucket: assetCommit.file_row.storage_bucket,
-      storage_key: assetCommit.storage_key,
+      bytes_base64: imageResult.bytesBase64,
       provider: imageResult.provider,
       provider_request_id: imageResult.providerRequestId,
-      request_id: requestId,
-      prompt: finalPrompt,
-      created_by: userId,
-      asset_kind: THUMBNAIL_ASSET_KIND,
-      status: "ready",
-      metadata_json: buildThumbnailAssetMetadata({
-        conceptId,
-        conceptLabel,
-        conceptPrompt,
-        stylePreset,
-        aspect: input.aspect ?? "16:9",
-        size: input.size ?? null,
-        finalPrompt,
-        revisedPrompt: imageResult.revisedPrompt ?? null,
-      }),
-      supersedes_asset_id: null,
-    }, "Failed to register generated thumbnail asset");
+      prompt: input.canonical_stage_only ? null : finalPrompt,
+      metadata: input.canonical_stage_only
+        ? {
+            authority: "episode_package_v3",
+            concept_revision_id: input.concept_revision_id ?? conceptId,
+            render_recipe_id: input.render_recipe_id ?? null,
+            render_recipe_revision: input.render_recipe_revision ?? null,
+            intended_aspect_ratio: input.aspect ?? "16:9",
+            prompt_persisted: false,
+          }
+        : buildThumbnailAssetMetadata({
+            conceptId,
+            conceptLabel,
+            conceptPrompt,
+            stylePreset,
+            aspect: input.aspect ?? "16:9",
+            size: input.size ?? null,
+            finalPrompt,
+            revisedPrompt: imageResult.revisedPrompt ?? null,
+          }),
+    }, { userAccessToken: input.user_access_token });
+
+    if (input.canonical_stage_only) {
+      let creditsWarning: string | undefined;
+      let tokenBalance: number | null | undefined;
+      if (lane === "forge") {
+        const spent = estimateImageTokenSpend(finalPrompt, imageResult.tokensUsed);
+        const deltaResult = await this.applyAiTokenDelta({
+          userId,
+          spent,
+          requestId,
+          providerRequestId: imageResult.providerRequestId,
+          reason: "hearth:thumbnail_generate",
+        });
+        if ("warning" in deltaResult) creditsWarning = deltaResult.warning;
+        else tokenBalance = deltaResult.tokenBalance;
+      }
+      return {
+        canonical_stage_only: true,
+        asset: stagedAsset,
+        ...(creditsWarning ? { credits_warning: creditsWarning } : {}),
+        ...(typeof tokenBalance !== "undefined" ? { token_balance: tokenBalance } : {}),
+      };
+    }
 
     const version: ThumbnailVersionRecord = {
       id: versionId,
@@ -9340,8 +10432,8 @@ export class TongsCommitService {
       provider: imageResult.provider,
       prompt: finalPrompt,
       provider_request_id: imageResult.providerRequestId,
-      asset_id: assetId,
-      asset_path: assetPath,
+      asset_id: stagedAsset.id,
+      asset_path: stagedAsset.path,
       mime_type: imageResult.mimeType,
       status: "ready",
       error: null,
@@ -9361,21 +10453,19 @@ export class TongsCommitService {
       episodePackage,
     );
 
-    await this.commitFile(workpieceId, {
-      path: "metadata.json",
-      content_type: "application/json",
-      json: nextMetadata,
-      written_by: writtenBy,
-      event_name: "hearth.thumbnail.version.generated.v1",
-      event_payload: {
-        request_id: requestId,
-        provider_request_id: imageResult.providerRequestId,
-        version_id: versionId,
-        concept_id: conceptId,
-        asset_id: assetId,
-      } as Json,
-      correlation_id: requestId,
-    });
+    const referencePointer = `/episode/thumbnail/versions/${nextVersions.length - 1}/asset_id`;
+    await this.commitThumbnailAssetReference(workpieceId, {
+      workspace_id: workspace.id,
+      asset_id: stagedAsset.id,
+      expected_metadata_updated_at: metadataRead.found ? metadataRead.file_row?.updated_at ?? null : null,
+      metadata_document: nextMetadata as Json,
+      reference_pointer: referencePointer,
+    }, { userAccessToken: input.user_access_token });
+    const assetRow = await this.transitionThumbnailAsset(workpieceId, {
+      workspace_id: workspace.id,
+      asset_id: stagedAsset.id,
+      target_status: "ready",
+    }, { userAccessToken: input.user_access_token });
 
     let creditsWarning: string | undefined;
     let tokenBalance: number | null | undefined;
@@ -9406,9 +10496,9 @@ export class TongsCommitService {
         storage_key: assetRow.storage_key,
         mime_type: assetRow.mime_type,
         bytes: assetRow.bytes,
-        provider: assetRow.provider,
-        provider_request_id: assetRow.provider_request_id,
-        request_id: assetRow.request_id ?? requestId,
+        provider: imageResult.provider,
+        provider_request_id: imageResult.providerRequestId,
+        request_id: requestId,
       },
       updated_episode_package: episodePackage,
       primary_version_id: episodePackage.thumbnail.primary_version_id,
@@ -10147,7 +11237,7 @@ export class TongsCommitService {
     const rows = data ?? [];
     const keptTakeByWorkpiece = await this.listLatestKeptTakeByWorkpieceIds(rows.map((row) => row.id));
 
-    return rows.map((row) => toWorkspaceEpisodeSummary(row, {
+    return rows.map((row) => toWorkspaceEpisodeSummary(row as EpisodeRow, {
       recorded: keptTakeByWorkpiece.has(row.id),
       latest_kept_take: keptTakeByWorkpiece.get(row.id) ?? null,
     }));
@@ -10707,7 +11797,7 @@ export class TongsCommitService {
       });
     }
 
-    return toWorkspaceEpisodeSummary(data);
+    return toWorkspaceEpisodeSummary(data as EpisodeRow);
   }
 
   async restoreWorkpiece(
@@ -10789,7 +11879,7 @@ export class TongsCommitService {
       correlationId: null,
     });
 
-    return toWorkspaceEpisodeSummary(data);
+    return toWorkspaceEpisodeSummary(data as EpisodeRow);
   }
 
   async resolveWorkpieceAssetVariant(
@@ -11404,23 +12494,40 @@ export class TongsCommitService {
 
     const { data, error } = await this.supabase
       .schema("tongs")
-      .from("workpiece_events")
-      .select("workpiece_id,event_name,payload,created_at,id")
+      .from("current_workpiece_recorded_takes")
+      .select("workpiece_id,completion_id,keep_id,capture_session_id,media_path,completion_evidence,completed_at,kept_at")
       .in("workpiece_id", [...workpieceIds])
-      .eq("event_name", TAKE_KEPT_EVENT)
-      .order("created_at", { ascending: false })
-      .order("id", { ascending: false })
-      .limit(5000);
+      .order("kept_at", { ascending: false });
 
     if (error) {
-      throw new HttpError(502, "db_read_failed", "Failed to list kept-take events", {
+      const missing = error.code === "PGRST205" || /current_workpiece_recorded_takes/i.test(error.message);
+      throw new HttpError(missing ? 503 : 502, missing ? "anvil_recording_authority_migration_required" : "db_read_failed", missing
+        ? "Anvil recording authority is unavailable; migration 20260713210000 is required."
+        : "Failed to list canonical recorded takes", {
         reason: error.message,
       });
     }
 
     for (const row of data ?? []) {
+      if (!row.workpiece_id) continue;
       if (next.has(row.workpiece_id)) continue;
-      next.set(row.workpiece_id, readTakeReceiptFromEvent(row));
+      const receiptCreatedAt = row.kept_at ?? row.completed_at;
+      if (!receiptCreatedAt || !row.media_path) continue;
+      const evidence = isRecord(row.completion_evidence) ? row.completion_evidence : {};
+      const artifact = isRecord(evidence.artifact_validation) ? evidence.artifact_validation : {};
+      next.set(row.workpiece_id, {
+        event_id: null,
+        completion_id: row.completion_id ?? undefined,
+        keep_id: row.keep_id ?? undefined,
+        created_at: receiptCreatedAt,
+        file_path: row.media_path,
+        recording_session_id: null,
+        anvil_capture_session_id: row.capture_session_id,
+        content_type: typeof artifact.content_type === "string" ? artifact.content_type : null,
+        bytes: typeof artifact.bytes === "number" ? artifact.bytes : null,
+        duration_ms: typeof artifact.duration_ms === "number" ? artifact.duration_ms : null,
+        original_name: typeof artifact.original_name === "string" ? artifact.original_name : null,
+      });
     }
 
     return next;
@@ -11546,6 +12653,9 @@ export class TongsCommitService {
       {
         workpiece_id: string;
         script_path: string;
+        script_revision: number;
+        script_hash: string;
+        transition_id: string;
         marked_ready_by: string | null;
         marked_ready_at: string | null;
       }
@@ -11555,18 +12665,23 @@ export class TongsCommitService {
     if (readyMetaCandidateIds.length) {
       const { data: readyMetaRows, error: readyMetaError } = await this.supabase
         .schema("tongs")
-        .from("workpiece_ready_script_meta")
-        .select("workpiece_id,script_path,marked_ready_by,marked_ready_at")
+        .from("current_workpiece_ready_scripts")
+        .select("workpiece_id,script_path,script_revision,script_hash,transition_id,marked_ready_by,marked_ready_at")
         .eq("workspace_id", workspaceId)
         .in("workpiece_id", readyMetaCandidateIds);
 
       if (readyMetaError) {
-        throw new HttpError(502, "db_read_failed", "Failed to list ready script metadata", {
+        const migrationMissing = readyMetaError.code === "PGRST205"
+          || /current_workpiece_ready_scripts/i.test(readyMetaError.message);
+        throw new HttpError(migrationMissing ? 503 : 502, migrationMissing ? "hearth_ready_migration_required" : "db_read_failed", migrationMissing
+          ? "Ready scripts are unavailable; migration 20260713190000 is required."
+          : "Failed to list ready script metadata", {
           reason: readyMetaError.message,
         });
       }
 
       for (const row of readyMetaRows ?? []) {
+        if (!row.workpiece_id || !row.script_path) continue;
         if (!READY_SCRIPT_PATH_SET.has(row.script_path)) continue;
         const readyKey = readyScriptMetaKey(row.workpiece_id, row.script_path);
         if (!fileByWorkpiecePath.has(readyKey)) continue;
@@ -11604,6 +12719,9 @@ export class TongsCommitService {
         readyPointerByWorkpiece.set(row.workpiece_id, {
           workpiece_id: row.workpiece_id,
           script_path: row.script_path,
+          script_revision: row.script_revision ?? 0,
+          script_hash: row.script_hash ?? "",
+          transition_id: row.transition_id ?? "",
           marked_ready_by: row.marked_ready_by,
           marked_ready_at: row.marked_ready_at,
         });
@@ -11615,57 +12733,6 @@ export class TongsCommitService {
           knownPaths.push(row.script_path);
         }
       }
-    }
-
-    for (const [workpieceId, scriptPaths] of scriptPathsByWorkpiece.entries()) {
-      const knownPaths = readyPathsByWorkpiece.get(workpieceId);
-      if (!knownPaths) {
-        readyPathsByWorkpiece.set(workpieceId, [...scriptPaths]);
-      } else {
-        for (const path of scriptPaths) {
-          if (!knownPaths.includes(path)) knownPaths.push(path);
-        }
-      }
-
-      if (readyPointerByWorkpiece.has(workpieceId)) continue;
-
-      let winnerPath: string | null = null;
-      let winnerFile: { workpiece_id: string; path: string; updated_at: string | null; created_at: string | null } | null = null;
-      for (const path of scriptPaths) {
-        const candidateFile = fileByWorkpiecePath.get(readyScriptMetaKey(workpieceId, path));
-        if (!candidateFile) continue;
-        if (!winnerPath || !winnerFile) {
-          winnerPath = path;
-          winnerFile = candidateFile;
-          continue;
-        }
-
-        const winnerStamp = winnerFile.updated_at ?? winnerFile.created_at ?? "";
-        const candidateStamp = candidateFile.updated_at ?? candidateFile.created_at ?? "";
-        if (candidateStamp > winnerStamp) {
-          winnerPath = path;
-          winnerFile = candidateFile;
-          continue;
-        }
-        if (candidateStamp < winnerStamp) {
-          continue;
-        }
-
-        const winnerPriority = readyScriptPathPriority(winnerPath);
-        const candidatePriority = readyScriptPathPriority(path);
-        if (candidatePriority < winnerPriority || (candidatePriority === winnerPriority && path < winnerPath)) {
-          winnerPath = path;
-          winnerFile = candidateFile;
-        }
-      }
-
-      if (!winnerPath || !winnerFile) continue;
-      readyPointerByWorkpiece.set(workpieceId, {
-        workpiece_id: workpieceId,
-        script_path: winnerPath,
-        marked_ready_by: null,
-        marked_ready_at: winnerFile.updated_at ?? winnerFile.created_at ?? null,
-      });
     }
 
     if (readyPointerByWorkpiece.size === 0) {
@@ -11768,6 +12835,9 @@ export class TongsCommitService {
         content_category: categoryByWorkpiece.get(workpieceId) ?? null,
         marked_ready_by: readyPointer.marked_ready_by ?? null,
         marked_ready_at: readyPointer.marked_ready_at ?? null,
+        script_revision: readyPointer.script_revision,
+        script_hash: readyPointer.script_hash,
+        transition_id: readyPointer.transition_id,
         queue_rank: queueState?.queue_rank ?? null,
         hidden_at: queueState?.hidden_at ?? null,
         hidden_by: queueState?.hidden_by ?? null,
@@ -11869,7 +12939,247 @@ export function createTongsCommitService(options: TongsCommitApiOptions): TongsC
     ? new OpenAiImageProvider(openAiImageApiKey, options.openAiImageModel?.trim() || "gpt-image-1")
     : null;
 
-  return new TongsCommitService(supabase, bucket, imageProvider);
+  const userClientFactory = (accessToken: string): SupabaseClient<Database> => createClient<Database>(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+    global: { headers: { Authorization: `Bearer ${accessToken}` } },
+  });
+
+  return new TongsCommitService(supabase, bucket, imageProvider, userClientFactory);
+}
+
+function normalizeStageThumbnailAssetRequest(body: Record<string, unknown>): StageThumbnailAssetRequest {
+  return {
+    workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+    operation_id: normalizeThumbnailOperationId(body.operation_id),
+    asset_kind: normalizeThumbnailAssetKind(body.asset_kind),
+    mime_type: normalizeThumbnailMimeType(body.mime_type),
+    bytes_base64: normalizeNonEmptyString(body.bytes_base64, "bytes_base64"),
+    provider: normalizeNonEmptyString(body.provider, "provider"),
+    provider_request_id: body.provider_request_id == null ? null : normalizeNonEmptyString(body.provider_request_id, "provider_request_id"),
+    prompt: body.prompt == null ? null : normalizeNonEmptyString(body.prompt, "prompt"),
+    metadata: typeof body.metadata === "undefined" ? {} : normalizeJsonValue(body.metadata),
+    reference_pointer: body.reference_pointer == null ? null : normalizeNonEmptyString(body.reference_pointer, "reference_pointer"),
+    reuse_identity: body.reuse_identity == null ? null : normalizeSha256(body.reuse_identity, "reuse_identity"),
+  };
+}
+
+function normalizeCommitThumbnailAssetReferenceRequest(body: Record<string, unknown>): CommitThumbnailAssetReferenceRequest {
+  return {
+    workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+    asset_id: normalizeUuid(body.asset_id, "asset_id"),
+    expected_metadata_updated_at: body.expected_metadata_updated_at == null
+      ? null
+      : normalizeIsoTimestamp(body.expected_metadata_updated_at, "expected_metadata_updated_at"),
+    metadata_document: normalizeJsonValue(body.metadata_document),
+    reference_pointer: normalizeNonEmptyString(body.reference_pointer, "reference_pointer"),
+  };
+}
+
+function normalizeTransitionThumbnailAssetRequest(body: Record<string, unknown>): TransitionThumbnailAssetRequest {
+  const target = body.target_status;
+  if (target !== "ready" && target !== "failed" && target !== "superseded") {
+    throw new HttpError(400, "invalid_thumbnail_asset_status", "target_status must be ready, failed, or superseded");
+  }
+  return {
+    workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+    asset_id: normalizeUuid(body.asset_id, "asset_id"),
+    target_status: target,
+    failure_code: body.failure_code == null ? null : normalizeNonEmptyString(body.failure_code, "failure_code"),
+    failure_message: body.failure_message == null ? null : normalizeNonEmptyString(body.failure_message, "failure_message"),
+  };
+}
+
+function normalizeRenderThumbnailCompositeRequest(body: Record<string, unknown>): RenderThumbnailCompositeRequest {
+  const recipeRaw = body.recipe_snapshot;
+  if (!recipeRaw || typeof recipeRaw !== "object" || Array.isArray(recipeRaw)) {
+    throw new HttpError(400, "invalid_thumbnail_recipe", "recipe_snapshot must be an object");
+  }
+  const recipe = recipeRaw as Record<string, unknown>;
+  const placement = recipe.placement;
+  if (placement !== "top" && placement !== "center" && placement !== "bottom") {
+    throw new HttpError(400, "invalid_thumbnail_placement", "recipe_snapshot.placement must be top, center, or bottom");
+  }
+  const encodingRaw = body.encoding;
+  if (!encodingRaw || typeof encodingRaw !== "object" || Array.isArray(encodingRaw)) {
+    throw new HttpError(400, "invalid_thumbnail_encoding", "encoding must be an object");
+  }
+  const encodingRecord = encodingRaw as Record<string, unknown>;
+  const format = encodingRecord.format;
+  if (format !== "png" && format !== "jpeg" && format !== "webp") {
+    throw new HttpError(400, "invalid_thumbnail_encoding", "encoding.format must be png, jpeg, or webp");
+  }
+  const quality = normalizePositiveInteger(encodingRecord.quality, "encoding.quality");
+  if (quality > 100) throw new HttpError(400, "invalid_thumbnail_quality", "encoding.quality must be at most 100");
+  const opacity = Number(recipe.shadow_opacity);
+  const padding = Number(recipe.horizontal_padding_percent);
+  if (!Number.isFinite(opacity) || opacity < 0 || opacity > 1 || !Number.isFinite(padding) || padding < 0 || padding > 100) {
+    throw new HttpError(400, "invalid_thumbnail_recipe", "Recipe opacity or padding is outside the supported range");
+  }
+  const textColor = normalizeNonEmptyString(recipe.text_color, "recipe_snapshot.text_color").toUpperCase();
+  const shadowColor = normalizeNonEmptyString(recipe.shadow_color, "recipe_snapshot.shadow_color").toUpperCase();
+  if (!/^#[0-9A-F]{6}$/.test(textColor) || !/^#[0-9A-F]{6}$/.test(shadowColor)) {
+    throw new HttpError(400, "invalid_thumbnail_color", "Recipe colors must be six-digit hex colors");
+  }
+  const recipeSnapshot = normalizeJsonValue(recipeRaw);
+  if (!isRecord(recipeSnapshot)) {
+    throw new HttpError(400, "invalid_thumbnail_recipe", "recipe_snapshot must be an object");
+  }
+  const overrideRaw = isRecord(recipe.presentation_override) ? recipe.presentation_override : null;
+  const overrideTreatment = overrideRaw?.treatment;
+  if (overrideTreatment != null && !["none", "outline", "shadow", "gradient", "backing"].includes(String(overrideTreatment))) {
+    throw new HttpError(400, "invalid_thumbnail_override", "Presentation treatment is outside the approved readability hierarchy");
+  }
+  const overrideColor = overrideRaw?.text_color == null ? null : normalizeNonEmptyString(overrideRaw.text_color, "recipe_snapshot.presentation_override.text_color").toUpperCase();
+  if (overrideColor && !/^#[0-9A-F]{6}$/.test(overrideColor)) throw new HttpError(400, "invalid_thumbnail_override", "Override text color must be a six-digit hex color");
+  const overrideLogoOpacity = overrideRaw?.logo_opacity == null ? null : Number(overrideRaw.logo_opacity);
+  if (overrideLogoOpacity != null && (!Number.isFinite(overrideLogoOpacity) || overrideLogoOpacity < 0 || overrideLogoOpacity > 1)) throw new HttpError(400, "invalid_thumbnail_override", "Override logo opacity must be between zero and one");
+  const overrideLogoPlacement = overrideRaw?.logo_placement;
+  if (overrideLogoPlacement != null && !["top_left", "top_right", "bottom_left", "bottom_right"].includes(String(overrideLogoPlacement))) throw new HttpError(400, "invalid_thumbnail_override", "Override logo placement is unsupported");
+  const requestedStyleSource = body.requested_style_source ?? "auto";
+  if (!["auto", "brand_profile", "forge_standard"].includes(String(requestedStyleSource))) {
+    throw new HttpError(400, "invalid_thumbnail_style_source", "requested_style_source must be auto, brand_profile, or forge_standard");
+  }
+  return {
+    workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+    operation_id: normalizeThumbnailOperationId(body.operation_id),
+    base_asset_id: normalizeUuid(body.base_asset_id, "base_asset_id"),
+    recipe_snapshot: recipeSnapshot,
+    requested_style_source: requestedStyleSource as ThumbnailRequestedStyleSource,
+    composition_recipe: {
+      title_text: normalizeNonEmptyString(recipe.title_text, "recipe_snapshot.title_text"),
+      title_revision: normalizePositiveInteger(recipe.title_revision, "recipe_snapshot.title_revision"),
+      template_revision: normalizePositiveInteger(recipe.template_revision, "recipe_snapshot.template_revision"),
+      text_color: textColor,
+      shadow_color: shadowColor,
+      shadow_opacity: opacity,
+      placement,
+      max_lines: normalizePositiveInteger(recipe.max_lines, "recipe_snapshot.max_lines"),
+      horizontal_padding_percent: padding,
+      presentation_override: overrideRaw ? {
+        text_color: overrideColor,
+        treatment: overrideTreatment as ThumbnailCompositeRecipe["presentation_override"] extends infer T ? T extends { treatment?: infer K } ? K : never : never,
+        logo_visible: typeof overrideRaw.logo_visible === "boolean" ? overrideRaw.logo_visible : null,
+        logo_placement: overrideLogoPlacement as "top_left" | "top_right" | "bottom_left" | "bottom_right" | null,
+        logo_opacity: overrideLogoOpacity,
+        decision_origin: overrideRaw.decision_origin === "explicit_user" ? "explicit_user" : "automatic",
+      } : null,
+    },
+    recipe_snapshot_hash: normalizeNonEmptyString(body.recipe_snapshot_hash, "recipe_snapshot_hash").toLowerCase(),
+    width: normalizePositiveInteger(body.width, "width"),
+    height: normalizePositiveInteger(body.height, "height"),
+    encoding: { format, quality },
+    reference_pointer: body.reference_pointer == null ? null : normalizeNonEmptyString(body.reference_pointer, "reference_pointer"),
+  };
+}
+
+function normalizeThumbnailOperationId(value: unknown): string {
+  return normalizeUuid(value, "operation_id");
+}
+
+function normalizeSha256(value: unknown, field: string): string {
+  const normalized = normalizeNonEmptyString(value, field).toLowerCase();
+  if (!/^[0-9a-f]{64}$/.test(normalized)) {
+    throw new HttpError(400, `invalid_${field}`, `${field} must be a canonical SHA-256 hash`);
+  }
+  return normalized;
+}
+
+function normalizeThumbnailAssetKind(value: unknown): ThumbnailAssetKind {
+  if (value === "thumbnail_image" || value === "thumbnail_composite") return value;
+  throw new HttpError(400, "invalid_thumbnail_asset_kind", "asset_kind must be thumbnail_image or thumbnail_composite");
+}
+
+function normalizeThumbnailMimeType(value: unknown): string {
+  const mimeType = normalizeNonEmptyString(value, "mime_type").toLowerCase();
+  if (!/^image\/(?:png|jpeg|webp)$/.test(mimeType)) {
+    throw new HttpError(400, "invalid_thumbnail_mime_type", "Thumbnail assets must be PNG, JPEG, or WebP images");
+  }
+  return mimeType;
+}
+
+function thumbnailExtension(mimeType: string): string {
+  if (mimeType === "image/jpeg") return "jpg";
+  if (mimeType === "image/webp") return "webp";
+  return "png";
+}
+
+function jsonPointerValue(document: unknown, pointer: string): unknown {
+  if (!pointer.startsWith("/")) {
+    throw new HttpError(400, "invalid_reference_pointer", "reference_pointer must be an absolute JSON Pointer");
+  }
+  let current: unknown = document;
+  for (const rawSegment of pointer.slice(1).split("/")) {
+    const segment = rawSegment.replaceAll("~1", "/").replaceAll("~0", "~");
+    if (Array.isArray(current)) {
+      const index = Number(segment);
+      if (!Number.isInteger(index) || index < 0 || index >= current.length) return undefined;
+      current = current[index];
+    } else if (current && typeof current === "object") {
+      current = (current as Record<string, unknown>)[segment];
+    } else {
+      return undefined;
+    }
+  }
+  return current;
+}
+
+function thumbnailAssetSummary(row: AssetRow): ThumbnailAssetSummary {
+  const operationId = typeof row.operation_id === "string" ? row.operation_id : "";
+  const contentHash = typeof row.content_hash === "string" ? row.content_hash : "";
+  if (!operationId || !contentHash) {
+    throw new HttpError(502, "invalid_thumbnail_asset", "Canonical thumbnail asset is missing operation identity or content hash");
+  }
+  return {
+    id: row.id,
+    workspace_id: row.workspace_id,
+    workpiece_id: row.workpiece_id,
+    operation_id: operationId,
+    asset_kind: normalizeThumbnailAssetKind(row.asset_kind),
+    status: row.status as ThumbnailAssetStatus,
+    path: row.path,
+    mime_type: row.mime_type,
+    bytes: row.bytes,
+    content_hash: contentHash,
+    storage_bucket: row.storage_bucket,
+    storage_key: row.storage_key,
+    provider: row.provider,
+    provider_request_id: row.provider_request_id,
+    reference_committed_at: row.reference_committed_at,
+    ready_at: row.ready_at,
+    failed_at: row.failed_at,
+    failure_code: row.failure_code,
+    failure_message: row.failure_message,
+    metadata: row.metadata_json,
+  };
+}
+
+export function resolveThumbnailOperationReplay(
+  existing: AssetRow | null,
+  operationFingerprint: string,
+): ThumbnailAssetSummary | null {
+  if (!existing) return null;
+  if (existing.operation_fingerprint !== operationFingerprint) {
+    throw new HttpError(409, "thumbnail_operation_conflict", "operation_id was already used with different asset input");
+  }
+  return thumbnailAssetSummary(existing);
+}
+
+export function resolveThumbnailReconciliationOutcome(args: {
+  assetId: string;
+  referencedAssetId: unknown;
+  canonicalHash: string;
+  storedHash: string | null;
+}): { target: "ready" } | { target: "failed"; code: string; message: string } {
+  if (args.referencedAssetId !== args.assetId) {
+    return { target: "failed", code: "package_reference_missing", message: "Canonical metadata does not reference this pending thumbnail asset." };
+  }
+  if (!args.storedHash) {
+    return { target: "failed", code: "asset_bytes_missing", message: "Canonical thumbnail bytes are missing from storage." };
+  }
+  if (args.storedHash !== args.canonicalHash) {
+    return { target: "failed", code: "asset_hash_mismatch", message: "Stored thumbnail bytes do not match the canonical content hash." };
+  }
+  return { target: "ready" };
 }
 
 export function createTongsCommitApiHandlerWithService(
@@ -12113,6 +13423,62 @@ export function createTongsCommitApiHandlerWithService(
         }
       }
 
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "ready-transition") {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        const input: HearthReadyTransitionRequest = {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          script_path: normalizeRelativePath(normalizeNonEmptyString(body.script_path, "script_path")),
+          expected_script_revision: normalizePositiveInteger(body.expected_script_revision, "expected_script_revision"),
+          expected_script_hash: normalizeNonEmptyString(body.expected_script_hash, "expected_script_hash").toLowerCase(),
+          idempotency_key: normalizeNonEmptyString(body.idempotency_key, "idempotency_key"),
+          publish_evidence: normalizeJsonValue(body.publish_evidence),
+          user_access_token: userAccessToken,
+        };
+        const result = await service.transitionHearthScriptReady(workpieceId, input);
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "recording-completion") {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        const result = await service.transitionAnvilTakeCompleted(workpieceId, {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          capture_session_id: normalizeUuid(body.capture_session_id, "capture_session_id"),
+          ready_transition_id: normalizeUuid(body.ready_transition_id, "ready_transition_id"),
+          script_path: normalizeRelativePath(normalizeNonEmptyString(body.script_path, "script_path")),
+          expected_script_revision: normalizePositiveInteger(body.expected_script_revision, "expected_script_revision"),
+          expected_script_hash: normalizeNonEmptyString(body.expected_script_hash, "expected_script_hash").toLowerCase(),
+          media_path: normalizeRelativePath(normalizeNonEmptyString(body.media_path, "media_path")),
+          expected_media_revision: normalizePositiveInteger(body.expected_media_revision, "expected_media_revision"),
+          expected_media_hash: normalizeNonEmptyString(body.expected_media_hash, "expected_media_hash").toLowerCase(),
+          idempotency_key: normalizeNonEmptyString(body.idempotency_key, "idempotency_key"),
+          completion_evidence: normalizeJsonValue(body.completion_evidence),
+          user_access_token: userAccessToken,
+        });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "recording-keep") {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        const result = await service.transitionAnvilTakeKept(workpieceId, {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          capture_session_id: normalizeUuid(body.capture_session_id, "capture_session_id"),
+          completion_id: normalizeUuid(body.completion_id, "completion_id"),
+          idempotency_key: normalizeNonEmptyString(body.idempotency_key, "idempotency_key"),
+          decision_evidence: normalizeJsonValue(body.decision_evidence),
+          user_access_token: userAccessToken,
+        });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
       if (
         parts.length === 5
         && parts[0] === "tongs"
@@ -12214,6 +13580,132 @@ export function createTongsCommitApiHandlerWithService(
         const userAccessToken = readUserAccessTokenHeader(request);
         const payload = normalizeCommitFileRequest(body, userAccessToken);
         const result = await service.commitWorkspaceFile(workspaceId, payload);
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces"
+        && parts[3] === "thumbnail-assets" && parts[4] === "stage"
+      ) {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.stageThumbnailAsset(workpieceId, normalizeStageThumbnailAssetRequest(body), { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces"
+        && parts[3] === "thumbnail-assets" && parts[4] === "commit-reference"
+      ) {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.commitThumbnailAssetReference(workpieceId, normalizeCommitThumbnailAssetReferenceRequest(body), { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces"
+        && parts[3] === "thumbnail-assets" && parts[4] === "transition"
+      ) {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.transitionThumbnailAsset(workpieceId, normalizeTransitionThumbnailAssetRequest(body), { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces"
+        && parts[3] === "thumbnail-assets" && parts[4] === "reconcile"
+      ) {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.reconcileThumbnailAssets(workpieceId, {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          operation_id: body.operation_id == null ? null : normalizeThumbnailOperationId(body.operation_id),
+        }, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces"
+        && parts[3] === "thumbnail-assets" && parts[4] === "brand-status"
+      ) {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.getThumbnailBrandStatus(workpieceId, {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          projected_binding_id: body.projected_binding_id == null ? null : normalizeUuid(body.projected_binding_id, "projected_binding_id"),
+          projected_binding_revision: body.projected_binding_revision == null ? null : normalizePositiveInteger(body.projected_binding_revision, "projected_binding_revision"),
+        }, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="thumbnail-candidates"&&parts[4]==="commit-set") {
+        requireMethod(request,"POST"); const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id"); const body=await parseJsonBody(request); const userAccessToken=requireUserAccessTokenHeader(request);
+        const expected=Number(body.expected_current_revision); if(!Number.isInteger(expected)||expected<0) throw new HttpError(400,"invalid_candidate_set_revision","expected_current_revision must be a non-negative integer");
+        if(!Array.isArray(body.candidates)) throw new HttpError(400,"invalid_candidate_set","candidates must be an array"); const fingerprint=readStringField(body,"operation_fingerprint"); if(!fingerprint||!/^[a-f0-9]{64}$/.test(fingerprint)) throw new HttpError(400,"invalid_operation_fingerprint","operation_fingerprint must be SHA-256");
+        const result=await service.commitThumbnailCandidateSet(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),expected_current_revision:expected,candidates:body.candidates as Json[],operation_id:normalizeThumbnailOperationId(body.operation_id),operation_fingerprint:fingerprint},{userAccessToken}); return jsonResponse(200,{ok:true,data:result});
+      }
+
+      if (parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="thumbnail-candidates"&&parts[4]==="projection") {
+        requireMethod(request,"POST"); const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id"); const body=await parseJsonBody(request); const userAccessToken=requireUserAccessTokenHeader(request); const result=await service.getThumbnailCandidateSetProjection(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),{userAccessToken}); return jsonResponse(200,{ok:true,data:result});
+      }
+
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="quench"&&parts[4]==="release-projection"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);
+        const result=await service.getQuenchCanonicalReleaseProjection(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="quench"&&parts[4]==="select-candidate"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const expected=Number(body.expected_revision);if(!Number.isInteger(expected)||expected<0)throw new HttpError(400,"invalid_decision_revision","expected_revision must be non-negative");
+        const result=await service.commitQuenchSingleCandidate(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),destination_scope_id:normalizeUuid(body.destination_scope_id,"destination_scope_id"),candidate_revision_id:normalizeUuid(body.candidate_revision_id,"candidate_revision_id"),expected_decision_id:body.expected_decision_id==null?null:normalizeUuid(body.expected_decision_id,"expected_decision_id"),expected_revision:expected,operation_id:normalizeThumbnailOperationId(body.operation_id)},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="quench"&&parts[4]==="plan-thumbnail-experiment"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const expected=Number(body.expected_revision);if(!Number.isInteger(expected)||expected<0)throw new HttpError(400,"invalid_decision_revision","expected_revision must be non-negative");if(!Array.isArray(body.assignments))throw new HttpError(400,"invalid_assignment_set","assignments must be an array");const assignments:QuenchDecisionAssignmentInput[]=body.assignments.map((value,index)=>{if(!isRecord(value))throw new HttpError(400,"invalid_assignment","Each assignment must be an object");const role=value.assignment_role;if(role!=="control"&&role!=="variant")throw new HttpError(400,"invalid_assignment_role","Experiment roles must be control or variant");const ordinal=Number(value.assignment_ordinal);const allocation=value.allocation_basis_points==null?null:Number(value.allocation_basis_points);if(!Number.isInteger(ordinal)||ordinal<1||allocation!==null&&(!Number.isInteger(allocation)||allocation<1||allocation>10000))throw new HttpError(400,"invalid_assignment","Assignment ordinal or allocation is invalid",{index});return{candidate_revision_id:normalizeUuid(value.candidate_revision_id,"candidate_revision_id"),assignment_role:role,assignment_ordinal:ordinal,allocation_basis_points:allocation};});
+        const result=await service.commitQuenchExperiment(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),destination_scope_id:normalizeUuid(body.destination_scope_id,"destination_scope_id"),expected_decision_id:body.expected_decision_id==null?null:normalizeUuid(body.expected_decision_id,"expected_decision_id"),expected_revision:expected,operation_id:normalizeThumbnailOperationId(body.operation_id),assignments},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="quench"&&parts[4]==="cancel-thumbnail-experiment"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const expected=Number(body.expected_revision);if(!Number.isInteger(expected)||expected<1)throw new HttpError(400,"invalid_decision_revision","Cancellation requires a current positive revision");const result=await service.cancelQuenchExperiment(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),destination_scope_id:normalizeUuid(body.destination_scope_id,"destination_scope_id"),expected_decision_id:normalizeUuid(body.expected_decision_id,"expected_decision_id"),expected_revision:expected,operation_id:normalizeThumbnailOperationId(body.operation_id)},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+
+      if (parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="thumbnail-candidates"&&parts[4]==="brand-decision") {
+        requireMethod(request,"POST"); const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id"); const body=await parseJsonBody(request); const userAccessToken=requireUserAccessTokenHeader(request); const expected=Number(body.expected_current_decision_revision); if(!Number.isInteger(expected)||expected<0) throw new HttpError(400,"invalid_decision_revision","expected_current_decision_revision must be non-negative"); const decision=body.decision; if(decision!=="approved"&&decision!=="revoked") throw new HttpError(400,"invalid_brand_decision","decision must be approved or revoked"); const fingerprint=readStringField(body,"operation_fingerprint"); if(!fingerprint||!/^[a-f0-9]{64}$/.test(fingerprint)) throw new HttpError(400,"invalid_operation_fingerprint","operation_fingerprint must be SHA-256");
+        const result=await service.decideThumbnailCandidateBrand(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),candidate_revision_id:normalizeUuid(body.candidate_revision_id,"candidate_revision_id"),candidate_set_id:body.candidate_set_id==null?null:normalizeUuid(body.candidate_set_id,"candidate_set_id"),active_binding_id:normalizeUuid(body.active_binding_id,"active_binding_id"),decision,reason:String(body.reason??""),expected_current_decision_id:body.expected_current_decision_id==null?null:normalizeUuid(body.expected_current_decision_id,"expected_current_decision_id"),expected_current_decision_revision:expected,operation_id:normalizeThumbnailOperationId(body.operation_id),operation_fingerprint:fingerprint},{userAccessToken}); return jsonResponse(200,{ok:true,data:result});
+      }
+
+      if (
+        parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces"
+        && parts[3] === "thumbnail-assets" && parts[4] === "render-composite"
+      ) {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.renderThumbnailComposite(workpieceId, normalizeRenderThumbnailCompositeRequest(body), { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces"
+        && parts[3] === "thumbnail-assets"
+      ) {
+        requireMethod(request, "GET");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const assetId = normalizeUuid(decodeURIComponent(parts[4]), "asset_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.readThumbnailAsset(workpieceId, assetId, { userAccessToken });
         return jsonResponse(200, { ok: true, data: result });
       }
 
@@ -13013,6 +14505,7 @@ export function createTongsCommitApiHandlerWithService(
         const url = new URL(request.url);
         const path = normalizeRelativePath(url.searchParams.get("path"));
         const encoding = (url.searchParams.get("encoding") ?? "").trim().toLowerCase();
+        const optionalRead = url.searchParams.get("optional") === "1";
 
         if (encoding === "binary") {
           const binaryCapableService = service as TongsCommitApiService & {
@@ -13030,7 +14523,7 @@ export function createTongsCommitApiHandlerWithService(
                 : { found: false as const }
             ));
           if (!result.found) {
-            return jsonResponse(404, {
+            return jsonResponse(optionalRead ? 200 : 404, {
               ok: true,
               exists: false,
             });
@@ -13049,7 +14542,7 @@ export function createTongsCommitApiHandlerWithService(
         if (encoding === "base64") {
           const result = await service.readWorkpieceBinary(workpieceId, path);
           if (!result.found) {
-            return jsonResponse(404, {
+            return jsonResponse(optionalRead ? 200 : 404, {
               ok: true,
               exists: false,
             });

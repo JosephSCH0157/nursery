@@ -1,4 +1,5 @@
 .barstock-root {
+  font-size: 16px;
   color-scheme: dark;
   --barstock-bg: rgba(11, 18, 32, 0.72);
   --barstock-surface: rgba(17, 27, 45, 0.78);

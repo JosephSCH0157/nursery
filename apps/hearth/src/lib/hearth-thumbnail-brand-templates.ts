@@ -614,48 +614,63 @@ export async function uploadWorkspaceThumbnailBrandLogo(args: {
   };
 }
 
-export async function loadWorkspaceThumbnailBrandLogoPreview(args: {
+const thumbnailBrandLogoPreviewRequests = new Map<string, Promise<LoadWorkspaceThumbnailBrandLogoPreviewResult>>();
+
+export function loadWorkspaceThumbnailBrandLogoPreview(args: {
   workpieceId: string;
   assetPath: string;
 }): Promise<LoadWorkspaceThumbnailBrandLogoPreviewResult> {
   const workpieceId = normalizeUuid(args.workpieceId);
   const assetPath = readString(args.assetPath);
   if (!workpieceId || !assetPath) {
-    return { ok: false, status: 400, error: "workpiece_id and asset_path are required." };
+    return Promise.resolve({ ok: false, status: 400, error: "workpiece_id and asset_path are required." });
   }
 
-  const response = await tongsFetch(
-    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(assetPath)}&encoding=base64`,
-    { method: "GET" },
-  );
-  const payload = await readResponseJson(response);
-  if (!response.ok) {
+  const requestKey = `${workpieceId}:${assetPath}`;
+  const inFlight = thumbnailBrandLogoPreviewRequests.get(requestKey);
+  if (inFlight) return inFlight;
+
+  const request = (async (): Promise<LoadWorkspaceThumbnailBrandLogoPreviewResult> => {
+    const response = await tongsFetch(
+      `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(assetPath)}&encoding=base64&optional=1`,
+      { method: "GET" },
+    );
+    const payload = await readResponseJson(response);
+    if (!response.ok) {
+      return {
+        ok: false,
+        status: response.status,
+        error: readCommitError(payload, `Logo preview load failed (${response.status}).`),
+      };
+    }
+
+    if (!payload || typeof payload !== "object") {
+      return { ok: false, status: 502, error: "Logo preview payload was invalid." };
+    }
+    const row = payload as {
+      ok?: unknown;
+      data?: {
+        bytes_base64?: unknown;
+        content_type?: unknown;
+      };
+    };
+    const bytesBase64 = readString(row.data?.bytes_base64);
+    if (!bytesBase64) {
+      return { ok: false, status: 404, error: "Logo file is unavailable." };
+    }
+    const mimeType = readString(row.data?.content_type) ?? "image/png";
     return {
-      ok: false,
-      status: response.status,
-      error: readCommitError(payload, `Logo preview load failed (${response.status}).`),
+      ok: true,
+      dataUrl: `data:${mimeType};base64,${bytesBase64}`,
     };
-  }
-
-  if (!payload || typeof payload !== "object") {
-    return { ok: false, status: 502, error: "Logo preview payload was invalid." };
-  }
-  const row = payload as {
-    ok?: unknown;
-    data?: {
-      bytes_base64?: unknown;
-      content_type?: unknown;
-    };
-  };
-  const bytesBase64 = readString(row.data?.bytes_base64);
-  if (!bytesBase64) {
-    return { ok: false, status: 404, error: "Logo file is unavailable." };
-  }
-  const mimeType = readString(row.data?.content_type) ?? "image/png";
-  return {
-    ok: true,
-    dataUrl: `data:${mimeType};base64,${bytesBase64}`,
-  };
+  })();
+  thumbnailBrandLogoPreviewRequests.set(requestKey, request);
+  void request.finally(() => {
+    if (thumbnailBrandLogoPreviewRequests.get(requestKey) === request) {
+      thumbnailBrandLogoPreviewRequests.delete(requestKey);
+    }
+  });
+  return request;
 }
 
 export async function listWorkspaceThumbnailBrandTemplates(

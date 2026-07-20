@@ -7,7 +7,7 @@ import {
   type TitleSlotLabel,
 } from "../../lib/hearth-metadata-titles";
 
-type MetadataSaveState = "saved" | "editing" | "saving" | "offline" | "error";
+type MetadataSaveState = "loading" | "saved" | "editing" | "saving" | "offline" | "error";
 type MetadataPreviewMode = "youtube" | "rss" | "plain";
 
 type MetadataPanelProps = {
@@ -36,6 +36,7 @@ type MetadataPanelProps = {
 };
 
 function formatSaveState(state: MetadataSaveState, isStillSaving: boolean): string {
+  if (state === "loading") return "Loading saved Framing...";
   if (state === "saved") return "Saved ✓";
   if (state === "editing") return "Unsaved changes";
   if (state === "saving") return isStillSaving ? "Still saving..." : "Saving...";
@@ -184,7 +185,7 @@ export default function MetadataPanel({
             type="button"
             className="hs-meta-save-button"
             onClick={onSaveNow}
-            disabled={disabled || !hasUnsavedChanges || saveState === "saving"}
+            disabled={disabled || !hasUnsavedChanges || saveState === "saving" || saveState === "loading"}
           >
             Save
           </button>

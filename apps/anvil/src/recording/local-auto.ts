@@ -9,6 +9,8 @@ import {
   ensureRecordingCaptureTarget,
   HAMMER_STRUCTURED_TRANSCRIPT_PATH,
   promoteRecordingTranscriptForHammer,
+  transitionRecordingCompleted,
+  transitionRecordingKept,
   type RecordingCommitResult,
 } from '../forge/workpiece-commit';
 import { startSpeechBackendForSession, stopSpeechBackendForSession } from '../features/speech-loader';
@@ -424,6 +426,7 @@ import {
     savedAt: string;
     takeName: string;
     workpieceId: string;
+    completionId: string;
     filePath: string;
     contentType: string;
     bytes: number;
@@ -436,6 +439,8 @@ import {
     transcriptSourcePath: string | null;
     recordingMedium: string | null;
     requiresPostNormalization: boolean;
+    mediaRevision: number;
+    mediaHash: string;
   };
 
   function writePendingDecisionState(
@@ -472,6 +477,7 @@ import {
 
   async function promptForTakeDecision(args: {
     commitResult: Extract<RecordingCommitResult, { ok: true }>;
+    completionId: string;
     name: string;
     contentType: string;
     bytes: number;
@@ -505,7 +511,9 @@ import {
         }
       }
 
-      const result = await appendRecordingDecisionToTongs({
+      const result = eventName === 'take_kept'
+        ? await transitionRecordingKept({ commit: args.commitResult, completionId: args.completionId })
+        : await appendRecordingDecisionToTongs({
         workpieceId: args.commitResult.workpieceId,
         eventName,
         filePath: args.commitResult.path,
@@ -521,13 +529,14 @@ import {
         transcriptSourcePath,
         recordingMedium: args.strategy?.recordingMedium ?? null,
         requiresPostNormalization: args.strategy?.requiresPostNormalization === true,
-      });
+        });
       if (!result.ok) {
         const summary = eventName === 'take_kept'
           ? 'Could not mark this take as kept in Tongs.'
           : 'Could not mark this take as discarded in Tongs.';
-        const detail = typeof result.errorMessage === 'string' && result.errorMessage.trim()
-          ? ` ${result.errorMessage.trim()}`
+        const resultMessage = 'errorMessage' in result ? result.errorMessage : result.reason;
+        const detail = typeof resultMessage === 'string' && resultMessage.trim()
+          ? ` ${resultMessage.trim()}`
           : '';
         throw new Error(`${summary}${detail}`);
       }
@@ -543,6 +552,7 @@ import {
     writePendingDecisionState({
       takeName: args.name,
       workpieceId: args.commitResult.workpieceId,
+      completionId: args.completionId,
       filePath: args.commitResult.path,
       contentType: args.contentType,
       bytes: args.bytes,
@@ -555,6 +565,8 @@ import {
       transcriptSourcePath: args.transcriptFinalize?.finalPath ?? null,
       recordingMedium: args.strategy?.recordingMedium ?? null,
       requiresPostNormalization: args.strategy?.requiresPostNormalization === true,
+      mediaRevision: args.commitResult.mediaRevision,
+      mediaHash: args.commitResult.mediaHash,
     });
 
     await showRecordingDecisionDialog({
@@ -1071,6 +1083,7 @@ import {
     showRecordingFinalizeIndicator({ takeName: name });
     let committed = false;
     let commitResultOk: Extract<RecordingCommitResult, { ok: true }> | null = null;
+    let acceptedCompletionId: string | null = null;
     let canonicalAttempted = false;
     let canonicalErrorCode: string | null = null;
     let canonicalErrorMessage: string | null = null;
@@ -1161,8 +1174,19 @@ import {
           });
           const commitResultSuccess = readCommitResultSuccess(commitResult);
           if (commitResultSuccess) {
-            committed = true;
             commitResultOk = commitResultSuccess;
+            const completion = await transitionRecordingCompleted({
+              commit: commitResultSuccess,
+              durationMs: typeof opts.durationMs === 'number' ? opts.durationMs : null,
+            });
+            if (completion.ok && completion.completionId) {
+              committed = true;
+              acceptedCompletionId = completion.completionId;
+            } else {
+              canonicalErrorCode = completion.reason ?? `recording_completion_${completion.outcome}`;
+              canonicalErrorMessage = `Recording bytes were saved, but canonical completion remained incomplete (${completion.outcome}).`;
+              showRecorderToast(canonicalErrorMessage, 'warning');
+            }
             if (opts.transcriptFinalize?.finalArtifact && opts.transcriptFinalize.finalPath) {
               const artifact = {
                 ...opts.transcriptFinalize.finalArtifact,
@@ -1302,10 +1326,11 @@ import {
               try {
                 console.log('[core-recorder] saved file mirror', name);
               } catch {}
-              if (commitResultOk) {
+              if (commitResultOk && acceptedCompletionId) {
                 hideRecordingFinalizeIndicator();
                 await promptForTakeDecision({
                   commitResult: commitResultOk,
+                  completionId: acceptedCompletionId,
                   name,
                   contentType,
                   bytes: bytes.length,
@@ -1445,10 +1470,11 @@ import {
               downloadFallbackSkippedReason,
             });
           }
-          if (commitResultOk) {
+          if (commitResultOk && acceptedCompletionId) {
             hideRecordingFinalizeIndicator();
             await promptForTakeDecision({
               commitResult: commitResultOk,
+              completionId: acceptedCompletionId,
               name,
               contentType,
               bytes: bytes.length,
@@ -1593,7 +1619,17 @@ import {
     try { console.log('[core-recorder] found pending recording decision; showing recovery prompt', { workpieceId: state.workpieceId }); } catch {}
 
     const makeRecoveryDecision = async (eventName: 'take_kept' | 'take_discarded'): Promise<void> => {
-      const result = await appendRecordingDecisionToTongs({
+      const result = eventName === 'take_kept'
+        ? await transitionRecordingKept({
+          completionId: state.completionId,
+          commit: {
+            ok: true, status: 200, workpieceId: state.workpieceId, path: state.filePath,
+            createdCradle: state.createdCradle, plannerRecordingSessionId: state.plannerRecordingSessionId,
+            captureSessionId: state.captureSessionId ?? '', mediaRevision: state.mediaRevision,
+            mediaHash: state.mediaHash, mediaBytes: state.bytes, mediaContentType: state.contentType,
+          },
+        })
+        : await appendRecordingDecisionToTongs({
         workpieceId: state.workpieceId,
         eventName,
         filePath: state.filePath,
@@ -1609,13 +1645,14 @@ import {
         transcriptSourcePath: state.transcriptSourcePath,
         recordingMedium: state.recordingMedium,
         requiresPostNormalization: state.requiresPostNormalization,
-      });
+        });
       if (!result.ok) {
         const summary = eventName === 'take_kept'
           ? 'Could not mark this take as kept in Tongs.'
           : 'Could not mark this take as discarded in Tongs.';
-        const detail = typeof result.errorMessage === 'string' && result.errorMessage.trim()
-          ? ` ${result.errorMessage.trim()}`
+        const resultMessage = 'errorMessage' in result ? result.errorMessage : result.reason;
+        const detail = typeof resultMessage === 'string' && resultMessage.trim()
+          ? ` ${resultMessage.trim()}`
           : '';
         throw new Error(`${summary}${detail}`);
       }

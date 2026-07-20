@@ -2,7 +2,15 @@ import { tongsFetch } from "./tongs-fetch";
 import {
   applyProductionArtifactToEpisodePackage,
   buildDefaultMetadataDocument,
+  hydrateEpisodePackageV2,
+  diagnoseThumbnailConceptParsing,
+  parseThumbnailCreativeAuthorityFromText,
 } from "./episode-package-v2";
+import { canonicalSerialize, validateConceptGenerationSet, type ThumbnailConceptRevision, type ThumbnailConceptSet,
+  type ThumbnailCreativeBrief, type ThumbnailCreativeStrategy } from "./episode-package-v3";
+import { appendConceptSet } from "./hearth-thumbnail-v3-authority";
+import { commitEpisodePackageV3Mutation, readCanonicalEpisodePackageV3 } from "./hearth-thumbnail-v3-api";
+import { canonicalFramingEquals } from "./hearth-framing-authority";
 import { resolveImageMapScriptAnchorFromText } from "./hearth-image-map-beats";
 import { readHearthPrimaryScript } from "./hearth-script-repo";
 
@@ -15,8 +23,8 @@ type WrittenBy = {
 export type ProductionArtifactKind = "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "pack";
 
 export type ProductionCommitResult =
-  | { ok: true }
-  | { ok: false; status?: number; reason: string };
+  | { ok: true; entityId?: string; disposition?: "created" | "existing" }
+  | { ok: false; status?: number; reason: string; stage?: "artifact" | "parse" | "normalize" | "validate" | "commit" | "readback"; errors?: string[] };
 
 export type ProductionArtifactReadResult =
   | { ok: true; payload: unknown }
@@ -67,6 +75,19 @@ function readRawTextFromPayload(payload: unknown): string {
 function readGeneratedAtFromPayload(payload: unknown): string {
   if (!isRecord(payload)) return new Date().toISOString();
   return normalizeIso(payload.generated_at);
+}
+
+export function findRecoveredConceptSet(args: {
+  sets: readonly ThumbnailConceptSet[];
+  sourceResponseHash: string;
+  generatedAt: string;
+  scriptVersion: number;
+}): ThumbnailConceptSet | null {
+  return args.sets.find((set) => (
+    set.source_response_hash === args.sourceResponseHash
+    && set.created_at === args.generatedAt
+    && set.approved_script_version === args.scriptVersion
+  )) ?? null;
 }
 
 function resolveLane(): string {
@@ -215,6 +236,99 @@ async function syncEpisodePackageMetadata(args: {
     return { ok: true };
   }
 
+  if (args.kind === "thumbnails") {
+    const rawText = readRawTextFromPayload(args.payload);
+    const parseDiagnostic = diagnoseThumbnailConceptParsing(rawText);
+    const parsed = parseDiagnostic.concepts;
+    if (parsed.length !== 5) return {
+      ok: false, status: 422, reason: `Parsed ${parsed.length} of 5 required thumbnail concepts.`,
+      stage: "parse",
+      errors: [`Parser branch: ${parseDiagnostic.branch}.`, ...parseDiagnostic.structuralErrors],
+    };
+    const canonical = await readCanonicalEpisodePackageV3(args.workpieceId);
+    const createdAt = readGeneratedAtFromPayload(args.payload);
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonicalSerialize(rawText)));
+    const sourceHash = Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+    const existingSet = findRecoveredConceptSet({
+      sets: canonical.episodePackage.thumbnail.concept_sets,
+      sourceResponseHash: sourceHash,
+      generatedAt: createdAt,
+      scriptVersion: args.scriptVersion,
+    });
+    if (existingSet) return { ok: true, entityId: existingSet.id, disposition: "existing" };
+    const setId = crypto.randomUUID();
+    const parsedAuthority = parseThumbnailCreativeAuthorityFromText(rawText);
+    const strategyId = crypto.randomUUID();
+    const strategy: ThumbnailCreativeStrategy = parsedAuthority ? {
+      id: strategyId, revision: 1, approved_script_version: args.scriptVersion,
+      episode_promise: parsedAuthority.strategy.episodePromise,
+      intended_viewer: parsedAuthority.strategy.intendedViewer,
+      curiosity_mechanism: parsedAuthority.strategy.curiosityMechanism,
+      editorial_positioning: parsedAuthority.strategy.editorialPositioning,
+      expectation_integrity: { truthful_connection: parsedAuthority.strategy.truthfulConnection,
+        prohibited_exaggerations: parsedAuthority.strategy.prohibitedExaggerations },
+      created_at: createdAt, provenance: { source: "hearth_generation", artifact_path: artifactPath("thumbnails", args.scriptVersion) },
+    } : {
+      id: strategyId, revision: 1, approved_script_version: args.scriptVersion,
+      episode_promise: "Preserve the approved episode promise.", intended_viewer: "The intended episode audience.",
+      curiosity_mechanism: "A truthful visual curiosity gap.", editorial_positioning: "Use the paid canonical concept response without unsupported exaggeration.",
+      expectation_integrity: { truthful_connection: "Recovered from a legacy five-concept generation artifact.", prohibited_exaggerations: [] },
+      created_at: createdAt, provenance: { source: "legacy_generation_recovery", artifact_path: artifactPath("thumbnails", args.scriptVersion) },
+    };
+    const briefs: ThumbnailCreativeBrief[] = parsed.map((concept, index) => {
+      const parsedBrief = parsedAuthority?.briefs[index];
+      return {
+        id: crypto.randomUUID(), revision: 1, strategy_id: strategy.id, strategy_revision: strategy.revision, concept_slot: index + 1,
+        subject_direction: parsedBrief?.subjectDirection ?? concept.label,
+        focal_action: parsedBrief?.focalAction ?? concept.prompt_text,
+        composition_direction: parsedBrief?.compositionDirection ?? concept.prompt_text,
+        emotional_tone: parsedBrief?.emotionalTone ?? concept.style_preset ?? "unspecified",
+        visual_hierarchy: parsedBrief?.visualHierarchy ?? "Make the primary subject immediately legible.",
+        title_compatibility: parsedBrief?.titleCompatibility ?? "Reserve clean negative space for local canonical typography.",
+        expectation_integrity_rationale: parsedBrief?.expectationIntegrityRationale ?? strategy.expectation_integrity.truthful_connection,
+        provider_neutral_render_direction: parsedBrief?.providerNeutralRenderDirection ?? concept.prompt_text,
+        subject_classification: "unspecified", composition_classification: "unspecified", dominant_colors: [],
+        created_at: createdAt, provenance: { source: parsedAuthority ? "hearth_generation" : "legacy_generation_recovery" },
+      };
+    });
+    const concepts: ThumbnailConceptRevision[] = parsed.map((concept, index) => ({
+      concept_lineage_id: crypto.randomUUID(), concept_revision_id: crypto.randomUUID(), revision_number: 1,
+      supersedes_revision_id: null, concept_set_id: setId, headline: concept.label,
+      strategy_id: strategy.id, strategy_revision: strategy.revision,
+      creative_brief_id: briefs[index]!.id, creative_brief_revision: briefs[index]!.revision,
+      image_concept: concept.prompt_text, mood_style: concept.style_preset ?? "unspecified",
+      normalized_prompt_basis: concept.prompt_text.trim().replace(/\s+/g, " "), created_at: createdAt,
+      provenance: { source: "hearth_generation", script_version: args.scriptVersion },
+    }));
+    const validationErrors = validateConceptGenerationSet(concepts.map(({ concept_set_id: _ignored, ...concept }) => concept));
+    if (validationErrors.length) {
+      return { ok: false, status: 422, reason: validationErrors.join(" "), stage: "validate", errors: validationErrors };
+    }
+    const withAuthority = { ...canonical.episodePackage, thumbnail: { ...canonical.episodePackage.thumbnail,
+      creative_strategies: [...canonical.episodePackage.thumbnail.creative_strategies, strategy],
+      active_creative_strategy_id: strategy.id,
+      creative_briefs: [...canonical.episodePackage.thumbnail.creative_briefs, ...briefs] } };
+    const next = appendConceptSet({ episodePackage: withAuthority, concepts, conceptSet: {
+      id: setId, name: `Concept Set ${canonical.episodePackage.thumbnail.concept_sets.length + 1}`,
+      created_at: createdAt, state: "active", approved_script_version: args.scriptVersion,
+      generation_provenance: { source: "hearth_generation" }, prompt_schema_version: "hearth-thumbnail-concepts-v1",
+      source_response_hash: sourceHash, concept_revision_ids: concepts.map((entry) => entry.concept_revision_id),
+    } });
+    const saved = await commitEpisodePackageV3Mutation({
+      workpieceId: args.workpieceId, expectedMetadataUpdatedAt: canonical.metadataUpdatedAt,
+      nextEpisodePackage: next, mutation: { kind: "concept_set", entityId: setId },
+      eventName: "hearth.thumbnail.concept-set.generated.v3",
+      eventPayload: { script_version: args.scriptVersion, concept_set_id: setId },
+    });
+    if (!saved.ok) return { ok: false, status: saved.status, reason: saved.error, stage: "commit", errors: [saved.error] };
+    const verified = await readCanonicalEpisodePackageV3(args.workpieceId);
+    const verifiedSet = verified.episodePackage.thumbnail.concept_sets.find((set) => set.id === setId);
+    if (!verifiedSet || verifiedSet.source_response_hash !== sourceHash) {
+      return { ok: false, status: 409, reason: "Canonical readback did not contain the committed concept set.", stage: "readback" };
+    }
+    return { ok: true, entityId: setId, disposition: "created" };
+  }
+
   const nowIso = new Date().toISOString();
   const existing = await readWorkpieceMetadata(args.workpieceId);
   const existingWorkspaceId = isRecord(existing) ? readString(existing.workspace_id) : null;
@@ -265,12 +379,26 @@ async function syncEpisodePackageMetadata(args: {
     resolveImageMapScriptAnchor,
   });
 
-  return commitMetadataDocument({
+  const committed = await commitMetadataDocument({
     workpieceId: args.workpieceId,
     metadata: nextMetadata,
     action: args.kind,
     scriptVersion: args.scriptVersion,
   });
+  if (!committed.ok || (args.kind !== "seo" && args.kind !== "tags")) {
+    return committed;
+  }
+
+  // Production generation may update the editor only after the same metadata
+  // read used on page reload proves the framing survived the durable write.
+  const verifiedMetadata = await readWorkpieceMetadata(args.workpieceId);
+  if (!verifiedMetadata || !canonicalFramingEquals(
+    hydrateEpisodePackageV2(verifiedMetadata),
+    hydrateEpisodePackageV2(nextMetadata),
+  )) {
+    return { ok: false, status: 409, reason: "metadata_verification_failed" };
+  }
+  return committed;
 }
 
 export async function commitWorkpieceProductionArtifact(args: {
@@ -279,46 +407,40 @@ export async function commitWorkpieceProductionArtifact(args: {
   scriptVersion: number;
   kind: ProductionArtifactKind;
   payload: unknown;
+  syncCanonical?: boolean;
+  artifactAlreadyPersisted?: boolean;
 }): Promise<ProductionCommitResult> {
-  const url = `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`;
-  const response = await tongsFetch(url, {
-    method: "POST",
-    json: {
-      path: artifactPath(args.kind, args.scriptVersion),
-      content_type: "application/json",
-      json: args.payload,
-      written_by: buildWrittenBy(),
-      correlation_id: nextCorrelationId("hearth-production"),
-      event_name: "hearth.production.artifact.v1",
-      event_payload: {
-        kind: args.kind,
-        script_version: args.scriptVersion,
+  if (!args.artifactAlreadyPersisted) {
+    const url = `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`;
+    const response = await tongsFetch(url, {
+      method: "POST",
+      json: {
+        path: artifactPath(args.kind, args.scriptVersion),
+        content_type: "application/json",
+        json: args.payload,
+        written_by: buildWrittenBy(),
+        correlation_id: nextCorrelationId("hearth-production"),
+        event_name: "hearth.production.artifact.v1",
+        event_payload: {
+          kind: args.kind,
+          script_version: args.scriptVersion,
+        },
       },
-    },
-  });
+    });
 
-  if (!response.ok) {
-    return {
-      ok: false,
-      status: response.status,
-      reason: "request_failed",
-    };
+    if (!response.ok) {
+      return { ok: false, status: response.status, reason: "request_failed", stage: "artifact" };
+    }
+    const body = await readJsonBody(response);
+    if (!isRecord(body) || body.ok !== true) {
+      return { ok: false, status: response.status, reason: "invalid_response", stage: "artifact" };
+    }
   }
 
-  let body: unknown = null;
-  body = await readJsonBody(response);
-  if (!isRecord(body) || body.ok !== true) {
-    return {
-      ok: false,
-      status: response.status,
-      reason: "invalid_response",
-    };
-  }
-
+  if (args.syncCanonical === false) return { ok: true };
   const metadataResult = await syncEpisodePackageMetadata(args);
   if (!metadataResult.ok) {
     return metadataResult;
   }
-
-  return { ok: true };
+  return metadataResult;
 }

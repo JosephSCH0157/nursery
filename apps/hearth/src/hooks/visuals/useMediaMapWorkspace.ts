@@ -157,7 +157,6 @@ export function useMediaMapWorkspace() {
 
   const resetMediaMapWorkspaceForWorkpieceSwitch = useCallback((): void => {
     setSelectedMediaMapEntryId(null);
-    setMediaMapSaveState("saved");
     setMediaMapSaveError(null);
     setMediaMapMessage(null);
     setMediaMapConversationSeed(null);

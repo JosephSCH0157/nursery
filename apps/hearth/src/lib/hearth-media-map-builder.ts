@@ -9,8 +9,12 @@ import {
 import type { MediaMapGenerationScope } from "./hearth-media-map-conversation";
 
 const MAX_MEDIA_MAP_VISUALS = 18;
+export const HEARTH_DEFAULT_NARRATION_WPM = 150;
 const MOTION_OR_PROCESS_SIGNAL_RE = /\b(motion|move|moving|camera|pan|zoom|tracking|walk|run|drive|flow|process|workflow|sequence|timeline|action|transition)\b/i;
 const STATIC_OR_EXPLAINER_SIGNAL_RE = /\b(static|still|diagram|explainer|explain|emphasis|concept|graphic|chart|map|label|text)\b/i;
+const HIGH_VALUE_MOTION_SIGNAL_RE = /\b(harvest|harvesting|pick(?:ing)?|packing(?:\s+line)?|machinery|conveyor|drive|driving|hurricane|storm|wind|flood|handling|processing|operation|moving|transition)\b/i;
+const STATIC_SUBJECT_SIGNAL_RE = /\b(historic|historical|archive|archival|grove|roadside stand|packing house|tower|map|document|newspaper|clipping|label|sign|advertisement|symptom|disease|greening|portrait|facility|acreage|timeline|development)\b/i;
+const SUBJECT_STOP_WORDS = new Set(["about", "after", "again", "against", "before", "being", "between", "could", "every", "first", "from", "have", "into", "more", "other", "over", "that", "their", "there", "these", "this", "through", "under", "visual", "when", "where", "which", "with", "would"]);
 
 function hasReferenceClipEvidenceSource(entry: { source?: string | null }): boolean {
   return typeof entry.source === "string" && entry.source.trim().length > 0;
@@ -31,6 +35,254 @@ function normalizeAnchorKey(entry: EpisodeMediaMapEntry): string {
     .toLowerCase()
     .replace(/\s+/g, " ");
   return `${mode}::${normalizedTarget}`;
+}
+
+function visualSubjectTokens(entry: EpisodeMediaMapEntry): Set<string> {
+  return new Set(
+    [entry.anchor.target, entry.description]
+      .join(" ")
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((token) => token.length >= 4 && !SUBJECT_STOP_WORDS.has(token)),
+  );
+}
+
+function visualSubjectSimilarity(left: EpisodeMediaMapEntry, right: EpisodeMediaMapEntry): number {
+  if (normalizeAnchorKey(left) === normalizeAnchorKey(right)) return 1;
+  const leftTokens = visualSubjectTokens(left);
+  const rightTokens = visualSubjectTokens(right);
+  if (!leftTokens.size || !rightTokens.size) return 0;
+  let intersection = 0;
+  for (const token of leftTokens) if (rightTokens.has(token)) intersection += 1;
+  if (intersection < 2) return 0;
+  return intersection / (leftTokens.size + rightTokens.size - intersection);
+}
+
+function isReferenceEntry(entry: EpisodeMediaMapEntry): boolean {
+  return entry.final_media_kind === "contextual_data_composite" || entry.fulfillment_path === "reference_clip";
+}
+
+function isExistingEntry(entry: EpisodeMediaMapEntry): boolean {
+  return entry.source.status === "selected" || entry.source.status === "attached";
+}
+
+function motionSelectionScore(entry: EpisodeMediaMapEntry): number {
+  const signature = [entry.anchor.target, entry.description, entry.intent].join(" ");
+  let score = 0;
+  if (HIGH_VALUE_MOTION_SIGNAL_RE.test(signature)) score += 10;
+  if (MOTION_OR_PROCESS_SIGNAL_RE.test(signature)) score += 4;
+  if (STATIC_SUBJECT_SIGNAL_RE.test(signature)) score -= 8;
+  if (entry.critical) score += 3;
+  if (entry.purpose === "coverage") score += 1;
+  return score;
+}
+
+function consolidateEquivalentSubjects(entries: EpisodeMediaMapEntry[]): EpisodeMediaMapEntry[] {
+  const retained: EpisodeMediaMapEntry[] = [];
+  for (const candidate of entries) {
+    const duplicateIndex = retained.findIndex((current) => visualSubjectSimilarity(current, candidate) >= 0.72);
+    if (duplicateIndex < 0) {
+      retained.push(candidate);
+      continue;
+    }
+    const current = retained[duplicateIndex]!;
+    const candidateWins = (
+      (isReferenceEntry(candidate) && !isReferenceEntry(current))
+      || (isExistingEntry(candidate) && !isExistingEntry(current))
+      || (candidate.final_media_kind === "image" && current.final_media_kind === "b_roll" && motionSelectionScore(current) <= 0)
+    );
+    if (candidateWins) retained[duplicateIndex] = candidate;
+  }
+  return retained;
+}
+
+export type MediaMapModalitySummary = {
+  images: number;
+  motionBroll: number;
+  generatedMotionBroll: number;
+  referenceClips: number;
+  dataComposites: number;
+  total: number;
+  generationBurden: "Low" | "Moderate" | "High";
+};
+
+export type FullMediaDurationSource = "explicit_expected_duration" | "configured_narration_wpm" | "default_narration_wpm";
+
+export type FullMediaBudgetPolicy = {
+  estimatedDurationSec: number;
+  durationSource: FullMediaDurationSource;
+  narrationWpm: number;
+  wordCount: number | null;
+  targetPlacements: number;
+  minimumPlacements: number;
+  maximumPlacements: number;
+  defaultMotionAllowance: number;
+};
+
+function countSpeakableWords(scriptText: string): number {
+  const withoutTags = scriptText.replace(/\[[^\]]+\]/g, " ");
+  return withoutTags.match(/\b[\p{L}\p{N}'’-]+\b/gu)?.length ?? 0;
+}
+
+export function deriveFullMediaBudgetPolicy(args: {
+  expectedDurationSec?: number | null;
+  scriptText?: string | null;
+  wordCount?: number | null;
+  narrationWpm?: number | null;
+}): FullMediaBudgetPolicy {
+  const explicitDuration = Number(args.expectedDurationSec);
+  const configuredWpm = Number(args.narrationWpm);
+  const narrationWpm = Number.isFinite(configuredWpm) && configuredWpm >= 60 && configuredWpm <= 260
+    ? configuredWpm
+    : HEARTH_DEFAULT_NARRATION_WPM;
+  const explicitWordCount = Number(args.wordCount);
+  const wordCount = Number.isFinite(explicitWordCount) && explicitWordCount > 0
+    ? Math.trunc(explicitWordCount)
+    : args.scriptText
+      ? countSpeakableWords(args.scriptText)
+      : 0;
+  const hasExplicitDuration = Number.isFinite(explicitDuration) && explicitDuration > 0;
+  const estimatedDurationSec = hasExplicitDuration
+    ? explicitDuration
+    : wordCount > 0
+      ? (wordCount / narrationWpm) * 60
+      : 9 * 60;
+  const durationSource: FullMediaDurationSource = hasExplicitDuration
+    ? "explicit_expected_duration"
+    : narrationWpm !== HEARTH_DEFAULT_NARRATION_WPM
+      ? "configured_narration_wpm"
+      : "default_narration_wpm";
+  const durationMinutes = Math.max(0.25, estimatedDurationSec / 60);
+  const minimumPlacements = durationMinutes <= 3
+    ? Math.max(1, Math.floor(durationMinutes))
+    : Math.max(1, Math.floor(durationMinutes * 1.2) + (durationMinutes >= 24 ? 0 : 2));
+  const maximumPlacements = durationMinutes <= 3
+    ? Math.max(minimumPlacements, Math.ceil(durationMinutes * 1.5))
+    : Math.max(minimumPlacements, Math.ceil(durationMinutes * 1.4) + (durationMinutes >= 24 ? 1 : 2));
+  const targetPlacements = Math.min(
+    maximumPlacements,
+    Math.max(minimumPlacements, Math.round(durationMinutes * 1.35)),
+  );
+  const durationMotionAllowance = Math.max(1, Math.ceil(durationMinutes / 4.5));
+  const placementMotionCap = Math.floor(maximumPlacements * 0.2);
+  const defaultMotionAllowance = Math.max(0, Math.min(durationMotionAllowance, placementMotionCap));
+  return {
+    estimatedDurationSec,
+    durationSource,
+    narrationWpm,
+    wordCount: wordCount || null,
+    targetPlacements,
+    minimumPlacements,
+    maximumPlacements,
+    defaultMotionAllowance,
+  };
+}
+
+export function summarizeMediaMapModalities(entries: readonly EpisodeMediaMapEntry[]): MediaMapModalitySummary {
+  const referenceClips = entries.filter((entry) => entry.fulfillment_path === "reference_clip").length;
+  const dataComposites = entries.filter((entry) => entry.final_media_kind === "contextual_data_composite" && entry.fulfillment_path !== "reference_clip").length;
+  const motionEntries = entries.filter((entry) => entry.final_media_kind === "b_roll");
+  const generatedMotionBroll = motionEntries.filter((entry) => !isExistingEntry(entry)).length;
+  const burdenScore = generatedMotionBroll * 4 + entries.filter((entry) => entry.final_media_kind === "image" && !isExistingEntry(entry)).length;
+  return {
+    images: entries.filter((entry) => entry.final_media_kind === "image").length,
+    motionBroll: motionEntries.length,
+    generatedMotionBroll,
+    referenceClips,
+    dataComposites,
+    total: entries.length,
+    generationBurden: burdenScore >= 14 ? "High" : burdenScore >= 6 ? "Moderate" : "Low",
+  };
+}
+
+export function selectBalancedFullMediaEntries(
+  entries: EpisodeMediaMapEntry[],
+  options: { videoHeavy?: boolean; budgetPolicy?: FullMediaBudgetPolicy } = {},
+): EpisodeMediaMapEntry[] {
+  const budgetPolicy = options.budgetPolicy ?? deriveFullMediaBudgetPolicy({});
+  const consolidated = consolidateEquivalentSubjects(entries);
+  const references = consolidated.filter(isReferenceEntry);
+  const replacedIds = new Set<string>();
+  for (const reference of references) {
+    for (const candidate of consolidated) {
+      if (candidate.id === reference.id || isReferenceEntry(candidate)) continue;
+      if (visualSubjectSimilarity(reference, candidate) >= 0.5) replacedIds.add(candidate.id);
+    }
+  }
+
+  const eligible = consolidated.filter((entry) => !replacedIds.has(entry.id));
+  const existing = eligible.filter((entry) => isExistingEntry(entry) && !isReferenceEntry(entry));
+  const images = eligible.filter((entry) => entry.final_media_kind === "image" && !isExistingEntry(entry));
+  const motion = eligible
+    .filter((entry) => entry.final_media_kind === "b_roll" && !isExistingEntry(entry))
+    .sort((left, right) => motionSelectionScore(right) - motionSelectionScore(left));
+  const motionBudget = options.videoHeavy
+    ? Math.max(budgetPolicy.defaultMotionAllowance, Math.min(
+        Math.ceil(budgetPolicy.estimatedDurationSec / 60 / 3),
+        Math.floor(budgetPolicy.maximumPlacements * 0.3),
+      ))
+    : budgetPolicy.defaultMotionAllowance;
+  const selectedMotion = motion
+    .filter((entry) => motionSelectionScore(entry) > 0)
+    .slice(0, motionBudget);
+
+  const selected: EpisodeMediaMapEntry[] = [...references, ...existing, ...selectedMotion];
+  const selectedIds = new Set(selected.map((entry) => entry.id));
+  for (const image of images) {
+    if (selected.length >= budgetPolicy.maximumPlacements) break;
+    if (!selectedIds.has(image.id)) {
+      selected.push(image);
+      selectedIds.add(image.id);
+    }
+  }
+
+  // If the image planner was sparse, static B-roll candidates become still-image
+  // treatments for the same beat rather than inflating the motion plan.
+  for (const candidate of motion) {
+    if (selected.length >= budgetPolicy.maximumPlacements) break;
+    if (selectedIds.has(candidate.id) || selectedMotion.some((entry) => entry.id === candidate.id)) continue;
+    selected.push({
+      ...candidate,
+      id: candidate.id.replace(/^mm_broll_/, "mm_still_"),
+      final_media_kind: "image",
+      fulfillment_path: null,
+    });
+  }
+
+  const sourceOrder = new Map(entries.map((entry, index) => [entry.id, index] as const));
+  return selected
+    .slice(0, budgetPolicy.maximumPlacements)
+    .sort((left, right) => {
+      const leftSourceId = left.id.replace(/^mm_still_/, "mm_broll_");
+      const rightSourceId = right.id.replace(/^mm_still_/, "mm_broll_");
+      return (sourceOrder.get(leftSourceId) ?? 0) - (sourceOrder.get(rightSourceId) ?? 0);
+    });
+}
+
+export function validateFullMediaDistribution(
+  entries: readonly EpisodeMediaMapEntry[],
+  options: { videoHeavy?: boolean; budgetPolicy?: FullMediaBudgetPolicy } = {},
+): { ok: true } | { ok: false; error: string } {
+  const summary = summarizeMediaMapModalities(entries);
+  const budgetPolicy = options.budgetPolicy ?? deriveFullMediaBudgetPolicy({});
+  if (summary.total === 0) return { ok: false, error: "Full Media produced no usable placements." };
+  const motionBudget = options.videoHeavy
+    ? Math.max(
+        budgetPolicy.defaultMotionAllowance,
+        Math.min(
+          Math.ceil(budgetPolicy.estimatedDurationSec / 60 / 3),
+          Math.floor(Math.max(summary.total, budgetPolicy.maximumPlacements) * 0.3),
+        ),
+      )
+    : Math.min(budgetPolicy.defaultMotionAllowance, Math.floor(summary.total * 0.2));
+  if (summary.generatedMotionBroll > motionBudget) {
+    return { ok: false, error: `Full Media exceeded its motion budget (${summary.generatedMotionBroll}/${motionBudget}).` };
+  }
+  if (summary.images === 0 && summary.generatedMotionBroll > 0) {
+    return { ok: false, error: "Full Media cannot use generated motion without an image backbone." };
+  }
+  return { ok: true };
 }
 
 function resolvePrimaryVisualAssetType(entry: EpisodeMediaMapEntry): PrimaryVisualAssetType {
@@ -207,6 +459,7 @@ export function buildMediaMapFromExistingPlans(
   current: EpisodePackageV2,
   scriptVersionId: string | null,
   scope: MediaMapGenerationScope,
+  options: { videoHeavy?: boolean; budgetPolicy?: FullMediaBudgetPolicy } = {},
 ): EpisodeMediaMap {
   const nowIso = new Date().toISOString();
   const thumbnailVersionByConceptId = new Map<string, EpisodeThumbnailVersion>();
@@ -304,7 +557,7 @@ export function buildMediaMapFromExistingPlans(
     },
     confidence: "medium",
     fulfillment_status: entry.selected_asset_id ? "resolved" : "planned",
-    fulfillment_path: entry.selected_asset_id ? "reference_clip" : null,
+    fulfillment_path: "reference_clip",
     optional: false,
     critical: true,
     stale: false,
@@ -315,7 +568,7 @@ export function buildMediaMapFromExistingPlans(
   const includeBroll = scope === "images_broll" || scope === "full_media_plan";
   const includeReferenceClips = scope === "images_reference_clips" || scope === "full_media_plan";
   const merged = [
-    ...(includeImages ? fromThumbnailPrompts : []),
+    ...(includeImages && scope !== "full_media_plan" ? fromThumbnailPrompts : []),
     ...(includeImages ? fromImageMap : []),
     ...(includeBroll ? fromBroll : []),
     ...(includeReferenceClips ? fromReferenceClips : []),
@@ -370,7 +623,9 @@ export function buildMediaMapFromExistingPlans(
     preserveBothAnchorKeys,
     existingAttachedTypeByAnchor,
   });
-  const selected = selectMediaMapVisualBeats(deduped);
+  const selected = scope === "full_media_plan"
+    ? selectBalancedFullMediaEntries(deduped, options)
+    : selectMediaMapVisualBeats(deduped);
   return {
     id: current.media_map.id || "media-map-v1",
     workpiece_id: current.media_map.workpiece_id,

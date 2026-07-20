@@ -11,6 +11,8 @@
   "include": [
     "index.ts",
     "hearth-visual-styles.ts",
+    "thumbnail-ledger-intelligence.ts",
+    "brand-library.ts",
     "episode-workspace/**/*.ts",
     "henry/**/*.ts",
     "script-tags/**/*.ts"

@@ -1,8 +1,8 @@
 import {
-  parseDescriptionFromSeoText,
   parseSeoTitlesFromText,
   parseTagsFromText,
   parseThumbnailConceptsFromText,
+  parseThumbnailCreativeAuthorityFromText,
   type EpisodeSeoTitle,
 } from "./episode-package-v2";
 
@@ -31,14 +31,16 @@ export function resolveHearthProductionArtifactFeedback(args: {
   assistantText: string;
 }): HearthProductionArtifactFeedback {
   if (args.action === "seo") {
-    const descriptions = parseDescriptionFromSeoText(args.assistantText);
+    const titles = parseSeoTitlesFromText(args.assistantText).filter((title) => !/^title\s*[abc]$/i.test(title.text.trim()));
     return {
       shouldRefreshEpisodePackage: true,
-      titles: parseSeoTitlesFromText(args.assistantText),
-      descriptionShort: descriptions.shortDescription,
-      descriptionLong: descriptions.longDescription,
+      titles,
+      descriptionShort: null,
+      descriptionLong: null,
       tags: [],
-      warning: null,
+      warning: titles.length < 3
+        ? "Generate Titles failed because Hearth did not return at least three usable titles."
+        : null,
     };
   }
 
@@ -58,14 +60,57 @@ export function resolveHearthProductionArtifactFeedback(args: {
 
   if (args.action === "thumbnails") {
     const concepts = parseThumbnailConceptsFromText(args.assistantText);
+    const authority = parseThumbnailCreativeAuthorityFromText(args.assistantText);
+    const complete = concepts.length === 5
+      && concepts.every((concept) => concept.label.trim() && concept.prompt_text.trim())
+      && new Set(concepts.map((concept) => concept.label.trim().toLowerCase())).size === 5
+      && new Set(concepts.map((concept) => concept.prompt_text.trim().toLowerCase())).size === 5;
     return {
       ...EMPTY_FEEDBACK,
       shouldRefreshEpisodePackage: true,
-      warning: concepts.length
+      warning: complete && authority
         ? null
-        : "Thumbnail briefing finished, but Hearth could not extract structured concept briefs from the reply.",
+        : complete
+          ? "Thumbnail briefing was not saved because the creative strategy or one of its five actionable briefs was incomplete."
+        : "Thumbnail briefing was not saved because Hearth did not return exactly five complete, distinct concept briefs.",
     };
   }
 
   return EMPTY_FEEDBACK;
+}
+
+export function validateHearthProductionArtifactOutput(args: {
+  action: HearthProductionAction;
+  assistantText: string;
+}): { ok: true; feedback: HearthProductionArtifactFeedback } | { ok: false; error: string; feedback: HearthProductionArtifactFeedback } {
+  const feedback = resolveHearthProductionArtifactFeedback(args);
+  if (args.action === "seo" && feedback.titles.length < 3) {
+    return { ok: false, error: feedback.warning ?? "Generated title output was unusable.", feedback };
+  }
+  if (args.action === "tags" && feedback.tags.length === 0) {
+    return { ok: false, error: feedback.warning ?? "Generated tag output was unusable.", feedback };
+  }
+  if (args.action === "thumbnails" && feedback.warning) {
+    return { ok: false, error: feedback.warning, feedback };
+  }
+  return { ok: true, feedback };
+}
+
+export function canonicalizeHearthProductionArtifactOutput(args: {
+  action: HearthProductionAction;
+  assistantText: string;
+}): string | null {
+  const validation = validateHearthProductionArtifactOutput(args);
+  if (!validation.ok) return null;
+  if (args.action === "seo") {
+    const labels = ["SAFE", "SPICY", "BALANCED_1", "BALANCED_2", "BALANCED_3"];
+    return [
+      "SEO_TITLES:",
+      ...validation.feedback.titles.map((title, index) => `${labels[index] ?? `OPTION_${index + 1}`}: ${title.text}`),
+    ].join("\n");
+  }
+  if (args.action === "tags") {
+    return ["TAGS_FULL:", validation.feedback.tags.join(", ")].join("\n");
+  }
+  return args.assistantText;
 }

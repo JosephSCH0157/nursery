@@ -56,6 +56,7 @@ describe('mode-router: basic toggling', () => {
     store.set('scrollMode', 'step');
     expect(step.enable).toHaveBeenCalledTimes(2);
     expect(rehearsal.disable).toHaveBeenCalledTimes(1);
+    router.dispose();
   });
 
   test('drives auto for auto/hybrid, off for others', () => {
@@ -76,5 +77,6 @@ describe('mode-router: basic toggling', () => {
     // Switch to step (auto off)
     store.set('scrollMode', 'step');
     expect(auto.setEnabled).toHaveBeenLastCalledWith(false);
+    router.dispose();
   });
 });

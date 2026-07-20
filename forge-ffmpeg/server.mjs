@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import fsPromises from "node:fs/promises";
 import crypto from "node:crypto";
+import { parseFfprobeMedia } from "./media-probe.mjs";
 
 const PORT = readPositiveInteger(process.env.PORT) ?? 8080;
 const HOST = process.env.HOST?.trim() || "0.0.0.0";
@@ -211,6 +212,27 @@ async function handleTranscodeWav(req, res) {
   }
 }
 
+async function handleProbeMedia(req, res) {
+  try {
+    const inputBuffer = await readRequestBuffer(req, MAX_INPUT_BYTES);
+    if (inputBuffer.byteLength === 0) {
+      sendJson(res, 400, { ok: false, error: { message: "POST /probe/media requires a non-empty binary body." } });
+      return;
+    }
+    const sourceName = req.headers["x-file-name"];
+    const sourceExt = typeof sourceName === "string" && sourceName.includes(".") ? path.extname(sourceName).slice(0, 16) : ".bin";
+    const result = await withTempDir(async (tempDir) => {
+      const inputPath = path.join(tempDir, `input${sourceExt}`);
+      await fsPromises.writeFile(inputPath, inputBuffer);
+      const probed = await runCommand("ffprobe", ["-v", "error", "-show_streams", "-show_format", "-of", "json", inputPath], FFMPEG_TIMEOUT_MS);
+      return JSON.parse(probed.stdout);
+    });
+    sendJson(res, 200, { ok: true, inspection: parseFfprobeMedia(result) });
+  } catch (error) {
+    sendJson(res, error.statusCode ?? 500, { ok: false, error: { message: error.message, stderr: error.stderr ?? null } });
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   const method = req.method ?? "GET";
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
@@ -228,6 +250,10 @@ const server = http.createServer(async (req, res) => {
 
     if (method === "POST" && url.pathname === "/transcode/wav") {
       await handleTranscodeWav(req, res);
+      return;
+    }
+    if (method === "POST" && url.pathname === "/probe/media") {
+      await handleProbeMedia(req, res);
       return;
     }
 

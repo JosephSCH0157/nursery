@@ -153,7 +153,7 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
       args.setMediaMapMessage("Media map entry created.");
     } catch {
       if (!args.operationAuthority.isCurrent(operation)) return;
-      args.setMediaMapSaveError("Unable to create media map entry.");
+      args.setMediaMapSaveError("Unable to create visual plan entry.");
       args.setMediaMapSaveState("error");
     } finally {
       if (args.operationAuthority.isCurrent(operation)) args.setIsMediaMapBusy(false);
@@ -273,7 +273,7 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
       args.setMediaMapMessage("Media map entry saved.");
     } catch {
       if (!args.operationAuthority.isCurrent(operation)) return;
-      args.setMediaMapSaveError("Unable to save media map entry.");
+      args.setMediaMapSaveError("Unable to save visual plan entry.");
       args.setMediaMapSaveState("error");
     } finally {
       if (args.operationAuthority.isCurrent(operation)) args.setIsMediaMapBusy(false);
@@ -283,7 +283,7 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
   const onDeleteMediaMapEntry = useCallback(async () => {
     if (!args.episodePackage || !args.selectedMediaMapEntry) return;
     if (args.isMediaMapBusy) return;
-    if (!window.confirm("Delete this media map entry?")) return;
+    if (!window.confirm("Delete this visual plan entry?")) return;
     const operation = args.operationAuthority.begin("media-map.entry.delete");
     const nextEntries = args.episodePackage.media_map.entries.filter((entry) => entry.id !== args.selectedMediaMapEntry?.id);
     const nextMap: EpisodeMediaMap = {
@@ -319,7 +319,7 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
       args.setMediaMapMessage("Media map entry removed.");
     } catch {
       if (!args.operationAuthority.isCurrent(operation)) return;
-      args.setMediaMapSaveError("Unable to delete media map entry.");
+      args.setMediaMapSaveError("Unable to delete visual plan entry.");
       args.setMediaMapSaveState("error");
     } finally {
       if (args.operationAuthority.isCurrent(operation)) args.setIsMediaMapBusy(false);
@@ -331,7 +331,7 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
     if (args.isMediaMapBusy) return;
     const normalizedWorkpieceId = args.workpieceId?.trim() ?? "";
     if (!normalizedWorkpieceId) {
-      args.setMediaMapSaveError("Select an Episode before applying the media map.");
+      args.setMediaMapSaveError("Select an episode before applying the visual plan.");
       args.setMediaMapSaveState("error");
       return;
     }
@@ -620,7 +620,7 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
       );
     } catch {
       if (!args.operationAuthority.isCurrent(operation)) return;
-      args.setMediaMapSaveError("Unable to activate Episode Media Map.");
+      args.setMediaMapSaveError("Unable to apply the Episode Visual Plan.");
       args.setMediaMapSaveState("error");
     } finally {
       if (args.operationAuthority.isCurrent(operation)) args.setIsMediaMapBusy(false);

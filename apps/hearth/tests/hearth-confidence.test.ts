@@ -441,7 +441,12 @@ function installReadyQueueFetchHarness() {
       globalThis.fetch = originalFetch;
     },
     setReadyScriptsPayload(value: unknown[]) {
-      readyScriptsPayload = value;
+      readyScriptsPayload = value.map((row, index) => ({
+        script_revision: 1,
+        script_hash: "a".repeat(64),
+        transition_id: `11111111-1111-4111-8111-${String(index + 1).padStart(12, "0")}`,
+        ...(row && typeof row === "object" ? row : {}),
+      }));
     },
     setQueueUpdateResponse(value: { updated_count: number; deleted_count: number }) {
       queueUpdateResponse = value;
@@ -3001,6 +3006,9 @@ async function testActiveWorkpieceContextResolvesAttachedArtifactsWithoutCreatin
     path: "script/script.md",
     primaryScriptPath: "script/script.md",
     scriptPaths: ["script/script.md"],
+    scriptRevision: 1,
+    scriptHash: "a".repeat(64),
+    transitionId: "transition-ready-alpha",
     title: "Ready Alpha",
     updatedAt: "2026-03-10T12:00:00.000Z",
     contentCategory: null,
@@ -3144,7 +3152,7 @@ async function testApplyHearthOpsRequestsSave() {
     updateSource: (id, patch) => { writes.push(`update:${id}:${patch.note ?? ""}`); },
     removeSource: (id) => { writes.push(`remove:${id}`); },
     requestSave: (reason) => {
-      assert.equal(reason, "ai_apply_ops");
+      assert.equal(reason, "proposal_apply_ops");
       requestedSave += 1;
     },
   }, [

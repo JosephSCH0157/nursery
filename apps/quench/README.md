@@ -21,7 +21,7 @@ Bar Stock -> Hearth -> Anvil -> Hammer -> Tongs -> Quench -> Ledger
 
 ## Status
 
-- Status: v1 design drafted
+- Status: canonical preflight projection in progress; live adapters remain stubbed
 - Canonical manifest: [`../../docs/QUENCH_MANIFEST.md`](../../docs/QUENCH_MANIFEST.md)
 - Technical architecture: [`./QUENCH_TECHNICAL_ARCHITECTURE.md`](./QUENCH_TECHNICAL_ARCHITECTURE.md)
 

@@ -7,6 +7,8 @@ import {
   type EpisodeThumbnailConcept,
   type EpisodeThumbnailVersion,
 } from "./episode-package-v2";
+import { EPISODE_PACKAGE_V3_SCHEMA, hydrateEpisodePackageV3, type EpisodePackageV3 } from "./episode-package-v3";
+import { canonicalFramingEquals } from "./hearth-framing-authority";
 import { resolveAiLaneFromStorage, resolveForgeUserAccessToken } from "./hearth-chat-api";
 import { recordHearthBandwidthFetch } from "./hearthBandwidthTelemetry";
 import { tongsFetch } from "./tongs-fetch";
@@ -289,36 +291,6 @@ function createClientId(prefix: string): string {
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function extensionFromMimeType(mimeType: string): string {
-  const normalized = mimeType.trim().toLowerCase();
-  if (normalized.includes("png")) return "png";
-  if (normalized.includes("jpeg") || normalized.includes("jpg")) return "jpg";
-  if (normalized.includes("webp")) return "webp";
-  return "png";
-}
-
-function resolveUploadMimeType(file: File): string {
-  const trimmed = file.type.trim().toLowerCase();
-  if (trimmed) return trimmed;
-  const lowerName = file.name.toLowerCase();
-  if (lowerName.endsWith(".jpg") || lowerName.endsWith(".jpeg")) return "image/jpeg";
-  if (lowerName.endsWith(".webp")) return "image/webp";
-  return "image/png";
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  if (typeof btoa !== "function") {
-    throw new Error("Base64 encoding is unavailable in this browser.");
-  }
-  const chunkSize = 0x8000;
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) {
-    const slice = bytes.subarray(offset, Math.min(bytes.length, offset + chunkSize));
-    binary += String.fromCharCode(...slice);
-  }
-  return btoa(binary);
-}
-
 function resolveCandidateAssetPaths(workpieceId: string, version: EpisodeThumbnailVersion): string[] {
   const candidates: string[] = [];
   const direct = normalizeWorkpieceRelativePathOrNull(workpieceId, version.asset_path);
@@ -466,11 +438,31 @@ export async function saveEpisodePackageForWorkpiece(args: {
     persistedEpisodePackage,
   );
 
-  const nextMetadata = mirrorEpisodePackageV2ToLegacy({
-    ...metadata,
-    updated_at: nowIso,
-    episode: metadataOwnedEpisodePackage,
-  });
+  const existingEpisode = isRecord(metadata.episode) ? metadata.episode : null;
+  const nextMetadata = existingEpisode?.schema === EPISODE_PACKAGE_V3_SCHEMA
+    ? (() => {
+        const v3 = hydrateEpisodePackageV3(metadata);
+        const titles = metadataOwnedEpisodePackage.seo.titles.map((title) => {
+          const prior = v3.seo.titles.find((entry) => entry.id === title.id);
+          const changed = !prior || prior.text !== title.text || (prior.thumbnail_text ?? null) !== (title.thumbnail_text ?? null);
+          return { ...title, revision: prior ? prior.revision + (changed ? 1 : 0) : 1 };
+        });
+        const episode: EpisodePackageV3 = {
+          ...v3,
+          seo: { ...metadataOwnedEpisodePackage.seo, titles },
+          spoken_beats: metadataOwnedEpisodePackage.spoken_beats,
+          media_map: metadataOwnedEpisodePackage.media_map,
+          image_map: metadataOwnedEpisodePackage.image_map,
+          broll_plan: metadataOwnedEpisodePackage.broll_plan,
+          cdc_plan: metadataOwnedEpisodePackage.cdc_plan,
+        };
+        return { ...metadata, updated_at: nowIso, episode };
+      })()
+    : mirrorEpisodePackageV2ToLegacy({
+        ...metadata,
+        updated_at: nowIso,
+        episode: metadataOwnedEpisodePackage,
+      });
 
   const committed = await commitMetadataDocument({
     workpieceId: args.workpieceId,
@@ -482,10 +474,32 @@ export async function saveEpisodePackageForWorkpiece(args: {
   });
   if (!committed.ok) return committed;
 
+  let acknowledgedEpisodePackage = hydrateEpisodePackageV2(nextMetadata);
+  if (args.eventName === "hearth.metadata.autosave.v1") {
+    // A commit acknowledgement is not enough to call framing Saved. Prove
+    // that the canonical reload path can recover the exact framing written.
+    const verified = await readEpisodePackageForWorkpiece(args.workpieceId);
+    if (!verified.ok) {
+      return {
+        ok: false,
+        status: verified.status,
+        error: "Framing was written, but Hearth could not verify the durable saved state.",
+      };
+    }
+    if (!canonicalFramingEquals(verified.episodePackage, acknowledgedEpisodePackage)) {
+      return {
+        ok: false,
+        status: 409,
+        error: "Framing save acknowledgement did not match the canonical reload state.",
+      };
+    }
+    acknowledgedEpisodePackage = verified.episodePackage;
+  }
+
   return {
     ok: true,
     status: committed.status,
-    episodePackage: hydrateEpisodePackageV2(nextMetadata),
+    episodePackage: acknowledgedEpisodePackage,
     metadataUpdatedAt: committed.metadataUpdatedAt,
   };
 }
@@ -509,6 +523,7 @@ export async function generateEpisodeThumbnail(args: GenerateEpisodeThumbnailArg
     json: {
       workspace_id: args.workspaceId,
       episode_id: args.workpieceId,
+      operation_id: createClientId("thumbnail-generate"),
       ...(args.conceptId ? { concept_id: args.conceptId } : {}),
       ...(args.prompt ? { prompt: args.prompt } : {}),
       ...(args.preset ? { preset: args.preset } : {}),
@@ -607,70 +622,14 @@ export async function loadThumbnailPreviewDataUrl(args: {
   };
 }
 
-export async function uploadThumbnailImageVersion(args: {
+export async function uploadThumbnailImageVersion(_args: {
   workpieceId: string;
   concept: EpisodeThumbnailConcept | null;
   file: File;
 }): Promise<UploadThumbnailImageResult> {
-  const mimeType = resolveUploadMimeType(args.file);
-  const extension = extensionFromMimeType(mimeType);
-  const versionId = createClientId("thumb-upload-version");
-  const uploadPath = `assets/thumbnails/${args.workpieceId}/${versionId}.${extension}`;
-  const uploadedAt = new Date().toISOString();
-
-  let bytesBase64: string;
-  try {
-    const bytes = new Uint8Array(await args.file.arrayBuffer());
-    bytesBase64 = bytesToBase64(bytes);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to read selected image file.";
-    return {
-      ok: false,
-      error: message,
-    };
-  }
-
-  const committed = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`, {
-    method: "POST",
-    json: {
-      path: uploadPath,
-      content_type: mimeType,
-      file_type: "thumbnail_image",
-      bytes_base64: bytesBase64,
-      written_by: buildWrittenBy(),
-      event_name: "hearth.thumbnail.uploaded.v1",
-      event_payload: {
-        source: "thumbnail_panel",
-        file_name: args.file.name,
-        mime_type: mimeType,
-      },
-      correlation_id: nextCorrelationId("hearth-thumbnail-upload"),
-    },
-  });
-  const body = await readBodyAsJson(committed);
-  if (!committed.ok || !isCommitAck(body)) {
-    const parsed = readErrorBody(body, "Upload failed.");
-    return {
-      ok: false,
-      error: parsed.error,
-      status: committed.status,
-    };
-  }
-
   return {
-    ok: true,
-    version: {
-      id: versionId,
-      concept_id: args.concept?.id ?? "uploaded",
-      created_at: uploadedAt,
-      provider: "upload",
-      prompt: args.file.name || "uploaded-image",
-      asset_id: `path:${uploadPath}`,
-      status: "ready",
-      asset_path: uploadPath,
-      mime_type: mimeType,
-      error: null,
-      provider_request_id: null,
-    },
+    ok: false,
+    status: 503,
+    error: "Outside-tool thumbnail upload is temporarily unavailable while its canonical asset lifecycle is being upgraded.",
   };
 }

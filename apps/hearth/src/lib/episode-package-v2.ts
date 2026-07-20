@@ -720,7 +720,7 @@ function normalizeThumbnailConcepts(value: unknown): EpisodeThumbnailConcept[] {
         ?? readString(entry.headline)
         ?? `Concept ${i + 1}`;
       out.push({
-        id: readString(entry.id) ?? `concept-${String(i + 1).padStart(2, "0")}`,
+        id: readString(entry.id) ?? readString(entry.concept_revision_id) ?? `concept-${String(i + 1).padStart(2, "0")}`,
         label,
         prompt_text: promptText,
         style_preset: normalizeHearthVisualStyle(readString(entry.style_preset) ?? readString(entry.mood_style) ?? null),
@@ -1263,32 +1263,115 @@ function normalizeImageMapEntryPatch(args: {
 
 function parseSectionBody(rawText: string, sectionHeader: string): string {
   const lines = rawText.split(/\r?\n/);
-  const headerRe = new RegExp(`^\\s*${sectionHeader}\\s*:?\\s*$`, "i");
+  const flexibleHeader = sectionHeader.replace(/_/g, "[\\s_-]+");
+  const headerRe = new RegExp(`^\\s*${flexibleHeader}\\s*:?\\s*$`, "i");
   const genericHeaderRe = /^\s*[A-Z0-9_ ]{3,}\s*:\s*$/;
   let collecting = false;
   const collected: string[] = [];
   for (const line of lines) {
+    const normalizedLine = line
+      .replace(/^\s*#{1,6}\s*/, "")
+      .replace(/^\s*\*\*(.*?)\*\*\s*$/, "$1")
+      .trim();
     if (!collecting) {
-      if (headerRe.test(line)) collecting = true;
+      if (headerRe.test(normalizedLine)) collecting = true;
       continue;
     }
-    if (genericHeaderRe.test(line)) break;
+    if (genericHeaderRe.test(normalizedLine)) break;
     collected.push(line);
   }
   return collected.join("\n").trim();
 }
 
+function projectV3BaseVersions(value: unknown): EpisodeThumbnailVersion[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry, index) => {
+    if (!isRecord(entry)) return [];
+    const id = readString(entry.id) ?? `thumb-base-${index + 1}`;
+    const conceptId = readString(entry.concept_revision_id);
+    const assetId = readString(entry.asset_id);
+    const status = readString(entry.status);
+    if (!conceptId || !assetId || !status) return [];
+    const errorDetails = isRecord(entry.error_details) ? entry.error_details : null;
+    return [{
+      id, concept_id: conceptId, created_at: normalizeIso(entry.created_at),
+      provider: readString(entry.provider_id) ?? readString(entry.source_type) ?? "unknown",
+      prompt: "", asset_id: assetId, status,
+      provider_request_id: readString(entry.provider_request_id), asset_path: readString(entry.asset_path),
+      mime_type: readString(entry.mime_type), error: errorDetails ? JSON.stringify(errorDetails) : null,
+    }];
+  });
+}
+
+function parseProductionJson(rawText: string): Record<string, unknown> | null {
+  const trimmed = rawText.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function readProductionArray(rawText: string, keys: string[]): unknown[] {
+  const parsed = parseProductionJson(rawText);
+  if (!parsed) return [];
+  for (const key of keys) {
+    if (Array.isArray(parsed[key])) return parsed[key] as unknown[];
+  }
+  for (const containerKey of ["seo", "framing", "result", "data"]) {
+    const container = parsed[containerKey];
+    if (!container || typeof container !== "object" || Array.isArray(container)) continue;
+    for (const key of keys) {
+      const value = (container as Record<string, unknown>)[key];
+      if (Array.isArray(value)) return value;
+    }
+  }
+  return [];
+}
+
+function readProductionString(rawText: string, keys: string[]): string | null {
+  const parsed = parseProductionJson(rawText);
+  if (!parsed) return null;
+  for (const key of keys) {
+    const value = readString(parsed[key]);
+    if (value) return value;
+  }
+  for (const containerKey of ["seo", "framing", "result", "data", "descriptions"]) {
+    const container = parsed[containerKey];
+    if (!container || typeof container !== "object" || Array.isArray(container)) continue;
+    for (const key of keys) {
+      const value = readString((container as Record<string, unknown>)[key]);
+      if (value) return value;
+    }
+  }
+  return null;
+}
+
 export function parseSeoTitlesFromText(rawText: string): EpisodeSeoTitle[] {
+  const jsonTitles = readProductionArray(rawText, ["titles", "seo_titles", "seoTitles"])
+    .map((value) => typeof value === "string"
+      ? value
+      : value && typeof value === "object"
+        ? readString((value as Record<string, unknown>).text) ?? readString((value as Record<string, unknown>).title)
+        : null)
+    .filter((value): value is string => Boolean(value));
   const body = parseSectionBody(rawText, "SEO_TITLES");
-  if (!body) return [];
+  if (!body && jsonTitles.length === 0) return [];
   const lines = body
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
+  if (jsonTitles.length) lines.push(...jsonTitles);
   const titles: EpisodeSeoTitle[] = [];
   for (let i = 0; i < lines.length; i += 1) {
-    const line = lines[i]?.replace(/^[-*]\s*/, "") ?? "";
-    const labeled = line.match(/^([A-Z0-9_]+)\s*[:|-]\s*(.+)$/i);
+    const line = (lines[i]?.replace(/^(?:[-*]|\d+[.)])\s*/, "") ?? "")
+      .replace(/\*\*/g, "")
+      .trim();
+    if (!line || /^```/.test(line)) continue;
+    const labeled = line.match(/^([A-Z0-9_]+)\s*(?::|\||-|—|–)\s*(.+)$/i);
     const text = labeled?.[2]?.trim() ?? line.trim();
     if (!text) continue;
     const label = labeled?.[1]?.trim() ?? SEO_LABELS[i] ?? `V${i + 1}`;
@@ -1307,6 +1390,19 @@ export function parseDescriptionFromSeoText(rawText: string): {
   shortDescription: string | null;
   longDescription: string | null;
 } {
+  const jsonShort = readProductionString(rawText, ["short_description", "description_short", "shortDescription"]);
+  const jsonLong = readProductionString(rawText, ["long_description", "description_long", "longDescription", "description"]);
+  if (jsonShort || jsonLong) {
+    return { shortDescription: jsonShort, longDescription: jsonLong };
+  }
+  const explicitShort = parseSectionBody(rawText, "SHORT_DESCRIPTION").trim() || null;
+  const explicitLong = parseSectionBody(rawText, "LONG_DESCRIPTION").trim() || null;
+  if (explicitShort || explicitLong) {
+    return {
+      shortDescription: explicitShort,
+      longDescription: explicitLong,
+    };
+  }
   const body = parseSectionBody(rawText, "DESCRIPTION");
   if (!body) return { shortDescription: null, longDescription: null };
   const longDescription = body.trim() || null;
@@ -1321,16 +1417,31 @@ export function parseDescriptionFromSeoText(rawText: string): {
 }
 
 export function parseTagsFromText(rawText: string): string[] {
+  const jsonTags = readProductionArray(rawText, ["tags", "full_tags", "tags_full", "top_tags", "tags_top10"])
+    .map((value) => typeof value === "string" ? value : null)
+    .filter((value): value is string => Boolean(value));
+  if (jsonTags.length) return dedupeTags(jsonTags);
   const full = parseSectionBody(rawText, "TAGS_FULL");
-  if (full) return dedupeTags(parseCsvTags(full));
+  if (full) return dedupeTags(parseCsvTags(full.replace(/^(?:[-*]|\d+[.)])\s*/gm, "")));
   const top10 = parseSectionBody(rawText, "TAGS_TOP10");
-  if (top10) return dedupeTags(parseCsvTags(top10));
+  if (top10) return dedupeTags(parseCsvTags(top10.replace(/^(?:[-*]|\d+[.)])\s*/gm, "")));
+  const generic = parseSectionBody(rawText, "TAGS");
+  if (generic) return dedupeTags(parseCsvTags(generic.replace(/^(?:[-*]|\d+[.)])\s*/gm, "")));
   return [];
 }
 
-export function parseThumbnailConceptsFromText(rawText: string): EpisodeThumbnailConcept[] {
+export type ThumbnailConceptParseDiagnostic = {
+  branch: "line_blocks";
+  concepts: EpisodeThumbnailConcept[];
+  recognizedHeaders: number;
+  completeBlocks: number;
+  structuralErrors: string[];
+};
+
+export function diagnoseThumbnailConceptParsing(rawText: string): ThumbnailConceptParseDiagnostic {
   const lines = rawText.split(/\r?\n/);
   const concepts: EpisodeThumbnailConcept[] = [];
+  let recognizedHeaders = 0;
   let currentId: string | null = null;
   let headline: string | null = null;
   let imageConcept: string | null = null;
@@ -1339,7 +1450,7 @@ export function parseThumbnailConceptsFromText(rawText: string): EpisodeThumbnai
   const flush = () => {
     if (!currentId) return;
     const promptText = [imageConcept, moodStyle].filter(Boolean).join(" | ");
-    if (!promptText) {
+    if (!headline || !imageConcept || !moodStyle) {
       currentId = null;
       headline = null;
       imageConcept = null;
@@ -1348,7 +1459,7 @@ export function parseThumbnailConceptsFromText(rawText: string): EpisodeThumbnai
     }
     concepts.push({
       id: `concept-${currentId.toLowerCase()}`,
-      label: headline || `THUMBNAIL_${currentId}`,
+      label: headline,
       prompt_text: promptText,
       style_preset: normalizeHearthVisualStyle(moodStyle),
       title_style: DEFAULT_TITLE_STYLE,
@@ -1361,33 +1472,111 @@ export function parseThumbnailConceptsFromText(rawText: string): EpisodeThumbnai
   };
 
   for (const rawLine of lines) {
-    const line = rawLine.trim();
+    const line = rawLine.trim()
+      .replace(/^#{1,6}\s*/, "")
+      .replace(/^(?:[-+*>]|\d+[.)])\s+/, "")
+      .replace(/\*\*|__/g, "")
+      .trim();
     if (!line) continue;
-    const header = line.match(/^THUMBNAIL_(\d{1,3})$/i);
+    const header = line.match(/^THUMBNAIL[_\s-]*(\d{1,3})\s*[:.-]?$/i);
     if (header) {
       flush();
+      recognizedHeaders += 1;
       currentId = header[1]?.padStart(2, "0") ?? "01";
       continue;
     }
     if (!currentId) continue;
-    const headlineMatch = line.match(/^Headline:\s*(.+)$/i);
+    const headlineMatch = line.match(/^(?:Headline|Title|Hook):\s*(.+)$/i);
     if (headlineMatch?.[1]) {
       headline = headlineMatch[1].trim();
       continue;
     }
-    const imageMatch = line.match(/^Image concept:\s*(.+)$/i);
+    const imageMatch = line.match(/^(?:Image concept|Visual concept|Render direction|Image|Visual):\s*(.+)$/i);
     if (imageMatch?.[1]) {
       imageConcept = imageMatch[1].trim();
       continue;
     }
-    const moodMatch = line.match(/^Mood\/style:\s*(.+)$/i);
+    const moodMatch = line.match(/^(?:Mood\s*\/\s*style|Mood and style|Mood|Style):\s*(.+)$/i);
     if (moodMatch?.[1]) {
       moodStyle = moodMatch[1].trim();
     }
   }
 
   flush();
-  return concepts;
+  const structuralErrors: string[] = [];
+  if (recognizedHeaders === 0) {
+    structuralErrors.push("No THUMBNAIL 1-5 concept headers were present in the stored response.");
+  } else if (concepts.length !== recognizedHeaders) {
+    structuralErrors.push(`${recognizedHeaders - concepts.length} recognized concept block(s) were missing a headline, image concept, or mood/style field.`);
+  }
+  if (concepts.length !== 5) structuralErrors.push(`Expected exactly 5 complete, distinct concept blocks; recognized ${concepts.length}.`);
+  return { branch: "line_blocks", concepts, recognizedHeaders, completeBlocks: concepts.length, structuralErrors };
+}
+
+export function parseThumbnailConceptsFromText(rawText: string): EpisodeThumbnailConcept[] {
+  return diagnoseThumbnailConceptParsing(rawText).concepts;
+}
+
+export type ParsedThumbnailCreativeAuthority = {
+  strategy: {
+    episodePromise: string;
+    intendedViewer: string;
+    curiosityMechanism: string;
+    editorialPositioning: string;
+    truthfulConnection: string;
+    prohibitedExaggerations: string[];
+  };
+  briefs: Array<{
+    subjectDirection: string;
+    focalAction: string;
+    compositionDirection: string;
+    emotionalTone: string;
+    visualHierarchy: string;
+    titleCompatibility: string;
+    expectationIntegrityRationale: string;
+    providerNeutralRenderDirection: string;
+  }>;
+};
+
+export function parseThumbnailCreativeAuthorityFromText(rawText: string): ParsedThumbnailCreativeAuthority | null {
+  const fields = new Map<string, string>();
+  const briefFields: Array<Map<string, string>> = [];
+  let currentBrief: Map<string, string> | null = null;
+  for (const rawLine of rawText.split(/\r?\n/)) {
+    const line = rawLine.trim().replace(/^#{1,6}\s*/, "").replace(/\*\*|__/g, "").trim();
+    const header = line.match(/^THUMBNAIL[_\s-]*(\d{1,3})\s*[:.-]?$/i);
+    if (header) {
+      currentBrief = new Map<string, string>();
+      briefFields[Number(header[1]) - 1] = currentBrief;
+      continue;
+    }
+    const match = line.match(/^([^:]+):\s*(.+)$/);
+    if (!match?.[1] || !match[2]) continue;
+    const key = match[1].trim().toLowerCase().replace(/[^a-z]+/g, "_").replace(/^_|_$/g, "");
+    (currentBrief ?? fields).set(key, match[2].trim());
+  }
+  const strategyValues = ["episode_promise", "intended_viewer", "curiosity_mechanism", "editorial_positioning", "truthful_connection"];
+  if (strategyValues.some((key) => !fields.get(key)?.trim()) || briefFields.length !== 5) return null;
+  const briefs = briefFields.map((brief) => ({
+    subjectDirection: brief?.get("subject") ?? "",
+    focalAction: brief?.get("focal_action") ?? "",
+    compositionDirection: brief?.get("composition") ?? "",
+    emotionalTone: brief?.get("emotional_tone") ?? brief?.get("mood_style") ?? "",
+    visualHierarchy: brief?.get("visual_hierarchy") ?? "",
+    titleCompatibility: brief?.get("title_compatibility") ?? "",
+    expectationIntegrityRationale: brief?.get("integrity_rationale") ?? "",
+    providerNeutralRenderDirection: brief?.get("render_direction") ?? brief?.get("image_concept") ?? "",
+  }));
+  if (briefs.some((brief) => Object.values(brief).some((value) => !value.trim()))) return null;
+  return {
+    strategy: {
+      episodePromise: fields.get("episode_promise")!, intendedViewer: fields.get("intended_viewer")!,
+      curiosityMechanism: fields.get("curiosity_mechanism")!, editorialPositioning: fields.get("editorial_positioning")!,
+      truthfulConnection: fields.get("truthful_connection")!,
+      prohibitedExaggerations: (fields.get("prohibited_exaggerations") ?? "").split(",").map((value) => value.trim()).filter(Boolean),
+    },
+    briefs,
+  };
 }
 
 export function parseImageMapEntriesFromText(rawText: string): EpisodeImageMapEntry[] {
@@ -2229,17 +2418,24 @@ export function hydrateEpisodePackageV2(metadata: Record<string, unknown>): Epis
       ? (descriptionLong.length > 180 ? `${descriptionLong.slice(0, 177).trimEnd()}...` : descriptionLong)
       : null);
 
+  const v3Concepts = normalizeThumbnailConcepts(thumbnailRoot?.concept_revisions);
   const concepts = normalizeThumbnailConcepts(thumbnailRoot?.concepts).length
     ? normalizeThumbnailConcepts(thumbnailRoot?.concepts)
+    : v3Concepts.length
+      ? v3Concepts
     : normalizeThumbnailConcepts(metadata.thumbnail_concepts).length
       ? normalizeThumbnailConcepts(metadata.thumbnail_concepts)
       : normalizeThumbnailConcepts(metadata.thumbnails);
 
+  const v3BaseVersions = projectV3BaseVersions(thumbnailRoot?.base_versions);
   const versions = normalizeThumbnailVersions(thumbnailRoot?.versions).length
     ? normalizeThumbnailVersions(thumbnailRoot?.versions)
+    : v3BaseVersions.length
+      ? v3BaseVersions
     : normalizeThumbnailVersions(metadata.thumbnail_versions);
 
   const primaryVersionId = readString(thumbnailRoot?.primary_version_id)
+    ?? readString(thumbnailRoot?.primary_base_version_id)
     ?? readString(metadata.primary_thumbnail_version_id)
     ?? null;
   const launchVariants = normalizeLaunchVariants(
@@ -2289,6 +2485,8 @@ export function hydrateEpisodePackageV2(metadata: Record<string, unknown>): Epis
 
 export function mirrorEpisodePackageV2ToLegacy(metadata: Record<string, unknown>): Record<string, unknown> {
   const episode = hydrateEpisodePackageV2(metadata);
+  const originalEpisode = isRecord(metadata.episode) ? metadata.episode : null;
+  const canonicalEpisode = originalEpisode?.schema === "forge.episode.package.v3" ? originalEpisode : episode;
   const legacyBeatSheetEntries: ImageBeatLegacyEntry[] = episode.image_map.entries.map((entry) => ({
     id: entry.id,
     attach_after: entry.anchor,
@@ -2299,7 +2497,7 @@ export function mirrorEpisodePackageV2ToLegacy(metadata: Record<string, unknown>
 
   return {
     ...metadata,
-    episode,
+    episode: canonicalEpisode,
     seo_titles: episode.seo.titles,
     tags: episode.seo.tags,
     description_short: episode.seo.description_short,
@@ -2346,15 +2544,8 @@ export function applyProductionArtifactToEpisodePackage(args: {
 
   if (args.action === "seo") {
     const titles = parseSeoTitlesFromText(args.rawText);
-    const descriptions = parseDescriptionFromSeoText(args.rawText);
     if (titles.length) {
-      nextEpisode.seo.titles = titles;
-    }
-    if (descriptions.shortDescription) {
-      nextEpisode.seo.description_short = descriptions.shortDescription;
-    }
-    if (descriptions.longDescription) {
-      nextEpisode.seo.description_long = descriptions.longDescription;
+      nextEpisode.seo.titles = mergeGeneratedSeoTitlesIntoSlots(nextEpisode.seo.titles, titles);
     }
   }
 
@@ -2383,6 +2574,32 @@ export function applyProductionArtifactToEpisodePackage(args: {
     }
   }
 
+  const originalEpisode = isRecord(args.metadata.episode) ? args.metadata.episode : null;
+  if (originalEpisode?.schema === "forge.episode.package.v3") {
+    const priorSeo = isRecord(originalEpisode.seo) ? originalEpisode.seo : {};
+    const priorTitles = Array.isArray(priorSeo.titles) ? priorSeo.titles : [];
+    const titles = nextEpisode.seo.titles.map((title) => {
+      const prior = priorTitles.find((entry) => isRecord(entry) && entry.id === title.id);
+      const priorRevision = isRecord(prior) && typeof prior.revision === "number" ? Math.max(1, Math.trunc(prior.revision)) : 1;
+      const changed = !isRecord(prior) || prior.text !== title.text || (prior.thumbnail_text ?? null) !== (title.thumbnail_text ?? null);
+      return { ...title, revision: changed && prior ? priorRevision + 1 : priorRevision };
+    });
+    return {
+      ...args.metadata,
+      updated_at: normalizeIso(args.generatedAt, normalizeIso(args.metadata.updated_at)),
+      episode: {
+        ...originalEpisode,
+        schema: "forge.episode.package.v3",
+        seo: { ...nextEpisode.seo, titles },
+        spoken_beats: nextEpisode.spoken_beats,
+        media_map: nextEpisode.media_map,
+        image_map: nextEpisode.image_map,
+        broll_plan: nextEpisode.broll_plan,
+        cdc_plan: nextEpisode.cdc_plan,
+      },
+    };
+  }
+
   return mirrorEpisodePackageV2ToLegacy({
     ...hydrated,
     episode: nextEpisode,
@@ -2392,6 +2609,25 @@ export function applyProductionArtifactToEpisodePackage(args: {
 
 export function normalizeSeoTags(tags: string[]): string[] {
   return dedupeTags(tags);
+}
+
+export function mergeGeneratedSeoTitlesIntoSlots(
+  currentTitles: EpisodeSeoTitle[],
+  generatedTitles: EpisodeSeoTitle[],
+): EpisodeSeoTitle[] {
+  const normalized = ensureSeoV2({
+    ...createEmptyEpisodePackageV2(),
+    seo: { ...createEmptyEpisodePackageV2().seo, titles: currentTitles },
+  }).seo.titles;
+  const slots = normalized.filter((title) => SEO_CORE_LABELS.includes(title.label as (typeof SEO_CORE_LABELS)[number]));
+  return [
+    ...slots.map((slot, index) => ({
+      ...slot,
+      text: generatedTitles[index]?.text ?? slot.text,
+      thumbnail_text: generatedTitles[index]?.thumbnail_text ?? slot.thumbnail_text,
+    })),
+    ...generatedTitles.slice(3),
+  ];
 }
 
 export function ensureSeoV2(pkg: EpisodePackageV2): EpisodePackageV2 {

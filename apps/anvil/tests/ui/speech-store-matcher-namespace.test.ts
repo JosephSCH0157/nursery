@@ -1,8 +1,13 @@
 /** @jest-environment jsdom */
 
+import { captureWindowListeners } from '../helpers/window-listener-scope';
+
 describe('speech-store TS-primary matcher namespace', () => {
+  let releaseWindowListeners: (() => void) | null = null;
   beforeEach(() => {
+    jest.restoreAllMocks();
     jest.resetModules();
+    releaseWindowListeners = captureWindowListeners();
     document.body.innerHTML = '';
     delete (window as any).__TP_TS_PRIMARY__;
     delete (window as any).__tpSpeech;
@@ -18,6 +23,19 @@ describe('speech-store TS-primary matcher namespace', () => {
     delete (window as any).MATCH_WINDOW_BACK;
     delete (window as any).SIM_THRESHOLD;
     delete (window as any).MAX_JUMP_AHEAD_WORDS;
+    delete (window as any).__tpTsPrimaryMatcherProviderRuntime;
+    delete (window as any).__TP_LAST_APPLIED_HASH;
+    delete (window as any).__tpTsPrimaryMatcherBlocksReadyListenerInstalled;
+  });
+
+  afterEach(() => {
+    releaseWindowListeners?.();
+    releaseWindowListeners = null;
+    jest.restoreAllMocks();
+    delete (window as any).__tpTsPrimaryMatcherProviderRuntime;
+    delete (window as any).__tpAsrBlocksReady;
+    delete (window as any).__tpAsrBlockCount;
+    delete (window as any).__tpTsPrimaryMatcherBlocksReadyListenerInstalled;
   });
 
   test('installs usable matchOne and matchBatch for TS-primary boot once blocks are ready', async () => {

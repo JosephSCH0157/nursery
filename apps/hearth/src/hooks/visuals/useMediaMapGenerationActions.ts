@@ -7,6 +7,11 @@ import {
   type MediaMapGenerationScope,
 } from "../../lib/hearth-media-map-conversation";
 import type { EpisodeMediaMap, EpisodePackageV2 } from "../../lib/episode-package-v2";
+import {
+  summarizeMediaMapModalities,
+  validateFullMediaDistribution,
+  type FullMediaBudgetPolicy,
+} from "../../lib/hearth-media-map-builder";
 import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 
 type PersistMediaMapResult =
@@ -20,6 +25,7 @@ type PrepareSourceEpisodePackageResult =
     bootstrappedImageCount: number;
     bootstrappedBrollCount: number;
     bootstrappedReferenceClipCount: number;
+    budgetPolicy: FullMediaBudgetPolicy;
   }
   | { ok: false; error: string };
 
@@ -40,6 +46,7 @@ type UseMediaMapGenerationActionsArgs = {
     packageSource: EpisodePackageV2,
     scriptVersionId: string | null,
     scope: MediaMapGenerationScope,
+    options?: { videoHeavy?: boolean; budgetPolicy?: FullMediaBudgetPolicy },
   ) => EpisodeMediaMap;
   persistMediaMap: (args: {
     map: EpisodeMediaMap;
@@ -71,13 +78,23 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
         prepared.episodePackage,
         scriptVersionId,
         args.mediaMapGenerationScope,
+        { budgetPolicy: prepared.budgetPolicy },
       );
       if (nextMap.entries.length === 0) {
         args.setMediaMapSaveState("saved");
         args.setMediaMapMessage("No visual plans are ready yet. Pull beats from the script or add thumbnails, B-roll, or reference clips first.");
         return;
       }
+      if (args.mediaMapGenerationScope === "full_media_plan") {
+        const validation = validateFullMediaDistribution(nextMap.entries, { budgetPolicy: prepared.budgetPolicy });
+        if (!validation.ok) {
+          args.setMediaMapSaveError(validation.error);
+          args.setMediaMapSaveState("error");
+          return;
+        }
+      }
 
+      const modalitySummary = summarizeMediaMapModalities(nextMap.entries);
       const saved = await args.persistMediaMap({
         map: nextMap,
         eventName: "hearth.media_map.generated_from_plans.v1",
@@ -85,6 +102,21 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
           entry_count: nextMap.entries.length,
           script_version_id: scriptVersionId,
           scope: args.mediaMapGenerationScope,
+          image_count: modalitySummary.images,
+          motion_broll_count: modalitySummary.motionBroll,
+          generated_motion_broll_count: modalitySummary.generatedMotionBroll,
+          reference_clip_count: modalitySummary.referenceClips,
+          data_composite_count: modalitySummary.dataComposites,
+          generation_burden: modalitySummary.generationBurden.toLowerCase(),
+          estimated_duration_sec: Math.round(prepared.budgetPolicy.estimatedDurationSec),
+          duration_source: prepared.budgetPolicy.durationSource,
+          target_placement_min: prepared.budgetPolicy.minimumPlacements,
+          target_placement_target: prepared.budgetPolicy.targetPlacements,
+          target_placement_max: prepared.budgetPolicy.maximumPlacements,
+          default_motion_allowance: prepared.budgetPolicy.defaultMotionAllowance,
+          visual_cadence_sec_per_placement: nextMap.entries.length > 0
+            ? Math.round(prepared.budgetPolicy.estimatedDurationSec / nextMap.entries.length)
+            : null,
         },
         baseEpisodePackage: prepared.episodePackage,
       });
@@ -99,11 +131,11 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
       const brollCount = nextMap.entries.filter((entry) => entry.final_media_kind === "b_roll").length;
       const referenceClipCount = nextMap.entries.filter((entry) => entry.final_media_kind === "contextual_data_composite").length;
       args.setMediaMapMessage(
-        `${prepared.bootstrappedImageCount > 0 ? `Seeded ${prepared.bootstrappedImageCount} timeline image beat${prepared.bootstrappedImageCount === 1 ? "" : "s"} from the canonical script. ` : ""}${prepared.bootstrappedBrollCount > 0 ? `Seeded ${prepared.bootstrappedBrollCount} B-roll beat${prepared.bootstrappedBrollCount === 1 ? "" : "s"} from the canonical script. ` : ""}${prepared.bootstrappedReferenceClipCount > 0 ? `Seeded ${prepared.bootstrappedReferenceClipCount} Reference Clip${prepared.bootstrappedReferenceClipCount === 1 ? "" : "s"} from explanatory Timeline Image beats. ` : ""}Generated ${nextMap.entries.length} media map entries from the current visual plans using scope: ${args.mediaMapGenerationScope.replaceAll("_", " ")} (image: ${nextMap.entries.filter((entry) => entry.final_media_kind === "image").length}, b-roll: ${brollCount}, reference clips: ${referenceClipCount}). Next: Frame the episode (titles, SEO, tags).`,
+        `${prepared.bootstrappedImageCount > 0 ? `Seeded ${prepared.bootstrappedImageCount} timeline image beat${prepared.bootstrappedImageCount === 1 ? "" : "s"} from the canonical script. ` : ""}${prepared.bootstrappedBrollCount > 0 ? `Seeded ${prepared.bootstrappedBrollCount} B-roll beat${prepared.bootstrappedBrollCount === 1 ? "" : "s"} from the canonical script. ` : ""}${prepared.bootstrappedReferenceClipCount > 0 ? `Seeded ${prepared.bootstrappedReferenceClipCount} Reference Clip${prepared.bootstrappedReferenceClipCount === 1 ? "" : "s"} from explanatory Timeline Image beats. ` : ""}Created ${nextMap.entries.length} visual plan entries from the current visual plans using scope: ${args.mediaMapGenerationScope.replaceAll("_", " ")} (image: ${nextMap.entries.filter((entry) => entry.final_media_kind === "image").length}, b-roll: ${brollCount}, reference clips: ${referenceClipCount}). Next: Frame the episode (titles, SEO, tags).`,
       );
     } catch {
       if (!args.operationAuthority.isCurrent(operation)) return;
-      args.setMediaMapSaveError("Unable to generate Episode Media Map.");
+      args.setMediaMapSaveError("Unable to create the Episode Visual Plan.");
       args.setMediaMapSaveState("error");
     } finally {
       if (args.operationAuthority.isCurrent(operation)) args.setIsMediaMapBusy(false);
@@ -136,15 +168,28 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
         args.setMediaMapSaveState("error");
         return false;
       }
+      const videoHeavyRequested = /\b(?:heavier on b-?roll|more b-?roll|b-?roll heavy|video[- ]heavy)\b/i.test(conversationArgs.constraintsText);
       const generatedMap = args.buildMediaMapFromExistingPlans(
         prepared.episodePackage,
         scriptVersionId,
         conversationScope,
+        { videoHeavy: videoHeavyRequested, budgetPolicy: prepared.budgetPolicy },
       );
       if (generatedMap.entries.length === 0) {
         args.setMediaMapSaveState("saved");
         args.setMediaMapMessage("No visual plans are ready yet. Pull beats from the script or add thumbnails, B-roll, or reference clips first.");
         return false;
+      }
+      if (conversationScope === "full_media_plan") {
+        const validation = validateFullMediaDistribution(generatedMap.entries, {
+          videoHeavy: videoHeavyRequested,
+          budgetPolicy: prepared.budgetPolicy,
+        });
+        if (!validation.ok) {
+          args.setMediaMapSaveError(validation.error);
+          args.setMediaMapSaveState("error");
+          return false;
+        }
       }
       const directedMap = applyProducerDirectionToMediaMap({
         map: generatedMap,
@@ -155,6 +200,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
         ...directedMap,
         script_version_id: scriptVersionId,
       });
+      const modalitySummary = summarizeMediaMapModalities(activatedMap.entries);
       const saved = await args.persistMediaMap({
         map: activatedMap,
         eventName: "hearth.media_map.conversation_applied.v1",
@@ -165,6 +211,21 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
           derived_from_script: conversationArgs.derivedFromScript,
           scope: conversationScope,
           script_version_id: scriptVersionId,
+          image_count: modalitySummary.images,
+          motion_broll_count: modalitySummary.motionBroll,
+          generated_motion_broll_count: modalitySummary.generatedMotionBroll,
+          reference_clip_count: modalitySummary.referenceClips,
+          data_composite_count: modalitySummary.dataComposites,
+          generation_burden: modalitySummary.generationBurden.toLowerCase(),
+          estimated_duration_sec: Math.round(prepared.budgetPolicy.estimatedDurationSec),
+          duration_source: prepared.budgetPolicy.durationSource,
+          target_placement_min: prepared.budgetPolicy.minimumPlacements,
+          target_placement_target: prepared.budgetPolicy.targetPlacements,
+          target_placement_max: prepared.budgetPolicy.maximumPlacements,
+          default_motion_allowance: prepared.budgetPolicy.defaultMotionAllowance,
+          visual_cadence_sec_per_placement: activatedMap.entries.length > 0
+            ? Math.round(prepared.budgetPolicy.estimatedDurationSec / activatedMap.entries.length)
+            : null,
         },
         baseEpisodePackage: prepared.episodePackage,
       });
@@ -182,7 +243,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
       return true;
     } catch {
       if (!args.operationAuthority.isCurrent(operation)) return false;
-      args.setMediaMapSaveError("Unable to build and apply the Episode Media Map.");
+      args.setMediaMapSaveError("Unable to build and apply the Episode Visual Plan.");
       args.setMediaMapSaveState("error");
       return false;
     } finally {

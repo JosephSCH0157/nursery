@@ -6,14 +6,46 @@ import { TextEncoder } from "node:util";
 import { TongsCommitService, createTongsCommitApiHandlerWithService, extractPdfTextParserA, extractPdfTextParserB, extractPdfTextFallbackChain } from "../dist/workpiece-commit-api.js";
 import { deflateSync } from "node:zlib";
 
+function thumbnailAssetFixture(workpieceId, workspaceId, operationId, status) {
+  return {
+    id: "55555555-5555-4555-8555-555555555555",
+    workspace_id: workspaceId,
+    workpiece_id: workpieceId,
+    operation_id: operationId,
+    asset_kind: "thumbnail_image",
+    status,
+    path: `assets/thumbnails/${workpieceId}/${operationId}.png`,
+    mime_type: "image/png",
+    bytes: 8,
+    content_hash: "a".repeat(64),
+    storage_bucket: "forge-workpieces",
+    storage_key: `workpieces/${workpieceId}/assets/thumbnails/${operationId}.png`,
+    reference_committed_at: null,
+    ready_at: status === "ready" ? "2026-07-15T12:00:00.000Z" : null,
+    failed_at: status === "failed" ? "2026-07-15T12:00:00.000Z" : null,
+    failure_code: status === "failed" ? "test_failure" : null,
+    failure_message: status === "failed" ? "Test failure" : null,
+    metadata: {},
+  };
+}
+
 function mockService() {
   const calls = {
     createCradle: [],
     commitFile: [],
+    transitionHearthScriptReady: [],
     createHearthAttachment: [],
     listHearthAttachments: [],
     updateHearthAttachmentExtractedText: [],
     generateEpisodeThumbnail: [],
+    stageThumbnailAsset: [],
+    commitThumbnailAssetReference: [],
+    transitionThumbnailAsset: [],
+    readThumbnailAsset: [],
+    reconcileThumbnailAssets: [],
+    renderThumbnailComposite: [],
+    getThumbnailBrandStatus: [],
+    getQuenchCanonicalReleaseProjection: [],
     generateImageMapCandidates: [],
     createRecordingSessionRecord: [],
     listRecordingSessionsForPlanner: [],
@@ -143,6 +175,14 @@ function mockService() {
         },
       };
     },
+    async transitionHearthScriptReady(workpieceId, input) {
+      calls.transitionHearthScriptReady.push({ workpieceId, input });
+      return {
+        outcome: "saved",
+        reason: null,
+        ready: { transition_id: "22222222-2222-4222-8222-222222222222" },
+      };
+    },
     async createHearthAttachment(input, options) {
       calls.createHearthAttachment.push({ input, options: options ?? null });
       if ((input.mime_type ?? "").includes("javascript")) {
@@ -258,6 +298,40 @@ function mockService() {
         },
         primary_version_id: "44444444-4444-4444-8444-444444444444",
       };
+    },
+    async stageThumbnailAsset(workpieceId, input, options) {
+      calls.stageThumbnailAsset.push({ workpieceId, input, options: options ?? null });
+      return thumbnailAssetFixture(workpieceId, input.workspace_id, input.operation_id, "pending");
+    },
+    async commitThumbnailAssetReference(workpieceId, input, options) {
+      calls.commitThumbnailAssetReference.push({ workpieceId, input, options: options ?? null });
+      return { ...thumbnailAssetFixture(workpieceId, input.workspace_id, "22222222-2222-4222-8222-222222222222", "pending"), reference_committed_at: "2026-07-15T12:00:00.000Z" };
+    },
+    async transitionThumbnailAsset(workpieceId, input, options) {
+      calls.transitionThumbnailAsset.push({ workpieceId, input, options: options ?? null });
+      return thumbnailAssetFixture(workpieceId, input.workspace_id, "22222222-2222-4222-8222-222222222222", input.target_status);
+    },
+    async readThumbnailAsset(workpieceId, assetId, options) {
+      calls.readThumbnailAsset.push({ workpieceId, assetId, options: options ?? null });
+      return thumbnailAssetFixture(workpieceId, "33333333-3333-4333-8333-333333333333", "22222222-2222-4222-8222-222222222222", "ready");
+    },
+    async reconcileThumbnailAssets(workpieceId, input, options) {
+      calls.reconcileThumbnailAssets.push({ workpieceId, input, options: options ?? null });
+      return { assets: [], reconciled_count: 0 };
+    },
+    async renderThumbnailComposite(workpieceId, input, options) {
+      calls.renderThumbnailComposite.push({ workpieceId, input, options: options ?? null });
+      return { ...thumbnailAssetFixture(workpieceId, input.workspace_id, input.operation_id, "pending"), asset_kind: "thumbnail_composite" };
+    },
+    async getThumbnailBrandStatus(workpieceId, input, options) {
+      calls.getThumbnailBrandStatus.push({ workpieceId, input, options: options ?? null });
+      return { state: "unresolved", binding: null, profile_label: null, message: "Branding will be resolved on render." };
+    },
+    async getQuenchCanonicalReleaseProjection(workpieceId, workspaceId, options) {
+      calls.getQuenchCanonicalReleaseProjection.push({ workpieceId, workspaceId, options });
+      return { contract_version:"forge.quench-release-projection.v2", workspace_id:workspaceId, workpiece_id:workpieceId,
+        hammer:{manifest_snapshot_id:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",manifest_path:"hammer/release-packet/manifest.v1.json",manifest_version:1,manifest_content_hash:"a".repeat(64),manifest:{},readiness:{}},
+        metadata:{revision:1,content_hash:"b".repeat(64),episode:{}},thumbnails:{candidate_set:null,active_binding_id:null,active_binding_revision:null,candidates:[]},destination_capabilities:[],current_decisions:[],projected_at:"2026-07-19T00:00:00.000Z" };
     },
     async generateImageMapCandidates(workpieceId, input, options) {
       calls.generateImageMapCandidates.push({ workpieceId, input, options: options ?? null });
@@ -2276,7 +2350,7 @@ function createRoleGateSupabase({ userId, workspaceId, workspaceOwnerId, memberR
             };
           }
 
-          if (tableName === "workpiece_ready_script_meta") {
+          if (tableName === "workpiece_ready_script_meta" || tableName === "current_workpiece_ready_scripts") {
             return {
               async upsert() {
                 return { data: null, error: null };
@@ -2401,6 +2475,7 @@ function createReadyQueueSupabase({
   readyMeta = [],
   queueState = [],
   events = [],
+  recordedRows = [],
 } = {}) {
   const state = {
     fileRows: files.map((row) => ({ ...row })),
@@ -2622,7 +2697,7 @@ function createReadyQueueSupabase({
             };
           }
 
-          if (tableName === "workpiece_ready_script_meta") {
+          if (tableName === "workpiece_ready_script_meta" || tableName === "current_workpiece_ready_scripts") {
             return {
               select() {
                 let workspaceFilter = null;
@@ -2635,9 +2710,14 @@ function createReadyQueueSupabase({
                         assert.equal(innerField, "workpiece_id");
                         const idSet = new Set(values);
                         return {
-                          data: state.readyMetaRows.filter(
-                            (row) => row.workspace_id === workspaceFilter && idSet.has(row.workpiece_id),
-                          ),
+                          data: state.readyMetaRows
+                            .filter((row) => row.workspace_id === workspaceFilter && idSet.has(row.workpiece_id))
+                            .map((row, index) => ({
+                              script_revision: 1,
+                              script_hash: "a".repeat(64),
+                              transition_id: `11111111-1111-4111-8111-${String(index + 1).padStart(12, "0")}`,
+                              ...row,
+                            })),
                           error: null,
                         };
                       },
@@ -2816,6 +2896,25 @@ function createReadyQueueSupabase({
                             };
                           },
                         };
+                      },
+                    };
+                  },
+                };
+              },
+            };
+          }
+
+          if (tableName === "current_workpiece_recorded_takes") {
+            return {
+              select() {
+                return {
+                  in(field, values) {
+                    assert.equal(field, "workpiece_id");
+                    const idSet = new Set(values);
+                    return {
+                      async order(orderField, options) {
+                        assert.equal(orderField, "kept_at");
+                        return { data: sortRows(recordedRows.filter((row) => idSet.has(row.workpiece_id)), "kept_at", options?.ascending ?? true), error: null };
                       },
                     };
                   },
@@ -3319,6 +3418,41 @@ test("POST /tongs/workpieces/:id/commit-file dispatches commitFile", async () =>
   assert.equal(body.ok, true);
 });
 
+test("POST /tongs/workpieces/:id/ready-transition forwards exact revision/hash authority", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service, "test-token");
+  const response = await handler(new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/ready-transition",
+    {
+      method: "POST",
+      headers: {
+        authorization: "Bearer test-token",
+        "x-forge-user-authorization": "Bearer user-token",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        workspace_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        script_path: "script/script.md",
+        expected_script_revision: 7,
+        expected_script_hash: "a".repeat(64),
+        idempotency_key: "hearth-publish:workpiece:7:hash",
+        publish_evidence: {
+          transition: "hearth.script.published.v1",
+          script_path: "script/script.md",
+          script_revision: 7,
+          script_hash: "a".repeat(64),
+          validation: { validator_version: "shared-script-tags-v1", ok: true, issue_count: 0 },
+        },
+      }),
+    },
+  ));
+  assert.equal(response.status, 200);
+  assert.equal(calls.transitionHearthScriptReady.length, 1);
+  assert.equal(calls.transitionHearthScriptReady[0].input.expected_script_revision, 7);
+  assert.equal(calls.transitionHearthScriptReady[0].input.expected_script_hash, "a".repeat(64));
+  assert.equal(calls.transitionHearthScriptReady[0].input.user_access_token, "user-token");
+});
+
 test("POST /tongs/workpieces/:id/commit-file returns controlled error payload for upstream db/storage failures", async () => {
   const { service } = mockService();
   service.commitFile = async () => {
@@ -3438,7 +3572,7 @@ test("GET /tongs/workpieces/:id/recording-truth dispatches getWorkpieceRecording
   assert.equal(body.data?.truth?.latest_kept_take?.file_path, "recordings/episode-kept.webm");
 });
 
-test("POST /tongs/workpieces/:id/generate-thumbnail dispatches generateEpisodeThumbnail", async () => {
+test("POST /tongs/workpieces/:id/generate-thumbnail rejects legacy package mutation", async () => {
   const { service, calls } = mockService();
   const handler = createTongsCommitApiHandlerWithService(service);
 
@@ -3451,6 +3585,7 @@ test("POST /tongs/workpieces/:id/generate-thumbnail dispatches generateEpisodeTh
     body: JSON.stringify({
       workspace_id: "11111111-1111-4111-8111-111111111111",
       episode_id: "11111111-1111-4111-8111-111111111111",
+      operation_id: "22222222-2222-4222-8222-222222222222",
       concept_id: "concept-01",
       confirm_spend: true,
     }),
@@ -3459,15 +3594,34 @@ test("POST /tongs/workpieces/:id/generate-thumbnail dispatches generateEpisodeTh
   const response = await handler(request);
   const body = await response.json();
 
+  assert.equal(response.status, 410);
+  assert.equal(calls.generateEpisodeThumbnail.length, 0);
+  assert.equal(body.error.code, "legacy_thumbnail_generation_removed");
+});
+
+test("canonical thumbnail generation forwards exact v3 authority and stage-only intent", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request("http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/generate-thumbnail", {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer user-token" },
+    body: JSON.stringify({
+      workspace_id: "33333333-3333-4333-8333-333333333333",
+      operation_id: "22222222-2222-4222-8222-222222222222",
+      prompt: "derived prompt export",
+      canonical_stage_only: true,
+      concept_revision_id: "concept-revision-7",
+      render_recipe_id: "recipe-9",
+      render_recipe_revision: 4,
+      aspect: "16:9",
+    }),
+  });
+  const response = await handler(request);
   assert.equal(response.status, 200);
-  assert.equal(calls.generateEpisodeThumbnail.length, 1);
-  assert.equal(calls.generateEpisodeThumbnail[0].workpieceId, "11111111-1111-4111-8111-111111111111");
-  assert.equal(calls.generateEpisodeThumbnail[0].input.concept_id, "concept-01");
-  assert.equal(calls.generateEpisodeThumbnail[0].input.user_access_token, "user_token_abc");
-  assert.equal(body.ok, true);
-  assert.equal(body.data?.version?.status, "ready");
-  assert.equal(typeof body.data?.asset?.storage_key, "string");
-  assert.equal(body.data?.primary_version_id, "44444444-4444-4444-8444-444444444444");
+  assert.equal(calls.generateEpisodeThumbnail[0].input.canonical_stage_only, true);
+  assert.equal(calls.generateEpisodeThumbnail[0].input.concept_revision_id, "concept-revision-7");
+  assert.equal(calls.generateEpisodeThumbnail[0].input.render_recipe_id, "recipe-9");
+  assert.equal(calls.generateEpisodeThumbnail[0].input.render_recipe_revision, 4);
 });
 
 test("POST /tongs/workpieces/:id/image-map/generate-candidates dispatches generateImageMapCandidates", async () => {
@@ -3705,6 +3859,104 @@ test("GET /tongs/workpieces/:id/read-file?encoding=base64 dispatches readWorkpie
   assert.equal(body.data?.bytes_base64, "AQID");
 });
 
+test("thumbnail asset lifecycle routes require and forward canonical operation identity", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const workspaceId = "33333333-3333-4333-8333-333333333333";
+  const operationId = "22222222-2222-4222-8222-222222222222";
+  const response = await handler(new Request(`http://localhost/tongs/workpieces/${workpieceId}/thumbnail-assets/stage`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer user_token_abc" },
+    body: JSON.stringify({
+      workspace_id: workspaceId,
+      operation_id: operationId,
+      asset_kind: "thumbnail_image",
+      mime_type: "image/png",
+      bytes_base64: "iVBORw0KGgo=",
+      provider: "upload",
+      reference_pointer: "/episode/thumbnail/base_versions/0/asset_id",
+    }),
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(calls.stageThumbnailAsset.length, 1);
+  assert.equal(calls.stageThumbnailAsset[0].input.operation_id, operationId);
+  assert.equal(calls.stageThumbnailAsset[0].options.userAccessToken, "user_token_abc");
+  const body = await response.json();
+  assert.equal(body.data.status, "pending");
+  assert.equal(body.data.operation_id, operationId);
+});
+
+test("thumbnail package reference route preserves optimistic concurrency input", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const assetId = "55555555-5555-4555-8555-555555555555";
+  const pointer = "/episode/thumbnail/base_versions/0/asset_id";
+  const response = await handler(new Request(`http://localhost/tongs/workpieces/${workpieceId}/thumbnail-assets/commit-reference`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer user_token_abc" },
+    body: JSON.stringify({
+      workspace_id: "33333333-3333-4333-8333-333333333333",
+      asset_id: assetId,
+      expected_metadata_updated_at: "2026-07-15T10:00:00.000Z",
+      metadata_document: { episode: { thumbnail: { base_versions: [{ asset_id: assetId }] } } },
+      reference_pointer: pointer,
+    }),
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(calls.commitThumbnailAssetReference.length, 1);
+  assert.equal(calls.commitThumbnailAssetReference[0].input.reference_pointer, pointer);
+  assert.equal(calls.commitThumbnailAssetReference[0].input.expected_metadata_updated_at, "2026-07-15T10:00:00.000Z");
+});
+
+test("thumbnail composite route carries versioned deterministic render inputs", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const response = await handler(new Request(`http://localhost/tongs/workpieces/${workpieceId}/thumbnail-assets/render-composite`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer user_token_abc" },
+    body: JSON.stringify({
+      workspace_id: "33333333-3333-4333-8333-333333333333",
+      operation_id: "22222222-2222-4222-8222-222222222222",
+      base_asset_id: "55555555-5555-4555-8555-555555555555",
+      recipe_snapshot_hash: "a".repeat(64),
+      recipe_snapshot: {
+        title_text: "Canonical title", title_revision: 2, template_revision: 3,
+        text_color: "#FFFFFF", shadow_color: "#000000", shadow_opacity: 0.7,
+        placement: "bottom", max_lines: 2, horizontal_padding_percent: 8,
+      },
+      width: 1280, height: 720, encoding: { format: "png", quality: 100 },
+    }),
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(calls.renderThumbnailComposite.length, 1);
+  assert.equal(calls.renderThumbnailComposite[0].input.recipe_snapshot.title_revision, 2);
+  assert.equal(calls.renderThumbnailComposite[0].input.encoding.format, "png");
+});
+
+test("GET optional base64 read returns a non-error missing payload", async () => {
+  const { service, calls } = mockService();
+  service.readWorkpieceBinary = async (workpieceId, path) => {
+    calls.readWorkpieceBinary.push({ workpieceId, path });
+    return { found: false };
+  };
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/read-file?path=assets%2Foptional.png&encoding=base64&optional=1",
+    { method: "GET" },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.exists, false);
+  assert.equal(calls.readWorkpieceBinary.length, 1);
+});
+
 test("GET /tongs/workpieces/:id/read-file?encoding=binary returns raw bytes", async () => {
   const { service, calls } = mockService();
   const handler = createTongsCommitApiHandlerWithService(service);
@@ -3807,6 +4059,9 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   const providerCalls = [];
   const assetInsertCalls = [];
   const commitCalls = [];
+  const stageCalls = [];
+  const referenceCalls = [];
+  const transitionCalls = [];
 
   const imageProvider = {
     async generateImage(input) {
@@ -3855,6 +4110,38 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   };
 
   const service = new TongsCommitService(supabase, "forge-workpieces", imageProvider);
+  const stagedAsset = {
+    id: "55555555-5555-4555-8555-555555555555",
+    workspace_id: workspaceId,
+    workpiece_id: workpieceId,
+    operation_id: "44444444-4444-4444-8444-444444444444",
+    asset_kind: "thumbnail_image",
+    status: "pending",
+    path: `assets/thumbnails/${workpieceId}/44444444-4444-4444-8444-444444444444.png`,
+    mime_type: "image/png",
+    bytes: 3,
+    content_hash: "a".repeat(64),
+    storage_bucket: "forge-workpieces",
+    storage_key: `workpieces/${workpieceId}/assets/thumbnails/44444444-4444-4444-8444-444444444444.png`,
+    reference_committed_at: null,
+    ready_at: null,
+    failed_at: null,
+    failure_code: null,
+    failure_message: null,
+    metadata: {},
+  };
+  service.stageThumbnailAsset = async (inputWorkpieceId, input) => {
+    stageCalls.push({ inputWorkpieceId, input });
+    return stagedAsset;
+  };
+  service.commitThumbnailAssetReference = async (inputWorkpieceId, input) => {
+    referenceCalls.push({ inputWorkpieceId, input });
+    return { ...stagedAsset, reference_committed_at: "2026-02-28T02:00:00.000Z" };
+  };
+  service.transitionThumbnailAsset = async (inputWorkpieceId, input) => {
+    transitionCalls.push({ inputWorkpieceId, input });
+    return { ...stagedAsset, status: "ready", ready_at: "2026-02-28T02:00:01.000Z" };
+  };
 
   service.getWorkspaceOrThrow = async () => ({
     id: workspaceId,
@@ -3876,6 +4163,7 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   service.resolveUserIdFromAccessToken = async () => userId;
   service.readWorkpieceJson = async () => ({
     found: true,
+    file_row: { updated_at: "2026-02-28T01:59:00.000Z" },
     data: {
       schema: "forge.metadata.v1",
       workpiece_id: workpieceId,
@@ -4007,6 +4295,7 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   const result = await service.generateEpisodeThumbnail(workpieceId, {
     workspace_id: workspaceId,
     episode_id: workpieceId,
+    operation_id: "44444444-4444-4444-8444-444444444444",
     concept_id: "concept-01",
     confirm_spend: true,
     lane: "forge",
@@ -4017,27 +4306,41 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   assert.equal(providerCalls[0].aspect, "16:9");
   assert.match(providerCalls[0].prompt, /Host in studio with neon glow/);
   assert.match(providerCalls[0].prompt, /Visual style: Studio Photography\./);
-  assert.equal(assetInsertCalls.length, 1);
-  assert.equal(assetInsertCalls[0].workspace_id, workspaceId);
-  assert.equal(assetInsertCalls[0].workpiece_id, workpieceId);
-  assert.equal(assetInsertCalls[0].bytes, 3);
-  assert.equal(assetInsertCalls[0].asset_kind, "thumbnail_image");
-  assert.equal(assetInsertCalls[0].status, "ready");
-  assert.equal(assetInsertCalls[0].metadata_json.schema, "forge.thumbnail-image.v1");
-  assert.equal(assetInsertCalls[0].metadata_json.concept_id, "concept-01");
-  assert.equal(assetInsertCalls[0].metadata_json.style_preset, "studio_photography");
-  assert.equal(commitCalls.length, 2);
-  assert.equal(commitCalls[0].input.path.startsWith("assets/thumbnails/"), true);
-  assert.equal(commitCalls[1].input.path, "metadata.json");
-  assert.equal(commitCalls[1].input.json.episode.thumbnail.concepts[0].style_preset, "studio_photography");
-  assert.equal(commitCalls[1].input.json.episode.thumbnail.versions.length, 2);
-  assert.equal(commitCalls[1].input.json.episode.thumbnail.primary_version_id, result.version.id);
-  assert.equal(commitCalls[1].input.json.episode.launch_variants.length, 1);
-  assert.equal(commitCalls[1].input.json.launch_variants.length, 1);
+  assert.equal(assetInsertCalls.length, 0);
+  assert.equal(commitCalls.length, 0);
+  assert.equal(stageCalls.length, 1);
+  assert.equal(stageCalls[0].input.operation_id, "44444444-4444-4444-8444-444444444444");
+  assert.equal(stageCalls[0].input.asset_kind, "thumbnail_image");
+  assert.equal(referenceCalls.length, 1);
+  assert.equal(referenceCalls[0].input.reference_pointer, "/episode/thumbnail/versions/1/asset_id");
+  assert.equal(referenceCalls[0].input.metadata_document.episode.thumbnail.concepts[0].style_preset, "studio_photography");
+  assert.equal(referenceCalls[0].input.metadata_document.episode.thumbnail.versions.length, 2);
+  assert.equal(referenceCalls[0].input.metadata_document.episode.launch_variants.length, 1);
+  assert.equal(transitionCalls.length, 1);
+  assert.equal(transitionCalls[0].input.target_status, "ready");
   assert.equal(result.version.status, "ready");
   assert.equal(result.primary_version_id, result.version.id);
   assert.equal(result.updated_episode_package.launch_variants.length, 1);
   assert.equal(result.asset.storage_bucket, "forge-workpieces");
+
+  service.getThumbnailAssetByOperation = async () => ({
+    id: stagedAsset.id, workspace_id: workspaceId, workpiece_id: workpieceId,
+    operation_id: "66666666-6666-4666-8666-666666666666", asset_kind: "thumbnail_image", status: "pending",
+    path: stagedAsset.path, mime_type: "image/png", bytes: 3, content_hash: "b".repeat(64),
+    storage_bucket: stagedAsset.storage_bucket, storage_key: stagedAsset.storage_key,
+    reference_committed_at: null, ready_at: null, failed_at: null, failure_code: null, failure_message: null,
+    metadata_json: { concept_revision_id: "concept-revision-1", render_recipe_id: "recipe-1", render_recipe_revision: 2 },
+  });
+  const replayResult = await service.generateEpisodeThumbnail(workpieceId, {
+    workspace_id: workspaceId, episode_id: workpieceId,
+    operation_id: "66666666-6666-4666-8666-666666666666", prompt: "derived prompt",
+    canonical_stage_only: true, concept_revision_id: "concept-revision-1",
+    render_recipe_id: "recipe-1", render_recipe_revision: 2,
+    confirm_spend: true, lane: "forge", user_access_token: "token_abc",
+  });
+  assert.equal(replayResult.canonical_stage_only, true);
+  assert.equal(replayResult.asset.id, stagedAsset.id);
+  assert.equal(providerCalls.length, 1, "Canonical operation replay called the image provider again");
 });
 
 test("TongsCommitService.generateImageMapCandidates writes candidate assets and canonical image-map refs", async () => {
@@ -7319,7 +7622,7 @@ test("TongsCommitService.listWorkspaceReadyScripts emits one canonical row per w
   assert.deepEqual(result[0]?.script_paths, ["script/script.published.md", "script/script.md"]);
 });
 
-test("TongsCommitService.listWorkspaceReadyScripts keeps distinct workpieces even when titles match", async () => {
+test("TongsCommitService.listWorkspaceReadyScripts never synthesizes Ready rows from script paths", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const viewerId = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
   const workpieceA = "11111111-1111-4111-8111-111111111111";
@@ -7373,8 +7676,7 @@ test("TongsCommitService.listWorkspaceReadyScripts keeps distinct workpieces eve
     userAccessToken: "viewer_token",
   });
 
-  assert.equal(result.length, 2);
-  assert.deepEqual(new Set(result.map((row) => row.workpiece_id)), new Set([workpieceA, workpieceB]));
+  assert.deepEqual(result, []);
 });
 
 test("TongsCommitService.listWorkspaceReadyScripts falls back to Untitled Episode instead of script tags", async () => {
@@ -7675,6 +7977,22 @@ test("DELETE /tongs/workpieces/:id/ready-script requires x-forge-user-authorizat
   assert.equal(body.error?.code, "missing_user_token_header");
   assert.equal(typeof body.error?.request_id, "string");
   assert.equal(calls.deleteReadyScript.length, 0);
+});
+
+test("POST /tongs/workpieces/:id/quench/release-projection forwards canonical identity and user authority", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const response = await handler(new Request("http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/quench/release-projection", {
+    method:"POST",headers:{"content-type":"application/json","x-forge-user-authorization":"Bearer user_token_abc"},
+    body:JSON.stringify({workspace_id:"33333333-3333-4333-8333-333333333333"}),
+  }));
+  const body=await response.json();assert.equal(response.status,200);assert.equal(body.data?.contract_version,"forge.quench-release-projection.v2");
+  assert.deepEqual(calls.getQuenchCanonicalReleaseProjection[0],{workpieceId:"11111111-1111-4111-8111-111111111111",workspaceId:"33333333-3333-4333-8333-333333333333",options:{userAccessToken:"user_token_abc"}});
+});
+
+test("POST /tongs/workpieces/:id/quench/release-projection requires user authority", async () => {
+  const {service,calls}=mockService();const handler=createTongsCommitApiHandlerWithService(service);const response=await handler(new Request("http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/quench/release-projection",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({workspace_id:"33333333-3333-4333-8333-333333333333"})}));
+  assert.equal(response.status,401);assert.equal(calls.getQuenchCanonicalReleaseProjection.length,0);
 });
 
 test("POST /tongs/workpieces/:id/commit-file for ready path requires x-forge-user-authorization header", async () => {
@@ -8245,38 +8563,26 @@ test("TongsCommitService.listWorkspaceCanonicalRecordings returns kept takes gro
         archive_reason: null,
       },
     ],
-    events: [
+    recordedRows: [
       {
-        id: 201,
         workpiece_id: "11111111-1111-4111-8111-111111111111",
-        event_name: "take_kept",
-        payload: {
-          file_path: "recordings/beta/episode-beta.mp4",
-          bytes: 4096,
-          content_type: "video/mp4",
-          original_name: "episode-beta.mp4",
-        },
-        correlation_id: null,
-        written_by_tool: "anvil",
-        written_by_tool_version: "1.0.0",
-        written_by_lane: "forge-managed",
-        created_at: "2026-03-18T12:00:00.000Z",
+        completion_id: "44444444-4444-4444-8444-444444444444",
+        keep_id: "55555555-5555-4555-8555-555555555555",
+        capture_session_id: "66666666-6666-4666-8666-666666666666",
+        media_path: "recordings/beta/episode-beta.mp4",
+        completion_evidence: { artifact_validation: { bytes: 4096, content_type: "video/mp4", original_name: "episode-beta.mp4" } },
+        completed_at: "2026-03-18T11:59:00.000Z",
+        kept_at: "2026-03-18T12:00:00.000Z",
       },
       {
-        id: 202,
         workpiece_id: "22222222-2222-4222-8222-222222222222",
-        event_name: "take_kept",
-        payload: {
-          file_path: "recordings/episode-alpha.wav",
-          bytes: 2048,
-          content_type: "audio/wav",
-          original_name: "episode-alpha.wav",
-        },
-        correlation_id: null,
-        written_by_tool: "anvil",
-        written_by_tool_version: "1.0.0",
-        written_by_lane: "forge-managed",
-        created_at: "2026-03-17T12:00:00.000Z",
+        completion_id: "77777777-7777-4777-8777-777777777777",
+        keep_id: "88888888-8888-4888-8888-888888888888",
+        capture_session_id: "99999999-9999-4999-8999-999999999999",
+        media_path: "recordings/episode-alpha.wav",
+        completion_evidence: { artifact_validation: { bytes: 2048, content_type: "audio/wav", original_name: "episode-alpha.wav" } },
+        completed_at: "2026-03-17T11:59:00.000Z",
+        kept_at: "2026-03-17T12:00:00.000Z",
       },
     ],
   });

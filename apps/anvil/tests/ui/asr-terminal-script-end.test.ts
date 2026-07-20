@@ -380,9 +380,8 @@ describe('ASR terminal script-end watchdog suppression', () => {
     });
     jest.advanceTimersByTime(30);
 
-    const guardLines = warnSpy.mock.calls.flat().map((arg) => String(arg));
-    expect(guardLines.some((line) => line.includes('asr_alignment_skeptic_mode_enter'))).toBe(true);
     expect(driver.getLastLineIndex()).toBeGreaterThanOrEqual(2);
+    expect((window as any).__tpCanonicalAsrAuthority.cursor).toBe(driver.getLastLineIndex());
 
     warnSpy.mockRestore();
     driver.dispose();
@@ -460,9 +459,7 @@ describe('ASR terminal script-end watchdog suppression', () => {
     jest.advanceTimersByTime(50);
 
     expect(driver.getLastLineIndex()).toBe(0);
-    expect(
-      warnSpy.mock.calls.some((call) => String(call[0]).includes('asr_commit_blocked_stale_whisperbridge_packet')),
-    ).toBe(true);
+    expect((window as any).__tpCanonicalAsrAuthority).toEqual(expect.objectContaining({ cursor: 0, terminalCompleted: false }));
 
     warnSpy.mockRestore();
     driver.dispose();

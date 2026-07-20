@@ -2,6 +2,14 @@
 
 import { createAsrScrollDriver } from '../../src/features/asr/asr-scroll-driver';
 
+function establishSpeechRuntime(): void {
+  window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', { detail: {
+    speechRunningActual: true, recognizerAttached: true, activeReadMode: true, lastAudioChunkAt: Date.now(),
+  } }));
+  window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true } }));
+  window.dispatchEvent(new CustomEvent('tp:asr:audio-chunk', { detail: { ts: Date.now() } }));
+}
+
 describe('ASR auto stall rescue', () => {
   let rafSpy: jest.SpyInstance<number, [FrameRequestCallback]>;
   let cafSpy: jest.SpyInstance<void, [number]>;
@@ -70,6 +78,12 @@ describe('ASR auto stall rescue', () => {
       },
     };
     (window as any).__TP_MARKER_PCT = 0.4;
+    (window as any).__tpAsrRuntimeStatus = {
+      speechRunningActual: true,
+      recognizerAttached: true,
+      activeReadMode: true,
+      lastAudioChunkAt: Date.now(),
+    };
   });
 
   afterEach(() => {
@@ -79,14 +93,16 @@ describe('ASR auto stall rescue', () => {
     cafSpy.mockRestore();
     delete (window as any).__tpStore;
     delete (window as any).__TP_MARKER_PCT;
+    delete (window as any).__tpAsrRuntimeStatus;
   });
 
   test('does not auto-rescue adjacent content during the opening committed lines', async () => {
     const driver = createAsrScrollDriver();
+    establishSpeechRuntime();
 
     driver.setLastLineIndex(0);
 
-    driver.ingest('farebox chirps coffee lids click', false, {
+    driver.ingest('farebox chirps coffee lids click', true, {
       currentIdx: 0,
       matchId: 'opening-forward-0',
       match: {
@@ -124,10 +140,11 @@ describe('ASR auto stall rescue', () => {
   test('does not self-advance onto content even after the session has established multiple real commits', async () => {
     const scroller = document.getElementById('viewer') as HTMLElement;
     const driver = createAsrScrollDriver();
+    establishSpeechRuntime();
 
     driver.setLastLineIndex(0);
 
-    driver.ingest('farebox chirps coffee lids click', false, {
+    driver.ingest('farebox chirps coffee lids click', true, {
       currentIdx: 0,
       matchId: 'establish-forward-0',
       match: {
@@ -138,7 +155,7 @@ describe('ASR auto stall rescue', () => {
     });
     await jest.advanceTimersByTimeAsync(250);
 
-    driver.ingest('the seats remember every early shift', false, {
+    driver.ingest('the seats remember every early shift', true, {
       currentIdx: 1,
       matchId: 'establish-forward-1',
       match: {
@@ -149,7 +166,7 @@ describe('ASR auto stall rescue', () => {
     });
     await jest.advanceTimersByTimeAsync(250);
 
-    driver.ingest('neon ads hum above the aisle', false, {
+    driver.ingest('neon ads hum above the aisle', true, {
       currentIdx: 2,
       matchId: 'establish-forward-2',
       match: {

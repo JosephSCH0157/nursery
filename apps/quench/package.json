@@ -3,10 +3,18 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "engines": { "node": "20.20.0" },
+  "volta": { "node": "20.20.0" },
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit",
-    "types": "tsc -p tsconfig.json --noEmit",
-    "test:hammer-ingest": "tsx tests/hammerReleasePacketIngest.test.ts"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "types": "pnpm typecheck",
+    "lint": "tsc -p tsconfig.json --noEmit",
+    "test:hammer-ingest": "tsx tests/hammerReleasePacketIngest.test.ts",
+    "test": "tsx tests/hammerReleasePacketIngest.test.ts && tsx tests/releaseReadinessVerdict.test.ts && tsx tests/publishAuthorityGuard.test.ts && tsx --test tests/releaseDecisionPersistenceContract.test.ts tests/canonicalReleaseProjection.test.ts"
+  },
+  "dependencies": {
+    "@forge/contracts": "workspace:*"
   },
   "devDependencies": {
     "tsx": "^4.20.6",

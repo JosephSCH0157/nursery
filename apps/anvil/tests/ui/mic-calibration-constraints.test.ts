@@ -2,8 +2,24 @@
 
 describe('mic calibration-aware constraints', () => {
   beforeEach(() => {
+    jest.restoreAllMocks();
+    jest.dontMock('../../src/asr/active-profile');
     jest.resetModules();
     localStorage.clear();
+    delete (window as any).__tpCalibrationRuntime;
+    delete (window as any).__tpMic;
+    delete (window as any).AudioContext;
+    delete (window as any).webkitAudioContext;
+  });
+
+  afterEach(() => {
+    try { (window as any).__tpMic?.releaseMic?.(); } catch {}
+    jest.dontMock('../../src/asr/active-profile');
+    jest.restoreAllMocks();
+    delete (window as any).__tpCalibrationRuntime;
+    delete (window as any).__tpMic;
+    delete (window as any).AudioContext;
+    delete (window as any).webkitAudioContext;
   });
 
   test('applies active capture constraints when requestMic is called with capture profile', async () => {

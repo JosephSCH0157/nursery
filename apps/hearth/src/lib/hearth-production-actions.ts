@@ -1,10 +1,23 @@
 import { HEARTH_THUMBNAIL_TITLE_CONTRACT } from "./hearth-thumbnail-title-contract";
-import { resolveHearthProductionArtifactFeedback } from "./hearth-production-feedback";
+import { validateHearthProductionArtifactOutput } from "./hearth-production-feedback";
 import {
   commitWorkpieceProductionArtifact,
   type ProductionArtifactKind,
 } from "./hearth-production-repo";
-import type { EpisodeSeoTitle } from "./episode-package-v2";
+import {
+  normalizeSeoTags,
+  type EpisodeSeoTitle,
+} from "./episode-package-v2";
+
+export function resolveAcceptedTagProposal(args: {
+  canonicalTags: string[];
+  proposedTags: string[];
+  mode: "replace" | "merge";
+}): string[] {
+  return args.mode === "replace"
+    ? normalizeSeoTags(args.proposedTags)
+    : normalizeSeoTags([...args.canonicalTags, ...args.proposedTags]);
+}
 
 export type ProductionAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack";
 
@@ -35,60 +48,72 @@ export const PRODUCTION_ACTION_ARTIFACT_KIND: Record<ProductionAction, Productio
 export function buildProductionPrompt(args: {
   action: ProductionAction;
   scriptVersion: number;
-  scriptText: string;
   episodeTitle: string;
 }): string {
   const header = [
     `Production mode request for approved Script Version ${args.scriptVersion}.`,
-    "Use the approved script text below as the only source for script-derived outputs.",
+    "Use the approved script in episode_context as the only source for script-derived outputs.",
     "Do not request topic basics. Do not output markdown tables.",
     "",
     `EPISODE_TITLE: ${args.episodeTitle || "Untitled Episode"}`,
     `SCRIPT_VERSION: ${args.scriptVersion}`,
-    "APPROVED_SCRIPT_TEXT:",
-    args.scriptText,
     "",
   ];
 
   if (args.action === "seo") {
     return [
       ...header,
-      "Return plain text with exact sections:",
+      "Return plain text only in this exact parseable shape. Replace every <...> value; do not add markdown, fences, or commentary:",
       "SEO_TITLES:",
-      "- 5 options total",
-      "- include labels: SAFE, SPICY, BALANCED_1, BALANCED_2, BALANCED_3",
-      `- every title must preserve a thumbnail-safe hook of ${HEARTH_THUMBNAIL_TITLE_CONTRACT.preferred_max_words} words or fewer`,
+      "SAFE: <title>",
+      "SPICY: <title>",
+      "BALANCED_1: <title>",
+      "BALANCED_2: <title>",
+      "BALANCED_3: <title>",
       "",
-      "DESCRIPTION:",
-      "- one YouTube-ready description paragraph block",
-      "",
-      "PINNED_COMMENT_IDEAS:",
-      "- 3 concise options",
+      `Each title must preserve a thumbnail-safe hook of ${HEARTH_THUMBNAIL_TITLE_CONTRACT.preferred_max_words} words or fewer.`,
     ].join("\n");
   }
 
   if (args.action === "tags") {
     return [
       ...header,
-      "Return plain text with exact sections:",
+      "Return plain text only in this exact parseable shape. Replace every <...> value; do not add markdown, fences, or commentary:",
       "TAGS_TOP10:",
-      "- comma-separated (10 items)",
+      "<tag 1>, <tag 2>, <tag 3>, <tag 4>, <tag 5>, <tag 6>, <tag 7>, <tag 8>, <tag 9>, <tag 10>",
       "",
       "TAGS_FULL:",
-      "- comma-separated (20-35 items)",
+      "<20 to 35 comma-separated tags>",
     ].join("\n");
   }
 
   if (args.action === "thumbnails") {
     return [
       ...header,
-      "Return plain text with exactly 5 concepts in this format:",
-      "THUMBNAIL_01",
-      "Headline: ...",
-      "Image concept: ...",
-      "Mood/style: ...",
+      "Return plain text only in this exact structure. Do not add research commentary, markdown, fences, or explanations:",
+      "THUMBNAIL_STRATEGY",
+      "Episode promise: <the truthful promise this episode fulfills>",
+      "Intended viewer: <the specific viewer this should attract>",
+      "Curiosity mechanism: <why the right viewer will want to click>",
+      "Editorial positioning: <the honest angle that differentiates this episode>",
+      "Truthful connection: <how the strategy is supported by the approved script>",
+      "Prohibited exaggerations: <comma-separated claims or implications the thumbnail must avoid>",
       "",
-      "Repeat THUMBNAIL_02 ... THUMBNAIL_05 with same fields.",
+      "THUMBNAIL_01",
+      "Headline: <short internal concept name, not rendered text>",
+      "Subject: <primary subject>",
+      "Focal action: <what the subject is doing or expressing>",
+      "Composition: <provider-neutral layout and crop>",
+      "Emotional tone: <intended feeling>",
+      "Visual hierarchy: <what is noticed first, second, and last>",
+      "Title compatibility: <how canonical title text fits without duplicating the image>",
+      "Integrity rationale: <why this image truthfully represents the approved script>",
+      "Render direction: <clean base-art direction with no text, letters, logos, or watermarks>",
+      "Mood/style: <visual style>",
+      "",
+      "Repeat THUMBNAIL_02 through THUMBNAIL_05 with every field present.",
+      "The five concepts must use meaningfully different subjects or compositions.",
+      "Never request burned-in typography; Forge composes the canonical title locally.",
     ].join("\n");
   }
 
@@ -155,16 +180,27 @@ export async function persistProductionArtifact(args: {
   refreshEpisodePackage: () => Promise<void>;
   loadLatestReleasePrepPack: (scriptVersion: number) => Promise<void>;
   setAiRuntimeWarning: (message: string | null) => void;
-  setMetadataTitlesDraft: (next: EpisodeSeoTitle[]) => void;
+  setMetadataTitlesDraft: (next: EpisodeSeoTitle[] | ((current: EpisodeSeoTitle[]) => EpisodeSeoTitle[])) => void;
   setMetadataDescriptionShortDraft: (next: string) => void;
   setMetadataDescriptionLongDraft: (next: string) => void;
   setMetadataTagsDraft: (next: string[]) => void;
+  onTagProposal?: (proposal: { tags: string[]; scriptVersion: number; generatedAt: string }) => void;
+  generatedAt?: string;
+  reuseStoredArtifact?: boolean;
 }) {
   const episodeId = args.workpieceId?.trim();
   if (!episodeId) return;
 
-  const generatedAt = new Date().toISOString();
+  const generatedAt = args.generatedAt ?? new Date().toISOString();
   const artifactKind = PRODUCTION_ACTION_ARTIFACT_KIND[args.action];
+  const validation = validateHearthProductionArtifactOutput({
+    action: args.action,
+    assistantText: args.assistantText,
+  });
+  if (!validation.ok && args.action !== "thumbnails") {
+    args.setAiRuntimeWarning(validation.error);
+    return;
+  }
   const payload = args.action === "image_beat_sheet"
     ? {
         script_version: args.scriptVersion,
@@ -187,28 +223,28 @@ export async function persistProductionArtifact(args: {
       scriptVersion: args.scriptVersion,
       kind: artifactKind,
       payload,
+      syncCanonical: args.action !== "tags",
+      artifactAlreadyPersisted: args.reuseStoredArtifact,
     });
 
     if (!committed.ok) {
-      args.setAiRuntimeWarning(`Saved response in chat, but failed to persist ${PRODUCTION_ACTION_LABEL[args.action]}.`);
+      const stage = committed.stage ? ` at ${committed.stage}` : "";
+      args.setAiRuntimeWarning(`${PRODUCTION_ACTION_LABEL[args.action]} failed${stage}: ${committed.reason} The paid response remains recoverable from the saved production artifact.`);
+      return committed;
+    }
+    if (!validation.ok) {
+      if (args.action === "thumbnails") {
+        await args.refreshEpisodePackage();
+        return committed;
+      }
+      args.setAiRuntimeWarning(validation.error);
       return;
     }
-    const artifactFeedback = resolveHearthProductionArtifactFeedback({
-      action: args.action,
-      assistantText: args.assistantText,
-    });
-    if (artifactFeedback.titles.length > 0) {
-      args.setMetadataTitlesDraft(artifactFeedback.titles);
+    if (args.action === "tags") {
+      args.onTagProposal?.({ tags: validation.feedback.tags, scriptVersion: args.scriptVersion, generatedAt });
+      return committed;
     }
-    if (artifactFeedback.descriptionShort) {
-      args.setMetadataDescriptionShortDraft(artifactFeedback.descriptionShort);
-    }
-    if (artifactFeedback.descriptionLong) {
-      args.setMetadataDescriptionLongDraft(artifactFeedback.descriptionLong);
-    }
-    if (artifactFeedback.tags.length > 0) {
-      args.setMetadataTagsDraft(artifactFeedback.tags);
-    }
+    const artifactFeedback = validation.feedback;
     if (artifactFeedback.warning) {
       args.setAiRuntimeWarning(artifactFeedback.warning);
     }
@@ -218,8 +254,10 @@ export async function persistProductionArtifact(args: {
     if (args.action === "release_prep_pack") {
       await args.loadLatestReleasePrepPack(args.scriptVersion);
     }
+    return committed;
   } catch {
     args.setAiRuntimeWarning(`Saved response in chat, but failed to persist ${PRODUCTION_ACTION_LABEL[args.action]}.`);
+    return { ok: false as const, reason: "Unexpected persistence failure.", stage: "commit" as const };
   }
 }
 
@@ -251,14 +289,13 @@ export async function runProductionAction(args: {
     return;
   }
   if (args.action === "image_beat_sheet") {
-    args.setChatError("Image Beat Sheet has been replaced by Episode Media Map. Use Generate Episode Media Map in the media panel.");
+    args.setChatError("Image Beat Sheet has been replaced by the Episode Visual Plan. Use Create visual plan in the media workspace.");
     return;
   }
 
   const prompt = buildProductionPrompt({
     action: args.action,
     scriptVersion: args.approvedScriptVersion,
-    scriptText: args.activeDraft.body,
     episodeTitle: args.activeDraft.title || args.planningSessionTitle || "",
   });
   const displayContent = `${PRODUCTION_ACTION_LABEL[args.action]} for Script Version ${args.approvedScriptVersion}.`;

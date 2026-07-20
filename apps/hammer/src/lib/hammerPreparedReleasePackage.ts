@@ -8,6 +8,7 @@ export type HammerPreparedReleaseUnitStatus = "ready" | "missing" | "stale";
 export type HammerPreparedReleaseOverallStatus = "ready" | "partial" | "stale" | "missing";
 export type HammerPreparedReleaseSource = "editor-current" | "saved-transcript" | "generated";
 export type HammerPreparedReleaseMediaSourceKind = "raw" | "polished" | "proxy" | "mixed" | "unknown";
+export interface HammerBrandApplicationProvenance { bindingId: string; bindingRevision: number; profileRevisionId: string | null; profileContentHash: string | null; assetRevisionIds: string[] }
 
 export interface HammerPreparedReleasePackage {
   version: 1;
@@ -46,6 +47,7 @@ export interface HammerPreparedReleasePackage {
     timelineRevision: string | null;
     activeAudioFocus: string | null;
   };
+  brandProvenance?: HammerBrandApplicationProvenance | null;
   overallStatus: HammerPreparedReleaseOverallStatus;
 }
 

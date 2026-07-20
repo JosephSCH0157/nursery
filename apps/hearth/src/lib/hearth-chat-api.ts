@@ -1179,6 +1179,8 @@ export async function requestHearthChatReply(
   episodeContext: EpisodeContext,
   options?: {
     signal?: AbortSignal;
+    productionAction?: HearthChatRequest["production_action"];
+    productionScriptVersion?: number;
     attachmentContext?: {
       includeEpisodeAttachments?: boolean;
       attachmentIds?: string[];
@@ -1230,6 +1232,8 @@ export async function requestHearthChatReply(
       include_episode_attachments: options?.attachmentContext?.includeEpisodeAttachments ?? true,
       attachment_ids: options?.attachmentContext?.attachmentIds,
     },
+    production_action: options?.productionAction,
+    production_script_version: options?.productionScriptVersion,
   };
 
   let response: Response;

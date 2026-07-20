@@ -162,7 +162,8 @@ export function evaluateAsrVisualChairperson(
     : Number.NaN;
   const recoveryNeeded =
     activeRecoveryEpisode ||
-    (chairpersonRecoveryDebtEligible && (pocketBand === 'recovery' || semanticAheadLines >= 1));
+    semanticAheadLines >= 1 ||
+    (chairpersonRecoveryDebtEligible && pocketBand === 'recovery');
   let mode: AsrVisualMode;
   if (blockersActive) mode = 'hold';
   else if (

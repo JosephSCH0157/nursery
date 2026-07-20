@@ -11,8 +11,7 @@ const NOTE_CLOSE_RE = /^\[\/note\]$/i;
 const PACING_RE = /^\[(pause|beat|reflective pause)\]$/i;
 const PAREN_PACING_RE = /^\((pause|beat|reflective pause)\)$/i;
 const TAG_TOKEN_RE = /^\[[^\]\n]+\]$/;
-const TARGET_LINE_LENGTH = 76;
-const MAX_SPEAKER_SPOKEN_LINES = 5;
+const MAX_SPEAKER_SPOKEN_LINES = 3;
 const TARGET_SPEAKER_SPOKEN_LINES = 3;
 const MIN_WORDS_PER_BLOCK = 12;
 const MAX_WORDS_PER_BLOCK = 45;
@@ -58,29 +57,6 @@ function wrapPlainScriptForJoe(text: string): string {
   return `[s1]\n${body}\n[/s1]`;
 }
 
-function splitLongClause(text: string): string[] {
-  const trimmed = protectSentenceDots(text.trim());
-  if (trimmed.length <= TARGET_LINE_LENGTH) return [restoreSentenceDots(trimmed)];
-
-  const chunks: string[] = [];
-  let remaining = trimmed;
-  while (remaining.length > TARGET_LINE_LENGTH) {
-    const windowText = remaining.slice(0, TARGET_LINE_LENGTH + 1);
-    const cutAt = Math.max(
-      windowText.lastIndexOf(", "),
-      windowText.lastIndexOf("; "),
-      windowText.lastIndexOf(": "),
-      windowText.lastIndexOf(" - "),
-      windowText.lastIndexOf(" "),
-    );
-    if (cutAt <= 24) break;
-    chunks.push(remaining.slice(0, cutAt).trim());
-    remaining = remaining.slice(cutAt).trim();
-  }
-  if (remaining) chunks.push(remaining);
-  return (chunks.length ? chunks : [trimmed]).map(restoreSentenceDots);
-}
-
 function splitSpokenLine(line: string): string[] {
   const normalized = line
     .replace(/^\s*[-*]\s+/, "")
@@ -93,29 +69,46 @@ function splitSpokenLine(line: string): string[] {
   const protectedText = protectSentenceDots(normalized);
   const sentences = protectedText.match(/[^.!?]+[.!?]+(?:["'”’]+)?|[^.!?]+$/g) ?? [protectedText];
   return sentences
-    .flatMap((sentence) => splitLongClause(restoreSentenceDots(sentence.trim())))
+    .map((sentence) => restoreSentenceDots(sentence.trim()))
     .filter(Boolean);
 }
 
-function isLandedPoint(line: string): boolean {
-  return /[.!?]["']?$/.test(line.trim());
+function isStructuralScriptLine(line: string): boolean {
+  const trimmed = line.trim();
+  return !trimmed || TAG_TOKEN_RE.test(trimmed) || /^\s*[-*]\s+/.test(line);
+}
+
+function endsSemanticSentence(line: string): boolean {
+  return /(?:[.!?](?:["'”’])?|\.{3}(?:["'”’])?)\s*$/.test(line.trim());
+}
+
+/**
+ * Removes presentation-width wrapping before sentence segmentation. Blank
+ * lines, tags, notes, cues, and list items remain hard semantic boundaries.
+ */
+function joinWidthWrappedProseLines(lines: readonly string[]): string[] {
+  const joined: string[] = [];
+  for (const rawLine of lines) {
+    const trimmed = rawLine.trim();
+    const previous = joined[joined.length - 1];
+    if (
+      trimmed &&
+      previous != null &&
+      !isStructuralScriptLine(previous) &&
+      !isStructuralScriptLine(rawLine) &&
+      !endsSemanticSentence(previous)
+    ) {
+      joined[joined.length - 1] = `${previous.trimEnd()} ${trimmed}`;
+      continue;
+    }
+    joined.push(rawLine);
+  }
+  return joined;
 }
 
 function countWords(line: string): number {
   const tokens = line.trim().match(/\b[\w']+\b/g);
   return tokens ? tokens.length : 0;
-}
-
-function choosePacingCue(line: string): "[pause]" | "[beat]" | "[reflective pause]" {
-  const normalized = line.toLowerCase();
-  if (/\b(reflect|remember|imagine|sit with|what if|why this matters)\b/.test(normalized)) {
-    return "[reflective pause]";
-  }
-  if (/[?]$/.test(line.trim())) return "[beat]";
-  if (line.length > 88 || /\b(the point|what matters|because|but|so)\b/.test(normalized)) {
-    return "[pause]";
-  }
-  return "[beat]";
 }
 
 function pushIntentionalBlank(out: string[]): void {
@@ -137,8 +130,11 @@ function mergePacingCue(
 
 function protectSentenceDots(text: string): string {
   return restoreSentenceDots(text)
+    .replace(/\.\.\./g, `${DOT_PLACEHOLDER}${DOT_PLACEHOLDER}${DOT_PLACEHOLDER}`)
     .replace(/\bU\.S\./g, `U${DOT_PLACEHOLDER}S${DOT_PLACEHOLDER}`)
     .replace(/\b([A-Z])\.([A-Z])\./g, (_match, a: string, b: string) => `${a}${DOT_PLACEHOLDER}${b}${DOT_PLACEHOLDER}`)
+    .replace(/\b([A-Z])\.(?=\s+[A-Z]\.)/g, (_match, initial: string) => `${initial}${DOT_PLACEHOLDER}`)
+    .replace(/\b([A-Z])\.(?=\s+[A-Z][a-z])/g, (_match, initial: string) => `${initial}${DOT_PLACEHOLDER}`)
     .replace(/\b(vs?|mr|mrs|ms|dr|prof|sen|rep|gov|st|jr|sr)\./gi, (_match, abbr: string) => `${abbr}${DOT_PLACEHOLDER}`)
     .replace(/(\d)\.(\d)/g, `$1${DOT_PLACEHOLDER}$2`);
 }
@@ -206,8 +202,10 @@ function compactRecordingReadyLines(lines: string[]): string[] {
     }
 
     const previousIsCue = isPacingLine(previous ?? "");
+    const previousIsSpeakerClose = SPEAKER_CLOSE_RE.test(previous ?? "");
+    const nextIsSpeakerOpen = SPEAKER_OPEN_RE.test(next ?? "");
     const adjacentSpeakerTag = isSpeakerTagLine(previous ?? "") || isSpeakerTagLine(next ?? "");
-    if (adjacentSpeakerTag && !previousIsCue) continue;
+    if (adjacentSpeakerTag && !previousIsCue && !(previousIsSpeakerClose && nextIsSpeakerOpen)) continue;
 
     pushIntentionalBlank(out);
   }
@@ -221,36 +219,46 @@ function mergeAndThinSpeakerBlocks(lines: string[]): string[] {
   const out: string[] = [];
   const sections: Array<{
     speaker: "s1" | "s2" | "g1" | "g2";
-    spoken: string[];
-    cues: Array<"[beat]" | "[pause]" | "[reflective pause]">;
+    content: string[];
   }> = [];
 
   let activeSpeaker: "s1" | "s2" | "g1" | "g2" | null = null;
-  let activeSpoken: string[] = [];
-  let activeCues: Array<"[beat]" | "[pause]" | "[reflective pause]"> = [];
+  let activeContent: string[] = [];
+
+  const spokenLines = (content: readonly string[]): string[] => content.filter((line) => {
+    const trimmed = line.trim();
+    return Boolean(trimmed) && !TAG_TOKEN_RE.test(trimmed);
+  });
 
   const flush = (): void => {
     if (!activeSpeaker) return;
+    const activeSpoken = spokenLines(activeContent);
     if (activeSpoken.length === 0) {
       activeSpeaker = null;
-      activeSpoken = [];
-      activeCues = [];
+      activeContent = [];
       return;
     }
     const previous = sections[sections.length - 1];
-    if (previous && previous.speaker === activeSpeaker) {
-      previous.spoken.push(...activeSpoken);
-      previous.cues.push(...activeCues);
+    const previousSpoken = previous ? spokenLines(previous.content) : [];
+    const combinedSpokenLines = previousSpoken.length + activeSpoken.length;
+    const combinedWords = previous
+      ? [...previousSpoken, ...activeSpoken].reduce((sum, line) => sum + countWords(line), 0)
+      : 0;
+    if (
+      previous
+      && previous.speaker === activeSpeaker
+      && combinedSpokenLines <= MAX_SPEAKER_SPOKEN_LINES
+      && combinedWords <= MAX_WORDS_PER_BLOCK
+    ) {
+      previous.content.push(...activeContent);
     } else {
       sections.push({
         speaker: activeSpeaker,
-        spoken: [...activeSpoken],
-        cues: [...activeCues],
+        content: [...activeContent],
       });
     }
     activeSpeaker = null;
-    activeSpoken = [];
-    activeCues = [];
+    activeContent = [];
   };
 
   for (const rawLine of lines) {
@@ -267,35 +275,13 @@ function mergeAndThinSpeakerBlocks(lines: string[]): string[] {
     }
     if (!activeSpeaker) continue;
     if (!line) continue;
-    if (isPacingLine(line)) {
-      activeCues.push(line.toLowerCase() as "[beat]" | "[pause]" | "[reflective pause]");
-      continue;
-    }
-    activeSpoken.push(rawLine.trimEnd());
+    activeContent.push(rawLine.trimEnd());
   }
   flush();
 
   for (const section of sections) {
-    const words = section.spoken.reduce((sum, line) => sum + countWords(line), 0);
-    const spokenCount = section.spoken.length;
-    const shouldKeepCue = (
-      section.cues.includes("[pause]")
-      || section.cues.includes("[reflective pause]")
-      || (section.cues.includes("[beat]") && words >= 18 && spokenCount >= 2)
-    );
-    const chosenCue: "[pause]" | "[beat]" | "[reflective pause]" | null = section.cues.includes("[reflective pause]")
-      ? "[reflective pause]"
-      : section.cues.includes("[pause]")
-        ? "[pause]"
-        : section.cues.includes("[beat]")
-          ? "[beat]"
-          : null;
-
     out.push(`[${section.speaker}]`);
-    out.push(...section.spoken);
-    if (shouldKeepCue && chosenCue) {
-      out.push(chosenCue);
-    }
+    out.push(...section.content);
     out.push(`[/${section.speaker}]`);
     out.push("");
   }
@@ -344,7 +330,7 @@ function pruneCueOnlySpeakerBlocks(lines: string[]): string[] {
 
 export function shapeHearthScriptForRecording(input: string): string {
   const normalized = normalizeScriptTags(wrapPlainScriptForJoe(input));
-  const lines = normalized.split(/\r?\n/);
+  const lines = joinWidthWrappedProseLines(normalized.split(/\r?\n/));
   const out: string[] = [];
   let insideSpeaker = false;
   let insideNote = false;
@@ -413,14 +399,6 @@ export function shapeHearthScriptForRecording(input: string): string {
       speakerSpokenWordCount += countWords(line);
     }
     return true;
-  }
-
-  function shouldAutoAddPacingCue(spokenLine: string): boolean {
-    if (!insideSpeaker) return false;
-    if (!isLandedPoint(spokenLine)) return false;
-    if (speakerSpokenLineCount < 2) return false;
-    if (speakerSpokenWordCount < 18) return false;
-    return /\?|!|\b(but|because|so|the point|what matters|here's the thing)\b/i.test(spokenLine);
   }
 
   for (const rawLine of lines) {
@@ -492,11 +470,7 @@ export function shapeHearthScriptForRecording(input: string): string {
     }
 
     for (const spokenLine of splitSpokenLine(trimmed)) {
-      const shouldAddPacingCue = shouldAutoAddPacingCue(spokenLine);
-      const pushedSpoken = pushSpeakerContentLine(spokenLine);
-      if (pushedSpoken && shouldAddPacingCue) {
-        pushSpeakerContentLine(choosePacingCue(spokenLine));
-      }
+      pushSpeakerContentLine(spokenLine);
     }
   }
 

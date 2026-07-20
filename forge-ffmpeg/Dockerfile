@@ -6,6 +6,7 @@ RUN apk add --no-cache nodejs npm
 
 COPY package.json ./
 COPY server.mjs ./
+COPY media-probe.mjs ./
 
 EXPOSE 8080
 

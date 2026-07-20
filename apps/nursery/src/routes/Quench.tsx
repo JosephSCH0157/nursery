@@ -10,17 +10,21 @@ import {
   type QuenchMockReleaseCase,
   type QuenchPlatform,
   type QuenchReleaseReadinessVerdict,
-  type ReleasePacket,
   type ReleaseMode,
   type ReleaseReadinessCheckKey,
   type ResolvedAsset,
   type ResolvedReleaseAssets,
   deriveReleasePacketReadinessVerdict,
+  canExecuteQuenchPublish,
   RssAdapter,
   StaticAssetResolver,
   YouTubeAdapter,
   listQuenchMockReleaseCases,
   resolveReleaseAssets,
+  isQuenchCanonicalReleaseProjection,
+  type QuenchCanonicalReleaseProjection,
+  isQuenchCandidateSelectable,
+  getQuenchExperimentCapability,
 } from "@forge/quench";
 import type { HammerPreparedReleasePackage } from "../../../hammer/src/lib/hammerPreparedReleasePackage";
 import { tongsFetch } from "../../../hammer/src/lib/tongsFetch";
@@ -88,6 +92,7 @@ type QuenchPreparedReleaseResolvedHandoff = QuenchPreparedReleaseHandoff & {
   workpieceId: string;
   packagePath: string;
 };
+type QuenchReleaseConsoleCase = QuenchMockReleaseCase & { authority: "canonical"|"fixture"; canonical_projection?: QuenchCanonicalReleaseProjection };
 
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -158,69 +163,10 @@ function normalizePreparedReleasePackage(value: unknown): HammerPreparedReleaseP
   return row as unknown as HammerPreparedReleasePackage;
 }
 
-function buildPreparedReleaseCase(args: {
-  shellWorkspaceId: string | null;
-  pkg: HammerPreparedReleasePackage;
-  packagePath: string;
-}): QuenchMockReleaseCase {
-  const workspaceId = args.pkg.workspaceId ?? args.shellWorkspaceId ?? "";
-  const workpieceId = args.pkg.workpieceId;
-  const identityFingerprint = buildPreparedPackageIdentityFingerprint(args.pkg);
-  const caseId = `handoff_prepared_${workpieceId}_${identityFingerprint.slice(-8)}`;
-  const audioExportId = args.pkg.media.status === "ready"
-    ? (args.pkg.media.sourceMediaId ?? `prepared_audio_${identityFingerprint.slice(-8)}`)
-    : null;
-  const audioUri = args.pkg.media.sourceMediaId
-    ? `workpiece-media://${workpieceId}/${args.pkg.media.sourceMediaId}`
-    : `workpiece://${workpieceId}/${args.packagePath}`;
-  const packet: ReleasePacket = {
-    release_packet_id: `release_packet_${caseId}`,
-    workspace_id: workspaceId,
-    workpiece_id: workpieceId,
-    episode_id: workpieceId,
-    title: `Hammer prepared package ${workpieceId.slice(0, 8)}`,
-    description: `Prepared at ${args.pkg.preparedAt} with package status ${args.pkg.overallStatus}.`,
-    tags: ["hammer-prepared", "quench-handoff"],
-    thumbnail_asset_id: null,
-    video_export_id: null,
-    audio_export_id: audioExportId,
-    shorts: [],
-    asset_source: "cloud",
-    rss_ready: args.pkg.subtitles.srt.status === "ready" && args.pkg.media.status === "ready",
-    platform_overrides: {},
-    seo_metadata: {
-      transcript_asset_id: args.pkg.transcript.revisionId,
-      canonical_slug: `prepared-${workpieceId.slice(0, 8)}`,
-      keywords: ["prepared package", "hammer handoff"],
-    },
-  };
-
-  return {
-    case_id: caseId,
-    label: "Hammer Prepared Handoff",
-    summary: `Loaded from ${args.packagePath} (${args.pkg.overallStatus})`,
-    packet,
-    resolved_assets: {
-      ...(audioExportId
-        ? {
-          audio: {
-            asset_id: audioExportId,
-            kind: "audio",
-            source: "cloud",
-            uri: audioUri,
-            mime_type: "audio/mpeg",
-            duration_sec: typeof args.pkg.media.durationMs === "number"
-              ? Math.max(0, Math.round(args.pkg.media.durationMs / 1000))
-              : undefined,
-            accessible: true,
-          },
-        }
-        : {}),
-      shorts: [],
-    },
-    default_platforms: [],
-    default_publish_options: {},
-  };
+function buildCanonicalReleaseCase(projection:QuenchCanonicalReleaseProjection):QuenchReleaseConsoleCase{
+  const manifest=projection.hammer.manifest;const episode=projection.metadata.episode;const seo=readJsonObject(episode.seo);const titles=Array.isArray(seo?.titles)?seo.titles.map(readJsonObject).filter(Boolean):[];const primary=titles.find((entry)=>entry?.is_primary===true)??titles[0];
+  const title=readString(primary?.text)??readString(manifest.episode_title)??`Release ${projection.workpiece_id.slice(0,8)}`;const description=readString(seo?.description_long)??readString(seo?.description_short)??"Canonical release metadata is incomplete.";const tags=Array.isArray(seo?.tags)?seo.tags.map(readString).filter((value):value is string=>Boolean(value)):[];
+  const audioId=manifest.audio.media_id;return{authority:"canonical",canonical_projection:projection,case_id:`canonical:${projection.workpiece_id}:${projection.hammer.manifest_snapshot_id}`,label:"Canonical Hammer Release",summary:`Tongs-verified manifest ${projection.hammer.manifest_content_hash.slice(0,12)}…`,packet:{release_packet_id:projection.hammer.manifest_snapshot_id,workspace_id:projection.workspace_id,workpiece_id:projection.workpiece_id,episode_id:projection.workpiece_id,title,description,tags,thumbnail_asset_id:null,video_export_id:null,audio_export_id:audioId,shorts:[],asset_source:"cloud",rss_ready:projection.hammer.readiness.ready_for_quench===true,platform_overrides:{},seo_metadata:null},resolved_assets:{audio:audioId?{asset_id:audioId,kind:"audio",source:"cloud",uri:manifest.audio.workpiece_path??manifest.audio.local_relpath??`workpiece-media://${projection.workpiece_id}/${audioId}`,mime_type:manifest.audio.mime_type??undefined,duration_sec:manifest.duration_seconds??undefined,accessible:true}:null,shorts:[]},default_platforms:[],default_publish_options:{}};
 }
 
 async function readResponseJson(response: Response): Promise<unknown> {
@@ -276,12 +222,14 @@ function formatDuration(value: number | undefined): string {
 function buildPublishContext(
   runMode: "stub" | "live",
   resolvedAssets: Partial<ResolvedReleaseAssets>,
+  readiness: Pick<QuenchReleaseReadinessVerdict, "status" | "ready">,
 ): PublishContext {
   return {
     run_mode: runMode,
     now_iso: new Date().toISOString(),
     resolved_assets: resolvedAssets,
     request_id: `quench_console_${runMode}`,
+    readiness,
   };
 }
 
@@ -330,6 +278,11 @@ function getVerdictSummary(verdict: QuenchReleaseReadinessVerdict): string {
   }
 }
 
+function QuenchCandidatePreview({workpieceId,path,mimeType,ordinal}:{workpieceId:string;path?:string;mimeType?:string;ordinal:number}){
+  const [preview,setPreview]=useState<{path:string;src:string}|null>(null);useEffect(()=>{let cancelled=false;if(!path)return;void(async()=>{try{const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(path)}&encoding=base64`,{method:"GET"});const payload=await response.json() as {data?:{bytes_base64?:string;content_type?:string}};if(!cancelled&&response.ok&&payload.data?.bytes_base64)setPreview({path,src:`data:${payload.data.content_type??mimeType??"image/png"};base64,${payload.data.bytes_base64}`});}catch{if(!cancelled)setPreview(null);}})();return()=>{cancelled=true;};},[mimeType,path,workpieceId]);
+  const src=path&&preview?.path===path?preview.src:null;return src?<img src={src} alt={`Canonical thumbnail candidate ${ordinal}`} style={{width:"100%",aspectRatio:"16 / 9",objectFit:"cover",borderRadius:"0.4rem"}}/>:<div className="quench-console__empty-note">Verified preview unavailable.</div>;
+}
+
 export default function QuenchRoute() {
   const shell = useOutletContext<AppShellContext>();
   const location = useLocation();
@@ -339,7 +292,7 @@ export default function QuenchRoute() {
     () => listQuenchMockReleaseCases({ workspaceId: shell.workspaceId }),
     [shell.workspaceId],
   );
-  const [handoffPreparedCase, setHandoffPreparedCase] = useState<QuenchMockReleaseCase | null>(null);
+  const [handoffPreparedCase, setHandoffPreparedCase] = useState<QuenchReleaseConsoleCase | null>(null);
   const [preparedHandoffState, setPreparedHandoffState] = useState<QuenchPreparedReleaseState>({
     status: "idle",
     handoff: null,
@@ -348,12 +301,9 @@ export default function QuenchRoute() {
     loadedFingerprint: null,
     loadedPreparedAt: null,
   });
-  const releaseCases = useMemo<QuenchMockReleaseCase[]>(() => {
-    if (!handoffPreparedCase) return mockReleaseCases;
-    return [
-      handoffPreparedCase,
-      ...mockReleaseCases.filter((entry) => entry.case_id !== handoffPreparedCase.case_id),
-    ];
+  const releaseCases = useMemo<QuenchReleaseConsoleCase[]>(() => {
+    if (!handoffPreparedCase) return import.meta.env.DEV ? mockReleaseCases.map((entry)=>({...entry,authority:"fixture" as const})) : [];
+    return [handoffPreparedCase];
   }, [handoffPreparedCase, mockReleaseCases]);
   const [selectedCaseId, setSelectedCaseId] = useState<string>(() =>
     listQuenchMockReleaseCases({ workspaceId: shell.workspaceId })[0]?.case_id ?? "",
@@ -377,11 +327,22 @@ export default function QuenchRoute() {
     description: string;
     tags: string[];
   } | null>(null);
+  const [experimentControlId,setExperimentControlId]=useState<string|null>(null);
+  const [experimentVariantIds,setExperimentVariantIds]=useState<string[]>([]);
+  const [experimentState, setExperimentState] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [experimentMessage, setExperimentMessage] = useState<string | null>(null);
+  const [thumbnailSelectionState,setThumbnailSelectionState]=useState<"idle"|"saving"|"saved"|"conflict"|"error">("idle");
+  const [thumbnailSelectionMessage,setThumbnailSelectionMessage]=useState<string|null>(null);
 
   useEffect(() => {
     let cancelled = false;
     const handoff = parsePreparedReleaseHandoff(location.search);
     if (!handoff) {
+      if(routeCtx.workpieceId&&shell.workspaceId){
+        queueMicrotask(()=>setPreparedHandoffState({status:"loading",handoff:null,message:null,warning:null,loadedFingerprint:null,loadedPreparedAt:null}));
+        void (async()=>{try{const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(routeCtx.workpieceId!)}/quench/release-projection`,{method:"POST",json:{workspace_id:shell.workspaceId},timeoutMs:45_000});const payload=await readResponseJson(response);const root=readJsonObject(payload);const projection=root?.ok===true?root.data:null;if(!response.ok||!isQuenchCanonicalReleaseProjection(projection))throw new Error(readString(readJsonObject(root?.error)?.message)??"Canonical Quench release authority is unavailable.");if(cancelled)return;setHandoffPreparedCase(buildCanonicalReleaseCase(projection));setPreparedHandoffState({status:"ready",handoff:null,message:null,warning:null,loadedFingerprint:projection.hammer.manifest_content_hash,loadedPreparedAt:projection.hammer.manifest.generated_at});}catch(error){if(cancelled)return;setHandoffPreparedCase(null);setPreparedHandoffState({status:"error",handoff:null,message:error instanceof Error?error.message:"Canonical Quench release authority is unavailable.",warning:null,loadedFingerprint:null,loadedPreparedAt:null});}})();
+        return()=>{cancelled=true;};
+      }
       queueMicrotask(() => {
         setHandoffPreparedCase(null);
         setPreparedHandoffState({
@@ -522,11 +483,14 @@ export default function QuenchRoute() {
           : activeHandoff.workspaceId && pkg.workspaceId && activeHandoff.workspaceId !== pkg.workspaceId
             ? "This prepared release belongs to a different workspace than the current route."
             : null;
-        const preparedCase = buildPreparedReleaseCase({
-          shellWorkspaceId: shell.workspaceId,
-          pkg,
-          packagePath: activeHandoff.packagePath,
-        });
+        const canonicalWorkspaceId=pkg.workspaceId??activeHandoff.workspaceId??shell.workspaceId;
+        if(!canonicalWorkspaceId)throw new Error("Canonical workspace context is required for Quench release resolution.");
+        const projectionResponse=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(activeHandoff.workpieceId)}/quench/release-projection`,{method:"POST",json:{workspace_id:canonicalWorkspaceId},timeoutMs:45_000});
+        const projectionPayload=await readResponseJson(projectionResponse);const projectionRoot=readJsonObject(projectionPayload);const projection=projectionRoot?.ok===true?projectionRoot.data:null;
+        if(!projectionResponse.ok||!isQuenchCanonicalReleaseProjection(projection)){
+          const code=readString(readJsonObject(projectionRoot?.error)?.code);throw new Error(code?`Canonical Quench release resolution failed: ${code.replaceAll("_"," ")}.`:"Canonical Quench release authority is unavailable.");
+        }
+        const preparedCase = buildCanonicalReleaseCase(projection);
         if (cancelled) return;
         setHandoffPreparedCase(preparedCase);
         setPreparedHandoffState({
@@ -558,9 +522,9 @@ export default function QuenchRoute() {
     return () => {
       cancelled = true;
     };
-  }, [location.search, shell.workspaceId]);
+  }, [location.search, routeCtx.workpieceId, shell.workspaceId]);
 
-  const applySelectedCaseDefaults = useCallback((nextCase: QuenchMockReleaseCase) => {
+  const applySelectedCaseDefaults = useCallback((nextCase: QuenchReleaseConsoleCase) => {
     setSelectedCaseId(nextCase.case_id);
     setSelectedPlatforms([...nextCase.default_platforms]);
     setPublishOptions(clonePublishOptions(nextCase.default_publish_options));
@@ -585,6 +549,14 @@ export default function QuenchRoute() {
   }, [applySelectedCaseDefaults, releaseCases, selectedCaseId]);
 
   const selectedCase = releaseCases.find((entry) => entry.case_id === selectedCaseId) ?? releaseCases[0] ?? null;
+  const canonicalThumbnails=selectedCase?.canonical_projection?.thumbnails??null;
+  const canonicalThumbnailStyleSources=new Set(canonicalThumbnails?.candidates.map((candidate)=>String(candidate.style_source??"brand_profile"))??[]);
+  const canonicalProjection=selectedCase?.canonical_projection??null;
+  const thumbnailSelectionScope=canonicalProjection?.destination_capabilities.find((scope)=>scope.platform==="youtube"&&scope.state==="active")??canonicalProjection?.destination_capabilities.find((scope)=>scope.state==="active")??null;
+  const thumbnailSelectionDecision=thumbnailSelectionScope?canonicalProjection?.current_decisions.find((decision)=>decision.destination_scope_id===thumbnailSelectionScope.id)??null:null;
+  const experimentCapability=getQuenchExperimentCapability(thumbnailSelectionScope);
+  useEffect(()=>{if(thumbnailSelectionDecision?.decision?.decision_kind!=="experiment_intent"||thumbnailSelectionDecision.decision.intent_state!=="experiment_planned")return;const control=thumbnailSelectionDecision.assignments?.find((entry)=>entry.assignment_role==="control")?.candidate_revision_id;const variants=thumbnailSelectionDecision.assignments?.filter((entry)=>entry.assignment_role==="variant").map((entry)=>String(entry.candidate_revision_id))??[];setExperimentControlId(typeof control==="string"?control:null);setExperimentVariantIds(variants);},[thumbnailSelectionDecision]);
+  const selectCanonicalThumbnail=useCallback(async(candidateId:string)=>{if(!canonicalProjection||!thumbnailSelectionScope)return;setThumbnailSelectionState("saving");setThumbnailSelectionMessage(null);try{const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(canonicalProjection.workpiece_id)}/quench/select-candidate`,{method:"POST",json:{workspace_id:canonicalProjection.workspace_id,destination_scope_id:thumbnailSelectionScope.id,candidate_revision_id:candidateId,expected_decision_id:thumbnailSelectionDecision?.current_decision_id??null,expected_revision:thumbnailSelectionDecision?.current_revision??0,operation_id:crypto.randomUUID()},timeoutMs:45_000});const payload=await readResponseJson(response);const root=readJsonObject(payload);const result=readJsonObject(root?.data);const disposition=readString(result?.disposition);if(!response.ok)throw new Error(readString(readJsonObject(root?.error)?.message)??"Selection failed.");if(disposition==="revision_conflict"){setThumbnailSelectionState("conflict");setThumbnailSelectionMessage("The canonical decision advanced. Reloaded the latest Tongs authority; review before retrying.");}else if(!["committed","replayed","no_change"].includes(disposition??"")){throw new Error(`Selection was not committed: ${(disposition??"blocked").replaceAll("_"," ")}.`);}else{setThumbnailSelectionState("saved");setThumbnailSelectionMessage(disposition==="no_change"?"That candidate is already the canonical selection.":disposition==="replayed"?"The original canonical selection was restored from its operation receipt.":"Canonical thumbnail selection committed.");}const refresh=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(canonicalProjection.workpiece_id)}/quench/release-projection`,{method:"POST",json:{workspace_id:canonicalProjection.workspace_id},timeoutMs:45_000});const refreshPayload=await readResponseJson(refresh);const refreshRoot=readJsonObject(refreshPayload);if(refresh.ok&&isQuenchCanonicalReleaseProjection(refreshRoot?.data))setHandoffPreparedCase(buildCanonicalReleaseCase(refreshRoot.data));}catch(error){setThumbnailSelectionState("error");setThumbnailSelectionMessage(error instanceof Error?error.message:"Selection failed.");}},[canonicalProjection,thumbnailSelectionDecision,thumbnailSelectionScope]);
   const readinessVerdict = selectedCase
     ? deriveReleasePacketReadinessVerdict(selectedCase.packet, resolvedAssets, selectedPlatforms)
     : null;
@@ -659,7 +631,7 @@ export default function QuenchRoute() {
         return;
       }
 
-      const context = buildPublishContext(runMode, resolvedAssets);
+      const context = buildPublishContext(runMode, resolvedAssets, readinessVerdict ?? { status: "blocked", ready: false });
       const nextEntries = await Promise.all(
         QUENCH_ADAPTERS.map(async (adapter) => {
           const options = publishOptions[adapter.platform] ?? getDefaultPublishOptions(adapter.platform);
@@ -676,19 +648,19 @@ export default function QuenchRoute() {
     return () => {
       cancelled = true;
     };
-  }, [publishOptions, resolvedAssets, runMode, selectedCase]);
+  }, [publishOptions, readinessVerdict?.ready, readinessVerdict?.status, resolvedAssets, runMode, selectedCase]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadPublishBoard() {
-      if (!selectedCase || selectedPlatforms.length === 0) {
+      if (!selectedCase || selectedPlatforms.length === 0 || !readinessVerdict || !canExecuteQuenchPublish(readinessVerdict)) {
         setPublishResults({});
         setBoardUpdatedAt(null);
         return;
       }
 
-      const context = buildPublishContext(runMode, resolvedAssets);
+      const context = buildPublishContext(runMode, resolvedAssets, readinessVerdict);
       const nextEntries = await Promise.all(
         QUENCH_ADAPTERS
           .filter((adapter) => selectedPlatforms.includes(adapter.platform))
@@ -708,7 +680,7 @@ export default function QuenchRoute() {
     return () => {
       cancelled = true;
     };
-  }, [publishOptions, resolvedAssets, runMode, selectedCase, selectedPlatforms]);
+  }, [publishOptions, readinessVerdict?.ready, readinessVerdict?.status, resolvedAssets, runMode, selectedCase, selectedPlatforms]);
 
   const requestMetadataAssist = useCallback(async () => {
     if (!selectedCase) return;
@@ -768,6 +740,8 @@ export default function QuenchRoute() {
     });
   }
 
+  async function mutateThumbnailExperiment(cancel=false){if(!canonicalProjection||!thumbnailSelectionScope)return;setExperimentState("saving");setExperimentMessage(null);try{const assignments=cancel?[]:[experimentControlId,...experimentVariantIds].filter((id):id is string=>!!id).map((candidate_revision_id,index)=>({candidate_revision_id,assignment_role:index===0?"control":"variant",assignment_ordinal:index+1,allocation_basis_points:null}));const endpoint=cancel?"cancel-thumbnail-experiment":"plan-thumbnail-experiment";const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(canonicalProjection.workpiece_id)}/quench/${endpoint}`,{method:"POST",json:{workspace_id:canonicalProjection.workspace_id,destination_scope_id:thumbnailSelectionScope.id,expected_decision_id:thumbnailSelectionDecision?.current_decision_id??null,expected_revision:thumbnailSelectionDecision?.current_revision??0,operation_id:crypto.randomUUID(),...(cancel?{}:{assignments})},timeoutMs:45_000});const payload=await readResponseJson(response);const root=readJsonObject(payload);const result=readJsonObject(root?.data);const disposition=readString(result?.disposition);if(!response.ok)throw new Error(readString(readJsonObject(root?.error)?.message)??"Experiment intent failed.");if(disposition==="revision_conflict"){setExperimentState("error");setExperimentMessage("The canonical decision advanced. Reload the latest authority before retrying.");}else if(!["committed","replayed","no_change"].includes(disposition??"")){throw new Error(`Experiment intent was not committed: ${(disposition??"blocked").replaceAll("_"," ")}.`);}else{setExperimentState("saved");setExperimentMessage(cancel?"Experiment cancelled. This creates a new zero-assignment decision and does not restore the previous selected thumbnail.":disposition==="no_change"?"This exact experiment plan is already current.":"Canonical experiment intent planned. Automatic thumbnail rotation is not active.");}const refresh=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(canonicalProjection.workpiece_id)}/quench/release-projection`,{method:"POST",json:{workspace_id:canonicalProjection.workspace_id},timeoutMs:45_000});const refreshPayload=await readResponseJson(refresh);const refreshRoot=readJsonObject(refreshPayload);if(refresh.ok&&isQuenchCanonicalReleaseProjection(refreshRoot?.data))setHandoffPreparedCase(buildCanonicalReleaseCase(refreshRoot.data));}catch(error){setExperimentState("error");setExperimentMessage(error instanceof Error?error.message:"Unable to save experiment intent.");}}
+
   return (
     <section className="quench-console">
       <header className="quench-console__header">
@@ -805,13 +779,13 @@ export default function QuenchRoute() {
         </div>
       </header>
 
-      {preparedHandoffState.handoff ? (
+      {preparedHandoffState.status !== "idle" ? (
         <div className="quench-console__banner">
           <strong>Release handoff:</strong>
           {" "}
           {preparedHandoffState.status === "loading" ? "Checking the latest prepared release for this episode..." : null}
           {preparedHandoffState.status === "ready"
-            ? "Prepared release is ready from Editing."
+            ? "Canonical release authority is verified through Tongs."
             : null}
           {preparedHandoffState.status === "error"
             ? preparedHandoffState.message ?? "Prepared release could not be resolved."
@@ -827,7 +801,7 @@ export default function QuenchRoute() {
         <aside className="quench-console__panel quench-console__panel--left">
           <div className="quench-console__panel-head">
             <h2>Release packets</h2>
-            <span>{releaseCases.length}{handoffPreparedCase ? " packets" : " mock cases"}</span>
+            <span>{releaseCases.length}{handoffPreparedCase ? " canonical packet" : " development fixtures"}</span>
           </div>
           <div className="quench-console__case-list">
             {releaseCases.map((entry) => {
@@ -845,7 +819,7 @@ export default function QuenchRoute() {
                   onClick={() => applySelectedCaseDefaults(entry)}
                 >
                   <div className="quench-console__case-top">
-                    <strong>{entry.label}</strong>
+                    <strong>{entry.label}</strong><small>{entry.authority}</small>
                     <span className={getVerdictTone(caseReadiness.status)}>
                       {caseReadiness.status === "blocked"
                         ? `${caseReadiness.blocking_reason_codes.length} blocked`
@@ -1017,6 +991,25 @@ export default function QuenchRoute() {
                 </section>
               </div>
 
+              {canonicalThumbnails?<section className="quench-console__card" aria-label="Canonical thumbnail candidates">
+                <div className="quench-console__card-head"><h3>Canonical thumbnail candidates</h3><span>{canonicalThumbnails.candidates.length} in active set</span></div>
+                <p className="quench-console__empty-note">Tongs verifies immutable candidate identity, exact composite bytes, applied styling, readability provenance, and eligibility. Quench cannot edit these recipes.</p>
+                {canonicalThumbnailStyleSources.size>1?<div className="quench-console__issue"><strong>These thumbnails use different styling approaches.</strong><span>Results may reflect branding differences as well as visual concepts.</span></div>:null}
+                {thumbnailSelectionScope?<div className="quench-console__issue-list"><div className={`quench-console__issue ${thumbnailSelectionDecision?.applicability?.state==="current"?"is-good":thumbnailSelectionDecision?.applicability?.state==="requires_review"?"":"is-bad"}`}><strong>Selection authority: {thumbnailSelectionDecision?.applicability?.state?.replaceAll("_"," ")??"blocked"}</strong><span>{thumbnailSelectionDecision?.assignments?.[0]?.candidate_revision_id?`Candidate ${String(thumbnailSelectionDecision.assignments[0].candidate_revision_id)} · `:""}{thumbnailSelectionDecision?.applicability?.reason_codes?.join(", ")||String(thumbnailSelectionScope.platform)}</span></div></div>:<div className="quench-console__issue is-bad">No destination supports canonical thumbnail selection.</div>}
+                {thumbnailSelectionMessage?<div role="status" className={`quench-console__issue ${thumbnailSelectionState==="saved"?"is-good":""}`}>{thumbnailSelectionMessage}</div>:null}
+                {canonicalThumbnails.candidate_set?<div className="quench-console__detail-grid"><div><span>Candidate set</span><strong>{String(canonicalThumbnails.candidate_set.id)}</strong></div><div><span>Revision</span><strong>{String(canonicalThumbnails.candidate_set.revision)}</strong></div><div><span>Set hash</span><strong>{String(canonicalThumbnails.candidate_set.content_hash)}</strong></div><div><span>Active binding</span><strong>{canonicalThumbnails.active_binding_id??"none"} r{canonicalThumbnails.active_binding_revision??"?"}</strong></div></div>:<div className="quench-console__issue is-bad">No canonical thumbnail candidate set is available.</div>}
+                <div className="quench-console__asset-grid">
+                  {canonicalThumbnails.candidates.map((candidate)=><article key={candidate.id} className="quench-console__asset-card" aria-label={`Thumbnail candidate ${candidate.candidate_ordinal}`}>
+                    <QuenchCandidatePreview workpieceId={selectedCase.packet.workpiece_id} path={candidate.asset_path} mimeType={candidate.asset_mime_type} ordinal={candidate.candidate_ordinal}/>
+                    <div className="quench-console__asset-top"><strong>Candidate {candidate.candidate_ordinal}</strong><span>{candidate.style_source==="forge_standard"?"Forge standard":"Brand style"}</span><span className={isQuenchCandidateSelectable(candidate)?"is-good":"is-bad"}>{candidate.eligibility_state.replaceAll("_"," ")}</span></div>
+                    <div className="quench-console__issue-list"><div className={`quench-console__issue ${candidate.authority_verified?"is-good":"is-bad"}`}><strong>{candidate.authority_verified?"provenance verified":"verification blocked"}</strong><span>{candidate.verification_code}</span></div></div>
+                    <details><summary>History and technical details</summary><div className="quench-console__asset-id">Candidate revision {candidate.id}</div><div className="quench-console__asset-uri">Composite {candidate.composite_asset_id}</div><small>Recipe {candidate.recipe_id} r{candidate.recipe_revision}<br/>Recipe hash {candidate.recipe_hash}<br/>Final hash {candidate.composite_content_hash}<br/>Style provenance {String(candidate.style_provenance_hash??"legacy")}<br/>Binding context {candidate.candidate_binding_id} r{candidate.candidate_binding_revision}<br/>Readability {candidate.readability_evidence_hash}</small></details>
+                    <button type="button" disabled={!thumbnailSelectionScope||!isQuenchCandidateSelectable(candidate)||thumbnailSelectionState==="saving"} onClick={()=>void selectCanonicalThumbnail(candidate.id)}>{thumbnailSelectionDecision?.decision?.decision_kind==="single_candidate"&&thumbnailSelectionDecision?.assignments?.some((assignment)=>assignment.assignment_role==="selected"&&assignment.candidate_revision_id===candidate.id)&&thumbnailSelectionDecision.applicability?.state==="current"?"Selected":"Select candidate"}</button>
+                  </article>)}
+                </div>
+                {canonicalThumbnails.historical_candidate_sets?.length?<details><summary>Historical candidate sets ({canonicalThumbnails.historical_candidate_sets.length})</summary><p>Historical sets remain readable and reconstructable. Their candidates are not silently treated as current publication choices.</p>{canonicalThumbnails.historical_candidate_sets.map((set)=><article key={String(set.candidate_set.id)}><strong>Revision {String(set.candidate_set.revision)}</strong> · {set.candidates.length} candidates<br/><small>{String(set.candidate_set.id)} · {String(set.candidate_set.content_hash)}</small><ol>{set.candidates.map((candidate)=><li key={candidate.id}>Candidate {candidate.candidate_ordinal} · {candidate.eligibility_state.replaceAll("_"," ")} · {candidate.authority_verified?"verified":"blocked"} · {candidate.composite_content_hash}</li>)}</ol></article>)}</details>:null}
+              </section>:null}
+
               <section className="quench-console__card">
                 <div className="quench-console__card-head">
                   <h3>Resolved assets</h3>
@@ -1118,6 +1111,17 @@ export default function QuenchRoute() {
             <h2>Adapters</h2>
             <span>contract-driven cards</span>
           </div>
+          <section className="quench-console__card" aria-label="Thumbnail launch experiment">
+            <div className="quench-console__card-head"><h3>Thumbnail experiment</h3><span>Quench authority</span></div>
+            <p className="quench-console__empty-note">Choose exact Tongs-verified candidates. This commits provider-neutral intent; it does not activate thumbnail rotation or write Ledger evidence.</p>
+            <div className={`quench-console__issue ${experimentCapability.planning_supported?"is-good":"is-bad"}`}><strong>{experimentCapability.planning_supported?"Candidate experiment planning supported":"Experiment planning unsupported"}</strong><span>{experimentCapability.planning_supported?(experimentCapability.rotation_supported?"Adapter capability permits future execution, but no provider acknowledgement exists.":"Automatic thumbnail rotation is unsupported and not active."):experimentCapability.reason?.replaceAll("_"," ")}</span></div>
+            {canonicalThumbnails?.candidates.map((candidate)=><div key={`experiment-${candidate.id}`} className="quench-console__asset-top"><span>Candidate {candidate.candidate_ordinal}</span><label><input type="radio" name="experiment-control" checked={experimentControlId===candidate.id} disabled={!experimentCapability.planning_supported||!isQuenchCandidateSelectable(candidate)} onChange={()=>{setExperimentControlId(candidate.id);setExperimentVariantIds((current)=>current.filter((id)=>id!==candidate.id));}}/> Control</label><label><input type="checkbox" checked={experimentVariantIds.includes(candidate.id)} disabled={!experimentCapability.planning_supported||!isQuenchCandidateSelectable(candidate)||experimentControlId===candidate.id} onChange={(event)=>setExperimentVariantIds((current)=>event.target.checked?[...current,candidate.id]:current.filter((id)=>id!==candidate.id))}/> Variant</label></div>)}
+            <button type="button" disabled={experimentState === "saving" || !experimentCapability.planning_supported || !experimentControlId || experimentVariantIds.length<1} onClick={() => void mutateThumbnailExperiment(false)}>{experimentState === "saving" ? "Saving experiment…" : "Commit experiment plan"}</button>
+            {thumbnailSelectionDecision?.decision?.decision_kind==="experiment_intent"&&thumbnailSelectionDecision.decision.intent_state==="experiment_planned"?<button type="button" disabled={experimentState==="saving"} onClick={()=>void mutateThumbnailExperiment(true)}>Cancel experiment plan</button>:null}
+            <p className="quench-console__empty-note">Cancelling creates a new current zero-assignment decision. It does not restore the previously selected thumbnail automatically.</p>
+            {thumbnailSelectionDecision?.recent_history?.length?<details><summary>Canonical decision history ({thumbnailSelectionDecision.recent_history.length})</summary><ol>{thumbnailSelectionDecision.recent_history.map((decision)=><li key={String(decision.id)}>Revision {String(decision.revision)} · {String(decision.decision_kind).replaceAll("_"," ")} · {String(decision.intent_state).replaceAll("_"," ")} · {Array.isArray(decision.assignments)?decision.assignments.length:0} assignments</li>)}</ol></details>:null}
+            {experimentMessage ? <p className={experimentState === "error" ? "quench-console__issue is-bad" : "quench-console__empty-note"}>{experimentMessage}</p> : null}
+          </section>
           <div className="quench-console__adapter-list">
             {QUENCH_ADAPTERS.map((adapter) => {
               const platform = adapter.platform;

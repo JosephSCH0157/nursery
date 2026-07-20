@@ -5,7 +5,9 @@ import type {
 } from "../../core/release-packet.types";
 import {
   createNotImplementedResult,
+  createPublishAuthorityDeniedResult,
   createStubReceipt,
+  publishContextAllowsExecution,
   type AdapterPublishResult,
   type AdapterValidationIssue,
   type AdapterValidationResult,
@@ -98,6 +100,10 @@ export class RssAdapter implements QuenchPlatformAdapter {
       rss_ready: packet.rss_ready,
     };
 
+    if (!publishContextAllowsExecution(context)) {
+      return createPublishAuthorityDeniedResult(this.platform, options, context, summary);
+    }
+
     if (!validation.ok) {
       return {
         ok: false,
@@ -128,6 +134,13 @@ export class RssAdapter implements QuenchPlatformAdapter {
       mode: receipt.scheduled_for ? "schedule" : "publish",
       scheduled_for: receipt.scheduled_for,
     };
+
+    if (!publishContextAllowsExecution(context)) {
+      return Promise.resolve(createPublishAuthorityDeniedResult(this.platform, options, context, {
+        retry_of: receipt.external_id,
+        prior_status: receipt.status,
+      }));
+    }
 
     if (context.run_mode === "live") {
       return Promise.resolve(

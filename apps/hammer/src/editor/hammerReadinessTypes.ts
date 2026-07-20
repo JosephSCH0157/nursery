@@ -1,9 +1,10 @@
-import type {
-  HammerQuenchCanonicalReadinessReasonCode,
-  HammerQuenchCanonicalReadinessReasonSeverity,
-  HammerQuenchCanonicalReadinessReasonSource,
-  HammerQuenchCanonicalReadinessStatus,
-} from "../../../../packages/contracts/hammer/quench-readiness-taxonomy.contract";
+import {
+  resolveMonotonicReadiness,
+  type HammerQuenchCanonicalReadinessReasonCode,
+  type HammerQuenchCanonicalReadinessReasonSeverity,
+  type HammerQuenchCanonicalReadinessReasonSource,
+  type HammerQuenchCanonicalReadinessStatus,
+} from "@forge/contracts/hammer/quench-readiness-taxonomy.contract";
 
 export type HammerReadinessVerdictStatus = HammerQuenchCanonicalReadinessStatus;
 export type HammerReadinessReasonSeverity = HammerQuenchCanonicalReadinessReasonSeverity;
@@ -64,15 +65,16 @@ export function buildHammerReadinessVerdict(args: {
   blockingReasons: HammerReadinessReason[];
   reviewReasons: HammerReadinessReason[];
 }): HammerReadinessGateResult {
-  const status: HammerReadinessVerdictStatus = args.blockingReasons.length > 0
-    ? "blocked"
-    : args.reviewReasons.length > 0
-    ? "needs_review"
-    : "ready";
+  const resolved = resolveMonotonicReadiness({
+    upstreamStatus: "ready",
+    upstreamReasons: [],
+    downstreamReasons: [...args.blockingReasons, ...args.reviewReasons],
+  });
+  const status: HammerReadinessVerdictStatus = resolved.status;
   const primaryOperationId = args.blockingReasons[0]?.operationId
     ?? args.reviewReasons[0]?.operationId
     ?? null;
-  const reasons = [...args.blockingReasons, ...args.reviewReasons];
+  const reasons = resolved.reasons;
   const counts = {
     blocking: args.blockingReasons.length,
     review: args.reviewReasons.length,
@@ -80,7 +82,7 @@ export function buildHammerReadinessVerdict(args: {
 
   return {
     status,
-    readyForQuench: status === "ready",
+    readyForQuench: resolved.readyForQuench,
     reasons,
     blockingReasons: args.blockingReasons,
     reviewReasons: args.reviewReasons,

@@ -22,6 +22,27 @@ test("detectHearthScriptMutationIntent routes integrate requests to the script b
   assert.equal(intent.kind, "integrate");
 });
 
+test("detectHearthScriptMutationIntent recognizes deterministic format-only requests", () => {
+  for (const request of [
+    "Reformat this",
+    "Fix the line breaks",
+    "Make this Anvil-ready",
+    "Normalize the speaker blocks",
+    "Repair the formatting without changing wording",
+  ]) {
+    const intent = detectHearthScriptMutationIntent(request);
+    assert.equal(intent.targetsScriptBody, true, request);
+    assert.equal(intent.kind, "format_only", request);
+  }
+});
+
+test("detectHearthScriptMutationIntent keeps mixed editorial formatting requests generative", () => {
+  const intent = detectHearthScriptMutationIntent("Reformat this and tighten the opening.");
+
+  assert.equal(intent.targetsScriptBody, true);
+  assert.notEqual(intent.kind, "format_only");
+});
+
 test("detectHearthScriptMutationIntent leaves ordinary exploration requests in chat", () => {
   const intent = detectHearthScriptMutationIntent("Compare the framing and tell me what stands out.");
 

@@ -2,6 +2,7 @@
 
 import fs from 'node:fs';
 import { createAsrScrollDriver } from '../../src/features/asr/asr-scroll-driver';
+import { captureWindowListeners } from '../helpers/window-listener-scope';
 
 function diagnosticCallMatches(
   call: any[],
@@ -104,6 +105,40 @@ function installScrollWriteProbe(scroller: HTMLElement): {
 }
 
 type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
+  __debugNoteAcceptedForwardOpportunity: (args: {
+    semanticCursor: number;
+    targetLineIdx: number;
+    confidence: number;
+    matchId?: string | null;
+    transcriptSeq?: number | null;
+    runKey?: string | null;
+    runGeneration?: number | null;
+    nowMs: number;
+    contradiction?: boolean;
+  }) => null | {
+    targetLineIdx: number;
+    firstEligibleAtMs: number;
+    lastConfirmedAtMs: number;
+  };
+  __debugEvaluateAcceptedForwardOpportunity: (args: {
+    semanticCursor: number;
+    nowMs: number;
+    speechFresh: boolean;
+    runIdentityCurrent: boolean;
+    noMatchOrOffscript?: boolean;
+    contradiction?: boolean;
+    manualRepositioning?: boolean;
+    stopped?: boolean;
+    authorityLost?: boolean;
+    terminalUnsafe?: boolean;
+  }) => {
+    promote: boolean;
+    reason: string;
+    targetLineIdx: number | null;
+    starvationAgeMs: number;
+    evidenceAgeMs: number;
+  };
+  __debugClearAcceptedForwardOpportunity: (reason: string) => void;
   __debugEvaluateStabilizerSemanticCommitCandidate: (args: {
     currentLineIdx: number;
     action: 'hold' | 'advance_adjacent' | 'evidence_only' | 'reset_needed';
@@ -693,6 +728,7 @@ type DebugAsrDriver = ReturnType<typeof createAsrScrollDriver> & {
 };
 
 describe('ASR live commit motion', () => {
+  let releaseWindowListeners: (() => void) | null = null;
   let rafSpy: jest.SpyInstance<number, [FrameRequestCallback]>;
   let cafSpy: jest.SpyInstance<void, [number]>;
   let consoleErrorSpy: jest.SpyInstance<void, any[]>;
@@ -702,6 +738,7 @@ describe('ASR live commit motion', () => {
   let consoleWarnSpy: jest.SpyInstance<void, any[]>;
 
   beforeEach(() => {
+    releaseWindowListeners = captureWindowListeners();
     jest.useFakeTimers();
     window.history.replaceState({}, '', '/?dev=1');
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
@@ -771,6 +808,8 @@ describe('ASR live commit motion', () => {
 
   afterEach(() => {
     jest.clearAllTimers();
+    releaseWindowListeners?.();
+    releaseWindowListeners = null;
     jest.useRealTimers();
     consoleErrorSpy.mockRestore();
     consoleLogSpy.mockRestore();
@@ -8287,6 +8326,137 @@ describe('ASR live commit motion', () => {
       averageWordsPerInterveningLine: 2,
       shortLineDense: true,
     });
+
+    driver.dispose();
+  });
+
+  test('accepted-forward confirmations retain starvation age while refreshing evidence', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+
+    const first = driver.__debugNoteAcceptedForwardOpportunity({
+      semanticCursor: 2,
+      targetLineIdx: 5,
+      confidence: 0.74,
+      matchId: 'accepted-5',
+      transcriptSeq: 7,
+      runKey: 'run-1',
+      runGeneration: 1,
+      nowMs: 1000,
+    });
+    const advanced = driver.__debugNoteAcceptedForwardOpportunity({
+      semanticCursor: 2,
+      targetLineIdx: 9,
+      confidence: 0.847,
+      matchId: 'accepted-9-a',
+      transcriptSeq: 8,
+      runKey: 'run-1',
+      runGeneration: 1,
+      nowMs: 1500,
+    });
+    driver.__debugNoteAcceptedForwardOpportunity({
+      semanticCursor: 2,
+      targetLineIdx: 9,
+      confidence: 0.846,
+      matchId: 'accepted-9-b',
+      transcriptSeq: 9,
+      runKey: 'run-1',
+      runGeneration: 1,
+      nowMs: 2100,
+    });
+    const confirmed = driver.__debugNoteAcceptedForwardOpportunity({
+      semanticCursor: 2,
+      targetLineIdx: 9,
+      confidence: 0.845,
+      matchId: 'accepted-9-c',
+      transcriptSeq: 10,
+      runKey: 'run-1',
+      runGeneration: 1,
+      nowMs: 2600,
+    });
+    const decision = driver.__debugEvaluateAcceptedForwardOpportunity({
+      semanticCursor: 2,
+      nowMs: 2600,
+      speechFresh: true,
+      runIdentityCurrent: true,
+    });
+
+    expect(first?.firstEligibleAtMs).toBe(1000);
+    expect(advanced?.firstEligibleAtMs).toBe(1000);
+    expect(confirmed).toMatchObject({
+      targetLineIdx: 9,
+      firstEligibleAtMs: 1000,
+      lastConfirmedAtMs: 2600,
+    });
+    expect(decision).toMatchObject({
+      promote: true,
+      reason: 'eligible',
+      targetLineIdx: 9,
+      starvationAgeMs: 1600,
+      evidenceAgeMs: 0,
+    });
+
+    driver.dispose();
+  });
+
+  test('accepted-forward opportunity never silently lowers and contradiction invalidates it', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    driver.__debugNoteAcceptedForwardOpportunity({
+      semanticCursor: 2,
+      targetLineIdx: 9,
+      confidence: 0.85,
+      runKey: 'run-1',
+      runGeneration: 1,
+      nowMs: 1000,
+    });
+    const lower = driver.__debugNoteAcceptedForwardOpportunity({
+      semanticCursor: 2,
+      targetLineIdx: 5,
+      confidence: 0.9,
+      runKey: 'run-1',
+      runGeneration: 1,
+      nowMs: 1800,
+    });
+    expect(lower?.targetLineIdx).toBe(9);
+
+    driver.__debugNoteAcceptedForwardOpportunity({
+      semanticCursor: 2,
+      targetLineIdx: 4,
+      confidence: 0.9,
+      runKey: 'run-1',
+      runGeneration: 1,
+      nowMs: 1900,
+      contradiction: true,
+    });
+    expect(driver.__debugEvaluateAcceptedForwardOpportunity({
+      semanticCursor: 2,
+      nowMs: 3000,
+      speechFresh: true,
+      runIdentityCurrent: true,
+    })).toMatchObject({ promote: false, reason: 'no_opportunity' });
+
+    driver.dispose();
+  });
+
+  test('accepted-forward starvation promotion preserves safety blockers', () => {
+    const driver = createAsrScrollDriver() as DebugAsrDriver;
+    driver.__debugNoteAcceptedForwardOpportunity({
+      semanticCursor: 2,
+      targetLineIdx: 9,
+      confidence: 0.85,
+      runKey: 'run-1',
+      runGeneration: 1,
+      nowMs: 1000,
+    });
+    const base = { semanticCursor: 2, nowMs: 2600, speechFresh: true, runIdentityCurrent: true };
+
+    expect(driver.__debugEvaluateAcceptedForwardOpportunity({ ...base, runIdentityCurrent: false }).reason).toBe('stale_run_identity');
+    expect(driver.__debugEvaluateAcceptedForwardOpportunity({ ...base, noMatchOrOffscript: true }).reason).toBe('offscript_or_nomatch');
+    expect(driver.__debugEvaluateAcceptedForwardOpportunity({ ...base, contradiction: true }).reason).toBe('contradiction');
+    expect(driver.__debugEvaluateAcceptedForwardOpportunity({ ...base, manualRepositioning: true }).reason).toBe('manual_repositioning');
+    expect(driver.__debugEvaluateAcceptedForwardOpportunity({ ...base, stopped: true }).reason).toBe('speech_stopped');
+    expect(driver.__debugEvaluateAcceptedForwardOpportunity({ ...base, authorityLost: true }).reason).toBe('authority_lost');
+    expect(driver.__debugEvaluateAcceptedForwardOpportunity({ ...base, terminalUnsafe: true }).reason).toBe('terminal_unsafe');
+    expect(driver.__debugEvaluateAcceptedForwardOpportunity({ ...base, speechFresh: false }).reason).toBe('evidence_stale');
 
     driver.dispose();
   });

@@ -12,7 +12,7 @@ Role: Distribution and release engine of Podcaster's Forge
 
 Quench is the module responsible for publishing completed workpieces to the outside world. It takes finalized media, metadata, and assets from Tongs and distributes them to external platforms and RSS feeds.
 
-Quench performs no creative work. Its purpose is execution and delivery.
+Quench performs no creative authorship. Its purpose is release decision-making, execution, and delivery. Metadata assistance may produce an uncommitted draft, but Tongs remains the authority for committed metadata.
 
 ## Mission
 
@@ -112,9 +112,11 @@ Current ingest verdicts:
 - `Needs attention: transcript missing`
 - `Needs attention: packet invalid`
 
-## Future Publish Packet Projection (Deferred)
+## Canonical Release Projection
 
-Quench will later project publish-oriented data (title/description/tags/thumbnail/platform overrides/schedule choices) for adapter execution. That projection is out of scope for the current ingest slice.
+Authenticated workpieces resolve `forge.quench-release-projection.v2` through Tongs. Tongs verifies and immutably snapshots the exact Hammer manifest bytes, joins canonical metadata, and returns the active thumbnail candidate-set authority. A path or prepared-package route parameter is only a locator and cannot authorize release.
+
+Development mock packets remain fixtures only and are never mixed into an authenticated canonical workpiece.
 
 ## Distribution Targets (Future)
 
@@ -207,11 +209,9 @@ Shorts are drawn from assets generated earlier in the pipeline.
 
 Quench may optionally support title and thumbnail testing.
 
-If enabled:
+If enabled, Quench receives completed immutable candidates authored by Hearth and verified through Tongs. Quench may select candidates or persist provider-neutral experiment intent, but it cannot rewrite recipes or request regeneration as part of release execution.
 
-- Quench requests additional assets from Hearth
-- Hearth generates alternate titles/thumbnails
-- Quench performs platform tests
+Provider-neutral intent is not evidence that a destination is actively rotating thumbnails. Active execution requires a capable live adapter and provider acknowledgement.
 
 This feature is optional and platform dependent.
 

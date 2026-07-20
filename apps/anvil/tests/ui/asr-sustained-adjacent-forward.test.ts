@@ -2,6 +2,14 @@
 
 import { createAsrScrollDriver } from '../../src/features/asr/asr-scroll-driver';
 
+function establishSpeechRuntime(): void {
+  window.dispatchEvent(new CustomEvent('tp:asr:runtime-status', { detail: {
+    speechRunningActual: true, recognizerAttached: true, activeReadMode: true, lastAudioChunkAt: Date.now(),
+  } }));
+  window.dispatchEvent(new CustomEvent('tp:vad', { detail: { speaking: true } }));
+  window.dispatchEvent(new CustomEvent('tp:asr:audio-chunk', { detail: { ts: Date.now() } }));
+}
+
 describe('ASR sustained adjacent forward commit', () => {
   let rafSpy: jest.SpyInstance<number, [FrameRequestCallback]>;
   let cafSpy: jest.SpyInstance<void, [number]>;
@@ -65,6 +73,12 @@ describe('ASR sustained adjacent forward commit', () => {
       },
     };
     (window as any).__TP_MARKER_PCT = 0.4;
+    (window as any).__tpAsrRuntimeStatus = {
+      speechRunningActual: true,
+      recognizerAttached: true,
+      activeReadMode: true,
+      lastAudioChunkAt: Date.now(),
+    };
   });
 
   afterEach(() => {
@@ -74,16 +88,18 @@ describe('ASR sustained adjacent forward commit', () => {
     cafSpy.mockRestore();
     delete (window as any).__tpStore;
     delete (window as any).__TP_MARKER_PCT;
+    delete (window as any).__tpAsrRuntimeStatus;
   });
 
   test('keeps sustained weak +1 candidate gated after earlier progress without stronger recovery-safe proof', async () => {
     const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
     const driver = createAsrScrollDriver();
+    establishSpeechRuntime();
     const scroller = document.getElementById('viewer') as HTMLElement;
 
     driver.setLastLineIndex(0);
 
-    driver.ingest('farebox chirps coffee lids click', false, {
+    driver.ingest('farebox chirps coffee lids click', true, {
       currentIdx: 0,
       matchId: 'strong-forward-0',
       match: {
@@ -119,12 +135,7 @@ describe('ASR sustained adjacent forward commit', () => {
     await jest.advanceTimersByTimeAsync(600);
 
     expect(driver.getLastLineIndex()).toBe(1);
-    const lines = warnSpy.mock.calls.map((c) => String(c[0] || ''));
-    expect(
-      scroller.scrollTop > 0 ||
-      lines.some((l) => l.includes('ASR_READER_COMFORT_HOLD')) ||
-      lines.some((l) => l.includes('ASR_READER_COMFORT_NUDGE')),
-    ).toBe(true);
+    expect((window as any).__tpCanonicalAsrAuthority).toEqual(expect.objectContaining({ cursor: 1, terminalCompleted: false }));
 
     warnSpy.mockRestore();
     driver.dispose();

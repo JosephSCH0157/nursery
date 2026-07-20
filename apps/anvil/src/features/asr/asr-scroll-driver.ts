@@ -1,4 +1,6 @@
 import { computeLineSimilarityFromTokens, normTokens, type MatchResult } from '../../speech/matcher';
+import { restoreCanonicalAsrAuthority } from './canonical-asr-authority';
+import { classifyTerminalContradiction, evaluateTerminalProposal, TerminalBoundaryAuthority } from './terminal-boundary-authority';
 import { speechStore } from '../../state/speech-store';
 import { getAsrSettings } from '../speech/speech-store';
 import { ASR_LANE_ASR1, ASR_LANE_ASR2 } from '../../dev/dev-state';
@@ -3544,6 +3546,7 @@ function scheduleCommitTruthProbe(
 }
 
 export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDriver {
+  const canonicalAuthority = restoreCanonicalAsrAuthority();
   emitTsPrimaryMatcherProviderDiagnostic('asr_driver_creation');
   asrPursuitDiagnosticCounters.emitted = 0;
   asrPursuitDiagnosticCounters.coalesced = 0;
@@ -5478,6 +5481,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   } catch {}
   let activeMotionPreset: 'normal' | 'calm' = calmModeEnabled ? 'calm' : 'normal';
   let motionTuning = { ...(calmModeEnabled ? MOTION_PRESET_CALM : MOTION_PRESET_NORMAL) };
+  guardLastAt.clear();
+  guardStatusLastAt.clear();
+  logLastAt.clear();
+  nanGuardLastAt.clear();
   frameDiagnosticLastSeen.clear();
   coalescedDiagnosticState.clear();
   let preservedAsrAuthorityTargetTop: number | null = null;
@@ -8567,6 +8574,141 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   let lastAcceptedMatchedLineIdx = -1;
   let lastAcceptedMatchedLineSim = Number.NaN;
   let lastAcceptedMatchedAt = 0;
+  type AcceptedForwardOpportunity = {
+    targetLineIdx: number;
+    confidence: number;
+    matchId: string | null;
+    transcriptSeq: number | null;
+    runKey: string;
+    runGeneration: number | null;
+    semanticCursorAtOpen: number;
+    firstEligibleAtMs: number;
+    lastConfirmedAtMs: number;
+  };
+  let acceptedForwardOpportunity: AcceptedForwardOpportunity | null = null;
+
+  const clearAcceptedForwardOpportunity = (reason: string): void => {
+    if (!acceptedForwardOpportunity) return;
+    if (isDevMode()) {
+      try {
+        console.info('[ASR_ACCEPTED_FORWARD_OPPORTUNITY_CLEARED]', {
+          reason,
+          targetLineIdx: acceptedForwardOpportunity.targetLineIdx,
+          firstEligibleAtMs: acceptedForwardOpportunity.firstEligibleAtMs,
+          lastConfirmedAtMs: acceptedForwardOpportunity.lastConfirmedAtMs,
+        });
+      } catch {}
+    }
+    acceptedForwardOpportunity = null;
+  };
+
+  const noteAcceptedForwardOpportunity = (args: {
+    semanticCursor: number;
+    targetLineIdx: number;
+    confidence: number;
+    matchId?: string | null;
+    transcriptSeq?: number | null;
+    runKey?: string | null;
+    runGeneration?: number | null;
+    nowMs: number;
+    contradiction?: boolean;
+  }): AcceptedForwardOpportunity | null => {
+    const semanticCursor = Math.max(0, Math.floor(Number(args.semanticCursor) || 0));
+    const targetLineIdx = Math.max(0, Math.floor(Number(args.targetLineIdx) || 0));
+    if (args.contradiction) {
+      clearAcceptedForwardOpportunity('contradiction');
+      return null;
+    }
+    if (targetLineIdx <= semanticCursor) return acceptedForwardOpportunity;
+    const runKey = String(args.runKey || '');
+    const runGeneration = Number.isFinite(args.runGeneration as number)
+      ? Math.floor(Number(args.runGeneration))
+      : null;
+    const sameAuthority = !!acceptedForwardOpportunity &&
+      acceptedForwardOpportunity.semanticCursorAtOpen === semanticCursor &&
+      acceptedForwardOpportunity.runKey === runKey &&
+      acceptedForwardOpportunity.runGeneration === runGeneration;
+    if (!sameAuthority) {
+      acceptedForwardOpportunity = {
+        targetLineIdx,
+        confidence: Number(args.confidence),
+        matchId: args.matchId ? String(args.matchId) : null,
+        transcriptSeq: Number.isFinite(args.transcriptSeq as number) ? Math.floor(Number(args.transcriptSeq)) : null,
+        runKey,
+        runGeneration,
+        semanticCursorAtOpen: semanticCursor,
+        firstEligibleAtMs: args.nowMs,
+        lastConfirmedAtMs: args.nowMs,
+      };
+      if (isDevMode()) {
+        try { console.info('[ASR_ACCEPTED_FORWARD_OPPORTUNITY_OPENED]', { ...acceptedForwardOpportunity }); } catch {}
+      }
+      return acceptedForwardOpportunity;
+    }
+    const currentOpportunity = acceptedForwardOpportunity;
+    if (!currentOpportunity) return null;
+    if (targetLineIdx < currentOpportunity.targetLineIdx) {
+      return currentOpportunity;
+    }
+    const advanced = targetLineIdx > currentOpportunity.targetLineIdx;
+    acceptedForwardOpportunity = {
+      ...currentOpportunity,
+      targetLineIdx,
+      confidence: Number(args.confidence),
+      matchId: args.matchId ? String(args.matchId) : currentOpportunity.matchId,
+      transcriptSeq: Number.isFinite(args.transcriptSeq as number)
+        ? Math.floor(Number(args.transcriptSeq))
+        : currentOpportunity.transcriptSeq,
+      lastConfirmedAtMs: args.nowMs,
+    };
+    if (isDevMode()) {
+      try {
+        console.info(
+          advanced ? '[ASR_ACCEPTED_FORWARD_OPPORTUNITY_ADVANCED]' : '[ASR_ACCEPTED_FORWARD_OPPORTUNITY_CONFIRMED]',
+          { ...acceptedForwardOpportunity },
+        );
+      } catch {}
+    }
+    return acceptedForwardOpportunity;
+  };
+
+  const evaluateAcceptedForwardOpportunity = (args: {
+    semanticCursor: number;
+    nowMs: number;
+    speechFresh: boolean;
+    runIdentityCurrent: boolean;
+    noMatchOrOffscript?: boolean;
+    contradiction?: boolean;
+    manualRepositioning?: boolean;
+    stopped?: boolean;
+    authorityLost?: boolean;
+    terminalUnsafe?: boolean;
+  }): { promote: boolean; reason: string; targetLineIdx: number | null; starvationAgeMs: number; evidenceAgeMs: number } => {
+    const opportunity = acceptedForwardOpportunity;
+    if (!opportunity) return { promote: false, reason: 'no_opportunity', targetLineIdx: null, starvationAgeMs: 0, evidenceAgeMs: Number.POSITIVE_INFINITY };
+    const semanticCursor = Math.max(0, Math.floor(Number(args.semanticCursor) || 0));
+    const starvationAgeMs = Math.max(0, args.nowMs - opportunity.firstEligibleAtMs);
+    const evidenceAgeMs = Math.max(0, args.nowMs - opportunity.lastConfirmedAtMs);
+    let reason = 'eligible';
+    if (semanticCursor !== opportunity.semanticCursorAtOpen) reason = 'semantic_cursor_changed';
+    else if (opportunity.targetLineIdx <= semanticCursor) reason = 'target_not_forward';
+    else if (!args.runIdentityCurrent) reason = 'stale_run_identity';
+    else if (args.noMatchOrOffscript) reason = 'offscript_or_nomatch';
+    else if (args.contradiction) reason = 'contradiction';
+    else if (args.manualRepositioning) reason = 'manual_repositioning';
+    else if (args.stopped) reason = 'speech_stopped';
+    else if (args.authorityLost) reason = 'authority_lost';
+    else if (args.terminalUnsafe) reason = 'terminal_unsafe';
+    else if (!args.speechFresh || evidenceAgeMs > 1800) reason = 'evidence_stale';
+    else if (starvationAgeMs < DEFAULT_STARVATION_COMMIT_GAP_MS) reason = 'starvation_window_open';
+    return {
+      promote: reason === 'eligible',
+      reason,
+      targetLineIdx: opportunity.targetLineIdx,
+      starvationAgeMs,
+      evidenceAgeMs,
+    };
+  };
   let stabilizerShadowState: AsrEvidenceStabilizerState = createInitialAsrEvidenceStabilizerState(0);
   let stabilizerShadowLastScriptHash = '';
   let latestStabilizerShadowEvaluation: StabilizerShadowEvaluation | null = null;
@@ -11879,6 +12021,35 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       return pendingMatch;
     };
     let pendingRaf = 0;
+    const terminalBoundaryAuthority = new TerminalBoundaryAuthority<PendingMatch>((proposal) => {
+      if (disposed || !isSessionLivePhase() || !isSessionAsrArmed()) {
+        terminalBoundaryAuthority.clear();
+        return;
+      }
+      const guardText = `${String(lastAsrGuardReason || '')}|${String(lastAsrHudGuardText || '')}`.toLowerCase();
+      const verdict = evaluateTerminalProposal(proposal, {
+        line: lastLineIndex,
+        runKey: resolveActiveRunKey() || null,
+        runGeneration: resolveActiveRunGeneration(),
+        responseAuthorityCurrent: proposal.provenance.transcriptAuthorityEpoch == null ||
+          Number(proposal.provenance.transcriptAuthorityEpoch) === commitAuthorityEpoch,
+        competingContradictionActive: guardText.includes('contradiction'),
+      });
+      if (verdict.outcome === 'commit') {
+        terminalBoundaryAuthority.clear();
+        try { console.info(`[ASR_TERMINAL_PROPOSAL_REEVALUATED] outcome=commit current=${proposal.currentLine} target=${proposal.targetLine}`); } catch {}
+        adoptPendingMatch({ ...proposal.provenance });
+        schedulePending();
+        return;
+      }
+      if (verdict.outcome === 'stale') {
+        terminalBoundaryAuthority.clear();
+        try { console.warn(`[ASR_TERMINAL_PROPOSAL_REEVALUATED] outcome=stale reason=${verdict.reason} current=${lastLineIndex} target=${proposal.targetLine}`); } catch {}
+        return;
+      }
+      try { console.warn(`[ASR_TERMINAL_PROPOSAL_REEVALUATED] outcome=blocked reason=${verdict.reason} current=${lastLineIndex} target=${proposal.targetLine}`); } catch {}
+      terminalBoundaryAuthority.schedule();
+    });
     let _postCommitReadabilitySeq = 0;
     let commitWindowActive = false;
     let commitWindowAuthority: 'writer' | null = null;
@@ -12686,6 +12857,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       clearOvershootSettleLock('target_epoch_advanced');
     }
     try { (window as any).currentIndex = next; } catch {}
+    canonicalAuthority.commitCursor(next, reason, getTotalLines());
     publishSharedCursor(next, reason);
     rememberCommittedBlockFromLine(next);
     if (scriptHashChanged) lastScriptHash = scriptHash;
@@ -12839,6 +13011,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     lastCommittedLine = normalized;
     lastFreshProofLine = normalized;
     pendingSpeakableBridgeState = null;
+    clearAcceptedForwardOpportunity('manual-adopt');
     earlyBridgeTrapHoldCountByKey.clear();
     matchAnchorIdx = normalized;
     lastEvidenceAt = now;
@@ -13161,6 +13334,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     pursuitActive = false;
     microPursuitUntil = 0;
     pendingSpeakableBridgeState = null;
+    clearAcceptedForwardOpportunity(reason);
     preservedAsrAuthorityTargetTop = null;
     preservedAsrAuthorityTargetReason = reason;
     preservedAsrAuthorityTargetSourcePath = reason;
@@ -14057,6 +14231,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
   };
   const runtimeStatusHandler = (event: Event) => {
     noteRuntimeSpeechState((event as CustomEvent)?.detail);
+    if (!isSessionLivePhase() || !isSessionAsrArmed()) terminalBoundaryAuthority.clear();
   };
   const audioChunkHandler = (event: Event) => {
     const detail = (event as CustomEvent)?.detail || {};
@@ -14076,6 +14251,38 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       'signal';
     if (!canApplyAsrMovement(`rescue-signal:${source}`, Date.now())) {
       stallRescueRequested = false;
+      return;
+    }
+    const freshBoundedRecoveryTarget = pendingSpeakableBridgeState?.semanticTarget ?? (
+      lastFinalTranscriptAt > 0 && Date.now() - lastFinalTranscriptAt <= 1800 &&
+      Number.isFinite(lastAuthorityMatchBestIdx) && lastAuthorityMatchBestIdx > lastLineIndex + 1
+        ? Math.floor(lastAuthorityMatchBestIdx)
+        : -1
+    );
+    if (
+      freshBoundedRecoveryTarget > lastLineIndex &&
+      asrRuntimeSpeechRunningActual &&
+      !isRunIdentityStale({
+        runKey: pendingSpeakableBridgeState?.runKey ?? lastFinalTranscriptRunKey,
+        runGeneration: pendingSpeakableBridgeState?.runGeneration ?? lastFinalTranscriptRunGeneration,
+      })
+    ) {
+      const previous = lastLineIndex;
+      const target = Math.min(freshBoundedRecoveryTarget, previous + 1);
+      lastLineIndex = target;
+      lastCommittedLine = target;
+      lastFreshProofLine = Math.max(lastFreshProofLine, target);
+      lastForwardCommitAt = Date.now();
+      lastCommitAt = lastForwardCommitAt;
+      markCommitTranscriptCursor(target, lastForwardCommitAt);
+      setCurrentIndex(target, 'pending-bridge-adjacent-release');
+      if (pendingSpeakableBridgeState && target >= pendingSpeakableBridgeState.semanticTarget) {
+        clearPendingSpeakableBridge('bounded_recovery_committed', [`from=${previous}`, `to=${target}`]);
+      } else if (pendingSpeakableBridgeState) {
+        pendingSpeakableBridgeState.semanticFrom = target;
+        pendingSpeakableBridgeState.visualReducedTarget = Math.min(target + 1, pendingSpeakableBridgeState.semanticTarget);
+      }
+      resetNoProgressStreak('pending-bridge-adjacent-release', target);
       return;
     }
     let scheduled = false;
@@ -15539,6 +15746,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     } catch {}
     try { speech.stopRecognizer(); } catch {}
     try { speech.startRecognizer(() => {}, { lang: 'en-US' }); } catch {}
+    terminalBoundaryAuthority.noteRestart();
     const restartScroller = getScroller();
     const restartScrollTop = restartScroller ? restartScroller.scrollTop : 0;
     try {
@@ -16617,7 +16825,10 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         !stagedNoMatchOrOffscript &&
         !hardContradiction &&
         stagedAdjacentProofAllowed;
-      if (adjacentReductionDecision.shouldReduce || stagedAdjacentProgressionLaneEligible) {
+      const finalSpeechBackedAdjacentRelease =
+        !!args.finalPacketFresh && speechFresh && !!args.speechRunningActual &&
+        equivalentBridgeTarget > current + 1 && !hardContradiction;
+      if (adjacentReductionDecision.shouldReduce || stagedAdjacentProgressionLaneEligible || finalSpeechBackedAdjacentRelease) {
         try {
           console.warn(
             `[ASR_LIVE_BRIDGE_REDUCED_TO_ADJACENT] current=${current} requested=${requestedTarget} target=${bridgeReducedTarget} proofSource=${args.proofSource || 'none'} sourceBranch=${args.sourceBranch || 'unknown'} reason=${adjacentReductionDecision.shouldReduce ? 'live_bridge_single_step_policy' : 'adjacent_safe_semantic_progression_lane'}`,
@@ -16633,6 +16844,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           } catch {}
         }
         reducedTarget = bridgeReducedTarget;
+        canonicalAuthority.proposeRecovery(bridgeReducedTarget, 'final_speech_backed_adjacent_release');
       } else {
         const stagedBridgeRepeated = bridgeBlockUntil > commitTs;
         const stagedBridgeOverdue = actualDelayMs >= thresholdMs;
@@ -30726,7 +30938,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         );
       const pendingBridgeBypassCandidate =
         !!pendingSpeakableBridgeState &&
-        pendingSpeakableBridgeState.semanticFrom === lastLineIndex &&
+        pendingSpeakableBridgeState.semanticFrom <= lastLineIndex &&
         pendingSpeakableBridgeState.semanticTarget > lastLineIndex &&
         asrRuntimeSpeechRunningActual &&
         runtimeSpeechFresh &&
@@ -35096,9 +35308,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           terminalGuardTextPre.includes('no_match') ||
           terminalGuardTextPre.includes('nomatch') ||
           terminalGuardTextPre.includes('offscript');
-        const terminalContradictionBlockedPre =
-          strictBackwardContradictionForCommit ||
-          terminalGuardTextPre.includes('contradiction');
+        const terminalContradictionPre = classifyTerminalContradiction({
+          backwardRankedScoreContradiction: strictBackwardContradictionForCommit,
+          tailProgressionOverride:
+            liveSpeechForwardPushBackwardContradictionOverriddenByTail ||
+            (!!directAdjacentTailProgressionProof?.stalePrefixIgnored && strictBackwardContradictionForCommit),
+          competingGuardContradiction: terminalGuardTextPre.includes('contradiction'),
+        });
+        const terminalContradictionBlockedPre = terminalContradictionPre.blocked;
         const focusHoldStatePre = getAsrFocusHoldState(now);
         const terminalFocusLossBlockedPre = focusHoldStatePre.active;
         const candidateScopedVoiceBridgeDecision =
@@ -35322,9 +35539,14 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             terminalGuardText.includes('no_match') ||
             terminalGuardText.includes('nomatch') ||
             terminalGuardText.includes('offscript');
-          const terminalContradictionBlocked =
-            strictBackwardContradictionForCommit ||
-            terminalGuardText.includes('contradiction');
+          const terminalContradiction = classifyTerminalContradiction({
+            backwardRankedScoreContradiction: strictBackwardContradictionForCommit,
+            tailProgressionOverride:
+              liveSpeechForwardPushBackwardContradictionOverriddenByTail ||
+              (!!directAdjacentTailProgressionProof?.stalePrefixIgnored && strictBackwardContradictionForCommit),
+            competingGuardContradiction: terminalGuardText.includes('contradiction'),
+          });
+          const terminalContradictionBlocked = terminalContradiction.blocked;
           const focusHoldState = focusHoldStatePre;
           const terminalFocusLossBlocked = focusHoldState.active;
           const pendingBridgeLocalProofLane =
@@ -35365,7 +35587,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
                 ? 'current_generation_adjacent_proof_owned_local_step'
                 : 'audio_chunk_stale';
           const audioFreshEffective = audioFreshEffectiveReason !== 'audio_chunk_stale';
-          const provenLocalFirstStepCandidate =
+          const terminalProposalProofQualified =
             commitFreshness.reason === 'reader_silence_commit_blocked' &&
             isFinal &&
             terminalDelta === 1 &&
@@ -35376,12 +35598,15 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
             !responseStale &&
             audioFreshEffective &&
             !terminalOffscriptOrNoMatchBlocked &&
-            !terminalContradictionBlocked &&
             !terminalFocusLossBlocked &&
             !deadScreenTerminalCommitSuppressedByVisualGovernor &&
             !liveAsrVisualGovernorHardHold &&
             !shortLineTerminalClampUnsafe &&
-            terminalSafeAuthority;
+            terminalSafeAuthority &&
+            adjacentProofOwnedLocalLineage;
+          const provenLocalFirstStepCandidate =
+            terminalProposalProofQualified &&
+            !terminalContradictionBlocked;
           const provenLocalProofOwnedStep =
             provenLocalFirstStepCandidate &&
             adjacentProofOwnedLocalLineage;
@@ -35698,6 +35923,38 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               `target=${freshnessProposedLineIdx}`,
               `current=${prevLineIndex}`,
             ]);
+          }
+          if (
+            commitFreshness.reason === 'reader_silence_commit_blocked' &&
+            isFinal &&
+            freshnessProposedLineIdx === prevLineIndex + 1 &&
+            freshnessProposedLineIdx === findLastSpeakableLineIndex() &&
+            terminalProposalProofQualified &&
+            runIdentityCurrent &&
+            responseAuthorityCurrent &&
+            !responseStale &&
+            audioFreshEffective
+          ) {
+            const genuineContradiction = terminalContradiction.genuine;
+            const preserved = terminalBoundaryAuthority.preserve({
+              currentLine: prevLineIndex,
+              targetLine: freshnessProposedLineIdx,
+              lastSpeakableLine: findLastSpeakableLineIndex(),
+              runKey: pendingRunKey || resolveActiveRunKey() || null,
+              runGeneration: pendingRunGeneration ?? resolveActiveRunGeneration(),
+              proofOwned: true,
+              responseAuthorityCurrent: true,
+              responseFresh: true,
+              audioFresh: true,
+              genuineContradiction,
+              competingContradiction: terminalContradiction.competing,
+              provenance: { ...pending },
+            });
+            if (preserved) {
+              try {
+                console.warn(`[ASR_TERMINAL_PROPOSAL_PRESERVED] current=${prevLineIndex} target=${freshnessProposedLineIdx} genuineContradiction=${genuineContradiction ? 1 : 0} competingContradiction=${terminalContradiction.competing ? 1 : 0}`);
+              } catch {}
+            }
           }
           return;
           }
@@ -36797,6 +37054,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
         } catch {}
       }
       lastLineIndex = Math.max(lastLineIndex, effectiveSemanticCommitTargetLine);
+      if (effectiveSemanticCommitTargetLine > prevLineIndex) {
+        clearAcceptedForwardOpportunity('semantic_progress');
+      }
       if (shortLineStagedCatchupApplied && effectiveSemanticCommitTargetLine > prevLineIndex) {
         for (let stagedStepLine = prevLineIndex + 1; stagedStepLine <= effectiveSemanticCommitTargetLine; stagedStepLine += 1) {
           try {
@@ -36982,10 +37242,21 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
               effectiveSemanticCommitTargetLine,
             );
           }
+        } else if (
+          effectiveSemanticCommitTargetLine > pendingSpeakableBridgeState.semanticFrom &&
+          effectiveSemanticCommitTargetLine < pendingSpeakableBridgeState.semanticTarget
+        ) {
+          pendingSpeakableBridgeState.semanticFrom = effectiveSemanticCommitTargetLine;
+          pendingSpeakableBridgeState.visualReducedTarget = Math.min(
+            pendingSpeakableBridgeState.semanticTarget,
+            effectiveSemanticCommitTargetLine + 1,
+          );
+          canonicalAuthority.proposeRecovery(
+            pendingSpeakableBridgeState.visualReducedTarget,
+            'pending_speakable_bridge_adjacent_release',
+          );
         } else if (effectiveSemanticCommitTargetLine !== pendingSpeakableBridgeState.semanticFrom) {
-          clearPendingSpeakableBridge('commit_target_diverged', [
-            `commitTarget=${effectiveSemanticCommitTargetLine}`,
-          ]);
+          clearPendingSpeakableBridge('commit_target_diverged', [`commitTarget=${effectiveSemanticCommitTargetLine}`]);
         }
       }
       if (effectiveSemanticCommitTargetLine > prevLineIndex && strictTargetHasFreshProof) {
@@ -40797,6 +41068,90 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
           lastAcceptedMatchedLineSim = freshBestSim;
           lastAcceptedMatchedAt = now;
           lastSemanticProgressAt = now;
+          const contradictionActive =
+            String(lastAsrGuardReason || '').toLowerCase().includes('contradiction') ||
+            String(lastAsrHudGuardText || '').toLowerCase().includes('contradiction');
+          const opportunity = noteAcceptedForwardOpportunity({
+            semanticCursor: currentCursorIndex,
+            targetLineIdx: freshBestIdx,
+            confidence: freshBestSim,
+            matchId: typeof (detail as any)?.matchId === 'string' ? (detail as any).matchId : null,
+            transcriptSeq: Number((detail as any)?.transcriptSeq),
+            runKey: transcriptRunKey || lastFinalTranscriptRunKey,
+            runGeneration: transcriptRunGeneration ?? lastFinalTranscriptRunGeneration,
+            nowMs: now,
+            contradiction: contradictionActive,
+          });
+          const opportunityDecision = evaluateAcceptedForwardOpportunity({
+            semanticCursor: currentCursorIndex,
+            nowMs: now,
+            speechFresh:
+              asrRuntimeSpeechRunningActual ||
+              hasRecentActualSpeech(now) ||
+              hasRecentVadSpeechNow(now),
+            runIdentityCurrent: !isRunIdentityStale({
+              runKey: opportunity?.runKey,
+              runGeneration: opportunity?.runGeneration,
+            }),
+            noMatchOrOffscript: false,
+            contradiction: contradictionActive,
+            stopped: asrRuntimeSpeechEverTrue && !asrRuntimeSpeechRunningActual && !hasRecentActualSpeech(now),
+            authorityLost: !isSessionLivePhase() || !isSessionAsrArmed() || getScrollMode() !== 'asr',
+            terminalUnsafe: getTotalLines() > 0 && freshBestIdx >= getTotalLines(),
+          });
+          const acceptedForwardOwnsPendingBridge =
+            !pendingSpeakableBridgeState ||
+            pendingSpeakableBridgeState.sourceBranch === 'accepted_forward_starvation';
+          if (
+            opportunityDecision.promote &&
+            opportunityDecision.targetLineIdx != null &&
+            opportunityDecision.targetLineIdx > currentCursorIndex &&
+            acceptedForwardOwnsPendingBridge
+          ) {
+            const visualReducedTarget = resolveForwardSpeakableTarget(
+              currentCursorIndex,
+              opportunityDecision.targetLineIdx,
+              1,
+            );
+            pendingSpeakableBridgeState = {
+              semanticFrom: currentCursorIndex,
+              semanticTarget: opportunityDecision.targetLineIdx,
+              visualCurrent: currentCursorIndex,
+              visualReducedTarget: visualReducedTarget > currentCursorIndex
+                ? visualReducedTarget
+                : Math.min(opportunityDecision.targetLineIdx, currentCursorIndex + 1),
+              skippedVisibleRows: Math.max(
+                0,
+                opportunityDecision.targetLineIdx - Math.max(currentCursorIndex + 1, visualReducedTarget),
+              ),
+              proofSource: 'accepted_forward_starvation',
+              sourceBranch: 'accepted_forward_starvation',
+              createdAtMs: opportunity?.firstEligibleAtMs ?? now,
+              runKey: opportunity?.runKey || transcriptRunKey || lastFinalTranscriptRunKey,
+              runGeneration: opportunity?.runGeneration ?? transcriptRunGeneration ?? lastFinalTranscriptRunGeneration,
+            };
+            try {
+              console.warn('[ASR_ACCEPTED_FORWARD_STARVATION_PROMOTED]', {
+                semanticCursor: currentCursorIndex,
+                semanticTarget: opportunityDecision.targetLineIdx,
+                visualReducedTarget: pendingSpeakableBridgeState.visualReducedTarget,
+                starvationAgeMs: opportunityDecision.starvationAgeMs,
+                evidenceAgeMs: opportunityDecision.evidenceAgeMs,
+                matchId: opportunity?.matchId ?? null,
+                transcriptSeq: opportunity?.transcriptSeq ?? null,
+              });
+            } catch {}
+          } else if (isDevMode() && opportunity) {
+            try {
+              console.debug('[ASR_ACCEPTED_FORWARD_STARVATION_HELD]', {
+                reason: opportunityDecision.reason,
+                semanticCursor: currentCursorIndex,
+                semanticTarget: opportunity.targetLineIdx,
+                starvationAgeMs: opportunityDecision.starvationAgeMs,
+                evidenceAgeMs: opportunityDecision.evidenceAgeMs,
+              });
+            } catch {}
+          }
         }
       }
     }
@@ -40846,6 +41201,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     if (noMatch && !incomingMatch) {
       lastRescueNoMatchAt = now;
+      clearAcceptedForwardOpportunity('explicit_no_match');
     }
     if (noMatch && !incomingMatch) {
       rawMatchId = null;
@@ -45714,7 +46070,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       pendingRaf = 0;
     }
     pendingMatch = null;
+    terminalBoundaryAuthority.dispose();
     pendingSpeakableBridgeState = null;
+    clearAcceptedForwardOpportunity('dispose');
     liveAsrTerminalScriptHoldActive = false;
     lastAsr4ShadowSnapshot = null;
     earlyBridgeTrapHoldCountByKey.clear();
@@ -45812,6 +46170,7 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
 
   const setLastLineIndex = (index: number) => {
     if (!Number.isFinite(index)) return;
+    clearAcceptedForwardOpportunity('manual_reposition');
     clearShortLinePreReanchorGraceState('setLastLineIndex');
     clearReanchorPendingState('setLastLineIndex');
     clearReanchorLandingState('setLastLineIndex');
@@ -45921,7 +46280,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       pendingRaf = 0;
     }
     pendingMatch = null;
+    terminalBoundaryAuthority.clear();
     pendingSpeakableBridgeState = null;
+    clearAcceptedForwardOpportunity('sync-index');
     lastAsr4ShadowSnapshot = null;
     liveBridgeDownstreamBlockUntilByKey.clear();
     earlyBridgeTrapHoldCountByKey.clear();
@@ -48228,6 +48589,32 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     overshootSettleLockTargetScrollTop: overshootSettleLockState?.targetScrollTop ?? Number.NaN,
     visualDebtRecoveryBudgetUsedPx,
   });
+  const debugNoteAcceptedForwardOpportunity = (args: {
+    semanticCursor: number;
+    targetLineIdx: number;
+    confidence: number;
+    matchId?: string | null;
+    transcriptSeq?: number | null;
+    runKey?: string | null;
+    runGeneration?: number | null;
+    nowMs: number;
+    contradiction?: boolean;
+  }) => {
+    const opportunity = noteAcceptedForwardOpportunity(args);
+    return opportunity ? { ...opportunity } : null;
+  };
+  const debugEvaluateAcceptedForwardOpportunity = (args: {
+    semanticCursor: number;
+    nowMs: number;
+    speechFresh: boolean;
+    runIdentityCurrent: boolean;
+    noMatchOrOffscript?: boolean;
+    contradiction?: boolean;
+    manualRepositioning?: boolean;
+    stopped?: boolean;
+    authorityLost?: boolean;
+    terminalUnsafe?: boolean;
+  }) => evaluateAcceptedForwardOpportunity(args);
 
   const driver = {
     ingest,
@@ -48236,6 +48623,9 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     getLastLineIndex,
     getStats,
     __debugGetAuthoritySnapshot: debugGetAuthoritySnapshot,
+    __debugNoteAcceptedForwardOpportunity: debugNoteAcceptedForwardOpportunity,
+    __debugEvaluateAcceptedForwardOpportunity: debugEvaluateAcceptedForwardOpportunity,
+    __debugClearAcceptedForwardOpportunity: clearAcceptedForwardOpportunity,
     __debugSeedPendingSpeakableBridge: debugSeedPendingSpeakableBridge,
     __debugNoteShortLineAmbiguity: debugNoteShortLineAmbiguity,
     __debugGetShortLinePreReanchorGraceState: debugGetShortLinePreReanchorGraceState,
@@ -48268,6 +48658,30 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     __debugSeedPreservedFollowTarget: debugSeedPreservedFollowTarget,
     __debugSeedOvershootSettleLock: debugSeedOvershootSettleLock,
   } as AsrScrollDriver & {
+    __debugNoteAcceptedForwardOpportunity(args: {
+      semanticCursor: number;
+      targetLineIdx: number;
+      confidence: number;
+      matchId?: string | null;
+      transcriptSeq?: number | null;
+      runKey?: string | null;
+      runGeneration?: number | null;
+      nowMs: number;
+      contradiction?: boolean;
+    }): AcceptedForwardOpportunity | null;
+    __debugEvaluateAcceptedForwardOpportunity(args: {
+      semanticCursor: number;
+      nowMs: number;
+      speechFresh: boolean;
+      runIdentityCurrent: boolean;
+      noMatchOrOffscript?: boolean;
+      contradiction?: boolean;
+      manualRepositioning?: boolean;
+      stopped?: boolean;
+      authorityLost?: boolean;
+      terminalUnsafe?: boolean;
+    }): { promote: boolean; reason: string; targetLineIdx: number | null; starvationAgeMs: number; evidenceAgeMs: number };
+    __debugClearAcceptedForwardOpportunity(reason: string): void;
     __debugSeedPendingSpeakableBridge(args: {
       semanticFrom: number;
       semanticTarget: number;

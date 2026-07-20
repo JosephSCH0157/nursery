@@ -16,6 +16,7 @@ import type {
   MediaMapGenerationScope,
 } from "../../lib/hearth-media-map-conversation";
 import type { ImageMapScriptSelection } from "../../lib/hearth-image-map-beats";
+import type { FullMediaBudgetPolicy } from "../../lib/hearth-media-map-builder";
 import { normalizeEpisodeThumbnailTitleStyle } from "../../lib/hearth-title-fonts";
 import type { TitleFontPreset, TitleShadowStrength } from "../../lib/hearth-title-fonts";
 
@@ -32,9 +33,16 @@ type BuildMediaMapPanelArgs = {
   mediaMap: EpisodeMediaMap | null;
   saveState: MediaMapPanelProps["saveState"];
   saveError: string | null;
+  packageState: MediaMapPanelProps["packageState"];
+  packageError: string | null;
+  generateDisabledReason: string | null;
+  onRetryLoad: () => void;
+  canRecoverLastGeneration: boolean;
+  onRecoverLastGeneration: () => void;
   message: string | null;
   disabled: boolean;
   generationScope: MediaMapGenerationScope;
+  budgetPolicy: FullMediaBudgetPolicy;
   draft: MediaMapPanelProps["draft"];
   conversationState: MediaMapPanelProps["conversation"]["state"];
   conversationSeed: MediaMapConversationSeed | null;
@@ -281,9 +289,16 @@ export function buildMediaMapPanelProps(args: BuildMediaMapPanelArgs): MediaMapP
     ),
     saveState: args.saveState,
     saveError: args.saveError,
+    packageState: args.packageState,
+    packageError: args.packageError,
+    generateDisabledReason: args.generateDisabledReason,
+    onRetryLoad: args.onRetryLoad,
+    canRecoverLastGeneration: args.canRecoverLastGeneration,
+    onRecoverLastGeneration: args.onRecoverLastGeneration,
     message: args.message,
     disabled: args.disabled,
     generationScope: args.generationScope,
+    budgetPolicy: args.budgetPolicy,
     draft: args.draft,
     conversation: {
       state: args.conversationState,

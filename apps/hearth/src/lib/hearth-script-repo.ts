@@ -1,6 +1,9 @@
 import { tongsFetch } from "./tongs-fetch";
+import { validateScriptTags } from "@forge/shared/script-tags";
 
-type CommitResult = { ok: true } | { ok: false; status?: number; reason: string };
+type CommitResult =
+  | { ok: true; outcome: "saved" | "duplicate"; revision: number; hash: string; transitionId: string }
+  | { ok: false; status?: number; reason: string; outcome?: string; rehydrate?: boolean };
 type ReadResult<T> = { ok: true; data: T } | { ok: false; status?: number; reason: string };
 
 type WrittenBy = {
@@ -161,6 +164,10 @@ export async function commitHearthPrimaryScript(
   },
 ): Promise<CommitResult> {
   const validatorVersion = readString(options?.validatorVersion) ?? "shared-script-tags-v1";
+  const validation = validateScriptTags(scriptText);
+  if (!validation.ok) {
+    return { ok: false, status: 400, reason: "invalid_script_tags", outcome: "conflict" };
+  }
   const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/commit-file`, {
     method: "POST",
     json: {
@@ -185,5 +192,71 @@ export async function commitHearthPrimaryScript(
   if (!isCommitAck(body)) {
     return { ok: false, status: response.status, reason: "invalid_response" };
   }
-  return { ok: true };
+  const commit = body as {
+    data?: {
+      hash?: unknown;
+      workspace_id?: unknown;
+      file_row?: { revision?: unknown };
+    };
+  };
+  const hash = readString(commit.data?.hash);
+  const revision = commit.data?.file_row?.revision;
+  const workspaceId = readString(commit.data?.workspace_id);
+  if (!hash || !/^[0-9a-f]{64}$/i.test(hash) || !Number.isInteger(revision) || Number(revision) < 1 || !workspaceId) {
+    return { ok: false, status: response.status, reason: "malformed_canonical_commit" };
+  }
+
+  const idempotencyKey = `hearth-publish:${workpieceId}:${revision}:${hash}`;
+  const transitionResponse = await tongsFetch(
+    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/ready-transition`,
+    {
+      method: "POST",
+      json: {
+        workspace_id: workspaceId,
+        script_path: PRIMARY_SCRIPT_PATH,
+        expected_script_revision: revision,
+        expected_script_hash: hash,
+        idempotency_key: idempotencyKey,
+        publish_evidence: {
+          transition: "hearth.script.published.v1",
+          script_path: PRIMARY_SCRIPT_PATH,
+          script_revision: revision,
+          script_hash: hash,
+          validation: {
+            validator_version: validatorVersion,
+            ok: true,
+            issue_count: validation.issues.length,
+          },
+        },
+      },
+    },
+  );
+  const transitionBody = await readBodyAsJson(transitionResponse) as {
+    ok?: unknown;
+    data?: { outcome?: unknown; reason?: unknown; ready?: { transition_id?: unknown } };
+    error?: { code?: unknown };
+  } | null;
+  if (!transitionResponse.ok) {
+    const code = readString(transitionBody?.error?.code);
+    return {
+      ok: false,
+      status: transitionResponse.status,
+      reason: code === "hearth_ready_migration_required" ? code : "ready_transition_failed",
+    };
+  }
+  const outcome = readString(transitionBody?.data?.outcome);
+  const transitionId = readString(transitionBody?.data?.ready?.transition_id);
+  if ((outcome === "saved" || outcome === "duplicate") && transitionId) {
+    return { ok: true, outcome, revision: Number(revision), hash: hash.toLowerCase(), transitionId };
+  }
+  if (outcome === "stale") {
+    await readHearthPrimaryScript(workpieceId);
+    return { ok: false, status: 409, reason: "stale", outcome, rehydrate: true };
+  }
+  return {
+    ok: false,
+    status: transitionResponse.status,
+    reason: readString(transitionBody?.data?.reason) ?? "ready_transition_rejected",
+    outcome: outcome ?? "ambiguous",
+  };
 }

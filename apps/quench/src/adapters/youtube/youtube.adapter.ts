@@ -5,7 +5,9 @@ import type {
 } from "../../core/release-packet.types";
 import {
   createNotImplementedResult,
+  createPublishAuthorityDeniedResult,
   createStubReceipt,
+  publishContextAllowsExecution,
   type AdapterPublishResult,
   type AdapterValidationIssue,
   type AdapterValidationResult,
@@ -117,6 +119,10 @@ export class YouTubeAdapter implements QuenchPlatformAdapter {
       thumbnail_asset_id: packet.thumbnail_asset_id,
     };
 
+    if (!publishContextAllowsExecution(context)) {
+      return createPublishAuthorityDeniedResult(this.platform, options, context, summary);
+    }
+
     if (!validation.ok) {
       return {
         ok: false,
@@ -147,6 +153,13 @@ export class YouTubeAdapter implements QuenchPlatformAdapter {
       mode: receipt.scheduled_for ? "schedule" : "publish",
       scheduled_for: receipt.scheduled_for,
     };
+
+    if (!publishContextAllowsExecution(context)) {
+      return Promise.resolve(createPublishAuthorityDeniedResult(this.platform, options, context, {
+        retry_of: receipt.external_id,
+        prior_status: receipt.status,
+      }));
+    }
 
     if (context.run_mode === "live") {
       return Promise.resolve(

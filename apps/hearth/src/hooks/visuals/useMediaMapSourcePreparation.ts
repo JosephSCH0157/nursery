@@ -8,6 +8,10 @@ import type {
   EpisodeReferenceClipPlan,
 } from "../../lib/episode-package-v2";
 import type { MediaMapGenerationScope } from "../../lib/hearth-media-map-conversation";
+import {
+  deriveFullMediaBudgetPolicy,
+  type FullMediaBudgetPolicy,
+} from "../../lib/hearth-media-map-builder";
 
 type CanonicalScriptResult =
   | {
@@ -68,6 +72,7 @@ export function useMediaMapSourcePreparation(args: UseMediaMapSourcePreparationA
     bootstrappedImageCount: number;
     bootstrappedBrollCount: number;
     bootstrappedReferenceClipCount: number;
+    budgetPolicy: FullMediaBudgetPolicy;
   } | {
     ok: false;
     error: string;
@@ -88,6 +93,16 @@ export function useMediaMapSourcePreparation(args: UseMediaMapSourcePreparationA
       canonicalScriptCache = await args.readCanonicalScriptForImageMapGeneration();
       return canonicalScriptCache;
     };
+
+    const durationScript = scope === "full_media_plan"
+      ? await ensureCanonicalScript()
+      : null;
+    if (scope === "full_media_plan" && durationScript && !durationScript.ok) {
+      return { ok: false, error: durationScript.message };
+    }
+    const budgetPolicy = deriveFullMediaBudgetPolicy({
+      scriptText: durationScript?.ok ? durationScript.text : null,
+    });
 
     if (sourceEpisodePackage.image_map.entries.length === 0) {
       const canonicalScript = await ensureCanonicalScript();
@@ -180,6 +195,7 @@ export function useMediaMapSourcePreparation(args: UseMediaMapSourcePreparationA
       bootstrappedImageCount,
       bootstrappedBrollCount,
       bootstrappedReferenceClipCount,
+      budgetPolicy,
     };
   }, [args]);
 

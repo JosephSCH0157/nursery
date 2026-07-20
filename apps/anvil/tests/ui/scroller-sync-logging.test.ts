@@ -4,6 +4,7 @@ import { applyCanonicalScrollTop } from '../../src/scroll/scroller';
 
 describe('SCROLL_SYNC logging', () => {
   beforeEach(() => {
+    jest.restoreAllMocks();
     jest.resetModules();
     localStorage.clear();
     document.body.innerHTML = '<main id="viewer" class="viewer"><div id="script"></div></main>';
@@ -12,7 +13,11 @@ describe('SCROLL_SYNC logging', () => {
     Object.defineProperty(viewer, 'scrollHeight', { configurable: true, value: 3000 });
     viewer.scrollTop = 0;
     window.history.replaceState({}, '', '/?dev=1');
+    delete (window as any).__tpScrollSyncDebug;
+    delete (window as any).__tpScrollDebug;
   });
+
+  afterEach(() => { jest.restoreAllMocks(); });
 
   test('does not emit SCROLL_SYNC in plain dev mode without explicit sync debug flag', () => {
     const debugSpy = jest.spyOn(console, 'debug').mockImplementation(() => {});

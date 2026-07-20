@@ -3,6 +3,8 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": { "node": "20.20.0" },
+  "volta": { "node": "20.20.0" },
   "description": "Bellows - Forge remote production studio",
   "license": "UNLICENSED",
   "sideEffects": false,
@@ -19,7 +21,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint \"src/**/*.{ts,tsx}\" \"tests/**/*.{ts,tsx}\"",
     "test:engine": "tsx --test tests/engine/reducer.test.ts",
-    "test:runtime": "tsx --test tests/runtime/session-runtime.test.ts tests/runtime/studio-shell-harness.test.ts tests/runtime/persistence-harness.test.ts tests/runtime/operator-console-harness.test.ts"
+    "test:runtime": "tsx --test tests/runtime/session-runtime.test.ts tests/runtime/studio-shell-harness.test.ts tests/runtime/persistence-harness.test.ts tests/runtime/operator-console-harness.test.ts",
+    "test": "pnpm test:engine && pnpm test:runtime"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

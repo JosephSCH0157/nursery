@@ -385,12 +385,22 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp 
     fromGate: boolean;
     autosaveReasonCode: AiAutosaveReasonCode | null;
   }) => TPendingAiProposal;
+  createPendingFormatOnlyProposal: (args: {
+    episodeContext: TEpisodeContext;
+  }) => {
+    ok: boolean;
+    proposal?: TPendingAiProposal;
+    assistantText?: string;
+    error?: string;
+  };
   resolveAiLaneFromStorage: () => "forge" | "byo";
   requestHearthChatReply: (
     messages: HearthChatMessage[],
     episodeContext: TEpisodeContext,
     options: {
       signal: AbortSignal;
+      productionAction?: "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack";
+      productionScriptVersion?: number;
       attachmentContext?: {
         includeEpisodeAttachments?: boolean;
         attachmentIds?: string[];
@@ -463,16 +473,6 @@ export function useChatWorkspaceRuntime<
     }
     const operation = args.operationAuthority.begin("chat.reply");
 
-    const lane = args.resolveAiLaneFromStorage();
-    args.setAiBillingMode(lane);
-    if (lane === "forge" && args.aiTokenBalance != null && args.aiTokenBalance <= 0) {
-      args.setChatError("You are out of AI credits for now.");
-      return;
-    }
-    if (lane === "byo") {
-      args.setAiTokenBalance(null);
-    }
-
     const source = params.source ?? "typed";
     const isProductionRequest = Boolean(params.productionAction);
     const intentSignals = args.detectChatIntentSignals(rawRequestContent);
@@ -491,7 +491,7 @@ export function useChatWorkspaceRuntime<
     args.recordInteractionEvent("chat_sent", {
       source,
       chars: rawRequestContent.length,
-      lane,
+      lane: intentSignals.scriptMutationIntent.kind === "format_only" ? "deterministic" : args.resolveAiLaneFromStorage(),
       has_deliverable: intentSignals.hasDeliverable,
       production_action: params.productionAction ?? null,
       writing_format: resolvedWritingFormat.appliedFormat,
@@ -519,7 +519,12 @@ export function useChatWorkspaceRuntime<
     const requestUserMessage: HearthChatMessage = { role: "user", content: requestContent };
     const displayUserMessage: HearthChatMessage = { role: "user", content: displayContent || requestContent };
     const baseMessages = args.chatMessagesRef.current;
-    const requestMessages = [...baseMessages, requestUserMessage].slice(-args.chatHistoryMaxMessages);
+    // Production prompts are self-contained and the approved script already lives in
+    // episode_context. Replaying prior production prompts duplicates the full script
+    // and can overflow the provider context before generation begins.
+    const requestMessages = isProductionRequest
+      ? [requestUserMessage]
+      : [...baseMessages, requestUserMessage].slice(-args.chatHistoryMaxMessages);
     const displayMessages = [...baseMessages, displayUserMessage].slice(-args.chatHistoryMaxMessages);
     args.setChatMessages(displayMessages);
     args.setChatDraft("");
@@ -527,15 +532,66 @@ export function useChatWorkspaceRuntime<
     args.setAiRuntimeWarning(null);
     args.setPendingAiProposal(null);
 
+    if (!isProductionRequest && intentSignals.scriptMutationIntent.kind === "format_only") {
+      const localResult = args.createPendingFormatOnlyProposal({ episodeContext });
+      if (!args.operationAuthority.isCurrent(operation)) return;
+      if (!localResult.ok || !localResult.proposal) {
+        const message = localResult.error ?? "Hearth could not create a safe formatting-only preview.";
+        args.setChatError(message);
+        args.publishForgeNotice({
+          job: "job-failed",
+          title: "Formatting-only preview blocked",
+          message,
+          severity: "error",
+        });
+        return;
+      }
+      const assistantContent = localResult.assistantText
+        ?? "I created a deterministic format-only preview. Wording, punctuation, notes, and cues are unchanged.";
+      const localAssistantMessage: HearthChatMessage = { role: "assistant", content: assistantContent };
+      args.setChatMessages((prev) => [
+        ...prev,
+        localAssistantMessage,
+      ].slice(-args.chatHistoryMaxMessages));
+      args.setPendingAiProposal(localResult.proposal);
+      args.recordInteractionEvent("draft_generated", {
+        source,
+        ops_count: 1,
+        proposal_origin: "format_only",
+        ai_called: false,
+      });
+      args.publishForgeNotice({
+        job: "script-completed",
+        title: "Format-only preview ready",
+        message: "Hearth formatted the current draft locally without using AI credits.",
+        severity: "success",
+      });
+      return;
+    }
+
+    const lane = args.resolveAiLaneFromStorage();
+    args.setAiBillingMode(lane);
+    if (lane === "forge" && args.aiTokenBalance != null && args.aiTokenBalance <= 0) {
+      args.setChatError("You are out of AI credits for now.");
+      return;
+    }
+    if (lane === "byo") {
+      args.setAiTokenBalance(null);
+    }
+
     const controller = new AbortController();
     args.aiRequestControllerRef.current = controller;
     args.setIsAiProcessing(true);
 
     try {
-      const attachmentContext = args.getAttachmentContext?.() ?? undefined;
+      const attachmentContext = isProductionRequest
+        ? { includeEpisodeAttachments: false, attachmentIds: [] }
+        : args.getAttachmentContext?.() ?? undefined;
       const result = await args.requestHearthChatReply(requestMessages, episodeContext, {
         signal: controller.signal,
         attachmentContext,
+        productionAction: params.productionAction as "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack" | undefined,
+        productionScriptVersion: params.productionScriptVersion,
       });
       if (!args.operationAuthority.isCurrent(operation)) return;
       args.setAiBillingMode(result.runtime.billingMode);
@@ -1422,6 +1478,15 @@ type UseChatWorkspaceProposalArgs<TPendingAiProposal extends ProposalLike<TOp>, 
     index: number,
   ) => TOp[];
   isProposalBodyDirty: (ops: TOp[], originalOps: TOp[], index: number) => boolean;
+  updateProposalAfterBodyEdit?: (
+    proposal: TPendingAiProposal,
+    index: number,
+    value: string,
+  ) => TPendingAiProposal;
+  resetProposalAfterBodyEdit?: (
+    proposal: TPendingAiProposal,
+    index: number,
+  ) => TPendingAiProposal;
 };
 
 export function useChatWorkspaceProposal<TPendingAiProposal extends ProposalLike<TOp>, TOp>(
@@ -1517,6 +1582,9 @@ export function useChatWorkspaceProposal<TPendingAiProposal extends ProposalLike
     args.setChatError(null);
     args.setPendingAiProposal((prev) => {
       if (!prev) return prev;
+      if (args.updateProposalAfterBodyEdit) {
+        return args.updateProposalAfterBodyEdit(prev, index, value);
+      }
       return {
         ...prev,
         ops: args.updateProposalBodyOps(prev.ops, index, value),
@@ -1529,6 +1597,9 @@ export function useChatWorkspaceProposal<TPendingAiProposal extends ProposalLike
     args.setChatError(null);
     args.setPendingAiProposal((prev) => {
       if (!prev) return prev;
+      if (args.resetProposalAfterBodyEdit) {
+        return args.resetProposalAfterBodyEdit(prev, index);
+      }
       return {
         ...prev,
         ops: args.resetProposalBodyOps(prev.ops, prev.originalOps, index),

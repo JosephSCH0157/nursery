@@ -848,7 +848,7 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         let upstreamDetail = "";
         let upstreamMessage: string | null = null;
         let upstreamUrl: string | null = null;
-        let resolvedModel = normalizedRequestSttModel;
+        const resolvedModel = normalizedRequestSttModel;
         let ffmpegFallbackAttempted = false;
         let ffmpegFallbackUsed = false;
         let ffmpegFallbackError: string | null = null;

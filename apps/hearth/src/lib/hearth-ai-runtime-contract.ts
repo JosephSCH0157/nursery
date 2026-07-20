@@ -36,6 +36,8 @@ export type HearthChatRequest = {
   behavior?: HearthAiBehavior;
   lane?: HearthAiLane;
   attachment_context?: HearthAttachmentContextRequest;
+  production_action?: "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack";
+  production_script_version?: number;
 };
 
 export type HearthSttRequest = {
