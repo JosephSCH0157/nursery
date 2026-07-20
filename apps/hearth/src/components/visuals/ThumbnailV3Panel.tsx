@@ -46,7 +46,7 @@ type Props = {
   onRecoverConcepts: () => Promise<{ ok: boolean; reason?: string; entityId?: string; disposition?: "created" | "existing"; stage?: string } | void>;
   isGeneratingConcepts: boolean;
   onOpenFraming: () => void;
-  onCanonicalProgress?: (progress: { conceptRevisionCount: number; baseVersionCount: number }) => void;
+  onCanonicalProgress?: (progress: { conceptRevisionCount: number; baseVersionCount: number; candidateCount: number; eligibleCandidateCount: number }) => void;
 };
 
 export function resolveConceptSetPresentation(sets: EpisodePackageV3["thumbnail"]["concept_sets"]) {
@@ -109,11 +109,14 @@ export default function ThumbnailV3Panel(props: Props) {
       const projected = canonical.episodePackage.brand.binding?.active;
       setBrandStatus(await readThumbnailBrandAuthorityStatus({ workspaceId: props.workspaceId, workpieceId: props.workpieceId,
         projectedBindingId: projected?.id ?? null, projectedBindingRevision: projected?.revision ?? null }));
-      setCandidateAuthority(await readThumbnailCandidateAuthorityProjection({workspaceId:props.workspaceId,workpieceId:props.workpieceId}));
+      const nextCandidateAuthority=await readThumbnailCandidateAuthorityProjection({workspaceId:props.workspaceId,workpieceId:props.workpieceId});
+      setCandidateAuthority(nextCandidateAuthority);
       setPkg(canonical.episodePackage); setToken(canonical.metadataUpdatedAt); setLoadError(null);
       props.onCanonicalProgress?.({
         conceptRevisionCount: canonical.episodePackage.thumbnail.concept_revisions.length,
         baseVersionCount: canonical.episodePackage.thumbnail.base_versions.length,
+        candidateCount: nextCandidateAuthority.candidates.length,
+        eligibleCandidateCount: nextCandidateAuthority.candidates.filter((candidate)=>candidate.eligibility_state==="current"||candidate.eligibility_state==="approved_historical_brand").length,
       });
       const pair = resolveCanonicalThumbnailPair(canonical.episodePackage);
       const pairSet = pair.concept

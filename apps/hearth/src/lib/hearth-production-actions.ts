@@ -289,7 +289,7 @@ export async function runProductionAction(args: {
     return;
   }
   if (args.action === "image_beat_sheet") {
-    args.setChatError("Image Beat Sheet has been replaced by Episode Media Map. Use Generate Episode Media Map in the media panel.");
+    args.setChatError("Image Beat Sheet has been replaced by the Episode Visual Plan. Use Create visual plan in the media workspace.");
     return;
   }
 

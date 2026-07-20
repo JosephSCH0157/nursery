@@ -60,13 +60,13 @@ test("workpiece loading masks editor save state", () => {
   const html = render("loading", true);
   assert.match(html, /Episode package is loading/);
   assert.doesNotMatch(html, />saved</);
-  assert.doesNotMatch(html, /Generate Media Map|No media map is applied yet|0 mapped beats/);
+  assert.doesNotMatch(html, /Create visual plan|No visual plan is applied yet|0 mapped beats/);
 });
 
 test("successful zero-entry package load shows saved and enables generation", () => {
   const html = render("loaded", false);
   assert.match(html, />saved</);
-  assert.doesNotMatch(html, /Generate Media Map[\s\S]*?disabled/);
+  assert.doesNotMatch(html, /Create visual plan[\s\S]*?disabled/);
   assert.match(html, /0 mapped beats/);
 });
 
@@ -75,7 +75,7 @@ test("failed package load shows its error and never shows saved", () => {
   assert.match(html, /Episode package unavailable: Canonical metadata request failed/);
   assert.match(html, /Retry Load/);
   assert.doesNotMatch(html, />saved</);
-  assert.doesNotMatch(html, /No media map is applied yet|Generate Media Map/);
+  assert.doesNotMatch(html, /No visual plan is applied yet|Create visual plan/);
 });
 
 test("recoverable generation is explicit and does not mask the loaded empty state", () => {
@@ -83,7 +83,7 @@ test("recoverable generation is explicit and does not mask the loaded empty stat
     ...baseProps, packageState: "loaded", packageError: null, disabled: false,
     generateDisabledReason: null, canRecoverLastGeneration: true,
   }));
-  assert.match(html, /Generate Media Map/);
+  assert.match(html, /Create visual plan/);
   assert.match(html, /Recover last generation/);
 });
 

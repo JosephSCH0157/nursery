@@ -131,11 +131,11 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
       const brollCount = nextMap.entries.filter((entry) => entry.final_media_kind === "b_roll").length;
       const referenceClipCount = nextMap.entries.filter((entry) => entry.final_media_kind === "contextual_data_composite").length;
       args.setMediaMapMessage(
-        `${prepared.bootstrappedImageCount > 0 ? `Seeded ${prepared.bootstrappedImageCount} timeline image beat${prepared.bootstrappedImageCount === 1 ? "" : "s"} from the canonical script. ` : ""}${prepared.bootstrappedBrollCount > 0 ? `Seeded ${prepared.bootstrappedBrollCount} B-roll beat${prepared.bootstrappedBrollCount === 1 ? "" : "s"} from the canonical script. ` : ""}${prepared.bootstrappedReferenceClipCount > 0 ? `Seeded ${prepared.bootstrappedReferenceClipCount} Reference Clip${prepared.bootstrappedReferenceClipCount === 1 ? "" : "s"} from explanatory Timeline Image beats. ` : ""}Generated ${nextMap.entries.length} media map entries from the current visual plans using scope: ${args.mediaMapGenerationScope.replaceAll("_", " ")} (image: ${nextMap.entries.filter((entry) => entry.final_media_kind === "image").length}, b-roll: ${brollCount}, reference clips: ${referenceClipCount}). Next: Frame the episode (titles, SEO, tags).`,
+        `${prepared.bootstrappedImageCount > 0 ? `Seeded ${prepared.bootstrappedImageCount} timeline image beat${prepared.bootstrappedImageCount === 1 ? "" : "s"} from the canonical script. ` : ""}${prepared.bootstrappedBrollCount > 0 ? `Seeded ${prepared.bootstrappedBrollCount} B-roll beat${prepared.bootstrappedBrollCount === 1 ? "" : "s"} from the canonical script. ` : ""}${prepared.bootstrappedReferenceClipCount > 0 ? `Seeded ${prepared.bootstrappedReferenceClipCount} Reference Clip${prepared.bootstrappedReferenceClipCount === 1 ? "" : "s"} from explanatory Timeline Image beats. ` : ""}Created ${nextMap.entries.length} visual plan entries from the current visual plans using scope: ${args.mediaMapGenerationScope.replaceAll("_", " ")} (image: ${nextMap.entries.filter((entry) => entry.final_media_kind === "image").length}, b-roll: ${brollCount}, reference clips: ${referenceClipCount}). Next: Frame the episode (titles, SEO, tags).`,
       );
     } catch {
       if (!args.operationAuthority.isCurrent(operation)) return;
-      args.setMediaMapSaveError("Unable to generate Episode Media Map.");
+      args.setMediaMapSaveError("Unable to create the Episode Visual Plan.");
       args.setMediaMapSaveState("error");
     } finally {
       if (args.operationAuthority.isCurrent(operation)) args.setIsMediaMapBusy(false);
@@ -243,7 +243,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
       return true;
     } catch {
       if (!args.operationAuthority.isCurrent(operation)) return false;
-      args.setMediaMapSaveError("Unable to build and apply the Episode Media Map.");
+      args.setMediaMapSaveError("Unable to build and apply the Episode Visual Plan.");
       args.setMediaMapSaveState("error");
       return false;
     } finally {

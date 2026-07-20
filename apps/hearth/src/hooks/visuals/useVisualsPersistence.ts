@@ -253,7 +253,7 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
   > => {
     const baseEpisodePackage = input.baseEpisodePackage ?? args.episodePackage;
     if (!baseEpisodePackage) {
-      return { ok: false, error: "Unable to save Episode Media Map for this episode." };
+      return { ok: false, error: "Unable to save the Episode Visual Plan for this episode." };
     }
     const episodeId = args.workpieceId?.trim() ?? "";
     const workspace = args.workspaceId?.trim() ?? "";

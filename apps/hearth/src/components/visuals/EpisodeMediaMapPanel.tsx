@@ -130,7 +130,7 @@ function MediaMapAdvancedEditor(props: EpisodeMediaMapPanelProps & {
           Build Visual Draft
         </button>
         <button type="button" className="hs-secondary-btn" onClick={props.onActivateMap} disabled={props.disabled}>
-          {props.mapStatus === "needs_attention" ? "Reapply Updated Map" : "Activate Current Map"}
+          {props.mapStatus === "needs_attention" ? "Apply updated visual plan" : "Use this visual plan"}
         </button>
         <button type="button" className="hs-secondary-btn" onClick={props.onAddEntry} disabled={props.disabled}>
           Add Entry
@@ -138,9 +138,9 @@ function MediaMapAdvancedEditor(props: EpisodeMediaMapPanelProps & {
       </div>
 
       <div className="hs-imap-grid">
-        <section className="hs-imap-list" aria-label="Episode media map entries">
+        <section className="hs-imap-list" aria-label="Episode visual plan entries">
           {props.entries.length === 0 ? (
-            <div className="hs-imap-empty">No media map entries yet.</div>
+            <div className="hs-imap-empty">No planned visuals yet.</div>
           ) : props.entries.map((entry) => (
             <button
               key={entry.id}
@@ -156,7 +156,7 @@ function MediaMapAdvancedEditor(props: EpisodeMediaMapPanelProps & {
           ))}
         </section>
 
-        <section className="hs-imap-editor" aria-label="Episode media map editor">
+        <section className="hs-imap-editor" aria-label="Episode visual plan editor">
           {!props.selectedEntry ? (
             <div className="hs-imap-empty">Select an entry to edit.</div>
           ) : (
@@ -267,8 +267,8 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
     || props.mapStatus === "fulfilling"
     || props.mapStatus === "fulfilled";
   const applyButtonLabel = mediaMapNeedsReapply || mediaMapActivated
-    ? "Reapply Updated Map"
-    : "Activate Current Map";
+    ? "Apply updated visual plan"
+    : "Use this visual plan";
   const selectedEntry = useMemo(
     () => props.entries.find((entry) => entry.id === props.selectedEntryId) ?? null,
     [props.entries, props.selectedEntryId],
@@ -313,7 +313,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
   if (props.packageState !== "loaded") {
     return (
       <div className="hs-imap-panel">
-        <div className="hs-imap-header"><div><h4 className="hs-imap-title">Episode Media Map</h4></div></div>
+        <div className="hs-imap-header"><div><h4 className="hs-imap-title">Episode Visual Plan</h4></div></div>
         {props.packageState === "loading" ? (
           <div className="hs-imap-message" role="status">Episode package is loading.</div>
         ) : props.packageState === "error" ? (
@@ -322,7 +322,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
             <button type="button" onClick={props.onRetryLoad}>Retry Load</button>
           </div>
         ) : (
-          <div className="hs-imap-message" role="status">Select an episode to load its media map.</div>
+          <div className="hs-imap-message" role="status">Select an episode to load its visual plan.</div>
         )}
       </div>
     );
@@ -332,7 +332,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
     <div className="hs-imap-panel">
       <div className="hs-imap-header">
         <div>
-          <h4 className="hs-imap-title">Episode Media Map</h4>
+          <h4 className="hs-imap-title">Episode Visual Plan</h4>
           <p className="hs-imap-subtitle">
             Producer-facing visual plan for Hammer. Script version: {props.scriptVersionLabel}
             {props.stale ? " (needs review)" : ""}
@@ -354,7 +354,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
           disabled={props.disabled}
           title={props.generateDisabledReason ?? undefined}
         >
-          {props.entries.length > 0 ? "Regenerate Media Map" : "Generate Media Map"}
+          {props.entries.length > 0 ? "Regenerate visual plan" : "Create visual plan"}
         </button>
         {props.canRecoverLastGeneration ? (
           <button type="button" className="hs-secondary-btn" onClick={props.onRecoverLastGeneration} disabled={props.disabled}>
@@ -366,13 +366,15 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
         <span className="hs-pill">Motion B-roll: {modalitySummary.motionBroll}</span>
         <span className="hs-pill">Reference clips: {modalitySummary.referenceClips}</span>
         <span className="hs-pill">Data/graphics: {modalitySummary.dataComposites}</span>
-        <span className="hs-pill">Generation burden: {modalitySummary.generationBurden}</span>
-        <span className="hs-pill">Sized for: {estimatedMinutes.toFixed(1)} min</span>
-        <span className="hs-pill">Target: {props.budgetPolicy.minimumPlacements}-{props.budgetPolicy.maximumPlacements}</span>
-        <span className="hs-pill">Motion allowance: {props.budgetPolicy.defaultMotionAllowance}</span>
-        {cadenceSeconds != null ? <span className="hs-pill">Cadence: {cadenceSeconds}s/placement</span> : null}
-        <span className="hs-pill">Map: {props.mapStatus}</span>
-        {props.packageState === "loaded" ? <span className="hs-pill">State: {props.saveState}</span> : null}
+        <details><summary>Planning details</summary><div>
+          <span className="hs-pill">Generation burden: {modalitySummary.generationBurden}</span>
+          <span className="hs-pill">Sized for: {estimatedMinutes.toFixed(1)} min</span>
+          <span className="hs-pill">Target: {props.budgetPolicy.minimumPlacements}-{props.budgetPolicy.maximumPlacements}</span>
+          <span className="hs-pill">Motion allowance: {props.budgetPolicy.defaultMotionAllowance}</span>
+          {cadenceSeconds != null ? <span className="hs-pill">Cadence: {cadenceSeconds}s/placement</span> : null}
+          <span className="hs-pill">Canonical map state: {props.mapStatus}</span>
+          {props.packageState === "loaded" ? <span className="hs-pill">Save state: {props.saveState}</span> : null}
+        </div></details>
         {props.entries.length > 0 ? (
           <button
             type="button"
@@ -386,7 +388,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
       </div>
 
       {summary && props.entries.length > 0 ? (
-        <section className="hs-imap-summary-band" aria-label="Applied media map summary">
+        <section className="hs-imap-summary-band" aria-label="Applied visual plan summary">
           <div className="hs-imap-summary-copy">
             <div className="hs-imap-summary-title">Applied visual plan</div>
             <div className="hs-imap-summary-meta">
@@ -501,7 +503,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
         </section>
       ) : null}
 
-      <details className="hs-imap-advanced" aria-label="Advanced media map controls">
+      <details className="hs-imap-advanced" aria-label="Advanced visual plan controls">
         <summary>Advanced / Fine Tune</summary>
         <MediaMapAdvancedEditor
           {...props}
@@ -511,7 +513,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
       </details>
 
       {props.entries.length === 0 ? (
-        <div className="hs-imap-empty">No media map is applied yet.</div>
+        <div className="hs-imap-empty">No visual plan is applied yet.</div>
       ) : (
         <section className="hs-imap-beat-cards" aria-label="Mapped visual beats">
           {beatCards.map((card, index) => (
