@@ -22,7 +22,7 @@
     "watch:asr": "pnpm exec esbuild src/index-hooks/asr.ts --bundle --format=esm --sourcemap --outfile=dist/index-hooks/asr.js --watch",
     "build:router": "pnpm exec esbuild src/features/scroll-router.ts --bundle --format=esm --outfile=dist/features/scroll-router.js",
     "watch:router": "pnpm exec esbuild src/features/scroll-router.ts --bundle --format=esm --sourcemap --outfile=dist/features/scroll-router.js --watch",
-    "typecheck": "pnpm run build:logic && tsc -p tsconfig.json --noEmit",
+    "typecheck": "pnpm --filter @forge/shared build && pnpm run build:logic && tsc -p tsconfig.json --noEmit",
     "smoke": "node tools/smoke_test.js --calm --controlled --port=5181 --timeout=120000",
     "test:asr-smoke": "node tools/build_asr_smoke.mjs && node tools/asr_smoke.js",
     "test:rec-smoke": "node tools/rec_smoke.js",

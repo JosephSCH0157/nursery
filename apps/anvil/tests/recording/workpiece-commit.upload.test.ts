@@ -1,3 +1,5 @@
+export {};
+
 jest.mock('../../src/forge/tongs-user-auth', () => ({
   appendForgeUserAuthorization: async (headers?: Headers) => headers ?? new Headers(),
 }));
