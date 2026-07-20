@@ -1,11 +1,11 @@
-import type { BrandAssetRevision, BrandAssetRole, BrandBindingMutation, BrandBindingMutationResult, BrandBindingResolutionResult, BrandProfile, BrandProfileRevision, BrandRules, WorkpieceBrandBinding } from "@forge/shared";
+import type { BrandAsset, BrandAssetRevision, BrandAssetRole, BrandBindingMutation, BrandBindingMutationResult, BrandBindingResolutionResult, BrandProfile, BrandProfileRevision, BrandRules, WorkpieceBrandBinding } from "@forge/shared";
 import { tongsSupabase } from "./supabase";
 
 type RpcClient = { rpc: (name: string, params: Record<string, unknown>) => Promise<{ data: unknown; error: { message: string } | null }> };
 const client = tongsSupabase as unknown as RpcClient;
 async function rpc<T>(name: string, params: Record<string, unknown>): Promise<T> { const { data, error } = await client.rpc(name, params); if (error) throw new Error(error.message); return data as T; }
 
-export type BrandLibraryProjection = { profiles: Array<BrandProfile & { is_default: boolean }>; revisions: BrandProfileRevision[]; assets: unknown[]; asset_revisions: unknown[] };
+export type BrandLibraryProjection = { profiles: Array<BrandProfile & { is_default: boolean }>; revisions: BrandProfileRevision[]; assets: BrandAsset[]; asset_revisions: BrandAssetRevision[] };
 type BrandRevisionRpcRow = BrandProfileRevision & { rules_json?: BrandRules; validation_json?: BrandProfileRevision["validation"] };
 
 export function normalizeBrandLibraryProjection(projection: BrandLibraryProjection): BrandLibraryProjection {
@@ -56,8 +56,17 @@ export async function uploadBrandAssetRevision(args:{workspaceId:string;profileI
     const uploaded=await tongsSupabase.storage.from(reserved.storage_bucket).upload(reserved.storage_key,args.file,{contentType:args.file.type,upsert:false}); if(uploaded.error)throw new Error(uploaded.error.message);
     const readback=await tongsSupabase.storage.from(reserved.storage_bucket).download(reserved.storage_key); if(readback.error)throw new Error(readback.error.message);
     const actual=new Uint8Array(await readback.data.arrayBuffer()); const actualDigest=await crypto.subtle.digest("SHA-256",actual); const actualHash=[...new Uint8Array(actualDigest)].map((byte)=>byte.toString(16).padStart(2,"0")).join(""); if(actualHash!==hash||actual.length!==bytes.length)throw new Error("Canonical brand asset readback did not match uploaded bytes.");
-    return rpc("finalize_brand_asset_revision",{p_workspace_id:args.workspaceId,p_revision_id:reserved.id,p_operation_id:operationId,p_content_hash:hash,p_bytes:bytes.length,p_width:null,p_height:null,p_duration_ms:null});
+    if(args.role==="video_intro"||args.role==="video_outro")return inspectBrandVideoRevision(reserved.id);
+    return rpc("finalize_brand_asset_revision",{p_workspace_id:args.workspaceId,p_revision_id:reserved.id,p_operation_id:operationId,p_content_hash:hash,p_bytes:bytes.length,p_width:null,p_height:null,p_duration_ms:null,p_has_audio:null});
   } return reserved;
+}
+
+export async function inspectBrandVideoRevision(revisionId:string):Promise<BrandAssetRevision>{
+  const {data,error}=await tongsSupabase.functions.invoke("inspect-brand-media",{body:{revision_id:revisionId}});
+  if(error)throw new Error("Video inspection could not be completed. The uploaded file is safe and inspection can be retried.");
+  const root=data as {ok?:boolean;revision?:BrandAssetRevision;error?:{message?:string}};
+  if(root?.ok!==true||!root.revision)throw new Error(root?.error?.message??"Video inspection could not be completed. The uploaded file is safe and inspection can be retried.");
+  return root.revision;
 }
 
 export async function resolveWorkpieceBrandDefault(args: { workspaceId: string; workpieceId: string; operationId: string }): Promise<BrandBindingResolutionResult> {
