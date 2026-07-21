@@ -3968,6 +3968,52 @@ test("GET optional base64 read returns a non-error missing payload", async () =>
   assert.equal(calls.readWorkpieceBinary.length, 1);
 });
 
+test("GET optional JSON read returns a non-error missing payload", async () => {
+  const { service, calls } = mockService();
+  service.readWorkpieceJson = async (workpieceId, path) => {
+    calls.readWorkpieceText.push({ workpieceId, path });
+    return { found: false };
+  };
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/read-file?path=production%2Fv2%2Fpack.json&optional=1",
+    { method: "GET" },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.exists, false);
+  assert.equal(calls.readWorkpieceText.length, 1);
+  assert.equal(calls.readWorkpieceText[0].workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.readWorkpieceText[0].path, "production/v2/pack.json");
+});
+
+test("GET optional text read returns a non-error missing payload", async () => {
+  const { service, calls } = mockService();
+  service.readWorkpieceText = async (workpieceId, path) => {
+    calls.readWorkpieceText.push({ workpieceId, path });
+    return { found: false };
+  };
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/read-file?path=production%2Fv2%2Fpack.txt&optional=1",
+    { method: "GET" },
+  );
+
+  const response = await handler(request);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.ok, true);
+  assert.equal(body.exists, false);
+  assert.equal(calls.readWorkpieceText.length, 1);
+  assert.equal(calls.readWorkpieceText[0].workpieceId, "11111111-1111-4111-8111-111111111111");
+  assert.equal(calls.readWorkpieceText[0].path, "production/v2/pack.txt");
+});
+
 test("GET /tongs/workpieces/:id/read-file?encoding=binary returns raw bytes", async () => {
   const { service, calls } = mockService();
   const handler = createTongsCommitApiHandlerWithService(service);

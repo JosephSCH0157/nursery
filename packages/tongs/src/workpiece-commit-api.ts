@@ -14890,7 +14890,7 @@ export function createTongsCommitApiHandlerWithService(
             if (isBootstrapWorkpiecePath(path)) {
               return jsonResponse(200, { ok: true, data: null, exists: false });
             }
-            return jsonResponse(404, {
+            return jsonResponse(optionalRead ? 200 : 404, {
               ok: true,
               exists: false,
             });
@@ -14907,7 +14907,7 @@ export function createTongsCommitApiHandlerWithService(
           if (isBootstrapWorkpiecePath(path)) {
             return jsonResponse(200, { ok: true, data: null, exists: false });
           }
-          return jsonResponse(404, {
+          return jsonResponse(optionalRead ? 200 : 404, {
             ok: true,
             exists: false,
           });

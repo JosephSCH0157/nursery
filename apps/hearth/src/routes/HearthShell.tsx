@@ -3147,6 +3147,9 @@ export default function HearthShell({
   );
   const imageMapReanchorDisabledReason = useMemo(() => {
     if (!selectedImageMapEntry) return "Select a visual beat first.";
+    if (!hasApprovedScript) {
+      return "Approve the current script before repairing image anchors.";
+    }
     if (imageMapSaveState === "editing" || imageMapSaveState === "saving") {
       return "Save this visual beat before re-anchoring it.";
     }
@@ -3155,6 +3158,7 @@ export default function HearthShell({
     }
     return null;
   }, [
+    hasApprovedScript,
     imageMapSaveState,
     isImageMapCandidateGenerating,
     isImageMapCandidateSelecting,
