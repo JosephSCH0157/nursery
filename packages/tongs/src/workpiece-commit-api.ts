@@ -3137,6 +3137,25 @@ function normalizeComparableIsoTimestampOrNull(input: unknown): string | null {
   return date.toISOString();
 }
 
+function isMissingCanonicalImageMapObject(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const row = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown };
+  const code = typeof row.code === "string" ? row.code : "";
+  if (code === "42P01" || code === "42703" || code === "42883") {
+    return true;
+  }
+  const text = [row.message, row.details, row.hint]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+  if (!text) return false;
+  return text.includes("does not exist") && (
+    text.includes("workpiece_image_map_sequences")
+    || text.includes("image_map_revisions")
+    || text.includes("workpiece_script_approval_sequences")
+  );
+}
+
 function normalizeOptionalIsoTimestampOrNull(input: unknown, field: string): string | null | undefined {
   if (typeof input === "undefined") return undefined;
   if (input === null) return null;
@@ -6260,14 +6279,30 @@ export class TongsCommitService {
   } | null> {
     const tongs = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
     const sequence = await tongs.from("workpiece_image_map_sequences").select("current_revision_id,current_revision").eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId).maybeSingle();
-    if (sequence.error) throw new HttpError(502, "db_read_failed", "Failed to read canonical image-map sequence", { reason: sequence.error.message });
+    if (sequence.error) {
+      if (isMissingCanonicalImageMapObject(sequence.error)) {
+        throw new HttpError(503, "canonical_image_map_authority_unavailable", "Canonical image-map authority is unavailable.");
+      }
+      throw new HttpError(502, "db_read_failed", "Failed to read canonical image-map sequence", { reason: sequence.error.message });
+    }
     if (!isRecord(sequence.data) || !readStringField(sequence.data, "current_revision_id")) return null;
     const revision = await tongs.from("image_map_revisions").select("*").eq("id", readStringField(sequence.data, "current_revision_id")!).eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId).maybeSingle();
-    if (revision.error || !isRecord(revision.data)) throw new HttpError(502, "db_read_failed", "Failed to read canonical image-map revision", { reason: revision.error?.message ?? "missing_current_revision" });
+    if (revision.error) {
+      if (isMissingCanonicalImageMapObject(revision.error)) {
+        throw new HttpError(503, "canonical_image_map_authority_unavailable", "Canonical image-map authority is unavailable.");
+      }
+      throw new HttpError(502, "db_read_failed", "Failed to read canonical image-map revision", { reason: revision.error.message });
+    }
+    if (!isRecord(revision.data)) throw new HttpError(502, "db_read_failed", "Failed to read canonical image-map revision", { reason: "missing_current_revision" });
     const document = isRecord(revision.data.document_json) ? revision.data.document_json : null;
     if (!document || !Array.isArray(document.entries)) throw new HttpError(502, "invalid_canonical_image_map", "Canonical image-map revision is malformed");
     const approvalSequence = await tongs.from("workpiece_script_approval_sequences").select("current_approval_id").eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId).maybeSingle();
-    if (approvalSequence.error) throw new HttpError(502, "db_read_failed", "Failed to compare canonical script approval.", { reason: approvalSequence.error.message });
+    if (approvalSequence.error) {
+      if (isMissingCanonicalImageMapObject(approvalSequence.error)) {
+        throw new HttpError(503, "canonical_image_map_authority_unavailable", "Canonical image-map authority is unavailable.");
+      }
+      throw new HttpError(502, "db_read_failed", "Failed to compare canonical script approval.", { reason: approvalSequence.error.message });
+    }
     const approvalChanged = isRecord(approvalSequence.data)
       && readStringField(approvalSequence.data, "current_approval_id") !== readStringField(revision.data, "source_script_approval_id");
     const projectedEntries = approvalChanged

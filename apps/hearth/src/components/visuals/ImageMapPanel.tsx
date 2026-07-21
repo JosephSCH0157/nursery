@@ -51,6 +51,7 @@ type ImageMapPanelProps = {
   draftPlacementHint: string;
   saveState: ImageMapSaveState;
   saveError: string | null;
+  expectedImageCount?: number;
   exportMessage: string | null;
   activeVisualProvider: ResolvedVisualProvider;
   visualProviderOptions: ReadonlyArray<{ id: VisualProviderId; label: string }>;
@@ -74,6 +75,7 @@ type ImageMapPanelProps = {
   reanchorParagraphs: ImageMapAnchorPickerParagraph[];
   activeAnchorLabel: string | null;
   disabled?: boolean;
+  onRetryLoad: () => void;
   onSelectEntry: (entryId: string) => void;
   onDraftAnchorChange: (value: string) => void;
   onDraftDescriptionChange: (value: string) => void;
@@ -185,6 +187,7 @@ export default function ImageMapPanel({
   draftPlacementHint,
   saveState,
   saveError,
+  expectedImageCount = 0,
   exportMessage,
   activeVisualProvider,
   visualProviderOptions,
@@ -208,6 +211,7 @@ export default function ImageMapPanel({
   reanchorParagraphs,
   activeAnchorLabel,
   disabled = false,
+  onRetryLoad,
   onSelectEntry,
   onDraftAnchorChange,
   onDraftDescriptionChange,
@@ -340,6 +344,7 @@ export default function ImageMapPanel({
   }, [activePromptPack, selectedEntry]);
 
   if (!manualOnly) {
+    const imageAuthorityUnavailable = saveError === "canonical_image_map_authority_unavailable";
     const canonicalAnchorState = selectedEntry?.canonical_anchor_assessment?.state ?? "provenance_unknown";
     const needsAnchorRepair = canonicalAnchorState !== "current";
     const workspace = buildEpisodeImagesWorkspaceViewModel({
@@ -354,10 +359,17 @@ export default function ImageMapPanel({
       <section className="hs-episode-images" aria-label="Episode Images">
         <header className="hs-episode-images-header">
           <div><h3>Episode Images</h3><p>These images support moments in your episode. Hammer handles final placement.</p></div>
-          <div className="hs-episode-images-progress" role="status" aria-live="polite"><strong>{workspace.progress.label}</strong><progress value={workspace.progress.ready} max={Math.max(1, workspace.progress.total)} /></div>
+          <div className="hs-episode-images-progress" role="status" aria-live="polite"><strong>{imageAuthorityUnavailable ? "Episode Images unavailable" : workspace.progress.label}</strong><progress value={workspace.progress.ready} max={Math.max(1, workspace.progress.total)} /></div>
         </header>
 
-        {entries.length === 0 ? <section className="hs-episode-images-empty"><h4>No image moments planned yet</h4><p>Refresh the image plan from the approved script to begin.</p><button type="button" className="is-primary" onClick={onSeedFromScript} disabled={disabled}>Refresh image plan from script</button></section> : <div className="hs-episode-images-layout">
+        {imageAuthorityUnavailable ? (
+          <section className="hs-episode-images-empty" role="alert">
+            <h4>Episode Images is temporarily unavailable.</h4>
+            <p>Hearth is connected to a Tongs version that does not support the current image-plan authority. Your Visual Plan and existing images have not been removed.</p>
+            {expectedImageCount > 0 ? <p>Synchronization unavailable: the Visual Plan expects {expectedImageCount} image moment{expectedImageCount === 1 ? "" : "s"}.</p> : null}
+            <button type="button" className="is-primary" onClick={onRetryLoad} disabled={disabled}>Retry</button>
+          </section>
+        ) : entries.length === 0 ? <section className="hs-episode-images-empty"><h4>No image moments planned yet</h4><p>Refresh the image plan from the approved script to begin.</p><button type="button" className="is-primary" onClick={onSeedFromScript} disabled={disabled}>Refresh image plan from script</button></section> : <div className="hs-episode-images-layout">
           <nav className="hs-episode-images-queue" aria-label="Planned episode images">
             {workspace.items.map((item) => <button key={item.id} type="button" className={item.id === workspace.activeItem?.id ? "is-current" : ""} aria-current={item.id === workspace.activeItem?.id ? "step" : undefined} onClick={() => onSelectEntry(item.id)} disabled={disabled}>
               <span className="hs-episode-images-number">{item.number}</span><span><strong>{item.scriptMoment}</strong><small>{item.suggestedImage}</small><em>{episodeImageStatusLabel(item.status)}</em></span>

@@ -57,7 +57,7 @@ export type WorkpieceImageMapCandidateAssetView = {
 
 export type GetWorkpieceImageMapResult =
   | { ok: true; imageMap: WorkpieceImageMapView }
-  | { ok: false; status: number; reason: string; error?: string };
+  | { ok: false; status: number; reason: string; error?: string; code?: string };
 
 export type SaveWorkpieceImageMapResult =
   | { ok: true; imageMap: WorkpieceImageMapView }
@@ -136,6 +136,11 @@ function readApiErrorMessage(body: unknown): string | null {
     return `${message} (${reason})`;
   }
   return message ?? reason ?? null;
+}
+
+function readApiErrorCode(body: unknown): string | null {
+  if (!isRecord(body) || !isRecord(body.error)) return null;
+  return readString(body.error.code);
 }
 
 function normalizeWorkpieceRelativePathOrNull(workpieceId: string, rawPath: string | null | undefined): string | null {
@@ -335,11 +340,13 @@ export async function getWorkpieceImageMap(workpieceId: string): Promise<GetWork
   const body = await readBodyAsJson(response);
   if (!response.ok) {
     const error = readApiErrorMessage(body);
+    const code = readApiErrorCode(body);
     return {
       ok: false,
       status: response.status,
       reason: "request_failed",
       ...(error ? { error } : {}),
+      ...(code ? { code } : {}),
     };
   }
 

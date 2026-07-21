@@ -22,6 +22,7 @@ type UseEpisodePackageLoaderArgs = {
   setEpisodePackageError: Dispatch<SetStateAction<string | null>>;
   setRecoverableMediaMap: Dispatch<SetStateAction<EpisodeMediaMap | null>>;
   setImageMapMetadataUpdatedAt: Dispatch<SetStateAction<string | null>>;
+  setImageMapProjectionLoaded: Dispatch<SetStateAction<boolean>>;
   setSelectedThumbnailTitleId: Dispatch<SetStateAction<string | null>>;
   setSelectedThumbnailConceptId: Dispatch<SetStateAction<string>>;
   setSelectedThumbnailVersionId: Dispatch<SetStateAction<string | null>>;
@@ -73,6 +74,7 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
       currentArgs.setEpisodePackageError(null);
       currentArgs.setRecoverableMediaMap(null);
       currentArgs.setImageMapMetadataUpdatedAt(null);
+      currentArgs.setImageMapProjectionLoaded(true);
       currentArgs.setSelectedThumbnailTitleId(null);
       currentArgs.setSelectedThumbnailConceptId("");
       currentArgs.setSelectedThumbnailVersionId(null);
@@ -133,6 +135,7 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
       if (!loaded.ok) {
         currentArgs.setEpisodePackageState("error");
         currentArgs.setEpisodePackageError(loaded.error);
+        currentArgs.setImageMapProjectionLoaded(false);
         currentArgs.setThumbnailGenerateError("Unable to load thumbnail metadata.");
         currentArgs.setThumbnailPreviewState("error");
         currentArgs.setThumbnailPreviewDataUrl(null);
@@ -165,15 +168,20 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
       });
       if (imageMapLoaded.ok) {
         currentArgs.setImageMapMetadataUpdatedAt(imageMapLoaded.imageMap.metadataUpdatedAt);
+        currentArgs.setImageMapProjectionLoaded(true);
         currentArgs.setImageMapSaveState("saved");
         currentArgs.setImageMapSaveError(null);
       } else {
         currentArgs.setImageMapMetadataUpdatedAt(null);
+        currentArgs.setImageMapProjectionLoaded(false);
         currentArgs.setImageMapSaveState("error");
+        const imageMapUnavailable = imageMapLoaded.status === 503 && imageMapLoaded.code === "canonical_image_map_authority_unavailable";
         currentArgs.setImageMapSaveError(
-          "error" in imageMapLoaded && typeof imageMapLoaded.error === "string"
-            ? imageMapLoaded.error
-            : "Image-map discovery is currently unavailable.",
+          imageMapUnavailable
+            ? "canonical_image_map_authority_unavailable"
+            : "error" in imageMapLoaded && typeof imageMapLoaded.error === "string"
+              ? imageMapLoaded.error
+              : "Image-map discovery is currently unavailable.",
         );
       }
       if (mediaMapLoaded.ok) {
@@ -218,6 +226,7 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
       currentArgs.setThumbnailPreviewState("error");
       currentArgs.setThumbnailPreviewDataUrl(null);
       currentArgs.setThumbnailPreviewError("Unable to load thumbnail metadata.");
+      currentArgs.setImageMapProjectionLoaded(false);
       currentArgs.setEpisodePackageState("error");
       currentArgs.setEpisodePackageError(
         error instanceof Error ? error.message : "Unable to load the episode package.",

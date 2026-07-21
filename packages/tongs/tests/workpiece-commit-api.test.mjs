@@ -6363,6 +6363,8 @@ test("TongsCommitService.getWorkpieceImageMap returns normalized semantic entrie
 
   assert.equal(result.image_map.workpiece_id, workpieceId);
   assert.equal(result.image_map.workspace_id, workspaceId);
+  assert.equal(result.image_map.authority_source, "legacy");
+  assert.equal(result.image_map.provenance_state, "provenance_unknown");
   assert.equal(result.image_map.metadata_updated_at, "2026-03-10T15:59:00.000Z");
   assert.equal(result.image_map.entries.length, 1);
   assert.equal(result.image_map.entries[0]?.source_type, "stock");
@@ -6370,6 +6372,53 @@ test("TongsCommitService.getWorkpieceImageMap returns normalized semantic entrie
   assert.equal(result.image_map.entries[0]?.beat_order, 1);
   assert.equal(result.asset?.asset_kind, "image_map_json");
   assert.equal(result.asset?.metadata_json.entry_count, 1);
+});
+
+test("TongsCommitService.readCanonicalImageMapProjection returns typed 503 when canonical infrastructure is unavailable", async () => {
+  const service = new TongsCommitService({
+    schema(schemaName) {
+      assert.equal(schemaName, "tongs");
+      return {
+        from(tableName) {
+          if (tableName !== "workpiece_image_map_sequences") {
+            throw new Error(`Unexpected table: ${tableName}`);
+          }
+          return {
+            select() {
+              return {
+                eq() {
+                  return this;
+                },
+                async maybeSingle() {
+                  return {
+                    data: null,
+                    error: {
+                      code: "42P01",
+                      message: "relation \"tongs.workpiece_image_map_sequences\" does not exist",
+                    },
+                  };
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+  }, "forge-workpieces", null);
+
+  await assert.rejects(
+    () => service.readCanonicalImageMapProjection(
+      "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      "11111111-1111-4111-8111-111111111111",
+    ),
+    (error) => {
+      assert.equal(error?.status, 503);
+      assert.equal(error?.code, "canonical_image_map_authority_unavailable");
+      assert.equal(error?.message, "Canonical image-map authority is unavailable.");
+      assert.equal(error?.details ?? null, null);
+      return true;
+    },
+  );
 });
 
 test("TongsCommitService.getWorkpieceVisualPackage returns Hammer-ready ordering plus selected asset retrieval info", async () => {

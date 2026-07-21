@@ -181,18 +181,8 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
         })
       );
 
-      let generated = await requestCandidateGeneration(expectedMetadataUpdatedAt);
+      const generated = await requestCandidateGeneration(expectedMetadataUpdatedAt);
       if (!args.operationAuthority.isCurrent(operation)) return;
-
-      if (!generated.ok && generated.reason === "conflict" && generated.latest) {
-        const latest = generated.latest;
-        args.setEpisodePackage((prev) => (
-          prev ? args.replaceEpisodePackageImageMap(prev, latest.entries, latest.spokenBeats) : prev
-        ));
-        args.setImageMapMetadataUpdatedAt(latest.metadataUpdatedAt);
-        generated = await requestCandidateGeneration(latest.metadataUpdatedAt);
-        if (!args.operationAuthority.isCurrent(operation)) return;
-      }
 
       if (!generated.ok) {
         const failureMessage = generated.error

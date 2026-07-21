@@ -2287,6 +2287,8 @@ export default function HearthShell({
     imageMapPlacementHintDraft,
     imageMapMetadataUpdatedAt,
     setImageMapMetadataUpdatedAt,
+    imageMapProjectionLoaded,
+    setImageMapProjectionLoaded,
     imageMapSaveState,
     setImageMapSaveState,
     imageMapSaveError,
@@ -3218,6 +3220,8 @@ export default function HearthShell({
   const thumbnailPanelMeta = formatThumbnailPanelMeta(displayedThumbnailConceptCount, displayedThumbnailVersionCount);
   const mediaMapPanelMeta = `${mediaMapEntries.length} visual${mediaMapEntries.length === 1 ? "" : "s"}`;
   const imageMapPanelMeta = `${imageMapEntries.length} anchor${imageMapEntries.length === 1 ? "" : "s"}`;
+  const plannedImageCount = mediaMapEntries.filter((entry) => entry.final_media_kind === "image").length;
+  const imageMapAuthorityUnavailable = imageMapSaveError === "canonical_image_map_authority_unavailable";
   const brollPanelMeta = `${brollBeats.length} beat${brollBeats.length === 1 ? "" : "s"} · coverage ${brollPlan?.coverage_strength ?? "low"}`;
   const mediaWorkflowInput = {
     hasApprovedScript: Boolean(scriptApprovalState.hasApprovedScript && scriptApprovalState.approvedScriptVersion && scriptApprovalState.approvedScriptVersion > 0),
@@ -3233,7 +3237,12 @@ export default function HearthShell({
       eligible: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "") ? canonicalThumbnailProgress.eligibleCandidateCount : 0,
       previewAssetPaths: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "") ? canonicalThumbnailProgress.previewAssetPaths : [],
     },
-    images: { planned: imageMapEntries.length, completed: imageMapEntries.filter((entry) => Boolean(entry.selected_asset_id)).length },
+    images: {
+      planned: plannedImageCount,
+      completed: imageMapEntries.filter((entry) => Boolean(entry.selected_asset_id)).length,
+      canonicalCount: imageMapEntries.length,
+      projectionLoaded: imageMapProjectionLoaded && !imageMapAuthorityUnavailable,
+    },
     broll: { planned: brollBeats.length, completed: brollBeats.filter((beat) => beat.fulfillment_state === "resolved" && Boolean(beat.selected_asset_id)).length },
     upstreamChanged: visualPlanRevisionChanged,
   };
@@ -4706,6 +4715,7 @@ export default function HearthShell({
     setEpisodePackageError,
     setRecoverableMediaMap,
     setImageMapMetadataUpdatedAt,
+    setImageMapProjectionLoaded,
     setSelectedThumbnailTitleId,
     setSelectedThumbnailConceptId,
     setSelectedThumbnailVersionId,
@@ -7331,6 +7341,7 @@ export default function HearthShell({
       draftPlacementHint: imageMapPlacementHintDraft,
       saveState: imageMapSaveState,
       saveError: imageMapSaveError,
+      expectedImageCount: plannedImageCount,
       exportMessage: imageMapExportMessage,
       activeVisualProvider,
       visualProviderOptions,
@@ -7353,7 +7364,8 @@ export default function HearthShell({
       reanchorScriptLoading: canonicalImageMapScriptState.status === "loading",
       reanchorParagraphs: imageMapAnchorPickerParagraphs,
       activeAnchorLabel: imageMapActiveAnchorLabel,
-      disabled: isApprovingScript || !episodePackage,
+      disabled: isApprovingScript || !episodePackage || imageMapAuthorityUnavailable,
+      onRetryLoad: () => void refreshEpisodePackage(),
       onSelectEntry: setSelectedImageMapEntryId,
       onDraftAnchorChange: onImageMapDraftAnchorChange,
       onDraftDescriptionChange: onImageMapDraftDescriptionChange,
