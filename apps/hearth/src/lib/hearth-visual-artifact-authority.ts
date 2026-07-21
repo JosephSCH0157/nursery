@@ -23,6 +23,19 @@ export type CanonicalArtifactRead<T> =
   | { kind: "unavailable" };
 
 /**
+ * Approval authority hydrates independently from visual artifacts on cold boot.
+ * A temporarily missing approved version is not evidence that an applied plan
+ * is stale; only a different canonical approved version can invalidate it.
+ */
+export function shouldInvalidateMediaMapForScriptVersion(
+  mediaMapScriptVersionId: string | null,
+  approvedScriptVersion: number | null,
+): boolean {
+  if (approvedScriptVersion === null) return false;
+  return mediaMapScriptVersionId !== String(approvedScriptVersion);
+}
+
+/**
  * Episode metadata owns the package shell. The image-map endpoint and media-map
  * file own their respective artifacts. Embedded copies are compatibility data
  * only and may be used only when no canonical artifact was read.

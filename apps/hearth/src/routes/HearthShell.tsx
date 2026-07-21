@@ -130,6 +130,7 @@ import { useImageMapCandidatePreviewLoader } from "../hooks/visuals/useImageMapC
 import { useVisualWorkspaceResetLifecycle } from "../hooks/visuals/useVisualWorkspaceResetLifecycle";
 import { useMediaMapConversationBootstrap } from "../hooks/visuals/useMediaMapConversationBootstrap";
 import { useCanonicalImageMapScriptStateLoader } from "../hooks/visuals/useCanonicalImageMapScriptStateLoader";
+import { shouldInvalidateMediaMapForScriptVersion } from "../lib/hearth-visual-artifact-authority";
 import { hasCanonicalFraming } from "../lib/hearth-framing-authority";
 import { readCanonicalThumbnailWorkspaceV3, readThumbnailCandidateAuthorityProjection } from "../lib/hearth-thumbnail-v3-api";
 import { useVisualSelectionHydration } from "../hooks/visuals/useVisualSelectionHydration";
@@ -6132,8 +6133,11 @@ export default function HearthShell({
 
   useEffect(() => {
     if (!episodePackage) return;
-    const currentScriptVersion = approvedScriptVersion ? String(approvedScriptVersion) : null;
-    if (episodePackage.media_map.script_version_id === currentScriptVersion) return;
+    if (!shouldInvalidateMediaMapForScriptVersion(
+      episodePackage.media_map.script_version_id,
+      approvedScriptVersion,
+    )) return;
+    const currentScriptVersion = String(approvedScriptVersion);
     setEpisodePackage((prev) => {
       if (!prev) return prev;
       if (prev.media_map.script_version_id === currentScriptVersion) return prev;

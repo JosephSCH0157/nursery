@@ -71,6 +71,7 @@ export default function ThumbnailV3Panel(props: Props) {
   const [token, setToken] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<ThumbnailSaveState>("saved");
+  const [selectedGenerationState, setSelectedGenerationState] = useState<"idle" | "preparing" | "generating">("idle");
   const [selectedSetId, setSelectedSetId] = useState<string | null>(null);
   const [selectedRevisionId, setSelectedRevisionId] = useState<string | null>(null);
   const [titleId, setTitleId] = useState<string>("");
@@ -273,9 +274,9 @@ export default function ThumbnailV3Panel(props: Props) {
   };
 
   const saveRecipe = async (reviewed: boolean) => {
-    if (!pkg || !selectedConcept) return;
+    if (!pkg || !selectedConcept) return null;
     const title = pkg.seo.titles.find((entry) => entry.id === titleId && entry.revision === titleRevision);
-    if (!title) { setLoadError("Choose an exact framing title before saving the recipe."); return; }
+    if (!title) { setLoadError("Choose an exact framing title before saving the recipe."); return null; }
     const now = new Date().toISOString();
     const recipe: ThumbnailRenderRecipe = {
       id: activeRecipe?.id ?? crypto.randomUUID(), revision: (activeRecipe?.revision ?? 0) + 1,
@@ -308,13 +309,14 @@ export default function ThumbnailV3Panel(props: Props) {
     const result = await commitEpisodePackageV3Mutation({ workpieceId: props.workpieceId, expectedMetadataUpdatedAt: token,
       nextEpisodePackage: next, mutation: { kind: "recipe", entityId: recipe.id, revision: recipe.revision },
       eventName: reviewed ? "hearth.thumbnail.prompt.reviewed.v3" : "hearth.thumbnail.recipe.saved.v3" });
-    if (!result.ok) { setSaveState("error"); setLoadError(result.error); return; }
+    if (!result.ok) { setSaveState("error"); setLoadError(result.error); return null; }
     setPkg(result.episodePackage); setToken(result.metadataUpdatedAt); setSaveState("saved");
     if (candidateEditRecipeIdentity) setCandidateEditRecipeIdentity({ id: recipe.id, revision: recipe.revision });
-    try {
+    void (async () => { try {
       await projectThumbnailLaunchFacts({ workspaceId: props.workspaceId, workpieceId: props.workpieceId, episodePackage: result.episodePackage });
       setMemoryProjection(await loadThumbnailMemoryProjection(props.workspaceId)); setMemoryState("loaded"); setMemoryError(null);
-    } catch (error) { setMemoryState("unavailable"); setMemoryError(error instanceof Error ? error.message : "Workspace thumbnail memory is unavailable."); }
+    } catch (error) { setMemoryState("unavailable"); setMemoryError(error instanceof Error ? error.message : "Workspace thumbnail memory is unavailable."); } })();
+    return { episodePackage: result.episodePackage, metadataUpdatedAt: result.metadataUpdatedAt, recipe };
   };
 
   const renameSet = async () => {
@@ -369,23 +371,55 @@ export default function ThumbnailV3Panel(props: Props) {
     setPkg(result.episodePackage); setToken(result.metadataUpdatedAt); setSelectedRevisionId(revision.concept_revision_id); setSaveState("saved");
   };
 
-  const renderBase = async (source: "forge_ai" | "outside_tool", file?: File) => {
-    if (!pkg || !selectedConcept || !activeRecipe || promptPack?.review_state !== "reviewed") {
+  const renderBase = async (source: "forge_ai" | "outside_tool", file?: File, prepared?: {
+    episodePackage: EpisodePackageV3;
+    metadataUpdatedAt: string | null;
+    recipe: ThumbnailRenderRecipe;
+  }) => {
+    const renderPackage = prepared?.episodePackage ?? pkg;
+    const renderToken = prepared?.metadataUpdatedAt ?? token;
+    const renderRecipe = prepared?.recipe ?? activeRecipe;
+    const recipeIsReviewed = prepared
+      ? prepared.recipe.prompt_review_state === "reviewed"
+      : promptPack?.review_state === "reviewed";
+    if (!renderPackage || !selectedConcept || !renderRecipe || !recipeIsReviewed) {
       setLoadError("Review the prompt pack before choosing a renderer."); return;
     }
     setSaveState("saving"); const id = crypto.randomUUID(); const createdAt = new Date().toISOString();
     const base = { id, created_at: createdAt, concept_revision_id: selectedConcept.concept_revision_id,
-      render_recipe_id: activeRecipe.id, render_recipe_revision: activeRecipe.revision,
-      intended_aspect_ratio: activeRecipe.intended_aspect_ratio };
+      render_recipe_id: renderRecipe.id, render_recipe_revision: renderRecipe.revision,
+      intended_aspect_ratio: renderRecipe.intended_aspect_ratio };
     const result = source === "forge_ai"
       ? await generateForgeAiBaseArtwork({ workpieceId: props.workpieceId, workspaceId: props.workspaceId,
-          expectedMetadataUpdatedAt: token, episodePackage: pkg, baseVersion: base, operationId: crypto.randomUUID(), confirmSpend: true, alwaysApproveAiSpend: false })
+          expectedMetadataUpdatedAt: renderToken, episodePackage: renderPackage, baseVersion: base, operationId: crypto.randomUUID(), confirmSpend: true, alwaysApproveAiSpend: false })
       : await commitOutsideToolBaseArtwork({ workpieceId: props.workpieceId, workspaceId: props.workspaceId,
-          expectedMetadataUpdatedAt: token, episodePackage: pkg,
+          expectedMetadataUpdatedAt: renderToken, episodePackage: renderPackage,
           baseVersion: { ...base, source_type: "outside_tool", provider_id: "outside_tool", provider_request_id: null, mime_type: (file?.type || "image/png") as "image/png" },
           artwork: { sourceType: "outside_tool", bytes: new Uint8Array(await file!.arrayBuffer()), mimeType: (file!.type || "image/png") as "image/png", providerId: "outside_tool", operationId: crypto.randomUUID() } });
     if (!result.ok) { setSaveState("error"); setLoadError(result.error); return; }
     setPkg(result.episodePackage); setToken(result.metadataUpdatedAt); setSelectedBaseId(id); setSaveState("saved");
+  };
+
+  const generateSelectedThumbnail = async () => {
+    if (!validSelectedPair || saveState === "saving" || selectedGenerationState !== "idle") return;
+    setLoadError(null);
+    setSelectedGenerationState("preparing");
+    try {
+      if (persistedPairIsSelected && promptPack?.review_state === "reviewed") {
+        setSelectedGenerationState("generating");
+        await renderBase("forge_ai");
+        return;
+      }
+      const prepared = await saveRecipe(true);
+      if (!prepared) return;
+      setSelectedGenerationState("generating");
+      await renderBase("forge_ai", undefined, prepared);
+    } catch (error) {
+      setSaveState("error");
+      setLoadError(error instanceof Error ? error.message : "Unable to generate the selected thumbnail.");
+    } finally {
+      setSelectedGenerationState("idle");
+    }
   };
 
   const setPrimaryBase = async (baseId: string) => {
@@ -523,7 +557,9 @@ export default function ThumbnailV3Panel(props: Props) {
       </section>
 
       <section className="hs-thumbnail-stage" aria-labelledby="thumbnail-compare-heading">
-        <div className="hs-thumbnail-stage-heading"><div><span>2</span><h4 id="thumbnail-compare-heading">Generate and compare</h4></div><small>{candidateCards.length ? "Compare the same final compositions at full and feed size" : "Artwork generation is available after a direction and prompt are ready"}</small></div>
+        <div className="hs-thumbnail-stage-heading"><div><span>2</span><h4 id="thumbnail-compare-heading">Generate and compare</h4></div>
+          <button type="button" className="is-primary" disabled={!validSelectedPair || saveState === "saving" || selectedGenerationState !== "idle"} onClick={() => void generateSelectedThumbnail()}>{selectedGenerationState === "preparing" ? "Preparing thumbnail…" : selectedGenerationState === "generating" ? "Generating thumbnail…" : "Generate selected thumbnail"}</button>
+        </div>
         {candidateCards.length ? <div className="hs-thumbnail-focused-grid">
           {candidateCards.slice(0, 3).map((card, index) => {
             const direction = directions[index];
@@ -537,7 +573,6 @@ export default function ThumbnailV3Panel(props: Props) {
           })}
         </div> : <div className="hs-thumbnail-generation-empty">
           <div><strong>No finished thumbnails yet</strong><p>Save and review the selected direction’s image prompt, then create its artwork. Hearth will keep each immutable version as you build the set.</p></div>
-          <button type="button" className="is-primary" disabled={!persistedPairIsSelected || promptPack?.review_state !== "reviewed" || saveState === "saving"} onClick={() => void renderBase("forge_ai")}>Generate selected thumbnail</button>
           <small>A three-image credit quote is not available from the current operation-cost API, so Hearth will not display or charge a made-up bundle price.</small>
         </div>}
         {ledgerState === "loaded" && !ledgerProjection?.measured_facts.length && !ledgerProjection?.historical_observations.length ? <p className="hs-thumbnail-calm-empty">No channel history yet. Hearth is ranking these using editorial, branding, and readability evidence.</p> : null}
