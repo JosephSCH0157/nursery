@@ -199,6 +199,12 @@ export type EpisodeImageMapEntry = {
   selected_asset_id: string | null;
   status: EpisodeImageMapStatus;
   placement_hint?: string | null;
+  canonical_anchor_assessment?: {
+    state: "current" | "stale" | "unresolved" | "provenance_unknown";
+    reason: string | null;
+    exact_anchor: EpisodeImageMapScriptAnchor | null;
+    evidence: Record<string, unknown>;
+  };
 };
 
 export type EpisodeImageMap = {
@@ -857,6 +863,10 @@ function normalizeImageMapEntries(value: unknown): EpisodeImageMapEntry[] {
     const intent = normalizeImageMapIntent(readString(entry.intent));
     const visualPriority = normalizeImageMapVisualPriority(readString(entry.visual_priority));
     const visualType = normalizeImageMapVisualType(readString(entry.visual_type));
+    const assessment = isRecord(entry.canonical_anchor_assessment) ? entry.canonical_anchor_assessment : null;
+    const assessmentState = assessment && ["current", "stale", "unresolved", "provenance_unknown"].includes(String(assessment.state))
+      ? assessment.state as "current" | "stale" | "unresolved" | "provenance_unknown"
+      : null;
     out.push({
       id: readString(entry.id) ?? `image-map-${String(i + 1).padStart(2, "0")}`,
       anchor,
@@ -894,6 +904,7 @@ function normalizeImageMapEntries(value: unknown): EpisodeImageMapEntry[] {
         selectedAssetId,
       ),
       placement_hint: readString(entry.placement_hint) ?? readString(entry.match),
+      ...(assessmentState ? { canonical_anchor_assessment: { state: assessmentState, reason: readString(assessment!.reason), exact_anchor: normalizeImageMapScriptAnchor(assessment!.exact_anchor), evidence: isRecord(assessment!.evidence) ? assessment!.evidence : {} } } : {}),
     });
   }
   return out;

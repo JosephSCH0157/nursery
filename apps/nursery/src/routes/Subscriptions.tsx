@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
-import type { SupabaseClient, User } from "@supabase/supabase-js";
-import type { Database } from "@forge/tongs";
+import type { User } from "@supabase/supabase-js";
 import { Link, useLocation, useOutletContext } from "react-router-dom";
 import { STRIPE_CATALOG } from "../../../../supabase/functions/_shared/stripe-catalog.ts";
 import { supabase, tongsSupabase } from "../lib/supabase";
@@ -96,10 +95,6 @@ type AccountBillingOverview = {
   storageCurrentPeriodEnd: string | null;
   storageBytesEntitled: number | null;
   aiCreditBalance: number | null;
-};
-
-type ProfilesTableClient = {
-  from: SupabaseClient<Database>["from"];
 };
 
 type TongsRpcClient = {
@@ -563,7 +558,7 @@ function buildInitials(displayName: string, email: string | null | undefined): s
 }
 
 async function ensureUserProfile(user: User): Promise<ForgeProfile> {
-  const profilesClient = supabase as unknown as ProfilesTableClient;
+  const profilesClient = supabase;
 
   const { data: profile, error: profileError } = await profilesClient
     .from("profiles")
@@ -613,7 +608,7 @@ async function updateProfileDisplayName(
   user: User,
   displayName: string,
 ): Promise<ForgeProfile> {
-  const profilesClient = supabase as unknown as ProfilesTableClient;
+  const profilesClient = supabase;
   const normalizedDisplayName = normalizeString(displayName);
 
   const { data, error } = await profilesClient

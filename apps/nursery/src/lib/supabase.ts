@@ -3,7 +3,14 @@ import {
   type SupabaseClient,
   type SupabaseClientOptions,
 } from "@supabase/supabase-js";
-import type { Database } from "@forge/tongs";
+import type { Database as TongsDatabase } from "@forge/tongs";
+import type { Database as NurseryDatabase } from "./supabase/database.types";
+
+type AppDatabase = {
+  __InternalSupabase: NurseryDatabase["__InternalSupabase"];
+  public: NurseryDatabase["public"];
+  tongs: TongsDatabase["tongs"];
+};
 
 const url =
   (import.meta.env.VITE_SUPABASE_URL as string | undefined)
@@ -17,7 +24,7 @@ const TONGS_AUTH_STORAGE_KEY = "forge-auth-tongs";
 const GLOBAL_KEY = "__forge_supabase_client__";
 const TONGS_GLOBAL_KEY = "__forge_supabase_tongs_client__";
 const TONGS_AUTH_SYNC_KEY = "__forge_supabase_tongs_auth_synced__";
-export type TongsSupabaseClient = SupabaseClient<Database, "tongs", "tongs">;
+export type TongsSupabaseClient = SupabaseClient<TongsDatabase, "tongs", "tongs">;
 
 const supabaseAuthLockQueues = new Map<string, Promise<void>>();
 
@@ -48,7 +55,7 @@ async function runWithSupabaseAuthLock<Result>(
 }
 
 const globalStore = globalThis as typeof globalThis & {
-  [GLOBAL_KEY]?: SupabaseClient<Database>;
+  [GLOBAL_KEY]?: SupabaseClient<AppDatabase>;
   [TONGS_GLOBAL_KEY]?: TongsSupabaseClient;
   [TONGS_AUTH_SYNC_KEY]?: boolean;
 };
@@ -78,9 +85,9 @@ const tongsAuthOptions = {
 const existing = globalStore[GLOBAL_KEY];
 const existingTongs = globalStore[TONGS_GLOBAL_KEY];
 
-export const supabase: SupabaseClient<Database> =
+export const supabase: SupabaseClient<AppDatabase> =
   existing ??
-  createClient<Database>(url, anon, {
+  createClient<AppDatabase>(url, anon, {
     auth: primaryAuthOptions,
   });
 
@@ -90,9 +97,9 @@ const tongsOptions: SupabaseClientOptions<"tongs"> = {
 };
 
 export const tongsSupabase: TongsSupabaseClient =
-  existingTongs ?? createClient<Database, "tongs">(url, anon, tongsOptions);
+  existingTongs ?? createClient<TongsDatabase, "tongs">(url, anon, tongsOptions);
 
-globalStore[GLOBAL_KEY] = supabase as SupabaseClient<Database>;
+globalStore[GLOBAL_KEY] = supabase as SupabaseClient<AppDatabase>;
 globalStore[TONGS_GLOBAL_KEY] = tongsSupabase;
 
 // Keep tongs client session in sync with the primary client.

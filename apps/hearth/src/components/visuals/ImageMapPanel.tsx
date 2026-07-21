@@ -340,7 +340,8 @@ export default function ImageMapPanel({
   }, [activePromptPack, selectedEntry]);
 
   if (!manualOnly) {
-    const needsAnchorRepair = anchorStatusTone === "danger" || anchorStatusTone === "warning";
+    const canonicalAnchorState = selectedEntry?.canonical_anchor_assessment?.state ?? "provenance_unknown";
+    const needsAnchorRepair = canonicalAnchorState !== "current";
     const workspace = buildEpisodeImagesWorkspaceViewModel({
       entries,
       activeEntryId: selectedEntryId,
@@ -367,7 +368,7 @@ export default function ImageMapPanel({
             {workspace.activeItem && selectedEntry ? <>
               <header className="hs-episode-image-cue"><span>Image {activeNumber} of {workspace.progress.total}</span><h4>Moment in the script</h4><blockquote>{workspace.activeItem.scriptMoment}</blockquote><h4>Suggested image</h4><p>{workspace.activeItem.suggestedImage}</p>{draftSectionIntentNote.trim() ? <><h4>Editorial purpose</h4><p>{draftSectionIntentNote}</p></> : null}</header>
 
-              {needsAnchorRepair ? <aside className="hs-episode-images-repair" role="alert"><strong>This image plan was created from an older script version.</strong><p>Update it to the current script before creating this image. Your existing images are preserved.</p><button type="button" onClick={onStartReanchor} disabled={disabled || reanchorBusy}>Update from current script</button></aside> : null}
+              {needsAnchorRepair ? <aside className="hs-episode-images-repair" role="alert"><strong>This image moment is not verified against the approved script.</strong><p>Tongs can check exact anchors against the immutable approved script. Existing candidates and selected images are preserved.</p><button type="button" onClick={onStartReanchor} disabled={disabled || reanchorBusy}>{reanchorBusy ? "Checking approved script…" : "Repair from approved script"}</button></aside> : null}
 
               {!selectedEntry.selected_asset_id ? <section className="hs-episode-images-sources" aria-labelledby="episode-image-source-heading"><h4 id="episode-image-source-heading">How would you like to get this image?</h4><div className="hs-episode-images-source-grid">
                 <button type="button" className="is-primary" onClick={() => onGenerateCandidates("ai")} disabled={disabled || candidateGenerateBusy || needsAnchorRepair}><strong>Generate image</strong><span>Create two visual options with the configured generation service. AI credit approval remains explicit.</span></button>

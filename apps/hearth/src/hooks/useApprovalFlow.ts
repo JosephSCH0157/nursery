@@ -7,6 +7,7 @@ import { buildHearthApprovedScriptReplacement } from "../lib/hearth-script-appro
 import type { HearthCanonicalRevisionsResult } from "../storage/hearth-store";
 import { commitCanonicalScriptApproval } from "../lib/hearth-approval-commit";
 import type { HearthOperationAuthority } from "../lib/hearth-operation-authority";
+import { commitPublishedScriptApprovalAuthority } from "../lib/hearth-script-approval-authority";
 
 type ScriptApprovalStateLike = {
   hasApprovedScript: boolean;
@@ -146,6 +147,20 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
 
       const approvedAt = approvalCommit.approvedAt;
       const nextVersion = approvalCommit.version;
+      if (!args.workspaceId) {
+        args.setError("Canonical script approval requires an active workspace.");
+        return false;
+      }
+      const authorityCommit = await commitPublishedScriptApprovalAuthority({
+        workpieceId: episodeId,
+        workspaceId: args.workspaceId,
+        creatorVersion: nextVersion,
+      });
+      if (!args.operationAuthority.isCurrent(operation)) return false;
+      if (!authorityCommit.ok) {
+        args.setError(authorityCommit.error);
+        return false;
+      }
       const nextState: ScriptApprovalStateLike = {
         hasApprovedScript: true,
         approvedScriptVersion: nextVersion,

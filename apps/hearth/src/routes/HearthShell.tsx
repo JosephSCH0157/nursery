@@ -255,6 +255,7 @@ import {
   resolveImageMapEntryAnchorScope,
 } from "../lib/hearth-image-map-anchor";
 import { replaceEpisodePackageImageMap } from "../lib/hearth-episode-package-image-map";
+import { repairWorkpieceImageMapAuthority, resolveWorkpieceImageMapManualAnchorAuthority } from "../lib/hearth-image-map-repo";
 import {
   listExternalGenerationProviders,
   type ExternalGenerationProvider,
@@ -5064,6 +5065,22 @@ export default function HearthShell({
     isImageMapReanchorSaving,
     canonicalImageMapScriptState,
     persistImageMapEntries,
+    repairCanonicalImageMap: async () => {
+      if (!workpieceId || !workspaceId || !episodePackage) return { ok: false as const, error: "Select an episode in an active workspace." };
+      const repaired = await repairWorkpieceImageMapAuthority({ workpieceId, workspaceId });
+      if (!repaired.ok) return { ok: false as const, error: repaired.error ?? "Tongs could not repair the image plan." };
+      setEpisodePackage(replaceEpisodePackageImageMap(episodePackage, repaired.imageMap.entries, repaired.imageMap.spokenBeats));
+      setImageMapMetadataUpdatedAt(repaired.imageMap.metadataUpdatedAt);
+      return { ok: true as const };
+    },
+    resolveManualCanonicalAnchor: async (entryId, scriptAnchor) => {
+      if (!workpieceId || !workspaceId || !episodePackage) return { ok: false as const, error: "Select an episode in an active workspace." };
+      const resolved = await resolveWorkpieceImageMapManualAnchorAuthority({ workpieceId, workspaceId, entryId, scriptAnchor });
+      if (!resolved.ok) return { ok: false as const, error: resolved.error ?? "Tongs could not resolve the exact anchor." };
+      setEpisodePackage(replaceEpisodePackageImageMap(episodePackage, resolved.imageMap.entries, resolved.imageMap.spokenBeats));
+      setImageMapMetadataUpdatedAt(resolved.imageMap.metadataUpdatedAt);
+      return { ok: true as const };
+    },
     setMode,
     setShowManualDraft,
     setShowScriptPanel,

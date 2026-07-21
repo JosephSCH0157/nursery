@@ -17,6 +17,12 @@ export type WorkpieceImageMapView = {
   entries: EpisodeImageMapEntry[];
   spokenBeats: EpisodeSpokenBeat[];
   metadataUpdatedAt: string | null;
+  authoritySource?: "canonical" | "legacy";
+  revisionId?: string | null;
+  revision?: number;
+  sourceScriptApprovalId?: string | null;
+  sourceScriptApprovalRevision?: number | null;
+  provenanceState?: "current" | "stale" | "unresolved" | "provenance_unknown";
   asset: {
     id: string;
     path: "assets/image-map/image-map.v1.json";
@@ -239,6 +245,12 @@ function normalizeWorkpieceImageMapView(
     entries: normalizeImageMapEntries(imageMapRoot.entries),
     spokenBeats: normalizeSpokenBeats(imageMapRoot.spoken_beats),
     metadataUpdatedAt: readString(imageMapRoot.metadata_updated_at),
+    authoritySource: imageMapRoot.authority_source === "canonical" ? "canonical" : "legacy",
+    revisionId: readString(imageMapRoot.image_map_revision_id),
+    revision: typeof imageMapRoot.image_map_revision === "number" ? imageMapRoot.image_map_revision : 0,
+    sourceScriptApprovalId: readString(imageMapRoot.source_script_approval_id),
+    sourceScriptApprovalRevision: typeof imageMapRoot.source_script_approval_revision === "number" ? imageMapRoot.source_script_approval_revision : null,
+    provenanceState: ["current", "stale", "unresolved", "provenance_unknown"].includes(String(imageMapRoot.provenance_state)) ? imageMapRoot.provenance_state as WorkpieceImageMapView["provenanceState"] : "provenance_unknown",
     asset: assetRoot
       ? {
         id: readString(assetRoot.id) ?? "",
@@ -253,6 +265,29 @@ function normalizeWorkpieceImageMapView(
       }
       : null,
   };
+}
+
+export async function repairWorkpieceImageMapAuthority(args: { workpieceId: string; workspaceId: string }): Promise<SaveWorkpieceImageMapResult> {
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/image-map/repair`, {
+    method: "POST",
+    json: { workspace_id: args.workspaceId, operation_id: `forge:image-map:repair:${crypto.randomUUID()}` },
+  });
+  const body = await readBodyAsJson(response);
+  if (!response.ok) return { ok: false, status: response.status, reason: response.status === 409 ? "conflict" : "request_failed", error: readApiErrorMessage(body) ?? undefined };
+  const imageMap = normalizeWorkpieceImageMapView(body, { workpieceId: args.workpieceId, workspaceId: args.workspaceId });
+  return imageMap ? { ok: true, imageMap } : { ok: false, status: response.status, reason: "invalid_response" };
+}
+
+export async function resolveWorkpieceImageMapManualAnchorAuthority(args: { workpieceId: string; workspaceId: string; entryId: string; scriptAnchor: EpisodeImageMapEntry["script_anchor"] }): Promise<SaveWorkpieceImageMapResult> {
+  if (!args.scriptAnchor) return { ok: false, status: 400, reason: "request_failed", error: "An exact script anchor is required." };
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/image-map/manual-anchor`, {
+    method: "POST",
+    json: { workspace_id: args.workspaceId, entry_id: args.entryId, script_anchor: args.scriptAnchor, operation_id: `forge:image-map:manual:${crypto.randomUUID()}` },
+  });
+  const body = await readBodyAsJson(response);
+  if (!response.ok) return { ok: false, status: response.status, reason: response.status === 409 ? "conflict" : "request_failed", error: readApiErrorMessage(body) ?? undefined };
+  const imageMap = normalizeWorkpieceImageMapView(body, { workpieceId: args.workpieceId, workspaceId: args.workspaceId });
+  return imageMap ? { ok: true, imageMap } : { ok: false, status: response.status, reason: "invalid_response" };
 }
 
 function normalizeCandidateAssetView(

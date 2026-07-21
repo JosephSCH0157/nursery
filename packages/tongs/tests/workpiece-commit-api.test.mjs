@@ -3066,6 +3066,17 @@ function createImageMapAssetSupabase({ assets = [] } = {}) {
   };
 }
 
+function installCurrentImageMapAuthority(service, workspaceId, workpieceId) {
+  service.readCanonicalImageMapProjection = async () => {
+    const state = await service.readWorkpieceImageMapState(workpieceId, workspaceId);
+    return {
+      entries: state.episodePackage.image_map.entries.map((entry) => ({ ...entry, canonical_anchor_assessment: { state: "current", reason: null, exact_anchor: entry.script_anchor, evidence: { match_count: 1 } } })),
+      authority: { source: "canonical", revisionId: "88888888-8888-4888-8888-888888888888", revision: 1, scriptApprovalId: "99999999-9999-4999-8999-999999999999", scriptApprovalRevision: 1, scriptContentHash: "a".repeat(64), anchorContractVersion: "forge.image-map-anchor.v1", provenanceState: "current", semanticStateHash: "b".repeat(64), immutableRevisionHash: "c".repeat(64) },
+    };
+  };
+  service.commitCanonicalImageMap = async () => ({ disposition: "committed" });
+}
+
 function createManifestFixture(workpieceId, workspaceId) {
   const now = "2026-03-02T00:00:00.000Z";
   return {
@@ -4580,6 +4591,7 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
     };
   };
 
+  installCurrentImageMapAuthority(service, workspaceId, workpieceId);
   const result = await service.generateImageMapCandidates(workpieceId, {
     workspace_id: workspaceId,
     image_map_entry_id: "image-map-01",
@@ -4836,6 +4848,7 @@ test("TongsCommitService.generateImageMapCandidates accepts beat anchors for bul
     };
   };
 
+  installCurrentImageMapAuthority(service, workspaceId, workpieceId);
   const result = await service.generateImageMapCandidates(workpieceId, {
     workspace_id: workspaceId,
     image_map_entry_id: "image-map-01",
@@ -5875,6 +5888,7 @@ test("TongsCommitService.listWorkspaceReadyScripts hides hidden and archived que
     storage_profile: null,
   });
   service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: viewerId, role: "viewer" });
+  service.readCanonicalImageMapProjection = async () => null;
 
   const result = await service.listWorkspaceReadyScripts(workspaceId, {
     userAccessToken: "viewer_token",
@@ -6290,6 +6304,7 @@ test("TongsCommitService.getWorkpieceImageMap returns normalized semantic entrie
   });
 
   const service = new TongsCommitService(supabase, "forge-workpieces", null);
+  service.readCanonicalImageMapProjection = async () => null;
   service.getCradleOrThrow = async () => ({
     id: workpieceId,
     workspace_id: workspaceId,
@@ -7219,7 +7234,7 @@ test("TongsCommitService.saveWorkpieceImageMap accepts matching metadata timesta
   assert.equal(state.insertCalls.length, 1);
 });
 
-test("TongsCommitService.generateImageMapCandidates tolerates matching metadata timestamps with different precision", async () => {
+test("TongsCommitService.generateImageMapCandidates fails closed without canonical image-map authority", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const workpieceId = "11111111-1111-4111-8111-111111111111";
   const editorId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
@@ -7254,6 +7269,7 @@ test("TongsCommitService.generateImageMapCandidates tolerates matching metadata 
     updated_at: "2026-03-02T00:00:00.000Z",
   });
   service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: editorId, role: "editor" });
+  service.readCanonicalImageMapProjection = async () => null;
   service.readWorkpieceJson = async () => ({
     found: true,
     data: {
@@ -7299,8 +7315,8 @@ test("TongsCommitService.generateImageMapCandidates tolerates matching metadata 
       { userAccessToken: "editor_token" },
     ),
     (error) => {
-      assert.equal(error.status, 400);
-      assert.equal(error.code, "image_map_anchor_required");
+      assert.equal(error.status, 409);
+      assert.equal(error.code, "canonical_image_map_required");
       return true;
     },
   );
