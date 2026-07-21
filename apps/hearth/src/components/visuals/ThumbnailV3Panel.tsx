@@ -13,6 +13,7 @@ import { refineConcept, saveRenderRecipe } from "../../lib/hearth-thumbnail-v3-a
 import { isValidThumbnailPair, resolveCanonicalThumbnailPair } from "../../lib/hearth-thumbnail-pairing";
 import { buildCandidateWorkspaceCards, candidateWorkspaceSummary } from "../../lib/hearth-thumbnail-candidate-workspace";
 import { buildThumbnailDirections, creatorBrandStatus, creatorThumbnailError } from "../../lib/hearth-thumbnail-workspace-view-model";
+import { readHearthAiRuntimeStatus, writeHearthAiRuntimeStatus } from "../../lib/ai-runtime-status";
 import { DEFAULT_VARIATION_LOCKS, appendVariationBatch, createDeterministicVariationBatch, promoteRecipeVariation } from "../../lib/hearth-thumbnail-variations";
 import {
   appendThumbnailMemoryInterpretation,
@@ -88,6 +89,7 @@ export default function ThumbnailV3Panel(props: Props) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<ThumbnailSaveState>("saved");
   const [selectedGenerationState, setSelectedGenerationState] = useState<"idle" | "preparing" | "generating">("idle");
+  const [selectedGenerationElapsedSec, setSelectedGenerationElapsedSec] = useState(0);
   const [selectedSetId, setSelectedSetId] = useState<string | null>(null);
   const [selectedRevisionId, setSelectedRevisionId] = useState<string | null>(null);
   const [titleId, setTitleId] = useState<string>("");
@@ -258,6 +260,18 @@ export default function ThumbnailV3Panel(props: Props) {
   const directions = useMemo(() => pkg ? buildThumbnailDirections(pkg, activeSet?.id ?? null) : [], [activeSet?.id, pkg]);
   const brandPresentation = creatorBrandStatus(brandStatus);
 
+  useEffect(() => {
+    if (selectedGenerationState !== "generating") {
+      setSelectedGenerationElapsedSec(0);
+      return;
+    }
+    const startedAt = Date.now();
+    const timer = window.setInterval(() => {
+      setSelectedGenerationElapsedSec(Math.max(1, Math.floor((Date.now() - startedAt) / 1000)));
+    }, 1000);
+    return () => window.clearInterval(timer);
+  }, [selectedGenerationState]);
+
   const runConceptPersistence = async (action: () => Promise<unknown>, failureMessage: string, recovery = false) => {
     const beforeIds = new Set(pkg?.thumbnail.concept_sets.map((set) => set.id) ?? []);
     setLoadError(null); setSaveState("saving");
@@ -411,19 +425,63 @@ export default function ThumbnailV3Panel(props: Props) {
     const base = { id, created_at: createdAt, concept_revision_id: selectedConcept.concept_revision_id,
       render_recipe_id: renderRecipe.id, render_recipe_revision: renderRecipe.revision,
       intended_aspect_ratio: renderRecipe.intended_aspect_ratio };
-    const result = source === "forge_ai"
-      ? await generateForgeAiBaseArtwork({ workpieceId: props.workpieceId, workspaceId: props.workspaceId,
-          expectedMetadataUpdatedAt: renderToken, episodePackage: renderPackage, baseVersion: base, operationId: crypto.randomUUID(), confirmSpend: true, alwaysApproveAiSpend: false })
-      : await commitOutsideToolBaseArtwork({ workpieceId: props.workpieceId, workspaceId: props.workspaceId,
-          expectedMetadataUpdatedAt: renderToken, episodePackage: renderPackage,
-          baseVersion: { ...base, source_type: "outside_tool", provider_id: "outside_tool", provider_request_id: null, mime_type: (file?.type || "image/png") as "image/png" },
-          artwork: { sourceType: "outside_tool", bytes: new Uint8Array(await file!.arrayBuffer()), mimeType: (file!.type || "image/png") as "image/png", providerId: "outside_tool", operationId: crypto.randomUUID() } });
+    let result;
+    if (source === "forge_ai") {
+      const priorAiRuntime = readHearthAiRuntimeStatus();
+      writeHearthAiRuntimeStatus({ isAiProcessing: true });
+      try {
+        result = await generateForgeAiBaseArtwork({ workpieceId: props.workpieceId, workspaceId: props.workspaceId,
+          expectedMetadataUpdatedAt: renderToken, episodePackage: renderPackage, baseVersion: base, operationId: crypto.randomUUID(), confirmSpend: true, alwaysApproveAiSpend: false });
+      } finally {
+        writeHearthAiRuntimeStatus({ isAiProcessing: priorAiRuntime.isAiProcessing });
+      }
+    } else {
+      result = await commitOutsideToolBaseArtwork({ workpieceId: props.workpieceId, workspaceId: props.workspaceId,
+        expectedMetadataUpdatedAt: renderToken, episodePackage: renderPackage,
+        baseVersion: { ...base, source_type: "outside_tool", provider_id: "outside_tool", provider_request_id: null, mime_type: (file?.type || "image/png") as "image/png" },
+        artwork: { sourceType: "outside_tool", bytes: new Uint8Array(await file!.arrayBuffer()), mimeType: (file!.type || "image/png") as "image/png", providerId: "outside_tool", operationId: crypto.randomUUID() } });
+    }
     if (!result.ok) { setSaveState("error"); setLoadError(result.error); return; }
-    setPkg(result.episodePackage); setToken(result.metadataUpdatedAt); setSelectedBaseId(id); setSaveState("saved");
+    setPkg(result.episodePackage); setToken(result.metadataUpdatedAt); setSelectedBaseId(id);
+    const composite = await commitThumbnailLaunchComposite({
+      workpieceId: props.workpieceId,
+      workspaceId: props.workspaceId,
+      expectedMetadataUpdatedAt: result.metadataUpdatedAt,
+      episodePackage: result.episodePackage,
+      launchVariantId: crypto.randomUUID(),
+      baseVersionId: id,
+      operationId: crypto.randomUUID(),
+      width: renderRecipe.intended_aspect_ratio === "9:16" ? 1080 : renderRecipe.intended_aspect_ratio === "1:1" ? 1080 : 1280,
+      height: renderRecipe.intended_aspect_ratio === "9:16" ? 1920 : renderRecipe.intended_aspect_ratio === "1:1" ? 1080 : 720,
+      encoding: { format: "png", quality: 100 },
+      createdAt: new Date().toISOString(),
+      requestedStyleSource: styleSource,
+    });
+    if (!composite.ok) { setSaveState("error"); setLoadError(`Base artwork was created, but the finished thumbnail could not be composed: ${composite.error}`); return; }
+    setPkg(composite.episodePackage); setToken(composite.metadataUpdatedAt);
+    const completedLaunch = composite.episodePackage.thumbnail.launch_variant_revisions.at(-1);
+    if (styleSource === "brand_profile" && (
+      completedLaunch?.snapshot.style_source !== "brand_profile"
+      || !completedLaunch.snapshot.brand_logo_asset_revision_id
+    )) {
+      setSaveState("error");
+      setLoadError("The thumbnail was created, but Tongs did not verify a brand logo overlay. It has not been represented as a My Brand result.");
+      return;
+    }
+    setSaveState("saved");
+    void (async () => { try {
+      await projectThumbnailLaunchFacts({ workspaceId: props.workspaceId, workpieceId: props.workpieceId, episodePackage: composite.episodePackage });
+      setMemoryProjection(await loadThumbnailMemoryProjection(props.workspaceId)); setMemoryState("loaded"); setMemoryError(null);
+    } catch (error) { setMemoryState("unavailable"); setMemoryError(error instanceof Error ? error.message : "Workspace thumbnail memory is unavailable."); } })();
   };
 
   const generateSelectedThumbnail = async () => {
     if (!validSelectedPair || saveState === "saving" || selectedGenerationState !== "idle") return;
+    if (styleSource === "brand_profile" && !brandPresentation.ready) {
+      setLoadError("My Brand cannot be rendered yet. Tongs must verify an active Brand Profile and ready logo revision for this episode.");
+      styleChoiceRef.current?.focus();
+      return;
+    }
     setLoadError(null);
     setSelectedGenerationState("preparing");
     try {
@@ -580,16 +638,16 @@ export default function ThumbnailV3Panel(props: Props) {
 
       <section className="hs-thumbnail-stage" aria-labelledby="thumbnail-compare-heading">
         <div className="hs-thumbnail-stage-heading"><div><span>2</span><h4 id="thumbnail-compare-heading">Generate and compare</h4></div>
-          <button type="button" className="is-primary" disabled={!validSelectedPair || saveState === "saving" || selectedGenerationState !== "idle"} onClick={() => void generateSelectedThumbnail()}>{selectedGenerationState === "preparing" ? "Preparing thumbnail…" : selectedGenerationState === "generating" ? "Generating thumbnail…" : "Generate selected thumbnail"}</button>
+          <button type="button" className="is-primary" disabled={!validSelectedPair || saveState === "saving" || selectedGenerationState !== "idle" || (styleSource === "brand_profile" && !brandPresentation.ready)} onClick={() => void generateSelectedThumbnail()}>{selectedGenerationState === "preparing" ? "Preparing thumbnail…" : selectedGenerationState === "generating" ? "Generating thumbnail…" : "Generate selected thumbnail"}</button>
         </div>
+        {selectedGenerationState === "generating" ? <p className="hs-inline-note" role="status" aria-live="polite">Forge AI is generating the image{selectedGenerationElapsedSec > 0 ? ` · ${selectedGenerationElapsedSec}s elapsed` : ""}. Image generation can take a minute or more; keep this page open.</p> : null}
         {candidateCards.length ? <div className="hs-thumbnail-focused-grid">
           {candidateCards.slice(0, 3).map((card, index) => {
-            const direction = directions[index];
             return <article key={card.id} className="hs-thumbnail-focused-card" aria-label={`Thumbnail ${String.fromCharCode(65 + index)}`}>
               <div className="hs-thumbnail-card-heading"><span className="hs-thumbnail-letter">{String.fromCharCode(65 + index)}</span><div><strong>{index === 0 ? "Recommended" : index === 1 ? "Strong alternate" : "Experimental"}</strong><small>Advisory, you choose the test set</small></div></div>
-              <div className="hs-thumbnail-candidate-preview" role="img" aria-label={`Full preview for thumbnail ${String.fromCharCode(65 + index)}: ${card.title}`}><span>{direction?.visual ?? card.concept}</span><strong>{card.title}</strong></div>
-              <div className="hs-thumbnail-card-status"><span>{card.styleSource === "forge_standard" ? "Forge standard" : "Brand style"}</span><span>Text {card.readability.passed ? "readable" : "needs review"}</span></div>
-              <div className="hs-thumbnail-feed-row"><div className="hs-thumbnail-feed-preview" role="img" aria-label={`Feed-size preview for thumbnail ${String.fromCharCode(65 + index)}`}><span>{direction?.visual ?? card.concept}</span><strong>{card.title}</strong></div><div><strong>Feed-size preview</strong><p>{ledgerProjection?.historical_observations[0]?.summary ?? "Editorial, branding, and readability evidence"}</p><small>{ledgerProjection?.historical_observations[0]?.confidence ? `${ledgerProjection.historical_observations[0].confidence} confidence` : "Early estimate"}</small></div></div>
+              <CanonicalThumbnailPreview workpieceId={props.workpieceId} assetPath={card.assetPath} className="hs-thumbnail-candidate-preview" alt={`Thumbnail ${String.fromCharCode(65 + index)}: ${card.title}`} />
+              <div className="hs-thumbnail-card-status"><span>{card.styleSource === "forge_standard" ? "Forge standard" : "Brand style"}</span><span>{card.styleSource === "brand_profile" ? card.logoApplied ? "Brand logo applied" : "Brand logo not applied" : "No brand logo requested"}</span><span>Text {card.readability.passed ? "readable" : "needs review"}</span></div>
+              <div className="hs-thumbnail-feed-row"><CanonicalThumbnailPreview workpieceId={props.workpieceId} assetPath={card.assetPath} className="hs-thumbnail-feed-preview" alt={`Feed-size thumbnail ${String.fromCharCode(65 + index)}`} /><div><strong>Feed-size preview</strong><p>{ledgerProjection?.historical_observations[0]?.summary ?? "Editorial, branding, and readability evidence"}</p><small>{ledgerProjection?.historical_observations[0]?.confidence ? `${ledgerProjection.historical_observations[0].confidence} confidence` : "Early estimate"}</small></div></div>
               <div className="hs-thumbnail-card-actions"><button type="button" onClick={() => { if (!card.recipe) return; setCandidateEditRecipeIdentity({ id: card.recipe.id, revision: card.recipe.revision }); setSelectedRevisionId(card.recipe.concept_revision_id); setTitleId(card.recipe.title_id); setTitleRevision(card.recipe.title_revision); }}>Edit thumbnail {String.fromCharCode(65 + index)}</button><button type="button" onClick={() => { if (card.recipe) { setCandidateEditRecipeIdentity({ id: card.recipe.id, revision: card.recipe.revision }); } }}>Try more variations</button></div>
             </article>;
           })}

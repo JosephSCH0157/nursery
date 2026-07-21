@@ -193,7 +193,7 @@ export type WorkpieceJobDTO = {
 };
 const THUMBNAIL_ASSET_KIND = "thumbnail_image" as const;
 const THUMBNAIL_ASSET_SCHEMA = "forge.thumbnail-image.v1" as const;
-const THUMBNAIL_EDITORIAL_BASE_HINT = "Clean, high-contrast YouTube thumbnail composition.";
+const THUMBNAIL_EDITORIAL_BASE_HINT = "Clean, high-contrast YouTube thumbnail base artwork. Image only: do not render words, letters, captions, logos, watermarks, or typography; Forge adds canonical title and brand overlays afterward.";
 const IMAGE_MAP_ASSET_PATH = "assets/image-map/image-map.v1.json";
 const IMAGE_MAP_ASSET_KIND = "image_map_json" as const;
 const IMAGE_MAP_ASSET_SCHEMA = "forge.image-map.v1" as const;
@@ -9974,6 +9974,9 @@ export class TongsCommitService {
       if (!logoBytes || await sha256Hex(logoBytes) !== hash) {
         throw new HttpError(409, "brand_logo_hash_mismatch", "The bound brand logo failed canonical readback verification");
       }
+    }
+    if (!logoAssetRevisionId || !logoBytes?.length) {
+      throw new HttpError(409, "brand_logo_unavailable", "The bound Brand Profile does not contain a verified ready logo revision");
     }
     return {
       provenance,

@@ -2193,9 +2193,12 @@
 .hs-thumbnail-candidate-preview span,.hs-thumbnail-editor-preview span { color: rgba(255,255,255,.7); text-align: center; }
 .hs-thumbnail-candidate-preview strong,.hs-thumbnail-editor-preview strong { position: absolute; left: 8%; right: 8%; bottom: 10%; color: #fff; font-size: clamp(1rem,2vw,1.75rem); line-height: .95; text-shadow: 0 3px 8px #000; }
 .hs-thumbnail-card-status,.hs-thumbnail-card-actions { display: flex; flex-wrap: wrap; gap: .5rem; }
+.hs-thumbnail-candidate-preview,.hs-thumbnail-feed-preview { object-fit: cover; display: block; padding: 0; max-width: 100%; }
+.hs-thumbnail-candidate-preview { width: 100%; height: auto; }
 .hs-thumbnail-feed-row { display: grid; grid-template-columns: 7rem 1fr; gap: .7rem; align-items: center; }
 .hs-thumbnail-feed-row p { margin: .2rem 0; font-size: .8rem; }
 .hs-thumbnail-feed-preview { aspect-ratio: 16/9; position: relative; overflow: hidden; padding: 7%; border-radius: 7px; background: linear-gradient(135deg,#9a3412,#172554); font-size: .52rem; }
+.hs-thumbnail-feed-preview { width: 7rem; height: auto; padding: 0; }
 .hs-thumbnail-feed-preview span { opacity: .65; }
 .hs-thumbnail-feed-preview strong { position: absolute; left: 7%; right: 7%; bottom: 8%; color: #fff; line-height: 1; }
 .hs-thumbnail-generation-empty,.hs-thumbnail-calm-empty { padding: 1rem; border: 1px dashed rgba(148,163,184,.3); border-radius: 12px; background: rgba(15,23,42,.38); }
