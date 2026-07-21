@@ -204,7 +204,7 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
       const imageEntries = nextEpisodePackage.image_map.entries;
       currentArgs.setSelectedImageMapEntryId((prev) => {
         if (prev && imageEntries.some((entry) => entry.id === prev)) return prev;
-        return imageEntries[0]?.id ?? null;
+        return imageEntries.find((entry) => !entry.selected_asset_id)?.id ?? imageEntries[0]?.id ?? null;
       });
     } catch (error) {
       if (timeoutId) clearTimeout(timeoutId);

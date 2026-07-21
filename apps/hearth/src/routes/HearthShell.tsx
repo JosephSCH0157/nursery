@@ -3210,6 +3210,7 @@ export default function HearthShell({
     previewState: imageMapCandidatePreviewStateById[candidate.asset_id] ?? "loading",
     previewDataUrl: imageMapCandidatePreviewUrlById[candidate.asset_id] ?? null,
     previewError: imageMapCandidatePreviewErrorById[candidate.asset_id] ?? null,
+    source: candidate.source ?? selectedImageMapEntry?.source_type ?? null,
   }));
   const chatPanelMeta = chatMessages.length > 0
     ? `${chatMessages.length} message${chatMessages.length === 1 ? "" : "s"}`
@@ -5110,6 +5111,7 @@ export default function HearthShell({
     setImageMapCandidateError,
     setImageMapCandidateSelectionError,
     setImageMapExportMessage,
+    setSelectedImageMapEntryId,
     publishForgeNotice,
   });
   const {

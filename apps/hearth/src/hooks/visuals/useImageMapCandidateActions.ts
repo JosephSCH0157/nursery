@@ -12,6 +12,7 @@ import {
 import { resolveAiThumbnailAutoApproveFromStorage } from "../../lib/hearth-chat-api";
 import type { EpisodeImageMapEntry, EpisodePackageV2 } from "../../lib/episode-package-v2";
 import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
+import { nextUnresolvedEpisodeImageId } from "../../lib/hearth-episode-images-view-model";
 
 type CanonicalScriptResult =
   | {
@@ -66,6 +67,7 @@ type UseImageMapCandidateActionsArgs = {
   setImageMapCandidateError: (next: string | null) => void;
   setImageMapCandidateSelectionError: (next: string | null) => void;
   setImageMapExportMessage: (next: string | null) => void;
+  setSelectedImageMapEntryId: (next: string | null) => void;
   publishForgeNotice: (notice: {
     job: "image-generated" | "job-failed";
     title: string;
@@ -319,7 +321,12 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
       ));
       args.setImageMapMetadataUpdatedAt(selected.imageMap.metadataUpdatedAt);
       args.setImageMapCandidateSelectionError(null);
-      args.setImageMapExportMessage("Selected still candidate saved canonically for this visual beat.");
+      const completedIndex = selected.imageMap.entries.findIndex((entry) => entry.id === args.selectedImageMapEntry?.id);
+      const nextId = nextUnresolvedEpisodeImageId(selected.imageMap.entries, args.selectedImageMapEntry.id);
+      args.setImageMapExportMessage(nextId
+        ? `Image ${completedIndex + 1} complete. Image ${selected.imageMap.entries.findIndex((entry) => entry.id === nextId) + 1} is ready.`
+        : "Episode images complete. B-roll is ready.");
+      if (nextId) args.setSelectedImageMapEntryId(nextId);
     } catch (error) {
       if (!args.operationAuthority.isCurrent(operation)) return;
       const message = error instanceof Error ? error.message : "Unable to save the selected still candidate.";
@@ -370,8 +377,8 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
           source_type: "upload",
           origin: nextOrigin,
           candidate_assets: [...existing, uploaded.candidateAsset],
-          selected_asset_id: uploaded.candidateAsset.asset_id,
-          status: "selected" as const,
+          selected_asset_id: entry.selected_asset_id,
+          status: entry.selected_asset_id ? "selected" as const : "candidates_generated" as const,
         };
       });
 
@@ -382,11 +389,11 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
         return;
       }
       args.setImageMapSourceTypeDraft("upload");
-      args.setImageMapExportMessage("Uploaded visual asset attached and selected for this beat.");
+      args.setImageMapExportMessage("Uploaded image verified and ready to review. Choose Use this image to complete the script moment.");
       args.publishForgeNotice({
         job: "image-generated",
         title: "Visual asset uploaded",
-        message: "Uploaded asset is now selected for this visual beat.",
+        message: "Uploaded image is ready to review.",
         severity: "success",
       });
     } catch (error) {

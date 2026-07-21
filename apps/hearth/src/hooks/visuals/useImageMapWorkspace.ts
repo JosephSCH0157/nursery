@@ -137,7 +137,7 @@ export function useImageMapWorkspace() {
     setSelectedImageMapEntryId((current) => (
       current && entries.some((entry) => entry.id === current)
         ? current
-        : (entries[0]?.id ?? null)
+        : (entries.find((entry) => !entry.selected_asset_id)?.id ?? entries[0]?.id ?? null)
     ));
   }, []);
 

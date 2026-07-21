@@ -180,7 +180,8 @@ test("visual providers: timeline image prompt pack uses the same active provider
   assert.equal(result.pack.provider, "gpt_images");
   assert.equal(result.pack.aspectRatio, "16:9");
   assert.equal(result.pack.negative, undefined);
-  assert.match(result.pack.prompt, /podcast|timeline beat|spoken narration|comparison/i);
+  assert.match(result.pack.prompt, /episode visual|timeline beat|spoken narration|comparison/i);
+  assert.doesNotMatch(result.pack.prompt, /thumbnail|title card|cover art|click-through|CTR/i);
 });
 
 test("visual providers: timeline image prompt pack dedupes repeated description text", () => {

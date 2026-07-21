@@ -615,6 +615,21 @@ export async function uploadWorkpieceImageMapCandidateAsset(args: {
     };
   }
 
+  const verified = await tongsFetch(
+    `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/read-file?path=${encodeURIComponent(uploadPath)}&encoding=base64`,
+    { method: "GET" },
+  );
+  const verifiedBody = await readBodyAsJson(verified);
+  const verifiedData = isRecord(verifiedBody) && isRecord(verifiedBody.data) ? verifiedBody.data : null;
+  if (!verified.ok || readString(verifiedData?.bytes_base64) !== bytesBase64) {
+    return {
+      ok: false,
+      status: verified.status,
+      reason: "invalid_response",
+      error: "The image was uploaded, but Tongs could not verify the stored bytes. It was not attached to the episode.",
+    };
+  }
+
   return {
     ok: true,
     candidateAsset: {
