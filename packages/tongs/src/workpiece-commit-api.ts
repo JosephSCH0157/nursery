@@ -12193,12 +12193,25 @@ export class TongsCommitService {
     await this.assertWorkspaceRole(cradle.workspace_id, "viewer", options);
     const tongs = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
     const sequence = await tongs.from("workpiece_script_approval_sequences").select("current_approval_id,current_revision,updated_at").eq("workspace_id", cradle.workspace_id).eq("workpiece_id", workpieceId).maybeSingle();
-    if (sequence.error) throw new HttpError(502, "db_read_failed", "Failed to read canonical script approval.", { reason: sequence.error.message });
+    if (sequence.error) {
+      if (isMissingCanonicalImageMapObject(sequence.error)) {
+        return { workspace_id: cradle.workspace_id, workpiece_id: workpieceId, current_revision: 0, current_approval: null };
+      }
+      throw new HttpError(502, "db_read_failed", "Failed to read canonical script approval.", { reason: sequence.error.message });
+    }
     if (!isRecord(sequence.data)) return { workspace_id: cradle.workspace_id, workpiece_id: workpieceId, current_revision: 0, current_approval: null };
     const approvalId = readStringField(sequence.data, "current_approval_id");
     if (!approvalId) return { ...sequence.data, workspace_id: cradle.workspace_id, workpiece_id: workpieceId, current_approval: null };
     const approval = await tongs.from("script_approval_revisions").select("id,approval_revision,source_file_path,source_file_revision,script_content_hash,approval_contract_version,creator_version_label,immutable_revision_hash,created_at").eq("id", approvalId).maybeSingle();
-    if (approval.error || !isRecord(approval.data)) throw new HttpError(502, "db_read_failed", "Failed to read current canonical script approval.", { reason: approval.error?.message });
+    if (approval.error) {
+      if (isMissingCanonicalImageMapObject(approval.error)) {
+        return { ...sequence.data, workspace_id: cradle.workspace_id, workpiece_id: workpieceId, current_approval: null };
+      }
+      throw new HttpError(502, "db_read_failed", "Failed to read current canonical script approval.", { reason: approval.error.message });
+    }
+    if (!isRecord(approval.data)) {
+      return { ...sequence.data, workspace_id: cradle.workspace_id, workpiece_id: workpieceId, current_approval: null };
+    }
     return { ...sequence.data, workspace_id: cradle.workspace_id, workpiece_id: workpieceId, current_approval: approval.data };
   }
 
