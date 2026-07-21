@@ -3437,7 +3437,7 @@ function normalizeHammerPassStatusMap(
   for (const [rawPassId, rawState] of Object.entries(row)) {
     if (!HAMMER_PASS_ID_SET.has(rawPassId)) continue;
     const normalizedState = typeof rawState === "string" ? rawState.trim().toLowerCase() : "";
-    if (!HAMMER_PASS_STATE_SET.has(normalizedState)) {
+    if (!HAMMER_PASS_STATE_SET.has(normalizedState as HammerPassState)) {
       throw new HttpError(
         400,
         "invalid_pass_status",
@@ -6273,34 +6273,49 @@ export class TongsCommitService {
     };
   }
 
-  private async readCanonicalImageMapProjection(workspaceId: string, workpieceId: string): Promise<{
+  private async readCanonicalImageMapProjection(workspaceId: string, workpieceId: string, options?: {
+    allowLegacyFallbackOnCanonicalReadFailure?: boolean;
+  }): Promise<{
     entries: EpisodeImageMapEntryRecord[];
     authority: NonNullable<Parameters<TongsCommitService["buildWorkpieceImageMapResponse"]>[0]["authority"]>;
   } | null> {
+    const allowLegacyFallback = options?.allowLegacyFallbackOnCanonicalReadFailure === true;
     const tongs = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
     const sequence = await tongs.from("workpiece_image_map_sequences").select("current_revision_id,current_revision").eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId).maybeSingle();
     if (sequence.error) {
       if (isMissingCanonicalImageMapObject(sequence.error)) {
+        if (allowLegacyFallback) return null;
         throw new HttpError(503, "canonical_image_map_authority_unavailable", "Canonical image-map authority is unavailable.");
       }
+      if (allowLegacyFallback) return null;
       throw new HttpError(502, "db_read_failed", "Failed to read canonical image-map sequence", { reason: sequence.error.message });
     }
     if (!isRecord(sequence.data) || !readStringField(sequence.data, "current_revision_id")) return null;
     const revision = await tongs.from("image_map_revisions").select("*").eq("id", readStringField(sequence.data, "current_revision_id")!).eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId).maybeSingle();
     if (revision.error) {
       if (isMissingCanonicalImageMapObject(revision.error)) {
+        if (allowLegacyFallback) return null;
         throw new HttpError(503, "canonical_image_map_authority_unavailable", "Canonical image-map authority is unavailable.");
       }
+      if (allowLegacyFallback) return null;
       throw new HttpError(502, "db_read_failed", "Failed to read canonical image-map revision", { reason: revision.error.message });
     }
-    if (!isRecord(revision.data)) throw new HttpError(502, "db_read_failed", "Failed to read canonical image-map revision", { reason: "missing_current_revision" });
+    if (!isRecord(revision.data)) {
+      if (allowLegacyFallback) return null;
+      throw new HttpError(502, "db_read_failed", "Failed to read canonical image-map revision", { reason: "missing_current_revision" });
+    }
     const document = isRecord(revision.data.document_json) ? revision.data.document_json : null;
-    if (!document || !Array.isArray(document.entries)) throw new HttpError(502, "invalid_canonical_image_map", "Canonical image-map revision is malformed");
+    if (!document || !Array.isArray(document.entries)) {
+      if (allowLegacyFallback) return null;
+      throw new HttpError(502, "invalid_canonical_image_map", "Canonical image-map revision is malformed");
+    }
     const approvalSequence = await tongs.from("workpiece_script_approval_sequences").select("current_approval_id").eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId).maybeSingle();
     if (approvalSequence.error) {
       if (isMissingCanonicalImageMapObject(approvalSequence.error)) {
+        if (allowLegacyFallback) return null;
         throw new HttpError(503, "canonical_image_map_authority_unavailable", "Canonical image-map authority is unavailable.");
       }
+      if (allowLegacyFallback) return null;
       throw new HttpError(502, "db_read_failed", "Failed to compare canonical script approval.", { reason: approvalSequence.error.message });
     }
     const approvalChanged = isRecord(approvalSequence.data)
@@ -12133,7 +12148,9 @@ export class TongsCommitService {
 
     const state = await this.readWorkpieceImageMapState(workpieceId, cradle.workspace_id);
     const assetRow = await this.getCurrentReadyImageMapAsset(cradle.workspace_id, workpieceId);
-    const canonical = await this.readCanonicalImageMapProjection(cradle.workspace_id, workpieceId);
+    const canonical = await this.readCanonicalImageMapProjection(cradle.workspace_id, workpieceId, {
+      allowLegacyFallbackOnCanonicalReadFailure: true,
+    });
     return this.buildWorkpieceImageMapResponse({
       workpieceId,
       workspaceId: cradle.workspace_id,
