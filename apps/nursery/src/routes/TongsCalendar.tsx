@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { MOUNT_ROLE_POLICY } from "@forge/tongs";
-import type { ResolvedMount, CalendarEventRow, Database } from "@forge/tongs";
-import type { SupabaseClient } from "@supabase/supabase-js";
+import type { ResolvedMount, CalendarEventRow } from "@forge/tongs";
 import {
   listCalendarEvents,
   createCalendarEvent,
@@ -660,7 +659,7 @@ export default function TongsCalendar() {
     const range = getViewRange(effectiveView, cursorDate);
     void (async () => {
       try {
-        const rows = await listCalendarEvents(tongsSupabase as unknown as SupabaseClient<Database>, workspaceId, {
+        const rows = await listCalendarEvents(tongsSupabase, workspaceId, {
           startAt: range.start.toISOString(),
           endAt: range.end.toISOString(),
         });
@@ -668,7 +667,7 @@ export default function TongsCalendar() {
 
         const links = rows.length > 0
           ? await listCalendarEventAssignments(
-            tongsSupabase as unknown as SupabaseClient<Database>,
+            tongsSupabase,
             workspaceId,
             rows.map((row) => row.id),
           )
@@ -714,7 +713,7 @@ export default function TongsCalendar() {
     try {
       let persistedRow: CalendarEventRow;
       if (editingEventId) {
-        persistedRow = await updateCalendarEvent(tongsSupabase as unknown as SupabaseClient<Database>, workspaceId, editingEventId, {
+        persistedRow = await updateCalendarEvent(tongsSupabase, workspaceId, editingEventId, {
           title: title.trim() || "Calendar event",
           description: description.trim() || undefined,
           location: location.trim() || undefined,
@@ -724,7 +723,7 @@ export default function TongsCalendar() {
           session_id: nextSessionId,
         });
       } else {
-        const created = await createCalendarEvent(tongsSupabase as unknown as SupabaseClient<Database>, workspaceId, {
+        const created = await createCalendarEvent(tongsSupabase, workspaceId, {
           title: title.trim() || "Calendar event",
           description: description.trim() || undefined,
           location: location.trim() || undefined,
@@ -777,7 +776,7 @@ export default function TongsCalendar() {
       return;
     }
     try {
-      await deleteCalendarEvent(tongsSupabase as unknown as SupabaseClient<Database>, workspaceId, id);
+      await deleteCalendarEvent(tongsSupabase, workspaceId, id);
       setEvents((prev) => prev.filter((event) => event.id !== id));
       setEventAssignmentIdsByEventId((prev) => {
         const next = { ...prev };

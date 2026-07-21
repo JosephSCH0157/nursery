@@ -216,7 +216,7 @@ function normalizeSpokenBeats(value: unknown): EpisodeSpokenBeat[] {
   return pkg.spoken_beats;
 }
 
-function normalizeWorkpieceImageMapView(
+export function normalizeWorkpieceImageMapView(
   body: unknown,
   expected?: {
     workpieceId?: string;
@@ -265,29 +265,6 @@ function normalizeWorkpieceImageMapView(
       }
       : null,
   };
-}
-
-export async function repairWorkpieceImageMapAuthority(args: { workpieceId: string; workspaceId: string }): Promise<SaveWorkpieceImageMapResult> {
-  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/image-map/repair`, {
-    method: "POST",
-    json: { workspace_id: args.workspaceId, operation_id: `forge:image-map:repair:${crypto.randomUUID()}` },
-  });
-  const body = await readBodyAsJson(response);
-  if (!response.ok) return { ok: false, status: response.status, reason: response.status === 409 ? "conflict" : "request_failed", error: readApiErrorMessage(body) ?? undefined };
-  const imageMap = normalizeWorkpieceImageMapView(body, { workpieceId: args.workpieceId, workspaceId: args.workspaceId });
-  return imageMap ? { ok: true, imageMap } : { ok: false, status: response.status, reason: "invalid_response" };
-}
-
-export async function resolveWorkpieceImageMapManualAnchorAuthority(args: { workpieceId: string; workspaceId: string; entryId: string; scriptAnchor: EpisodeImageMapEntry["script_anchor"] }): Promise<SaveWorkpieceImageMapResult> {
-  if (!args.scriptAnchor) return { ok: false, status: 400, reason: "request_failed", error: "An exact script anchor is required." };
-  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/image-map/manual-anchor`, {
-    method: "POST",
-    json: { workspace_id: args.workspaceId, entry_id: args.entryId, script_anchor: args.scriptAnchor, operation_id: `forge:image-map:manual:${crypto.randomUUID()}` },
-  });
-  const body = await readBodyAsJson(response);
-  if (!response.ok) return { ok: false, status: response.status, reason: response.status === 409 ? "conflict" : "request_failed", error: readApiErrorMessage(body) ?? undefined };
-  const imageMap = normalizeWorkpieceImageMapView(body, { workpieceId: args.workpieceId, workspaceId: args.workspaceId });
-  return imageMap ? { ok: true, imageMap } : { ok: false, status: response.status, reason: "invalid_response" };
 }
 
 function normalizeCandidateAssetView(

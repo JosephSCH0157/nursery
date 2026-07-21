@@ -1,6 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "./db.types.js";
 
+type TongsCalendarSupabaseClient =
+  | SupabaseClient<Database>
+  | SupabaseClient<Database, "tongs", "tongs">;
+
 export type CalendarEventRow = Database["tongs"]["Tables"]["calendar_events"]["Row"];
 export type CalendarEventInsert = Database["tongs"]["Tables"]["calendar_events"]["Insert"];
 export type CalendarEventUpdate = Database["tongs"]["Tables"]["calendar_events"]["Update"];
@@ -16,7 +20,7 @@ export type CalendarEventRange = {
 };
 
 export async function listCalendarEvents(
-  supabase: SupabaseClient<Database>,
+  supabase: TongsCalendarSupabaseClient,
   workspaceId: string,
   range?: CalendarEventRange,
 ): Promise<CalendarEventRow[]> {
@@ -36,7 +40,7 @@ export async function listCalendarEvents(
 }
 
 export async function createCalendarEvent(
-  supabase: SupabaseClient<Database>,
+  supabase: TongsCalendarSupabaseClient,
   workspaceId: string,
   payload: Omit<CalendarEventInsert, "workspace_id">,
 ): Promise<CalendarEventRow> {
@@ -56,7 +60,7 @@ export async function createCalendarEvent(
 }
 
 export async function updateCalendarEvent(
-  supabase: SupabaseClient<Database>,
+  supabase: TongsCalendarSupabaseClient,
   a: string,
   b: string | CalendarEventUpdate,
   c?: CalendarEventUpdate,
@@ -82,7 +86,7 @@ export async function updateCalendarEvent(
 }
 
 export async function deleteCalendarEvent(
-  supabase: SupabaseClient<Database>,
+  supabase: TongsCalendarSupabaseClient,
   workspaceId: string,
   id: string,
 ): Promise<void> {
@@ -97,7 +101,7 @@ export async function deleteCalendarEvent(
 }
 
 export async function listCalendarEventAssignments(
-  supabase: SupabaseClient<Database>,
+  supabase: TongsCalendarSupabaseClient,
   workspaceId: string,
   eventIds?: string[],
 ): Promise<CalendarEventAssignmentRow[]> {
@@ -120,7 +124,7 @@ export async function listCalendarEventAssignments(
 }
 
 export async function replaceCalendarEventAssignments(
-  supabase: SupabaseClient<Database>,
+  supabase: TongsCalendarSupabaseClient,
   workspaceId: string,
   eventId: string,
   assignmentIds: string[],

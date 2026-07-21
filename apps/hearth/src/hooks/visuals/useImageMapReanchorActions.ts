@@ -85,7 +85,7 @@ export function useImageMapReanchorActions(args: UseImageMapReanchorActionsArgs)
       return;
     }
 
-    const operation = args.operationAuthority.begin("image-map.reanchor");
+    const operation = args.operationAuthority.begin("ir");
 
     args.setIsImageMapReanchorSaving(true);
     args.setImageMapSaveState("saving");
@@ -135,7 +135,7 @@ export function useImageMapReanchorActions(args: UseImageMapReanchorActionsArgs)
 
   const onConvertImageMapToGlobalVisual = useCallback(async () => {
     if (!args.episodePackage || !args.selectedImageMapEntry) return;
-    const operation = args.operationAuthority.begin("image-map.anchor.globalize");
+    const operation = args.operationAuthority.begin("igv");
     args.setImageMapSaveState("saving");
     args.setImageMapSaveError(null);
     args.setImageMapReanchorError(null);
@@ -164,7 +164,7 @@ export function useImageMapReanchorActions(args: UseImageMapReanchorActionsArgs)
 
   const onLeaveImageMapOrphaned = useCallback(async () => {
     if (!args.episodePackage || !args.selectedImageMapEntry) return;
-    const operation = args.operationAuthority.begin("image-map.anchor.orphan");
+    const operation = args.operationAuthority.begin("io");
     args.setImageMapSaveState("saving");
     args.setImageMapSaveError(null);
     args.setImageMapReanchorError(null);
