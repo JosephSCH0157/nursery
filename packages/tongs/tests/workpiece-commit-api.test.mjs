@@ -6467,6 +6467,67 @@ test("TongsCommitService.readCanonicalImageMapProjection returns typed 503 when 
   );
 });
 
+test("TongsCommitService.getCanonicalScriptApproval returns typed 503 when canonical authority infrastructure is unavailable", async () => {
+  const workpieceId = "11111111-1111-4111-8111-111111111111";
+  const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+  const service = new TongsCommitService({
+    schema(schemaName) {
+      assert.equal(schemaName, "tongs");
+      return {
+        from(tableName) {
+          if (tableName !== "workpiece_script_approval_sequences") {
+            throw new Error(`Unexpected table: ${tableName}`);
+          }
+          return {
+            select() {
+              return {
+                eq() {
+                  return this;
+                },
+                async maybeSingle() {
+                  return {
+                    data: null,
+                    error: {
+                      code: "42P01",
+                      message: "relation \"tongs.workpiece_script_approval_sequences\" does not exist",
+                    },
+                  };
+                },
+              };
+            },
+          };
+        },
+      };
+    },
+  }, "forge-workpieces", null);
+
+  service.getCradleOrThrow = async () => ({
+    id: workpieceId,
+    workspace_id: workspaceId,
+    label: "Episode",
+    status: "draft",
+    manifest_path: "manifest.json",
+    metadata: {},
+    created_by: null,
+    created_at: "2026-03-02T00:00:00.000Z",
+    updated_at: "2026-03-02T00:00:00.000Z",
+    archived_at: null,
+    archived_by: null,
+    archive_reason: null,
+  });
+  service.assertWorkspaceRole = async () => ({ userId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", role: "viewer" });
+
+  await assert.rejects(
+    () => service.getCanonicalScriptApproval(workpieceId, { userAccessToken: "viewer_token" }),
+    (error) => {
+      assert.equal(error?.status, 503);
+      assert.equal(error?.code, "canonical_script_approval_authority_unavailable");
+      assert.equal(error?.message, "Canonical script-approval authority is unavailable.");
+      return true;
+    },
+  );
+});
+
 test("TongsCommitService.getWorkpieceVisualPackage returns Hammer-ready ordering plus selected asset retrieval info", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const workpieceId = "11111111-1111-4111-8111-111111111111";

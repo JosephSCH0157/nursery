@@ -12195,7 +12195,7 @@ export class TongsCommitService {
     const sequence = await tongs.from("workpiece_script_approval_sequences").select("current_approval_id,current_revision,updated_at").eq("workspace_id", cradle.workspace_id).eq("workpiece_id", workpieceId).maybeSingle();
     if (sequence.error) {
       if (isMissingCanonicalImageMapObject(sequence.error)) {
-        return { workspace_id: cradle.workspace_id, workpiece_id: workpieceId, current_revision: 0, current_approval: null };
+        throw new HttpError(503, "canonical_script_approval_authority_unavailable", "Canonical script-approval authority is unavailable.");
       }
       throw new HttpError(502, "db_read_failed", "Failed to read canonical script approval.", { reason: sequence.error.message });
     }
@@ -12205,7 +12205,7 @@ export class TongsCommitService {
     const approval = await tongs.from("script_approval_revisions").select("id,approval_revision,source_file_path,source_file_revision,script_content_hash,approval_contract_version,creator_version_label,immutable_revision_hash,created_at").eq("id", approvalId).maybeSingle();
     if (approval.error) {
       if (isMissingCanonicalImageMapObject(approval.error)) {
-        return { ...sequence.data, workspace_id: cradle.workspace_id, workpiece_id: workpieceId, current_approval: null };
+        throw new HttpError(503, "canonical_script_approval_authority_unavailable", "Canonical script-approval authority is unavailable.");
       }
       throw new HttpError(502, "db_read_failed", "Failed to read current canonical script approval.", { reason: approval.error.message });
     }
