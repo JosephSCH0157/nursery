@@ -2826,6 +2826,7 @@ export default function HearthShell({
     baseVersionCount: 0,
     candidateCount: 0,
     eligibleCandidateCount: 0,
+    previewAssetPaths: [] as string[],
     titleCount: 0,
     tagCount: 0,
     hasDescriptions: false,
@@ -2837,6 +2838,7 @@ export default function HearthShell({
     baseVersionCount: number;
     candidateCount: number;
     eligibleCandidateCount: number;
+    previewAssetPaths: string[];
   }) => {
     const currentWorkpieceId = workpieceId?.trim() ?? "";
     setCanonicalThumbnailProgress((current) => ({
@@ -2863,6 +2865,7 @@ export default function HearthShell({
         baseVersionCount: canonical.episodePackage.thumbnail.base_versions.length,
         candidateCount: candidateAuthority.candidates.length,
         eligibleCandidateCount: candidateAuthority.candidates.filter((candidate)=>candidate.eligibility_state==="current"||candidate.eligibility_state==="approved_historical_brand").length,
+        previewAssetPaths: candidateAuthority.candidates.map((candidate) => canonical.episodePackage.thumbnail.launch_variant_revisions.find((entry) => entry.snapshot.asset_id === candidate.composite_asset_id)?.snapshot.asset_path ?? "").filter(Boolean).slice(0, 3),
         titleCount: canonical.episodePackage.seo.titles.length,
         tagCount: canonical.episodePackage.seo.tags.length,
         hasDescriptions: Boolean(canonical.episodePackage.seo.description_short?.trim())
@@ -3227,6 +3230,7 @@ export default function HearthShell({
     thumbnails: {
       total: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "") ? canonicalThumbnailProgress.candidateCount : 0,
       eligible: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "") ? canonicalThumbnailProgress.eligibleCandidateCount : 0,
+      previewAssetPaths: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "") ? canonicalThumbnailProgress.previewAssetPaths : [],
     },
     images: { planned: imageMapEntries.length, completed: imageMapEntries.filter((entry) => Boolean(entry.selected_asset_id)).length },
     broll: { planned: brollBeats.length, completed: brollBeats.filter((beat) => beat.fulfillment_state === "resolved" && Boolean(beat.selected_asset_id)).length },

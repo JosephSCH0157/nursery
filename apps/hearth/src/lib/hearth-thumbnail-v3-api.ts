@@ -458,6 +458,22 @@ export function commitOutsideToolBaseArtwork(args: Parameters<typeof commitThumb
   return commitThumbnailBaseArtwork(args);
 }
 
+export async function loadThumbnailCompositePreview(args: {
+  workpieceId: string;
+  assetPath: string;
+}): Promise<{ ok: true; dataUrl: string } | { ok: false; error: string }> {
+  if (!args.assetPath.trim()) return { ok: false, error: "Composite asset path is unavailable." };
+  const response = await tongsFetch(
+    `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/read-file?path=${encodeURIComponent(args.assetPath)}&encoding=base64`,
+    { method: "GET" },
+  );
+  const body = await json(response);
+  const data = isRecord(body) && isRecord(body.data) ? body.data : null;
+  const bytes = readString(data?.bytes_base64);
+  if (!response.ok || !bytes) return { ok: false, error: errorMessage(body, "Thumbnail preview is unavailable.") };
+  return { ok: true, dataUrl: `data:${readString(data?.content_type) ?? "image/png"};base64,${bytes}` };
+}
+
 function compositorRecipe(recipe: ThumbnailRenderRecipe): ThumbnailCompositeSnapshot["recipe_snapshot"] {
   const typography = isRecord(recipe.treatment.typography) ? recipe.treatment.typography : {};
   const placement = isRecord(recipe.treatment.placement) ? recipe.treatment.placement : {};

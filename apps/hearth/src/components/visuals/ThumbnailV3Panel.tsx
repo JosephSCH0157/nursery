@@ -31,6 +31,7 @@ import {
   commitReadyLaunchesAsCandidateSet,
   decideThumbnailCandidateHistoricalBrand,
   generateForgeAiBaseArtwork,
+  loadThumbnailCompositePreview,
   readCanonicalThumbnailWorkspaceV3,
   readThumbnailBrandAuthorityStatus,
   readThumbnailCandidateAuthorityProjection,
@@ -38,6 +39,21 @@ import {
   type ThumbnailBrandAuthorityStatus,
   type ThumbnailSaveState,
 } from "../../lib/hearth-thumbnail-v3-api";
+
+export function CanonicalThumbnailPreview(props: { workpieceId: string; assetPath: string; alt: string; className: string }) {
+  const [dataUrl, setDataUrl] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    setDataUrl(null);
+    void loadThumbnailCompositePreview({ workpieceId: props.workpieceId, assetPath: props.assetPath }).then((result) => {
+      if (active && result.ok) setDataUrl(result.dataUrl);
+    });
+    return () => { active = false; };
+  }, [props.assetPath, props.workpieceId]);
+  return dataUrl
+    ? <img src={dataUrl} alt={props.alt} className={props.className} />
+    : <div className={props.className} role="img" aria-label={`${props.alt} loading`} />;
+}
 
 type Props = {
   workspaceId: string;
@@ -47,7 +63,7 @@ type Props = {
   onRecoverConcepts: () => Promise<{ ok: boolean; reason?: string; entityId?: string; disposition?: "created" | "existing"; stage?: string } | void>;
   isGeneratingConcepts: boolean;
   onOpenFraming: () => void;
-  onCanonicalProgress?: (progress: { conceptRevisionCount: number; baseVersionCount: number; candidateCount: number; eligibleCandidateCount: number }) => void;
+  onCanonicalProgress?: (progress: { conceptRevisionCount: number; baseVersionCount: number; candidateCount: number; eligibleCandidateCount: number; previewAssetPaths: string[] }) => void;
 };
 
 export function resolveConceptSetPresentation(sets: EpisodePackageV3["thumbnail"]["concept_sets"]) {
@@ -123,6 +139,10 @@ export default function ThumbnailV3Panel(props: Props) {
         baseVersionCount: canonical.episodePackage.thumbnail.base_versions.length,
         candidateCount: nextCandidateAuthority.candidates.length,
         eligibleCandidateCount: nextCandidateAuthority.candidates.filter((candidate)=>candidate.eligibility_state==="current"||candidate.eligibility_state==="approved_historical_brand").length,
+        previewAssetPaths: nextCandidateAuthority.candidates.map((candidate) => {
+          const launch = canonical.episodePackage.thumbnail.launch_variant_revisions.find((entry) => entry.snapshot.asset_id === candidate.composite_asset_id);
+          return launch?.snapshot.asset_path ?? "";
+        }).filter(Boolean).slice(0, 3),
       });
       const pair = resolveCanonicalThumbnailPair(canonical.episodePackage);
       const pairSet = pair.concept
@@ -187,6 +207,8 @@ export default function ThumbnailV3Panel(props: Props) {
   const activeRecipe = candidateEditRecipe ?? canonicalPair.recipe;
   const candidateCards = useMemo(() => pkg ? buildCandidateWorkspaceCards(pkg, candidateAuthority) : [], [candidateAuthority, pkg]);
   const candidateSummary = useMemo(() => candidateWorkspaceSummary(candidateCards), [candidateCards]);
+  const readyLaunchCount = pkg?.thumbnail.launch_variant_revisions.filter((entry) => entry.status === "ready" && entry.snapshot.readability_evidence?.passed === true).length ?? 0;
+  const thumbnailSetComplete = Boolean(candidateAuthority?.candidate_set) && candidateSummary.quenchEligibleCount === 3 && candidateCards.length === 3;
   useEffect(() => {
     if (!activeRecipe) return;
     const typography = activeRecipe.treatment.typography as Record<string, unknown>;
@@ -447,7 +469,7 @@ export default function ThumbnailV3Panel(props: Props) {
     } catch (error) { setMemoryState("unavailable"); setMemoryError(error instanceof Error ? error.message : "Workspace thumbnail memory is unavailable."); }
   };
 
-  const commitCandidateSet = async () => { if(!pkg)return;setSaveState("saving");try{const result=await commitReadyLaunchesAsCandidateSet({workpieceId:props.workpieceId,workspaceId:props.workspaceId,episodePackage:pkg,expectedMetadataUpdatedAt:token});if(!result.ok){setSaveState("error");setLoadError(result.error);return;}setPkg(result.episodePackage);setToken(result.metadataUpdatedAt);setCandidateAuthority(await readThumbnailCandidateAuthorityProjection({workspaceId:props.workspaceId,workpieceId:props.workpieceId}));setSaveState("saved");}catch(error){setSaveState("error");setLoadError(error instanceof Error?error.message:"Unable to commit candidate set.");}};
+  const finishThumbnailSet = async () => { if(!pkg)return;setSaveState("saving");setLoadError(null);try{const result=await commitReadyLaunchesAsCandidateSet({workpieceId:props.workpieceId,workspaceId:props.workspaceId,episodePackage:pkg,expectedMetadataUpdatedAt:token});if(!result.ok){setSaveState("error");setLoadError(result.error);return;}const authority=await readThumbnailCandidateAuthorityProjection({workspaceId:props.workspaceId,workpieceId:props.workpieceId});setPkg(result.episodePackage);setToken(result.metadataUpdatedAt);setCandidateAuthority(authority);const eligible=authority.candidates.filter((candidate)=>candidate.eligibility_state==="current"||candidate.eligibility_state==="approved_historical_brand");props.onCanonicalProgress?.({conceptRevisionCount:result.episodePackage.thumbnail.concept_revisions.length,baseVersionCount:result.episodePackage.thumbnail.base_versions.length,candidateCount:authority.candidates.length,eligibleCandidateCount:eligible.length,previewAssetPaths:eligible.map((candidate)=>result.episodePackage.thumbnail.launch_variant_revisions.find((entry)=>entry.snapshot.asset_id===candidate.composite_asset_id)?.snapshot.asset_path??"").filter(Boolean).slice(0,3)});setSaveState("saved");}catch(error){setSaveState("error");setLoadError(error instanceof Error?error.message:"Unable to finish the canonical thumbnail set.");}};
   const decideHistoricalCandidate=async(candidate:Record<string,unknown>,decision:"approved"|"revoked")=>{const setId=candidateAuthority?.candidate_set?.id,activeBindingId=candidateAuthority?.active_binding_id;if(!setId||!activeBindingId)return;const reason=window.prompt(decision==="approved"?"Reason for approving this older-brand candidate":"Reason for revoking this approval")?.trim();if(!reason)return;setSaveState("saving");try{await decideThumbnailCandidateHistoricalBrand({workpieceId:props.workpieceId,workspaceId:props.workspaceId,candidateRevisionId:String(candidate.id),candidateSetId:String(setId),activeBindingId,decision,reason,expectedDecisionId:typeof candidate.current_decision_id==="string"?candidate.current_decision_id:null,expectedDecisionRevision:Number(candidate.current_decision_revision??0)});setCandidateAuthority(await readThumbnailCandidateAuthorityProjection({workspaceId:props.workspaceId,workpieceId:props.workpieceId}));setSaveState("saved");}catch(error){setSaveState("error");setLoadError(error instanceof Error?error.message:"Unable to record historical-brand authorization.");}};
 
   const saveEditorialInterpretation = async () => {
@@ -584,8 +606,8 @@ export default function ThumbnailV3Panel(props: Props) {
       </aside> : null}
 
       <div className="hs-thumbnail-completion" role="status" aria-live="polite">
-        <div><strong>{candidateSummary.quenchEligibleCount === 3 ? "3 thumbnails ready" : `${candidateSummary.quenchEligibleCount} of 3 thumbnails ready`}</strong><span>Style recorded · Text readable · Candidates distinct</span></div>
-        <button type="button" className="is-primary" disabled={saveState === "saving" || candidateSummary.quenchEligibleCount !== 3 || candidateCards.length !== 3} onClick={() => void commitCandidateSet()}>Send test set to Quench</button>
+        <div><strong>{thumbnailSetComplete ? "Thumbnail set complete" : `${Math.min(readyLaunchCount, 3)} of 3 thumbnails ready`}</strong><span>{thumbnailSetComplete ? "Saved with this episode and available for release preparation." : "Style recorded · Text readable · Candidate distinction verified when the set is finished"}</span></div>
+        {!thumbnailSetComplete ? <button type="button" className="is-primary" disabled={saveState === "saving" || readyLaunchCount < 3} onClick={() => void finishThumbnailSet()}>Finish thumbnail set</button> : null}
       </div>
     </main>
     <details className="hs-thumbnail-advanced">
@@ -610,8 +632,8 @@ export default function ThumbnailV3Panel(props: Props) {
     <section className="hs-thumbnail-candidates" aria-label="Canonical thumbnail candidate set">
       <div className="hs-row"><h4>Candidate comparison</h4><strong>{candidateAuthority?.candidate_set?`Revision ${String(candidateAuthority.candidate_set.revision)}`:"Uncommitted"}</strong></div>
       <p>Tongs owns completeness, distinction, and eligibility. Hearth explains and curates those canonical results; presentation-only changes never satisfy distinction.</p>
-      <p aria-live="polite"><strong>{candidateSummary.quenchEligibleCount} of {candidateCards.length}</strong> candidates would be included in a Quench handoff from the current Tongs projection.</p>
-      <button type="button" disabled={saveState==="saving"||pkg.thumbnail.launch_variant_revisions.filter((entry)=>entry.status==="ready"&&entry.snapshot.readability_evidence?.passed).length<3} onClick={()=>void commitCandidateSet()}>Commit or retry ready candidate set</button>
+      <p aria-live="polite"><strong>{candidateSummary.quenchEligibleCount} of {candidateCards.length}</strong> candidates are eligible in the current Tongs projection.</p>
+      <button type="button" disabled={saveState==="saving"||readyLaunchCount<3} onClick={()=>void finishThumbnailSet()}>Retry canonical set finalization</button>
       <small>Retrying the same complete payload uses the same operation identity and cannot duplicate the set.</small>
       {candidateCards.length ? <div className="hs-thumbnail-candidate-grid" style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(16rem, 1fr))",gap:"1rem",marginTop:"1rem"}}>
         {candidateCards.map((card)=><article key={card.id} className="hs-thumbnail-candidate-card" aria-label={`Candidate ${card.ordinal}`} style={{border:"1px solid var(--border-color, #555)",borderRadius:"0.5rem",padding:"0.75rem"}}>
@@ -621,7 +643,7 @@ export default function ThumbnailV3Panel(props: Props) {
           <p><strong>Branding:</strong> binding revision {card.bindingRevision}</p>
           <p><strong>Readability:</strong> {card.readability.passed ? "passed" : "canonical evidence"}{card.readability.score === null ? "" : ` at ${card.readability.score.toFixed(2)}:1`} · {card.readability.treatment}</p>
           <small>Artwork {card.artworkHash}<br/>Recipe {String(card.raw.recipe_hash)}<br/>Final {card.compositeHash}<br/>Readability evidence {card.readability.evidenceHash}</small>
-          <p><strong>{card.quenchEligible ? "Included in current Quench handoff" : "Not eligible for current Quench handoff"}</strong></p>
+          <p><strong>{card.quenchEligible ? "Eligible in the canonical set" : "Not eligible in the canonical set"}</strong></p>
           {card.recipe ? <button type="button" onClick={()=>{setCandidateEditRecipeIdentity({id:card.recipe!.id,revision:card.recipe!.revision});setSelectedRevisionId(card.recipe!.concept_revision_id);setTitleId(card.recipe!.title_id);setTitleRevision(card.recipe!.title_revision);setLoadError(null);}}>Revise this candidate</button> : <p><small>This immutable recipe is readable from Tongs but is not present in the current Hearth package projection.</small></p>}
           {card.eligibility==="requires_reapproval"?<button type="button" onClick={()=>void decideHistoricalCandidate(card.raw,"approved")}>Approve older brand for this binding</button>:card.eligibility==="approved_historical_brand"?<button type="button" onClick={()=>void decideHistoricalCandidate(card.raw,"revoked")}>Revoke older-brand approval</button>:null}
         </article>)}

@@ -5,7 +5,7 @@ import EpisodeMediaMapPanel from "../../components/visuals/EpisodeMediaMapPanel"
 import ImageMapPanel from "../../components/visuals/ImageMapPanel";
 import ReferenceClipPlanPanel from "../../components/visuals/ReferenceClipPlanPanel";
 import ThumbnailPanel from "../../components/visuals/ThumbnailPanel";
-import ThumbnailV3Panel from "../../components/visuals/ThumbnailV3Panel";
+import ThumbnailV3Panel, { CanonicalThumbnailPreview } from "../../components/visuals/ThumbnailV3Panel";
 import { deriveHearthMediaWorkflow, type HearthMediaStageId, type HearthMediaWorkflowInput } from "../../lib/hearth-media-workflow-view-model";
 import "./VisualsSurface.css";
 
@@ -31,9 +31,9 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
   const activeRef = useRef(workflow.activeStage); const keyRef = useRef(props.workflowKey); const manualReviewRef = useRef(false);
   const initialResolutionRef = useRef(true);
 
-  const moveToStage = useCallback((stage:HearthMediaStageId, announce:boolean) => {
+  const moveToStage = useCallback((stage:HearthMediaStageId, announce:boolean, announcementText?:string) => {
     setDisplayedStage(stage);
-    if (announce) setAnnouncement(`${workflow.stages.find((entry)=>entry.id===stage)?.label ?? "Next stage"} is ready.`);
+    if (announce) setAnnouncement(announcementText ?? `${workflow.stages.find((entry)=>entry.id===stage)?.label ?? "Next stage"} is ready.`);
     const focusStage = () => {
       const target=document.querySelector<HTMLElement>(`[data-media-stage-heading="${stage}"]`); if(!target)return;
       target.focus({preventScroll:true});
@@ -50,10 +50,10 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
     if (!props.visible) return;
     if(initialResolutionRef.current){initialResolutionRef.current=false;moveToStage(workflow.activeStage,false);return;}
     const changedWorkpiece=keyRef.current!==props.workflowKey;
-    const advanced=activeRef.current!==workflow.activeStage;
+    const previousActiveStage=activeRef.current; const advanced=previousActiveStage!==workflow.activeStage;
     keyRef.current=props.workflowKey; activeRef.current=workflow.activeStage;
     if(changedWorkpiece){manualReviewRef.current=false;moveToStage(workflow.activeStage,false);return;}
-    if(advanced&&!manualReviewRef.current)moveToStage(workflow.activeStage,true);
+    if(advanced&&!manualReviewRef.current)moveToStage(workflow.activeStage,true,previousActiveStage==="thumbnails"&&workflow.activeStage==="images"?"Thumbnail set complete. Images is ready.":undefined);
   }, [moveToStage, props.visible, props.workflowKey, workflow.activeStage]);
 
   if (!props.visible) return null;
@@ -71,7 +71,7 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
   return <section className="hs-media-workflow" aria-label="Episode visual production workflow">
     <div className="hs-sr-only" aria-live="polite">{announcement}</div>
     <nav className="hs-media-stage-rail" aria-label="Visual production stages">{workflow.stages.map((stage,index)=><button key={stage.id} type="button" disabled={stage.status==="blocked"} className={`is-${stage.status}${displayedStage===stage.id?" is-active":""}`} aria-current={displayedStage===stage.id?"step":undefined} onClick={()=>chooseStage(stage.id)}><span aria-hidden="true">{stage.status==="complete"?"✓":displayedStage===stage.id?"●":"○"}</span><span><strong>{index+1}. {stage.label}</strong><small>{stage.status.replaceAll("_"," ")}</small></span></button>)}</nav>
-    {workflow.stages.filter((stage)=>stage.status==="complete"&&stage.id!==displayedStage).map((stage)=><section className="hs-media-completed-summary" key={stage.id}><div><strong>✓ {stage.label}</strong><span>{stage.summary}</span></div><button type="button" onClick={()=>chooseStage(stage.id)}>Review {stage.label.toLowerCase()}</button></section>)}
+    {workflow.stages.filter((stage)=>stage.status==="complete"&&stage.id!==displayedStage).map((stage)=><section className="hs-media-completed-summary" key={stage.id}><div><strong>✓ {stage.label}</strong><span>{stage.id==="thumbnails"?"Thumbnail set complete · Saved with this episode and available for release preparation.":stage.summary}</span>{stage.id==="thumbnails"&&props.thumbnailAuthority.workpieceId&&props.workflowInput.thumbnails.previewAssetPaths?.length?<div className="hs-media-thumbnail-summary">{props.workflowInput.thumbnails.previewAssetPaths.slice(0,3).map((path,index)=><CanonicalThumbnailPreview key={path} workpieceId={props.thumbnailAuthority.workpieceId!} assetPath={path} alt={`Thumbnail candidate ${String.fromCharCode(65+index)}`} className="hs-media-thumbnail-summary-preview" />)}</div>:null}</div><button type="button" onClick={()=>chooseStage(stage.id)}>Review {stage.label.toLowerCase()}</button></section>)}
     {props.workflowInput.upstreamChanged?<aside className="hs-media-upstream-warning"><strong>The visual plan changed.</strong><span>Your existing thumbnails, images, and B-roll are preserved. Review whether the updated plan needs additional assets.</span><button type="button" onClick={()=>chooseStage("visual_plan")}>Review changes</button></aside>:null}
     <div className="hs-media-active-stage"><h2 key={displayedStage} autoFocus={displayedStage===workflow.activeStage} tabIndex={-1} data-media-stage-heading={displayedStage}>{current.label}</h2><p>{current.summary}</p>{renderWorkspace()}</div>
     <details className="hs-media-planning-details"><summary>Planning details</summary><p>{props.activeVisualProviderBanner}</p><p>{props.activeVisualProviderHelperText}</p><p>Canonical state: {props.workflowInput.visualPlan.status??"not created"} · revision {props.workflowInput.visualPlan.version}</p></details>

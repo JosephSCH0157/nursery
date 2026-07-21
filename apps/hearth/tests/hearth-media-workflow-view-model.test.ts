@@ -18,6 +18,13 @@ test("thumbnail completion requires three Tongs-eligible candidates",()=>{
   assert.equal(workflow.stages[1]?.status,"in_progress");assert.equal(workflow.activeStage,"thumbnails");
 });
 
+test("cold recovery opens Images with canonical thumbnail preview identities",()=>{
+  const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:2,images:2,broll:0,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:2,completed:0}}));
+  assert.equal(workflow.stages[1]?.status,"complete");
+  assert.equal(workflow.stages[1]?.summary,"Three thumbnail candidates are ready");
+  assert.equal(workflow.activeStage,"images");
+});
+
 test("strict image and B-roll completion never infers skipped work",()=>{
   const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:3,images:2,broll:1,version:1},thumbnails:{eligible:3,total:3},images:{planned:2,completed:1},broll:{planned:1,completed:1}}));
   assert.equal(workflow.activeStage,"images");assert.equal(workflow.stages[3]?.status,"blocked");
