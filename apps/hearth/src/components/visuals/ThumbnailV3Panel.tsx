@@ -43,17 +43,34 @@ import {
 
 export function CanonicalThumbnailPreview(props: { workpieceId: string; assetPath: string; alt: string; className: string }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
+  const [loadFailed, setLoadFailed] = useState(false);
   useEffect(() => {
     let active = true;
     setDataUrl(null);
+    setLoadFailed(false);
     void loadThumbnailCompositePreview({ workpieceId: props.workpieceId, assetPath: props.assetPath }).then((result) => {
-      if (active && result.ok) setDataUrl(result.dataUrl);
+      if (!active) return;
+      if (result.ok) setDataUrl(result.dataUrl);
+      else setLoadFailed(true);
     });
     return () => { active = false; };
   }, [props.assetPath, props.workpieceId]);
   return dataUrl
     ? <img src={dataUrl} alt={props.alt} className={props.className} />
-    : <div className={props.className} role="img" aria-label={`${props.alt} loading`} />;
+    : <div className={props.className} role="img" aria-label={`${props.alt} ${loadFailed ? "unavailable" : "loading"}`}>
+      {loadFailed ? <span>Preview unavailable</span> : null}
+    </div>;
+}
+
+export function resolveCanonicalCandidatePreviewPath(
+  candidate: Record<string, unknown>,
+  episodePackage: EpisodePackageV3,
+): string {
+  const authoritativePath = typeof candidate.asset_path === "string" ? candidate.asset_path.trim() : "";
+  if (authoritativePath) return authoritativePath;
+  return episodePackage.thumbnail.launch_variant_revisions.find(
+    (entry) => entry.snapshot.asset_id === candidate.composite_asset_id,
+  )?.snapshot.asset_path ?? "";
 }
 
 type Props = {
@@ -141,10 +158,9 @@ export default function ThumbnailV3Panel(props: Props) {
         baseVersionCount: canonical.episodePackage.thumbnail.base_versions.length,
         candidateCount: nextCandidateAuthority.candidates.length,
         eligibleCandidateCount: nextCandidateAuthority.candidates.filter((candidate)=>candidate.eligibility_state==="current"||candidate.eligibility_state==="approved_historical_brand").length,
-        previewAssetPaths: nextCandidateAuthority.candidates.map((candidate) => {
-          const launch = canonical.episodePackage.thumbnail.launch_variant_revisions.find((entry) => entry.snapshot.asset_id === candidate.composite_asset_id);
-          return launch?.snapshot.asset_path ?? "";
-        }).filter(Boolean).slice(0, 3),
+        previewAssetPaths: nextCandidateAuthority.candidates
+          .map((candidate) => resolveCanonicalCandidatePreviewPath(candidate, canonical.episodePackage))
+          .filter(Boolean).slice(0, 3),
       });
       const pair = resolveCanonicalThumbnailPair(canonical.episodePackage);
       const pairSet = pair.concept
@@ -527,7 +543,7 @@ export default function ThumbnailV3Panel(props: Props) {
     } catch (error) { setMemoryState("unavailable"); setMemoryError(error instanceof Error ? error.message : "Workspace thumbnail memory is unavailable."); }
   };
 
-  const finishThumbnailSet = async () => { if(!pkg)return;setSaveState("saving");setLoadError(null);try{const result=await commitReadyLaunchesAsCandidateSet({workpieceId:props.workpieceId,workspaceId:props.workspaceId,episodePackage:pkg,expectedMetadataUpdatedAt:token});if(!result.ok){setSaveState("error");setLoadError(result.error);return;}const authority=await readThumbnailCandidateAuthorityProjection({workspaceId:props.workspaceId,workpieceId:props.workpieceId});setPkg(result.episodePackage);setToken(result.metadataUpdatedAt);setCandidateAuthority(authority);const eligible=authority.candidates.filter((candidate)=>candidate.eligibility_state==="current"||candidate.eligibility_state==="approved_historical_brand");props.onCanonicalProgress?.({conceptRevisionCount:result.episodePackage.thumbnail.concept_revisions.length,baseVersionCount:result.episodePackage.thumbnail.base_versions.length,candidateCount:authority.candidates.length,eligibleCandidateCount:eligible.length,previewAssetPaths:eligible.map((candidate)=>result.episodePackage.thumbnail.launch_variant_revisions.find((entry)=>entry.snapshot.asset_id===candidate.composite_asset_id)?.snapshot.asset_path??"").filter(Boolean).slice(0,3)});setSaveState("saved");}catch(error){setSaveState("error");setLoadError(error instanceof Error?error.message:"Unable to finish the canonical thumbnail set.");}};
+  const finishThumbnailSet = async () => { if(!pkg)return;setSaveState("saving");setLoadError(null);try{const result=await commitReadyLaunchesAsCandidateSet({workpieceId:props.workpieceId,workspaceId:props.workspaceId,episodePackage:pkg,expectedMetadataUpdatedAt:token});if(!result.ok){setSaveState("error");setLoadError(result.error);return;}const authority=await readThumbnailCandidateAuthorityProjection({workspaceId:props.workspaceId,workpieceId:props.workpieceId});setPkg(result.episodePackage);setToken(result.metadataUpdatedAt);setCandidateAuthority(authority);const eligible=authority.candidates.filter((candidate)=>candidate.eligibility_state==="current"||candidate.eligibility_state==="approved_historical_brand");props.onCanonicalProgress?.({conceptRevisionCount:result.episodePackage.thumbnail.concept_revisions.length,baseVersionCount:result.episodePackage.thumbnail.base_versions.length,candidateCount:authority.candidates.length,eligibleCandidateCount:eligible.length,previewAssetPaths:eligible.map((candidate)=>resolveCanonicalCandidatePreviewPath(candidate,result.episodePackage)).filter(Boolean).slice(0,3)});setSaveState("saved");}catch(error){setSaveState("error");setLoadError(error instanceof Error?error.message:"Unable to finish the canonical thumbnail set.");}};
   const decideHistoricalCandidate=async(candidate:Record<string,unknown>,decision:"approved"|"revoked")=>{const setId=candidateAuthority?.candidate_set?.id,activeBindingId=candidateAuthority?.active_binding_id;if(!setId||!activeBindingId)return;const reason=window.prompt(decision==="approved"?"Reason for approving this older-brand candidate":"Reason for revoking this approval")?.trim();if(!reason)return;setSaveState("saving");try{await decideThumbnailCandidateHistoricalBrand({workpieceId:props.workpieceId,workspaceId:props.workspaceId,candidateRevisionId:String(candidate.id),candidateSetId:String(setId),activeBindingId,decision,reason,expectedDecisionId:typeof candidate.current_decision_id==="string"?candidate.current_decision_id:null,expectedDecisionRevision:Number(candidate.current_decision_revision??0)});setCandidateAuthority(await readThumbnailCandidateAuthorityProjection({workspaceId:props.workspaceId,workpieceId:props.workpieceId}));setSaveState("saved");}catch(error){setSaveState("error");setLoadError(error instanceof Error?error.message:"Unable to record historical-brand authorization.");}};
 
   const saveEditorialInterpretation = async () => {

@@ -54,6 +54,7 @@ type UseMediaMapGenerationActionsArgs = {
     eventPayload: Record<string, unknown>;
     baseEpisodePackage?: EpisodePackageV2;
   }) => Promise<PersistMediaMapResult>;
+  repairImageMapAuthority: () => Promise<{ ok: true } | { ok: false; error: string }>;
 };
 
 export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsArgs) {
@@ -123,6 +124,13 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
       if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setMediaMapSaveError(saved.error);
+        args.setMediaMapSaveState("error");
+        return;
+      }
+      const repaired = await args.repairImageMapAuthority();
+      if (!args.operationAuthority.isCurrent(operation)) return;
+      if (!repaired.ok) {
+        args.setMediaMapSaveError(repaired.error);
         args.setMediaMapSaveState("error");
         return;
       }
@@ -232,6 +240,13 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
       if (!args.operationAuthority.isCurrent(operation)) return false;
       if (!saved.ok) {
         args.setMediaMapSaveError(saved.error);
+        args.setMediaMapSaveState("error");
+        return false;
+      }
+      const repaired = await args.repairImageMapAuthority();
+      if (!args.operationAuthority.isCurrent(operation)) return false;
+      if (!repaired.ok) {
+        args.setMediaMapSaveError(repaired.error);
         args.setMediaMapSaveState("error");
         return false;
       }

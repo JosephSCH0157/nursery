@@ -2867,7 +2867,7 @@ export default function HearthShell({
         baseVersionCount: canonical.episodePackage.thumbnail.base_versions.length,
         candidateCount: candidateAuthority.candidates.length,
         eligibleCandidateCount: candidateAuthority.candidates.filter((candidate)=>candidate.eligibility_state==="current"||candidate.eligibility_state==="approved_historical_brand").length,
-        previewAssetPaths: candidateAuthority.candidates.map((candidate) => canonical.episodePackage.thumbnail.launch_variant_revisions.find((entry) => entry.snapshot.asset_id === candidate.composite_asset_id)?.snapshot.asset_path ?? "").filter(Boolean).slice(0, 3),
+        previewAssetPaths: candidateAuthority.candidates.map((candidate) => (typeof candidate.asset_path === "string" && candidate.asset_path.trim()) || canonical.episodePackage.thumbnail.launch_variant_revisions.find((entry) => entry.snapshot.asset_id === candidate.composite_asset_id)?.snapshot.asset_path || "").filter(Boolean).slice(0, 3),
         titleCount: canonical.episodePackage.seo.titles.length,
         tagCount: canonical.episodePackage.seo.tags.length,
         hasDescriptions: Boolean(canonical.episodePackage.seo.description_short?.trim())
@@ -3407,6 +3407,22 @@ export default function HearthShell({
     prepareSourceEpisodePackageForMediaMapGeneration,
     buildMediaMapFromExistingPlans,
     persistMediaMap,
+    repairImageMapAuthority: async () => {
+      if (!workpieceId || !workspaceId || !episodePackage) {
+        return { ok: false as const, error: missingImageMapContextError };
+      }
+      const { repairWorkpieceImageMapAuthority } = await import("../lib/hearth-image-map-authority");
+      const repaired = await repairWorkpieceImageMapAuthority({ workpieceId, workspaceId });
+      if (!repaired.ok) {
+        return { ok: false as const, error: repaired.error ?? "Tongs could not verify the applied visual plan." };
+      }
+      applyCanonicalImageMap({
+        entries: repaired.imageMap.entries,
+        spokenBeats: repaired.imageMap.spokenBeats,
+        metadataUpdatedAt: repaired.imageMap.metadataUpdatedAt,
+      });
+      return { ok: true as const };
+    },
   });
   const onRecoverLastMediaMapGeneration = useCallback(async () => {
     if (!recoverableMediaMap || !episodePackage || isMediaMapBusy) return;
