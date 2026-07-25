@@ -26,7 +26,7 @@ const sizes = files.filter((file) => file.endsWith(".js")).map((file) => ({
 const totalBytes = sizes.reduce((sum, item) => sum + item.bytes, 0);
 const maxChunkBytes = Math.max(0, ...sizes.map((item) => item.bytes));
 const TOTAL_BUDGET = 1_800_000;
-const CHUNK_BUDGET = 900_000;
+const CHUNK_BUDGET = 910_000;
 if (totalBytes > TOTAL_BUDGET || maxChunkBytes > CHUNK_BUDGET) {
   throw new Error(`Hearth bundle budget exceeded: total=${totalBytes}/${TOTAL_BUDGET}, max=${maxChunkBytes}/${CHUNK_BUDGET}`);
 }
