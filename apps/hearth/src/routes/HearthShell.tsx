@@ -10,20 +10,13 @@ import { HEARTH_SESSION_SCHEMA } from "../domain/hearth-session";
 import type { Revision, RevisionKind } from "../domain/revision";
 import type { HearthSession } from "../domain/session";
 import {
-  type BarStockSpark,
-  enqueueBarStockSpark,
-  resolveBarStockSparkHearthWorkpieceId,
   resolveBarstockSparkIdFromQuery,
-  shouldDisplaySparkInHearthLibrary,
-  upsertBarStockSpark,
-  writeBarStockSparks,
 } from "../lib/barstock-sparks";
 import {
   resolveBarstockProjectIdFromQuery,
 } from "../lib/barstock-project-links";
 import SourcesView from "../views/SourcesView";
 import "./HearthShell.css";
-import { createHearthWorkpiece } from "../lib/hearth-workpiece";
 import {
   readHearthPlanningSessionCache,
   writeHearthPlanningSessionCache,
@@ -48,20 +41,12 @@ import {
   commitHearthPrimaryScript,
   getHearthPrimaryScriptPath,
 } from "../lib/hearth-script-repo";
+import type { HearthWorkpieceSummary } from "../lib/hearth-workpieces";
 import {
-  listHearthWorkpieces,
-  type HearthWorkpieceSummary,
-} from "../lib/hearth-workpieces";
-import {
-  selectActiveWorkpieceContext,
   selectDraftForWorkpiece,
-  selectWorkpieceNavItems,
 } from "../lib/hearth-nav-model";
 import { mirrorApprovedScriptToLocal } from "../lib/hearth-script-mirror";
-import {
-  listHearthReadyScripts,
-  type HearthReadyScript,
-} from "../lib/hearth-ready-scripts";
+import type { HearthReadyScript } from "../lib/hearth-ready-scripts";
 import {
   listHearthWorkpiecePresence,
   upsertHearthWorkpiecePresence,
@@ -83,19 +68,14 @@ import { useHearthFocusOpenActions } from "../hooks/useHearthFocusOpenActions";
 import { useHearthInitialLoader } from "../hooks/useHearthInitialLoader";
 import { useHearthWorkspaceResetLifecycle } from "../hooks/useHearthWorkspaceResetLifecycle";
 import { useHearthIntakeLifecycle } from "../hooks/useHearthIntakeLifecycle";
-import { useHearthSparkDiscovery } from "../hooks/useHearthSparkDiscovery";
 import { useHearthWorkspaceSessionLifecycle } from "../hooks/useHearthWorkspaceSessionLifecycle";
 import { useHearthDraftController } from "../hooks/useHearthDraftController";
 import { useHearthDraftPersistenceActions } from "../hooks/useHearthDraftPersistenceActions";
 import { useHearthScriptRepairActions } from "../hooks/useHearthScriptRepairActions";
 import { useHearthWorkpieceTabLifecycle } from "../hooks/useHearthWorkpieceTabLifecycle";
-import { useHearthWorkpieceArchiveActions } from "../hooks/useHearthWorkpieceArchiveActions";
 import { useClipboardButtonAcks } from "../hooks/useClipboardButtonAcks";
 import { useHearthAnvilOpenAction } from "../hooks/useHearthAnvilOpenAction";
 import { useHearthApprovalPersistenceActions } from "../hooks/useHearthApprovalPersistenceActions";
-import { useHearthReadyScriptsLifecycle } from "../hooks/useHearthReadyScriptsLifecycle";
-import { useHearthReadyQueueActions } from "../hooks/useHearthReadyQueueActions";
-import { useHearthReadyNavigationActions } from "../hooks/useHearthReadyNavigationActions";
 import { useHearthDraftHydrationActions } from "../hooks/useHearthDraftHydrationActions";
 import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
 import { useScriptWorkspaceReadModel } from "../hooks/useScriptWorkspaceReadModel";
@@ -324,8 +304,6 @@ import {
   AUTOSAVE_REVISION_GAP_MS,
   CHAT_HISTORY_WRITE_DEBOUNCE_MS,
   DEFAULT_TONE_PRESET,
-  EMPTY_READY_SCRIPT_LIST,
-  EMPTY_WORKPIECE_SUMMARY_LIST,
   FORGE_NOTICE_EVENT,
   PRESENCE_HEARTBEAT_MS,
   SAFE_SCRIPT_STARTER,
@@ -348,7 +326,6 @@ import {
   type PendingAiProposal,
   type ProposalSaveReasonCode,
   type ReadyLabel,
-  type SortKey,
 } from "./hearth-shell/hearth-shell-contracts";
 import {
   buildDraftAttribution,
@@ -435,6 +412,25 @@ import {
   useHearthResponsiveNavigationLifecycle,
   useHearthWorkpieceTabPreferenceLifecycle,
 } from "./hearth-shell/useHearthShellNavigation";
+import {
+  useHearthCollectionArchiveActions,
+  useHearthActiveCollectionContext,
+  useHearthEpisodeCollectionState,
+  useHearthCollectionViewModel,
+  useHearthCollectionReadyNavigationActions,
+  useHearthCollectionReadyQueueActions,
+  useHearthCollectionSparkDiscovery,
+  useHearthReadyCollectionLifecycle,
+  useHearthReadyCollectionState,
+  useHearthSparkCollectionState,
+  useHearthWorkpieceCollectionLoader,
+  createHearthCollectionWorkpiece,
+  enqueueBarStockSpark,
+  resolveBarStockSparkHearthWorkpieceId,
+  upsertBarStockSpark,
+  writeBarStockSparks,
+  type BarStockSpark,
+} from "./hearth-shell/useHearthCollectionController";
 
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
@@ -935,13 +931,26 @@ export default function HearthShell({
     workpieceId,
     setWorkpieceId,
   } = useHearthShellIdentityState();
-  const [sparks, setSparks] = useState<BarStockSpark[]>([]);
-  const [isSparksLoading, setIsSparksLoading] = useState<boolean>(() => Boolean(normalizeUuid(resolveWorkspaceId())));
-  const [sparkDiscoveryWorkspaceId, setSparkDiscoveryWorkspaceId] = useState<string | null>(null);
-  const [sparkDiscoveryError, setSparkDiscoveryError] = useState<string | null>(null);
-  const [selectedSparkId, setSelectedSparkId] = useState<string | null>(null);
-  const [forgeError, setForgeError] = useState<string | null>(null);
-  const [isForging, setIsForging] = useState(false);
+  const {
+    state: {
+      sparks,
+      isSparksLoading,
+      sparkDiscoveryWorkspaceId,
+      sparkDiscoveryError,
+      selectedSparkId,
+      forgeError,
+      isForging,
+    },
+    bindings: {
+      setSparks,
+      setIsSparksLoading,
+      setSparkDiscoveryWorkspaceId,
+      setSparkDiscoveryError,
+      setSelectedSparkId,
+      setForgeError,
+      setIsForging,
+    },
+  } = useHearthSparkCollectionState(resolveWorkspaceId());
   const [routeProjectId] = useState<string | null>(() => resolveBarstockProjectIdFromQuery());
   const [routeSparkId] = useState<string | null>(() => resolveBarstockSparkIdFromQuery());
   const [routeProjectTitle, setRouteProjectTitle] = useState<string | null>(null);
@@ -954,9 +963,10 @@ export default function HearthShell({
   const [sessionTouched, setSessionTouched] = useState(false);
   const [decisionDraft, setDecisionDraft] = useState("");
 
-  const [workpieceSummaries, setWorkpieceSummaries] = useState<HearthWorkpieceSummary[]>([]);
-  const [isWorkpiecesLoading, setIsWorkpiecesLoading] = useState(false);
-  const [workpiecesError, setWorkpiecesError] = useState<string | null>(null);
+  const {
+    state: { workpieceSummaries, isWorkpiecesLoading, workpiecesError },
+    bindings: { setWorkpieceSummaries, setIsWorkpiecesLoading, setWorkpiecesError },
+  } = useHearthEpisodeCollectionState();
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [activeDraft, setActiveDraft] = useState<Draft | null>(null);
   const [revisions, setRevisions] = useState<Revision[]>([]);
@@ -969,19 +979,38 @@ export default function HearthShell({
   const [aiAutosaveStatusAt, setAiAutosaveStatusAt] = useState<number | null>(null);
   const [aiAutosaveWarning, setAiAutosaveWarning] = useState<string | null>(null);
   const [isRepairingScript, setIsRepairingScript] = useState(false);
-  const [searchText, setSearchText] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("updated");
-  const [showArchived, setShowArchived] = useState(false);
-  const [readyScripts, setReadyScripts] = useState<HearthReadyScript[]>([]);
-  const [readyScriptsWorkspaceId, setReadyScriptsWorkspaceId] = useState<string | null>(null);
-  const [isReadyScriptsLoading, setIsReadyScriptsLoading] = useState(false);
-  const [readyScriptsError, setReadyScriptsError] = useState<string | null>(null);
-  const [updatingReadyCategoryId, setUpdatingReadyCategoryId] = useState<string | null>(null);
-  const [readyCategoryError, setReadyCategoryError] = useState<string | null>(null);
-  const [removingReadyIds, setRemovingReadyIds] = useState<string[]>([]);
-  const [sendingBackReadyIds, setSendingBackReadyIds] = useState<string[]>([]);
-  const [isRestoringReady, setIsRestoringReady] = useState(false);
-  const [draggingReadyId, setDraggingReadyId] = useState<string | null>(null);
+  const {
+    state: {
+      searchText,
+      sortKey,
+      showArchived,
+      readyScripts,
+      readyScriptsWorkspaceId,
+      isReadyScriptsLoading,
+      readyScriptsError,
+      updatingReadyCategoryId,
+      readyCategoryError,
+      removingReadyIds,
+      sendingBackReadyIds,
+      isRestoringReady,
+      draggingReadyId,
+    },
+    bindings: {
+      setSearchText,
+      setSortKey,
+      setShowArchived,
+      setReadyScripts,
+      setReadyScriptsWorkspaceId,
+      setIsReadyScriptsLoading,
+      setReadyScriptsError,
+      setUpdatingReadyCategoryId,
+      setReadyCategoryError,
+      setRemovingReadyIds,
+      setSendingBackReadyIds,
+      setIsRestoringReady,
+      setDraggingReadyId,
+    },
+  } = useHearthReadyCollectionState();
   const [session, setSession] = useState<HearthSession | null>(null);
   const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
@@ -1693,7 +1722,7 @@ export default function HearthShell({
     }
     return next;
   }, [activeDraft?.id, workpieceId]);
-  const activeWorkpieceContext = useMemo(() => selectActiveWorkpieceContext({
+  const activeWorkpieceContext = useHearthActiveCollectionContext({
     activeWorkpieceId: workpieceId,
     workpieces: workpieceSummaries,
     drafts,
@@ -1701,7 +1730,7 @@ export default function HearthShell({
     sparks,
     revisions,
     preferredDraftId: activeDraft?.id ?? session?.activeDraftId ?? null,
-  }), [activeDraft?.id, drafts, readyScripts, revisions, session?.activeDraftId, sparks, workpieceId, workpieceSummaries]);
+  });
   const activeWorkpiece = activeWorkpieceContext.workpiece;
   const activeWorkpieceIsArchived = Boolean(activeWorkpiece?.isArchived);
   const draftsById = useMemo(() => new Map(drafts.map((draft) => [draft.id, draft] as const)), [drafts]);
@@ -3209,10 +3238,6 @@ export default function HearthShell({
     )),
     [activeDraft?.id, sparks, workpieceId],
   );
-  const sortedSparks = useMemo(
-    () => sparks.slice().sort((a, b) => b.createdAt - a.createdAt),
-    [sparks],
-  );
   const routeProjectSparks = useMemo(
     () => routeProjectId
       ? sparks
@@ -3231,15 +3256,6 @@ export default function HearthShell({
       : sparks.find((spark) => spark.id === routeSparkId) ?? null,
     [routeProjectId, routeSparkId, sparks],
   );
-  const visibleSparks = useMemo(
-    () => sortedSparks.filter((spark) => spark.status !== "archived" && shouldDisplaySparkInHearthLibrary(spark)),
-    [sortedSparks],
-  );
-  const selectedSpark = useMemo(() => {
-    if (visibleSparks.length === 0) return null;
-    if (!selectedSparkId) return visibleSparks[0] ?? null;
-    return visibleSparks.find((spark) => spark.id === selectedSparkId) ?? visibleSparks[0] ?? null;
-  }, [selectedSparkId, visibleSparks]);
   const deferDesktopRailCollections = !isMobile && mode === "sparks" && !hasActiveEpisode;
   const initialLoadKey = useMemo(() => [
     storeKind,
@@ -3254,28 +3270,31 @@ export default function HearthShell({
     storeKind,
     workspaceId,
   ]);
-  const workpieceNavItems = useMemo(() => selectWorkpieceNavItems({
-    workpieces: deferDesktopRailCollections ? EMPTY_WORKPIECE_SUMMARY_LIST : workpieceSummaries,
+  const {
+    visibleSparks,
+    selectedSpark,
+    filteredWorkpieceNavItems,
+    readyScriptsForDisplay,
+    visibleReadyScriptsForDisplay,
+    seriesEntries,
+    readyTotalCount,
+    removedReadyCount,
+    activeReadyScript,
+  } = useHearthCollectionViewModel({
+    sparks,
+    selectedSparkId,
+    deferCollections: deferDesktopRailCollections,
+    workpieces: workpieceSummaries,
     drafts,
     readyScripts,
-    sparks,
     searchText,
     sortKey,
     preferredDraftIdsByWorkpiece,
-  }), [
-    deferDesktopRailCollections,
-    drafts,
-    preferredDraftIdsByWorkpiece,
-    readyScripts,
-    searchText,
-    sortKey,
-    sparks,
-    workpieceSummaries,
-  ]);
-  const filteredWorkpieceNavItems = useMemo(() => {
-    if (showArchived) return workpieceNavItems;
-    return workpieceNavItems.filter((item) => !item.isArchived);
-  }, [showArchived, workpieceNavItems]);
+    showArchived,
+    readyScriptsWorkspaceId,
+    workspaceId,
+    workpieceId,
+  });
   const duplicateRailTitleKeys = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of filteredWorkpieceNavItems) {
@@ -3288,19 +3307,6 @@ export default function HearthShell({
         .map(([key]) => key),
     );
   }, [filteredWorkpieceNavItems]);
-
-  const readyScriptsForDisplay = useMemo(() => {
-    if (deferDesktopRailCollections) return EMPTY_READY_SCRIPT_LIST;
-    const normalizedWorkspaceId = normalizeUuid(workspaceId);
-    if (!normalizedWorkspaceId || readyScriptsWorkspaceId !== normalizedWorkspaceId) {
-      return EMPTY_READY_SCRIPT_LIST;
-    }
-    return readyScripts;
-  }, [deferDesktopRailCollections, readyScripts, readyScriptsWorkspaceId, workspaceId]);
-  const visibleReadyScriptsForDisplay = useMemo(
-    () => readyScriptsForDisplay.filter((entry) => !entry.hiddenAt),
-    [readyScriptsForDisplay],
-  );
 
   const readyUrgencyCounts = useMemo(() => {
     const counts = { fresh: 0, cooling: 0, cold: 0 };
@@ -3317,14 +3323,6 @@ export default function HearthShell({
     return visibleReadyScriptsForDisplay;
   }, [visibleReadyScriptsForDisplay]);
 
-  const readyTotalCount = visibleReadyScriptsForDisplay.length;
-  const removedReadyCount = useMemo(() => {
-    return readyScriptsForDisplay.filter((entry) => Boolean(entry.hiddenAt)).length;
-  }, [readyScriptsForDisplay]);
-  const activeReadyScript = useMemo(
-    () => readyScriptsForDisplay.find((entry) => entry.workpieceId === (workpieceId ?? "")) ?? null,
-    [readyScriptsForDisplay, workpieceId],
-  );
   useEffect(() => {
     if (typeof window === "undefined") return;
     const scriptText = activeDraft?.body ?? "";
@@ -3585,42 +3583,16 @@ export default function HearthShell({
     return () => window.clearTimeout(timer);
   }, [aiRuntimeWarning]);
 
-  const refreshWorkpieces = useCallback(async (
-    overrideWorkspaceId?: string | null,
-    options?: { includeArchived?: boolean },
-  ): Promise<HearthWorkpieceSummary[]> => {
-    const workspace = normalizeUuid(overrideWorkspaceId ?? workspaceId);
-    const activeWorkpieceId = normalizeUuid(workpieceId);
-    const currentWorkpieceSummaries = workpieceSummariesRef.current;
-    const includeArchived = options?.includeArchived ?? (
-      showArchived || Boolean(
-        activeWorkpieceId && currentWorkpieceSummaries.some((entry) => entry.workpieceId === activeWorkpieceId && entry.isArchived)
-      )
-    );
-    if (!workspace) {
-      workpieceSummariesRef.current = [];
-      setWorkpieceSummaries([]);
-      setWorkpiecesError(null);
-      setIsWorkpiecesLoading(false);
-      return [];
-    }
-
-    setIsWorkpiecesLoading(true);
-    setWorkpiecesError(null);
-    try {
-      const list = await listHearthWorkpieces(workspace, { includeArchived });
-      workpieceSummariesRef.current = list;
-      setWorkpieceSummaries(list);
-      return list;
-    } catch {
-      workpieceSummariesRef.current = [];
-      setWorkpieceSummaries([]);
-      setWorkpiecesError("Failed to load Episodes.");
-      return [];
-    } finally {
-      setIsWorkpiecesLoading(false);
-    }
-  }, [showArchived, workspaceId, workpieceId]);
+  const refreshWorkpieces = useHearthWorkpieceCollectionLoader({
+    workspaceId,
+    workpieceId,
+    showArchived,
+    operationAuthority,
+    workpieceSummariesRef,
+    setWorkpieceSummaries,
+    setIsWorkpiecesLoading,
+    setWorkpiecesError,
+  });
 
   const refreshDrafts = useCallback(async (): Promise<Draft[]> => {
     const list = dedupeDraftListById(await store.listDrafts());
@@ -3703,10 +3675,8 @@ export default function HearthShell({
     setReferenceClipMessage,
   });
 
-  const { refreshReadyScripts } = useHearthReadyScriptsLifecycle({
+  const { refreshReadyScripts } = useHearthReadyCollectionLifecycle({
     workspaceId,
-    normalizeUuid,
-    listReadyScripts: listHearthReadyScripts,
     setReadyScripts,
     setReadyScriptsWorkspaceId,
     setReadyScriptsError,
@@ -4278,7 +4248,7 @@ export default function HearthShell({
     onRemoveFromReady,
     onRestoreRemovedReady,
     onReorderReady,
-  } = useHearthReadyQueueActions({
+  } = useHearthCollectionReadyQueueActions({
     workspaceId,
     normalizeUuid,
     readyScriptsForDisplay,
@@ -4604,7 +4574,7 @@ export default function HearthShell({
     setForgeError(null);
     setIsForging(true);
     try {
-      const created = await createHearthWorkpiece(
+      const created = await createHearthCollectionWorkpiece(
         { created_from: "scratch" },
         SAFE_SCRIPT_STARTER,
       );
@@ -4650,7 +4620,7 @@ export default function HearthShell({
     try {
       const sparkTitle = deriveSparkTitle(spark);
       const scriptSeed = "[s1]\nDraft intro goes here.\n[/s1]\n";
-      const created = await createHearthWorkpiece({
+      const created = await createHearthCollectionWorkpiece({
         created_from: "bar-stock",
         spark_id: spark.id,
       }, scriptSeed, {
@@ -4880,7 +4850,7 @@ export default function HearthShell({
     readPendingProjectWorkpieceId,
     writePendingProjectWorkpieceId,
     createProjectWorkpiece: async (title) => (
-      await createHearthWorkpiece(
+      await createHearthCollectionWorkpiece(
         { created_from: "bar-stock" },
         SAFE_SCRIPT_STARTER,
         { title },
@@ -4896,7 +4866,7 @@ export default function HearthShell({
     setSelectedSparkId,
     setMode,
   });
-  useHearthSparkDiscovery({
+  useHearthCollectionSparkDiscovery({
     workspaceId,
     normalizeUuid,
     setSparks,
@@ -5564,7 +5534,7 @@ export default function HearthShell({
     restoringWorkpieceIds,
     onArchiveWorkpiece,
     onRestoreWorkpiece,
-  } = useHearthWorkpieceArchiveActions({
+  } = useHearthCollectionArchiveActions({
     workspaceId,
     workpieceId,
     showArchived,
@@ -5931,7 +5901,7 @@ export default function HearthShell({
   const {
     onOpenReadyScriptInHearth,
     onSendBackToEdit,
-  } = useHearthReadyNavigationActions({
+  } = useHearthCollectionReadyNavigationActions({
     activeDraftId: activeDraft?.id ?? null,
     sendingBackReadyIds,
     openWorkpieceInFocus,
@@ -6777,7 +6747,6 @@ export default function HearthShell({
   );
 
   const renderSeriesView = () => {
-    const seriesEntries = orderedReadyScripts.filter((entry) => resolveReadyLabel(entry) === "series");
     return (
       <HearthSeriesMode
         seriesEntries={seriesEntries}
