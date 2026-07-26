@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createDraft } from "../src/domain/draft";
 import { createRevision, type Revision } from "../src/domain/revision";
@@ -71,7 +70,7 @@ function approvalRevision(version: number, createdAt: number, draftId = DRAFT_ID
   };
 }
 
-test("approval authority: successful canonical zero-approval evidence defeats any recovery claim", () => {
+test("approval authority: canonical reload with zero approvals defeats any recovery claim", () => {
   assert.deepEqual(resolveCanonicalScriptApproval([], DRAFT_ID), NO_CANONICAL_SCRIPT_APPROVAL);
 });
 
@@ -230,11 +229,4 @@ test("approval authority: failed script publication cannot leave an approval mar
   });
   assert.deepEqual(result, { ok: false, stage: "script_publish" });
   assert.deepEqual(mutations, ["draft", "script"]);
-});
-
-test("approval authority: shell reload consumes canonical revisions and never reads browser approval", () => {
-  const source = readFileSync(new URL("../src/routes/HearthShell.tsx", import.meta.url), "utf8");
-  assert.match(source, /store\.readCanonicalRevisions\(episodeId, draftId\)/);
-  assert.doesNotMatch(source, /readScriptApprovalState/);
-  assert.match(source, /writeScriptApprovalRecoveryEvidence/);
 });

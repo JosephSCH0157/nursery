@@ -26,12 +26,13 @@ test("hearthVisualsPanel section ids stay aligned with the rendered panel ids", 
   });
 });
 
-test("VisualsSurface recenters opened panels instead of pinning them to the top", () => {
+test("VisualsSurface focuses opened stages and retries layout-aware scrolling", () => {
   const source = readFileSync(
     resolve(process.cwd(), "src/views/surfaces/VisualsSurface.tsx"),
     "utf8",
   );
 
-  assert.match(source, /block:\s*"center"/);
-  assert.match(source, /setTimeout\(scrollPanelIntoView,\s*140\)/);
+  assert.match(source, /focus\(\{preventScroll:true\}\)/);
+  assert.match(source, /scrollIntoView\(\{behavior:reduced\?"auto":"smooth",block:"start"\}\)/);
+  assert.match(source, /setTimeout\(focusStage,\s*800\)/);
 });

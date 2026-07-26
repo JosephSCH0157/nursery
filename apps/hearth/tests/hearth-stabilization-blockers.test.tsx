@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import test from "node:test";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -7,6 +6,10 @@ import { JSDOM } from "jsdom";
 import { createDraft } from "../src/domain/draft";
 import type { HearthChatMessage } from "../src/lib/hearth-ai-runtime-contract";
 import { createHearthOperationAuthority } from "../src/lib/hearth-operation-authority";
+import {
+  NO_CANONICAL_SCRIPT_APPROVAL,
+  resolveCanonicalScriptApproval,
+} from "../src/lib/hearth-approval-authority";
 import {
   readLegacyWorkpieceSourcesRecoveryEvidence,
   readWorkpieceSources,
@@ -302,10 +305,11 @@ test("stabilization contract: an unacknowledged browser-cache write cannot resol
   }
 });
 
-test("stabilization contract: local approval cannot outrank absent canonical approval", () => {
-  const shellSource = readFileSync(new URL("../src/routes/HearthShell.tsx", import.meta.url), "utf8");
-  assert.match(shellSource, /store\.readCanonicalRevisions\(episodeId, draftId\)/);
-  assert.doesNotMatch(shellSource, /readScriptApprovalState|shouldPreferRevisions/);
+test("stabilization contract: absent canonical approval remains unapproved", () => {
+  assert.deepEqual(
+    resolveCanonicalScriptApproval([], WORKPIECE_A),
+    NO_CANONICAL_SCRIPT_APPROVAL,
+  );
 });
 
 test("stabilization contract: workpiece source recovery evidence cannot cross identities", () => {

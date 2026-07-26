@@ -10,7 +10,7 @@ import {
 const FLORIDA_ORANGES_SOURCE_FIXTURE = readFileSync(
   new URL("./fixtures/florida-oranges-width-wrapped.txt", import.meta.url),
   "utf8",
-);
+).replace(/\r\n/g, "\n");
 
 test("format-only Florida fixture removes width wrapping without changing protected content", () => {
   const preview = buildHearthFormatOnlyPreview(FLORIDA_ORANGES_SOURCE_FIXTURE);
