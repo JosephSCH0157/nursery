@@ -10,7 +10,6 @@ import {
 import {
   resolveBarstockProjectIdFromQuery,
 } from "../lib/barstock-project-links";
-import SourcesView from "../views/SourcesView";
 import "./HearthShell.css";
 import {
   readHearthPlanningSessionCache,
@@ -28,7 +27,6 @@ import {
   type HearthChatMessage,
   type HearthInteractionEventType,
 } from "../lib/hearth-chat-api";
-import type { HearthResearchResult } from "../lib/hearth-research-contract";
 import { writeHearthAiRuntimeStatus } from "../lib/ai-runtime-status";
 import { commitHearthSession } from "../lib/hearth-session-repo";
 import {
@@ -46,7 +44,6 @@ import {
   upsertHearthWorkpiecePresence,
   type HearthWorkpiecePresence,
 } from "../lib/hearth-presence";
-import { useSourcesState } from "../hooks/useSourcesState";
 import { useHearthVisualsWorkspace } from "../hooks/useHearthVisualsWorkspace";
 import { useHearthFocusOpenActions } from "../hooks/useHearthFocusOpenActions";
 import { useHearthInitialLoader } from "../hooks/useHearthInitialLoader";
@@ -427,6 +424,7 @@ import {
   useHearthConversationState,
   useHearthConversationSurface,
 } from "./hearth-shell/useHearthConversationController";
+import { useHearthSourcesController } from "./hearth-shell/useHearthSourcesController";
 
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
@@ -1652,15 +1650,17 @@ export default function HearthShell({
   const sessionDecisions = planningSession?.decisions ?? [];
   const sessionIntent = planningSession?.intent ?? deriveIntentFromOrigin(planningSession?.origin);
   const sessionSparkId = planningSession?.origin?.spark_id ?? planningSession?.links?.spark_id ?? null;
-  const sourcesState = useSourcesState(workspaceId, workpieceId, activeDraft?.body ?? "", {
+  const sourcesController = useHearthSourcesController({
+    workspaceId,
+    workpieceId,
+    draftText: activeDraft?.body ?? "",
     mode: mode === "focus" && focusTab === "sources" ? "full" : "summary",
     operationAuthority,
   });
-  const workpieceSources = sourcesState.workpieceSources;
-  const sourceIndexById = sourcesState.sourceIndexById;
-  const missingSourcesCount = sourcesState.missingCitedCount;
-  const unusedSourcesCount = sourcesState.unusedRefsCount;
-  const [latestResearchResult, setLatestResearchResult] = useState<HearthResearchResult | null>(null);
+  const workpieceSources = sourcesController.state.sources.workpiece;
+  const sourceIndexById = sourcesController.state.sources.indexById;
+  const missingSourcesCount = sourcesController.state.sources.missingCitedCount;
+  const unusedSourcesCount = sourcesController.state.sources.unusedRefsCount;
   const preferredDraftIdsByWorkpiece = useMemo(() => {
     const next = new Map<string, string | null>();
     if (workpieceId && activeDraft?.id) {
@@ -2719,7 +2719,7 @@ export default function HearthShell({
     refreshMyAiCredits,
     recordInteractionEvent,
     publishForgeNotice,
-    onResearchResult: setLatestResearchResult,
+    onResearchResult: sourcesController.commands.recordResearchResult,
     getAttachmentContext: () => {
       const attachmentIds = chatAttachments
         .filter((entry) => entry.status === "attached" || entry.status === "reading")
@@ -2855,7 +2855,7 @@ export default function HearthShell({
         draftChanged = true;
       },
       addSource: async (source) => {
-        const created = await sourcesState.addSourceToLibrary({
+        const created = await sourcesController.commands.addSource({
           title: source.title ?? "Untitled Source",
           type: "webpage",
           url: source.url ?? null,
@@ -2867,10 +2867,10 @@ export default function HearthShell({
       },
       updateSource: async (id, patch) => {
         if (patch.note !== undefined) {
-          sourcesState.updateWorkpieceSourceNotes(id, patch.note);
+          sourcesController.commands.updateSourceNotes(id, patch.note);
           sourcesChanged = true;
         }
-        const updated = await sourcesState.updateSourceInLibrary(id, {
+        const updated = await sourcesController.commands.updateSource(id, {
           ...(patch.title !== undefined ? { title: patch.title } : {}),
           ...(patch.url !== undefined ? { url: patch.url } : {}),
           ...(patch.note !== undefined ? { notes: patch.note } : {}),
@@ -2880,7 +2880,7 @@ export default function HearthShell({
         }
       },
       removeSource: (id) => {
-        sourcesState.removeSourceFromWorkpiece(id);
+        sourcesController.commands.detachSourceFromWorkpiece(id);
         sourcesChanged = true;
       },
       requestSave: (reason) => {
@@ -2955,7 +2955,7 @@ export default function HearthShell({
     }
 
     if (sourcesChanged) {
-      sourcesState.syncSources();
+      sourcesController.commands.refreshSources();
     }
   }, [
     activeDraft,
@@ -2965,7 +2965,7 @@ export default function HearthShell({
     setDrafts,
     setPlanningSession,
     setSessionTouched,
-    sourcesState,
+    sourcesController,
     workpieceId,
     workspaceId,
     publishForgeNotice,
@@ -5397,7 +5397,7 @@ export default function HearthShell({
     reportRevisionPersistenceWarning,
     refreshRevisions,
     persistSession,
-    syncSources: () => sourcesState.syncSources(),
+    syncSources: () => sourcesController.commands.refreshSources(),
     syncSessionToTongs,
     dedupeDraftListById,
     draftEditVersionRef,
@@ -6723,16 +6723,7 @@ export default function HearthShell({
     />
   );
 
-  const renderSourcesView = () => (
-    <section className="hs-sources-view">
-      <SourcesView
-        state={sourcesState}
-        workspaceId={workspaceId}
-        workpieceId={workpieceId}
-        researchResult={latestResearchResult}
-      />
-    </section>
-  );
+  const renderSourcesView = sourcesController.surface.render;
 
   const renderRevisionsView = () => (
     <HearthRevisionsMode
