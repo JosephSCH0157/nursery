@@ -1,9 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  listHearthAttachments,
-  uploadHearthAttachment,
-  updateHearthAttachmentExtractedText,
-} from "../lib/hearth-attachments-api";
 import { type Draft } from "../domain/draft";
 import type { HearthPlanningSession, HearthSessionDecision, HearthSessionOrigin } from "../domain/hearth-session";
 import { HEARTH_SESSION_SCHEMA } from "../domain/hearth-session";
@@ -30,7 +25,6 @@ import {
   resolveAiLaneFromStorage,
   resolveDefaultVisualProviderFromStorage,
   uploadHearthSttAudio,
-  type HearthAiLane,
   type HearthChatMessage,
   type HearthInteractionEventType,
 } from "../lib/hearth-chat-api";
@@ -53,14 +47,6 @@ import {
   type HearthWorkpiecePresence,
 } from "../lib/hearth-presence";
 import { useSourcesState } from "../hooks/useSourcesState";
-import {
-  useChatWorkspace,
-  useChatWorkspaceHistory,
-  useChatWorkspaceProposal,
-  useChatWorkspaceRuntime,
-  useChatWorkspaceStt,
-  useChatWorkspaceState,
-} from "../hooks/useChatWorkspace";
 import { useHearthVisualsWorkspace } from "../hooks/useHearthVisualsWorkspace";
 import { useHearthFocusOpenActions } from "../hooks/useHearthFocusOpenActions";
 import { useHearthInitialLoader } from "../hooks/useHearthInitialLoader";
@@ -297,7 +283,6 @@ import {
   TONE_PRESET_OPTIONS,
   WORKPIECE_WORKSPACE_TABS,
   type ApprovalPersistenceStatus,
-  type ChatAttachmentUi,
   type DraftConflictState,
   type ForgeNoticeDetail,
   type ForgeNoticeJob,
@@ -428,6 +413,20 @@ import {
   useHearthScriptRevisionLoader,
   useHearthScriptController,
 } from "./hearth-shell/useHearthScriptController";
+import {
+  listHearthConversationAttachments,
+  updateHearthConversationAttachmentText,
+  uploadHearthConversationAttachment,
+  useHearthConversationAttachmentState,
+  useHearthConversationController,
+  useHearthConversationHistory,
+  useHearthConversationProposal,
+  useHearthConversationRuntime,
+  useHearthConversationRuntimeState,
+  useHearthConversationStt,
+  useHearthConversationState,
+  useHearthConversationSurface,
+} from "./hearth-shell/useHearthConversationController";
 
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
@@ -1078,10 +1077,19 @@ export default function HearthShell({
     skipChatHydrationKeyRef,
     pendingChatHydrationKeyRef,
     chatHydrationSeqRef,
-  } = useChatWorkspaceState<PendingAiProposal>();
-  const [chatAttachments, setChatAttachments] = useState<ChatAttachmentUi[]>([]);
-  const [isAttachmentsLoading, setIsAttachmentsLoading] = useState(false);
-  const [chatAttachmentError, setChatAttachmentError] = useState<string | null>(null);
+  } = useHearthConversationState<PendingAiProposal>();
+  const {
+    state: {
+      attachments: chatAttachments,
+      isLoading: isAttachmentsLoading,
+      error: chatAttachmentError,
+    },
+    bindings: {
+      setAttachments: setChatAttachments,
+      setIsLoading: setIsAttachmentsLoading,
+      setError: setChatAttachmentError,
+    },
+  } = useHearthConversationAttachmentState();
   const [showManualDraft, setShowManualDraft] = useState(false);
   const [showScriptPanel, setShowScriptPanel] = useState(false);
   const [isVisualScriptMode, setIsVisualScriptMode] = useState(false);
@@ -1102,8 +1110,16 @@ export default function HearthShell({
     userId: readAuthUserIdFromStorage(),
     displayName: readGreetingNameFromStorage(),
   });
-  const [aiTokenBalance, setAiTokenBalance] = useState<number | null>(null);
-  const [aiBillingMode, setAiBillingMode] = useState<HearthAiLane>(() => resolveAiLaneFromStorage());
+  const {
+    state: {
+      tokenBalance: aiTokenBalance,
+      billingMode: aiBillingMode,
+    },
+    bindings: {
+      setTokenBalance: setAiTokenBalance,
+      setBillingMode: setAiBillingMode,
+    },
+  } = useHearthConversationRuntimeState(resolveAiLaneFromStorage());
   const [defaultVisualProvider, setDefaultVisualProvider] = useState<VisualProviderId>(() => resolveDefaultVisualProviderFromStorage());
   const [episodePackage, setEpisodePackage] = useState<EpisodePackageV2 | null>(null);
   const [episodePackageState, setEpisodePackageState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
@@ -2428,7 +2444,7 @@ export default function HearthShell({
     const operation = operationAuthority.begin("attachments.refresh");
 
     setIsAttachmentsLoading(true);
-    const result = await listHearthAttachments({
+    const result = await listHearthConversationAttachments({
       workspaceId: activeWorkspaceId,
       episodeId,
     });
@@ -2486,7 +2502,7 @@ export default function HearthShell({
           : entry
       )));
 
-      const upload = await uploadHearthAttachment({
+      const upload = await uploadHearthConversationAttachment({
         workspaceId: activeWorkspaceId,
         episodeId,
         file,
@@ -2535,7 +2551,7 @@ export default function HearthShell({
     const activeWorkspaceId = workspaceId?.trim();
     if (!activeWorkspaceId) return;
     const operation = operationAuthority.begin(`attachments.text:${attachmentId}`);
-    const result = await updateHearthAttachmentExtractedText({
+    const result = await updateHearthConversationAttachmentText({
       attachmentId,
       workspaceId: activeWorkspaceId,
       extractedText: text,
@@ -2589,7 +2605,7 @@ export default function HearthShell({
     setDrafts,
     setChatMessages,
   });
-  const { flushChatHistoryNow } = useChatWorkspaceHistory<PendingAiProposal>({
+  const { flushChatHistoryNow } = useHearthConversationHistory<PendingAiProposal>({
     store,
     activeDraftId: activeDraft?.id ?? null,
     chatHistoryKey,
@@ -2609,7 +2625,7 @@ export default function HearthShell({
     sanitizeChatMessagesForStorage,
     chatHistoryWriteDebounceMs: CHAT_HISTORY_WRITE_DEBOUNCE_MS,
   });
-  const { sendChatMessage, onSendChat, onCancelAiRequest } = useChatWorkspaceRuntime<
+  const { sendChatMessage, onSendChat, onCancelAiRequest } = useHearthConversationRuntime<
     PendingAiProposal,
     EpisodeContext,
     HearthOp
@@ -2715,7 +2731,7 @@ export default function HearthShell({
       };
     },
   });
-  const { onToggleMic } = useChatWorkspaceStt({
+  const { onToggleMic } = useHearthConversationStt({
     operationAuthority,
     workpieceId,
     devMode,
@@ -2961,7 +2977,7 @@ export default function HearthShell({
     onEditAiProposalBody,
     onResetAiProposalBody,
     isProposalBodyDirtyAt,
-  } = useChatWorkspaceProposal<PendingAiProposal, HearthOp>({
+  } = useHearthConversationProposal<PendingAiProposal, HearthOp>({
     pendingAiProposal,
     setPendingAiProposal,
     isApplyingAiOps,
@@ -3096,7 +3112,7 @@ export default function HearthShell({
     setChatError,
     setPendingAiProposal,
   ]);
-  const chatWorkspace = useChatWorkspace({
+  const chatWorkspace = useHearthConversationSurface({
     chatSurfaceProps: {
       visible: activeWorkpieceTab === "script",
       chatPanelMeta,
@@ -3160,6 +3176,67 @@ export default function HearthShell({
       isProposalBodyDirty: isProposalBodyDirtyAt,
       buildValidationReport,
     },
+  });
+  const conversationController = useHearthConversationController({
+    state: {
+      messages: chatMessages,
+      compose: {
+        text: chatDraft,
+        modalOpen: composeModalOpen,
+      },
+      attachments: chatAttachments,
+      transcription: {
+        lane: sttLane,
+        target: sttTarget,
+        state: sttState,
+        preview: sttPreview,
+      },
+      proposal: pendingAiProposal,
+      runtime: {
+        billingMode: aiBillingMode,
+        tokenBalance: aiTokenBalance,
+        aiEnabled: !aiCreditsDepleted,
+      },
+    },
+    commands: {
+      updateCompose: setChatDraft,
+      submitMessage: onSendChat,
+      retryMessage: onSendChat,
+      attachFile: async (files) => {
+        await onUploadChatAttachments(files);
+      },
+      removeAttachment: onRemoveChatAttachment,
+      startTranscription: async (target) => {
+        await onToggleMic(target);
+      },
+      stopTranscription: onCancelAiRequest,
+      requestProposal: onSendChat,
+      applyProposal: async () => {
+        await onApplyAiProposal("selected");
+      },
+      rejectProposal: onDiscardAiProposal,
+      confirmAiCreditUse: () => !aiCreditsDepleted,
+    },
+    status: {
+      history: chatError
+        ? "failed"
+        : chatMessages.length > 0
+          ? "loaded"
+          : "empty",
+      send: isAiProcessing ? "sending" : chatError ? "failed" : "idle",
+      attachments: isAttachmentsLoading
+        ? "loading"
+        : chatAttachmentError
+          ? "failed"
+          : "idle",
+      transcription: sttState,
+      ai: aiCreditsDepleted
+        ? "depleted"
+        : isAiProcessing
+          ? "working"
+          : "idle",
+    },
+    surface: chatWorkspace,
   });
   const activeEpisodeSparks = useMemo(
     () => sparks.filter((spark) => (
@@ -6497,7 +6574,7 @@ export default function HearthShell({
           onChangeTab: requestWorkpieceTabChange,
         }}
         draftStageClassName={`hs-draft-stage${(isHistoryWorkspaceTab || (isScriptWorkspaceTab && showScriptEditor)) ? " has-script-panel" : ""}`}
-        chatSurfaceProps={chatWorkspace.chatSurfaceProps}
+        chatSurfaceProps={conversationController.surface.chatSurfaceProps}
         releaseSurfaceProps={
           isReleaseWorkspaceTab && hasApprovedScript && approvedScriptVersion
             ? {
