@@ -1,13 +1,38 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
+import { lazy, useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from "react";
 import CollapsibleFocusPanel from "../../components/focus/CollapsibleFocusPanel";
-import BrollPlanPanel from "../../components/visuals/BrollPlanPanel";
-import EpisodeMediaMapPanel from "../../components/visuals/EpisodeMediaMapPanel";
-import ImageMapPanel from "../../components/visuals/ImageMapPanel";
-import ReferenceClipPlanPanel from "../../components/visuals/ReferenceClipPlanPanel";
-import ThumbnailPanel from "../../components/visuals/ThumbnailPanel";
-import ThumbnailV3Panel, { CanonicalThumbnailPreview } from "../../components/visuals/ThumbnailV3Panel";
+import LazyProductionSurfaceBoundary from "../../components/production/LazyProductionSurfaceBoundary";
+import type BrollPlanPanel from "../../components/visuals/BrollPlanPanel";
+import type EpisodeMediaMapPanel from "../../components/visuals/EpisodeMediaMapPanel";
+import type ImageMapPanel from "../../components/visuals/ImageMapPanel";
+import type ReferenceClipPlanPanel from "../../components/visuals/ReferenceClipPlanPanel";
+import type ThumbnailPanel from "../../components/visuals/ThumbnailPanel";
+import type ThumbnailV3Panel from "../../components/visuals/ThumbnailV3Panel";
 import { deriveHearthMediaWorkflow, type HearthMediaStageId, type HearthMediaWorkflowInput } from "../../lib/hearth-media-workflow-view-model";
+import { loadHearthProductionSurface } from "./hearth-production-surface-loaders";
 import "./VisualsSurface.css";
+
+const LazyBrollPlanPanel = lazy(() => (
+  loadHearthProductionSurface("broll") as Promise<{ default: typeof BrollPlanPanel }>
+));
+const LazyEpisodeMediaMapPanel = lazy(() => (
+  loadHearthProductionSurface("visual-plan") as Promise<{ default: typeof EpisodeMediaMapPanel }>
+));
+const LazyImageMapPanel = lazy(() => (
+  loadHearthProductionSurface("episode-images") as Promise<{ default: typeof ImageMapPanel }>
+));
+const LazyReferenceClipPlanPanel = lazy(() => (
+  loadHearthProductionSurface("reference-clips") as Promise<{ default: typeof ReferenceClipPlanPanel }>
+));
+const LazyThumbnailV3Panel = lazy(() => (
+  loadHearthProductionSurface("thumbnails") as Promise<{ default: typeof ThumbnailV3Panel }>
+));
+const LazyCanonicalThumbnailPreview = lazy(() => (
+  loadHearthProductionSurface("thumbnails")
+    .then((module) => ({
+      default: (module as typeof import("../../components/visuals/ThumbnailV3Panel"))
+        .CanonicalThumbnailPreview,
+    }))
+));
 
 type VisualsSurfaceProps = {
   visible: boolean; hasApprovedScript: boolean; approvedScriptVersion: number | null; workflowKey: string; workflowInput: HearthMediaWorkflowInput;
@@ -62,16 +87,16 @@ export default function VisualsSurface(props: VisualsSurfaceProps) {
   const chooseStage=(id:HearthMediaStageId)=>{const stage=workflow.stages.find((entry)=>entry.id===id);if(!stage||stage.status==="blocked")return;manualReviewRef.current=id!==workflow.activeStage;setDisplayedStage(id);};
   const current=workflow.stages.find((stage)=>stage.id===displayedStage)??workflow.stages[0];
   const renderWorkspace=()=>{
-    if(displayedStage==="visual_plan")return <CollapsibleFocusPanel panelId={panelIds.visual_plan} title="Episode Visual Plan" meta={current.summary} collapsed={false} onToggle={()=>undefined} collapsible={false} priority="primary"><EpisodeMediaMapPanel {...props.mediaMapPanelProps}/></CollapsibleFocusPanel>;
-    if(displayedStage==="thumbnails")return <CollapsibleFocusPanel panelId={panelIds.thumbnails} title="Thumbnails" meta={current.summary} collapsed={false} onToggle={()=>undefined} collapsible={false} priority="primary">{props.thumbnailAuthority.workspaceId&&props.thumbnailAuthority.workpieceId?<ThumbnailV3Panel workspaceId={props.thumbnailAuthority.workspaceId} workpieceId={props.thumbnailAuthority.workpieceId} approvedScriptVersion={props.approvedScriptVersion!} onGenerateConcepts={props.onGenerateThumbnailConcepts} onRecoverConcepts={props.onRecoverThumbnailConcepts} onOpenFraming={props.onOpenThumbnailFraming} isGeneratingConcepts={props.thumbnailPanelProps.isGeneratingConcepts??false} onCanonicalProgress={props.onCanonicalThumbnailProgress}/>:<p>Select an episode before opening its canonical thumbnail workspace.</p>}</CollapsibleFocusPanel>;
-    if(displayedStage==="images")return <CollapsibleFocusPanel panelId={panelIds.images} title="Episode Images" meta={current.summary} collapsed={false} onToggle={()=>undefined} collapsible={false} priority="primary"><ImageMapPanel {...props.imageMapPanelProps}/></CollapsibleFocusPanel>;
-    if(displayedStage==="broll")return <><CollapsibleFocusPanel panelId={panelIds.broll} title="Create B-roll" meta={current.summary} collapsed={false} onToggle={()=>undefined} collapsible={false} priority="primary"><BrollPlanPanel {...props.brollPlanPanelProps}/></CollapsibleFocusPanel><details className="hs-media-supporting"><summary>Reference clips and supporting media</summary><ReferenceClipPlanPanel {...props.referenceClipPlanPanelProps}/></details></>;
+    if(displayedStage==="visual_plan")return <CollapsibleFocusPanel panelId={panelIds.visual_plan} title="Episode Visual Plan" meta={current.summary} collapsed={false} onToggle={()=>undefined} collapsible={false} priority="primary"><LazyProductionSurfaceBoundary surfaceKey="visual-plan"><LazyEpisodeMediaMapPanel {...props.mediaMapPanelProps}/></LazyProductionSurfaceBoundary></CollapsibleFocusPanel>;
+    if(displayedStage==="thumbnails")return <CollapsibleFocusPanel panelId={panelIds.thumbnails} title="Thumbnails" meta={current.summary} collapsed={false} onToggle={()=>undefined} collapsible={false} priority="primary">{props.thumbnailAuthority.workspaceId&&props.thumbnailAuthority.workpieceId?<LazyProductionSurfaceBoundary surfaceKey="thumbnails"><LazyThumbnailV3Panel workspaceId={props.thumbnailAuthority.workspaceId} workpieceId={props.thumbnailAuthority.workpieceId} approvedScriptVersion={props.approvedScriptVersion!} onGenerateConcepts={props.onGenerateThumbnailConcepts} onRecoverConcepts={props.onRecoverThumbnailConcepts} onOpenFraming={props.onOpenThumbnailFraming} isGeneratingConcepts={props.thumbnailPanelProps.isGeneratingConcepts??false} onCanonicalProgress={props.onCanonicalThumbnailProgress}/></LazyProductionSurfaceBoundary>:<p>Select an episode before opening its canonical thumbnail workspace.</p>}</CollapsibleFocusPanel>;
+    if(displayedStage==="images")return <CollapsibleFocusPanel panelId={panelIds.images} title="Episode Images" meta={current.summary} collapsed={false} onToggle={()=>undefined} collapsible={false} priority="primary"><LazyProductionSurfaceBoundary surfaceKey="episode-images"><LazyImageMapPanel {...props.imageMapPanelProps}/></LazyProductionSurfaceBoundary></CollapsibleFocusPanel>;
+    if(displayedStage==="broll")return <><CollapsibleFocusPanel panelId={panelIds.broll} title="Create B-roll" meta={current.summary} collapsed={false} onToggle={()=>undefined} collapsible={false} priority="primary"><LazyProductionSurfaceBoundary surfaceKey="broll"><LazyBrollPlanPanel {...props.brollPlanPanelProps}/></LazyProductionSurfaceBoundary></CollapsibleFocusPanel><details className="hs-media-supporting"><summary>Reference clips and supporting media</summary><LazyProductionSurfaceBoundary surfaceKey="reference-clips"><LazyReferenceClipPlanPanel {...props.referenceClipPlanPanelProps}/></LazyProductionSurfaceBoundary></details></>;
     return <section className="hs-media-review" aria-labelledby="hearth-media-review-heading"><h3 id="hearth-media-review-heading">Review episode visuals</h3><p>This review does not publish, render, or edit the episode.</p><dl>{workflow.stages.slice(0,4).map((stage)=><div key={stage.id}><dt>{stage.label}</dt><dd>{stage.summary}</dd></div>)}</dl><p><strong>Hammer authority remains unchanged.</strong> Final placement, timing, trimming, and final-media truth are resolved in Hammer.</p></section>;
   };
   return <section className="hs-media-workflow" aria-label="Episode visual production workflow">
     <div className="hs-sr-only" aria-live="polite">{announcement}</div>
     <nav className="hs-media-stage-rail" aria-label="Visual production stages">{workflow.stages.map((stage,index)=><button key={stage.id} type="button" disabled={stage.status==="blocked"} className={`is-${stage.status}${displayedStage===stage.id?" is-active":""}`} aria-current={displayedStage===stage.id?"step":undefined} onClick={()=>chooseStage(stage.id)}><span aria-hidden="true">{stage.status==="complete"?"✓":displayedStage===stage.id?"●":"○"}</span><span><strong>{index+1}. {stage.label}</strong><small>{stage.status.replaceAll("_"," ")}</small></span></button>)}</nav>
-    {workflow.stages.filter((stage)=>stage.status==="complete"&&stage.id!==displayedStage).map((stage)=><section className="hs-media-completed-summary" key={stage.id}><div><strong>✓ {stage.label}</strong><span>{stage.id==="thumbnails"?"Thumbnail set complete · Saved with this episode and available for release preparation.":stage.summary}</span>{stage.id==="thumbnails"&&props.thumbnailAuthority.workpieceId&&props.workflowInput.thumbnails.previewAssetPaths?.length?<div className="hs-media-thumbnail-summary">{props.workflowInput.thumbnails.previewAssetPaths.slice(0,3).map((path,index)=><CanonicalThumbnailPreview key={path} workpieceId={props.thumbnailAuthority.workpieceId!} assetPath={path} alt={`Thumbnail candidate ${String.fromCharCode(65+index)}`} className="hs-media-thumbnail-summary-preview" />)}</div>:null}</div><button type="button" onClick={()=>chooseStage(stage.id)}>Review {stage.label.toLowerCase()}</button></section>)}
+    {workflow.stages.filter((stage)=>stage.status==="complete"&&stage.id!==displayedStage).map((stage)=><section className="hs-media-completed-summary" key={stage.id}><div><strong>✓ {stage.label}</strong><span>{stage.id==="thumbnails"?"Thumbnail set complete · Saved with this episode and available for release preparation.":stage.summary}</span>{stage.id==="thumbnails"&&props.thumbnailAuthority.workpieceId&&props.workflowInput.thumbnails.previewAssetPaths?.length?<div className="hs-media-thumbnail-summary">{props.workflowInput.thumbnails.previewAssetPaths.slice(0,3).map((path,index)=><LazyProductionSurfaceBoundary key={path} surfaceKey={`thumbnail-preview:${path}`}><LazyCanonicalThumbnailPreview workpieceId={props.thumbnailAuthority.workpieceId!} assetPath={path} alt={`Thumbnail candidate ${String.fromCharCode(65+index)}`} className="hs-media-thumbnail-summary-preview" /></LazyProductionSurfaceBoundary>)}</div>:null}</div><button type="button" onClick={()=>chooseStage(stage.id)}>Review {stage.label.toLowerCase()}</button></section>)}
     {props.workflowInput.upstreamChanged?<aside className="hs-media-upstream-warning"><strong>The visual plan changed.</strong><span>Your existing thumbnails, images, and B-roll are preserved. Review whether the updated plan needs additional assets.</span><button type="button" onClick={()=>chooseStage("visual_plan")}>Review changes</button></aside>:null}
     <div className="hs-media-active-stage"><h2 key={displayedStage} autoFocus={displayedStage===workflow.activeStage} tabIndex={-1} data-media-stage-heading={displayedStage}>{current.label}</h2><p>{current.summary}</p>{renderWorkspace()}</div>
     <details className="hs-media-planning-details"><summary>Planning details</summary><p>{props.activeVisualProviderBanner}</p><p>{props.activeVisualProviderHelperText}</p><p>Canonical state: {props.workflowInput.visualPlan.status??"not created"} · revision {props.workflowInput.visualPlan.version}</p></details>

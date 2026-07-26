@@ -1,9 +1,9 @@
 import type { ComponentProps, Dispatch, SetStateAction } from "react";
-import BrollPlanPanel from "../../components/visuals/BrollPlanPanel";
-import EpisodeMediaMapPanel from "../../components/visuals/EpisodeMediaMapPanel";
-import ImageMapPanel from "../../components/visuals/ImageMapPanel";
-import ReferenceClipPlanPanel from "../../components/visuals/ReferenceClipPlanPanel";
-import ThumbnailPanel from "../../components/visuals/ThumbnailPanel";
+import type BrollPlanPanel from "../../components/visuals/BrollPlanPanel";
+import type EpisodeMediaMapPanel from "../../components/visuals/EpisodeMediaMapPanel";
+import type ImageMapPanel from "../../components/visuals/ImageMapPanel";
+import type ReferenceClipPlanPanel from "../../components/visuals/ReferenceClipPlanPanel";
+import type ThumbnailPanel from "../../components/visuals/ThumbnailPanel";
 import type {
   EpisodeBrollPlan,
   EpisodeMediaMap,
