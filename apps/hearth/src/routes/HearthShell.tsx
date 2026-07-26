@@ -39,11 +39,6 @@ import {
 } from "../lib/hearth-nav-model";
 import { mirrorApprovedScriptToLocal } from "../lib/hearth-script-mirror";
 import type { HearthReadyScript } from "../lib/hearth-ready-scripts";
-import {
-  listHearthWorkpiecePresence,
-  upsertHearthWorkpiecePresence,
-  type HearthWorkpiecePresence,
-} from "../lib/hearth-presence";
 import { useHearthVisualsWorkspace } from "../hooks/useHearthVisualsWorkspace";
 import { useHearthFocusOpenActions } from "../hooks/useHearthFocusOpenActions";
 import { useHearthInitialLoader } from "../hooks/useHearthInitialLoader";
@@ -425,6 +420,14 @@ import {
   useHearthConversationSurface,
 } from "./hearth-shell/useHearthConversationController";
 import { useHearthSourcesController } from "./hearth-shell/useHearthSourcesController";
+import {
+  buildHearthPresenceController,
+  HEARTH_PRESENCE_REFRESH_EVENT,
+  useHearthPresenceBadges,
+  useHearthPresenceLifecycle,
+  useHearthPresenceProjection,
+  useHearthPresenceState,
+} from "./hearth-shell/useHearthPresenceController";
 
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
@@ -1134,8 +1137,13 @@ export default function HearthShell({
     initialWorkpieceId: workpieceId,
     initialWorkspaceId: workspaceId,
   });
-  const [presenceRows, setPresenceRows] = useState<HearthWorkpiecePresence[]>([]);
-  const [presenceState, setPresenceState] = useState<"idle" | "loading" | "available" | "unavailable" | "failed">("idle");
+  const {
+    participants: presenceRows,
+    setParticipants: setPresenceRows,
+    connection: presenceState,
+    setConnection: setPresenceState,
+  } = useHearthPresenceState();
+  const clearPresence = () => setPresenceRows([]);
   const [draftConflictState, setDraftConflictState] = useState<DraftConflictState | null>(null);
   const [mobileOverlayView, setMobileOverlayView] = useHearthMobileOverlayState();
   const { acknowledgeCopy, isCopyAcknowledged } = useClipboardButtonAcks();
@@ -1681,20 +1689,15 @@ export default function HearthShell({
   const activeWorkpieceIsArchived = Boolean(activeWorkpiece?.isArchived);
   const draftsById = useMemo(() => new Map(drafts.map((draft) => [draft.id, draft] as const)), [drafts]);
   const hasActiveEpisode = Boolean(workpieceId);
-  const presencePeers = useMemo(
-    () => presenceRows.filter((row) => !hearthUser.userId || row.userId !== hearthUser.userId),
-    [hearthUser.userId, presenceRows],
-  );
-  const editingPeers = useMemo(
-    () => presencePeers.filter((row) => row.mode === "editing"),
-    [presencePeers],
-  );
-  const viewingPeers = useMemo(
-    () => presencePeers.filter((row) => row.mode === "viewing"),
-    [presencePeers],
-  );
-  const activeEditorName = editingPeers[0]?.displayName?.trim() || "A teammate";
-  const activeViewerName = viewingPeers[0]?.displayName?.trim() || "A teammate";
+  const {
+    editingParticipants: editingPeers,
+    viewingParticipants: viewingPeers,
+    activeEditorName,
+    activeViewerName,
+  } = useHearthPresenceProjection({
+    participants: presenceRows,
+    currentUserId: hearthUser.userId,
+  });
   const activeUserDisplayName = hearthUser.displayName.trim() || forgeGreetingName;
   const resolveReadyMarkerName = useCallback((entry: HearthReadyScript): string => {
     const markerUserId = readTrimmedString(entry.markedReadyBy);
@@ -4180,71 +4183,22 @@ export default function HearthShell({
     setMobileOverlayView,
   });
 
-  useEffect(() => {
-    const workspace = workspaceId?.trim() ?? "";
-    const workpiece = workpieceId?.trim() ?? "";
-    const normalizedWorkspaceId = normalizeUuid(workspace);
-    const normalizedWorkpieceId = normalizeUuid(workpiece);
-    if (!normalizedWorkspaceId || !normalizedWorkpieceId) {
-      setPresenceRows([]);
-      setPresenceState("idle");
-      return;
-    }
-
-    let cancelled = false;
-    let timer: number | null = null;
-
-    const syncPresence = async () => {
-      if (!cancelled) setPresenceState((previous) => previous === "available" ? previous : "loading");
-      try {
-        const ownPresence = await upsertHearthWorkpiecePresence({
-          workspaceId: normalizedWorkspaceId,
-          workpieceId: normalizedWorkpieceId,
-          mode: localPresenceMode,
-          displayName: activeUserDisplayName,
-        });
-        if (cancelled) return;
-        if (ownPresence.kind !== "success") {
-          setPresenceRows([]);
-          setPresenceState(ownPresence.kind);
-          return;
-        }
-        if (ownPresence.value.userId) {
-          setHearthUser((prev) => (
-            prev.userId === ownPresence.value.userId
-              ? prev
-              : { ...prev, userId: ownPresence.value.userId }
-          ));
-        }
-        const presenceResult = await listHearthWorkpiecePresence(normalizedWorkspaceId, normalizedWorkpieceId);
-        if (cancelled) return;
-        if (presenceResult.kind === "success") {
-          setPresenceRows(presenceResult.value);
-          setPresenceState("available");
-        } else {
-          setPresenceRows([]);
-          setPresenceState(presenceResult.kind);
-        }
-      } catch {
-        if (!cancelled) {
-          setPresenceRows([]);
-          setPresenceState("failed");
-        }
-      }
-    };
-
-    void syncPresence();
-    timer = window.setInterval(() => {
-      void syncPresence();
-    }, PRESENCE_HEARTBEAT_MS);
-
-    return () => {
-      cancelled = true;
-      if (timer) {
-        window.clearInterval(timer);
-      }
-    };
-  }, [activeUserDisplayName, localPresenceMode, workspaceId, workpieceId]);
+  useHearthPresenceLifecycle({
+    workspaceId,
+    workpieceId,
+    mode: localPresenceMode,
+    displayName: activeUserDisplayName,
+    heartbeatMs: PRESENCE_HEARTBEAT_MS,
+    operationAuthority,
+    normalizeUuid,
+    setParticipants: setPresenceRows,
+    setConnection: setPresenceState,
+    acceptUserId: (userId) => {
+      setHearthUser((previous) => (
+        previous.userId === userId ? previous : { ...previous, userId }
+      ));
+    },
+  });
 
   useEffect(() => {
     void refreshEpisodePackage();
@@ -4835,7 +4789,7 @@ export default function HearthShell({
       setSelectedRevision(null);
       setEditingDraftId(null);
       setDraftConflictState(null);
-      setPresenceRows([]);
+      clearPresence();
       setError(null);
       setForgeError(null);
       setMode("episodes");
@@ -4907,7 +4861,7 @@ export default function HearthShell({
     setSessionTouched,
     setWorkspaceId,
     setError,
-    setPresenceRows,
+    clearPresence,
     setWorkpieceId,
     sessionCommitRef,
     buildSessionFingerprint,
@@ -5987,22 +5941,29 @@ export default function HearthShell({
     setMobileOverlayView,
   });
 
-  const resolveWorkpiecePresenceBadge = useCallback((targetWorkpieceId: string): string => {
-    if (workpieceId !== targetWorkpieceId) return "Not checked";
-    if (presenceState === "loading") return "Checking...";
-    if (presenceState === "unavailable" || presenceState === "failed") return "Presence unavailable";
-    if (editingPeers.length > 0) return `${activeEditorName} editing`;
-    if (viewingPeers.length > 0) return `${activeViewerName} viewing`;
-    return "Idle";
-  }, [activeEditorName, editingPeers.length, activeViewerName, presenceState, viewingPeers.length, workpieceId]);
-
-  const resolveWorkpiecePresenceClass = useCallback((targetWorkpieceId: string): string => {
-    if (workpieceId !== targetWorkpieceId) return "is-idle";
-    if (presenceState === "unavailable" || presenceState === "failed") return "is-unavailable";
-    if (editingPeers.length > 0) return "is-editing";
-    if (viewingPeers.length > 0) return "is-viewing";
-    return "is-idle";
-  }, [editingPeers.length, presenceState, viewingPeers.length, workpieceId]);
+  const {
+    resolveWorkpiecePresenceBadge,
+    resolveWorkpiecePresenceClass,
+  } = useHearthPresenceBadges({
+    activeWorkpieceId: workpieceId,
+    connection: presenceState,
+    editingParticipants: editingPeers,
+    viewingParticipants: viewingPeers,
+  });
+  const presenceController = buildHearthPresenceController({
+    participants: presenceRows,
+    connection: presenceState,
+    userId: hearthUser.userId,
+    displayName: activeUserDisplayName,
+    mode: localPresenceMode,
+    editingParticipants: editingPeers,
+    viewingParticipants: viewingPeers,
+    clearPresence,
+    refreshPresence: () => window.dispatchEvent(new Event(HEARTH_PRESENCE_REFRESH_EVENT)),
+    updateActivity: () => window.dispatchEvent(new Event(HEARTH_PRESENCE_REFRESH_EVENT)),
+    resolveWorkpiecePresenceBadge,
+    resolveWorkpiecePresenceClass,
+  });
 
   const renderSparksView = () => {
     return (
@@ -6762,8 +6723,8 @@ export default function HearthShell({
       archivingWorkpieceIds={archivingWorkpieceIds}
       restoringWorkpieceIds={restoringWorkpieceIds}
       openWorkpieceInFocus={openWorkpieceInFocus}
-      resolveWorkpiecePresenceClass={resolveWorkpiecePresenceClass}
-      resolveWorkpiecePresenceBadge={resolveWorkpiecePresenceBadge}
+      resolveWorkpiecePresenceClass={presenceController.surface.resolveWorkpiecePresenceClass}
+      resolveWorkpiecePresenceBadge={presenceController.surface.resolveWorkpiecePresenceBadge}
       formatUpdatedAt={formatUpdatedAt}
       resolveDraftEditorName={resolveDraftEditorName}
       saveDraftMeta={saveDraftMeta}

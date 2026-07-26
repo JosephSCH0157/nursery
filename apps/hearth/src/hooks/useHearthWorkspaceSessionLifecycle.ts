@@ -1,6 +1,5 @@
 import { useEffect, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import type { HearthPlanningSession } from "../domain/hearth-session";
-import type { HearthWorkpiecePresence } from "../lib/hearth-presence";
 import {
   isHearthPlanningSessionKey,
   readHearthPlanningSessionCache,
@@ -19,7 +18,7 @@ type UseHearthWorkspaceSessionLifecycleArgs = {
   setSessionTouched: Dispatch<SetStateAction<boolean>>;
   setWorkspaceId: Dispatch<SetStateAction<string | null>>;
   setError: Dispatch<SetStateAction<string | null>>;
-  setPresenceRows: Dispatch<SetStateAction<HearthWorkpiecePresence[]>>;
+  clearPresence: () => void;
   setWorkpieceId: Dispatch<SetStateAction<string | null>>;
   sessionCommitRef: MutableRefObject<string | null>;
   buildSessionFingerprint: (session: HearthPlanningSession) => string;
@@ -131,7 +130,7 @@ export function useHearthWorkspaceSessionLifecycle(args: UseHearthWorkspaceSessi
         if (!cancelled && workpieceWorkspaceId && workpieceWorkspaceId !== workspace) {
           args.setError("This workpiece belongs to another workspace. Switch workspace to open it.");
           args.setPlanningSession(null);
-          args.setPresenceRows([]);
+          args.clearPresence();
           args.setWorkpieceId(null);
         }
       } catch {
@@ -146,7 +145,6 @@ export function useHearthWorkspaceSessionLifecycle(args: UseHearthWorkspaceSessi
     args.normalizeUuid,
     args.setError,
     args.setPlanningSession,
-    args.setPresenceRows,
     args.setWorkpieceId,
     args.workpieceId,
     args.workspaceId,
