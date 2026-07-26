@@ -79,7 +79,6 @@ import {
 import { useHearthAutosave } from "../hooks/useHearthAutosave";
 import { useApprovalFlow } from "../hooks/useApprovalFlow";
 import { useHearthVisualsWorkspace } from "../hooks/useHearthVisualsWorkspace";
-import { useHearthOperationAuthority } from "../hooks/useHearthOperationAuthority";
 import { useHearthFocusOpenActions } from "../hooks/useHearthFocusOpenActions";
 import { useHearthInitialLoader } from "../hooks/useHearthInitialLoader";
 import { useHearthWorkspaceResetLifecycle } from "../hooks/useHearthWorkspaceResetLifecycle";
@@ -341,18 +340,15 @@ import {
   type ChatAttachmentUi,
   type DraftConflictState,
   type DraftSnapshot,
-  type FocusTab,
   type ForgeNoticeDetail,
   type ForgeNoticeJob,
   type ForgeNoticeSeverity,
-  type HearthMode,
   type HearthShellProps,
   type HearthUserContext,
   type PendingAiProposal,
   type ProposalSaveReasonCode,
   type ReadyLabel,
   type SortKey,
-  type UiDensity,
 } from "./hearth-shell/hearth-shell-contracts";
 import {
   buildDraftAttribution,
@@ -412,21 +408,33 @@ import {
   buildCurrentForgeNoticeRoute as buildForgeNoticeRoute,
   buildHearthRouteContextUrl,
   buildOpenInAnvilHref,
-  hasIncomingBarStockIntakeQuery,
   normalizeUuid,
   readTrimmedString,
   resolveReadyOpenHref,
 } from "./hearth-shell/hearth-shell-route";
 import {
   isDevMode,
-  readMode,
-  readWorkpieceWorkspaceTab,
-  readWorkspaceUiDensity,
   resolveStoreKind,
-  writeMode,
   writeWorkpieceWorkspaceTab,
-  writeWorkspaceUiDensity,
 } from "./hearth-shell/hearth-shell-preferences";
+import {
+  useHearthActiveIdentityRef,
+  useHearthActiveIdentityRefSync,
+  useHearthShellIdentityState,
+  useHearthShellOperationAuthority,
+  useHearthWorkspaceIdentitySync,
+} from "./hearth-shell/useHearthShellIdentity";
+import {
+  useHearthMobileOverlayState,
+  useHearthMobileOverlayCommands,
+  useHearthDesktopNavigationCommands,
+  useHearthDensityPreferenceLifecycle,
+  useHearthModePreferenceLifecycle,
+  useHearthModeRestorationLifecycle,
+  useHearthResolvedWorkpieceTabState,
+  useHearthResponsiveNavigationLifecycle,
+  useHearthWorkpieceTabPreferenceLifecycle,
+} from "./hearth-shell/useHearthShellNavigation";
 
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
@@ -914,15 +922,19 @@ export default function HearthShell({
   const isMobile = layoutMode === "mobile";
   const store = useMemo(() => createHearthStore(storeKind), [storeKind]);
   const sessionStore = useMemo(() => new LocalSessionStore(), []);
-  const [incomingBarStockIntakeRoute] = useState<boolean>(() => hasIncomingBarStockIntakeQuery());
-
-  const [mode, setMode] = useState<HearthMode>("sparks");
-  const [focusTab, setFocusTab] = useState<FocusTab>("draft");
-  const [workspaceId, setWorkspaceId] = useState<string | null>(() => resolveWorkspaceId());
-  const [uiDensity, setUiDensity] = useState<UiDensity>(() => readWorkspaceUiDensity(resolveWorkspaceId()));
-  const [workpieceId, setWorkpieceId] = useState<string | null>(() => (
-    incomingBarStockIntakeRoute ? null : resolveWorkpieceId()
-  ));
+  const {
+    incomingBarStockIntakeRoute,
+    mode,
+    setMode,
+    focusTab,
+    setFocusTab,
+    workspaceId,
+    setWorkspaceId,
+    uiDensity,
+    setUiDensity,
+    workpieceId,
+    setWorkpieceId,
+  } = useHearthShellIdentityState();
   const [sparks, setSparks] = useState<BarStockSpark[]>([]);
   const [isSparksLoading, setIsSparksLoading] = useState<boolean>(() => Boolean(normalizeUuid(resolveWorkspaceId())));
   const [sparkDiscoveryWorkspaceId, setSparkDiscoveryWorkspaceId] = useState<string | null>(null);
@@ -1062,20 +1074,19 @@ export default function HearthShell({
     generatedAt: string;
   } | null>(null);
   const [scriptPanelCopyMessage, setScriptPanelCopyMessage] = useState<string | null>(null);
-  const [activeWorkpieceTab, setActiveWorkpieceTab] = useState<WorkpieceWorkspaceTab>(() =>
-    readWorkpieceWorkspaceTab(
-      incomingBarStockIntakeRoute ? null : resolveWorkpieceId(),
-      incomingBarStockIntakeRoute ? null : resolveWorkspaceId(),
-    ),
-  );
+  const [activeWorkpieceTab, setActiveWorkpieceTab] = useHearthResolvedWorkpieceTabState({
+    incomingBarStockIntakeRoute,
+    initialWorkpieceId: workpieceId,
+    initialWorkspaceId: workspaceId,
+  });
   const [presenceRows, setPresenceRows] = useState<HearthWorkpiecePresence[]>([]);
   const [presenceState, setPresenceState] = useState<"idle" | "loading" | "available" | "unavailable" | "failed">("idle");
   const [draftConflictState, setDraftConflictState] = useState<DraftConflictState | null>(null);
-  const [mobileOverlayView, setMobileOverlayView] = useState<"editor" | "ready" | null>(null);
+  const [mobileOverlayView, setMobileOverlayView] = useHearthMobileOverlayState();
   const { acknowledgeCopy, isCopyAcknowledged } = useClipboardButtonAcks();
 
   const draftEditVersionRef = useRef(0);
-  const workpieceIdRef = useRef<string | null>(workpieceId);
+  const workpieceIdRef = useHearthActiveIdentityRef(workpieceId);
   const activeDraftRef = useRef<Draft | null>(null);
   const approveScriptActionRef = useRef<(options?: { draftOverride?: Draft }) => Promise<boolean>>(async () => false);
   const draftSnapshotRef = useRef<DraftSnapshot | null>(null);
@@ -1579,7 +1590,7 @@ export default function HearthShell({
     setError,
     confirmRestore: (message) => window.confirm(message),
   });
-  const operationAuthority = useHearthOperationAuthority({
+  const operationAuthority = useHearthShellOperationAuthority({
     workspaceId,
     workpieceId,
     draftId: activeDraft?.id ?? null,
@@ -3431,9 +3442,7 @@ export default function HearthShell({
     activeDraftRef.current = activeDraft;
   }, [activeDraft]);
 
-  useEffect(() => {
-    workpieceIdRef.current = workpieceId;
-  }, [resetReleasePrepState, workpieceId]);
+  useHearthActiveIdentityRefSync(workpieceIdRef, workpieceId);
 
   useEffect(() => {
     draftSnapshotRef.current = draftSnapshot;
@@ -4185,27 +4194,14 @@ export default function HearthShell({
     void refreshReadyScripts();
   }, [deferDesktopRailCollections, refreshReadyScripts]);
 
-  useEffect(() => {
-    if (!isMobile && mobileOverlayView) {
-      setMobileOverlayView(null);
-    }
-  }, [isMobile, mobileOverlayView]);
-
-  useEffect(() => {
-    setMobileOverlayView(null);
-  }, [workspaceId]);
-
-  useEffect(() => {
-    if (!isMobile) return;
-    if (mobileOverlayView) return;
-    if (mode === "focus" && activeDraft) {
-      setMobileOverlayView("editor");
-      return;
-    }
-    if (mode === "ready") {
-      setMobileOverlayView("ready");
-    }
-  }, [activeDraft, isMobile, mobileOverlayView, mode]);
+  useHearthResponsiveNavigationLifecycle({
+    isMobile,
+    mobileOverlayView,
+    mode,
+    activeDraft,
+    workspaceId,
+    setMobileOverlayView,
+  });
 
   useEffect(() => {
     const workspace = workspaceId?.trim() ?? "";
@@ -4835,30 +4831,11 @@ export default function HearthShell({
     setSelectedRevision,
   });
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const refreshWorkspaceFromGlobalState = () => {
-      const nextWorkspaceId = resolveWorkspaceId();
-      if (!nextWorkspaceId || nextWorkspaceId === workspaceId) return;
-      setWorkspaceId(nextWorkspaceId);
-    };
-
-    const onStorage = (event: StorageEvent) => {
-      if (event.key && !WORKSPACE_STORAGE_KEYS.has(event.key)) return;
-      refreshWorkspaceFromGlobalState();
-    };
-
-    const onWorkspaceChanged = () => {
-      refreshWorkspaceFromGlobalState();
-    };
-
-    window.addEventListener("storage", onStorage);
-    window.addEventListener("forge:workspace-changed", onWorkspaceChanged as EventListener);
-    return () => {
-      window.removeEventListener("storage", onStorage);
-      window.removeEventListener("forge:workspace-changed", onWorkspaceChanged as EventListener);
-    };
-  }, [workspaceId]);
+  useHearthWorkspaceIdentitySync({
+    workspaceId,
+    setWorkspaceId,
+    workspaceStorageKeys: WORKSPACE_STORAGE_KEYS,
+  });
 
   useHearthWorkspaceResetLifecycle({
     workspaceId,
@@ -5296,13 +5273,12 @@ export default function HearthShell({
     return () => window.clearTimeout(timer);
   }, [scriptPanelCopyMessage]);
 
-  useEffect(() => {
-    setActiveWorkpieceTab(readWorkpieceWorkspaceTab(workpieceId, workspaceId));
-  }, [workpieceId, workspaceId]);
-
-  useEffect(() => {
-    writeWorkpieceWorkspaceTab(workpieceId, workspaceId, activeWorkpieceTab);
-  }, [activeWorkpieceTab, workpieceId, workspaceId]);
+  useHearthWorkpieceTabPreferenceLifecycle({
+    activeWorkpieceTab,
+    workspaceId,
+    workpieceId,
+    setActiveWorkpieceTab,
+  });
 
   useEffect(() => {
     setScriptApprovalState(NO_CANONICAL_SCRIPT_APPROVAL);
@@ -5329,29 +5305,14 @@ export default function HearthShell({
     });
   }, [activeDraft?.id, operationAuthority, revisions, store, workpieceId]);
 
-  useEffect(() => {
-    if (!activeDraft) {
-      restoredModeDraftKeyRef.current = null;
-      if (mode === "focus" && pendingFocusOpenCountRef.current === 0) {
-        setMode("episodes");
-      }
-      return;
-    }
-
-    const restoreKey = `${workpieceId ?? "none"}:${activeDraft.id}`;
-    if (mode !== "sparks") {
-      restoredModeDraftKeyRef.current = restoreKey;
-      return;
-    }
-    if (restoredModeDraftKeyRef.current === restoreKey) return;
-
-    restoredModeDraftKeyRef.current = restoreKey;
-    const saved = readMode(workpieceId);
-    if (!saved) return;
-    if (saved !== "focus") {
-      setMode(saved);
-    }
-  }, [activeDraft?.id, mode, workpieceId]);
+  useHearthModeRestorationLifecycle({
+    activeDraft,
+    mode,
+    workpieceId,
+    pendingFocusOpenCountRef,
+    restoredModeDraftKeyRef,
+    setMode,
+  });
 
   useEffect(() => {
     const nextPanel = pendingDraftEditorPanelRef.current;
@@ -5368,19 +5329,13 @@ export default function HearthShell({
     setShowScriptPanel(false);
   }, [activeDraft?.body, isCanonicalImageMapScriptPanel]);
 
-  useEffect(() => {
-    if (!workpieceId) return;
-    if (mode === "sparks") return;
-    writeMode(workpieceId, mode);
-  }, [mode, workpieceId]);
+  useHearthModePreferenceLifecycle({ mode, workpieceId });
 
-  useEffect(() => {
-    setUiDensity(readWorkspaceUiDensity(workspaceId));
-  }, [workspaceId]);
-
-  useEffect(() => {
-    writeWorkspaceUiDensity(workspaceId, uiDensity);
-  }, [uiDensity, workspaceId]);
+  useHearthDensityPreferenceLifecycle({
+    uiDensity,
+    workspaceId,
+    setUiDensity,
+  });
 
   useEffect(() => {
     if (!activeDraft) return;
@@ -5987,19 +5942,14 @@ export default function HearthShell({
     setSendingBackReadyIds,
   });
 
-  const openReadyInMobileOverlay = useCallback(() => {
-    setMode("ready");
-    if (isMobile) {
-      setMobileOverlayView("ready");
-    }
-  }, [isMobile]);
-
-  const closeMobileOverlay = useCallback(() => {
-    setMobileOverlayView(null);
-    if (isMobile) {
-      setMode("episodes");
-    }
-  }, [isMobile]);
+  const {
+    openReadyInMobileOverlay,
+    closeMobileOverlay,
+  } = useHearthMobileOverlayCommands({
+    isMobile,
+    setMode,
+    setMobileOverlayView,
+  });
 
   const resolveWorkpiecePresenceBadge = useCallback((targetWorkpieceId: string): string => {
     if (workpieceId !== targetWorkpieceId) return "Not checked";
@@ -6905,33 +6855,18 @@ export default function HearthShell({
     (title: string) => duplicateRailTitleKeys.has(normalizeRailTitleKey(title)),
     [duplicateRailTitleKeys],
   );
-  const onOpenReadyView = useCallback(() => {
-    setMode("ready");
-  }, []);
-  const onFocusDraft = useCallback(() => {
-    setFocusTab("draft");
-    setMode("focus");
-  }, []);
-  const onFocusPlanning = useCallback(() => {
-    setFocusTab("planning");
-    setMode("focus");
-  }, []);
-  const onFocusSources = useCallback(() => {
-    setFocusTab("sources");
-    setMode("focus");
-  }, []);
-  const onFocusRevisions = useCallback(() => {
-    setFocusTab("revisions");
-    setMode("focus");
-  }, []);
-  const onOpenApiLedger = useCallback(() => {
-    if (!hasActiveEpisode) {
-      setMode("episodes");
-      return;
-    }
-    setFocusTab("sources");
-    setMode("focus");
-  }, [hasActiveEpisode]);
+  const {
+    openReady: onOpenReadyView,
+    focusDraft: onFocusDraft,
+    focusPlanning: onFocusPlanning,
+    focusSources: onFocusSources,
+    focusRevisions: onFocusRevisions,
+    openApiLedger: onOpenApiLedger,
+  } = useHearthDesktopNavigationCommands({
+    hasActiveEpisode,
+    setFocusTab,
+    setMode,
+  });
   const onRestoreActiveWorkpiece = useCallback(() => {
     if (!activeWorkpiece) return;
     return onRestoreWorkpiece(activeWorkpiece.workpieceId, { openAfterRestore: true });
