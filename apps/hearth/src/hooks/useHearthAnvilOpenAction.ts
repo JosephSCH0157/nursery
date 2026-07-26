@@ -3,6 +3,7 @@ import type { Draft } from "../domain/draft";
 import { resolveTongsRequestApiToken } from "../lib/tongs-fetch";
 import type { ScriptValidationResult } from "@forge/shared/script-tags";
 import type { RevisionKind } from "../domain/revision";
+import type { HearthOperationAuthority } from "../lib/hearth-operation-authority";
 
 type UseHearthAnvilOpenActionArgs = {
   activeDraft: Draft | null;
@@ -39,12 +40,14 @@ type UseHearthAnvilOpenActionArgs = {
     validatorVersion: string;
   }) => Promise<{ ok: boolean; status?: number }>;
   flushChatHistoryNow: (args?: { draftId?: string | null }) => void;
+  operationAuthority: HearthOperationAuthority;
 };
 
 export function useHearthAnvilOpenAction(args: UseHearthAnvilOpenActionArgs) {
   return useCallback(async () => {
     const workspace = args.workspaceId?.trim() ?? "";
     const episodeId = args.workpieceId?.trim() ?? "";
+    const operation = args.operationAuthority.begin("anvil.handoff.open");
     if (!workspace || !episodeId) {
       args.setError("Start Recording needs a valid workspace and episode.");
       return;
@@ -60,7 +63,11 @@ export function useHearthAnvilOpenAction(args: UseHearthAnvilOpenActionArgs) {
     }
     args.setError(null);
     if (!args.activeDraft) {
-      window.location.assign(href);
+      try {
+        window.location.assign(href);
+      } catch {
+        args.setError("Unable to open Anvil. Try again.");
+      }
       return;
     }
 
@@ -93,13 +100,14 @@ export function useHearthAnvilOpenAction(args: UseHearthAnvilOpenActionArgs) {
       syncSession: false,
       validateForAnvil: true,
     });
-    if (!saved) return;
+    if (!saved || !args.operationAuthority.isCurrent(operation)) return;
 
     const published = await args.publishPrimaryScript({
       episodeId,
       scriptText: normalizedText,
       validatorVersion: args.validatorVersion,
     });
+    if (!args.operationAuthority.isCurrent(operation)) return;
     if (!published.ok) {
       const statusText = published.status ? ` (${published.status})` : "";
       args.setError(`Failed to publish script for Anvil${statusText}. Try again.`);
@@ -117,6 +125,10 @@ export function useHearthAnvilOpenAction(args: UseHearthAnvilOpenActionArgs) {
     }
 
     args.flushChatHistoryNow({ draftId: args.activeDraft.id });
-    window.location.assign(href);
+    try {
+      window.location.assign(href);
+    } catch {
+      args.setError("Unable to open Anvil. Try again.");
+    }
   }, [args]);
 }

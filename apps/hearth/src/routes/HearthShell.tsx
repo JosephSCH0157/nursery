@@ -47,7 +47,6 @@ import { useHearthIntakeLifecycle } from "../hooks/useHearthIntakeLifecycle";
 import { useHearthWorkspaceSessionLifecycle } from "../hooks/useHearthWorkspaceSessionLifecycle";
 import { useHearthWorkpieceTabLifecycle } from "../hooks/useHearthWorkpieceTabLifecycle";
 import { useClipboardButtonAcks } from "../hooks/useClipboardButtonAcks";
-import { useHearthAnvilOpenAction } from "../hooks/useHearthAnvilOpenAction";
 import { useMediaMapWorkspace } from "../hooks/visuals/useMediaMapWorkspace";
 import { useMetadataWorkspace } from "../hooks/visuals/useMetadataWorkspace";
 import { useImageMapWorkspace } from "../hooks/visuals/useImageMapWorkspace";
@@ -103,7 +102,6 @@ import {
   resetHearthProposalBodyOp,
   updateHearthProposalBodyOp,
 } from "../lib/hearth-ai-proposal";
-import { getHearthAnvilStepModeHint } from "../lib/hearth-anvil-handoff";
 import {
   deriveFullScriptAuthoringMeta,
   deriveOutlineScriptAuthoringMeta,
@@ -341,7 +339,6 @@ import {
 import {
   buildCurrentForgeNoticeRoute as buildForgeNoticeRoute,
   buildHearthRouteContextUrl,
-  buildOpenInAnvilHref,
   normalizeUuid,
   readTrimmedString,
   resolveReadyOpenHref,
@@ -428,6 +425,11 @@ import {
   useHearthPresenceProjection,
   useHearthPresenceState,
 } from "./hearth-shell/useHearthPresenceController";
+import {
+  buildHearthAnvilHandoffController,
+  useHearthAnvilHandoffOpenCommand,
+  useHearthAnvilHandoffProjection,
+} from "./hearth-shell/useHearthAnvilHandoffController";
 
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
@@ -1721,14 +1723,16 @@ export default function HearthShell({
     return "Approved script";
   }, [resolveReadyMarkerName]);
   const localPresenceMode = activeDraft ? "editing" : "viewing";
-  const openInAnvilHref = useMemo(
-    () => (activeWorkpieceIsArchived ? null : buildOpenInAnvilHref(workspaceId, workpieceId)),
-    [activeWorkpieceIsArchived, workspaceId, workpieceId],
-  );
-  const anvilStepModeHint = useMemo(() => getHearthAnvilStepModeHint({
+  const {
+    destination: openInAnvilHref,
+    stepModeHint: anvilStepModeHint,
+  } = useHearthAnvilHandoffProjection({
+    workspaceId,
+    workpieceId,
+    archived: activeWorkpieceIsArchived,
     composeSetup: effectiveComposeSetup,
-    hasScriptText: Boolean((activeDraft?.body ?? "").trim()),
-  }), [activeDraft?.body, effectiveComposeSetup]);
+    scriptText: activeDraft?.body ?? "",
+  });
   const aiRuntimeBusy = isAiProcessing || isThumbnailGenerating || isImageMapCandidateGenerating;
   const aiCreditsDepleted = aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0;
   const aiEpisodeReady = Boolean(workpieceId?.trim());
@@ -4409,7 +4413,7 @@ export default function HearthShell({
     setCursorPosition(nextPos);
   }, []);
 
-  const onOpenInAnvil = useHearthAnvilOpenAction({
+  const onOpenInAnvil = useHearthAnvilHandoffOpenCommand({
     activeDraft,
     activeWorkpieceIsArchived,
     workspaceId,
@@ -4420,7 +4424,7 @@ export default function HearthShell({
     evaluateScriptValidation,
     buildValidationReport,
     buildPersistedValidationMeta,
-    buildOpenInAnvilHref: (workspace, episodeId) => buildOpenInAnvilHref(workspace, episodeId),
+    buildOpenInAnvilHref: () => openInAnvilHref,
     persistDraft,
     publishPrimaryScript: async ({ episodeId, scriptText, validatorVersion }) => {
       const published = await commitHearthPrimaryScript(episodeId, scriptText, { validatorVersion });
@@ -4430,6 +4434,17 @@ export default function HearthShell({
       };
     },
     flushChatHistoryNow,
+    operationAuthority,
+  });
+  const anvilHandoffController = buildHearthAnvilHandoffController({
+    activeDraft,
+    workspaceId,
+    workpieceId,
+    archived: activeWorkpieceIsArchived,
+    handoffBlocked,
+    destination: openInAnvilHref,
+    stepModeHint: anvilStepModeHint,
+    openInAnvil: onOpenInAnvil,
   });
 
   const applySessionOrigin = useCallback((origin: HearthSessionOrigin) => {
@@ -6947,10 +6962,10 @@ export default function HearthShell({
                 activeWorkpiece && restoringWorkpieceIds.includes(activeWorkpiece.workpieceId),
               )}
               onRestoreActiveWorkpiece={onRestoreActiveWorkpiece}
-              openInAnvilHref={openInAnvilHref}
-              handoffBlocked={handoffBlocked}
-              onOpenInAnvil={onOpenInAnvil}
-              anvilStepModeHint={anvilStepModeHint}
+              openInAnvilHref={anvilHandoffController.surface.openInAnvilHref}
+              handoffBlocked={anvilHandoffController.surface.handoffBlocked}
+              onOpenInAnvil={anvilHandoffController.surface.onOpenInAnvil}
+              anvilStepModeHint={anvilHandoffController.surface.anvilStepModeHint}
               mode={mode}
               focusTab={focusTab}
               wordCount={wordCount}
