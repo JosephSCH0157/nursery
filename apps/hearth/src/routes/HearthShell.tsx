@@ -7,7 +7,7 @@ import {
 import { type Draft } from "../domain/draft";
 import type { HearthPlanningSession, HearthSessionDecision, HearthSessionOrigin } from "../domain/hearth-session";
 import { HEARTH_SESSION_SCHEMA } from "../domain/hearth-session";
-import type { Revision, RevisionKind } from "../domain/revision";
+import type { RevisionKind } from "../domain/revision";
 import type { HearthSession } from "../domain/session";
 import {
   resolveBarstockSparkIdFromQuery,
@@ -61,24 +61,15 @@ import {
   useChatWorkspaceStt,
   useChatWorkspaceState,
 } from "../hooks/useChatWorkspace";
-import { useHearthAutosave } from "../hooks/useHearthAutosave";
-import { useApprovalFlow } from "../hooks/useApprovalFlow";
 import { useHearthVisualsWorkspace } from "../hooks/useHearthVisualsWorkspace";
 import { useHearthFocusOpenActions } from "../hooks/useHearthFocusOpenActions";
 import { useHearthInitialLoader } from "../hooks/useHearthInitialLoader";
 import { useHearthWorkspaceResetLifecycle } from "../hooks/useHearthWorkspaceResetLifecycle";
 import { useHearthIntakeLifecycle } from "../hooks/useHearthIntakeLifecycle";
 import { useHearthWorkspaceSessionLifecycle } from "../hooks/useHearthWorkspaceSessionLifecycle";
-import { useHearthDraftController } from "../hooks/useHearthDraftController";
-import { useHearthDraftPersistenceActions } from "../hooks/useHearthDraftPersistenceActions";
-import { useHearthScriptRepairActions } from "../hooks/useHearthScriptRepairActions";
 import { useHearthWorkpieceTabLifecycle } from "../hooks/useHearthWorkpieceTabLifecycle";
 import { useClipboardButtonAcks } from "../hooks/useClipboardButtonAcks";
 import { useHearthAnvilOpenAction } from "../hooks/useHearthAnvilOpenAction";
-import { useHearthApprovalPersistenceActions } from "../hooks/useHearthApprovalPersistenceActions";
-import { useHearthDraftHydrationActions } from "../hooks/useHearthDraftHydrationActions";
-import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
-import { useScriptWorkspaceReadModel } from "../hooks/useScriptWorkspaceReadModel";
 import { useMediaMapWorkspace } from "../hooks/visuals/useMediaMapWorkspace";
 import { useMetadataWorkspace } from "../hooks/visuals/useMetadataWorkspace";
 import { useImageMapWorkspace } from "../hooks/visuals/useImageMapWorkspace";
@@ -114,16 +105,10 @@ import { readCanonicalThumbnailWorkspaceV3, readThumbnailCandidateAuthorityProje
 import { useVisualSelectionHydration } from "../hooks/visuals/useVisualSelectionHydration";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import {
-  NO_CANONICAL_SCRIPT_APPROVAL,
-  isScriptApprovalStateEqual,
   nextApprovedScriptVersion,
-  resolveCanonicalScriptApproval,
   type ScriptApprovalState,
 } from "../lib/hearth-approval-authority";
 import { createHearthStore } from "../storage/store-factory";
-import {
-  isCanonicalHearthRevisionSave,
-} from "../storage/hearth-store";
 import { LocalSessionStore } from "../storage/local-session-store";
 import {
   applyHearthOps,
@@ -299,9 +284,6 @@ import OscilloscopeFill from "./hearth-shell/OscilloscopeFill";
 import {
   AI_STT_MAX_BYTES,
   AI_STT_MAX_DURATION_MS,
-  AUTOSAVE_DELAY_MS,
-  AUTOSAVE_MIN_GAP_MS,
-  AUTOSAVE_REVISION_GAP_MS,
   CHAT_HISTORY_WRITE_DEBOUNCE_MS,
   DEFAULT_TONE_PRESET,
   FORGE_NOTICE_EVENT,
@@ -317,7 +299,6 @@ import {
   type ApprovalPersistenceStatus,
   type ChatAttachmentUi,
   type DraftConflictState,
-  type DraftSnapshot,
   type ForgeNoticeDetail,
   type ForgeNoticeJob,
   type ForgeNoticeSeverity,
@@ -379,7 +360,6 @@ import {
   parsePlanningLines,
   readLatestOutlineFromOps,
   reclassifyHearthFormatProposal,
-  toProposalAutosaveReason,
 } from "./hearth-shell/hearth-shell-planning";
 import {
   buildCurrentForgeNoticeRoute as buildForgeNoticeRoute,
@@ -431,6 +411,23 @@ import {
   writeBarStockSparks,
   type BarStockSpark,
 } from "./hearth-shell/useHearthCollectionController";
+import {
+  useHearthScriptApprovalFlow,
+  useHearthScriptApprovalIdentityReset,
+  useHearthScriptApprovalPersistenceActions,
+  useHearthScriptAuthorityRefs,
+  useHearthCanonicalScriptApprovalLoader,
+  useHearthCanonicalScriptApprovalState,
+  useHearthScriptCoreState,
+  useHearthScriptDraftCommands,
+  useHearthScriptDraftHydration,
+  useHearthScriptDraftPersistence,
+  useHearthScriptPersistenceWorkspace,
+  useHearthScriptReadModel,
+  useHearthScriptRepairActions,
+  useHearthScriptRevisionLoader,
+  useHearthScriptController,
+} from "./hearth-shell/useHearthScriptController";
 
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
@@ -967,18 +964,33 @@ export default function HearthShell({
     state: { workpieceSummaries, isWorkpiecesLoading, workpiecesError },
     bindings: { setWorkpieceSummaries, setIsWorkpiecesLoading, setWorkpiecesError },
   } = useHearthEpisodeCollectionState();
-  const [drafts, setDrafts] = useState<Draft[]>([]);
-  const [activeDraft, setActiveDraft] = useState<Draft | null>(null);
-  const [revisions, setRevisions] = useState<Revision[]>([]);
-  const revisionWorkpieceId = useMemo(() => normalizeUuid(workpieceId), [workpieceId]);
-  const [draftSnapshot, setDraftSnapshot] = useState<DraftSnapshot | null>(null);
-
-  const [isSaving, setIsSaving] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [aiAutosaveStatusAt, setAiAutosaveStatusAt] = useState<number | null>(null);
-  const [aiAutosaveWarning, setAiAutosaveWarning] = useState<string | null>(null);
-  const [isRepairingScript, setIsRepairingScript] = useState(false);
+  const {
+    state: {
+      drafts,
+      activeDraft,
+      revisions,
+      revisionWorkpieceId,
+      draftSnapshot,
+      isSaving,
+      isLoading,
+      error,
+      aiAutosaveStatusAt,
+      aiAutosaveWarning,
+      isRepairingScript,
+    },
+    bindings: {
+      setDrafts,
+      setActiveDraft,
+      setRevisions,
+      setDraftSnapshot,
+      setIsSaving,
+      setIsLoading,
+      setError,
+      setAiAutosaveStatusAt,
+      setAiAutosaveWarning,
+      setIsRepairingScript,
+    },
+  } = useHearthScriptCoreState(workpieceId);
   const {
     state: {
       searchText,
@@ -1079,7 +1091,7 @@ export default function HearthShell({
   const [selectedWritingFormat, setSelectedWritingFormat] = useState<HearthWritingFormat>(() => readLastHearthWritingFormat());
   const [scriptCompletionBadge, setScriptCompletionBadge] = useState<ScriptCompletionBadge | null>(null);
   const [scriptCompletionReasons, setScriptCompletionReasons] = useState<string[]>([]);
-  const [scriptApprovalState, setScriptApprovalState] = useState<ScriptApprovalState>(NO_CANONICAL_SCRIPT_APPROVAL);
+  const [scriptApprovalState, setScriptApprovalState] = useHearthCanonicalScriptApprovalState();
   const [approvalPersistenceStatus, setApprovalPersistenceStatus] = useState<ApprovalPersistenceStatus | null>(null);
   const [activeProductionAction, setActiveProductionAction] = useState<ProductionAction | null>(null);
   const productionActionInFlightRef = useRef(false);
@@ -1114,12 +1126,14 @@ export default function HearthShell({
   const [mobileOverlayView, setMobileOverlayView] = useHearthMobileOverlayState();
   const { acknowledgeCopy, isCopyAcknowledged } = useClipboardButtonAcks();
 
-  const draftEditVersionRef = useRef(0);
+  const {
+    draftEditVersionRef,
+    activeDraftRef,
+    approveScriptActionRef,
+    draftSnapshotRef,
+    draftsRef,
+  } = useHearthScriptAuthorityRefs(drafts);
   const workpieceIdRef = useHearthActiveIdentityRef(workpieceId);
-  const activeDraftRef = useRef<Draft | null>(null);
-  const approveScriptActionRef = useRef<(options?: { draftOverride?: Draft }) => Promise<boolean>>(async () => false);
-  const draftSnapshotRef = useRef<DraftSnapshot | null>(null);
-  const draftsRef = useRef<Draft[]>(drafts);
   const workpieceSummariesRef = useRef<HearthWorkpieceSummary[]>(workpieceSummaries);
   const sessionSaveTimer = useRef<number | null>(null);
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1420,7 +1434,7 @@ export default function HearthShell({
     composeContentValidation,
     approvalBlocked,
     handoffBlocked,
-  } = useScriptWorkspaceReadModel({
+  } = useHearthScriptReadModel({
     activeDraft,
     draftSnapshotBody: draftSnapshot?.body ?? null,
     evaluateScriptValidation,
@@ -1487,88 +1501,14 @@ export default function HearthShell({
     };
   }, [workspaceId]);
 
-  const lastAutosaveRevisionAt = useMemo(() => {
-    const match = revisions.find((rev) => rev.kind === "autosave");
-    return match?.createdAt ?? null;
-  }, [revisions]);
-
-  const isDirty = useMemo(() => {
-    if (!activeDraft || !draftSnapshot) return false;
-    return activeDraft.title !== draftSnapshot.title || activeDraft.body !== draftSnapshot.body;
-  }, [activeDraft, draftSnapshot]);
-  const persistAutosaveIO = useCallback(async (params: {
-    draft: Draft;
-    updatedAt: number;
-    revision: { kind: RevisionKind; note?: string } | null;
-    quietFailure: boolean;
-    saveReason?: string;
-  }): Promise<boolean> => {
-    return persistDraft({
-      draft: params.draft,
-      updatedAt: params.updatedAt,
-      createRevision: params.revision,
-      syncSources: false,
-      syncSession: false,
-      showSavingState: false,
-      quietFailure: params.quietFailure,
-      saveReason: params.saveReason,
-    });
-  }, [persistDraft]);
   const {
     queueAiAutosave,
     onRetryAiAutosave,
     noteManualSaveSuccess,
-  } = useHearthAutosave<Draft, ProposalSaveReasonCode, RevisionKind>({
-    activeDraft,
-    draftSnapshot,
     isDirty,
-    isBodyComposing,
-    lastAutosaveRevisionAt,
-    autosaveDelayMs: AUTOSAVE_DELAY_MS,
-    autosaveMinGapMs: AUTOSAVE_MIN_GAP_MS,
-    autosaveRevisionGapMs: AUTOSAVE_REVISION_GAP_MS,
-    autosaveRevisionKind: "autosave",
-    persistAutosaveIO,
-    toAiAutosaveSaveReason: toProposalAutosaveReason,
-    retryReasonCode: "ai_rewrite",
-    setAiAutosaveWarning,
-    setAiAutosaveStatusAt,
-  });
-  const persistRevisionDraft = useCallback(async (params: {
-    draft: Draft;
-    updatedAt: number;
-    revision: { kind: RevisionKind; note?: string };
-  }): Promise<boolean> => {
-    return persistDraft({
-      draft: params.draft,
-      updatedAt: params.updatedAt,
-      createRevision: params.revision,
-    });
-  }, [persistDraft]);
-  const resolveRevisionWorkpieceId = useCallback((override?: string | null) => (
-    normalizeUuid(override) ?? revisionWorkpieceId
-  ), [revisionWorkpieceId]);
-  const reportRevisionPersistenceWarning = useCallback((kind: RevisionKind | null, message: string) => {
-    if (kind === "autosave") {
-      setAiAutosaveWarning(message);
-      return;
-    }
-    setAiRuntimeWarning(message);
-  }, []);
-  const refreshRevisions = useCallback(async (
-    currentWorkpieceId: string | null,
-    draftId?: string | null,
-  ): Promise<Revision[]> => {
-    const resolvedWorkpieceId = normalizeUuid(currentWorkpieceId);
-    if (!resolvedWorkpieceId) {
-      setRevisions([]);
-      return [];
-    }
-    const list = await store.listRevisions(resolvedWorkpieceId, draftId?.trim() ? draftId : null);
-    setRevisions(list);
-    return list;
-  }, [store]);
-  const {
+    resolveRevisionWorkpieceId,
+    reportRevisionPersistenceWarning,
+    refreshRevisions,
     revisionModalOpen,
     revisionNote,
     revisionKind,
@@ -1593,31 +1533,21 @@ export default function HearthShell({
     onRestoreRevision,
     onUpdateRevisionNote,
     resetRevisionSelection,
-  } = useScriptWorkspace({
+  } = useHearthScriptPersistenceWorkspace({
     activeDraft,
+    draftSnapshot,
+    revisions,
+    revisionWorkpieceId,
+    isBodyComposing,
+    persistDraft,
+    store,
+    draftEditVersionRef,
     setActiveDraft,
-    bumpDraftEditVersion: () => {
-      draftEditVersionRef.current += 1;
-    },
-    persistRevisionDraft,
-    resolveRevisionWorkpieceId: () => resolveRevisionWorkpieceId(),
-    restoreRevisionSnapshot: (workpieceId, revisionId) => store.restoreRevision(workpieceId, revisionId),
-    persistRestoredDraft: (params) => persistDraft({
-      draft: params.draft,
-      updatedAt: params.updatedAt,
-      createRevision: { kind: "manual", note: "Restored from revision" },
-    }),
-    saveRevisionRecord: async (workpieceId, revision) => {
-      const acknowledgement = await store.saveRevision(workpieceId, revision);
-      if (!isCanonicalHearthRevisionSave(acknowledgement)) {
-        throw new Error("revision_snapshot_sync_failed");
-      }
-    },
-    refreshRevisions,
-    reportRevisionPersistenceWarning,
+    setRevisions,
+    setAiAutosaveWarning,
+    setAiAutosaveStatusAt,
     setAiRuntimeWarning,
     setError,
-    confirmRestore: (message) => window.confirm(message),
   });
   const operationAuthority = useHearthShellOperationAuthority({
     workspaceId,
@@ -3694,7 +3624,7 @@ export default function HearthShell({
     readCanonicalApprovalRevisions,
     commitCanonicalApprovalRevision,
     appendApprovalMarker,
-  } = useHearthApprovalPersistenceActions({
+  } = useHearthScriptApprovalPersistenceActions({
     persistDraft,
     validatorVersion: SCRIPT_TAG_VALIDATOR_VERSION,
     chatHistoryMaxMessages: CHAT_HISTORY_MAX_MESSAGES,
@@ -3707,7 +3637,7 @@ export default function HearthShell({
   const {
     isApprovingScript,
     onApproveScript,
-  } = useApprovalFlow({
+  } = useHearthScriptApprovalFlow({
     operationAuthority,
     activeDraft,
     workpieceId,
@@ -4483,7 +4413,7 @@ export default function HearthShell({
     }), { touched: false });
   }, [updatePlanningSession]);
 
-  const { hydrateOrCreateDraftBufferForWorkpiece } = useHearthDraftHydrationActions({
+  const { hydrateOrCreateDraftBufferForWorkpiece } = useHearthScriptDraftHydration({
     hearthUser,
     sparks,
     store,
@@ -4537,7 +4467,7 @@ export default function HearthShell({
     onCopyConflictLocalText,
     onCopyScriptPanelText,
     onDeleteDraft,
-  } = useHearthDraftController({
+  } = useHearthScriptDraftCommands({
     activeDraft,
     workpieceId,
     sparks,
@@ -5250,30 +5180,21 @@ export default function HearthShell({
     setActiveWorkpieceTab,
   });
 
-  useEffect(() => {
-    setScriptApprovalState(NO_CANONICAL_SCRIPT_APPROVAL);
-    setApprovalPersistenceStatus(null);
-  }, [workpieceId]);
+  useHearthScriptApprovalIdentityReset({
+    workpieceId,
+    setScriptApprovalState,
+    setApprovalPersistenceStatus,
+  });
 
-  useEffect(() => {
-    const episodeId = workpieceId?.trim() ?? "";
-    const draftId = activeDraft?.id ?? null;
-    const operation = operationAuthority.begin("approval.canonical.read");
-    setScriptApprovalState((prev) => (
-      isScriptApprovalStateEqual(prev, NO_CANONICAL_SCRIPT_APPROVAL)
-        ? prev
-        : NO_CANONICAL_SCRIPT_APPROVAL
-    ));
-    if (!episodeId || !draftId) {
-      return;
-    }
-    void store.readCanonicalRevisions(episodeId, draftId).then((result) => {
-      if (!operationAuthority.isCurrent(operation) || !result.ok) return;
-      const resolved = resolveCanonicalScriptApproval(result.revisions, draftId);
-      setScriptApprovalState((prev) => (isScriptApprovalStateEqual(prev, resolved) ? prev : resolved));
-      writeScriptApprovalRecoveryEvidence(episodeId, resolved);
-    });
-  }, [activeDraft?.id, operationAuthority, revisions, store, workpieceId]);
+  useHearthCanonicalScriptApprovalLoader({
+    activeDraftId: activeDraft?.id ?? null,
+    workpieceId,
+    revisions,
+    operationAuthority,
+    store,
+    setScriptApprovalState,
+    writeRecoveryEvidence: writeScriptApprovalRecoveryEvidence,
+  });
 
   useHearthModeRestorationLifecycle({
     activeDraft,
@@ -5307,10 +5228,11 @@ export default function HearthShell({
     setUiDensity,
   });
 
-  useEffect(() => {
-    if (!activeDraft) return;
-    void refreshRevisions(revisionWorkpieceId, activeDraft.id);
-  }, [activeDraft?.id, refreshRevisions, revisionWorkpieceId]);
+  useHearthScriptRevisionLoader({
+    activeDraftId: activeDraft?.id ?? null,
+    revisionWorkpieceId,
+    refreshRevisions,
+  });
 
   useEffect(() => {
     const textarea = bodyRef.current;
@@ -5383,7 +5305,7 @@ export default function HearthShell({
     onSaveDraft,
   });
 
-  const { persistDraft: persistDraftImpl, saveDraftMeta: saveDraftMetaImpl } = useHearthDraftPersistenceActions({
+  const { persistDraft: persistDraftImpl, saveDraftMeta: saveDraftMetaImpl } = useHearthScriptDraftPersistence({
     mode,
     focusTab,
     revisionView,
@@ -5434,6 +5356,73 @@ export default function HearthShell({
   async function saveDraftMeta(draft: Draft, updates: Partial<Draft>) {
     await saveDraftMetaImpl(draft, updates);
   }
+
+  const scriptController = useHearthScriptController({
+    state: {
+      draft: activeDraft,
+      drafts,
+      revision: {
+        items: revisions,
+        selected: selectedRevision,
+        kind: revisionKind,
+        note: revisionNote,
+      },
+      approval: scriptApprovalState,
+      formatting: {
+        writingFormat: selectedWritingFormat,
+        validation: scriptValidation,
+      },
+      conflict: draftConflictState,
+      selection: { revisionWorkpieceId },
+    },
+    commands: {
+      selectDraft,
+      updateDraft: {
+        title: onDraftTitleChange,
+        body: onDraftBodyChange,
+      },
+      saveDraft: onSaveDraft,
+      retrySave: onRetryAiAutosave,
+      resolveConflict: {
+        reloadLatest: onReloadLatestDraftAfterConflict,
+        copyLocalText: onCopyConflictLocalText,
+      },
+      createRevision: onConfirmRevision,
+      restoreRevision: onRestoreRevision,
+      approveScript: onApproveScript,
+      applyApprovedScript: (draft) => onApproveScript({ draftOverride: draft }),
+      formatScript: onFixScriptFormattingNoAi,
+      repairScript: onAskAiRepairScript,
+      refreshAuthority: async () => {
+        await refreshRevisions(revisionWorkpieceId, activeDraft?.id ?? null);
+      },
+    },
+    status: {
+      hydration: isLoading ? "loading" : error ? "failed" : activeDraft ? "loaded" : "missing",
+      save: isSaving ? "saving" : draftConflictState ? "failed" : isDirty ? "unsaved" : "saved",
+      approval: isApprovingScript
+        ? "approving"
+        : scriptApprovalState.hasApprovedScript
+          ? "available"
+          : "absent",
+      formatting: isRepairingScript ? "repairing" : "idle",
+      authority: "available",
+      approvalPersistence: approvalPersistenceStatus,
+    },
+    surfaces: {
+      script: {
+        draft: activeDraft,
+        snapshot: draftSnapshot,
+        isDirty,
+        error,
+      },
+      history: {
+        revisions,
+        selectedRevision,
+        view: revisionView,
+      },
+    },
+  });
 
   async function onCreateDraft() {
     setError(null);
@@ -6580,7 +6569,7 @@ export default function HearthShell({
           isVisualScriptMode,
           visualScriptParagraphRail,
           isCanonicalImageMapScriptPanel,
-          activeDraftExists: Boolean(activeDraft),
+          activeDraftExists: Boolean(scriptController.surfaces.script.draft),
           sourcesSummary,
           unusedSummary,
           canReviewSources: Boolean(workpieceId),
@@ -6601,7 +6590,7 @@ export default function HearthShell({
             });
           },
           onBodyChange: (nextBody) => {
-            onDraftBodyChange(nextBody);
+            scriptController.commands.updateDraft.body(nextBody);
           },
           onBodyCompositionStart: () => setIsBodyComposing(true),
           onBodyCompositionEnd: () => setIsBodyComposing(false),
@@ -6671,13 +6660,13 @@ export default function HearthShell({
   const renderRevisionsView = () => (
     <HearthRevisionsMode
       closeRevisionPanel={closeRevisionPanel}
-      revisions={revisions}
-      selectedRevision={selectedRevision}
-      revisionView={revisionView}
+      revisions={scriptController.surfaces.history.revisions}
+      selectedRevision={scriptController.surfaces.history.selectedRevision}
+      revisionView={scriptController.surfaces.history.view}
       formatUpdatedAt={formatUpdatedAt}
       selectRevisionPreview={selectRevisionPreview}
       selectRevisionCompare={selectRevisionCompare}
-      onRestoreRevision={onRestoreRevision}
+      onRestoreRevision={scriptController.commands.restoreRevision}
       updateSelectedRevisionDraftNote={updateSelectedRevisionDraftNote}
       onUpdateRevisionNote={onUpdateRevisionNote}
       renderSectionedBody={renderSectionedBody}
