@@ -3,9 +3,7 @@ import type { Draft } from "../domain/draft";
 import type { Revision } from "../domain/revision";
 import type { ScriptValidationResult } from "@forge/shared/script-tags";
 import type { MirrorApprovedScriptResult } from "../lib/hearth-script-mirror";
-import { buildHearthApprovedScriptReplacement } from "../lib/hearth-script-approval";
 import type { HearthCanonicalRevisionsResult } from "../storage/hearth-store";
-import { commitCanonicalScriptApproval } from "../lib/hearth-approval-commit";
 import type { HearthOperationAuthority } from "../lib/hearth-operation-authority";
 
 type ScriptApprovalStateLike = {
@@ -102,6 +100,7 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
       return false;
     }
 
+    const { buildHearthApprovedScriptReplacement } = await import("../lib/hearth-script-approval");
     const approvedReplacement = buildHearthApprovedScriptReplacement({
       draft: approvalDraft,
       evaluateScriptValidation: args.evaluateScriptValidation,
@@ -119,9 +118,10 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
     args.setChatError(null);
     args.setAiRuntimeWarning(null);
     args.setApprovalPersistenceStatus(null);
-    const operation = args.operationAuthority.begin("approval.commit");
+    const operation = args.operationAuthority.begin("ap");
     setIsApprovingScript(true);
     try {
+      const { commitCanonicalScriptApproval } = await import("../lib/hearth-approval-commit");
       const approvalCommit = await commitCanonicalScriptApproval({
         episodeId,
         draft: approvedReplacement.draft,
@@ -146,6 +146,21 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
 
       const approvedAt = approvalCommit.approvedAt;
       const nextVersion = approvalCommit.version;
+      if (!args.workspaceId) {
+        args.setError("Canonical script approval requires an active workspace.");
+        return false;
+      }
+      const { commitPublishedScriptApprovalAuthority } = await import("../lib/hearth-script-approval-authority");
+      const authorityCommit = await commitPublishedScriptApprovalAuthority({
+        workpieceId: episodeId,
+        workspaceId: args.workspaceId,
+        creatorVersion: nextVersion,
+      });
+      if (!args.operationAuthority.isCurrent(operation)) return false;
+      if (!authorityCommit.ok) {
+        args.setError(authorityCommit.error);
+        return false;
+      }
       const nextState: ScriptApprovalStateLike = {
         hasApprovedScript: true,
         approvedScriptVersion: nextVersion,
@@ -201,16 +216,13 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
         }
       }
 
-      const markerLines = [
-        `🔥 Script Version ${nextVersion} Approved`,
-        `script_version: ${nextVersion}`,
-        `timestamp: ${new Date(approvedAt).toISOString()}`,
-        "saved_to_cloud: ok",
-        "local_mirror: independent_best_effort_sync",
-        graduatedSparkId ? `spark_status: graduated (${graduatedSparkId})` : "spark_status: no_linked_spark",
-        ...(styleAlignmentMarker ? [styleAlignmentMarker] : []),
-        "Production Mode available",
-      ];
+      const { buildApprovalMarkerLines } = await import("../lib/hearth-approval-marker");
+      const markerLines = buildApprovalMarkerLines({
+        version: nextVersion,
+        approvedAt,
+        graduatedSparkId,
+        styleAlignmentMarker,
+      });
       args.appendApprovalMarker({
         draftId: approvalDraft.id,
         content: markerLines.join("\n"),

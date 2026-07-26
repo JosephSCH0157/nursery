@@ -504,7 +504,7 @@ function buildOpenArtPrompt(beat: NormalizedVisualBeat, context: PromptPackConte
 function buildGptImagesPrompt(beat: NormalizedVisualBeat, context: PromptPackContext): PromptPack {
   const aspectRatio = resolveAspectRatio(context, VISUAL_PROVIDER_PROFILES.gpt_images);
   const prompt = limitWords([
-    `Create a ${beat.realismTarget} for a ${context.intendedUse === "reference_clip" ? "podcast reference visual" : "podcast thumbnail concept"}.`,
+    `Create a ${beat.realismTarget} for ${context.intendedUse === "reference_clip" ? "a podcast reference visual" : context.intendedUse === "timeline_image" ? "an episode visual supporting a script moment" : "a podcast thumbnail concept"}.`,
     `Show ${sentenceToClause(beat.scene, "a current-events scene with one clear focal subject")}.`,
     beat.location ? `Place it in ${beat.location}.` : "",
     beat.timeOfDay ? `Let the frame read as ${beat.timeOfDay}.` : "",

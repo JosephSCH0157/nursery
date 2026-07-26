@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { createElement, createRef } from "react";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { renderToStaticMarkup } from "react-dom/server";
 import test from "node:test";
 import { listHearthAttachments } from "../src/lib/hearth-attachments-api";
 import { listHearthBarStockSparks } from "../src/lib/hearth-barstock-sparks";
@@ -10,6 +12,7 @@ import { readWorkpieceEpisodeMediaMap } from "../src/lib/hearth-media-map-repo";
 import { listHearthWorkpiecePresence } from "../src/lib/hearth-presence";
 import { listHearthReadyScripts } from "../src/lib/hearth-ready-scripts";
 import { listHearthWorkpieces } from "../src/lib/hearth-workpieces";
+import HearthEpisodesMode from "../src/views/modes/HearthEpisodesMode";
 
 const WORKSPACE_ID = "f7f581e2-94d0-4c7d-bd0c-b650f6f9d8b1";
 const WORKPIECE_ID = "9287963f-e82a-4d9a-b810-db100e9d0021";
@@ -217,12 +220,43 @@ test("dependency degradation: network failures remain explicit at attachment and
 test("dependency degradation: orchestration surfaces failures instead of resolving discovery lanes", () => {
   const initialLoader = readFileSync(resolve(process.cwd(), "src/hooks/useHearthInitialLoader.ts"), "utf8");
   const sparkDiscovery = readFileSync(resolve(process.cwd(), "src/hooks/useHearthSparkDiscovery.ts"), "utf8");
-  const presenceShell = readFileSync(resolve(process.cwd(), "src/routes/HearthShell.tsx"), "utf8");
 
   assert.doesNotMatch(initialLoader, /listHearthWorkpieces[\s\S]{0,300}\.catch\(\(\) => \[\]/);
   assert.match(initialLoader, /setWorkpiecesError\(workpiecesResult\.ok/);
   assert.match(sparkDiscovery, /Bar Stock spark discovery is currently unavailable\./);
   assert.match(sparkDiscovery, /catch[\s\S]{0,180}setSparkDiscoveryWorkspaceId\(null\)/);
-  assert.match(presenceShell, /return "Presence unavailable"/);
-  assert.match(presenceShell, /return "Not checked"/);
+});
+
+test("dependency degradation: Episode collection renders explicit presence boundary labels", () => {
+  const html = renderToStaticMarkup(createElement(HearthEpisodesMode, {
+    isMobile: false,
+    startFromScratch: () => undefined,
+    isForging: false,
+    onCreateDraft: () => undefined,
+    openReadyInMobileOverlay: () => undefined,
+    searchRef: createRef<HTMLInputElement>(),
+    searchText: "",
+    setSearchText: () => undefined,
+    sortKey: "updated",
+    setSortKey: () => undefined,
+    filteredWorkpieceNavItems: [
+      { workpieceId: "active", draftId: null, title: "Active", updatedAtMs: 1, isArchived: false },
+      { workpieceId: "unchecked", draftId: null, title: "Unchecked", updatedAtMs: 1, isArchived: false },
+    ],
+    draftsById: new Map(),
+    workpieceId: "active",
+    archivingWorkpieceIds: [],
+    restoringWorkpieceIds: [],
+    openWorkpieceInFocus: () => undefined,
+    resolveWorkpiecePresenceClass: (id) => id === "active" ? "is-unknown" : "",
+    resolveWorkpiecePresenceBadge: (id) => id === "active" ? "Presence unavailable" : "Not checked",
+    formatUpdatedAt: () => "now",
+    resolveDraftEditorName: () => "Unknown",
+    saveDraftMeta: () => undefined,
+    onRestoreWorkpiece: () => undefined,
+    onArchiveWorkpiece: () => undefined,
+    onDeleteDraft: () => undefined,
+  }));
+  assert.match(html, /Presence unavailable/);
+  assert.match(html, /Not checked/);
 });

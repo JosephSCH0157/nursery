@@ -28,6 +28,32 @@ test("operation authority: context epochs prevent A-B-A identity collisions", ()
   assert.equal(authority.isCurrent(authority.begin("chat.reply")), true);
 });
 
+test("operation authority: workspace and workpiece switches reject prior async completions", () => {
+  const authority = createHearthOperationAuthority(SCOPE_A, {
+    createAuthorityId: () => "authority-switch",
+  });
+  const fromWorkspaceA = authority.begin("workpiece.hydrate");
+
+  authority.updateScope({
+    ...SCOPE_A,
+    workspaceId: "workspace-b",
+    workpieceId: "workpiece-b",
+    draftId: "draft-b",
+  });
+  assert.equal(authority.isCurrent(fromWorkspaceA), false);
+
+  const fromWorkpieceB = authority.begin("workpiece.hydrate");
+  authority.updateScope({
+    ...SCOPE_A,
+    workspaceId: "workspace-b",
+    workpieceId: "workpiece-c",
+    draftId: "draft-c",
+  });
+  const effects: string[] = [];
+  assert.equal(authority.commit(fromWorkpieceB, () => effects.push("stale")), false);
+  assert.deepEqual(effects, []);
+});
+
 test("operation authority: a newer request supersedes the older request in the same lane", () => {
   const authority = createHearthOperationAuthority(SCOPE_A, {
     createAuthorityId: () => "authority-a",

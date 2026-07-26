@@ -20,3 +20,4 @@ export * from "./storage/resolve-mount.js";
 export * from "./storage/storage-guard.js";
 export * from "./providers/image-provider.js";
 export * from "./asset-variant-resolver.js";
+export * from "./image-map-anchor-authority.js";

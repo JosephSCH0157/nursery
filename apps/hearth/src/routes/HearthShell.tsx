@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   listHearthAttachments,
   uploadHearthAttachment,
@@ -60,7 +60,6 @@ import {
 import { mirrorApprovedScriptToLocal } from "../lib/hearth-script-mirror";
 import {
   listHearthReadyScripts,
-  type HearthContentCategory,
   type HearthReadyScript,
 } from "../lib/hearth-ready-scripts";
 import {
@@ -145,7 +144,6 @@ import {
 import { createHearthStore } from "../storage/store-factory";
 import {
   isCanonicalHearthRevisionSave,
-  type HearthStoreKind,
 } from "../storage/hearth-store";
 import { LocalSessionStore } from "../storage/local-session-store";
 import {
@@ -170,14 +168,10 @@ import {
 } from "../lib/hearth-script-authoring-meta";
 import { insertVoiceTranscriptIntoScript } from "../lib/hearth-script-dictation";
 import {
-  detectHearthScriptMutationIntent,
-} from "../lib/hearth-script-mutation";
-import {
   buildHearthFormatOnlyPreview,
   confirmHearthUserEditorialTransition,
   evaluateHearthFormatOnlyPreservation,
   formatHearthPreservationChanges,
-  type HearthFormatOnlyChangeCategory,
 } from "../lib/hearth-format-only";
 import {
   parseHearthDraftConflictError,
@@ -206,8 +200,6 @@ import {
   buildWritingFormatShortcutPrompt,
   getHearthWritingFormatProfile,
   HEARTH_WRITING_FORMATS,
-  isExplicitHearthFullScriptRequest,
-  isExplicitHearthOutlineRequest,
   readLastHearthWritingFormat,
   resolveHearthWritingFormatRequest,
   writeLastHearthWritingFormat,
@@ -271,7 +263,6 @@ import {
 } from "../lib/hearth-media-map-builder";
 import type {
   EpisodeBrollDataVisualSpec,
-  EpisodeExternalRequestState,
   EpisodeReferenceClipPlan,
   EpisodeReferenceClipTone,
   EpisodeBrollPlan,
@@ -286,7 +277,6 @@ import type {
 import {
   buildBulletBeatAnchorLabel,
   buildImageMapAnchorLabel,
-  normalizeSeoTags,
   resolvePrimarySeoTitle,
   updateImageMapEntry,
 } from "../lib/episode-package-v2";
@@ -300,10 +290,8 @@ import {
   resolveMediaPlanCoverageLevel,
   resolveMediaPlanScopeLabel,
   resolveReleaseReadinessChecklist,
-  resolveRestoredWorkpieceWorkspaceTab,
   type WorkpieceWorkspaceTab,
 } from "../lib/hearth-workpiece-tab-shell";
-import { sortTagsByRelevance } from "../lib/hearth-tag-relevance";
 import {
   loadWorkspaceThumbnailBrandLogoPreview,
   listWorkspaceThumbnailBrandTemplates,
@@ -327,124 +315,137 @@ import {
   updateStyleProfileFromReadyCheckpoint,
   type WritingProfile,
 } from "../lib/hearth-style-service";
+import CopyIcon from "./hearth-shell/CopyIcon";
+import OscilloscopeFill from "./hearth-shell/OscilloscopeFill";
+import {
+  AI_STT_MAX_BYTES,
+  AI_STT_MAX_DURATION_MS,
+  AUTOSAVE_DELAY_MS,
+  AUTOSAVE_MIN_GAP_MS,
+  AUTOSAVE_REVISION_GAP_MS,
+  CHAT_HISTORY_WRITE_DEBOUNCE_MS,
+  DEFAULT_TONE_PRESET,
+  EMPTY_READY_SCRIPT_LIST,
+  EMPTY_WORKPIECE_SUMMARY_LIST,
+  FORGE_NOTICE_EVENT,
+  PRESENCE_HEARTBEAT_MS,
+  SAFE_SCRIPT_STARTER,
+  SCRIPT_TAG_VALIDATOR_VERSION,
+  SESSION_SAVE_DELAY_MS,
+  STT_INLINE_FEEDBACK_MS,
+  STT_PREVIEW_MAX_CHARS,
+  TAB_SWITCH_UNSAVED_WARNING,
+  TONE_PRESET_OPTIONS,
+  WORKPIECE_WORKSPACE_TABS,
+  type ApprovalPersistenceStatus,
+  type ChatAttachmentUi,
+  type DraftConflictState,
+  type DraftSnapshot,
+  type FocusTab,
+  type ForgeNoticeDetail,
+  type ForgeNoticeJob,
+  type ForgeNoticeSeverity,
+  type HearthMode,
+  type HearthShellProps,
+  type HearthUserContext,
+  type PendingAiProposal,
+  type ProposalSaveReasonCode,
+  type ReadyLabel,
+  type SortKey,
+  type UiDensity,
+} from "./hearth-shell/hearth-shell-contracts";
+import {
+  buildDraftAttribution,
+  buildMetadataTagSuggestions,
+  buildDiffLines,
+  buildSparkPreview,
+  dedupeDraftListById,
+  deriveReadyUrgency,
+  deriveSparkTitle,
+  diffCellClass,
+  formatDecisionAt,
+  formatRelativeUpdatedAt,
+  formatSparkDate,
+  formatSparkStatus,
+  formatUpdatedAt,
+  isSparkForged,
+  normalizeGreetingName,
+  normalizeMetadataTag,
+  normalizeRailTitleKey,
+  normalizeTitle,
+  normalizeTonePreset,
+  parseIsoTimestamp,
+  parseMetadataTagInput,
+  READY_LABEL_TO_CATEGORY,
+  READY_URGENCY_LABEL,
+  reorderVisibleReadyEntries,
+  resolveCanonicalImageMapScriptHint,
+  resolveCanonicalImageMapScriptSourceLabel,
+  resolveDraftEditorName,
+  resolveImageMapAnchorStatusView,
+  resolveReadyLabel,
+  resolveVisualRequestStateLabel,
+  shortenUserIdForUi,
+  splitLines,
+  countWords,
+} from "./hearth-shell/hearth-shell-formatting";
+import {
+  buildAssistantMessageContent,
+  buildPersistedValidationMeta,
+  buildProjectDraftSeed,
+  buildSessionFingerprint,
+  buildValidationReport,
+  countProducerQuestions,
+  createPlanningSessionForEpisode,
+  deriveIntentFromOrigin,
+  detectAiAutosaveReasonCode,
+  detectChatIntentSignals,
+  evaluateScriptValidation,
+  isLegacyDraftScriptPlaceholder,
+  isPlanningSessionEmpty,
+  parsePlanningLines,
+  readLatestOutlineFromOps,
+  reclassifyHearthFormatProposal,
+  toProposalAutosaveReason,
+} from "./hearth-shell/hearth-shell-planning";
+import {
+  buildCurrentForgeNoticeRoute as buildForgeNoticeRoute,
+  buildHearthRouteContextUrl,
+  buildOpenInAnvilHref,
+  hasIncomingBarStockIntakeQuery,
+  normalizeUuid,
+  readTrimmedString,
+  resolveReadyOpenHref,
+} from "./hearth-shell/hearth-shell-route";
+import {
+  isDevMode,
+  readMode,
+  readWorkpieceWorkspaceTab,
+  readWorkspaceUiDensity,
+  resolveStoreKind,
+  writeMode,
+  writeWorkpieceWorkspaceTab,
+  writeWorkspaceUiDensity,
+} from "./hearth-shell/hearth-shell-preferences";
 
-const AUTOSAVE_DELAY_MS = 2200;
-const AUTOSAVE_MIN_GAP_MS = 5000;
-const AUTOSAVE_REVISION_GAP_MS = 5 * 60 * 1000;
-const SESSION_SAVE_DELAY_MS = 500;
-const STORE_KIND_KEY = "hearth_store_kind";
-const DEV_MODE_KEY = "tp_dev_mode";
-const MODE_STORAGE_PREFIX = "hearth:ui:mode:v1:";
-const UI_DENSITY_STORAGE_PREFIX = "hearth:ui:density:v1:";
-const WORKPIECE_TAB_STORAGE_PREFIX = "hearth:workpiece-tab:v1:";
-const WORKSPACE_TAB_STORAGE_PREFIX = "hearth:workspace-tab:v1:";
-const LAST_WORKPIECE_TAB_STORAGE_KEY = "hearth:workpiece-tab:last:v1";
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
 const CHAT_HISTORY_MAX_MESSAGES = 200;
 const CHAT_HISTORY_MAX_STORAGE_CHARS = 650_000;
 const CHAT_HISTORY_MAX_ENTRY_CHARS = 24_000;
-const CHAT_HISTORY_WRITE_DEBOUNCE_MS = 350;
 const CHAT_HISTORY_TRUNCATED_SUFFIX = "\n\n[truncated in local cache]";
 const WORKSPACE_STORAGE_KEYS = new Set(["forge_workspace_id_v1", "barstock_workspace_id"]);
 const FORGE_AUTH_STORAGE_KEY = "forge-auth";
 const SUPABASE_AUTH_KEY_RE = /supabase-auth-token/i;
 const PROJECT_PENDING_WORKPIECE_PREFIX = "hearth:project-pending-workpiece:v1:";
-const AI_STT_MAX_DURATION_MS = 5 * 60 * 1000;
-const AI_STT_MAX_BYTES = 10 * 1024 * 1024;
-const STT_INLINE_FEEDBACK_MS = 2200;
-const STT_PREVIEW_MAX_CHARS = 80;
-const PRESENCE_HEARTBEAT_MS = 25_000;
-const ANVIL_SCRIPT_PATH = getHearthPrimaryScriptPath();
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-type HearthMode = "sparks" | "episodes" | "ready" | "series" | "focus";
-type UiDensity = "comfortable" | "compact";
-type FocusTab = "draft" | "planning" | "sources" | "revisions";
-type AiAutosaveReasonCode = "ai_outline" | "ai_script" | "ai_repair" | "ai_rewrite";
-type ProposalSaveReasonCode = AiAutosaveReasonCode | "format_only" | "user_editorial";
-type ProposalAutosaveReason = `autosave:${ProposalSaveReasonCode}`;
-type ForgeNoticeSeverity = "info" | "success" | "warning" | "error";
-type ForgeNoticeJob =
-  | "image-generated"
-  | "script-completed"
-  | "sources-found"
-  | "save-failed"
-  | "render-finished"
-  | "export-finished"
-  | "job-failed";
-
-type ForgeNoticeDetail = {
-  tool: "hearth";
-  job: ForgeNoticeJob;
-  title: string;
-  message?: string;
-  route?: string;
-  workspaceId?: string;
-  workpieceId?: string;
-  severity: ForgeNoticeSeverity;
-  timestamp: number;
-};
-
-type ApprovalPersistenceStatus = {
-  cloud: "ok";
-  local: "ok" | "failed";
-  localPath?: string;
-  localMessage?: string;
-};
-
-type HearthUserContext = {
-  userId: string | null;
-  displayName: string;
-};
-
-type DraftConflictState = {
-  message: string;
-  localBody: string;
-};
-
-type CanonicalImageMapScriptState = {
-  status: "idle" | "loading" | "ready" | "error";
-  text: string | null;
-  source: "primary_script" | "saved_draft" | null;
-  includesUnsavedLocalEdits: boolean;
-  error: string | null;
-};
-
-const TONE_PRESET_OPTIONS = [
-  { value: "neutral_conversational", label: "Neutral conversational" },
-  { value: "newsroom_neutral", label: "Newsroom neutral" },
-  { value: "spicy_but_safe", label: "Spicy but safe" },
-] as const;
-const DEFAULT_TONE_PRESET = "neutral_conversational";
-const EMPTY_WORKPIECE_SUMMARY_LIST: HearthWorkpieceSummary[] = [];
-const EMPTY_READY_SCRIPT_LIST: HearthReadyScript[] = [];
-const FORGE_NOTICE_EVENT = "forge:notice";
-const WORKPIECE_WORKSPACE_TABS: WorkpieceWorkspaceTab[] = ["script", "visuals", "metadata", "release", "history"];
-const TAB_SWITCH_UNSAVED_WARNING = "You have unsaved changes in this tab. Switch anyway?";
-
-function readTrimmedString(value: unknown): string | null {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length ? trimmed : null;
-}
-
-function normalizeRailTitleKey(title: string): string {
-  return title.trim().replace(/\s+/g, " ").toLowerCase();
-}
 
 function buildCurrentForgeNoticeRoute(workspaceId: string | null, workpieceId: string | null): string | null {
   if (typeof window === "undefined") return null;
-  const nextUrl = new URL(window.location.href);
-  const normalizedWorkspaceId = readTrimmedString(workspaceId);
-  const normalizedWorkpieceId = readTrimmedString(workpieceId);
-  if (normalizedWorkspaceId) {
-    nextUrl.searchParams.set("workspace_id", normalizedWorkspaceId);
-  }
-  if (normalizedWorkpieceId) {
-    nextUrl.searchParams.set("workpiece_id", normalizedWorkpieceId);
-  }
-  return `${nextUrl.pathname}${nextUrl.search}${nextUrl.hash}`;
+  return buildForgeNoticeRoute({
+    href: window.location.href,
+    workspaceId,
+    workpieceId,
+  });
 }
 
 function dispatchWindowForgeNotice(detail: Omit<ForgeNoticeDetail, "timestamp">): void {
@@ -457,87 +458,6 @@ function dispatchWindowForgeNotice(detail: Omit<ForgeNoticeDetail, "timestamp">)
   }));
 }
 
-function normalizeUuid(value: unknown): string | null {
-  const str = readTrimmedString(value);
-  if (!str) return null;
-  return UUID_RE.test(str) ? str.toLowerCase() : null;
-}
-
-function normalizeTonePreset(value: unknown): string | null {
-  const raw = readTrimmedString(value);
-  if (!raw) return null;
-  const normalized = raw.toLowerCase();
-  return TONE_PRESET_OPTIONS.some((option) => option.value === normalized)
-    ? normalized
-    : null;
-}
-
-function resolveImageMapAnchorStatusView(args: {
-  status: "attached" | "beat" | "weak_match" | "orphaned" | "global";
-  scriptState: CanonicalImageMapScriptState;
-}): { label: string; tone: "neutral" | "ok" | "warning" | "danger"; detail: string } {
-  if (args.status === "global") {
-    return {
-      label: "global",
-      tone: "neutral",
-      detail: "This visual intent is global and intentionally not attached to a single script span.",
-    };
-  }
-  if (args.status === "orphaned") {
-    return {
-      label: "orphaned",
-      tone: "danger",
-      detail: "This visual anchor is orphaned. Repair it deterministically or convert it to a global visual intent.",
-    };
-  }
-  if (args.status === "beat") {
-    return {
-      label: "beat anchored",
-      tone: "ok",
-      detail: "This visual beat is attached to an editorial bullet beat and can be refined against the real transcript after recording.",
-    };
-  }
-  if (args.scriptState.status === "loading") {
-    return {
-      label: args.status === "weak_match" ? "weak match" : "attached",
-      tone: "neutral",
-      detail: "Validating this structured anchor against the current canonical script.",
-    };
-  }
-  if (args.scriptState.status === "error") {
-    return {
-      label: "weak match",
-      tone: "warning",
-      detail: args.scriptState.error ?? "Hearth could not load the current canonical script to verify this anchor.",
-    };
-  }
-  if (args.status === "attached") {
-    return {
-      label: "attached",
-      tone: "ok",
-      detail: "This visual beat is anchored to an exact span in the current canonical script.",
-    };
-  }
-  return {
-    label: "weak match",
-    tone: "warning",
-    detail: "This structured anchor no longer has an exact match, but deterministic repair options are available.",
-  };
-}
-
-function resolveCanonicalImageMapScriptSourceLabel(state: CanonicalImageMapScriptState): string | null {
-  if (state.status !== "ready" || !state.source) return null;
-  return state.source === "primary_script" ? "Source: published script" : "Source: saved draft";
-}
-
-function resolveCanonicalImageMapScriptHint(state: CanonicalImageMapScriptState): string | null {
-  if (state.status === "error") return state.error;
-  if (state.status !== "ready") return null;
-  if (state.includesUnsavedLocalEdits) {
-    return "Unsaved local script edits are not included here. Re-anchoring uses the current canonical saved script.";
-  }
-  return "Pick the exact sentence or paragraph that should drive still generation for this beat.";
-}
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -674,21 +594,6 @@ async function readProfileDisplayNameFromRuntimeClient(
   return null;
 }
 
-function normalizeGreetingName(name: string | null): string {
-  const raw = (name ?? "").trim();
-  if (!raw) return "Creator";
-  const seed = raw.includes("@") ? (raw.split("@")[0] ?? "").trim() : raw;
-  const words = seed
-    .replace(/[._-]+/g, " ")
-    .split(/\s+/)
-    .map((part) => part.trim())
-    .filter(Boolean);
-  if (!words.length) return "Creator";
-  return words
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-    .join(" ");
-}
-
 function listAuthStorageValues(): string[] {
   if (typeof window === "undefined") return [];
 
@@ -747,131 +652,6 @@ function readGreetingNameFromStorage(): string {
   }
 
   return "Creator";
-}
-
-function resolveStoreKind(): HearthStoreKind {
-  if (typeof window === "undefined") return "tongs";
-  if (!isDevMode()) return "tongs";
-
-  try {
-    const params = new URLSearchParams(window.location.search);
-    const requested = (params.get("store") ?? params.get("hearthStore") ?? "")
-      .trim()
-      .toLowerCase();
-
-    if (requested === "tongs" || requested === "local") {
-      try {
-        window.localStorage.setItem(STORE_KIND_KEY, requested);
-      } catch {
-        // Ignore storage failures (private mode, access blocked, etc.).
-      }
-      return requested as HearthStoreKind;
-    }
-  } catch {
-    // Ignore URL parsing failures and fall back to localStorage.
-  }
-
-  try {
-    const saved = window.localStorage.getItem(STORE_KIND_KEY)?.trim().toLowerCase();
-    if (saved === "tongs" || saved === "local") {
-      return saved as HearthStoreKind;
-    }
-  } catch {
-    // Ignore storage failures and fall back to tongs.
-  }
-
-  return "tongs";
-}
-
-function isDevMode(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const params = new URLSearchParams(window.location.search);
-    if (params.has("dev") || params.get("dev") === "1") return true;
-  } catch {
-    // Ignore query parsing failures.
-  }
-  try {
-    if (window.localStorage.getItem(DEV_MODE_KEY) === "1") return true;
-  } catch {
-    // Ignore storage failures.
-  }
-  try {
-    const w = window as typeof window & {
-      __TP_DEV?: unknown;
-      __TP_DEV1?: unknown;
-      __tpDevMode?: unknown;
-    };
-    if (w.__TP_DEV || w.__TP_DEV1 || w.__tpDevMode) return true;
-  } catch {
-    // Ignore global inspection failures.
-  }
-  return false;
-}
-
-function readMode(workpieceId: string | null): HearthMode | null {
-  if (!workpieceId || typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(`${MODE_STORAGE_PREFIX}${workpieceId}`);
-    if (!raw) return null;
-    const trimmed = raw.trim();
-    if (trimmed === "home") return "sparks";
-    if (trimmed === "draft" || trimmed === "planning" || trimmed === "sources" || trimmed === "revisions") {
-      return "focus";
-    }
-    if (
-      trimmed === "sparks"
-      || trimmed === "episodes"
-      || trimmed === "ready"
-      || trimmed === "series"
-      || trimmed === "focus"
-    ) {
-      return trimmed as HearthMode;
-    }
-  } catch {
-    // ignore storage failures
-  }
-  return null;
-}
-
-function writeMode(workpieceId: string | null, mode: HearthMode): void {
-  if (!workpieceId || typeof window === "undefined") return;
-  if (mode === "sparks") return;
-  try {
-    window.localStorage.setItem(`${MODE_STORAGE_PREFIX}${workpieceId}`, mode);
-  } catch {
-    // ignore storage failures
-  }
-}
-
-function readWorkpieceWorkspaceTab(workpieceId: string | null, workspaceId: string | null): WorkpieceWorkspaceTab {
-  if (typeof window === "undefined") return "script";
-  try {
-    return resolveRestoredWorkpieceWorkspaceTab({
-      workpieceTab: workpieceId ? window.localStorage.getItem(`${WORKPIECE_TAB_STORAGE_PREFIX}${workpieceId}`) : null,
-      workspaceTab: workspaceId ? window.localStorage.getItem(`${WORKSPACE_TAB_STORAGE_PREFIX}${workspaceId}`) : null,
-      lastTab: window.localStorage.getItem(LAST_WORKPIECE_TAB_STORAGE_KEY),
-    });
-  } catch {
-    // ignore storage failures
-  }
-  return "script";
-}
-
-function writeWorkpieceWorkspaceTab(workpieceId: string | null, workspaceId: string | null, tab: WorkpieceWorkspaceTab): void {
-  if (typeof window === "undefined") return;
-  try {
-    const normalizedTab = normalizeWorkpieceWorkspaceTab(tab);
-    if (workpieceId) {
-      window.localStorage.setItem(`${WORKPIECE_TAB_STORAGE_PREFIX}${workpieceId}`, normalizedTab);
-    }
-    if (workspaceId) {
-      window.localStorage.setItem(`${WORKSPACE_TAB_STORAGE_PREFIX}${workspaceId}`, normalizedTab);
-    }
-    window.localStorage.setItem(LAST_WORKPIECE_TAB_STORAGE_KEY, normalizedTab);
-  } catch {
-    // ignore storage failures
-  }
 }
 
 function buildPendingProjectWorkpieceKey(workspaceId: string, projectId: string): string {
@@ -1026,66 +806,16 @@ function writeScriptApprovalRecoveryEvidence(workpieceId: string | null, value: 
   }
 }
 
-function hasExplicitWorkpieceQuery(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const query = new URLSearchParams(window.location.search);
-    const keys = ["workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId"];
-    return keys.some((key) => Boolean(query.get(key)?.trim()));
-  } catch {
-    return false;
-  }
-}
-
-function hasIncomingBarStockIntakeQuery(): boolean {
-  if (typeof window === "undefined") return false;
-  if (hasExplicitWorkpieceQuery()) return false;
-  try {
-    const query = new URLSearchParams(window.location.search);
-    const keys = [
-      "spark_id",
-      "sparkId",
-      "barstock_spark_id",
-      "project_id",
-      "projectId",
-      "barstock_project_id",
-    ];
-    return keys.some((key) => Boolean(query.get(key)?.trim()));
-  } catch {
-    return false;
-  }
-}
-
 function replaceHearthRouteContext(workspaceId: string | null, workpieceId: string | null): void {
   if (typeof window === "undefined") return;
   try {
-    const params = new URLSearchParams(window.location.search);
-    const workspaceKeys = ["workspace_id", "workspaceId", "workspace"];
-    const workpieceKeys = ["workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId"];
-    const intakeKeys = [
-      "spark_id",
-      "sparkId",
-      "barstock_spark_id",
-      "project_id",
-      "projectId",
-      "barstock_project_id",
-    ];
-
-    for (const key of [...workspaceKeys, ...workpieceKeys, ...intakeKeys]) {
-      params.delete(key);
-    }
-
-    const normalizedWorkspaceId = normalizeUuid(workspaceId);
-    const normalizedWorkpieceId = normalizeUuid(workpieceId);
-    if (normalizedWorkspaceId) {
-      params.set("workspace_id", normalizedWorkspaceId);
-    }
-    if (normalizedWorkpieceId) {
-      params.set("workpiece_id", normalizedWorkpieceId);
-    }
-
-    const nextSearch = params.toString();
-    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ""}${window.location.hash}`;
+    const nextUrl = buildHearthRouteContextUrl({
+      pathname: window.location.pathname,
+      search: window.location.search,
+      hash: window.location.hash,
+      workspaceId,
+      workpieceId,
+    });
     window.history.replaceState(window.history.state, "", nextUrl);
   } catch {
     // ignore route cleanup failures
@@ -1137,26 +867,6 @@ async function writeTextToClipboard(text: string): Promise<boolean> {
   }
 }
 
-function readWorkspaceUiDensity(workspaceId: string | null): UiDensity {
-  if (!workspaceId || typeof window === "undefined") return "comfortable";
-  try {
-    const raw = window.localStorage.getItem(`${UI_DENSITY_STORAGE_PREFIX}${workspaceId}`)?.trim().toLowerCase();
-    if (raw === "compact") return "compact";
-  } catch {
-    // ignore storage failures
-  }
-  return "comfortable";
-}
-
-function writeWorkspaceUiDensity(workspaceId: string | null, density: UiDensity): void {
-  if (!workspaceId || typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(`${UI_DENSITY_STORAGE_PREFIX}${workspaceId}`, density);
-  } catch {
-    // ignore storage failures
-  }
-}
-
 function downloadTextFile(args: { text: string; filename: string; mimeType?: string }): void {
   if (typeof document === "undefined" || typeof URL === "undefined") return;
   const blob = new Blob([args.text], { type: args.mimeType ?? "text/plain;charset=utf-8" });
@@ -1168,248 +878,11 @@ function downloadTextFile(args: { text: string; filename: string; mimeType?: str
   URL.revokeObjectURL(url);
 }
 
-function resolveVisualRequestStateLabel(state: EpisodeExternalRequestState | null | undefined): string {
-  switch (state) {
-    case "brief_exported":
-      return "brief_exported";
-    case "sent_external":
-      return "sent_external";
-    case "awaiting_result":
-      return "awaiting_result";
-    case "asset_attached":
-      return "asset_attached";
-    case "resolved":
-      return "resolved";
-    default:
-      return "planned";
-  }
-}
-
-function CopyIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <rect x="9" y="9" width="11" height="11" rx="2" ry="2" fill="none" stroke="currentColor" strokeWidth="1.8" />
-      <path
-        d="M15 6V5a2 2 0 0 0-2-2H5A2 2 0 0 0 3 5v8a2 2 0 0 0 2 2h1"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.8"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
-
-function formatUpdatedAt(value: number | undefined): string {
-  if (!value) return "Unknown";
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return String(value);
-  }
-}
-
-function formatRelativeUpdatedAt(value: number | undefined): string {
-  if (!value) return "unknown";
-  const diffMs = Date.now() - value;
-  const absMs = Math.abs(diffMs);
-  const minuteMs = 60 * 1000;
-  const hourMs = 60 * minuteMs;
-  const dayMs = 24 * hourMs;
-  const weekMs = 7 * dayMs;
-
-  const formatUnit = (unit: Intl.RelativeTimeFormatUnit, amount: number): string => {
-    try {
-      return new Intl.RelativeTimeFormat(undefined, { numeric: "auto" }).format(amount, unit);
-    } catch {
-      const abs = Math.abs(amount);
-      const suffix = amount <= 0 ? "ago" : "from now";
-      return `${abs} ${unit}${abs === 1 ? "" : "s"} ${suffix}`;
-    }
-  };
-
-  if (absMs < hourMs) {
-    return formatUnit("minute", -Math.max(1, Math.round(absMs / minuteMs)));
-  }
-  if (absMs < dayMs) {
-    return formatUnit("hour", -Math.round(absMs / hourMs));
-  }
-  if (absMs < weekMs) {
-    return formatUnit("day", -Math.round(absMs / dayMs));
-  }
-  return formatUnit("week", -Math.round(absMs / weekMs));
-}
-
-function dedupeDraftListById(input: Draft[]): Draft[] {
-  const byId = new Map<string, Draft>();
-  for (const draft of input) {
-    const existing = byId.get(draft.id);
-    if (!existing) {
-      byId.set(draft.id, draft);
-      continue;
-    }
-    const existingUpdatedAt = existing.updatedAt ?? existing.createdAt ?? 0;
-    const nextUpdatedAt = draft.updatedAt ?? draft.createdAt ?? 0;
-    if (nextUpdatedAt >= existingUpdatedAt) {
-      byId.set(draft.id, draft);
-    }
-  }
-  return [...byId.values()];
-}
-
-function buildDraftAttribution(user: HearthUserContext): { userId: string | null; displayName: string | null } {
-  const displayName = user.displayName.trim() || "Creator";
-  return {
-    userId: user.userId,
-    displayName,
-  };
-}
-
-function resolveDraftEditorName(draft: Draft | null | undefined): string {
-  const fromUpdated = draft?.updatedBy?.displayName?.trim();
-  if (fromUpdated) return fromUpdated;
-  const fromCreated = draft?.createdBy?.displayName?.trim();
-  if (fromCreated) return fromCreated;
-  return "Unknown";
-}
-
-const parseDraftConflictError = parseHearthDraftConflictError;
-
-function parseIsoTimestamp(value: string | null | undefined): number | undefined {
-  if (!value) return undefined;
-  const timestamp = Date.parse(value);
-  return Number.isFinite(timestamp) ? timestamp : undefined;
-}
-
-function shortenUserIdForUi(value: string | null | undefined): string {
-  const userId = readTrimmedString(value);
-  if (!userId) return "Unknown";
-  if (userId.length <= 12) return userId;
-  return `${userId.slice(0, 8)}...`;
-}
-
 function createThumbnailClientId(prefix: string): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return crypto.randomUUID();
   }
   return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
-}
-
-const METADATA_TAG_SUGGESTIONS_BY_CATEGORY: Record<string, string[]> = {
-  evergreen: ["evergreen", "how-to", "timeless"],
-  hot_topic: ["news", "breaking", "analysis"],
-  viral_reaction: ["reaction", "trending", "viral"],
-  strategic_anchor: ["strategy", "framework", "playbook"],
-  community: ["community", "feedback", "q-and-a"],
-  reflective: ["reflection", "lessons", "behind-the-scenes"],
-  explainer: ["explainer", "guide", "deep-dive"],
-  experimental: ["experiment", "prototype", "iteration"],
-  backup: ["backup", "quick-hit", "short-form"],
-};
-
-function normalizeMetadataTag(tag: string): string | null {
-  const cleaned = tag
-    .trim()
-    .toLowerCase()
-    .replace(/^#+/, "")
-    .replace(/[\s_]+/g, "-")
-    .replace(/[^a-z0-9-]/g, "")
-    .replace(/-+/g, "-")
-    .replace(/^-|-$/g, "");
-  return cleaned || null;
-}
-
-function parseMetadataTagInput(input: string): string[] {
-  return input
-    .split(/[,\n]/g)
-    .map((part) => normalizeMetadataTag(part))
-    .filter((value): value is string => Boolean(value));
-}
-
-function buildMetadataTagSuggestions(args: {
-  currentTags: string[];
-  contentCategory: string | null;
-  bodyText: string;
-  titleTexts: string[];
-}): string[] {
-  const normalizedExisting = normalizeSeoTags(args.currentTags);
-  const existingSet = new Set(normalizedExisting);
-  const suggestions = new Set<string>();
-
-  const categoryTags = args.contentCategory ? (METADATA_TAG_SUGGESTIONS_BY_CATEGORY[args.contentCategory] ?? []) : [];
-  for (const tag of categoryTags) {
-    const normalized = normalizeMetadataTag(tag);
-    if (normalized) suggestions.add(normalized);
-  }
-
-  for (const tag of normalizedExisting.slice(0, 5)) {
-    const tip = normalizeMetadataTag(`${tag}-tips`);
-    const guide = normalizeMetadataTag(`${tag}-guide`);
-    if (tip) suggestions.add(tip);
-    if (guide) suggestions.add(guide);
-  }
-
-  for (const base of ["creator", "content-strategy", "video-essay"]) {
-    const normalized = normalizeMetadataTag(base);
-    if (normalized) suggestions.add(normalized);
-  }
-
-  const candidates = [...suggestions].filter((tag) => !existingSet.has(tag)).slice(0, 12);
-  return sortTagsByRelevance(candidates, { body: args.bodyText, titleTexts: args.titleTexts });
-}
-
-function deriveReadyUrgency(entry: HearthReadyScript, nowMs = Date.now()): ReadyUrgencyLevel | null {
-  if (!entry.contentCategory || !READY_URGENCY_APPLICABLE_CATEGORY_SET.has(entry.contentCategory)) {
-    return null;
-  }
-  const approvedAtMs = parseIsoTimestamp(entry.updatedAt);
-  if (!approvedAtMs) return null;
-  const ageMs = Math.max(0, nowMs - approvedAtMs);
-  if (ageMs <= 48 * 60 * 60 * 1000) return "fresh";
-  if (ageMs <= 5 * 24 * 60 * 60 * 1000) return "warming";
-  if (ageMs <= 10 * 24 * 60 * 60 * 1000) return "cooling";
-  return "cold";
-}
-
-function reorderVisibleReadyEntries(
-  entries: readonly HearthReadyScript[],
-  fromId: string,
-  toId: string,
-): HearthReadyScript[] {
-  if (!fromId || !toId || fromId === toId) return [...entries];
-
-  const visible = entries.filter((entry) => !entry.hiddenAt);
-  const fromIndex = visible.findIndex((entry) => entry.id === fromId);
-  const toIndex = visible.findIndex((entry) => entry.id === toId);
-  if (fromIndex < 0 || toIndex < 0) return [...entries];
-
-  const reorderedVisible = visible.slice();
-  const [moved] = reorderedVisible.splice(fromIndex, 1);
-  if (!moved) return [...entries];
-  reorderedVisible.splice(toIndex, 0, moved);
-
-  let visibleIndex = 0;
-  return entries.map((entry) => {
-    if (entry.hiddenAt) return entry;
-    const next = reorderedVisible[visibleIndex] ?? entry;
-    visibleIndex += 1;
-    return next;
-  });
-}
-
-function normalizeTitle(title: string): string {
-  const trimmed = title.trim();
-  return trimmed || "Untitled Draft";
-}
-
-function countWords(text: string): number {
-  const matches = text.trim().match(/\b\w+\b/g);
-  return matches ? matches.length : 0;
-}
-
-function splitLines(text: string): string[] {
-  return text.split(/\r?\n/);
 }
 
 function resolveAiSttMimeType(): string | null {
@@ -1430,550 +903,6 @@ function resolveAiSttMimeType(): string | null {
   }
   return null;
 }
-
-type ChatIntentSignals = {
-  requestedOutline: boolean;
-  requestedScript: boolean;
-  explicitDraftNow: boolean;
-  hasDeliverable: boolean;
-  scriptMutationIntent: ReturnType<typeof detectHearthScriptMutationIntent>;
-};
-
-function detectChatIntentSignals(text: string): ChatIntentSignals {
-  const normalized = text.replace(/\s+/g, " ").trim().toLowerCase();
-  const requestedOutline = isExplicitHearthOutlineRequest(normalized);
-  const requestedScript = isExplicitHearthFullScriptRequest(normalized);
-  const scriptMutationIntent = detectHearthScriptMutationIntent(normalized);
-  const explicitDraftNow = /\bdraft now\b/.test(normalized)
-    || /\bskip questions\b/.test(normalized)
-    || /\bno questions\b/.test(normalized);
-  const hasDeliverable = requestedOutline
-    || requestedScript
-    || scriptMutationIntent.targetsScriptBody
-    || /\bbullet points?\b/.test(normalized)
-    || /\bthumbnail\b/.test(normalized)
-    || /\bseo\b/.test(normalized)
-    || /\btags?\b/.test(normalized);
-  return {
-    requestedOutline,
-    requestedScript,
-    explicitDraftNow,
-    hasDeliverable,
-    scriptMutationIntent,
-  };
-}
-
-function detectAiAutosaveReasonCode(text: string): AiAutosaveReasonCode {
-  const normalized = text.replace(/\s+/g, " ").trim().toLowerCase();
-  if (!normalized) return "ai_rewrite";
-  if (/\b(correct|repair|fix|tag audit|cleanup)\b/.test(normalized)) return "ai_repair";
-  if (/\b(rewrite|improve|shorten|punch up|edit|revise|polish|tighten)\b/.test(normalized)) return "ai_rewrite";
-  if (isExplicitHearthOutlineRequest(normalized)) return "ai_outline";
-  if (isExplicitHearthFullScriptRequest(normalized)) return "ai_script";
-  return "ai_rewrite";
-}
-
-function readLatestOutlineFromOps(ops: HearthOp[]): string | null {
-  for (let idx = ops.length - 1; idx >= 0; idx -= 1) {
-    const op = ops[idx];
-    if (op?.op !== "set_outline") continue;
-    const outline = op.value.trim();
-    return outline.length ? outline : null;
-  }
-  return null;
-}
-
-function buildAssistantMessageContent(args: {
-  assistantText: string;
-  ops: HearthOp[];
-  autosaveReasonCode: AiAutosaveReasonCode | null;
-  scriptMutationRequested: boolean;
-  scriptMutationReady: boolean;
-}): string {
-  const assistantText = args.assistantText.trim();
-  const outlineFromOps = readLatestOutlineFromOps(args.ops);
-
-  if (args.scriptMutationRequested && !args.scriptMutationReady) {
-    if (assistantText) return assistantText;
-    if (outlineFromOps) {
-      return `No script changes made.\n\n${outlineFromOps}`;
-    }
-    return "No script changes made.";
-  }
-
-  if (args.autosaveReasonCode === "ai_outline") {
-    if (outlineFromOps) {
-      if (!assistantText) {
-        return `I took a first pass at a bullet outline:\n${outlineFromOps}`;
-      }
-      if (assistantText.includes(outlineFromOps)) {
-        return assistantText;
-      }
-      return `${assistantText}\n\n${outlineFromOps}`;
-    }
-  }
-
-  if (assistantText) return assistantText;
-  if (args.ops.length > 0) return "I took a first pass. Have a look and we can tighten it from there.";
-  return "I’m ready when you are.";
-}
-
-function toProposalAutosaveReason(reasonCode: ProposalSaveReasonCode): ProposalAutosaveReason {
-  return `autosave:${reasonCode}`;
-}
-
-function countProducerQuestions(text: string): number {
-  const lines = splitLines(text);
-  let count = 0;
-  for (const line of lines) {
-    if (/^\s*\d+[).]\s+/.test(line)) {
-      count += 1;
-    }
-  }
-  if (count > 0) return count;
-  const fallback = text.match(/\?/g)?.length ?? 0;
-  if (fallback <= 0) return 0;
-  return Math.min(3, fallback);
-}
-
-function OscilloscopeFill({
-  stream,
-  active,
-}: {
-  stream: MediaStream | null;
-  active: boolean;
-}) {
-  const hostRef = useRef<HTMLDivElement | null>(null);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const rafRef = useRef<number | null>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const [size, setSize] = useState({ w: 1, h: 1 });
-
-  useLayoutEffect(() => {
-    const host = hostRef.current;
-    if (!host) return;
-
-    const ro = new ResizeObserver(() => {
-      const r = host.getBoundingClientRect();
-      const w = Math.max(1, Math.floor(r.width));
-      const h = Math.max(1, Math.floor(r.height));
-      setSize({ w, h });
-    });
-
-    ro.observe(host);
-    return () => ro.disconnect();
-  }, []);
-
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !active || !stream) return;
-
-    const ctx2d = canvas.getContext("2d");
-    if (!ctx2d) return;
-
-    const AudioCtx = window.AudioContext || (window as Window & typeof globalThis & {
-      webkitAudioContext?: typeof AudioContext;
-    }).webkitAudioContext;
-    if (!AudioCtx) return;
-    const audioCtx = new AudioCtx();
-    audioCtxRef.current = audioCtx;
-
-    const source = audioCtx.createMediaStreamSource(stream);
-    const analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 1024;
-    analyser.smoothingTimeConstant = 0.85;
-    source.connect(analyser);
-
-    const bufferLength = analyser.fftSize;
-    const data = new Uint8Array(bufferLength);
-    const computed = getComputedStyle(canvas);
-    const stroke = computed.color || "#aaa";
-
-    const draw = () => {
-      rafRef.current = window.requestAnimationFrame(draw);
-      analyser.getByteTimeDomainData(data);
-
-      const w = canvas.width;
-      const h = canvas.height;
-      ctx2d.clearRect(0, 0, w, h);
-
-      ctx2d.lineWidth = 1;
-      ctx2d.strokeStyle = stroke;
-      ctx2d.beginPath();
-
-      const mid = h / 2;
-      const slice = w / bufferLength;
-      let x = 0;
-      for (let i = 0; i < bufferLength; i += 1) {
-        const v = (data[i] - 128) / 128;
-        const y = mid + v * (mid * 0.9);
-        if (i === 0) ctx2d.moveTo(x, y);
-        else ctx2d.lineTo(x, y);
-        x += slice;
-      }
-      ctx2d.stroke();
-    };
-
-    draw();
-
-    return () => {
-      if (rafRef.current != null) {
-        window.cancelAnimationFrame(rafRef.current);
-      }
-      rafRef.current = null;
-      try {
-        source.disconnect();
-      } catch {
-        // ignore disconnect errors
-      }
-      try {
-        analyser.disconnect();
-      } catch {
-        // ignore disconnect errors
-      }
-      void audioCtx.close().catch(() => {
-        // ignore close errors
-      });
-      audioCtxRef.current = null;
-    };
-  }, [active, size.h, size.w, stream]);
-
-  if (!active) return null;
-
-  return (
-    <div ref={hostRef} className="hs-stt-oscHost">
-      <canvas
-        ref={canvasRef}
-        className="hs-stt-oscCanvas"
-        width={size.w}
-        height={size.h}
-        aria-hidden="true"
-      />
-    </div>
-  );
-}
-
-type SortKey = "updated" | "title";
-type ReadyUrgencyLevel = "fresh" | "warming" | "cooling" | "cold";
-type ReadyLabel = "hot" | "evergreen" | "series";
-
-type DraftSnapshot = {
-  title: string;
-  body: string;
-  updatedAt: number;
-};
-
-type DiffLine = {
-  left: string;
-  right: string;
-  status: "same" | "changed" | "added" | "removed" | "separator";
-};
-
-type PendingAiProposal = {
-  assistantText: string;
-  ops: HearthOp[];
-  originalOps: HearthOp[];
-  selected: boolean[];
-  context: EpisodeContext;
-  fromGate: boolean;
-  autosaveReasonCode: ProposalSaveReasonCode;
-  proposalOrigin: "ai" | "format_only" | "user_editorial";
-  formatSourceBody: string | null;
-  formatOriginalBody: string | null;
-  formatChanges: HearthFormatOnlyChangeCategory[];
-};
-
-function reclassifyHearthFormatProposal(
-  proposal: PendingAiProposal,
-  body: string,
-): PendingAiProposal {
-  if (proposal.formatSourceBody === null) return proposal;
-  const preservation = evaluateHearthFormatOnlyPreservation(proposal.formatSourceBody, body);
-  return {
-    ...proposal,
-    proposalOrigin: preservation.preserved ? "format_only" : "user_editorial",
-    autosaveReasonCode: preservation.preserved ? "format_only" : "user_editorial",
-    formatChanges: preservation.changes,
-  };
-}
-
-type ChatAttachmentUi = {
-  id: string;
-  filename: string;
-  mimeType: string;
-  status: "uploading" | "reading" | "attached" | "failed" | "needs_text_extraction";
-  error?: string | null;
-};
-
-const READY_URGENCY_APPLICABLE_CATEGORY_SET = new Set<HearthContentCategory>([
-  "hot_topic",
-  "viral_reaction",
-]);
-
-const READY_URGENCY_LABEL: Record<ReadyUrgencyLevel, string> = {
-  fresh: "Fresh",
-  warming: "Warming",
-  cooling: "Cooling",
-  cold: "Cold",
-};
-
-const READY_LABEL_TO_CATEGORY: Record<ReadyLabel, HearthContentCategory> = {
-  hot: "hot_topic",
-  evergreen: "evergreen",
-  series: "strategic_anchor",
-};
-
-function resolveReadyLabel(entry: HearthReadyScript): ReadyLabel {
-  if (entry.contentCategory === "hot_topic" || entry.contentCategory === "viral_reaction") return "hot";
-  if (entry.contentCategory === "strategic_anchor") return "series";
-  return "evergreen";
-}
-
-function buildDiffLines(current: string, revision: string): DiffLine[] {
-  const leftLines = splitLines(current);
-  const rightLines = splitLines(revision);
-  const maxLen = Math.max(leftLines.length, rightLines.length);
-  const out: DiffLine[] = [];
-
-  for (let i = 0; i < maxLen; i += 1) {
-    const left = leftLines[i] ?? "";
-    const right = rightLines[i] ?? "";
-    const leftTrim = left.trim();
-    const rightTrim = right.trim();
-    if (leftTrim === "---" || rightTrim === "---") {
-      out.push({ left, right, status: "separator" });
-      continue;
-    }
-    if (!left && right) {
-      out.push({ left, right, status: "added" });
-      continue;
-    }
-    if (left && !right) {
-      out.push({ left, right, status: "removed" });
-      continue;
-    }
-    out.push({ left, right, status: left === right ? "same" : "changed" });
-  }
-  return out;
-}
-
-function diffCellClass(side: "left" | "right", status: DiffLine["status"]): string {
-  const classes = ["hs-diff-cell"];
-  if (status === "removed" && side === "left") classes.push("is-removed");
-  if (status === "added" && side === "right") classes.push("is-added");
-  if (status === "changed") {
-    classes.push(side === "left" ? "is-changed-left" : "is-changed-right");
-  }
-  return classes.join(" ");
-}
-
-function formatSparkDate(value: number | undefined): string {
-  if (!value) return "Unknown";
-  try {
-    return new Date(value).toLocaleDateString();
-  } catch {
-    return String(value);
-  }
-}
-
-function deriveSparkTitle(spark: BarStockSpark): string {
-  const title = spark.title?.trim();
-  if (title) return title;
-  const line = spark.body.split(/\r?\n/).find((chunk) => chunk.trim());
-  if (line) return line.trim().slice(0, 60);
-  return "Untitled Spark";
-}
-
-function buildSparkPreview(text: string): string {
-  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-  const preview = lines.slice(0, 2).join(" ");
-  return preview.length > 180 ? `${preview.slice(0, 177)}...` : preview;
-}
-
-function buildProjectDraftSeed(projectTitle: string, sparks: BarStockSpark[]): string {
-  const normalizedTitle = projectTitle.trim() || "Untitled Project";
-  const introLine = sparks[0] ? buildSparkPreview(sparks[0].body) : "";
-  const pointBlocks = sparks.map((spark, index) => {
-    const heading = deriveSparkTitle(spark);
-    const body = spark.body.trim() || "(empty spark)";
-    return `### Point ${index + 1}: ${heading}\n${body}`;
-  });
-
-  return [
-    `# ${normalizedTitle}`,
-    "",
-    "## Intro",
-    introLine ? `- ${introLine}` : "- Hook and frame the episode.",
-    "",
-    "## Key Points",
-    ...(pointBlocks.length ? pointBlocks : ["- No project sparks were found yet."]),
-    "",
-    "## Close",
-    "- Recap the main takeaway.",
-    "- Give the listener one next step.",
-    "",
-  ].join("\n");
-}
-
-function formatSparkStatus(spark: BarStockSpark): { label: string; detail?: string } {
-  if (spark.status === "graduated") {
-    return { label: "Graduated" };
-  }
-  const workpieceId = spark.links?.hearthWorkpieceId ?? spark.links?.hearthDraftId ?? null;
-  if (workpieceId) {
-    const shortId = workpieceId.length > 8 ? workpieceId.slice(0, 8) : workpieceId;
-    return { label: "Forged", detail: shortId };
-  }
-  if (spark.status === "forged") {
-    return { label: "Forged" };
-  }
-  return { label: "Open" };
-}
-
-function isSparkForged(spark: BarStockSpark): boolean {
-  if (spark.links?.hearthWorkpieceId) return true;
-  return spark.status === "forged" || spark.status === "graduated";
-}
-
-function parsePlanningLines(text: string): string[] {
-  return splitLines(text)
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
-
-function formatDecisionAt(value: string | undefined): string {
-  if (!value) return "Unknown";
-  try {
-    return new Date(value).toLocaleString();
-  } catch {
-    return value;
-  }
-}
-
-function deriveIntentFromOrigin(origin: HearthSessionOrigin | null | undefined): HearthPlanningSession["intent"] {
-  if (!origin?.created_from) return undefined;
-  return origin.created_from === "bar-stock" ? "from_spark" : "new_idea";
-}
-
-function buildOpenInAnvilHref(
-  workspaceId: string | null,
-  workpieceId: string | null,
-  scriptPath = ANVIL_SCRIPT_PATH,
-): string | null {
-  const workspace = workspaceId?.trim();
-  const workpiece = workpieceId?.trim();
-  if (!workspace || !workpiece) return null;
-  const normalizedScriptPath = scriptPath.trim();
-  if (!normalizedScriptPath || normalizedScriptPath.startsWith("/") || normalizedScriptPath.includes("..")) {
-    return null;
-  }
-
-  const params = new URLSearchParams();
-  params.set("workspace_id", workspace);
-  params.set("workpiece_id", workpiece);
-  params.set("open", "script");
-  params.set("script_path", normalizedScriptPath);
-  return `/app/anvil?${params.toString()}`;
-}
-
-const SCRIPT_TAG_VALIDATOR_VERSION = "shared-script-tags-v1";
-const LEGACY_DRAFT_SCRIPT_PLACEHOLDER = "## Draft Script";
-const SAFE_SCRIPT_STARTER = "[s1]\nDraft intro goes here.\n[/s1]\n";
-
-function isLegacyDraftScriptPlaceholder(value: string | null | undefined): boolean {
-  return readTrimmedString(value) === LEGACY_DRAFT_SCRIPT_PLACEHOLDER;
-}
-
-function buildValidationReport(result: ScriptValidationResult): string {
-  if (result.issues.length === 0) return "No issues.";
-  return result.issues
-    .map((issue) => `[line ${issue.line}, col ${issue.column}] ${issue.message}`)
-    .join("\n");
-}
-
-function buildPersistedValidationMeta(result: ScriptValidationResult) {
-  return {
-    ok: result.ok,
-    issueCount: result.issues.length,
-    issues: result.issues,
-    validatorVersion: SCRIPT_TAG_VALIDATOR_VERSION,
-    validatedAt: new Date().toISOString(),
-  };
-}
-
-function evaluateScriptValidation(rawText: string): {
-  normalizedText: string;
-  validation: ScriptValidationResult;
-  tagMode: "absent" | "present";
-} {
-  return evaluateHearthScriptValidation(rawText);
-}
-
-function resolveReadyOpenHref(entry: HearthReadyScript): string | null {
-  return buildOpenInAnvilHref(entry.workspaceId, entry.workpieceId, entry.primaryScriptPath);
-}
-
-function isPlanningSessionEmpty(session: HearthPlanningSession | null): boolean {
-  if (!session) return true;
-  const hasTitle = Boolean(session.title && session.title.trim());
-  const hasTitleVariants = Boolean(
-    session.title_variants?.A?.trim()
-    || session.title_variants?.B?.trim()
-    || session.title_variants?.C?.trim(),
-  );
-  const hasGoals = (session.goals ?? []).length > 0;
-  const hasOutline = (session.outline ?? []).length > 0;
-  const hasDecisions = (session.decisions ?? []).length > 0;
-  const hasAudience = Boolean(session.audience && session.audience.trim());
-  const hasTone = Boolean(session.tone_preset && session.tone_preset.trim());
-  const hasVisualProviderOverride = Boolean(session.visual_provider_override);
-  return !(hasTitle || hasTitleVariants || hasGoals || hasOutline || hasDecisions || hasAudience || hasTone || hasVisualProviderOverride);
-}
-
-function buildSessionFingerprint(session: HearthPlanningSession): string {
-  return JSON.stringify({
-    workpiece_id: session.workpiece_id ?? null,
-    workspace_id: session.workspace_id ?? null,
-    origin: session.origin ?? null,
-    intent: session.intent ?? null,
-    title: session.title ?? "",
-    title_variants: session.title_variants ?? null,
-    goals: session.goals ?? [],
-    outline: session.outline ?? [],
-    audience: session.audience ?? "",
-    tone_preset: session.tone_preset ?? "",
-    visual_provider_override: session.visual_provider_override ?? null,
-    links: session.links ?? null,
-    decisions: session.decisions ?? [],
-  });
-}
-
-function createPlanningSessionForEpisode(workpieceId: string, workspaceId: string | null): HearthPlanningSession {
-  const nowIso = new Date().toISOString();
-  return {
-    schema: HEARTH_SESSION_SCHEMA,
-    workpiece_id: workpieceId,
-    workspace_id: workspaceId,
-    created_at: nowIso,
-    updated_at: nowIso,
-    origin: null,
-    intent: null,
-    title: null,
-    title_variants: null,
-    goals: [],
-    outline: [],
-    audience: null,
-    tone_preset: null,
-    visual_provider_override: null,
-    links: null,
-    decisions: [],
-  };
-}
-
-type HearthShellProps = {
-  onEpisodeReadModelChange?: (readModel: EpisodeWorkspaceReadModel | null) => void;
-  onEpisodeContextLoadingChange?: (episodeId: string | null) => void;
-};
 
 export default function HearthShell({
   onEpisodeReadModelChange,
@@ -2287,6 +1216,8 @@ export default function HearthShell({
     imageMapPlacementHintDraft,
     imageMapMetadataUpdatedAt,
     setImageMapMetadataUpdatedAt,
+    imageMapProjectionLoaded,
+    setImageMapProjectionLoaded,
     imageMapSaveState,
     setImageMapSaveState,
     imageMapSaveError,
@@ -2865,7 +1796,7 @@ export default function HearthShell({
         baseVersionCount: canonical.episodePackage.thumbnail.base_versions.length,
         candidateCount: candidateAuthority.candidates.length,
         eligibleCandidateCount: candidateAuthority.candidates.filter((candidate)=>candidate.eligibility_state==="current"||candidate.eligibility_state==="approved_historical_brand").length,
-        previewAssetPaths: candidateAuthority.candidates.map((candidate) => canonical.episodePackage.thumbnail.launch_variant_revisions.find((entry) => entry.snapshot.asset_id === candidate.composite_asset_id)?.snapshot.asset_path ?? "").filter(Boolean).slice(0, 3),
+        previewAssetPaths: candidateAuthority.candidates.map((candidate) => (typeof candidate.asset_path === "string" && candidate.asset_path.trim()) || canonical.episodePackage.thumbnail.launch_variant_revisions.find((entry) => entry.snapshot.asset_id === candidate.composite_asset_id)?.snapshot.asset_path || "").filter(Boolean).slice(0, 3),
         titleCount: canonical.episodePackage.seo.titles.length,
         tagCount: canonical.episodePackage.seo.tags.length,
         hasDescriptions: Boolean(canonical.episodePackage.seo.description_short?.trim())
@@ -3145,6 +2076,9 @@ export default function HearthShell({
   );
   const imageMapReanchorDisabledReason = useMemo(() => {
     if (!selectedImageMapEntry) return "Select a visual beat first.";
+    if (!(scriptApprovalState.hasApprovedScript && scriptApprovalState.approvedScriptVersion && scriptApprovalState.approvedScriptVersion > 0)) {
+      return "Approve the current script before repairing image anchors.";
+    }
     if (imageMapSaveState === "editing" || imageMapSaveState === "saving") {
       return "Save this visual beat before re-anchoring it.";
     }
@@ -3153,6 +2087,8 @@ export default function HearthShell({
     }
     return null;
   }, [
+    scriptApprovalState.approvedScriptVersion,
+    scriptApprovalState.hasApprovedScript,
     imageMapSaveState,
     isImageMapCandidateGenerating,
     isImageMapCandidateSelecting,
@@ -3210,6 +2146,7 @@ export default function HearthShell({
     previewState: imageMapCandidatePreviewStateById[candidate.asset_id] ?? "loading",
     previewDataUrl: imageMapCandidatePreviewUrlById[candidate.asset_id] ?? null,
     previewError: imageMapCandidatePreviewErrorById[candidate.asset_id] ?? null,
+    source: candidate.source ?? selectedImageMapEntry?.source_type ?? null,
   }));
   const chatPanelMeta = chatMessages.length > 0
     ? `${chatMessages.length} message${chatMessages.length === 1 ? "" : "s"}`
@@ -3217,6 +2154,8 @@ export default function HearthShell({
   const thumbnailPanelMeta = formatThumbnailPanelMeta(displayedThumbnailConceptCount, displayedThumbnailVersionCount);
   const mediaMapPanelMeta = `${mediaMapEntries.length} visual${mediaMapEntries.length === 1 ? "" : "s"}`;
   const imageMapPanelMeta = `${imageMapEntries.length} anchor${imageMapEntries.length === 1 ? "" : "s"}`;
+  const plannedImageCount = mediaMapEntries.filter((entry) => entry.final_media_kind === "image").length;
+  const imageMapAuthorityUnavailable = imageMapSaveError === "canonical_image_map_authority_unavailable";
   const brollPanelMeta = `${brollBeats.length} beat${brollBeats.length === 1 ? "" : "s"} · coverage ${brollPlan?.coverage_strength ?? "low"}`;
   const mediaWorkflowInput = {
     hasApprovedScript: Boolean(scriptApprovalState.hasApprovedScript && scriptApprovalState.approvedScriptVersion && scriptApprovalState.approvedScriptVersion > 0),
@@ -3232,7 +2171,12 @@ export default function HearthShell({
       eligible: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "") ? canonicalThumbnailProgress.eligibleCandidateCount : 0,
       previewAssetPaths: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "") ? canonicalThumbnailProgress.previewAssetPaths : [],
     },
-    images: { planned: imageMapEntries.length, completed: imageMapEntries.filter((entry) => Boolean(entry.selected_asset_id)).length },
+    images: {
+      planned: plannedImageCount,
+      completed: imageMapEntries.filter((entry) => Boolean(entry.selected_asset_id)).length,
+      canonicalCount: imageMapEntries.length,
+      projectionLoaded: imageMapProjectionLoaded && !imageMapAuthorityUnavailable,
+    },
     broll: { planned: brollBeats.length, completed: brollBeats.filter((beat) => beat.fulfillment_state === "resolved" && Boolean(beat.selected_asset_id)).length },
     upstreamChanged: visualPlanRevisionChanged,
   };
@@ -3392,6 +2336,22 @@ export default function HearthShell({
     prepareSourceEpisodePackageForMediaMapGeneration,
     buildMediaMapFromExistingPlans,
     persistMediaMap,
+    repairImageMapAuthority: async () => {
+      if (!workpieceId || !workspaceId || !episodePackage) {
+        return { ok: false as const, error: missingImageMapContextError };
+      }
+      const { repairWorkpieceImageMapAuthority } = await import("../lib/hearth-image-map-authority");
+      const repaired = await repairWorkpieceImageMapAuthority({ workpieceId, workspaceId });
+      if (!repaired.ok) {
+        return { ok: false as const, error: repaired.error ?? "Tongs could not verify the applied visual plan." };
+      }
+      applyCanonicalImageMap({
+        entries: repaired.imageMap.entries,
+        spokenBeats: repaired.imageMap.spokenBeats,
+        metadataUpdatedAt: repaired.imageMap.metadataUpdatedAt,
+      });
+      return { ok: true as const };
+    },
   });
   const onRecoverLastMediaMapGeneration = useCallback(async () => {
     if (!recoverableMediaMap || !episodePackage || isMediaMapBusy) return;
@@ -4705,6 +3665,7 @@ export default function HearthShell({
     setEpisodePackageError,
     setRecoverableMediaMap,
     setImageMapMetadataUpdatedAt,
+    setImageMapProjectionLoaded,
     setSelectedThumbnailTitleId,
     setSelectedThumbnailConceptId,
     setSelectedThumbnailVersionId,
@@ -5063,6 +4024,30 @@ export default function HearthShell({
     isImageMapReanchorSaving,
     canonicalImageMapScriptState,
     persistImageMapEntries,
+    repairCanonicalImageMap: async () => {
+      if (!workpieceId || !workspaceId || !episodePackage) return { ok: false as const, error: missingImageMapContextError };
+      const { repairWorkpieceImageMapAuthority } = await import("../lib/hearth-image-map-authority");
+      const repaired = await repairWorkpieceImageMapAuthority({ workpieceId, workspaceId });
+      if (!repaired.ok) return { ok: false as const, error: repaired.error ?? "Tongs could not repair the image map." };
+      applyCanonicalImageMap({
+        entries: repaired.imageMap.entries,
+        spokenBeats: repaired.imageMap.spokenBeats,
+        metadataUpdatedAt: repaired.imageMap.metadataUpdatedAt,
+      });
+      return { ok: true as const };
+    },
+    resolveManualCanonicalAnchor: async (entryId, scriptAnchor) => {
+      if (!workpieceId || !workspaceId || !episodePackage) return { ok: false as const, error: missingImageMapContextError };
+      const { resolveWorkpieceImageMapManualAnchorAuthority } = await import("../lib/hearth-image-map-authority");
+      const resolved = await resolveWorkpieceImageMapManualAnchorAuthority({ workpieceId, workspaceId, entryId, scriptAnchor });
+      if (!resolved.ok) return { ok: false as const, error: resolved.error ?? "Tongs could not resolve the anchor." };
+      applyCanonicalImageMap({
+        entries: resolved.imageMap.entries,
+        spokenBeats: resolved.imageMap.spokenBeats,
+        metadataUpdatedAt: resolved.imageMap.metadataUpdatedAt,
+      });
+      return { ok: true as const };
+    },
     setMode,
     setShowManualDraft,
     setShowScriptPanel,
@@ -5075,6 +4060,16 @@ export default function HearthShell({
     setImageMapSaveError,
     setImageMapExportMessage,
   });
+  const missingImageMapContextError = "Select an episode in an active workspace.";
+  const applyCanonicalImageMap = (next: {
+    entries: EpisodePackageV2["image_map"]["entries"];
+    spokenBeats: EpisodePackageV2["spoken_beats"];
+    metadataUpdatedAt: string | null;
+  }) => {
+    if (!episodePackage) return;
+    setEpisodePackage(replaceEpisodePackageImageMap(episodePackage, next.entries, next.spokenBeats));
+    setImageMapMetadataUpdatedAt(next.metadataUpdatedAt);
+  };
   const {
     onGenerateImageMapCandidates,
     onSelectImageMapCandidate,
@@ -5110,6 +4105,7 @@ export default function HearthShell({
     setImageMapCandidateError,
     setImageMapCandidateSelectionError,
     setImageMapExportMessage,
+    setSelectedImageMapEntryId,
     publishForgeNotice,
   });
   const {
@@ -5533,7 +4529,7 @@ export default function HearthShell({
     normalizeUuid,
     dedupeDraftListById,
     selectDraftForWorkpiece,
-    parseDraftConflictError,
+    parseDraftConflictError: parseHearthDraftConflictError,
     buildDraftAttribution,
     parseIsoTimestamp,
     readTrimmedString,
@@ -7295,6 +6291,7 @@ export default function HearthShell({
       draftPlacementHint: imageMapPlacementHintDraft,
       saveState: imageMapSaveState,
       saveError: imageMapSaveError,
+      expectedImageCount: plannedImageCount,
       exportMessage: imageMapExportMessage,
       activeVisualProvider,
       visualProviderOptions,
@@ -7317,7 +6314,8 @@ export default function HearthShell({
       reanchorScriptLoading: canonicalImageMapScriptState.status === "loading",
       reanchorParagraphs: imageMapAnchorPickerParagraphs,
       activeAnchorLabel: imageMapActiveAnchorLabel,
-      disabled: isApprovingScript || !episodePackage,
+      disabled: isApprovingScript || !episodePackage || imageMapAuthorityUnavailable,
+      onRetryLoad: () => void refreshEpisodePackage(),
       onSelectEntry: setSelectedImageMapEntryId,
       onDraftAnchorChange: onImageMapDraftAnchorChange,
       onDraftDescriptionChange: onImageMapDraftDescriptionChange,

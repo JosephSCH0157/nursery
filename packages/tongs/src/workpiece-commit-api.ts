@@ -2,6 +2,7 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database, Json } from "./db.types.js";
 import { unzlibSync as fflateUnzlibSync, inflateSync as fflateInflateRawSync } from "fflate";
 import type { ThumbnailCompositeEncoding, ThumbnailCompositeRecipe } from "./thumbnail-composite.js";
+import { markEntriesProvenanceUnknown, repairEntriesAgainstApprovedScript, validateExactAnchorAgainstApprovedScript } from "./image-map-anchor-authority.js";
 
 const THUMBNAIL_BUNDLED_FONT_VERSION = "inter-5.2.8-latin-700";
 const THUMBNAIL_COMPOSITION_ENGINE_VERSION = "forge-thumbnail-compositor-v1";
@@ -30,6 +31,7 @@ type UntypedPostgrestBuilder = PromiseLike<UntypedPostgrestResult> & {
 
 type UntypedTongsSchemaClient = {
   from: (table: string) => UntypedPostgrestBuilder;
+  rpc: (name: string, args: Record<string, unknown>) => Promise<UntypedPostgrestResult>;
 };
 import {
   OpenAiImageProvider,
@@ -937,6 +939,12 @@ export type EpisodeImageMapEntryRecord = {
   selected_asset_id: string | null;
   status: string;
   placement_hint?: string | null;
+  canonical_anchor_assessment?: {
+    state: "current" | "stale" | "unresolved" | "provenance_unknown";
+    reason: string | null;
+    exact_anchor: EpisodeImageMapScriptAnchorRecord | null;
+    evidence: Record<string, Json>;
+  };
 };
 
 export type EpisodePackageRecord = {
@@ -982,6 +990,16 @@ export type WorkpieceImageMapResponseData = {
     entries: EpisodeImageMapEntryRecord[];
     spoken_beats: EpisodeSpokenBeatRecord[];
     metadata_updated_at: string | null;
+    authority_source?: "canonical" | "legacy";
+    image_map_revision_id?: string | null;
+    image_map_revision?: number;
+    source_script_approval_id?: string | null;
+    source_script_approval_revision?: number | null;
+    source_script_content_hash?: string | null;
+    anchor_contract_version?: string | null;
+    provenance_state?: "current" | "stale" | "unresolved" | "provenance_unknown";
+    semantic_state_hash?: string | null;
+    immutable_revision_hash?: string | null;
   };
   asset: ImageMapAssetSummary | null;
 };
@@ -1778,6 +1796,22 @@ export type TongsCommitApiService = {
   ): Promise<UpdateWorkspaceReadyQueueStateResult>;
   getWorkpieceImageMap(
     workpieceId: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkpieceImageMapResponseData>;
+  commitCanonicalScriptApproval(
+    workpieceId: string,
+    input: { workspace_id: string; expected_current_revision: number; creator_version_label: string; operation_id: string },
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, unknown>>;
+  getCanonicalScriptApproval(workpieceId: string, options?: { userAccessToken?: string | null }): Promise<Record<string, unknown>>;
+  repairWorkpieceImageMap(
+    workpieceId: string,
+    input: { workspace_id: string; operation_id: string },
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkpieceImageMapResponseData>;
+  resolveWorkpieceImageMapManualAnchor(
+    workpieceId: string,
+    input: { workspace_id: string; operation_id: string; entry_id: string; script_anchor: Record<string, unknown> },
     options?: { userAccessToken?: string | null },
   ): Promise<WorkpieceImageMapResponseData>;
   getWorkpieceVisualPackage(
@@ -3103,6 +3137,25 @@ function normalizeComparableIsoTimestampOrNull(input: unknown): string | null {
   return date.toISOString();
 }
 
+function isMissingCanonicalImageMapObject(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const row = error as { code?: unknown; message?: unknown; details?: unknown; hint?: unknown };
+  const code = typeof row.code === "string" ? row.code : "";
+  if (code === "42P01" || code === "42703" || code === "42883") {
+    return true;
+  }
+  const text = [row.message, row.details, row.hint]
+    .filter((value): value is string => typeof value === "string")
+    .join(" ")
+    .toLowerCase();
+  if (!text) return false;
+  return text.includes("does not exist") && (
+    text.includes("workpiece_image_map_sequences")
+    || text.includes("image_map_revisions")
+    || text.includes("workpiece_script_approval_sequences")
+  );
+}
+
 function normalizeOptionalIsoTimestampOrNull(input: unknown, field: string): string | null | undefined {
   if (typeof input === "undefined") return undefined;
   if (input === null) return null;
@@ -3384,7 +3437,7 @@ function normalizeHammerPassStatusMap(
   for (const [rawPassId, rawState] of Object.entries(row)) {
     if (!HAMMER_PASS_ID_SET.has(rawPassId)) continue;
     const normalizedState = typeof rawState === "string" ? rawState.trim().toLowerCase() : "";
-    if (!HAMMER_PASS_STATE_SET.has(normalizedState)) {
+    if (!HAMMER_PASS_STATE_SET.has(normalizedState as HammerPassState)) {
       throw new HttpError(
         400,
         "invalid_pass_status",
@@ -4184,6 +4237,10 @@ function normalizeEpisodeImageMapEntry(
       : normalizedStatus === "selected"
         ? (hasStructuredAnchor ? "mapped" : "draft")
         : normalizedStatus;
+  const assessmentRaw = isRecord(value.canonical_anchor_assessment) ? value.canonical_anchor_assessment : null;
+  const assessmentState = assessmentRaw && new Set(["current", "stale", "unresolved", "provenance_unknown"]).has(String(assessmentRaw.state))
+    ? assessmentRaw.state as "current" | "stale" | "unresolved" | "provenance_unknown"
+    : null;
 
   return {
     id,
@@ -4205,6 +4262,14 @@ function normalizeEpisodeImageMapEntry(
     selected_asset_id: selectedAssetId,
     status,
     placement_hint: readStringField(value, "placement_hint"),
+    ...(assessmentState ? {
+      canonical_anchor_assessment: {
+        state: assessmentState,
+        reason: readStringField(assessmentRaw!, "reason"),
+        exact_anchor: normalizeImageMapScriptAnchor(assessmentRaw!.exact_anchor, `entries[${index}].canonical_anchor_assessment.exact_anchor`),
+        evidence: isRecord(assessmentRaw!.evidence) ? assessmentRaw!.evidence as Record<string, Json> : {},
+      },
+    } : {}),
   };
 }
 
@@ -6172,7 +6237,20 @@ export class TongsCommitService {
     spokenBeats: EpisodeSpokenBeatRecord[];
     metadataUpdatedAt: string | null;
     assetRow: AssetRow | null;
+    authority?: {
+      source: "canonical" | "legacy";
+      revisionId: string | null;
+      revision: number;
+      scriptApprovalId: string | null;
+      scriptApprovalRevision: number | null;
+      scriptContentHash: string | null;
+      anchorContractVersion: string | null;
+      provenanceState: "current" | "stale" | "unresolved" | "provenance_unknown";
+      semanticStateHash: string | null;
+      immutableRevisionHash: string | null;
+    };
   }): WorkpieceImageMapResponseData {
+    const authority = args.authority ?? { source: "legacy" as const, revisionId: null, revision: 0, scriptApprovalId: null, scriptApprovalRevision: null, scriptContentHash: null, anchorContractVersion: null, provenanceState: "provenance_unknown" as const, semanticStateHash: null, immutableRevisionHash: null };
     return {
       image_map: {
         workpiece_id: args.workpieceId,
@@ -6180,8 +6258,85 @@ export class TongsCommitService {
         entries: args.entries,
         spoken_beats: args.spokenBeats,
         metadata_updated_at: args.metadataUpdatedAt,
+        authority_source: authority.source,
+        image_map_revision_id: authority.revisionId,
+        image_map_revision: authority.revision,
+        source_script_approval_id: authority.scriptApprovalId,
+        source_script_approval_revision: authority.scriptApprovalRevision,
+        source_script_content_hash: authority.scriptContentHash,
+        anchor_contract_version: authority.anchorContractVersion,
+        provenance_state: authority.provenanceState,
+        semantic_state_hash: authority.semanticStateHash,
+        immutable_revision_hash: authority.immutableRevisionHash,
       },
       asset: normalizeImageMapAssetSummary(args.assetRow),
+    };
+  }
+
+  private async readCanonicalImageMapProjection(workspaceId: string, workpieceId: string, options?: {
+    allowLegacyFallbackOnCanonicalReadFailure?: boolean;
+  }): Promise<{
+    entries: EpisodeImageMapEntryRecord[];
+    authority: NonNullable<Parameters<TongsCommitService["buildWorkpieceImageMapResponse"]>[0]["authority"]>;
+  } | null> {
+    const allowLegacyFallback = options?.allowLegacyFallbackOnCanonicalReadFailure === true;
+    const tongs = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const sequence = await tongs.from("workpiece_image_map_sequences").select("current_revision_id,current_revision").eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId).maybeSingle();
+    if (sequence.error) {
+      if (isMissingCanonicalImageMapObject(sequence.error)) {
+        if (allowLegacyFallback) return null;
+        throw new HttpError(503, "canonical_image_map_authority_unavailable", "Canonical image-map authority is unavailable.");
+      }
+      if (allowLegacyFallback) return null;
+      throw new HttpError(502, "db_read_failed", "Failed to read canonical image-map sequence", { reason: sequence.error.message });
+    }
+    if (!isRecord(sequence.data) || !readStringField(sequence.data, "current_revision_id")) return null;
+    const revision = await tongs.from("image_map_revisions").select("*").eq("id", readStringField(sequence.data, "current_revision_id")!).eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId).maybeSingle();
+    if (revision.error) {
+      if (isMissingCanonicalImageMapObject(revision.error)) {
+        if (allowLegacyFallback) return null;
+        throw new HttpError(503, "canonical_image_map_authority_unavailable", "Canonical image-map authority is unavailable.");
+      }
+      if (allowLegacyFallback) return null;
+      throw new HttpError(502, "db_read_failed", "Failed to read canonical image-map revision", { reason: revision.error.message });
+    }
+    if (!isRecord(revision.data)) {
+      if (allowLegacyFallback) return null;
+      throw new HttpError(502, "db_read_failed", "Failed to read canonical image-map revision", { reason: "missing_current_revision" });
+    }
+    const document = isRecord(revision.data.document_json) ? revision.data.document_json : null;
+    if (!document || !Array.isArray(document.entries)) {
+      if (allowLegacyFallback) return null;
+      throw new HttpError(502, "invalid_canonical_image_map", "Canonical image-map revision is malformed");
+    }
+    const approvalSequence = await tongs.from("workpiece_script_approval_sequences").select("current_approval_id").eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId).maybeSingle();
+    if (approvalSequence.error) {
+      if (isMissingCanonicalImageMapObject(approvalSequence.error)) {
+        if (allowLegacyFallback) return null;
+        throw new HttpError(503, "canonical_image_map_authority_unavailable", "Canonical image-map authority is unavailable.");
+      }
+      if (allowLegacyFallback) return null;
+      throw new HttpError(502, "db_read_failed", "Failed to compare canonical script approval.", { reason: approvalSequence.error.message });
+    }
+    const approvalChanged = isRecord(approvalSequence.data)
+      && readStringField(approvalSequence.data, "current_approval_id") !== readStringField(revision.data, "source_script_approval_id");
+    const projectedEntries = approvalChanged
+      ? document.entries.map((value) => isRecord(value) ? { ...value, canonical_anchor_assessment: { ...(isRecord(value.canonical_anchor_assessment) ? value.canonical_anchor_assessment : {}), state: "stale", reason: "source_revision_unavailable" } } : value)
+      : document.entries;
+    return {
+      entries: normalizeEpisodeImageMapEntries(projectedEntries),
+      authority: {
+        source: "canonical",
+        revisionId: readStringField(revision.data, "id"),
+        revision: Number(revision.data.revision),
+        scriptApprovalId: readStringField(revision.data, "source_script_approval_id"),
+        scriptApprovalRevision: typeof revision.data.source_script_approval_revision === "number" ? revision.data.source_script_approval_revision : null,
+        scriptContentHash: readStringField(revision.data, "source_script_content_hash"),
+        anchorContractVersion: readStringField(revision.data, "anchor_contract_version"),
+        provenanceState: approvalChanged ? "stale" : String(revision.data.provenance_state) as "current" | "stale" | "unresolved" | "provenance_unknown",
+        semanticStateHash: readStringField(revision.data, "semantic_state_hash"),
+        immutableRevisionHash: readStringField(revision.data, "immutable_revision_hash"),
+      },
     };
   }
 
@@ -11993,14 +12148,143 @@ export class TongsCommitService {
 
     const state = await this.readWorkpieceImageMapState(workpieceId, cradle.workspace_id);
     const assetRow = await this.getCurrentReadyImageMapAsset(cradle.workspace_id, workpieceId);
+    const canonical = await this.readCanonicalImageMapProjection(cradle.workspace_id, workpieceId, {
+      allowLegacyFallbackOnCanonicalReadFailure: true,
+    });
     return this.buildWorkpieceImageMapResponse({
       workpieceId,
       workspaceId: cradle.workspace_id,
-      entries: state.episodePackage.image_map.entries,
+      entries: canonical?.entries ?? normalizeEpisodeImageMapEntries(markEntriesProvenanceUnknown(state.episodePackage.image_map.entries as unknown as Array<Record<string, unknown>>)),
       spokenBeats: state.episodePackage.spoken_beats,
       metadataUpdatedAt: state.metadataUpdatedAt,
       assetRow,
+      ...(canonical ? { authority: canonical.authority } : {}),
     });
+  }
+
+  async commitCanonicalScriptApproval(
+    workpieceId: string,
+    input: { workspace_id: string; expected_current_revision: number; creator_version_label: string; operation_id: string },
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, unknown>> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const { data: file, error } = await this.supabase.schema("tongs").from("workpiece_files")
+      .select("revision,storage_bucket,storage_key").eq("workpiece_id", workpieceId).eq("path", "script/script.md").maybeSingle();
+    if (error || !file) throw new HttpError(409, "approved_script_unavailable", "The published approved script is unavailable.", { reason: error?.message });
+    const bytes = await downloadStorageObject(this.supabase, file.storage_bucket, file.storage_key);
+    if (!bytes) throw new HttpError(409, "approved_script_unavailable", "The exact published approved script bytes are unavailable.");
+    const scriptText = normalizeLf(stripBom(textDecoder.decode(bytes)));
+    const rpc = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const result = await rpc.rpc("commit_script_approval_snapshot", {
+      p_workspace_id: input.workspace_id, p_workpiece_id: workpieceId,
+      p_expected_current_revision: input.expected_current_revision,
+      p_source_file_path: "script/script.md", p_source_file_revision: file.revision,
+      p_script_text: scriptText, p_approval_contract_version: "forge.script-approval.v1",
+      p_creator_version_label: input.creator_version_label,
+      p_operation_id: input.operation_id, p_actor_id: auth.userId,
+    });
+    if (result.error || !isRecord(result.data)) throw new HttpError(502, "script_approval_commit_failed", "Tongs could not commit canonical script approval.", { reason: result.error?.message });
+    return result.data;
+  }
+
+  async getCanonicalScriptApproval(workpieceId: string, options?: { userAccessToken?: string | null }): Promise<Record<string, unknown>> {
+    const cradle = await this.getCradleOrThrow(workpieceId);
+    await this.assertWorkspaceRole(cradle.workspace_id, "viewer", options);
+    const tongs = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const sequence = await tongs.from("workpiece_script_approval_sequences").select("current_approval_id,current_revision,updated_at").eq("workspace_id", cradle.workspace_id).eq("workpiece_id", workpieceId).maybeSingle();
+    if (sequence.error) {
+      if (isMissingCanonicalImageMapObject(sequence.error)) {
+        throw new HttpError(503, "canonical_script_approval_authority_unavailable", "Canonical script-approval authority is unavailable.");
+      }
+      throw new HttpError(502, "db_read_failed", "Failed to read canonical script approval.", { reason: sequence.error.message });
+    }
+    if (!isRecord(sequence.data)) return { workspace_id: cradle.workspace_id, workpiece_id: workpieceId, current_revision: 0, current_approval: null };
+    const approvalId = readStringField(sequence.data, "current_approval_id");
+    if (!approvalId) return { ...sequence.data, workspace_id: cradle.workspace_id, workpiece_id: workpieceId, current_approval: null };
+    const approval = await tongs.from("script_approval_revisions").select("id,approval_revision,source_file_path,source_file_revision,script_content_hash,approval_contract_version,creator_version_label,immutable_revision_hash,created_at").eq("id", approvalId).maybeSingle();
+    if (approval.error) {
+      if (isMissingCanonicalImageMapObject(approval.error)) {
+        throw new HttpError(503, "canonical_script_approval_authority_unavailable", "Canonical script-approval authority is unavailable.");
+      }
+      throw new HttpError(502, "db_read_failed", "Failed to read current canonical script approval.", { reason: approval.error.message });
+    }
+    if (!isRecord(approval.data)) {
+      return { ...sequence.data, workspace_id: cradle.workspace_id, workpiece_id: workpieceId, current_approval: null };
+    }
+    return { ...sequence.data, workspace_id: cradle.workspace_id, workpiece_id: workpieceId, current_approval: approval.data };
+  }
+
+  private async commitCanonicalImageMap(args: {
+    workspaceId: string; workpieceId: string; actorId: string;
+    entries: EpisodeImageMapEntryRecord[]; mutationKind: "commit_image_map" | "repair_to_approved_script" | "resolve_manual_anchor" | "reapply_visual_plan" | "regenerate_from_approved_script";
+    operationId: string; targetApprovalId: string | null; expectedRevision: number; expectedRevisionId: string | null; affectedEntryIds?: string[]; inputs?: Record<string, Json>;
+  }): Promise<Record<string, unknown>> {
+    const rpc = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const result = await rpc.rpc("commit_image_map_revision", {
+      p_workspace_id: args.workspaceId, p_workpiece_id: args.workpieceId,
+      p_expected_current_revision: args.expectedRevision, p_expected_current_revision_id: args.expectedRevisionId,
+      p_target_script_approval_id: args.targetApprovalId, p_anchor_contract_version: "forge.image-map-anchor.v1",
+      p_document_json: { schema: "forge.image-map-authority.v1", entries: args.entries },
+      p_mutation_kind: args.mutationKind, p_affected_entry_ids: args.affectedEntryIds ?? [],
+      p_normalized_mutation_inputs: args.inputs ?? {}, p_operation_contract_version: "forge.image-map-operation.v1",
+      p_operation_id: args.operationId, p_actor_id: args.actorId,
+    });
+    if (result.error || !isRecord(result.data)) throw new HttpError(502, "image_map_authority_commit_failed", "Tongs could not commit canonical image-map authority.", { reason: result.error?.message });
+    return result.data;
+  }
+
+  async repairWorkpieceImageMap(
+    workpieceId: string,
+    input: { workspace_id: string; operation_id: string },
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkpieceImageMapResponseData> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const tongs = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const approvalSequence = await tongs.from("workpiece_script_approval_sequences").select("current_approval_id,current_revision").eq("workspace_id", input.workspace_id).eq("workpiece_id", workpieceId).maybeSingle();
+    if (approvalSequence.error || !isRecord(approvalSequence.data) || !readStringField(approvalSequence.data, "current_approval_id")) throw new HttpError(409, "canonical_approval_required", "Approve the current script before repairing image anchors.");
+    const approvalId = readStringField(approvalSequence.data, "current_approval_id")!;
+    const approval = await tongs.from("script_approval_revisions").select("script_text").eq("id", approvalId).maybeSingle();
+    if (approval.error || !isRecord(approval.data) || typeof approval.data.script_text !== "string") throw new HttpError(502, "canonical_approval_unavailable", "Canonical approval bytes are unavailable.");
+    let canonical = await this.readCanonicalImageMapProjection(input.workspace_id, workpieceId);
+    if (!canonical) {
+      const legacy = await this.readWorkpieceImageMapState(workpieceId, input.workspace_id);
+      const unknown = normalizeEpisodeImageMapEntries(markEntriesProvenanceUnknown(legacy.episodePackage.image_map.entries as unknown as Array<Record<string, unknown>>));
+      await this.commitCanonicalImageMap({ workspaceId: input.workspace_id, workpieceId, actorId: auth.userId, entries: unknown, mutationKind: "commit_image_map", operationId: `${input.operation_id}:legacy`, targetApprovalId: null, expectedRevision: 0, expectedRevisionId: null });
+      canonical = await this.readCanonicalImageMapProjection(input.workspace_id, workpieceId);
+    }
+    if (!canonical) throw new HttpError(502, "canonical_bootstrap_failed", "Canonical image-map bootstrap did not produce a revision.");
+    const repaired = normalizeEpisodeImageMapEntries(repairEntriesAgainstApprovedScript(canonical.entries as unknown as Array<Record<string, unknown>>, approval.data.script_text));
+    await this.commitCanonicalImageMap({ workspaceId: input.workspace_id, workpieceId, actorId: auth.userId, entries: repaired, mutationKind: "repair_to_approved_script", operationId: input.operation_id, targetApprovalId: approvalId, expectedRevision: canonical.authority.revision, expectedRevisionId: canonical.authority.revisionId, affectedEntryIds: repaired.map((entry) => entry.id) });
+    return this.getWorkpieceImageMap(workpieceId, options);
+  }
+
+  async resolveWorkpieceImageMapManualAnchor(
+    workpieceId: string,
+    input: { workspace_id: string; operation_id: string; entry_id: string; script_anchor: Record<string, unknown> },
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkpieceImageMapResponseData> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const canonical = await this.readCanonicalImageMapProjection(input.workspace_id, workpieceId);
+    if (!canonical) throw new HttpError(409, "canonical_image_map_required", "Repair the image plan before resolving a manual anchor.");
+    const tongs = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const approvalSequence = await tongs.from("workpiece_script_approval_sequences").select("current_approval_id").eq("workspace_id", input.workspace_id).eq("workpiece_id", workpieceId).maybeSingle();
+    const approvalId = isRecord(approvalSequence.data) ? readStringField(approvalSequence.data, "current_approval_id") : null;
+    if (approvalSequence.error || !approvalId) throw new HttpError(409, "canonical_approval_required", "Approve the current script before resolving an anchor.");
+    const approval = await tongs.from("script_approval_revisions").select("script_text").eq("id", approvalId).maybeSingle();
+    if (approval.error || !isRecord(approval.data) || typeof approval.data.script_text !== "string") throw new HttpError(502, "canonical_approval_unavailable", "Canonical approval bytes are unavailable.");
+    const exact = validateExactAnchorAgainstApprovedScript(approval.data.script_text, input.script_anchor);
+    if (!exact) throw new HttpError(400, "invalid_exact_anchor", "The selected anchor does not exactly match the immutable approved script.");
+    if (!canonical.entries.some((entry) => entry.id === input.entry_id)) throw new HttpError(404, "image_map_entry_not_found", "Image map entry was not found.");
+    const entries = canonical.entries.map((entry) => entry.id === input.entry_id ? {
+      ...entry, anchor: exact.span_text, script_anchor: exact as EpisodeImageMapScriptAnchorRecord,
+      beat_anchor: null, anchor_scope: "attached",
+      canonical_anchor_assessment: { state: "current" as const, reason: null, exact_anchor: exact as EpisodeImageMapScriptAnchorRecord, evidence: { match_count: 1, assessed_contract_version: "forge.image-map-anchor.v1" } },
+    } : entry);
+    await this.commitCanonicalImageMap({ workspaceId: input.workspace_id, workpieceId, actorId: auth.userId, entries, mutationKind: "resolve_manual_anchor", operationId: input.operation_id, targetApprovalId: approvalId, expectedRevision: canonical.authority.revision, expectedRevisionId: canonical.authority.revisionId, affectedEntryIds: [input.entry_id], inputs: { script_anchor: exact as unknown as Json } });
+    return this.getWorkpieceImageMap(workpieceId, options);
   }
 
   async getWorkpieceVisualPackage(
@@ -12050,6 +12334,9 @@ export class TongsCommitService {
     }
 
     const current = await this.readWorkpieceImageMapState(workpieceId, input.workspace_id);
+    const canonical = await this.readCanonicalImageMapProjection(input.workspace_id, workpieceId);
+    if (!canonical) throw new HttpError(409, "canonical_image_map_required", "Repair the image plan to the approved script before generating candidates.");
+    current.episodePackage.image_map.entries = canonical.entries;
     if (typeof input.expected_metadata_updated_at !== "undefined") {
       const expected = normalizeComparableIsoTimestampOrNull(input.expected_metadata_updated_at);
       const currentMetadataUpdatedAt = normalizeComparableIsoTimestampOrNull(current.metadataUpdatedAt);
@@ -12064,6 +12351,9 @@ export class TongsCommitService {
     const entry = current.episodePackage.image_map.entries.find((candidate) => candidate.id === input.image_map_entry_id) ?? null;
     if (!entry) {
       throw new HttpError(404, "image_map_entry_not_found", "Image map entry was not found");
+    }
+    if (entry.canonical_anchor_assessment?.state !== "current" || canonical.authority.provenanceState !== "current") {
+      throw new HttpError(409, "canonical_anchor_not_current", "Repair this image moment to the approved script before generating candidates.", { entry_id: entry.id, anchor_state: entry.canonical_anchor_assessment?.state ?? "provenance_unknown" });
     }
     if (!entry.script_anchor?.span_text?.trim() && !entry.beat_anchor) {
       throw new HttpError(400, "image_map_anchor_required", "Image map entry must have a structured anchor before generating candidates");
@@ -12287,6 +12577,14 @@ export class TongsCommitService {
         entries: nextEntries,
         expected_metadata_updated_at: current.metadataUpdatedAt,
       }, { userAccessToken });
+
+      await this.commitCanonicalImageMap({
+        workspaceId: input.workspace_id, workpieceId, actorId: auth.userId, entries: nextEntries,
+        mutationKind: "regenerate_from_approved_script", operationId: `forge:image-map:generate:${imageMapActionId}`,
+        targetApprovalId: canonical.authority.scriptApprovalId,
+        expectedRevision: canonical.authority.revision, expectedRevisionId: canonical.authority.revisionId,
+        affectedEntryIds: [entry.id], inputs: { generated_asset_ids: generatedAssets.map((asset) => asset.id) },
+      });
 
       await this.supersedeAssets(
         priorCandidateAssets.map((asset) => asset.id),
@@ -13751,6 +14049,46 @@ export function createTongsCommitApiHandlerWithService(
         return jsonResponse(200, { ok: true, data: result });
       }
 
+      if (parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "image-map" && parts[4] === "repair") {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const operationId = normalizeNonEmptyString(body.operation_id, "operation_id");
+        if (!/^forge:image-map:[a-zA-Z0-9._:-]{8,180}$/.test(operationId)) throw new HttpError(400, "invalid_operation_id", "operation_id must use the Forge image-map namespace");
+        const result = await service.repairWorkpieceImageMap(workpieceId, { workspace_id: normalizeUuid(body.workspace_id, "workspace_id"), operation_id: operationId }, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "image-map" && parts[4] === "manual-anchor") {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const operationId = normalizeNonEmptyString(body.operation_id, "operation_id");
+        if (!/^forge:image-map:[a-zA-Z0-9._:-]{8,180}$/.test(operationId)) throw new HttpError(400, "invalid_operation_id", "operation_id must use the Forge image-map namespace");
+        if (!isRecord(body.script_anchor)) throw new HttpError(400, "invalid_exact_anchor", "script_anchor is required");
+        const result = await service.resolveWorkpieceImageMapManualAnchor(workpieceId, { workspace_id: normalizeUuid(body.workspace_id, "workspace_id"), operation_id: operationId, entry_id: normalizeNonEmptyString(body.entry_id, "entry_id"), script_anchor: body.script_anchor }, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "script-approval") {
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        if (request.method === "GET") {
+          const result = await service.getCanonicalScriptApproval(workpieceId, { userAccessToken });
+          return jsonResponse(200, { ok: true, data: result });
+        }
+        requireMethod(request, "POST");
+        const body = await parseJsonBody(request);
+        const operationId = normalizeNonEmptyString(body.operation_id, "operation_id");
+        if (!/^forge:script-approval:[a-zA-Z0-9._:-]{8,180}$/.test(operationId)) throw new HttpError(400, "invalid_operation_id", "operation_id must use the Forge script-approval namespace");
+        const expected = Number(body.expected_current_revision);
+        if (!Number.isInteger(expected) || expected < 0) throw new HttpError(400, "invalid_expected_revision", "expected_current_revision must be non-negative");
+        const result = await service.commitCanonicalScriptApproval(workpieceId, { workspace_id: normalizeUuid(body.workspace_id, "workspace_id"), expected_current_revision: expected, creator_version_label: normalizeNonEmptyString(body.creator_version_label, "creator_version_label"), operation_id: operationId }, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "image-map") {
         const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
         const userAccessToken = requireUserAccessTokenHeader(request);
@@ -14565,7 +14903,7 @@ export function createTongsCommitApiHandlerWithService(
             if (isBootstrapWorkpiecePath(path)) {
               return jsonResponse(200, { ok: true, data: null, exists: false });
             }
-            return jsonResponse(404, {
+            return jsonResponse(optionalRead ? 200 : 404, {
               ok: true,
               exists: false,
             });
@@ -14582,7 +14920,7 @@ export function createTongsCommitApiHandlerWithService(
           if (isBootstrapWorkpiecePath(path)) {
             return jsonResponse(200, { ok: true, data: null, exists: false });
           }
-          return jsonResponse(404, {
+          return jsonResponse(optionalRead ? 200 : 404, {
             ok: true,
             exists: false,
           });

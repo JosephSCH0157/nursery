@@ -1,0 +1,3181 @@
+[tongs][commit_file] start {
+  workpiece_id: '2ff2c067-6607-45b6-8a00-ba4c3d04845b',
+  path: 'script/script.md',
+  storage_key: 'workpieces/2ff2c067-6607-45b6-8a00-ba4c3d04845b/script/script.md',
+  bytes: 74,
+  content_type: 'text/markdown; charset=utf-8',
+  commit_mode: 'replace'
+}
+[tongs][commit_file] start {
+  workpiece_id: '2ff2c067-6607-45b6-8a00-ba4c3d04845b',
+  path: 'notes/milestone.md',
+  storage_key: 'workpieces/2ff2c067-6607-45b6-8a00-ba4c3d04845b/notes/milestone.md',
+  bytes: 28,
+  content_type: 'text/markdown; charset=utf-8',
+  commit_mode: 'replace'
+}
+[tongs][commit_file] start {
+  workpiece_id: '2ff2c067-6607-45b6-8a00-ba4c3d04845b',
+  path: 'script/script.md',
+  storage_key: 'workpieces/2ff2c067-6607-45b6-8a00-ba4c3d04845b/script/script.md',
+  bytes: 70,
+  content_type: 'text/markdown; charset=utf-8',
+  commit_mode: 'replace'
+}
+{
+  "local_db_url": "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+  "ids": {
+    "workspaceId": "b8d88f71-eb41-4b15-be18-812f34296122",
+    "workpieceId": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+    "ownerId": "837a864b-b775-417e-8fb8-b3bc64ab62f2",
+    "opApproveA": "forge:script-approval:e2e:approveA:18efe768-5b0",
+    "opApproveANoChange": "forge:script-approval:e2e:approveA-nochange:18efe768-5b0",
+    "opApproveB": "forge:script-approval:e2e:approveB:18efe768-5b0",
+    "opBootstrap": "forge:image-map:e2e:bootstrap:18efe768-5b0",
+    "opRepairA": "forge:image-map:e2e:repairA:18efe768-5b0",
+    "opRepairB": "forge:image-map:e2e:repairB:18efe768-5b0",
+    "opRepairBNoChange": "forge:image-map:e2e:repairB-nochange:18efe768-5b0",
+    "opManual": "forge:image-map:e2e:manual:18efe768-5b0",
+    "opReapply": "forge:image-map:e2e:reapply:18efe768-5b0",
+    "opRegenerate": "forge:image-map:e2e:regen:18efe768-5b0"
+  },
+  "phase_a": {
+    "approvalAResult": {
+      "approval": {
+        "id": "92b9171a-4777-46f3-b96b-24f0e6e34f21",
+        "created_at": "2026-07-21T06:09:42.291883+00:00",
+        "created_by": "837a864b-b775-417e-8fb8-b3bc64ab62f2",
+        "script_text": "[s1]\nThe orange vanished at dawn.\nThe harbor lights flickered twice.\n[/s1]",
+        "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+        "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+        "source_file_path": "script/script.md",
+        "approval_revision": 1,
+        "script_content_hash": "5fad5e0250982cd95eb97befbc9ead5d76c3898fc1383d6edeedfe2a91e35455",
+        "semantic_state_hash": "88680c27831891e3e807a80031d179620ba91d9fdecb153bf17c61b880228a6d",
+        "source_file_revision": 1,
+        "creator_version_label": "A-v1",
+        "immutable_revision_hash": "615237bdb40a6598b52ba1c50ee140afd8eb6a32d7412fd9377c95f39d514c40",
+        "approval_contract_version": "forge.script-approval.v1"
+      },
+      "disposition": "committed"
+    },
+    "projectionA": {
+      "current_approval_id": "92b9171a-4777-46f3-b96b-24f0e6e34f21",
+      "current_revision": 1,
+      "updated_at": "2026-07-21T06:09:42.291883+00:00",
+      "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+      "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+      "current_approval": {
+        "id": "92b9171a-4777-46f3-b96b-24f0e6e34f21",
+        "approval_revision": 1,
+        "source_file_path": "script/script.md",
+        "source_file_revision": 1,
+        "script_content_hash": "5fad5e0250982cd95eb97befbc9ead5d76c3898fc1383d6edeedfe2a91e35455",
+        "approval_contract_version": "forge.script-approval.v1",
+        "creator_version_label": "A-v1",
+        "immutable_revision_hash": "615237bdb40a6598b52ba1c50ee140afd8eb6a32d7412fd9377c95f39d514c40",
+        "created_at": "2026-07-21T06:09:42.291883+00:00"
+      }
+    },
+    "projectionAfterNote": {
+      "current_approval_id": "92b9171a-4777-46f3-b96b-24f0e6e34f21",
+      "current_revision": 1,
+      "updated_at": "2026-07-21T06:09:42.291883+00:00",
+      "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+      "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+      "current_approval": {
+        "id": "92b9171a-4777-46f3-b96b-24f0e6e34f21",
+        "approval_revision": 1,
+        "source_file_path": "script/script.md",
+        "source_file_revision": 1,
+        "script_content_hash": "5fad5e0250982cd95eb97befbc9ead5d76c3898fc1383d6edeedfe2a91e35455",
+        "approval_contract_version": "forge.script-approval.v1",
+        "creator_version_label": "A-v1",
+        "immutable_revision_hash": "615237bdb40a6598b52ba1c50ee140afd8eb6a32d7412fd9377c95f39d514c40",
+        "created_at": "2026-07-21T06:09:42.291883+00:00"
+      }
+    },
+    "milestone_note_non_authority": true,
+    "scriptAFileRevision": 1,
+    "receiptA": {
+      "operation_id": "forge:script-approval:e2e:approveA:18efe768-5b0",
+      "operation_fingerprint": "fcc73ab53a37396486d83a888359f922b2c10c9bb30d29fc92e05e67c2d85e23",
+      "mutation_kind": "commit_script_approval",
+      "immutable_result_json": {
+        "approval": {
+          "id": "92b9171a-4777-46f3-b96b-24f0e6e34f21",
+          "created_at": "2026-07-21T06:09:42.291883+00:00",
+          "created_by": "837a864b-b775-417e-8fb8-b3bc64ab62f2",
+          "script_text": "[s1]\nThe orange vanished at dawn.\nThe harbor lights flickered twice.\n[/s1]",
+          "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+          "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+          "source_file_path": "script/script.md",
+          "approval_revision": 1,
+          "script_content_hash": "5fad5e0250982cd95eb97befbc9ead5d76c3898fc1383d6edeedfe2a91e35455",
+          "semantic_state_hash": "88680c27831891e3e807a80031d179620ba91d9fdecb153bf17c61b880228a6d",
+          "source_file_revision": 1,
+          "creator_version_label": "A-v1",
+          "immutable_revision_hash": "615237bdb40a6598b52ba1c50ee140afd8eb6a32d7412fd9377c95f39d514c40",
+          "approval_contract_version": "forge.script-approval.v1"
+        },
+        "disposition": "committed"
+      }
+    }
+  },
+  "phase_b": {
+    "replaySameOp": {
+      "disposition": "operation_identity_conflict"
+    },
+    "same_op_returns_same_result": false,
+    "noChangeApproval": {
+      "approval": {
+        "id": "92b9171a-4777-46f3-b96b-24f0e6e34f21",
+        "created_at": "2026-07-21T06:09:42.291883+00:00",
+        "created_by": "837a864b-b775-417e-8fb8-b3bc64ab62f2",
+        "script_text": "[s1]\nThe orange vanished at dawn.\nThe harbor lights flickered twice.\n[/s1]",
+        "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+        "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+        "source_file_path": "script/script.md",
+        "approval_revision": 1,
+        "script_content_hash": "5fad5e0250982cd95eb97befbc9ead5d76c3898fc1383d6edeedfe2a91e35455",
+        "semantic_state_hash": "88680c27831891e3e807a80031d179620ba91d9fdecb153bf17c61b880228a6d",
+        "source_file_revision": 1,
+        "creator_version_label": "A-v1",
+        "immutable_revision_hash": "615237bdb40a6598b52ba1c50ee140afd8eb6a32d7412fd9377c95f39d514c40",
+        "approval_contract_version": "forge.script-approval.v1"
+      },
+      "disposition": "no_change"
+    },
+    "opIdentityConflict": {
+      "approval": {
+        "id": "92b9171a-4777-46f3-b96b-24f0e6e34f21",
+        "created_at": "2026-07-21T06:09:42.291883+00:00",
+        "created_by": "837a864b-b775-417e-8fb8-b3bc64ab62f2",
+        "script_text": "[s1]\nThe orange vanished at dawn.\nThe harbor lights flickered twice.\n[/s1]",
+        "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+        "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+        "source_file_path": "script/script.md",
+        "approval_revision": 1,
+        "script_content_hash": "5fad5e0250982cd95eb97befbc9ead5d76c3898fc1383d6edeedfe2a91e35455",
+        "semantic_state_hash": "88680c27831891e3e807a80031d179620ba91d9fdecb153bf17c61b880228a6d",
+        "source_file_revision": 1,
+        "creator_version_label": "A-v1",
+        "immutable_revision_hash": "615237bdb40a6598b52ba1c50ee140afd8eb6a32d7412fd9377c95f39d514c40",
+        "approval_contract_version": "forge.script-approval.v1"
+      },
+      "disposition": "committed"
+    },
+    "scriptSeqAfterB": {
+      "current_revision": 1,
+      "current_approval_id": "92b9171a-4777-46f3-b96b-24f0e6e34f21"
+    },
+    "scriptReceiptCount": 2
+  },
+  "phase_c": {
+    "bootstrap": {
+      "disposition": "committed",
+      "image_map_revision": {
+        "id": "18275f26-a4bb-4d27-8531-3f93bd34224a",
+        "revision": 1,
+        "created_at": "2026-07-21T06:09:47.202818+00:00",
+        "created_by": "837a864b-b775-417e-8fb8-b3bc64ab62f2",
+        "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+        "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+        "document_json": {
+          "schema": "forge.image-map-authority.v1",
+          "entries": [
+            {
+              "id": "moment-preserved",
+              "anchor": "The orange vanished at dawn.",
+              "intent": "cutaway",
+              "status": "selected",
+              "beat_order": 1,
+              "beat_anchor": null,
+              "description": "Preserved anchor visual.",
+              "source_type": "ai",
+              "anchor_scope": "attached",
+              "prompt_basis": "Preserved anchor visual.",
+              "style_preset": "photographic",
+              "script_anchor": {
+                "char_end": 27,
+                "span_text": "The orange vanished at dawn.",
+                "char_start": 0,
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "sentence_end": 1,
+                "sentence_start": 1,
+                "paragraph_order": 1,
+                "speaker_block_id": "s1"
+              },
+              "visual_intent": "Preserved anchor visual.",
+              "placement_hint": null,
+              "candidate_assets": [
+                {
+                  "path": "assets/image-map/candidates/preserved-a.png",
+                  "asset_id": "asset-preserved-a",
+                  "mime_type": "image/png",
+                  "visual_mode": "illustrative",
+                  "variant_label": "explainer"
+                }
+              ],
+              "selected_asset_id": "asset-preserved-a",
+              "paragraph_beat_order": 1,
+              "canonical_anchor_assessment": {
+                "state": "provenance_unknown",
+                "reason": "source_provenance_unknown",
+                "evidence": {
+                  "match_count": null,
+                  "assessed_contract_version": "forge.image-map-anchor.v1"
+                },
+                "exact_anchor": null
+              }
+            },
+            {
+              "id": "moment-removed",
+              "anchor": "The harbor lights flickered twice.",
+              "intent": "cutaway",
+              "status": "selected",
+              "beat_order": 2,
+              "beat_anchor": null,
+              "description": "Anchor that will become stale.",
+              "source_type": "upload",
+              "anchor_scope": "attached",
+              "prompt_basis": "Anchor that will become stale.",
+              "style_preset": "documentary",
+              "script_anchor": {
+                "char_end": 61,
+                "span_text": "The harbor lights flickered twice.",
+                "char_start": 28,
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "sentence_end": 2,
+                "sentence_start": 2,
+                "paragraph_order": 1,
+                "speaker_block_id": "s1"
+              },
+              "visual_intent": "Anchor that will become stale.",
+              "placement_hint": null,
+              "candidate_assets": [
+                {
+                  "path": "assets/image-map/candidates/removed-a.png",
+                  "asset_id": "asset-removed-a",
+                  "mime_type": "image/png",
+                  "visual_mode": "illustrative",
+                  "variant_label": "explainer"
+                }
+              ],
+              "selected_asset_id": "asset-removed-a",
+              "paragraph_beat_order": 2,
+              "canonical_anchor_assessment": {
+                "state": "provenance_unknown",
+                "reason": "source_provenance_unknown",
+                "evidence": {
+                  "match_count": null,
+                  "assessed_contract_version": "forge.image-map-anchor.v1"
+                },
+                "exact_anchor": null
+              }
+            }
+          ]
+        },
+        "provenance_state": "provenance_unknown",
+        "previous_revision": null,
+        "semantic_state_hash": "decfb2936d0d68b7b9c683d6b1b91816545b7f6cc8e92f838e7a6f56c836f876",
+        "previous_revision_id": null,
+        "document_content_hash": "9ce56a8a32f89f6fef5b9558cee47a81f65a97abac395dcd5dc35c6fb5d2bf05",
+        "anchor_contract_version": "forge.image-map-anchor.v1",
+        "immutable_revision_hash": "341d0615e159400b7925235f349c985d5dabfe935ab682ffaf6c778c96e12d43",
+        "source_script_approval_id": null,
+        "source_script_content_hash": null,
+        "source_script_approval_revision": null
+      }
+    },
+    "repairedA": {
+      "image_map": {
+        "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+        "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+        "entries": [
+          {
+            "id": "moment-preserved",
+            "anchor": "The orange vanished at dawn.",
+            "script_anchor": {
+              "section_id": "s1",
+              "paragraph_id": "s1:p1",
+              "paragraph_order": 1,
+              "sentence_start": 1,
+              "sentence_end": 1,
+              "char_start": 0,
+              "char_end": 28,
+              "span_text": "The orange vanished at dawn.",
+              "speaker_block_id": "s1"
+            },
+            "beat_anchor": null,
+            "description": "Preserved anchor visual.",
+            "visual_intent": "Preserved anchor visual.",
+            "prompt_basis": "Preserved anchor visual.",
+            "style_preset": "cinematic_realism",
+            "intent": "cutaway",
+            "source_type": "ai",
+            "visual_type": null,
+            "beat_order": 1,
+            "paragraph_beat_order": 1,
+            "candidate_assets": [
+              {
+                "asset_id": "asset-preserved-a",
+                "path": "assets/image-map/candidates/preserved-a.png",
+                "variant_label": "explainer",
+                "visual_mode": null,
+                "mime_type": "image/png",
+                "source": null
+              }
+            ],
+            "selected_asset_id": "asset-preserved-a",
+            "status": "selected",
+            "placement_hint": null,
+            "canonical_anchor_assessment": {
+              "state": "current",
+              "reason": null,
+              "exact_anchor": {
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "paragraph_order": 1,
+                "sentence_start": 1,
+                "sentence_end": 1,
+                "char_start": 0,
+                "char_end": 28,
+                "span_text": "The orange vanished at dawn.",
+                "speaker_block_id": "s1"
+              },
+              "evidence": {
+                "match_count": 1,
+                "assessed_contract_version": "forge.image-map-anchor.v1"
+              }
+            }
+          },
+          {
+            "id": "moment-removed",
+            "anchor": "The harbor lights flickered twice.",
+            "script_anchor": {
+              "section_id": "s1",
+              "paragraph_id": "s1:p1",
+              "paragraph_order": 1,
+              "sentence_start": 2,
+              "sentence_end": 2,
+              "char_start": 29,
+              "char_end": 63,
+              "span_text": "The harbor lights flickered twice.",
+              "speaker_block_id": "s1"
+            },
+            "beat_anchor": null,
+            "description": "Anchor that will become stale.",
+            "visual_intent": "Anchor that will become stale.",
+            "prompt_basis": "Anchor that will become stale.",
+            "style_preset": "cinematic_realism",
+            "intent": "cutaway",
+            "source_type": "stock",
+            "visual_type": null,
+            "beat_order": 2,
+            "paragraph_beat_order": 2,
+            "candidate_assets": [
+              {
+                "asset_id": "asset-removed-a",
+                "path": "assets/image-map/candidates/removed-a.png",
+                "variant_label": "explainer",
+                "visual_mode": null,
+                "mime_type": "image/png",
+                "source": null
+              }
+            ],
+            "selected_asset_id": "asset-removed-a",
+            "status": "selected",
+            "placement_hint": null,
+            "canonical_anchor_assessment": {
+              "state": "current",
+              "reason": null,
+              "exact_anchor": {
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "paragraph_order": 1,
+                "sentence_start": 2,
+                "sentence_end": 2,
+                "char_start": 29,
+                "char_end": 63,
+                "span_text": "The harbor lights flickered twice.",
+                "speaker_block_id": "s1"
+              },
+              "evidence": {
+                "match_count": 1,
+                "assessed_contract_version": "forge.image-map-anchor.v1"
+              }
+            }
+          }
+        ],
+        "spoken_beats": [],
+        "metadata_updated_at": "2026-07-21T06:09:37.313Z",
+        "authority_source": "canonical",
+        "image_map_revision_id": "e68ef552-5ac6-4b24-bb41-9a5c6d54fb36",
+        "image_map_revision": 2,
+        "source_script_approval_id": "92b9171a-4777-46f3-b96b-24f0e6e34f21",
+        "source_script_approval_revision": 1,
+        "source_script_content_hash": "5fad5e0250982cd95eb97befbc9ead5d76c3898fc1383d6edeedfe2a91e35455",
+        "anchor_contract_version": "forge.image-map-anchor.v1",
+        "provenance_state": "current",
+        "semantic_state_hash": "b621151d682574f6b104ff339fa850ec414ec241f4318aa11973bc1f258b6afd",
+        "immutable_revision_hash": "3e75946f68507fd0a754fd79ab078152be92d3224b6dcf5dcf24b9b3fa576941"
+      },
+      "asset": null
+    },
+    "canonicalAfterA": {
+      "image_map": {
+        "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+        "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+        "entries": [
+          {
+            "id": "moment-preserved",
+            "anchor": "The orange vanished at dawn.",
+            "script_anchor": {
+              "section_id": "s1",
+              "paragraph_id": "s1:p1",
+              "paragraph_order": 1,
+              "sentence_start": 1,
+              "sentence_end": 1,
+              "char_start": 0,
+              "char_end": 28,
+              "span_text": "The orange vanished at dawn.",
+              "speaker_block_id": "s1"
+            },
+            "beat_anchor": null,
+            "description": "Preserved anchor visual.",
+            "visual_intent": "Preserved anchor visual.",
+            "prompt_basis": "Preserved anchor visual.",
+            "style_preset": "cinematic_realism",
+            "intent": "cutaway",
+            "source_type": "ai",
+            "visual_type": null,
+            "beat_order": 1,
+            "paragraph_beat_order": 1,
+            "candidate_assets": [
+              {
+                "asset_id": "asset-preserved-a",
+                "path": "assets/image-map/candidates/preserved-a.png",
+                "variant_label": "explainer",
+                "visual_mode": null,
+                "mime_type": "image/png",
+                "source": null
+              }
+            ],
+            "selected_asset_id": "asset-preserved-a",
+            "status": "selected",
+            "placement_hint": null,
+            "canonical_anchor_assessment": {
+              "state": "current",
+              "reason": null,
+              "exact_anchor": {
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "paragraph_order": 1,
+                "sentence_start": 1,
+                "sentence_end": 1,
+                "char_start": 0,
+                "char_end": 28,
+                "span_text": "The orange vanished at dawn.",
+                "speaker_block_id": "s1"
+              },
+              "evidence": {
+                "match_count": 1,
+                "assessed_contract_version": "forge.image-map-anchor.v1"
+              }
+            }
+          },
+          {
+            "id": "moment-removed",
+            "anchor": "The harbor lights flickered twice.",
+            "script_anchor": {
+              "section_id": "s1",
+              "paragraph_id": "s1:p1",
+              "paragraph_order": 1,
+              "sentence_start": 2,
+              "sentence_end": 2,
+              "char_start": 29,
+              "char_end": 63,
+              "span_text": "The harbor lights flickered twice.",
+              "speaker_block_id": "s1"
+            },
+            "beat_anchor": null,
+            "description": "Anchor that will become stale.",
+            "visual_intent": "Anchor that will become stale.",
+            "prompt_basis": "Anchor that will become stale.",
+            "style_preset": "cinematic_realism",
+            "intent": "cutaway",
+            "source_type": "stock",
+            "visual_type": null,
+            "beat_order": 2,
+            "paragraph_beat_order": 2,
+            "candidate_assets": [
+              {
+                "asset_id": "asset-removed-a",
+                "path": "assets/image-map/candidates/removed-a.png",
+                "variant_label": "explainer",
+                "visual_mode": null,
+                "mime_type": "image/png",
+                "source": null
+              }
+            ],
+            "selected_asset_id": "asset-removed-a",
+            "status": "selected",
+            "placement_hint": null,
+            "canonical_anchor_assessment": {
+              "state": "current",
+              "reason": null,
+              "exact_anchor": {
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "paragraph_order": 1,
+                "sentence_start": 2,
+                "sentence_end": 2,
+                "char_start": 29,
+                "char_end": 63,
+                "span_text": "The harbor lights flickered twice.",
+                "speaker_block_id": "s1"
+              },
+              "evidence": {
+                "match_count": 1,
+                "assessed_contract_version": "forge.image-map-anchor.v1"
+              }
+            }
+          }
+        ],
+        "spoken_beats": [],
+        "metadata_updated_at": "2026-07-21T06:09:37.313Z",
+        "authority_source": "canonical",
+        "image_map_revision_id": "e68ef552-5ac6-4b24-bb41-9a5c6d54fb36",
+        "image_map_revision": 2,
+        "source_script_approval_id": "92b9171a-4777-46f3-b96b-24f0e6e34f21",
+        "source_script_approval_revision": 1,
+        "source_script_content_hash": "5fad5e0250982cd95eb97befbc9ead5d76c3898fc1383d6edeedfe2a91e35455",
+        "anchor_contract_version": "forge.image-map-anchor.v1",
+        "provenance_state": "current",
+        "semantic_state_hash": "b621151d682574f6b104ff339fa850ec414ec241f4318aa11973bc1f258b6afd",
+        "immutable_revision_hash": "3e75946f68507fd0a754fd79ab078152be92d3224b6dcf5dcf24b9b3fa576941"
+      },
+      "asset": null
+    }
+  },
+  "phase_d": {
+    "scriptBFileRevision": 2,
+    "approvalBResult": {
+      "approval": {
+        "id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+        "created_at": "2026-07-21T06:09:53.755984+00:00",
+        "created_by": "837a864b-b775-417e-8fb8-b3bc64ab62f2",
+        "script_text": "[s1]\nThe orange vanished at dawn.\nThe bay was silent under rain.\n[/s1]",
+        "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+        "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+        "source_file_path": "script/script.md",
+        "approval_revision": 2,
+        "script_content_hash": "e01d823449979f76922489b0cccd73a68e0ad6cf0430a530834d9d329667f387",
+        "semantic_state_hash": "9a6a6988411d85a5bf746739c8f8a2e730e78e77d699b0eb69ff5a8e1a162b04",
+        "source_file_revision": 2,
+        "creator_version_label": "B-v1",
+        "immutable_revision_hash": "891d3931ebebc43a4277940a9a721fe6bca1739c68ca2a840ce2ec6269307db6",
+        "approval_contract_version": "forge.script-approval.v1"
+      },
+      "disposition": "committed"
+    },
+    "approvalRows": [
+      {
+        "id": "92b9171a-4777-46f3-b96b-24f0e6e34f21",
+        "approval_revision": 1,
+        "script_content_hash": "5fad5e0250982cd95eb97befbc9ead5d76c3898fc1383d6edeedfe2a91e35455",
+        "semantic_state_hash": "88680c27831891e3e807a80031d179620ba91d9fdecb153bf17c61b880228a6d",
+        "immutable_revision_hash": "615237bdb40a6598b52ba1c50ee140afd8eb6a32d7412fd9377c95f39d514c40",
+        "source_file_revision": 1,
+        "created_at": "2026-07-21T06:09:42.291883+00:00"
+      },
+      {
+        "id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+        "approval_revision": 2,
+        "script_content_hash": "e01d823449979f76922489b0cccd73a68e0ad6cf0430a530834d9d329667f387",
+        "semantic_state_hash": "9a6a6988411d85a5bf746739c8f8a2e730e78e77d699b0eb69ff5a8e1a162b04",
+        "immutable_revision_hash": "891d3931ebebc43a4277940a9a721fe6bca1739c68ca2a840ce2ec6269307db6",
+        "source_file_revision": 2,
+        "created_at": "2026-07-21T06:09:53.755984+00:00"
+      }
+    ],
+    "mapBeforeRepairB": {
+      "image_map": {
+        "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+        "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+        "entries": [
+          {
+            "id": "moment-preserved",
+            "anchor": "The orange vanished at dawn.",
+            "script_anchor": {
+              "section_id": "s1",
+              "paragraph_id": "s1:p1",
+              "paragraph_order": 1,
+              "sentence_start": 1,
+              "sentence_end": 1,
+              "char_start": 0,
+              "char_end": 28,
+              "span_text": "The orange vanished at dawn.",
+              "speaker_block_id": "s1"
+            },
+            "beat_anchor": null,
+            "description": "Preserved anchor visual.",
+            "visual_intent": "Preserved anchor visual.",
+            "prompt_basis": "Preserved anchor visual.",
+            "style_preset": "cinematic_realism",
+            "intent": "cutaway",
+            "source_type": "ai",
+            "visual_type": null,
+            "beat_order": 1,
+            "paragraph_beat_order": 1,
+            "candidate_assets": [
+              {
+                "asset_id": "asset-preserved-a",
+                "path": "assets/image-map/candidates/preserved-a.png",
+                "variant_label": "explainer",
+                "visual_mode": null,
+                "mime_type": "image/png",
+                "source": null
+              }
+            ],
+            "selected_asset_id": "asset-preserved-a",
+            "status": "selected",
+            "placement_hint": null,
+            "canonical_anchor_assessment": {
+              "state": "stale",
+              "reason": "source_revision_unavailable",
+              "exact_anchor": {
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "paragraph_order": 1,
+                "sentence_start": 1,
+                "sentence_end": 1,
+                "char_start": 0,
+                "char_end": 28,
+                "span_text": "The orange vanished at dawn.",
+                "speaker_block_id": "s1"
+              },
+              "evidence": {
+                "match_count": 1,
+                "assessed_contract_version": "forge.image-map-anchor.v1"
+              }
+            }
+          },
+          {
+            "id": "moment-removed",
+            "anchor": "The harbor lights flickered twice.",
+            "script_anchor": {
+              "section_id": "s1",
+              "paragraph_id": "s1:p1",
+              "paragraph_order": 1,
+              "sentence_start": 2,
+              "sentence_end": 2,
+              "char_start": 29,
+              "char_end": 63,
+              "span_text": "The harbor lights flickered twice.",
+              "speaker_block_id": "s1"
+            },
+            "beat_anchor": null,
+            "description": "Anchor that will become stale.",
+            "visual_intent": "Anchor that will become stale.",
+            "prompt_basis": "Anchor that will become stale.",
+            "style_preset": "cinematic_realism",
+            "intent": "cutaway",
+            "source_type": "stock",
+            "visual_type": null,
+            "beat_order": 2,
+            "paragraph_beat_order": 2,
+            "candidate_assets": [
+              {
+                "asset_id": "asset-removed-a",
+                "path": "assets/image-map/candidates/removed-a.png",
+                "variant_label": "explainer",
+                "visual_mode": null,
+                "mime_type": "image/png",
+                "source": null
+              }
+            ],
+            "selected_asset_id": "asset-removed-a",
+            "status": "selected",
+            "placement_hint": null,
+            "canonical_anchor_assessment": {
+              "state": "stale",
+              "reason": "source_revision_unavailable",
+              "exact_anchor": {
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "paragraph_order": 1,
+                "sentence_start": 2,
+                "sentence_end": 2,
+                "char_start": 29,
+                "char_end": 63,
+                "span_text": "The harbor lights flickered twice.",
+                "speaker_block_id": "s1"
+              },
+              "evidence": {
+                "match_count": 1,
+                "assessed_contract_version": "forge.image-map-anchor.v1"
+              }
+            }
+          }
+        ],
+        "spoken_beats": [],
+        "metadata_updated_at": "2026-07-21T06:09:37.313Z",
+        "authority_source": "canonical",
+        "image_map_revision_id": "e68ef552-5ac6-4b24-bb41-9a5c6d54fb36",
+        "image_map_revision": 2,
+        "source_script_approval_id": "92b9171a-4777-46f3-b96b-24f0e6e34f21",
+        "source_script_approval_revision": 1,
+        "source_script_content_hash": "5fad5e0250982cd95eb97befbc9ead5d76c3898fc1383d6edeedfe2a91e35455",
+        "anchor_contract_version": "forge.image-map-anchor.v1",
+        "provenance_state": "stale",
+        "semantic_state_hash": "b621151d682574f6b104ff339fa850ec414ec241f4318aa11973bc1f258b6afd",
+        "immutable_revision_hash": "3e75946f68507fd0a754fd79ab078152be92d3224b6dcf5dcf24b9b3fa576941"
+      },
+      "asset": null
+    },
+    "stale_or_update_required": true
+  },
+  "phase_e": {
+    "repairedB": {
+      "image_map": {
+        "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+        "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+        "entries": [
+          {
+            "id": "moment-preserved",
+            "anchor": "The orange vanished at dawn.",
+            "script_anchor": {
+              "section_id": "s1",
+              "paragraph_id": "s1:p1",
+              "paragraph_order": 1,
+              "sentence_start": 1,
+              "sentence_end": 1,
+              "char_start": 0,
+              "char_end": 28,
+              "span_text": "The orange vanished at dawn.",
+              "speaker_block_id": "s1"
+            },
+            "beat_anchor": null,
+            "description": "Preserved anchor visual.",
+            "visual_intent": "Preserved anchor visual.",
+            "prompt_basis": "Preserved anchor visual.",
+            "style_preset": "cinematic_realism",
+            "intent": "cutaway",
+            "source_type": "ai",
+            "visual_type": null,
+            "beat_order": 1,
+            "paragraph_beat_order": 1,
+            "candidate_assets": [
+              {
+                "asset_id": "asset-preserved-a",
+                "path": "assets/image-map/candidates/preserved-a.png",
+                "variant_label": "explainer",
+                "visual_mode": null,
+                "mime_type": "image/png",
+                "source": null
+              }
+            ],
+            "selected_asset_id": "asset-preserved-a",
+            "status": "selected",
+            "placement_hint": null,
+            "canonical_anchor_assessment": {
+              "state": "current",
+              "reason": null,
+              "exact_anchor": {
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "paragraph_order": 1,
+                "sentence_start": 1,
+                "sentence_end": 1,
+                "char_start": 0,
+                "char_end": 28,
+                "span_text": "The orange vanished at dawn.",
+                "speaker_block_id": "s1"
+              },
+              "evidence": {
+                "match_count": 1,
+                "assessed_contract_version": "forge.image-map-anchor.v1"
+              }
+            }
+          },
+          {
+            "id": "moment-removed",
+            "anchor": "The harbor lights flickered twice.",
+            "script_anchor": {
+              "section_id": "s1",
+              "paragraph_id": "s1:p1",
+              "paragraph_order": 1,
+              "sentence_start": 2,
+              "sentence_end": 2,
+              "char_start": 29,
+              "char_end": 63,
+              "span_text": "The harbor lights flickered twice.",
+              "speaker_block_id": "s1"
+            },
+            "beat_anchor": null,
+            "description": "Anchor that will become stale.",
+            "visual_intent": "Anchor that will become stale.",
+            "prompt_basis": "Anchor that will become stale.",
+            "style_preset": "cinematic_realism",
+            "intent": "cutaway",
+            "source_type": "stock",
+            "visual_type": null,
+            "beat_order": 2,
+            "paragraph_beat_order": 2,
+            "candidate_assets": [
+              {
+                "asset_id": "asset-removed-a",
+                "path": "assets/image-map/candidates/removed-a.png",
+                "variant_label": "explainer",
+                "visual_mode": null,
+                "mime_type": "image/png",
+                "source": null
+              }
+            ],
+            "selected_asset_id": "asset-removed-a",
+            "status": "selected",
+            "placement_hint": null,
+            "canonical_anchor_assessment": {
+              "state": "unresolved",
+              "reason": "exact_text_not_found",
+              "exact_anchor": null,
+              "evidence": {
+                "match_count": 0,
+                "assessed_contract_version": "forge.image-map-anchor.v1"
+              }
+            }
+          }
+        ],
+        "spoken_beats": [],
+        "metadata_updated_at": "2026-07-21T06:09:37.313Z",
+        "authority_source": "canonical",
+        "image_map_revision_id": "2fad5753-0001-41c9-9301-55a483a2ff4d",
+        "image_map_revision": 3,
+        "source_script_approval_id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+        "source_script_approval_revision": 2,
+        "source_script_content_hash": "e01d823449979f76922489b0cccd73a68e0ad6cf0430a530834d9d329667f387",
+        "anchor_contract_version": "forge.image-map-anchor.v1",
+        "provenance_state": "unresolved",
+        "semantic_state_hash": "5856d4265e3e5c48b248943387d0baa65d1938a143bc378fc4bd27b663bafac6",
+        "immutable_revision_hash": "3ac9920834c5c73cd771d27aa1c11a0fbc4bf7275210abec4af7367338f26da1"
+      },
+      "asset": null
+    },
+    "mapAfterRepairB": {
+      "image_map": {
+        "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+        "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+        "entries": [
+          {
+            "id": "moment-preserved",
+            "anchor": "The orange vanished at dawn.",
+            "script_anchor": {
+              "section_id": "s1",
+              "paragraph_id": "s1:p1",
+              "paragraph_order": 1,
+              "sentence_start": 1,
+              "sentence_end": 1,
+              "char_start": 0,
+              "char_end": 28,
+              "span_text": "The orange vanished at dawn.",
+              "speaker_block_id": "s1"
+            },
+            "beat_anchor": null,
+            "description": "Preserved anchor visual.",
+            "visual_intent": "Preserved anchor visual.",
+            "prompt_basis": "Preserved anchor visual.",
+            "style_preset": "cinematic_realism",
+            "intent": "cutaway",
+            "source_type": "ai",
+            "visual_type": null,
+            "beat_order": 1,
+            "paragraph_beat_order": 1,
+            "candidate_assets": [
+              {
+                "asset_id": "asset-preserved-a",
+                "path": "assets/image-map/candidates/preserved-a.png",
+                "variant_label": "explainer",
+                "visual_mode": null,
+                "mime_type": "image/png",
+                "source": null
+              }
+            ],
+            "selected_asset_id": "asset-preserved-a",
+            "status": "selected",
+            "placement_hint": null,
+            "canonical_anchor_assessment": {
+              "state": "current",
+              "reason": null,
+              "exact_anchor": {
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "paragraph_order": 1,
+                "sentence_start": 1,
+                "sentence_end": 1,
+                "char_start": 0,
+                "char_end": 28,
+                "span_text": "The orange vanished at dawn.",
+                "speaker_block_id": "s1"
+              },
+              "evidence": {
+                "match_count": 1,
+                "assessed_contract_version": "forge.image-map-anchor.v1"
+              }
+            }
+          },
+          {
+            "id": "moment-removed",
+            "anchor": "The harbor lights flickered twice.",
+            "script_anchor": {
+              "section_id": "s1",
+              "paragraph_id": "s1:p1",
+              "paragraph_order": 1,
+              "sentence_start": 2,
+              "sentence_end": 2,
+              "char_start": 29,
+              "char_end": 63,
+              "span_text": "The harbor lights flickered twice.",
+              "speaker_block_id": "s1"
+            },
+            "beat_anchor": null,
+            "description": "Anchor that will become stale.",
+            "visual_intent": "Anchor that will become stale.",
+            "prompt_basis": "Anchor that will become stale.",
+            "style_preset": "cinematic_realism",
+            "intent": "cutaway",
+            "source_type": "stock",
+            "visual_type": null,
+            "beat_order": 2,
+            "paragraph_beat_order": 2,
+            "candidate_assets": [
+              {
+                "asset_id": "asset-removed-a",
+                "path": "assets/image-map/candidates/removed-a.png",
+                "variant_label": "explainer",
+                "visual_mode": null,
+                "mime_type": "image/png",
+                "source": null
+              }
+            ],
+            "selected_asset_id": "asset-removed-a",
+            "status": "selected",
+            "placement_hint": null,
+            "canonical_anchor_assessment": {
+              "state": "unresolved",
+              "reason": "exact_text_not_found",
+              "exact_anchor": null,
+              "evidence": {
+                "match_count": 0,
+                "assessed_contract_version": "forge.image-map-anchor.v1"
+              }
+            }
+          }
+        ],
+        "spoken_beats": [],
+        "metadata_updated_at": "2026-07-21T06:09:37.313Z",
+        "authority_source": "canonical",
+        "image_map_revision_id": "2fad5753-0001-41c9-9301-55a483a2ff4d",
+        "image_map_revision": 3,
+        "source_script_approval_id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+        "source_script_approval_revision": 2,
+        "source_script_content_hash": "e01d823449979f76922489b0cccd73a68e0ad6cf0430a530834d9d329667f387",
+        "anchor_contract_version": "forge.image-map-anchor.v1",
+        "provenance_state": "unresolved",
+        "semantic_state_hash": "5856d4265e3e5c48b248943387d0baa65d1938a143bc378fc4bd27b663bafac6",
+        "immutable_revision_hash": "3ac9920834c5c73cd771d27aa1c11a0fbc4bf7275210abec4af7367338f26da1"
+      },
+      "asset": null
+    },
+    "preserved_entry": {
+      "id": "moment-preserved",
+      "anchor": "The orange vanished at dawn.",
+      "script_anchor": {
+        "section_id": "s1",
+        "paragraph_id": "s1:p1",
+        "paragraph_order": 1,
+        "sentence_start": 1,
+        "sentence_end": 1,
+        "char_start": 0,
+        "char_end": 28,
+        "span_text": "The orange vanished at dawn.",
+        "speaker_block_id": "s1"
+      },
+      "beat_anchor": null,
+      "description": "Preserved anchor visual.",
+      "visual_intent": "Preserved anchor visual.",
+      "prompt_basis": "Preserved anchor visual.",
+      "style_preset": "cinematic_realism",
+      "intent": "cutaway",
+      "source_type": "ai",
+      "visual_type": null,
+      "beat_order": 1,
+      "paragraph_beat_order": 1,
+      "candidate_assets": [
+        {
+          "asset_id": "asset-preserved-a",
+          "path": "assets/image-map/candidates/preserved-a.png",
+          "variant_label": "explainer",
+          "visual_mode": null,
+          "mime_type": "image/png",
+          "source": null
+        }
+      ],
+      "selected_asset_id": "asset-preserved-a",
+      "status": "selected",
+      "placement_hint": null,
+      "canonical_anchor_assessment": {
+        "state": "current",
+        "reason": null,
+        "exact_anchor": {
+          "section_id": "s1",
+          "paragraph_id": "s1:p1",
+          "paragraph_order": 1,
+          "sentence_start": 1,
+          "sentence_end": 1,
+          "char_start": 0,
+          "char_end": 28,
+          "span_text": "The orange vanished at dawn.",
+          "speaker_block_id": "s1"
+        },
+        "evidence": {
+          "match_count": 1,
+          "assessed_contract_version": "forge.image-map-anchor.v1"
+        }
+      }
+    },
+    "removed_entry": {
+      "id": "moment-removed",
+      "anchor": "The harbor lights flickered twice.",
+      "script_anchor": {
+        "section_id": "s1",
+        "paragraph_id": "s1:p1",
+        "paragraph_order": 1,
+        "sentence_start": 2,
+        "sentence_end": 2,
+        "char_start": 29,
+        "char_end": 63,
+        "span_text": "The harbor lights flickered twice.",
+        "speaker_block_id": "s1"
+      },
+      "beat_anchor": null,
+      "description": "Anchor that will become stale.",
+      "visual_intent": "Anchor that will become stale.",
+      "prompt_basis": "Anchor that will become stale.",
+      "style_preset": "cinematic_realism",
+      "intent": "cutaway",
+      "source_type": "stock",
+      "visual_type": null,
+      "beat_order": 2,
+      "paragraph_beat_order": 2,
+      "candidate_assets": [
+        {
+          "asset_id": "asset-removed-a",
+          "path": "assets/image-map/candidates/removed-a.png",
+          "variant_label": "explainer",
+          "visual_mode": null,
+          "mime_type": "image/png",
+          "source": null
+        }
+      ],
+      "selected_asset_id": "asset-removed-a",
+      "status": "selected",
+      "placement_hint": null,
+      "canonical_anchor_assessment": {
+        "state": "unresolved",
+        "reason": "exact_text_not_found",
+        "exact_anchor": null,
+        "evidence": {
+          "match_count": 0,
+          "assessed_contract_version": "forge.image-map-anchor.v1"
+        }
+      }
+    },
+    "disallowed_event_count": 0,
+    "ai_usage_count": 0
+  },
+  "phase_f": {
+    "replayRepairSameOp": {
+      "image_map": {
+        "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+        "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+        "entries": [
+          {
+            "id": "moment-preserved",
+            "anchor": "The orange vanished at dawn.",
+            "script_anchor": {
+              "section_id": "s1",
+              "paragraph_id": "s1:p1",
+              "paragraph_order": 1,
+              "sentence_start": 1,
+              "sentence_end": 1,
+              "char_start": 0,
+              "char_end": 28,
+              "span_text": "The orange vanished at dawn.",
+              "speaker_block_id": "s1"
+            },
+            "beat_anchor": null,
+            "description": "Preserved anchor visual.",
+            "visual_intent": "Preserved anchor visual.",
+            "prompt_basis": "Preserved anchor visual.",
+            "style_preset": "cinematic_realism",
+            "intent": "cutaway",
+            "source_type": "ai",
+            "visual_type": null,
+            "beat_order": 1,
+            "paragraph_beat_order": 1,
+            "candidate_assets": [
+              {
+                "asset_id": "asset-preserved-a",
+                "path": "assets/image-map/candidates/preserved-a.png",
+                "variant_label": "explainer",
+                "visual_mode": null,
+                "mime_type": "image/png",
+                "source": null
+              }
+            ],
+            "selected_asset_id": "asset-preserved-a",
+            "status": "selected",
+            "placement_hint": null,
+            "canonical_anchor_assessment": {
+              "state": "current",
+              "reason": null,
+              "exact_anchor": {
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "paragraph_order": 1,
+                "sentence_start": 1,
+                "sentence_end": 1,
+                "char_start": 0,
+                "char_end": 28,
+                "span_text": "The orange vanished at dawn.",
+                "speaker_block_id": "s1"
+              },
+              "evidence": {
+                "match_count": 1,
+                "assessed_contract_version": "forge.image-map-anchor.v1"
+              }
+            }
+          },
+          {
+            "id": "moment-removed",
+            "anchor": "The harbor lights flickered twice.",
+            "script_anchor": {
+              "section_id": "s1",
+              "paragraph_id": "s1:p1",
+              "paragraph_order": 1,
+              "sentence_start": 2,
+              "sentence_end": 2,
+              "char_start": 29,
+              "char_end": 63,
+              "span_text": "The harbor lights flickered twice.",
+              "speaker_block_id": "s1"
+            },
+            "beat_anchor": null,
+            "description": "Anchor that will become stale.",
+            "visual_intent": "Anchor that will become stale.",
+            "prompt_basis": "Anchor that will become stale.",
+            "style_preset": "cinematic_realism",
+            "intent": "cutaway",
+            "source_type": "stock",
+            "visual_type": null,
+            "beat_order": 2,
+            "paragraph_beat_order": 2,
+            "candidate_assets": [
+              {
+                "asset_id": "asset-removed-a",
+                "path": "assets/image-map/candidates/removed-a.png",
+                "variant_label": "explainer",
+                "visual_mode": null,
+                "mime_type": "image/png",
+                "source": null
+              }
+            ],
+            "selected_asset_id": "asset-removed-a",
+            "status": "selected",
+            "placement_hint": null,
+            "canonical_anchor_assessment": {
+              "state": "unresolved",
+              "reason": "exact_text_not_found",
+              "exact_anchor": null,
+              "evidence": {
+                "match_count": 0,
+                "assessed_contract_version": "forge.image-map-anchor.v1"
+              }
+            }
+          }
+        ],
+        "spoken_beats": [],
+        "metadata_updated_at": "2026-07-21T06:09:37.313Z",
+        "authority_source": "canonical",
+        "image_map_revision_id": "2fad5753-0001-41c9-9301-55a483a2ff4d",
+        "image_map_revision": 3,
+        "source_script_approval_id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+        "source_script_approval_revision": 2,
+        "source_script_content_hash": "e01d823449979f76922489b0cccd73a68e0ad6cf0430a530834d9d329667f387",
+        "anchor_contract_version": "forge.image-map-anchor.v1",
+        "provenance_state": "unresolved",
+        "semantic_state_hash": "5856d4265e3e5c48b248943387d0baa65d1938a143bc378fc4bd27b663bafac6",
+        "immutable_revision_hash": "3ac9920834c5c73cd771d27aa1c11a0fbc4bf7275210abec4af7367338f26da1"
+      },
+      "asset": null
+    },
+    "replayRepairNewOp": {
+      "image_map": {
+        "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+        "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+        "entries": [
+          {
+            "id": "moment-preserved",
+            "anchor": "The orange vanished at dawn.",
+            "script_anchor": {
+              "section_id": "s1",
+              "paragraph_id": "s1:p1",
+              "paragraph_order": 1,
+              "sentence_start": 1,
+              "sentence_end": 1,
+              "char_start": 0,
+              "char_end": 28,
+              "span_text": "The orange vanished at dawn.",
+              "speaker_block_id": "s1"
+            },
+            "beat_anchor": null,
+            "description": "Preserved anchor visual.",
+            "visual_intent": "Preserved anchor visual.",
+            "prompt_basis": "Preserved anchor visual.",
+            "style_preset": "cinematic_realism",
+            "intent": "cutaway",
+            "source_type": "ai",
+            "visual_type": null,
+            "beat_order": 1,
+            "paragraph_beat_order": 1,
+            "candidate_assets": [
+              {
+                "asset_id": "asset-preserved-a",
+                "path": "assets/image-map/candidates/preserved-a.png",
+                "variant_label": "explainer",
+                "visual_mode": null,
+                "mime_type": "image/png",
+                "source": null
+              }
+            ],
+            "selected_asset_id": "asset-preserved-a",
+            "status": "selected",
+            "placement_hint": null,
+            "canonical_anchor_assessment": {
+              "state": "current",
+              "reason": null,
+              "exact_anchor": {
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "paragraph_order": 1,
+                "sentence_start": 1,
+                "sentence_end": 1,
+                "char_start": 0,
+                "char_end": 28,
+                "span_text": "The orange vanished at dawn.",
+                "speaker_block_id": "s1"
+              },
+              "evidence": {
+                "match_count": 1,
+                "assessed_contract_version": "forge.image-map-anchor.v1"
+              }
+            }
+          },
+          {
+            "id": "moment-removed",
+            "anchor": "The harbor lights flickered twice.",
+            "script_anchor": {
+              "section_id": "s1",
+              "paragraph_id": "s1:p1",
+              "paragraph_order": 1,
+              "sentence_start": 2,
+              "sentence_end": 2,
+              "char_start": 29,
+              "char_end": 63,
+              "span_text": "The harbor lights flickered twice.",
+              "speaker_block_id": "s1"
+            },
+            "beat_anchor": null,
+            "description": "Anchor that will become stale.",
+            "visual_intent": "Anchor that will become stale.",
+            "prompt_basis": "Anchor that will become stale.",
+            "style_preset": "cinematic_realism",
+            "intent": "cutaway",
+            "source_type": "stock",
+            "visual_type": null,
+            "beat_order": 2,
+            "paragraph_beat_order": 2,
+            "candidate_assets": [
+              {
+                "asset_id": "asset-removed-a",
+                "path": "assets/image-map/candidates/removed-a.png",
+                "variant_label": "explainer",
+                "visual_mode": null,
+                "mime_type": "image/png",
+                "source": null
+              }
+            ],
+            "selected_asset_id": "asset-removed-a",
+            "status": "selected",
+            "placement_hint": null,
+            "canonical_anchor_assessment": {
+              "state": "unresolved",
+              "reason": "exact_text_not_found",
+              "exact_anchor": null,
+              "evidence": {
+                "match_count": 0,
+                "assessed_contract_version": "forge.image-map-anchor.v1"
+              }
+            }
+          }
+        ],
+        "spoken_beats": [],
+        "metadata_updated_at": "2026-07-21T06:09:37.313Z",
+        "authority_source": "canonical",
+        "image_map_revision_id": "2fad5753-0001-41c9-9301-55a483a2ff4d",
+        "image_map_revision": 3,
+        "source_script_approval_id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+        "source_script_approval_revision": 2,
+        "source_script_content_hash": "e01d823449979f76922489b0cccd73a68e0ad6cf0430a530834d9d329667f387",
+        "anchor_contract_version": "forge.image-map-anchor.v1",
+        "provenance_state": "unresolved",
+        "semantic_state_hash": "5856d4265e3e5c48b248943387d0baa65d1938a143bc378fc4bd27b663bafac6",
+        "immutable_revision_hash": "3ac9920834c5c73cd771d27aa1c11a0fbc4bf7275210abec4af7367338f26da1"
+      },
+      "asset": null
+    },
+    "conflictReuse": {
+      "disposition": "operation_identity_conflict"
+    }
+  },
+  "phase_g": {
+    "manualResolved": {
+      "image_map": {
+        "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+        "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+        "entries": [
+          {
+            "id": "moment-preserved",
+            "anchor": "The orange vanished at dawn.",
+            "script_anchor": {
+              "section_id": "s1",
+              "paragraph_id": "s1:p1",
+              "paragraph_order": 1,
+              "sentence_start": 1,
+              "sentence_end": 1,
+              "char_start": 0,
+              "char_end": 28,
+              "span_text": "The orange vanished at dawn.",
+              "speaker_block_id": "s1"
+            },
+            "beat_anchor": null,
+            "description": "Preserved anchor visual.",
+            "visual_intent": "Preserved anchor visual.",
+            "prompt_basis": "Preserved anchor visual.",
+            "style_preset": "cinematic_realism",
+            "intent": "cutaway",
+            "source_type": "ai",
+            "visual_type": null,
+            "beat_order": 1,
+            "paragraph_beat_order": 1,
+            "candidate_assets": [
+              {
+                "asset_id": "asset-preserved-a",
+                "path": "assets/image-map/candidates/preserved-a.png",
+                "variant_label": "explainer",
+                "visual_mode": null,
+                "mime_type": "image/png",
+                "source": null
+              }
+            ],
+            "selected_asset_id": "asset-preserved-a",
+            "status": "selected",
+            "placement_hint": null,
+            "canonical_anchor_assessment": {
+              "state": "current",
+              "reason": null,
+              "exact_anchor": {
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "paragraph_order": 1,
+                "sentence_start": 1,
+                "sentence_end": 1,
+                "char_start": 0,
+                "char_end": 28,
+                "span_text": "The orange vanished at dawn.",
+                "speaker_block_id": "s1"
+              },
+              "evidence": {
+                "match_count": 1,
+                "assessed_contract_version": "forge.image-map-anchor.v1"
+              }
+            }
+          },
+          {
+            "id": "moment-removed",
+            "anchor": "The bay was silent under rain.",
+            "script_anchor": {
+              "section_id": "s1",
+              "paragraph_id": "s1:p1",
+              "paragraph_order": 1,
+              "sentence_start": 2,
+              "sentence_end": 2,
+              "char_start": 29,
+              "char_end": 59,
+              "span_text": "The bay was silent under rain.",
+              "speaker_block_id": "s1"
+            },
+            "beat_anchor": null,
+            "description": "Anchor that will become stale.",
+            "visual_intent": "Anchor that will become stale.",
+            "prompt_basis": "Anchor that will become stale.",
+            "style_preset": "cinematic_realism",
+            "intent": "cutaway",
+            "source_type": "stock",
+            "visual_type": null,
+            "beat_order": 2,
+            "paragraph_beat_order": 2,
+            "candidate_assets": [
+              {
+                "asset_id": "asset-removed-a",
+                "path": "assets/image-map/candidates/removed-a.png",
+                "variant_label": "explainer",
+                "visual_mode": null,
+                "mime_type": "image/png",
+                "source": null
+              }
+            ],
+            "selected_asset_id": "asset-removed-a",
+            "status": "selected",
+            "placement_hint": null,
+            "canonical_anchor_assessment": {
+              "state": "current",
+              "reason": null,
+              "exact_anchor": {
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "paragraph_order": 1,
+                "sentence_start": 2,
+                "sentence_end": 2,
+                "char_start": 29,
+                "char_end": 59,
+                "span_text": "The bay was silent under rain.",
+                "speaker_block_id": "s1"
+              },
+              "evidence": {
+                "match_count": 1,
+                "assessed_contract_version": "forge.image-map-anchor.v1"
+              }
+            }
+          }
+        ],
+        "spoken_beats": [],
+        "metadata_updated_at": "2026-07-21T06:09:37.313Z",
+        "authority_source": "canonical",
+        "image_map_revision_id": "696d8401-48d2-43ec-a46e-661ca3ce90bf",
+        "image_map_revision": 4,
+        "source_script_approval_id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+        "source_script_approval_revision": 2,
+        "source_script_content_hash": "e01d823449979f76922489b0cccd73a68e0ad6cf0430a530834d9d329667f387",
+        "anchor_contract_version": "forge.image-map-anchor.v1",
+        "provenance_state": "current",
+        "semantic_state_hash": "10bf05f71a85fbb287ec2497f3be076159f94d96f1d94e85d5f1e440c1dd955e",
+        "immutable_revision_hash": "38a02601fc7cc6e587261c56ec8b7178b011b675144751a3ab0cb9d427ee7c51"
+      },
+      "asset": null
+    },
+    "manualFresh": {
+      "image_map": {
+        "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+        "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+        "entries": [
+          {
+            "id": "moment-preserved",
+            "anchor": "The orange vanished at dawn.",
+            "script_anchor": {
+              "section_id": "s1",
+              "paragraph_id": "s1:p1",
+              "paragraph_order": 1,
+              "sentence_start": 1,
+              "sentence_end": 1,
+              "char_start": 0,
+              "char_end": 28,
+              "span_text": "The orange vanished at dawn.",
+              "speaker_block_id": "s1"
+            },
+            "beat_anchor": null,
+            "description": "Preserved anchor visual.",
+            "visual_intent": "Preserved anchor visual.",
+            "prompt_basis": "Preserved anchor visual.",
+            "style_preset": "cinematic_realism",
+            "intent": "cutaway",
+            "source_type": "ai",
+            "visual_type": null,
+            "beat_order": 1,
+            "paragraph_beat_order": 1,
+            "candidate_assets": [
+              {
+                "asset_id": "asset-preserved-a",
+                "path": "assets/image-map/candidates/preserved-a.png",
+                "variant_label": "explainer",
+                "visual_mode": null,
+                "mime_type": "image/png",
+                "source": null
+              }
+            ],
+            "selected_asset_id": "asset-preserved-a",
+            "status": "selected",
+            "placement_hint": null,
+            "canonical_anchor_assessment": {
+              "state": "current",
+              "reason": null,
+              "exact_anchor": {
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "paragraph_order": 1,
+                "sentence_start": 1,
+                "sentence_end": 1,
+                "char_start": 0,
+                "char_end": 28,
+                "span_text": "The orange vanished at dawn.",
+                "speaker_block_id": "s1"
+              },
+              "evidence": {
+                "match_count": 1,
+                "assessed_contract_version": "forge.image-map-anchor.v1"
+              }
+            }
+          },
+          {
+            "id": "moment-removed",
+            "anchor": "The bay was silent under rain.",
+            "script_anchor": {
+              "section_id": "s1",
+              "paragraph_id": "s1:p1",
+              "paragraph_order": 1,
+              "sentence_start": 2,
+              "sentence_end": 2,
+              "char_start": 29,
+              "char_end": 59,
+              "span_text": "The bay was silent under rain.",
+              "speaker_block_id": "s1"
+            },
+            "beat_anchor": null,
+            "description": "Anchor that will become stale.",
+            "visual_intent": "Anchor that will become stale.",
+            "prompt_basis": "Anchor that will become stale.",
+            "style_preset": "cinematic_realism",
+            "intent": "cutaway",
+            "source_type": "stock",
+            "visual_type": null,
+            "beat_order": 2,
+            "paragraph_beat_order": 2,
+            "candidate_assets": [
+              {
+                "asset_id": "asset-removed-a",
+                "path": "assets/image-map/candidates/removed-a.png",
+                "variant_label": "explainer",
+                "visual_mode": null,
+                "mime_type": "image/png",
+                "source": null
+              }
+            ],
+            "selected_asset_id": "asset-removed-a",
+            "status": "selected",
+            "placement_hint": null,
+            "canonical_anchor_assessment": {
+              "state": "current",
+              "reason": null,
+              "exact_anchor": {
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "paragraph_order": 1,
+                "sentence_start": 2,
+                "sentence_end": 2,
+                "char_start": 29,
+                "char_end": 59,
+                "span_text": "The bay was silent under rain.",
+                "speaker_block_id": "s1"
+              },
+              "evidence": {
+                "match_count": 1,
+                "assessed_contract_version": "forge.image-map-anchor.v1"
+              }
+            }
+          }
+        ],
+        "spoken_beats": [],
+        "metadata_updated_at": "2026-07-21T06:09:37.313Z",
+        "authority_source": "canonical",
+        "image_map_revision_id": "696d8401-48d2-43ec-a46e-661ca3ce90bf",
+        "image_map_revision": 4,
+        "source_script_approval_id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+        "source_script_approval_revision": 2,
+        "source_script_content_hash": "e01d823449979f76922489b0cccd73a68e0ad6cf0430a530834d9d329667f387",
+        "anchor_contract_version": "forge.image-map-anchor.v1",
+        "provenance_state": "current",
+        "semantic_state_hash": "10bf05f71a85fbb287ec2497f3be076159f94d96f1d94e85d5f1e440c1dd955e",
+        "immutable_revision_hash": "38a02601fc7cc6e587261c56ec8b7178b011b675144751a3ab0cb9d427ee7c51"
+      },
+      "asset": null
+    },
+    "resolved_entry": {
+      "id": "moment-removed",
+      "anchor": "The bay was silent under rain.",
+      "script_anchor": {
+        "section_id": "s1",
+        "paragraph_id": "s1:p1",
+        "paragraph_order": 1,
+        "sentence_start": 2,
+        "sentence_end": 2,
+        "char_start": 29,
+        "char_end": 59,
+        "span_text": "The bay was silent under rain.",
+        "speaker_block_id": "s1"
+      },
+      "beat_anchor": null,
+      "description": "Anchor that will become stale.",
+      "visual_intent": "Anchor that will become stale.",
+      "prompt_basis": "Anchor that will become stale.",
+      "style_preset": "cinematic_realism",
+      "intent": "cutaway",
+      "source_type": "stock",
+      "visual_type": null,
+      "beat_order": 2,
+      "paragraph_beat_order": 2,
+      "candidate_assets": [
+        {
+          "asset_id": "asset-removed-a",
+          "path": "assets/image-map/candidates/removed-a.png",
+          "variant_label": "explainer",
+          "visual_mode": null,
+          "mime_type": "image/png",
+          "source": null
+        }
+      ],
+      "selected_asset_id": "asset-removed-a",
+      "status": "selected",
+      "placement_hint": null,
+      "canonical_anchor_assessment": {
+        "state": "current",
+        "reason": null,
+        "exact_anchor": {
+          "section_id": "s1",
+          "paragraph_id": "s1:p1",
+          "paragraph_order": 1,
+          "sentence_start": 2,
+          "sentence_end": 2,
+          "char_start": 29,
+          "char_end": 59,
+          "span_text": "The bay was silent under rain.",
+          "speaker_block_id": "s1"
+        },
+        "evidence": {
+          "match_count": 1,
+          "assessed_contract_version": "forge.image-map-anchor.v1"
+        }
+      }
+    }
+  },
+  "phase_h": {
+    "reapply": {
+      "disposition": "committed",
+      "image_map_revision": {
+        "id": "86e13f8b-ce03-4fab-abc5-3d49fe7c3a46",
+        "revision": 5,
+        "created_at": "2026-07-21T06:10:02.366523+00:00",
+        "created_by": "837a864b-b775-417e-8fb8-b3bc64ab62f2",
+        "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+        "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+        "document_json": {
+          "schema": "forge.image-map-authority.v1",
+          "entries": [
+            {
+              "id": "moment-preserved",
+              "anchor": "The orange vanished at dawn.",
+              "intent": "cutaway",
+              "status": "selected",
+              "beat_order": 1,
+              "beat_anchor": null,
+              "description": "Preserved anchor visual.",
+              "source_type": "ai",
+              "visual_type": null,
+              "anchor_scope": "attached",
+              "prompt_basis": "Preserved anchor visual.",
+              "style_preset": "cinematic_realism",
+              "script_anchor": {
+                "char_end": 28,
+                "span_text": "The orange vanished at dawn.",
+                "char_start": 0,
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "sentence_end": 1,
+                "sentence_start": 1,
+                "paragraph_order": 1,
+                "speaker_block_id": "s1"
+              },
+              "visual_intent": "Preserved anchor visual.",
+              "placement_hint": null,
+              "candidate_assets": [
+                {
+                  "path": "assets/image-map/candidates/preserved-a.png",
+                  "source": null,
+                  "asset_id": "asset-preserved-a",
+                  "mime_type": "image/png",
+                  "visual_mode": null,
+                  "variant_label": "explainer"
+                }
+              ],
+              "selected_asset_id": "asset-preserved-a",
+              "paragraph_beat_order": 1,
+              "canonical_anchor_assessment": {
+                "state": "current",
+                "reason": null,
+                "evidence": {
+                  "match_count": 1,
+                  "assessed_contract_version": "forge.image-map-anchor.v1"
+                },
+                "exact_anchor": {
+                  "char_end": 28,
+                  "span_text": "The orange vanished at dawn.",
+                  "char_start": 0,
+                  "section_id": "s1",
+                  "paragraph_id": "s1:p1",
+                  "sentence_end": 1,
+                  "sentence_start": 1,
+                  "paragraph_order": 1,
+                  "speaker_block_id": "s1"
+                }
+              }
+            },
+            {
+              "id": "moment-removed",
+              "anchor": "The bay was silent under rain.",
+              "intent": "cutaway",
+              "status": "selected",
+              "beat_order": 2,
+              "beat_anchor": null,
+              "description": "Anchor that will become stale.",
+              "source_type": "stock",
+              "visual_type": null,
+              "anchor_scope": "attached",
+              "prompt_basis": "Anchor that will become stale.",
+              "style_preset": "cinematic_realism",
+              "script_anchor": {
+                "char_end": 59,
+                "span_text": "The bay was silent under rain.",
+                "char_start": 29,
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "sentence_end": 2,
+                "sentence_start": 2,
+                "paragraph_order": 1,
+                "speaker_block_id": "s1"
+              },
+              "visual_intent": "Anchor that will become stale.",
+              "placement_hint": null,
+              "candidate_assets": [
+                {
+                  "path": "assets/image-map/candidates/removed-a.png",
+                  "source": null,
+                  "asset_id": "asset-removed-a",
+                  "mime_type": "image/png",
+                  "visual_mode": null,
+                  "variant_label": "explainer"
+                }
+              ],
+              "selected_asset_id": "asset-removed-a",
+              "paragraph_beat_order": 2,
+              "canonical_anchor_assessment": {
+                "state": "current",
+                "reason": null,
+                "evidence": {
+                  "match_count": 1,
+                  "assessed_contract_version": "forge.image-map-anchor.v1"
+                },
+                "exact_anchor": {
+                  "char_end": 59,
+                  "span_text": "The bay was silent under rain.",
+                  "char_start": 29,
+                  "section_id": "s1",
+                  "paragraph_id": "s1:p1",
+                  "sentence_end": 2,
+                  "sentence_start": 2,
+                  "paragraph_order": 1,
+                  "speaker_block_id": "s1"
+                }
+              }
+            }
+          ]
+        },
+        "provenance_state": "current",
+        "previous_revision": 4,
+        "semantic_state_hash": "eb00e9db1f3692d0ec93b7815310935c6b557483b589b7ef3b7cccb18f4a8b33",
+        "previous_revision_id": "696d8401-48d2-43ec-a46e-661ca3ce90bf",
+        "document_content_hash": "d6e9e33ee92fcf70d50c41ddaab76e75366fe503d3d53b11c3859827337cf2a0",
+        "anchor_contract_version": "forge.image-map-anchor.v1",
+        "immutable_revision_hash": "87748e3a7b8f83d285af0f5b289da7abb34f3fc2d0c8fa42efbfbfa5f6279625",
+        "source_script_approval_id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+        "source_script_content_hash": "e01d823449979f76922489b0cccd73a68e0ad6cf0430a530834d9d329667f387",
+        "source_script_approval_revision": 2
+      }
+    },
+    "regenerate": {
+      "disposition": "no_change",
+      "image_map_revision": {
+        "id": "86e13f8b-ce03-4fab-abc5-3d49fe7c3a46",
+        "revision": 5,
+        "created_at": "2026-07-21T06:10:02.366523+00:00",
+        "created_by": "837a864b-b775-417e-8fb8-b3bc64ab62f2",
+        "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+        "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+        "document_json": {
+          "schema": "forge.image-map-authority.v1",
+          "entries": [
+            {
+              "id": "moment-preserved",
+              "anchor": "The orange vanished at dawn.",
+              "intent": "cutaway",
+              "status": "selected",
+              "beat_order": 1,
+              "beat_anchor": null,
+              "description": "Preserved anchor visual.",
+              "source_type": "ai",
+              "visual_type": null,
+              "anchor_scope": "attached",
+              "prompt_basis": "Preserved anchor visual.",
+              "style_preset": "cinematic_realism",
+              "script_anchor": {
+                "char_end": 28,
+                "span_text": "The orange vanished at dawn.",
+                "char_start": 0,
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "sentence_end": 1,
+                "sentence_start": 1,
+                "paragraph_order": 1,
+                "speaker_block_id": "s1"
+              },
+              "visual_intent": "Preserved anchor visual.",
+              "placement_hint": null,
+              "candidate_assets": [
+                {
+                  "path": "assets/image-map/candidates/preserved-a.png",
+                  "source": null,
+                  "asset_id": "asset-preserved-a",
+                  "mime_type": "image/png",
+                  "visual_mode": null,
+                  "variant_label": "explainer"
+                }
+              ],
+              "selected_asset_id": "asset-preserved-a",
+              "paragraph_beat_order": 1,
+              "canonical_anchor_assessment": {
+                "state": "current",
+                "reason": null,
+                "evidence": {
+                  "match_count": 1,
+                  "assessed_contract_version": "forge.image-map-anchor.v1"
+                },
+                "exact_anchor": {
+                  "char_end": 28,
+                  "span_text": "The orange vanished at dawn.",
+                  "char_start": 0,
+                  "section_id": "s1",
+                  "paragraph_id": "s1:p1",
+                  "sentence_end": 1,
+                  "sentence_start": 1,
+                  "paragraph_order": 1,
+                  "speaker_block_id": "s1"
+                }
+              }
+            },
+            {
+              "id": "moment-removed",
+              "anchor": "The bay was silent under rain.",
+              "intent": "cutaway",
+              "status": "selected",
+              "beat_order": 2,
+              "beat_anchor": null,
+              "description": "Anchor that will become stale.",
+              "source_type": "stock",
+              "visual_type": null,
+              "anchor_scope": "attached",
+              "prompt_basis": "Anchor that will become stale.",
+              "style_preset": "cinematic_realism",
+              "script_anchor": {
+                "char_end": 59,
+                "span_text": "The bay was silent under rain.",
+                "char_start": 29,
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "sentence_end": 2,
+                "sentence_start": 2,
+                "paragraph_order": 1,
+                "speaker_block_id": "s1"
+              },
+              "visual_intent": "Anchor that will become stale.",
+              "placement_hint": null,
+              "candidate_assets": [
+                {
+                  "path": "assets/image-map/candidates/removed-a.png",
+                  "source": null,
+                  "asset_id": "asset-removed-a",
+                  "mime_type": "image/png",
+                  "visual_mode": null,
+                  "variant_label": "explainer"
+                }
+              ],
+              "selected_asset_id": "asset-removed-a",
+              "paragraph_beat_order": 2,
+              "canonical_anchor_assessment": {
+                "state": "current",
+                "reason": null,
+                "evidence": {
+                  "match_count": 1,
+                  "assessed_contract_version": "forge.image-map-anchor.v1"
+                },
+                "exact_anchor": {
+                  "char_end": 59,
+                  "span_text": "The bay was silent under rain.",
+                  "char_start": 29,
+                  "section_id": "s1",
+                  "paragraph_id": "s1:p1",
+                  "sentence_end": 2,
+                  "sentence_start": 2,
+                  "paragraph_order": 1,
+                  "speaker_block_id": "s1"
+                }
+              }
+            }
+          ]
+        },
+        "provenance_state": "current",
+        "previous_revision": 4,
+        "semantic_state_hash": "eb00e9db1f3692d0ec93b7815310935c6b557483b589b7ef3b7cccb18f4a8b33",
+        "previous_revision_id": "696d8401-48d2-43ec-a46e-661ca3ce90bf",
+        "document_content_hash": "d6e9e33ee92fcf70d50c41ddaab76e75366fe503d3d53b11c3859827337cf2a0",
+        "anchor_contract_version": "forge.image-map-anchor.v1",
+        "immutable_revision_hash": "87748e3a7b8f83d285af0f5b289da7abb34f3fc2d0c8fa42efbfbfa5f6279625",
+        "source_script_approval_id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+        "source_script_content_hash": "e01d823449979f76922489b0cccd73a68e0ad6cf0430a530834d9d329667f387",
+        "source_script_approval_revision": 2
+      }
+    },
+    "finalMap": {
+      "image_map": {
+        "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+        "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+        "entries": [
+          {
+            "id": "moment-preserved",
+            "anchor": "The orange vanished at dawn.",
+            "script_anchor": {
+              "section_id": "s1",
+              "paragraph_id": "s1:p1",
+              "paragraph_order": 1,
+              "sentence_start": 1,
+              "sentence_end": 1,
+              "char_start": 0,
+              "char_end": 28,
+              "span_text": "The orange vanished at dawn.",
+              "speaker_block_id": "s1"
+            },
+            "beat_anchor": null,
+            "description": "Preserved anchor visual.",
+            "visual_intent": "Preserved anchor visual.",
+            "prompt_basis": "Preserved anchor visual.",
+            "style_preset": "cinematic_realism",
+            "intent": "cutaway",
+            "source_type": "ai",
+            "visual_type": null,
+            "beat_order": 1,
+            "paragraph_beat_order": 1,
+            "candidate_assets": [
+              {
+                "asset_id": "asset-preserved-a",
+                "path": "assets/image-map/candidates/preserved-a.png",
+                "variant_label": "explainer",
+                "visual_mode": null,
+                "mime_type": "image/png",
+                "source": null
+              }
+            ],
+            "selected_asset_id": "asset-preserved-a",
+            "status": "selected",
+            "placement_hint": null,
+            "canonical_anchor_assessment": {
+              "state": "current",
+              "reason": null,
+              "exact_anchor": {
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "paragraph_order": 1,
+                "sentence_start": 1,
+                "sentence_end": 1,
+                "char_start": 0,
+                "char_end": 28,
+                "span_text": "The orange vanished at dawn.",
+                "speaker_block_id": "s1"
+              },
+              "evidence": {
+                "match_count": 1,
+                "assessed_contract_version": "forge.image-map-anchor.v1"
+              }
+            }
+          },
+          {
+            "id": "moment-removed",
+            "anchor": "The bay was silent under rain.",
+            "script_anchor": {
+              "section_id": "s1",
+              "paragraph_id": "s1:p1",
+              "paragraph_order": 1,
+              "sentence_start": 2,
+              "sentence_end": 2,
+              "char_start": 29,
+              "char_end": 59,
+              "span_text": "The bay was silent under rain.",
+              "speaker_block_id": "s1"
+            },
+            "beat_anchor": null,
+            "description": "Anchor that will become stale.",
+            "visual_intent": "Anchor that will become stale.",
+            "prompt_basis": "Anchor that will become stale.",
+            "style_preset": "cinematic_realism",
+            "intent": "cutaway",
+            "source_type": "stock",
+            "visual_type": null,
+            "beat_order": 2,
+            "paragraph_beat_order": 2,
+            "candidate_assets": [
+              {
+                "asset_id": "asset-removed-a",
+                "path": "assets/image-map/candidates/removed-a.png",
+                "variant_label": "explainer",
+                "visual_mode": null,
+                "mime_type": "image/png",
+                "source": null
+              }
+            ],
+            "selected_asset_id": "asset-removed-a",
+            "status": "selected",
+            "placement_hint": null,
+            "canonical_anchor_assessment": {
+              "state": "current",
+              "reason": null,
+              "exact_anchor": {
+                "section_id": "s1",
+                "paragraph_id": "s1:p1",
+                "paragraph_order": 1,
+                "sentence_start": 2,
+                "sentence_end": 2,
+                "char_start": 29,
+                "char_end": 59,
+                "span_text": "The bay was silent under rain.",
+                "speaker_block_id": "s1"
+              },
+              "evidence": {
+                "match_count": 1,
+                "assessed_contract_version": "forge.image-map-anchor.v1"
+              }
+            }
+          }
+        ],
+        "spoken_beats": [],
+        "metadata_updated_at": "2026-07-21T06:09:37.313Z",
+        "authority_source": "canonical",
+        "image_map_revision_id": "86e13f8b-ce03-4fab-abc5-3d49fe7c3a46",
+        "image_map_revision": 5,
+        "source_script_approval_id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+        "source_script_approval_revision": 2,
+        "source_script_content_hash": "e01d823449979f76922489b0cccd73a68e0ad6cf0430a530834d9d329667f387",
+        "anchor_contract_version": "forge.image-map-anchor.v1",
+        "provenance_state": "current",
+        "semantic_state_hash": "eb00e9db1f3692d0ec93b7815310935c6b557483b589b7ef3b7cccb18f4a8b33",
+        "immutable_revision_hash": "87748e3a7b8f83d285af0f5b289da7abb34f3fc2d0c8fa42efbfbfa5f6279625"
+      },
+      "asset": null
+    },
+    "operationReceipts": [
+      {
+        "operation_id": "forge:script-approval:e2e:approveA:18efe768-5b0",
+        "operation_fingerprint": "fcc73ab53a37396486d83a888359f922b2c10c9bb30d29fc92e05e67c2d85e23",
+        "mutation_kind": "commit_script_approval",
+        "target_script_approval_id": null,
+        "target_script_approval_revision": null,
+        "immutable_result_json": {
+          "approval": {
+            "id": "92b9171a-4777-46f3-b96b-24f0e6e34f21",
+            "created_at": "2026-07-21T06:09:42.291883+00:00",
+            "created_by": "837a864b-b775-417e-8fb8-b3bc64ab62f2",
+            "script_text": "[s1]\nThe orange vanished at dawn.\nThe harbor lights flickered twice.\n[/s1]",
+            "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+            "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+            "source_file_path": "script/script.md",
+            "approval_revision": 1,
+            "script_content_hash": "5fad5e0250982cd95eb97befbc9ead5d76c3898fc1383d6edeedfe2a91e35455",
+            "semantic_state_hash": "88680c27831891e3e807a80031d179620ba91d9fdecb153bf17c61b880228a6d",
+            "source_file_revision": 1,
+            "creator_version_label": "A-v1",
+            "immutable_revision_hash": "615237bdb40a6598b52ba1c50ee140afd8eb6a32d7412fd9377c95f39d514c40",
+            "approval_contract_version": "forge.script-approval.v1"
+          },
+          "disposition": "committed"
+        }
+      },
+      {
+        "operation_id": "forge:script-approval:e2e:approveA-nochange:18efe768-5b0",
+        "operation_fingerprint": "32fd3b66b00a380a9aa77b404ac49d9369c2159b29e2b91be9f364b5ee62d2dd",
+        "mutation_kind": "commit_script_approval",
+        "target_script_approval_id": null,
+        "target_script_approval_revision": null,
+        "immutable_result_json": {
+          "approval": {
+            "id": "92b9171a-4777-46f3-b96b-24f0e6e34f21",
+            "created_at": "2026-07-21T06:09:42.291883+00:00",
+            "created_by": "837a864b-b775-417e-8fb8-b3bc64ab62f2",
+            "script_text": "[s1]\nThe orange vanished at dawn.\nThe harbor lights flickered twice.\n[/s1]",
+            "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+            "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+            "source_file_path": "script/script.md",
+            "approval_revision": 1,
+            "script_content_hash": "5fad5e0250982cd95eb97befbc9ead5d76c3898fc1383d6edeedfe2a91e35455",
+            "semantic_state_hash": "88680c27831891e3e807a80031d179620ba91d9fdecb153bf17c61b880228a6d",
+            "source_file_revision": 1,
+            "creator_version_label": "A-v1",
+            "immutable_revision_hash": "615237bdb40a6598b52ba1c50ee140afd8eb6a32d7412fd9377c95f39d514c40",
+            "approval_contract_version": "forge.script-approval.v1"
+          },
+          "disposition": "no_change"
+        }
+      },
+      {
+        "operation_id": "forge:image-map:e2e:bootstrap:18efe768-5b0",
+        "operation_fingerprint": "4a0f9048a6978d363d9af3ebbce766aaa53f333a8c997b58fc6beeaa6ae9a3f6",
+        "mutation_kind": "commit_image_map",
+        "target_script_approval_id": null,
+        "target_script_approval_revision": null,
+        "immutable_result_json": {
+          "disposition": "committed",
+          "image_map_revision": {
+            "id": "18275f26-a4bb-4d27-8531-3f93bd34224a",
+            "revision": 1,
+            "created_at": "2026-07-21T06:09:47.202818+00:00",
+            "created_by": "837a864b-b775-417e-8fb8-b3bc64ab62f2",
+            "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+            "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+            "document_json": {
+              "schema": "forge.image-map-authority.v1",
+              "entries": [
+                {
+                  "id": "moment-preserved",
+                  "anchor": "The orange vanished at dawn.",
+                  "intent": "cutaway",
+                  "status": "selected",
+                  "beat_order": 1,
+                  "beat_anchor": null,
+                  "description": "Preserved anchor visual.",
+                  "source_type": "ai",
+                  "anchor_scope": "attached",
+                  "prompt_basis": "Preserved anchor visual.",
+                  "style_preset": "photographic",
+                  "script_anchor": {
+                    "char_end": 27,
+                    "span_text": "The orange vanished at dawn.",
+                    "char_start": 0,
+                    "section_id": "s1",
+                    "paragraph_id": "s1:p1",
+                    "sentence_end": 1,
+                    "sentence_start": 1,
+                    "paragraph_order": 1,
+                    "speaker_block_id": "s1"
+                  },
+                  "visual_intent": "Preserved anchor visual.",
+                  "placement_hint": null,
+                  "candidate_assets": [
+                    {
+                      "path": "assets/image-map/candidates/preserved-a.png",
+                      "asset_id": "asset-preserved-a",
+                      "mime_type": "image/png",
+                      "visual_mode": "illustrative",
+                      "variant_label": "explainer"
+                    }
+                  ],
+                  "selected_asset_id": "asset-preserved-a",
+                  "paragraph_beat_order": 1,
+                  "canonical_anchor_assessment": {
+                    "state": "provenance_unknown",
+                    "reason": "source_provenance_unknown",
+                    "evidence": {
+                      "match_count": null,
+                      "assessed_contract_version": "forge.image-map-anchor.v1"
+                    },
+                    "exact_anchor": null
+                  }
+                },
+                {
+                  "id": "moment-removed",
+                  "anchor": "The harbor lights flickered twice.",
+                  "intent": "cutaway",
+                  "status": "selected",
+                  "beat_order": 2,
+                  "beat_anchor": null,
+                  "description": "Anchor that will become stale.",
+                  "source_type": "upload",
+                  "anchor_scope": "attached",
+                  "prompt_basis": "Anchor that will become stale.",
+                  "style_preset": "documentary",
+                  "script_anchor": {
+                    "char_end": 61,
+                    "span_text": "The harbor lights flickered twice.",
+                    "char_start": 28,
+                    "section_id": "s1",
+                    "paragraph_id": "s1:p1",
+                    "sentence_end": 2,
+                    "sentence_start": 2,
+                    "paragraph_order": 1,
+                    "speaker_block_id": "s1"
+                  },
+                  "visual_intent": "Anchor that will become stale.",
+                  "placement_hint": null,
+                  "candidate_assets": [
+                    {
+                      "path": "assets/image-map/candidates/removed-a.png",
+                      "asset_id": "asset-removed-a",
+                      "mime_type": "image/png",
+                      "visual_mode": "illustrative",
+                      "variant_label": "explainer"
+                    }
+                  ],
+                  "selected_asset_id": "asset-removed-a",
+                  "paragraph_beat_order": 2,
+                  "canonical_anchor_assessment": {
+                    "state": "provenance_unknown",
+                    "reason": "source_provenance_unknown",
+                    "evidence": {
+                      "match_count": null,
+                      "assessed_contract_version": "forge.image-map-anchor.v1"
+                    },
+                    "exact_anchor": null
+                  }
+                }
+              ]
+            },
+            "provenance_state": "provenance_unknown",
+            "previous_revision": null,
+            "semantic_state_hash": "decfb2936d0d68b7b9c683d6b1b91816545b7f6cc8e92f838e7a6f56c836f876",
+            "previous_revision_id": null,
+            "document_content_hash": "9ce56a8a32f89f6fef5b9558cee47a81f65a97abac395dcd5dc35c6fb5d2bf05",
+            "anchor_contract_version": "forge.image-map-anchor.v1",
+            "immutable_revision_hash": "341d0615e159400b7925235f349c985d5dabfe935ab682ffaf6c778c96e12d43",
+            "source_script_approval_id": null,
+            "source_script_content_hash": null,
+            "source_script_approval_revision": null
+          }
+        }
+      },
+      {
+        "operation_id": "forge:image-map:e2e:repairA:18efe768-5b0",
+        "operation_fingerprint": "8870c2ee8517aec38906d704642efd96d35258b4d665a27de4779dcc91da028a",
+        "mutation_kind": "repair_to_approved_script",
+        "target_script_approval_id": "92b9171a-4777-46f3-b96b-24f0e6e34f21",
+        "target_script_approval_revision": 1,
+        "immutable_result_json": {
+          "disposition": "committed",
+          "image_map_revision": {
+            "id": "e68ef552-5ac6-4b24-bb41-9a5c6d54fb36",
+            "revision": 2,
+            "created_at": "2026-07-21T06:09:48.45938+00:00",
+            "created_by": "837a864b-b775-417e-8fb8-b3bc64ab62f2",
+            "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+            "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+            "document_json": {
+              "schema": "forge.image-map-authority.v1",
+              "entries": [
+                {
+                  "id": "moment-preserved",
+                  "anchor": "The orange vanished at dawn.",
+                  "intent": "cutaway",
+                  "status": "selected",
+                  "beat_order": 1,
+                  "beat_anchor": null,
+                  "description": "Preserved anchor visual.",
+                  "source_type": "ai",
+                  "visual_type": null,
+                  "prompt_basis": "Preserved anchor visual.",
+                  "style_preset": "cinematic_realism",
+                  "script_anchor": {
+                    "char_end": 28,
+                    "span_text": "The orange vanished at dawn.",
+                    "char_start": 0,
+                    "section_id": "s1",
+                    "paragraph_id": "s1:p1",
+                    "sentence_end": 1,
+                    "sentence_start": 1,
+                    "paragraph_order": 1,
+                    "speaker_block_id": "s1"
+                  },
+                  "visual_intent": "Preserved anchor visual.",
+                  "placement_hint": null,
+                  "candidate_assets": [
+                    {
+                      "path": "assets/image-map/candidates/preserved-a.png",
+                      "source": null,
+                      "asset_id": "asset-preserved-a",
+                      "mime_type": "image/png",
+                      "visual_mode": null,
+                      "variant_label": "explainer"
+                    }
+                  ],
+                  "selected_asset_id": "asset-preserved-a",
+                  "paragraph_beat_order": 1,
+                  "canonical_anchor_assessment": {
+                    "state": "current",
+                    "reason": null,
+                    "evidence": {
+                      "match_count": 1,
+                      "assessed_contract_version": "forge.image-map-anchor.v1"
+                    },
+                    "exact_anchor": {
+                      "char_end": 28,
+                      "span_text": "The orange vanished at dawn.",
+                      "char_start": 0,
+                      "section_id": "s1",
+                      "paragraph_id": "s1:p1",
+                      "sentence_end": 1,
+                      "sentence_start": 1,
+                      "paragraph_order": 1,
+                      "speaker_block_id": "s1"
+                    }
+                  }
+                },
+                {
+                  "id": "moment-removed",
+                  "anchor": "The harbor lights flickered twice.",
+                  "intent": "cutaway",
+                  "status": "selected",
+                  "beat_order": 2,
+                  "beat_anchor": null,
+                  "description": "Anchor that will become stale.",
+                  "source_type": "stock",
+                  "visual_type": null,
+                  "prompt_basis": "Anchor that will become stale.",
+                  "style_preset": "cinematic_realism",
+                  "script_anchor": {
+                    "char_end": 63,
+                    "span_text": "The harbor lights flickered twice.",
+                    "char_start": 29,
+                    "section_id": "s1",
+                    "paragraph_id": "s1:p1",
+                    "sentence_end": 2,
+                    "sentence_start": 2,
+                    "paragraph_order": 1,
+                    "speaker_block_id": "s1"
+                  },
+                  "visual_intent": "Anchor that will become stale.",
+                  "placement_hint": null,
+                  "candidate_assets": [
+                    {
+                      "path": "assets/image-map/candidates/removed-a.png",
+                      "source": null,
+                      "asset_id": "asset-removed-a",
+                      "mime_type": "image/png",
+                      "visual_mode": null,
+                      "variant_label": "explainer"
+                    }
+                  ],
+                  "selected_asset_id": "asset-removed-a",
+                  "paragraph_beat_order": 2,
+                  "canonical_anchor_assessment": {
+                    "state": "current",
+                    "reason": null,
+                    "evidence": {
+                      "match_count": 1,
+                      "assessed_contract_version": "forge.image-map-anchor.v1"
+                    },
+                    "exact_anchor": {
+                      "char_end": 63,
+                      "span_text": "The harbor lights flickered twice.",
+                      "char_start": 29,
+                      "section_id": "s1",
+                      "paragraph_id": "s1:p1",
+                      "sentence_end": 2,
+                      "sentence_start": 2,
+                      "paragraph_order": 1,
+                      "speaker_block_id": "s1"
+                    }
+                  }
+                }
+              ]
+            },
+            "provenance_state": "current",
+            "previous_revision": 1,
+            "semantic_state_hash": "b621151d682574f6b104ff339fa850ec414ec241f4318aa11973bc1f258b6afd",
+            "previous_revision_id": "18275f26-a4bb-4d27-8531-3f93bd34224a",
+            "document_content_hash": "64a80ef40b9f5afecf1238d89f6b8b96792c059417b38b5cd14406dc5d5fffe9",
+            "anchor_contract_version": "forge.image-map-anchor.v1",
+            "immutable_revision_hash": "3e75946f68507fd0a754fd79ab078152be92d3224b6dcf5dcf24b9b3fa576941",
+            "source_script_approval_id": "92b9171a-4777-46f3-b96b-24f0e6e34f21",
+            "source_script_content_hash": "5fad5e0250982cd95eb97befbc9ead5d76c3898fc1383d6edeedfe2a91e35455",
+            "source_script_approval_revision": 1
+          }
+        }
+      },
+      {
+        "operation_id": "forge:script-approval:e2e:approveB:18efe768-5b0",
+        "operation_fingerprint": "499330f3cf0cf46efd54d092dd1c66fe86be56d9cfdb8b397c1f1e4d953c70be",
+        "mutation_kind": "commit_script_approval",
+        "target_script_approval_id": null,
+        "target_script_approval_revision": null,
+        "immutable_result_json": {
+          "approval": {
+            "id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+            "created_at": "2026-07-21T06:09:53.755984+00:00",
+            "created_by": "837a864b-b775-417e-8fb8-b3bc64ab62f2",
+            "script_text": "[s1]\nThe orange vanished at dawn.\nThe bay was silent under rain.\n[/s1]",
+            "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+            "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+            "source_file_path": "script/script.md",
+            "approval_revision": 2,
+            "script_content_hash": "e01d823449979f76922489b0cccd73a68e0ad6cf0430a530834d9d329667f387",
+            "semantic_state_hash": "9a6a6988411d85a5bf746739c8f8a2e730e78e77d699b0eb69ff5a8e1a162b04",
+            "source_file_revision": 2,
+            "creator_version_label": "B-v1",
+            "immutable_revision_hash": "891d3931ebebc43a4277940a9a721fe6bca1739c68ca2a840ce2ec6269307db6",
+            "approval_contract_version": "forge.script-approval.v1"
+          },
+          "disposition": "committed"
+        }
+      },
+      {
+        "operation_id": "forge:image-map:e2e:repairB:18efe768-5b0",
+        "operation_fingerprint": "4dd549d3da949b3e7ede3157f9ccba6e3302bd7f31666f581bbf7cacb2c7e48a",
+        "mutation_kind": "repair_to_approved_script",
+        "target_script_approval_id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+        "target_script_approval_revision": 2,
+        "immutable_result_json": {
+          "disposition": "committed",
+          "image_map_revision": {
+            "id": "2fad5753-0001-41c9-9301-55a483a2ff4d",
+            "revision": 3,
+            "created_at": "2026-07-21T06:09:54.352918+00:00",
+            "created_by": "837a864b-b775-417e-8fb8-b3bc64ab62f2",
+            "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+            "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+            "document_json": {
+              "schema": "forge.image-map-authority.v1",
+              "entries": [
+                {
+                  "id": "moment-preserved",
+                  "anchor": "The orange vanished at dawn.",
+                  "intent": "cutaway",
+                  "status": "selected",
+                  "beat_order": 1,
+                  "beat_anchor": null,
+                  "description": "Preserved anchor visual.",
+                  "source_type": "ai",
+                  "visual_type": null,
+                  "prompt_basis": "Preserved anchor visual.",
+                  "style_preset": "cinematic_realism",
+                  "script_anchor": {
+                    "char_end": 28,
+                    "span_text": "The orange vanished at dawn.",
+                    "char_start": 0,
+                    "section_id": "s1",
+                    "paragraph_id": "s1:p1",
+                    "sentence_end": 1,
+                    "sentence_start": 1,
+                    "paragraph_order": 1,
+                    "speaker_block_id": "s1"
+                  },
+                  "visual_intent": "Preserved anchor visual.",
+                  "placement_hint": null,
+                  "candidate_assets": [
+                    {
+                      "path": "assets/image-map/candidates/preserved-a.png",
+                      "source": null,
+                      "asset_id": "asset-preserved-a",
+                      "mime_type": "image/png",
+                      "visual_mode": null,
+                      "variant_label": "explainer"
+                    }
+                  ],
+                  "selected_asset_id": "asset-preserved-a",
+                  "paragraph_beat_order": 1,
+                  "canonical_anchor_assessment": {
+                    "state": "current",
+                    "reason": null,
+                    "evidence": {
+                      "match_count": 1,
+                      "assessed_contract_version": "forge.image-map-anchor.v1"
+                    },
+                    "exact_anchor": {
+                      "char_end": 28,
+                      "span_text": "The orange vanished at dawn.",
+                      "char_start": 0,
+                      "section_id": "s1",
+                      "paragraph_id": "s1:p1",
+                      "sentence_end": 1,
+                      "sentence_start": 1,
+                      "paragraph_order": 1,
+                      "speaker_block_id": "s1"
+                    }
+                  }
+                },
+                {
+                  "id": "moment-removed",
+                  "anchor": "The harbor lights flickered twice.",
+                  "intent": "cutaway",
+                  "status": "selected",
+                  "beat_order": 2,
+                  "beat_anchor": null,
+                  "description": "Anchor that will become stale.",
+                  "source_type": "stock",
+                  "visual_type": null,
+                  "prompt_basis": "Anchor that will become stale.",
+                  "style_preset": "cinematic_realism",
+                  "script_anchor": {
+                    "char_end": 63,
+                    "span_text": "The harbor lights flickered twice.",
+                    "char_start": 29,
+                    "section_id": "s1",
+                    "paragraph_id": "s1:p1",
+                    "sentence_end": 2,
+                    "sentence_start": 2,
+                    "paragraph_order": 1,
+                    "speaker_block_id": "s1"
+                  },
+                  "visual_intent": "Anchor that will become stale.",
+                  "placement_hint": null,
+                  "candidate_assets": [
+                    {
+                      "path": "assets/image-map/candidates/removed-a.png",
+                      "source": null,
+                      "asset_id": "asset-removed-a",
+                      "mime_type": "image/png",
+                      "visual_mode": null,
+                      "variant_label": "explainer"
+                    }
+                  ],
+                  "selected_asset_id": "asset-removed-a",
+                  "paragraph_beat_order": 2,
+                  "canonical_anchor_assessment": {
+                    "state": "unresolved",
+                    "reason": "exact_text_not_found",
+                    "evidence": {
+                      "match_count": 0,
+                      "assessed_contract_version": "forge.image-map-anchor.v1"
+                    },
+                    "exact_anchor": null
+                  }
+                }
+              ]
+            },
+            "provenance_state": "unresolved",
+            "previous_revision": 2,
+            "semantic_state_hash": "5856d4265e3e5c48b248943387d0baa65d1938a143bc378fc4bd27b663bafac6",
+            "previous_revision_id": "e68ef552-5ac6-4b24-bb41-9a5c6d54fb36",
+            "document_content_hash": "8b8f68fe600651b63f3460b82b16f3a1e854b6689e5324cd93d77ca5affd5752",
+            "anchor_contract_version": "forge.image-map-anchor.v1",
+            "immutable_revision_hash": "3ac9920834c5c73cd771d27aa1c11a0fbc4bf7275210abec4af7367338f26da1",
+            "source_script_approval_id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+            "source_script_content_hash": "e01d823449979f76922489b0cccd73a68e0ad6cf0430a530834d9d329667f387",
+            "source_script_approval_revision": 2
+          }
+        }
+      },
+      {
+        "operation_id": "forge:image-map:e2e:repairB-nochange:18efe768-5b0",
+        "operation_fingerprint": "c04950f386292c42c8dbca5165c5c81c58b43a34df22e6523ec9104e2444aed5",
+        "mutation_kind": "repair_to_approved_script",
+        "target_script_approval_id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+        "target_script_approval_revision": 2,
+        "immutable_result_json": {
+          "disposition": "no_change",
+          "image_map_revision": {
+            "id": "2fad5753-0001-41c9-9301-55a483a2ff4d",
+            "revision": 3,
+            "created_at": "2026-07-21T06:09:54.352918+00:00",
+            "created_by": "837a864b-b775-417e-8fb8-b3bc64ab62f2",
+            "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+            "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+            "document_json": {
+              "schema": "forge.image-map-authority.v1",
+              "entries": [
+                {
+                  "id": "moment-preserved",
+                  "anchor": "The orange vanished at dawn.",
+                  "intent": "cutaway",
+                  "status": "selected",
+                  "beat_order": 1,
+                  "beat_anchor": null,
+                  "description": "Preserved anchor visual.",
+                  "source_type": "ai",
+                  "visual_type": null,
+                  "prompt_basis": "Preserved anchor visual.",
+                  "style_preset": "cinematic_realism",
+                  "script_anchor": {
+                    "char_end": 28,
+                    "span_text": "The orange vanished at dawn.",
+                    "char_start": 0,
+                    "section_id": "s1",
+                    "paragraph_id": "s1:p1",
+                    "sentence_end": 1,
+                    "sentence_start": 1,
+                    "paragraph_order": 1,
+                    "speaker_block_id": "s1"
+                  },
+                  "visual_intent": "Preserved anchor visual.",
+                  "placement_hint": null,
+                  "candidate_assets": [
+                    {
+                      "path": "assets/image-map/candidates/preserved-a.png",
+                      "source": null,
+                      "asset_id": "asset-preserved-a",
+                      "mime_type": "image/png",
+                      "visual_mode": null,
+                      "variant_label": "explainer"
+                    }
+                  ],
+                  "selected_asset_id": "asset-preserved-a",
+                  "paragraph_beat_order": 1,
+                  "canonical_anchor_assessment": {
+                    "state": "current",
+                    "reason": null,
+                    "evidence": {
+                      "match_count": 1,
+                      "assessed_contract_version": "forge.image-map-anchor.v1"
+                    },
+                    "exact_anchor": {
+                      "char_end": 28,
+                      "span_text": "The orange vanished at dawn.",
+                      "char_start": 0,
+                      "section_id": "s1",
+                      "paragraph_id": "s1:p1",
+                      "sentence_end": 1,
+                      "sentence_start": 1,
+                      "paragraph_order": 1,
+                      "speaker_block_id": "s1"
+                    }
+                  }
+                },
+                {
+                  "id": "moment-removed",
+                  "anchor": "The harbor lights flickered twice.",
+                  "intent": "cutaway",
+                  "status": "selected",
+                  "beat_order": 2,
+                  "beat_anchor": null,
+                  "description": "Anchor that will become stale.",
+                  "source_type": "stock",
+                  "visual_type": null,
+                  "prompt_basis": "Anchor that will become stale.",
+                  "style_preset": "cinematic_realism",
+                  "script_anchor": {
+                    "char_end": 63,
+                    "span_text": "The harbor lights flickered twice.",
+                    "char_start": 29,
+                    "section_id": "s1",
+                    "paragraph_id": "s1:p1",
+                    "sentence_end": 2,
+                    "sentence_start": 2,
+                    "paragraph_order": 1,
+                    "speaker_block_id": "s1"
+                  },
+                  "visual_intent": "Anchor that will become stale.",
+                  "placement_hint": null,
+                  "candidate_assets": [
+                    {
+                      "path": "assets/image-map/candidates/removed-a.png",
+                      "source": null,
+                      "asset_id": "asset-removed-a",
+                      "mime_type": "image/png",
+                      "visual_mode": null,
+                      "variant_label": "explainer"
+                    }
+                  ],
+                  "selected_asset_id": "asset-removed-a",
+                  "paragraph_beat_order": 2,
+                  "canonical_anchor_assessment": {
+                    "state": "unresolved",
+                    "reason": "exact_text_not_found",
+                    "evidence": {
+                      "match_count": 0,
+                      "assessed_contract_version": "forge.image-map-anchor.v1"
+                    },
+                    "exact_anchor": null
+                  }
+                }
+              ]
+            },
+            "provenance_state": "unresolved",
+            "previous_revision": 2,
+            "semantic_state_hash": "5856d4265e3e5c48b248943387d0baa65d1938a143bc378fc4bd27b663bafac6",
+            "previous_revision_id": "e68ef552-5ac6-4b24-bb41-9a5c6d54fb36",
+            "document_content_hash": "8b8f68fe600651b63f3460b82b16f3a1e854b6689e5324cd93d77ca5affd5752",
+            "anchor_contract_version": "forge.image-map-anchor.v1",
+            "immutable_revision_hash": "3ac9920834c5c73cd771d27aa1c11a0fbc4bf7275210abec4af7367338f26da1",
+            "source_script_approval_id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+            "source_script_content_hash": "e01d823449979f76922489b0cccd73a68e0ad6cf0430a530834d9d329667f387",
+            "source_script_approval_revision": 2
+          }
+        }
+      },
+      {
+        "operation_id": "forge:image-map:e2e:manual:18efe768-5b0",
+        "operation_fingerprint": "5862e891b0ddb252f6c43c5723bef35c0f9a7b7579f5be200467155a863187cc",
+        "mutation_kind": "resolve_manual_anchor",
+        "target_script_approval_id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+        "target_script_approval_revision": 2,
+        "immutable_result_json": {
+          "disposition": "committed",
+          "image_map_revision": {
+            "id": "696d8401-48d2-43ec-a46e-661ca3ce90bf",
+            "revision": 4,
+            "created_at": "2026-07-21T06:10:00.50568+00:00",
+            "created_by": "837a864b-b775-417e-8fb8-b3bc64ab62f2",
+            "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+            "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+            "document_json": {
+              "schema": "forge.image-map-authority.v1",
+              "entries": [
+                {
+                  "id": "moment-preserved",
+                  "anchor": "The orange vanished at dawn.",
+                  "intent": "cutaway",
+                  "status": "selected",
+                  "beat_order": 1,
+                  "beat_anchor": null,
+                  "description": "Preserved anchor visual.",
+                  "source_type": "ai",
+                  "visual_type": null,
+                  "prompt_basis": "Preserved anchor visual.",
+                  "style_preset": "cinematic_realism",
+                  "script_anchor": {
+                    "char_end": 28,
+                    "span_text": "The orange vanished at dawn.",
+                    "char_start": 0,
+                    "section_id": "s1",
+                    "paragraph_id": "s1:p1",
+                    "sentence_end": 1,
+                    "sentence_start": 1,
+                    "paragraph_order": 1,
+                    "speaker_block_id": "s1"
+                  },
+                  "visual_intent": "Preserved anchor visual.",
+                  "placement_hint": null,
+                  "candidate_assets": [
+                    {
+                      "path": "assets/image-map/candidates/preserved-a.png",
+                      "source": null,
+                      "asset_id": "asset-preserved-a",
+                      "mime_type": "image/png",
+                      "visual_mode": null,
+                      "variant_label": "explainer"
+                    }
+                  ],
+                  "selected_asset_id": "asset-preserved-a",
+                  "paragraph_beat_order": 1,
+                  "canonical_anchor_assessment": {
+                    "state": "current",
+                    "reason": null,
+                    "evidence": {
+                      "match_count": 1,
+                      "assessed_contract_version": "forge.image-map-anchor.v1"
+                    },
+                    "exact_anchor": {
+                      "char_end": 28,
+                      "span_text": "The orange vanished at dawn.",
+                      "char_start": 0,
+                      "section_id": "s1",
+                      "paragraph_id": "s1:p1",
+                      "sentence_end": 1,
+                      "sentence_start": 1,
+                      "paragraph_order": 1,
+                      "speaker_block_id": "s1"
+                    }
+                  }
+                },
+                {
+                  "id": "moment-removed",
+                  "anchor": "The bay was silent under rain.",
+                  "intent": "cutaway",
+                  "status": "selected",
+                  "beat_order": 2,
+                  "beat_anchor": null,
+                  "description": "Anchor that will become stale.",
+                  "source_type": "stock",
+                  "visual_type": null,
+                  "anchor_scope": "attached",
+                  "prompt_basis": "Anchor that will become stale.",
+                  "style_preset": "cinematic_realism",
+                  "script_anchor": {
+                    "char_end": 59,
+                    "span_text": "The bay was silent under rain.",
+                    "char_start": 29,
+                    "section_id": "s1",
+                    "paragraph_id": "s1:p1",
+                    "sentence_end": 2,
+                    "sentence_start": 2,
+                    "paragraph_order": 1,
+                    "speaker_block_id": "s1"
+                  },
+                  "visual_intent": "Anchor that will become stale.",
+                  "placement_hint": null,
+                  "candidate_assets": [
+                    {
+                      "path": "assets/image-map/candidates/removed-a.png",
+                      "source": null,
+                      "asset_id": "asset-removed-a",
+                      "mime_type": "image/png",
+                      "visual_mode": null,
+                      "variant_label": "explainer"
+                    }
+                  ],
+                  "selected_asset_id": "asset-removed-a",
+                  "paragraph_beat_order": 2,
+                  "canonical_anchor_assessment": {
+                    "state": "current",
+                    "reason": null,
+                    "evidence": {
+                      "match_count": 1,
+                      "assessed_contract_version": "forge.image-map-anchor.v1"
+                    },
+                    "exact_anchor": {
+                      "char_end": 59,
+                      "span_text": "The bay was silent under rain.",
+                      "char_start": 29,
+                      "section_id": "s1",
+                      "paragraph_id": "s1:p1",
+                      "sentence_end": 2,
+                      "sentence_start": 2,
+                      "paragraph_order": 1,
+                      "speaker_block_id": "s1"
+                    }
+                  }
+                }
+              ]
+            },
+            "provenance_state": "current",
+            "previous_revision": 3,
+            "semantic_state_hash": "10bf05f71a85fbb287ec2497f3be076159f94d96f1d94e85d5f1e440c1dd955e",
+            "previous_revision_id": "2fad5753-0001-41c9-9301-55a483a2ff4d",
+            "document_content_hash": "57d7ecc9c8c8f6a55446a787c72d8ae6e46e8013da9581ae3b1b8fa553f5787c",
+            "anchor_contract_version": "forge.image-map-anchor.v1",
+            "immutable_revision_hash": "38a02601fc7cc6e587261c56ec8b7178b011b675144751a3ab0cb9d427ee7c51",
+            "source_script_approval_id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+            "source_script_content_hash": "e01d823449979f76922489b0cccd73a68e0ad6cf0430a530834d9d329667f387",
+            "source_script_approval_revision": 2
+          }
+        }
+      },
+      {
+        "operation_id": "forge:image-map:e2e:reapply:18efe768-5b0",
+        "operation_fingerprint": "7fbd7e93072bec07fe2caa094188fba0ae3e188f90045a0ae631e7a38cd89094",
+        "mutation_kind": "reapply_visual_plan",
+        "target_script_approval_id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+        "target_script_approval_revision": 2,
+        "immutable_result_json": {
+          "disposition": "committed",
+          "image_map_revision": {
+            "id": "86e13f8b-ce03-4fab-abc5-3d49fe7c3a46",
+            "revision": 5,
+            "created_at": "2026-07-21T06:10:02.366523+00:00",
+            "created_by": "837a864b-b775-417e-8fb8-b3bc64ab62f2",
+            "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+            "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+            "document_json": {
+              "schema": "forge.image-map-authority.v1",
+              "entries": [
+                {
+                  "id": "moment-preserved",
+                  "anchor": "The orange vanished at dawn.",
+                  "intent": "cutaway",
+                  "status": "selected",
+                  "beat_order": 1,
+                  "beat_anchor": null,
+                  "description": "Preserved anchor visual.",
+                  "source_type": "ai",
+                  "visual_type": null,
+                  "anchor_scope": "attached",
+                  "prompt_basis": "Preserved anchor visual.",
+                  "style_preset": "cinematic_realism",
+                  "script_anchor": {
+                    "char_end": 28,
+                    "span_text": "The orange vanished at dawn.",
+                    "char_start": 0,
+                    "section_id": "s1",
+                    "paragraph_id": "s1:p1",
+                    "sentence_end": 1,
+                    "sentence_start": 1,
+                    "paragraph_order": 1,
+                    "speaker_block_id": "s1"
+                  },
+                  "visual_intent": "Preserved anchor visual.",
+                  "placement_hint": null,
+                  "candidate_assets": [
+                    {
+                      "path": "assets/image-map/candidates/preserved-a.png",
+                      "source": null,
+                      "asset_id": "asset-preserved-a",
+                      "mime_type": "image/png",
+                      "visual_mode": null,
+                      "variant_label": "explainer"
+                    }
+                  ],
+                  "selected_asset_id": "asset-preserved-a",
+                  "paragraph_beat_order": 1,
+                  "canonical_anchor_assessment": {
+                    "state": "current",
+                    "reason": null,
+                    "evidence": {
+                      "match_count": 1,
+                      "assessed_contract_version": "forge.image-map-anchor.v1"
+                    },
+                    "exact_anchor": {
+                      "char_end": 28,
+                      "span_text": "The orange vanished at dawn.",
+                      "char_start": 0,
+                      "section_id": "s1",
+                      "paragraph_id": "s1:p1",
+                      "sentence_end": 1,
+                      "sentence_start": 1,
+                      "paragraph_order": 1,
+                      "speaker_block_id": "s1"
+                    }
+                  }
+                },
+                {
+                  "id": "moment-removed",
+                  "anchor": "The bay was silent under rain.",
+                  "intent": "cutaway",
+                  "status": "selected",
+                  "beat_order": 2,
+                  "beat_anchor": null,
+                  "description": "Anchor that will become stale.",
+                  "source_type": "stock",
+                  "visual_type": null,
+                  "anchor_scope": "attached",
+                  "prompt_basis": "Anchor that will become stale.",
+                  "style_preset": "cinematic_realism",
+                  "script_anchor": {
+                    "char_end": 59,
+                    "span_text": "The bay was silent under rain.",
+                    "char_start": 29,
+                    "section_id": "s1",
+                    "paragraph_id": "s1:p1",
+                    "sentence_end": 2,
+                    "sentence_start": 2,
+                    "paragraph_order": 1,
+                    "speaker_block_id": "s1"
+                  },
+                  "visual_intent": "Anchor that will become stale.",
+                  "placement_hint": null,
+                  "candidate_assets": [
+                    {
+                      "path": "assets/image-map/candidates/removed-a.png",
+                      "source": null,
+                      "asset_id": "asset-removed-a",
+                      "mime_type": "image/png",
+                      "visual_mode": null,
+                      "variant_label": "explainer"
+                    }
+                  ],
+                  "selected_asset_id": "asset-removed-a",
+                  "paragraph_beat_order": 2,
+                  "canonical_anchor_assessment": {
+                    "state": "current",
+                    "reason": null,
+                    "evidence": {
+                      "match_count": 1,
+                      "assessed_contract_version": "forge.image-map-anchor.v1"
+                    },
+                    "exact_anchor": {
+                      "char_end": 59,
+                      "span_text": "The bay was silent under rain.",
+                      "char_start": 29,
+                      "section_id": "s1",
+                      "paragraph_id": "s1:p1",
+                      "sentence_end": 2,
+                      "sentence_start": 2,
+                      "paragraph_order": 1,
+                      "speaker_block_id": "s1"
+                    }
+                  }
+                }
+              ]
+            },
+            "provenance_state": "current",
+            "previous_revision": 4,
+            "semantic_state_hash": "eb00e9db1f3692d0ec93b7815310935c6b557483b589b7ef3b7cccb18f4a8b33",
+            "previous_revision_id": "696d8401-48d2-43ec-a46e-661ca3ce90bf",
+            "document_content_hash": "d6e9e33ee92fcf70d50c41ddaab76e75366fe503d3d53b11c3859827337cf2a0",
+            "anchor_contract_version": "forge.image-map-anchor.v1",
+            "immutable_revision_hash": "87748e3a7b8f83d285af0f5b289da7abb34f3fc2d0c8fa42efbfbfa5f6279625",
+            "source_script_approval_id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+            "source_script_content_hash": "e01d823449979f76922489b0cccd73a68e0ad6cf0430a530834d9d329667f387",
+            "source_script_approval_revision": 2
+          }
+        }
+      },
+      {
+        "operation_id": "forge:image-map:e2e:regen:18efe768-5b0",
+        "operation_fingerprint": "477977f852ec0332c548bf083476099e15f5277a50c7632ddf65fae8244aaf05",
+        "mutation_kind": "regenerate_from_approved_script",
+        "target_script_approval_id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+        "target_script_approval_revision": 2,
+        "immutable_result_json": {
+          "disposition": "no_change",
+          "image_map_revision": {
+            "id": "86e13f8b-ce03-4fab-abc5-3d49fe7c3a46",
+            "revision": 5,
+            "created_at": "2026-07-21T06:10:02.366523+00:00",
+            "created_by": "837a864b-b775-417e-8fb8-b3bc64ab62f2",
+            "workpiece_id": "2ff2c067-6607-45b6-8a00-ba4c3d04845b",
+            "workspace_id": "b8d88f71-eb41-4b15-be18-812f34296122",
+            "document_json": {
+              "schema": "forge.image-map-authority.v1",
+              "entries": [
+                {
+                  "id": "moment-preserved",
+                  "anchor": "The orange vanished at dawn.",
+                  "intent": "cutaway",
+                  "status": "selected",
+                  "beat_order": 1,
+                  "beat_anchor": null,
+                  "description": "Preserved anchor visual.",
+                  "source_type": "ai",
+                  "visual_type": null,
+                  "anchor_scope": "attached",
+                  "prompt_basis": "Preserved anchor visual.",
+                  "style_preset": "cinematic_realism",
+                  "script_anchor": {
+                    "char_end": 28,
+                    "span_text": "The orange vanished at dawn.",
+                    "char_start": 0,
+                    "section_id": "s1",
+                    "paragraph_id": "s1:p1",
+                    "sentence_end": 1,
+                    "sentence_start": 1,
+                    "paragraph_order": 1,
+                    "speaker_block_id": "s1"
+                  },
+                  "visual_intent": "Preserved anchor visual.",
+                  "placement_hint": null,
+                  "candidate_assets": [
+                    {
+                      "path": "assets/image-map/candidates/preserved-a.png",
+                      "source": null,
+                      "asset_id": "asset-preserved-a",
+                      "mime_type": "image/png",
+                      "visual_mode": null,
+                      "variant_label": "explainer"
+                    }
+                  ],
+                  "selected_asset_id": "asset-preserved-a",
+                  "paragraph_beat_order": 1,
+                  "canonical_anchor_assessment": {
+                    "state": "current",
+                    "reason": null,
+                    "evidence": {
+                      "match_count": 1,
+                      "assessed_contract_version": "forge.image-map-anchor.v1"
+                    },
+                    "exact_anchor": {
+                      "char_end": 28,
+                      "span_text": "The orange vanished at dawn.",
+                      "char_start": 0,
+                      "section_id": "s1",
+                      "paragraph_id": "s1:p1",
+                      "sentence_end": 1,
+                      "sentence_start": 1,
+                      "paragraph_order": 1,
+                      "speaker_block_id": "s1"
+                    }
+                  }
+                },
+                {
+                  "id": "moment-removed",
+                  "anchor": "The bay was silent under rain.",
+                  "intent": "cutaway",
+                  "status": "selected",
+                  "beat_order": 2,
+                  "beat_anchor": null,
+                  "description": "Anchor that will become stale.",
+                  "source_type": "stock",
+                  "visual_type": null,
+                  "anchor_scope": "attached",
+                  "prompt_basis": "Anchor that will become stale.",
+                  "style_preset": "cinematic_realism",
+                  "script_anchor": {
+                    "char_end": 59,
+                    "span_text": "The bay was silent under rain.",
+                    "char_start": 29,
+                    "section_id": "s1",
+                    "paragraph_id": "s1:p1",
+                    "sentence_end": 2,
+                    "sentence_start": 2,
+                    "paragraph_order": 1,
+                    "speaker_block_id": "s1"
+                  },
+                  "visual_intent": "Anchor that will become stale.",
+                  "placement_hint": null,
+                  "candidate_assets": [
+                    {
+                      "path": "assets/image-map/candidates/removed-a.png",
+                      "source": null,
+                      "asset_id": "asset-removed-a",
+                      "mime_type": "image/png",
+                      "visual_mode": null,
+                      "variant_label": "explainer"
+                    }
+                  ],
+                  "selected_asset_id": "asset-removed-a",
+                  "paragraph_beat_order": 2,
+                  "canonical_anchor_assessment": {
+                    "state": "current",
+                    "reason": null,
+                    "evidence": {
+                      "match_count": 1,
+                      "assessed_contract_version": "forge.image-map-anchor.v1"
+                    },
+                    "exact_anchor": {
+                      "char_end": 59,
+                      "span_text": "The bay was silent under rain.",
+                      "char_start": 29,
+                      "section_id": "s1",
+                      "paragraph_id": "s1:p1",
+                      "sentence_end": 2,
+                      "sentence_start": 2,
+                      "paragraph_order": 1,
+                      "speaker_block_id": "s1"
+                    }
+                  }
+                }
+              ]
+            },
+            "provenance_state": "current",
+            "previous_revision": 4,
+            "semantic_state_hash": "eb00e9db1f3692d0ec93b7815310935c6b557483b589b7ef3b7cccb18f4a8b33",
+            "previous_revision_id": "696d8401-48d2-43ec-a46e-661ca3ce90bf",
+            "document_content_hash": "d6e9e33ee92fcf70d50c41ddaab76e75366fe503d3d53b11c3859827337cf2a0",
+            "anchor_contract_version": "forge.image-map-anchor.v1",
+            "immutable_revision_hash": "87748e3a7b8f83d285af0f5b289da7abb34f3fc2d0c8fa42efbfbfa5f6279625",
+            "source_script_approval_id": "a7ba715e-7875-4dc1-8a1f-2846e3af199b",
+            "source_script_content_hash": "e01d823449979f76922489b0cccd73a68e0ad6cf0430a530834d9d329667f387",
+            "source_script_approval_revision": 2
+          }
+        }
+      }
+    ]
+  },
+  "cleanup": {
+    "mode": "external_privileged_cleanup_required",
+    "reason": "authority revision immutability prevents ordinary cascade deletion"
+  }
+}

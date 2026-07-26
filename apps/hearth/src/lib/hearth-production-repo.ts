@@ -158,10 +158,13 @@ export async function readWorkpieceProductionArtifact(args: {
 }): Promise<ProductionArtifactReadResult> {
   const url = `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/read-file?path=${encodeURIComponent(
     artifactPath(args.kind, args.scriptVersion),
-  )}`;
+  )}&optional=1`;
   const response = await tongsFetch(url, { method: "GET" });
   const body = await readJsonBody(response);
 
+  if (response.ok && isRecord(body) && body.ok === true && body.exists === false) {
+    return { ok: false, status: 404, reason: "not_found" };
+  }
   if (response.status === 404) {
     return { ok: false, status: response.status, reason: "not_found" };
   }

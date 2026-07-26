@@ -17,6 +17,12 @@ export type WorkpieceImageMapView = {
   entries: EpisodeImageMapEntry[];
   spokenBeats: EpisodeSpokenBeat[];
   metadataUpdatedAt: string | null;
+  authoritySource?: "canonical" | "legacy";
+  revisionId?: string | null;
+  revision?: number;
+  sourceScriptApprovalId?: string | null;
+  sourceScriptApprovalRevision?: number | null;
+  provenanceState?: "current" | "stale" | "unresolved" | "provenance_unknown";
   asset: {
     id: string;
     path: "assets/image-map/image-map.v1.json";
@@ -51,7 +57,7 @@ export type WorkpieceImageMapCandidateAssetView = {
 
 export type GetWorkpieceImageMapResult =
   | { ok: true; imageMap: WorkpieceImageMapView }
-  | { ok: false; status: number; reason: string; error?: string };
+  | { ok: false; status: number; reason: string; error?: string; code?: string };
 
 export type SaveWorkpieceImageMapResult =
   | { ok: true; imageMap: WorkpieceImageMapView }
@@ -132,6 +138,11 @@ function readApiErrorMessage(body: unknown): string | null {
   return message ?? reason ?? null;
 }
 
+function readApiErrorCode(body: unknown): string | null {
+  if (!isRecord(body) || !isRecord(body.error)) return null;
+  return readString(body.error.code);
+}
+
 function normalizeWorkpieceRelativePathOrNull(workpieceId: string, rawPath: string | null | undefined): string | null {
   const path = readString(rawPath);
   if (!path) return null;
@@ -210,7 +221,7 @@ function normalizeSpokenBeats(value: unknown): EpisodeSpokenBeat[] {
   return pkg.spoken_beats;
 }
 
-function normalizeWorkpieceImageMapView(
+export function normalizeWorkpieceImageMapView(
   body: unknown,
   expected?: {
     workpieceId?: string;
@@ -239,6 +250,12 @@ function normalizeWorkpieceImageMapView(
     entries: normalizeImageMapEntries(imageMapRoot.entries),
     spokenBeats: normalizeSpokenBeats(imageMapRoot.spoken_beats),
     metadataUpdatedAt: readString(imageMapRoot.metadata_updated_at),
+    authoritySource: imageMapRoot.authority_source === "canonical" ? "canonical" : "legacy",
+    revisionId: readString(imageMapRoot.image_map_revision_id),
+    revision: typeof imageMapRoot.image_map_revision === "number" ? imageMapRoot.image_map_revision : 0,
+    sourceScriptApprovalId: readString(imageMapRoot.source_script_approval_id),
+    sourceScriptApprovalRevision: typeof imageMapRoot.source_script_approval_revision === "number" ? imageMapRoot.source_script_approval_revision : null,
+    provenanceState: ["current", "stale", "unresolved", "provenance_unknown"].includes(String(imageMapRoot.provenance_state)) ? imageMapRoot.provenance_state as WorkpieceImageMapView["provenanceState"] : "provenance_unknown",
     asset: assetRoot
       ? {
         id: readString(assetRoot.id) ?? "",
@@ -323,11 +340,13 @@ export async function getWorkpieceImageMap(workpieceId: string): Promise<GetWork
   const body = await readBodyAsJson(response);
   if (!response.ok) {
     const error = readApiErrorMessage(body);
+    const code = readApiErrorCode(body);
     return {
       ok: false,
       status: response.status,
       reason: "request_failed",
       ...(error ? { error } : {}),
+      ...(code ? { code } : {}),
     };
   }
 
@@ -612,6 +631,21 @@ export async function uploadWorkpieceImageMapCandidateAsset(args: {
       status: response.status,
       reason: "request_failed",
       error: readApiErrorMessage(body) ?? "Upload failed.",
+    };
+  }
+
+  const verified = await tongsFetch(
+    `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/read-file?path=${encodeURIComponent(uploadPath)}&encoding=base64`,
+    { method: "GET" },
+  );
+  const verifiedBody = await readBodyAsJson(verified);
+  const verifiedData = isRecord(verifiedBody) && isRecord(verifiedBody.data) ? verifiedBody.data : null;
+  if (!verified.ok || readString(verifiedData?.bytes_base64) !== bytesBase64) {
+    return {
+      ok: false,
+      status: verified.status,
+      reason: "invalid_response",
+      error: "The image was uploaded, but Tongs could not verify the stored bytes. It was not attached to the episode.",
     };
   }
 

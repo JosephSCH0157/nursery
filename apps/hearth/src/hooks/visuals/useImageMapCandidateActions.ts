@@ -10,6 +10,7 @@ import {
   uploadWorkpieceImageMapCandidateAsset,
 } from "../../lib/hearth-image-map-repo";
 import { resolveAiThumbnailAutoApproveFromStorage } from "../../lib/hearth-chat-api";
+import { nextUnresolvedEpisodeImageId } from "../../lib/hearth-episode-images-view-model";
 import type { EpisodeImageMapEntry, EpisodePackageV2 } from "../../lib/episode-package-v2";
 import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 
@@ -66,6 +67,7 @@ type UseImageMapCandidateActionsArgs = {
   setImageMapCandidateError: (next: string | null) => void;
   setImageMapCandidateSelectionError: (next: string | null) => void;
   setImageMapExportMessage: (next: string | null) => void;
+  setSelectedImageMapEntryId: (next: string | null) => void;
   publishForgeNotice: (notice: {
     job: "image-generated" | "job-failed";
     title: string;
@@ -96,7 +98,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
 
     let expectedMetadataUpdatedAt = args.imageMapMetadataUpdatedAt;
     let context: { before: string | null; after: string | null };
-    const operation = args.operationAuthority.begin("image-map.candidates.generate");
+    const operation = args.operationAuthority.begin("ig");
 
     if (args.selectedImageMapEntry.beat_anchor) {
       const beatContext = resolveBulletBeatContext({
@@ -179,18 +181,8 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
         })
       );
 
-      let generated = await requestCandidateGeneration(expectedMetadataUpdatedAt);
+      const generated = await requestCandidateGeneration(expectedMetadataUpdatedAt);
       if (!args.operationAuthority.isCurrent(operation)) return;
-
-      if (!generated.ok && generated.reason === "conflict" && generated.latest) {
-        const latest = generated.latest;
-        args.setEpisodePackage((prev) => (
-          prev ? args.replaceEpisodePackageImageMap(prev, latest.entries, latest.spokenBeats) : prev
-        ));
-        args.setImageMapMetadataUpdatedAt(latest.metadataUpdatedAt);
-        generated = await requestCandidateGeneration(latest.metadataUpdatedAt);
-        if (!args.operationAuthority.isCurrent(operation)) return;
-      }
 
       if (!generated.ok) {
         const failureMessage = generated.error
@@ -255,6 +247,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
 
   const onSelectImageMapCandidate = useCallback(async (candidateAssetId: string) => {
     if (!args.episodePackage || !args.selectedImageMapEntry) return;
+    const currentEntryId = args.selectedImageMapEntry.id;
     if (args.imageMapSaveState === "editing" || args.imageMapSaveState === "saving") {
       args.setImageMapCandidateSelectionError("Save or finish editing this visual beat before selecting a still candidate.");
       return;
@@ -271,7 +264,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
       args.setImageMapCandidateSelectionError(null);
       return;
     }
-    const operation = args.operationAuthority.begin("image-map.candidates.select");
+    const operation = args.operationAuthority.begin("is");
 
     args.setIsImageMapCandidateSelecting(true);
     args.setImageMapCandidateSelectionError(null);
@@ -279,7 +272,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
       const selected = await selectWorkpieceImageMapCandidate({
         workpieceId: episodeId,
         workspaceId: workspace,
-        imageMapEntryId: args.selectedImageMapEntry.id,
+        imageMapEntryId: currentEntryId,
         candidateAssetId,
         expectedMetadataUpdatedAt: args.imageMapMetadataUpdatedAt,
         currentImageMap: {
@@ -301,6 +294,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
           ));
           args.setImageMapMetadataUpdatedAt(latest.metadataUpdatedAt);
         }
+        args.setSelectedImageMapEntryId(currentEntryId);
         args.setImageMapCandidateSelectionError(
           selected.error
             ?? (selected.reason === "candidate_not_attached"
@@ -319,7 +313,18 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
       ));
       args.setImageMapMetadataUpdatedAt(selected.imageMap.metadataUpdatedAt);
       args.setImageMapCandidateSelectionError(null);
-      args.setImageMapExportMessage("Selected still candidate saved canonically for this visual beat.");
+      const completedIndex = selected.imageMap.entries.findIndex((entry) => entry.id === currentEntryId);
+      const nextEntryId = nextUnresolvedEpisodeImageId(selected.imageMap.entries, currentEntryId);
+      if (!nextEntryId) {
+        args.setImageMapExportMessage("Episode images complete. B-roll is ready.");
+        args.setSelectedImageMapEntryId(currentEntryId);
+      } else {
+        const nextIndex = selected.imageMap.entries.findIndex((entry) => entry.id === nextEntryId);
+        const completedNumber = completedIndex + 1;
+        const nextNumber = nextIndex + 1;
+        args.setImageMapExportMessage(`Image ${completedNumber} complete. Image ${nextNumber} is ready.`);
+        args.setSelectedImageMapEntryId(nextEntryId);
+      }
     } catch (error) {
       if (!args.operationAuthority.isCurrent(operation)) return;
       const message = error instanceof Error ? error.message : "Unable to save the selected still candidate.";
@@ -343,7 +348,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
       args.setImageMapCandidateSelectionError("Workspace or workpiece is missing.");
       return;
     }
-    const operation = args.operationAuthority.begin("image-map.candidates.upload");
+    const operation = args.operationAuthority.begin("iu");
 
     args.setIsImageMapCandidateSelecting(true);
     args.setImageMapCandidateSelectionError(null);
@@ -370,8 +375,8 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
           source_type: "upload",
           origin: nextOrigin,
           candidate_assets: [...existing, uploaded.candidateAsset],
-          selected_asset_id: uploaded.candidateAsset.asset_id,
-          status: "selected" as const,
+          selected_asset_id: entry.selected_asset_id,
+          status: entry.selected_asset_id ? "selected" as const : "candidates_generated" as const,
         };
       });
 
@@ -382,11 +387,11 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
         return;
       }
       args.setImageMapSourceTypeDraft("upload");
-      args.setImageMapExportMessage("Uploaded visual asset attached and selected for this beat.");
+      args.setImageMapExportMessage("Uploaded image verified and ready to review. Choose Use this image to complete the script moment.");
       args.publishForgeNotice({
         job: "image-generated",
         title: "Visual asset uploaded",
-        message: "Uploaded asset is now selected for this visual beat.",
+        message: "Uploaded image is ready to review.",
         severity: "success",
       });
     } catch (error) {

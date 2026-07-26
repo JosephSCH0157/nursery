@@ -28,6 +28,7 @@ export function useImageMapWorkspace() {
   const [imageMapSectionIntentNoteDraft, setImageMapSectionIntentNoteDraft] = useState("");
   const [imageMapPlacementHintDraft, setImageMapPlacementHintDraft] = useState("");
   const [imageMapMetadataUpdatedAt, setImageMapMetadataUpdatedAt] = useState<string | null>(null);
+  const [imageMapProjectionLoaded, setImageMapProjectionLoaded] = useState(true);
   const [imageMapSaveState, setImageMapSaveState] = useState<"saved" | "editing" | "saving" | "error" | "offline">("saved");
   const [imageMapSaveError, setImageMapSaveError] = useState<string | null>(null);
   const [imageMapExportMessage, setImageMapExportMessage] = useState<string | null>(null);
@@ -137,7 +138,7 @@ export function useImageMapWorkspace() {
     setSelectedImageMapEntryId((current) => (
       current && entries.some((entry) => entry.id === current)
         ? current
-        : (entries[0]?.id ?? null)
+        : (entries.find((entry) => !entry.selected_asset_id)?.id ?? entries[0]?.id ?? null)
     ));
   }, []);
 
@@ -172,6 +173,8 @@ export function useImageMapWorkspace() {
     setImageMapPlacementHintDraft,
     imageMapMetadataUpdatedAt,
     setImageMapMetadataUpdatedAt,
+    imageMapProjectionLoaded,
+    setImageMapProjectionLoaded,
     imageMapSaveState,
     setImageMapSaveState,
     imageMapSaveError,

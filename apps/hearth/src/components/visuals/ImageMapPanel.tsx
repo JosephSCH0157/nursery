@@ -14,6 +14,7 @@ import type {
   ImageMapScriptSelection,
 } from "../../lib/hearth-image-map-beats";
 import { resolveImageMapWorkflowGuidance } from "../../lib/hearth-image-map-workflow";
+import { buildEpisodeImagesWorkspaceViewModel, episodeImageStatusLabel } from "../../lib/hearth-episode-images-view-model";
 import {
   buildTimelineImagePromptPack,
   type PromptPack,
@@ -31,6 +32,7 @@ type ImageMapCandidateCard = {
   previewState: "loading" | "ready" | "error";
   previewDataUrl: string | null;
   previewError: string | null;
+  source: string | null;
 };
 
 type ImageMapPanelProps = {
@@ -49,6 +51,7 @@ type ImageMapPanelProps = {
   draftPlacementHint: string;
   saveState: ImageMapSaveState;
   saveError: string | null;
+  expectedImageCount?: number;
   exportMessage: string | null;
   activeVisualProvider: ResolvedVisualProvider;
   visualProviderOptions: ReadonlyArray<{ id: VisualProviderId; label: string }>;
@@ -72,6 +75,7 @@ type ImageMapPanelProps = {
   reanchorParagraphs: ImageMapAnchorPickerParagraph[];
   activeAnchorLabel: string | null;
   disabled?: boolean;
+  onRetryLoad: () => void;
   onSelectEntry: (entryId: string) => void;
   onDraftAnchorChange: (value: string) => void;
   onDraftDescriptionChange: (value: string) => void;
@@ -183,6 +187,7 @@ export default function ImageMapPanel({
   draftPlacementHint,
   saveState,
   saveError,
+  expectedImageCount = 0,
   exportMessage,
   activeVisualProvider,
   visualProviderOptions,
@@ -206,6 +211,7 @@ export default function ImageMapPanel({
   reanchorParagraphs,
   activeAnchorLabel,
   disabled = false,
+  onRetryLoad,
   onSelectEntry,
   onDraftAnchorChange,
   onDraftDescriptionChange,
@@ -336,6 +342,71 @@ export default function ImageMapPanel({
       `timeline-image-prompt-pack-${selectedEntry.id.slice(0, 8).toLowerCase()}.json`,
     );
   }, [activePromptPack, selectedEntry]);
+
+  if (!manualOnly) {
+    const imageAuthorityUnavailable = saveError === "canonical_image_map_authority_unavailable";
+    const canonicalAnchorState = selectedEntry?.canonical_anchor_assessment?.state ?? "provenance_unknown";
+    const needsAnchorRepair = canonicalAnchorState !== "current";
+    const workspace = buildEpisodeImagesWorkspaceViewModel({
+      entries,
+      activeEntryId: selectedEntryId,
+      creatingOptions: candidateGenerateBusy,
+      needsAttentionEntryId: needsAnchorRepair ? selectedEntryId : null,
+    });
+    const activeNumber = workspace.activeItem?.number ?? 0;
+    const sourceLabel = (source: string | null) => source === "upload" ? "Uploaded" : source === "stock" ? "Stock" : "Generated";
+    return (
+      <section className="hs-episode-images" aria-label="Episode Images">
+        <header className="hs-episode-images-header">
+          <div><h3>Episode Images</h3><p>These images support moments in your episode. Hammer handles final placement.</p></div>
+          <div className="hs-episode-images-progress" role="status" aria-live="polite"><strong>{imageAuthorityUnavailable ? "Episode Images unavailable" : workspace.progress.label}</strong><progress value={workspace.progress.ready} max={Math.max(1, workspace.progress.total)} /></div>
+        </header>
+
+        {imageAuthorityUnavailable ? (
+          <section className="hs-episode-images-empty" role="alert">
+            <h4>Episode Images is temporarily unavailable.</h4>
+            <p>Hearth is connected to a Tongs version that does not support the current image-plan authority. Your Visual Plan and existing images have not been removed.</p>
+            {expectedImageCount > 0 ? <p>Synchronization unavailable: the Visual Plan expects {expectedImageCount} image moment{expectedImageCount === 1 ? "" : "s"}.</p> : null}
+            <button type="button" className="is-primary" onClick={onRetryLoad} disabled={disabled}>Retry</button>
+          </section>
+        ) : entries.length === 0 ? <section className="hs-episode-images-empty"><h4>No image moments planned yet</h4><p>Refresh the image plan from the approved script to begin.</p><button type="button" className="is-primary" onClick={onSeedFromScript} disabled={disabled}>Refresh image plan from script</button></section> : <div className="hs-episode-images-layout">
+          <nav className="hs-episode-images-queue" aria-label="Planned episode images">
+            {workspace.items.map((item) => <button key={item.id} type="button" className={item.id === workspace.activeItem?.id ? "is-current" : ""} aria-current={item.id === workspace.activeItem?.id ? "step" : undefined} onClick={() => onSelectEntry(item.id)} disabled={disabled}>
+              <span className="hs-episode-images-number">{item.number}</span><span><strong>{item.scriptMoment}</strong><small>{item.suggestedImage}</small><em>{episodeImageStatusLabel(item.status)}</em></span>
+            </button>)}
+          </nav>
+
+          <main className="hs-episode-images-workspace">
+            {workspace.activeItem && selectedEntry ? <>
+              <header className="hs-episode-image-cue"><span>Image {activeNumber} of {workspace.progress.total}</span><h4>Moment in the script</h4><blockquote>{workspace.activeItem.scriptMoment}</blockquote><h4>Suggested image</h4><p>{workspace.activeItem.suggestedImage}</p>{draftSectionIntentNote.trim() ? <><h4>Editorial purpose</h4><p>{draftSectionIntentNote}</p></> : null}</header>
+
+              {needsAnchorRepair ? <aside className="hs-episode-images-repair" role="alert"><strong>This image moment is not verified against the approved script.</strong><p>Tongs can check exact anchors against the immutable approved script. Existing candidates and selected images are preserved.</p><button type="button" onClick={onStartReanchor} disabled={disabled || reanchorBusy}>{reanchorBusy ? "Checking approved script…" : "Repair from approved script"}</button></aside> : null}
+
+              {!selectedEntry.selected_asset_id ? <section className="hs-episode-images-sources" aria-labelledby="episode-image-source-heading"><h4 id="episode-image-source-heading">How would you like to get this image?</h4><div className="hs-episode-images-source-grid">
+                <button type="button" className="is-primary" onClick={() => onGenerateCandidates("ai")} disabled={disabled || candidateGenerateBusy || needsAnchorRepair}><strong>Generate image</strong><span>Create two visual options with the configured generation service. AI credit approval remains explicit.</span></button>
+                <button type="button" onClick={() => uploadInputRef.current?.click()} disabled={disabled || candidateSelectBusy}><strong>Upload an image</strong><span>Choose an existing image, verify it in Tongs, then approve it for this moment.</span></button>
+                <button type="button" className="is-unavailable" disabled aria-disabled="true"><strong>Find stock image</strong><span>Coming later. Forge does not yet have a licensed stock-image provider.</span></button>
+              </div><input ref={uploadInputRef} type="file" accept="image/*" aria-label="Upload an image" className="hs-imap-upload-input" onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) onUploadAsset(file); event.currentTarget.value = ""; }} /></section> : null}
+
+              {candidateGenerateBusy ? <p className="hs-episode-images-busy" role="status">Creating image options… Keep this page open.</p> : null}
+              {candidateGenerateError ? <aside className="hs-episode-images-error" role="alert"><strong>The image service could not create options right now.</strong><p>{candidateGenerateError}</p></aside> : null}
+              {candidateSelectionError ? <aside className="hs-episode-images-error" role="alert"><strong>This image could not be saved with the episode.</strong><p>{candidateSelectionError}</p></aside> : null}
+
+              {candidateCards.length ? <section className="hs-episode-images-options" aria-label="Image options"><div className="hs-episode-images-options-heading"><h4>{selectedEntry.selected_asset_id ? "Selected image" : "Choose an image"}</h4><span>{candidateCards.length} image option{candidateCards.length === 1 ? "" : "s"}</span></div><div className="hs-episode-images-option-grid">{candidateCards.map((candidate) => <article key={candidate.id} className={candidate.isSelected ? "is-selected" : ""}>
+                <button type="button" className="hs-episode-image-preview" onClick={() => setPreviewCandidateId(candidate.id)} aria-label={`View ${candidate.variantLabel} larger`}>{candidate.previewState === "ready" && candidate.previewDataUrl ? <img src={candidate.previewDataUrl} alt={`${sourceLabel(candidate.source)} image option: ${candidate.variantLabel}`} /> : <span>{candidate.previewState === "error" ? "Preview unavailable" : "Loading image…"}</span>}</button>
+                <div><strong>{sourceLabel(candidate.source)}</strong><span>{candidate.isSelected ? "Selected" : "Ready"}</span></div>
+                <button type="button" className="is-primary" onClick={() => onSelectCandidate(candidate.id)} disabled={disabled || candidateSelectBusy || candidate.isSelected}>{candidate.isSelected ? "Using this image" : "Use this image"}</button>
+              </article>)}</div></section> : <p className="hs-episode-images-no-options">No images created yet.</p>}
+
+              <details className="hs-episode-images-details"><summary>Adjust image direction</summary><label className="hs-field"><span>Suggested image</span><textarea value={draftDescription} onChange={(event) => onDraftDescriptionChange(event.target.value)} rows={4} disabled={disabled} /></label><button type="button" onClick={onGeneratePromptPack} disabled={disabled || !canGeneratePromptPack}>{activePromptPack ? "Regenerate image prompt" : "Review image direction"}</button>{activePromptPack ? <textarea value={activePromptPack.prompt} readOnly rows={5} aria-label="Episode image prompt" /> : null}</details>
+              <details className="hs-episode-images-details"><summary>Planning and technical details</summary><p>{activeVisualProvider.bannerLabel}</p><p>{anchorStatusDetail}</p><div className="hs-imap-toolbar"><button type="button" onClick={onCreateEntry} disabled={disabled}>New Entry</button><button type="button" onClick={onDuplicateEntry} disabled={disabled || !hasSelection}>Duplicate</button><button type="button" onClick={onDeleteEntry} disabled={disabled || !hasSelection}>Delete</button><button type="button" onClick={onSeedFromScript} disabled={disabled}>Refresh image plan from script</button><button type="button" onClick={onCopyExport} disabled={disabled}>Copy JSON</button><button type="button" onClick={onDownloadExport} disabled={disabled}>Download JSON</button></div></details>
+              <div className="hs-sr-only" aria-live="polite">{exportMessage}</div>
+            </> : null}
+          </main>
+        </div>}
+      </section>
+    );
+  }
   let primaryActionButton: ReactNode = null;
 
   if (workflowGuidance.primaryAction === "seed_from_script" && !manualOnly) {
@@ -365,10 +436,10 @@ export default function ImageMapPanel({
       <button
         type="button"
         className="hs-imap-primary-action"
-        onClick={() => onGenerateCandidates("stock")}
-        disabled={disabled || candidateGenerateBusy}
+        disabled
+        title="Forge does not yet have a licensed stock-image provider."
       >
-        {candidateGenerateBusy ? "Searching..." : workflowGuidance.primaryActionLabel}
+        Find stock image — coming later
       </button>
     );
   } else if (workflowGuidance.primaryAction === "upload_asset") {
@@ -652,10 +723,10 @@ export default function ImageMapPanel({
                   <div className="hs-imap-candidate-action-group">
                     <button
                       type="button"
-                      onClick={() => onGenerateCandidates("stock")}
-                      disabled={disabled || candidateGenerateBusy}
+                      disabled
+                      title="Forge does not yet have a licensed stock-image provider."
                     >
-                      {candidateGenerateBusy ? "Searching..." : "Find Stock"}
+                      Find stock image — coming later
                     </button>
                     <button
                       type="button"

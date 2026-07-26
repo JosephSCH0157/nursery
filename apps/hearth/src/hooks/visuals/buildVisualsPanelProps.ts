@@ -112,6 +112,7 @@ type BuildImageMapPanelArgs = {
   draftPlacementHint: string;
   saveState: ImageMapPanelProps["saveState"];
   saveError: string | null;
+  expectedImageCount: number;
   exportMessage: string | null;
   copyExportAcknowledged: boolean;
   activeVisualProvider: ImageMapPanelProps["activeVisualProvider"];
@@ -136,6 +137,7 @@ type BuildImageMapPanelArgs = {
   reanchorParagraphs: ImageMapPanelProps["reanchorParagraphs"];
   activeAnchorLabel: string | null;
   disabled: boolean;
+  onRetryLoad: () => void;
   onSelectEntry: (entryId: string | null) => void;
   onDraftAnchorChange: (value: string) => void;
   onDraftDescriptionChange: (value: string) => void;
@@ -370,6 +372,7 @@ export function buildImageMapPanelProps(args: BuildImageMapPanelArgs): ImageMapP
     draftPlacementHint: args.draftPlacementHint,
     saveState: args.saveState,
     saveError: args.saveError,
+    expectedImageCount: args.expectedImageCount,
     exportMessage: args.exportMessage,
     copyExportAcknowledged: args.copyExportAcknowledged,
     activeVisualProvider: args.activeVisualProvider,
@@ -394,6 +397,7 @@ export function buildImageMapPanelProps(args: BuildImageMapPanelArgs): ImageMapP
     reanchorParagraphs: args.reanchorParagraphs,
     activeAnchorLabel: args.activeAnchorLabel,
     disabled: args.disabled,
+    onRetryLoad: args.onRetryLoad,
     onSelectEntry: args.onSelectEntry,
     onDraftAnchorChange: args.onDraftAnchorChange,
     onDraftDescriptionChange: args.onDraftDescriptionChange,

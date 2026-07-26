@@ -1,7 +1,6 @@
 import { useCallback } from "react";
 import {
   buildExactScriptAnchorFromSelection,
-  reanchorImageMapEntry,
   resolveNearestParagraphSelection,
   type ImageMapScriptSelection,
 } from "../../lib/hearth-image-map-beats";
@@ -26,6 +25,8 @@ type UseImageMapReanchorActionsArgs = {
     entries: EpisodeImageMapEntry[];
     spokenBeats?: EpisodePackageV2["spoken_beats"] | null;
   }) => Promise<PersistImageMapEntriesResult>;
+  repairCanonicalImageMap: () => Promise<{ ok: true } | { ok: false; error: string }>;
+  resolveManualCanonicalAnchor: (entryId: string, scriptAnchor: NonNullable<EpisodeImageMapEntry["script_anchor"]>) => Promise<{ ok: true } | { ok: false; error: string }>;
   setMode: (next: "sparks" | "episodes" | "ready" | "series" | "focus") => void;
   setShowManualDraft: (next: boolean) => void;
   setShowScriptPanel: (next: boolean) => void;
@@ -40,21 +41,25 @@ type UseImageMapReanchorActionsArgs = {
 };
 
 export function useImageMapReanchorActions(args: UseImageMapReanchorActionsArgs) {
-  const onStartImageMapReanchor = useCallback(() => {
+  const onStartImageMapReanchor = useCallback(async () => {
     if (args.imageMapReanchorDisabledReason) {
       args.setImageMapReanchorError(args.imageMapReanchorDisabledReason);
       return;
     }
-    if (args.selectedImageMapEntry?.beat_anchor) {
-      args.setImageMapReanchorError("Beat-anchored bullet visuals do not need exact-text repair in Hearth. Refine placement later from the transcript.");
-      return;
-    }
-    args.setMode("focus");
-    args.setShowManualDraft(false);
-    args.setShowScriptPanel(true);
     args.setImageMapReanchorError(null);
     args.setImageMapCandidateError(null);
-    args.setIsImageMapReanchorMode(true);
+    args.setIsImageMapReanchorSaving(true);
+    args.setImageMapSaveState("saving");
+    const result = await args.repairCanonicalImageMap();
+    if (!result.ok) {
+      args.setImageMapSaveState("error");
+      args.setImageMapReanchorError(result.error);
+    } else {
+      args.setImageMapSaveState("saved");
+      args.setImageMapExportMessage("Image plan checked against the immutable approved script.");
+      args.setIsImageMapReanchorMode(false);
+    }
+    args.setIsImageMapReanchorSaving(false);
   }, [args]);
 
   const onCancelImageMapReanchor = useCallback(() => {
@@ -80,30 +85,14 @@ export function useImageMapReanchorActions(args: UseImageMapReanchorActionsArgs)
       return;
     }
 
-    const nextEntry = reanchorImageMapEntry(args.selectedImageMapEntry, args.canonicalImageMapScriptState.text, selection);
-    if (!nextEntry) {
-      args.setImageMapReanchorError("Unable to re-anchor this visual beat.");
-      return;
-    }
-    const operation = args.operationAuthority.begin("image-map.reanchor");
+    const operation = args.operationAuthority.begin("ir");
 
     args.setIsImageMapReanchorSaving(true);
     args.setImageMapSaveState("saving");
     args.setImageMapSaveError(null);
     args.setImageMapReanchorError(null);
     try {
-      const saved = await args.persistImageMapEntries({
-        entries: args.episodePackage.image_map.entries.map((entry) => (
-          entry.id === args.selectedImageMapEntry?.id
-            ? {
-                ...nextEntry,
-                anchor_scope: "attached",
-                script_anchor: nextAnchor,
-                beat_anchor: null,
-              }
-            : entry
-        )),
-      });
+      const saved = await args.resolveManualCanonicalAnchor(args.selectedImageMapEntry.id, nextAnchor);
       if (!args.operationAuthority.isCurrent(operation)) return;
       if (!saved.ok) {
         args.setImageMapSaveState("error");
@@ -114,7 +103,7 @@ export function useImageMapReanchorActions(args: UseImageMapReanchorActionsArgs)
       args.setImageMapSaveState("saved");
       args.setImageMapCandidateError(null);
       args.setImageMapCandidateSelectionError(null);
-      args.setImageMapExportMessage("Visual beat re-anchored to the current canonical script.");
+      args.setImageMapExportMessage("Visual beat anchored to the immutable approved script.");
       args.setIsImageMapReanchorMode(false);
     } catch (error) {
       if (!args.operationAuthority.isCurrent(operation)) return;
@@ -146,7 +135,7 @@ export function useImageMapReanchorActions(args: UseImageMapReanchorActionsArgs)
 
   const onConvertImageMapToGlobalVisual = useCallback(async () => {
     if (!args.episodePackage || !args.selectedImageMapEntry) return;
-    const operation = args.operationAuthority.begin("image-map.anchor.globalize");
+    const operation = args.operationAuthority.begin("igv");
     args.setImageMapSaveState("saving");
     args.setImageMapSaveError(null);
     args.setImageMapReanchorError(null);
@@ -175,7 +164,7 @@ export function useImageMapReanchorActions(args: UseImageMapReanchorActionsArgs)
 
   const onLeaveImageMapOrphaned = useCallback(async () => {
     if (!args.episodePackage || !args.selectedImageMapEntry) return;
-    const operation = args.operationAuthority.begin("image-map.anchor.orphan");
+    const operation = args.operationAuthority.begin("io");
     args.setImageMapSaveState("saving");
     args.setImageMapSaveError(null);
     args.setImageMapReanchorError(null);
