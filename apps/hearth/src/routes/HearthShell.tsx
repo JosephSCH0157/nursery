@@ -48,7 +48,6 @@ import { useHearthWorkspaceSessionLifecycle } from "../hooks/useHearthWorkspaceS
 import { useHearthWorkpieceTabLifecycle } from "../hooks/useHearthWorkpieceTabLifecycle";
 import { useClipboardButtonAcks } from "../hooks/useClipboardButtonAcks";
 import { useVisualsPersistence } from "../hooks/visuals/useVisualsPersistence";
-import { useReleasePrepPackWorkspace } from "../hooks/visuals/useReleasePrepPackWorkspace";
 import { useEpisodePackageLoader } from "../hooks/visuals/useEpisodePackageLoader";
 import { useVisualWorkspaceResetLifecycle } from "../hooks/visuals/useVisualWorkspaceResetLifecycle";
 import { shouldInvalidateMediaMapForScriptVersion } from "../lib/hearth-visual-artifact-authority";
@@ -196,7 +195,6 @@ import {
   resolveHistoryMilestoneMarker,
   resolveMediaPlanCoverageLevel,
   resolveMediaPlanScopeLabel,
-  resolveReleaseReadinessChecklist,
   type WorkpieceWorkspaceTab,
 } from "../lib/hearth-workpiece-tab-shell";
 import {
@@ -435,6 +433,10 @@ import {
   useHearthMetadataWorkspaceState,
 } from "./hearth-shell/useHearthMetadataController";
 import { buildHearthMetadataProgress } from "./hearth-shell/hearth-metadata-progress";
+import {
+  buildHearthReleasePreparationController,
+  useHearthReleasePreparationWorkspaceState,
+} from "./hearth-shell/useHearthReleasePreparationController";
 
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
@@ -2124,6 +2126,11 @@ export default function HearthShell({
     && scriptApprovalState.approvedScriptVersion > 0,
   );
   const approvedScriptVersion = hasApprovedScript ? scriptApprovalState.approvedScriptVersion : null;
+  const releasePreparationWorkspace = useHearthReleasePreparationWorkspaceState({
+    workpieceId,
+    hasApprovedScript,
+    approvedScriptVersion,
+  });
   const {
     latestReleasePrepRawText,
     latestReleasePrepSections,
@@ -2131,11 +2138,7 @@ export default function HearthShell({
     releasePrepScriptVersion,
     loadLatestReleasePrepPack,
     resetReleasePrepState,
-  } = useReleasePrepPackWorkspace({
-    workpieceId,
-    hasApprovedScript,
-    approvedScriptVersion,
-  });
+  } = releasePreparationWorkspace;
   const framingPackReady = releasePrepLoadState === "ready" && latestReleasePrepSections.length > 0;
   const displayedFramingTitleCount = Math.max(thumbnailTitleOptions.length, canonicalFramingTitleCount);
   const displayedFramingTagCount = Math.max(metadataTagsDraft.length, canonicalFramingTagCount);
@@ -2329,11 +2332,20 @@ export default function HearthShell({
   });
   const metadataComplete = metadataProgress.completion === "complete";
   const thumbnailsSelected = Boolean(primaryThumbnailVersionId);
-  const releaseReadiness = resolveReleaseReadinessChecklist({
+  const releasePreparationController = buildHearthReleasePreparationController({
+    workspaceId,
+    workpieceId,
+    active: Boolean(workpieceId),
+    scriptAuthorityAvailable: true,
     hasApprovedScript,
+    approvedScriptVersion,
+    mediaAuthorityAvailable: !imageMapAuthorityUnavailable,
     mediaMapStatus: mediaMap?.status ?? null,
+    metadataAuthorityAvailable: episodePackageState !== "error",
     metadataComplete,
+    thumbnailAuthorityAvailable: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? ""),
     thumbnailsSelected,
+    workspace: releasePreparationWorkspace,
   });
   const latestMilestoneRevision = useMemo(() => revisions.find((revision) => revision.kind === "milestone") ?? null, [revisions]);
   const tabDirtyById: Record<WorkpieceWorkspaceTab, boolean> = {
@@ -2364,7 +2376,7 @@ export default function HearthShell({
     }),
     visuals: `${mediaMapEntries.length} visuals${displayedThumbnailConceptCount ? ` · ${displayedThumbnailConceptCount} briefs` : ""} · ${String(mediaMap?.status ?? "draft").toUpperCase()} · ${mediaMapCoverageLevel}`,
     metadata: `${framingTitleCount} title${framingTitleCount === 1 ? "" : "s"} · ${displayedFramingTagCount} tags · ${metadataComplete ? "Complete" : framingPackReady ? "Pack ready" : "Needs work"}`,
-    release: `${releaseReadiness.completeCount}/${releaseReadiness.totalCount} ready · ${releaseReadiness.completeCount >= releaseReadiness.totalCount ? "Shippable" : "Pending"}`,
+    release: releasePreparationController.summary,
     history: `${revisions.length} revisions · ${latestMilestoneRevision ? `Milestone ${formatUpdatedAt(latestMilestoneRevision.createdAt)}` : resolveHistoryMilestoneMarker(revisions)}`,
   };
   const chatHistoryKey = useMemo(
@@ -6397,19 +6409,7 @@ export default function HearthShell({
         }}
         draftStageClassName={`hs-draft-stage${(isHistoryWorkspaceTab || (isScriptWorkspaceTab && showScriptEditor)) ? " has-script-panel" : ""}`}
         chatSurfaceProps={conversationController.surface.chatSurfaceProps}
-        releaseSurfaceProps={
-          isReleaseWorkspaceTab && hasApprovedScript && approvedScriptVersion
-            ? {
-              hasApprovedScript,
-              approvedScriptVersion,
-              hasFramingComplete: metadataComplete,
-              hasThumbnailsSelected: thumbnailsSelected,
-              mediaMapStatus: mediaMap?.status ?? null,
-              releaseReadinessCompleteCount: releaseReadiness.completeCount,
-              releaseReadinessTotalCount: releaseReadiness.totalCount,
-            }
-            : null
-        }
+        releaseSurfaceProps={isReleaseWorkspaceTab ? releasePreparationController.surface : null}
         metadataSurfaceProps={{
           visible: isMetadataWorkspaceTab,
           hasApprovedScript: hearthVisualsWorkspace.status.hasApprovedScript,
