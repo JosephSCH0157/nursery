@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { MobilePage } from "@forge/ui-mobile";
 
-type HearthMobileOverlaysProps = {
+export type HearthMobileOverlaysProps = {
   isMobile: boolean;
   mobileOverlayView: "editor" | "ready" | null;
   activeDraftTitle: string | null;

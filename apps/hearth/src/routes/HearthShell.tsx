@@ -129,7 +129,6 @@ import HearthSparkBootstrapMode from "../views/modes/HearthSparkBootstrapMode";
 import HearthFocusMode from "../views/modes/HearthFocusMode";
 import HearthDraftScriptHeader from "../views/modes/HearthDraftScriptHeader";
 import HearthDraftMode from "../views/modes/HearthDraftMode";
-import HearthMobileOverlays from "../views/modes/HearthMobileOverlays";
 import HearthShellModals from "../views/modes/HearthShellModals";
 import HearthMainContentSwitch from "../views/modes/HearthMainContentSwitch";
 import HearthDesktopFrame from "../views/modes/HearthDesktopFrame";
@@ -440,6 +439,8 @@ import { buildHearthProductionController } from "./hearth-shell/buildHearthProdu
 import { buildHearthProductionViewModel } from "./hearth-shell/buildHearthProductionViewModel";
 import HearthProductionContent from "./hearth-shell/HearthProductionContent";
 import { buildHearthDesktopRailViewModel } from "./hearth-shell/buildHearthDesktopRailViewModel";
+import { buildHearthMobileNavigationViewModel } from "./hearth-shell/buildHearthMobileNavigationViewModel";
+import HearthMobileNavigation from "./hearth-shell/HearthMobileNavigation";
 
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
@@ -6714,14 +6715,26 @@ export default function HearthShell({
     if (!activeDraft) return;
     return onDeleteDraft(activeDraft);
   }, [activeDraft, onDeleteDraft]);
-  const mobileRestoreButtonLabel = activeWorkpieceContext.workpiece
-    && restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId)
-    ? "Restoring..."
-    : "Restore Workpiece";
-  const mobileRestoreButtonDisabled = Boolean(
-    !activeWorkpieceContext.workpiece
-    || restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId),
-  );
+  const mobileNavigationViewModel = buildHearthMobileNavigationViewModel({
+    isMobile,
+    mobileOverlayView,
+    activeDraftTitle: activeDraft?.title,
+    closeMobileOverlay,
+    openReadyInMobileOverlay,
+    isActiveWorkpieceArchived: Boolean(activeWorkpieceContext.workpiece?.isArchived),
+    hasActiveWorkpiece: Boolean(activeWorkpieceContext.workpiece),
+    activeWorkpieceId: activeWorkpieceContext.workpiece?.workpieceId ?? null,
+    restoringWorkpieceIds,
+    onRestoreWorkpiece: onRestoreMobileWorkpiece,
+    hasActiveDraft: Boolean(activeDraft),
+    isSaving,
+    onDeleteDraftBuffer: onDeleteActiveDraftBuffer,
+    onSaveDraft,
+    refreshReadyScripts,
+    isReadyScriptsLoading,
+    renderFocusContent: renderFocusEditor,
+    renderReadyContent: renderReadyView,
+  });
   const desktopRailViewModel = buildHearthDesktopRailViewModel({
     deferDesktopRailCollections,
     readyTotalCount,
@@ -6817,26 +6830,7 @@ export default function HearthShell({
         />
       )}
 
-      <HearthMobileOverlays
-        isMobile={isMobile}
-        mobileOverlayView={mobileOverlayView}
-        activeDraftTitle={activeDraft?.title ?? null}
-        closeMobileOverlay={closeMobileOverlay}
-        openReadyInMobileOverlay={openReadyInMobileOverlay}
-        isActiveWorkpieceArchived={Boolean(activeWorkpieceContext.workpiece?.isArchived)}
-        hasActiveWorkpiece={Boolean(activeWorkpieceContext.workpiece)}
-        restoreButtonLabel={mobileRestoreButtonLabel}
-        restoreButtonDisabled={mobileRestoreButtonDisabled}
-        onRestoreWorkpiece={onRestoreMobileWorkpiece}
-        hasActiveDraft={Boolean(activeDraft)}
-        isSaving={isSaving}
-        onDeleteDraftBuffer={onDeleteActiveDraftBuffer}
-        onSaveDraft={onSaveDraft}
-        refreshReadyScripts={refreshReadyScripts}
-        isReadyScriptsLoading={isReadyScriptsLoading}
-        renderFocusContent={renderFocusEditor}
-        renderReadyContent={renderReadyView}
-      />
+      <HearthMobileNavigation {...mobileNavigationViewModel} />
 
       <HearthShellModals
         composeModalOpen={composeModalOpen}
