@@ -19,7 +19,7 @@ type WorkpieceNavItem = {
   sparkCount: number;
 };
 
-type HearthDesktopRailProps = {
+export type HearthDesktopRailProps = {
   deferDesktopRailCollections: boolean;
   readyTotalCount: number;
   refreshReadyScripts: () => void | Promise<void>;

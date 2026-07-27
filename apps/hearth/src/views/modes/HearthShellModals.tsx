@@ -2,7 +2,7 @@ import type { ProductionDefaults } from "../../domain/compose";
 import type { RevisionKind } from "../../domain/revision";
 import ComposeSetupModal from "../../ui/ComposeSetupModal";
 
-type HearthShellModalsProps = {
+export type HearthShellModalsProps = {
   composeModalOpen: boolean;
   productionDefaults: ProductionDefaults;
   onCloseComposeModal: () => void;

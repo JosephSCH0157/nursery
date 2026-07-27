@@ -1,29 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  listHearthAttachments,
-  uploadHearthAttachment,
-  updateHearthAttachmentExtractedText,
-} from "../lib/hearth-attachments-api";
 import { type Draft } from "../domain/draft";
 import type { HearthPlanningSession, HearthSessionDecision, HearthSessionOrigin } from "../domain/hearth-session";
 import { HEARTH_SESSION_SCHEMA } from "../domain/hearth-session";
-import type { Revision, RevisionKind } from "../domain/revision";
+import type { RevisionKind } from "../domain/revision";
 import type { HearthSession } from "../domain/session";
 import {
-  type BarStockSpark,
-  enqueueBarStockSpark,
-  resolveBarStockSparkHearthWorkpieceId,
   resolveBarstockSparkIdFromQuery,
-  shouldDisplaySparkInHearthLibrary,
-  upsertBarStockSpark,
-  writeBarStockSparks,
 } from "../lib/barstock-sparks";
 import {
   resolveBarstockProjectIdFromQuery,
 } from "../lib/barstock-project-links";
-import SourcesView from "../views/SourcesView";
 import "./HearthShell.css";
-import { createHearthWorkpiece } from "../lib/hearth-workpiece";
 import {
   readHearthPlanningSessionCache,
   writeHearthPlanningSessionCache,
@@ -37,114 +24,40 @@ import {
   resolveAiLaneFromStorage,
   resolveDefaultVisualProviderFromStorage,
   uploadHearthSttAudio,
-  type HearthAiLane,
   type HearthChatMessage,
   type HearthInteractionEventType,
 } from "../lib/hearth-chat-api";
-import type { HearthResearchResult } from "../lib/hearth-research-contract";
 import { writeHearthAiRuntimeStatus } from "../lib/ai-runtime-status";
 import { commitHearthSession } from "../lib/hearth-session-repo";
 import {
   commitHearthPrimaryScript,
   getHearthPrimaryScriptPath,
 } from "../lib/hearth-script-repo";
+import type { HearthWorkpieceSummary } from "../lib/hearth-workpieces";
 import {
-  listHearthWorkpieces,
-  type HearthWorkpieceSummary,
-} from "../lib/hearth-workpieces";
-import {
-  selectActiveWorkpieceContext,
   selectDraftForWorkpiece,
-  selectWorkpieceNavItems,
 } from "../lib/hearth-nav-model";
 import { mirrorApprovedScriptToLocal } from "../lib/hearth-script-mirror";
-import {
-  listHearthReadyScripts,
-  type HearthReadyScript,
-} from "../lib/hearth-ready-scripts";
-import {
-  listHearthWorkpiecePresence,
-  upsertHearthWorkpiecePresence,
-  type HearthWorkpiecePresence,
-} from "../lib/hearth-presence";
-import { useSourcesState } from "../hooks/useSourcesState";
-import {
-  useChatWorkspace,
-  useChatWorkspaceHistory,
-  useChatWorkspaceProposal,
-  useChatWorkspaceRuntime,
-  useChatWorkspaceStt,
-  useChatWorkspaceState,
-} from "../hooks/useChatWorkspace";
-import { useHearthAutosave } from "../hooks/useHearthAutosave";
-import { useApprovalFlow } from "../hooks/useApprovalFlow";
+import type { HearthReadyScript } from "../lib/hearth-ready-scripts";
 import { useHearthVisualsWorkspace } from "../hooks/useHearthVisualsWorkspace";
-import { useHearthOperationAuthority } from "../hooks/useHearthOperationAuthority";
 import { useHearthFocusOpenActions } from "../hooks/useHearthFocusOpenActions";
 import { useHearthInitialLoader } from "../hooks/useHearthInitialLoader";
 import { useHearthWorkspaceResetLifecycle } from "../hooks/useHearthWorkspaceResetLifecycle";
 import { useHearthIntakeLifecycle } from "../hooks/useHearthIntakeLifecycle";
-import { useHearthSparkDiscovery } from "../hooks/useHearthSparkDiscovery";
 import { useHearthWorkspaceSessionLifecycle } from "../hooks/useHearthWorkspaceSessionLifecycle";
-import { useHearthDraftController } from "../hooks/useHearthDraftController";
-import { useHearthDraftPersistenceActions } from "../hooks/useHearthDraftPersistenceActions";
-import { useHearthScriptRepairActions } from "../hooks/useHearthScriptRepairActions";
 import { useHearthWorkpieceTabLifecycle } from "../hooks/useHearthWorkpieceTabLifecycle";
-import { useHearthWorkpieceArchiveActions } from "../hooks/useHearthWorkpieceArchiveActions";
 import { useClipboardButtonAcks } from "../hooks/useClipboardButtonAcks";
-import { useHearthAnvilOpenAction } from "../hooks/useHearthAnvilOpenAction";
-import { useHearthApprovalPersistenceActions } from "../hooks/useHearthApprovalPersistenceActions";
-import { useHearthReadyScriptsLifecycle } from "../hooks/useHearthReadyScriptsLifecycle";
-import { useHearthReadyQueueActions } from "../hooks/useHearthReadyQueueActions";
-import { useHearthReadyNavigationActions } from "../hooks/useHearthReadyNavigationActions";
-import { useHearthDraftHydrationActions } from "../hooks/useHearthDraftHydrationActions";
-import { useScriptWorkspace } from "../hooks/useScriptWorkspace";
-import { useScriptWorkspaceReadModel } from "../hooks/useScriptWorkspaceReadModel";
-import { useMediaMapWorkspace } from "../hooks/visuals/useMediaMapWorkspace";
-import { useMetadataWorkspace } from "../hooks/visuals/useMetadataWorkspace";
-import { useImageMapWorkspace } from "../hooks/visuals/useImageMapWorkspace";
-import { useBrollWorkspace } from "../hooks/visuals/useBrollWorkspace";
-import { useReferenceClipWorkspace } from "../hooks/visuals/useReferenceClipWorkspace";
-import { useThumbnailWorkspace } from "../hooks/visuals/useThumbnailWorkspace";
-import { useMediaMapEntryActions } from "../hooks/visuals/useMediaMapEntryActions";
-import { useMediaMapGenerationActions } from "../hooks/visuals/useMediaMapGenerationActions";
-import { useBrollCoreActions } from "../hooks/visuals/useBrollCoreActions";
-import { useBrollBridgeActions } from "../hooks/visuals/useBrollBridgeActions";
-import { useReferenceClipCoreActions } from "../hooks/visuals/useReferenceClipCoreActions";
-import { useReferenceClipBridgeActions } from "../hooks/visuals/useReferenceClipBridgeActions";
-import { useThumbnailConceptActions } from "../hooks/visuals/useThumbnailConceptActions";
-import { useThumbnailGenerationActions } from "../hooks/visuals/useThumbnailGenerationActions";
-import { useImageMapReanchorActions } from "../hooks/visuals/useImageMapReanchorActions";
-import { useImageMapCandidateActions } from "../hooks/visuals/useImageMapCandidateActions";
-import { useImageMapEntryCrudActions } from "../hooks/visuals/useImageMapEntryCrudActions";
-import { useImageMapSeedExportActions } from "../hooks/visuals/useImageMapSeedExportActions";
-import { useMediaMapSourcePreparation } from "../hooks/visuals/useMediaMapSourcePreparation";
-import { useImageMapViewActions } from "../hooks/visuals/useImageMapViewActions";
-import { useCanonicalImageMapScriptReader } from "../hooks/visuals/useCanonicalImageMapScriptReader";
 import { useVisualsPersistence } from "../hooks/visuals/useVisualsPersistence";
-import { useReleasePrepPackWorkspace } from "../hooks/visuals/useReleasePrepPackWorkspace";
 import { useEpisodePackageLoader } from "../hooks/visuals/useEpisodePackageLoader";
-import { useThumbnailPreviewLoader } from "../hooks/visuals/useThumbnailPreviewLoader";
-import { useImageMapCandidatePreviewLoader } from "../hooks/visuals/useImageMapCandidatePreviewLoader";
 import { useVisualWorkspaceResetLifecycle } from "../hooks/visuals/useVisualWorkspaceResetLifecycle";
-import { useMediaMapConversationBootstrap } from "../hooks/visuals/useMediaMapConversationBootstrap";
-import { useCanonicalImageMapScriptStateLoader } from "../hooks/visuals/useCanonicalImageMapScriptStateLoader";
 import { shouldInvalidateMediaMapForScriptVersion } from "../lib/hearth-visual-artifact-authority";
-import { hasCanonicalFraming } from "../lib/hearth-framing-authority";
-import { readCanonicalThumbnailWorkspaceV3, readThumbnailCandidateAuthorityProjection } from "../lib/hearth-thumbnail-v3-api";
 import { useVisualSelectionHydration } from "../hooks/visuals/useVisualSelectionHydration";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import {
-  NO_CANONICAL_SCRIPT_APPROVAL,
-  isScriptApprovalStateEqual,
   nextApprovedScriptVersion,
-  resolveCanonicalScriptApproval,
   type ScriptApprovalState,
 } from "../lib/hearth-approval-authority";
 import { createHearthStore } from "../storage/store-factory";
-import {
-  isCanonicalHearthRevisionSave,
-} from "../storage/hearth-store";
 import { LocalSessionStore } from "../storage/local-session-store";
 import {
   applyHearthOps,
@@ -161,7 +74,6 @@ import {
   resetHearthProposalBodyOp,
   updateHearthProposalBodyOp,
 } from "../lib/hearth-ai-proposal";
-import { getHearthAnvilStepModeHint } from "../lib/hearth-anvil-handoff";
 import {
   deriveFullScriptAuthoringMeta,
   deriveOutlineScriptAuthoringMeta,
@@ -217,18 +129,12 @@ import HearthSparkBootstrapMode from "../views/modes/HearthSparkBootstrapMode";
 import HearthFocusMode from "../views/modes/HearthFocusMode";
 import HearthDraftScriptHeader from "../views/modes/HearthDraftScriptHeader";
 import HearthDraftMode from "../views/modes/HearthDraftMode";
-import HearthMobileOverlays from "../views/modes/HearthMobileOverlays";
 import HearthShellModals from "../views/modes/HearthShellModals";
 import HearthMainContentSwitch from "../views/modes/HearthMainContentSwitch";
 import HearthDesktopFrame from "../views/modes/HearthDesktopFrame";
 import { buildHearthDraftScriptSurfaceProps } from "../views/modes/buildHearthDraftScriptSurfaceProps";
 import { buildHearthDraftScriptPanelState } from "../views/modes/buildHearthDraftScriptPanelState";
 import HearthDesktopRail from "../views/modes/HearthDesktopRail";
-import { buildHearthReferenceClipPanelProps } from "../views/modes/buildHearthReferenceClipPanelProps";
-import { buildHearthBrollPanelProps } from "../views/modes/buildHearthBrollPanelProps";
-import { buildHearthImageMapPanelProps } from "../views/modes/buildHearthImageMapPanelProps";
-import { buildHearthThumbnailPanelProps } from "../views/modes/buildHearthThumbnailPanelProps";
-import { buildHearthMediaMapPanelProps } from "../views/modes/buildHearthMediaMapPanelProps";
 import {
   persistProductionArtifact as persistHearthProductionArtifact,
   resolveAcceptedTagProposal,
@@ -262,7 +168,6 @@ import {
   deriveFullMediaBudgetPolicy,
 } from "../lib/hearth-media-map-builder";
 import type {
-  EpisodeBrollDataVisualSpec,
   EpisodeReferenceClipPlan,
   EpisodeReferenceClipTone,
   EpisodeBrollPlan,
@@ -289,24 +194,17 @@ import {
   resolveHistoryMilestoneMarker,
   resolveMediaPlanCoverageLevel,
   resolveMediaPlanScopeLabel,
-  resolveReleaseReadinessChecklist,
   type WorkpieceWorkspaceTab,
 } from "../lib/hearth-workpiece-tab-shell";
 import {
-  loadWorkspaceThumbnailBrandLogoPreview,
-  listWorkspaceThumbnailBrandTemplates,
   resolveDefaultThumbnailBrandTemplate,
-  seedWorkspaceThumbnailBrandTemplates,
 } from "../lib/hearth-thumbnail-brand-templates";
 import {
-  areEpisodeThumbnailTitleStylesEqual,
   normalizeEpisodeThumbnailTitleStyle,
 } from "../lib/hearth-title-fonts";
 import {
-  deriveHearthThumbnailOverlayText,
   resolveHearthThumbnailOverlayText,
 } from "../lib/hearth-thumbnail-title-contract";
-import { formatThumbnailPanelMeta } from "../lib/hearth-thumbnail-workflow";
 import { useLayoutMode } from "@forge/ui-mobile";
 import { hasBrowserSpeechRecognition } from "../lib/browser-speech-contract";
 import {
@@ -320,13 +218,8 @@ import OscilloscopeFill from "./hearth-shell/OscilloscopeFill";
 import {
   AI_STT_MAX_BYTES,
   AI_STT_MAX_DURATION_MS,
-  AUTOSAVE_DELAY_MS,
-  AUTOSAVE_MIN_GAP_MS,
-  AUTOSAVE_REVISION_GAP_MS,
   CHAT_HISTORY_WRITE_DEBOUNCE_MS,
   DEFAULT_TONE_PRESET,
-  EMPTY_READY_SCRIPT_LIST,
-  EMPTY_WORKPIECE_SUMMARY_LIST,
   FORGE_NOTICE_EVENT,
   PRESENCE_HEARTBEAT_MS,
   SAFE_SCRIPT_STARTER,
@@ -338,25 +231,18 @@ import {
   TONE_PRESET_OPTIONS,
   WORKPIECE_WORKSPACE_TABS,
   type ApprovalPersistenceStatus,
-  type ChatAttachmentUi,
   type DraftConflictState,
-  type DraftSnapshot,
-  type FocusTab,
   type ForgeNoticeDetail,
   type ForgeNoticeJob,
   type ForgeNoticeSeverity,
-  type HearthMode,
   type HearthShellProps,
   type HearthUserContext,
   type PendingAiProposal,
   type ProposalSaveReasonCode,
   type ReadyLabel,
-  type SortKey,
-  type UiDensity,
 } from "./hearth-shell/hearth-shell-contracts";
 import {
   buildDraftAttribution,
-  buildMetadataTagSuggestions,
   buildDiffLines,
   buildSparkPreview,
   dedupeDraftListById,
@@ -370,12 +256,10 @@ import {
   formatUpdatedAt,
   isSparkForged,
   normalizeGreetingName,
-  normalizeMetadataTag,
   normalizeRailTitleKey,
   normalizeTitle,
   normalizeTonePreset,
   parseIsoTimestamp,
-  parseMetadataTagInput,
   READY_LABEL_TO_CATEGORY,
   READY_URGENCY_LABEL,
   reorderVisibleReadyEntries,
@@ -406,27 +290,158 @@ import {
   parsePlanningLines,
   readLatestOutlineFromOps,
   reclassifyHearthFormatProposal,
-  toProposalAutosaveReason,
 } from "./hearth-shell/hearth-shell-planning";
 import {
   buildCurrentForgeNoticeRoute as buildForgeNoticeRoute,
   buildHearthRouteContextUrl,
-  buildOpenInAnvilHref,
-  hasIncomingBarStockIntakeQuery,
   normalizeUuid,
   readTrimmedString,
   resolveReadyOpenHref,
 } from "./hearth-shell/hearth-shell-route";
 import {
   isDevMode,
-  readMode,
-  readWorkpieceWorkspaceTab,
-  readWorkspaceUiDensity,
   resolveStoreKind,
-  writeMode,
   writeWorkpieceWorkspaceTab,
-  writeWorkspaceUiDensity,
 } from "./hearth-shell/hearth-shell-preferences";
+import {
+  useHearthActiveIdentityRef,
+  useHearthActiveIdentityRefSync,
+  useHearthShellIdentityState,
+  useHearthShellOperationAuthority,
+  useHearthWorkspaceIdentitySync,
+} from "./hearth-shell/useHearthShellIdentity";
+import {
+  useHearthMobileOverlayState,
+  useHearthMobileOverlayCommands,
+  useHearthDesktopNavigationCommands,
+  useHearthDensityPreferenceLifecycle,
+  useHearthModePreferenceLifecycle,
+  useHearthModeRestorationLifecycle,
+  useHearthResolvedWorkpieceTabState,
+  useHearthResponsiveNavigationLifecycle,
+  useHearthWorkpieceTabPreferenceLifecycle,
+} from "./hearth-shell/useHearthShellNavigation";
+import {
+  useHearthCollectionArchiveActions,
+  useHearthActiveCollectionContext,
+  useHearthEpisodeCollectionState,
+  useHearthCollectionViewModel,
+  useHearthCollectionReadyNavigationActions,
+  useHearthCollectionReadyQueueActions,
+  useHearthCollectionSparkDiscovery,
+  useHearthReadyCollectionLifecycle,
+  useHearthReadyCollectionState,
+  useHearthSparkCollectionState,
+  useHearthWorkpieceCollectionLoader,
+  createHearthCollectionWorkpiece,
+  enqueueBarStockSpark,
+  resolveBarStockSparkHearthWorkpieceId,
+  upsertBarStockSpark,
+  writeBarStockSparks,
+  type BarStockSpark,
+} from "./hearth-shell/useHearthCollectionController";
+import {
+  useHearthScriptApprovalFlow,
+  useHearthScriptApprovalIdentityReset,
+  useHearthScriptApprovalPersistenceActions,
+  useHearthScriptAuthorityRefs,
+  useHearthCanonicalScriptApprovalLoader,
+  useHearthCanonicalScriptApprovalState,
+  useHearthScriptCoreState,
+  useHearthScriptDraftCommands,
+  useHearthScriptDraftHydration,
+  useHearthScriptDraftPersistence,
+  useHearthScriptPersistenceWorkspace,
+  useHearthScriptReadModel,
+  useHearthScriptRepairActions,
+  useHearthScriptRevisionLoader,
+  useHearthScriptController,
+} from "./hearth-shell/useHearthScriptController";
+import {
+  listHearthConversationAttachments,
+  updateHearthConversationAttachmentText,
+  uploadHearthConversationAttachment,
+  useHearthConversationAttachmentState,
+  useHearthConversationController,
+  useHearthConversationHistory,
+  useHearthConversationProposal,
+  useHearthConversationRuntime,
+  useHearthConversationRuntimeState,
+  useHearthConversationStt,
+  useHearthConversationState,
+  useHearthConversationSurface,
+} from "./hearth-shell/useHearthConversationController";
+import { useHearthSourcesController } from "./hearth-shell/useHearthSourcesController";
+import {
+  buildHearthPresenceController,
+  HEARTH_PRESENCE_REFRESH_EVENT,
+  useHearthPresenceBadges,
+  useHearthPresenceLifecycle,
+  useHearthPresenceProjection,
+  useHearthPresenceState,
+} from "./hearth-shell/useHearthPresenceController";
+import {
+  buildHearthAnvilHandoffController,
+  useHearthAnvilHandoffOpenCommand,
+  useHearthAnvilHandoffProjection,
+} from "./hearth-shell/useHearthAnvilHandoffController";
+import {
+  buildHearthThumbnailController,
+  useHearthCanonicalThumbnailProjection,
+  useHearthThumbnailConceptCommands,
+  useHearthThumbnailGenerationCommands,
+  useHearthThumbnailLifecycle,
+  useHearthThumbnailPreviewLifecycle,
+  useHearthThumbnailWorkspaceState,
+} from "./hearth-shell/useHearthThumbnailController";
+import {
+  buildHearthImagePlanningController,
+  useHearthCanonicalImageMapScriptLifecycle,
+  useHearthCanonicalImageMapScriptReader,
+  useHearthEpisodeImagesWorkspaceState,
+  useHearthImageCandidateCommands,
+  useHearthImageCandidatePreviewLifecycle,
+  useHearthImageEntryCommands,
+  useHearthImageMapReanchorCommands,
+  useHearthImageMapViewCommands,
+  useHearthImageSeedExportCommands,
+  useHearthVisualPlanConversationBootstrap,
+  useHearthVisualPlanEntryCommands,
+  useHearthVisualPlanGenerationCommands,
+  useHearthVisualPlanSourcePreparation,
+  useHearthVisualPlanWorkspaceState,
+} from "./hearth-shell/useHearthImagePlanningController";
+import {
+  buildHearthBrollController,
+  useHearthBrollBridgeCommands,
+  useHearthBrollCoreCommands,
+  useHearthBrollWorkspaceState,
+} from "./hearth-shell/useHearthBrollController";
+import { buildHearthBrollDataVisualSpec } from "./hearth-shell/buildHearthBrollViewModel";
+import {
+  buildHearthReferenceClipsController,
+  useHearthReferenceClipsBridgeCommands,
+  useHearthReferenceClipsCoreCommands,
+  useHearthReferenceClipsWorkspaceState,
+} from "./hearth-shell/useHearthReferenceClipsController";
+import { parseHearthReferenceClipValues } from "./hearth-shell/buildHearthReferenceClipsViewModel";
+import {
+  buildHearthMetadataController,
+  useHearthMetadataTagSuggestions,
+  useHearthMetadataWorkspaceState,
+} from "./hearth-shell/useHearthMetadataController";
+import { buildHearthMetadataProgress } from "./hearth-shell/hearth-metadata-progress";
+import {
+  buildHearthReleasePreparationController,
+  useHearthReleasePreparationWorkspaceState,
+} from "./hearth-shell/useHearthReleasePreparationController";
+import { buildHearthProductionController } from "./hearth-shell/buildHearthProductionController";
+import { buildHearthProductionViewModel } from "./hearth-shell/buildHearthProductionViewModel";
+import HearthProductionContent from "./hearth-shell/HearthProductionContent";
+import { buildHearthDesktopRailViewModel } from "./hearth-shell/buildHearthDesktopRailViewModel";
+import { buildHearthMobileNavigationViewModel } from "./hearth-shell/buildHearthMobileNavigationViewModel";
+import HearthMobileNavigation from "./hearth-shell/HearthMobileNavigation";
+import { buildHearthModalViewModel } from "./hearth-shell/buildHearthModalViewModel";
 
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
@@ -914,22 +929,39 @@ export default function HearthShell({
   const isMobile = layoutMode === "mobile";
   const store = useMemo(() => createHearthStore(storeKind), [storeKind]);
   const sessionStore = useMemo(() => new LocalSessionStore(), []);
-  const [incomingBarStockIntakeRoute] = useState<boolean>(() => hasIncomingBarStockIntakeQuery());
-
-  const [mode, setMode] = useState<HearthMode>("sparks");
-  const [focusTab, setFocusTab] = useState<FocusTab>("draft");
-  const [workspaceId, setWorkspaceId] = useState<string | null>(() => resolveWorkspaceId());
-  const [uiDensity, setUiDensity] = useState<UiDensity>(() => readWorkspaceUiDensity(resolveWorkspaceId()));
-  const [workpieceId, setWorkpieceId] = useState<string | null>(() => (
-    incomingBarStockIntakeRoute ? null : resolveWorkpieceId()
-  ));
-  const [sparks, setSparks] = useState<BarStockSpark[]>([]);
-  const [isSparksLoading, setIsSparksLoading] = useState<boolean>(() => Boolean(normalizeUuid(resolveWorkspaceId())));
-  const [sparkDiscoveryWorkspaceId, setSparkDiscoveryWorkspaceId] = useState<string | null>(null);
-  const [sparkDiscoveryError, setSparkDiscoveryError] = useState<string | null>(null);
-  const [selectedSparkId, setSelectedSparkId] = useState<string | null>(null);
-  const [forgeError, setForgeError] = useState<string | null>(null);
-  const [isForging, setIsForging] = useState(false);
+  const {
+    incomingBarStockIntakeRoute,
+    mode,
+    setMode,
+    focusTab,
+    setFocusTab,
+    workspaceId,
+    setWorkspaceId,
+    uiDensity,
+    setUiDensity,
+    workpieceId,
+    setWorkpieceId,
+  } = useHearthShellIdentityState();
+  const {
+    state: {
+      sparks,
+      isSparksLoading,
+      sparkDiscoveryWorkspaceId,
+      sparkDiscoveryError,
+      selectedSparkId,
+      forgeError,
+      isForging,
+    },
+    bindings: {
+      setSparks,
+      setIsSparksLoading,
+      setSparkDiscoveryWorkspaceId,
+      setSparkDiscoveryError,
+      setSelectedSparkId,
+      setForgeError,
+      setIsForging,
+    },
+  } = useHearthSparkCollectionState(resolveWorkspaceId());
   const [routeProjectId] = useState<string | null>(() => resolveBarstockProjectIdFromQuery());
   const [routeSparkId] = useState<string | null>(() => resolveBarstockSparkIdFromQuery());
   const [routeProjectTitle, setRouteProjectTitle] = useState<string | null>(null);
@@ -942,34 +974,69 @@ export default function HearthShell({
   const [sessionTouched, setSessionTouched] = useState(false);
   const [decisionDraft, setDecisionDraft] = useState("");
 
-  const [workpieceSummaries, setWorkpieceSummaries] = useState<HearthWorkpieceSummary[]>([]);
-  const [isWorkpiecesLoading, setIsWorkpiecesLoading] = useState(false);
-  const [workpiecesError, setWorkpiecesError] = useState<string | null>(null);
-  const [drafts, setDrafts] = useState<Draft[]>([]);
-  const [activeDraft, setActiveDraft] = useState<Draft | null>(null);
-  const [revisions, setRevisions] = useState<Revision[]>([]);
-  const revisionWorkpieceId = useMemo(() => normalizeUuid(workpieceId), [workpieceId]);
-  const [draftSnapshot, setDraftSnapshot] = useState<DraftSnapshot | null>(null);
-
-  const [isSaving, setIsSaving] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [aiAutosaveStatusAt, setAiAutosaveStatusAt] = useState<number | null>(null);
-  const [aiAutosaveWarning, setAiAutosaveWarning] = useState<string | null>(null);
-  const [isRepairingScript, setIsRepairingScript] = useState(false);
-  const [searchText, setSearchText] = useState("");
-  const [sortKey, setSortKey] = useState<SortKey>("updated");
-  const [showArchived, setShowArchived] = useState(false);
-  const [readyScripts, setReadyScripts] = useState<HearthReadyScript[]>([]);
-  const [readyScriptsWorkspaceId, setReadyScriptsWorkspaceId] = useState<string | null>(null);
-  const [isReadyScriptsLoading, setIsReadyScriptsLoading] = useState(false);
-  const [readyScriptsError, setReadyScriptsError] = useState<string | null>(null);
-  const [updatingReadyCategoryId, setUpdatingReadyCategoryId] = useState<string | null>(null);
-  const [readyCategoryError, setReadyCategoryError] = useState<string | null>(null);
-  const [removingReadyIds, setRemovingReadyIds] = useState<string[]>([]);
-  const [sendingBackReadyIds, setSendingBackReadyIds] = useState<string[]>([]);
-  const [isRestoringReady, setIsRestoringReady] = useState(false);
-  const [draggingReadyId, setDraggingReadyId] = useState<string | null>(null);
+  const {
+    state: { workpieceSummaries, isWorkpiecesLoading, workpiecesError },
+    bindings: { setWorkpieceSummaries, setIsWorkpiecesLoading, setWorkpiecesError },
+  } = useHearthEpisodeCollectionState();
+  const {
+    state: {
+      drafts,
+      activeDraft,
+      revisions,
+      revisionWorkpieceId,
+      draftSnapshot,
+      isSaving,
+      isLoading,
+      error,
+      aiAutosaveStatusAt,
+      aiAutosaveWarning,
+      isRepairingScript,
+    },
+    bindings: {
+      setDrafts,
+      setActiveDraft,
+      setRevisions,
+      setDraftSnapshot,
+      setIsSaving,
+      setIsLoading,
+      setError,
+      setAiAutosaveStatusAt,
+      setAiAutosaveWarning,
+      setIsRepairingScript,
+    },
+  } = useHearthScriptCoreState(workpieceId);
+  const {
+    state: {
+      searchText,
+      sortKey,
+      showArchived,
+      readyScripts,
+      readyScriptsWorkspaceId,
+      isReadyScriptsLoading,
+      readyScriptsError,
+      updatingReadyCategoryId,
+      readyCategoryError,
+      removingReadyIds,
+      sendingBackReadyIds,
+      isRestoringReady,
+      draggingReadyId,
+    },
+    bindings: {
+      setSearchText,
+      setSortKey,
+      setShowArchived,
+      setReadyScripts,
+      setReadyScriptsWorkspaceId,
+      setIsReadyScriptsLoading,
+      setReadyScriptsError,
+      setUpdatingReadyCategoryId,
+      setReadyCategoryError,
+      setRemovingReadyIds,
+      setSendingBackReadyIds,
+      setIsRestoringReady,
+      setDraggingReadyId,
+    },
+  } = useHearthReadyCollectionState();
   const [session, setSession] = useState<HearthSession | null>(null);
   const [editingDraftId, setEditingDraftId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
@@ -1025,10 +1092,19 @@ export default function HearthShell({
     skipChatHydrationKeyRef,
     pendingChatHydrationKeyRef,
     chatHydrationSeqRef,
-  } = useChatWorkspaceState<PendingAiProposal>();
-  const [chatAttachments, setChatAttachments] = useState<ChatAttachmentUi[]>([]);
-  const [isAttachmentsLoading, setIsAttachmentsLoading] = useState(false);
-  const [chatAttachmentError, setChatAttachmentError] = useState<string | null>(null);
+  } = useHearthConversationState<PendingAiProposal>();
+  const {
+    state: {
+      attachments: chatAttachments,
+      isLoading: isAttachmentsLoading,
+      error: chatAttachmentError,
+    },
+    bindings: {
+      setAttachments: setChatAttachments,
+      setIsLoading: setIsAttachmentsLoading,
+      setError: setChatAttachmentError,
+    },
+  } = useHearthConversationAttachmentState();
   const [showManualDraft, setShowManualDraft] = useState(false);
   const [showScriptPanel, setShowScriptPanel] = useState(false);
   const [isVisualScriptMode, setIsVisualScriptMode] = useState(false);
@@ -1038,7 +1114,7 @@ export default function HearthShell({
   const [selectedWritingFormat, setSelectedWritingFormat] = useState<HearthWritingFormat>(() => readLastHearthWritingFormat());
   const [scriptCompletionBadge, setScriptCompletionBadge] = useState<ScriptCompletionBadge | null>(null);
   const [scriptCompletionReasons, setScriptCompletionReasons] = useState<string[]>([]);
-  const [scriptApprovalState, setScriptApprovalState] = useState<ScriptApprovalState>(NO_CANONICAL_SCRIPT_APPROVAL);
+  const [scriptApprovalState, setScriptApprovalState] = useHearthCanonicalScriptApprovalState();
   const [approvalPersistenceStatus, setApprovalPersistenceStatus] = useState<ApprovalPersistenceStatus | null>(null);
   const [activeProductionAction, setActiveProductionAction] = useState<ProductionAction | null>(null);
   const productionActionInFlightRef = useRef(false);
@@ -1049,8 +1125,16 @@ export default function HearthShell({
     userId: readAuthUserIdFromStorage(),
     displayName: readGreetingNameFromStorage(),
   });
-  const [aiTokenBalance, setAiTokenBalance] = useState<number | null>(null);
-  const [aiBillingMode, setAiBillingMode] = useState<HearthAiLane>(() => resolveAiLaneFromStorage());
+  const {
+    state: {
+      tokenBalance: aiTokenBalance,
+      billingMode: aiBillingMode,
+    },
+    bindings: {
+      setTokenBalance: setAiTokenBalance,
+      setBillingMode: setAiBillingMode,
+    },
+  } = useHearthConversationRuntimeState(resolveAiLaneFromStorage());
   const [defaultVisualProvider, setDefaultVisualProvider] = useState<VisualProviderId>(() => resolveDefaultVisualProviderFromStorage());
   const [episodePackage, setEpisodePackage] = useState<EpisodePackageV2 | null>(null);
   const [episodePackageState, setEpisodePackageState] = useState<"idle" | "loading" | "loaded" | "error">("idle");
@@ -1062,24 +1146,30 @@ export default function HearthShell({
     generatedAt: string;
   } | null>(null);
   const [scriptPanelCopyMessage, setScriptPanelCopyMessage] = useState<string | null>(null);
-  const [activeWorkpieceTab, setActiveWorkpieceTab] = useState<WorkpieceWorkspaceTab>(() =>
-    readWorkpieceWorkspaceTab(
-      incomingBarStockIntakeRoute ? null : resolveWorkpieceId(),
-      incomingBarStockIntakeRoute ? null : resolveWorkspaceId(),
-    ),
-  );
-  const [presenceRows, setPresenceRows] = useState<HearthWorkpiecePresence[]>([]);
-  const [presenceState, setPresenceState] = useState<"idle" | "loading" | "available" | "unavailable" | "failed">("idle");
+  const [activeWorkpieceTab, setActiveWorkpieceTab] = useHearthResolvedWorkpieceTabState({
+    incomingBarStockIntakeRoute,
+    initialWorkpieceId: workpieceId,
+    initialWorkspaceId: workspaceId,
+  });
+  const {
+    participants: presenceRows,
+    setParticipants: setPresenceRows,
+    connection: presenceState,
+    setConnection: setPresenceState,
+  } = useHearthPresenceState();
+  const clearPresence = () => setPresenceRows([]);
   const [draftConflictState, setDraftConflictState] = useState<DraftConflictState | null>(null);
-  const [mobileOverlayView, setMobileOverlayView] = useState<"editor" | "ready" | null>(null);
+  const [mobileOverlayView, setMobileOverlayView] = useHearthMobileOverlayState();
   const { acknowledgeCopy, isCopyAcknowledged } = useClipboardButtonAcks();
 
-  const draftEditVersionRef = useRef(0);
-  const workpieceIdRef = useRef<string | null>(workpieceId);
-  const activeDraftRef = useRef<Draft | null>(null);
-  const approveScriptActionRef = useRef<(options?: { draftOverride?: Draft }) => Promise<boolean>>(async () => false);
-  const draftSnapshotRef = useRef<DraftSnapshot | null>(null);
-  const draftsRef = useRef<Draft[]>(drafts);
+  const {
+    draftEditVersionRef,
+    activeDraftRef,
+    approveScriptActionRef,
+    draftSnapshotRef,
+    draftsRef,
+  } = useHearthScriptAuthorityRefs(drafts);
+  const workpieceIdRef = useHearthActiveIdentityRef(workpieceId);
   const workpieceSummariesRef = useRef<HearthWorkpieceSummary[]>(workpieceSummaries);
   const sessionSaveTimer = useRef<number | null>(null);
   const bodyRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1096,6 +1186,7 @@ export default function HearthShell({
   const pendingDraftEditorPanelRef = useRef<"script" | "manual" | null>(null);
   const gateAwaitingAnswersRef = useRef(false);
   const pendingShortcutIntentRef = useRef<"outline" | "script" | null>(null);
+  const thumbnailWorkspace = useHearthThumbnailWorkspaceState();
   const {
     selectedThumbnailTitleId,
     setSelectedThumbnailTitleId,
@@ -1162,7 +1253,7 @@ export default function HearthShell({
     syncSelectedThumbnailTitleId,
     syncSelectedThumbnailVersionId,
     resetThumbnailWorkspaceViewState,
-  } = useThumbnailWorkspace();
+  } = thumbnailWorkspace;
   const {
     selectedMediaMapEntryId,
     setSelectedMediaMapEntryId,
@@ -1199,7 +1290,7 @@ export default function HearthShell({
     syncMediaMapDraftFromEntry,
     syncSelectedMediaMapEntryId,
     resetMediaMapWorkspaceForWorkpieceSwitch,
-  } = useMediaMapWorkspace();
+  } = useHearthVisualPlanWorkspaceState();
   const {
     selectedImageMapEntryId,
     setSelectedImageMapEntryId,
@@ -1258,7 +1349,7 @@ export default function HearthShell({
     syncImageMapDraftFromEntry,
     syncSelectedImageMapEntryId,
     resetImageMapReanchorState,
-  } = useImageMapWorkspace();
+  } = useHearthEpisodeImagesWorkspaceState();
   const {
     selectedBrollBeatId,
     setSelectedBrollBeatId,
@@ -1297,7 +1388,7 @@ export default function HearthShell({
     syncBrollDraftFromBeat,
     syncSelectedBrollBeatId,
     resetBrollWorkspaceForWorkpieceSwitch,
-  } = useBrollWorkspace();
+  } = useHearthBrollWorkspaceState();
   const {
     selectedReferenceClipEntryId,
     setSelectedReferenceClipEntryId,
@@ -1336,43 +1427,24 @@ export default function HearthShell({
     syncReferenceClipDraftFromEntry,
     syncSelectedReferenceClipEntryId,
     resetReferenceClipWorkspaceForWorkpieceSwitch,
-  } = useReferenceClipWorkspace();
-  const {
-    metadataTitlesDraft,
-    metadataTagsDraft,
-    metadataTagInputDraft,
-    metadataDescriptionShortDraft,
-    metadataDescriptionLongDraft,
-    metadataPreviewMode,
-    metadataSaveState,
-    metadataSaveError,
-    setMetadataTitlesDraft,
-    setMetadataTagsDraft,
-    setMetadataTagInputDraft,
-    setMetadataDescriptionShortDraft,
-    setMetadataDescriptionLongDraft,
-    onMetadataTitleChange,
-    onMetadataSetPrimaryTitle,
-    onMetadataAddTagFromInput,
-    onMetadataRemoveTag,
-    onMetadataAddTagSuggestion,
-    onMetadataApplyTags,
-    onMetadataDescriptionShortChange,
-    onMetadataDescriptionLongChange,
-    onMetadataPreviewModeChange,
-    onMetadataSaveNow,
-    onMetadataRetrySave,
-    hasUnsavedMetadataChanges,
-  } = useMetadataWorkspace({
+  } = useHearthReferenceClipsWorkspaceState();
+  const metadataWorkspace = useHearthMetadataWorkspaceState({
     workpieceId,
     workspaceId,
     episodePackage,
     setEpisodePackage,
     setImageMapMetadataUpdatedAt,
-    parseTagInput: parseMetadataTagInput,
-    normalizeTag: normalizeMetadataTag,
-    deriveThumbnailOverlayText: deriveHearthThumbnailOverlayText,
   });
+  const {
+    metadataTitlesDraft,
+    metadataTagsDraft,
+    setMetadataTitlesDraft,
+    setMetadataTagsDraft,
+    setMetadataDescriptionShortDraft,
+    setMetadataDescriptionLongDraft,
+    onMetadataApplyTags,
+    hasUnsavedMetadataChanges,
+  } = metadataWorkspace;
 
   const {
     hearthScriptState,
@@ -1380,7 +1452,7 @@ export default function HearthShell({
     composeContentValidation,
     approvalBlocked,
     handoffBlocked,
-  } = useScriptWorkspaceReadModel({
+  } = useHearthScriptReadModel({
     activeDraft,
     draftSnapshotBody: draftSnapshot?.body ?? null,
     evaluateScriptValidation,
@@ -1447,88 +1519,14 @@ export default function HearthShell({
     };
   }, [workspaceId]);
 
-  const lastAutosaveRevisionAt = useMemo(() => {
-    const match = revisions.find((rev) => rev.kind === "autosave");
-    return match?.createdAt ?? null;
-  }, [revisions]);
-
-  const isDirty = useMemo(() => {
-    if (!activeDraft || !draftSnapshot) return false;
-    return activeDraft.title !== draftSnapshot.title || activeDraft.body !== draftSnapshot.body;
-  }, [activeDraft, draftSnapshot]);
-  const persistAutosaveIO = useCallback(async (params: {
-    draft: Draft;
-    updatedAt: number;
-    revision: { kind: RevisionKind; note?: string } | null;
-    quietFailure: boolean;
-    saveReason?: string;
-  }): Promise<boolean> => {
-    return persistDraft({
-      draft: params.draft,
-      updatedAt: params.updatedAt,
-      createRevision: params.revision,
-      syncSources: false,
-      syncSession: false,
-      showSavingState: false,
-      quietFailure: params.quietFailure,
-      saveReason: params.saveReason,
-    });
-  }, [persistDraft]);
   const {
     queueAiAutosave,
     onRetryAiAutosave,
     noteManualSaveSuccess,
-  } = useHearthAutosave<Draft, ProposalSaveReasonCode, RevisionKind>({
-    activeDraft,
-    draftSnapshot,
     isDirty,
-    isBodyComposing,
-    lastAutosaveRevisionAt,
-    autosaveDelayMs: AUTOSAVE_DELAY_MS,
-    autosaveMinGapMs: AUTOSAVE_MIN_GAP_MS,
-    autosaveRevisionGapMs: AUTOSAVE_REVISION_GAP_MS,
-    autosaveRevisionKind: "autosave",
-    persistAutosaveIO,
-    toAiAutosaveSaveReason: toProposalAutosaveReason,
-    retryReasonCode: "ai_rewrite",
-    setAiAutosaveWarning,
-    setAiAutosaveStatusAt,
-  });
-  const persistRevisionDraft = useCallback(async (params: {
-    draft: Draft;
-    updatedAt: number;
-    revision: { kind: RevisionKind; note?: string };
-  }): Promise<boolean> => {
-    return persistDraft({
-      draft: params.draft,
-      updatedAt: params.updatedAt,
-      createRevision: params.revision,
-    });
-  }, [persistDraft]);
-  const resolveRevisionWorkpieceId = useCallback((override?: string | null) => (
-    normalizeUuid(override) ?? revisionWorkpieceId
-  ), [revisionWorkpieceId]);
-  const reportRevisionPersistenceWarning = useCallback((kind: RevisionKind | null, message: string) => {
-    if (kind === "autosave") {
-      setAiAutosaveWarning(message);
-      return;
-    }
-    setAiRuntimeWarning(message);
-  }, []);
-  const refreshRevisions = useCallback(async (
-    currentWorkpieceId: string | null,
-    draftId?: string | null,
-  ): Promise<Revision[]> => {
-    const resolvedWorkpieceId = normalizeUuid(currentWorkpieceId);
-    if (!resolvedWorkpieceId) {
-      setRevisions([]);
-      return [];
-    }
-    const list = await store.listRevisions(resolvedWorkpieceId, draftId?.trim() ? draftId : null);
-    setRevisions(list);
-    return list;
-  }, [store]);
-  const {
+    resolveRevisionWorkpieceId,
+    reportRevisionPersistenceWarning,
+    refreshRevisions,
     revisionModalOpen,
     revisionNote,
     revisionKind,
@@ -1553,33 +1551,23 @@ export default function HearthShell({
     onRestoreRevision,
     onUpdateRevisionNote,
     resetRevisionSelection,
-  } = useScriptWorkspace({
+  } = useHearthScriptPersistenceWorkspace({
     activeDraft,
+    draftSnapshot,
+    revisions,
+    revisionWorkpieceId,
+    isBodyComposing,
+    persistDraft,
+    store,
+    draftEditVersionRef,
     setActiveDraft,
-    bumpDraftEditVersion: () => {
-      draftEditVersionRef.current += 1;
-    },
-    persistRevisionDraft,
-    resolveRevisionWorkpieceId: () => resolveRevisionWorkpieceId(),
-    restoreRevisionSnapshot: (workpieceId, revisionId) => store.restoreRevision(workpieceId, revisionId),
-    persistRestoredDraft: (params) => persistDraft({
-      draft: params.draft,
-      updatedAt: params.updatedAt,
-      createRevision: { kind: "manual", note: "Restored from revision" },
-    }),
-    saveRevisionRecord: async (workpieceId, revision) => {
-      const acknowledgement = await store.saveRevision(workpieceId, revision);
-      if (!isCanonicalHearthRevisionSave(acknowledgement)) {
-        throw new Error("revision_snapshot_sync_failed");
-      }
-    },
-    refreshRevisions,
-    reportRevisionPersistenceWarning,
+    setRevisions,
+    setAiAutosaveWarning,
+    setAiAutosaveStatusAt,
     setAiRuntimeWarning,
     setError,
-    confirmRestore: (message) => window.confirm(message),
   });
-  const operationAuthority = useHearthOperationAuthority({
+  const operationAuthority = useHearthShellOperationAuthority({
     workspaceId,
     workpieceId,
     draftId: activeDraft?.id ?? null,
@@ -1666,15 +1654,17 @@ export default function HearthShell({
   const sessionDecisions = planningSession?.decisions ?? [];
   const sessionIntent = planningSession?.intent ?? deriveIntentFromOrigin(planningSession?.origin);
   const sessionSparkId = planningSession?.origin?.spark_id ?? planningSession?.links?.spark_id ?? null;
-  const sourcesState = useSourcesState(workspaceId, workpieceId, activeDraft?.body ?? "", {
+  const sourcesController = useHearthSourcesController({
+    workspaceId,
+    workpieceId,
+    draftText: activeDraft?.body ?? "",
     mode: mode === "focus" && focusTab === "sources" ? "full" : "summary",
     operationAuthority,
   });
-  const workpieceSources = sourcesState.workpieceSources;
-  const sourceIndexById = sourcesState.sourceIndexById;
-  const missingSourcesCount = sourcesState.missingCitedCount;
-  const unusedSourcesCount = sourcesState.unusedRefsCount;
-  const [latestResearchResult, setLatestResearchResult] = useState<HearthResearchResult | null>(null);
+  const workpieceSources = sourcesController.state.sources.workpiece;
+  const sourceIndexById = sourcesController.state.sources.indexById;
+  const missingSourcesCount = sourcesController.state.sources.missingCitedCount;
+  const unusedSourcesCount = sourcesController.state.sources.unusedRefsCount;
   const preferredDraftIdsByWorkpiece = useMemo(() => {
     const next = new Map<string, string | null>();
     if (workpieceId && activeDraft?.id) {
@@ -1682,7 +1672,7 @@ export default function HearthShell({
     }
     return next;
   }, [activeDraft?.id, workpieceId]);
-  const activeWorkpieceContext = useMemo(() => selectActiveWorkpieceContext({
+  const activeWorkpieceContext = useHearthActiveCollectionContext({
     activeWorkpieceId: workpieceId,
     workpieces: workpieceSummaries,
     drafts,
@@ -1690,25 +1680,20 @@ export default function HearthShell({
     sparks,
     revisions,
     preferredDraftId: activeDraft?.id ?? session?.activeDraftId ?? null,
-  }), [activeDraft?.id, drafts, readyScripts, revisions, session?.activeDraftId, sparks, workpieceId, workpieceSummaries]);
+  });
   const activeWorkpiece = activeWorkpieceContext.workpiece;
   const activeWorkpieceIsArchived = Boolean(activeWorkpiece?.isArchived);
   const draftsById = useMemo(() => new Map(drafts.map((draft) => [draft.id, draft] as const)), [drafts]);
   const hasActiveEpisode = Boolean(workpieceId);
-  const presencePeers = useMemo(
-    () => presenceRows.filter((row) => !hearthUser.userId || row.userId !== hearthUser.userId),
-    [hearthUser.userId, presenceRows],
-  );
-  const editingPeers = useMemo(
-    () => presencePeers.filter((row) => row.mode === "editing"),
-    [presencePeers],
-  );
-  const viewingPeers = useMemo(
-    () => presencePeers.filter((row) => row.mode === "viewing"),
-    [presencePeers],
-  );
-  const activeEditorName = editingPeers[0]?.displayName?.trim() || "A teammate";
-  const activeViewerName = viewingPeers[0]?.displayName?.trim() || "A teammate";
+  const {
+    editingParticipants: editingPeers,
+    viewingParticipants: viewingPeers,
+    activeEditorName,
+    activeViewerName,
+  } = useHearthPresenceProjection({
+    participants: presenceRows,
+    currentUserId: hearthUser.userId,
+  });
   const activeUserDisplayName = hearthUser.displayName.trim() || forgeGreetingName;
   const resolveReadyMarkerName = useCallback((entry: HearthReadyScript): string => {
     const markerUserId = readTrimmedString(entry.markedReadyBy);
@@ -1732,14 +1717,16 @@ export default function HearthShell({
     return "Approved script";
   }, [resolveReadyMarkerName]);
   const localPresenceMode = activeDraft ? "editing" : "viewing";
-  const openInAnvilHref = useMemo(
-    () => (activeWorkpieceIsArchived ? null : buildOpenInAnvilHref(workspaceId, workpieceId)),
-    [activeWorkpieceIsArchived, workspaceId, workpieceId],
-  );
-  const anvilStepModeHint = useMemo(() => getHearthAnvilStepModeHint({
+  const {
+    destination: openInAnvilHref,
+    stepModeHint: anvilStepModeHint,
+  } = useHearthAnvilHandoffProjection({
+    workspaceId,
+    workpieceId,
+    archived: activeWorkpieceIsArchived,
     composeSetup: effectiveComposeSetup,
-    hasScriptText: Boolean((activeDraft?.body ?? "").trim()),
-  }), [activeDraft?.body, effectiveComposeSetup]);
+    scriptText: activeDraft?.body ?? "",
+  });
   const aiRuntimeBusy = isAiProcessing || isThumbnailGenerating || isImageMapCandidateGenerating;
   const aiCreditsDepleted = aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0;
   const aiEpisodeReady = Boolean(workpieceId?.trim());
@@ -1751,60 +1738,13 @@ export default function HearthShell({
     () => episodePackage?.thumbnail?.versions ?? [],
     [episodePackage?.thumbnail?.versions],
   );
-  const [canonicalThumbnailProgress, setCanonicalThumbnailProgress] = useState({
-    workpieceId: "",
-    conceptRevisionCount: 0,
-    baseVersionCount: 0,
-    candidateCount: 0,
-    eligibleCandidateCount: 0,
-    previewAssetPaths: [] as string[],
-    titleCount: 0,
-    tagCount: 0,
-    hasDescriptions: false,
+  const canonicalThumbnailProjection = useHearthCanonicalThumbnailProjection({
+    workspaceId,
+    workpieceId,
   });
+  const canonicalThumbnailProgress = canonicalThumbnailProjection.canonical;
   const [visualPlanRevisionChanged, setVisualPlanRevisionChanged] = useState(false);
   const visualPlanRevisionRef = useRef<{ workpieceId: string; version: number } | null>(null);
-  const onCanonicalThumbnailProgress = useCallback((progress: {
-    conceptRevisionCount: number;
-    baseVersionCount: number;
-    candidateCount: number;
-    eligibleCandidateCount: number;
-    previewAssetPaths: string[];
-  }) => {
-    const currentWorkpieceId = workpieceId?.trim() ?? "";
-    setCanonicalThumbnailProgress((current) => ({
-      workpieceId: currentWorkpieceId,
-      ...progress,
-      titleCount: current.workpieceId === currentWorkpieceId ? current.titleCount : 0,
-      tagCount: current.workpieceId === currentWorkpieceId ? current.tagCount : 0,
-      hasDescriptions: current.workpieceId === currentWorkpieceId ? current.hasDescriptions : false,
-    }));
-  }, [workpieceId]);
-  useEffect(() => {
-    const canonicalWorkpieceId = workpieceId?.trim() ?? "";
-    const canonicalWorkspaceId = workspaceId?.trim() ?? "";
-    if (!canonicalWorkpieceId || !canonicalWorkspaceId) return;
-    let cancelled = false;
-    void Promise.all([readCanonicalThumbnailWorkspaceV3({
-      workpieceId: canonicalWorkpieceId,
-      workspaceId: canonicalWorkspaceId,
-    }),readThumbnailCandidateAuthorityProjection({workpieceId:canonicalWorkpieceId,workspaceId:canonicalWorkspaceId})]).then(([canonical,candidateAuthority]) => {
-      if (cancelled) return;
-      setCanonicalThumbnailProgress({
-        workpieceId: canonicalWorkpieceId,
-        conceptRevisionCount: canonical.episodePackage.thumbnail.concept_revisions.length,
-        baseVersionCount: canonical.episodePackage.thumbnail.base_versions.length,
-        candidateCount: candidateAuthority.candidates.length,
-        eligibleCandidateCount: candidateAuthority.candidates.filter((candidate)=>candidate.eligibility_state==="current"||candidate.eligibility_state==="approved_historical_brand").length,
-        previewAssetPaths: candidateAuthority.candidates.map((candidate) => (typeof candidate.asset_path === "string" && candidate.asset_path.trim()) || canonical.episodePackage.thumbnail.launch_variant_revisions.find((entry) => entry.snapshot.asset_id === candidate.composite_asset_id)?.snapshot.asset_path || "").filter(Boolean).slice(0, 3),
-        titleCount: canonical.episodePackage.seo.titles.length,
-        tagCount: canonical.episodePackage.seo.tags.length,
-        hasDescriptions: Boolean(canonical.episodePackage.seo.description_short?.trim())
-          && Boolean(canonical.episodePackage.seo.description_long?.trim()),
-      });
-    }).catch(() => undefined);
-    return () => { cancelled = true; };
-  }, [workpieceId, workspaceId]);
   useEffect(() => {
     const currentWorkpieceId=workpieceId?.trim()??""; const version=episodePackage?.media_map.version??0;
     const previous=visualPlanRevisionRef.current;
@@ -1819,11 +1759,7 @@ export default function HearthShell({
   const canonicalThumbnailConceptCount = canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "")
     ? canonicalThumbnailProgress.conceptRevisionCount
     : 0;
-  const canonicalThumbnailBaseVersionCount = canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "")
-    ? canonicalThumbnailProgress.baseVersionCount
-    : 0;
   const displayedThumbnailConceptCount = Math.max(thumbnailConcepts.length, canonicalThumbnailConceptCount);
-  const displayedThumbnailVersionCount = Math.max(thumbnailVersions.length, canonicalThumbnailBaseVersionCount);
   const canonicalFramingTitleCount = canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "")
     ? canonicalThumbnailProgress.titleCount : 0;
   const canonicalFramingTagCount = canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "")
@@ -1887,7 +1823,7 @@ export default function HearthShell({
   );
   const selectedReferenceClipEntry = referenceClipEntries.find((entry) => entry.id === selectedReferenceClipEntryId) ?? null;
   const preferredThumbnailTitleId = resolvePrimarySeoTitle(thumbnailTitleOptions)?.id ?? null;
-  useThumbnailPreviewLoader({
+  useHearthThumbnailPreviewLifecycle({
     workpieceId,
     selectedThumbnailVersion,
     selectedThumbnailVersionId,
@@ -1895,7 +1831,7 @@ export default function HearthShell({
     setThumbnailPreviewDataUrl,
     setThumbnailPreviewError,
   });
-  useImageMapCandidatePreviewLoader({
+  useHearthImageCandidatePreviewLifecycle({
     workpieceId,
     selectedImageMapEntry,
     selectedImageMapEntryId,
@@ -2151,12 +2087,8 @@ export default function HearthShell({
   const chatPanelMeta = chatMessages.length > 0
     ? `${chatMessages.length} message${chatMessages.length === 1 ? "" : "s"}`
     : "Ready";
-  const thumbnailPanelMeta = formatThumbnailPanelMeta(displayedThumbnailConceptCount, displayedThumbnailVersionCount);
-  const mediaMapPanelMeta = `${mediaMapEntries.length} visual${mediaMapEntries.length === 1 ? "" : "s"}`;
-  const imageMapPanelMeta = `${imageMapEntries.length} anchor${imageMapEntries.length === 1 ? "" : "s"}`;
   const plannedImageCount = mediaMapEntries.filter((entry) => entry.final_media_kind === "image").length;
   const imageMapAuthorityUnavailable = imageMapSaveError === "canonical_image_map_authority_unavailable";
-  const brollPanelMeta = `${brollBeats.length} beat${brollBeats.length === 1 ? "" : "s"} · coverage ${brollPlan?.coverage_strength ?? "low"}`;
   const mediaWorkflowInput = {
     hasApprovedScript: Boolean(scriptApprovalState.hasApprovedScript && scriptApprovalState.approvedScriptVersion && scriptApprovalState.approvedScriptVersion > 0),
     visualPlan: {
@@ -2180,7 +2112,6 @@ export default function HearthShell({
     broll: { planned: brollBeats.length, completed: brollBeats.filter((beat) => beat.fulfillment_state === "resolved" && Boolean(beat.selected_asset_id)).length },
     upstreamChanged: visualPlanRevisionChanged,
   };
-  const referenceClipPanelMeta = `${referenceClipEntries.length} Reference Clip${referenceClipEntries.length === 1 ? "" : "s"}`;
   const hasBrowserSpeech = (
     typeof window !== "undefined"
     && hasBrowserSpeechRecognition(window)
@@ -2191,6 +2122,11 @@ export default function HearthShell({
     && scriptApprovalState.approvedScriptVersion > 0,
   );
   const approvedScriptVersion = hasApprovedScript ? scriptApprovalState.approvedScriptVersion : null;
+  const releasePreparationWorkspace = useHearthReleasePreparationWorkspaceState({
+    workpieceId,
+    hasApprovedScript,
+    approvedScriptVersion,
+  });
   const {
     latestReleasePrepRawText,
     latestReleasePrepSections,
@@ -2198,15 +2134,10 @@ export default function HearthShell({
     releasePrepScriptVersion,
     loadLatestReleasePrepPack,
     resetReleasePrepState,
-  } = useReleasePrepPackWorkspace({
-    workpieceId,
-    hasApprovedScript,
-    approvedScriptVersion,
-  });
+  } = releasePreparationWorkspace;
   const framingPackReady = releasePrepLoadState === "ready" && latestReleasePrepSections.length > 0;
   const displayedFramingTitleCount = Math.max(thumbnailTitleOptions.length, canonicalFramingTitleCount);
   const displayedFramingTagCount = Math.max(metadataTagsDraft.length, canonicalFramingTagCount);
-  const metadataPanelMeta = `${displayedFramingTitleCount} title${displayedFramingTitleCount === 1 ? "" : "s"} · ${displayedFramingTagCount} tag${displayedFramingTagCount === 1 ? "" : "s"}${framingPackReady ? " · Pack ready" : ""}`;
   const {
     persistThumbnailEpisodePackage,
     persistImageMapEntries,
@@ -2223,12 +2154,12 @@ export default function HearthShell({
     setImageMapMetadataUpdatedAt,
     setThumbnailGenerateError,
   });
-  const { readCanonicalScriptForImageMapGeneration } = useCanonicalImageMapScriptReader({
+  const { readCanonicalScriptForImageMapGeneration } = useHearthCanonicalImageMapScriptReader({
     workpieceId,
     activeDraft,
     listWorkpieceDrafts: (episodeId: string) => store.listWorkpieceDrafts(episodeId),
   });
-  useMediaMapConversationBootstrap({
+  useHearthVisualPlanConversationBootstrap({
     activeWorkpieceTab,
     episodePackage,
     mediaMapEntriesLength: mediaMapEntries.length,
@@ -2238,7 +2169,7 @@ export default function HearthShell({
     setMediaMapConversationError,
     readCanonicalScriptForImageMapGeneration,
   });
-  useCanonicalImageMapScriptStateLoader({
+  useHearthCanonicalImageMapScriptLifecycle({
     workpieceId,
     selectedImageMapEntry,
     setCanonicalImageMapScriptState,
@@ -2279,7 +2210,7 @@ export default function HearthShell({
     onSaveMediaMapEntry,
     onDeleteMediaMapEntry,
     onActivateEpisodeMediaMap,
-  } = useMediaMapEntryActions({
+  } = useHearthVisualPlanEntryCommands({
     operationAuthority,
     episodePackage,
     workpieceId,
@@ -2309,7 +2240,7 @@ export default function HearthShell({
     persistReferenceClipPlan,
     persistMediaMap,
   });
-  const { prepareSourceEpisodePackageForMediaMapGeneration } = useMediaMapSourcePreparation({
+  const { prepareSourceEpisodePackageForMediaMapGeneration } = useHearthVisualPlanSourcePreparation({
     episodePackage,
     workpieceId,
     effectiveComposeSetupMode: effectiveComposeSetup?.mode ?? null,
@@ -2321,7 +2252,7 @@ export default function HearthShell({
   const {
     onGenerateEpisodeMediaMapFromPlans,
     onBuildAndApplyMediaMapFromConversation,
-  } = useMediaMapGenerationActions({
+  } = useHearthVisualPlanGenerationCommands({
     operationAuthority,
     episodePackage,
     isMediaMapBusy,
@@ -2385,14 +2316,32 @@ export default function HearthShell({
   const framingTitleCount = displayedFramingTitleCount;
   // Downstream readiness consumes the same hydrated Tongs-backed package as
   // the Framing editor, never transient draft/proposal state.
-  const metadataComplete = hasCanonicalFraming(episodePackage)
-    || (canonicalFramingTitleCount > 0 && canonicalFramingTagCount > 0 && canonicalFramingHasDescriptions);
+  const metadataProgress = buildHearthMetadataProgress({
+    active: Boolean(workpieceId),
+    loaded: episodePackageState === "loaded" && Boolean(episodePackage),
+    authorityAvailable: episodePackageState !== "error",
+    episodePackage,
+    canonicalTitleCount: canonicalFramingTitleCount,
+    canonicalTagCount: canonicalFramingTagCount,
+    canonicalHasDescriptions: canonicalFramingHasDescriptions,
+    dirty: hasUnsavedMetadataChanges,
+  });
+  const metadataComplete = metadataProgress.completion === "complete";
   const thumbnailsSelected = Boolean(primaryThumbnailVersionId);
-  const releaseReadiness = resolveReleaseReadinessChecklist({
+  const releasePreparationController = buildHearthReleasePreparationController({
+    workspaceId,
+    workpieceId,
+    active: Boolean(workpieceId),
+    scriptAuthorityAvailable: true,
     hasApprovedScript,
+    approvedScriptVersion,
+    mediaAuthorityAvailable: !imageMapAuthorityUnavailable,
     mediaMapStatus: mediaMap?.status ?? null,
+    metadataAuthorityAvailable: episodePackageState !== "error",
     metadataComplete,
+    thumbnailAuthorityAvailable: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? ""),
     thumbnailsSelected,
+    workspace: releasePreparationWorkspace,
   });
   const latestMilestoneRevision = useMemo(() => revisions.find((revision) => revision.kind === "milestone") ?? null, [revisions]);
   const tabDirtyById: Record<WorkpieceWorkspaceTab, boolean> = {
@@ -2414,18 +2363,6 @@ export default function HearthShell({
     history: false,
   };
   const hasAnyUnsavedTab = Object.values(tabDirtyById).some(Boolean);
-  const tabSummaryById: Record<WorkpieceWorkspaceTab, string> = {
-    script: buildScriptTabSummary({
-      hasApprovedScript,
-      wordCount,
-      updatedAt: activeDraft?.updatedAt,
-      formatUpdatedAt,
-    }),
-    visuals: `${mediaMapEntries.length} visuals${displayedThumbnailConceptCount ? ` · ${displayedThumbnailConceptCount} briefs` : ""} · ${String(mediaMap?.status ?? "draft").toUpperCase()} · ${mediaMapCoverageLevel}`,
-    metadata: `${framingTitleCount} title${framingTitleCount === 1 ? "" : "s"} · ${displayedFramingTagCount} tags · ${metadataComplete ? "Complete" : framingPackReady ? "Pack ready" : "Needs work"}`,
-    release: `${releaseReadiness.completeCount}/${releaseReadiness.totalCount} ready · ${releaseReadiness.completeCount >= releaseReadiness.totalCount ? "Shippable" : "Pending"}`,
-    history: `${revisions.length} revisions · ${latestMilestoneRevision ? `Milestone ${formatUpdatedAt(latestMilestoneRevision.createdAt)}` : resolveHistoryMilestoneMarker(revisions)}`,
-  };
   const chatHistoryKey = useMemo(
     () => resolveChatHistoryKey(workpieceId, activeDraft?.id ?? null),
     [activeDraft?.id, workpieceId],
@@ -2458,7 +2395,7 @@ export default function HearthShell({
     const operation = operationAuthority.begin("attachments.refresh");
 
     setIsAttachmentsLoading(true);
-    const result = await listHearthAttachments({
+    const result = await listHearthConversationAttachments({
       workspaceId: activeWorkspaceId,
       episodeId,
     });
@@ -2516,7 +2453,7 @@ export default function HearthShell({
           : entry
       )));
 
-      const upload = await uploadHearthAttachment({
+      const upload = await uploadHearthConversationAttachment({
         workspaceId: activeWorkspaceId,
         episodeId,
         file,
@@ -2565,7 +2502,7 @@ export default function HearthShell({
     const activeWorkspaceId = workspaceId?.trim();
     if (!activeWorkspaceId) return;
     const operation = operationAuthority.begin(`attachments.text:${attachmentId}`);
-    const result = await updateHearthAttachmentExtractedText({
+    const result = await updateHearthConversationAttachmentText({
       attachmentId,
       workspaceId: activeWorkspaceId,
       extractedText: text,
@@ -2619,7 +2556,7 @@ export default function HearthShell({
     setDrafts,
     setChatMessages,
   });
-  const { flushChatHistoryNow } = useChatWorkspaceHistory<PendingAiProposal>({
+  const { flushChatHistoryNow } = useHearthConversationHistory<PendingAiProposal>({
     store,
     activeDraftId: activeDraft?.id ?? null,
     chatHistoryKey,
@@ -2639,7 +2576,7 @@ export default function HearthShell({
     sanitizeChatMessagesForStorage,
     chatHistoryWriteDebounceMs: CHAT_HISTORY_WRITE_DEBOUNCE_MS,
   });
-  const { sendChatMessage, onSendChat, onCancelAiRequest } = useChatWorkspaceRuntime<
+  const { sendChatMessage, onSendChat, onCancelAiRequest } = useHearthConversationRuntime<
     PendingAiProposal,
     EpisodeContext,
     HearthOp
@@ -2733,7 +2670,7 @@ export default function HearthShell({
     refreshMyAiCredits,
     recordInteractionEvent,
     publishForgeNotice,
-    onResearchResult: setLatestResearchResult,
+    onResearchResult: sourcesController.commands.recordResearchResult,
     getAttachmentContext: () => {
       const attachmentIds = chatAttachments
         .filter((entry) => entry.status === "attached" || entry.status === "reading")
@@ -2745,7 +2682,7 @@ export default function HearthShell({
       };
     },
   });
-  const { onToggleMic } = useChatWorkspaceStt({
+  const { onToggleMic } = useHearthConversationStt({
     operationAuthority,
     workpieceId,
     devMode,
@@ -2869,7 +2806,7 @@ export default function HearthShell({
         draftChanged = true;
       },
       addSource: async (source) => {
-        const created = await sourcesState.addSourceToLibrary({
+        const created = await sourcesController.commands.addSource({
           title: source.title ?? "Untitled Source",
           type: "webpage",
           url: source.url ?? null,
@@ -2881,10 +2818,10 @@ export default function HearthShell({
       },
       updateSource: async (id, patch) => {
         if (patch.note !== undefined) {
-          sourcesState.updateWorkpieceSourceNotes(id, patch.note);
+          sourcesController.commands.updateSourceNotes(id, patch.note);
           sourcesChanged = true;
         }
-        const updated = await sourcesState.updateSourceInLibrary(id, {
+        const updated = await sourcesController.commands.updateSource(id, {
           ...(patch.title !== undefined ? { title: patch.title } : {}),
           ...(patch.url !== undefined ? { url: patch.url } : {}),
           ...(patch.note !== undefined ? { notes: patch.note } : {}),
@@ -2894,7 +2831,7 @@ export default function HearthShell({
         }
       },
       removeSource: (id) => {
-        sourcesState.removeSourceFromWorkpiece(id);
+        sourcesController.commands.detachSourceFromWorkpiece(id);
         sourcesChanged = true;
       },
       requestSave: (reason) => {
@@ -2969,7 +2906,7 @@ export default function HearthShell({
     }
 
     if (sourcesChanged) {
-      sourcesState.syncSources();
+      sourcesController.commands.refreshSources();
     }
   }, [
     activeDraft,
@@ -2979,7 +2916,7 @@ export default function HearthShell({
     setDrafts,
     setPlanningSession,
     setSessionTouched,
-    sourcesState,
+    sourcesController,
     workpieceId,
     workspaceId,
     publishForgeNotice,
@@ -2991,7 +2928,7 @@ export default function HearthShell({
     onEditAiProposalBody,
     onResetAiProposalBody,
     isProposalBodyDirtyAt,
-  } = useChatWorkspaceProposal<PendingAiProposal, HearthOp>({
+  } = useHearthConversationProposal<PendingAiProposal, HearthOp>({
     pendingAiProposal,
     setPendingAiProposal,
     isApplyingAiOps,
@@ -3126,7 +3063,7 @@ export default function HearthShell({
     setChatError,
     setPendingAiProposal,
   ]);
-  const chatWorkspace = useChatWorkspace({
+  const chatWorkspace = useHearthConversationSurface({
     chatSurfaceProps: {
       visible: activeWorkpieceTab === "script",
       chatPanelMeta,
@@ -3191,16 +3128,73 @@ export default function HearthShell({
       buildValidationReport,
     },
   });
+  const conversationController = useHearthConversationController({
+    state: {
+      messages: chatMessages,
+      compose: {
+        text: chatDraft,
+        modalOpen: composeModalOpen,
+      },
+      attachments: chatAttachments,
+      transcription: {
+        lane: sttLane,
+        target: sttTarget,
+        state: sttState,
+        preview: sttPreview,
+      },
+      proposal: pendingAiProposal,
+      runtime: {
+        billingMode: aiBillingMode,
+        tokenBalance: aiTokenBalance,
+        aiEnabled: !aiCreditsDepleted,
+      },
+    },
+    commands: {
+      updateCompose: setChatDraft,
+      submitMessage: onSendChat,
+      retryMessage: onSendChat,
+      attachFile: async (files) => {
+        await onUploadChatAttachments(files);
+      },
+      removeAttachment: onRemoveChatAttachment,
+      startTranscription: async (target) => {
+        await onToggleMic(target);
+      },
+      stopTranscription: onCancelAiRequest,
+      requestProposal: onSendChat,
+      applyProposal: async () => {
+        await onApplyAiProposal("selected");
+      },
+      rejectProposal: onDiscardAiProposal,
+      confirmAiCreditUse: () => !aiCreditsDepleted,
+    },
+    status: {
+      history: chatError
+        ? "failed"
+        : chatMessages.length > 0
+          ? "loaded"
+          : "empty",
+      send: isAiProcessing ? "sending" : chatError ? "failed" : "idle",
+      attachments: isAttachmentsLoading
+        ? "loading"
+        : chatAttachmentError
+          ? "failed"
+          : "idle",
+      transcription: sttState,
+      ai: aiCreditsDepleted
+        ? "depleted"
+        : isAiProcessing
+          ? "working"
+          : "idle",
+    },
+    surface: chatWorkspace,
+  });
   const activeEpisodeSparks = useMemo(
     () => sparks.filter((spark) => (
       (workpieceId && spark.links?.hearthWorkpieceId === workpieceId)
       || (activeDraft?.id && spark.links?.hearthDraftId === activeDraft.id)
     )),
     [activeDraft?.id, sparks, workpieceId],
-  );
-  const sortedSparks = useMemo(
-    () => sparks.slice().sort((a, b) => b.createdAt - a.createdAt),
-    [sparks],
   );
   const routeProjectSparks = useMemo(
     () => routeProjectId
@@ -3220,15 +3214,6 @@ export default function HearthShell({
       : sparks.find((spark) => spark.id === routeSparkId) ?? null,
     [routeProjectId, routeSparkId, sparks],
   );
-  const visibleSparks = useMemo(
-    () => sortedSparks.filter((spark) => spark.status !== "archived" && shouldDisplaySparkInHearthLibrary(spark)),
-    [sortedSparks],
-  );
-  const selectedSpark = useMemo(() => {
-    if (visibleSparks.length === 0) return null;
-    if (!selectedSparkId) return visibleSparks[0] ?? null;
-    return visibleSparks.find((spark) => spark.id === selectedSparkId) ?? visibleSparks[0] ?? null;
-  }, [selectedSparkId, visibleSparks]);
   const deferDesktopRailCollections = !isMobile && mode === "sparks" && !hasActiveEpisode;
   const initialLoadKey = useMemo(() => [
     storeKind,
@@ -3243,28 +3228,31 @@ export default function HearthShell({
     storeKind,
     workspaceId,
   ]);
-  const workpieceNavItems = useMemo(() => selectWorkpieceNavItems({
-    workpieces: deferDesktopRailCollections ? EMPTY_WORKPIECE_SUMMARY_LIST : workpieceSummaries,
+  const {
+    visibleSparks,
+    selectedSpark,
+    filteredWorkpieceNavItems,
+    readyScriptsForDisplay,
+    visibleReadyScriptsForDisplay,
+    seriesEntries,
+    readyTotalCount,
+    removedReadyCount,
+    activeReadyScript,
+  } = useHearthCollectionViewModel({
+    sparks,
+    selectedSparkId,
+    deferCollections: deferDesktopRailCollections,
+    workpieces: workpieceSummaries,
     drafts,
     readyScripts,
-    sparks,
     searchText,
     sortKey,
     preferredDraftIdsByWorkpiece,
-  }), [
-    deferDesktopRailCollections,
-    drafts,
-    preferredDraftIdsByWorkpiece,
-    readyScripts,
-    searchText,
-    sortKey,
-    sparks,
-    workpieceSummaries,
-  ]);
-  const filteredWorkpieceNavItems = useMemo(() => {
-    if (showArchived) return workpieceNavItems;
-    return workpieceNavItems.filter((item) => !item.isArchived);
-  }, [showArchived, workpieceNavItems]);
+    showArchived,
+    readyScriptsWorkspaceId,
+    workspaceId,
+    workpieceId,
+  });
   const duplicateRailTitleKeys = useMemo(() => {
     const counts = new Map<string, number>();
     for (const item of filteredWorkpieceNavItems) {
@@ -3277,19 +3265,6 @@ export default function HearthShell({
         .map(([key]) => key),
     );
   }, [filteredWorkpieceNavItems]);
-
-  const readyScriptsForDisplay = useMemo(() => {
-    if (deferDesktopRailCollections) return EMPTY_READY_SCRIPT_LIST;
-    const normalizedWorkspaceId = normalizeUuid(workspaceId);
-    if (!normalizedWorkspaceId || readyScriptsWorkspaceId !== normalizedWorkspaceId) {
-      return EMPTY_READY_SCRIPT_LIST;
-    }
-    return readyScripts;
-  }, [deferDesktopRailCollections, readyScripts, readyScriptsWorkspaceId, workspaceId]);
-  const visibleReadyScriptsForDisplay = useMemo(
-    () => readyScriptsForDisplay.filter((entry) => !entry.hiddenAt),
-    [readyScriptsForDisplay],
-  );
 
   const readyUrgencyCounts = useMemo(() => {
     const counts = { fresh: 0, cooling: 0, cold: 0 };
@@ -3306,14 +3281,6 @@ export default function HearthShell({
     return visibleReadyScriptsForDisplay;
   }, [visibleReadyScriptsForDisplay]);
 
-  const readyTotalCount = visibleReadyScriptsForDisplay.length;
-  const removedReadyCount = useMemo(() => {
-    return readyScriptsForDisplay.filter((entry) => Boolean(entry.hiddenAt)).length;
-  }, [readyScriptsForDisplay]);
-  const activeReadyScript = useMemo(
-    () => readyScriptsForDisplay.find((entry) => entry.workpieceId === (workpieceId ?? "")) ?? null,
-    [readyScriptsForDisplay, workpieceId],
-  );
   useEffect(() => {
     if (typeof window === "undefined") return;
     const scriptText = activeDraft?.body ?? "";
@@ -3413,15 +3380,12 @@ export default function HearthShell({
     onEpisodeContextLoadingChange,
     workpieceId,
   ]);
-  const metadataTagSuggestions = useMemo(
-    () => buildMetadataTagSuggestions({
-      currentTags: metadataTagsDraft,
-      contentCategory: activeReadyScript?.contentCategory ?? null,
-      bodyText: activeDraft?.body ?? "",
-      titleTexts: metadataTitlesDraft.map((t) => t.text),
-    }),
-    [activeReadyScript?.contentCategory, metadataTagsDraft, activeDraft?.body, metadataTitlesDraft],
-  );
+  const metadataTagSuggestions = useHearthMetadataTagSuggestions({
+    currentTags: metadataTagsDraft,
+    contentCategory: activeReadyScript?.contentCategory ?? null,
+    bodyText: activeDraft?.body ?? "",
+    titles: metadataTitlesDraft,
+  });
   const diffLines = useMemo(() => {
     if (!selectedRevision || !activeDraft) return [];
     return buildDiffLines(activeDraft.body, selectedRevision.bodySnapshot);
@@ -3431,9 +3395,7 @@ export default function HearthShell({
     activeDraftRef.current = activeDraft;
   }, [activeDraft]);
 
-  useEffect(() => {
-    workpieceIdRef.current = workpieceId;
-  }, [resetReleasePrepState, workpieceId]);
+  useHearthActiveIdentityRefSync(workpieceIdRef, workpieceId);
 
   useEffect(() => {
     draftSnapshotRef.current = draftSnapshot;
@@ -3576,42 +3538,16 @@ export default function HearthShell({
     return () => window.clearTimeout(timer);
   }, [aiRuntimeWarning]);
 
-  const refreshWorkpieces = useCallback(async (
-    overrideWorkspaceId?: string | null,
-    options?: { includeArchived?: boolean },
-  ): Promise<HearthWorkpieceSummary[]> => {
-    const workspace = normalizeUuid(overrideWorkspaceId ?? workspaceId);
-    const activeWorkpieceId = normalizeUuid(workpieceId);
-    const currentWorkpieceSummaries = workpieceSummariesRef.current;
-    const includeArchived = options?.includeArchived ?? (
-      showArchived || Boolean(
-        activeWorkpieceId && currentWorkpieceSummaries.some((entry) => entry.workpieceId === activeWorkpieceId && entry.isArchived)
-      )
-    );
-    if (!workspace) {
-      workpieceSummariesRef.current = [];
-      setWorkpieceSummaries([]);
-      setWorkpiecesError(null);
-      setIsWorkpiecesLoading(false);
-      return [];
-    }
-
-    setIsWorkpiecesLoading(true);
-    setWorkpiecesError(null);
-    try {
-      const list = await listHearthWorkpieces(workspace, { includeArchived });
-      workpieceSummariesRef.current = list;
-      setWorkpieceSummaries(list);
-      return list;
-    } catch {
-      workpieceSummariesRef.current = [];
-      setWorkpieceSummaries([]);
-      setWorkpiecesError("Failed to load Episodes.");
-      return [];
-    } finally {
-      setIsWorkpiecesLoading(false);
-    }
-  }, [showArchived, workspaceId, workpieceId]);
+  const refreshWorkpieces = useHearthWorkpieceCollectionLoader({
+    workspaceId,
+    workpieceId,
+    showArchived,
+    operationAuthority,
+    workpieceSummariesRef,
+    setWorkpieceSummaries,
+    setIsWorkpiecesLoading,
+    setWorkpiecesError,
+  });
 
   const refreshDrafts = useCallback(async (): Promise<Draft[]> => {
     const list = dedupeDraftListById(await store.listDrafts());
@@ -3694,10 +3630,8 @@ export default function HearthShell({
     setReferenceClipMessage,
   });
 
-  const { refreshReadyScripts } = useHearthReadyScriptsLifecycle({
+  const { refreshReadyScripts } = useHearthReadyCollectionLifecycle({
     workspaceId,
-    normalizeUuid,
-    listReadyScripts: listHearthReadyScripts,
     setReadyScripts,
     setReadyScriptsWorkspaceId,
     setReadyScriptsError,
@@ -3715,7 +3649,7 @@ export default function HearthShell({
     readCanonicalApprovalRevisions,
     commitCanonicalApprovalRevision,
     appendApprovalMarker,
-  } = useHearthApprovalPersistenceActions({
+  } = useHearthScriptApprovalPersistenceActions({
     persistDraft,
     validatorVersion: SCRIPT_TAG_VALIDATOR_VERSION,
     chatHistoryMaxMessages: CHAT_HISTORY_MAX_MESSAGES,
@@ -3728,7 +3662,7 @@ export default function HearthShell({
   const {
     isApprovingScript,
     onApproveScript,
-  } = useApprovalFlow({
+  } = useHearthScriptApprovalFlow({
     operationAuthority,
     activeDraft,
     workpieceId,
@@ -3768,7 +3702,7 @@ export default function HearthShell({
     onSaveBrollBeat,
     onDeleteBrollBeat,
     onRegenerateBrollBeat,
-  } = useBrollCoreActions({
+  } = useHearthBrollCoreCommands({
     operationAuthority,
     isApprovingScript,
     isAiProcessing,
@@ -3812,7 +3746,7 @@ export default function HearthShell({
     onUploadBrollBeatAsset,
     onSelectBrollCandidate,
     onRetryBrollCandidateIngestion,
-  } = useBrollBridgeActions({
+  } = useHearthBrollBridgeCommands({
     operationAuthority,
     episodePackage,
     selectedBrollBeat,
@@ -3847,7 +3781,7 @@ export default function HearthShell({
     onDeleteReferenceClipEntry,
     onGenerateReferenceClipInForge,
     onRegenerateReferenceClipEntryStub,
-  } = useReferenceClipCoreActions({
+  } = useHearthReferenceClipsCoreCommands({
     operationAuthority,
     episodePackage,
     workpieceId,
@@ -3899,7 +3833,7 @@ export default function HearthShell({
     onAttachReferenceClipResultFromUrl,
     onUploadReferenceClipAsset,
     onSelectReferenceClipCandidate,
-  } = useReferenceClipBridgeActions({
+  } = useHearthReferenceClipsBridgeCommands({
     operationAuthority,
     episodePackage,
     selectedReferenceClipEntry,
@@ -3935,7 +3869,7 @@ export default function HearthShell({
     onCreateLaunchVariant,
     onSelectLaunchVariant,
     onSaveLaunchVariant,
-  } = useThumbnailConceptActions({
+  } = useHearthThumbnailConceptCommands({
     operationAuthority,
     episodePackage,
     thumbnailVersions,
@@ -3973,7 +3907,7 @@ export default function HearthShell({
     onUploadThumbnailBrandLogo,
     onRemoveThumbnailBrandLogo,
     onUploadThumbnailImage,
-  } = useThumbnailGenerationActions({
+  } = useHearthThumbnailGenerationCommands({
     operationAuthority,
     workpieceId,
     workspaceId,
@@ -4016,7 +3950,7 @@ export default function HearthShell({
     onRepairImageMapNearestParagraph,
     onConvertImageMapToGlobalVisual,
     onLeaveImageMapOrphaned,
-  } = useImageMapReanchorActions({
+  } = useHearthImageMapReanchorCommands({
     operationAuthority,
     episodePackage,
     selectedImageMapEntry,
@@ -4074,7 +4008,7 @@ export default function HearthShell({
     onGenerateImageMapCandidates,
     onSelectImageMapCandidate,
     onUploadImageMapAsset,
-  } = useImageMapCandidateActions({
+  } = useHearthImageCandidateCommands({
     operationAuthority,
     workpieceId,
     workspaceId,
@@ -4112,7 +4046,7 @@ export default function HearthShell({
     onCreateImageMapEntry,
     onDuplicateImageMapEntry,
     onDeleteImageMapEntry,
-  } = useImageMapEntryCrudActions({
+  } = useHearthImageEntryCommands({
     operationAuthority,
     episodePackage,
     selectedImageMapEntry,
@@ -4126,7 +4060,7 @@ export default function HearthShell({
     onSeedImageMapFromScript,
     onCopyImageMapExportJson,
     onDownloadImageMapExportJson,
-  } = useImageMapSeedExportActions({
+  } = useHearthImageSeedExportCommands({
     operationAuthority,
     workpieceId,
     episodePackage,
@@ -4154,7 +4088,7 @@ export default function HearthShell({
   });
   const {
     onToggleVisualScriptMode,
-  } = useImageMapViewActions({
+  } = useHearthImageMapViewCommands({
     hasApprovedScript,
     approvedScriptVersion,
     isImageMapReanchorSaving,
@@ -4185,93 +4119,31 @@ export default function HearthShell({
     void refreshReadyScripts();
   }, [deferDesktopRailCollections, refreshReadyScripts]);
 
-  useEffect(() => {
-    if (!isMobile && mobileOverlayView) {
-      setMobileOverlayView(null);
-    }
-  }, [isMobile, mobileOverlayView]);
+  useHearthResponsiveNavigationLifecycle({
+    isMobile,
+    mobileOverlayView,
+    mode,
+    activeDraft,
+    workspaceId,
+    setMobileOverlayView,
+  });
 
-  useEffect(() => {
-    setMobileOverlayView(null);
-  }, [workspaceId]);
-
-  useEffect(() => {
-    if (!isMobile) return;
-    if (mobileOverlayView) return;
-    if (mode === "focus" && activeDraft) {
-      setMobileOverlayView("editor");
-      return;
-    }
-    if (mode === "ready") {
-      setMobileOverlayView("ready");
-    }
-  }, [activeDraft, isMobile, mobileOverlayView, mode]);
-
-  useEffect(() => {
-    const workspace = workspaceId?.trim() ?? "";
-    const workpiece = workpieceId?.trim() ?? "";
-    const normalizedWorkspaceId = normalizeUuid(workspace);
-    const normalizedWorkpieceId = normalizeUuid(workpiece);
-    if (!normalizedWorkspaceId || !normalizedWorkpieceId) {
-      setPresenceRows([]);
-      setPresenceState("idle");
-      return;
-    }
-
-    let cancelled = false;
-    let timer: number | null = null;
-
-    const syncPresence = async () => {
-      if (!cancelled) setPresenceState((previous) => previous === "available" ? previous : "loading");
-      try {
-        const ownPresence = await upsertHearthWorkpiecePresence({
-          workspaceId: normalizedWorkspaceId,
-          workpieceId: normalizedWorkpieceId,
-          mode: localPresenceMode,
-          displayName: activeUserDisplayName,
-        });
-        if (cancelled) return;
-        if (ownPresence.kind !== "success") {
-          setPresenceRows([]);
-          setPresenceState(ownPresence.kind);
-          return;
-        }
-        if (ownPresence.value.userId) {
-          setHearthUser((prev) => (
-            prev.userId === ownPresence.value.userId
-              ? prev
-              : { ...prev, userId: ownPresence.value.userId }
-          ));
-        }
-        const presenceResult = await listHearthWorkpiecePresence(normalizedWorkspaceId, normalizedWorkpieceId);
-        if (cancelled) return;
-        if (presenceResult.kind === "success") {
-          setPresenceRows(presenceResult.value);
-          setPresenceState("available");
-        } else {
-          setPresenceRows([]);
-          setPresenceState(presenceResult.kind);
-        }
-      } catch {
-        if (!cancelled) {
-          setPresenceRows([]);
-          setPresenceState("failed");
-        }
-      }
-    };
-
-    void syncPresence();
-    timer = window.setInterval(() => {
-      void syncPresence();
-    }, PRESENCE_HEARTBEAT_MS);
-
-    return () => {
-      cancelled = true;
-      if (timer) {
-        window.clearInterval(timer);
-      }
-    };
-  }, [activeUserDisplayName, localPresenceMode, workspaceId, workpieceId]);
+  useHearthPresenceLifecycle({
+    workspaceId,
+    workpieceId,
+    mode: localPresenceMode,
+    displayName: activeUserDisplayName,
+    heartbeatMs: PRESENCE_HEARTBEAT_MS,
+    operationAuthority,
+    normalizeUuid,
+    setParticipants: setPresenceRows,
+    setConnection: setPresenceState,
+    acceptUserId: (userId) => {
+      setHearthUser((previous) => (
+        previous.userId === userId ? previous : { ...previous, userId }
+      ));
+    },
+  });
 
   useEffect(() => {
     void refreshEpisodePackage();
@@ -4282,7 +4154,7 @@ export default function HearthShell({
     onRemoveFromReady,
     onRestoreRemovedReady,
     onReorderReady,
-  } = useHearthReadyQueueActions({
+  } = useHearthCollectionReadyQueueActions({
     workspaceId,
     normalizeUuid,
     readyScriptsForDisplay,
@@ -4482,7 +4354,7 @@ export default function HearthShell({
     setCursorPosition(nextPos);
   }, []);
 
-  const onOpenInAnvil = useHearthAnvilOpenAction({
+  const onOpenInAnvil = useHearthAnvilHandoffOpenCommand({
     activeDraft,
     activeWorkpieceIsArchived,
     workspaceId,
@@ -4493,7 +4365,7 @@ export default function HearthShell({
     evaluateScriptValidation,
     buildValidationReport,
     buildPersistedValidationMeta,
-    buildOpenInAnvilHref: (workspace, episodeId) => buildOpenInAnvilHref(workspace, episodeId),
+    buildOpenInAnvilHref: () => openInAnvilHref,
     persistDraft,
     publishPrimaryScript: async ({ episodeId, scriptText, validatorVersion }) => {
       const published = await commitHearthPrimaryScript(episodeId, scriptText, { validatorVersion });
@@ -4503,6 +4375,17 @@ export default function HearthShell({
       };
     },
     flushChatHistoryNow,
+    operationAuthority,
+  });
+  const anvilHandoffController = buildHearthAnvilHandoffController({
+    activeDraft,
+    workspaceId,
+    workpieceId,
+    archived: activeWorkpieceIsArchived,
+    handoffBlocked,
+    destination: openInAnvilHref,
+    stepModeHint: anvilStepModeHint,
+    openInAnvil: onOpenInAnvil,
   });
 
   const applySessionOrigin = useCallback((origin: HearthSessionOrigin) => {
@@ -4517,7 +4400,7 @@ export default function HearthShell({
     }), { touched: false });
   }, [updatePlanningSession]);
 
-  const { hydrateOrCreateDraftBufferForWorkpiece } = useHearthDraftHydrationActions({
+  const { hydrateOrCreateDraftBufferForWorkpiece } = useHearthScriptDraftHydration({
     hearthUser,
     sparks,
     store,
@@ -4571,7 +4454,7 @@ export default function HearthShell({
     onCopyConflictLocalText,
     onCopyScriptPanelText,
     onDeleteDraft,
-  } = useHearthDraftController({
+  } = useHearthScriptDraftCommands({
     activeDraft,
     workpieceId,
     sparks,
@@ -4608,7 +4491,7 @@ export default function HearthShell({
     setForgeError(null);
     setIsForging(true);
     try {
-      const created = await createHearthWorkpiece(
+      const created = await createHearthCollectionWorkpiece(
         { created_from: "scratch" },
         SAFE_SCRIPT_STARTER,
       );
@@ -4654,7 +4537,7 @@ export default function HearthShell({
     try {
       const sparkTitle = deriveSparkTitle(spark);
       const scriptSeed = "[s1]\nDraft intro goes here.\n[/s1]\n";
-      const created = await createHearthWorkpiece({
+      const created = await createHearthCollectionWorkpiece({
         created_from: "bar-stock",
         spark_id: spark.id,
       }, scriptSeed, {
@@ -4835,30 +4718,11 @@ export default function HearthShell({
     setSelectedRevision,
   });
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const refreshWorkspaceFromGlobalState = () => {
-      const nextWorkspaceId = resolveWorkspaceId();
-      if (!nextWorkspaceId || nextWorkspaceId === workspaceId) return;
-      setWorkspaceId(nextWorkspaceId);
-    };
-
-    const onStorage = (event: StorageEvent) => {
-      if (event.key && !WORKSPACE_STORAGE_KEYS.has(event.key)) return;
-      refreshWorkspaceFromGlobalState();
-    };
-
-    const onWorkspaceChanged = () => {
-      refreshWorkspaceFromGlobalState();
-    };
-
-    window.addEventListener("storage", onStorage);
-    window.addEventListener("forge:workspace-changed", onWorkspaceChanged as EventListener);
-    return () => {
-      window.removeEventListener("storage", onStorage);
-      window.removeEventListener("forge:workspace-changed", onWorkspaceChanged as EventListener);
-    };
-  }, [workspaceId]);
+  useHearthWorkspaceIdentitySync({
+    workspaceId,
+    setWorkspaceId,
+    workspaceStorageKeys: WORKSPACE_STORAGE_KEYS,
+  });
 
   useHearthWorkspaceResetLifecycle({
     workspaceId,
@@ -4881,7 +4745,7 @@ export default function HearthShell({
       setSelectedRevision(null);
       setEditingDraftId(null);
       setDraftConflictState(null);
-      setPresenceRows([]);
+      clearPresence();
       setError(null);
       setForgeError(null);
       setMode("episodes");
@@ -4903,7 +4767,7 @@ export default function HearthShell({
     readPendingProjectWorkpieceId,
     writePendingProjectWorkpieceId,
     createProjectWorkpiece: async (title) => (
-      await createHearthWorkpiece(
+      await createHearthCollectionWorkpiece(
         { created_from: "bar-stock" },
         SAFE_SCRIPT_STARTER,
         { title },
@@ -4919,7 +4783,7 @@ export default function HearthShell({
     setSelectedSparkId,
     setMode,
   });
-  useHearthSparkDiscovery({
+  useHearthCollectionSparkDiscovery({
     workspaceId,
     normalizeUuid,
     setSparks,
@@ -4953,183 +4817,38 @@ export default function HearthShell({
     setSessionTouched,
     setWorkspaceId,
     setError,
-    setPresenceRows,
+    clearPresence,
     setWorkpieceId,
     sessionCommitRef,
     buildSessionFingerprint,
     updatePlanningSession,
   });
 
-  useEffect(() => {
-    const workspace = workspaceId?.trim() ?? "";
-    if (!workspace) {
-      setThumbnailBrandTemplates([]);
-      setThumbnailBrandTemplatesError(null);
-      setIsThumbnailBrandTemplatesLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setIsThumbnailBrandTemplatesLoading(true);
-    setThumbnailBrandTemplatesError(null);
-
-    void (async () => {
-      const seeded = await seedWorkspaceThumbnailBrandTemplates(workspace);
-      if (cancelled) return;
-
-      const listed = await listWorkspaceThumbnailBrandTemplates(workspace);
-      if (cancelled) return;
-      if (!listed.ok) {
-        setThumbnailBrandTemplates([]);
-        setThumbnailBrandTemplatesError(listed.error);
-        setIsThumbnailBrandTemplatesLoading(false);
-        return;
-      }
-      setThumbnailBrandTemplates(listed.data);
-      setThumbnailBrandTemplatesError(!seeded.ok && listed.data.length === 0 ? seeded.error : null);
-      setIsThumbnailBrandTemplatesLoading(false);
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [workspaceId]);
-
-  useEffect(() => {
-    syncSelectedThumbnailConceptId(thumbnailConcepts);
-  }, [syncSelectedThumbnailConceptId, thumbnailConcepts]);
-
-  useEffect(() => {
-    syncThumbnailConceptDraftFromConcept(selectedThumbnailConcept, defaultThumbnailBrandTemplateId);
-  }, [defaultThumbnailBrandTemplateId, selectedThumbnailConcept, syncThumbnailConceptDraftFromConcept]);
-
-  useEffect(() => {
-    const logoWorkpieceId = selectedThumbnailBrandLogoWorkpieceId ?? (workpieceId?.trim() ?? "");
-    const logoAssetPath = selectedThumbnailBrandLogoAssetPath;
-    if (!logoWorkpieceId || !logoAssetPath) {
-      setThumbnailBrandLogoDataUrl(null);
-      return;
-    }
-
-    let cancelled = false;
-    void (async () => {
-      const loaded = await loadWorkspaceThumbnailBrandLogoPreview({
-        workpieceId: logoWorkpieceId,
-        assetPath: logoAssetPath,
-      });
-      if (cancelled) return;
-      if (!loaded.ok) {
-        setThumbnailBrandLogoDataUrl(null);
-        setThumbnailBrandLogoError((current) => current ?? loaded.error);
-        return;
-      }
-      setThumbnailBrandLogoDataUrl(loaded.dataUrl);
-      setThumbnailBrandLogoStatus("Brand logo loaded.");
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
+  useHearthThumbnailLifecycle({
+    workspaceId,
     workpieceId,
+    episodePackage,
+    thumbnailConcepts,
+    selectedThumbnailConcept,
+    selectedThumbnailConceptId,
+    defaultThumbnailBrandTemplateId,
     selectedThumbnailBrandLogoWorkpieceId,
     selectedThumbnailBrandLogoAssetPath,
-  ]);
-
-  useEffect(() => {
-    if (!episodePackage || !selectedThumbnailConceptId) return;
-    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
-    const savedConcept = episodePackage.thumbnail.concepts.find((concept) => concept.id === selectedThumbnailConceptId);
-    if (!savedConcept) return;
-    if (areEpisodeThumbnailTitleStylesEqual(savedConcept.title_style, thumbnailTitleStyleDraft)) return;
-
-    const timer = window.setTimeout(() => {
-      const normalizedTitleStyle = normalizeEpisodeThumbnailTitleStyle(thumbnailTitleStyleDraft);
-      const nextEpisodePackage: EpisodePackageV2 = {
-        ...episodePackage,
-        thumbnail: {
-          ...episodePackage.thumbnail,
-          concepts: episodePackage.thumbnail.concepts.map((concept) => (
-            concept.id === selectedThumbnailConceptId
-              ? {
-                  ...concept,
-                  title_style: normalizedTitleStyle,
-                }
-              : concept
-          )),
-        },
-      };
-
-      void persistThumbnailEpisodePackage(
-        nextEpisodePackage,
-        "hearth.thumbnail.concept.title_style.updated.v1",
-        {
-          concept_id: selectedThumbnailConceptId,
-          font_preset: normalizedTitleStyle.font_preset,
-          text_color: normalizedTitleStyle.text_color,
-          shadow_enabled: normalizedTitleStyle.shadow.enabled,
-          shadow_strength: normalizedTitleStyle.shadow.strength,
-        },
-      );
-    }, 250);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [
-    episodePackage,
-    isThumbnailConceptSaving,
-    isThumbnailGenerating,
-    isThumbnailUploading,
-    selectedThumbnailConceptId,
     thumbnailTitleStyleDraft,
-  ]);
-
-  useEffect(() => {
-    if (!episodePackage || !selectedThumbnailConceptId) return;
-    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
-    const savedConcept = episodePackage.thumbnail.concepts.find((concept) => concept.id === selectedThumbnailConceptId);
-    if (!savedConcept) return;
-    const savedTemplateId = savedConcept.brand_template_id ?? null;
-    if (savedTemplateId === (thumbnailConceptBrandTemplateIdDraft ?? null)) return;
-
-    const timer = window.setTimeout(() => {
-      const nextEpisodePackage: EpisodePackageV2 = {
-        ...episodePackage,
-        thumbnail: {
-          ...episodePackage.thumbnail,
-          concepts: episodePackage.thumbnail.concepts.map((concept) => (
-            concept.id === selectedThumbnailConceptId
-              ? {
-                  ...concept,
-                  brand_template_id: thumbnailConceptBrandTemplateIdDraft ?? null,
-                }
-              : concept
-          )),
-        },
-      };
-
-      void persistThumbnailEpisodePackage(
-        nextEpisodePackage,
-        "hearth.thumbnail.concept.brand_template.updated.v1",
-        {
-          concept_id: selectedThumbnailConceptId,
-          brand_template_id: thumbnailConceptBrandTemplateIdDraft ?? null,
-        },
-      );
-    }, 250);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [
-    episodePackage,
+    thumbnailConceptBrandTemplateIdDraft,
     isThumbnailConceptSaving,
     isThumbnailGenerating,
     isThumbnailUploading,
-    selectedThumbnailConceptId,
-    thumbnailConceptBrandTemplateIdDraft,
-  ]);
+    setThumbnailBrandTemplates,
+    setThumbnailBrandTemplatesError,
+    setIsThumbnailBrandTemplatesLoading,
+    setThumbnailBrandLogoDataUrl,
+    setThumbnailBrandLogoError,
+    setThumbnailBrandLogoStatus,
+    syncSelectedThumbnailConceptId,
+    syncThumbnailConceptDraftFromConcept,
+    persistThumbnailEpisodePackage,
+  });
 
   useEffect(() => {
     if (!episodePackage) return;
@@ -5296,62 +5015,37 @@ export default function HearthShell({
     return () => window.clearTimeout(timer);
   }, [scriptPanelCopyMessage]);
 
-  useEffect(() => {
-    setActiveWorkpieceTab(readWorkpieceWorkspaceTab(workpieceId, workspaceId));
-  }, [workpieceId, workspaceId]);
+  useHearthWorkpieceTabPreferenceLifecycle({
+    activeWorkpieceTab,
+    workspaceId,
+    workpieceId,
+    setActiveWorkpieceTab,
+  });
 
-  useEffect(() => {
-    writeWorkpieceWorkspaceTab(workpieceId, workspaceId, activeWorkpieceTab);
-  }, [activeWorkpieceTab, workpieceId, workspaceId]);
+  useHearthScriptApprovalIdentityReset({
+    workpieceId,
+    setScriptApprovalState,
+    setApprovalPersistenceStatus,
+  });
 
-  useEffect(() => {
-    setScriptApprovalState(NO_CANONICAL_SCRIPT_APPROVAL);
-    setApprovalPersistenceStatus(null);
-  }, [workpieceId]);
+  useHearthCanonicalScriptApprovalLoader({
+    activeDraftId: activeDraft?.id ?? null,
+    workpieceId,
+    revisions,
+    operationAuthority,
+    store,
+    setScriptApprovalState,
+    writeRecoveryEvidence: writeScriptApprovalRecoveryEvidence,
+  });
 
-  useEffect(() => {
-    const episodeId = workpieceId?.trim() ?? "";
-    const draftId = activeDraft?.id ?? null;
-    const operation = operationAuthority.begin("approval.canonical.read");
-    setScriptApprovalState((prev) => (
-      isScriptApprovalStateEqual(prev, NO_CANONICAL_SCRIPT_APPROVAL)
-        ? prev
-        : NO_CANONICAL_SCRIPT_APPROVAL
-    ));
-    if (!episodeId || !draftId) {
-      return;
-    }
-    void store.readCanonicalRevisions(episodeId, draftId).then((result) => {
-      if (!operationAuthority.isCurrent(operation) || !result.ok) return;
-      const resolved = resolveCanonicalScriptApproval(result.revisions, draftId);
-      setScriptApprovalState((prev) => (isScriptApprovalStateEqual(prev, resolved) ? prev : resolved));
-      writeScriptApprovalRecoveryEvidence(episodeId, resolved);
-    });
-  }, [activeDraft?.id, operationAuthority, revisions, store, workpieceId]);
-
-  useEffect(() => {
-    if (!activeDraft) {
-      restoredModeDraftKeyRef.current = null;
-      if (mode === "focus" && pendingFocusOpenCountRef.current === 0) {
-        setMode("episodes");
-      }
-      return;
-    }
-
-    const restoreKey = `${workpieceId ?? "none"}:${activeDraft.id}`;
-    if (mode !== "sparks") {
-      restoredModeDraftKeyRef.current = restoreKey;
-      return;
-    }
-    if (restoredModeDraftKeyRef.current === restoreKey) return;
-
-    restoredModeDraftKeyRef.current = restoreKey;
-    const saved = readMode(workpieceId);
-    if (!saved) return;
-    if (saved !== "focus") {
-      setMode(saved);
-    }
-  }, [activeDraft?.id, mode, workpieceId]);
+  useHearthModeRestorationLifecycle({
+    activeDraft,
+    mode,
+    workpieceId,
+    pendingFocusOpenCountRef,
+    restoredModeDraftKeyRef,
+    setMode,
+  });
 
   useEffect(() => {
     const nextPanel = pendingDraftEditorPanelRef.current;
@@ -5368,24 +5062,19 @@ export default function HearthShell({
     setShowScriptPanel(false);
   }, [activeDraft?.body, isCanonicalImageMapScriptPanel]);
 
-  useEffect(() => {
-    if (!workpieceId) return;
-    if (mode === "sparks") return;
-    writeMode(workpieceId, mode);
-  }, [mode, workpieceId]);
+  useHearthModePreferenceLifecycle({ mode, workpieceId });
 
-  useEffect(() => {
-    setUiDensity(readWorkspaceUiDensity(workspaceId));
-  }, [workspaceId]);
+  useHearthDensityPreferenceLifecycle({
+    uiDensity,
+    workspaceId,
+    setUiDensity,
+  });
 
-  useEffect(() => {
-    writeWorkspaceUiDensity(workspaceId, uiDensity);
-  }, [uiDensity, workspaceId]);
-
-  useEffect(() => {
-    if (!activeDraft) return;
-    void refreshRevisions(revisionWorkpieceId, activeDraft.id);
-  }, [activeDraft?.id, refreshRevisions, revisionWorkpieceId]);
+  useHearthScriptRevisionLoader({
+    activeDraftId: activeDraft?.id ?? null,
+    revisionWorkpieceId,
+    refreshRevisions,
+  });
 
   useEffect(() => {
     const textarea = bodyRef.current;
@@ -5458,7 +5147,7 @@ export default function HearthShell({
     onSaveDraft,
   });
 
-  const { persistDraft: persistDraftImpl, saveDraftMeta: saveDraftMetaImpl } = useHearthDraftPersistenceActions({
+  const { persistDraft: persistDraftImpl, saveDraftMeta: saveDraftMetaImpl } = useHearthScriptDraftPersistence({
     mode,
     focusTab,
     revisionView,
@@ -5473,7 +5162,7 @@ export default function HearthShell({
     reportRevisionPersistenceWarning,
     refreshRevisions,
     persistSession,
-    syncSources: () => sourcesState.syncSources(),
+    syncSources: () => sourcesController.commands.refreshSources(),
     syncSessionToTongs,
     dedupeDraftListById,
     draftEditVersionRef,
@@ -5509,6 +5198,73 @@ export default function HearthShell({
   async function saveDraftMeta(draft: Draft, updates: Partial<Draft>) {
     await saveDraftMetaImpl(draft, updates);
   }
+
+  const scriptController = useHearthScriptController({
+    state: {
+      draft: activeDraft,
+      drafts,
+      revision: {
+        items: revisions,
+        selected: selectedRevision,
+        kind: revisionKind,
+        note: revisionNote,
+      },
+      approval: scriptApprovalState,
+      formatting: {
+        writingFormat: selectedWritingFormat,
+        validation: scriptValidation,
+      },
+      conflict: draftConflictState,
+      selection: { revisionWorkpieceId },
+    },
+    commands: {
+      selectDraft,
+      updateDraft: {
+        title: onDraftTitleChange,
+        body: onDraftBodyChange,
+      },
+      saveDraft: onSaveDraft,
+      retrySave: onRetryAiAutosave,
+      resolveConflict: {
+        reloadLatest: onReloadLatestDraftAfterConflict,
+        copyLocalText: onCopyConflictLocalText,
+      },
+      createRevision: onConfirmRevision,
+      restoreRevision: onRestoreRevision,
+      approveScript: onApproveScript,
+      applyApprovedScript: (draft) => onApproveScript({ draftOverride: draft }),
+      formatScript: onFixScriptFormattingNoAi,
+      repairScript: onAskAiRepairScript,
+      refreshAuthority: async () => {
+        await refreshRevisions(revisionWorkpieceId, activeDraft?.id ?? null);
+      },
+    },
+    status: {
+      hydration: isLoading ? "loading" : error ? "failed" : activeDraft ? "loaded" : "missing",
+      save: isSaving ? "saving" : draftConflictState ? "failed" : isDirty ? "unsaved" : "saved",
+      approval: isApprovingScript
+        ? "approving"
+        : scriptApprovalState.hasApprovedScript
+          ? "available"
+          : "absent",
+      formatting: isRepairingScript ? "repairing" : "idle",
+      authority: "available",
+      approvalPersistence: approvalPersistenceStatus,
+    },
+    surfaces: {
+      script: {
+        draft: activeDraft,
+        snapshot: draftSnapshot,
+        isDirty,
+        error,
+      },
+      history: {
+        revisions,
+        selectedRevision,
+        view: revisionView,
+      },
+    },
+  });
 
   async function onCreateDraft() {
     setError(null);
@@ -5609,7 +5365,7 @@ export default function HearthShell({
     restoringWorkpieceIds,
     onArchiveWorkpiece,
     onRestoreWorkpiece,
-  } = useHearthWorkpieceArchiveActions({
+  } = useHearthCollectionArchiveActions({
     workspaceId,
     workpieceId,
     showArchived,
@@ -5775,44 +5531,20 @@ export default function HearthShell({
     setGeneratedTagProposal(null);
   }
 
-  function resolveBrollDataVisualSpecFromDraft(intent: EpisodeBrollPlanBeat["motion_intent"]): EpisodeBrollDataVisualSpec | null {
-    if (intent !== "data_visual") return null;
-    const labels = brollDataLabelsDraft
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter(Boolean);
-    const values = brollDataValuesDraft
-      .split(",")
-      .map((entry) => Number(entry.trim()))
-      .filter((value) => Number.isFinite(value));
-    const next: EpisodeBrollDataVisualSpec = {
-      chart_type: (brollDataChartTypeDraft.trim() || "bar") as EpisodeBrollDataVisualSpec["chart_type"],
-      title: brollDataTitleDraft.trim() || null,
-      labels,
-      values,
-      emphasis_key: brollDataEmphasisKeyDraft.trim() || null,
-      animation_style: brollDataAnimationStyleDraft.trim() || null,
-    };
-    const hasContent = Boolean(
-      next.chart_type
-      || next.title
-      || next.labels?.length
-      || next.values?.length
-      || next.emphasis_key
-      || next.animation_style,
-    );
-    return hasContent ? next : null;
+  function resolveBrollDataVisualSpecFromDraft(intent: EpisodeBrollPlanBeat["motion_intent"]) {
+    return buildHearthBrollDataVisualSpec({
+      intent,
+      chartType: brollDataChartTypeDraft,
+      title: brollDataTitleDraft,
+      labels: brollDataLabelsDraft,
+      values: brollDataValuesDraft,
+      emphasisKey: brollDataEmphasisKeyDraft,
+      animationStyle: brollDataAnimationStyleDraft,
+    });
   }
 
   function resolveReferenceClipValuesFromDraft(): Array<number | string> {
-    return referenceClipValuesDraft
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter(Boolean)
-      .map((value) => {
-        const numeric = Number(value);
-        return Number.isFinite(numeric) ? numeric : value;
-      });
+    return parseHearthReferenceClipValues(referenceClipValuesDraft);
   }
 
   function onUseChatShortcut(prompt: string) {
@@ -5976,7 +5708,7 @@ export default function HearthShell({
   const {
     onOpenReadyScriptInHearth,
     onSendBackToEdit,
-  } = useHearthReadyNavigationActions({
+  } = useHearthCollectionReadyNavigationActions({
     activeDraftId: activeDraft?.id ?? null,
     sendingBackReadyIds,
     openWorkpieceInFocus,
@@ -5987,36 +5719,38 @@ export default function HearthShell({
     setSendingBackReadyIds,
   });
 
-  const openReadyInMobileOverlay = useCallback(() => {
-    setMode("ready");
-    if (isMobile) {
-      setMobileOverlayView("ready");
-    }
-  }, [isMobile]);
+  const {
+    openReadyInMobileOverlay,
+    closeMobileOverlay,
+  } = useHearthMobileOverlayCommands({
+    isMobile,
+    setMode,
+    setMobileOverlayView,
+  });
 
-  const closeMobileOverlay = useCallback(() => {
-    setMobileOverlayView(null);
-    if (isMobile) {
-      setMode("episodes");
-    }
-  }, [isMobile]);
-
-  const resolveWorkpiecePresenceBadge = useCallback((targetWorkpieceId: string): string => {
-    if (workpieceId !== targetWorkpieceId) return "Not checked";
-    if (presenceState === "loading") return "Checking...";
-    if (presenceState === "unavailable" || presenceState === "failed") return "Presence unavailable";
-    if (editingPeers.length > 0) return `${activeEditorName} editing`;
-    if (viewingPeers.length > 0) return `${activeViewerName} viewing`;
-    return "Idle";
-  }, [activeEditorName, editingPeers.length, activeViewerName, presenceState, viewingPeers.length, workpieceId]);
-
-  const resolveWorkpiecePresenceClass = useCallback((targetWorkpieceId: string): string => {
-    if (workpieceId !== targetWorkpieceId) return "is-idle";
-    if (presenceState === "unavailable" || presenceState === "failed") return "is-unavailable";
-    if (editingPeers.length > 0) return "is-editing";
-    if (viewingPeers.length > 0) return "is-viewing";
-    return "is-idle";
-  }, [editingPeers.length, presenceState, viewingPeers.length, workpieceId]);
+  const {
+    resolveWorkpiecePresenceBadge,
+    resolveWorkpiecePresenceClass,
+  } = useHearthPresenceBadges({
+    activeWorkpieceId: workpieceId,
+    connection: presenceState,
+    editingParticipants: editingPeers,
+    viewingParticipants: viewingPeers,
+  });
+  const presenceController = buildHearthPresenceController({
+    participants: presenceRows,
+    connection: presenceState,
+    userId: hearthUser.userId,
+    displayName: activeUserDisplayName,
+    mode: localPresenceMode,
+    editingParticipants: editingPeers,
+    viewingParticipants: viewingPeers,
+    clearPresence,
+    refreshPresence: () => window.dispatchEvent(new Event(HEARTH_PRESENCE_REFRESH_EVENT)),
+    updateActivity: () => window.dispatchEvent(new Event(HEARTH_PRESENCE_REFRESH_EVENT)),
+    resolveWorkpiecePresenceBadge,
+    resolveWorkpiecePresenceClass,
+  });
 
   const renderSparksView = () => {
     return (
@@ -6142,11 +5876,12 @@ export default function HearthShell({
         ? "Partial Script"
         : "Outline Draft";
     const isScriptWorkspaceTab = activeWorkpieceTab === "script";
-    const isVisualsWorkspaceTab = activeWorkpieceTab === "visuals";
-    const isMetadataWorkspaceTab = activeWorkpieceTab === "metadata";
-    const isReleaseWorkspaceTab = activeWorkpieceTab === "release";
     const isHistoryWorkspaceTab = activeWorkpieceTab === "history";
-    const thumbnailPanelProps = buildHearthThumbnailPanelProps({
+    const thumbnailController = buildHearthThumbnailController({
+      workspace: thumbnailWorkspace,
+      canonical: canonicalThumbnailProjection,
+      refreshThumbnails: () => void refreshEpisodePackage(),
+      surfaceInput: {
       concepts: thumbnailConcepts,
       versions: thumbnailVersions,
       titleOptions: thumbnailTitleOptions,
@@ -6217,8 +5952,9 @@ export default function HearthShell({
       onSelectedLaunchVariantStatusChange: setLaunchVariantStatusDraft,
       onSelectedLaunchVariantNotesChange: setLaunchVariantNotesDraft,
       onSaveLaunchVariant: () => void onSaveLaunchVariant(),
+      },
     });
-    const mediaMapPanelProps = buildHearthMediaMapPanelProps({
+    const visualPlanSurfaceInput = {
       entries: mediaMapEntries,
       selectedEntryId: selectedMediaMapEntryId,
       approvedScriptVersion,
@@ -6274,8 +6010,8 @@ export default function HearthShell({
       onAddEntry: () => void onAddMediaMapEntry(),
       onSaveEntry: () => void onSaveMediaMapEntry(),
       onDeleteEntry: () => void onDeleteMediaMapEntry(),
-    });
-    const imageMapPanelProps = buildHearthImageMapPanelProps({
+    };
+    const episodeImagesSurfaceInput = {
       panelTitle: "Timeline Images",
       manualOnly: false,
       entries: imageMapEntries,
@@ -6347,8 +6083,34 @@ export default function HearthShell({
       onLeaveOrphaned: () => void onLeaveImageMapOrphaned(),
       onCancelReanchor: onCancelImageMapReanchor,
       onPickReanchor: (selection: ImageMapScriptSelection) => void onPickImageMapReanchor(selection),
+    };
+    const imagePlanningController = buildHearthImagePlanningController({
+      active: Boolean(workpieceId),
+      authorityAvailable: !imageMapAuthorityUnavailable,
+      imageMapLoaded: imageMapProjectionLoaded,
+      visualPlanEntryCount: plannedImageCount,
+      visualPlanStale: shouldInvalidateMediaMapForScriptVersion(
+        mediaMap?.script_version_id ?? null,
+        approvedScriptVersion,
+      ),
+      canonicalEntryCount: imageMapEntries.length,
+      selectedEntryCount: imageMapEntries.filter((entry) => Boolean(entry.selected_asset_id)).length,
+      unresolvedEntryCount: imageMapEntries.filter(
+        (entry) => !hasStructuredImageMapAnchor(entry),
+      ).length,
+      visualPlanBusy: isMediaMapBusy,
+      visualPlanError: mediaMapSaveState === "error",
+      repairBusy: isImageMapReanchorSaving,
+      repairError: Boolean(imageMapReanchorError),
+      generationBusy: isImageMapCandidateGenerating,
+      generationError: Boolean(imageMapCandidateError),
+      selectionBusy: isImageMapCandidateSelecting,
+      selectionError: Boolean(imageMapCandidateSelectionError),
+      retryImagePlanningLoad: () => void refreshEpisodePackage(),
+      visualPlanSurfaceInput,
+      episodeImagesSurfaceInput,
     });
-    const brollPlanPanelProps = buildHearthBrollPanelProps({
+    const brollSurfaceInput = {
       beats: brollBeats,
       selectedBeatId: selectedBrollBeatId,
       workpieceId,
@@ -6408,8 +6170,28 @@ export default function HearthShell({
       onMarkAwaitingResult: () => void onMarkBrollRequestState("awaiting_result"),
       onClearRequestState: () => void onClearBrollRequestState(),
       onAttachResultFromUrl: () => void onAttachBrollResultFromUrl(),
+    };
+    const brollController = buildHearthBrollController({
+      active: Boolean(workpieceId),
+      loaded: episodePackageState === "loaded" && Boolean(episodePackage),
+      loadFailed: episodePackageState === "error",
+      authorityAvailable: imagePlanningController.status.authority === "available",
+      visualPlanApplied: (
+        mediaMap?.status === "activated"
+        || mediaMap?.status === "fulfilling"
+        || mediaMap?.status === "fulfilled"
+        || mediaMap?.status === "needs_attention"
+      ),
+      visualPlanStale: imagePlanningController.state.visualPlan.stale,
+      imagePlanningEligibility: imagePlanningController.brollEligibilityInput,
+      beats: brollBeats,
+      coverageStrength: brollPlan?.coverage_strength ?? null,
+      busy: isBrollBusy,
+      error: brollSaveState === "error",
+      retryBrollLoad: () => void refreshEpisodePackage(),
+      surfaceInput: brollSurfaceInput,
     });
-    const referenceClipPlanPanelProps = buildHearthReferenceClipPanelProps({
+    const referenceClipsSurfaceInput = {
       entries: referenceClipEntries,
       selectedEntryId: selectedReferenceClipEntryId,
       saveState: referenceClipSaveState,
@@ -6478,45 +6260,120 @@ export default function HearthShell({
       onMarkAwaitingResult: () => void onMarkReferenceClipRequestState("awaiting_result"),
       onClearRequestState: () => void onClearReferenceClipRequestState(),
       onAttachResultFromUrl: () => void onAttachReferenceClipResultFromUrl(),
-    });
-    const metadataPanelProps = {
-      titles: metadataTitlesDraft,
-      tags: metadataTagsDraft,
-      tagInput: metadataTagInputDraft,
-      tagSuggestions: metadataTagSuggestions,
-      descriptionShort: metadataDescriptionShortDraft,
-      descriptionLong: metadataDescriptionLongDraft,
-      previewMode: metadataPreviewMode,
-      saveState: metadataSaveState,
-      saveError: metadataSaveError,
-      hasUnsavedChanges: hasUnsavedMetadataChanges,
-      disabled: isApprovingScript || !episodePackage,
-      onTitleChange: onMetadataTitleChange,
-      onSetPrimaryTitle: onMetadataSetPrimaryTitle,
-      onTagInputChange: setMetadataTagInputDraft,
-      onAddTagFromInput: onMetadataAddTagFromInput,
-      onRemoveTag: onMetadataRemoveTag,
-      onAddTagSuggestion: onMetadataAddTagSuggestion,
-      onDescriptionShortChange: onMetadataDescriptionShortChange,
-      onDescriptionLongChange: onMetadataDescriptionLongChange,
-      onPreviewModeChange: onMetadataPreviewModeChange,
-      onSaveNow: onMetadataSaveNow,
-      onRetrySave: onMetadataRetrySave,
     };
-    const visualsPanelContracts = hearthVisualsWorkspace.composePanels({
-      thumbnailPanelMeta,
-      mediaMapPanelMeta,
-      imageMapPanelMeta,
-      brollPanelMeta,
-      referenceClipPanelMeta,
-      metadataPanelMeta,
-      thumbnailPanelProps,
-      mediaMapPanelProps,
-      imageMapPanelProps,
-      brollPlanPanelProps,
-      referenceClipPlanPanelProps,
-      metadataPanelProps,
+    const selectedReferenceClipAsset = selectedReferenceClipEntry?.candidate_assets?.find(
+      (candidate) => candidate.asset_id === selectedReferenceClipEntry.selected_asset_id,
+    ) ?? null;
+    const referenceClipsController = buildHearthReferenceClipsController({
+      active: Boolean(workpieceId),
+      loaded: episodePackageState === "loaded" && Boolean(episodePackage),
+      loadFailed: episodePackageState === "error",
+      authorityAvailable: episodePackageState !== "error",
+      entries: referenceClipEntries,
+      promptActive: Boolean(activeVisualPromptPackForReferenceClip),
+      busy: isReferenceClipBusy,
+      error: referenceClipSaveState === "error",
+      previewAvailable: Boolean(
+        selectedReferenceClipAsset?.preview_path
+        || selectedReferenceClipAsset?.thumbnail_path
+        || selectedReferenceClipAsset?.path,
+      ),
+      retryReferenceClips: () => void refreshEpisodePackage(),
+      surfaceInput: referenceClipsSurfaceInput,
     });
+    const metadataController = buildHearthMetadataController({
+      active: Boolean(workpieceId),
+      loaded: episodePackageState === "loaded" && Boolean(episodePackage),
+      loadFailed: episodePackageState === "error",
+      authorityAvailable: episodePackageState !== "error",
+      episodePackage,
+      canonicalTitleCount: canonicalFramingTitleCount,
+      canonicalTagCount: canonicalFramingTagCount,
+      canonicalHasDescriptions: canonicalFramingHasDescriptions,
+      displayedTitleCount: displayedFramingTitleCount,
+      displayedTagCount: displayedFramingTagCount,
+      framingPackReady,
+      disabled: isApprovingScript || !episodePackage,
+      tagSuggestions: metadataTagSuggestions,
+      workspace: metadataWorkspace,
+      retryMetadata: () => void refreshEpisodePackage(),
+    });
+    const productionController = buildHearthProductionController({
+      package: episodePackage,
+      packageStatus: episodePackageState,
+      refreshPackage: () => void refreshEpisodePackage(),
+      thumbnails: thumbnailController,
+      imagePlanning: imagePlanningController,
+      broll: brollController,
+      referenceClips: referenceClipsController,
+      metadata: metadataController,
+      releasePreparation: releasePreparationController,
+    });
+    const productionViewModel = buildHearthProductionViewModel({
+      controller: productionController,
+      activeTab: activeWorkpieceTab,
+      metadataPanelMeta: metadataController.meta,
+      summary: {
+        visuals: {
+          visualCount: mediaMapEntries.length,
+          briefCount: displayedThumbnailConceptCount,
+          mediaMapStatus: String(mediaMap?.status ?? "draft"),
+          coverageLevel: mediaMapCoverageLevel,
+        },
+        metadata: {
+          titleCount: framingTitleCount,
+          tagCount: displayedFramingTagCount,
+          complete: metadataComplete,
+          framingPackReady,
+        },
+      },
+      metadata: {
+        hasApprovedScript: hearthVisualsWorkspace.status.hasApprovedScript,
+        approvedScriptVersion: hearthVisualsWorkspace.status.approvedScriptVersion,
+        aiCreditsDepleted: hearthVisualsWorkspace.status.aiCreditsDepleted,
+        isAiProcessing: hearthVisualsWorkspace.status.isAiProcessing,
+        activeProductionAction: hearthVisualsWorkspace.status.activeProductionAction,
+        releasePrepScriptVersion: hearthVisualsWorkspace.status.releasePrepScriptVersion,
+        latestReleasePrepRawText: hearthVisualsWorkspace.status.latestReleasePrepRawText,
+        releasePrepLoadState: hearthVisualsWorkspace.status.releasePrepLoadState,
+        latestReleasePrepSections: hearthVisualsWorkspace.status.latestReleasePrepSections,
+        onGenerateTitles: hearthVisualsWorkspace.commands.onGenerateTitles,
+        onGenerateTags: hearthVisualsWorkspace.commands.onGenerateTags,
+        onGenerateFramingPack: hearthVisualsWorkspace.commands.onGenerateFramingPack,
+        onRefreshFramingPack: hearthVisualsWorkspace.commands.onRefreshFramingPack,
+        onRecoverFraming,
+        tagProposal: generatedTagProposal,
+        canonicalTags: metadataTagsDraft,
+        onReplaceTagProposal: () => onAcceptGeneratedTags("replace"),
+        onMergeTagProposal: () => onAcceptGeneratedTags("merge"),
+        onCancelTagProposal: () => setGeneratedTagProposal(null),
+      },
+      visuals: {
+        hasApprovedScript: hearthVisualsWorkspace.status.hasApprovedScript,
+        approvedScriptVersion: hearthVisualsWorkspace.status.approvedScriptVersion,
+        workflowKey: workpieceId ?? "",
+        workflowInput: mediaWorkflowInput,
+        activeVisualProviderBanner: hearthVisualsWorkspace.status.activeVisualProviderBanner,
+        activeVisualProviderHelperText: hearthVisualsWorkspace.status.activeVisualProviderHelperText,
+        thumbnailAuthority: { workspaceId: workspaceId ?? null, workpieceId: workpieceId ?? null },
+        onGenerateThumbnailConcepts: () => onRunProductionAction("thumbnails"),
+        onRecoverThumbnailConcepts,
+        onOpenThumbnailFraming: () => requestWorkpieceTabChange("metadata"),
+        onCanonicalThumbnailProgress: canonicalThumbnailProjection.onCanonicalProgress,
+      },
+    });
+    const tabSummaryById: Record<WorkpieceWorkspaceTab, string> = {
+      script: buildScriptTabSummary({
+        hasApprovedScript,
+        wordCount,
+        updatedAt: activeDraft?.updatedAt,
+        formatUpdatedAt,
+      }),
+      visuals: productionViewModel.tabSummaries.visuals,
+      metadata: productionViewModel.tabSummaries.metadata,
+      release: productionViewModel.tabSummaries.release,
+      history: `${revisions.length} revisions · ${latestMilestoneRevision ? `Milestone ${formatUpdatedAt(latestMilestoneRevision.createdAt)}` : resolveHistoryMilestoneMarker(revisions)}`,
+    };
 
     return (
       <HearthDraftMode
@@ -6588,63 +6445,8 @@ export default function HearthShell({
           onChangeTab: requestWorkpieceTabChange,
         }}
         draftStageClassName={`hs-draft-stage${(isHistoryWorkspaceTab || (isScriptWorkspaceTab && showScriptEditor)) ? " has-script-panel" : ""}`}
-        chatSurfaceProps={chatWorkspace.chatSurfaceProps}
-        releaseSurfaceProps={
-          isReleaseWorkspaceTab && hasApprovedScript && approvedScriptVersion
-            ? {
-              hasApprovedScript,
-              approvedScriptVersion,
-              hasFramingComplete: metadataComplete,
-              hasThumbnailsSelected: thumbnailsSelected,
-              mediaMapStatus: mediaMap?.status ?? null,
-              releaseReadinessCompleteCount: releaseReadiness.completeCount,
-              releaseReadinessTotalCount: releaseReadiness.totalCount,
-            }
-            : null
-        }
-        metadataSurfaceProps={{
-          visible: isMetadataWorkspaceTab,
-          hasApprovedScript: hearthVisualsWorkspace.status.hasApprovedScript,
-          approvedScriptVersion: hearthVisualsWorkspace.status.approvedScriptVersion,
-          metadataPanelMeta: visualsPanelContracts.metadata.meta,
-          metadataPanelProps: visualsPanelContracts.metadata.panelProps,
-          aiCreditsDepleted: hearthVisualsWorkspace.status.aiCreditsDepleted,
-          isAiProcessing: hearthVisualsWorkspace.status.isAiProcessing,
-          activeProductionAction: hearthVisualsWorkspace.status.activeProductionAction,
-          releasePrepScriptVersion: hearthVisualsWorkspace.status.releasePrepScriptVersion,
-          latestReleasePrepRawText: hearthVisualsWorkspace.status.latestReleasePrepRawText,
-          releasePrepLoadState: hearthVisualsWorkspace.status.releasePrepLoadState,
-          latestReleasePrepSections: hearthVisualsWorkspace.status.latestReleasePrepSections,
-          onGenerateTitles: hearthVisualsWorkspace.commands.onGenerateTitles,
-          onGenerateTags: hearthVisualsWorkspace.commands.onGenerateTags,
-          onGenerateFramingPack: hearthVisualsWorkspace.commands.onGenerateFramingPack,
-          onRefreshFramingPack: hearthVisualsWorkspace.commands.onRefreshFramingPack,
-          onRecoverFraming,
-          tagProposal: generatedTagProposal,
-          canonicalTags: metadataTagsDraft,
-          onReplaceTagProposal: () => onAcceptGeneratedTags("replace"),
-          onMergeTagProposal: () => onAcceptGeneratedTags("merge"),
-          onCancelTagProposal: () => setGeneratedTagProposal(null),
-        }}
-        visualsSurfaceProps={{
-          visible: isVisualsWorkspaceTab,
-          hasApprovedScript: hearthVisualsWorkspace.status.hasApprovedScript,
-          approvedScriptVersion: hearthVisualsWorkspace.status.approvedScriptVersion,
-          workflowKey: workpieceId ?? "",
-          workflowInput: mediaWorkflowInput,
-          activeVisualProviderBanner: hearthVisualsWorkspace.status.activeVisualProviderBanner,
-          activeVisualProviderHelperText: hearthVisualsWorkspace.status.activeVisualProviderHelperText,
-          thumbnailPanelProps: visualsPanelContracts.thumbnail.panelProps,
-          thumbnailAuthority: { workspaceId: workspaceId ?? null, workpieceId: workpieceId ?? null },
-          onGenerateThumbnailConcepts: () => onRunProductionAction("thumbnails"),
-          onRecoverThumbnailConcepts,
-          onOpenThumbnailFraming: () => requestWorkpieceTabChange("metadata"),
-          onCanonicalThumbnailProgress,
-          mediaMapPanelProps: visualsPanelContracts.mediaMap.panelProps,
-          imageMapPanelProps: visualsPanelContracts.imageMap.panelProps,
-          brollPlanPanelProps: visualsPanelContracts.broll.panelProps,
-          referenceClipPlanPanelProps: visualsPanelContracts.referenceClips.panelProps,
-        }}
+        chatSurfaceProps={conversationController.surface.chatSurfaceProps}
+        productionContent={<HearthProductionContent viewModel={productionViewModel} />}
         historyVisible={isHistoryWorkspaceTab}
         revisionsContent={renderRevisionsView()}
         scriptSurfaceProps={buildHearthDraftScriptSurfaceProps({
@@ -6660,7 +6462,7 @@ export default function HearthShell({
           isVisualScriptMode,
           visualScriptParagraphRail,
           isCanonicalImageMapScriptPanel,
-          activeDraftExists: Boolean(activeDraft),
+          activeDraftExists: Boolean(scriptController.surfaces.script.draft),
           sourcesSummary,
           unusedSummary,
           canReviewSources: Boolean(workpieceId),
@@ -6681,7 +6483,7 @@ export default function HearthShell({
             });
           },
           onBodyChange: (nextBody) => {
-            onDraftBodyChange(nextBody);
+            scriptController.commands.updateDraft.body(nextBody);
           },
           onBodyCompositionStart: () => setIsBodyComposing(true),
           onBodyCompositionEnd: () => setIsBodyComposing(false),
@@ -6737,27 +6539,18 @@ export default function HearthShell({
     />
   );
 
-  const renderSourcesView = () => (
-    <section className="hs-sources-view">
-      <SourcesView
-        state={sourcesState}
-        workspaceId={workspaceId}
-        workpieceId={workpieceId}
-        researchResult={latestResearchResult}
-      />
-    </section>
-  );
+  const renderSourcesView = sourcesController.surface.render;
 
   const renderRevisionsView = () => (
     <HearthRevisionsMode
       closeRevisionPanel={closeRevisionPanel}
-      revisions={revisions}
-      selectedRevision={selectedRevision}
-      revisionView={revisionView}
+      revisions={scriptController.surfaces.history.revisions}
+      selectedRevision={scriptController.surfaces.history.selectedRevision}
+      revisionView={scriptController.surfaces.history.view}
       formatUpdatedAt={formatUpdatedAt}
       selectRevisionPreview={selectRevisionPreview}
       selectRevisionCompare={selectRevisionCompare}
-      onRestoreRevision={onRestoreRevision}
+      onRestoreRevision={scriptController.commands.restoreRevision}
       updateSelectedRevisionDraftNote={updateSelectedRevisionDraftNote}
       onUpdateRevisionNote={onUpdateRevisionNote}
       renderSectionedBody={renderSectionedBody}
@@ -6785,8 +6578,8 @@ export default function HearthShell({
       archivingWorkpieceIds={archivingWorkpieceIds}
       restoringWorkpieceIds={restoringWorkpieceIds}
       openWorkpieceInFocus={openWorkpieceInFocus}
-      resolveWorkpiecePresenceClass={resolveWorkpiecePresenceClass}
-      resolveWorkpiecePresenceBadge={resolveWorkpiecePresenceBadge}
+      resolveWorkpiecePresenceClass={presenceController.surface.resolveWorkpiecePresenceClass}
+      resolveWorkpiecePresenceBadge={presenceController.surface.resolveWorkpiecePresenceBadge}
       formatUpdatedAt={formatUpdatedAt}
       resolveDraftEditorName={resolveDraftEditorName}
       saveDraftMeta={saveDraftMeta}
@@ -6827,7 +6620,6 @@ export default function HearthShell({
   );
 
   const renderSeriesView = () => {
-    const seriesEntries = orderedReadyScripts.filter((entry) => resolveReadyLabel(entry) === "series");
     return (
       <HearthSeriesMode
         seriesEntries={seriesEntries}
@@ -6895,43 +6687,22 @@ export default function HearthShell({
     ? renderSparkRouteBootstrapView()
     : renderEpisodesView();
 
-  const sourcesBadge = missingSourcesCount > 0 ? String(missingSourcesCount) : null;
-  const sourcesBadgeTitle = missingSourcesCount > 0
-    ? `Missing cited sources: ${missingSourcesCount}${unusedSourcesCount ? ` · Unused refs: ${unusedSourcesCount}` : ""}`
-    : unusedSourcesCount > 0
-      ? `Unused refs: ${unusedSourcesCount}`
-      : "Sources";
   const shouldShowWorkpieceId = useCallback(
     (title: string) => duplicateRailTitleKeys.has(normalizeRailTitleKey(title)),
     [duplicateRailTitleKeys],
   );
-  const onOpenReadyView = useCallback(() => {
-    setMode("ready");
-  }, []);
-  const onFocusDraft = useCallback(() => {
-    setFocusTab("draft");
-    setMode("focus");
-  }, []);
-  const onFocusPlanning = useCallback(() => {
-    setFocusTab("planning");
-    setMode("focus");
-  }, []);
-  const onFocusSources = useCallback(() => {
-    setFocusTab("sources");
-    setMode("focus");
-  }, []);
-  const onFocusRevisions = useCallback(() => {
-    setFocusTab("revisions");
-    setMode("focus");
-  }, []);
-  const onOpenApiLedger = useCallback(() => {
-    if (!hasActiveEpisode) {
-      setMode("episodes");
-      return;
-    }
-    setFocusTab("sources");
-    setMode("focus");
-  }, [hasActiveEpisode]);
+  const {
+    openReady: onOpenReadyView,
+    focusDraft: onFocusDraft,
+    focusPlanning: onFocusPlanning,
+    focusSources: onFocusSources,
+    focusRevisions: onFocusRevisions,
+    openApiLedger: onOpenApiLedger,
+  } = useHearthDesktopNavigationCommands({
+    hasActiveEpisode,
+    setFocusTab,
+    setMode,
+  });
   const onRestoreActiveWorkpiece = useCallback(() => {
     if (!activeWorkpiece) return;
     return onRestoreWorkpiece(activeWorkpiece.workpieceId, { openAfterRestore: true });
@@ -6945,14 +6716,109 @@ export default function HearthShell({
     if (!activeDraft) return;
     return onDeleteDraft(activeDraft);
   }, [activeDraft, onDeleteDraft]);
-  const mobileRestoreButtonLabel = activeWorkpieceContext.workpiece
-    && restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId)
-    ? "Restoring..."
-    : "Restore Workpiece";
-  const mobileRestoreButtonDisabled = Boolean(
-    !activeWorkpieceContext.workpiece
-    || restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId),
-  );
+  const mobileNavigationViewModel = buildHearthMobileNavigationViewModel({
+    isMobile,
+    mobileOverlayView,
+    activeDraftTitle: activeDraft?.title,
+    closeMobileOverlay,
+    openReadyInMobileOverlay,
+    isActiveWorkpieceArchived: Boolean(activeWorkpieceContext.workpiece?.isArchived),
+    hasActiveWorkpiece: Boolean(activeWorkpieceContext.workpiece),
+    activeWorkpieceId: activeWorkpieceContext.workpiece?.workpieceId ?? null,
+    restoringWorkpieceIds,
+    onRestoreWorkpiece: onRestoreMobileWorkpiece,
+    hasActiveDraft: Boolean(activeDraft),
+    isSaving,
+    onDeleteDraftBuffer: onDeleteActiveDraftBuffer,
+    onSaveDraft,
+    refreshReadyScripts,
+    isReadyScriptsLoading,
+    renderFocusContent: renderFocusEditor,
+    renderReadyContent: renderReadyView,
+  });
+  const desktopRailViewModel = buildHearthDesktopRailViewModel({
+    deferDesktopRailCollections,
+    readyTotalCount,
+    refreshReadyScripts,
+    isReadyScriptsLoading,
+    readyScriptsError,
+    readyCategoryError,
+    readyUrgencyLabelFresh: READY_URGENCY_LABEL.fresh,
+    readyUrgencyLabelCooling: READY_URGENCY_LABEL.cooling,
+    readyUrgencyLabelCold: READY_URGENCY_LABEL.cold,
+    readyUrgencyFreshCount: readyUrgencyCounts.fresh,
+    readyUrgencyCoolingCount: readyUrgencyCounts.cooling,
+    readyUrgencyColdCount: readyUrgencyCounts.cold,
+    removedReadyCount,
+    onOpenReadyView,
+    onRestoreRemovedReady,
+    isRestoringReady,
+    searchRef,
+    searchText,
+    onSearchTextChange: setSearchText,
+    sortKey,
+    onSortKeyChange: setSortKey,
+    showArchived,
+    onShowArchivedChange: setShowArchived,
+    isLoading,
+    isWorkpiecesLoading,
+    workpiecesError,
+    filteredWorkpieceNavItems,
+    draftsById,
+    workpieceId,
+    editingDraftId,
+    setEditingDraftId,
+    editingTitle,
+    setEditingTitle,
+    shouldShowWorkpieceId,
+    archivingWorkpieceIds,
+    restoringWorkpieceIds,
+    openWorkpieceInFocus,
+    formatUpdatedAt,
+    resolveDraftEditorName,
+    saveDraftMeta,
+    onRestoreWorkpiece,
+    onArchiveWorkpiece,
+    onDeleteDraft,
+    hasActiveEpisode,
+    activeEpisodeReadyStatus,
+    activeWorkpieceIsArchived,
+    activeWorkpieceArchiveReason: activeWorkpiece?.archiveReason ?? null,
+    isRestoringActiveWorkpiece: Boolean(
+      activeWorkpiece && restoringWorkpieceIds.includes(activeWorkpiece.workpieceId),
+    ),
+    onRestoreActiveWorkpiece,
+    openInAnvilHref: anvilHandoffController.surface.openInAnvilHref,
+    handoffBlocked: anvilHandoffController.surface.handoffBlocked,
+    onOpenInAnvil: anvilHandoffController.surface.onOpenInAnvil,
+    anvilStepModeHint: anvilHandoffController.surface.anvilStepModeHint,
+    mode,
+    focusTab,
+    wordCount,
+    revisionsCount: revisions.length,
+    missingSourcesCount,
+    unusedSourcesCount,
+    devMode,
+    onFocusDraft,
+    onFocusPlanning,
+    onFocusSources,
+    onFocusRevisions,
+    onOpenApiLedger,
+  });
+  const modalViewModel = buildHearthModalViewModel({
+    composeModalOpen,
+    productionDefaults,
+    onCloseComposeModal: () => setComposeModalOpen(false),
+    onComposeSetupSubmit,
+    revisionModalOpen,
+    revisionKind,
+    onRevisionKindChange: setRevisionKind,
+    revisionNote,
+    onRevisionNoteChange: setRevisionNote,
+    closeRevisionModal,
+    onConfirmRevision,
+    activeDraftId: activeDraft?.id ?? null,
+  });
 
   return (
     <section className={`hs-shell hs-density-${uiDensity}${isMobile ? " hs-shell--mobile" : ""}`}>
@@ -6973,115 +6839,15 @@ export default function HearthShell({
           uiDensity={uiDensity}
           onUiDensityChange={setUiDensity}
           railContent={(
-            <HearthDesktopRail
-              deferDesktopRailCollections={deferDesktopRailCollections}
-              readyTotalCount={readyTotalCount}
-              refreshReadyScripts={refreshReadyScripts}
-              isReadyScriptsLoading={isReadyScriptsLoading}
-              readyScriptsError={readyScriptsError}
-              readyCategoryError={readyCategoryError}
-              readyUrgencyLabelFresh={READY_URGENCY_LABEL.fresh}
-              readyUrgencyLabelCooling={READY_URGENCY_LABEL.cooling}
-              readyUrgencyLabelCold={READY_URGENCY_LABEL.cold}
-              readyUrgencyFreshCount={readyUrgencyCounts.fresh}
-              readyUrgencyCoolingCount={readyUrgencyCounts.cooling}
-              readyUrgencyColdCount={readyUrgencyCounts.cold}
-              removedReadyCount={removedReadyCount}
-              onOpenReadyView={onOpenReadyView}
-              onRestoreRemovedReady={onRestoreRemovedReady}
-              isRestoringReady={isRestoringReady}
-              searchRef={searchRef}
-              searchText={searchText}
-              onSearchTextChange={setSearchText}
-              sortKey={sortKey}
-              onSortKeyChange={setSortKey}
-              showArchived={showArchived}
-              onShowArchivedChange={setShowArchived}
-              isLoading={isLoading}
-              isWorkpiecesLoading={isWorkpiecesLoading}
-              workpiecesError={workpiecesError}
-              filteredWorkpieceNavItems={filteredWorkpieceNavItems}
-              draftsById={draftsById}
-              workpieceId={workpieceId}
-              editingDraftId={editingDraftId}
-              setEditingDraftId={setEditingDraftId}
-              editingTitle={editingTitle}
-              setEditingTitle={setEditingTitle}
-              shouldShowWorkpieceId={shouldShowWorkpieceId}
-              archivingWorkpieceIds={archivingWorkpieceIds}
-              restoringWorkpieceIds={restoringWorkpieceIds}
-              openWorkpieceInFocus={openWorkpieceInFocus}
-              formatUpdatedAt={formatUpdatedAt}
-              resolveDraftEditorName={resolveDraftEditorName}
-              saveDraftMeta={saveDraftMeta}
-              onRestoreWorkpiece={onRestoreWorkpiece}
-              onArchiveWorkpiece={onArchiveWorkpiece}
-              onDeleteDraft={onDeleteDraft}
-              hasActiveEpisode={hasActiveEpisode}
-              activeEpisodeReadyStatus={activeEpisodeReadyStatus}
-              activeWorkpieceIsArchived={activeWorkpieceIsArchived}
-              activeWorkpieceArchiveReason={activeWorkpiece?.archiveReason ?? null}
-              isRestoringActiveWorkpiece={Boolean(
-                activeWorkpiece && restoringWorkpieceIds.includes(activeWorkpiece.workpieceId),
-              )}
-              onRestoreActiveWorkpiece={onRestoreActiveWorkpiece}
-              openInAnvilHref={openInAnvilHref}
-              handoffBlocked={handoffBlocked}
-              onOpenInAnvil={onOpenInAnvil}
-              anvilStepModeHint={anvilStepModeHint}
-              mode={mode}
-              focusTab={focusTab}
-              wordCount={wordCount}
-              revisionsCount={revisions.length}
-              sourcesBadgeTitle={sourcesBadgeTitle}
-              sourcesBadge={sourcesBadge}
-              devMode={devMode}
-              onFocusDraft={onFocusDraft}
-              onFocusPlanning={onFocusPlanning}
-              onFocusSources={onFocusSources}
-              onFocusRevisions={onFocusRevisions}
-              onOpenApiLedger={onOpenApiLedger}
-            />
+            <HearthDesktopRail {...desktopRailViewModel} />
           )}
           mainContent={mainContent}
         />
       )}
 
-      <HearthMobileOverlays
-        isMobile={isMobile}
-        mobileOverlayView={mobileOverlayView}
-        activeDraftTitle={activeDraft?.title ?? null}
-        closeMobileOverlay={closeMobileOverlay}
-        openReadyInMobileOverlay={openReadyInMobileOverlay}
-        isActiveWorkpieceArchived={Boolean(activeWorkpieceContext.workpiece?.isArchived)}
-        hasActiveWorkpiece={Boolean(activeWorkpieceContext.workpiece)}
-        restoreButtonLabel={mobileRestoreButtonLabel}
-        restoreButtonDisabled={mobileRestoreButtonDisabled}
-        onRestoreWorkpiece={onRestoreMobileWorkpiece}
-        hasActiveDraft={Boolean(activeDraft)}
-        isSaving={isSaving}
-        onDeleteDraftBuffer={onDeleteActiveDraftBuffer}
-        onSaveDraft={onSaveDraft}
-        refreshReadyScripts={refreshReadyScripts}
-        isReadyScriptsLoading={isReadyScriptsLoading}
-        renderFocusContent={renderFocusEditor}
-        renderReadyContent={renderReadyView}
-      />
+      <HearthMobileNavigation {...mobileNavigationViewModel} />
 
-      <HearthShellModals
-        composeModalOpen={composeModalOpen}
-        productionDefaults={productionDefaults}
-        onCloseComposeModal={() => setComposeModalOpen(false)}
-        onComposeSetupSubmit={onComposeSetupSubmit}
-        revisionModalOpen={revisionModalOpen}
-        revisionKind={revisionKind}
-        onRevisionKindChange={setRevisionKind}
-        revisionNote={revisionNote}
-        onRevisionNoteChange={setRevisionNote}
-        closeRevisionModal={closeRevisionModal}
-        onConfirmRevision={onConfirmRevision}
-        hasActiveDraft={Boolean(activeDraft)}
-      />
+      <HearthShellModals {...modalViewModel} />
     </section>
   );
 }

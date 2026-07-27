@@ -83,6 +83,7 @@ export type SourcesState = {
   missingCitedCount: number;
   unusedRefsCount: number;
   hasWorkspaceIndex: boolean;
+  canonicalLoadFailed: boolean;
   citedSourceIds: Set<string>;
   status: SourcesStatus;
   attachSourceToWorkpiece: (sourceId: string) => void;
@@ -122,11 +123,15 @@ export function useSourcesState(
   const [workspaceIndexState, setWorkspaceIndexState] = useState<{
     scopeKey: string;
     exists: boolean | null;
-  }>({ scopeKey: workspaceScopeKey, exists: null });
+    failed: boolean;
+  }>({ scopeKey: workspaceScopeKey, exists: null, failed: false });
   const workpieceSources = workpieceSourcesState.scopeKey === sourceScopeKey ? workpieceSourcesState.refs : [];
   const sourceIndexEntries = sourceIndexState.scopeKey === workspaceScopeKey ? sourceIndexState.entries : [];
   const sourceDetails = sourceDetailsState.scopeKey === workspaceScopeKey ? sourceDetailsState.details : {};
   const workspaceIndexExists = workspaceIndexState.scopeKey === workspaceScopeKey ? workspaceIndexState.exists : null;
+  const canonicalLoadFailed = workspaceIndexState.scopeKey === workspaceScopeKey
+    ? workspaceIndexState.failed
+    : false;
   const setWorkpieceSources = useCallback((next: SetStateAction<WorkpieceSourceRef[]>) => {
     setWorkpieceSourcesState((previous) => {
       const current = previous.scopeKey === sourceScopeKey ? previous.refs : [];
@@ -149,7 +154,7 @@ export function useSourcesState(
     });
   }, [workspaceScopeKey]);
   const setWorkspaceIndexExists = useCallback((exists: boolean | null) => {
-    setWorkspaceIndexState({ scopeKey: workspaceScopeKey, exists });
+    setWorkspaceIndexState({ scopeKey: workspaceScopeKey, exists, failed: false });
   }, [workspaceScopeKey]);
   const [status, setStatus] = useState<SourcesStatus>({ kind: "idle" });
 
@@ -472,7 +477,7 @@ export function useSourcesState(
       setWorkpieceSources(readWorkpieceSources(workspaceId, workpieceId));
       setSourceIndexEntries(readSourceIndex(workspaceId));
       setSourceDetails({});
-      setWorkspaceIndexExists(null);
+      setWorkspaceIndexState({ scopeKey: workspaceScopeKey, exists: null, failed: false });
       setStatus({ kind: "idle" });
       workpieceCommitRef.current = null;
     };
@@ -503,7 +508,14 @@ export function useSourcesState(
               writeWorkpieceSourcesCache(workspaceId, workpieceId, refs);
               workpieceCommitRef.current = JSON.stringify({ workspaceId, workpieceId, refs });
             })
-            .catch(() => {}),
+            .catch(() => {
+              if (cancelled || !operationAuthority.isCurrent(operation)) return;
+              setWorkspaceIndexState((previous) => ({
+                scopeKey: workspaceScopeKey,
+                exists: previous.scopeKey === workspaceScopeKey ? previous.exists : null,
+                failed: true,
+              }));
+            }),
         );
       }
 
@@ -516,7 +528,14 @@ export function useSourcesState(
               writeSourceIndexCache(workspaceId, index.entries);
               setWorkspaceIndexExists(index.exists);
             })
-            .catch(() => {}),
+            .catch(() => {
+              if (cancelled || !operationAuthority.isCurrent(operation)) return;
+              setWorkspaceIndexState((previous) => ({
+                scopeKey: workspaceScopeKey,
+                exists: previous.scopeKey === workspaceScopeKey ? previous.exists : null,
+                failed: true,
+              }));
+            }),
         );
       }
 
@@ -548,6 +567,7 @@ export function useSourcesState(
     missingCitedCount,
     unusedRefsCount,
     hasWorkspaceIndex,
+    canonicalLoadFailed,
     citedSourceIds,
     status,
     attachSourceToWorkpiece,

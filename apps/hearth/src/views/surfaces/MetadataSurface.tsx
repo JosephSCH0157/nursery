@@ -1,6 +1,12 @@
-import { useState, type ComponentProps } from "react";
+import { lazy, useState, type ComponentProps } from "react";
 import CollapsibleFocusPanel from "../../components/focus/CollapsibleFocusPanel";
-import MetadataPanel from "../../components/metadata/MetadataPanel";
+import type MetadataPanel from "../../components/metadata/MetadataPanel";
+import LazyProductionSurfaceBoundary from "../../components/production/LazyProductionSurfaceBoundary";
+import { loadHearthProductionSurface } from "./hearth-production-surface-loaders";
+
+const LazyMetadataPanel = lazy(() => (
+  loadHearthProductionSurface("metadata") as Promise<{ default: typeof MetadataPanel }>
+));
 
 type FramingPrepSection = {
   key: string;
@@ -154,7 +160,9 @@ export default function MetadataSurface(props: MetadataSurfaceProps) {
           </div>
         ) : null}
       </section>
-      <MetadataPanel {...props.metadataPanelProps} />
+      <LazyProductionSurfaceBoundary surfaceKey="metadata">
+        <LazyMetadataPanel {...props.metadataPanelProps} />
+      </LazyProductionSurfaceBoundary>
     </CollapsibleFocusPanel>
   );
 }
