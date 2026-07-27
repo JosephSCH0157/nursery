@@ -206,7 +206,6 @@ import {
 import {
   resolveHearthThumbnailOverlayText,
 } from "../lib/hearth-thumbnail-title-contract";
-import { formatThumbnailPanelMeta } from "../lib/hearth-thumbnail-workflow";
 import { useLayoutMode } from "@forge/ui-mobile";
 import { hasBrowserSpeechRecognition } from "../lib/browser-speech-contract";
 import {
@@ -438,6 +437,8 @@ import {
   useHearthReleasePreparationWorkspaceState,
 } from "./hearth-shell/useHearthReleasePreparationController";
 import { buildHearthProductionController } from "./hearth-shell/buildHearthProductionController";
+import { buildHearthProductionViewModel } from "./hearth-shell/buildHearthProductionViewModel";
+import HearthProductionContent from "./hearth-shell/HearthProductionContent";
 
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
@@ -1755,11 +1756,7 @@ export default function HearthShell({
   const canonicalThumbnailConceptCount = canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "")
     ? canonicalThumbnailProgress.conceptRevisionCount
     : 0;
-  const canonicalThumbnailBaseVersionCount = canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "")
-    ? canonicalThumbnailProgress.baseVersionCount
-    : 0;
   const displayedThumbnailConceptCount = Math.max(thumbnailConcepts.length, canonicalThumbnailConceptCount);
-  const displayedThumbnailVersionCount = Math.max(thumbnailVersions.length, canonicalThumbnailBaseVersionCount);
   const canonicalFramingTitleCount = canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "")
     ? canonicalThumbnailProgress.titleCount : 0;
   const canonicalFramingTagCount = canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "")
@@ -2087,12 +2084,8 @@ export default function HearthShell({
   const chatPanelMeta = chatMessages.length > 0
     ? `${chatMessages.length} message${chatMessages.length === 1 ? "" : "s"}`
     : "Ready";
-  const thumbnailPanelMeta = formatThumbnailPanelMeta(displayedThumbnailConceptCount, displayedThumbnailVersionCount);
-  const mediaMapPanelMeta = `${mediaMapEntries.length} visual${mediaMapEntries.length === 1 ? "" : "s"}`;
-  const imageMapPanelMeta = `${imageMapEntries.length} anchor${imageMapEntries.length === 1 ? "" : "s"}`;
   const plannedImageCount = mediaMapEntries.filter((entry) => entry.final_media_kind === "image").length;
   const imageMapAuthorityUnavailable = imageMapSaveError === "canonical_image_map_authority_unavailable";
-  const brollPanelMeta = `${brollBeats.length} beat${brollBeats.length === 1 ? "" : "s"} · coverage ${brollPlan?.coverage_strength ?? "low"}`;
   const mediaWorkflowInput = {
     hasApprovedScript: Boolean(scriptApprovalState.hasApprovedScript && scriptApprovalState.approvedScriptVersion && scriptApprovalState.approvedScriptVersion > 0),
     visualPlan: {
@@ -2116,7 +2109,6 @@ export default function HearthShell({
     broll: { planned: brollBeats.length, completed: brollBeats.filter((beat) => beat.fulfillment_state === "resolved" && Boolean(beat.selected_asset_id)).length },
     upstreamChanged: visualPlanRevisionChanged,
   };
-  const referenceClipPanelMeta = `${referenceClipEntries.length} Reference Clip${referenceClipEntries.length === 1 ? "" : "s"}`;
   const hasBrowserSpeech = (
     typeof window !== "undefined"
     && hasBrowserSpeechRecognition(window)
@@ -2368,18 +2360,6 @@ export default function HearthShell({
     history: false,
   };
   const hasAnyUnsavedTab = Object.values(tabDirtyById).some(Boolean);
-  const tabSummaryById: Record<WorkpieceWorkspaceTab, string> = {
-    script: buildScriptTabSummary({
-      hasApprovedScript,
-      wordCount,
-      updatedAt: activeDraft?.updatedAt,
-      formatUpdatedAt,
-    }),
-    visuals: `${mediaMapEntries.length} visuals${displayedThumbnailConceptCount ? ` · ${displayedThumbnailConceptCount} briefs` : ""} · ${String(mediaMap?.status ?? "draft").toUpperCase()} · ${mediaMapCoverageLevel}`,
-    metadata: `${framingTitleCount} title${framingTitleCount === 1 ? "" : "s"} · ${displayedFramingTagCount} tags · ${metadataComplete ? "Complete" : framingPackReady ? "Pack ready" : "Needs work"}`,
-    release: releasePreparationController.summary,
-    history: `${revisions.length} revisions · ${latestMilestoneRevision ? `Milestone ${formatUpdatedAt(latestMilestoneRevision.createdAt)}` : resolveHistoryMilestoneMarker(revisions)}`,
-  };
   const chatHistoryKey = useMemo(
     () => resolveChatHistoryKey(workpieceId, activeDraft?.id ?? null),
     [activeDraft?.id, workpieceId],
@@ -5893,9 +5873,6 @@ export default function HearthShell({
         ? "Partial Script"
         : "Outline Draft";
     const isScriptWorkspaceTab = activeWorkpieceTab === "script";
-    const isVisualsWorkspaceTab = activeWorkpieceTab === "visuals";
-    const isMetadataWorkspaceTab = activeWorkpieceTab === "metadata";
-    const isReleaseWorkspaceTab = activeWorkpieceTab === "release";
     const isHistoryWorkspaceTab = activeWorkpieceTab === "history";
     const thumbnailController = buildHearthThumbnailController({
       workspace: thumbnailWorkspace,
@@ -6329,20 +6306,71 @@ export default function HearthShell({
       metadata: metadataController,
       releasePreparation: releasePreparationController,
     });
-    const visualsPanelContracts = hearthVisualsWorkspace.composePanels({
-      thumbnailPanelMeta,
-      mediaMapPanelMeta,
-      imageMapPanelMeta,
-      brollPanelMeta,
-      referenceClipPanelMeta,
+    const productionViewModel = buildHearthProductionViewModel({
+      controller: productionController,
+      activeTab: activeWorkpieceTab,
       metadataPanelMeta: metadataController.meta,
-      thumbnailPanelProps: productionController.surfaces.thumbnails,
-      mediaMapPanelProps: productionController.surfaces.visualPlan,
-      imageMapPanelProps: productionController.surfaces.episodeImages,
-      brollPlanPanelProps: productionController.surfaces.broll,
-      referenceClipPlanPanelProps: productionController.surfaces.referenceClips,
-      metadataPanelProps: productionController.surfaces.metadata,
+      summary: {
+        visuals: {
+          visualCount: mediaMapEntries.length,
+          briefCount: displayedThumbnailConceptCount,
+          mediaMapStatus: String(mediaMap?.status ?? "draft"),
+          coverageLevel: mediaMapCoverageLevel,
+        },
+        metadata: {
+          titleCount: framingTitleCount,
+          tagCount: displayedFramingTagCount,
+          complete: metadataComplete,
+          framingPackReady,
+        },
+      },
+      metadata: {
+        hasApprovedScript: hearthVisualsWorkspace.status.hasApprovedScript,
+        approvedScriptVersion: hearthVisualsWorkspace.status.approvedScriptVersion,
+        aiCreditsDepleted: hearthVisualsWorkspace.status.aiCreditsDepleted,
+        isAiProcessing: hearthVisualsWorkspace.status.isAiProcessing,
+        activeProductionAction: hearthVisualsWorkspace.status.activeProductionAction,
+        releasePrepScriptVersion: hearthVisualsWorkspace.status.releasePrepScriptVersion,
+        latestReleasePrepRawText: hearthVisualsWorkspace.status.latestReleasePrepRawText,
+        releasePrepLoadState: hearthVisualsWorkspace.status.releasePrepLoadState,
+        latestReleasePrepSections: hearthVisualsWorkspace.status.latestReleasePrepSections,
+        onGenerateTitles: hearthVisualsWorkspace.commands.onGenerateTitles,
+        onGenerateTags: hearthVisualsWorkspace.commands.onGenerateTags,
+        onGenerateFramingPack: hearthVisualsWorkspace.commands.onGenerateFramingPack,
+        onRefreshFramingPack: hearthVisualsWorkspace.commands.onRefreshFramingPack,
+        onRecoverFraming,
+        tagProposal: generatedTagProposal,
+        canonicalTags: metadataTagsDraft,
+        onReplaceTagProposal: () => onAcceptGeneratedTags("replace"),
+        onMergeTagProposal: () => onAcceptGeneratedTags("merge"),
+        onCancelTagProposal: () => setGeneratedTagProposal(null),
+      },
+      visuals: {
+        hasApprovedScript: hearthVisualsWorkspace.status.hasApprovedScript,
+        approvedScriptVersion: hearthVisualsWorkspace.status.approvedScriptVersion,
+        workflowKey: workpieceId ?? "",
+        workflowInput: mediaWorkflowInput,
+        activeVisualProviderBanner: hearthVisualsWorkspace.status.activeVisualProviderBanner,
+        activeVisualProviderHelperText: hearthVisualsWorkspace.status.activeVisualProviderHelperText,
+        thumbnailAuthority: { workspaceId: workspaceId ?? null, workpieceId: workpieceId ?? null },
+        onGenerateThumbnailConcepts: () => onRunProductionAction("thumbnails"),
+        onRecoverThumbnailConcepts,
+        onOpenThumbnailFraming: () => requestWorkpieceTabChange("metadata"),
+        onCanonicalThumbnailProgress: canonicalThumbnailProjection.onCanonicalProgress,
+      },
     });
+    const tabSummaryById: Record<WorkpieceWorkspaceTab, string> = {
+      script: buildScriptTabSummary({
+        hasApprovedScript,
+        wordCount,
+        updatedAt: activeDraft?.updatedAt,
+        formatUpdatedAt,
+      }),
+      visuals: productionViewModel.tabSummaries.visuals,
+      metadata: productionViewModel.tabSummaries.metadata,
+      release: productionViewModel.tabSummaries.release,
+      history: `${revisions.length} revisions · ${latestMilestoneRevision ? `Milestone ${formatUpdatedAt(latestMilestoneRevision.createdAt)}` : resolveHistoryMilestoneMarker(revisions)}`,
+    };
 
     return (
       <HearthDraftMode
@@ -6415,50 +6443,7 @@ export default function HearthShell({
         }}
         draftStageClassName={`hs-draft-stage${(isHistoryWorkspaceTab || (isScriptWorkspaceTab && showScriptEditor)) ? " has-script-panel" : ""}`}
         chatSurfaceProps={conversationController.surface.chatSurfaceProps}
-        releaseSurfaceProps={isReleaseWorkspaceTab ? productionController.surfaces.release : null}
-        metadataSurfaceProps={{
-          visible: isMetadataWorkspaceTab,
-          hasApprovedScript: hearthVisualsWorkspace.status.hasApprovedScript,
-          approvedScriptVersion: hearthVisualsWorkspace.status.approvedScriptVersion,
-          metadataPanelMeta: visualsPanelContracts.metadata.meta,
-          metadataPanelProps: visualsPanelContracts.metadata.panelProps,
-          aiCreditsDepleted: hearthVisualsWorkspace.status.aiCreditsDepleted,
-          isAiProcessing: hearthVisualsWorkspace.status.isAiProcessing,
-          activeProductionAction: hearthVisualsWorkspace.status.activeProductionAction,
-          releasePrepScriptVersion: hearthVisualsWorkspace.status.releasePrepScriptVersion,
-          latestReleasePrepRawText: hearthVisualsWorkspace.status.latestReleasePrepRawText,
-          releasePrepLoadState: hearthVisualsWorkspace.status.releasePrepLoadState,
-          latestReleasePrepSections: hearthVisualsWorkspace.status.latestReleasePrepSections,
-          onGenerateTitles: hearthVisualsWorkspace.commands.onGenerateTitles,
-          onGenerateTags: hearthVisualsWorkspace.commands.onGenerateTags,
-          onGenerateFramingPack: hearthVisualsWorkspace.commands.onGenerateFramingPack,
-          onRefreshFramingPack: hearthVisualsWorkspace.commands.onRefreshFramingPack,
-          onRecoverFraming,
-          tagProposal: generatedTagProposal,
-          canonicalTags: metadataTagsDraft,
-          onReplaceTagProposal: () => onAcceptGeneratedTags("replace"),
-          onMergeTagProposal: () => onAcceptGeneratedTags("merge"),
-          onCancelTagProposal: () => setGeneratedTagProposal(null),
-        }}
-        visualsSurfaceProps={{
-          visible: isVisualsWorkspaceTab,
-          hasApprovedScript: hearthVisualsWorkspace.status.hasApprovedScript,
-          approvedScriptVersion: hearthVisualsWorkspace.status.approvedScriptVersion,
-          workflowKey: workpieceId ?? "",
-          workflowInput: mediaWorkflowInput,
-          activeVisualProviderBanner: hearthVisualsWorkspace.status.activeVisualProviderBanner,
-          activeVisualProviderHelperText: hearthVisualsWorkspace.status.activeVisualProviderHelperText,
-          thumbnailPanelProps: visualsPanelContracts.thumbnail.panelProps,
-          thumbnailAuthority: { workspaceId: workspaceId ?? null, workpieceId: workpieceId ?? null },
-          onGenerateThumbnailConcepts: () => onRunProductionAction("thumbnails"),
-          onRecoverThumbnailConcepts,
-          onOpenThumbnailFraming: () => requestWorkpieceTabChange("metadata"),
-          onCanonicalThumbnailProgress: canonicalThumbnailProjection.onCanonicalProgress,
-          mediaMapPanelProps: visualsPanelContracts.mediaMap.panelProps,
-          imageMapPanelProps: visualsPanelContracts.imageMap.panelProps,
-          brollPlanPanelProps: visualsPanelContracts.broll.panelProps,
-          referenceClipPlanPanelProps: visualsPanelContracts.referenceClips.panelProps,
-        }}
+        productionContent={<HearthProductionContent viewModel={productionViewModel} />}
         historyVisible={isHistoryWorkspaceTab}
         revisionsContent={renderRevisionsView()}
         scriptSurfaceProps={buildHearthDraftScriptSurfaceProps({

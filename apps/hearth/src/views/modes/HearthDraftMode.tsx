@@ -1,10 +1,7 @@
 import type { ReactNode } from "react";
 import ChatSurface from "../surfaces/ChatSurface";
 import HistorySurface from "../surfaces/HistorySurface";
-import MetadataSurface from "../surfaces/MetadataSurface";
-import ReleaseSurface from "../surfaces/ReleaseSurface";
 import ScriptSurface from "../surfaces/ScriptSurface";
-import VisualsSurface from "../surfaces/VisualsSurface";
 import WorkpieceTabBar from "../surfaces/WorkpieceTabBar";
 
 type HearthDraftModeProps = {
@@ -12,9 +9,7 @@ type HearthDraftModeProps = {
   workpieceTabProps: React.ComponentProps<typeof WorkpieceTabBar>;
   draftStageClassName: string;
   chatSurfaceProps: React.ComponentProps<typeof ChatSurface>;
-  releaseSurfaceProps: React.ComponentProps<typeof ReleaseSurface> | null;
-  metadataSurfaceProps: React.ComponentProps<typeof MetadataSurface>;
-  visualsSurfaceProps: React.ComponentProps<typeof VisualsSurface>;
+  productionContent: ReactNode;
   historyVisible: boolean;
   revisionsContent: ReactNode;
   scriptSurfaceProps: React.ComponentProps<typeof ScriptSurface>;
@@ -25,9 +20,7 @@ export default function HearthDraftMode({
   workpieceTabProps,
   draftStageClassName,
   chatSurfaceProps,
-  releaseSurfaceProps,
-  metadataSurfaceProps,
-  visualsSurfaceProps,
+  productionContent,
   historyVisible,
   revisionsContent,
   scriptSurfaceProps,
@@ -41,11 +34,7 @@ export default function HearthDraftMode({
       <div className={draftStageClassName}>
         <div className="hs-focus-stack">
           <ChatSurface {...chatSurfaceProps} />
-
-          {releaseSurfaceProps ? <ReleaseSurface {...releaseSurfaceProps} /> : null}
-
-          <MetadataSurface {...metadataSurfaceProps} />
-          <VisualsSurface {...visualsSurfaceProps} />
+          {productionContent}
         </div>
 
         <HistorySurface visible={historyVisible}>
