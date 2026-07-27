@@ -48,10 +48,7 @@ import { useHearthWorkspaceSessionLifecycle } from "../hooks/useHearthWorkspaceS
 import { useHearthWorkpieceTabLifecycle } from "../hooks/useHearthWorkpieceTabLifecycle";
 import { useClipboardButtonAcks } from "../hooks/useClipboardButtonAcks";
 import { useMetadataWorkspace } from "../hooks/visuals/useMetadataWorkspace";
-import { useBrollWorkspace } from "../hooks/visuals/useBrollWorkspace";
 import { useReferenceClipWorkspace } from "../hooks/visuals/useReferenceClipWorkspace";
-import { useBrollCoreActions } from "../hooks/visuals/useBrollCoreActions";
-import { useBrollBridgeActions } from "../hooks/visuals/useBrollBridgeActions";
 import { useReferenceClipCoreActions } from "../hooks/visuals/useReferenceClipCoreActions";
 import { useReferenceClipBridgeActions } from "../hooks/visuals/useReferenceClipBridgeActions";
 import { useVisualsPersistence } from "../hooks/visuals/useVisualsPersistence";
@@ -146,7 +143,6 @@ import { buildHearthDraftScriptSurfaceProps } from "../views/modes/buildHearthDr
 import { buildHearthDraftScriptPanelState } from "../views/modes/buildHearthDraftScriptPanelState";
 import HearthDesktopRail from "../views/modes/HearthDesktopRail";
 import { buildHearthReferenceClipPanelProps } from "../views/modes/buildHearthReferenceClipPanelProps";
-import { buildHearthBrollPanelProps } from "../views/modes/buildHearthBrollPanelProps";
 import {
   persistProductionArtifact as persistHearthProductionArtifact,
   resolveAcceptedTagProposal,
@@ -180,7 +176,6 @@ import {
   deriveFullMediaBudgetPolicy,
 } from "../lib/hearth-media-map-builder";
 import type {
-  EpisodeBrollDataVisualSpec,
   EpisodeReferenceClipPlan,
   EpisodeReferenceClipTone,
   EpisodeBrollPlan,
@@ -430,6 +425,13 @@ import {
   useHearthVisualPlanSourcePreparation,
   useHearthVisualPlanWorkspaceState,
 } from "./hearth-shell/useHearthImagePlanningController";
+import {
+  buildHearthBrollController,
+  useHearthBrollBridgeCommands,
+  useHearthBrollCoreCommands,
+  useHearthBrollWorkspaceState,
+} from "./hearth-shell/useHearthBrollController";
+import { buildHearthBrollDataVisualSpec } from "./hearth-shell/buildHearthBrollViewModel";
 
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
@@ -1376,7 +1378,7 @@ export default function HearthShell({
     syncBrollDraftFromBeat,
     syncSelectedBrollBeatId,
     resetBrollWorkspaceForWorkpieceSwitch,
-  } = useBrollWorkspace();
+  } = useHearthBrollWorkspaceState();
   const {
     selectedReferenceClipEntryId,
     setSelectedReferenceClipEntryId,
@@ -3715,7 +3717,7 @@ export default function HearthShell({
     onSaveBrollBeat,
     onDeleteBrollBeat,
     onRegenerateBrollBeat,
-  } = useBrollCoreActions({
+  } = useHearthBrollCoreCommands({
     operationAuthority,
     isApprovingScript,
     isAiProcessing,
@@ -3759,7 +3761,7 @@ export default function HearthShell({
     onUploadBrollBeatAsset,
     onSelectBrollCandidate,
     onRetryBrollCandidateIngestion,
-  } = useBrollBridgeActions({
+  } = useHearthBrollBridgeCommands({
     operationAuthority,
     episodePackage,
     selectedBrollBeat,
@@ -5544,33 +5546,16 @@ export default function HearthShell({
     setGeneratedTagProposal(null);
   }
 
-  function resolveBrollDataVisualSpecFromDraft(intent: EpisodeBrollPlanBeat["motion_intent"]): EpisodeBrollDataVisualSpec | null {
-    if (intent !== "data_visual") return null;
-    const labels = brollDataLabelsDraft
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter(Boolean);
-    const values = brollDataValuesDraft
-      .split(",")
-      .map((entry) => Number(entry.trim()))
-      .filter((value) => Number.isFinite(value));
-    const next: EpisodeBrollDataVisualSpec = {
-      chart_type: (brollDataChartTypeDraft.trim() || "bar") as EpisodeBrollDataVisualSpec["chart_type"],
-      title: brollDataTitleDraft.trim() || null,
-      labels,
-      values,
-      emphasis_key: brollDataEmphasisKeyDraft.trim() || null,
-      animation_style: brollDataAnimationStyleDraft.trim() || null,
-    };
-    const hasContent = Boolean(
-      next.chart_type
-      || next.title
-      || next.labels?.length
-      || next.values?.length
-      || next.emphasis_key
-      || next.animation_style,
-    );
-    return hasContent ? next : null;
+  function resolveBrollDataVisualSpecFromDraft(intent: EpisodeBrollPlanBeat["motion_intent"]) {
+    return buildHearthBrollDataVisualSpec({
+      intent,
+      chartType: brollDataChartTypeDraft,
+      title: brollDataTitleDraft,
+      labels: brollDataLabelsDraft,
+      values: brollDataValuesDraft,
+      emphasisKey: brollDataEmphasisKeyDraft,
+      animationStyle: brollDataAnimationStyleDraft,
+    });
   }
 
   function resolveReferenceClipValuesFromDraft(): Array<number | string> {
@@ -6153,7 +6138,7 @@ export default function HearthShell({
     });
     const mediaMapPanelProps = imagePlanningController.surfaces.visualPlan;
     const imageMapPanelProps = imagePlanningController.surfaces.episodeImages;
-    const brollPlanPanelProps = buildHearthBrollPanelProps({
+    const brollSurfaceInput = {
       beats: brollBeats,
       selectedBeatId: selectedBrollBeatId,
       workpieceId,
@@ -6213,7 +6198,28 @@ export default function HearthShell({
       onMarkAwaitingResult: () => void onMarkBrollRequestState("awaiting_result"),
       onClearRequestState: () => void onClearBrollRequestState(),
       onAttachResultFromUrl: () => void onAttachBrollResultFromUrl(),
+    };
+    const brollController = buildHearthBrollController({
+      active: Boolean(workpieceId),
+      loaded: episodePackageState === "loaded" && Boolean(episodePackage),
+      loadFailed: episodePackageState === "error",
+      authorityAvailable: imagePlanningController.status.authority === "available",
+      visualPlanApplied: (
+        mediaMap?.status === "activated"
+        || mediaMap?.status === "fulfilling"
+        || mediaMap?.status === "fulfilled"
+        || mediaMap?.status === "needs_attention"
+      ),
+      visualPlanStale: imagePlanningController.state.visualPlan.stale,
+      imagePlanningEligibility: imagePlanningController.brollEligibilityInput,
+      beats: brollBeats,
+      coverageStrength: brollPlan?.coverage_strength ?? null,
+      busy: isBrollBusy,
+      error: brollSaveState === "error",
+      retryBrollLoad: () => void refreshEpisodePackage(),
+      surfaceInput: brollSurfaceInput,
     });
+    const brollPlanPanelProps = brollController.surface;
     const referenceClipPlanPanelProps = buildHearthReferenceClipPanelProps({
       entries: referenceClipEntries,
       selectedEntryId: selectedReferenceClipEntryId,
