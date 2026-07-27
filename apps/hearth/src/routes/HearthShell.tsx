@@ -439,6 +439,7 @@ import {
 import { buildHearthProductionController } from "./hearth-shell/buildHearthProductionController";
 import { buildHearthProductionViewModel } from "./hearth-shell/buildHearthProductionViewModel";
 import HearthProductionContent from "./hearth-shell/HearthProductionContent";
+import { buildHearthDesktopRailViewModel } from "./hearth-shell/buildHearthDesktopRailViewModel";
 
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
@@ -6684,12 +6685,6 @@ export default function HearthShell({
     ? renderSparkRouteBootstrapView()
     : renderEpisodesView();
 
-  const sourcesBadge = missingSourcesCount > 0 ? String(missingSourcesCount) : null;
-  const sourcesBadgeTitle = missingSourcesCount > 0
-    ? `Missing cited sources: ${missingSourcesCount}${unusedSourcesCount ? ` · Unused refs: ${unusedSourcesCount}` : ""}`
-    : unusedSourcesCount > 0
-      ? `Unused refs: ${unusedSourcesCount}`
-      : "Sources";
   const shouldShowWorkpieceId = useCallback(
     (title: string) => duplicateRailTitleKeys.has(normalizeRailTitleKey(title)),
     [duplicateRailTitleKeys],
@@ -6727,6 +6722,75 @@ export default function HearthShell({
     !activeWorkpieceContext.workpiece
     || restoringWorkpieceIds.includes(activeWorkpieceContext.workpiece.workpieceId),
   );
+  const desktopRailViewModel = buildHearthDesktopRailViewModel({
+    deferDesktopRailCollections,
+    readyTotalCount,
+    refreshReadyScripts,
+    isReadyScriptsLoading,
+    readyScriptsError,
+    readyCategoryError,
+    readyUrgencyLabelFresh: READY_URGENCY_LABEL.fresh,
+    readyUrgencyLabelCooling: READY_URGENCY_LABEL.cooling,
+    readyUrgencyLabelCold: READY_URGENCY_LABEL.cold,
+    readyUrgencyFreshCount: readyUrgencyCounts.fresh,
+    readyUrgencyCoolingCount: readyUrgencyCounts.cooling,
+    readyUrgencyColdCount: readyUrgencyCounts.cold,
+    removedReadyCount,
+    onOpenReadyView,
+    onRestoreRemovedReady,
+    isRestoringReady,
+    searchRef,
+    searchText,
+    onSearchTextChange: setSearchText,
+    sortKey,
+    onSortKeyChange: setSortKey,
+    showArchived,
+    onShowArchivedChange: setShowArchived,
+    isLoading,
+    isWorkpiecesLoading,
+    workpiecesError,
+    filteredWorkpieceNavItems,
+    draftsById,
+    workpieceId,
+    editingDraftId,
+    setEditingDraftId,
+    editingTitle,
+    setEditingTitle,
+    shouldShowWorkpieceId,
+    archivingWorkpieceIds,
+    restoringWorkpieceIds,
+    openWorkpieceInFocus,
+    formatUpdatedAt,
+    resolveDraftEditorName,
+    saveDraftMeta,
+    onRestoreWorkpiece,
+    onArchiveWorkpiece,
+    onDeleteDraft,
+    hasActiveEpisode,
+    activeEpisodeReadyStatus,
+    activeWorkpieceIsArchived,
+    activeWorkpieceArchiveReason: activeWorkpiece?.archiveReason ?? null,
+    isRestoringActiveWorkpiece: Boolean(
+      activeWorkpiece && restoringWorkpieceIds.includes(activeWorkpiece.workpieceId),
+    ),
+    onRestoreActiveWorkpiece,
+    openInAnvilHref: anvilHandoffController.surface.openInAnvilHref,
+    handoffBlocked: anvilHandoffController.surface.handoffBlocked,
+    onOpenInAnvil: anvilHandoffController.surface.onOpenInAnvil,
+    anvilStepModeHint: anvilHandoffController.surface.anvilStepModeHint,
+    mode,
+    focusTab,
+    wordCount,
+    revisionsCount: revisions.length,
+    missingSourcesCount,
+    unusedSourcesCount,
+    devMode,
+    onFocusDraft,
+    onFocusPlanning,
+    onFocusSources,
+    onFocusRevisions,
+    onOpenApiLedger,
+  });
 
   return (
     <section className={`hs-shell hs-density-${uiDensity}${isMobile ? " hs-shell--mobile" : ""}`}>
@@ -6747,75 +6811,7 @@ export default function HearthShell({
           uiDensity={uiDensity}
           onUiDensityChange={setUiDensity}
           railContent={(
-            <HearthDesktopRail
-              deferDesktopRailCollections={deferDesktopRailCollections}
-              readyTotalCount={readyTotalCount}
-              refreshReadyScripts={refreshReadyScripts}
-              isReadyScriptsLoading={isReadyScriptsLoading}
-              readyScriptsError={readyScriptsError}
-              readyCategoryError={readyCategoryError}
-              readyUrgencyLabelFresh={READY_URGENCY_LABEL.fresh}
-              readyUrgencyLabelCooling={READY_URGENCY_LABEL.cooling}
-              readyUrgencyLabelCold={READY_URGENCY_LABEL.cold}
-              readyUrgencyFreshCount={readyUrgencyCounts.fresh}
-              readyUrgencyCoolingCount={readyUrgencyCounts.cooling}
-              readyUrgencyColdCount={readyUrgencyCounts.cold}
-              removedReadyCount={removedReadyCount}
-              onOpenReadyView={onOpenReadyView}
-              onRestoreRemovedReady={onRestoreRemovedReady}
-              isRestoringReady={isRestoringReady}
-              searchRef={searchRef}
-              searchText={searchText}
-              onSearchTextChange={setSearchText}
-              sortKey={sortKey}
-              onSortKeyChange={setSortKey}
-              showArchived={showArchived}
-              onShowArchivedChange={setShowArchived}
-              isLoading={isLoading}
-              isWorkpiecesLoading={isWorkpiecesLoading}
-              workpiecesError={workpiecesError}
-              filteredWorkpieceNavItems={filteredWorkpieceNavItems}
-              draftsById={draftsById}
-              workpieceId={workpieceId}
-              editingDraftId={editingDraftId}
-              setEditingDraftId={setEditingDraftId}
-              editingTitle={editingTitle}
-              setEditingTitle={setEditingTitle}
-              shouldShowWorkpieceId={shouldShowWorkpieceId}
-              archivingWorkpieceIds={archivingWorkpieceIds}
-              restoringWorkpieceIds={restoringWorkpieceIds}
-              openWorkpieceInFocus={openWorkpieceInFocus}
-              formatUpdatedAt={formatUpdatedAt}
-              resolveDraftEditorName={resolveDraftEditorName}
-              saveDraftMeta={saveDraftMeta}
-              onRestoreWorkpiece={onRestoreWorkpiece}
-              onArchiveWorkpiece={onArchiveWorkpiece}
-              onDeleteDraft={onDeleteDraft}
-              hasActiveEpisode={hasActiveEpisode}
-              activeEpisodeReadyStatus={activeEpisodeReadyStatus}
-              activeWorkpieceIsArchived={activeWorkpieceIsArchived}
-              activeWorkpieceArchiveReason={activeWorkpiece?.archiveReason ?? null}
-              isRestoringActiveWorkpiece={Boolean(
-                activeWorkpiece && restoringWorkpieceIds.includes(activeWorkpiece.workpieceId),
-              )}
-              onRestoreActiveWorkpiece={onRestoreActiveWorkpiece}
-              openInAnvilHref={anvilHandoffController.surface.openInAnvilHref}
-              handoffBlocked={anvilHandoffController.surface.handoffBlocked}
-              onOpenInAnvil={anvilHandoffController.surface.onOpenInAnvil}
-              anvilStepModeHint={anvilHandoffController.surface.anvilStepModeHint}
-              mode={mode}
-              focusTab={focusTab}
-              wordCount={wordCount}
-              revisionsCount={revisions.length}
-              sourcesBadgeTitle={sourcesBadgeTitle}
-              sourcesBadge={sourcesBadge}
-              devMode={devMode}
-              onFocusDraft={onFocusDraft}
-              onFocusPlanning={onFocusPlanning}
-              onFocusSources={onFocusSources}
-              onFocusRevisions={onFocusRevisions}
-              onOpenApiLedger={onOpenApiLedger}
-            />
+            <HearthDesktopRail {...desktopRailViewModel} />
           )}
           mainContent={mainContent}
         />
