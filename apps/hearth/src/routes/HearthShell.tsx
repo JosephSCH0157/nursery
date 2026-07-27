@@ -441,6 +441,7 @@ import HearthProductionContent from "./hearth-shell/HearthProductionContent";
 import { buildHearthDesktopRailViewModel } from "./hearth-shell/buildHearthDesktopRailViewModel";
 import { buildHearthMobileNavigationViewModel } from "./hearth-shell/buildHearthMobileNavigationViewModel";
 import HearthMobileNavigation from "./hearth-shell/HearthMobileNavigation";
+import { buildHearthModalViewModel } from "./hearth-shell/buildHearthModalViewModel";
 
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
@@ -6804,6 +6805,20 @@ export default function HearthShell({
     onFocusRevisions,
     onOpenApiLedger,
   });
+  const modalViewModel = buildHearthModalViewModel({
+    composeModalOpen,
+    productionDefaults,
+    onCloseComposeModal: () => setComposeModalOpen(false),
+    onComposeSetupSubmit,
+    revisionModalOpen,
+    revisionKind,
+    onRevisionKindChange: setRevisionKind,
+    revisionNote,
+    onRevisionNoteChange: setRevisionNote,
+    closeRevisionModal,
+    onConfirmRevision,
+    activeDraftId: activeDraft?.id ?? null,
+  });
 
   return (
     <section className={`hs-shell hs-density-${uiDensity}${isMobile ? " hs-shell--mobile" : ""}`}>
@@ -6832,20 +6847,7 @@ export default function HearthShell({
 
       <HearthMobileNavigation {...mobileNavigationViewModel} />
 
-      <HearthShellModals
-        composeModalOpen={composeModalOpen}
-        productionDefaults={productionDefaults}
-        onCloseComposeModal={() => setComposeModalOpen(false)}
-        onComposeSetupSubmit={onComposeSetupSubmit}
-        revisionModalOpen={revisionModalOpen}
-        revisionKind={revisionKind}
-        onRevisionKindChange={setRevisionKind}
-        revisionNote={revisionNote}
-        onRevisionNoteChange={setRevisionNote}
-        closeRevisionModal={closeRevisionModal}
-        onConfirmRevision={onConfirmRevision}
-        hasActiveDraft={Boolean(activeDraft)}
-      />
+      <HearthShellModals {...modalViewModel} />
     </section>
   );
 }
