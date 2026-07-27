@@ -437,6 +437,7 @@ import {
   buildHearthReleasePreparationController,
   useHearthReleasePreparationWorkspaceState,
 } from "./hearth-shell/useHearthReleasePreparationController";
+import { buildHearthProductionController } from "./hearth-shell/buildHearthProductionController";
 
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
@@ -5973,7 +5974,6 @@ export default function HearthShell({
       onSaveLaunchVariant: () => void onSaveLaunchVariant(),
       },
     });
-    const thumbnailPanelProps = thumbnailController.surface;
     const visualPlanSurfaceInput = {
       entries: mediaMapEntries,
       selectedEntryId: selectedMediaMapEntryId,
@@ -6130,8 +6130,6 @@ export default function HearthShell({
       visualPlanSurfaceInput,
       episodeImagesSurfaceInput,
     });
-    const mediaMapPanelProps = imagePlanningController.surfaces.visualPlan;
-    const imageMapPanelProps = imagePlanningController.surfaces.episodeImages;
     const brollSurfaceInput = {
       beats: brollBeats,
       selectedBeatId: selectedBrollBeatId,
@@ -6213,7 +6211,6 @@ export default function HearthShell({
       retryBrollLoad: () => void refreshEpisodePackage(),
       surfaceInput: brollSurfaceInput,
     });
-    const brollPlanPanelProps = brollController.surface;
     const referenceClipsSurfaceInput = {
       entries: referenceClipEntries,
       selectedEntryId: selectedReferenceClipEntryId,
@@ -6304,7 +6301,6 @@ export default function HearthShell({
       retryReferenceClips: () => void refreshEpisodePackage(),
       surfaceInput: referenceClipsSurfaceInput,
     });
-    const referenceClipPlanPanelProps = referenceClipsController.surface;
     const metadataController = buildHearthMetadataController({
       active: Boolean(workpieceId),
       loaded: episodePackageState === "loaded" && Boolean(episodePackage),
@@ -6322,7 +6318,17 @@ export default function HearthShell({
       workspace: metadataWorkspace,
       retryMetadata: () => void refreshEpisodePackage(),
     });
-    const metadataPanelProps = metadataController.surface;
+    const productionController = buildHearthProductionController({
+      package: episodePackage,
+      packageStatus: episodePackageState,
+      refreshPackage: () => void refreshEpisodePackage(),
+      thumbnails: thumbnailController,
+      imagePlanning: imagePlanningController,
+      broll: brollController,
+      referenceClips: referenceClipsController,
+      metadata: metadataController,
+      releasePreparation: releasePreparationController,
+    });
     const visualsPanelContracts = hearthVisualsWorkspace.composePanels({
       thumbnailPanelMeta,
       mediaMapPanelMeta,
@@ -6330,12 +6336,12 @@ export default function HearthShell({
       brollPanelMeta,
       referenceClipPanelMeta,
       metadataPanelMeta: metadataController.meta,
-      thumbnailPanelProps,
-      mediaMapPanelProps,
-      imageMapPanelProps,
-      brollPlanPanelProps,
-      referenceClipPlanPanelProps,
-      metadataPanelProps,
+      thumbnailPanelProps: productionController.surfaces.thumbnails,
+      mediaMapPanelProps: productionController.surfaces.visualPlan,
+      imageMapPanelProps: productionController.surfaces.episodeImages,
+      brollPlanPanelProps: productionController.surfaces.broll,
+      referenceClipPlanPanelProps: productionController.surfaces.referenceClips,
+      metadataPanelProps: productionController.surfaces.metadata,
     });
 
     return (
@@ -6409,7 +6415,7 @@ export default function HearthShell({
         }}
         draftStageClassName={`hs-draft-stage${(isHistoryWorkspaceTab || (isScriptWorkspaceTab && showScriptEditor)) ? " has-script-panel" : ""}`}
         chatSurfaceProps={conversationController.surface.chatSurfaceProps}
-        releaseSurfaceProps={isReleaseWorkspaceTab ? releasePreparationController.surface : null}
+        releaseSurfaceProps={isReleaseWorkspaceTab ? productionController.surfaces.release : null}
         metadataSurfaceProps={{
           visible: isMetadataWorkspaceTab,
           hasApprovedScript: hearthVisualsWorkspace.status.hasApprovedScript,
