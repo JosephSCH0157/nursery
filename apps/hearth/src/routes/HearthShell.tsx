@@ -47,13 +47,11 @@ import { useHearthIntakeLifecycle } from "../hooks/useHearthIntakeLifecycle";
 import { useHearthWorkspaceSessionLifecycle } from "../hooks/useHearthWorkspaceSessionLifecycle";
 import { useHearthWorkpieceTabLifecycle } from "../hooks/useHearthWorkpieceTabLifecycle";
 import { useClipboardButtonAcks } from "../hooks/useClipboardButtonAcks";
-import { useMetadataWorkspace } from "../hooks/visuals/useMetadataWorkspace";
 import { useVisualsPersistence } from "../hooks/visuals/useVisualsPersistence";
 import { useReleasePrepPackWorkspace } from "../hooks/visuals/useReleasePrepPackWorkspace";
 import { useEpisodePackageLoader } from "../hooks/visuals/useEpisodePackageLoader";
 import { useVisualWorkspaceResetLifecycle } from "../hooks/visuals/useVisualWorkspaceResetLifecycle";
 import { shouldInvalidateMediaMapForScriptVersion } from "../lib/hearth-visual-artifact-authority";
-import { hasCanonicalFraming } from "../lib/hearth-framing-authority";
 import { useVisualSelectionHydration } from "../hooks/visuals/useVisualSelectionHydration";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import {
@@ -208,7 +206,6 @@ import {
   normalizeEpisodeThumbnailTitleStyle,
 } from "../lib/hearth-title-fonts";
 import {
-  deriveHearthThumbnailOverlayText,
   resolveHearthThumbnailOverlayText,
 } from "../lib/hearth-thumbnail-title-contract";
 import { formatThumbnailPanelMeta } from "../lib/hearth-thumbnail-workflow";
@@ -250,7 +247,6 @@ import {
 } from "./hearth-shell/hearth-shell-contracts";
 import {
   buildDraftAttribution,
-  buildMetadataTagSuggestions,
   buildDiffLines,
   buildSparkPreview,
   dedupeDraftListById,
@@ -264,12 +260,10 @@ import {
   formatUpdatedAt,
   isSparkForged,
   normalizeGreetingName,
-  normalizeMetadataTag,
   normalizeRailTitleKey,
   normalizeTitle,
   normalizeTonePreset,
   parseIsoTimestamp,
-  parseMetadataTagInput,
   READY_LABEL_TO_CATEGORY,
   READY_URGENCY_LABEL,
   reorderVisibleReadyEntries,
@@ -435,6 +429,12 @@ import {
   useHearthReferenceClipsWorkspaceState,
 } from "./hearth-shell/useHearthReferenceClipsController";
 import { parseHearthReferenceClipValues } from "./hearth-shell/buildHearthReferenceClipsViewModel";
+import {
+  buildHearthMetadataController,
+  useHearthMetadataTagSuggestions,
+  useHearthMetadataWorkspaceState,
+} from "./hearth-shell/useHearthMetadataController";
+import { buildHearthMetadataProgress } from "./hearth-shell/hearth-metadata-progress";
 
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
@@ -1421,42 +1421,23 @@ export default function HearthShell({
     syncSelectedReferenceClipEntryId,
     resetReferenceClipWorkspaceForWorkpieceSwitch,
   } = useHearthReferenceClipsWorkspaceState();
-  const {
-    metadataTitlesDraft,
-    metadataTagsDraft,
-    metadataTagInputDraft,
-    metadataDescriptionShortDraft,
-    metadataDescriptionLongDraft,
-    metadataPreviewMode,
-    metadataSaveState,
-    metadataSaveError,
-    setMetadataTitlesDraft,
-    setMetadataTagsDraft,
-    setMetadataTagInputDraft,
-    setMetadataDescriptionShortDraft,
-    setMetadataDescriptionLongDraft,
-    onMetadataTitleChange,
-    onMetadataSetPrimaryTitle,
-    onMetadataAddTagFromInput,
-    onMetadataRemoveTag,
-    onMetadataAddTagSuggestion,
-    onMetadataApplyTags,
-    onMetadataDescriptionShortChange,
-    onMetadataDescriptionLongChange,
-    onMetadataPreviewModeChange,
-    onMetadataSaveNow,
-    onMetadataRetrySave,
-    hasUnsavedMetadataChanges,
-  } = useMetadataWorkspace({
+  const metadataWorkspace = useHearthMetadataWorkspaceState({
     workpieceId,
     workspaceId,
     episodePackage,
     setEpisodePackage,
     setImageMapMetadataUpdatedAt,
-    parseTagInput: parseMetadataTagInput,
-    normalizeTag: normalizeMetadataTag,
-    deriveThumbnailOverlayText: deriveHearthThumbnailOverlayText,
   });
+  const {
+    metadataTitlesDraft,
+    metadataTagsDraft,
+    setMetadataTitlesDraft,
+    setMetadataTagsDraft,
+    setMetadataDescriptionShortDraft,
+    setMetadataDescriptionLongDraft,
+    onMetadataApplyTags,
+    hasUnsavedMetadataChanges,
+  } = metadataWorkspace;
 
   const {
     hearthScriptState,
@@ -2158,7 +2139,6 @@ export default function HearthShell({
   const framingPackReady = releasePrepLoadState === "ready" && latestReleasePrepSections.length > 0;
   const displayedFramingTitleCount = Math.max(thumbnailTitleOptions.length, canonicalFramingTitleCount);
   const displayedFramingTagCount = Math.max(metadataTagsDraft.length, canonicalFramingTagCount);
-  const metadataPanelMeta = `${displayedFramingTitleCount} title${displayedFramingTitleCount === 1 ? "" : "s"} · ${displayedFramingTagCount} tag${displayedFramingTagCount === 1 ? "" : "s"}${framingPackReady ? " · Pack ready" : ""}`;
   const {
     persistThumbnailEpisodePackage,
     persistImageMapEntries,
@@ -2337,8 +2317,17 @@ export default function HearthShell({
   const framingTitleCount = displayedFramingTitleCount;
   // Downstream readiness consumes the same hydrated Tongs-backed package as
   // the Framing editor, never transient draft/proposal state.
-  const metadataComplete = hasCanonicalFraming(episodePackage)
-    || (canonicalFramingTitleCount > 0 && canonicalFramingTagCount > 0 && canonicalFramingHasDescriptions);
+  const metadataProgress = buildHearthMetadataProgress({
+    active: Boolean(workpieceId),
+    loaded: episodePackageState === "loaded" && Boolean(episodePackage),
+    authorityAvailable: episodePackageState !== "error",
+    episodePackage,
+    canonicalTitleCount: canonicalFramingTitleCount,
+    canonicalTagCount: canonicalFramingTagCount,
+    canonicalHasDescriptions: canonicalFramingHasDescriptions,
+    dirty: hasUnsavedMetadataChanges,
+  });
+  const metadataComplete = metadataProgress.completion === "complete";
   const thumbnailsSelected = Boolean(primaryThumbnailVersionId);
   const releaseReadiness = resolveReleaseReadinessChecklist({
     hasApprovedScript,
@@ -3395,15 +3384,12 @@ export default function HearthShell({
     onEpisodeContextLoadingChange,
     workpieceId,
   ]);
-  const metadataTagSuggestions = useMemo(
-    () => buildMetadataTagSuggestions({
-      currentTags: metadataTagsDraft,
-      contentCategory: activeReadyScript?.contentCategory ?? null,
-      bodyText: activeDraft?.body ?? "",
-      titleTexts: metadataTitlesDraft.map((t) => t.text),
-    }),
-    [activeReadyScript?.contentCategory, metadataTagsDraft, activeDraft?.body, metadataTitlesDraft],
-  );
+  const metadataTagSuggestions = useHearthMetadataTagSuggestions({
+    currentTags: metadataTagsDraft,
+    contentCategory: activeReadyScript?.contentCategory ?? null,
+    bodyText: activeDraft?.body ?? "",
+    titles: metadataTitlesDraft,
+  });
   const diffLines = useMemo(() => {
     if (!selectedRevision || !activeDraft) return [];
     return buildDiffLines(activeDraft.body, selectedRevision.bodySnapshot);
@@ -6307,37 +6293,31 @@ export default function HearthShell({
       surfaceInput: referenceClipsSurfaceInput,
     });
     const referenceClipPlanPanelProps = referenceClipsController.surface;
-    const metadataPanelProps = {
-      titles: metadataTitlesDraft,
-      tags: metadataTagsDraft,
-      tagInput: metadataTagInputDraft,
-      tagSuggestions: metadataTagSuggestions,
-      descriptionShort: metadataDescriptionShortDraft,
-      descriptionLong: metadataDescriptionLongDraft,
-      previewMode: metadataPreviewMode,
-      saveState: metadataSaveState,
-      saveError: metadataSaveError,
-      hasUnsavedChanges: hasUnsavedMetadataChanges,
+    const metadataController = buildHearthMetadataController({
+      active: Boolean(workpieceId),
+      loaded: episodePackageState === "loaded" && Boolean(episodePackage),
+      loadFailed: episodePackageState === "error",
+      authorityAvailable: episodePackageState !== "error",
+      episodePackage,
+      canonicalTitleCount: canonicalFramingTitleCount,
+      canonicalTagCount: canonicalFramingTagCount,
+      canonicalHasDescriptions: canonicalFramingHasDescriptions,
+      displayedTitleCount: displayedFramingTitleCount,
+      displayedTagCount: displayedFramingTagCount,
+      framingPackReady,
       disabled: isApprovingScript || !episodePackage,
-      onTitleChange: onMetadataTitleChange,
-      onSetPrimaryTitle: onMetadataSetPrimaryTitle,
-      onTagInputChange: setMetadataTagInputDraft,
-      onAddTagFromInput: onMetadataAddTagFromInput,
-      onRemoveTag: onMetadataRemoveTag,
-      onAddTagSuggestion: onMetadataAddTagSuggestion,
-      onDescriptionShortChange: onMetadataDescriptionShortChange,
-      onDescriptionLongChange: onMetadataDescriptionLongChange,
-      onPreviewModeChange: onMetadataPreviewModeChange,
-      onSaveNow: onMetadataSaveNow,
-      onRetrySave: onMetadataRetrySave,
-    };
+      tagSuggestions: metadataTagSuggestions,
+      workspace: metadataWorkspace,
+      retryMetadata: () => void refreshEpisodePackage(),
+    });
+    const metadataPanelProps = metadataController.surface;
     const visualsPanelContracts = hearthVisualsWorkspace.composePanels({
       thumbnailPanelMeta,
       mediaMapPanelMeta,
       imageMapPanelMeta,
       brollPanelMeta,
       referenceClipPanelMeta,
-      metadataPanelMeta,
+      metadataPanelMeta: metadataController.meta,
       thumbnailPanelProps,
       mediaMapPanelProps,
       imageMapPanelProps,
