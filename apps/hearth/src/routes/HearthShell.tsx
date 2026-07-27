@@ -48,9 +48,6 @@ import { useHearthWorkspaceSessionLifecycle } from "../hooks/useHearthWorkspaceS
 import { useHearthWorkpieceTabLifecycle } from "../hooks/useHearthWorkpieceTabLifecycle";
 import { useClipboardButtonAcks } from "../hooks/useClipboardButtonAcks";
 import { useMetadataWorkspace } from "../hooks/visuals/useMetadataWorkspace";
-import { useReferenceClipWorkspace } from "../hooks/visuals/useReferenceClipWorkspace";
-import { useReferenceClipCoreActions } from "../hooks/visuals/useReferenceClipCoreActions";
-import { useReferenceClipBridgeActions } from "../hooks/visuals/useReferenceClipBridgeActions";
 import { useVisualsPersistence } from "../hooks/visuals/useVisualsPersistence";
 import { useReleasePrepPackWorkspace } from "../hooks/visuals/useReleasePrepPackWorkspace";
 import { useEpisodePackageLoader } from "../hooks/visuals/useEpisodePackageLoader";
@@ -142,7 +139,6 @@ import HearthDesktopFrame from "../views/modes/HearthDesktopFrame";
 import { buildHearthDraftScriptSurfaceProps } from "../views/modes/buildHearthDraftScriptSurfaceProps";
 import { buildHearthDraftScriptPanelState } from "../views/modes/buildHearthDraftScriptPanelState";
 import HearthDesktopRail from "../views/modes/HearthDesktopRail";
-import { buildHearthReferenceClipPanelProps } from "../views/modes/buildHearthReferenceClipPanelProps";
 import {
   persistProductionArtifact as persistHearthProductionArtifact,
   resolveAcceptedTagProposal,
@@ -432,6 +428,13 @@ import {
   useHearthBrollWorkspaceState,
 } from "./hearth-shell/useHearthBrollController";
 import { buildHearthBrollDataVisualSpec } from "./hearth-shell/buildHearthBrollViewModel";
+import {
+  buildHearthReferenceClipsController,
+  useHearthReferenceClipsBridgeCommands,
+  useHearthReferenceClipsCoreCommands,
+  useHearthReferenceClipsWorkspaceState,
+} from "./hearth-shell/useHearthReferenceClipsController";
+import { parseHearthReferenceClipValues } from "./hearth-shell/buildHearthReferenceClipsViewModel";
 
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
@@ -1417,7 +1420,7 @@ export default function HearthShell({
     syncReferenceClipDraftFromEntry,
     syncSelectedReferenceClipEntryId,
     resetReferenceClipWorkspaceForWorkpieceSwitch,
-  } = useReferenceClipWorkspace();
+  } = useHearthReferenceClipsWorkspaceState();
   const {
     metadataTitlesDraft,
     metadataTagsDraft,
@@ -3796,7 +3799,7 @@ export default function HearthShell({
     onDeleteReferenceClipEntry,
     onGenerateReferenceClipInForge,
     onRegenerateReferenceClipEntryStub,
-  } = useReferenceClipCoreActions({
+  } = useHearthReferenceClipsCoreCommands({
     operationAuthority,
     episodePackage,
     workpieceId,
@@ -3848,7 +3851,7 @@ export default function HearthShell({
     onAttachReferenceClipResultFromUrl,
     onUploadReferenceClipAsset,
     onSelectReferenceClipCandidate,
-  } = useReferenceClipBridgeActions({
+  } = useHearthReferenceClipsBridgeCommands({
     operationAuthority,
     episodePackage,
     selectedReferenceClipEntry,
@@ -5559,14 +5562,7 @@ export default function HearthShell({
   }
 
   function resolveReferenceClipValuesFromDraft(): Array<number | string> {
-    return referenceClipValuesDraft
-      .split(",")
-      .map((entry) => entry.trim())
-      .filter(Boolean)
-      .map((value) => {
-        const numeric = Number(value);
-        return Number.isFinite(numeric) ? numeric : value;
-      });
+    return parseHearthReferenceClipValues(referenceClipValuesDraft);
   }
 
   function onUseChatShortcut(prompt: string) {
@@ -6220,7 +6216,7 @@ export default function HearthShell({
       surfaceInput: brollSurfaceInput,
     });
     const brollPlanPanelProps = brollController.surface;
-    const referenceClipPlanPanelProps = buildHearthReferenceClipPanelProps({
+    const referenceClipsSurfaceInput = {
       entries: referenceClipEntries,
       selectedEntryId: selectedReferenceClipEntryId,
       saveState: referenceClipSaveState,
@@ -6289,7 +6285,28 @@ export default function HearthShell({
       onMarkAwaitingResult: () => void onMarkReferenceClipRequestState("awaiting_result"),
       onClearRequestState: () => void onClearReferenceClipRequestState(),
       onAttachResultFromUrl: () => void onAttachReferenceClipResultFromUrl(),
+    };
+    const selectedReferenceClipAsset = selectedReferenceClipEntry?.candidate_assets?.find(
+      (candidate) => candidate.asset_id === selectedReferenceClipEntry.selected_asset_id,
+    ) ?? null;
+    const referenceClipsController = buildHearthReferenceClipsController({
+      active: Boolean(workpieceId),
+      loaded: episodePackageState === "loaded" && Boolean(episodePackage),
+      loadFailed: episodePackageState === "error",
+      authorityAvailable: episodePackageState !== "error",
+      entries: referenceClipEntries,
+      promptActive: Boolean(activeVisualPromptPackForReferenceClip),
+      busy: isReferenceClipBusy,
+      error: referenceClipSaveState === "error",
+      previewAvailable: Boolean(
+        selectedReferenceClipAsset?.preview_path
+        || selectedReferenceClipAsset?.thumbnail_path
+        || selectedReferenceClipAsset?.path,
+      ),
+      retryReferenceClips: () => void refreshEpisodePackage(),
+      surfaceInput: referenceClipsSurfaceInput,
     });
+    const referenceClipPlanPanelProps = referenceClipsController.surface;
     const metadataPanelProps = {
       titles: metadataTitlesDraft,
       tags: metadataTagsDraft,
