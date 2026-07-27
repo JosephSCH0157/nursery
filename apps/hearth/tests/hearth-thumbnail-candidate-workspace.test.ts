@@ -40,3 +40,10 @@ test("candidate workspace reports Quench readiness only from Tongs eligibility",
   const {pkg,authority}=fixture();const summary=candidateWorkspaceSummary(buildCandidateWorkspaceCards(pkg,authority));
   assert.deepEqual(summary,{complete:true,quenchEligibleCount:2,blockedCount:0,requiresReapprovalCount:1});
 });
+
+test("candidate workspace hydrates previews from the canonical authority asset path",()=>{
+  const {pkg,authority}=fixture();
+  authority.candidates[0] = { ...authority.candidates[0], asset_path: " thumbnails/candidate-a.png " };
+  const cards=buildCandidateWorkspaceCards(pkg,authority);
+  assert.equal(cards[0]?.assetPath,"thumbnails/candidate-a.png");
+});

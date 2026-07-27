@@ -31,5 +31,6 @@ export function deriveHearthThumbnailLoadStatus(args: {
 
 export function isCanonicalThumbnailSetComplete(progress: HearthCanonicalThumbnailProgress): boolean {
   return progress.candidateCount > 0
-    && progress.eligibleCandidateCount === progress.candidateCount;
+    && progress.eligibleCandidateCount === progress.candidateCount
+    && progress.previewAssetPaths.length === progress.candidateCount;
 }

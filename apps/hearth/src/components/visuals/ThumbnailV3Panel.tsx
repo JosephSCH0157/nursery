@@ -226,7 +226,10 @@ export default function ThumbnailV3Panel(props: Props) {
   const candidateCards = useMemo(() => pkg ? buildCandidateWorkspaceCards(pkg, candidateAuthority) : [], [candidateAuthority, pkg]);
   const candidateSummary = useMemo(() => candidateWorkspaceSummary(candidateCards), [candidateCards]);
   const readyLaunchCount = pkg?.thumbnail.launch_variant_revisions.filter((entry) => entry.status === "ready" && entry.snapshot.readability_evidence?.passed === true).length ?? 0;
-  const thumbnailSetComplete = Boolean(candidateAuthority?.candidate_set) && candidateSummary.quenchEligibleCount === 3 && candidateCards.length === 3;
+  const thumbnailSetComplete = Boolean(candidateAuthority?.candidate_set)
+    && candidateSummary.quenchEligibleCount === 3
+    && candidateCards.length === 3
+    && candidateCards.every((card) => Boolean(card.assetPath.trim()));
   useEffect(() => {
     if (!activeRecipe) return;
     const typography = activeRecipe.treatment.typography as Record<string, unknown>;

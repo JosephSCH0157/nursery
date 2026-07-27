@@ -1,6 +1,5 @@
 import { useMemo } from "react";
 import type { Draft } from "../../domain/draft";
-import type { ComposeSetup } from "../../domain/compose";
 import { useHearthAnvilOpenAction } from "../../hooks/useHearthAnvilOpenAction";
 import { getHearthAnvilStepModeHint } from "../../lib/hearth-anvil-handoff";
 import { buildHearthAnvilDestination } from "./hearth-anvil-destination";
@@ -11,7 +10,6 @@ export function useHearthAnvilHandoffProjection(args: {
   workspaceId: string | null;
   workpieceId: string | null;
   archived: boolean;
-  composeSetup: ComposeSetup | null;
   scriptText: string;
 }) {
   const destination = useMemo(
@@ -20,10 +18,9 @@ export function useHearthAnvilHandoffProjection(args: {
   );
   const stepModeHint = useMemo(
     () => getHearthAnvilStepModeHint({
-      composeSetup: args.composeSetup,
-      hasScriptText: Boolean(args.scriptText.trim()),
+      scriptText: args.scriptText,
     }),
-    [args.composeSetup, args.scriptText],
+    [args.scriptText],
   );
   return { destination, stepModeHint };
 }

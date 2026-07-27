@@ -1724,7 +1724,6 @@ export default function HearthShell({
     workspaceId,
     workpieceId,
     archived: activeWorkpieceIsArchived,
-    composeSetup: effectiveComposeSetup,
     scriptText: activeDraft?.body ?? "",
   });
   const aiRuntimeBusy = isAiProcessing || isThumbnailGenerating || isImageMapCandidateGenerating;

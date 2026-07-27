@@ -4,15 +4,7 @@ import { getHearthAnvilStepModeHint } from "../src/lib/hearth-anvil-handoff";
 
 test("hearthAnvilHandoff: bullet scripts get a Step mode hint", () => {
   const hint = getHearthAnvilStepModeHint({
-    composeSetup: {
-      speakerCount: 1,
-      speakers: ["s1"],
-      mode: "outline_by_speaker",
-      targetSpeaker: "s1",
-      usesProductionDefault: false,
-      isOverrideFromProductionDefault: true,
-    },
-    hasScriptText: true,
+    scriptText: "[s1]\n- Opening beat\n- First point\n- Second point\n- Closing beat\n[/s1]",
   });
 
   assert.equal(
@@ -21,17 +13,9 @@ test("hearthAnvilHandoff: bullet scripts get a Step mode hint", () => {
   );
 });
 
-test("hearthAnvilHandoff: full scripts skip the Step mode hint", () => {
+test("hearthAnvilHandoff: current full-script content overrides stale outline metadata", () => {
   const hint = getHearthAnvilStepModeHint({
-    composeSetup: {
-      speakerCount: 1,
-      speakers: ["s1"],
-      mode: "full_script_single_speaker",
-      targetSpeaker: "s1",
-      usesProductionDefault: false,
-      isOverrideFromProductionDefault: true,
-    },
-    hasScriptText: true,
+    scriptText: "[s1]\nThis is a complete spoken paragraph, written for the current approved script.\n[/s1]",
   });
 
   assert.equal(hint, null);
@@ -39,15 +23,7 @@ test("hearthAnvilHandoff: full scripts skip the Step mode hint", () => {
 
 test("hearthAnvilHandoff: empty drafts skip the Step mode hint", () => {
   const hint = getHearthAnvilStepModeHint({
-    composeSetup: {
-      speakerCount: 1,
-      speakers: ["s1"],
-      mode: "outline_by_speaker",
-      targetSpeaker: "s1",
-      usesProductionDefault: false,
-      isOverrideFromProductionDefault: true,
-    },
-    hasScriptText: false,
+    scriptText: "",
   });
 
   assert.equal(hint, null);
