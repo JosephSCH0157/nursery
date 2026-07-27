@@ -52,15 +52,12 @@ import { useMetadataWorkspace } from "../hooks/visuals/useMetadataWorkspace";
 import { useImageMapWorkspace } from "../hooks/visuals/useImageMapWorkspace";
 import { useBrollWorkspace } from "../hooks/visuals/useBrollWorkspace";
 import { useReferenceClipWorkspace } from "../hooks/visuals/useReferenceClipWorkspace";
-import { useThumbnailWorkspace } from "../hooks/visuals/useThumbnailWorkspace";
 import { useMediaMapEntryActions } from "../hooks/visuals/useMediaMapEntryActions";
 import { useMediaMapGenerationActions } from "../hooks/visuals/useMediaMapGenerationActions";
 import { useBrollCoreActions } from "../hooks/visuals/useBrollCoreActions";
 import { useBrollBridgeActions } from "../hooks/visuals/useBrollBridgeActions";
 import { useReferenceClipCoreActions } from "../hooks/visuals/useReferenceClipCoreActions";
 import { useReferenceClipBridgeActions } from "../hooks/visuals/useReferenceClipBridgeActions";
-import { useThumbnailConceptActions } from "../hooks/visuals/useThumbnailConceptActions";
-import { useThumbnailGenerationActions } from "../hooks/visuals/useThumbnailGenerationActions";
 import { useImageMapReanchorActions } from "../hooks/visuals/useImageMapReanchorActions";
 import { useImageMapCandidateActions } from "../hooks/visuals/useImageMapCandidateActions";
 import { useImageMapEntryCrudActions } from "../hooks/visuals/useImageMapEntryCrudActions";
@@ -71,14 +68,12 @@ import { useCanonicalImageMapScriptReader } from "../hooks/visuals/useCanonicalI
 import { useVisualsPersistence } from "../hooks/visuals/useVisualsPersistence";
 import { useReleasePrepPackWorkspace } from "../hooks/visuals/useReleasePrepPackWorkspace";
 import { useEpisodePackageLoader } from "../hooks/visuals/useEpisodePackageLoader";
-import { useThumbnailPreviewLoader } from "../hooks/visuals/useThumbnailPreviewLoader";
 import { useImageMapCandidatePreviewLoader } from "../hooks/visuals/useImageMapCandidatePreviewLoader";
 import { useVisualWorkspaceResetLifecycle } from "../hooks/visuals/useVisualWorkspaceResetLifecycle";
 import { useMediaMapConversationBootstrap } from "../hooks/visuals/useMediaMapConversationBootstrap";
 import { useCanonicalImageMapScriptStateLoader } from "../hooks/visuals/useCanonicalImageMapScriptStateLoader";
 import { shouldInvalidateMediaMapForScriptVersion } from "../lib/hearth-visual-artifact-authority";
 import { hasCanonicalFraming } from "../lib/hearth-framing-authority";
-import { readCanonicalThumbnailWorkspaceV3, readThumbnailCandidateAuthorityProjection } from "../lib/hearth-thumbnail-v3-api";
 import { useVisualSelectionHydration } from "../hooks/visuals/useVisualSelectionHydration";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import {
@@ -167,7 +162,6 @@ import HearthDesktopRail from "../views/modes/HearthDesktopRail";
 import { buildHearthReferenceClipPanelProps } from "../views/modes/buildHearthReferenceClipPanelProps";
 import { buildHearthBrollPanelProps } from "../views/modes/buildHearthBrollPanelProps";
 import { buildHearthImageMapPanelProps } from "../views/modes/buildHearthImageMapPanelProps";
-import { buildHearthThumbnailPanelProps } from "../views/modes/buildHearthThumbnailPanelProps";
 import { buildHearthMediaMapPanelProps } from "../views/modes/buildHearthMediaMapPanelProps";
 import {
   persistProductionArtifact as persistHearthProductionArtifact,
@@ -233,13 +227,9 @@ import {
   type WorkpieceWorkspaceTab,
 } from "../lib/hearth-workpiece-tab-shell";
 import {
-  loadWorkspaceThumbnailBrandLogoPreview,
-  listWorkspaceThumbnailBrandTemplates,
   resolveDefaultThumbnailBrandTemplate,
-  seedWorkspaceThumbnailBrandTemplates,
 } from "../lib/hearth-thumbnail-brand-templates";
 import {
-  areEpisodeThumbnailTitleStylesEqual,
   normalizeEpisodeThumbnailTitleStyle,
 } from "../lib/hearth-title-fonts";
 import {
@@ -430,6 +420,15 @@ import {
   useHearthAnvilHandoffOpenCommand,
   useHearthAnvilHandoffProjection,
 } from "./hearth-shell/useHearthAnvilHandoffController";
+import {
+  buildHearthThumbnailController,
+  useHearthCanonicalThumbnailProjection,
+  useHearthThumbnailConceptCommands,
+  useHearthThumbnailGenerationCommands,
+  useHearthThumbnailLifecycle,
+  useHearthThumbnailPreviewLifecycle,
+  useHearthThumbnailWorkspaceState,
+} from "./hearth-shell/useHearthThumbnailController";
 
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
@@ -1174,6 +1173,7 @@ export default function HearthShell({
   const pendingDraftEditorPanelRef = useRef<"script" | "manual" | null>(null);
   const gateAwaitingAnswersRef = useRef(false);
   const pendingShortcutIntentRef = useRef<"outline" | "script" | null>(null);
+  const thumbnailWorkspace = useHearthThumbnailWorkspaceState();
   const {
     selectedThumbnailTitleId,
     setSelectedThumbnailTitleId,
@@ -1240,7 +1240,7 @@ export default function HearthShell({
     syncSelectedThumbnailTitleId,
     syncSelectedThumbnailVersionId,
     resetThumbnailWorkspaceViewState,
-  } = useThumbnailWorkspace();
+  } = thumbnailWorkspace;
   const {
     selectedMediaMapEntryId,
     setSelectedMediaMapEntryId,
@@ -1744,60 +1744,13 @@ export default function HearthShell({
     () => episodePackage?.thumbnail?.versions ?? [],
     [episodePackage?.thumbnail?.versions],
   );
-  const [canonicalThumbnailProgress, setCanonicalThumbnailProgress] = useState({
-    workpieceId: "",
-    conceptRevisionCount: 0,
-    baseVersionCount: 0,
-    candidateCount: 0,
-    eligibleCandidateCount: 0,
-    previewAssetPaths: [] as string[],
-    titleCount: 0,
-    tagCount: 0,
-    hasDescriptions: false,
+  const canonicalThumbnailProjection = useHearthCanonicalThumbnailProjection({
+    workspaceId,
+    workpieceId,
   });
+  const canonicalThumbnailProgress = canonicalThumbnailProjection.canonical;
   const [visualPlanRevisionChanged, setVisualPlanRevisionChanged] = useState(false);
   const visualPlanRevisionRef = useRef<{ workpieceId: string; version: number } | null>(null);
-  const onCanonicalThumbnailProgress = useCallback((progress: {
-    conceptRevisionCount: number;
-    baseVersionCount: number;
-    candidateCount: number;
-    eligibleCandidateCount: number;
-    previewAssetPaths: string[];
-  }) => {
-    const currentWorkpieceId = workpieceId?.trim() ?? "";
-    setCanonicalThumbnailProgress((current) => ({
-      workpieceId: currentWorkpieceId,
-      ...progress,
-      titleCount: current.workpieceId === currentWorkpieceId ? current.titleCount : 0,
-      tagCount: current.workpieceId === currentWorkpieceId ? current.tagCount : 0,
-      hasDescriptions: current.workpieceId === currentWorkpieceId ? current.hasDescriptions : false,
-    }));
-  }, [workpieceId]);
-  useEffect(() => {
-    const canonicalWorkpieceId = workpieceId?.trim() ?? "";
-    const canonicalWorkspaceId = workspaceId?.trim() ?? "";
-    if (!canonicalWorkpieceId || !canonicalWorkspaceId) return;
-    let cancelled = false;
-    void Promise.all([readCanonicalThumbnailWorkspaceV3({
-      workpieceId: canonicalWorkpieceId,
-      workspaceId: canonicalWorkspaceId,
-    }),readThumbnailCandidateAuthorityProjection({workpieceId:canonicalWorkpieceId,workspaceId:canonicalWorkspaceId})]).then(([canonical,candidateAuthority]) => {
-      if (cancelled) return;
-      setCanonicalThumbnailProgress({
-        workpieceId: canonicalWorkpieceId,
-        conceptRevisionCount: canonical.episodePackage.thumbnail.concept_revisions.length,
-        baseVersionCount: canonical.episodePackage.thumbnail.base_versions.length,
-        candidateCount: candidateAuthority.candidates.length,
-        eligibleCandidateCount: candidateAuthority.candidates.filter((candidate)=>candidate.eligibility_state==="current"||candidate.eligibility_state==="approved_historical_brand").length,
-        previewAssetPaths: candidateAuthority.candidates.map((candidate) => (typeof candidate.asset_path === "string" && candidate.asset_path.trim()) || canonical.episodePackage.thumbnail.launch_variant_revisions.find((entry) => entry.snapshot.asset_id === candidate.composite_asset_id)?.snapshot.asset_path || "").filter(Boolean).slice(0, 3),
-        titleCount: canonical.episodePackage.seo.titles.length,
-        tagCount: canonical.episodePackage.seo.tags.length,
-        hasDescriptions: Boolean(canonical.episodePackage.seo.description_short?.trim())
-          && Boolean(canonical.episodePackage.seo.description_long?.trim()),
-      });
-    }).catch(() => undefined);
-    return () => { cancelled = true; };
-  }, [workpieceId, workspaceId]);
   useEffect(() => {
     const currentWorkpieceId=workpieceId?.trim()??""; const version=episodePackage?.media_map.version??0;
     const previous=visualPlanRevisionRef.current;
@@ -1880,7 +1833,7 @@ export default function HearthShell({
   );
   const selectedReferenceClipEntry = referenceClipEntries.find((entry) => entry.id === selectedReferenceClipEntryId) ?? null;
   const preferredThumbnailTitleId = resolvePrimarySeoTitle(thumbnailTitleOptions)?.id ?? null;
-  useThumbnailPreviewLoader({
+  useHearthThumbnailPreviewLifecycle({
     workpieceId,
     selectedThumbnailVersion,
     selectedThumbnailVersionId,
@@ -3928,7 +3881,7 @@ export default function HearthShell({
     onCreateLaunchVariant,
     onSelectLaunchVariant,
     onSaveLaunchVariant,
-  } = useThumbnailConceptActions({
+  } = useHearthThumbnailConceptCommands({
     operationAuthority,
     episodePackage,
     thumbnailVersions,
@@ -3966,7 +3919,7 @@ export default function HearthShell({
     onUploadThumbnailBrandLogo,
     onRemoveThumbnailBrandLogo,
     onUploadThumbnailImage,
-  } = useThumbnailGenerationActions({
+  } = useHearthThumbnailGenerationCommands({
     operationAuthority,
     workpieceId,
     workspaceId,
@@ -4883,176 +4836,31 @@ export default function HearthShell({
     updatePlanningSession,
   });
 
-  useEffect(() => {
-    const workspace = workspaceId?.trim() ?? "";
-    if (!workspace) {
-      setThumbnailBrandTemplates([]);
-      setThumbnailBrandTemplatesError(null);
-      setIsThumbnailBrandTemplatesLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    setIsThumbnailBrandTemplatesLoading(true);
-    setThumbnailBrandTemplatesError(null);
-
-    void (async () => {
-      const seeded = await seedWorkspaceThumbnailBrandTemplates(workspace);
-      if (cancelled) return;
-
-      const listed = await listWorkspaceThumbnailBrandTemplates(workspace);
-      if (cancelled) return;
-      if (!listed.ok) {
-        setThumbnailBrandTemplates([]);
-        setThumbnailBrandTemplatesError(listed.error);
-        setIsThumbnailBrandTemplatesLoading(false);
-        return;
-      }
-      setThumbnailBrandTemplates(listed.data);
-      setThumbnailBrandTemplatesError(!seeded.ok && listed.data.length === 0 ? seeded.error : null);
-      setIsThumbnailBrandTemplatesLoading(false);
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [workspaceId]);
-
-  useEffect(() => {
-    syncSelectedThumbnailConceptId(thumbnailConcepts);
-  }, [syncSelectedThumbnailConceptId, thumbnailConcepts]);
-
-  useEffect(() => {
-    syncThumbnailConceptDraftFromConcept(selectedThumbnailConcept, defaultThumbnailBrandTemplateId);
-  }, [defaultThumbnailBrandTemplateId, selectedThumbnailConcept, syncThumbnailConceptDraftFromConcept]);
-
-  useEffect(() => {
-    const logoWorkpieceId = selectedThumbnailBrandLogoWorkpieceId ?? (workpieceId?.trim() ?? "");
-    const logoAssetPath = selectedThumbnailBrandLogoAssetPath;
-    if (!logoWorkpieceId || !logoAssetPath) {
-      setThumbnailBrandLogoDataUrl(null);
-      return;
-    }
-
-    let cancelled = false;
-    void (async () => {
-      const loaded = await loadWorkspaceThumbnailBrandLogoPreview({
-        workpieceId: logoWorkpieceId,
-        assetPath: logoAssetPath,
-      });
-      if (cancelled) return;
-      if (!loaded.ok) {
-        setThumbnailBrandLogoDataUrl(null);
-        setThumbnailBrandLogoError((current) => current ?? loaded.error);
-        return;
-      }
-      setThumbnailBrandLogoDataUrl(loaded.dataUrl);
-      setThumbnailBrandLogoStatus("Brand logo loaded.");
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
+  useHearthThumbnailLifecycle({
+    workspaceId,
     workpieceId,
+    episodePackage,
+    thumbnailConcepts,
+    selectedThumbnailConcept,
+    selectedThumbnailConceptId,
+    defaultThumbnailBrandTemplateId,
     selectedThumbnailBrandLogoWorkpieceId,
     selectedThumbnailBrandLogoAssetPath,
-  ]);
-
-  useEffect(() => {
-    if (!episodePackage || !selectedThumbnailConceptId) return;
-    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
-    const savedConcept = episodePackage.thumbnail.concepts.find((concept) => concept.id === selectedThumbnailConceptId);
-    if (!savedConcept) return;
-    if (areEpisodeThumbnailTitleStylesEqual(savedConcept.title_style, thumbnailTitleStyleDraft)) return;
-
-    const timer = window.setTimeout(() => {
-      const normalizedTitleStyle = normalizeEpisodeThumbnailTitleStyle(thumbnailTitleStyleDraft);
-      const nextEpisodePackage: EpisodePackageV2 = {
-        ...episodePackage,
-        thumbnail: {
-          ...episodePackage.thumbnail,
-          concepts: episodePackage.thumbnail.concepts.map((concept) => (
-            concept.id === selectedThumbnailConceptId
-              ? {
-                  ...concept,
-                  title_style: normalizedTitleStyle,
-                }
-              : concept
-          )),
-        },
-      };
-
-      void persistThumbnailEpisodePackage(
-        nextEpisodePackage,
-        "hearth.thumbnail.concept.title_style.updated.v1",
-        {
-          concept_id: selectedThumbnailConceptId,
-          font_preset: normalizedTitleStyle.font_preset,
-          text_color: normalizedTitleStyle.text_color,
-          shadow_enabled: normalizedTitleStyle.shadow.enabled,
-          shadow_strength: normalizedTitleStyle.shadow.strength,
-        },
-      );
-    }, 250);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [
-    episodePackage,
-    isThumbnailConceptSaving,
-    isThumbnailGenerating,
-    isThumbnailUploading,
-    selectedThumbnailConceptId,
     thumbnailTitleStyleDraft,
-  ]);
-
-  useEffect(() => {
-    if (!episodePackage || !selectedThumbnailConceptId) return;
-    if (isThumbnailConceptSaving || isThumbnailGenerating || isThumbnailUploading) return;
-    const savedConcept = episodePackage.thumbnail.concepts.find((concept) => concept.id === selectedThumbnailConceptId);
-    if (!savedConcept) return;
-    const savedTemplateId = savedConcept.brand_template_id ?? null;
-    if (savedTemplateId === (thumbnailConceptBrandTemplateIdDraft ?? null)) return;
-
-    const timer = window.setTimeout(() => {
-      const nextEpisodePackage: EpisodePackageV2 = {
-        ...episodePackage,
-        thumbnail: {
-          ...episodePackage.thumbnail,
-          concepts: episodePackage.thumbnail.concepts.map((concept) => (
-            concept.id === selectedThumbnailConceptId
-              ? {
-                  ...concept,
-                  brand_template_id: thumbnailConceptBrandTemplateIdDraft ?? null,
-                }
-              : concept
-          )),
-        },
-      };
-
-      void persistThumbnailEpisodePackage(
-        nextEpisodePackage,
-        "hearth.thumbnail.concept.brand_template.updated.v1",
-        {
-          concept_id: selectedThumbnailConceptId,
-          brand_template_id: thumbnailConceptBrandTemplateIdDraft ?? null,
-        },
-      );
-    }, 250);
-
-    return () => {
-      window.clearTimeout(timer);
-    };
-  }, [
-    episodePackage,
+    thumbnailConceptBrandTemplateIdDraft,
     isThumbnailConceptSaving,
     isThumbnailGenerating,
     isThumbnailUploading,
-    selectedThumbnailConceptId,
-    thumbnailConceptBrandTemplateIdDraft,
-  ]);
+    setThumbnailBrandTemplates,
+    setThumbnailBrandTemplatesError,
+    setIsThumbnailBrandTemplatesLoading,
+    setThumbnailBrandLogoDataUrl,
+    setThumbnailBrandLogoError,
+    setThumbnailBrandLogoStatus,
+    syncSelectedThumbnailConceptId,
+    syncThumbnailConceptDraftFromConcept,
+    persistThumbnailEpisodePackage,
+  });
 
   useEffect(() => {
     if (!episodePackage) return;
@@ -6108,7 +5916,11 @@ export default function HearthShell({
     const isMetadataWorkspaceTab = activeWorkpieceTab === "metadata";
     const isReleaseWorkspaceTab = activeWorkpieceTab === "release";
     const isHistoryWorkspaceTab = activeWorkpieceTab === "history";
-    const thumbnailPanelProps = buildHearthThumbnailPanelProps({
+    const thumbnailController = buildHearthThumbnailController({
+      workspace: thumbnailWorkspace,
+      canonical: canonicalThumbnailProjection,
+      refreshThumbnails: () => void refreshEpisodePackage(),
+      surfaceInput: {
       concepts: thumbnailConcepts,
       versions: thumbnailVersions,
       titleOptions: thumbnailTitleOptions,
@@ -6179,7 +5991,9 @@ export default function HearthShell({
       onSelectedLaunchVariantStatusChange: setLaunchVariantStatusDraft,
       onSelectedLaunchVariantNotesChange: setLaunchVariantNotesDraft,
       onSaveLaunchVariant: () => void onSaveLaunchVariant(),
+      },
     });
+    const thumbnailPanelProps = thumbnailController.surface;
     const mediaMapPanelProps = buildHearthMediaMapPanelProps({
       entries: mediaMapEntries,
       selectedEntryId: selectedMediaMapEntryId,
@@ -6601,7 +6415,7 @@ export default function HearthShell({
           onGenerateThumbnailConcepts: () => onRunProductionAction("thumbnails"),
           onRecoverThumbnailConcepts,
           onOpenThumbnailFraming: () => requestWorkpieceTabChange("metadata"),
-          onCanonicalThumbnailProgress,
+          onCanonicalThumbnailProgress: canonicalThumbnailProjection.onCanonicalProgress,
           mediaMapPanelProps: visualsPanelContracts.mediaMap.panelProps,
           imageMapPanelProps: visualsPanelContracts.imageMap.panelProps,
           brollPlanPanelProps: visualsPanelContracts.broll.panelProps,
