@@ -47,31 +47,17 @@ import { useHearthIntakeLifecycle } from "../hooks/useHearthIntakeLifecycle";
 import { useHearthWorkspaceSessionLifecycle } from "../hooks/useHearthWorkspaceSessionLifecycle";
 import { useHearthWorkpieceTabLifecycle } from "../hooks/useHearthWorkpieceTabLifecycle";
 import { useClipboardButtonAcks } from "../hooks/useClipboardButtonAcks";
-import { useMediaMapWorkspace } from "../hooks/visuals/useMediaMapWorkspace";
 import { useMetadataWorkspace } from "../hooks/visuals/useMetadataWorkspace";
-import { useImageMapWorkspace } from "../hooks/visuals/useImageMapWorkspace";
 import { useBrollWorkspace } from "../hooks/visuals/useBrollWorkspace";
 import { useReferenceClipWorkspace } from "../hooks/visuals/useReferenceClipWorkspace";
-import { useMediaMapEntryActions } from "../hooks/visuals/useMediaMapEntryActions";
-import { useMediaMapGenerationActions } from "../hooks/visuals/useMediaMapGenerationActions";
 import { useBrollCoreActions } from "../hooks/visuals/useBrollCoreActions";
 import { useBrollBridgeActions } from "../hooks/visuals/useBrollBridgeActions";
 import { useReferenceClipCoreActions } from "../hooks/visuals/useReferenceClipCoreActions";
 import { useReferenceClipBridgeActions } from "../hooks/visuals/useReferenceClipBridgeActions";
-import { useImageMapReanchorActions } from "../hooks/visuals/useImageMapReanchorActions";
-import { useImageMapCandidateActions } from "../hooks/visuals/useImageMapCandidateActions";
-import { useImageMapEntryCrudActions } from "../hooks/visuals/useImageMapEntryCrudActions";
-import { useImageMapSeedExportActions } from "../hooks/visuals/useImageMapSeedExportActions";
-import { useMediaMapSourcePreparation } from "../hooks/visuals/useMediaMapSourcePreparation";
-import { useImageMapViewActions } from "../hooks/visuals/useImageMapViewActions";
-import { useCanonicalImageMapScriptReader } from "../hooks/visuals/useCanonicalImageMapScriptReader";
 import { useVisualsPersistence } from "../hooks/visuals/useVisualsPersistence";
 import { useReleasePrepPackWorkspace } from "../hooks/visuals/useReleasePrepPackWorkspace";
 import { useEpisodePackageLoader } from "../hooks/visuals/useEpisodePackageLoader";
-import { useImageMapCandidatePreviewLoader } from "../hooks/visuals/useImageMapCandidatePreviewLoader";
 import { useVisualWorkspaceResetLifecycle } from "../hooks/visuals/useVisualWorkspaceResetLifecycle";
-import { useMediaMapConversationBootstrap } from "../hooks/visuals/useMediaMapConversationBootstrap";
-import { useCanonicalImageMapScriptStateLoader } from "../hooks/visuals/useCanonicalImageMapScriptStateLoader";
 import { shouldInvalidateMediaMapForScriptVersion } from "../lib/hearth-visual-artifact-authority";
 import { hasCanonicalFraming } from "../lib/hearth-framing-authority";
 import { useVisualSelectionHydration } from "../hooks/visuals/useVisualSelectionHydration";
@@ -161,8 +147,6 @@ import { buildHearthDraftScriptPanelState } from "../views/modes/buildHearthDraf
 import HearthDesktopRail from "../views/modes/HearthDesktopRail";
 import { buildHearthReferenceClipPanelProps } from "../views/modes/buildHearthReferenceClipPanelProps";
 import { buildHearthBrollPanelProps } from "../views/modes/buildHearthBrollPanelProps";
-import { buildHearthImageMapPanelProps } from "../views/modes/buildHearthImageMapPanelProps";
-import { buildHearthMediaMapPanelProps } from "../views/modes/buildHearthMediaMapPanelProps";
 import {
   persistProductionArtifact as persistHearthProductionArtifact,
   resolveAcceptedTagProposal,
@@ -429,6 +413,23 @@ import {
   useHearthThumbnailPreviewLifecycle,
   useHearthThumbnailWorkspaceState,
 } from "./hearth-shell/useHearthThumbnailController";
+import {
+  buildHearthImagePlanningController,
+  useHearthCanonicalImageMapScriptLifecycle,
+  useHearthCanonicalImageMapScriptReader,
+  useHearthEpisodeImagesWorkspaceState,
+  useHearthImageCandidateCommands,
+  useHearthImageCandidatePreviewLifecycle,
+  useHearthImageEntryCommands,
+  useHearthImageMapReanchorCommands,
+  useHearthImageMapViewCommands,
+  useHearthImageSeedExportCommands,
+  useHearthVisualPlanConversationBootstrap,
+  useHearthVisualPlanEntryCommands,
+  useHearthVisualPlanGenerationCommands,
+  useHearthVisualPlanSourcePreparation,
+  useHearthVisualPlanWorkspaceState,
+} from "./hearth-shell/useHearthImagePlanningController";
 
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
@@ -1277,7 +1278,7 @@ export default function HearthShell({
     syncMediaMapDraftFromEntry,
     syncSelectedMediaMapEntryId,
     resetMediaMapWorkspaceForWorkpieceSwitch,
-  } = useMediaMapWorkspace();
+  } = useHearthVisualPlanWorkspaceState();
   const {
     selectedImageMapEntryId,
     setSelectedImageMapEntryId,
@@ -1336,7 +1337,7 @@ export default function HearthShell({
     syncImageMapDraftFromEntry,
     syncSelectedImageMapEntryId,
     resetImageMapReanchorState,
-  } = useImageMapWorkspace();
+  } = useHearthEpisodeImagesWorkspaceState();
   const {
     selectedBrollBeatId,
     setSelectedBrollBeatId,
@@ -1841,7 +1842,7 @@ export default function HearthShell({
     setThumbnailPreviewDataUrl,
     setThumbnailPreviewError,
   });
-  useImageMapCandidatePreviewLoader({
+  useHearthImageCandidatePreviewLifecycle({
     workpieceId,
     selectedImageMapEntry,
     selectedImageMapEntryId,
@@ -2169,12 +2170,12 @@ export default function HearthShell({
     setImageMapMetadataUpdatedAt,
     setThumbnailGenerateError,
   });
-  const { readCanonicalScriptForImageMapGeneration } = useCanonicalImageMapScriptReader({
+  const { readCanonicalScriptForImageMapGeneration } = useHearthCanonicalImageMapScriptReader({
     workpieceId,
     activeDraft,
     listWorkpieceDrafts: (episodeId: string) => store.listWorkpieceDrafts(episodeId),
   });
-  useMediaMapConversationBootstrap({
+  useHearthVisualPlanConversationBootstrap({
     activeWorkpieceTab,
     episodePackage,
     mediaMapEntriesLength: mediaMapEntries.length,
@@ -2184,7 +2185,7 @@ export default function HearthShell({
     setMediaMapConversationError,
     readCanonicalScriptForImageMapGeneration,
   });
-  useCanonicalImageMapScriptStateLoader({
+  useHearthCanonicalImageMapScriptLifecycle({
     workpieceId,
     selectedImageMapEntry,
     setCanonicalImageMapScriptState,
@@ -2225,7 +2226,7 @@ export default function HearthShell({
     onSaveMediaMapEntry,
     onDeleteMediaMapEntry,
     onActivateEpisodeMediaMap,
-  } = useMediaMapEntryActions({
+  } = useHearthVisualPlanEntryCommands({
     operationAuthority,
     episodePackage,
     workpieceId,
@@ -2255,7 +2256,7 @@ export default function HearthShell({
     persistReferenceClipPlan,
     persistMediaMap,
   });
-  const { prepareSourceEpisodePackageForMediaMapGeneration } = useMediaMapSourcePreparation({
+  const { prepareSourceEpisodePackageForMediaMapGeneration } = useHearthVisualPlanSourcePreparation({
     episodePackage,
     workpieceId,
     effectiveComposeSetupMode: effectiveComposeSetup?.mode ?? null,
@@ -2267,7 +2268,7 @@ export default function HearthShell({
   const {
     onGenerateEpisodeMediaMapFromPlans,
     onBuildAndApplyMediaMapFromConversation,
-  } = useMediaMapGenerationActions({
+  } = useHearthVisualPlanGenerationCommands({
     operationAuthority,
     episodePackage,
     isMediaMapBusy,
@@ -3962,7 +3963,7 @@ export default function HearthShell({
     onRepairImageMapNearestParagraph,
     onConvertImageMapToGlobalVisual,
     onLeaveImageMapOrphaned,
-  } = useImageMapReanchorActions({
+  } = useHearthImageMapReanchorCommands({
     operationAuthority,
     episodePackage,
     selectedImageMapEntry,
@@ -4020,7 +4021,7 @@ export default function HearthShell({
     onGenerateImageMapCandidates,
     onSelectImageMapCandidate,
     onUploadImageMapAsset,
-  } = useImageMapCandidateActions({
+  } = useHearthImageCandidateCommands({
     operationAuthority,
     workpieceId,
     workspaceId,
@@ -4058,7 +4059,7 @@ export default function HearthShell({
     onCreateImageMapEntry,
     onDuplicateImageMapEntry,
     onDeleteImageMapEntry,
-  } = useImageMapEntryCrudActions({
+  } = useHearthImageEntryCommands({
     operationAuthority,
     episodePackage,
     selectedImageMapEntry,
@@ -4072,7 +4073,7 @@ export default function HearthShell({
     onSeedImageMapFromScript,
     onCopyImageMapExportJson,
     onDownloadImageMapExportJson,
-  } = useImageMapSeedExportActions({
+  } = useHearthImageSeedExportCommands({
     operationAuthority,
     workpieceId,
     episodePackage,
@@ -4100,7 +4101,7 @@ export default function HearthShell({
   });
   const {
     onToggleVisualScriptMode,
-  } = useImageMapViewActions({
+  } = useHearthImageMapViewCommands({
     hasApprovedScript,
     approvedScriptVersion,
     isImageMapReanchorSaving,
@@ -5994,7 +5995,7 @@ export default function HearthShell({
       },
     });
     const thumbnailPanelProps = thumbnailController.surface;
-    const mediaMapPanelProps = buildHearthMediaMapPanelProps({
+    const visualPlanSurfaceInput = {
       entries: mediaMapEntries,
       selectedEntryId: selectedMediaMapEntryId,
       approvedScriptVersion,
@@ -6050,8 +6051,8 @@ export default function HearthShell({
       onAddEntry: () => void onAddMediaMapEntry(),
       onSaveEntry: () => void onSaveMediaMapEntry(),
       onDeleteEntry: () => void onDeleteMediaMapEntry(),
-    });
-    const imageMapPanelProps = buildHearthImageMapPanelProps({
+    };
+    const episodeImagesSurfaceInput = {
       panelTitle: "Timeline Images",
       manualOnly: false,
       entries: imageMapEntries,
@@ -6123,7 +6124,35 @@ export default function HearthShell({
       onLeaveOrphaned: () => void onLeaveImageMapOrphaned(),
       onCancelReanchor: onCancelImageMapReanchor,
       onPickReanchor: (selection: ImageMapScriptSelection) => void onPickImageMapReanchor(selection),
+    };
+    const imagePlanningController = buildHearthImagePlanningController({
+      active: Boolean(workpieceId),
+      authorityAvailable: !imageMapAuthorityUnavailable,
+      imageMapLoaded: imageMapProjectionLoaded,
+      visualPlanEntryCount: plannedImageCount,
+      visualPlanStale: shouldInvalidateMediaMapForScriptVersion(
+        mediaMap?.script_version_id ?? null,
+        approvedScriptVersion,
+      ),
+      canonicalEntryCount: imageMapEntries.length,
+      selectedEntryCount: imageMapEntries.filter((entry) => Boolean(entry.selected_asset_id)).length,
+      unresolvedEntryCount: imageMapEntries.filter(
+        (entry) => !hasStructuredImageMapAnchor(entry),
+      ).length,
+      visualPlanBusy: isMediaMapBusy,
+      visualPlanError: mediaMapSaveState === "error",
+      repairBusy: isImageMapReanchorSaving,
+      repairError: Boolean(imageMapReanchorError),
+      generationBusy: isImageMapCandidateGenerating,
+      generationError: Boolean(imageMapCandidateError),
+      selectionBusy: isImageMapCandidateSelecting,
+      selectionError: Boolean(imageMapCandidateSelectionError),
+      retryImagePlanningLoad: () => void refreshEpisodePackage(),
+      visualPlanSurfaceInput,
+      episodeImagesSurfaceInput,
     });
+    const mediaMapPanelProps = imagePlanningController.surfaces.visualPlan;
+    const imageMapPanelProps = imagePlanningController.surfaces.episodeImages;
     const brollPlanPanelProps = buildHearthBrollPanelProps({
       beats: brollBeats,
       selectedBeatId: selectedBrollBeatId,
