@@ -1241,8 +1241,9 @@ export default function ThumbnailPanel({
                 Thumbnail text stays tied to your Framing titles, so you can see Primary, Title B, and Title C without leaving this workspace.
               </div>
               <details className="hs-thumb-advanced-options">
-                <summary>Branding Options</summary>
+                <summary>Legacy Template Options</summary>
                 <div className="hs-thumb-advanced-options-body">
+                  <div className="hs-thumb-template-meta">Legacy template styling only. These controls do not configure Thumbnail V3 or its canonical Brand Profile.</div>
                   <label className="hs-field">
                     <span className="hs-field-label">Brand Template</span>
                     <select
@@ -1270,14 +1271,14 @@ export default function ThumbnailPanel({
                       onClick={() => brandLogoFileInputRef.current?.click()}
                       disabled={interactionDisabled || brandLogoUploading || !canManageBrandLogo}
                     >
-                      {brandLogoUploading ? "Uploading Logo..." : "Upload Logo"}
+                      {brandLogoUploading ? "Saving Legacy Logo..." : "Upload Legacy Template Logo"}
                     </button>
                     <button
                       type="button"
                       onClick={onRemoveBrandLogo}
                       disabled={interactionDisabled || brandLogoUploading || !canManageBrandLogo || !selectedBrandTemplateLogoDataUrl}
                     >
-                      Remove Logo
+                      Remove Legacy Template Logo
                     </button>
                   </div>
                   <input

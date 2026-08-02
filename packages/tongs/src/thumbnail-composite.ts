@@ -69,6 +69,18 @@ function wrapTitle(title: string, maxLines: number): string[] {
   return lines.slice(0, maxLines);
 }
 
+export async function normalizeThumbnailLogoForRender(logoBytes: Uint8Array): Promise<Uint8Array> {
+  const normalized = await sharp(logoBytes)
+    .toColourspace("srgb")
+    .ensureAlpha()
+    .png()
+    .toBuffer({ resolveWithObject: true });
+  if (normalized.info.channels !== 4) {
+    throw new Error("Thumbnail logo normalization did not produce RGBA sRGB pixels.");
+  }
+  return normalized.data;
+}
+
 export async function renderThumbnailComposite(args: {
   baseBytes: Uint8Array;
   width: number;
@@ -102,7 +114,24 @@ export async function renderThumbnailComposite(args: {
   const svg = (body: string) => Buffer.from(`<svg width="${width}" height="${height}" xmlns="http://www.w3.org/2000/svg"><style>${fontStyle}</style>${body}</svg>`);
   const coreMaskSvg = svg(textNodes(null, `fill="#fff"`));
   const lineMaskSvgs = lines.map((_line, index) => svg(textNodes(index, `fill="#fff"`)));
-  const untreated = await sharp(args.baseBytes).resize(width, height, { fit: "cover" }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+  const baseArtwork = await sharp(args.baseBytes).resize(width, height, { fit: "cover" }).ensureAlpha().png().toBuffer();
+  const logoVisible = recipe.presentation_override?.logo_visible !== false;
+  let logoOverlay: { input: Buffer; top: number; left: number; blend: "over" } | null = null;
+  if (logoVisible && args.logoBytes?.length && recipe.brand) {
+    const logoWidth = Math.max(48, Math.round(width * 0.16));
+    const logoHeight = Math.max(32, Math.round(height * 0.16));
+    const logoOpacity = recipe.presentation_override?.logo_opacity ?? recipe.brand.logo_opacity;
+    const normalizedLogo = await normalizeThumbnailLogoForRender(args.logoBytes);
+    const logo = await sharp(normalizedLogo).resize(logoWidth, logoHeight, { fit: "inside", withoutEnlargement: true })
+      .linear([1, 1, 1, Math.max(0, Math.min(1, logoOpacity))], [0, 0, 0, 0])
+      .png().toBuffer({ resolveWithObject: true });
+    const logoPlacement = recipe.presentation_override?.logo_placement ?? recipe.brand.logo_placement;
+    const top = logoPlacement.startsWith("top") ? padding : height - logo.info.height - padding;
+    const left = logoPlacement.endsWith("left") ? padding : width - logo.info.width - padding;
+    logoOverlay = { input: logo.data, top: Math.max(0, top), left: Math.max(0, left), blend: "over" };
+  }
+  const brandedBase = logoOverlay ? await sharp(baseArtwork).composite([logoOverlay]).png().toBuffer() : baseArtwork;
+  const untreated = await sharp(brandedBase).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
   const maskRaw = async (input: Buffer) => { const value = await sharp(input).ensureAlpha().raw().toBuffer({ resolveWithObject: true }); return { data: value.data, width: value.info.width, height: value.info.height, channels: value.info.channels }; };
   const coreMask = await maskRaw(coreMaskSvg); const lineMasks = await Promise.all(lineMaskSvgs.map(maskRaw));
   const treatments: ReadabilityTreatmentKind[] = ["none", "outline", "shadow", "gradient", "backing"];
@@ -122,7 +151,7 @@ export async function renderThumbnailComposite(args: {
     const blockTop = Math.max(0, startY - fontSize - supportRadius); const blockBottom = Math.min(height, startY + (lines.length - 1) * lineHeight + supportRadius);
     const backgroundBody = choice.treatment === "gradient" ? `<defs><linearGradient id="g"><stop stop-color="#000" stop-opacity="0.82"/><stop offset="1" stop-color="#000" stop-opacity="0"/></linearGradient></defs><rect x="0" y="${blockTop}" width="${width}" height="${blockBottom - blockTop}" fill="url(#g)"/>`
       : choice.treatment === "backing" ? `<rect x="${Math.max(0, padding - supportRadius)}" y="${blockTop}" width="${Math.min(width - padding, width) - Math.max(0, padding - supportRadius)}" height="${blockBottom - blockTop}" rx="${supportRadius}" fill="#000" fill-opacity="0.78"/>` : "";
-    const background = await sharp(args.baseBytes).resize(width, height, { fit: "cover" }).ensureAlpha().composite(backgroundBody ? [{ input: svg(backgroundBody) }] : []).png().toBuffer();
+    const background = await sharp(brandedBase).composite(backgroundBody ? [{ input: svg(backgroundBody) }] : []).png().toBuffer();
     const supportAttrs = choice.treatment === "outline" ? `fill="none" stroke="${supportColor}" stroke-width="${supportRadius}" stroke-opacity="1" paint-order="stroke"`
       : choice.treatment === "shadow" ? `fill="${supportColor}" fill-opacity="${Math.max(0, Math.min(1, recipe.shadow_opacity))}" transform="translate(${Math.max(2, Math.round(supportRadius / 2))} ${Math.max(2, Math.round(supportRadius / 2))})"` : `fill="none"`;
     const supportSvg = svg(textNodes(null, supportAttrs));
@@ -143,20 +172,7 @@ export async function renderThumbnailComposite(args: {
     if (result.passed) { selected = { bytes: finalBytes, evidence }; break; }
   }
   if (!selected) throw new Error("No approved thumbnail presentation meets forge.thumbnail-readability.v1.");
-  const overlays: Array<{ input: Buffer; top?: number; left?: number; blend?: "over" }> = [];
-  const logoVisible = recipe.presentation_override?.logo_visible !== false;
-  if (logoVisible && args.logoBytes?.length && recipe.brand) {
-    const logoWidth = Math.max(48, Math.round(width * 0.16));
-    const logoHeight = Math.max(32, Math.round(height * 0.16));
-    const logoOpacity = recipe.presentation_override?.logo_opacity ?? recipe.brand.logo_opacity;
-    const logo = await sharp(args.logoBytes).resize(logoWidth, logoHeight, { fit: "inside", withoutEnlargement: true })
-      .ensureAlpha().linear([1, 1, 1, Math.max(0, Math.min(1, logoOpacity))], [0, 0, 0, 0]).png().toBuffer();
-    const logoPlacement = recipe.presentation_override?.logo_placement ?? recipe.brand.logo_placement;
-    const top = logoPlacement.startsWith("top") ? padding : height - logoHeight - padding;
-    const left = logoPlacement.endsWith("left") ? padding : width - logoWidth - padding;
-    overlays.push({ input: logo, top: Math.max(0, top), left: Math.max(0, left), blend: "over" });
-  }
-  let pipeline = sharp(selected.bytes).composite(overlays);
+  let pipeline = sharp(selected.bytes);
   if (args.encoding.format === "jpeg") pipeline = pipeline.jpeg({ quality: args.encoding.quality, chromaSubsampling: "4:4:4" });
   else if (args.encoding.format === "webp") pipeline = pipeline.webp({ quality: args.encoding.quality, smartSubsample: true });
   else pipeline = pipeline.png({ compressionLevel: 9, adaptiveFiltering: false });

@@ -35,13 +35,52 @@ export type ThumbnailBrandAuthorityStatus = {
   workspace_default_profile_revision_id: string | null;
   workspace_default_profile_revision: number | null;
   episode_profile_revision: number | null;
+  episode_profile_rules: Record<string, unknown> | null;
   message: string;
+};
+
+export type ThumbnailBrandSetupState = "pending" | "asset_ready" | "profile_committed" | "binding_committed" | "verified";
+export type ThumbnailBrandSetupOperation = Record<string, unknown> & {
+  state: ThumbnailBrandSetupState;
+  operation_id: string;
+  operation_fingerprint?: string;
+  failed_stage?: ThumbnailBrandSetupState | null;
+  failure_code?: string | null;
+  failure_message?: string | null;
+};
+export type ThumbnailBrandSetupPointer = {
+  version: 1;
+  workspaceId: string;
+  workpieceId: string;
+  operationId: string;
+  operationFingerprint: string;
+  profileId: string;
+  role: "transparent_logo" | "primary_logo" | "watermark_logo";
+  filename: string;
+  mimeType: "image/png" | "image/jpeg" | "image/webp";
+  fileContentHash: string;
+  expectedBindingRevision: number;
+  requestedRules: Record<string, unknown>;
+};
+export type ThumbnailBrandSetupReceipt = Record<string, unknown> & {
+  schema_version: "forge.thumbnail-brand-setup-receipt.v1";
+  operation_id: string;
 };
 
 export type ThumbnailCandidateAuthorityProjection = { candidate_set: Record<string, unknown> | null; active_binding_id: string | null; active_binding_revision: number | null; candidates: Array<Record<string, unknown>> };
 
+export type ThumbnailLaunchCommitReceipt = {
+  launchVariantId: string;
+  launchRevision: number;
+  recipeId: string;
+  recipeRevision: number;
+  assetId: string;
+  assetPath: string;
+  contentHash: string;
+};
+
 export type V3MutationResult =
-  | ({ ok: true; saveState: "saved" } & CanonicalEpisodePackageV3)
+  | ({ ok: true; saveState: "saved"; launchReceipt?: ThumbnailLaunchCommitReceipt } & CanonicalEpisodePackageV3)
   | { ok: false; saveState: "error"; status: number; error: string; canonical?: CanonicalEpisodePackageV3 };
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -76,6 +115,178 @@ export async function readThumbnailBrandAuthorityStatus(args: {
   const body = await json(response);
   if (!response.ok || !isRecord(body) || !isRecord(body.data)) throw new Error(errorMessage(body, "Unable to read canonical thumbnail branding status."));
   return body.data as ThumbnailBrandAuthorityStatus;
+}
+
+function thumbnailBrandSetupPointerKey(workspaceId: string, workpieceId: string) {
+  return `forge.hearth.thumbnail-brand-setup.v1:${workspaceId}:${workpieceId}`;
+}
+
+export function readThumbnailBrandSetupPointer(workspaceId: string, workpieceId: string): ThumbnailBrandSetupPointer | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(thumbnailBrandSetupPointerKey(workspaceId, workpieceId)) ?? "null") as unknown;
+    if (!isRecord(parsed) || parsed.version !== 1 || parsed.workspaceId !== workspaceId || parsed.workpieceId !== workpieceId
+      || !readString(parsed.operationId) || !readString(parsed.operationFingerprint) || !readString(parsed.profileId)
+      || !readString(parsed.filename) || !readString(parsed.fileContentHash)
+      || !Number.isInteger(parsed.expectedBindingRevision) || Number(parsed.expectedBindingRevision) < 0 || !isRecord(parsed.requestedRules)
+      || (parsed.role !== "transparent_logo" && parsed.role !== "primary_logo" && parsed.role !== "watermark_logo")
+      || (parsed.mimeType !== "image/png" && parsed.mimeType !== "image/jpeg" && parsed.mimeType !== "image/webp")) return null;
+    return parsed as ThumbnailBrandSetupPointer;
+  } catch { return null; }
+}
+
+export function forgetThumbnailBrandSetupPointer(workspaceId: string, workpieceId: string) {
+  if (typeof window !== "undefined") window.localStorage.removeItem(thumbnailBrandSetupPointerKey(workspaceId, workpieceId));
+}
+
+function retainThumbnailBrandSetupPointer(pointer: ThumbnailBrandSetupPointer) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(thumbnailBrandSetupPointerKey(pointer.workspaceId, pointer.workpieceId), JSON.stringify(pointer));
+}
+
+async function thumbnailBrandSetupRequest(args: {
+  workpieceId: string;
+  stage: "begin" | "asset-ready" | "profile" | "binding" | "verify" | "receipt";
+  body: Record<string, unknown>;
+}): Promise<ThumbnailBrandSetupOperation | ThumbnailBrandSetupReceipt> {
+  const token = await requireThumbnailUserToken();
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/thumbnail-brand-setup/${args.stage}`, {
+    method: "POST",
+    headers: { "x-forge-user-authorization": `Bearer ${token}` },
+    json: args.body,
+  });
+  const body = await json(response);
+  if (!response.ok || !isRecord(body) || !isRecord(body.data)) throw new Error(errorMessage(body, `Thumbnail brand setup failed at ${args.stage}.`));
+  return body.data as ThumbnailBrandSetupOperation | ThumbnailBrandSetupReceipt;
+}
+
+export async function readThumbnailBrandSetupOperation(args: { workspaceId: string; workpieceId: string; operationId: string }) {
+  return thumbnailBrandSetupRequest({ workpieceId: args.workpieceId, stage: "receipt", body: { workspace_id: args.workspaceId, operation_id: args.operationId } });
+}
+
+async function sha256Bytes(bytes: Uint8Array) {
+  const digest = await crypto.subtle.digest("SHA-256", Uint8Array.from(bytes).buffer);
+  return Array.from(new Uint8Array(digest)).map((byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+export async function beginThumbnailBrandSetup(args: {
+  workspaceId: string;
+  workpieceId: string;
+  profileId: string;
+  expectedBindingRevision: number;
+  requestedRules: Record<string, unknown>;
+  file: File;
+  role?: "transparent_logo" | "primary_logo" | "watermark_logo";
+  replaceOperation?: boolean;
+}) {
+  const mimeType = args.file.type as ThumbnailBrandSetupPointer["mimeType"];
+  if (mimeType !== "image/png" && mimeType !== "image/jpeg" && mimeType !== "image/webp") throw new Error("Choose a PNG, JPEG, or WebP logo.");
+  const bytes = new Uint8Array(await args.file.arrayBuffer());
+  if (!bytes.length || bytes.length > 10 * 1024 * 1024) throw new Error("Logo must be between 1 byte and 10 MB.");
+  const fileContentHash = await sha256Bytes(bytes);
+  const existing = args.replaceOperation ? null : readThumbnailBrandSetupPointer(args.workspaceId, args.workpieceId);
+  if (existing) {
+    if (existing.fileContentHash !== fileContentHash) throw new Error("This retry requires the same logo file used to begin the canonical setup.");
+    try {
+      return { pointer: existing, operation: await readThumbnailBrandSetupOperation({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, operationId: existing.operationId }), bytes };
+    } catch {
+      const replayIntent = { workspace_id: existing.workspaceId, workpiece_id: existing.workpieceId, profile_id: existing.profileId,
+        logo_role: existing.role, filename: existing.filename, mime_type: existing.mimeType, file_content_hash: existing.fileContentHash,
+        expected_binding_revision: existing.expectedBindingRevision, requested_rules: existing.requestedRules, operation_id: existing.operationId };
+      const operation = await thumbnailBrandSetupRequest({ workpieceId: existing.workpieceId, stage: "begin", body: {
+        ...replayIntent, operation_fingerprint: existing.operationFingerprint, asset_id: null, internal_label: `${existing.filename} thumbnail logo`,
+      } });
+      return { pointer: existing, operation, bytes };
+    }
+  }
+  const role = args.role ?? "transparent_logo";
+  const operationId = crypto.randomUUID();
+  const intent = { workspace_id: args.workspaceId, workpiece_id: args.workpieceId, profile_id: args.profileId,
+    logo_role: role, filename: args.file.name, mime_type: mimeType, file_content_hash: fileContentHash,
+    expected_binding_revision: args.expectedBindingRevision, requested_rules: args.requestedRules, operation_id: operationId };
+  const operationFingerprint = await sha256Canonical(intent);
+  const pointer: ThumbnailBrandSetupPointer = { version: 1, workspaceId: args.workspaceId, workpieceId: args.workpieceId,
+    operationId, operationFingerprint, profileId: args.profileId, role, filename: args.file.name, mimeType, fileContentHash,
+    expectedBindingRevision: args.expectedBindingRevision, requestedRules: structuredClone(args.requestedRules) };
+  // Retained before the request so a lost begin response reuses the exact identity.
+  retainThumbnailBrandSetupPointer(pointer);
+  const operation = await thumbnailBrandSetupRequest({ workpieceId: args.workpieceId, stage: "begin", body: {
+    ...intent, operation_fingerprint: operationFingerprint, asset_id: null, internal_label: `${args.file.name} thumbnail logo`,
+  } });
+  return { pointer, operation, bytes };
+}
+
+const receiptField = (value: unknown, path: readonly string[]): unknown => path.reduce<unknown>((current, key) => isRecord(current) ? current[key] : undefined, value);
+const VERIFIED_RECEIPT_FIELDS = [
+  ["schema_version"], ["operation_id"], ["workspace_id"], ["workpiece_id"],
+  ["logo", "asset_revision_id"], ["logo", "role"], ["logo", "content_hash"], ["logo", "storage_bucket"], ["logo", "storage_key"],
+  ["profile", "profile_id"], ["profile", "revision_id"], ["profile", "revision"], ["profile", "content_hash"],
+  ["binding", "id"], ["binding", "revision"], ["renderer", "style_source"], ["renderer", "logo_asset_revision_id"],
+  ["renderer", "storage_bucket"], ["renderer", "storage_key"], ["preservation", "candidate_set_id"],
+  ["preservation", "candidate_set_revision"], ["preservation", "candidate_count"], ["preservation", "candidate_content_hash"],
+  ["preservation", "thumbnail_count"], ["preservation", "thumbnail_identity_hash"],
+  ["preservation", "existing_thumbnails_unchanged"], ["preservation", "existing_candidates_unchanged"],
+] as const;
+
+export function verifyThumbnailBrandSetupReceipt(args: { receipt: unknown; readback: unknown; pointer: ThumbnailBrandSetupPointer }) {
+  if (!isRecord(args.receipt) || !isRecord(args.readback)) return { ok: false as const, reason: "Verified receipt readback is unavailable." };
+  for (const path of VERIFIED_RECEIPT_FIELDS) {
+    if (canonicalSerialize(receiptField(args.receipt, path)) !== canonicalSerialize(receiptField(args.readback, path))) {
+      return { ok: false as const, reason: `Verified receipt readback mismatch at ${path.join(".")}.` };
+    }
+  }
+  for (const path of [["logo", "asset_revision_id"], ["logo", "content_hash"], ["logo", "storage_bucket"], ["logo", "storage_key"],
+    ["profile", "profile_id"], ["profile", "revision_id"], ["profile", "revision"], ["profile", "content_hash"],
+    ["binding", "id"], ["binding", "revision"], ["renderer", "logo_asset_revision_id"], ["renderer", "storage_bucket"],
+    ["renderer", "storage_key"], ["preservation", "candidate_count"], ["preservation", "thumbnail_count"],
+    ["preservation", "thumbnail_identity_hash"]] as const) {
+    if (receiptField(args.readback, path) == null) return { ok: false as const, reason: `Verified receipt is incomplete at ${path.join(".")}.` };
+  }
+  if (args.readback.schema_version !== "forge.thumbnail-brand-setup-receipt.v1"
+    || args.readback.operation_id !== args.pointer.operationId
+    || args.readback.workspace_id !== args.pointer.workspaceId || args.readback.workpiece_id !== args.pointer.workpieceId
+    || receiptField(args.readback, ["logo", "role"]) !== args.pointer.role
+    || receiptField(args.readback, ["logo", "content_hash"]) !== args.pointer.fileContentHash
+    || receiptField(args.readback, ["renderer", "style_source"]) !== "brand_profile"
+    || receiptField(args.readback, ["renderer", "logo_asset_revision_id"]) !== receiptField(args.readback, ["logo", "asset_revision_id"])
+    || receiptField(args.readback, ["renderer", "storage_bucket"]) !== receiptField(args.readback, ["logo", "storage_bucket"])
+    || receiptField(args.readback, ["renderer", "storage_key"]) !== receiptField(args.readback, ["logo", "storage_key"])
+    || receiptField(args.readback, ["preservation", "existing_thumbnails_unchanged"]) !== true
+    || receiptField(args.readback, ["preservation", "existing_candidates_unchanged"]) !== true) {
+    return { ok: false as const, reason: "Verified receipt identities do not match the canonical setup intent." };
+  }
+  return { ok: true as const, receipt: args.readback as ThumbnailBrandSetupReceipt };
+}
+
+export async function advanceThumbnailBrandSetup(args: {
+  pointer: ThumbnailBrandSetupPointer;
+  fileBytes?: Uint8Array | null;
+  onProgress?: (operation: ThumbnailBrandSetupOperation | ThumbnailBrandSetupReceipt) => void;
+}) {
+  const common = { workspace_id: args.pointer.workspaceId, operation_id: args.pointer.operationId, operation_fingerprint: args.pointer.operationFingerprint };
+  let current = await readThumbnailBrandSetupOperation({ workspaceId: args.pointer.workspaceId, workpieceId: args.pointer.workpieceId, operationId: args.pointer.operationId });
+  args.onProgress?.(current);
+  if (current.schema_version === "forge.thumbnail-brand-setup-receipt.v1") return verifyThumbnailBrandSetupReceipt({ receipt: current, readback: current, pointer: args.pointer });
+  if (current.state === "verified") {
+    const readback = await readThumbnailBrandSetupOperation({ workspaceId: args.pointer.workspaceId, workpieceId: args.pointer.workpieceId, operationId: args.pointer.operationId });
+    return verifyThumbnailBrandSetupReceipt({ receipt: readback, readback, pointer: args.pointer });
+  }
+  if (current.state === "pending") {
+    if (!args.fileBytes?.length) throw new Error("Canonical setup is waiting for the original logo file. Choose the same file to resume.");
+    if (await sha256Bytes(args.fileBytes) !== args.pointer.fileContentHash) throw new Error("This retry requires the same logo file used to begin the canonical setup.");
+    current = await thumbnailBrandSetupRequest({ workpieceId: args.pointer.workpieceId, stage: "asset-ready", body: {
+      ...common, bytes_base64: bytesToBase64(args.fileBytes), mime_type: args.pointer.mimeType,
+    } }); args.onProgress?.(current);
+  }
+  if (current.state === "asset_ready") { current = await thumbnailBrandSetupRequest({ workpieceId: args.pointer.workpieceId, stage: "profile", body: common }); args.onProgress?.(current); }
+  if (current.state === "profile_committed") { current = await thumbnailBrandSetupRequest({ workpieceId: args.pointer.workpieceId, stage: "binding", body: common }); args.onProgress?.(current); }
+  if (current.state === "binding_committed") { current = await thumbnailBrandSetupRequest({ workpieceId: args.pointer.workpieceId, stage: "verify", body: common }); args.onProgress?.(current); }
+  if (current.schema_version !== "forge.thumbnail-brand-setup-receipt.v1") {
+    const failure = readString(current.failure_message);
+    return { ok: false as const, reason: failure ?? `Canonical setup stopped at ${readString(current.failed_stage) ?? current.state}.`, operation: current };
+  }
+  const readback = await readThumbnailBrandSetupOperation({ workspaceId: args.pointer.workspaceId, workpieceId: args.pointer.workpieceId, operationId: args.pointer.operationId });
+  return verifyThumbnailBrandSetupReceipt({ receipt: current, readback, pointer: args.pointer });
 }
 
 export async function readThumbnailCandidateAuthorityProjection(args: { workpieceId: string; workspaceId: string }): Promise<ThumbnailCandidateAuthorityProjection> {
@@ -533,6 +744,8 @@ export async function commitThumbnailLaunchComposite(args: {
   episodePackage: EpisodePackageV3;
   launchVariantId: string;
   baseVersionId: string;
+  recipeId?: string;
+  recipeRevision?: number;
   operationId: string;
   width: number;
   height: number;
@@ -544,9 +757,13 @@ export async function commitThumbnailLaunchComposite(args: {
   const base = args.episodePackage.thumbnail.base_versions.find((entry) => entry.id === args.baseVersionId);
   if (!base || base.status !== "ready") return { ok: false, saveState: "error", status: 409, error: "Launch requires ready base artwork." };
   const recipe = args.episodePackage.thumbnail.render_recipes.find(
-    (entry) => entry.id === base.render_recipe_id && entry.revision === base.render_recipe_revision,
+    (entry) => entry.id === (args.recipeId ?? base.render_recipe_id)
+      && entry.revision === (args.recipeRevision ?? base.render_recipe_revision),
   );
   if (!recipe) return { ok: false, saveState: "error", status: 409, error: "Exact launch recipe revision is unavailable." };
+  if (recipe.concept_revision_id !== base.concept_revision_id) {
+    return { ok: false, saveState: "error", status: 409, error: "Edited recipe and base artwork do not share the same canonical concept revision." };
+  }
   const recipeSnapshot = compositorRecipe(recipe);
   const recipeHash = await sha256Canonical(recipeSnapshot);
   const renderResponse = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/thumbnail-assets/render-composite`, {
@@ -582,7 +799,8 @@ export async function commitThumbnailLaunchComposite(args: {
   };
   const next = appendLaunchSnapshot({
     episodePackage: args.episodePackage, launchVariantId: args.launchVariantId,
-    baseVersionId: base.id, snapshot, createdAt: args.createdAt,
+    baseVersionId: base.id, recipeId: recipe.id, recipeRevision: recipe.revision,
+    snapshot, createdAt: args.createdAt,
   });
   const launchIndex = next.thumbnail.launch_variant_revisions.length - 1;
   const before = await readCanonicalEpisodePackageV3(args.workpieceId);
@@ -608,7 +826,29 @@ export async function commitThumbnailLaunchComposite(args: {
   const latest = next.thumbnail.launch_variant_revisions[launchIndex]!;
   const proof = proveThumbnailMutation({ expected: next, canonical: canonical.episodePackage, kind: "launch_revision", entityId: args.launchVariantId, revision: latest.revision });
   if (!proof.ok) return { ok: false, saveState: "error", status: 409, error: proof.reason, canonical };
-  return { ok: true, saveState: "saved", ...canonical };
+  const persistedLaunch = canonical.episodePackage.thumbnail.launch_variant_revisions.find(
+    (entry) => entry.launch_variant_id === latest.launch_variant_id && entry.revision === latest.revision,
+  );
+  const persistedRecipe = persistedLaunch && canonical.episodePackage.thumbnail.render_recipes.find(
+    (entry) => entry.id === persistedLaunch.recipe_id && entry.revision === persistedLaunch.recipe_revision,
+  );
+  if (!persistedLaunch || !persistedRecipe
+    || persistedRecipe.treatment.placement.vertical !== recipe.treatment.placement.vertical
+    || persistedRecipe.presentation_override?.logo_placement !== recipe.presentation_override?.logo_placement
+    || persistedLaunch.snapshot.recipe_snapshot.placement !== recipeSnapshot.placement
+    || persistedLaunch.snapshot.recipe_snapshot.presentation_override?.logo_placement !== recipeSnapshot.presentation_override?.logo_placement
+    || persistedLaunch.snapshot.asset_id !== assetId
+    || persistedLaunch.snapshot.asset_path !== assetPath
+    || persistedLaunch.snapshot.content_hash !== contentHash) {
+    return { ok: false, saveState: "error", status: 409,
+      error: "Tongs saved a thumbnail revision, but its canonical recipe, launch, or rendered asset does not match the requested edit.", canonical };
+  }
+  return { ok: true, saveState: "saved", ...canonical, launchReceipt: {
+    launchVariantId: persistedLaunch.launch_variant_id, launchRevision: persistedLaunch.revision,
+    recipeId: persistedRecipe.id, recipeRevision: persistedRecipe.revision,
+    assetId: persistedLaunch.snapshot.asset_id, assetPath: persistedLaunch.snapshot.asset_path,
+    contentHash: persistedLaunch.snapshot.content_hash,
+  } };
 }
 
 export async function commitThumbnailPublicationSnapshot(args: {

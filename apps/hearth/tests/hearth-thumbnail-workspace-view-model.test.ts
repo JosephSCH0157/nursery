@@ -7,20 +7,22 @@ test("creator errors translate concurrency and distinction failures", () => {
   assert.match(creatorThumbnailError("pairwise distinction failed"), /too similar/i);
 });
 
-test("branding is advisory and standard styling remains available", () => {
+test("My Brand stays blocked until canonical branding is verified while standard remains available", () => {
   assert.equal(creatorBrandStatus(null).ready, true);
-  const unbranded = creatorBrandStatus({ state: "canonical_unbranded", message: "unbranded", binding: null, profile_label: null, workspace_default_profile_label: "BS with Joe", workspace_default_profile_id: "profile", workspace_default_profile_revision_id: "revision", workspace_default_profile_revision: 4, episode_profile_revision: null });
+  const unbranded = creatorBrandStatus({ state: "canonical_unbranded", message: "unbranded", binding: null, profile_label: null, workspace_default_profile_label: "BS with Joe", workspace_default_profile_id: "profile", workspace_default_profile_revision_id: "revision", workspace_default_profile_revision: 4, episode_profile_revision: null, episode_profile_rules: null });
+  assert.equal(unbranded.ready, false);
+  assert.match(unbranded.message, /No verified thumbnail logo.*Forge Standard/i);
   assert.equal(unbranded.workspaceDefaultLabel, "BS with Joe");
   assert.equal(unbranded.episodeBindingLabel, "Forge Standard");
   assert.equal(unbranded.automaticResolutionLabel, "Forge Standard fallback");
-  const blocked = creatorBrandStatus({ state: "verification_blocked", message: "incomplete", binding: { state: "profile" }, profile_label: "Bold Commentary", workspace_default_profile_label: "BS with Joe", workspace_default_profile_id: "profile", workspace_default_profile_revision_id: "revision", workspace_default_profile_revision: 4, episode_profile_revision: 3 });
-  assert.match(blocked.message, /fall back/i);
+  const blocked = creatorBrandStatus({ state: "verification_blocked", message: "incomplete", binding: { state: "profile" }, profile_label: "Bold Commentary", workspace_default_profile_label: "BS with Joe", workspace_default_profile_id: "profile", workspace_default_profile_revision_id: "revision", workspace_default_profile_revision: 4, episode_profile_revision: 3, episode_profile_rules: {} });
+  assert.match(blocked.message, /Forge Standard/i);
   assert.equal(blocked.episodeBindingLabel, "Bold Commentary (needs attention)");
-  const branded = creatorBrandStatus({ state: "canonical_branded", message: "ready", binding: null, profile_label: "BS with Joe", workspace_default_profile_label: "BS with Joe", workspace_default_profile_id: "profile", workspace_default_profile_revision_id: "revision", workspace_default_profile_revision: 4, episode_profile_revision: 4 });
+  const branded = creatorBrandStatus({ state: "canonical_branded", message: "ready", binding: null, profile_label: "BS with Joe", workspace_default_profile_label: "BS with Joe", workspace_default_profile_id: "profile", workspace_default_profile_revision_id: "revision", workspace_default_profile_revision: 4, episode_profile_revision: 4, episode_profile_rules: {} });
   assert.equal(branded.workspaceDefaultLabel, "BS with Joe");
   assert.equal(branded.episodeBindingLabel, "BS with Joe");
   assert.equal(branded.automaticResolutionLabel, "BS with Joe");
-  const staleBranded = creatorBrandStatus({ state: "stale_projection", message: "stale", binding: { state: "profile" }, profile_label: "BS with Joe", workspace_default_profile_label: "BS with Joe", workspace_default_profile_id: "profile", workspace_default_profile_revision_id: "revision", workspace_default_profile_revision: 4, episode_profile_revision: 3 });
+  const staleBranded = creatorBrandStatus({ state: "stale_projection", message: "stale", binding: { state: "profile" }, profile_label: "BS with Joe", workspace_default_profile_label: "BS with Joe", workspace_default_profile_id: "profile", workspace_default_profile_revision_id: "revision", workspace_default_profile_revision: 4, episode_profile_revision: 3, episode_profile_rules: {} });
   assert.equal(staleBranded.label, "Episode brand: BS with Joe");
   assert.equal(staleBranded.automaticResolutionLabel, "BS with Joe");
 });

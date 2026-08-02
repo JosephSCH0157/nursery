@@ -274,11 +274,11 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
         item.id === updated.data.id ? updated.data : item
       )));
       args.setThumbnailBrandLogoError(null);
-      args.setThumbnailBrandLogoStatus(`Logo uploaded for "${updated.data.name}".`);
+      args.setThumbnailBrandLogoStatus(`Legacy template logo saved for "${updated.data.name}". This does not configure Thumbnail V3.`);
       args.publishForgeNotice({
         job: "image-generated",
-        title: "Brand logo uploaded",
-        message: "Thumbnail branding logo was saved successfully.",
+        title: "Legacy template logo saved",
+        message: "This logo applies only to the legacy template preview and does not configure Thumbnail V3.",
         severity: "success",
       });
     } finally {
@@ -323,7 +323,7 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
       )));
       args.setThumbnailBrandLogoDataUrl(null);
       args.setThumbnailBrandLogoError(null);
-      args.setThumbnailBrandLogoStatus(`Logo removed from "${updated.data.name}".`);
+      args.setThumbnailBrandLogoStatus(`Legacy template logo removed from "${updated.data.name}". Thumbnail V3 was not changed.`);
     } finally {
       if (args.operationAuthority.isCurrent(operation)) {
         args.setIsThumbnailBrandLogoUploading(false);

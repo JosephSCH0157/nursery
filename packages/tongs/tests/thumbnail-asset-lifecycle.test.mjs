@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import sharp from "sharp";
 import {
+  normalizeThumbnailLogoForRender,
   renderThumbnailComposite,
   THUMBNAIL_BUNDLED_FONT_VERSION,
   THUMBNAIL_COMPOSITION_ENGINE_VERSION,
@@ -176,6 +178,114 @@ test("thumbnail render authority resolves canonical brand bindings and records p
   assert.match(source, /parts\[4\] === "apply-workspace-brand"/);
   assert.match(source, /asset_kind !== "thumbnail_composite" \|\| asset\.status !== "ready" \|\| asset\.content_hash !== expectedHash/);
   assert.match(source, /asset_path: asset\.path/);
+});
+
+test("thumbnail logo rendering normalizes grayscale, grayscale-alpha, RGB, and RGBA inputs before linear opacity", async () => {
+  const width = 640; const height = 360;
+  const baseBytes = await sharp({ create: { width, height, channels: 4, background: "#202020" } }).png().toBuffer();
+  const recipe = {
+    title_text: "Branded Episode", title_revision: 1, template_revision: 1,
+    text_color: "#FFFFFF", shadow_color: "#000000", shadow_opacity: 0.7,
+    placement: "bottom", max_lines: 2, horizontal_padding_percent: 8,
+    brand: { text_color: "#F8FAFC", shadow_color: "#111827", logo_placement: "top_left", logo_opacity: 0.8 },
+  };
+  const cases = [
+    { name: "grayscale", channels: 1, pixels: [220] },
+    { name: "grayscale-alpha", channels: 2, pixels: [220, 96], alpha: 96 },
+    { name: "rgb", channels: 3, pixels: [255, 85, 0] },
+    { name: "rgba", channels: 4, pixels: [255, 85, 0, 96], alpha: 96 },
+  ];
+  const unbranded = await renderThumbnailComposite({ baseBytes, width, height, recipe: { ...recipe, brand: null }, encoding: { format: "png", quality: 100 } });
+  const unbrandedRaw = await sharp(unbranded.bytes).ensureAlpha().raw().toBuffer();
+  for (const fixture of cases) {
+    const pixel = Buffer.from(fixture.pixels);
+    const logoBytes = await sharp(Buffer.concat(Array.from({ length: 80 * 40 }, () => pixel)), {
+      raw: { width: 80, height: 40, channels: fixture.channels },
+    }).png().toBuffer();
+    const canonicalHash = createHash("sha256").update(logoBytes).digest("hex");
+    const evidence = Object.freeze({ asset_revision_id: `${fixture.name}-asset-revision`, content_hash: canonicalHash });
+    const normalized = await normalizeThumbnailLogoForRender(logoBytes);
+    const normalizedMetadata = await sharp(normalized).metadata();
+    assert.equal(normalizedMetadata.space, "srgb", fixture.name);
+    assert.equal(normalizedMetadata.channels, 4, fixture.name);
+    assert.equal(normalizedMetadata.hasAlpha, true, fixture.name);
+    if (fixture.alpha != null) {
+      const normalizedPixel = await sharp(normalized).raw().toBuffer();
+      assert.equal(normalizedPixel[3], fixture.alpha, `${fixture.name} alpha must be preserved before opacity modulation`);
+    }
+    const composite = await renderThumbnailComposite({ baseBytes, logoBytes, width, height, recipe, encoding: { format: "png", quality: 100 } });
+    const metadata = await sharp(composite.bytes).metadata();
+    assert.equal(metadata.width, width, fixture.name);
+    assert.equal(metadata.height, height, fixture.name);
+    assert.equal(metadata.format, "png", fixture.name);
+    const compositeRaw = await sharp(composite.bytes).ensureAlpha().raw().toBuffer();
+    let changedPixels = 0;
+    for (let index = 0; index < compositeRaw.length; index += 4) {
+      if (compositeRaw[index] !== unbrandedRaw[index] || compositeRaw[index + 1] !== unbrandedRaw[index + 1]
+        || compositeRaw[index + 2] !== unbrandedRaw[index + 2] || compositeRaw[index + 3] !== unbrandedRaw[index + 3]) changedPixels += 1;
+    }
+    assert.ok(changedPixels > 0, `${fixture.name} logo must be visibly included`);
+    assert.equal(createHash("sha256").update(logoBytes).digest("hex"), canonicalHash, `${fixture.name} canonical bytes must remain unchanged`);
+    assert.deepEqual(evidence, { asset_revision_id: `${fixture.name}-asset-revision`, content_hash: canonicalHash });
+  }
+});
+
+test("three-band canonical logos no longer reach linear before RGBA materialization", async () => {
+  const logoBytes = await sharp({ create: { width: 80, height: 40, channels: 3, background: "#FF5500" } }).png().toBuffer();
+  await assert.rejects(
+    () => sharp(logoBytes).ensureAlpha().linear([1, 1, 1, 0.8], [0, 0, 0, 0]).png().toBuffer(),
+    /Band expansion using linear is unsupported/,
+  );
+  const normalized = await normalizeThumbnailLogoForRender(logoBytes);
+  await assert.doesNotReject(() => sharp(normalized).linear([1, 1, 1, 0.8], [0, 0, 0, 0]).png().toBuffer());
+});
+
+test("brand logo is composed below title text and canonical placement anchors change pixels", async () => {
+  const width = 640; const height = 360;
+  const baseBytes = await sharp({ create: { width, height, channels: 4, background: "#000000" } }).png().toBuffer();
+  const logoBytes = await sharp({ create: { width: 160, height: 90, channels: 4, background: "#0000FF" } }).png().toBuffer();
+  const recipe = {
+    title_text: "LAYER ORDER", title_revision: 1, template_revision: 1,
+    text_color: "#FFFFFF", shadow_color: "#000000", shadow_opacity: 1,
+    placement: "top", max_lines: 1, horizontal_padding_percent: 8,
+    brand: { text_color: "#FFFFFF", shadow_color: "#000000", logo_placement: "top_left", logo_opacity: 1 },
+    presentation_override: { text_color: "#FFFFFF", treatment: "none", logo_visible: true,
+      logo_placement: "top_left", logo_opacity: 1, decision_origin: "explicit_user" },
+  };
+  const withoutLogo = await renderThumbnailComposite({ baseBytes, logoBytes: null, width, height,
+    recipe: { ...recipe, brand: null, presentation_override: { ...recipe.presentation_override, logo_visible: false } }, encoding: { format: "png", quality: 100 } });
+  const topLeft = await renderThumbnailComposite({ baseBytes, logoBytes, width, height, recipe, encoding: { format: "png", quality: 100 } });
+  const bottomRight = await renderThumbnailComposite({ baseBytes, logoBytes, width, height,
+    recipe: { ...recipe, presentation_override: { ...recipe.presentation_override, logo_placement: "bottom_right" } }, encoding: { format: "png", quality: 100 } });
+  assert.notDeepEqual(topLeft.bytes, bottomRight.bytes);
+  const plain = await sharp(withoutLogo.bytes).ensureAlpha().raw().toBuffer();
+  const layered = await sharp(topLeft.bytes).ensureAlpha().raw().toBuffer();
+  let overlappingTitlePixels = 0;
+  for (let y = 51; y < 110; y += 1) for (let x = 51; x < 154; x += 1) {
+    const index = (y * width + x) * 4;
+    if (plain[index] > 240 && plain[index + 1] > 240 && plain[index + 2] > 240) {
+      overlappingTitlePixels += 1;
+      assert.ok(layered[index] > 240 && layered[index + 1] > 240 && layered[index + 2] > 240,
+        "opaque title pixels must remain above the blue logo layer");
+    }
+  }
+  assert.ok(overlappingTitlePixels > 0, "fixture must contain title glyph pixels inside the logo region");
+});
+
+test("canonical text placement anchors move the composed title", async () => {
+  const width = 640; const height = 360;
+  const baseBytes = await sharp({ create: { width, height, channels: 4, background: "#000000" } }).png().toBuffer();
+  const recipe = { title_text: "MOVE TEXT", title_revision: 1, template_revision: 1,
+    text_color: "#FFFFFF", shadow_color: "#000000", shadow_opacity: 1,
+    placement: "top", max_lines: 1, horizontal_padding_percent: 8,
+    presentation_override: { text_color: "#FFFFFF", treatment: "none", logo_visible: false,
+      logo_placement: null, logo_opacity: null, decision_origin: "explicit_user" } };
+  const top = await renderThumbnailComposite({ baseBytes, width, height, recipe, encoding: { format: "png", quality: 100 } });
+  const bottom = await renderThumbnailComposite({ baseBytes, width, height, recipe: { ...recipe, placement: "bottom" }, encoding: { format: "png", quality: 100 } });
+  assert.notDeepEqual(top.bytes, bottom.bytes);
+  const topMetadata = await sharp(top.bytes).metadata(); const bottomMetadata = await sharp(bottom.bytes).metadata();
+  assert.deepEqual([topMetadata.width, topMetadata.height, topMetadata.format], [width, height, "png"]);
+  assert.deepEqual([bottomMetadata.width, bottomMetadata.height, bottomMetadata.format], [width, height, "png"]);
 });
 
 test("thumbnail style-source migration backfills and keeps standard eligibility binding-independent", async () => {

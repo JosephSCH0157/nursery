@@ -1235,6 +1235,7 @@ export type ThumbnailBrandStatus = {
   workspace_default_profile_revision_id: string | null;
   workspace_default_profile_revision: number | null;
   episode_profile_revision: number | null;
+  episode_profile_rules: Record<string, Json> | null;
   message: string;
 };
 
@@ -1255,6 +1256,10 @@ export type BeginThumbnailBrandSetupRequest = {
 };
 export type ThumbnailBrandSetupStageRequest = { workspace_id: string; operation_id: string; operation_fingerprint: string };
 export type ThumbnailBrandAssetReadyRequest = ThumbnailBrandSetupStageRequest;
+export type UploadThumbnailBrandAssetRequest = ThumbnailBrandSetupStageRequest & {
+  bytes_base64: string;
+  mime_type: "image/png" | "image/jpeg" | "image/webp";
+};
 
 export type CommitThumbnailCandidateSetRequest = { workspace_id: string; expected_current_revision: number; candidates: Json[]; operation_id: string; operation_fingerprint: string };
 export type ThumbnailCandidateSetProjection = { candidate_set: Record<string, Json> | null; active_binding_id: string | null; active_binding_revision?: number | null; candidates: Record<string, Json>[]; historical_candidate_sets?: Array<{candidate_set:Record<string,Json>;candidates:Record<string,Json>[]}> };
@@ -1630,6 +1635,7 @@ export type TongsCommitApiService = {
     options?: { userAccessToken?: string | null },
   ): Promise<Record<string, Json>>;
   beginThumbnailBrandSetup(workpieceId:string,input:BeginThumbnailBrandSetupRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>|null>;
+  uploadThumbnailBrandSetupAsset(workpieceId:string,input:UploadThumbnailBrandAssetRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>|null>;
   markThumbnailBrandAssetReady(workpieceId:string,input:ThumbnailBrandAssetReadyRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>|null>;
   advanceThumbnailBrandSetup(workpieceId:string,stage:"profile"|"binding"|"verify",input:ThumbnailBrandSetupStageRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>|null>;
   getThumbnailBrandSetupReceipt(workpieceId:string,workspaceId:string,operationId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>|null>;
@@ -10206,13 +10212,15 @@ export class TongsCommitService {
     const binding = isRecord(current.data) ? current.data : null;
     const bindingProfileRevisionId = binding ? readStringField(binding, "profile_revision_id") : null;
     const bindingRevisionResult = bindingProfileRevisionId
-      ? await tongs.from("brand_profile_revisions").select("revision").eq("workspace_id", input.workspace_id).eq("id", bindingProfileRevisionId).maybeSingle()
+      ? await tongs.from("brand_profile_revisions").select("revision,rules_json").eq("workspace_id", input.workspace_id).eq("id", bindingProfileRevisionId).maybeSingle()
       : null;
     const episodeProfileRevision = bindingRevisionResult && !bindingRevisionResult.error && isRecord(bindingRevisionResult.data)
       && typeof bindingRevisionResult.data.revision === "number" ? bindingRevisionResult.data.revision : null;
+    const episodeProfileRules = bindingRevisionResult && !bindingRevisionResult.error && isRecord(bindingRevisionResult.data)
+      && isRecord(bindingRevisionResult.data.rules_json) ? bindingRevisionResult.data.rules_json as Record<string, Json> : null;
     const defaultFields = { workspace_default_profile_label: workspaceDefaultProfileLabel, workspace_default_profile_id: defaultProfileId,
       workspace_default_profile_revision_id: workspaceDefaultProfileRevisionId, workspace_default_profile_revision: workspaceDefaultProfileRevision,
-      episode_profile_revision: episodeProfileRevision };
+      episode_profile_revision: episodeProfileRevision, episode_profile_rules: episodeProfileRules };
     if (!binding) return { state: "unresolved", binding: null, profile_label: null, ...defaultFields, message: "Branding will be resolved by Tongs when the first thumbnail render begins." };
     const bindingId = readStringField(binding, "id");
     const bindingRevision = typeof binding.revision === "number" ? binding.revision : null;
@@ -10315,6 +10323,44 @@ export class TongsCommitService {
       p_mime_type: input.mime_type, p_requested_rules: input.requested_rules,
       p_expected_binding_revision: input.expected_binding_revision,
     }, options);
+  }
+
+  async uploadThumbnailBrandSetupAsset(workpieceId: string, input: UploadThumbnailBrandAssetRequest, options?: { userAccessToken?: string | null }) {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const current = await this.getThumbnailBrandSetupReceipt(workpieceId, input.workspace_id, input.operation_id, options);
+    if (!current) throw new HttpError(404, "thumbnail_brand_setup_not_found", "Thumbnail brand setup operation was not found");
+    if (current.operation_fingerprint !== input.operation_fingerprint) throw new HttpError(409, "thumbnail_brand_setup_conflict", "Operation identity was reused with a different payload");
+    if (current.state !== "pending") return current;
+    const bucket = readStringField(current, "storage_bucket");
+    const key = readStringField(current, "storage_key");
+    const revisionId = readStringField(current, "logo_asset_revision_id");
+    if (!bucket || !key || !revisionId) throw new HttpError(409, "thumbnail_brand_asset_identity_incomplete", "Reserved logo storage identity is incomplete");
+    const assetResult = await this.supabase.schema("tongs").from("brand_asset_revisions")
+      .select("mime_type").eq("workspace_id", input.workspace_id).eq("id", revisionId).single();
+    if (assetResult.error || !assetResult.data || assetResult.data.mime_type !== input.mime_type) {
+      throw new HttpError(409, "thumbnail_brand_asset_mime_mismatch", "Logo bytes do not match the reserved canonical media type");
+    }
+    const bytes = decodeBase64(input.bytes_base64);
+    if (!bytes.length || bytes.length > 10 * 1024 * 1024) throw new HttpError(413, "thumbnail_brand_asset_size_invalid", "Logo must be between 1 byte and 10 MB");
+    const expectedHash = await sha256Hex(bytes);
+    const existing = await downloadStorageObject(this.supabase, bucket, key);
+    if (existing?.length) {
+      if (existing.length !== bytes.length || await sha256Hex(existing) !== expectedHash) {
+        throw new HttpError(409, "thumbnail_brand_asset_replay_mismatch", "The reserved logo object already contains different bytes");
+      }
+    } else {
+      const uploaded = await this.supabase.storage.from(bucket).upload(key, uint8ToArrayBuffer(bytes), {
+        upsert: false,
+        contentType: input.mime_type,
+      });
+      if (uploaded.error) throw new HttpError(502, "thumbnail_brand_asset_upload_failed", uploaded.error.message);
+      const readback = await downloadStorageObject(this.supabase, bucket, key);
+      if (!readback?.length || readback.length !== bytes.length || await sha256Hex(readback) !== expectedHash) {
+        throw new HttpError(409, "thumbnail_brand_asset_upload_unverified", "Canonical logo upload readback did not match the submitted bytes");
+      }
+    }
+    return this.markThumbnailBrandAssetReady(workpieceId, input, options);
   }
 
   async markThumbnailBrandAssetReady(workpieceId: string, input: ThumbnailBrandAssetReadyRequest, options?: { userAccessToken?: string | null }) {
@@ -13972,8 +14018,17 @@ export function createTongsCommitApiHandlerWithService(
           return jsonResponse(200, { ok: true, data: result });
         }
         if (stage === "asset-ready") {
-          const result = await service.markThumbnailBrandAssetReady(workpieceId, { workspace_id: workspaceId, operation_id: operationId,
-            operation_fingerprint: fingerprint }, { userAccessToken });
+          const bytesBase64 = readStringField(body, "bytes_base64");
+          const mimeType = readStringField(body, "mime_type");
+          if (bytesBase64 && mimeType !== "image/png" && mimeType !== "image/jpeg" && mimeType !== "image/webp") {
+            throw new HttpError(400, "invalid_logo_mime_type", "Thumbnail logo must be PNG, JPEG, or WebP");
+          }
+          const result = bytesBase64
+            ? await service.uploadThumbnailBrandSetupAsset(workpieceId, { workspace_id: workspaceId, operation_id: operationId,
+              operation_fingerprint: fingerprint, bytes_base64: bytesBase64,
+              mime_type: mimeType as "image/png" | "image/jpeg" | "image/webp" }, { userAccessToken })
+            : await service.markThumbnailBrandAssetReady(workpieceId, { workspace_id: workspaceId, operation_id: operationId,
+              operation_fingerprint: fingerprint }, { userAccessToken });
           return jsonResponse(200, { ok: true, data: result });
         }
         if (stage === "profile" || stage === "binding" || stage === "verify") {

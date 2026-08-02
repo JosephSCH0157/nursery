@@ -43,10 +43,16 @@ test("candidate cards render canonical composites and expose logo provenance", (
   assert.match(source, /No thumbnail logo configured/);
 });
 
-test("My Brand generation requires verified style provenance without inventing a logo requirement", () => {
-  assert.match(source, /styleSource === "brand_profile" && !brandPresentation\.ready/);
+test("My Brand generation requires the renderer-verified canonical logo receipt", () => {
+  assert.match(source, /styleSource === "brand_profile" && !myBrandReady/);
+  assert.match(source, /brandSetupReceipt\?\.schema_version === "forge\.thumbnail-brand-setup-receipt\.v1"/);
   assert.match(source, /did not verify the episode's canonical brand style/);
   assert.doesNotMatch(source, /did not verify a brand logo overlay/);
+});
+
+test("Automatic reload displays canonical brand-profile renders without relying on the transient setup receipt", () => {
+  assert.match(source, /styleSource === "auto" && brandPresentation\.ready/);
+  assert.doesNotMatch(source, /pendingStyleSource = styleSource === "brand_profile" \|\| \(styleSource === "auto" && myBrandReady\)/);
 });
 
 test("candidate edit and variation actions reveal their existing workspaces", () => {
@@ -54,6 +60,25 @@ test("candidate edit and variation actions reveal their existing workspaces", ()
   assert.match(source, /hearth-thumbnail-advanced/);
   assert.match(source, /hearth-thumbnail-variations/);
   assert.match(source, /scrollIntoView/);
+});
+
+test("thumbnail editor previews and canonically saves text and logo placement as one immutable render", () => {
+  assert.match(source, /<label>Move text<select value=\{verticalPlacement\}/);
+  assert.match(source, /top: verticalPlacement === "top"/);
+  assert.match(source, /transform: verticalPlacement === "center"/);
+  assert.match(source, /<label>Move logo<select value=\{logoPlacement\}/);
+  assert.match(source, /logo_placement: logoPlacement/);
+  const save = source.match(/const saveEditedThumbnail = async \(\) => \{[\s\S]*?\n  \};/)?.[0] ?? "";
+  assert.match(save, /saveRenderRecipe/);
+  assert.match(save, /commitThumbnailLaunchComposite/);
+  assert.match(save, /launchVariantId: sourceLaunch\.launch_variant_id/);
+  assert.match(save, /recipeId: recipe\.id, recipeRevision: recipe\.revision/);
+  assert.match(save, /if \(!result\.ok\)[\s\S]*setSaveState\("error"\)/);
+  assert.match(save, /catch \(error\)[\s\S]*failed before Tongs returned a canonical result/);
+  assert.match(save, /result\.launchReceipt/);
+  assert.match(save, /receipt\.launchRevision !== sourceLaunch\.revision \+ 1/);
+  assert.doesNotMatch(save, /setPkg\(next\)/);
+  assert.match(source, />Cancel<\/button>/);
 });
 
 test("an episode can explicitly adopt a newer revision of its existing workspace brand", () => {

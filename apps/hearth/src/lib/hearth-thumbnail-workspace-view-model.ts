@@ -64,11 +64,11 @@ export function creatorBrandStatus(status: ThumbnailBrandAuthorityStatus | null)
   }
   const canonicallyUnbranded = status.binding?.state === "disabled" || status.state === "canonical_unbranded";
   return {
-    ready: true,
+    ready: false,
     label: canonicallyUnbranded ? "Episode brand: Forge Standard" : "Episode brand unavailable",
     message: canonicallyUnbranded
-      ? "This episode currently uses Forge Standard. Automatic will keep using it until you explicitly change the episode brand."
-      : "This episode’s brand binding cannot currently be verified. Automatic will fall back to Forge Standard.",
+      ? "No verified thumbnail logo is available in this episode’s canonical Brand Profile. Automatic will use Forge Standard."
+      : "No verified thumbnail logo is available in this episode’s canonical Brand Profile. Automatic will use Forge Standard.",
     workspaceDefaultLabel,
     episodeBindingLabel: canonicallyUnbranded ? "Forge Standard" : status.profile_label ? `${status.profile_label} (needs attention)` : "Brand binding needs attention",
     automaticResolutionLabel: "Forge Standard fallback",

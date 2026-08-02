@@ -88,10 +88,9 @@ try {
   const editorReady = await editor.client.schema("tongs").rpc("mark_thumbnail_brand_asset_ready", { p_workspace_id: ids.workspace, p_operation_id: operationId, p_operation_fingerprint: fingerprint, p_actor_id: editor.id, p_content_hash: hash(png), p_bytes: png.length, p_width: 1, p_height: 1 });
   assert.ok(editorReady.error, "asset readiness must reject authenticated editors");
 
-  const upload = await service.storage.from(begun.storage_bucket).upload(begun.storage_key, png, { contentType: "image/png", upsert: false });
-  if (upload.error) throw upload.error;
   const tongs = new TongsCommitService(service, "forge-workpieces", null, (token) => scoped(token));
-  const ready = await tongs.markThumbnailBrandAssetReady(ids.episode, { workspace_id: ids.workspace, operation_id: operationId, operation_fingerprint: fingerprint }, { userAccessToken: editor.token });
+  const ready = await tongs.uploadThumbnailBrandSetupAsset(ids.episode, { workspace_id: ids.workspace, operation_id: operationId, operation_fingerprint: fingerprint,
+    bytes_base64: png.toString("base64"), mime_type: "image/png" }, { userAccessToken: editor.token });
   assert.equal(ready.state, "asset_ready"); assert.equal(ready.logo_content_hash, hash(png));
   const readyReplay = await tongs.markThumbnailBrandAssetReady(ids.episode, { workspace_id: ids.workspace, operation_id: operationId, operation_fingerprint: fingerprint }, { userAccessToken: editor.token });
   assert.equal(readyReplay.logo_asset_revision_id, begun.logo_asset_revision_id);
@@ -138,9 +137,9 @@ try {
 
   const staleOperationId = randomUUID(); const staleFingerprint = "d".repeat(64);
   const staleBeginArgs = { ...beginArgs, p_operation_id: staleOperationId, p_operation_fingerprint: staleFingerprint, p_expected_binding_revision: binding.resulting_binding_revision, p_filename: "stale-logo.png" };
-  const staleBegin = await rpc(editor.client, "begin_thumbnail_brand_setup", staleBeginArgs);
-  result = await service.storage.from(staleBegin.storage_bucket).upload(staleBegin.storage_key, png, { contentType: "image/png", upsert: false }); if (result.error) throw result.error;
-  await tongs.markThumbnailBrandAssetReady(ids.episode, { workspace_id: ids.workspace, operation_id: staleOperationId, operation_fingerprint: staleFingerprint }, { userAccessToken: editor.token });
+  await rpc(editor.client, "begin_thumbnail_brand_setup", staleBeginArgs);
+  await tongs.uploadThumbnailBrandSetupAsset(ids.episode, { workspace_id: ids.workspace, operation_id: staleOperationId, operation_fingerprint: staleFingerprint,
+    bytes_base64: png.toString("base64"), mime_type: "image/png" }, { userAccessToken: editor.token });
   await rpc(editor.client, "commit_thumbnail_brand_profile_stage", { p_workspace_id: ids.workspace, p_operation_id: staleOperationId, p_operation_fingerprint: staleFingerprint });
   const disabled = await rpc(editor.client, "mutate_workpiece_brand_binding", { p_workspace_id: ids.workspace, p_workpiece_id: ids.episode, p_intent: "disable", p_operation_id: randomUUID(), p_operation_fingerprint: "e".repeat(64), p_expected_current_revision: binding.resulting_binding_revision, p_profile_id: null, p_profile_revision_id: null });
   assert.equal(disabled.disposition, "created_revision");

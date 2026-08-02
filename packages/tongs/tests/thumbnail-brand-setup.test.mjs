@@ -74,9 +74,18 @@ test("asset readiness evidence is derived by Tongs and its mutation RPC is servi
   assert.doesNotMatch(sql, /grant execute on function tongs\.mark_thumbnail_brand_asset_ready\([^;]+\) to authenticated/);
 });
 
-test("Tongs exposes begin, resume stages, verification, and receipt readback without Hearth changes", async () => {
+test("Tongs exposes begin, replay-safe upload, resume stages, verification, and receipt readback", async () => {
   const source = await readFile(new URL("packages/tongs/src/workpiece-commit-api.ts", root), "utf8");
-  for (const name of ["beginThumbnailBrandSetup", "markThumbnailBrandAssetReady", "advanceThumbnailBrandSetup", "getThumbnailBrandSetupReceipt"]) assert.match(source, new RegExp(name));
+  for (const name of ["beginThumbnailBrandSetup", "uploadThumbnailBrandSetupAsset", "markThumbnailBrandAssetReady", "advanceThumbnailBrandSetup", "getThumbnailBrandSetupReceipt"]) assert.match(source, new RegExp(name));
   assert.match(source, /thumbnail-brand-setup/);
+  assert.match(source, /thumbnail_brand_asset_replay_mismatch/);
+  assert.match(source, /upsert: false/);
+  assert.match(source, /stage === "asset-ready"[\s\S]*bytes_base64/);
   assert.match(source, /stage === "profile" \|\| stage === "binding" \|\| stage === "verify"/);
+});
+
+test("brand status supplies the bound canonical rules required by Hearth intent", async () => {
+  const source = await readFile(new URL("packages/tongs/src/workpiece-commit-api.ts", root), "utf8");
+  assert.match(source, /select\("revision,rules_json"\)/);
+  assert.match(source, /episode_profile_rules: episodeProfileRules/);
 });

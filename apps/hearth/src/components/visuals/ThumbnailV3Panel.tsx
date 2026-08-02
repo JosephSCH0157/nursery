@@ -26,7 +26,9 @@ import {
   type ThumbnailLedgerProjection,
 } from "../../lib/hearth-thumbnail-editorial-memory";
 import {
+  advanceThumbnailBrandSetup,
   applyWorkspaceDefaultThumbnailBrand,
+  beginThumbnailBrandSetup,
   commitEpisodePackageV3Mutation,
   commitOutsideToolBaseArtwork,
   commitThumbnailLaunchComposite,
@@ -36,9 +38,14 @@ import {
   loadThumbnailCompositePreview,
   readCanonicalThumbnailWorkspaceV3,
   readThumbnailBrandAuthorityStatus,
+  readThumbnailBrandSetupOperation,
+  readThumbnailBrandSetupPointer,
   readThumbnailCandidateAuthorityProjection,
   type ThumbnailCandidateAuthorityProjection,
   type ThumbnailBrandAuthorityStatus,
+  type ThumbnailBrandSetupOperation,
+  type ThumbnailBrandSetupPointer,
+  type ThumbnailBrandSetupReceipt,
   type ThumbnailSaveState,
 } from "../../lib/hearth-thumbnail-v3-api";
 
@@ -101,6 +108,14 @@ const emptyTreatment = {
   safe_zone: { enabled: true }, shadow: { color: "#000000", opacity: 0.7 }, treatment: {},
 };
 
+type ThumbnailLogoPlacement = "top_left" | "top_right" | "bottom_left" | "bottom_right";
+
+function canonicalBrandLogoPlacement(status: ThumbnailBrandAuthorityStatus | null): ThumbnailLogoPlacement {
+  const logo = status?.episode_profile_rules?.logo;
+  const placement = logo && typeof logo === "object" && !Array.isArray(logo) ? (logo as Record<string, unknown>).placement : null;
+  return placement === "top_left" || placement === "top_right" || placement === "bottom_left" ? placement : "bottom_right";
+}
+
 export default function ThumbnailV3Panel(props: Props) {
   const [pkg, setPkg] = useState<EpisodePackageV3 | null>(null);
   const [token, setToken] = useState<string | null>(null);
@@ -117,6 +132,11 @@ export default function ThumbnailV3Panel(props: Props) {
   const [aspect, setAspect] = useState<"16:9" | "1:1" | "9:16">("16:9");
   const [brandStatus, setBrandStatus] = useState<ThumbnailBrandAuthorityStatus | null>(null);
   const [brandMutationState, setBrandMutationState] = useState<"idle" | "saving">("idle");
+  const [brandSetupPointer, setBrandSetupPointer] = useState<ThumbnailBrandSetupPointer | null>(null);
+  const [brandSetupOperation, setBrandSetupOperation] = useState<ThumbnailBrandSetupOperation | null>(null);
+  const [brandSetupReceipt, setBrandSetupReceipt] = useState<ThumbnailBrandSetupReceipt | null>(null);
+  const [brandSetupError, setBrandSetupError] = useState<string | null>(null);
+  const [brandSetupBusy, setBrandSetupBusy] = useState(false);
   const [styleSource, setStyleSource] = useState<ThumbnailRequestedStyleSource>("auto");
   const [candidateAuthority, setCandidateAuthority] = useState<ThumbnailCandidateAuthorityProjection | null>(null);
   const [candidateEditRecipeIdentity, setCandidateEditRecipeIdentity] = useState<{ id: string; revision: number } | null>(null);
@@ -128,6 +148,7 @@ export default function ThumbnailV3Panel(props: Props) {
   const [shadowOpacity, setShadowOpacity] = useState(0.7);
   const [readabilityTreatment, setReadabilityTreatment] = useState<"automatic" | "none" | "outline" | "shadow" | "gradient" | "backing">("automatic");
   const [logoVisible, setLogoVisible] = useState(true);
+  const [logoPlacement, setLogoPlacement] = useState<ThumbnailLogoPlacement>("bottom_right");
   const [selectedBaseId, setSelectedBaseId] = useState<string | null>(null);
   const [memoryProjection, setMemoryProjection] = useState<ThumbnailMemoryProjection>({ launchFacts: [], activeInterpretations: [] });
   const [ledgerProjection, setLedgerProjection] = useState<ThumbnailLedgerProjection | null>(null);
@@ -142,6 +163,7 @@ export default function ThumbnailV3Panel(props: Props) {
   const [variationCount, setVariationCount] = useState(3);
   const [selectedVariationId, setSelectedVariationId] = useState<string | null>(null);
   const outsideUploadRef = useRef<HTMLInputElement | null>(null);
+  const brandLogoFileRef = useRef<HTMLInputElement | null>(null);
   const styleChoiceRef = useRef<HTMLElement | null>(null);
 
   const reload = useCallback(async () => {
@@ -194,6 +216,37 @@ export default function ThumbnailV3Panel(props: Props) {
 
   useEffect(() => { void reload(); }, [reload]);
   useEffect(() => {
+    const pointer = readThumbnailBrandSetupPointer(props.workspaceId, props.workpieceId);
+    setBrandSetupPointer(pointer); setBrandSetupOperation(null); setBrandSetupReceipt(null); setBrandSetupError(null);
+    if (!pointer) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const current = await readThumbnailBrandSetupOperation({ workspaceId: props.workspaceId, workpieceId: props.workpieceId, operationId: pointer.operationId });
+        if (cancelled) return;
+        if (current.schema_version === "forge.thumbnail-brand-setup-receipt.v1") {
+          const verified = await advanceThumbnailBrandSetup({ pointer });
+          if (!cancelled && verified.ok) setBrandSetupReceipt(verified.receipt);
+          else if (!cancelled) setBrandSetupError(verified.reason ?? "Verified receipt readback did not match.");
+          return;
+        }
+        setBrandSetupOperation(current as ThumbnailBrandSetupOperation);
+        if (current.state !== "pending") {
+          setBrandSetupBusy(true);
+          const resumed = await advanceThumbnailBrandSetup({ pointer, onProgress: (operation) => {
+            if (!cancelled && operation.schema_version !== "forge.thumbnail-brand-setup-receipt.v1") setBrandSetupOperation(operation as ThumbnailBrandSetupOperation);
+          } });
+          if (cancelled) return;
+          if (!resumed.ok) setBrandSetupError(resumed.reason);
+          else { setBrandSetupReceipt(resumed.receipt); setBrandSetupOperation(null); await reload(); }
+        }
+      } catch (error) {
+        if (!cancelled) setBrandSetupError(error instanceof Error ? error.message : "Unable to recover canonical brand setup.");
+      } finally { if (!cancelled) setBrandSetupBusy(false); }
+    })();
+    return () => { cancelled = true; };
+  }, [props.workspaceId, props.workpieceId, reload]);
+  useEffect(() => {
     if (pkg && new URLSearchParams(window.location.search).get("thumbnail_focus") === "style") styleChoiceRef.current?.focus();
   }, [pkg]);
   useEffect(() => {
@@ -224,6 +277,7 @@ export default function ThumbnailV3Panel(props: Props) {
     : null;
   const activeRecipe = candidateEditRecipe ?? canonicalPair.recipe;
   const brandPresentation = creatorBrandStatus(brandStatus);
+  const myBrandReady = brandPresentation.ready && brandSetupReceipt?.schema_version === "forge.thumbnail-brand-setup-receipt.v1";
   const candidateCards = useMemo(() => pkg ? buildCandidateWorkspaceCards(pkg, candidateAuthority) : [], [candidateAuthority, pkg]);
   const currentCompositeAssetIds = useMemo(() => new Set(candidateAuthority?.candidates
     .map((candidate) => typeof candidate.composite_asset_id === "string" ? candidate.composite_asset_id : "").filter(Boolean) ?? []), [candidateAuthority]);
@@ -237,7 +291,6 @@ export default function ThumbnailV3Panel(props: Props) {
   const focusedCandidateCards = pendingCandidateCards.length ? pendingCandidateCards : candidateCards;
   const pendingLogoCount = pendingCandidateCards.filter((card) => card.logoApplied).length;
   const candidateSummary = useMemo(() => candidateWorkspaceSummary(candidateCards), [candidateCards]);
-  const readyLaunchCount = pkg?.thumbnail.launch_variant_revisions.filter((entry) => entry.status === "ready" && entry.snapshot.readability_evidence?.passed === true).length ?? 0;
   const thumbnailSetComplete = Boolean(candidateAuthority?.candidate_set)
     && candidateSummary.quenchEligibleCount === 3
     && candidateCards.length === 3
@@ -259,8 +312,9 @@ export default function ThumbnailV3Panel(props: Props) {
     setReadabilityTreatment(activeRecipe.presentation_override?.decision_origin === "explicit_user" && activeRecipe.presentation_override.treatment
       ? activeRecipe.presentation_override.treatment : "automatic");
     setLogoVisible(activeRecipe.presentation_override?.logo_visible !== false);
+    setLogoPlacement(activeRecipe.presentation_override?.logo_placement ?? canonicalBrandLogoPlacement(brandStatus));
     setSaveState("saved");
-  }, [activeRecipe?.id, activeRecipe?.revision]);
+  }, [activeRecipe?.id, activeRecipe?.revision, brandStatus?.episode_profile_revision]);
   const selectedTitle = pkg?.seo.titles.find((entry) => entry.id === titleId && entry.revision === titleRevision) ?? null;
   const selectedStrategy = pkg && selectedConcept ? pkg.thumbnail.creative_strategies.find(
     (entry) => entry.id === selectedConcept.strategy_id && entry.revision === selectedConcept.strategy_revision,
@@ -330,6 +384,31 @@ export default function ThumbnailV3Panel(props: Props) {
     setSaveState("saved");
   };
 
+  const configureCanonicalThumbnailLogo = async (file: File) => {
+    const profileId = typeof brandStatus?.binding?.profile_id === "string" ? brandStatus.binding.profile_id : null;
+    const expectedBindingRevision = Number(brandStatus?.binding?.revision);
+    const requestedRules = brandStatus?.episode_profile_rules;
+    if (!profileId || !Number.isInteger(expectedBindingRevision) || expectedBindingRevision < 1 || !requestedRules) {
+      setBrandSetupError("This episode needs a canonical Brand Profile binding before its thumbnail logo can be configured.");
+      return;
+    }
+    setBrandSetupBusy(true); setBrandSetupError(null); setBrandSetupReceipt(null);
+    try {
+      const begun = await beginThumbnailBrandSetup({ workspaceId: props.workspaceId, workpieceId: props.workpieceId,
+        profileId, expectedBindingRevision, requestedRules, file, role: "transparent_logo", replaceOperation: Boolean(brandSetupReceipt) });
+      setBrandSetupPointer(begun.pointer);
+      if (begun.operation.schema_version !== "forge.thumbnail-brand-setup-receipt.v1") setBrandSetupOperation(begun.operation as ThumbnailBrandSetupOperation);
+      const completed = await advanceThumbnailBrandSetup({ pointer: begun.pointer, fileBytes: begun.bytes, onProgress: (operation) => {
+        if (operation.schema_version !== "forge.thumbnail-brand-setup-receipt.v1") setBrandSetupOperation(operation as ThumbnailBrandSetupOperation);
+      } });
+      if (!completed.ok) { setBrandSetupError(completed.reason); return; }
+      setBrandSetupReceipt(completed.receipt); setBrandSetupOperation(null); setStyleSource("auto");
+      await reload();
+    } catch (error) {
+      setBrandSetupError(error instanceof Error ? error.message : "Unable to configure the canonical thumbnail logo.");
+    } finally { setBrandSetupBusy(false); }
+  };
+
   const useWorkspaceDefaultForEpisode = async () => {
     const profileId = brandStatus?.workspace_default_profile_id;
     const profileRevisionId = brandStatus?.workspace_default_profile_revision_id;
@@ -379,12 +458,12 @@ export default function ThumbnailV3Panel(props: Props) {
     setPkg(result.episodePackage); setToken(result.metadataUpdatedAt); setSaveState("saved");
   };
 
-  const saveRecipe = async (reviewed: boolean) => {
+  const buildRecipeRevision = (reviewed: boolean): ThumbnailRenderRecipe | null => {
     if (!pkg || !selectedConcept) return null;
     const title = pkg.seo.titles.find((entry) => entry.id === titleId && entry.revision === titleRevision);
     if (!title) { setLoadError("Choose an exact framing title before saving the recipe."); return null; }
     const now = new Date().toISOString();
-    const recipe: ThumbnailRenderRecipe = {
+    return {
       id: activeRecipe?.id ?? crypto.randomUUID(), revision: (activeRecipe?.revision ?? 0) + 1,
       concept_revision_id: selectedConcept.concept_revision_id, title_id: title.id, title_revision: title.revision,
       strategy_id: selectedConcept.strategy_id, strategy_revision: selectedConcept.strategy_revision,
@@ -392,10 +471,10 @@ export default function ThumbnailV3Panel(props: Props) {
       provider_id: providerId, provider_settings: activeRecipe?.provider_settings ?? {},
       intended_aspect_ratio: aspect, brand_template_id: null,
       brand_template_revision: null,
-      presentation_override: readabilityTreatment === "automatic" && logoVisible ? null : {
+      presentation_override: {
         text_color: readabilityTreatment === "automatic" ? null : textColor,
         treatment: readabilityTreatment === "automatic" ? null : readabilityTreatment,
-        logo_visible: logoVisible, logo_placement: null, logo_opacity: null,
+        logo_visible: logoVisible, logo_placement: logoPlacement, logo_opacity: null,
         decision_origin: readabilityTreatment === "automatic" ? "automatic" : "explicit_user",
       },
       title_text: (title.thumbnail_text || title.text).trim(), treatment: {
@@ -411,6 +490,12 @@ export default function ThumbnailV3Panel(props: Props) {
       last_reviewed_template_version: reviewed ? THUMBNAIL_PROMPT_TEMPLATE_VERSION : null,
       created_at: activeRecipe?.created_at ?? now, updated_at: now,
     };
+  };
+
+  const saveRecipe = async (reviewed: boolean) => {
+    if (!pkg) return null;
+    const recipe = buildRecipeRevision(reviewed);
+    if (!recipe) return null;
     const next = saveRenderRecipe({ episodePackage: pkg, recipe }); setSaveState("saving");
     const result = await commitEpisodePackageV3Mutation({ workpieceId: props.workpieceId, expectedMetadataUpdatedAt: token,
       nextEpisodePackage: next, mutation: { kind: "recipe", entityId: recipe.id, revision: recipe.revision },
@@ -423,6 +508,63 @@ export default function ThumbnailV3Panel(props: Props) {
       setMemoryProjection(await loadThumbnailMemoryProjection(props.workspaceId)); setMemoryState("loaded"); setMemoryError(null);
     } catch (error) { setMemoryState("unavailable"); setMemoryError(error instanceof Error ? error.message : "Workspace thumbnail memory is unavailable."); } })();
     return { episodePackage: result.episodePackage, metadataUpdatedAt: result.metadataUpdatedAt, recipe };
+  };
+
+  const saveEditedThumbnail = async () => {
+    if (!pkg || !candidateEditRecipe) return;
+    const sourceLaunch = [...pkg.thumbnail.launch_variant_revisions]
+      .filter((entry) => entry.recipe_id === candidateEditRecipe.id && entry.recipe_revision === candidateEditRecipe.revision)
+      .sort((left, right) => right.revision - left.revision)[0];
+    if (!sourceLaunch) { setSaveState("error"); setLoadError("The immutable thumbnail being edited has no recoverable launch revision."); return; }
+    const recipe = buildRecipeRevision(false);
+    if (!recipe) return;
+    let next: EpisodePackageV3;
+    try { next = saveRenderRecipe({ episodePackage: pkg, recipe }); }
+    catch (error) { setSaveState("error"); setLoadError(error instanceof Error ? error.message : "Unable to prepare the thumbnail edit revision."); return; }
+    setSaveState("saving"); setLoadError(null);
+    console.info("[hearth][thumbnail-edit] canonical save request", {
+      workpiece_id: props.workpieceId, candidate_recipe_id: candidateEditRecipe.id,
+      candidate_recipe_revision: candidateEditRecipe.revision, launch_variant_id: sourceLaunch.launch_variant_id,
+      expected_launch_revision: sourceLaunch.revision, base_version_id: sourceLaunch.base_version_id,
+      requested_recipe_id: recipe.id, requested_recipe_revision: recipe.revision,
+      treatment_placement_vertical: recipe.treatment.placement.vertical,
+      presentation_override_logo_placement: recipe.presentation_override?.logo_placement ?? null,
+      expected_metadata_updated_at: token,
+    });
+    let result: Awaited<ReturnType<typeof commitThumbnailLaunchComposite>>;
+    try {
+      result = await commitThumbnailLaunchComposite({
+        workpieceId: props.workpieceId, workspaceId: props.workspaceId,
+        expectedMetadataUpdatedAt: token, episodePackage: next,
+        launchVariantId: sourceLaunch.launch_variant_id, baseVersionId: sourceLaunch.base_version_id,
+        recipeId: recipe.id, recipeRevision: recipe.revision, operationId: crypto.randomUUID(),
+        width: recipe.intended_aspect_ratio === "9:16" ? 1080 : recipe.intended_aspect_ratio === "1:1" ? 1080 : 1280,
+        height: recipe.intended_aspect_ratio === "9:16" ? 1920 : recipe.intended_aspect_ratio === "1:1" ? 1080 : 720,
+        encoding: { format: "png", quality: 100 }, createdAt: new Date().toISOString(), requestedStyleSource: styleSource,
+      });
+    } catch (error) {
+      setSaveState("error");
+      setLoadError(error instanceof Error ? error.message : "The thumbnail edit request failed before Tongs returned a canonical result.");
+      return;
+    }
+    if (!result.ok) {
+      setSaveState("error"); setLoadError(result.error);
+      if (result.canonical) { setPkg(result.canonical.episodePackage); setToken(result.canonical.metadataUpdatedAt); }
+      return;
+    }
+    const receipt = result.launchReceipt;
+    if (!receipt || receipt.recipeId !== recipe.id || receipt.recipeRevision !== recipe.revision
+      || receipt.launchVariantId !== sourceLaunch.launch_variant_id || receipt.launchRevision !== sourceLaunch.revision + 1) {
+      setSaveState("error"); setLoadError("Tongs did not return the exact canonical recipe and launch revision requested by this edit.");
+      return;
+    }
+    console.info("[hearth][thumbnail-edit] canonical save verified", receipt);
+    setPkg(result.episodePackage); setToken(result.metadataUpdatedAt);
+    setCandidateEditRecipeIdentity({ id: recipe.id, revision: recipe.revision }); setSaveState("saved");
+    try {
+      await projectThumbnailLaunchFacts({ workspaceId: props.workspaceId, workpieceId: props.workpieceId, episodePackage: result.episodePackage });
+      setMemoryProjection(await loadThumbnailMemoryProjection(props.workspaceId)); setMemoryState("loaded"); setMemoryError(null);
+    } catch (error) { setMemoryState("unavailable"); setMemoryError(error instanceof Error ? error.message : "Workspace thumbnail memory is unavailable."); }
   };
 
   const renameSet = async () => {
@@ -544,7 +686,7 @@ export default function ThumbnailV3Panel(props: Props) {
 
   const generateSelectedThumbnail = async () => {
     if (!validSelectedPair || saveState === "saving" || selectedGenerationState !== "idle") return;
-    if (styleSource === "brand_profile" && !brandPresentation.ready) {
+    if (styleSource === "brand_profile" && !myBrandReady) {
       setLoadError("My Brand cannot be rendered yet. Tongs must verify an active Brand Profile and ready logo revision for this episode.");
       styleChoiceRef.current?.focus();
       return;
@@ -669,7 +811,7 @@ export default function ThumbnailV3Panel(props: Props) {
           <p>Choose three distinct directions, compare them together, then send the finished set to Quench for testing.</p>
         </div>
         <div className="hs-thumbnail-readiness" aria-label="Episode readiness">
-          <span>Script ready</span><span>Media map ready</span><span className={brandPresentation.ready ? "is-ready" : "is-blocked"}>{brandPresentation.label}</span>
+          <span>Script ready</span><span>Media map ready</span><span className={myBrandReady ? "is-ready" : "is-blocked"}>{myBrandReady ? brandPresentation.label : "My Brand needs verified logo setup"}</span>
         </div>
       </header>
 
@@ -686,7 +828,7 @@ export default function ThumbnailV3Panel(props: Props) {
         <label>Use
           <select value={styleSource} onChange={(event) => setStyleSource(event.target.value as ThumbnailRequestedStyleSource)}>
             <option value="auto">Workspace default (Automatic)</option>
-            <option value="brand_profile">My Brand (require episode binding)</option>
+            <option value="brand_profile" disabled={!myBrandReady}>My Brand (verified canonical logo required)</option>
             <option value="forge_standard">Forge Standard (ignore brand)</option>
           </select>
         </label>
@@ -697,6 +839,19 @@ export default function ThumbnailV3Panel(props: Props) {
               : `Use ${brandStatus.workspace_default_profile_label} for this episode`}
           </button>
         ) : null}
+        {brandStatus?.binding?.state === "profile" ? <>
+          <button type="button" disabled={brandSetupBusy} onClick={() => brandLogoFileRef.current?.click()}>
+            {brandSetupBusy ? "Verifying canonical logo…" : brandSetupReceipt ? "Replace thumbnail logo" : brandSetupPointer ? "Resume thumbnail logo setup" : "Configure thumbnail logo"}
+          </button>
+          <input ref={brandLogoFileRef} type="file" accept="image/png,image/jpeg,image/webp" aria-label="Choose canonical thumbnail logo"
+            hidden onChange={(event) => { const file = event.target.files?.[0]; if (file) void configureCanonicalThumbnailLogo(file); event.target.value = ""; }} />
+        </> : null}
+        {brandSetupOperation ? <div className="hs-thumbnail-brand-setup" role="status">
+          <strong>Canonical logo setup: {brandSetupOperation.state.replaceAll("_", " ")}</strong>
+          {brandSetupOperation.failed_stage ? <p>Failed at {brandSetupOperation.failed_stage.replaceAll("_", " ")}: {brandSetupOperation.failure_message ?? brandSetupOperation.failure_code ?? "Tongs did not advance this stage."}</p> : <p>Tongs has durably committed this stage. Safe retry will reuse operation {brandSetupOperation.operation_id}.</p>}
+        </div> : null}
+        {brandSetupError ? <div className="hs-inline-error" role="alert">{brandSetupError}</div> : null}
+        {myBrandReady ? <div className="hs-thumbnail-brand-setup is-ready" role="status"><strong>{brandStatus?.profile_label ?? "This brand"} is ready for new thumbnails.</strong><p>Existing thumbnails were not changed.</p></div> : null}
         <a href={`/app/tongs?workspace_id=${encodeURIComponent(props.workspaceId)}&mode=branding&section=style&return_to=${encodeURIComponent(`${window.location.pathname}${window.location.search}${window.location.search ? "&" : "?"}thumbnail_focus=style`)}`}>Edit brand style in Tongs</a>
       </section>
       {loadError ? <div className="hs-inline-error" role="alert">{creatorThumbnailError(loadError)} <button type="button" onClick={() => void reload()}>Retry</button></div> : null}
@@ -722,7 +877,7 @@ export default function ThumbnailV3Panel(props: Props) {
 
       <section className="hs-thumbnail-stage" aria-labelledby="thumbnail-compare-heading">
         <div className="hs-thumbnail-stage-heading"><div><span>2</span><h4 id="thumbnail-compare-heading">Generate and compare</h4></div>
-          <button type="button" className="is-primary" disabled={!validSelectedPair || saveState === "saving" || selectedGenerationState !== "idle" || (styleSource === "brand_profile" && !brandPresentation.ready)} onClick={() => void generateSelectedThumbnail()}>{selectedGenerationState === "preparing" ? "Preparing thumbnail…" : selectedGenerationState === "generating" ? "Generating thumbnail…" : "Generate selected thumbnail"}</button>
+          <button type="button" className="is-primary" disabled={!validSelectedPair || saveState === "saving" || selectedGenerationState !== "idle" || (styleSource === "brand_profile" && !myBrandReady)} onClick={() => void generateSelectedThumbnail()}>{selectedGenerationState === "preparing" ? "Preparing thumbnail…" : selectedGenerationState === "generating" ? "Generating thumbnail…" : "Generate selected thumbnail"}</button>
         </div>
         {selectedGenerationState === "generating" ? <p className="hs-inline-note" role="status" aria-live="polite">Forge AI is generating the image{selectedGenerationElapsedSec > 0 ? ` · ${selectedGenerationElapsedSec}s elapsed` : ""}. Image generation can take a minute or more; keep this page open.</p> : null}
         {pendingCandidateCards.length ? <p className="hs-inline-note" role="status"><strong>Pending replacement set.</strong> These are the newest ready thumbnails under the current episode brand. The existing canonical set remains unchanged until you explicitly replace it.</p> : null}
@@ -744,8 +899,13 @@ export default function ThumbnailV3Panel(props: Props) {
       </section>
 
       {candidateEditRecipe ? <aside id="hearth-thumbnail-editor" className="hs-thumbnail-editor" aria-label="Thumbnail editor">
-        <div className="hs-thumbnail-editor-preview"><span>{selectedBrief?.subject_direction ?? selectedConcept?.image_concept}</span><strong style={{ color: textColor, textShadow: `0 2px 6px ${shadowColor}` }}>{titleText}</strong></div>
-        <div className="hs-thumbnail-editor-controls"><div><h4>Edit thumbnail</h4><button type="button" onClick={() => setCandidateEditRecipeIdentity(null)}>Close editor</button></div><label>Thumbnail text<input value={titleText} readOnly /></label><label>Maximum lines<input type="number" min={1} max={5} value={maxLines} onChange={(event) => { setMaxLines(Number(event.target.value)); setSaveState("editing"); }} /></label><label>Text placement<select value={verticalPlacement} onChange={(event) => { setVerticalPlacement(event.target.value as typeof verticalPlacement); setSaveState("editing"); }}><option value="top">Top</option><option value="center">Center</option><option value="bottom">Bottom</option></select></label><label><input type="checkbox" checked={logoVisible} onChange={(event) => { setLogoVisible(event.target.checked); setSaveState("editing"); }} /> Show approved logo</label><button type="button" className="is-primary" onClick={() => void saveRecipe(false)}>Save as new version</button></div>
+        <div className="hs-thumbnail-editor-preview"><span>{selectedBrief?.subject_direction ?? selectedConcept?.image_concept}</span>
+          {logoVisible ? <em className="hs-thumbnail-editor-logo" data-placement={logoPlacement}>Brand logo</em> : null}
+          <strong data-placement={verticalPlacement} style={{ color: textColor, textShadow: `0 2px 6px ${shadowColor}`,
+            top: verticalPlacement === "top" ? "10%" : verticalPlacement === "center" ? "50%" : "auto",
+            bottom: verticalPlacement === "bottom" ? "10%" : "auto",
+            transform: verticalPlacement === "center" ? "translateY(-50%)" : "none" }}>{titleText}</strong></div>
+        <div className="hs-thumbnail-editor-controls"><div><h4>Edit thumbnail</h4><button type="button" onClick={() => setCandidateEditRecipeIdentity(null)}>Cancel</button></div><label>Thumbnail text<input value={titleText} readOnly /></label><label>Maximum lines<input type="number" min={1} max={5} value={maxLines} onChange={(event) => { setMaxLines(Number(event.target.value)); setSaveState("editing"); }} /></label><label>Move text<select value={verticalPlacement} onChange={(event) => { setVerticalPlacement(event.target.value as typeof verticalPlacement); setSaveState("editing"); }}><option value="top">Top</option><option value="center">Center</option><option value="bottom">Bottom</option></select></label><label>Move logo<select value={logoPlacement} onChange={(event) => { setLogoPlacement(event.target.value as ThumbnailLogoPlacement); setSaveState("editing"); }}><option value="top_left">Top left</option><option value="top_right">Top right</option><option value="bottom_left">Bottom left</option><option value="bottom_right">Bottom right</option></select></label><label><input type="checkbox" checked={logoVisible} onChange={(event) => { setLogoVisible(event.target.checked); setSaveState("editing"); }} /> Show approved logo</label><button type="button" className="is-primary" disabled={saveState === "saving"} onClick={() => void saveEditedThumbnail()}>{saveState === "saving" ? "Saving new version…" : "Save as new version"}</button></div>
       </aside> : null}
 
       <div className="hs-thumbnail-completion" role="status" aria-live="polite">

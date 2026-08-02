@@ -193,6 +193,8 @@ export function appendLaunchSnapshot(args: {
   episodePackage: EpisodePackageV3;
   launchVariantId: string;
   baseVersionId: string;
+  recipeId?: string;
+  recipeRevision?: number;
   snapshot: ThumbnailCompositeSnapshot;
   status?: ThumbnailLaunchVariantRevision["status"];
   createdAt: string;
@@ -202,9 +204,13 @@ export function appendLaunchSnapshot(args: {
   assertBaseVersionAuthority(args.episodePackage, base);
   if (!/^[a-f0-9]{64}$/i.test(args.snapshot.content_hash)) throw new Error("Composite snapshot requires a canonical SHA-256 hash.");
   const recipe = args.episodePackage.thumbnail.render_recipes.find(
-    (entry) => entry.id === base.render_recipe_id && entry.revision === base.render_recipe_revision,
+    (entry) => entry.id === (args.recipeId ?? base.render_recipe_id)
+      && entry.revision === (args.recipeRevision ?? base.render_recipe_revision),
   );
   if (!recipe) throw new Error("Launch recipe authority is missing.");
+  if (recipe.concept_revision_id !== base.concept_revision_id) {
+    throw new Error("Launch recipe and base artwork must reference the same canonical concept revision.");
+  }
   const prior = args.episodePackage.thumbnail.launch_variant_revisions
     .filter((entry) => entry.launch_variant_id === args.launchVariantId)
     .sort((a, b) => b.revision - a.revision)[0];

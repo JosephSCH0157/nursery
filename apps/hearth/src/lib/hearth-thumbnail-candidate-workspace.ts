@@ -28,14 +28,19 @@ export function buildPendingCandidateWorkspaceCards(
   requiredStyleSource: "brand_profile" | "forge_standard" | null = null,
 ): CandidateWorkspaceCard[] {
   if (!activeBindingId) return [];
-  const launches = pkg.thumbnail.launch_variant_revisions.filter((entry) => {
+  const eligible = pkg.thumbnail.launch_variant_revisions.filter((entry) => {
     const provenance = entry.snapshot.brand_binding_context ?? entry.snapshot.brand_application_provenance;
     return entry.status === "ready"
-      && entry.snapshot.readability_evidence?.passed === true
       && provenance?.binding_id === activeBindingId
       && (!requiredStyleSource || entry.snapshot.style_source === requiredStyleSource)
       && !currentCompositeAssetIds.has(entry.snapshot.asset_id);
-  }).slice(-3);
+  });
+  const latestByLaunch = new Map<string, (typeof eligible)[number]>();
+  for (const launch of eligible) {
+    const prior = latestByLaunch.get(launch.launch_variant_id);
+    if (!prior || launch.revision > prior.revision) latestByLaunch.set(launch.launch_variant_id, launch);
+  }
+  const launches = [...latestByLaunch.values()].slice(-3);
   if (!launches.length) return [];
   const pendingPackage = { ...pkg, thumbnail: { ...pkg.thumbnail, launch_variant_revisions: launches } };
   return buildCandidateWorkspaceCards(pendingPackage, null);
