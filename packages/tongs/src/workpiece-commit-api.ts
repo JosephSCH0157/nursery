@@ -1230,8 +1230,31 @@ export type ThumbnailBrandStatus = {
   state: "unresolved" | "canonical_branded" | "canonical_unbranded" | "stale_projection" | "verification_blocked";
   binding: Record<string, Json> | null;
   profile_label: string | null;
+  workspace_default_profile_label: string | null;
+  workspace_default_profile_id: string | null;
+  workspace_default_profile_revision_id: string | null;
+  workspace_default_profile_revision: number | null;
+  episode_profile_revision: number | null;
   message: string;
 };
+
+export type ApplyWorkspaceDefaultThumbnailBrandRequest = {
+  workspace_id: string;
+  expected_current_revision: number;
+  profile_id: string;
+  profile_revision_id: string;
+  operation_id: string;
+  operation_fingerprint: string;
+};
+
+export type BeginThumbnailBrandSetupRequest = {
+  workspace_id: string; operation_id: string; operation_fingerprint: string; profile_id: string;
+  asset_id?: string | null; logo_role: "transparent_logo" | "primary_logo" | "watermark_logo";
+  internal_label: string; filename: string; mime_type: string; requested_rules: Record<string, Json>;
+  expected_binding_revision: number;
+};
+export type ThumbnailBrandSetupStageRequest = { workspace_id: string; operation_id: string; operation_fingerprint: string };
+export type ThumbnailBrandAssetReadyRequest = ThumbnailBrandSetupStageRequest;
 
 export type CommitThumbnailCandidateSetRequest = { workspace_id: string; expected_current_revision: number; candidates: Json[]; operation_id: string; operation_fingerprint: string };
 export type ThumbnailCandidateSetProjection = { candidate_set: Record<string, Json> | null; active_binding_id: string | null; active_binding_revision?: number | null; candidates: Record<string, Json>[]; historical_candidate_sets?: Array<{candidate_set:Record<string,Json>;candidates:Record<string,Json>[]}> };
@@ -1601,6 +1624,15 @@ export type TongsCommitApiService = {
     input: ThumbnailBrandStatusRequest,
     options?: { userAccessToken?: string | null },
   ): Promise<ThumbnailBrandStatus>;
+  applyWorkspaceDefaultThumbnailBrand(
+    workpieceId: string,
+    input: ApplyWorkspaceDefaultThumbnailBrandRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, Json>>;
+  beginThumbnailBrandSetup(workpieceId:string,input:BeginThumbnailBrandSetupRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>|null>;
+  markThumbnailBrandAssetReady(workpieceId:string,input:ThumbnailBrandAssetReadyRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>|null>;
+  advanceThumbnailBrandSetup(workpieceId:string,stage:"profile"|"binding"|"verify",input:ThumbnailBrandSetupStageRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>|null>;
+  getThumbnailBrandSetupReceipt(workpieceId:string,workspaceId:string,operationId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>|null>;
   commitThumbnailCandidateSet(workpieceId: string,input: CommitThumbnailCandidateSetRequest,options?: { userAccessToken?: string | null }): Promise<Record<string, Json>>;
   getThumbnailCandidateSetProjection(workpieceId: string,workspaceId: string,options?: { userAccessToken?: string | null }): Promise<ThumbnailCandidateSetProjection>;
   decideThumbnailCandidateBrand(workpieceId: string,input: DecideThumbnailCandidateBrandRequest,options?: { userAccessToken?: string | null }): Promise<Record<string, Json>>;
@@ -10130,9 +10162,6 @@ export class TongsCommitService {
         throw new HttpError(409, "brand_logo_hash_mismatch", "The bound brand logo failed canonical readback verification");
       }
     }
-    if (!logoAssetRevisionId || !logoBytes?.length) {
-      throw new HttpError(409, "brand_logo_unavailable", "The bound Brand Profile does not contain a verified ready logo revision");
-    }
     return {
       provenance,
       treatment: { text_color: textColor.toUpperCase(), shadow_color: shadowColor.toUpperCase(),
@@ -10154,21 +10183,80 @@ export class TongsCommitService {
     const token = options?.userAccessToken?.trim();
     if (!token || !this.userClientFactory) throw new HttpError(503, "brand_resolution_unavailable", "Authenticated Brand Library resolution is unavailable");
     const client = this.userClientFactory(token).schema("tongs") as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<UntypedPostgrestResult> };
+    const tongs = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const defaultResult = await tongs.from("workspace_default_brand_profiles").select("profile_id").eq("workspace_id", input.workspace_id).maybeSingle();
+    const defaultProfileId = !defaultResult.error && isRecord(defaultResult.data) ? readStringField(defaultResult.data, "profile_id") : null;
+    const defaultProfileResult = defaultProfileId
+      ? await tongs.from("brand_profiles").select("internal_label").eq("workspace_id", input.workspace_id).eq("id", defaultProfileId).maybeSingle()
+      : null;
+    const workspaceDefaultProfileLabel = defaultProfileResult && !defaultProfileResult.error && isRecord(defaultProfileResult.data)
+      ? readStringField(defaultProfileResult.data, "internal_label")
+      : null;
+    const defaultRevisionResult = defaultProfileId
+      ? await tongs.from("brand_profile_revisions").select("id,revision").eq("workspace_id", input.workspace_id).eq("profile_id", defaultProfileId)
+        .eq("state", "committed").eq("eligible_for_new_use", true).order("revision", { ascending: false }).limit(1).maybeSingle()
+      : null;
+    const workspaceDefaultProfileRevisionId = defaultRevisionResult && !defaultRevisionResult.error && isRecord(defaultRevisionResult.data)
+      ? readStringField(defaultRevisionResult.data, "id")
+      : null;
+    const workspaceDefaultProfileRevision = defaultRevisionResult && !defaultRevisionResult.error && isRecord(defaultRevisionResult.data)
+      && typeof defaultRevisionResult.data.revision === "number" ? defaultRevisionResult.data.revision : null;
     const current = await client.rpc("get_workpiece_brand_binding", { p_workspace_id: input.workspace_id, p_workpiece_id: workpieceId });
     if (current.error) throw new HttpError(502, "brand_status_failed", "Failed to read thumbnail branding status", { reason: current.error.message });
     const binding = isRecord(current.data) ? current.data : null;
-    if (!binding) return { state: "unresolved", binding: null, profile_label: null, message: "Branding will be resolved by Tongs when the first thumbnail render begins." };
+    const bindingProfileRevisionId = binding ? readStringField(binding, "profile_revision_id") : null;
+    const bindingRevisionResult = bindingProfileRevisionId
+      ? await tongs.from("brand_profile_revisions").select("revision").eq("workspace_id", input.workspace_id).eq("id", bindingProfileRevisionId).maybeSingle()
+      : null;
+    const episodeProfileRevision = bindingRevisionResult && !bindingRevisionResult.error && isRecord(bindingRevisionResult.data)
+      && typeof bindingRevisionResult.data.revision === "number" ? bindingRevisionResult.data.revision : null;
+    const defaultFields = { workspace_default_profile_label: workspaceDefaultProfileLabel, workspace_default_profile_id: defaultProfileId,
+      workspace_default_profile_revision_id: workspaceDefaultProfileRevisionId, workspace_default_profile_revision: workspaceDefaultProfileRevision,
+      episode_profile_revision: episodeProfileRevision };
+    if (!binding) return { state: "unresolved", binding: null, profile_label: null, ...defaultFields, message: "Branding will be resolved by Tongs when the first thumbnail render begins." };
     const bindingId = readStringField(binding, "id");
     const bindingRevision = typeof binding.revision === "number" ? binding.revision : null;
     const stale = input.projected_binding_id !== bindingId || input.projected_binding_revision !== bindingRevision;
-    if (binding.state === "disabled") return { state: stale ? "stale_projection" : "canonical_unbranded", binding: binding as Record<string, Json>, profile_label: null, message: stale ? "The Hearth projection is stale; Tongs has authoritative unbranded state." : "This workpiece is canonically unbranded." };
+    if (binding.state === "disabled") return { state: stale ? "stale_projection" : "canonical_unbranded", binding: binding as Record<string, Json>, profile_label: null, ...defaultFields, message: stale ? "The Hearth projection is stale; Tongs has authoritative unbranded state." : "This workpiece is canonically unbranded." };
+    const bindingProfileId = readStringField(binding, "profile_id");
+    const bindingProfileResult = bindingProfileId
+      ? await tongs.from("brand_profiles").select("internal_label").eq("workspace_id", input.workspace_id).eq("id", bindingProfileId).maybeSingle()
+      : null;
+    const bindingProfileLabel = bindingProfileResult && !bindingProfileResult.error && isRecord(bindingProfileResult.data)
+      ? readStringField(bindingProfileResult.data, "internal_label")
+      : null;
     try {
       const verified = await this.resolveThumbnailBrand(workpieceId, input.workspace_id, token, { establishBinding: false, verifySources: true });
       if (!verified) throw new Error("The canonical Brand Profile binding is unavailable.");
-      return { state: stale ? "stale_projection" : "canonical_branded", binding: binding as Record<string, Json>, profile_label: verified.profileLabel, message: stale ? "The Hearth projection is stale; Tongs has a newer canonical brand binding." : "Canonical Brand Profile verified for thumbnail rendering." };
+      return { state: stale ? "stale_projection" : "canonical_branded", binding: binding as Record<string, Json>, profile_label: verified.profileLabel, ...defaultFields, message: stale ? "The Hearth projection is stale; Tongs has a newer canonical brand binding." : "Canonical Brand Profile verified for thumbnail rendering." };
     } catch (error) {
-      return { state: "verification_blocked", binding: binding as Record<string, Json>, profile_label: null, message: error instanceof Error ? error.message : "Brand verification is blocked." };
+      return { state: "verification_blocked", binding: binding as Record<string, Json>, profile_label: bindingProfileLabel, ...defaultFields, message: error instanceof Error ? error.message : "Brand verification is blocked." };
     }
+  }
+
+  async applyWorkspaceDefaultThumbnailBrand(
+    workpieceId: string,
+    input: ApplyWorkspaceDefaultThumbnailBrandRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, Json>> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const token = options?.userAccessToken?.trim();
+    if (!token || !this.userClientFactory) throw new HttpError(503, "brand_resolution_unavailable", "Authenticated Brand Library mutation is unavailable");
+    const client = this.userClientFactory(token).schema("tongs") as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<UntypedPostgrestResult> };
+    const result = await client.rpc("mutate_workpiece_brand_binding", {
+      p_workspace_id: input.workspace_id,
+      p_workpiece_id: workpieceId,
+      p_intent: "select_profile_revision",
+      p_operation_id: input.operation_id,
+      p_operation_fingerprint: input.operation_fingerprint,
+      p_expected_current_revision: input.expected_current_revision,
+      p_profile_id: input.profile_id,
+      p_profile_revision_id: input.profile_revision_id,
+    });
+    if (result.error) throw new HttpError(409, "brand_binding_mutation_failed", "Tongs could not update the episode brand binding", { reason: result.error.message });
+    if (!isRecord(result.data)) throw new HttpError(502, "invalid_brand_binding_response", "Tongs returned an invalid episode brand binding response");
+    return result.data as Record<string, Json>;
   }
 
   private thumbnailAuthorityClient(token?: string | null) {
@@ -10190,7 +10278,98 @@ export class TongsCommitService {
     await this.assertWorkpieceInWorkspace(workpieceId,workspaceId); await this.assertWorkspaceRoleFromAccessToken(workspaceId,"viewer",options?.userAccessToken);
     const result = await this.thumbnailAuthorityClient(options?.userAccessToken).rpc("get_thumbnail_candidate_set_projection",{ p_workspace_id: workspaceId,p_workpiece_id: workpieceId });
     if (result.error) throw new HttpError(502,"thumbnail_candidate_projection_failed",result.error.message); const data=isRecord(result.data)?result.data:{};
-    return { candidate_set:isRecord(data.candidate_set)?data.candidate_set as Record<string,Json>:null,active_binding_id:readStringField(data,"active_binding_id"),active_binding_revision:typeof data.active_binding_revision==="number"?data.active_binding_revision:null,candidates:Array.isArray(data.candidates)?data.candidates.filter(isRecord) as Record<string,Json>[]:[] };
+    const candidates = Array.isArray(data.candidates) ? data.candidates.filter(isRecord) as Record<string,Json>[] : [];
+    const projectedCandidates = await Promise.all(candidates.map(async (candidate) => {
+      const assetId = readStringField(candidate, "composite_asset_id");
+      const expectedHash = readStringField(candidate, "composite_content_hash");
+      if (!assetId || !expectedHash) return candidate;
+      try {
+        const asset = await this.getThumbnailAssetRow(workpieceId, assetId);
+        if (asset.asset_kind !== "thumbnail_composite" || asset.status !== "ready" || asset.content_hash !== expectedHash) return candidate;
+        return { ...candidate, asset_path: asset.path, asset_mime_type: asset.mime_type } as Record<string, Json>;
+      } catch {
+        return candidate;
+      }
+    }));
+    return { candidate_set:isRecord(data.candidate_set)?data.candidate_set as Record<string,Json>:null,active_binding_id:readStringField(data,"active_binding_id"),active_binding_revision:typeof data.active_binding_revision==="number"?data.active_binding_revision:null,candidates:projectedCandidates };
+  }
+
+  private async thumbnailBrandSetupRpc(
+    workpieceId: string, workspaceId: string, rpcName: string, args: Record<string, unknown>,
+    options?: { userAccessToken?: string | null }, role: "viewer" | "editor" = "editor",
+  ): Promise<Record<string, Json> | null> {
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, role, options?.userAccessToken);
+    const result = await this.thumbnailAuthorityClient(options?.userAccessToken).rpc(rpcName, args);
+    if (result.error) throw new HttpError(409, "thumbnail_brand_setup_failed", result.error.message, { stage: rpcName });
+    if (result.data == null) return null;
+    if (!isRecord(result.data)) throw new HttpError(502, "invalid_thumbnail_brand_setup_response", "Tongs returned an invalid thumbnail brand setup response");
+    return result.data as Record<string, Json>;
+  }
+
+  async beginThumbnailBrandSetup(workpieceId: string, input: BeginThumbnailBrandSetupRequest, options?: { userAccessToken?: string | null }) {
+    return this.thumbnailBrandSetupRpc(workpieceId, input.workspace_id, "begin_thumbnail_brand_setup", {
+      p_workspace_id: input.workspace_id, p_workpiece_id: workpieceId, p_operation_id: input.operation_id,
+      p_operation_fingerprint: input.operation_fingerprint, p_profile_id: input.profile_id, p_asset_id: input.asset_id ?? null,
+      p_logo_role: input.logo_role, p_internal_label: input.internal_label, p_filename: input.filename,
+      p_mime_type: input.mime_type, p_requested_rules: input.requested_rules,
+      p_expected_binding_revision: input.expected_binding_revision,
+    }, options);
+  }
+
+  async markThumbnailBrandAssetReady(workpieceId: string, input: ThumbnailBrandAssetReadyRequest, options?: { userAccessToken?: string | null }) {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    const actor = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const current = await this.thumbnailBrandSetupRpc(workpieceId, input.workspace_id, "get_thumbnail_brand_setup_receipt", {
+      p_workspace_id: input.workspace_id, p_operation_id: input.operation_id,
+    }, options, "viewer");
+    if (!current) throw new HttpError(404, "thumbnail_brand_setup_not_found", "Thumbnail brand setup operation was not found");
+    if (current.operation_fingerprint !== input.operation_fingerprint) throw new HttpError(409, "thumbnail_brand_setup_conflict", "Operation identity was reused with a different payload");
+    if (current.state !== "pending") return current;
+    const bucket = readStringField(current, "storage_bucket"); const key = readStringField(current, "storage_key");
+    if (!bucket || !key) throw new HttpError(409, "thumbnail_brand_asset_identity_incomplete", "Reserved logo storage identity is incomplete");
+    const bytes = await downloadStorageObject(this.supabase, bucket, key);
+    if (!bytes?.length) throw new HttpError(409, "thumbnail_brand_asset_missing", "The reserved canonical logo object is not available");
+    const contentHash = await sha256Hex(bytes);
+    const result = await (this.supabase.schema("tongs") as unknown as { rpc: (name:string,args:Record<string,unknown>)=>Promise<UntypedPostgrestResult> }).rpc("mark_thumbnail_brand_asset_ready", {
+      p_workspace_id: input.workspace_id, p_operation_id: input.operation_id, p_operation_fingerprint: input.operation_fingerprint,
+      p_actor_id: actor.userId, p_content_hash: contentHash, p_bytes: bytes.length, p_width: null, p_height: null,
+    });
+    if (result.error) throw new HttpError(409, "thumbnail_brand_asset_ready_failed", result.error.message);
+    if (!isRecord(result.data)) throw new HttpError(502, "invalid_thumbnail_brand_setup_response", "Tongs returned an invalid asset readiness response");
+    return result.data as Record<string, Json>;
+  }
+
+  async advanceThumbnailBrandSetup(workpieceId: string, stage: "profile" | "binding" | "verify", input: ThumbnailBrandSetupStageRequest, options?: { userAccessToken?: string | null }) {
+    if (stage === "verify") {
+      await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+      const actor = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+      const current = await this.getThumbnailBrandSetupReceipt(workpieceId, input.workspace_id, input.operation_id, options);
+      if (!current) throw new HttpError(404, "thumbnail_brand_setup_not_found", "Thumbnail brand setup operation was not found");
+      if (current.state === "verified" || current.schema_version === "forge.thumbnail-brand-setup-receipt.v1") return current;
+      if (current.operation_fingerprint !== input.operation_fingerprint) throw new HttpError(409, "thumbnail_brand_setup_conflict", "Operation identity was reused with a different payload");
+      const resolved = await this.resolveThumbnailBrand(workpieceId, input.workspace_id, options?.userAccessToken, { establishBinding: false, verifySources: true });
+      if (!resolved?.treatment || resolved.logoAssetRevisionId !== current.logo_asset_revision_id || !resolved.logoBytes?.length) {
+        throw new HttpError(409, "thumbnail_brand_renderer_verification_failed", "Thumbnail V3 did not resolve the setup operation's exact canonical logo revision");
+      }
+      const verified = await (this.supabase.schema("tongs") as unknown as { rpc: (name:string,args:Record<string,unknown>)=>Promise<UntypedPostgrestResult> }).rpc("verify_thumbnail_brand_setup", {
+        p_workspace_id: input.workspace_id, p_operation_id: input.operation_id, p_operation_fingerprint: input.operation_fingerprint, p_actor_id: actor.userId,
+      });
+      if (verified.error) throw new HttpError(409, "thumbnail_brand_setup_verification_failed", verified.error.message);
+      if (!isRecord(verified.data)) throw new HttpError(502, "invalid_thumbnail_brand_setup_response", "Tongs returned an invalid verified receipt");
+      return verified.data as Record<string, Json>;
+    }
+    const rpcName = stage === "profile" ? "commit_thumbnail_brand_profile_stage"
+      : "commit_thumbnail_brand_binding_stage";
+    return this.thumbnailBrandSetupRpc(workpieceId, input.workspace_id, rpcName, {
+      p_workspace_id: input.workspace_id, p_operation_id: input.operation_id, p_operation_fingerprint: input.operation_fingerprint,
+    }, options);
+  }
+
+  async getThumbnailBrandSetupReceipt(workpieceId: string, workspaceId: string, operationId: string, options?: { userAccessToken?: string | null }) {
+    return this.thumbnailBrandSetupRpc(workpieceId, workspaceId, "get_thumbnail_brand_setup_receipt", {
+      p_workspace_id: workspaceId, p_operation_id: operationId,
+    }, options, "viewer");
   }
 
   private async verifyQuenchCandidateReadback(workpieceId:string,candidate:Record<string,Json>):Promise<Record<string,Json>>{
@@ -13740,6 +13919,70 @@ export function createTongsCommitApiHandlerWithService(
         };
         const result = await service.transitionHearthScriptReady(workpieceId, input);
         return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces"
+        && parts[3] === "thumbnail-assets" && parts[4] === "apply-workspace-brand"
+      ) {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const fingerprint = readStringField(body, "operation_fingerprint");
+        if (!fingerprint || !/^[a-f0-9]{64}$/.test(fingerprint)) throw new HttpError(400, "invalid_operation_fingerprint", "operation_fingerprint must be SHA-256");
+        const result = await service.applyWorkspaceDefaultThumbnailBrand(workpieceId, {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          expected_current_revision: normalizePositiveInteger(body.expected_current_revision, "expected_current_revision"),
+          profile_id: normalizeUuid(body.profile_id, "profile_id"),
+          profile_revision_id: normalizeUuid(body.profile_revision_id, "profile_revision_id"),
+          operation_id: normalizeThumbnailOperationId(body.operation_id),
+          operation_fingerprint: fingerprint,
+        }, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "thumbnail-brand-setup") {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const workspaceId = normalizeUuid(body.workspace_id, "workspace_id");
+        const operationId = normalizeUuid(body.operation_id, "operation_id");
+        const stage = parts[4];
+        if (stage === "receipt") {
+          const result = await service.getThumbnailBrandSetupReceipt(workpieceId, workspaceId, operationId, { userAccessToken });
+          return jsonResponse(200, { ok: true, data: result });
+        }
+        const fingerprint = readStringField(body, "operation_fingerprint");
+        if (!fingerprint || !/^[a-f0-9]{64}$/.test(fingerprint)) throw new HttpError(400, "invalid_operation_fingerprint", "operation_fingerprint must be SHA-256");
+        if (stage === "begin") {
+          const role = body.logo_role;
+          if (role !== "transparent_logo" && role !== "primary_logo" && role !== "watermark_logo") throw new HttpError(400, "invalid_logo_role", "Unsupported thumbnail logo role");
+          const expected = Number(body.expected_binding_revision);
+          if (!Number.isInteger(expected) || expected < 0) throw new HttpError(400, "invalid_binding_revision", "expected_binding_revision must be non-negative");
+          if (!isRecord(body.requested_rules)) throw new HttpError(400, "invalid_brand_rules", "requested_rules must be an object");
+          const result = await service.beginThumbnailBrandSetup(workpieceId, {
+            workspace_id: workspaceId, operation_id: operationId, operation_fingerprint: fingerprint,
+            profile_id: normalizeUuid(body.profile_id, "profile_id"), asset_id: body.asset_id == null ? null : normalizeUuid(body.asset_id, "asset_id"),
+            logo_role: role, internal_label: normalizeNonEmptyString(body.internal_label, "internal_label"),
+            filename: normalizeNonEmptyString(body.filename, "filename"), mime_type: normalizeNonEmptyString(body.mime_type, "mime_type"),
+            requested_rules: body.requested_rules as Record<string, Json>, expected_binding_revision: expected,
+          }, { userAccessToken });
+          return jsonResponse(200, { ok: true, data: result });
+        }
+        if (stage === "asset-ready") {
+          const result = await service.markThumbnailBrandAssetReady(workpieceId, { workspace_id: workspaceId, operation_id: operationId,
+            operation_fingerprint: fingerprint }, { userAccessToken });
+          return jsonResponse(200, { ok: true, data: result });
+        }
+        if (stage === "profile" || stage === "binding" || stage === "verify") {
+          const result = await service.advanceThumbnailBrandSetup(workpieceId, stage, {
+            workspace_id: workspaceId, operation_id: operationId, operation_fingerprint: fingerprint,
+          }, { userAccessToken });
+          return jsonResponse(200, { ok: true, data: result });
+        }
+        throw new HttpError(404, "thumbnail_brand_setup_stage_not_found", "Unknown thumbnail brand setup stage");
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "recording-completion") {

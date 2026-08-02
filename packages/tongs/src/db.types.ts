@@ -1503,6 +1503,48 @@ export type Database = {
           },
         ]
       }
+      thumbnail_brand_setup_operations: {
+        Row: {
+          id: string; workspace_id: string; workpiece_id: string; operation_id: string; operation_fingerprint: string
+          state: string; failed_stage: string | null; failure_code: string | null; failure_message: string | null
+          logo_role: string; requested_rules_json: Json; logo_asset_revision_id: string; logo_content_hash: string | null
+          storage_bucket: string; storage_key: string; profile_id: string; profile_revision_id: string | null
+          profile_revision: number | null; profile_content_hash: string | null; expected_binding_revision: number
+          previous_binding_id: string | null; previous_binding_revision: number | null; resulting_binding_id: string | null
+          resulting_binding_revision: number | null; prior_candidate_set_id: string | null; prior_candidate_set_revision: number | null
+          prior_candidate_count: number; prior_candidate_content_hash: string | null; prior_thumbnail_count: number
+          prior_thumbnail_identity_hash: string; resolved_style_source: string | null
+          renderer_verified_logo_revision_id: string | null; renderer_verified_storage_bucket: string | null
+          renderer_verified_storage_key: string | null; receipt_json: Json | null; created_by: string; created_at: string; updated_at: string
+        }
+        Insert: {
+          id?: string; workspace_id: string; workpiece_id: string; operation_id: string; operation_fingerprint: string
+          state?: string; failed_stage?: string | null; failure_code?: string | null; failure_message?: string | null
+          logo_role: string; requested_rules_json: Json; logo_asset_revision_id: string; logo_content_hash?: string | null
+          storage_bucket: string; storage_key: string; profile_id: string; profile_revision_id?: string | null
+          profile_revision?: number | null; profile_content_hash?: string | null; expected_binding_revision: number
+          previous_binding_id?: string | null; previous_binding_revision?: number | null; resulting_binding_id?: string | null
+          resulting_binding_revision?: number | null; prior_candidate_set_id?: string | null; prior_candidate_set_revision?: number | null
+          prior_candidate_count?: number; prior_candidate_content_hash?: string | null; prior_thumbnail_count?: number
+          prior_thumbnail_identity_hash: string; resolved_style_source?: string | null
+          renderer_verified_logo_revision_id?: string | null; renderer_verified_storage_bucket?: string | null
+          renderer_verified_storage_key?: string | null; receipt_json?: Json | null; created_by: string; created_at?: string; updated_at?: string
+        }
+        Update: {
+          id?: string; workspace_id?: string; workpiece_id?: string; operation_id?: string; operation_fingerprint?: string
+          state?: string; failed_stage?: string | null; failure_code?: string | null; failure_message?: string | null
+          logo_role?: string; requested_rules_json?: Json; logo_asset_revision_id?: string; logo_content_hash?: string | null
+          storage_bucket?: string; storage_key?: string; profile_id?: string; profile_revision_id?: string | null
+          profile_revision?: number | null; profile_content_hash?: string | null; expected_binding_revision?: number
+          previous_binding_id?: string | null; previous_binding_revision?: number | null; resulting_binding_id?: string | null
+          resulting_binding_revision?: number | null; prior_candidate_set_id?: string | null; prior_candidate_set_revision?: number | null
+          prior_candidate_count?: number; prior_candidate_content_hash?: string | null; prior_thumbnail_count?: number
+          prior_thumbnail_identity_hash?: string; resolved_style_source?: string | null
+          renderer_verified_logo_revision_id?: string | null; renderer_verified_storage_bucket?: string | null
+          renderer_verified_storage_key?: string | null; receipt_json?: Json | null; created_by?: string; created_at?: string; updated_at?: string
+        }
+        Relationships: []
+      }
       brand_profiles: {
         Row: {
           archived_at: string | null
@@ -5976,6 +6018,18 @@ export type Database = {
       }
     }
     Functions: {
+      begin_thumbnail_brand_setup: {
+        Args: { p_workspace_id: string; p_workpiece_id: string; p_operation_id: string; p_operation_fingerprint: string; p_profile_id: string; p_asset_id: string | null; p_logo_role: string; p_internal_label: string; p_filename: string; p_mime_type: string; p_requested_rules: Json; p_expected_binding_revision: number }
+        Returns: Json
+      }
+      mark_thumbnail_brand_asset_ready: {
+        Args: { p_workspace_id: string; p_operation_id: string; p_operation_fingerprint: string; p_actor_id: string; p_content_hash: string; p_bytes: number; p_width?: number | null; p_height?: number | null }
+        Returns: Json
+      }
+      commit_thumbnail_brand_profile_stage: { Args: { p_workspace_id: string; p_operation_id: string; p_operation_fingerprint: string }; Returns: Json }
+      commit_thumbnail_brand_binding_stage: { Args: { p_workspace_id: string; p_operation_id: string; p_operation_fingerprint: string }; Returns: Json }
+      verify_thumbnail_brand_setup: { Args: { p_workspace_id: string; p_operation_id: string; p_operation_fingerprint: string; p_actor_id: string }; Returns: Json }
+      get_thumbnail_brand_setup_receipt: { Args: { p_workspace_id: string; p_operation_id: string }; Returns: Json }
       _insert_missing_org_members_from_teams: {
         Args: { p_org_id?: string }
         Returns: number
