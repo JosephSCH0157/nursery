@@ -21,4 +21,24 @@ export function buildCandidateWorkspaceCards(pkg:EpisodePackageV3,authority:Thum
     const eligibility=text(candidate.eligibility_state) as ThumbnailCandidateEligibility;return{id:text(candidate.id),ordinal:Number(candidate.candidate_ordinal),eligibility,quenchEligible:eligibility==="current"||eligibility==="approved_historical_brand",recipe,title:recipe?.title_text??"Recipe unavailable",concept:concept?.headline??text(candidate.concept_revision_id),artworkHash:text(candidate.base_artwork_content_hash),compositeHash:text(candidate.composite_content_hash),bindingRevision:Number(candidate.candidate_binding_revision),styleSource:candidate.style_source==="forge_standard"?"forge_standard":"brand_profile",readability:{passed:evidence?.passed===true,score:typeof evidence?.aggregate_score==="number"?evidence.aggregate_score:null,treatment:evidence?.applied_treatment??"evidence on canonical candidate",evidenceHash:text(candidate.readability_evidence_hash)},distinctionReasons:reasons,raw:candidate,assetPath:text(candidate.asset_path).trim()||launch?.snapshot.asset_path?.trim()||"",logoApplied:Boolean(launch?.snapshot.brand_logo_asset_revision_id)};});
 }
 
+export function buildPendingCandidateWorkspaceCards(
+  pkg: EpisodePackageV3,
+  activeBindingId: string | null,
+  currentCompositeAssetIds: ReadonlySet<string>,
+  requiredStyleSource: "brand_profile" | "forge_standard" | null = null,
+): CandidateWorkspaceCard[] {
+  if (!activeBindingId) return [];
+  const launches = pkg.thumbnail.launch_variant_revisions.filter((entry) => {
+    const provenance = entry.snapshot.brand_binding_context ?? entry.snapshot.brand_application_provenance;
+    return entry.status === "ready"
+      && entry.snapshot.readability_evidence?.passed === true
+      && provenance?.binding_id === activeBindingId
+      && (!requiredStyleSource || entry.snapshot.style_source === requiredStyleSource)
+      && !currentCompositeAssetIds.has(entry.snapshot.asset_id);
+  }).slice(-3);
+  if (!launches.length) return [];
+  const pendingPackage = { ...pkg, thumbnail: { ...pkg.thumbnail, launch_variant_revisions: launches } };
+  return buildCandidateWorkspaceCards(pendingPackage, null);
+}
+
 export function candidateWorkspaceSummary(cards:CandidateWorkspaceCard[]){return{complete:cards.length>=3,quenchEligibleCount:cards.filter((c)=>c.quenchEligible).length,blockedCount:cards.filter((c)=>c.eligibility==="blocked").length,requiresReapprovalCount:cards.filter((c)=>c.eligibility==="requires_reapproval").length};}

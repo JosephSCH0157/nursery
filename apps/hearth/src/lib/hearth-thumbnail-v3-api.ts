@@ -30,6 +30,11 @@ export type ThumbnailBrandAuthorityStatus = {
   state: "unresolved" | "canonical_branded" | "canonical_unbranded" | "stale_projection" | "verification_blocked";
   binding: Record<string, unknown> | null;
   profile_label: string | null;
+  workspace_default_profile_label: string | null;
+  workspace_default_profile_id: string | null;
+  workspace_default_profile_revision_id: string | null;
+  workspace_default_profile_revision: number | null;
+  episode_profile_revision: number | null;
   message: string;
 };
 
@@ -92,9 +97,11 @@ export function projectCanonicalCandidateSet(authority:ThumbnailCandidateAuthori
   return {candidate_set_id:id,revision:Number(set.revision),previous_candidate_set_id:readString(set.previous_candidate_set_id),content_hash:hash,distinction_contract_version:"forge.thumbnail-candidate-distinction.v1",candidates:authority.candidates.map((c)=>({candidate_revision_id:String(c.id),candidate_ordinal:Number(c.candidate_ordinal),recipe_id:String(c.recipe_id),recipe_revision:Number(c.recipe_revision),recipe_hash:String(c.recipe_hash),title_revision_id:String(c.title_revision_id),concept_revision_id:String(c.concept_revision_id),base_artwork_content_hash:String(c.base_artwork_content_hash),structural_composition_fingerprint:String(c.structural_composition_fingerprint),composite_asset_id:String(c.composite_asset_id),composite_content_hash:String(c.composite_content_hash),candidate_binding_id:String(c.candidate_binding_id),candidate_binding_revision:Number(c.candidate_binding_revision),style_source:c.style_source==="forge_standard"?"forge_standard":"brand_profile",style_provenance_hash:readString(c.style_provenance_hash)??undefined,readability_evidence_hash:String(c.readability_evidence_hash),eligibility_state:String(c.eligibility_state) as ThumbnailCandidateSetProjection["candidates"][number]["eligibility_state"]})),projected_at:projectedAt};
 }
 
-export async function commitReadyLaunchesAsCandidateSet(args:{workpieceId:string;workspaceId:string;episodePackage:EpisodePackageV3;expectedMetadataUpdatedAt:string|null}):Promise<V3MutationResult> {
-  const launches=args.episodePackage.thumbnail.launch_variant_revisions.filter((entry)=>entry.status==="ready"&&entry.snapshot.readability_evidence?.passed===true);
-  const unique=[...new Map(launches.map((entry)=>[entry.snapshot.asset_id,entry])).values()]; if(unique.length<3)return{ok:false,saveState:"error",status:409,error:"At least three complete readable composites are required before committing a candidate set."};
+export async function commitReadyLaunchesAsCandidateSet(args:{workpieceId:string;workspaceId:string;episodePackage:EpisodePackageV3;expectedMetadataUpdatedAt:string|null;selectedLaunchVariantIds:string[]}):Promise<V3MutationResult> {
+  const selectedIds=new Set(args.selectedLaunchVariantIds);
+  if(selectedIds.size!==3)return{ok:false,saveState:"error",status:409,error:"Choose exactly three thumbnail revisions before committing a candidate set."};
+  const launches=args.episodePackage.thumbnail.launch_variant_revisions.filter((entry)=>selectedIds.has(entry.launch_variant_id)&&entry.status==="ready"&&entry.snapshot.readability_evidence?.passed===true);
+  const unique=[...new Map(launches.map((entry)=>[entry.snapshot.asset_id,entry])).values()]; if(unique.length!==3)return{ok:false,saveState:"error",status:409,error:"All three selected thumbnail revisions must be complete, readable, and canonically distinct."};
   const existingByComposite=new Map(args.episodePackage.thumbnail.candidate_sets.flatMap((set)=>set.candidates).map((candidate)=>[candidate.composite_asset_id,candidate.candidate_revision_id]));
   const candidates=unique.map((launch)=>{const existing=existingByComposite.get(launch.snapshot.asset_id);if(existing)return{candidate_revision_id:existing};const base=args.episodePackage.thumbnail.base_versions.find((entry)=>entry.id===launch.base_version_id);const recipe=args.episodePackage.thumbnail.render_recipes.find((entry)=>entry.id===launch.recipe_id&&entry.revision===launch.recipe_revision);const provenance=launch.snapshot.brand_binding_context??launch.snapshot.brand_application_provenance;const evidence=launch.snapshot.readability_evidence;if(!base||!recipe||!provenance||!evidence||!launch.snapshot.style_source||!launch.snapshot.style_provenance_hash)throw new Error("Candidate launch provenance is incomplete.");
     const placement=recipe.treatment.placement,typography=recipe.treatment.typography,treatment=recipe.treatment.treatment;
@@ -456,6 +463,26 @@ async function attachCanonicalPendingBase(args: {
 export function commitOutsideToolBaseArtwork(args: Parameters<typeof commitThumbnailBaseArtwork>[0]) {
   if (args.artwork.sourceType !== "outside_tool") throw new Error("Outside renderer requires outside_tool source authority.");
   return commitThumbnailBaseArtwork(args);
+}
+
+export async function applyWorkspaceDefaultThumbnailBrand(args: {
+  workpieceId: string;
+  workspaceId: string;
+  expectedCurrentRevision: number;
+  profileId: string;
+  profileRevisionId: string;
+}): Promise<Record<string, unknown>> {
+  const token = await requireThumbnailUserToken();
+  const operationId = crypto.randomUUID();
+  const intent = { workspace_id: args.workspaceId, workpiece_id: args.workpieceId, intent: "select_profile_revision", expected_current_revision: args.expectedCurrentRevision, profile_id: args.profileId, profile_revision_id: args.profileRevisionId, operation_id: operationId };
+  const operationFingerprint = await sha256Canonical(intent);
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/thumbnail-assets/apply-workspace-brand`, {
+    method: "POST", headers: { "x-forge-user-authorization": `Bearer ${token}` },
+    json: { ...intent, operation_fingerprint: operationFingerprint },
+  });
+  const body = await json(response);
+  if (!response.ok || !isRecord(body) || !isRecord(body.data)) throw new Error(errorMessage(body, "Unable to apply the workspace brand to this episode."));
+  return body.data;
 }
 
 export async function loadThumbnailCompositePreview(args: {

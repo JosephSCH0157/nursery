@@ -9,9 +9,20 @@ test("creator errors translate concurrency and distinction failures", () => {
 
 test("branding is advisory and standard styling remains available", () => {
   assert.equal(creatorBrandStatus(null).ready, true);
-  assert.match(creatorBrandStatus({ state: "canonical_unbranded", message: "unbranded", binding: null, profile_label: null } as never).label, /Forge standard/i);
-  assert.match(creatorBrandStatus({ state: "verification_blocked", message: "incomplete", binding: null, profile_label: null } as never).message, /optional/i);
-  assert.match(creatorBrandStatus({ state: "canonical_branded", message: "ready", binding: null, profile_label: "BS with Joe" } as never).label, /BS with Joe/i);
+  const unbranded = creatorBrandStatus({ state: "canonical_unbranded", message: "unbranded", binding: null, profile_label: null, workspace_default_profile_label: "BS with Joe", workspace_default_profile_id: "profile", workspace_default_profile_revision_id: "revision", workspace_default_profile_revision: 4, episode_profile_revision: null });
+  assert.equal(unbranded.workspaceDefaultLabel, "BS with Joe");
+  assert.equal(unbranded.episodeBindingLabel, "Forge Standard");
+  assert.equal(unbranded.automaticResolutionLabel, "Forge Standard fallback");
+  const blocked = creatorBrandStatus({ state: "verification_blocked", message: "incomplete", binding: { state: "profile" }, profile_label: "Bold Commentary", workspace_default_profile_label: "BS with Joe", workspace_default_profile_id: "profile", workspace_default_profile_revision_id: "revision", workspace_default_profile_revision: 4, episode_profile_revision: 3 });
+  assert.match(blocked.message, /fall back/i);
+  assert.equal(blocked.episodeBindingLabel, "Bold Commentary (needs attention)");
+  const branded = creatorBrandStatus({ state: "canonical_branded", message: "ready", binding: null, profile_label: "BS with Joe", workspace_default_profile_label: "BS with Joe", workspace_default_profile_id: "profile", workspace_default_profile_revision_id: "revision", workspace_default_profile_revision: 4, episode_profile_revision: 4 });
+  assert.equal(branded.workspaceDefaultLabel, "BS with Joe");
+  assert.equal(branded.episodeBindingLabel, "BS with Joe");
+  assert.equal(branded.automaticResolutionLabel, "BS with Joe");
+  const staleBranded = creatorBrandStatus({ state: "stale_projection", message: "stale", binding: { state: "profile" }, profile_label: "BS with Joe", workspace_default_profile_label: "BS with Joe", workspace_default_profile_id: "profile", workspace_default_profile_revision_id: "revision", workspace_default_profile_revision: 4, episode_profile_revision: 3 });
+  assert.equal(staleBranded.label, "Episode brand: BS with Joe");
+  assert.equal(staleBranded.automaticResolutionLabel, "BS with Joe");
 });
 
 test("focused direction builder pairs concepts and titles into three complete choices", () => {

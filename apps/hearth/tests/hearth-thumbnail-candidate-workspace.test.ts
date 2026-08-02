@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { EpisodePackageV3, ThumbnailRenderRecipe } from "../src/lib/episode-package-v3";
 import type { ThumbnailCandidateAuthorityProjection } from "../src/lib/hearth-thumbnail-v3-api";
-import { buildCandidateWorkspaceCards, candidateWorkspaceSummary } from "../src/lib/hearth-thumbnail-candidate-workspace";
+import { buildCandidateWorkspaceCards, buildPendingCandidateWorkspaceCards, candidateWorkspaceSummary } from "../src/lib/hearth-thumbnail-candidate-workspace";
 
 const recipe = (id:string, revision:number, concept:string, title:string):ThumbnailRenderRecipe => ({
   id, revision, concept_revision_id:concept, title_id:title, title_revision:1, title_text:`Title ${title}`,
@@ -46,4 +46,19 @@ test("candidate workspace hydrates previews from the canonical authority asset p
   authority.candidates[0] = { ...authority.candidates[0], asset_path: " thumbnails/candidate-a.png " };
   const cards=buildCandidateWorkspaceCards(pkg,authority);
   assert.equal(cards[0]?.assetPath,"thumbnails/candidate-a.png");
+});
+
+test("pending replacement uses only the newest ready renders under the active binding",()=>{
+  const launches=["old-binding","active-binding","active-binding","active-binding","active-binding"].map((bindingId,index)=>({
+    launch_variant_id:`launch-${index}`,base_version_id:`base-${index}`,recipe_id:"recipe-a",recipe_revision:1,status:"ready",
+    snapshot:{asset_id:`asset-${index}`,asset_path:`thumbnail-${index}.png`,content_hash:`hash-${index}`,style_source:bindingId==="active-binding"?"brand_profile":"forge_standard",
+      brand_binding_context:{binding_id:bindingId,binding_revision:bindingId==="active-binding"?2:1},brand_logo_asset_revision_id:bindingId==="active-binding"?"logo":null,
+      readability_evidence:{passed:true,evaluation_hash:`evidence-${index}`,applied_treatment:"none"}},
+  }));
+  const pkg={thumbnail:{render_recipes:[recipe("recipe-a",1,"concept-a","title-a")],concept_revisions:[{concept_revision_id:"concept-a",headline:"Concept"}],base_versions:[],launch_variant_revisions:launches}} as unknown as EpisodePackageV3;
+  const cards=buildPendingCandidateWorkspaceCards(pkg,"active-binding",new Set(["asset-1"]));
+  assert.deepEqual(cards.map((card)=>card.id),["launch-2","launch-3","launch-4"]);
+  assert.ok(cards.every((card)=>card.styleSource==="brand_profile"&&card.logoApplied));
+  const brandedOnly=buildPendingCandidateWorkspaceCards(pkg,"active-binding",new Set(),"brand_profile");
+  assert.ok(brandedOnly.every((card)=>card.styleSource==="brand_profile"));
 });

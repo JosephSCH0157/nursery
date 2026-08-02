@@ -11,7 +11,7 @@ import {
 } from "../../lib/episode-package-v3";
 import { refineConcept, saveRenderRecipe } from "../../lib/hearth-thumbnail-v3-authority";
 import { isValidThumbnailPair, resolveCanonicalThumbnailPair } from "../../lib/hearth-thumbnail-pairing";
-import { buildCandidateWorkspaceCards, candidateWorkspaceSummary } from "../../lib/hearth-thumbnail-candidate-workspace";
+import { buildCandidateWorkspaceCards, buildPendingCandidateWorkspaceCards, candidateWorkspaceSummary } from "../../lib/hearth-thumbnail-candidate-workspace";
 import { buildThumbnailDirections, creatorBrandStatus, creatorThumbnailError } from "../../lib/hearth-thumbnail-workspace-view-model";
 import { readHearthAiRuntimeStatus, writeHearthAiRuntimeStatus } from "../../lib/ai-runtime-status";
 import { DEFAULT_VARIATION_LOCKS, appendVariationBatch, createDeterministicVariationBatch, promoteRecipeVariation } from "../../lib/hearth-thumbnail-variations";
@@ -26,6 +26,7 @@ import {
   type ThumbnailLedgerProjection,
 } from "../../lib/hearth-thumbnail-editorial-memory";
 import {
+  applyWorkspaceDefaultThumbnailBrand,
   commitEpisodePackageV3Mutation,
   commitOutsideToolBaseArtwork,
   commitThumbnailLaunchComposite,
@@ -115,6 +116,7 @@ export default function ThumbnailV3Panel(props: Props) {
   const [providerId, setProviderId] = useState("forge");
   const [aspect, setAspect] = useState<"16:9" | "1:1" | "9:16">("16:9");
   const [brandStatus, setBrandStatus] = useState<ThumbnailBrandAuthorityStatus | null>(null);
+  const [brandMutationState, setBrandMutationState] = useState<"idle" | "saving">("idle");
   const [styleSource, setStyleSource] = useState<ThumbnailRequestedStyleSource>("auto");
   const [candidateAuthority, setCandidateAuthority] = useState<ThumbnailCandidateAuthorityProjection | null>(null);
   const [candidateEditRecipeIdentity, setCandidateEditRecipeIdentity] = useState<{ id: string; revision: number } | null>(null);
@@ -151,8 +153,6 @@ export default function ThumbnailV3Panel(props: Props) {
       const nextCandidateAuthority=await readThumbnailCandidateAuthorityProjection({workspaceId:props.workspaceId,workpieceId:props.workpieceId});
       setCandidateAuthority(nextCandidateAuthority);
       setPkg(canonical.episodePackage); setToken(canonical.metadataUpdatedAt); setLoadError(null);
-      const lastStyle = canonical.episodePackage.thumbnail.launch_variant_revisions.at(-1)?.snapshot.style_source;
-      setStyleSource((current) => current === "auto" && lastStyle ? lastStyle : current);
       props.onCanonicalProgress?.({
         conceptRevisionCount: canonical.episodePackage.thumbnail.concept_revisions.length,
         baseVersionCount: canonical.episodePackage.thumbnail.base_versions.length,
@@ -223,7 +223,19 @@ export default function ThumbnailV3Panel(props: Props) {
     ? pkg.thumbnail.render_recipes.find((recipe) => recipe.id === candidateEditRecipeIdentity.id && recipe.revision === candidateEditRecipeIdentity.revision) ?? null
     : null;
   const activeRecipe = candidateEditRecipe ?? canonicalPair.recipe;
+  const brandPresentation = creatorBrandStatus(brandStatus);
   const candidateCards = useMemo(() => pkg ? buildCandidateWorkspaceCards(pkg, candidateAuthority) : [], [candidateAuthority, pkg]);
+  const currentCompositeAssetIds = useMemo(() => new Set(candidateAuthority?.candidates
+    .map((candidate) => typeof candidate.composite_asset_id === "string" ? candidate.composite_asset_id : "").filter(Boolean) ?? []), [candidateAuthority]);
+  const activeBindingId = typeof brandStatus?.binding?.id === "string" ? brandStatus.binding.id : null;
+  const pendingStyleSource = styleSource === "brand_profile" || (styleSource === "auto" && brandPresentation.ready)
+    ? "brand_profile" as const
+    : "forge_standard" as const;
+  const pendingCandidateCards = useMemo(() => pkg
+    ? buildPendingCandidateWorkspaceCards(pkg, activeBindingId, currentCompositeAssetIds, pendingStyleSource)
+    : [], [activeBindingId, currentCompositeAssetIds, pendingStyleSource, pkg]);
+  const focusedCandidateCards = pendingCandidateCards.length ? pendingCandidateCards : candidateCards;
+  const pendingLogoCount = pendingCandidateCards.filter((card) => card.logoApplied).length;
   const candidateSummary = useMemo(() => candidateWorkspaceSummary(candidateCards), [candidateCards]);
   const readyLaunchCount = pkg?.thumbnail.launch_variant_revisions.filter((entry) => entry.status === "ready" && entry.snapshot.readability_evidence?.passed === true).length ?? 0;
   const thumbnailSetComplete = Boolean(candidateAuthority?.candidate_set)
@@ -277,8 +289,6 @@ export default function ThumbnailV3Panel(props: Props) {
     ? deriveThumbnailPromptPack({ recipe: activeRecipe, concept: selectedConcept, strategy: selectedStrategy, brief: selectedBrief }) : null;
   const conceptSaveLabel = pkg?.thumbnail.concept_sets.length === 0 && saveState === "saved" ? "not saved" : saveState;
   const directions = useMemo(() => pkg ? buildThumbnailDirections(pkg, activeSet?.id ?? null) : [], [activeSet?.id, pkg]);
-  const brandPresentation = creatorBrandStatus(brandStatus);
-
   useEffect(() => {
     if (selectedGenerationState !== "generating") {
       setSelectedGenerationElapsedSec(0);
@@ -319,6 +329,47 @@ export default function ThumbnailV3Panel(props: Props) {
     }
     setSaveState("saved");
   };
+
+  const useWorkspaceDefaultForEpisode = async () => {
+    const profileId = brandStatus?.workspace_default_profile_id;
+    const profileRevisionId = brandStatus?.workspace_default_profile_revision_id;
+    const expectedCurrentRevision = Number(brandStatus?.binding?.revision);
+    const label = brandStatus?.workspace_default_profile_label ?? "the workspace default";
+    const isProfileUpdate = brandStatus?.binding?.profile_id === profileId
+      && brandStatus?.binding?.profile_revision_id !== profileRevisionId;
+    if (!profileId || !profileRevisionId || !Number.isInteger(expectedCurrentRevision) || expectedCurrentRevision < 1) return;
+    const action = isProfileUpdate ? `Update this episode to the latest “${label}” brand version?` : `Use “${label}” for this episode?`;
+    if (!window.confirm(`${action}\n\nExisting thumbnails will keep their original branding evidence. Future thumbnail generations and candidate revisions will use the selected canonical brand version.`)) return;
+    setBrandMutationState("saving"); setLoadError(null);
+    try {
+      const result = await applyWorkspaceDefaultThumbnailBrand({ workpieceId: props.workpieceId, workspaceId: props.workspaceId, expectedCurrentRevision, profileId, profileRevisionId });
+      if (result.disposition === "revision_conflict") throw new Error("The expected brand binding revision is stale. Reload and review the current episode branding before retrying.");
+      if (result.disposition === "target_not_bindable") throw new Error("The workspace default brand is no longer ready for thumbnails. Review it in Tongs, then retry.");
+      if (result.disposition !== "created_revision" && result.disposition !== "no_change") throw new Error("Tongs did not apply the workspace default brand.");
+      const nextBinding = typeof result.binding === "object" && result.binding !== null ? result.binding as Record<string, unknown> : null;
+      const nextStatus = await readThumbnailBrandAuthorityStatus({ workspaceId: props.workspaceId, workpieceId: props.workpieceId,
+        projectedBindingId: typeof nextBinding?.id === "string" ? nextBinding.id : null,
+        projectedBindingRevision: typeof nextBinding?.revision === "number" ? nextBinding.revision : null });
+      setBrandStatus(nextStatus); setStyleSource("auto");
+    } catch (error) {
+      setLoadError(error instanceof Error ? error.message : "Unable to apply the workspace brand to this episode.");
+    } finally { setBrandMutationState("idle"); }
+  };
+
+  const canApplyWorkspaceDefault = Boolean(
+    brandStatus?.binding
+    && brandStatus.workspace_default_profile_label
+    && brandStatus.workspace_default_profile_id
+    && brandStatus.workspace_default_profile_revision_id
+    && (brandStatus.binding.state === "disabled"
+      || brandStatus.binding.profile_id !== brandStatus.workspace_default_profile_id
+      || brandStatus.binding.profile_revision_id !== brandStatus.workspace_default_profile_revision_id),
+  );
+  const workspaceDefaultIsNewerVersion = Boolean(
+    canApplyWorkspaceDefault
+    && brandStatus?.binding?.profile_id === brandStatus?.workspace_default_profile_id
+    && brandStatus?.binding?.profile_revision_id !== brandStatus?.workspace_default_profile_revision_id,
+  );
 
   const commitSetMutation = async (next: EpisodePackageV3, setId: string, eventName: string) => {
     setSaveState("saving");
@@ -479,12 +530,9 @@ export default function ThumbnailV3Panel(props: Props) {
     if (!composite.ok) { setSaveState("error"); setLoadError(`Base artwork was created, but the finished thumbnail could not be composed: ${composite.error}`); return; }
     setPkg(composite.episodePackage); setToken(composite.metadataUpdatedAt);
     const completedLaunch = composite.episodePackage.thumbnail.launch_variant_revisions.at(-1);
-    if (styleSource === "brand_profile" && (
-      completedLaunch?.snapshot.style_source !== "brand_profile"
-      || !completedLaunch.snapshot.brand_logo_asset_revision_id
-    )) {
+    if (styleSource === "brand_profile" && completedLaunch?.snapshot.style_source !== "brand_profile") {
       setSaveState("error");
-      setLoadError("The thumbnail was created, but Tongs did not verify a brand logo overlay. It has not been represented as a My Brand result.");
+      setLoadError("The thumbnail was created, but Tongs did not verify the episode's canonical brand style. It has not been represented as a My Brand result.");
       return;
     }
     setSaveState("saved");
@@ -546,7 +594,9 @@ export default function ThumbnailV3Panel(props: Props) {
     } catch (error) { setMemoryState("unavailable"); setMemoryError(error instanceof Error ? error.message : "Workspace thumbnail memory is unavailable."); }
   };
 
-  const finishThumbnailSet = async () => { if(!pkg)return;setSaveState("saving");setLoadError(null);try{const result=await commitReadyLaunchesAsCandidateSet({workpieceId:props.workpieceId,workspaceId:props.workspaceId,episodePackage:pkg,expectedMetadataUpdatedAt:token});if(!result.ok){setSaveState("error");setLoadError(result.error);return;}const authority=await readThumbnailCandidateAuthorityProjection({workspaceId:props.workspaceId,workpieceId:props.workpieceId});setPkg(result.episodePackage);setToken(result.metadataUpdatedAt);setCandidateAuthority(authority);const eligible=authority.candidates.filter((candidate)=>candidate.eligibility_state==="current"||candidate.eligibility_state==="approved_historical_brand");props.onCanonicalProgress?.({conceptRevisionCount:result.episodePackage.thumbnail.concept_revisions.length,baseVersionCount:result.episodePackage.thumbnail.base_versions.length,candidateCount:authority.candidates.length,eligibleCandidateCount:eligible.length,previewAssetPaths:eligible.map((candidate)=>resolveCanonicalCandidatePreviewPath(candidate,result.episodePackage)).filter(Boolean).slice(0,3)});setSaveState("saved");}catch(error){setSaveState("error");setLoadError(error instanceof Error?error.message:"Unable to finish the canonical thumbnail set.");}};
+  const finishThumbnailSet = async (selectedCards: typeof pendingCandidateCards) => { if(!pkg||selectedCards.length!==3)return;
+    if(candidateAuthority?.candidate_set&&!window.confirm("Replace the current canonical thumbnail set with these three revisions?\n\nThe existing set will remain in canonical history with its original branding evidence."))return;
+    setSaveState("saving");setLoadError(null);try{const result=await commitReadyLaunchesAsCandidateSet({workpieceId:props.workpieceId,workspaceId:props.workspaceId,episodePackage:pkg,expectedMetadataUpdatedAt:token,selectedLaunchVariantIds:selectedCards.map((card)=>card.id)});if(!result.ok){setSaveState("error");setLoadError(result.error);return;}const authority=await readThumbnailCandidateAuthorityProjection({workspaceId:props.workspaceId,workpieceId:props.workpieceId});setPkg(result.episodePackage);setToken(result.metadataUpdatedAt);setCandidateAuthority(authority);const eligible=authority.candidates.filter((candidate)=>candidate.eligibility_state==="current"||candidate.eligibility_state==="approved_historical_brand");props.onCanonicalProgress?.({conceptRevisionCount:result.episodePackage.thumbnail.concept_revisions.length,baseVersionCount:result.episodePackage.thumbnail.base_versions.length,candidateCount:authority.candidates.length,eligibleCandidateCount:eligible.length,previewAssetPaths:eligible.map((candidate)=>resolveCanonicalCandidatePreviewPath(candidate,result.episodePackage)).filter(Boolean).slice(0,3)});setSaveState("saved");}catch(error){setSaveState("error");setLoadError(error instanceof Error?error.message:"Unable to finish the canonical thumbnail set.");}};
   const decideHistoricalCandidate=async(candidate:Record<string,unknown>,decision:"approved"|"revoked")=>{const setId=candidateAuthority?.candidate_set?.id,activeBindingId=candidateAuthority?.active_binding_id;if(!setId||!activeBindingId)return;const reason=window.prompt(decision==="approved"?"Reason for approving this older-brand candidate":"Reason for revoking this approval")?.trim();if(!reason)return;setSaveState("saving");try{await decideThumbnailCandidateHistoricalBrand({workpieceId:props.workpieceId,workspaceId:props.workspaceId,candidateRevisionId:String(candidate.id),candidateSetId:String(setId),activeBindingId,decision,reason,expectedDecisionId:typeof candidate.current_decision_id==="string"?candidate.current_decision_id:null,expectedDecisionRevision:Number(candidate.current_decision_revision??0)});setCandidateAuthority(await readThumbnailCandidateAuthorityProjection({workspaceId:props.workspaceId,workpieceId:props.workpieceId}));setSaveState("saved");}catch(error){setSaveState("error");setLoadError(error instanceof Error?error.message:"Unable to record historical-brand authorization.");}};
 
   const saveEditorialInterpretation = async () => {
@@ -624,14 +674,29 @@ export default function ThumbnailV3Panel(props: Props) {
       </header>
 
       <section className="hs-thumbnail-friendly-blocker" aria-label="Thumbnail styling" ref={styleChoiceRef} tabIndex={-1}>
-        <div><strong>Thumbnail style</strong><p>{brandPresentation.message}</p></div>
+        <div>
+          <strong>Thumbnail style</strong>
+          <p>{brandPresentation.message}</p>
+          <dl>
+            <div><dt>Workspace default in Tongs</dt><dd>{brandPresentation.workspaceDefaultLabel}{brandStatus?.workspace_default_profile_revision ? ` · brand version ${brandStatus.workspace_default_profile_revision}` : ""}</dd></div>
+            <div><dt>Current episode binding</dt><dd>{brandPresentation.episodeBindingLabel}{brandStatus?.episode_profile_revision ? ` · brand version ${brandStatus.episode_profile_revision}` : ""}</dd></div>
+            <div><dt>Automatic will use</dt><dd>{brandPresentation.automaticResolutionLabel}</dd></div>
+          </dl>
+        </div>
         <label>Use
           <select value={styleSource} onChange={(event) => setStyleSource(event.target.value as ThumbnailRequestedStyleSource)}>
-            <option value="auto">Automatic</option>
-            <option value="brand_profile">My brand</option>
-            <option value="forge_standard">Forge standard</option>
+            <option value="auto">Workspace default (Automatic)</option>
+            <option value="brand_profile">My Brand (require episode binding)</option>
+            <option value="forge_standard">Forge Standard (ignore brand)</option>
           </select>
         </label>
+        {canApplyWorkspaceDefault && brandStatus?.workspace_default_profile_label ? (
+          <button type="button" disabled={brandMutationState === "saving"} onClick={() => void useWorkspaceDefaultForEpisode()}>
+            {brandMutationState === "saving" ? "Applying brand…" : workspaceDefaultIsNewerVersion
+              ? `Update this episode to the latest ${brandStatus.workspace_default_profile_label} version`
+              : `Use ${brandStatus.workspace_default_profile_label} for this episode`}
+          </button>
+        ) : null}
         <a href={`/app/tongs?workspace_id=${encodeURIComponent(props.workspaceId)}&mode=branding&section=style&return_to=${encodeURIComponent(`${window.location.pathname}${window.location.search}${window.location.search ? "&" : "?"}thumbnail_focus=style`)}`}>Edit brand style in Tongs</a>
       </section>
       {loadError ? <div className="hs-inline-error" role="alert">{creatorThumbnailError(loadError)} <button type="button" onClick={() => void reload()}>Retry</button></div> : null}
@@ -660,14 +725,15 @@ export default function ThumbnailV3Panel(props: Props) {
           <button type="button" className="is-primary" disabled={!validSelectedPair || saveState === "saving" || selectedGenerationState !== "idle" || (styleSource === "brand_profile" && !brandPresentation.ready)} onClick={() => void generateSelectedThumbnail()}>{selectedGenerationState === "preparing" ? "Preparing thumbnail…" : selectedGenerationState === "generating" ? "Generating thumbnail…" : "Generate selected thumbnail"}</button>
         </div>
         {selectedGenerationState === "generating" ? <p className="hs-inline-note" role="status" aria-live="polite">Forge AI is generating the image{selectedGenerationElapsedSec > 0 ? ` · ${selectedGenerationElapsedSec}s elapsed` : ""}. Image generation can take a minute or more; keep this page open.</p> : null}
-        {candidateCards.length ? <div className="hs-thumbnail-focused-grid">
-          {candidateCards.slice(0, 3).map((card, index) => {
+        {pendingCandidateCards.length ? <p className="hs-inline-note" role="status"><strong>Pending replacement set.</strong> These are the newest ready thumbnails under the current episode brand. The existing canonical set remains unchanged until you explicitly replace it.</p> : null}
+        {focusedCandidateCards.length ? <div className="hs-thumbnail-focused-grid">
+          {focusedCandidateCards.slice(0, 3).map((card, index) => {
             return <article key={card.id} className="hs-thumbnail-focused-card" aria-label={`Thumbnail ${String.fromCharCode(65 + index)}`}>
               <div className="hs-thumbnail-card-heading"><span className="hs-thumbnail-letter">{String.fromCharCode(65 + index)}</span><div><strong>{index === 0 ? "Recommended" : index === 1 ? "Strong alternate" : "Experimental"}</strong><small>Advisory, you choose the test set</small></div></div>
               <CanonicalThumbnailPreview workpieceId={props.workpieceId} assetPath={card.assetPath} className="hs-thumbnail-candidate-preview" alt={`Thumbnail ${String.fromCharCode(65 + index)}: ${card.title}`} />
-              <div className="hs-thumbnail-card-status"><span>{card.styleSource === "forge_standard" ? "Forge standard" : "Brand style"}</span><span>{card.styleSource === "brand_profile" ? card.logoApplied ? "Brand logo applied" : "Brand logo not applied" : "No brand logo requested"}</span><span>Text {card.readability.passed ? "readable" : "needs review"}</span></div>
+              <div className="hs-thumbnail-card-status"><span>{card.styleSource === "forge_standard" ? "Forge standard" : "Brand style"}</span><span>{card.styleSource === "brand_profile" ? card.logoApplied ? "Brand logo applied" : "No thumbnail logo configured" : "No brand logo requested"}</span><span>Text {card.readability.passed ? "readable" : "needs review"}</span></div>
               <div className="hs-thumbnail-feed-row"><CanonicalThumbnailPreview workpieceId={props.workpieceId} assetPath={card.assetPath} className="hs-thumbnail-feed-preview" alt={`Feed-size thumbnail ${String.fromCharCode(65 + index)}`} /><div><strong>Feed-size preview</strong><p>{ledgerProjection?.historical_observations[0]?.summary ?? "Editorial, branding, and readability evidence"}</p><small>{ledgerProjection?.historical_observations[0]?.confidence ? `${ledgerProjection.historical_observations[0].confidence} confidence` : "Early estimate"}</small></div></div>
-              <div className="hs-thumbnail-card-actions"><button type="button" onClick={() => { if (!card.recipe) return; setCandidateEditRecipeIdentity({ id: card.recipe.id, revision: card.recipe.revision }); setSelectedRevisionId(card.recipe.concept_revision_id); setTitleId(card.recipe.title_id); setTitleRevision(card.recipe.title_revision); }}>Edit thumbnail {String.fromCharCode(65 + index)}</button><button type="button" onClick={() => { if (card.recipe) { setCandidateEditRecipeIdentity({ id: card.recipe.id, revision: card.recipe.revision }); } }}>Try more variations</button></div>
+              <div className="hs-thumbnail-card-actions"><button type="button" onClick={() => { if (!card.recipe) return; setCandidateEditRecipeIdentity({ id: card.recipe.id, revision: card.recipe.revision }); setSelectedRevisionId(card.recipe.concept_revision_id); setTitleId(card.recipe.title_id); setTitleRevision(card.recipe.title_revision); requestAnimationFrame(() => document.getElementById("hearth-thumbnail-editor")?.scrollIntoView({ behavior: "smooth", block: "start" })); }}>Edit thumbnail {String.fromCharCode(65 + index)}</button><button type="button" onClick={() => { if (!card.recipe) return; setCandidateEditRecipeIdentity({ id: card.recipe.id, revision: card.recipe.revision }); setSelectedRevisionId(card.recipe.concept_revision_id); setTitleId(card.recipe.title_id); setTitleRevision(card.recipe.title_revision); requestAnimationFrame(() => { const details = document.getElementById("hearth-thumbnail-advanced"); if (details instanceof HTMLDetailsElement) details.open = true; requestAnimationFrame(() => document.getElementById("hearth-thumbnail-variations")?.scrollIntoView({ behavior: "smooth", block: "start" })); }); }}>Try more variations</button></div>
             </article>;
           })}
         </div> : <div className="hs-thumbnail-generation-empty">
@@ -677,17 +743,17 @@ export default function ThumbnailV3Panel(props: Props) {
         {ledgerState === "loaded" && !ledgerProjection?.measured_facts.length && !ledgerProjection?.historical_observations.length ? <p className="hs-thumbnail-calm-empty">No channel history yet. Hearth is ranking these using editorial, branding, and readability evidence.</p> : null}
       </section>
 
-      {candidateEditRecipe ? <aside className="hs-thumbnail-editor" aria-label="Thumbnail editor">
+      {candidateEditRecipe ? <aside id="hearth-thumbnail-editor" className="hs-thumbnail-editor" aria-label="Thumbnail editor">
         <div className="hs-thumbnail-editor-preview"><span>{selectedBrief?.subject_direction ?? selectedConcept?.image_concept}</span><strong style={{ color: textColor, textShadow: `0 2px 6px ${shadowColor}` }}>{titleText}</strong></div>
         <div className="hs-thumbnail-editor-controls"><div><h4>Edit thumbnail</h4><button type="button" onClick={() => setCandidateEditRecipeIdentity(null)}>Close editor</button></div><label>Thumbnail text<input value={titleText} readOnly /></label><label>Maximum lines<input type="number" min={1} max={5} value={maxLines} onChange={(event) => { setMaxLines(Number(event.target.value)); setSaveState("editing"); }} /></label><label>Text placement<select value={verticalPlacement} onChange={(event) => { setVerticalPlacement(event.target.value as typeof verticalPlacement); setSaveState("editing"); }}><option value="top">Top</option><option value="center">Center</option><option value="bottom">Bottom</option></select></label><label><input type="checkbox" checked={logoVisible} onChange={(event) => { setLogoVisible(event.target.checked); setSaveState("editing"); }} /> Show approved logo</label><button type="button" className="is-primary" onClick={() => void saveRecipe(false)}>Save as new version</button></div>
       </aside> : null}
 
       <div className="hs-thumbnail-completion" role="status" aria-live="polite">
-        <div><strong>{thumbnailSetComplete ? "Thumbnail set complete" : `${Math.min(readyLaunchCount, 3)} of 3 thumbnails ready`}</strong><span>{thumbnailSetComplete ? "Saved with this episode and available for release preparation." : "Style recorded · Text readable · Candidate distinction verified when the set is finished"}</span></div>
-        {!thumbnailSetComplete ? <button type="button" className="is-primary" disabled={saveState === "saving" || readyLaunchCount < 3} onClick={() => void finishThumbnailSet()}>Finish thumbnail set</button> : null}
+        <div><strong>{pendingCandidateCards.length === 3 ? "Three replacement thumbnails ready" : thumbnailSetComplete ? "Thumbnail set complete" : `${pendingCandidateCards.length} of 3 thumbnails ready`}</strong><span>{pendingCandidateCards.length === 3 ? `Review these exact revisions before replacing the canonical set. ${pendingLogoCount === 3 ? "All three include the canonical brand logo." : pendingLogoCount === 0 ? "These revisions use the brand style but do not include a logo." : `${pendingLogoCount} of 3 include the canonical brand logo.`}` : thumbnailSetComplete ? "Saved with this episode and available for release preparation." : "Style recorded · Text readable · Candidate distinction verified when the set is finished"}</span></div>
+        {pendingCandidateCards.length === 3 ? <button type="button" className="is-primary" disabled={saveState === "saving"} onClick={() => void finishThumbnailSet(pendingCandidateCards)}>{candidateAuthority?.candidate_set ? "Replace candidate set with these three thumbnails" : "Finish thumbnail set"}</button> : null}
       </div>
     </main>
-    <details className="hs-thumbnail-advanced">
+    <details id="hearth-thumbnail-advanced" className="hs-thumbnail-advanced">
       <summary>History and technical details</summary>
       <div className="hs-thumbnail-advanced-body">
     <div className="hs-row"><strong>Concept Brief sets</strong><span aria-live="polite">{conceptSaveLabel}</span>
@@ -710,7 +776,7 @@ export default function ThumbnailV3Panel(props: Props) {
       <div className="hs-row"><h4>Candidate comparison</h4><strong>{candidateAuthority?.candidate_set?`Revision ${String(candidateAuthority.candidate_set.revision)}`:"Uncommitted"}</strong></div>
       <p>Tongs owns completeness, distinction, and eligibility. Hearth explains and curates those canonical results; presentation-only changes never satisfy distinction.</p>
       <p aria-live="polite"><strong>{candidateSummary.quenchEligibleCount} of {candidateCards.length}</strong> candidates are eligible in the current Tongs projection.</p>
-      <button type="button" disabled={saveState==="saving"||readyLaunchCount<3} onClick={()=>void finishThumbnailSet()}>Retry canonical set finalization</button>
+      <button type="button" disabled={saveState==="saving"||pendingCandidateCards.length!==3} onClick={()=>void finishThumbnailSet(pendingCandidateCards)}>Finalize the three pending revisions</button>
       <small>Retrying the same complete payload uses the same operation identity and cannot duplicate the set.</small>
       {candidateCards.length ? <div className="hs-thumbnail-candidate-grid" style={{display:"grid",gridTemplateColumns:"repeat(auto-fit, minmax(16rem, 1fr))",gap:"1rem",marginTop:"1rem"}}>
         {candidateCards.map((card)=><article key={card.id} className="hs-thumbnail-candidate-card" aria-label={`Candidate ${card.ordinal}`} style={{border:"1px solid var(--border-color, #555)",borderRadius:"0.5rem",padding:"0.75rem"}}>
@@ -809,7 +875,7 @@ export default function ThumbnailV3Panel(props: Props) {
         </div>
       </> : null}
     </section>
-    {persistedPairIsSelected && activeRecipe ? <section className="hs-thumb-variations" aria-label="Controlled creative variations">
+    {persistedPairIsSelected && activeRecipe ? <section id="hearth-thumbnail-variations" className="hs-thumb-variations" aria-label="Controlled creative variations">
       <div className="hs-row"><h4>Controlled Creative Expansion</h4><span>Recipe variations: 0 AI credits</span></div>
       <p>Create reproducible alternatives from recipe revision {activeRecipe.revision}. Artwork generation remains a separate, disclosed provider charge.</p>
       <div className="hs-thumb-variation-controls">

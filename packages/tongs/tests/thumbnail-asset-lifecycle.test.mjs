@@ -162,12 +162,20 @@ test("thumbnail render authority resolves canonical brand bindings and records p
   assert.match(source, /brand_application_provenance/);
   assert.match(source, /brand_logo_asset_revision_id/);
   assert.match(source, /brand_logo_hash_mismatch/);
+  assert.doesNotMatch(source, /if \(!logoAssetRevisionId \|\| !logoBytes\?\.length\)/);
+  assert.doesNotMatch(source, /brand_logo_unavailable/);
   assert.match(source, /establishBinding: false/);
   assert.match(source, /requested_style_source \?\? "auto"/);
   assert.match(source, /THUMBNAIL_STANDARD_RECIPE_ID = "forge-thumbnail-standard"/);
   assert.match(source, /style_application_provenance/);
   assert.match(source, /style_render_identity/);
   assert.match(source, /"unresolved" \| "canonical_branded" \| "canonical_unbranded" \| "stale_projection" \| "verification_blocked"/);
+  assert.match(source, /applyWorkspaceDefaultThumbnailBrand/);
+  assert.match(source, /p_intent: "select_profile_revision"/);
+  assert.match(source, /p_expected_current_revision: input\.expected_current_revision/);
+  assert.match(source, /parts\[4\] === "apply-workspace-brand"/);
+  assert.match(source, /asset_kind !== "thumbnail_composite" \|\| asset\.status !== "ready" \|\| asset\.content_hash !== expectedHash/);
+  assert.match(source, /asset_path: asset\.path/);
 });
 
 test("thumbnail style-source migration backfills and keeps standard eligibility binding-independent", async () => {
