@@ -2947,7 +2947,7 @@ function createReadyQueueSupabase({
   };
 }
 
-function createImageMapAssetSupabase({ assets = [] } = {}) {
+function createImageMapAssetSupabase({ assets = [], brollPlan = null } = {}) {
   const state = {
     assetRows: assets.map((row) => ({ ...row })),
     insertCalls: [],
@@ -2969,6 +2969,10 @@ function createImageMapAssetSupabase({ assets = [] } = {}) {
     schema(schemaName) {
       assert.equal(schemaName, "tongs");
       return {
+        async rpc(name) {
+          if (name !== "read_current_broll_plan") throw new Error(`Unexpected RPC: ${name}`);
+          return { data: brollPlan, error: null };
+        },
         from(tableName) {
           if (tableName === "workpiece_files") {
             return {
@@ -6692,6 +6696,24 @@ test("TongsCommitService.getWorkpieceVisualPackage returns Hammer-ready ordering
         supersedes_asset_id: null,
       },
     ],
+    brollPlan: {
+      plan_revision: { id: "broll-plan-1", revision: 1 },
+      beats: [{
+        membership: { ordinal: 1 },
+        beat_revision: {
+          id: "broll-beat-revision-1", beat_id: "broll-beat-1", revision: 1,
+          context_focus: "Orange growers moved farther south in Florida.", placement_hint: "after-sentence",
+          duration_target_ms: 5000, narrative_purpose: "Show geographic movement", trim_guidance_json: { preferred_in_ms: 200 },
+          canonical_anchor_assessment: { state: "verified", exact_anchor: { section_id: "s2", paragraph_id: "s2:p1", paragraph_order: 2, sentence_start: 1, sentence_end: 1, char_start: 0, char_end: 45, span_text: "Orange growers moved farther south in Florida." } },
+        },
+        prompt_revision: { id: "broll-prompt-1", revision: 2, content_hash: "a".repeat(64) },
+        selected_candidate_revision: {
+          id: "broll-candidate-revision-1", asset_id: "broll-video-1", asset_path: "assets/broll/south.mp4",
+          storage_bucket: "forge-workpieces", storage_key: "workpieces/episode/assets/broll/south.mp4",
+          mime_type: "video/mp4", provider: "openai", source_kind: "generated", created_at: "2026-03-10T16:02:00.000Z", license_json: { license: "provider" },
+        },
+      }],
+    },
   });
 
   const service = new TongsCommitService(supabase, "forge-workpieces", null);
@@ -6811,13 +6833,17 @@ test("TongsCommitService.getWorkpieceVisualPackage returns Hammer-ready ordering
   assert.equal(result.script_updated_at, "2026-03-10T15:58:00.000Z");
   assert.equal(result.image_map_updated_at, "2026-03-10T15:59:00.000Z");
   assert.equal(result.image_map_asset_updated_at, "2026-03-10T16:00:00.000Z");
-  assert.equal(result.visuals.length, 2);
+  assert.equal(result.visuals.length, 3);
   assert.equal(result.visuals[0]?.entry_id, "image-map-01");
   assert.equal(result.visuals[0]?.visual_mode, "comparison");
   assert.equal(result.visuals[0]?.selected_asset?.asset_id, "candidate-01");
   assert.equal(result.visuals[0]?.selected_asset?.storage_key.endsWith("/image-map-01/explainer.png"), true);
   assert.equal(result.visuals[1]?.entry_id, "image-map-02");
   assert.equal(result.visuals[1]?.selected_asset, null);
+  assert.equal(result.visuals[2]?.asset_class, "broll");
+  assert.equal(result.visuals[2]?.selected_asset?.path, "assets/broll/south.mp4");
+  assert.equal(result.visuals[2]?.script_anchor?.paragraph_id, "s2:p1");
+  assert.equal(result.visuals[2]?.broll_evidence?.prompt_revision_id, "broll-prompt-1");
 });
 
 test("TongsCommitService.saveWorkpieceImageMap writes metadata, asset file, and refreshes the current image-map asset row", async () => {

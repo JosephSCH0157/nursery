@@ -1031,6 +1031,23 @@ export type WorkpieceVisualPackageVisual = {
   source_label?: string | null;
   selected_asset_id: string | null;
   selected_asset: WorkpieceVisualPackageSelectedAsset | null;
+  broll_evidence?: {
+    plan_revision_id: string;
+    plan_revision: number;
+    beat_revision_id: string;
+    beat_revision: number;
+    prompt_revision_id: string | null;
+    prompt_revision: number | null;
+    prompt_content_hash: string | null;
+    placement_hint: string;
+    intended_duration_ms: number;
+    narrative_purpose: string;
+    canonical_anchor_assessment: JsonValue;
+    source_kind: string | null;
+    provider: string | null;
+    license: JsonValue | null;
+    trim_guidance: JsonValue;
+  };
 };
 
 export type WorkpieceVisualPackageResponseData = {
@@ -12608,7 +12625,7 @@ export class TongsCommitService {
     const selectedAssetRows = await this.listReadyImageMapCandidateAssetsForWorkpiece(cradle.workspace_id, workpieceId);
     const script = await this.resolvePreferredWorkpieceScript({ cradle });
 
-    return this.buildWorkpieceVisualPackageResponse({
+    const result = this.buildWorkpieceVisualPackageResponse({
       workpieceId,
       workspaceId: cradle.workspace_id,
       scriptPath: script.path,
@@ -12619,6 +12636,90 @@ export class TongsCommitService {
       spokenBeats: state.episodePackage.spoken_beats,
       selectedAssetRows,
     });
+    const brollClient = options?.userAccessToken && this.userClientFactory
+      ? this.userClientFactory(options.userAccessToken).schema("tongs") as unknown as UntypedTongsSchemaClient
+      : this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    if (typeof (brollClient as { rpc?: unknown }).rpc !== "function") return result;
+    const broll = await brollClient
+      .rpc("read_current_broll_plan", { p_workspace_id: cradle.workspace_id, p_workpiece_id: workpieceId });
+    if (broll.error || !isRecord(broll.data) || !Array.isArray(broll.data.beats)) return result;
+    const plan = isRecord(broll.data.plan_revision) ? broll.data.plan_revision : null;
+    const planId = plan ? readStringField(plan, "id") : null;
+    const planRevision = plan && typeof plan.revision === "number" ? Math.trunc(plan.revision) : null;
+    if (!planId || !planRevision) return result;
+    const brollVisuals: WorkpieceVisualPackageVisual[] = broll.data.beats.flatMap((value, index) => {
+      if (!isRecord(value) || !isRecord(value.membership) || !isRecord(value.beat_revision)) return [];
+      const membership = value.membership;
+      const beat = value.beat_revision;
+      const prompt = isRecord(value.prompt_revision) ? value.prompt_revision : null;
+      const candidate = isRecord(value.selected_candidate_revision) ? value.selected_candidate_revision : null;
+      const beatId = readStringField(beat, "beat_id");
+      const beatRevisionId = readStringField(beat, "id");
+      const focus = readStringField(beat, "context_focus");
+      if (!beatId || !beatRevisionId || !focus) return [];
+      const assetId = candidate ? readStringField(candidate, "asset_id") : null;
+      const anchorAssessment = isRecord(beat.canonical_anchor_assessment)
+        ? beat.canonical_anchor_assessment
+        : {};
+      let canonicalAnchor: EpisodeImageMapScriptAnchorRecord | null = null;
+      try {
+        canonicalAnchor = normalizeImageMapScriptAnchor(anchorAssessment.exact_anchor, "broll.canonical_anchor_assessment.exact_anchor");
+      } catch {
+        canonicalAnchor = null;
+      }
+      const selectedAsset: WorkpieceVisualPackageSelectedAsset | null = candidate && assetId ? {
+        asset_id: assetId,
+        path: readStringField(candidate, "asset_path") ?? "",
+        storage_bucket: readStringField(candidate, "storage_bucket") ?? "",
+        storage_key: readStringField(candidate, "storage_key") ?? "",
+        mime_type: readStringField(candidate, "mime_type") ?? "video/mp4",
+        bytes: 0,
+        created_at: readStringField(candidate, "created_at") ?? "",
+        updated_at: readStringField(candidate, "created_at") ?? "",
+        variant_label: null,
+        visual_mode: "b_roll",
+      } : null;
+      return [{
+        asset_class: "broll",
+        entry_id: beatId,
+        beat_order: typeof membership.ordinal === "number" ? Math.trunc(membership.ordinal) : index + 1,
+        paragraph_beat_order: 1,
+        status: selectedAsset ? "selected" : "mapped",
+        script_anchor: canonicalAnchor ?? {
+          section_id: "broll-v2",
+          paragraph_id: beatId,
+          paragraph_order: typeof membership.ordinal === "number" ? Math.trunc(membership.ordinal) : index + 1,
+          sentence_start: 1,
+          sentence_end: 1,
+          char_start: 0,
+          char_end: focus.length,
+          span_text: focus,
+        },
+        visual_mode: "b_roll",
+        source_provider: candidate ? readStringField(candidate, "provider") : null,
+        source_label: candidate ? readStringField(candidate, "source_kind") : null,
+        selected_asset_id: assetId,
+        selected_asset: selectedAsset,
+        broll_evidence: {
+          plan_revision_id: planId,
+          plan_revision: planRevision,
+          beat_revision_id: beatRevisionId,
+          beat_revision: typeof beat.revision === "number" ? Math.trunc(beat.revision) : 1,
+          prompt_revision_id: prompt ? readStringField(prompt, "id") : null,
+          prompt_revision: prompt && typeof prompt.revision === "number" ? Math.trunc(prompt.revision) : null,
+          prompt_content_hash: prompt ? readStringField(prompt, "content_hash") : null,
+          placement_hint: readStringField(beat, "placement_hint") ?? "first_occurrence",
+          intended_duration_ms: typeof beat.duration_target_ms === "number" ? Math.trunc(beat.duration_target_ms) : 4000,
+          narrative_purpose: readStringField(beat, "narrative_purpose") ?? "coverage",
+          canonical_anchor_assessment: anchorAssessment as JsonValue,
+          source_kind: candidate ? readStringField(candidate, "source_kind") : null,
+          provider: candidate ? readStringField(candidate, "provider") : null,
+          license: candidate && candidate.license_json != null ? candidate.license_json as JsonValue : null,
+          trim_guidance: beat.trim_guidance_json as JsonValue,
+        },
+      }];
+    });
+    return { ...result, visuals: [...result.visuals, ...brollVisuals] };
   }
 
   private imagePromptAuthorityClient(accessToken:string|null|undefined){
