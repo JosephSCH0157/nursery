@@ -34,6 +34,7 @@ test("stored upload, external fetch, and provider output resume without repeated
     const bytes=new Uint8Array(await readFile(path));
     let providerCalls=0;let recorded=0;let assetCommits=0;let candidateCommits=0;
     const authority={schema(){return{async rpc(name){
+      if(name==="assert_current_broll_prompt")return{data:{disposition:"verified",prompt_revision:{id:"55555555-5555-4555-8555-555555555555",revision:1,content_hash:"b".repeat(64),final_prompt:"A blue motion clip"}},error:null};
       if(name==="begin_broll_operation")return{data:{disposition:"replay",operation:{state:"pending"}},error:null};
       if(name==="record_broll_provider_or_upload_result"){recorded+=1;return{data:{disposition:"result_recorded"},error:null};}
       if(name==="commit_broll_candidate"){candidateCommits+=1;return{data:{disposition:"committed",candidate_revision:{id:"candidate-1"}},error:null};}
@@ -52,6 +53,8 @@ test("stored upload, external fetch, and provider output resume without repeated
         workspace_id:"33333333-3333-4333-8333-333333333333",beat_id:"44444444-4444-4444-8444-444444444444",
         operation_id:`forge:broll:stored-${sourceKind}-replay-000${index+1}`,operation_fingerprint:"a".repeat(64),source_kind:sourceKind,
         provider:"test",final_prompt:"A blue motion clip",source_url:sourceKind==="external"?"https://127.0.0.1/must-not-fetch.mp4":null,poster_required:false,
+        prompt_revision_id:sourceKind==="generated"?"55555555-5555-4555-8555-555555555555":null,
+        prompt_revision:sourceKind==="generated"?1:null,prompt_content_hash:sourceKind==="generated"?"b".repeat(64):null,
       },{userAccessToken:"token"});
       assert.equal(result.disposition,"committed");
     }

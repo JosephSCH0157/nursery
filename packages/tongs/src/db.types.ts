@@ -7,43 +7,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      workspaces: {
-        Row: {
-          created_at: string | null
-          created_by: string | null
-          id: string | null
-          name: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          created_by?: string | null
-          id?: string | null
-          name?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          created_by?: string | null
-          id?: string | null
-          name?: string | null
-        }
-        Relationships: []
-      }
-    }
-    Functions: {
-      [_ in never]: never
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   tongs: {
     Tables: {
       account_balances: {
@@ -294,18 +257,21 @@ export type Database = {
           {
             foreignKeyName: "ai_usage_events_session_id_fkey"
             columns: ["session_id"]
+            isOneToOne: false
             referencedRelation: "recording_sessions"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "ai_usage_events_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "ai_usage_events_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -392,12 +358,14 @@ export type Database = {
           {
             foreignKeyName: "ai_usage_ledger_org_id_fkey"
             columns: ["org_id"]
+            isOneToOne: false
             referencedRelation: "orgs"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "ai_usage_ledger_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -459,18 +427,21 @@ export type Database = {
           {
             foreignKeyName: "anvil_recording_completion_requests_ready_transition_id_fkey"
             columns: ["ready_transition_id"]
+            isOneToOne: false
             referencedRelation: "workpiece_ready_transition_requests"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "anvil_recording_completion_requests_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "anvil_recording_completion_requests_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -517,24 +488,28 @@ export type Database = {
           {
             foreignKeyName: "anvil_recording_keep_requests_completion_id_fkey"
             columns: ["completion_id"]
+            isOneToOne: true
             referencedRelation: "anvil_recording_completion_requests"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "anvil_recording_keep_requests_completion_id_fkey"
             columns: ["completion_id"]
+            isOneToOne: true
             referencedRelation: "current_workpiece_recorded_takes"
             referencedColumns: ["completion_id"]
           },
           {
             foreignKeyName: "anvil_recording_keep_requests_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "anvil_recording_keep_requests_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -653,24 +628,28 @@ export type Database = {
           {
             foreignKeyName: "assets_source_asset_id_fkey"
             columns: ["source_asset_id"]
+            isOneToOne: false
             referencedRelation: "assets"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "assets_supersedes_asset_id_fkey"
             columns: ["supersedes_asset_id"]
+            isOneToOne: false
             referencedRelation: "assets"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "assets_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "assets_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -714,6 +693,7 @@ export type Database = {
           {
             foreignKeyName: "barstock_assignments_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -742,18 +722,21 @@ export type Database = {
           {
             foreignKeyName: "barstock_project_episode_links_project_id_fkey"
             columns: ["project_id"]
+            isOneToOne: false
             referencedRelation: "barstock_assignments"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "barstock_project_episode_links_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "barstock_project_episode_links_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -815,12 +798,14 @@ export type Database = {
           {
             foreignKeyName: "barstock_sparks_assignment_id_fkey"
             columns: ["assignment_id"]
+            isOneToOne: false
             referencedRelation: "barstock_assignments"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "barstock_sparks_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -924,6 +909,7 @@ export type Database = {
           {
             foreignKeyName: "bellows_session_checkpoints_session_id_fkey"
             columns: ["session_id"]
+            isOneToOne: false
             referencedRelation: "bellows_sessions"
             referencedColumns: ["id"]
           },
@@ -979,12 +965,14 @@ export type Database = {
           {
             foreignKeyName: "bellows_session_join_links_session_id_fkey"
             columns: ["session_id"]
+            isOneToOne: false
             referencedRelation: "bellows_sessions"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "bellows_session_join_links_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -1082,24 +1070,28 @@ export type Database = {
           {
             foreignKeyName: "bellows_sessions_calendar_event_id_fkey"
             columns: ["calendar_event_id"]
+            isOneToOne: false
             referencedRelation: "calendar_events"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "bellows_sessions_latest_checkpoint_belongs_to_session_fkey"
             columns: ["id", "latest_checkpoint_id"]
+            isOneToOne: false
             referencedRelation: "bellows_session_checkpoints"
             referencedColumns: ["session_id", "id"]
           },
           {
             foreignKeyName: "bellows_sessions_recording_session_id_fkey"
             columns: ["recording_session_id"]
+            isOneToOne: false
             referencedRelation: "recording_sessions"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "bellows_sessions_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -1350,12 +1342,14 @@ export type Database = {
           {
             foreignKeyName: "brand_asset_revisions_asset_id_fkey"
             columns: ["asset_id"]
+            isOneToOne: false
             referencedRelation: "brand_assets"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "brand_asset_revisions_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -1396,12 +1390,14 @@ export type Database = {
           {
             foreignKeyName: "brand_assets_profile_id_fkey"
             columns: ["profile_id"]
+            isOneToOne: false
             referencedRelation: "brand_profiles"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "brand_assets_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -1457,12 +1453,14 @@ export type Database = {
           {
             foreignKeyName: "brand_profile_revisions_profile_id_fkey"
             columns: ["profile_id"]
+            isOneToOne: false
             referencedRelation: "brand_profiles"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "brand_profile_revisions_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -1506,6 +1504,7 @@ export type Database = {
           {
             foreignKeyName: "brand_profiles_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -1609,6 +1608,7 @@ export type Database = {
               "beat_id",
               "previous_revision",
             ]
+            isOneToOne: false
             referencedRelation: "broll_beat_revisions"
             referencedColumns: [
               "id",
@@ -1626,6 +1626,7 @@ export type Database = {
               "workpiece_id",
               "script_approval_revision",
             ]
+            isOneToOne: false
             referencedRelation: "script_approval_revisions"
             referencedColumns: [
               "id",
@@ -1642,6 +1643,7 @@ export type Database = {
               "workpiece_id",
               "source_plan_revision",
             ]
+            isOneToOne: false
             referencedRelation: "broll_plan_revisions"
             referencedColumns: [
               "id",
@@ -1653,12 +1655,14 @@ export type Database = {
           {
             foreignKeyName: "broll_beat_revisions_workpiece_id_workspace_id_fkey"
             columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id", "workspace_id"]
           },
           {
             foreignKeyName: "broll_beat_revisions_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -1768,18 +1772,21 @@ export type Database = {
           {
             foreignKeyName: "broll_candidate_revisions_asset_id_fkey"
             columns: ["asset_id"]
+            isOneToOne: false
             referencedRelation: "assets"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "broll_candidate_revisions_candidate_id_fkey"
             columns: ["candidate_id"]
+            isOneToOne: false
             referencedRelation: "broll_candidates"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "broll_candidate_revisions_poster_asset_id_fkey"
             columns: ["poster_asset_id"]
+            isOneToOne: false
             referencedRelation: "assets"
             referencedColumns: ["id"]
           },
@@ -1792,6 +1799,7 @@ export type Database = {
               "beat_id",
               "previous_revision",
             ]
+            isOneToOne: false
             referencedRelation: "broll_candidate_revisions"
             referencedColumns: [
               "id",
@@ -1810,6 +1818,7 @@ export type Database = {
               "beat_id",
               "prompt_revision",
             ]
+            isOneToOne: false
             referencedRelation: "broll_prompt_revisions"
             referencedColumns: [
               "id",
@@ -1850,12 +1859,14 @@ export type Database = {
           {
             foreignKeyName: "broll_candidates_workpiece_id_workspace_id_fkey"
             columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id", "workspace_id"]
           },
           {
             foreignKeyName: "broll_candidates_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -1941,24 +1952,28 @@ export type Database = {
           {
             foreignKeyName: "broll_operation_receipts_verified_asset_id_fkey"
             columns: ["verified_asset_id"]
+            isOneToOne: false
             referencedRelation: "assets"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "broll_operation_receipts_verified_poster_asset_id_fkey"
             columns: ["verified_poster_asset_id"]
+            isOneToOne: false
             referencedRelation: "assets"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "broll_operation_receipts_workpiece_id_workspace_id_fkey"
             columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id", "workspace_id"]
           },
           {
             foreignKeyName: "broll_operation_receipts_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -2005,6 +2020,7 @@ export type Database = {
               "beat_id",
               "beat_revision",
             ]
+            isOneToOne: false
             referencedRelation: "broll_beat_revisions"
             referencedColumns: [
               "id",
@@ -2022,6 +2038,7 @@ export type Database = {
               "workpiece_id",
               "plan_revision",
             ]
+            isOneToOne: false
             referencedRelation: "broll_plan_revisions"
             referencedColumns: [
               "id",
@@ -2090,6 +2107,7 @@ export type Database = {
               "workpiece_id",
               "previous_revision",
             ]
+            isOneToOne: false
             referencedRelation: "broll_plan_revisions"
             referencedColumns: [
               "id",
@@ -2106,6 +2124,7 @@ export type Database = {
               "workpiece_id",
               "script_approval_revision",
             ]
+            isOneToOne: false
             referencedRelation: "script_approval_revisions"
             referencedColumns: [
               "id",
@@ -2117,12 +2136,14 @@ export type Database = {
           {
             foreignKeyName: "broll_plan_revisions_workpiece_id_workspace_id_fkey"
             columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id", "workspace_id"]
           },
           {
             foreignKeyName: "broll_plan_revisions_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -2162,6 +2183,7 @@ export type Database = {
               "workpiece_id",
               "current_plan_revision",
             ]
+            isOneToOne: false
             referencedRelation: "broll_plan_revisions"
             referencedColumns: [
               "id",
@@ -2173,12 +2195,14 @@ export type Database = {
           {
             foreignKeyName: "broll_plan_sequences_workpiece_id_workspace_id_fkey"
             columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id", "workspace_id"]
           },
           {
             foreignKeyName: "broll_plan_sequences_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -2186,66 +2210,108 @@ export type Database = {
       }
       broll_prompt_revisions: {
         Row: {
+          authority_status: string
           beat_id: string
           content_hash: string
           created_at: string
           created_by: string
+          creative_input_hash: string | null
+          creator_direction: string | null
           final_prompt: string
           id: string
           immutable_revision_hash: string
           interpretation_contract_version: string
+          interpretation_model: string | null
+          interpretation_provider: string | null
+          interpretation_request_json: Json | null
           motion_brief_json: Json
+          origin_operation_fingerprint: string | null
+          origin_operation_id: string | null
           previous_revision: number | null
           previous_revision_id: string | null
           prompt_source: string
           provider_response_json: Json | null
           revision: number
+          script_approval_id: string | null
+          script_approval_revision: number | null
+          script_content_hash: string | null
           source_beat_revision: number
           source_beat_revision_id: string
+          source_context_json: Json | null
+          source_plan_revision: number | null
+          source_plan_revision_id: string | null
           synthesis_contract_version: string
           validator_version: string
           workpiece_id: string
           workspace_id: string
         }
         Insert: {
+          authority_status?: string
           beat_id: string
           content_hash: string
           created_at?: string
           created_by: string
+          creative_input_hash?: string | null
+          creator_direction?: string | null
           final_prompt: string
           id?: string
           immutable_revision_hash: string
           interpretation_contract_version: string
+          interpretation_model?: string | null
+          interpretation_provider?: string | null
+          interpretation_request_json?: Json | null
           motion_brief_json: Json
+          origin_operation_fingerprint?: string | null
+          origin_operation_id?: string | null
           previous_revision?: number | null
           previous_revision_id?: string | null
           prompt_source: string
           provider_response_json?: Json | null
           revision: number
+          script_approval_id?: string | null
+          script_approval_revision?: number | null
+          script_content_hash?: string | null
           source_beat_revision: number
           source_beat_revision_id: string
+          source_context_json?: Json | null
+          source_plan_revision?: number | null
+          source_plan_revision_id?: string | null
           synthesis_contract_version: string
           validator_version: string
           workpiece_id: string
           workspace_id: string
         }
         Update: {
+          authority_status?: string
           beat_id?: string
           content_hash?: string
           created_at?: string
           created_by?: string
+          creative_input_hash?: string | null
+          creator_direction?: string | null
           final_prompt?: string
           id?: string
           immutable_revision_hash?: string
           interpretation_contract_version?: string
+          interpretation_model?: string | null
+          interpretation_provider?: string | null
+          interpretation_request_json?: Json | null
           motion_brief_json?: Json
+          origin_operation_fingerprint?: string | null
+          origin_operation_id?: string | null
           previous_revision?: number | null
           previous_revision_id?: string | null
           prompt_source?: string
           provider_response_json?: Json | null
           revision?: number
+          script_approval_id?: string | null
+          script_approval_revision?: number | null
+          script_content_hash?: string | null
           source_beat_revision?: number
           source_beat_revision_id?: string
+          source_context_json?: Json | null
+          source_plan_revision?: number | null
+          source_plan_revision_id?: string | null
           synthesis_contract_version?: string
           validator_version?: string
           workpiece_id?: string
@@ -2261,6 +2327,7 @@ export type Database = {
               "beat_id",
               "previous_revision",
             ]
+            isOneToOne: false
             referencedRelation: "broll_prompt_revisions"
             referencedColumns: [
               "id",
@@ -2268,6 +2335,23 @@ export type Database = {
               "workpiece_id",
               "beat_id",
               "revision",
+            ]
+          },
+          {
+            foreignKeyName: "broll_prompt_revisions_script_approval_id_workspace_id_wor_fkey"
+            columns: [
+              "script_approval_id",
+              "workspace_id",
+              "workpiece_id",
+              "script_approval_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "script_approval_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "approval_revision",
             ]
           },
           {
@@ -2279,6 +2363,7 @@ export type Database = {
               "beat_id",
               "source_beat_revision",
             ]
+            isOneToOne: false
             referencedRelation: "broll_beat_revisions"
             referencedColumns: [
               "id",
@@ -2289,14 +2374,33 @@ export type Database = {
             ]
           },
           {
+            foreignKeyName: "broll_prompt_revisions_source_plan_revision_id_workspace_i_fkey"
+            columns: [
+              "source_plan_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "source_plan_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "broll_plan_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
             foreignKeyName: "broll_prompt_revisions_workpiece_id_workspace_id_fkey"
             columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id", "workspace_id"]
           },
           {
             foreignKeyName: "broll_prompt_revisions_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -2305,6 +2409,8 @@ export type Database = {
       broll_prompt_sequences: {
         Row: {
           beat_id: string
+          creator_direction: string
+          creator_direction_revision: number
           current_prompt_revision: number
           current_prompt_revision_id: string | null
           updated_at: string
@@ -2313,6 +2419,8 @@ export type Database = {
         }
         Insert: {
           beat_id: string
+          creator_direction?: string
+          creator_direction_revision?: number
           current_prompt_revision?: number
           current_prompt_revision_id?: string | null
           updated_at?: string
@@ -2321,6 +2429,8 @@ export type Database = {
         }
         Update: {
           beat_id?: string
+          creator_direction?: string
+          creator_direction_revision?: number
           current_prompt_revision?: number
           current_prompt_revision_id?: string | null
           updated_at?: string
@@ -2337,6 +2447,7 @@ export type Database = {
               "beat_id",
               "current_prompt_revision",
             ]
+            isOneToOne: false
             referencedRelation: "broll_prompt_revisions"
             referencedColumns: [
               "id",
@@ -2349,6 +2460,7 @@ export type Database = {
           {
             foreignKeyName: "broll_prompt_sequences_workpiece_id_workspace_id_fkey"
             columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id", "workspace_id"]
           },
@@ -2425,6 +2537,7 @@ export type Database = {
               "beat_id",
               "beat_revision",
             ]
+            isOneToOne: false
             referencedRelation: "broll_beat_revisions"
             referencedColumns: [
               "id",
@@ -2443,6 +2556,7 @@ export type Database = {
               "beat_id",
               "candidate_revision",
             ]
+            isOneToOne: false
             referencedRelation: "broll_candidate_revisions"
             referencedColumns: [
               "id",
@@ -2460,6 +2574,7 @@ export type Database = {
               "workpiece_id",
               "plan_revision",
             ]
+            isOneToOne: false
             referencedRelation: "broll_plan_revisions"
             referencedColumns: [
               "id",
@@ -2471,6 +2586,7 @@ export type Database = {
           {
             foreignKeyName: "broll_selections_previous_selection_id_fkey"
             columns: ["previous_selection_id"]
+            isOneToOne: false
             referencedRelation: "broll_selections"
             referencedColumns: ["id"]
           },
@@ -2502,18 +2618,21 @@ export type Database = {
           {
             foreignKeyName: "calendar_event_assignments_assignment_id_fkey"
             columns: ["assignment_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "calendar_event_assignments_event_id_fkey"
             columns: ["event_id"]
+            isOneToOne: false
             referencedRelation: "calendar_events"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "calendar_event_assignments_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -2569,6 +2688,7 @@ export type Database = {
           {
             foreignKeyName: "calendar_events_session_id_fkey"
             columns: ["session_id"]
+            isOneToOne: false
             referencedRelation: "recording_sessions"
             referencedColumns: ["id"]
           },
@@ -2648,12 +2768,14 @@ export type Database = {
           {
             foreignKeyName: "canonical_recordings_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "canonical_recordings_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -2718,6 +2840,7 @@ export type Database = {
           {
             foreignKeyName: "episode_deletion_audit_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -2779,12 +2902,14 @@ export type Database = {
           {
             foreignKeyName: "episode_performance_retention_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "episode_performance_retention_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -2846,18 +2971,21 @@ export type Database = {
           {
             foreignKeyName: "episodes_active_revision_id_fkey"
             columns: ["active_revision_id"]
+            isOneToOne: false
             referencedRelation: "recording_revisions"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "episodes_canonical_recording_id_fkey"
             columns: ["canonical_recording_id"]
+            isOneToOne: false
             referencedRelation: "canonical_recordings"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "episodes_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -2898,12 +3026,14 @@ export type Database = {
           {
             foreignKeyName: "hammer_workpiece_presence_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "hammer_workpiece_presence_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -2983,12 +3113,14 @@ export type Database = {
           {
             foreignKeyName: "hammer_workpiece_state_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "hammer_workpiece_state_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -3053,12 +3185,14 @@ export type Database = {
           {
             foreignKeyName: "hearth_attachments_episode_id_fkey"
             columns: ["episode_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "hearth_attachments_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -3128,6 +3262,7 @@ export type Database = {
               "workpiece_id",
               "result_image_map_revision",
             ]
+            isOneToOne: false
             referencedRelation: "image_map_revisions"
             referencedColumns: [
               "id",
@@ -3144,6 +3279,7 @@ export type Database = {
               "workpiece_id",
               "result_script_approval_revision",
             ]
+            isOneToOne: false
             referencedRelation: "script_approval_revisions"
             referencedColumns: [
               "id",
@@ -3160,6 +3296,7 @@ export type Database = {
               "workpiece_id",
               "source_image_map_revision",
             ]
+            isOneToOne: false
             referencedRelation: "image_map_revisions"
             referencedColumns: [
               "id",
@@ -3176,6 +3313,7 @@ export type Database = {
               "workpiece_id",
               "target_script_approval_revision",
             ]
+            isOneToOne: false
             referencedRelation: "script_approval_revisions"
             referencedColumns: [
               "id",
@@ -3187,12 +3325,14 @@ export type Database = {
           {
             foreignKeyName: "hearth_authority_operation_recei_workpiece_id_workspace_id_fkey"
             columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id", "workspace_id"]
           },
           {
             foreignKeyName: "hearth_authority_operation_receipts_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -3266,12 +3406,14 @@ export type Database = {
           {
             foreignKeyName: "hearth_interaction_events_episode_id_fkey"
             columns: ["episode_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "hearth_interaction_events_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -3309,12 +3451,14 @@ export type Database = {
           {
             foreignKeyName: "hearth_workpiece_presence_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "hearth_workpiece_presence_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -3355,12 +3499,14 @@ export type Database = {
           {
             foreignKeyName: "henry_events_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "henry_events_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -3404,6 +3550,7 @@ export type Database = {
           {
             foreignKeyName: "henry_message_state_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -3444,6 +3591,7 @@ export type Database = {
           {
             foreignKeyName: "henry_user_preferences_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -3541,6 +3689,7 @@ export type Database = {
               "image_moment_id",
               "expected_prompt_revision",
             ]
+            isOneToOne: false
             referencedRelation: "image_map_prompt_revisions"
             referencedColumns: [
               "id",
@@ -3558,6 +3707,7 @@ export type Database = {
               "workpiece_id",
               "image_map_revision",
             ]
+            isOneToOne: false
             referencedRelation: "image_map_revisions"
             referencedColumns: [
               "id",
@@ -3575,6 +3725,7 @@ export type Database = {
               "image_moment_id",
               "result_revision",
             ]
+            isOneToOne: false
             referencedRelation: "image_map_prompt_revisions"
             referencedColumns: [
               "id",
@@ -3592,6 +3743,7 @@ export type Database = {
               "workpiece_id",
               "script_approval_revision",
             ]
+            isOneToOne: false
             referencedRelation: "script_approval_revisions"
             referencedColumns: [
               "id",
@@ -3603,12 +3755,14 @@ export type Database = {
           {
             foreignKeyName: "image_map_prompt_operation_recei_workpiece_id_workspace_id_fkey"
             columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id", "workspace_id"]
           },
           {
             foreignKeyName: "image_map_prompt_operation_receipts_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -3711,6 +3865,7 @@ export type Database = {
               "workpiece_id",
               "image_map_revision",
             ]
+            isOneToOne: false
             referencedRelation: "image_map_revisions"
             referencedColumns: [
               "id",
@@ -3728,6 +3883,7 @@ export type Database = {
               "image_moment_id",
               "previous_revision",
             ]
+            isOneToOne: false
             referencedRelation: "image_map_prompt_revisions"
             referencedColumns: [
               "id",
@@ -3745,6 +3901,7 @@ export type Database = {
               "workpiece_id",
               "script_approval_revision",
             ]
+            isOneToOne: false
             referencedRelation: "script_approval_revisions"
             referencedColumns: [
               "id",
@@ -3756,12 +3913,14 @@ export type Database = {
           {
             foreignKeyName: "image_map_prompt_revisions_workpiece_id_workspace_id_fkey"
             columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id", "workspace_id"]
           },
           {
             foreignKeyName: "image_map_prompt_revisions_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -3802,6 +3961,7 @@ export type Database = {
               "image_moment_id",
               "current_prompt_revision",
             ]
+            isOneToOne: false
             referencedRelation: "image_map_prompt_revisions"
             referencedColumns: [
               "id",
@@ -3814,12 +3974,14 @@ export type Database = {
           {
             foreignKeyName: "image_map_prompt_sequences_workpiece_id_workspace_id_fkey"
             columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id", "workspace_id"]
           },
           {
             foreignKeyName: "image_map_prompt_sequences_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -3892,6 +4054,7 @@ export type Database = {
               "workpiece_id",
               "previous_revision",
             ]
+            isOneToOne: false
             referencedRelation: "image_map_revisions"
             referencedColumns: [
               "id",
@@ -3908,6 +4071,7 @@ export type Database = {
               "workpiece_id",
               "source_script_approval_revision",
             ]
+            isOneToOne: false
             referencedRelation: "script_approval_revisions"
             referencedColumns: [
               "id",
@@ -3919,12 +4083,14 @@ export type Database = {
           {
             foreignKeyName: "image_map_revisions_workpiece_id_workspace_id_fkey"
             columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id", "workspace_id"]
           },
           {
             foreignKeyName: "image_map_revisions_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -3974,6 +4140,7 @@ export type Database = {
           {
             foreignKeyName: "member_ai_policy_org_id_fkey"
             columns: ["org_id"]
+            isOneToOne: false
             referencedRelation: "orgs"
             referencedColumns: ["id"]
           },
@@ -4005,6 +4172,7 @@ export type Database = {
           {
             foreignKeyName: "org_members_org_id_fkey"
             columns: ["org_id"]
+            isOneToOne: false
             referencedRelation: "orgs"
             referencedColumns: ["id"]
           },
@@ -4051,6 +4219,7 @@ export type Database = {
           {
             foreignKeyName: "organization_ai_policy_org_id_fkey"
             columns: ["org_id"]
+            isOneToOne: true
             referencedRelation: "orgs"
             referencedColumns: ["id"]
           },
@@ -4154,6 +4323,7 @@ export type Database = {
           {
             foreignKeyName: "project_cradles_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -4200,6 +4370,7 @@ export type Database = {
           {
             foreignKeyName: "quench_destination_capability_revisio_destination_scope_id_fkey"
             columns: ["destination_scope_id"]
+            isOneToOne: false
             referencedRelation: "quench_destination_scopes"
             referencedColumns: ["id"]
           },
@@ -4249,12 +4420,14 @@ export type Database = {
           {
             foreignKeyName: "quench_destination_scope_capability_fk"
             columns: ["current_capability_revision_id", "id"]
+            isOneToOne: false
             referencedRelation: "quench_destination_capability_revisions"
             referencedColumns: ["id", "destination_scope_id"]
           },
           {
             foreignKeyName: "quench_destination_scopes_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -4327,6 +4500,7 @@ export type Database = {
               "workspace_id",
               "workpiece_id",
             ]
+            isOneToOne: false
             referencedRelation: "thumbnail_candidate_set_members"
             referencedColumns: [
               "candidate_set_id",
@@ -4343,6 +4517,7 @@ export type Database = {
               "workpiece_id",
               "destination_scope_id",
             ]
+            isOneToOne: false
             referencedRelation: "quench_release_decision_revisions"
             referencedColumns: [
               "id",
@@ -4354,12 +4529,14 @@ export type Database = {
           {
             foreignKeyName: "quench_release_candidate_assignments_candidate_binding_id_fkey"
             columns: ["candidate_binding_id"]
+            isOneToOne: false
             referencedRelation: "workpiece_brand_bindings"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "quench_release_candidate_assignments_composite_asset_id_fkey"
             columns: ["composite_asset_id"]
+            isOneToOne: false
             referencedRelation: "assets"
             referencedColumns: ["id"]
           },
@@ -4453,6 +4630,7 @@ export type Database = {
               "workpiece_id",
               "destination_scope_id",
             ]
+            isOneToOne: false
             referencedRelation: "quench_release_decision_revisions"
             referencedColumns: [
               "id",
@@ -4464,42 +4642,49 @@ export type Database = {
           {
             foreignKeyName: "quench_release_decision_revis_candidate_set_id_workspace_i_fkey"
             columns: ["candidate_set_id", "workspace_id", "workpiece_id"]
+            isOneToOne: false
             referencedRelation: "thumbnail_candidate_sets"
             referencedColumns: ["id", "workspace_id", "workpiece_id"]
           },
           {
             foreignKeyName: "quench_release_decision_revis_capability_revision_id_desti_fkey"
             columns: ["capability_revision_id", "destination_scope_id"]
+            isOneToOne: false
             referencedRelation: "quench_destination_capability_revisions"
             referencedColumns: ["id", "destination_scope_id"]
           },
           {
             foreignKeyName: "quench_release_decision_revis_manifest_snapshot_id_workspa_fkey"
             columns: ["manifest_snapshot_id", "workspace_id", "workpiece_id"]
+            isOneToOne: false
             referencedRelation: "quench_release_manifest_snapshots"
             referencedColumns: ["id", "workspace_id", "workpiece_id"]
           },
           {
             foreignKeyName: "quench_release_decision_revisions_active_binding_id_fkey"
             columns: ["active_binding_id"]
+            isOneToOne: false
             referencedRelation: "workpiece_brand_bindings"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "quench_release_decision_revisions_destination_scope_id_fkey"
             columns: ["destination_scope_id"]
+            isOneToOne: false
             referencedRelation: "quench_destination_scopes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "quench_release_decision_revisions_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "quench_release_decision_revisions_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -4542,6 +4727,7 @@ export type Database = {
               "workpiece_id",
               "destination_scope_id",
             ]
+            isOneToOne: false
             referencedRelation: "quench_release_decision_revisions"
             referencedColumns: [
               "id",
@@ -4553,18 +4739,21 @@ export type Database = {
           {
             foreignKeyName: "quench_release_decision_sequences_destination_scope_id_fkey"
             columns: ["destination_scope_id"]
+            isOneToOne: false
             referencedRelation: "quench_destination_scopes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "quench_release_decision_sequences_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "quench_release_decision_sequences_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -4632,12 +4821,14 @@ export type Database = {
           {
             foreignKeyName: "quench_release_manifest_snapshots_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "quench_release_manifest_snapshots_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -4692,6 +4883,7 @@ export type Database = {
               "workpiece_id",
               "destination_scope_id",
             ]
+            isOneToOne: false
             referencedRelation: "quench_release_decision_revisions"
             referencedColumns: [
               "id",
@@ -4703,18 +4895,21 @@ export type Database = {
           {
             foreignKeyName: "quench_release_operation_receipts_destination_scope_id_fkey"
             columns: ["destination_scope_id"]
+            isOneToOne: false
             referencedRelation: "quench_destination_scopes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "quench_release_operation_receipts_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "quench_release_operation_receipts_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -4803,18 +4998,21 @@ export type Database = {
           {
             foreignKeyName: "recording_revisions_canonical_recording_id_fkey"
             columns: ["canonical_recording_id"]
+            isOneToOne: false
             referencedRelation: "canonical_recordings"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "recording_revisions_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "recording_revisions_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -4849,12 +5047,14 @@ export type Database = {
           {
             foreignKeyName: "recording_session_episodes_episode_id_fkey"
             columns: ["episode_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "recording_session_episodes_recording_session_id_fkey"
             columns: ["recording_session_id"]
+            isOneToOne: false
             referencedRelation: "recording_sessions"
             referencedColumns: ["id"]
           },
@@ -4889,12 +5089,14 @@ export type Database = {
           {
             foreignKeyName: "recording_session_items_episode_id_fkey"
             columns: ["episode_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "recording_session_items_session_id_fkey"
             columns: ["session_id"]
+            isOneToOne: false
             referencedRelation: "recording_sessions"
             referencedColumns: ["id"]
           },
@@ -4941,12 +5143,14 @@ export type Database = {
           {
             foreignKeyName: "recording_sessions_calendar_event_id_fkey"
             columns: ["calendar_event_id"]
+            isOneToOne: false
             referencedRelation: "calendar_events"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "recording_sessions_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -5005,12 +5209,14 @@ export type Database = {
           {
             foreignKeyName: "script_approval_revisions_workpiece_id_workspace_id_fkey"
             columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id", "workspace_id"]
           },
           {
             foreignKeyName: "script_approval_revisions_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -5042,6 +5248,7 @@ export type Database = {
           {
             foreignKeyName: "team_members_team_id_fkey"
             columns: ["team_id"]
+            isOneToOne: false
             referencedRelation: "teams"
             referencedColumns: ["id"]
           },
@@ -5076,6 +5283,7 @@ export type Database = {
           {
             foreignKeyName: "teams_org_id_fkey"
             columns: ["org_id"]
+            isOneToOne: false
             referencedRelation: "orgs"
             referencedColumns: ["id"]
           },
@@ -5206,54 +5414,63 @@ export type Database = {
           {
             foreignKeyName: "thumbnail_brand_setup_operati_renderer_verified_logo_revis_fkey"
             columns: ["renderer_verified_logo_revision_id"]
+            isOneToOne: false
             referencedRelation: "brand_asset_revisions"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_brand_setup_operations_logo_asset_revision_id_fkey"
             columns: ["logo_asset_revision_id"]
+            isOneToOne: false
             referencedRelation: "brand_asset_revisions"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_brand_setup_operations_previous_binding_id_fkey"
             columns: ["previous_binding_id"]
+            isOneToOne: false
             referencedRelation: "workpiece_brand_bindings"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_brand_setup_operations_prior_candidate_set_id_fkey"
             columns: ["prior_candidate_set_id"]
+            isOneToOne: false
             referencedRelation: "thumbnail_candidate_sets"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_brand_setup_operations_profile_id_fkey"
             columns: ["profile_id"]
+            isOneToOne: false
             referencedRelation: "brand_profiles"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_brand_setup_operations_profile_revision_id_fkey"
             columns: ["profile_revision_id"]
+            isOneToOne: false
             referencedRelation: "brand_profile_revisions"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_brand_setup_operations_resulting_binding_id_fkey"
             columns: ["resulting_binding_id"]
+            isOneToOne: false
             referencedRelation: "workpiece_brand_bindings"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_brand_setup_operations_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_brand_setup_operations_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -5300,18 +5517,21 @@ export type Database = {
           {
             foreignKeyName: "thumbnail_candidate_brand_decision_operations_decision_id_fkey"
             columns: ["decision_id"]
+            isOneToOne: false
             referencedRelation: "thumbnail_candidate_brand_decisions"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_candidate_brand_decision_operations_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_candidate_brand_decision_operations_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -5394,36 +5614,42 @@ export type Database = {
           {
             foreignKeyName: "thumbnail_candidate_brand_dec_candidate_revision_id_worksp_fkey"
             columns: ["candidate_revision_id", "workspace_id", "workpiece_id"]
+            isOneToOne: false
             referencedRelation: "thumbnail_candidate_revisions"
             referencedColumns: ["id", "workspace_id", "workpiece_id"]
           },
           {
             foreignKeyName: "thumbnail_candidate_brand_decisions_active_binding_id_fkey"
             columns: ["active_binding_id"]
+            isOneToOne: false
             referencedRelation: "workpiece_brand_bindings"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_candidate_brand_decisions_candidate_binding_id_fkey"
             columns: ["candidate_binding_id"]
+            isOneToOne: false
             referencedRelation: "workpiece_brand_bindings"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_candidate_brand_decisions_candidate_set_id_fkey"
             columns: ["candidate_set_id"]
+            isOneToOne: false
             referencedRelation: "thumbnail_candidate_sets"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_candidate_brand_decisions_composite_asset_id_fkey"
             columns: ["composite_asset_id"]
+            isOneToOne: false
             referencedRelation: "assets"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_candidate_brand_decisions_previous_decision_id_fkey"
             columns: ["previous_decision_id"]
+            isOneToOne: false
             referencedRelation: "thumbnail_candidate_brand_decisions"
             referencedColumns: ["id"]
           },
@@ -5524,30 +5750,35 @@ export type Database = {
           {
             foreignKeyName: "thumbnail_candidate_revisions_base_artwork_asset_id_fkey"
             columns: ["base_artwork_asset_id"]
+            isOneToOne: false
             referencedRelation: "assets"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_candidate_revisions_candidate_binding_id_fkey"
             columns: ["candidate_binding_id"]
+            isOneToOne: false
             referencedRelation: "workpiece_brand_bindings"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_candidate_revisions_composite_asset_id_fkey"
             columns: ["composite_asset_id"]
+            isOneToOne: true
             referencedRelation: "assets"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_candidate_revisions_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_candidate_revisions_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -5588,12 +5819,14 @@ export type Database = {
           {
             foreignKeyName: "thumbnail_candidate_set_membe_candidate_revision_id_worksp_fkey"
             columns: ["candidate_revision_id", "workspace_id", "workpiece_id"]
+            isOneToOne: false
             referencedRelation: "thumbnail_candidate_revisions"
             referencedColumns: ["id", "workspace_id", "workpiece_id"]
           },
           {
             foreignKeyName: "thumbnail_candidate_set_membe_candidate_set_id_workspace_i_fkey"
             columns: ["candidate_set_id", "workspace_id", "workpiece_id"]
+            isOneToOne: false
             referencedRelation: "thumbnail_candidate_sets"
             referencedColumns: ["id", "workspace_id", "workpiece_id"]
           },
@@ -5640,18 +5873,21 @@ export type Database = {
           {
             foreignKeyName: "thumbnail_candidate_set_operations_candidate_set_id_fkey"
             columns: ["candidate_set_id"]
+            isOneToOne: false
             referencedRelation: "thumbnail_candidate_sets"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_candidate_set_operations_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_candidate_set_operations_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -5704,18 +5940,21 @@ export type Database = {
           {
             foreignKeyName: "thumbnail_candidate_sets_previous_candidate_set_id_fkey"
             columns: ["previous_candidate_set_id"]
+            isOneToOne: false
             referencedRelation: "thumbnail_candidate_sets"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_candidate_sets_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_candidate_sets_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -5780,6 +6019,7 @@ export type Database = {
           {
             foreignKeyName: "thumbnail_launch_experiments_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -5826,12 +6066,14 @@ export type Database = {
           {
             foreignKeyName: "thumbnail_launch_facts_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_launch_facts_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -5893,18 +6135,21 @@ export type Database = {
           {
             foreignKeyName: "thumbnail_launch_intervals_predecessor_interval_id_fkey"
             columns: ["predecessor_interval_id"]
+            isOneToOne: false
             referencedRelation: "thumbnail_launch_intervals"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_launch_intervals_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_launch_intervals_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -5960,6 +6205,7 @@ export type Database = {
           {
             foreignKeyName: "thumbnail_ledger_analyses_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -6009,6 +6255,7 @@ export type Database = {
           {
             foreignKeyName: "thumbnail_ledger_ingestion_cursors_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -6055,12 +6302,14 @@ export type Database = {
           {
             foreignKeyName: "thumbnail_memory_interpretations_supersedes_id_fkey"
             columns: ["supersedes_id"]
+            isOneToOne: false
             referencedRelation: "thumbnail_memory_interpretations"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_memory_interpretations_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -6134,12 +6383,14 @@ export type Database = {
           {
             foreignKeyName: "thumbnail_performance_observatio_supersedes_observation_id_fkey"
             columns: ["supersedes_observation_id"]
+            isOneToOne: false
             referencedRelation: "thumbnail_performance_observations"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "thumbnail_performance_observations_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -6243,6 +6494,7 @@ export type Database = {
           {
             foreignKeyName: "user_style_profile_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -6292,18 +6544,21 @@ export type Database = {
           {
             foreignKeyName: "workpiece_brand_binding_operations_binding_id_fkey"
             columns: ["binding_id"]
+            isOneToOne: false
             referencedRelation: "workpiece_brand_bindings"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "workpiece_brand_binding_operations_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "workpiece_brand_binding_operations_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -6368,30 +6623,35 @@ export type Database = {
           {
             foreignKeyName: "workpiece_brand_bindings_previous_binding_id_fkey"
             columns: ["previous_binding_id"]
+            isOneToOne: false
             referencedRelation: "workpiece_brand_bindings"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "workpiece_brand_bindings_profile_id_fkey"
             columns: ["profile_id"]
+            isOneToOne: false
             referencedRelation: "brand_profiles"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "workpiece_brand_bindings_profile_revision_id_fkey"
             columns: ["profile_revision_id"]
+            isOneToOne: false
             referencedRelation: "brand_profile_revisions"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "workpiece_brand_bindings_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "workpiece_brand_bindings_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -6435,6 +6695,7 @@ export type Database = {
           {
             foreignKeyName: "workpiece_events_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
@@ -6496,6 +6757,7 @@ export type Database = {
           {
             foreignKeyName: "workpiece_files_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
@@ -6532,6 +6794,7 @@ export type Database = {
               "workpiece_id",
               "current_revision",
             ]
+            isOneToOne: false
             referencedRelation: "image_map_revisions"
             referencedColumns: [
               "id",
@@ -6543,12 +6806,14 @@ export type Database = {
           {
             foreignKeyName: "workpiece_image_map_sequences_workpiece_id_workspace_id_fkey"
             columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id", "workspace_id"]
           },
           {
             foreignKeyName: "workpiece_image_map_sequences_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -6622,12 +6887,14 @@ export type Database = {
           {
             foreignKeyName: "workpiece_jobs_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "workpiece_jobs_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -6677,18 +6944,21 @@ export type Database = {
           {
             foreignKeyName: "workpiece_ready_script_meta_transition_id_fkey"
             columns: ["transition_id"]
+            isOneToOne: false
             referencedRelation: "workpiece_ready_transition_requests"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "workpiece_ready_script_meta_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "workpiece_ready_script_meta_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -6738,12 +7008,14 @@ export type Database = {
           {
             foreignKeyName: "workpiece_ready_transition_requests_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "workpiece_ready_transition_requests_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -6780,6 +7052,7 @@ export type Database = {
               "workpiece_id",
               "current_revision",
             ]
+            isOneToOne: false
             referencedRelation: "script_approval_revisions"
             referencedColumns: [
               "id",
@@ -6791,12 +7064,14 @@ export type Database = {
           {
             foreignKeyName: "workpiece_script_approval_sequen_workpiece_id_workspace_id_fkey"
             columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id", "workspace_id"]
           },
           {
             foreignKeyName: "workpiece_script_approval_sequences_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -6825,12 +7100,14 @@ export type Database = {
           {
             foreignKeyName: "workspace_default_brand_profiles_profile_id_fkey"
             columns: ["profile_id"]
+            isOneToOne: false
             referencedRelation: "brand_profiles"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "workspace_default_brand_profiles_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: true
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -6862,12 +7139,14 @@ export type Database = {
           {
             foreignKeyName: "workspace_grants_team_id_fkey"
             columns: ["team_id"]
+            isOneToOne: false
             referencedRelation: "teams"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "workspace_grants_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -6920,6 +7199,7 @@ export type Database = {
           {
             foreignKeyName: "workspace_invites_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -6951,6 +7231,7 @@ export type Database = {
           {
             foreignKeyName: "workspace_members_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -6988,12 +7269,14 @@ export type Database = {
           {
             foreignKeyName: "workspace_ready_queue_state_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "workspace_ready_queue_state_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -7046,12 +7329,14 @@ export type Database = {
           {
             foreignKeyName: "workspace_style_samples_source_workpiece_id_fkey"
             columns: ["source_workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "workspace_style_samples_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -7098,6 +7383,7 @@ export type Database = {
           {
             foreignKeyName: "workspace_thumbnail_brand_templates_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -7138,6 +7424,7 @@ export type Database = {
           {
             foreignKeyName: "workspace_writing_profiles_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -7175,6 +7462,7 @@ export type Database = {
           {
             foreignKeyName: "workspaces_org_id_fkey"
             columns: ["org_id"]
+            isOneToOne: false
             referencedRelation: "orgs"
             referencedColumns: ["id"]
           },
@@ -7199,18 +7487,21 @@ export type Database = {
           {
             foreignKeyName: "workpiece_ready_script_meta_transition_id_fkey"
             columns: ["transition_id"]
+            isOneToOne: false
             referencedRelation: "workpiece_ready_transition_requests"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "workpiece_ready_script_meta_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "workpiece_ready_script_meta_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -7240,18 +7531,21 @@ export type Database = {
           {
             foreignKeyName: "anvil_recording_completion_requests_ready_transition_id_fkey"
             columns: ["ready_transition_id"]
+            isOneToOne: false
             referencedRelation: "workpiece_ready_transition_requests"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "anvil_recording_completion_requests_workpiece_id_fkey"
             columns: ["workpiece_id"]
+            isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
           },
           {
             foreignKeyName: "anvil_recording_completion_requests_workspace_id_fkey"
             columns: ["workspace_id"]
+            isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
@@ -7703,6 +7997,17 @@ export type Database = {
           workspace_id: string
         }[]
       }
+      assert_current_broll_prompt: {
+        Args: {
+          p_beat_id: string
+          p_prompt_content_hash: string
+          p_prompt_revision: number
+          p_prompt_revision_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       assert_org_role: {
         Args: { p_min_role?: string; p_org_id: string }
         Returns: string
@@ -7759,6 +8064,27 @@ export type Database = {
           p_operation_fingerprint: string
           p_operation_id: string
           p_operation_type: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      begin_broll_prompt_interpretation: {
+        Args: {
+          p_actor_id: string
+          p_beat_id: string
+          p_creative_input_hash: string
+          p_creator_direction: string
+          p_expected_prompt_revision: number
+          p_expected_prompt_revision_id: string
+          p_interpretation_contract_version: string
+          p_interpretation_model: string
+          p_interpretation_provider: string
+          p_interpretation_request: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_synthesis_contract_version: string
+          p_validator_version: string
           p_workpiece_id: string
           p_workspace_id: string
         }
@@ -7825,6 +8151,17 @@ export type Database = {
       }
       brand_rule_errors: { Args: { p_rules: Json }; Returns: string[] }
       brand_rules_hash: { Args: { p_rules: Json }; Returns: string }
+      broll_current_creative_input: {
+        Args: {
+          p_beat_id: string
+          p_creator_direction: string
+          p_interpretation_contract_version: string
+          p_synthesis_contract_version: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       can_access_workpiece: {
         Args: { _workpiece_id: string }
         Returns: boolean
@@ -8804,6 +9141,14 @@ export type Database = {
         Args: { p_operation_id: string; p_workspace_id: string }
         Returns: Json
       }
+      read_broll_prompt_status: {
+        Args: {
+          p_beat_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       read_current_broll_plan: {
         Args: { p_workpiece_id: string; p_workspace_id: string }
         Returns: Json
@@ -9117,6 +9462,17 @@ export type Database = {
           p_clear_default?: boolean
           p_profile_id: string
           p_replacement_profile_id?: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      set_broll_prompt_creator_direction: {
+        Args: {
+          p_actor_id: string
+          p_beat_id: string
+          p_creator_direction: string
+          p_expected_direction_revision: number
+          p_workpiece_id: string
           p_workspace_id: string
         }
         Returns: Json
@@ -9524,9 +9880,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  public: {
-    Enums: {},
-  },
   tongs: {
     Enums: {
       ai_decision_type: ["ALLOW", "SOFT_DENY", "HARD_DENY"],
