@@ -4,12 +4,14 @@ import { tongsFetch } from "../../lib/tongs-fetch";
 import {
   acquireCanonicalBroll,
   commitCanonicalBrollPlan,
+  editCanonicalBrollPrompt,
+  generateCanonicalBrollPrompt,
   readCanonicalBrollV2,
   selectCanonicalBrollCandidate,
   type CanonicalBrollV2State,
 } from "../../lib/hearth-broll-v2-authority";
 
-const EMPTY: CanonicalBrollV2State = { plan: null, planRevisionId: null, planRevision: 0, selectionRevision: 0, scriptApprovalId: null };
+const EMPTY: CanonicalBrollV2State = { plan: null, planRevisionId: null, planRevision: 0, selectionRevision: 0, scriptApprovalId: null, promptsByBeat: {} };
 
 function exactAnchor(script: string, span: string, ordinal: number) {
   const charStart = Math.max(0, script.indexOf(span));
@@ -114,6 +116,26 @@ export function useCanonicalBrollV2(args: {
     } finally { setBusy(false); }
   }, [args.workspaceId, args.workpieceId, busy, state]);
 
+  const generatePrompt = useCallback(async (beatId: string, creatorDirection: string) => {
+    if (!args.workspaceId || !args.workpieceId || busy) return;
+    setBusy(true); setError(null); setMessage(null);
+    try {
+      const generated = await generateCanonicalBrollPrompt({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, beatId, creatorDirection, current: state.promptsByBeat[beatId] ?? { status: "missing", revisionId: null, revision: 0, contentHash: null, creatorDirection: "", finalPrompt: null, motionBrief: null, mismatchReasons: [] } });
+      if (!generated.ok) { setError(generated.error); return; }
+      setState(generated.data); setMessage("Canonical motion brief and prompt are ready.");
+    } finally { setBusy(false); }
+  }, [args.workspaceId, args.workpieceId, busy, state.promptsByBeat]);
+
+  const editPrompt = useCallback(async (beatId: string, finalPrompt: string) => {
+    if (!args.workspaceId || !args.workpieceId || busy) return;
+    setBusy(true); setError(null); setMessage(null);
+    try {
+      const edited = await editCanonicalBrollPrompt({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, beatId, finalPrompt, current: state.promptsByBeat[beatId] });
+      if (!edited.ok) { setError(edited.error); return; }
+      setState(edited.data); setMessage("Creator motion-prompt edit saved as a new canonical revision.");
+    } finally { setBusy(false); }
+  }, [args.workspaceId, args.workpieceId, busy, state.promptsByBeat]);
+
   const progress = useMemo(() => ({ ready: state.plan?.beats.filter((beat) => beat.fulfillment_state === "resolved").length ?? 0, total: state.plan?.beats.length ?? 0 }), [state.plan]);
-  return { state, loading, busy, error, message, progress, refresh, generatePlan, upload, attachExternal, select };
+  return { state, loading, busy, error, message, progress, refresh, generatePlan, generatePrompt, editPrompt, upload, attachExternal, select };
 }

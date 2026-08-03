@@ -76,6 +76,7 @@ type BuildBrollPanelArgs = {
   requestState: string;
   providers: BrollPanelProps["providers"];
   selectedCandidateId: string | null;
+  promptState: BrollPanelProps["promptState"];
   copyPromptAcknowledged: boolean;
   onSelectBeat: (beatId: string | null) => void;
   onDraftChange: BrollPanelProps["onDraftChange"];
@@ -83,6 +84,8 @@ type BuildBrollPanelArgs = {
   onDeleteBeat: () => void;
   onRegenerateBeat: () => void;
   onGeneratePlan: () => void;
+  onGenerateMotionPrompt: NonNullable<BrollPanelProps["onGenerateMotionPrompt"]>;
+  onSaveMotionPrompt: NonNullable<BrollPanelProps["onSaveMotionPrompt"]>;
   onFindStock: () => void;
   onUploadAsset: (file: File) => void;
   onSelectCandidate: (candidateId: string) => void;
@@ -339,6 +342,7 @@ export function buildBrollPlanPanelProps(args: BuildBrollPanelArgs): BrollPanelP
     requestState: args.requestState,
     providers: args.providers,
     selectedCandidateId: args.selectedCandidateId,
+    promptState: args.promptState,
     copyPromptAcknowledged: args.copyPromptAcknowledged,
     onSelectBeat: args.onSelectBeat,
     onDraftChange: args.onDraftChange,
@@ -346,6 +350,8 @@ export function buildBrollPlanPanelProps(args: BuildBrollPanelArgs): BrollPanelP
     onDeleteBeat: args.onDeleteBeat,
     onRegenerateBeat: args.onRegenerateBeat,
     onGeneratePlan: args.onGeneratePlan,
+    onGenerateMotionPrompt: args.onGenerateMotionPrompt,
+    onSaveMotionPrompt: args.onSaveMotionPrompt,
     onFindStock: args.onFindStock,
     onUploadAsset: args.onUploadAsset,
     onSelectCandidate: args.onSelectCandidate,

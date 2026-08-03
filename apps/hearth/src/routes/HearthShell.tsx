@@ -6158,20 +6158,25 @@ export default function HearthShell({
       requestState: brollRequestStateLabel,
       providers: brollProviders,
       selectedCandidateId: selectedBrollBeat?.selected_asset_id ?? null,
+      promptState: selectedBrollBeat ? canonicalBrollV2.state.promptsByBeat[selectedBrollBeat.id] ?? null : null,
       onSelectBeat: setSelectedBrollBeatId,
       onDraftChange: onBrollDraftChange,
       onSaveBeat: () => {},
       onDeleteBeat: () => {},
       onRegenerateBeat: () => {},
       onGeneratePlan: () => void canonicalBrollV2.generatePlan(readCanonicalScriptForImageMapGeneration),
+      onGenerateMotionPrompt: (creatorDirection: string) => selectedBrollBeat ? void canonicalBrollV2.generatePrompt(selectedBrollBeat.id, creatorDirection) : undefined,
+      onSaveMotionPrompt: (finalPrompt: string) => selectedBrollBeat ? void canonicalBrollV2.editPrompt(selectedBrollBeat.id, finalPrompt) : undefined,
       onFindStock: () => {},
       onUploadAsset: (file: File) => selectedBrollBeat ? void canonicalBrollV2.upload(selectedBrollBeat.id, file) : undefined,
       onSelectCandidate: (candidateId: string) => selectedBrollBeat ? void canonicalBrollV2.select(selectedBrollBeat.id, candidateId) : undefined,
       onRetryCandidateIngestion: () => void canonicalBrollV2.refresh(),
       onCopyPrompt: () => {
-        void onCopyBrollPrompt().then((copied) => {
-          if (copied) acknowledgeCopy("broll.prompt");
-        });
+        const canonicalPrompt = selectedBrollBeat
+          ? canonicalBrollV2.state.promptsByBeat[selectedBrollBeat.id]?.finalPrompt ?? null
+          : null;
+        if (!canonicalPrompt) return;
+        void navigator.clipboard.writeText(canonicalPrompt).then(() => acknowledgeCopy("broll.prompt"));
       },
       copyPromptAcknowledged: isCopyAcknowledged("broll.prompt"),
       onDownloadBrief: () => void onDownloadBrollBrief("text"),

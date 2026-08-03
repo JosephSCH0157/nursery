@@ -17,23 +17,37 @@ assert.match(authority, /broll-v2\/acquire/);
 assert.match(authority, /p_expected_selection_revision: args\.current\.selectionRevision/);
 assert.match(authority, /poster_asset_id/);
 assert.match(authority, /signedAssetUrl/);
+assert.match(authority, /broll_current_creative_input/);
+assert.match(authority, /broll-v2\/prompt-interpret/);
+assert.match(authority, /broll-v2\/prompt-edit/);
+assert.match(authority, /readCanonicalBrollPromptStatus/);
 
 assert.match(hook, /readCanonicalBrollV2/);
 assert.match(hook, /commitCanonicalBrollPlan/);
 assert.match(hook, /acquireCanonicalBroll/);
 assert.match(hook, /selectCanonicalBrollCandidate/);
 assert.match(hook, /canonical_anchor_assessment: exactAnchor/);
+assert.match(hook, /generateCanonicalBrollPrompt/);
+assert.match(hook, /editCanonicalBrollPrompt/);
 
 assert.match(panel, /data-testid="broll-v2-panel"/);
 assert.match(panel, /Generate Video unavailable/);
 assert.match(panel, /Fetch and verify external clip/);
 assert.match(panel, /Legacy B-roll compatibility/);
 assert.match(panel, /<video/);
+assert.match(panel, /Generate motion prompt/);
+assert.match(panel, /Canonical final motion prompt/);
+assert.match(panel, /Save prompt as new revision/);
+assert.match(panel, /Copy canonical prompt/);
 
 assert.match(shell, /canonicalV2: true/);
 assert.match(shell, /canonicalBrollV2\.upload/);
 assert.match(shell, /canonicalBrollV2\.select/);
 assert.match(shell, /canonicalBrollV2\.attachExternal/);
+assert.match(shell, /canonicalBrollV2\.generatePrompt/);
+assert.match(shell, /canonicalBrollV2\.editPrompt/);
+assert.match(shell, /promptsByBeat\[selectedBrollBeat\.id\]\?\.finalPrompt/);
+assert.match(shell, /navigator\.clipboard\.writeText\(canonicalPrompt\)/);
 assert.doesNotMatch(shell.match(/const brollSurfaceInput = \{[\s\S]*?\n    \};/)?.[0] ?? "", /persistBrollPlan/);
 
 console.log("hearth b-roll v2 integration: passed");

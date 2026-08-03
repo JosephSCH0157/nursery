@@ -10,7 +10,21 @@ export type CanonicalBrollV2State = {
   planRevision: number;
   selectionRevision: number;
   scriptApprovalId: string | null;
+  promptsByBeat: Record<string, CanonicalBrollPromptState>;
 };
+
+export type CanonicalBrollPromptState = {
+  status: "missing" | "current" | "creator_edited" | "stale" | "legacy_unverified";
+  revisionId: string | null;
+  revision: number;
+  contentHash: string | null;
+  creatorDirection: string;
+  finalPrompt: string | null;
+  motionBrief: JsonRecord | null;
+  mismatchReasons: string[];
+};
+
+const EMPTY_PROMPT: CanonicalBrollPromptState = { status: "missing", revisionId: null, revision: 0, contentHash: null, creatorDirection: "", finalPrompt: null, motionBrief: null, mismatchReasons: [] };
 
 function record(value: unknown): value is JsonRecord { return !!value && typeof value === "object" && !Array.isArray(value); }
 function string(value: unknown): string | null { return typeof value === "string" && value.trim() ? value.trim() : null; }
@@ -62,6 +76,29 @@ async function rpc(name: string, args: JsonRecord): Promise<Result<unknown>> {
   const response = await postgrest(`rpc/${name}`, { method: "POST", body: JSON.stringify(args) });
   const body = await json(response);
   return response.ok ? { ok: true, data: body } : failure(response, body, `Tongs RPC ${name} failed.`);
+}
+
+function mapPromptStatus(value: unknown): CanonicalBrollPromptState {
+  if (!record(value)) return EMPTY_PROMPT;
+  const prompt = record(value.prompt_revision) ? value.prompt_revision : null;
+  const sequence = record(value.sequence) ? value.sequence : null;
+  const rawStatus = string(value.status);
+  const status = rawStatus === "current" || rawStatus === "creator_edited" || rawStatus === "stale" || rawStatus === "legacy_unverified" ? rawStatus : "missing";
+  return {
+    status,
+    revisionId: string(prompt?.id), revision: integer(prompt?.revision), contentHash: string(prompt?.content_hash),
+    creatorDirection: string(sequence?.creator_direction) ?? string(prompt?.creator_direction) ?? "",
+    finalPrompt: string(prompt?.final_prompt), motionBrief: record(prompt?.motion_brief_json) ? prompt.motion_brief_json : null,
+    mismatchReasons: Array.isArray(value.mismatch_reasons) ? value.mismatch_reasons.flatMap((reason) => string(reason) ? [string(reason)!] : []) : [],
+  };
+}
+
+export async function readCanonicalBrollPromptStatus(args: { workspaceId: string; workpieceId: string; beatId: string }): Promise<Result<CanonicalBrollPromptState>> {
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/broll-v2/prompt-status`, { method: "POST", json: { workspace_id: args.workspaceId, beat_id: args.beatId } });
+  const body = await json(response);
+  if (!response.ok) return failure(response, body, "Tongs could not read the canonical motion prompt.");
+  const data = record(body) && record(body.data) ? body.data : body;
+  return { ok: true, data: mapPromptStatus(data) };
 }
 
 async function currentActorId(): Promise<string | null> {
@@ -121,7 +158,7 @@ function mapCandidate(row: JsonRecord, videoUrl: string | null, posterUrl: strin
 export async function readCanonicalBrollV2(args: { workspaceId: string; workpieceId: string }): Promise<Result<CanonicalBrollV2State>> {
   const read = await rpc("read_current_broll_plan", { p_workspace_id: args.workspaceId, p_workpiece_id: args.workpieceId });
   if (!read.ok) return read;
-  if (read.data === null) return { ok: true, data: { plan: null, planRevisionId: null, planRevision: 0, selectionRevision: 0, scriptApprovalId: null } };
+  if (read.data === null) return { ok: true, data: { plan: null, planRevisionId: null, planRevision: 0, selectionRevision: 0, scriptApprovalId: null, promptsByBeat: {} } };
   if (!record(read.data) || !record(read.data.sequence) || !record(read.data.plan_revision) || !Array.isArray(read.data.beats)) return { ok: false, status: 502, code: "invalid_broll_readback", error: "Tongs returned malformed B-roll V2 state." };
   const candidateResponse = await postgrest(`broll_candidate_revisions?workpiece_id=eq.${encodeURIComponent(args.workpieceId)}&select=*`);
   const candidateBody = await json(candidateResponse);
@@ -180,10 +217,38 @@ export async function readCanonicalBrollV2(args: { workspaceId: string; workpiec
   });
   const planRevision = read.data.plan_revision;
   const sequence = read.data.sequence;
+  const promptEntries = await Promise.all(beats.map(async (beat) => [beat.id, await readCanonicalBrollPromptStatus({ ...args, beatId: beat.id })] as const));
+  const failedPrompt = promptEntries.find(([, result]) => !result.ok);
+  if (failedPrompt && !failedPrompt[1].ok) return failedPrompt[1];
+  const promptsByBeat = Object.fromEntries(promptEntries.map(([beatId, result]) => [beatId, result.ok ? result.data : EMPTY_PROMPT]));
   return { ok: true, data: {
     plan: { id: string(planRevision.id) ?? "canonical-broll-v2", workpiece_id: args.workpieceId, version: integer(planRevision.revision, 1), beats, coverage_strength: "low", generated_at: string(planRevision.created_at) ?? new Date(0).toISOString() },
     planRevisionId: string(planRevision.id), planRevision: integer(planRevision.revision), selectionRevision: integer(sequence.current_selection_revision), scriptApprovalId: string(planRevision.script_approval_id),
+    promptsByBeat,
   } };
+}
+
+export async function generateCanonicalBrollPrompt(args: { workspaceId: string; workpieceId: string; beatId: string; creatorDirection: string; current: CanonicalBrollPromptState }): Promise<Result<CanonicalBrollV2State>> {
+  const interpretation = "forge.broll-motion-interpretation.v1";
+  const synthesis = "forge.broll-motion-synthesis.v1";
+  const validator = "forge.broll-motion-validator.v1";
+  const creative = await rpc("broll_current_creative_input", { p_workspace_id: args.workspaceId, p_workpiece_id: args.workpieceId, p_beat_id: args.beatId, p_creator_direction: args.creatorDirection, p_interpretation_contract_version: interpretation, p_synthesis_contract_version: synthesis });
+  if (!creative.ok) return creative;
+  if (!record(creative.data) || string(creative.data.disposition) !== "current" || !string(creative.data.creative_input_hash)) return { ok: false, status: 409, code: string(record(creative.data) ? creative.data.disposition : null) ?? "creative_input_unavailable", error: "Tongs could not reconstruct current B-roll creative inputs." };
+  const fingerprint = await canonicalHash({ workspace_id: args.workspaceId, workpiece_id: args.workpieceId, beat_id: args.beatId, expected_prompt_revision_id: args.current.revisionId, expected_prompt_revision: args.current.revision, creator_direction: args.creatorDirection, creative_input_hash: creative.data.creative_input_hash, contracts: { interpretation, validator, synthesis } });
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/broll-v2/prompt-interpret`, { method: "POST", json: { workspace_id: args.workspaceId, beat_id: args.beatId, expected_prompt_revision_id: args.current.revisionId, expected_prompt_revision: args.current.revision, creator_direction: args.creatorDirection, operation_id: `forge:broll:prompt:${fingerprint}`, operation_fingerprint: fingerprint } });
+  const body = await json(response);
+  if (!response.ok) return failure(response, body, "Tongs could not generate the canonical motion prompt.");
+  return readCanonicalBrollV2({ workspaceId: args.workspaceId, workpieceId: args.workpieceId });
+}
+
+export async function editCanonicalBrollPrompt(args: { workspaceId: string; workpieceId: string; beatId: string; finalPrompt: string; current: CanonicalBrollPromptState }): Promise<Result<CanonicalBrollV2State>> {
+  if (!args.current.revisionId) return { ok: false, status: 409, code: "prompt_revision_missing", error: "Generate a canonical motion prompt before editing it." };
+  const fingerprint = await canonicalHash({ workspace_id: args.workspaceId, workpiece_id: args.workpieceId, beat_id: args.beatId, expected_prompt_revision_id: args.current.revisionId, expected_prompt_revision: args.current.revision, final_prompt: args.finalPrompt, operation_type: "prompt_edit" });
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/broll-v2/prompt-edit`, { method: "POST", json: { workspace_id: args.workspaceId, beat_id: args.beatId, expected_prompt_revision_id: args.current.revisionId, expected_prompt_revision: args.current.revision, final_prompt: args.finalPrompt, operation_id: `forge:broll:prompt-edit:${fingerprint}`, operation_fingerprint: fingerprint } });
+  const body = await json(response);
+  if (!response.ok) return failure(response, body, "Tongs could not save the canonical motion prompt edit.");
+  return readCanonicalBrollV2({ workspaceId: args.workspaceId, workpieceId: args.workpieceId });
 }
 
 export async function commitCanonicalBrollPlan(args: { workspaceId: string; workpieceId: string; scriptApprovalId: string; current: CanonicalBrollV2State; beats: JsonRecord[] }): Promise<Result<CanonicalBrollV2State>> {

@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { loadImageMapCandidatePreviewDataUrl } from "../../lib/hearth-image-map-repo";
 import type { EpisodeBrollAssetCandidate, EpisodeBrollPlanBeat } from "../../lib/episode-package-v2";
 import type { ExternalGenerationProvider } from "../../lib/hearth-visual-actionability";
+import type { CanonicalBrollPromptState } from "../../lib/hearth-broll-v2-authority";
 
 type BrollPlanPanelProps = {
   beats: EpisodeBrollPlanBeat[];
@@ -59,6 +60,9 @@ type BrollPlanPanelProps = {
   onMarkAwaitingResult: () => void;
   onClearRequestState: () => void;
   onAttachResultFromUrl: () => void;
+  promptState?: CanonicalBrollPromptState | null;
+  onGenerateMotionPrompt?: (creatorDirection: string) => void;
+  onSaveMotionPrompt?: (finalPrompt: string) => void;
   canonicalV2?: boolean;
 };
 
@@ -259,6 +263,8 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
   const [previewStateById, setPreviewStateById] = useState<Record<string, CandidatePreviewState>>({});
   const [previewUrlById, setPreviewUrlById] = useState<Record<string, string>>({});
   const [previewErrorById, setPreviewErrorById] = useState<Record<string, string>>({});
+  const [creatorDirection, setCreatorDirection] = useState("");
+  const [finalPromptDraft, setFinalPromptDraft] = useState("");
   const previewLoadSignature = useMemo(() => {
     const episodeId = props.workpieceId?.trim() ?? "";
     const beatId = selectedBeat?.id ?? "";
@@ -274,6 +280,11 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
       .join("||");
     return `${episodeId}::${beatId}::${candidateSignature}`;
   }, [beatCandidates, props.workpieceId, selectedBeat?.id]);
+
+  useEffect(() => {
+    setCreatorDirection(props.promptState?.creatorDirection ?? "");
+    setFinalPromptDraft(props.promptState?.finalPrompt ?? "");
+  }, [selectedBeat?.id, props.promptState?.revisionId, props.promptState?.creatorDirection, props.promptState?.finalPrompt]);
 
   useEffect(() => {
     if (lastPreviewLoadSignatureRef.current === previewLoadSignature) {
@@ -388,10 +399,29 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
                 <div><strong>Placement</strong><p>{selectedBeat.placement_hint}</p></div>
                 <div><strong>Mood / pacing</strong><p>{selectedBeat.mood ?? "neutral"}</p></div>
               </div>
-              <div className="hs-imap-field">
-                <label>Canonical creator-visible video prompt</label>
-                <textarea value={selectedBeat.motion_suggestion ?? "No canonical prompt revision has been created for this beat."} readOnly rows={5} />
-              </div>
+              <section className="hs-imap-next-card" aria-label="Canonical motion prompt">
+                <div className="hs-imap-next-eyebrow">Motion-prompt authority</div>
+                <div className="hs-imap-next-copy">Status: {props.promptState?.status ?? "missing"}{props.promptState?.revision ? ` · revision ${props.promptState.revision}` : ""}</div>
+                {props.promptState?.mismatchReasons.length ? <div className="hs-error-text-small">{props.promptState.mismatchReasons.join(", ")}</div> : null}
+                <div className="hs-imap-field">
+                  <label htmlFor={`${formFieldIdPrefix}-creator-direction`}>Creator direction</label>
+                  <textarea id={`${formFieldIdPrefix}-creator-direction`} value={creatorDirection} onChange={(event) => setCreatorDirection(event.target.value)} rows={3} disabled={props.disabled} placeholder="Describe what should happen, camera behavior, pacing, or details that matter." />
+                </div>
+                <button type="button" className="hs-primary-btn" onClick={() => props.onGenerateMotionPrompt?.(creatorDirection)} disabled={props.disabled || !props.onGenerateMotionPrompt}>
+                  {props.promptState?.revisionId ? "Regenerate motion prompt" : "Generate motion prompt"}
+                </button>
+                {props.promptState?.motionBrief ? <div className="hs-imap-field-grid" data-testid="broll-motion-brief">
+                  {Object.entries(props.promptState.motionBrief).map(([key, value]) => <div key={key}><strong>{key.replaceAll("_", " ")}</strong><p>{Array.isArray(value) ? value.join(", ") : String(value ?? "")}</p></div>)}
+                </div> : <p>No canonical AI motion brief exists for this beat yet.</p>}
+                <div className="hs-imap-field">
+                  <label htmlFor={`${formFieldIdPrefix}-final-motion-prompt`}>Canonical final motion prompt</label>
+                  <textarea id={`${formFieldIdPrefix}-final-motion-prompt`} value={finalPromptDraft} onChange={(event) => setFinalPromptDraft(event.target.value)} readOnly={!props.promptState?.revisionId} rows={7} placeholder="Generate a motion prompt to create the canonical creator-visible prompt." />
+                </div>
+                <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
+                  <button type="button" onClick={() => props.onSaveMotionPrompt?.(finalPromptDraft)} disabled={props.disabled || !props.promptState?.revisionId || !finalPromptDraft.trim() || finalPromptDraft === props.promptState.finalPrompt}>Save prompt as new revision</button>
+                  <button type="button" onClick={props.onCopyPrompt} disabled={!props.promptState?.finalPrompt}>{props.copyPromptAcknowledged ? "Copied canonical prompt" : "Copy canonical prompt"}</button>
+                </div>
+              </section>
               <section className="hs-imap-next-card" aria-label="Acquire verified B-roll">
                 <div className="hs-imap-next-eyebrow">Acquire a real clip</div>
                 <div className="hs-imap-next-copy">Uploads and external URLs are fetched, inspected, stored, and registered by Tongs. Generate Video requires a configured replay-safe provider.</div>
