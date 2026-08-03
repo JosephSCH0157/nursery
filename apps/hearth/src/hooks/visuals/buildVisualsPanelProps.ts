@@ -123,6 +123,7 @@ type BuildImageMapPanelArgs = {
   candidateGenerateError: string | null;
   candidateSelectBusy: boolean;
   candidateSelectionError: string | null;
+  promptAuthorityState: ImageMapPanelProps["promptAuthorityState"];
   anchorStatusLabel: string | null;
   anchorStatusTone: ImageMapPanelProps["anchorStatusTone"];
   anchorStatusDetail: string | null;
@@ -153,6 +154,9 @@ type BuildImageMapPanelArgs = {
   onDeleteEntry: () => void;
   onSeedFromScript: () => void;
   onGenerateCandidates: (mode?: "ai" | "stock") => void;
+  onInterpretPrompt: ImageMapPanelProps["onInterpretPrompt"];
+  onSavePromptEdit: ImageMapPanelProps["onSavePromptEdit"];
+  onRefreshPrompt: ImageMapPanelProps["onRefreshPrompt"];
   onUploadAsset: (file: File) => void;
   onSelectCandidate: (candidateId: string) => void;
   onCopyExport: () => void;
@@ -383,6 +387,7 @@ export function buildImageMapPanelProps(args: BuildImageMapPanelArgs): ImageMapP
     candidateGenerateError: args.candidateGenerateError,
     candidateSelectBusy: args.candidateSelectBusy,
     candidateSelectionError: args.candidateSelectionError,
+    promptAuthorityState: args.promptAuthorityState,
     anchorStatusLabel: args.anchorStatusLabel,
     anchorStatusTone: args.anchorStatusTone,
     anchorStatusDetail: args.anchorStatusDetail,
@@ -413,6 +418,9 @@ export function buildImageMapPanelProps(args: BuildImageMapPanelArgs): ImageMapP
     onDeleteEntry: args.onDeleteEntry,
     onSeedFromScript: args.onSeedFromScript,
     onGenerateCandidates: args.onGenerateCandidates,
+    onInterpretPrompt: args.onInterpretPrompt,
+    onSavePromptEdit: args.onSavePromptEdit,
+    onRefreshPrompt: args.onRefreshPrompt,
     onUploadAsset: args.onUploadAsset,
     onSelectCandidate: args.onSelectCandidate,
     onCopyExport: args.onCopyExport,

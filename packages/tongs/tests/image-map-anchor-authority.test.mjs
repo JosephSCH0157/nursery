@@ -18,6 +18,16 @@ test("repair accepts one exact match and preserves candidates and selection", ()
   assert.equal(result.selected_asset_id, "asset-1");
 });
 
+test("repair deterministically recovers a missing structured anchor from one exact display-anchor match", () => {
+  const legacy = { ...entry("It was everywhere."), script_anchor: null };
+  const [result] = repairEntriesAgainstApprovedScript([legacy], "Before.\n\nIt was everywhere.\n\nAfter.");
+  assert.equal(result.canonical_anchor_assessment.state, "current");
+  assert.equal(result.canonical_anchor_assessment.evidence.match_count, 1);
+  assert.equal(result.script_anchor.span_text, "It was everywhere.");
+  assert.equal(result.selected_asset_id, "asset-1");
+  assert.deepEqual(result.candidate_assets, [{ asset_id: "asset-1" }]);
+});
+
 test("repair fails closed for duplicate and absent exact text", () => {
   const [duplicate] = repairEntriesAgainstApprovedScript([entry("Same phrase.")], "Same phrase.\n\nSame phrase.");
   const [absent] = repairEntriesAgainstApprovedScript([entry("Missing phrase.")], "Different words.");

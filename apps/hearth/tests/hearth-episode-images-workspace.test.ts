@@ -38,7 +38,7 @@ test("creator surface is guided and never routes stock through AI generation", (
   const panel = readFileSync(resolve(process.cwd(), "src/components/visuals/ImageMapPanel.tsx"), "utf8");
   const surface = readFileSync(resolve(process.cwd(), "src/views/surfaces/VisualsSurface.tsx"), "utf8");
   assert.match(panel, />Episode Images</);
-  assert.match(panel, />Generate image</);
+  assert.match(panel, /"Generate image"/);
   assert.match(panel, />Upload an image</);
   assert.match(panel, /Forge does not yet have a licensed stock-image provider/);
   const guided = panel.match(/if \(!manualOnly\) \{[\s\S]*?\n  \}\n  let primaryActionButton/)?.[0] ?? "";

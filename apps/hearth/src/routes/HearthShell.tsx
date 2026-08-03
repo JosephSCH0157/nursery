@@ -48,6 +48,7 @@ import { useHearthWorkspaceSessionLifecycle } from "../hooks/useHearthWorkspaceS
 import { useHearthWorkpieceTabLifecycle } from "../hooks/useHearthWorkpieceTabLifecycle";
 import { useClipboardButtonAcks } from "../hooks/useClipboardButtonAcks";
 import { useVisualsPersistence } from "../hooks/visuals/useVisualsPersistence";
+import { useImagePromptAuthority } from "../hooks/visuals/useImagePromptAuthority";
 import { useEpisodePackageLoader } from "../hooks/visuals/useEpisodePackageLoader";
 import { useVisualWorkspaceResetLifecycle } from "../hooks/visuals/useVisualWorkspaceResetLifecycle";
 import { shouldInvalidateMediaMapForScriptVersion } from "../lib/hearth-visual-artifact-authority";
@@ -1807,6 +1808,14 @@ export default function HearthShell({
   );
   const selectedMediaMapEntry = mediaMapEntries.find((entry) => entry.id === selectedMediaMapEntryId) ?? null;
   const selectedImageMapEntry = imageMapEntries.find((entry) => entry.id === selectedImageMapEntryId) ?? null;
+  const imagePromptAuthority = useImagePromptAuthority({
+    workpieceId,
+    workspaceId,
+    entries: imageMapEntries,
+    selectedEntry: selectedImageMapEntry,
+    creatorDirection: imageMapDescriptionDraft,
+    style: imageMapStyleDraft,
+  });
   const brollPlan: EpisodeBrollPlan | null = episodePackage?.broll_plan ?? null;
   const brollBeats: EpisodeBrollPlanBeat[] = useMemo(
     () => brollPlan?.beats ?? [],
@@ -3958,9 +3967,9 @@ export default function HearthShell({
     canonicalImageMapScriptState,
     persistImageMapEntries,
     repairCanonicalImageMap: async () => {
-      if (!workpieceId || !workspaceId || !episodePackage) return { ok: false as const, error: missingImageMapContextError };
+      if (!workpieceId || !workspaceId || !episodePackage || !selectedImageMapEntry) return { ok: false as const, error: missingImageMapContextError };
       const { repairWorkpieceImageMapAuthority } = await import("../lib/hearth-image-map-authority");
-      const repaired = await repairWorkpieceImageMapAuthority({ workpieceId, workspaceId });
+      const repaired = await repairWorkpieceImageMapAuthority({ workpieceId, workspaceId, entryId: selectedImageMapEntry.id });
       if (!repaired.ok) return { ok: false as const, error: repaired.error ?? "Tongs could not repair the image map." };
       applyCanonicalImageMap({
         entries: repaired.imageMap.entries,
@@ -4013,6 +4022,7 @@ export default function HearthShell({
     workspaceId,
     episodePackage,
     selectedImageMapEntry,
+    canonicalPromptRevision: imagePromptAuthority.state.revision,
     thumbnailAspect,
     imageMapSaveState,
     imageMapMetadataUpdatedAt,
@@ -6036,6 +6046,7 @@ export default function HearthShell({
       candidateGenerateError: imageMapCandidateError,
       candidateSelectBusy: isImageMapCandidateSelecting,
       candidateSelectionError: imageMapCandidateSelectionError,
+      promptAuthorityState: imagePromptAuthority.state,
       anchorStatusLabel: imageMapAnchorStatusView?.label ?? null,
       anchorStatusTone: imageMapAnchorStatusView?.tone ?? "neutral",
       anchorStatusDetail: imageMapAnchorStatusView?.detail ?? null,
@@ -6066,6 +6077,9 @@ export default function HearthShell({
       onDeleteEntry: () => void onDeleteImageMapEntry(),
       onSeedFromScript: () => void onSeedImageMapFromScript(),
       onGenerateCandidates: (mode?: "ai" | "stock") => void onGenerateImageMapCandidates(mode ?? "ai"),
+      onInterpretPrompt: () => void imagePromptAuthority.interpret(),
+      onSavePromptEdit: (finalPrompt: string) => void imagePromptAuthority.saveEdit(finalPrompt),
+      onRefreshPrompt: () => void imagePromptAuthority.refresh(),
       onUploadAsset: (file: File) => void onUploadImageMapAsset(file),
       onSelectCandidate: (candidateId: string) => void onSelectImageMapCandidate(candidateId),
       onCopyExport: () => {

@@ -169,17 +169,21 @@ async function resolveUserAccessToken(): Promise<string | null> {
     __forge_supabase_client__?: {
       auth?: {
         getSession?: () => Promise<unknown>;
+        refreshSession?: () => Promise<unknown>;
       };
     };
   };
 
-  const getSession = runtimeWindow.__forge_supabase_client__?.auth?.getSession;
-  if (typeof getSession !== "function") return null;
+  const auth = runtimeWindow.__forge_supabase_client__?.auth;
+  if (!auth || typeof auth.getSession !== "function") return null;
 
   try {
-    const sessionPayload = await getSession();
-    const token = extractAccessTokenFromAuthPayload(sessionPayload);
-    return sanitizeAccessToken(token);
+    const sessionPayload = await auth.getSession();
+    const token = sanitizeAccessToken(extractAccessTokenFromAuthPayload(sessionPayload));
+    if (token) return token;
+    if (typeof auth.refreshSession !== "function") return null;
+    const refreshedPayload = await auth.refreshSession();
+    return sanitizeAccessToken(extractAccessTokenFromAuthPayload(refreshedPayload));
   } catch {
     return null;
   }

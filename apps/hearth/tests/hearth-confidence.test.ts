@@ -478,6 +478,7 @@ function installImageMapFetchHarness() {
       context_after?: string | null;
     };
   }> = [];
+  const selectionRequests: Array<{ workpieceId: string; body: Record<string, unknown> }> = [];
   let getPayload: unknown = {
     image_map: {
       workpiece_id: WORKPIECE_A,
@@ -511,6 +512,7 @@ function installImageMapFetchHarness() {
     const url = new URL(rawUrl, "https://example.test");
     const match = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/image-map$/);
     const generateMatch = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/image-map\/generate-candidates$/);
+    const selectionMatch = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/image-map\/select-candidate$/);
     const readMatch = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/read-file$/);
     if (readMatch) {
       const path = url.searchParams.get("path") ?? "";
@@ -563,6 +565,13 @@ function installImageMapFetchHarness() {
         status: 200,
         headers: { "content-type": "application/json" },
       });
+    }
+    if (selectionMatch) {
+      const workpieceId = decodeURIComponent(selectionMatch[1] ?? "");
+      const body = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : {};
+      selectionRequests.push({ workpieceId, body });
+      if (conflictMode) return new Response(JSON.stringify({ ok: false, error: { code: "image_map_revision_conflict", message: "Image map changed since last load." } }), { status: 409, headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ ok: true, data: savePayload }), { status: 200, headers: { "content-type": "application/json" } });
     }
     if (!match) {
       return new Response(JSON.stringify({ ok: true }), {
@@ -640,6 +649,7 @@ function installImageMapFetchHarness() {
     getRequests,
     saveRequests,
     generateRequests,
+    selectionRequests,
   };
 }
 
@@ -1550,6 +1560,9 @@ async function testImageMapCandidateSelectionPersistsCanonicalSelectedAsset() {
           }),
         ],
         metadataUpdatedAt: "2026-03-10T18:00:00.000Z",
+        authoritySource: "canonical",
+        revisionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        revision: 7,
         asset: null,
       },
     });
@@ -1559,9 +1572,12 @@ async function testImageMapCandidateSelectionPersistsCanonicalSelectedAsset() {
       assert.equal(result.imageMap.entries[0]?.selected_asset_id, "candidate-b");
       assert.equal(result.imageMap.entries[0]?.status, "selected");
     }
-    assert.equal(harness.saveRequests.length, 1);
-    assert.equal(harness.saveRequests[0]?.body.expected_metadata_updated_at, "2026-03-10T18:00:00.000Z");
-    assert.equal((harness.saveRequests[0]?.body.entries?.[0] as { selected_asset_id?: string } | undefined)?.selected_asset_id, "candidate-b");
+    assert.equal(harness.saveRequests.length, 0);
+    assert.equal(harness.selectionRequests.length, 1);
+    assert.equal(harness.selectionRequests[0]?.body.expected_current_revision, 7);
+    assert.equal(harness.selectionRequests[0]?.body.expected_current_revision_id, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+    assert.equal(harness.selectionRequests[0]?.body.image_map_entry_id, "image-map-01");
+    assert.equal(harness.selectionRequests[0]?.body.candidate_asset_id, "candidate-b");
   } finally {
     harness.restore();
   }

@@ -38,6 +38,7 @@ import {
   type GenerateImageInput,
   type ImageProvider,
 } from "./providers/image-provider.js";
+import { OpenAiNarrativeInterpretationProvider, validateSubstantiveVisualBrief, synthesizeConcreteVendorPrompt, type NarrativeInterpretationProvider, type ImagePromptVisualBrief } from "./providers/narrative-interpretation-provider.js";
 import {
   buildHearthVisualStylePromptLines,
   normalizeHearthVisualStyle,
@@ -1062,7 +1063,22 @@ export type GenerateImageMapCandidatesRequest = {
   confirm_spend?: boolean;
   always_approve_ai_spend?: boolean;
   user_access_token?: string | null;
+  prompt_revision_id: string;
+  prompt_revision: number;
+  prompt_content_hash: string;
 };
+
+export type SelectImageMapCandidateRequest = {
+  workspace_id: string;
+  image_map_entry_id: string;
+  candidate_asset_id: string;
+  expected_current_revision: number;
+  expected_current_revision_id: string;
+  operation_id: string;
+};
+
+export type InterpretImageMapPromptRequest={workspace_id:string;image_moment_id:string;image_map_revision_id:string;script_approval_id:string;expected_prompt_revision_id:string|null;expected_prompt_revision:number;operation_id:string;operation_fingerprint:string;source_context:Record<string,Json>;creator_direction:string;style:string|null;user_access_token?:string|null};
+export type EditImageMapPromptRequest={workspace_id:string;image_moment_id:string;expected_prompt_revision_id:string;expected_prompt_revision:number;final_prompt:string;operation_id:string;operation_fingerprint:string;user_access_token?:string|null};
 
 export type ImageMapCandidateAssetSummary = {
   id: string;
@@ -1551,6 +1567,7 @@ export type TongsCommitApiOptions = {
   openAiImageApiKey?: string;
   openAiApiKey?: string;
   openAiImageModel?: string;
+  openAiTextModel?: string;
 };
 
 export type TongsCommitApiService = {
@@ -1844,7 +1861,20 @@ export type TongsCommitApiService = {
   getCanonicalScriptApproval(workpieceId: string, options?: { userAccessToken?: string | null }): Promise<Record<string, unknown>>;
   repairWorkpieceImageMap(
     workpieceId: string,
-    input: { workspace_id: string; operation_id: string },
+    input: {
+      workspace_id: string;
+      operation_id: string;
+      entry_id?: string;
+      expected_current_revision: number;
+      expected_current_revision_id: string;
+      expected_script_approval_id: string;
+      expected_script_approval_revision: number;
+    },
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkpieceImageMapResponseData>;
+  selectWorkpieceImageMapCandidate(
+    workpieceId: string,
+    input: SelectImageMapCandidateRequest,
     options?: { userAccessToken?: string | null },
   ): Promise<WorkpieceImageMapResponseData>;
   resolveWorkpieceImageMapManualAnchor(
@@ -1865,6 +1895,9 @@ export type TongsCommitApiService = {
     input: GenerateImageMapCandidatesRequest,
     options?: { userAccessToken?: string | null },
   ): Promise<GenerateImageMapCandidatesResponse>;
+  interpretImageMapPrompt(workpieceId:string,input:InterpretImageMapPromptRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  editImageMapPrompt(workpieceId:string,input:EditImageMapPromptRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  readCurrentImageMapPrompt(workpieceId:string,workspaceId:string,imageMomentId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>|null>;
   saveWorkpieceImageMap(
     workpieceId: string,
     input: SaveWorkpieceImageMapRequest,
@@ -2446,6 +2479,18 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
     hex += n.toString(16).padStart(2, "0");
   }
   return hex;
+}
+
+async function sha256Text(value: string): Promise<string> {
+  return sha256Hex(new TextEncoder().encode(value));
+}
+
+function uuidFromSha256(hash: string): string {
+  const hex = hash.slice(0, 32).padEnd(32, "0").split("");
+  hex[12] = "4";
+  hex[16] = ((Number.parseInt(hex[16] ?? "0", 16) & 0x3) | 0x8).toString(16);
+  const value = hex.join("");
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
 }
 
 function buildStorageKey(workpieceId: string, path: string): string {
@@ -4362,6 +4407,9 @@ function normalizeGenerateImageMapCandidatesRequest(
   return {
     workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
     image_map_entry_id: normalizeNonEmptyString(body.image_map_entry_id, "image_map_entry_id"),
+    prompt_revision_id: normalizeUuid(body.prompt_revision_id,"prompt_revision_id"),
+    prompt_revision: normalizePositiveInteger(body.prompt_revision,"prompt_revision"),
+    prompt_content_hash: normalizeSha256(body.prompt_content_hash,"prompt_content_hash"),
     ...(Object.prototype.hasOwnProperty.call(body, "expected_metadata_updated_at")
       ? {
         expected_metadata_updated_at: body.expected_metadata_updated_at === null
@@ -4497,69 +4545,6 @@ function inferImageMapVisualMode(
   return "event_scene";
 }
 
-function buildImageMapCandidatePrompt(args: {
-  entry: EpisodeImageMapEntryRecord;
-  visualMode: string;
-  variantLabel: string;
-  contextBefore: string | null;
-  contextAfter: string | null;
-  spokenBeats?: readonly EpisodeSpokenBeatRecord[];
-  divergenceHint?: string | null;
-}): string {
-  const beatContext = resolveBeatAnchorContext({
-    spokenBeats: args.spokenBeats ?? [],
-    beatAnchor: args.entry.beat_anchor,
-  });
-  const spanText = args.entry.script_anchor?.span_text ?? beatContext.focus ?? args.entry.description;
-  const contextLines = [
-    beatContext.before ? `Editorial beat before: ${beatContext.before}` : null,
-    args.contextBefore ? `Previous context: ${args.contextBefore}` : null,
-    args.entry.script_anchor?.span_text
-      ? `Exact beat span: ${spanText}`
-      : (spanText ? `Editorial beat focus: ${spanText}` : null),
-    args.entry.beat_anchor ? `Beat anchor: ${buildBulletBeatAnchorLabel(args.entry.beat_anchor)}` : null,
-    beatContext.after ? `Editorial beat after: ${beatContext.after}` : null,
-    args.contextAfter ? `Following context: ${args.contextAfter}` : null,
-  ].filter(Boolean);
-
-  const modeInstruction = (() => {
-    switch (args.visualMode) {
-      case "comparison":
-        return "Create a clean explanatory comparison image with obvious visual contrast between the two compared sides.";
-      case "map":
-        return "Create a clear strategic map-style visual with readable geography, but no text, labels, or numbers inside the image.";
-      case "location":
-        return "Create a clear location-establishing still that makes the place immediately legible on screen.";
-      case "person_figure":
-        return "Create a historically grounded figure-focused still with a clear subject and restrained background clutter.";
-      case "object_detail":
-        return "Create a clean object/detail still with a strong silhouette and obvious subject emphasis.";
-      case "concept_illustration":
-        return "Create an explanatory concept illustration that clarifies the idea visually without relying on text in the image.";
-      default:
-        return "Create a clear editorial still that makes the event or action immediately legible on screen.";
-    }
-  })();
-
-  const variantInstruction = args.variantLabel === "explainer"
-    ? "Variant goal: make the beat clearer and more diagrammatic or explanatory."
-    : "Variant goal: make the beat more cinematic and illustrative while staying factual and clear.";
-
-  return [
-    `You are generating a still image candidate for a scripted visual beat.`,
-    `Visual intent: ${args.entry.visual_intent || args.entry.description}`,
-    `Prompt basis: ${args.entry.prompt_basis || args.entry.description}`,
-    ...buildHearthVisualStylePromptLines(args.entry.style_preset),
-    `Visual mode: ${args.visualMode}.`,
-    contextLines.join("\n"),
-    modeInstruction,
-    variantInstruction,
-    "Bias toward clean composition, obvious subject, strong silhouette, readable geography, restrained clutter, and contextual accuracy.",
-    "Do not render text, labels, captions, numbers, or map lettering into the image.",
-    args.divergenceHint ? args.divergenceHint : null,
-  ].filter(Boolean).join("\n\n");
-}
-
 function buildImageMapCandidateAssetMetadata(args: {
   entry: EpisodeImageMapEntryRecord;
   visualMode: string;
@@ -4568,6 +4553,9 @@ function buildImageMapCandidateAssetMetadata(args: {
   revisedPrompt: string | null;
   aspect: string | null;
   size: string | null;
+  promptRevisionId?: string|null;
+  promptRevision?: number|null;
+  promptContentHash?: string|null;
 }): Json {
   return {
     schema: IMAGE_MAP_CANDIDATE_ASSET_SCHEMA,
@@ -4585,6 +4573,9 @@ function buildImageMapCandidateAssetMetadata(args: {
     beat_anchor: (args.entry.beat_anchor ?? null) as unknown as Json,
     aspect: args.aspect,
     size: args.size,
+    prompt_revision_id: args.promptRevisionId??null,
+    prompt_revision: args.promptRevision??null,
+    prompt_content_hash: args.promptContentHash??null,
   } as Json;
 }
 
@@ -5443,6 +5434,7 @@ export class TongsCommitService {
   readonly supabase: SupabaseClient<Database>;
   readonly bucket: string;
   readonly imageProvider: ImageProvider | null;
+  readonly narrativeInterpretationProvider: NarrativeInterpretationProvider | null;
 
   readonly userClientFactory: ((accessToken: string) => SupabaseClient<Database>) | null;
 
@@ -5451,11 +5443,13 @@ export class TongsCommitService {
     bucket = TONGS_WORKPIECE_BUCKET,
     imageProvider: ImageProvider | null = null,
     userClientFactory: ((accessToken: string) => SupabaseClient<Database>) | null = null,
+    narrativeInterpretationProvider: NarrativeInterpretationProvider | null = null,
   ) {
     this.supabase = supabase;
     this.bucket = bucket;
     this.imageProvider = imageProvider;
     this.userClientFactory = userClientFactory;
+    this.narrativeInterpretationProvider = narrativeInterpretationProvider;
   }
 
   private async getCradleOrThrow(workpieceId: string): Promise<EpisodeRow> {
@@ -12461,7 +12455,15 @@ export class TongsCommitService {
 
   async repairWorkpieceImageMap(
     workpieceId: string,
-    input: { workspace_id: string; operation_id: string },
+    input: {
+      workspace_id: string;
+      operation_id: string;
+      entry_id?: string;
+      expected_current_revision: number;
+      expected_current_revision_id: string;
+      expected_script_approval_id: string;
+      expected_script_approval_revision: number;
+    },
     options?: { userAccessToken?: string | null },
   ): Promise<WorkpieceImageMapResponseData> {
     await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
@@ -12470,6 +12472,13 @@ export class TongsCommitService {
     const approvalSequence = await tongs.from("workpiece_script_approval_sequences").select("current_approval_id,current_revision").eq("workspace_id", input.workspace_id).eq("workpiece_id", workpieceId).maybeSingle();
     if (approvalSequence.error || !isRecord(approvalSequence.data) || !readStringField(approvalSequence.data, "current_approval_id")) throw new HttpError(409, "canonical_approval_required", "Approve the current script before repairing image anchors.");
     const approvalId = readStringField(approvalSequence.data, "current_approval_id")!;
+    const approvalRevision = Number(approvalSequence.data.current_revision ?? 0);
+    if (approvalId !== input.expected_script_approval_id || approvalRevision !== input.expected_script_approval_revision) {
+      throw new HttpError(409, "script_revision_conflict", "The approved script changed before this image moment could be repaired.", {
+        current_script_approval_id: approvalId,
+        current_script_approval_revision: approvalRevision,
+      });
+    }
     const approval = await tongs.from("script_approval_revisions").select("script_text").eq("id", approvalId).maybeSingle();
     if (approval.error || !isRecord(approval.data) || typeof approval.data.script_text !== "string") throw new HttpError(502, "canonical_approval_unavailable", "Canonical approval bytes are unavailable.");
     let canonical = await this.readCanonicalImageMapProjection(input.workspace_id, workpieceId);
@@ -12480,8 +12489,83 @@ export class TongsCommitService {
       canonical = await this.readCanonicalImageMapProjection(input.workspace_id, workpieceId);
     }
     if (!canonical) throw new HttpError(502, "canonical_bootstrap_failed", "Canonical image-map bootstrap did not produce a revision.");
-    const repaired = normalizeEpisodeImageMapEntries(repairEntriesAgainstApprovedScript(canonical.entries as unknown as Array<Record<string, unknown>>, approval.data.script_text));
-    await this.commitCanonicalImageMap({ workspaceId: input.workspace_id, workpieceId, actorId: auth.userId, entries: repaired, mutationKind: "repair_to_approved_script", operationId: input.operation_id, targetApprovalId: approvalId, expectedRevision: canonical.authority.revision, expectedRevisionId: canonical.authority.revisionId, affectedEntryIds: repaired.map((entry) => entry.id) });
+    if (canonical.authority.revision !== input.expected_current_revision || canonical.authority.revisionId !== input.expected_current_revision_id) {
+      throw new HttpError(409, "image_map_revision_conflict", "The image plan changed before this image moment could be repaired.", {
+        current_image_map_revision: canonical.authority.revision,
+        current_image_map_revision_id: canonical.authority.revisionId,
+      });
+    }
+    const targets = input.entry_id
+      ? canonical.entries.filter((entry) => entry.id === input.entry_id)
+      : canonical.entries;
+    if (targets.length === 0) throw new HttpError(404, "image_map_entry_not_found", "Image map entry was not found.");
+    const repairedTargets = normalizeEpisodeImageMapEntries(repairEntriesAgainstApprovedScript(
+      targets as unknown as Array<Record<string, unknown>>,
+      approval.data.script_text,
+    ));
+    const repairedById = new Map(repairedTargets.map((entry) => [entry.id, entry]));
+    const repaired = canonical.entries.map((entry) => repairedById.get(entry.id) ?? entry);
+    const commit = await this.commitCanonicalImageMap({
+      workspaceId: input.workspace_id,
+      workpieceId,
+      actorId: auth.userId,
+      entries: repaired,
+      mutationKind: "repair_to_approved_script",
+      operationId: input.operation_id,
+      targetApprovalId: approvalId,
+      expectedRevision: input.expected_current_revision,
+      expectedRevisionId: input.expected_current_revision_id,
+      affectedEntryIds: targets.map((entry) => entry.id),
+      inputs: input.entry_id
+        ? { entry_id: input.entry_id, repair_strategy: "exact_display_anchor_v2" }
+        : { scope: "plan", repair_strategy: "exact_display_anchor_v2" },
+    });
+    const disposition = readStringField(commit, "disposition");
+    if (disposition === "revision_conflict") throw new HttpError(409, "image_map_revision_conflict", "The image plan changed before this image moment could be repaired.");
+    if (disposition === "script_revision_conflict") throw new HttpError(409, "script_revision_conflict", "The approved script changed before this image moment could be repaired.");
+    if (disposition === "operation_identity_conflict") throw new HttpError(409, "operation_identity_conflict", "This repair operation identity was already used for different inputs.");
+    if (disposition !== "committed" && disposition !== "no_change") throw new HttpError(502, "image_map_repair_failed", "Tongs did not commit the image-moment repair.", { disposition });
+    return this.getWorkpieceImageMap(workpieceId, options);
+  }
+
+  async selectWorkpieceImageMapCandidate(
+    workpieceId: string,
+    input: SelectImageMapCandidateRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkpieceImageMapResponseData> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const canonical = await this.readCanonicalImageMapProjection(input.workspace_id, workpieceId);
+    if (!canonical) throw new HttpError(409, "canonical_image_map_required", "Apply the visual plan before selecting an image.");
+    if (canonical.authority.revision !== input.expected_current_revision || canonical.authority.revisionId !== input.expected_current_revision_id) {
+      throw new HttpError(409, "image_map_revision_conflict", "The image plan changed before this image could be selected.", {
+        current_image_map_revision: canonical.authority.revision,
+        current_image_map_revision_id: canonical.authority.revisionId,
+      });
+    }
+    const entry = canonical.entries.find((candidate) => candidate.id === input.image_map_entry_id);
+    if (!entry) throw new HttpError(404, "image_map_entry_not_found", "Image map entry was not found.");
+    if (!entry.candidate_assets.some((asset) => asset.asset_id === input.candidate_asset_id)) {
+      throw new HttpError(400, "candidate_not_attached", "Selected image is no longer attached to this visual beat.");
+    }
+    const rpc = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const selected = await rpc.rpc("select_image_map_candidate", {
+      p_workspace_id: input.workspace_id,
+      p_workpiece_id: workpieceId,
+      p_expected_current_revision: input.expected_current_revision,
+      p_expected_current_revision_id: input.expected_current_revision_id,
+      p_image_map_entry_id: input.image_map_entry_id,
+      p_candidate_asset_id: input.candidate_asset_id,
+      p_operation_contract_version: "forge.image-map-candidate-selection.v1",
+      p_operation_id: input.operation_id,
+      p_actor_id: auth.userId,
+    });
+    if (selected.error || !isRecord(selected.data)) throw new HttpError(502, "image_map_selection_failed", "Tongs could not commit canonical image selection.", { reason: selected.error?.message });
+    const commit = selected.data;
+    const disposition = readStringField(commit, "disposition");
+    if (disposition === "revision_conflict") throw new HttpError(409, "image_map_revision_conflict", "The image plan changed before this image could be selected.");
+    if (disposition === "operation_identity_conflict") throw new HttpError(409, "operation_identity_conflict", "This image-selection operation identity was already used for different inputs.");
+    if (disposition !== "committed" && disposition !== "no_change") throw new HttpError(502, "image_map_selection_failed", "Tongs did not commit the image selection.", { disposition });
     return this.getWorkpieceImageMap(workpieceId, options);
   }
 
@@ -12537,6 +12621,56 @@ export class TongsCommitService {
     });
   }
 
+  private imagePromptAuthorityClient(accessToken:string|null|undefined){
+    if(!accessToken||!this.userClientFactory)throw new HttpError(503,"image_prompt_authority_unavailable","Authenticated image prompt authority is unavailable");
+    return this.userClientFactory(accessToken).schema("tongs") as unknown as {rpc:(name:string,args:Record<string,unknown>)=>Promise<UntypedPostgrestResult>;from:(table:string)=>UntypedPostgrestBuilder};
+  }
+
+  async interpretImageMapPrompt(workpieceId:string,input:InterpretImageMapPromptRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    const token=input.user_access_token??options?.userAccessToken??null;
+    const auth=await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"editor",token);
+    await this.assertWorkpieceInWorkspace(workpieceId,input.workspace_id);
+    const authority=this.imagePromptAuthorityClient(token);
+    const normalizedInputs={source_context:input.source_context,creator_direction:input.creator_direction,interpretation_contract_version:"forge.image-prompt-interpretation.v2",validator_version:"forge.image-prompt-validator.v1",synthesis_contract_version:"forge.image-prompt-synthesis.v3"};
+    const expectedFingerprint=await sha256Hex(canonicalJsonBytes({workspace_id:input.workspace_id,workpiece_id:workpieceId,image_moment_id:input.image_moment_id,image_map_revision_id:input.image_map_revision_id,script_approval_id:input.script_approval_id,expected_prompt_revision_id:input.expected_prompt_revision_id,expected_prompt_revision:input.expected_prompt_revision,source_context:input.source_context,creator_direction:input.creator_direction,style:input.style,contracts:{interpretation:normalizedInputs.interpretation_contract_version,validator:normalizedInputs.validator_version,synthesis:normalizedInputs.synthesis_contract_version}}));
+    if(input.operation_fingerprint!==expectedFingerprint)throw new HttpError(409,"operation_fingerprint_mismatch","Interpretation operation fingerprint does not match the canonical request.",{expected_operation_fingerprint:expectedFingerprint});
+    const begun=await authority.rpc("begin_image_prompt_interpretation",{p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_image_moment_id:input.image_moment_id,p_image_map_revision_id:input.image_map_revision_id,p_script_approval_id:input.script_approval_id,p_expected_prompt_revision_id:input.expected_prompt_revision_id,p_expected_prompt_revision:input.expected_prompt_revision,p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_normalized_inputs_json:normalizedInputs,p_actor_id:auth.userId});
+    if(begun.error||!isRecord(begun.data))throw new HttpError(502,"image_prompt_begin_failed",begun.error?.message??"Tongs could not reserve interpretation");
+    const beginDisposition=readStringField(begun.data,"disposition");
+    if(beginDisposition!=="reserved"&&beginDisposition!=="replay")throw new HttpError(409,beginDisposition??"image_prompt_begin_rejected","Tongs rejected the interpretation reservation.",begun.data);
+    const operation=isRecord(begun.data.operation)?begun.data.operation:null;const state=operation?readStringField(operation,"state"):null;
+    if(state==="committed"&&isRecord(operation?.receipt_json))return operation.receipt_json as Record<string,Json>;
+    let providerResponse=isRecord(operation?.provider_response_json)?operation.provider_response_json:null;
+    let brief:ImagePromptVisualBrief;
+    let model="gpt-5-mini";
+    let requestJson:Record<string,unknown>={...input.source_context,creator_direction:input.creator_direction,image_moment_id:input.image_moment_id,style:input.style};
+    if(providerResponse){
+      const storedBrief=providerResponse.canonical_brief;if(!isRecord(storedBrief))throw new HttpError(502,"invalid_provider_recovery","Stored interpretation response has no canonical brief");brief=storedBrief as unknown as ImagePromptVisualBrief;model=readStringField(providerResponse,"model")??model;
+    }else{
+      if(!this.narrativeInterpretationProvider)throw new HttpError(503,"image_prompt_interpreter_unavailable","Narrative interpretation provider is not configured");
+      let interpreted;try{interpreted=await this.runAIRequest({lane:AI_USAGE_LANE.FORGE,userId:auth.userId,workspaceId:input.workspace_id,workpieceId,feature:AI_USAGE_FEATURE.IMAGE_MAP_CANDIDATE_GENERATE,subfeature:AI_USAGE_SUBFEATURE.INTERPRETATION,model,trigger:AI_USAGE_TRIGGER.USER,actionId:input.operation_id,execute:async()=>{const result=await this.narrativeInterpretationProvider!.interpret({request:requestJson,model});return{result,inputTokens:result.inputTokens,outputTokens:result.outputTokens,totalTokens:result.totalTokens,providerRequestId:result.providerRequestId};}});}catch(error){await authority.rpc("fail_image_prompt_operation",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_failed_stage:"provider",p_failure_code:"provider_failed",p_failure_message:error instanceof Error?error.message:String(error)});throw error;}
+      brief=interpreted.result.brief;model=interpreted.result.model;providerResponse={canonical_brief:brief as unknown as Json,raw_provider_response:interpreted.result.rawResponse as unknown as Json,model};
+      const recorded=await authority.rpc("record_image_prompt_provider_response",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_provider_response_json:providerResponse});
+      if(recorded.error)throw new HttpError(502,"provider_response_record_failed",recorded.error.message);
+    }
+    const invalid=validateSubstantiveVisualBrief(brief);if(invalid.length){await authority.rpc("fail_image_prompt_operation",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_failed_stage:"validation",p_failure_code:"interpretation_incomplete",p_failure_message:`Invalid fields: ${invalid.join(", ")}`});throw new HttpError(422,"interpretation_incomplete","Narrative interpretation is incomplete.",{invalid_fields:invalid});}
+    const finalPrompt=synthesizeConcreteVendorPrompt(brief,input.style);
+    const committed=await authority.rpc("commit_image_prompt_interpretation",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_visual_brief_json:brief,p_ai_synthesized_prompt:finalPrompt,p_final_prompt:finalPrompt,p_interpretation_contract_version:"forge.image-prompt-interpretation.v2",p_validator_version:"forge.image-prompt-validator.v1",p_synthesis_contract_version:"forge.image-prompt-synthesis.v3",p_interpretation_model:model,p_interpretation_request_json:requestJson,p_actor_id:auth.userId});
+    if(committed.error||!isRecord(committed.data)){await authority.rpc("fail_image_prompt_operation",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_failed_stage:"commit",p_failure_code:"image_prompt_commit_failed",p_failure_message:committed.error?.message??"Tongs could not commit interpretation"});throw new HttpError(502,"image_prompt_commit_failed",committed.error?.message??"Tongs could not commit interpretation");}
+    const commitDisposition=readStringField(committed.data,"disposition");if(commitDisposition!=="committed")throw new HttpError(409,commitDisposition??"image_prompt_commit_rejected","Tongs rejected the interpretation commit.",committed.data);return committed.data as Record<string,Json>;
+  }
+
+  async editImageMapPrompt(workpieceId:string,input:EditImageMapPromptRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    const token=input.user_access_token??options?.userAccessToken??null;const auth=await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"editor",token);await this.assertWorkpieceInWorkspace(workpieceId,input.workspace_id);
+    const expectedFingerprint=await sha256Hex(canonicalJsonBytes({workspace_id:input.workspace_id,workpiece_id:workpieceId,image_moment_id:input.image_moment_id,expected_prompt_revision_id:input.expected_prompt_revision_id,expected_prompt_revision:input.expected_prompt_revision,final_prompt:input.final_prompt,operation_type:"creator_edit"}));if(input.operation_fingerprint!==expectedFingerprint)throw new HttpError(409,"operation_fingerprint_mismatch","Creator-edit operation fingerprint does not match the canonical request.",{expected_operation_fingerprint:expectedFingerprint});
+    const result=await this.imagePromptAuthorityClient(token).rpc("commit_image_prompt_creator_edit",{p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_image_moment_id:input.image_moment_id,p_expected_prompt_revision_id:input.expected_prompt_revision_id,p_expected_prompt_revision:input.expected_prompt_revision,p_final_prompt:input.final_prompt,p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_actor_id:auth.userId});
+    if(result.error||!isRecord(result.data))throw new HttpError(502,"image_prompt_edit_failed",result.error?.message??"Tongs could not commit prompt edit");const disposition=readStringField(result.data,"disposition");if(disposition!=="committed")throw new HttpError(409,disposition??"image_prompt_edit_rejected","Tongs rejected the prompt edit.",result.data);return result.data as Record<string,Json>;
+  }
+
+  async readCurrentImageMapPrompt(workpieceId:string,workspaceId:string,imageMomentId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>|null>{
+    const token=options?.userAccessToken??null;await this.assertWorkspaceRoleFromAccessToken(workspaceId,"viewer",token);const result=await this.imagePromptAuthorityClient(token).rpc("read_current_image_prompt",{p_workspace_id:workspaceId,p_workpiece_id:workpieceId,p_image_moment_id:imageMomentId});if(result.error)throw new HttpError(502,"image_prompt_read_failed",result.error.message);return isRecord(result.data)?result.data as Record<string,Json>:null;
+  }
+
   async generateImageMapCandidates(
     workpieceId: string,
     input: GenerateImageMapCandidatesRequest,
@@ -12577,12 +12711,22 @@ export class TongsCommitService {
     if (!entry) {
       throw new HttpError(404, "image_map_entry_not_found", "Image map entry was not found");
     }
-    if (entry.canonical_anchor_assessment?.state !== "current" || canonical.authority.provenanceState !== "current") {
+    if (entry.canonical_anchor_assessment?.state !== "current") {
       throw new HttpError(409, "canonical_anchor_not_current", "Repair this image moment to the approved script before generating candidates.", { entry_id: entry.id, anchor_state: entry.canonical_anchor_assessment?.state ?? "provenance_unknown" });
     }
     if (!entry.script_anchor?.span_text?.trim() && !entry.beat_anchor) {
       throw new HttpError(400, "image_map_anchor_required", "Image map entry must have a structured anchor before generating candidates");
     }
+    const promptProjection=await this.readCurrentImageMapPrompt(workpieceId,input.workspace_id,entry.id,{userAccessToken});
+    const promptRevision=promptProjection&&isRecord(promptProjection.prompt_revision)?promptProjection.prompt_revision:null;
+    const canonicalPromptId=promptRevision?readStringField(promptRevision,"id"):null;
+    const canonicalPromptRevision=promptRevision&&typeof promptRevision.revision==="number"?promptRevision.revision:null;
+    const canonicalPromptHash=promptRevision?readStringField(promptRevision,"content_hash"):null;
+    const canonicalPrompt=promptRevision?readStringField(promptRevision,"final_prompt"):null;
+    if(!canonicalPromptId||canonicalPromptRevision==null||!canonicalPromptHash||!canonicalPrompt)throw new HttpError(409,"canonical_image_prompt_required","Create and verify a canonical image prompt before generating candidates.");
+    if(canonicalPromptId!==input.prompt_revision_id||canonicalPromptRevision!==input.prompt_revision||canonicalPromptHash!==input.prompt_content_hash)throw new HttpError(409,"prompt_revision_conflict","The requested prompt is not the current canonical prompt.",{current_prompt_revision_id:canonicalPromptId,current_prompt_revision:canonicalPromptRevision,current_prompt_content_hash:canonicalPromptHash});
+    const verifiedPromptRevision=promptRevision as Record<string,unknown>;
+    if(readStringField(verifiedPromptRevision,"image_map_revision_id")!==canonical.authority.revisionId||Number(verifiedPromptRevision.image_map_revision)!==canonical.authority.revision||readStringField(verifiedPromptRevision,"image_moment_id")!==entry.id||readStringField(verifiedPromptRevision,"script_approval_id")!==canonical.authority.scriptApprovalId||Number(verifiedPromptRevision.script_approval_revision)!==canonical.authority.scriptApprovalRevision)throw new HttpError(409,"prompt_authority_mismatch","The current prompt does not belong to this canonical image-map and approved-script revision.");
 
     const priorCandidateAssets = await this.listReadyImageMapCandidateAssets(input.workspace_id, workpieceId, entry.id);
     const visualMode = inferImageMapVisualMode(
@@ -12606,17 +12750,89 @@ export class TongsCommitService {
       prompt: string;
       image: Awaited<ReturnType<ImageProvider["generateImage"]>>;
     }> = [];
-    const imageMapActionId = randomUuid();
+    const imageMapActionHash = await sha256Text(JSON.stringify({
+      workspace_id: input.workspace_id,
+      workpiece_id: workpieceId,
+      image_map_revision_id: canonical.authority.revisionId,
+      image_map_revision: canonical.authority.revision,
+      image_map_entry_id: entry.id,
+      context_before: input.context_before ?? null,
+      context_after: input.context_after ?? null,
+      aspect,
+      size,
+      prompt_revision_id:canonicalPromptId,
+      prompt_revision:canonicalPromptRevision,
+      prompt_content_hash:canonicalPromptHash,
+    }));
+    const imageMapActionId = uuidFromSha256(imageMapActionHash);
+    const generatedAssetRows: AssetRow[] = [];
+    const generatedAssets: ImageMapCandidateAssetSummary[] = [];
+    let totalSpent = 0;
     for (const variant of variants) {
-      const prompt = buildImageMapCandidatePrompt({
-        entry,
-        visualMode,
-        variantLabel: variant.label,
-        contextBefore: input.context_before ?? null,
-        contextAfter: input.context_after ?? null,
-        spokenBeats: current.episodePackage.spoken_beats,
-        divergenceHint: variant.divergenceHint,
-      });
+      const prompt = canonicalPrompt;
+      const assetIdentityHash = await sha256Text(`${imageMapActionHash}:${variant.label}`);
+      const assetId = uuidFromSha256(assetIdentityHash);
+      const requestId = `image-map-candidate:${assetIdentityHash}`;
+      const { data: existingAsset, error: existingAssetError } = await this.supabase
+        .schema("tongs")
+        .from("assets")
+        .select("*")
+        .eq("id", assetId)
+        .maybeSingle();
+      if (existingAssetError) {
+        throw new HttpError(502, "db_read_failed", "Failed to recover generated image-map candidate asset", { reason: existingAssetError.message });
+      }
+      if (existingAsset?.status === "ready") {
+        const recovered = normalizeImageMapCandidateAssetSummary(existingAsset);
+        if (!recovered) throw new HttpError(502, "invalid_generated_asset", "Recovered image-map candidate asset could not be normalized");
+        generatedAssets.push(recovered);
+        continue;
+      }
+
+      const variantSlug = variant.label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "candidate";
+      const candidatePathPrefix = `${IMAGE_MAP_CANDIDATE_ASSET_PREFIX}/${workpieceId}/${entry.id}/${assetId}-${variantSlug}`;
+      const { data: committedFiles, error: committedFileError } = await this.supabase
+        .schema("tongs")
+        .from("workpiece_files")
+        .select("path,content_type,bytes,hash_value,storage_bucket,storage_key,updated_at")
+        .eq("workpiece_id", workpieceId)
+        .like("path", `${candidatePathPrefix}.%`)
+        .order("updated_at", { ascending: false })
+        .limit(1);
+      if (committedFileError) {
+        throw new HttpError(502, "db_read_failed", "Failed to inspect committed image-map candidate bytes", { reason: committedFileError.message });
+      }
+      const committedFile = committedFiles?.[0] ?? null;
+      if (committedFile) {
+        const recoveredRow = await this.insertAssetRow({
+          id: assetId,
+          workspace_id: input.workspace_id,
+          workpiece_id: workpieceId,
+          path: committedFile.path,
+          mime_type: committedFile.content_type,
+          bytes: committedFile.bytes,
+          storage_bucket: committedFile.storage_bucket,
+          storage_key: committedFile.storage_key,
+          provider: "recovered_committed_file",
+          provider_request_id: null,
+          request_id: requestId,
+          prompt,
+          created_by: auth.userId,
+          asset_kind: IMAGE_MAP_CANDIDATE_ASSET_KIND,
+          status: "ready",
+          metadata_json: buildImageMapCandidateAssetMetadata({ entry, visualMode, variantLabel: variant.label, prompt, revisedPrompt: null, aspect, size,promptRevisionId:canonicalPromptId,promptRevision:canonicalPromptRevision,promptContentHash:canonicalPromptHash }),
+          operation_id: `${imageMapActionId}:${variant.label}`,
+          operation_fingerprint: assetIdentityHash,
+          content_hash: committedFile.hash_value,
+          ready_at: committedFile.updated_at,
+          supersedes_asset_id: null,
+        }, "Failed to recover committed image-map candidate asset");
+        generatedAssetRows.push(recoveredRow);
+        const recovered = normalizeImageMapCandidateAssetSummary(recoveredRow);
+        if (!recovered) throw new HttpError(502, "invalid_generated_asset", "Recovered image-map candidate asset could not be normalized");
+        generatedAssets.push(recovered);
+        continue;
+      }
       const imageCall = await this.runAIRequest({
         lane,
         userId: auth.userId,
@@ -12655,15 +12871,7 @@ export class TongsCommitService {
     }
 
     if (generatedOutputs.length >= 2 && generatedOutputs[0]?.image.bytesBase64 === generatedOutputs[1]?.image.bytesBase64) {
-      const retryPrompt = buildImageMapCandidatePrompt({
-        entry,
-        visualMode,
-        variantLabel: generatedOutputs[1].variantLabel,
-        contextBefore: input.context_before ?? null,
-        contextAfter: input.context_after ?? null,
-        spokenBeats: current.episodePackage.spoken_beats,
-        divergenceHint: "The prior variant was too similar. Produce a substantially different visual take with different framing, subject arrangement, and editorial emphasis.",
-      });
+      const retryPrompt = canonicalPrompt;
       const retryCall = await this.runAIRequest({
         lane,
         userId: auth.userId,
@@ -12708,14 +12916,11 @@ export class TongsCommitService {
       tool_version: "0.0.0",
       lane: "forge-managed",
     };
-    const generatedAssetRows: AssetRow[] = [];
-    const generatedAssets: ImageMapCandidateAssetSummary[] = [];
-    let totalSpent = 0;
-
     try {
       for (const output of generatedOutputs) {
-        const requestId = randomUuid();
-        const assetId = randomUuid();
+        const assetIdentityHash = await sha256Text(`${imageMapActionHash}:${output.variantLabel}`);
+        const requestId = `image-map-candidate:${assetIdentityHash}`;
+        const assetId = uuidFromSha256(assetIdentityHash);
         const assetPath = buildImageMapCandidateAssetPath({
           workpieceId,
           entryId: entry.id,
@@ -12767,7 +12972,12 @@ export class TongsCommitService {
             revisedPrompt: output.image.revisedPrompt,
             aspect,
             size,
+            promptRevisionId:canonicalPromptId,promptRevision:canonicalPromptRevision,promptContentHash:canonicalPromptHash,
           }),
+          operation_id: `${imageMapActionId}:${output.variantLabel}`,
+          operation_fingerprint: assetIdentityHash,
+          content_hash: assetCommit.file_row.hash_value,
+          ready_at: assetCommit.file_row.updated_at ?? new Date().toISOString(),
           supersedes_asset_id: null,
         }, "Failed to register generated image-map candidate asset");
         generatedAssetRows.push(assetRow);
@@ -13464,13 +13674,16 @@ export function createTongsCommitService(options: TongsCommitApiOptions): TongsC
   const imageProvider = openAiImageApiKey
     ? new OpenAiImageProvider(openAiImageApiKey, options.openAiImageModel?.trim() || "gpt-image-1")
     : null;
+  const narrativeInterpretationProvider = openAiImageApiKey
+    ? new OpenAiNarrativeInterpretationProvider(openAiImageApiKey, options.openAiTextModel?.trim() || "gpt-5-mini")
+    : null;
 
   const userClientFactory = (accessToken: string): SupabaseClient<Database> => createClient<Database>(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { Authorization: `Bearer ${accessToken}` } },
   });
 
-  return new TongsCommitService(supabase, bucket, imageProvider, userClientFactory);
+  return new TongsCommitService(supabase, bucket, imageProvider, userClientFactory, narrativeInterpretationProvider);
 }
 
 function normalizeStageThumbnailAssetRequest(body: Record<string, unknown>): StageThumbnailAssetRequest {
@@ -13988,6 +14201,17 @@ export function createTongsCommitApiHandlerWithService(
         return jsonResponse(200, { ok: true, data: result });
       }
 
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="image-prompts"&&parts[4]==="interpret"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const source=normalizeJsonValue(body.source_context);if(!isRecord(source))throw new HttpError(400,"invalid_source_context","source_context must be an object");
+        const result=await service.interpretImageMapPrompt(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),image_moment_id:normalizeNonEmptyString(body.image_moment_id,"image_moment_id"),image_map_revision_id:normalizeUuid(body.image_map_revision_id,"image_map_revision_id"),script_approval_id:normalizeUuid(body.script_approval_id,"script_approval_id"),expected_prompt_revision_id:body.expected_prompt_revision_id==null?null:normalizeUuid(body.expected_prompt_revision_id,"expected_prompt_revision_id"),expected_prompt_revision:normalizeNonNegativeInteger(body.expected_prompt_revision,"expected_prompt_revision"),operation_id:normalizeNonEmptyString(body.operation_id,"operation_id"),operation_fingerprint:normalizeSha256(body.operation_fingerprint,"operation_fingerprint"),source_context:source as Record<string,Json>,creator_direction:normalizeNonEmptyString(body.creator_direction,"creator_direction"),style:body.style==null?null:normalizeNonEmptyString(body.style,"style"),user_access_token:userAccessToken},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="image-prompts"&&parts[4]==="edit"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const result=await service.editImageMapPrompt(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),image_moment_id:normalizeNonEmptyString(body.image_moment_id,"image_moment_id"),expected_prompt_revision_id:normalizeUuid(body.expected_prompt_revision_id,"expected_prompt_revision_id"),expected_prompt_revision:normalizePositiveInteger(body.expected_prompt_revision,"expected_prompt_revision"),final_prompt:normalizeNonEmptyString(body.final_prompt,"final_prompt"),operation_id:normalizeNonEmptyString(body.operation_id,"operation_id"),operation_fingerprint:normalizeSha256(body.operation_fingerprint,"operation_fingerprint"),user_access_token:userAccessToken},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="image-prompts"&&parts[4]==="current"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const result=await service.readCurrentImageMapPrompt(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),normalizeNonEmptyString(body.image_moment_id,"image_moment_id"),{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+
       if (parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "thumbnail-brand-setup") {
         requireMethod(request, "POST");
         const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
@@ -14354,7 +14578,19 @@ export function createTongsCommitApiHandlerWithService(
         const userAccessToken = requireUserAccessTokenHeader(request);
         const operationId = normalizeNonEmptyString(body.operation_id, "operation_id");
         if (!/^forge:image-map:[a-zA-Z0-9._:-]{8,180}$/.test(operationId)) throw new HttpError(400, "invalid_operation_id", "operation_id must use the Forge image-map namespace");
-        const result = await service.repairWorkpieceImageMap(workpieceId, { workspace_id: normalizeUuid(body.workspace_id, "workspace_id"), operation_id: operationId }, { userAccessToken });
+        const expectedRevision = Number(body.expected_current_revision);
+        const expectedApprovalRevision = Number(body.expected_script_approval_revision);
+        if (!Number.isInteger(expectedRevision) || expectedRevision < 1) throw new HttpError(400, "invalid_expected_revision", "expected_current_revision must be a positive integer");
+        if (!Number.isInteger(expectedApprovalRevision) || expectedApprovalRevision < 1) throw new HttpError(400, "invalid_expected_script_revision", "expected_script_approval_revision must be a positive integer");
+        const result = await service.repairWorkpieceImageMap(workpieceId, {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          operation_id: operationId,
+          ...(typeof body.entry_id === "undefined" ? {} : { entry_id: normalizeNonEmptyString(body.entry_id, "entry_id") }),
+          expected_current_revision: expectedRevision,
+          expected_current_revision_id: normalizeUuid(body.expected_current_revision_id, "expected_current_revision_id"),
+          expected_script_approval_id: normalizeUuid(body.expected_script_approval_id, "expected_script_approval_id"),
+          expected_script_approval_revision: expectedApprovalRevision,
+        }, { userAccessToken });
         return jsonResponse(200, { ok: true, data: result });
       }
 
@@ -14367,6 +14603,26 @@ export function createTongsCommitApiHandlerWithService(
         if (!/^forge:image-map:[a-zA-Z0-9._:-]{8,180}$/.test(operationId)) throw new HttpError(400, "invalid_operation_id", "operation_id must use the Forge image-map namespace");
         if (!isRecord(body.script_anchor)) throw new HttpError(400, "invalid_exact_anchor", "script_anchor is required");
         const result = await service.resolveWorkpieceImageMapManualAnchor(workpieceId, { workspace_id: normalizeUuid(body.workspace_id, "workspace_id"), operation_id: operationId, entry_id: normalizeNonEmptyString(body.entry_id, "entry_id"), script_anchor: body.script_anchor }, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "image-map" && parts[4] === "select-candidate") {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const operationId = normalizeNonEmptyString(body.operation_id, "operation_id");
+        if (!/^forge:image-map:[a-zA-Z0-9._:-]{8,180}$/.test(operationId)) throw new HttpError(400, "invalid_operation_id", "operation_id must use the Forge image-map namespace");
+        const expectedRevision = Number(body.expected_current_revision);
+        if (!Number.isInteger(expectedRevision) || expectedRevision < 1) throw new HttpError(400, "invalid_expected_revision", "expected_current_revision must be a positive integer");
+        const result = await service.selectWorkpieceImageMapCandidate(workpieceId, {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          image_map_entry_id: normalizeNonEmptyString(body.image_map_entry_id, "image_map_entry_id"),
+          candidate_asset_id: normalizeUuid(body.candidate_asset_id, "candidate_asset_id"),
+          expected_current_revision: expectedRevision,
+          expected_current_revision_id: normalizeUuid(body.expected_current_revision_id, "expected_current_revision_id"),
+          operation_id: operationId,
+        }, { userAccessToken });
         return jsonResponse(200, { ok: true, data: result });
       }
 

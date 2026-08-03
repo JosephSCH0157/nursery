@@ -19,6 +19,7 @@ export const AI_USAGE_SUBFEATURE = {
   EXPLAINER: "explainer",
   ILLUSTRATIVE: "illustrative",
   ILLUSTRATIVE_RETRY: "illustrative_retry",
+  INTERPRETATION: "interpretation",
 } as const;
 
 export const AI_USAGE_LANE = {
@@ -70,6 +71,7 @@ const FEATURE_TO_SUBFEATURES: Readonly<Record<AiUsageFeature, ReadonlySet<AiUsag
     AI_USAGE_SUBFEATURE.EXPLAINER,
     AI_USAGE_SUBFEATURE.ILLUSTRATIVE,
     AI_USAGE_SUBFEATURE.ILLUSTRATIVE_RETRY,
+    AI_USAGE_SUBFEATURE.INTERPRETATION,
   ]),
 };
 

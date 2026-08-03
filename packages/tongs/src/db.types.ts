@@ -1503,48 +1503,6 @@ export type Database = {
           },
         ]
       }
-      thumbnail_brand_setup_operations: {
-        Row: {
-          id: string; workspace_id: string; workpiece_id: string; operation_id: string; operation_fingerprint: string
-          state: string; failed_stage: string | null; failure_code: string | null; failure_message: string | null
-          logo_role: string; requested_rules_json: Json; logo_asset_revision_id: string; logo_content_hash: string | null
-          storage_bucket: string; storage_key: string; profile_id: string; profile_revision_id: string | null
-          profile_revision: number | null; profile_content_hash: string | null; expected_binding_revision: number
-          previous_binding_id: string | null; previous_binding_revision: number | null; resulting_binding_id: string | null
-          resulting_binding_revision: number | null; prior_candidate_set_id: string | null; prior_candidate_set_revision: number | null
-          prior_candidate_count: number; prior_candidate_content_hash: string | null; prior_thumbnail_count: number
-          prior_thumbnail_identity_hash: string; resolved_style_source: string | null
-          renderer_verified_logo_revision_id: string | null; renderer_verified_storage_bucket: string | null
-          renderer_verified_storage_key: string | null; receipt_json: Json | null; created_by: string; created_at: string; updated_at: string
-        }
-        Insert: {
-          id?: string; workspace_id: string; workpiece_id: string; operation_id: string; operation_fingerprint: string
-          state?: string; failed_stage?: string | null; failure_code?: string | null; failure_message?: string | null
-          logo_role: string; requested_rules_json: Json; logo_asset_revision_id: string; logo_content_hash?: string | null
-          storage_bucket: string; storage_key: string; profile_id: string; profile_revision_id?: string | null
-          profile_revision?: number | null; profile_content_hash?: string | null; expected_binding_revision: number
-          previous_binding_id?: string | null; previous_binding_revision?: number | null; resulting_binding_id?: string | null
-          resulting_binding_revision?: number | null; prior_candidate_set_id?: string | null; prior_candidate_set_revision?: number | null
-          prior_candidate_count?: number; prior_candidate_content_hash?: string | null; prior_thumbnail_count?: number
-          prior_thumbnail_identity_hash: string; resolved_style_source?: string | null
-          renderer_verified_logo_revision_id?: string | null; renderer_verified_storage_bucket?: string | null
-          renderer_verified_storage_key?: string | null; receipt_json?: Json | null; created_by: string; created_at?: string; updated_at?: string
-        }
-        Update: {
-          id?: string; workspace_id?: string; workpiece_id?: string; operation_id?: string; operation_fingerprint?: string
-          state?: string; failed_stage?: string | null; failure_code?: string | null; failure_message?: string | null
-          logo_role?: string; requested_rules_json?: Json; logo_asset_revision_id?: string; logo_content_hash?: string | null
-          storage_bucket?: string; storage_key?: string; profile_id?: string; profile_revision_id?: string | null
-          profile_revision?: number | null; profile_content_hash?: string | null; expected_binding_revision?: number
-          previous_binding_id?: string | null; previous_binding_revision?: number | null; resulting_binding_id?: string | null
-          resulting_binding_revision?: number | null; prior_candidate_set_id?: string | null; prior_candidate_set_revision?: number | null
-          prior_candidate_count?: number; prior_candidate_content_hash?: string | null; prior_thumbnail_count?: number
-          prior_thumbnail_identity_hash?: string; resolved_style_source?: string | null
-          renderer_verified_logo_revision_id?: string | null; renderer_verified_storage_bucket?: string | null
-          renderer_verified_storage_key?: string | null; receipt_json?: Json | null; created_by?: string; created_at?: string; updated_at?: string
-        }
-        Relationships: []
-      }
       brand_profiles: {
         Row: {
           archived_at: string | null
@@ -2587,6 +2545,396 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "henry_user_preferences_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      image_map_prompt_operation_receipts: {
+        Row: {
+          created_at: string
+          created_by: string
+          expected_prompt_revision: number
+          expected_prompt_revision_id: string | null
+          failed_stage: string | null
+          failure_code: string | null
+          failure_message: string | null
+          image_map_revision: number
+          image_map_revision_id: string
+          image_moment_id: string
+          normalized_inputs_json: Json
+          operation_fingerprint: string
+          operation_id: string
+          operation_type: string
+          provider_response_hash: string | null
+          provider_response_json: Json | null
+          receipt_json: Json | null
+          result_revision: number | null
+          result_revision_id: string | null
+          script_approval_id: string
+          script_approval_revision: number
+          state: string
+          updated_at: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          expected_prompt_revision: number
+          expected_prompt_revision_id?: string | null
+          failed_stage?: string | null
+          failure_code?: string | null
+          failure_message?: string | null
+          image_map_revision: number
+          image_map_revision_id: string
+          image_moment_id: string
+          normalized_inputs_json: Json
+          operation_fingerprint: string
+          operation_id: string
+          operation_type: string
+          provider_response_hash?: string | null
+          provider_response_json?: Json | null
+          receipt_json?: Json | null
+          result_revision?: number | null
+          result_revision_id?: string | null
+          script_approval_id: string
+          script_approval_revision: number
+          state: string
+          updated_at?: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          expected_prompt_revision?: number
+          expected_prompt_revision_id?: string | null
+          failed_stage?: string | null
+          failure_code?: string | null
+          failure_message?: string | null
+          image_map_revision?: number
+          image_map_revision_id?: string
+          image_moment_id?: string
+          normalized_inputs_json?: Json
+          operation_fingerprint?: string
+          operation_id?: string
+          operation_type?: string
+          provider_response_hash?: string | null
+          provider_response_json?: Json | null
+          receipt_json?: Json | null
+          result_revision?: number | null
+          result_revision_id?: string | null
+          script_approval_id?: string
+          script_approval_revision?: number
+          state?: string
+          updated_at?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "image_map_prompt_operation_re_expected_prompt_revision_id__fkey"
+            columns: [
+              "expected_prompt_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "image_moment_id",
+              "expected_prompt_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "image_map_prompt_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "image_moment_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "image_map_prompt_operation_re_image_map_revision_id_worksp_fkey"
+            columns: [
+              "image_map_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "image_map_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "image_map_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "image_map_prompt_operation_re_result_revision_id_workspace_fkey"
+            columns: [
+              "result_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "image_moment_id",
+              "result_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "image_map_prompt_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "image_moment_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "image_map_prompt_operation_re_script_approval_id_workspace_fkey"
+            columns: [
+              "script_approval_id",
+              "workspace_id",
+              "workpiece_id",
+              "script_approval_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "script_approval_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "approval_revision",
+            ]
+          },
+          {
+            foreignKeyName: "image_map_prompt_operation_recei_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "image_map_prompt_operation_receipts_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      image_map_prompt_revisions: {
+        Row: {
+          ai_synthesized_prompt: string
+          content_hash: string
+          created_at: string
+          created_by: string
+          creator_direction: string
+          final_prompt: string
+          id: string
+          image_map_revision: number
+          image_map_revision_id: string
+          image_moment_id: string
+          immutable_revision_hash: string
+          interpretation_contract_version: string
+          interpretation_model: string
+          interpretation_request_json: Json
+          interpretation_response_json: Json
+          previous_revision: number | null
+          previous_revision_id: string | null
+          prompt_source: string
+          revision: number
+          script_approval_id: string
+          script_approval_revision: number
+          source_context_json: Json
+          synthesis_contract_version: string
+          validator_version: string
+          visual_brief_json: Json
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          ai_synthesized_prompt: string
+          content_hash: string
+          created_at?: string
+          created_by: string
+          creator_direction: string
+          final_prompt: string
+          id?: string
+          image_map_revision: number
+          image_map_revision_id: string
+          image_moment_id: string
+          immutable_revision_hash: string
+          interpretation_contract_version: string
+          interpretation_model: string
+          interpretation_request_json: Json
+          interpretation_response_json: Json
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          prompt_source: string
+          revision: number
+          script_approval_id: string
+          script_approval_revision: number
+          source_context_json: Json
+          synthesis_contract_version: string
+          validator_version: string
+          visual_brief_json: Json
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          ai_synthesized_prompt?: string
+          content_hash?: string
+          created_at?: string
+          created_by?: string
+          creator_direction?: string
+          final_prompt?: string
+          id?: string
+          image_map_revision?: number
+          image_map_revision_id?: string
+          image_moment_id?: string
+          immutable_revision_hash?: string
+          interpretation_contract_version?: string
+          interpretation_model?: string
+          interpretation_request_json?: Json
+          interpretation_response_json?: Json
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          prompt_source?: string
+          revision?: number
+          script_approval_id?: string
+          script_approval_revision?: number
+          source_context_json?: Json
+          synthesis_contract_version?: string
+          validator_version?: string
+          visual_brief_json?: Json
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "image_map_prompt_revisions_image_map_revision_id_workspace_fkey"
+            columns: [
+              "image_map_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "image_map_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "image_map_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "image_map_prompt_revisions_previous_revision_id_workspace__fkey"
+            columns: [
+              "previous_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "image_moment_id",
+              "previous_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "image_map_prompt_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "image_moment_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "image_map_prompt_revisions_script_approval_id_workspace_id_fkey"
+            columns: [
+              "script_approval_id",
+              "workspace_id",
+              "workpiece_id",
+              "script_approval_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "script_approval_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "approval_revision",
+            ]
+          },
+          {
+            foreignKeyName: "image_map_prompt_revisions_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "image_map_prompt_revisions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      image_map_prompt_sequences: {
+        Row: {
+          current_prompt_revision: number
+          current_prompt_revision_id: string | null
+          image_moment_id: string
+          updated_at: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          current_prompt_revision?: number
+          current_prompt_revision_id?: string | null
+          image_moment_id: string
+          updated_at?: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          current_prompt_revision?: number
+          current_prompt_revision_id?: string | null
+          image_moment_id?: string
+          updated_at?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "image_map_prompt_sequences_current_prompt_revision_id_work_fkey"
+            columns: [
+              "current_prompt_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "image_moment_id",
+              "current_prompt_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "image_map_prompt_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "image_moment_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "image_map_prompt_sequences_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "image_map_prompt_sequences_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -3892,6 +4240,193 @@ export type Database = {
             columns: ["org_id"]
             isOneToOne: false
             referencedRelation: "orgs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      thumbnail_brand_setup_operations: {
+        Row: {
+          created_at: string
+          created_by: string
+          expected_binding_revision: number
+          failed_stage: string | null
+          failure_code: string | null
+          failure_message: string | null
+          id: string
+          logo_asset_revision_id: string
+          logo_content_hash: string | null
+          logo_role: string
+          operation_fingerprint: string
+          operation_id: string
+          previous_binding_id: string | null
+          previous_binding_revision: number | null
+          prior_candidate_content_hash: string | null
+          prior_candidate_count: number
+          prior_candidate_set_id: string | null
+          prior_candidate_set_revision: number | null
+          prior_thumbnail_count: number
+          prior_thumbnail_identity_hash: string
+          profile_content_hash: string | null
+          profile_id: string
+          profile_revision: number | null
+          profile_revision_id: string | null
+          receipt_json: Json | null
+          renderer_verified_logo_revision_id: string | null
+          renderer_verified_storage_bucket: string | null
+          renderer_verified_storage_key: string | null
+          requested_rules_json: Json
+          resolved_style_source: string | null
+          resulting_binding_id: string | null
+          resulting_binding_revision: number | null
+          state: string
+          storage_bucket: string
+          storage_key: string
+          updated_at: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          expected_binding_revision: number
+          failed_stage?: string | null
+          failure_code?: string | null
+          failure_message?: string | null
+          id?: string
+          logo_asset_revision_id: string
+          logo_content_hash?: string | null
+          logo_role: string
+          operation_fingerprint: string
+          operation_id: string
+          previous_binding_id?: string | null
+          previous_binding_revision?: number | null
+          prior_candidate_content_hash?: string | null
+          prior_candidate_count?: number
+          prior_candidate_set_id?: string | null
+          prior_candidate_set_revision?: number | null
+          prior_thumbnail_count?: number
+          prior_thumbnail_identity_hash: string
+          profile_content_hash?: string | null
+          profile_id: string
+          profile_revision?: number | null
+          profile_revision_id?: string | null
+          receipt_json?: Json | null
+          renderer_verified_logo_revision_id?: string | null
+          renderer_verified_storage_bucket?: string | null
+          renderer_verified_storage_key?: string | null
+          requested_rules_json: Json
+          resolved_style_source?: string | null
+          resulting_binding_id?: string | null
+          resulting_binding_revision?: number | null
+          state?: string
+          storage_bucket: string
+          storage_key: string
+          updated_at?: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          expected_binding_revision?: number
+          failed_stage?: string | null
+          failure_code?: string | null
+          failure_message?: string | null
+          id?: string
+          logo_asset_revision_id?: string
+          logo_content_hash?: string | null
+          logo_role?: string
+          operation_fingerprint?: string
+          operation_id?: string
+          previous_binding_id?: string | null
+          previous_binding_revision?: number | null
+          prior_candidate_content_hash?: string | null
+          prior_candidate_count?: number
+          prior_candidate_set_id?: string | null
+          prior_candidate_set_revision?: number | null
+          prior_thumbnail_count?: number
+          prior_thumbnail_identity_hash?: string
+          profile_content_hash?: string | null
+          profile_id?: string
+          profile_revision?: number | null
+          profile_revision_id?: string | null
+          receipt_json?: Json | null
+          renderer_verified_logo_revision_id?: string | null
+          renderer_verified_storage_bucket?: string | null
+          renderer_verified_storage_key?: string | null
+          requested_rules_json?: Json
+          resolved_style_source?: string | null
+          resulting_binding_id?: string | null
+          resulting_binding_revision?: number | null
+          state?: string
+          storage_bucket?: string
+          storage_key?: string
+          updated_at?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "thumbnail_brand_setup_operati_renderer_verified_logo_revis_fkey"
+            columns: ["renderer_verified_logo_revision_id"]
+            isOneToOne: false
+            referencedRelation: "brand_asset_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "thumbnail_brand_setup_operations_logo_asset_revision_id_fkey"
+            columns: ["logo_asset_revision_id"]
+            isOneToOne: false
+            referencedRelation: "brand_asset_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "thumbnail_brand_setup_operations_previous_binding_id_fkey"
+            columns: ["previous_binding_id"]
+            isOneToOne: false
+            referencedRelation: "workpiece_brand_bindings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "thumbnail_brand_setup_operations_prior_candidate_set_id_fkey"
+            columns: ["prior_candidate_set_id"]
+            isOneToOne: false
+            referencedRelation: "thumbnail_candidate_sets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "thumbnail_brand_setup_operations_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "brand_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "thumbnail_brand_setup_operations_profile_revision_id_fkey"
+            columns: ["profile_revision_id"]
+            isOneToOne: false
+            referencedRelation: "brand_profile_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "thumbnail_brand_setup_operations_resulting_binding_id_fkey"
+            columns: ["resulting_binding_id"]
+            isOneToOne: false
+            referencedRelation: "workpiece_brand_bindings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "thumbnail_brand_setup_operations_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "thumbnail_brand_setup_operations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
         ]
@@ -6018,18 +6553,6 @@ export type Database = {
       }
     }
     Functions: {
-      begin_thumbnail_brand_setup: {
-        Args: { p_workspace_id: string; p_workpiece_id: string; p_operation_id: string; p_operation_fingerprint: string; p_profile_id: string; p_asset_id: string | null; p_logo_role: string; p_internal_label: string; p_filename: string; p_mime_type: string; p_requested_rules: Json; p_expected_binding_revision: number }
-        Returns: Json
-      }
-      mark_thumbnail_brand_asset_ready: {
-        Args: { p_workspace_id: string; p_operation_id: string; p_operation_fingerprint: string; p_actor_id: string; p_content_hash: string; p_bytes: number; p_width?: number | null; p_height?: number | null }
-        Returns: Json
-      }
-      commit_thumbnail_brand_profile_stage: { Args: { p_workspace_id: string; p_operation_id: string; p_operation_fingerprint: string }; Returns: Json }
-      commit_thumbnail_brand_binding_stage: { Args: { p_workspace_id: string; p_operation_id: string; p_operation_fingerprint: string }; Returns: Json }
-      verify_thumbnail_brand_setup: { Args: { p_workspace_id: string; p_operation_id: string; p_operation_fingerprint: string; p_actor_id: string }; Returns: Json }
-      get_thumbnail_brand_setup_receipt: { Args: { p_workspace_id: string; p_operation_id: string }; Returns: Json }
       _insert_missing_org_members_from_teams: {
         Args: { p_org_id?: string }
         Returns: number
@@ -6477,6 +7000,39 @@ export type Database = {
         }
         Returns: Json
       }
+      begin_image_prompt_interpretation: {
+        Args: {
+          p_actor_id: string
+          p_expected_prompt_revision: number
+          p_expected_prompt_revision_id: string
+          p_image_map_revision_id: string
+          p_image_moment_id: string
+          p_normalized_inputs_json: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_script_approval_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      begin_thumbnail_brand_setup: {
+        Args: {
+          p_asset_id: string
+          p_expected_binding_revision: number
+          p_filename: string
+          p_internal_label: string
+          p_logo_role: string
+          p_mime_type: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_profile_id: string
+          p_requested_rules: Json
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       billing_item_is_plan: { Args: { p_item_id: string }; Returns: boolean }
       billing_status_entitles_access: {
         Args: { p_status: string }
@@ -6535,6 +7091,36 @@ export type Database = {
         }
         Returns: Json
       }
+      commit_image_prompt_creator_edit: {
+        Args: {
+          p_actor_id: string
+          p_expected_prompt_revision: number
+          p_expected_prompt_revision_id: string
+          p_final_prompt: string
+          p_image_moment_id: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      commit_image_prompt_interpretation: {
+        Args: {
+          p_actor_id: string
+          p_ai_synthesized_prompt: string
+          p_final_prompt: string
+          p_interpretation_contract_version: string
+          p_interpretation_model: string
+          p_interpretation_request_json: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_synthesis_contract_version: string
+          p_validator_version: string
+          p_visual_brief_json: Json
+        }
+        Returns: Json
+      }
       commit_quench_release_decision: {
         Args: {
           p_active_binding_id: string
@@ -6567,6 +7153,22 @@ export type Database = {
           p_source_file_path: string
           p_source_file_revision: number
           p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      commit_thumbnail_brand_binding_stage: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      commit_thumbnail_brand_profile_stage: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
           p_workspace_id: string
         }
         Returns: Json
@@ -6837,6 +7439,16 @@ export type Database = {
         }[]
       }
       ensure_personal_org: { Args: { p_user_id?: string }; Returns: string }
+      fail_image_prompt_operation: {
+        Args: {
+          p_failed_stage: string
+          p_failure_code: string
+          p_failure_message: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+        }
+        Returns: Json
+      }
       finalize_brand_asset_revision: {
         Args: {
           p_bytes: number
@@ -6990,6 +7602,10 @@ export type Database = {
         Returns: {
           org_id: string
         }[]
+      }
+      get_thumbnail_brand_setup_receipt: {
+        Args: { p_operation_id: string; p_workspace_id: string }
+        Returns: Json
       }
       get_thumbnail_candidate_set_projection: {
         Args: { p_workpiece_id: string; p_workspace_id: string }
@@ -7301,6 +7917,19 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      mark_thumbnail_brand_asset_ready: {
+        Args: {
+          p_actor_id: string
+          p_bytes: number
+          p_content_hash: string
+          p_height?: number
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_width?: number
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       mutate_workpiece_brand_binding: {
         Args: {
           p_expected_current_revision: number
@@ -7323,6 +7952,18 @@ export type Database = {
         Args: { p_decision_id: string }
         Returns: Json
       }
+      read_current_image_prompt: {
+        Args: {
+          p_image_moment_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      read_image_prompt_operation_receipt: {
+        Args: { p_operation_id: string; p_workspace_id: string }
+        Returns: Json
+      }
       recompute_account_balance: {
         Args: { p_user_id: string }
         Returns: undefined
@@ -7343,6 +7984,14 @@ export type Database = {
       record_hearth_event: {
         Args: { p_episode_id?: string; p_event_type: string; p_payload?: Json }
         Returns: string
+      }
+      record_image_prompt_provider_response: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_provider_response_json: Json
+        }
+        Returns: Json
       }
       remove_team_member: {
         Args: { p_team_id: string; p_user_id: string }
@@ -7630,6 +8279,11 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: undefined
       }
+      thumbnail_brand_setup_asset_hash: {
+        Args: { p_workpiece_id: string; p_workspace_id: string }
+        Returns: string
+      }
+      thumbnail_brand_setup_json: { Args: { p_id: string }; Returns: Json }
       thumbnail_candidate_eligibility: {
         Args: { p_active_binding_id: string; p_candidate_id: string }
         Returns: string
@@ -7801,6 +8455,19 @@ export type Database = {
           user_id: string
           workspace_id: string
         }[]
+      }
+      validate_image_map_visual_brief: {
+        Args: { p_brief: Json }
+        Returns: string[]
+      }
+      verify_thumbnail_brand_setup: {
+        Args: {
+          p_actor_id: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
       }
       workspace_is_creator: {
         Args: { _workspace_id: string }
