@@ -59,6 +59,7 @@ type BrollPlanPanelProps = {
   onMarkAwaitingResult: () => void;
   onClearRequestState: () => void;
   onAttachResultFromUrl: () => void;
+  canonicalV2?: boolean;
 };
 
 const MOTION_INTENTS = [
@@ -164,7 +165,15 @@ function CandidateList(args: {
         return (
           <article key={candidate.asset_id} className={`hs-imap-candidate-card${candidate.asset_id === args.selectedCandidateId ? " is-selected" : ""}`}>
             <div className="hs-imap-candidate-media">
-              {previewSource ? (
+              {previewSource && isVideoCandidate(candidate) ? (
+                <video
+                  src={candidate.uri ?? undefined}
+                  poster={candidate.preview_path ?? undefined}
+                  className="hs-imap-candidate-image"
+                  controls
+                  preload="metadata"
+                />
+              ) : previewSource ? (
                 <img
                   src={previewSource}
                   alt={candidate.label ?? "B-roll candidate"}
@@ -196,13 +205,13 @@ function CandidateList(args: {
               </div>
               {candidate.ingest_error ? <div className="hs-error-text-small">{candidate.ingest_error}</div> : null}
               {previewError ? <div className="hs-error-text-small">{previewError}</div> : null}
-              {candidate.uri ? (
+              {candidate.uri && (candidate.uri.startsWith("http://") || candidate.uri.startsWith("https://")) ? (
                 <a href={candidate.uri} target="_blank" rel="noreferrer" className="hs-imap-link-inline">
                   Open source
                 </a>
               ) : null}
-              {(candidate.preview_path ?? candidate.path) ? (
-                <div className="hs-imap-candidate-subtitle">{candidate.preview_path ?? candidate.path}</div>
+              {(candidate.path && !candidate.path.startsWith("data:")) ? (
+                <div className="hs-imap-candidate-subtitle">{candidate.path}</div>
               ) : null}
             </div>
             <div className="hs-imap-candidate-actions">
@@ -335,6 +344,78 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
       cancelled = true;
     };
   }, [beatCandidates, previewLoadSignature, props.workpieceId, selectedBeat]);
+
+  if (props.canonicalV2) {
+    const readyCount = props.beats.filter((beat) => beat.fulfillment_state === "resolved" && beat.selected_asset_id).length;
+    return (
+      <div className="hs-imap-panel" data-testid="broll-v2-panel">
+        <div className="hs-imap-header">
+          <div>
+            <h4 className="hs-imap-title">B-roll V2</h4>
+            <p className="hs-imap-subtitle">Canonical script-bound beats, verified media, and revision-safe selections from Tongs.</p>
+          </div>
+          <button type="button" className="hs-primary-btn" onClick={props.onGeneratePlan} disabled={props.disabled || props.saveState === "saving"}>
+            {props.beats.length ? "Refresh canonical plan" : "Create canonical B-roll plan"}
+          </button>
+        </div>
+        <div className="hs-imap-toolbar">
+          <span className="hs-pill">{readyCount} of {props.beats.length} ready</span>
+          <span className="hs-pill">Authority: Tongs V2</span>
+          <span className="hs-pill">State: {props.saveState}</span>
+        </div>
+        {props.saveError ? <div className="hs-error-text" role="alert">{props.saveError}</div> : null}
+        {props.message ? <div className="hs-success-text" role="status">{props.message}</div> : null}
+        <div className="hs-imap-grid">
+          <section className="hs-imap-list" aria-label="Canonical B-roll beats">
+            {props.beats.length === 0 ? <div className="hs-imap-empty">No canonical B-roll plan exists yet.</div> : props.beats.map((beat, index) => (
+              <button key={beat.id} type="button" className={`hs-imap-entry${beat.id === props.selectedBeatId ? " is-selected" : ""}`} onClick={() => props.onSelectBeat(beat.id)} disabled={props.disabled}>
+                <div className="hs-imap-entry-title">{index + 1}. {beat.anchor_text}</div>
+                <div className="hs-imap-entry-meta">{beat.motion_intent} · {resolveBeatState(beat)}</div>
+              </button>
+            ))}
+          </section>
+          <section className="hs-imap-editor" aria-label="Canonical B-roll beat">
+            {!selectedBeat ? <div className="hs-imap-empty">Select a canonical beat.</div> : <>
+              <div className="hs-imap-next-card">
+                <div className="hs-imap-next-eyebrow">Script anchor</div>
+                <div className="hs-imap-next-copy">{selectedBeat.anchor_text}</div>
+              </div>
+              <div className="hs-imap-field-grid">
+                <div><strong>Narrative purpose</strong><p>{selectedBeat.description}</p></div>
+                <div><strong>Motion intent</strong><p>{selectedBeat.motion_intent}</p></div>
+                <div><strong>Shot</strong><p>{selectedBeat.shot_type}</p></div>
+                <div><strong>Duration</strong><p>{selectedBeat.suggested_duration_ms ?? 4000} ms</p></div>
+                <div><strong>Placement</strong><p>{selectedBeat.placement_hint}</p></div>
+                <div><strong>Mood / pacing</strong><p>{selectedBeat.mood ?? "neutral"}</p></div>
+              </div>
+              <div className="hs-imap-field">
+                <label>Canonical creator-visible video prompt</label>
+                <textarea value={selectedBeat.motion_suggestion ?? "No canonical prompt revision has been created for this beat."} readOnly rows={5} />
+              </div>
+              <section className="hs-imap-next-card" aria-label="Acquire verified B-roll">
+                <div className="hs-imap-next-eyebrow">Acquire a real clip</div>
+                <div className="hs-imap-next-copy">Uploads and external URLs are fetched, inspected, stored, and registered by Tongs. Generate Video requires a configured replay-safe provider.</div>
+                <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
+                  <button type="button" onClick={() => uploadInputRef.current?.click()} disabled={props.disabled}>Upload video</button>
+                  <button type="button" disabled title="No replay-safe video provider is configured">Generate Video unavailable</button>
+                </div>
+                <div className="hs-imap-field">
+                  <label htmlFor={`${formFieldIdPrefix}-canonical-external-url`}>Verified external video URL</label>
+                  <input id={`${formFieldIdPrefix}-canonical-external-url`} value={props.draft.sourceUrl} onChange={(event) => props.onDraftChange("sourceUrl", event.target.value)} disabled={props.disabled} placeholder="https://…/clip.mp4" />
+                </div>
+                <button type="button" onClick={props.onAttachResultFromUrl} disabled={props.disabled || !props.draft.sourceUrl.trim()}>Fetch and verify external clip</button>
+                <input ref={uploadInputRef} type="file" accept="video/mp4,video/webm" hidden onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) props.onUploadAsset(file); event.currentTarget.value = ""; }} />
+              </section>
+              <h5>Verified candidates</h5>
+              <CandidateList candidates={beatCandidates} selectedCandidateId={props.selectedCandidateId} disabled={Boolean(props.disabled)} previewStateById={previewStateById} previewUrlById={previewUrlById} previewErrorById={previewErrorById} onSelectCandidate={props.onSelectCandidate} onRetryCandidateIngestion={props.onRetryCandidateIngestion} />
+              {selectedBeat.selected_asset_id ? <div className="hs-success-text">Selected clip is canonical and will be projected to Hammer with this beat’s placement evidence.</div> : null}
+            </>}
+          </section>
+        </div>
+        <details><summary>Legacy B-roll compatibility</summary><p>The former <code>episode.broll_plan</code> document is retained for read-only compatibility and is not written by this screen.</p></details>
+      </div>
+    );
+  }
 
   return (
     <div className="hs-imap-panel">

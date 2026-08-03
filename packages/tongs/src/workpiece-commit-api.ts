@@ -3,7 +3,7 @@ import type { Database, Json } from "./db.types.js";
 import { unzlibSync as fflateUnzlibSync, inflateSync as fflateInflateRawSync } from "fflate";
 import type { ThumbnailCompositeEncoding, ThumbnailCompositeRecipe } from "./thumbnail-composite.js";
 import { markEntriesProvenanceUnknown, repairEntriesAgainstApprovedScript, validateExactAnchorAgainstApprovedScript } from "./image-map-anchor-authority.js";
-import { deriveBrollPoster, fetchExternalBrollMedia, inspectBrollMedia, type VerifiedBrollMedia } from "./broll-acquisition.js";
+import type { VerifiedBrollMedia } from "./broll-acquisition.js";
 
 const THUMBNAIL_BUNDLED_FONT_VERSION = "inter-5.2.8-latin-700";
 const THUMBNAIL_COMPOSITION_ENGINE_VERSION = "forge-thumbnail-compositor-v1";
@@ -12777,6 +12777,10 @@ export class TongsCommitService {
     let state = operation ? readStringField(operation, "state") : null;
     if (state === "candidate_committed" && isRecord(operation?.receipt_json)) return operation.receipt_json as Record<string, Json>;
 
+    const acquisitionModulePath = ["./broll", "-acquisition.js"].join("");
+    const { deriveBrollPoster, fetchExternalBrollMedia, inspectBrollMedia } = await import(
+      /* @vite-ignore */ acquisitionModulePath
+    ) as typeof import("./broll-acquisition.js");
     let video: VerifiedBrollMedia | null = null;
     if (state === "pending") {
       const alreadyStored = await downloadStorageObject(this.supabase, this.bucket, videoKey);

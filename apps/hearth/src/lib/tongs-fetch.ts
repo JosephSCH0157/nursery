@@ -160,7 +160,7 @@ function resolveUserAccessTokenFromStorage(): string | null {
   return null;
 }
 
-async function resolveUserAccessToken(): Promise<string | null> {
+export async function resolveTongsUserAccessToken(): Promise<string | null> {
   const fromStorage = resolveUserAccessTokenFromStorage();
   if (fromStorage) return fromStorage;
   if (typeof window === "undefined") return null;
@@ -199,7 +199,7 @@ function resolveFromQuery(): string | null {
 }
 
 export async function hasTongsUserAccessToken(): Promise<boolean> {
-  const token = await resolveUserAccessToken();
+  const token = await resolveTongsUserAccessToken();
   return Boolean(token);
 }
 
@@ -241,7 +241,7 @@ export async function tongsFetch(url: string, options: TongsFetchOptions = {}): 
   const headers = new Headers(initHeaders ?? {});
   // Keep DEV_TOKEN out of status/UI heuristics, but still send it to the local middleware in dev.
   const apiToken = resolveTongsRequestApiToken();
-  const userAccessToken = await resolveUserAccessToken();
+  const userAccessToken = await resolveTongsUserAccessToken();
   const hasAuth = Boolean(apiToken || userAccessToken);
 
   if (!hasAuth) {

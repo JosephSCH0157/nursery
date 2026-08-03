@@ -63,6 +63,7 @@ type BuildMediaMapPanelArgs = {
 };
 
 type BuildBrollPanelArgs = {
+  canonicalV2?: boolean;
   beats: EpisodeBrollPlan["beats"];
   selectedBeatId: string | null;
   workpieceId: string | null;
@@ -325,6 +326,7 @@ export function buildMediaMapPanelProps(args: BuildMediaMapPanelArgs): MediaMapP
 
 export function buildBrollPlanPanelProps(args: BuildBrollPanelArgs): BrollPanelProps {
   return {
+    canonicalV2: args.canonicalV2,
     beats: args.beats,
     selectedBeatId: args.selectedBeatId,
     workpieceId: args.workpieceId,
