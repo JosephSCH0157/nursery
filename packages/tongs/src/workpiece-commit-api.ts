@@ -3,6 +3,7 @@ import type { Database, Json } from "./db.types.js";
 import { unzlibSync as fflateUnzlibSync, inflateSync as fflateInflateRawSync } from "fflate";
 import type { ThumbnailCompositeEncoding, ThumbnailCompositeRecipe } from "./thumbnail-composite.js";
 import { markEntriesProvenanceUnknown, repairEntriesAgainstApprovedScript, validateExactAnchorAgainstApprovedScript } from "./image-map-anchor-authority.js";
+import { deriveBrollPoster, fetchExternalBrollMedia, inspectBrollMedia, type VerifiedBrollMedia } from "./broll-acquisition.js";
 
 const THUMBNAIL_BUNDLED_FONT_VERSION = "inter-5.2.8-latin-700";
 const THUMBNAIL_COMPOSITION_ENGINE_VERSION = "forge-thumbnail-compositor-v1";
@@ -1587,9 +1588,32 @@ export type TongsCommitApiOptions = {
   openAiTextModel?: string;
 };
 
+export type AcquireBrollCandidateRequest = {
+  workspace_id: string;
+  beat_id: string;
+  operation_id: string;
+  operation_fingerprint: string;
+  source_kind: "upload" | "external" | "generated";
+  bytes_base64?: string | null;
+  source_url?: string | null;
+  prompt_revision_id?: string | null;
+  provider: string;
+  provider_request_id?: string | null;
+  final_prompt?: string | null;
+  poster_required?: boolean;
+  license_json?: Json;
+  provenance_json?: Json;
+};
+
+export type BrollVideoProviderResult = { bytes: Uint8Array; provider: string; providerRequestId: string };
+export interface BrollVideoProvider {
+  generate(input: { prompt: string; operationId: string }): Promise<BrollVideoProviderResult>;
+}
+
 export type TongsCommitApiService = {
   createCradle(input: CreateCradleRequest): Promise<CreateCradleResponse>;
   commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse>;
+  acquireBrollCandidate(workpieceId: string,input:AcquireBrollCandidateRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
   transitionHearthScriptReady(
     workpieceId: string,
     input: HearthReadyTransitionRequest,
@@ -5452,6 +5476,7 @@ export class TongsCommitService {
   readonly bucket: string;
   readonly imageProvider: ImageProvider | null;
   readonly narrativeInterpretationProvider: NarrativeInterpretationProvider | null;
+  readonly brollVideoProvider: BrollVideoProvider | null;
 
   readonly userClientFactory: ((accessToken: string) => SupabaseClient<Database>) | null;
 
@@ -5461,12 +5486,14 @@ export class TongsCommitService {
     imageProvider: ImageProvider | null = null,
     userClientFactory: ((accessToken: string) => SupabaseClient<Database>) | null = null,
     narrativeInterpretationProvider: NarrativeInterpretationProvider | null = null,
+    brollVideoProvider: BrollVideoProvider | null = null,
   ) {
     this.supabase = supabase;
     this.bucket = bucket;
     this.imageProvider = imageProvider;
     this.userClientFactory = userClientFactory;
     this.narrativeInterpretationProvider = narrativeInterpretationProvider;
+    this.brollVideoProvider = brollVideoProvider;
   }
 
   private async getCradleOrThrow(workpieceId: string): Promise<EpisodeRow> {
@@ -12722,6 +12749,109 @@ export class TongsCommitService {
     return { ...result, visuals: [...result.visuals, ...brollVisuals] };
   }
 
+  async acquireBrollCandidate(
+    workpieceId: string,
+    input: AcquireBrollCandidateRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, Json>> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    if (!options?.userAccessToken || !this.userClientFactory) throw new HttpError(503, "broll_authority_unavailable", "Authenticated B-roll authority is unavailable.");
+    const authority = this.userClientFactory(options.userAccessToken).schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const normalizedOperation = input.operation_id.replace(/[^a-zA-Z0-9._-]+/g, "-");
+    const videoPath = `assets/broll-v2/${input.beat_id}/${normalizedOperation}/video`;
+    const videoKey = buildStorageKey(workpieceId, videoPath);
+    const posterPath = `assets/broll-v2/${input.beat_id}/${normalizedOperation}/poster.jpg`;
+    const posterKey = buildStorageKey(workpieceId, posterPath);
+    const posterRequired = input.poster_required !== false;
+    const begun = await authority.rpc("begin_broll_operation", {
+      p_workspace_id: input.workspace_id, p_workpiece_id: workpieceId, p_beat_id: input.beat_id,
+      p_operation_type: "candidate_acquire", p_operation_id: input.operation_id,
+      p_operation_fingerprint: input.operation_fingerprint,
+      p_inputs: { source_kind: input.source_kind, source_url: input.source_url ?? null, prompt_revision_id: input.prompt_revision_id ?? null, poster_required: posterRequired },
+      p_actor_id: auth.userId,
+    });
+    if (begun.error || !isRecord(begun.data)) throw new HttpError(502, "broll_operation_begin_failed", begun.error?.message ?? "B-roll operation reservation failed.");
+    if (begun.data.disposition === "operation_identity_conflict") throw new HttpError(409, "broll_operation_identity_conflict", "The B-roll operation ID was reused with different inputs.");
+    const operation = isRecord(begun.data.operation) ? begun.data.operation : null;
+    let state = operation ? readStringField(operation, "state") : null;
+    if (state === "candidate_committed" && isRecord(operation?.receipt_json)) return operation.receipt_json as Record<string, Json>;
+
+    let video: VerifiedBrollMedia | null = null;
+    if (state === "pending") {
+      const alreadyStored = await downloadStorageObject(this.supabase, this.bucket, videoKey);
+      if (alreadyStored) {
+        video = await inspectBrollMedia(alreadyStored, "video");
+      } else if (input.source_kind === "upload") {
+        if (!input.bytes_base64) throw new HttpError(400, "broll_upload_bytes_required", "Upload bytes are required.");
+        video = await inspectBrollMedia(decodeBase64(input.bytes_base64), "video");
+      } else if (input.source_kind === "external") {
+        if (!input.source_url) throw new HttpError(400, "broll_external_url_required", "An external video URL is required.");
+        try { video = await fetchExternalBrollMedia(input.source_url); }
+        catch (error) { throw new HttpError(400, "broll_external_fetch_rejected", error instanceof Error ? error.message : "External media could not be verified."); }
+      } else {
+        if (!this.brollVideoProvider || !input.final_prompt) throw new HttpError(503, "broll_video_provider_unavailable", "No replay-safe B-roll video provider is configured.");
+        const generated = await this.brollVideoProvider.generate({ prompt: input.final_prompt, operationId: input.operation_id });
+        video = await inspectBrollMedia(generated.bytes, "video");
+        input.provider = generated.provider; input.provider_request_id = generated.providerRequestId;
+      }
+      if (!alreadyStored) await uploadStorageObject(this.supabase, this.bucket, videoKey, video.bytes, video.mimeType);
+      const stored = await downloadStorageObject(this.supabase, this.bucket, videoKey);
+      if (!stored) throw new HttpError(502, "broll_storage_readback_failed", "Stored B-roll video could not be read back.");
+      video = await inspectBrollMedia(stored, "video");
+      const recorded = await authority.rpc("record_broll_provider_or_upload_result", {
+        p_operation_id: input.operation_id, p_operation_fingerprint: input.operation_fingerprint,
+        p_result: { storage_bucket: this.bucket, storage_key: videoKey, path: videoPath, provider: input.provider, provider_request_id: input.provider_request_id ?? null },
+      });
+      if (recorded.error) throw new HttpError(502, "broll_result_receipt_failed", recorded.error.message);
+      state = "provider_or_upload_completed";
+    }
+    if (!video) {
+      const stored = await downloadStorageObject(this.supabase, this.bucket, videoKey);
+      if (!stored) throw new HttpError(409, "broll_video_storage_missing", "The reserved B-roll video object is missing.");
+      video = await inspectBrollMedia(stored, "video");
+    }
+    if (state === "provider_or_upload_completed") {
+      const videoHash = await sha256Hex(video.bytes);
+      const committed = await (this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient).rpc("commit_broll_operation_asset", {
+        p_operation_id: input.operation_id, p_operation_fingerprint: input.operation_fingerprint,
+        p_asset_kind: "broll_candidate_video", p_path: `${videoPath}.${video.mimeType === "video/mp4" ? "mp4" : "webm"}`,
+        p_mime_type: video.mimeType, p_byte_size: video.bytes.length, p_content_hash: videoHash,
+        p_storage_bucket: this.bucket, p_storage_key: videoKey, p_width: video.width, p_height: video.height,
+        p_duration_ms: video.durationMs, p_provider: input.provider, p_provider_request_id: input.provider_request_id ?? null,
+      });
+      if (committed.error || !isRecord(committed.data)) throw new HttpError(502, "broll_video_asset_commit_failed", committed.error?.message ?? "Video asset commit failed.");
+      state = "video_asset_verified";
+    }
+    if (posterRequired && state === "video_asset_verified") {
+      let posterBytes = await downloadStorageObject(this.supabase, this.bucket, posterKey);
+      let poster = posterBytes ? await inspectBrollMedia(posterBytes, "poster") : await deriveBrollPoster(video);
+      if (!posterBytes) await uploadStorageObject(this.supabase, this.bucket, posterKey, poster.bytes, poster.mimeType);
+      posterBytes = await downloadStorageObject(this.supabase, this.bucket, posterKey);
+      if (!posterBytes) throw new HttpError(502, "broll_poster_storage_readback_failed", "Stored B-roll poster could not be read back.");
+      poster = await inspectBrollMedia(posterBytes, "poster");
+      const posterHash = await sha256Hex(poster.bytes);
+      const committed = await (this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient).rpc("commit_broll_operation_asset", {
+        p_operation_id: input.operation_id, p_operation_fingerprint: input.operation_fingerprint,
+        p_asset_kind: "broll_candidate_poster", p_path: posterPath, p_mime_type: poster.mimeType,
+        p_byte_size: poster.bytes.length, p_content_hash: posterHash, p_storage_bucket: this.bucket,
+        p_storage_key: posterKey, p_width: poster.width, p_height: poster.height, p_duration_ms: null,
+        p_provider: "tongs-poster", p_provider_request_id: input.operation_id,
+      });
+      if (committed.error) throw new HttpError(502, "broll_poster_asset_commit_failed", committed.error.message);
+      state = "poster_asset_verified";
+    }
+    const candidate = await authority.rpc("commit_broll_candidate", {
+      p_operation_id: input.operation_id, p_operation_fingerprint: input.operation_fingerprint,
+      p_prompt_revision_id: input.prompt_revision_id ?? null, p_source_kind: input.source_kind,
+      p_license_json: input.license_json ?? {}, p_provenance_json: { ...(isRecord(input.provenance_json) ? input.provenance_json : {}), source_url: input.source_url ?? null },
+      p_actor_id: auth.userId,
+    });
+    if (candidate.error || !isRecord(candidate.data)) throw new HttpError(502, "broll_candidate_commit_failed", candidate.error?.message ?? "Candidate commit failed.");
+    if (candidate.data.disposition !== "committed") throw new HttpError(409, String(candidate.data.disposition ?? "broll_candidate_rejected"), "Canonical B-roll candidate commit was rejected.", candidate.data);
+    return candidate.data as Record<string, Json>;
+  }
+
   private imagePromptAuthorityClient(accessToken:string|null|undefined){
     if(!accessToken||!this.userClientFactory)throw new HttpError(503,"image_prompt_authority_unavailable","Authenticated image prompt authority is unavailable");
     return this.userClientFactory(accessToken).schema("tongs") as unknown as {rpc:(name:string,args:Record<string,unknown>)=>Promise<UntypedPostgrestResult>;from:(table:string)=>UntypedPostgrestBuilder};
@@ -14305,6 +14435,25 @@ export function createTongsCommitApiHandlerWithService(
       if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="image-prompts"&&parts[4]==="interpret"){
         requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const source=normalizeJsonValue(body.source_context);if(!isRecord(source))throw new HttpError(400,"invalid_source_context","source_context must be an object");
         const result=await service.interpretImageMapPrompt(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),image_moment_id:normalizeNonEmptyString(body.image_moment_id,"image_moment_id"),image_map_revision_id:normalizeUuid(body.image_map_revision_id,"image_map_revision_id"),script_approval_id:normalizeUuid(body.script_approval_id,"script_approval_id"),expected_prompt_revision_id:body.expected_prompt_revision_id==null?null:normalizeUuid(body.expected_prompt_revision_id,"expected_prompt_revision_id"),expected_prompt_revision:normalizeNonNegativeInteger(body.expected_prompt_revision,"expected_prompt_revision"),operation_id:normalizeNonEmptyString(body.operation_id,"operation_id"),operation_fingerprint:normalizeSha256(body.operation_fingerprint,"operation_fingerprint"),source_context:source as Record<string,Json>,creator_direction:normalizeNonEmptyString(body.creator_direction,"creator_direction"),style:body.style==null?null:normalizeNonEmptyString(body.style,"style"),user_access_token:userAccessToken},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="broll-v2"&&parts[4]==="acquire"){
+        requireMethod(request,"POST");
+        const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");
+        const body=await parseJsonBody(request);
+        const userAccessToken=requireUserAccessTokenHeader(request);
+        const sourceKind=body.source_kind;
+        if(sourceKind!=="upload"&&sourceKind!=="external"&&sourceKind!=="generated")throw new HttpError(400,"invalid_broll_source_kind","source_kind must be upload, external, or generated");
+        const result=await service.acquireBrollCandidate(workpieceId,{
+          workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),beat_id:normalizeUuid(body.beat_id,"beat_id"),
+          operation_id:normalizeNonEmptyString(body.operation_id,"operation_id"),operation_fingerprint:normalizeSha256(body.operation_fingerprint,"operation_fingerprint"),
+          source_kind:sourceKind,bytes_base64:body.bytes_base64==null?null:normalizeNonEmptyString(body.bytes_base64,"bytes_base64"),
+          source_url:body.source_url==null?null:normalizeNonEmptyString(body.source_url,"source_url"),
+          prompt_revision_id:body.prompt_revision_id==null?null:normalizeUuid(body.prompt_revision_id,"prompt_revision_id"),
+          provider:normalizeNonEmptyString(body.provider,"provider"),provider_request_id:body.provider_request_id==null?null:normalizeNonEmptyString(body.provider_request_id,"provider_request_id"),
+          final_prompt:body.final_prompt==null?null:normalizeNonEmptyString(body.final_prompt,"final_prompt"),poster_required:body.poster_required!==false,
+          license_json:normalizeJsonValue(body.license_json??{}),provenance_json:normalizeJsonValue(body.provenance_json??{}),
+        },{userAccessToken});
+        return jsonResponse(200,{ok:true,data:result});
       }
       if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="image-prompts"&&parts[4]==="edit"){
         requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const result=await service.editImageMapPrompt(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),image_moment_id:normalizeNonEmptyString(body.image_moment_id,"image_moment_id"),expected_prompt_revision_id:normalizeUuid(body.expected_prompt_revision_id,"expected_prompt_revision_id"),expected_prompt_revision:normalizePositiveInteger(body.expected_prompt_revision,"expected_prompt_revision"),final_prompt:normalizeNonEmptyString(body.final_prompt,"final_prompt"),operation_id:normalizeNonEmptyString(body.operation_id,"operation_id"),operation_fingerprint:normalizeSha256(body.operation_fingerprint,"operation_fingerprint"),user_access_token:userAccessToken},{userAccessToken});return jsonResponse(200,{ok:true,data:result});

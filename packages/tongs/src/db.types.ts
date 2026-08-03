@@ -7849,6 +7849,25 @@ export type Database = {
         }
         Returns: Json
       }
+      commit_broll_operation_asset: {
+        Args: {
+          p_asset_kind: string
+          p_byte_size: number
+          p_content_hash: string
+          p_duration_ms: number
+          p_height: number
+          p_mime_type: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_path: string
+          p_provider: string
+          p_provider_request_id: string
+          p_storage_bucket: string
+          p_storage_key: string
+          p_width: number
+        }
+        Returns: Json
+      }
       commit_broll_plan: {
         Args: {
           p_actor_id: string
