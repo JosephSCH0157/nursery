@@ -87,6 +87,7 @@ function mockService() {
     getWorkpieceRecordingTruth: [],
     appendEvent: [],
     readWorkpieceBinary: [],
+    createWorkpieceMediaUrl: [],
     readWorkpieceText: [],
   };
 
@@ -1165,6 +1166,14 @@ function mockService() {
         found: true,
         bytes_base64: "AQID",
         content_type: "image/png",
+      };
+    },
+    async createWorkpieceMediaUrl(workpieceId, path) {
+      calls.createWorkpieceMediaUrl.push({ workpieceId, path });
+      return {
+        url: "https://storage.example.test/object/sign/forge-workpieces/video.mp4?token=signed",
+        content_type: "video/mp4",
+        expires_at: "2026-08-04T13:00:00.000Z",
       };
     },
     async readWorkpieceText(workpieceId, path) {
@@ -4002,6 +4011,28 @@ test("GET /tongs/workpieces/:id/read-file?encoding=base64 dispatches readWorkpie
   assert.equal(body.ok, true);
   assert.equal(body.data?.content_type, "image/png");
   assert.equal(body.data?.bytes_base64, "AQID");
+});
+
+test("GET /tongs/workpieces/:id/media-url returns a short-lived canonical storage URL", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service, "secret");
+  const response = await handler(new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/media-url?path=assets%2Fbroll-v2%2Fbeat%2Fvideo.mp4",
+    { headers: { authorization: "Bearer secret" } },
+  ));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    ok: true,
+    data: {
+      url: "https://storage.example.test/object/sign/forge-workpieces/video.mp4?token=signed",
+      content_type: "video/mp4",
+      expires_at: "2026-08-04T13:00:00.000Z",
+    },
+  });
+  assert.deepEqual(calls.createWorkpieceMediaUrl, [{
+    workpieceId: "11111111-1111-4111-8111-111111111111",
+    path: "assets/broll-v2/beat/video.mp4",
+  }]);
 });
 
 test("thumbnail asset lifecycle routes require and forward canonical operation identity", async () => {

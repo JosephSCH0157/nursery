@@ -2041,6 +2041,11 @@ export type TongsCommitApiService = {
   readWorkpieceText(workpieceId: string, path: string): Promise<ReadTextFileResult>;
   readWorkspaceText(workspaceId: string, path: string): Promise<ReadTextFileResult>;
   readWorkpieceBinary(workpieceId: string, path: string): Promise<ReadBinaryFileResult>;
+  createWorkpieceMediaUrl(workpieceId: string, path: string): Promise<{
+    url: string;
+    content_type: string;
+    expires_at: string;
+  }>;
 };
 
 class HttpError extends Error {
@@ -12695,6 +12700,29 @@ export class TongsCommitService {
     return this.getWorkpieceImageMap(workpieceId, options);
   }
 
+  async createWorkpieceMediaUrl(workpieceId: string, path: string): Promise<{
+    url: string;
+    content_type: string;
+    expires_at: string;
+  }> {
+    await this.getCradleOrThrow(workpieceId);
+    const storageKey = buildStorageKey(workpieceId, path);
+    const expiresInSeconds = 3600;
+    const { data, error } = await this.supabase.storage
+      .from(this.bucket)
+      .createSignedUrl(storageKey, expiresInSeconds);
+    if (error || !data?.signedUrl) {
+      throw new HttpError(502, "media_url_failed", "Failed to create a playable canonical media URL", {
+        reason: error?.message,
+      });
+    }
+    return {
+      url: data.signedUrl,
+      content_type: normalizeContentType(undefined, path),
+      expires_at: new Date(Date.now() + expiresInSeconds * 1000).toISOString(),
+    };
+  }
+
   async selectWorkpieceImageMapCandidate(
     workpieceId: string,
     input: SelectImageMapCandidateRequest,
@@ -16024,6 +16052,15 @@ export function createTongsCommitApiHandlerWithService(
           });
         }
         return jsonResponse(200, { ok: true, data: result.text, file_row: result.file_row ?? null });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "media-url") {
+        requireMethod(request, "GET");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const url = new URL(request.url);
+        const path = normalizeRelativePath(url.searchParams.get("path"));
+        const result = await service.createWorkpieceMediaUrl(workpieceId, path);
+        return jsonResponse(200, { ok: true, data: result });
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "read-file") {
