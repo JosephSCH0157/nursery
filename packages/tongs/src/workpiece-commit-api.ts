@@ -534,7 +534,7 @@ export type CommitWorkspaceFileResponse = {
 };
 
 export type ReadJsonFileResult =
-  | { found: true; data: unknown; file_row: { updated_at: string | null } | null }
+  | { found: true; data: unknown; file_row: { updated_at: string | null; revision?: number | null; hash_value?: string | null } | null }
   | { found: false };
 
 export type ReadTextFileResult =
@@ -1618,6 +1618,32 @@ export type InterpretBrollMotionPromptRequest = { workspace_id:string; beat_id:s
 export type EditBrollMotionPromptRequest = { workspace_id:string; beat_id:string; expected_prompt_revision_id:string; expected_prompt_revision:number; final_prompt:string; operation_id:string; operation_fingerprint:string; user_access_token?:string|null };
 export type ReconcileBrollRunwayRequest = { workspace_id:string; operation_id:string; operation_fingerprint:string; decision:"attach_task"|"confirmed_not_created"|"authorize_resubmission"; provider_task_id?:string|null; reconciliation_evidence?:Record<string,Json>|null };
 
+export type CommitSourceRevisionRequest = {
+  workspace_id: string; source_id?: string | null; stable_key: string; expected_revision: number;
+  source_type: string; title: string; author_creator?: string | null; publisher?: string | null;
+  published_at?: string | null; canonical_url?: string | null; document_identity?: string | null;
+  canonical_asset_revision_id?: string | null; canonical_asset_content_hash?: string | null;
+  metadata_json?: Record<string, Json>; provenance_json?: Record<string, Json>;
+  metadata_contract_version: string; provenance_contract_version: string;
+  operation_id: string; operation_fingerprint: string;
+};
+export type CommitWorkpieceSourceLinkRequest = {
+  workspace_id: string; link_id?: string | null; expected_revision: number;
+  source_revision_id: string; source_revision: number; relationship_type: string;
+  script_approval_id?: string | null; script_approval_revision?: number | null;
+  citation_anchor_json?: Record<string, Json>; document_locator_json?: Record<string, Json>;
+  media_range_json?: Record<string, Json>; quotation_excerpt_hash?: string | null;
+  relationship_note?: string | null; provenance_json?: Record<string, Json>;
+  operation_id: string; operation_fingerprint: string;
+};
+export type AdoptLegacySourceRequest = {
+  workspace_id: string; legacy_source_id: string; relationship_type: string;
+  script_approval_id?: string | null; script_approval_revision?: number | null;
+  citation_anchor_json?: Record<string, Json>; document_locator_json?: Record<string, Json>;
+  media_range_json?: Record<string, Json>; quotation_excerpt_hash?: string | null;
+  relationship_note?: string | null; operation_id: string; operation_fingerprint: string;
+};
+
 type RunwaySubmission = { taskId: string; acceptedResponse: Record<string, unknown> };
 type RunwayTask =
   | { state: "pending"; taskId: string; response: Record<string, unknown> }
@@ -2018,6 +2044,11 @@ export type TongsCommitApiService = {
     workpieceId: string,
     options?: { userAccessToken?: string | null },
   ): Promise<WorkpieceVisualPackageResponseData>;
+  commitSourceRevision(input: CommitSourceRevisionRequest, options?: { userAccessToken?: string | null }): Promise<Record<string, Json>>;
+  commitWorkpieceSourceLink(workpieceId: string, input: CommitWorkpieceSourceLinkRequest, options?: { userAccessToken?: string | null }): Promise<Record<string, Json>>;
+  adoptLegacySource(workpieceId: string, input: AdoptLegacySourceRequest, options?: { userAccessToken?: string | null }): Promise<Record<string, Json>>;
+  readCurrentSource(workspaceId: string, sourceId: string, options?: { userAccessToken?: string | null }): Promise<Record<string, Json> | null>;
+  readWorkpieceSources(workpieceId: string, workspaceId: string, options?: { userAccessToken?: string | null }): Promise<Record<string, Json> | null>;
   getQuenchCanonicalReleaseProjection(workpieceId: string, workspaceId: string, options?: { userAccessToken?: string | null }): Promise<QuenchCanonicalReleaseProjection>;
   commitQuenchSingleCandidate(workpieceId:string,input:CommitQuenchSingleCandidateRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
   commitQuenchExperiment(workpieceId:string,input:CommitQuenchExperimentRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
@@ -11447,11 +11478,11 @@ export class TongsCommitService {
   private async readWorkpieceFileUpdatedAt(
     workpieceId: string,
     path: string,
-  ): Promise<{ updated_at: string | null } | null> {
+  ): Promise<{ updated_at: string | null; revision: number | null; hash_value: string | null } | null> {
     const { data: fileRow, error: fileRowError } = await this.supabase
       .schema("tongs")
       .from("workpiece_files")
-      .select("updated_at")
+      .select("updated_at,revision,hash_value")
       .eq("workpiece_id", workpieceId)
       .eq("path", path)
       .maybeSingle();
@@ -11465,6 +11496,8 @@ export class TongsCommitService {
     return fileRow
       ? {
         updated_at: fileRow.updated_at ?? null,
+        revision: typeof fileRow.revision === "number" ? fileRow.revision : null,
+        hash_value: typeof fileRow.hash_value === "string" ? fileRow.hash_value : null,
       }
       : null;
   }
@@ -12899,6 +12932,148 @@ export class TongsCommitService {
       }];
     });
     return { ...result, visuals: [...result.visuals, ...brollVisuals] };
+  }
+
+  private sourceAuthorityClient(userAccessToken?: string | null): UntypedTongsSchemaClient {
+    if (!userAccessToken || !this.userClientFactory) {
+      throw new HttpError(503, "source_authority_unavailable", "Authenticated Source authority is unavailable.");
+    }
+    return this.userClientFactory(userAccessToken).schema("tongs") as unknown as UntypedTongsSchemaClient;
+  }
+
+  async commitSourceRevision(
+    input: CommitSourceRevisionRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, Json>> {
+    const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const result = await this.sourceAuthorityClient(options?.userAccessToken).rpc("commit_source_revision", {
+      p_workspace_id: input.workspace_id,
+      p_source_id: input.source_id ?? null,
+      p_stable_key: input.stable_key,
+      p_expected_revision: input.expected_revision,
+      p_source_type: input.source_type,
+      p_title: input.title,
+      p_author_creator: input.author_creator ?? null,
+      p_publisher: input.publisher ?? null,
+      p_published_at: input.published_at ?? null,
+      p_canonical_url: input.canonical_url ?? null,
+      p_document_identity: input.document_identity ?? null,
+      p_canonical_asset_revision_id: input.canonical_asset_revision_id ?? null,
+      p_canonical_asset_content_hash: input.canonical_asset_content_hash ?? null,
+      p_metadata_json: input.metadata_json ?? {},
+      p_provenance_json: input.provenance_json ?? {},
+      p_metadata_contract_version: input.metadata_contract_version,
+      p_provenance_contract_version: input.provenance_contract_version,
+      p_operation_id: input.operation_id,
+      p_operation_fingerprint: input.operation_fingerprint,
+      p_actor_id: auth.userId,
+    });
+    if (result.error) throw new HttpError(502, "source_commit_failed", "Tongs could not commit the Source revision.", { reason: result.error.message });
+    if (!isRecord(result.data)) throw new HttpError(502, "source_commit_invalid", "Tongs returned an invalid Source revision receipt.");
+    return result.data as Record<string, Json>;
+  }
+
+  async commitWorkpieceSourceLink(
+    workpieceId: string,
+    input: CommitWorkpieceSourceLinkRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, Json>> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const result = await this.sourceAuthorityClient(options?.userAccessToken).rpc("commit_workpiece_source_link_revision", {
+      p_workspace_id: input.workspace_id,
+      p_workpiece_id: workpieceId,
+      p_link_id: input.link_id ?? null,
+      p_expected_revision: input.expected_revision,
+      p_source_revision_id: input.source_revision_id,
+      p_source_revision: input.source_revision,
+      p_relationship_type: input.relationship_type,
+      p_script_approval_id: input.script_approval_id ?? null,
+      p_script_approval_revision: input.script_approval_revision ?? null,
+      p_citation_anchor_json: input.citation_anchor_json ?? {},
+      p_document_locator_json: input.document_locator_json ?? {},
+      p_media_range_json: input.media_range_json ?? {},
+      p_quotation_excerpt_hash: input.quotation_excerpt_hash ?? null,
+      p_relationship_note: input.relationship_note ?? null,
+      p_provenance_json: input.provenance_json ?? {},
+      p_operation_id: input.operation_id,
+      p_operation_fingerprint: input.operation_fingerprint,
+      p_actor_id: auth.userId,
+    });
+    if (result.error) throw new HttpError(502, "source_link_commit_failed", "Tongs could not commit the workpiece Source link.", { reason: result.error.message });
+    if (!isRecord(result.data)) throw new HttpError(502, "source_link_commit_invalid", "Tongs returned an invalid Source-link receipt.");
+    return result.data as Record<string, Json>;
+  }
+
+  async adoptLegacySource(
+    workpieceId: string,
+    input: AdoptLegacySourceRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, Json>> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const sourcePath = `sources/${input.legacy_source_id}.json`;
+    const linksPath = "script/script.sources.json";
+    const [sourceRead, linksRead] = await Promise.all([
+      this.readWorkspaceJson(input.workspace_id, sourcePath),
+      this.readWorkpieceJson(workpieceId, linksPath),
+    ]);
+    if (!sourceRead.found || !isRecord(sourceRead.data)) throw new HttpError(404, "legacy_source_not_found", "The current legacy Source document was not found.");
+    if (!linksRead.found || !isRecord(linksRead.data) || !linksRead.file_row?.revision || !linksRead.file_row.hash_value) {
+      throw new HttpError(409, "legacy_source_link_evidence_unavailable", "The current legacy workpiece Source-link evidence is unavailable.");
+    }
+    const refs = Array.isArray(linksRead.data.refs) ? linksRead.data.refs : [];
+    const sourceRef = refs.find((value) => isRecord(value) && readStringField(value, "source_id") === input.legacy_source_id);
+    if (!isRecord(sourceRef)) throw new HttpError(409, "legacy_source_not_linked", "The legacy Source is not linked to this workpiece.");
+    const sourceHash = await sha256Hex(canonicalJsonBytes(sourceRead.data));
+    const canonicalUrl = readStringField(sourceRead.data, "url");
+    const result = await this.sourceAuthorityClient(options?.userAccessToken).rpc("adopt_legacy_source", {
+      p_workspace_id: input.workspace_id,
+      p_workpiece_id: workpieceId,
+      p_legacy_source_id: input.legacy_source_id,
+      p_legacy_source_path: sourcePath,
+      p_legacy_source_revision: 1,
+      p_legacy_source_hash: sourceHash,
+      p_legacy_links_path: linksPath,
+      p_legacy_links_revision: linksRead.file_row.revision,
+      p_legacy_links_hash: linksRead.file_row.hash_value.toLowerCase(),
+      p_source_type: readStringField(sourceRead.data, "type") ?? "other",
+      p_title: readStringField(sourceRead.data, "title") ?? input.legacy_source_id,
+      p_author_creator: readStringField(sourceRead.data, "author"),
+      p_publisher: readStringField(sourceRead.data, "publisher"),
+      p_published_at: readStringField(sourceRead.data, "published_at"),
+      p_canonical_url: canonicalUrl,
+      p_document_identity: canonicalUrl ? null : sourcePath,
+      p_relationship_type: input.relationship_type,
+      p_script_approval_id: input.script_approval_id ?? null,
+      p_script_approval_revision: input.script_approval_revision ?? null,
+      p_citation_anchor_json: input.citation_anchor_json ?? (Array.isArray(sourceRef.attached_to) ? { anchors: sourceRef.attached_to as Json[] } : {}),
+      p_document_locator_json: input.document_locator_json ?? {},
+      p_media_range_json: input.media_range_json ?? {},
+      p_quotation_excerpt_hash: input.quotation_excerpt_hash ?? null,
+      p_relationship_note: input.relationship_note ?? readStringField(sourceRef, "notes"),
+      p_operation_id: input.operation_id,
+      p_operation_fingerprint: input.operation_fingerprint,
+      p_actor_id: auth.userId,
+    });
+    if (result.error) throw new HttpError(502, "legacy_source_adoption_failed", "Tongs could not adopt the legacy Source.", { reason: result.error.message });
+    if (!isRecord(result.data)) throw new HttpError(502, "legacy_source_adoption_invalid", "Tongs returned an invalid legacy-adoption receipt.");
+    return result.data as Record<string, Json>;
+  }
+
+  async readCurrentSource(workspaceId: string, sourceId: string, options?: { userAccessToken?: string | null }): Promise<Record<string, Json> | null> {
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+    const result = await this.sourceAuthorityClient(options?.userAccessToken).rpc("read_current_source", { p_workspace_id: workspaceId, p_source_id: sourceId });
+    if (result.error) throw new HttpError(502, "source_read_failed", "Tongs could not read the current Source revision.", { reason: result.error.message });
+    return isRecord(result.data) ? result.data as Record<string, Json> : null;
+  }
+
+  async readWorkpieceSources(workpieceId: string, workspaceId: string, options?: { userAccessToken?: string | null }): Promise<Record<string, Json> | null> {
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+    const result = await this.sourceAuthorityClient(options?.userAccessToken).rpc("read_workpiece_sources", { p_workspace_id: workspaceId, p_workpiece_id: workpieceId });
+    if (result.error) throw new HttpError(502, "workpiece_sources_read_failed", "Tongs could not read workpiece Source links.", { reason: result.error.message });
+    return isRecord(result.data) ? result.data as Record<string, Json> : null;
   }
 
   async acquireBrollCandidate(
@@ -14745,6 +14920,27 @@ export function createTongsCommitApiHandlerWithService(
       if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="image-prompts"&&parts[4]==="interpret"){
         requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const source=normalizeJsonValue(body.source_context);if(!isRecord(source))throw new HttpError(400,"invalid_source_context","source_context must be an object");
         const result=await service.interpretImageMapPrompt(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),image_moment_id:normalizeNonEmptyString(body.image_moment_id,"image_moment_id"),image_map_revision_id:normalizeUuid(body.image_map_revision_id,"image_map_revision_id"),script_approval_id:normalizeUuid(body.script_approval_id,"script_approval_id"),expected_prompt_revision_id:body.expected_prompt_revision_id==null?null:normalizeUuid(body.expected_prompt_revision_id,"expected_prompt_revision_id"),expected_prompt_revision:normalizeNonNegativeInteger(body.expected_prompt_revision,"expected_prompt_revision"),operation_id:normalizeNonEmptyString(body.operation_id,"operation_id"),operation_fingerprint:normalizeSha256(body.operation_fingerprint,"operation_fingerprint"),source_context:source as Record<string,Json>,creator_direction:normalizeNonEmptyString(body.creator_direction,"creator_direction"),style:body.style==null?null:normalizeNonEmptyString(body.style,"style"),user_access_token:userAccessToken},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workspaces"&&parts[3]==="sources"&&parts[4]==="commit-revision"){
+        requireMethod(request,"POST");const workspaceId=normalizeUuid(decodeURIComponent(parts[2]),"workspace_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);
+        const metadata=normalizeJsonValue(body.metadata_json??{});const provenance=normalizeJsonValue(body.provenance_json??{});if(!isRecord(metadata)||!isRecord(provenance))throw new HttpError(400,"invalid_source_metadata","Source metadata and provenance must be objects.");
+        const result=await service.commitSourceRevision({workspace_id:workspaceId,source_id:body.source_id==null?null:normalizeUuid(body.source_id,"source_id"),stable_key:normalizeNonEmptyString(body.stable_key,"stable_key"),expected_revision:normalizeNonNegativeInteger(body.expected_revision,"expected_revision"),source_type:normalizeNonEmptyString(body.source_type,"source_type"),title:normalizeNonEmptyString(body.title,"title"),author_creator:body.author_creator==null?null:normalizeNonEmptyString(body.author_creator,"author_creator"),publisher:body.publisher==null?null:normalizeNonEmptyString(body.publisher,"publisher"),published_at:body.published_at==null?null:normalizeNonEmptyString(body.published_at,"published_at"),canonical_url:body.canonical_url==null?null:normalizeNonEmptyString(body.canonical_url,"canonical_url"),document_identity:body.document_identity==null?null:normalizeNonEmptyString(body.document_identity,"document_identity"),canonical_asset_revision_id:body.canonical_asset_revision_id==null?null:normalizeUuid(body.canonical_asset_revision_id,"canonical_asset_revision_id"),canonical_asset_content_hash:body.canonical_asset_content_hash==null?null:normalizeSha256(body.canonical_asset_content_hash,"canonical_asset_content_hash"),metadata_json:metadata as Record<string,Json>,provenance_json:provenance as Record<string,Json>,metadata_contract_version:normalizeNonEmptyString(body.metadata_contract_version,"metadata_contract_version"),provenance_contract_version:normalizeNonEmptyString(body.provenance_contract_version,"provenance_contract_version"),operation_id:normalizeNonEmptyString(body.operation_id,"operation_id"),operation_fingerprint:normalizeSha256(body.operation_fingerprint,"operation_fingerprint")},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workspaces"&&parts[3]==="sources"){
+        requireMethod(request,"GET");const workspaceId=normalizeUuid(decodeURIComponent(parts[2]),"workspace_id");const sourceId=normalizeUuid(decodeURIComponent(parts[4]),"source_id");const userAccessToken=requireUserAccessTokenHeader(request);const result=await service.readCurrentSource(workspaceId,sourceId,{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===4&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="sources"){
+        requireMethod(request,"GET");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const workspaceId=normalizeUuid(new URL(request.url).searchParams.get("workspace_id"),"workspace_id");const userAccessToken=requireUserAccessTokenHeader(request);const result=await service.readWorkpieceSources(workpieceId,workspaceId,{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="sources"&&parts[4]==="link"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);
+        const citation=normalizeJsonValue(body.citation_anchor_json??{});const locator=normalizeJsonValue(body.document_locator_json??{});const range=normalizeJsonValue(body.media_range_json??{});const provenance=normalizeJsonValue(body.provenance_json??{});if(!isRecord(citation)||!isRecord(locator)||!isRecord(range)||!isRecord(provenance))throw new HttpError(400,"invalid_source_link_evidence","Source-link evidence must be objects.");
+        const result=await service.commitWorkpieceSourceLink(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),link_id:body.link_id==null?null:normalizeUuid(body.link_id,"link_id"),expected_revision:normalizeNonNegativeInteger(body.expected_revision,"expected_revision"),source_revision_id:normalizeUuid(body.source_revision_id,"source_revision_id"),source_revision:normalizePositiveInteger(body.source_revision,"source_revision"),relationship_type:normalizeNonEmptyString(body.relationship_type,"relationship_type"),script_approval_id:body.script_approval_id==null?null:normalizeUuid(body.script_approval_id,"script_approval_id"),script_approval_revision:body.script_approval_revision==null?null:normalizePositiveInteger(body.script_approval_revision,"script_approval_revision"),citation_anchor_json:citation as Record<string,Json>,document_locator_json:locator as Record<string,Json>,media_range_json:range as Record<string,Json>,quotation_excerpt_hash:body.quotation_excerpt_hash==null?null:normalizeSha256(body.quotation_excerpt_hash,"quotation_excerpt_hash"),relationship_note:body.relationship_note==null?null:normalizeNonEmptyString(body.relationship_note,"relationship_note"),provenance_json:provenance as Record<string,Json>,operation_id:normalizeNonEmptyString(body.operation_id,"operation_id"),operation_fingerprint:normalizeSha256(body.operation_fingerprint,"operation_fingerprint")},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="sources"&&parts[4]==="adopt-legacy"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);
+        const citation=normalizeJsonValue(body.citation_anchor_json??{});const locator=normalizeJsonValue(body.document_locator_json??{});const range=normalizeJsonValue(body.media_range_json??{});if(!isRecord(citation)||!isRecord(locator)||!isRecord(range))throw new HttpError(400,"invalid_legacy_source_evidence","Legacy Source evidence must be objects.");
+        const result=await service.adoptLegacySource(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),legacy_source_id:normalizeNonEmptyString(body.legacy_source_id,"legacy_source_id"),relationship_type:normalizeNonEmptyString(body.relationship_type,"relationship_type"),script_approval_id:body.script_approval_id==null?null:normalizeUuid(body.script_approval_id,"script_approval_id"),script_approval_revision:body.script_approval_revision==null?null:normalizePositiveInteger(body.script_approval_revision,"script_approval_revision"),citation_anchor_json:citation as Record<string,Json>,document_locator_json:locator as Record<string,Json>,media_range_json:range as Record<string,Json>,quotation_excerpt_hash:body.quotation_excerpt_hash==null?null:normalizeSha256(body.quotation_excerpt_hash,"quotation_excerpt_hash"),relationship_note:body.relationship_note==null?null:normalizeNonEmptyString(body.relationship_note,"relationship_note"),operation_id:normalizeNonEmptyString(body.operation_id,"operation_id"),operation_fingerprint:normalizeSha256(body.operation_fingerprint,"operation_fingerprint")},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
       }
       if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="broll-v2"&&parts[4]==="acquire"){
         requireMethod(request,"POST");

@@ -5285,6 +5285,276 @@ export type Database = {
           },
         ]
       }
+      source_operation_receipts: {
+        Row: {
+          created_at: string
+          created_by: string
+          failure_code: string | null
+          failure_message: string | null
+          link_id: string | null
+          normalized_inputs_json: Json
+          operation_fingerprint: string
+          operation_id: string
+          operation_type: string
+          receipt_json: Json | null
+          result_link_revision_id: string | null
+          result_source_revision_id: string | null
+          source_id: string | null
+          state: string
+          updated_at: string
+          workpiece_id: string | null
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          failure_code?: string | null
+          failure_message?: string | null
+          link_id?: string | null
+          normalized_inputs_json: Json
+          operation_fingerprint: string
+          operation_id: string
+          operation_type: string
+          receipt_json?: Json | null
+          result_link_revision_id?: string | null
+          result_source_revision_id?: string | null
+          source_id?: string | null
+          state: string
+          updated_at?: string
+          workpiece_id?: string | null
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          failure_code?: string | null
+          failure_message?: string | null
+          link_id?: string | null
+          normalized_inputs_json?: Json
+          operation_fingerprint?: string
+          operation_id?: string
+          operation_type?: string
+          receipt_json?: Json | null
+          result_link_revision_id?: string | null
+          result_source_revision_id?: string | null
+          source_id?: string | null
+          state?: string
+          updated_at?: string
+          workpiece_id?: string | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "source_operation_receipts_source_id_workspace_id_fkey"
+            columns: ["source_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "sources"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "source_operation_receipts_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "source_operation_receipts_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      source_revisions: {
+        Row: {
+          author_creator: string | null
+          canonical_asset_content_hash: string | null
+          canonical_asset_revision_id: string | null
+          canonical_url: string | null
+          content_hash: string
+          created_at: string
+          created_by: string
+          document_identity: string | null
+          id: string
+          immutable_revision_hash: string
+          metadata_contract_version: string
+          metadata_json: Json
+          previous_revision: number | null
+          previous_revision_id: string | null
+          provenance_contract_version: string
+          provenance_json: Json
+          published_at: string | null
+          publisher: string | null
+          revision: number
+          source_id: string
+          source_type: string
+          title: string
+          workspace_id: string
+        }
+        Insert: {
+          author_creator?: string | null
+          canonical_asset_content_hash?: string | null
+          canonical_asset_revision_id?: string | null
+          canonical_url?: string | null
+          content_hash: string
+          created_at?: string
+          created_by: string
+          document_identity?: string | null
+          id?: string
+          immutable_revision_hash: string
+          metadata_contract_version: string
+          metadata_json?: Json
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          provenance_contract_version: string
+          provenance_json?: Json
+          published_at?: string | null
+          publisher?: string | null
+          revision: number
+          source_id: string
+          source_type: string
+          title: string
+          workspace_id: string
+        }
+        Update: {
+          author_creator?: string | null
+          canonical_asset_content_hash?: string | null
+          canonical_asset_revision_id?: string | null
+          canonical_url?: string | null
+          content_hash?: string
+          created_at?: string
+          created_by?: string
+          document_identity?: string | null
+          id?: string
+          immutable_revision_hash?: string
+          metadata_contract_version?: string
+          metadata_json?: Json
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          provenance_contract_version?: string
+          provenance_json?: Json
+          published_at?: string | null
+          publisher?: string | null
+          revision?: number
+          source_id?: string
+          source_type?: string
+          title?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "source_revisions_canonical_asset_revision_id_fkey"
+            columns: ["canonical_asset_revision_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "source_revisions_previous_revision_id_workspace_id_source__fkey"
+            columns: [
+              "previous_revision_id",
+              "workspace_id",
+              "source_id",
+              "previous_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "source_revisions"
+            referencedColumns: ["id", "workspace_id", "source_id", "revision"]
+          },
+          {
+            foreignKeyName: "source_revisions_source_id_workspace_id_fkey"
+            columns: ["source_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "sources"
+            referencedColumns: ["id", "workspace_id"]
+          },
+        ]
+      }
+      source_sequences: {
+        Row: {
+          current_source_revision: number
+          current_source_revision_id: string
+          source_id: string
+          updated_at: string
+          workspace_id: string
+        }
+        Insert: {
+          current_source_revision: number
+          current_source_revision_id: string
+          source_id: string
+          updated_at?: string
+          workspace_id: string
+        }
+        Update: {
+          current_source_revision?: number
+          current_source_revision_id?: string
+          source_id?: string
+          updated_at?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "source_sequences_current_source_revision_id_workspace_id_s_fkey"
+            columns: [
+              "current_source_revision_id",
+              "workspace_id",
+              "source_id",
+              "current_source_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "source_revisions"
+            referencedColumns: ["id", "workspace_id", "source_id", "revision"]
+          },
+          {
+            foreignKeyName: "source_sequences_source_id_workspace_id_fkey"
+            columns: ["source_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "sources"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "source_sequences_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sources: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          stable_key: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          stable_key: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          stable_key?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sources_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       team_members: {
         Row: {
           created_at: string
@@ -7140,6 +7410,194 @@ export type Database = {
           },
         ]
       }
+      workpiece_source_link_revisions: {
+        Row: {
+          citation_anchor_json: Json
+          content_hash: string
+          created_at: string
+          created_by: string
+          document_locator_json: Json
+          id: string
+          immutable_revision_hash: string
+          link_id: string
+          media_range_json: Json
+          previous_revision: number | null
+          previous_revision_id: string | null
+          provenance_json: Json
+          quotation_excerpt_hash: string | null
+          relationship_note: string | null
+          relationship_type: string
+          revision: number
+          script_approval_id: string | null
+          script_approval_revision: number | null
+          source_id: string
+          source_revision: number
+          source_revision_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          citation_anchor_json?: Json
+          content_hash: string
+          created_at?: string
+          created_by: string
+          document_locator_json?: Json
+          id?: string
+          immutable_revision_hash: string
+          link_id: string
+          media_range_json?: Json
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          provenance_json?: Json
+          quotation_excerpt_hash?: string | null
+          relationship_note?: string | null
+          relationship_type: string
+          revision: number
+          script_approval_id?: string | null
+          script_approval_revision?: number | null
+          source_id: string
+          source_revision: number
+          source_revision_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          citation_anchor_json?: Json
+          content_hash?: string
+          created_at?: string
+          created_by?: string
+          document_locator_json?: Json
+          id?: string
+          immutable_revision_hash?: string
+          link_id?: string
+          media_range_json?: Json
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          provenance_json?: Json
+          quotation_excerpt_hash?: string | null
+          relationship_note?: string | null
+          relationship_type?: string
+          revision?: number
+          script_approval_id?: string | null
+          script_approval_revision?: number | null
+          source_id?: string
+          source_revision?: number
+          source_revision_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workpiece_source_link_revisio_previous_revision_id_workspa_fkey"
+            columns: [
+              "previous_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "link_id",
+              "previous_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "workpiece_source_link_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "link_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "workpiece_source_link_revisio_script_approval_id_workspace_fkey"
+            columns: [
+              "script_approval_id",
+              "workspace_id",
+              "workpiece_id",
+              "script_approval_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "script_approval_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "approval_revision",
+            ]
+          },
+          {
+            foreignKeyName: "workpiece_source_link_revisio_source_revision_id_workspace_fkey"
+            columns: [
+              "source_revision_id",
+              "workspace_id",
+              "source_id",
+              "source_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "source_revisions"
+            referencedColumns: ["id", "workspace_id", "source_id", "revision"]
+          },
+          {
+            foreignKeyName: "workpiece_source_link_revisions_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+        ]
+      }
+      workpiece_source_link_sequences: {
+        Row: {
+          current_link_revision: number
+          current_link_revision_id: string
+          link_id: string
+          updated_at: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          current_link_revision: number
+          current_link_revision_id: string
+          link_id: string
+          updated_at?: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          current_link_revision?: number
+          current_link_revision_id?: string
+          link_id?: string
+          updated_at?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workpiece_source_link_sequenc_current_link_revision_id_wor_fkey"
+            columns: [
+              "current_link_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "link_id",
+              "current_link_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "workpiece_source_link_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "link_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "workpiece_source_link_sequences_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+        ]
+      }
       workspace_default_brand_profiles: {
         Row: {
           profile_id: string
@@ -7825,6 +8283,38 @@ export type Database = {
           shared_org_ai_enabled: boolean
         }[]
       }
+      adopt_legacy_source: {
+        Args: {
+          p_actor_id: string
+          p_author_creator: string
+          p_canonical_url: string
+          p_citation_anchor_json: Json
+          p_document_identity: string
+          p_document_locator_json: Json
+          p_legacy_links_hash: string
+          p_legacy_links_path: string
+          p_legacy_links_revision: number
+          p_legacy_source_hash: string
+          p_legacy_source_id: string
+          p_legacy_source_path: string
+          p_legacy_source_revision: number
+          p_media_range_json: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_published_at: string
+          p_publisher: string
+          p_quotation_excerpt_hash: string
+          p_relationship_note: string
+          p_relationship_type: string
+          p_script_approval_id: string
+          p_script_approval_revision: number
+          p_source_type: string
+          p_title: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       anvil_transition_take_completed: {
         Args: {
           p_capture_session_id: string
@@ -8418,6 +8908,31 @@ export type Database = {
         }
         Returns: Json
       }
+      commit_source_revision: {
+        Args: {
+          p_actor_id: string
+          p_author_creator: string
+          p_canonical_asset_content_hash: string
+          p_canonical_asset_revision_id: string
+          p_canonical_url: string
+          p_document_identity: string
+          p_expected_revision: number
+          p_metadata_contract_version: string
+          p_metadata_json: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_provenance_contract_version: string
+          p_provenance_json: Json
+          p_published_at: string
+          p_publisher: string
+          p_source_id: string
+          p_source_type: string
+          p_stable_key: string
+          p_title: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       commit_thumbnail_brand_binding_stage: {
         Args: {
           p_operation_fingerprint: string
@@ -8440,6 +8955,29 @@ export type Database = {
           p_expected_current_revision: number
           p_operation_fingerprint: string
           p_operation_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      commit_workpiece_source_link_revision: {
+        Args: {
+          p_actor_id: string
+          p_citation_anchor_json: Json
+          p_document_locator_json: Json
+          p_expected_revision: number
+          p_link_id: string
+          p_media_range_json: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_provenance_json: Json
+          p_quotation_excerpt_hash: string
+          p_relationship_note: string
+          p_relationship_type: string
+          p_script_approval_id: string
+          p_script_approval_revision: number
+          p_source_revision: number
+          p_source_revision_id: string
           p_workpiece_id: string
           p_workspace_id: string
         }
@@ -9265,8 +9803,20 @@ export type Database = {
         }
         Returns: Json
       }
+      read_current_source: {
+        Args: { p_source_id: string; p_workspace_id: string }
+        Returns: Json
+      }
       read_image_prompt_operation_receipt: {
         Args: { p_operation_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      read_source_operation_receipt: {
+        Args: { p_operation_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      read_workpiece_sources: {
+        Args: { p_workpiece_id: string; p_workspace_id: string }
         Returns: Json
       }
       recompute_account_balance: {
