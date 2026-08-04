@@ -2116,6 +2116,14 @@ export default function HearthShell({
     return true;
   }, [workspaceId, workpieceId]);
   useEffect(() => { void refreshCanonicalReferenceClips(); }, [refreshCanonicalReferenceClips]);
+  useEffect(() => {
+    const listener = (event: Event) => {
+      const detail = (event as CustomEvent<{ workspaceId?: string; workpieceId?: string; state?: ReferenceClipState | null }>).detail;
+      if (detail?.workspaceId === workspaceId && detail?.workpieceId === workpieceId && "state" in detail) setCanonicalReferenceClipState(detail.state ?? null);
+    };
+    window.addEventListener("forge:canonical-reference-clips-progress", listener);
+    return () => window.removeEventListener("forge:canonical-reference-clips-progress", listener);
+  }, [workspaceId, workpieceId]);
   const plannedImageCount = imageMapEntries.length;
   const imageMapAuthorityUnavailable = imageMapSaveError === "canonical_image_map_authority_unavailable";
   const mediaWorkflowInput = {
@@ -2138,6 +2146,10 @@ export default function HearthShell({
       completed: imageMapEntries.filter((entry) => Boolean(entry.selected_asset_id)).length,
       canonicalCount: imageMapEntries.length,
       projectionLoaded: imageMapProjectionLoaded && !imageMapAuthorityUnavailable,
+    },
+    referenceClips: {
+      planned: canonicalReferenceClipState?.opportunities.length ?? 0,
+      completed: canonicalReferenceClipState?.opportunities.filter((opportunity) => Boolean(opportunity.selectedRevisionId)).length ?? 0,
     },
     broll: { planned: brollBeats.length, completed: brollBeats.filter((beat) => beat.fulfillment_state === "resolved" && Boolean(beat.selected_asset_id)).length },
     upstreamChanged: visualPlanRevisionChanged,

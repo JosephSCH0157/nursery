@@ -3,14 +3,15 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { deriveHearthMediaWorkflow } from "../src/lib/hearth-media-workflow-view-model";
 
-const input=(overrides:Record<string,unknown>={})=>({hasApprovedScript:true,visualPlan:{status:null,total:0,images:0,broll:0,version:0},thumbnails:{eligible:0,total:0},images:{planned:0,completed:0,canonicalCount:0,projectionLoaded:true},broll:{planned:0,completed:0},...overrides});
+const input=(overrides:Record<string,unknown>={})=>({hasApprovedScript:true,visualPlan:{status:null,total:0,images:0,broll:0,referenceClips:0,version:0},thumbnails:{eligible:0,total:0},images:{planned:0,completed:0,canonicalCount:0,projectionLoaded:true},referenceClips:{planned:0,completed:0},broll:{planned:0,completed:0},...overrides});
 
 test("cold recovery selects the first canonically incomplete stage",()=>{
   assert.equal(deriveHearthMediaWorkflow(input()).activeStage,"visual_plan");
   assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:4,images:3,broll:1,version:1}})).activeStage,"thumbnails");
   assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:4,images:3,broll:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:3,completed:1,canonicalCount:3,projectionLoaded:true}})).activeStage,"images");
-  assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:4,images:3,broll:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:3,completed:3,canonicalCount:3,projectionLoaded:true},broll:{planned:1,completed:0}})).activeStage,"broll");
-  assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"fulfilled",total:4,images:3,broll:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:3,completed:3,canonicalCount:3,projectionLoaded:true},broll:{planned:1,completed:1}})).activeStage,"review");
+  assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:5,images:3,broll:1,referenceClips:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:3,completed:3,canonicalCount:3,projectionLoaded:true},referenceClips:{planned:1,completed:0},broll:{planned:1,completed:0}})).activeStage,"reference_clips");
+  assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:5,images:3,broll:1,referenceClips:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:3,completed:3,canonicalCount:3,projectionLoaded:true},referenceClips:{planned:1,completed:1},broll:{planned:1,completed:0}})).activeStage,"broll");
+  assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"fulfilled",total:5,images:3,broll:1,referenceClips:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:3,completed:3,canonicalCount:3,projectionLoaded:true},referenceClips:{planned:1,completed:1},broll:{planned:1,completed:1}})).activeStage,"review");
 });
 
 test("thumbnail completion requires three Tongs-eligible candidates",()=>{
@@ -32,7 +33,15 @@ test("cold recovery opens Images with canonical thumbnail preview identities",()
 
 test("strict image and B-roll completion never infers skipped work",()=>{
   const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:3,images:2,broll:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:2,completed:1,canonicalCount:2,projectionLoaded:true},broll:{planned:1,completed:1}}));
-  assert.equal(workflow.activeStage,"images");assert.equal(workflow.stages[3]?.status,"blocked");
+  assert.equal(workflow.activeStage,"images");assert.equal(workflow.stages[4]?.status,"blocked");
+});
+
+test("Reference Clips follows Images while B-roll remains deliberately reviewable",()=>{
+  const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:4,images:2,broll:1,referenceClips:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:2,completed:2,canonicalCount:2,projectionLoaded:true},referenceClips:{planned:1,completed:0},broll:{planned:1,completed:0}}));
+  assert.equal(workflow.activeStage,"reference_clips");
+  assert.equal(workflow.stages[3]?.label,"Reference Clips");
+  assert.equal(workflow.stages[3]?.summary,"0 of 1 resolved");
+  assert.equal(workflow.stages[4]?.status,"ready");
 });
 
 test("upstream revision requests review without deleting downstream summaries",()=>{
@@ -46,6 +55,8 @@ test("creator UI translates Visual Plan while canonical media_map identities rem
   const css=await readFile(new URL("../src/views/surfaces/VisualsSurface.css",import.meta.url),"utf8");
   const repo=await readFile(new URL("../src/lib/hearth-media-map-repo.ts",import.meta.url),"utf8");
   assert.match(surface,/Visual Plan/);assert.match(panel,/Create visual plan/);assert.doesNotMatch(surface,/Collapse/);assert.match(surface,/aria-live="polite"/);assert.match(css,/prefers-reduced-motion/);
+  assert.match(surface,/displayedStage==="reference_clips"/);
+  assert.doesNotMatch(surface,/Canonical Reference Clip opportunities/);
   assert.match(repo,/hearth\/media_map\.v1\.json/);assert.match(repo,/media_map/);
 });
 

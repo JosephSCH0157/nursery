@@ -44,7 +44,7 @@ test("creator surface is guided and never routes stock through AI generation", (
   const guided = panel.match(/if \(!manualOnly\) \{[\s\S]*?\n  \}\n  let primaryActionButton/)?.[0] ?? "";
   assert.doesNotMatch(guided, /onGenerateCandidates\("stock"\)/);
   assert.match(panel, /"Use this image"/);
-  assert.match(surface, /Episode images complete\. B-roll is ready\./);
+  assert.match(surface, /Episode images complete\. Reference Clips is ready\./);
 });
 
 test("episode-image prompt language is distinct from thumbnail language", () => {

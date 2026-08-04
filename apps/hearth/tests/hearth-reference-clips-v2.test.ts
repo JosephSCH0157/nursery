@@ -53,4 +53,5 @@ test("selected Reference Clips require exact Hammer visual-package readback",()=
  assert.match(authority,/reference_clip_hammer_readback_mismatch/);
  for(const evidence of ["candidate_revision_id","source_revision_id","source_link_revision_id","rights","provenance"]){assert.match(authority,new RegExp(`evidence\\.${evidence}`));}
  assert.match(panel,/verifyReferenceClipHammerReadback/);
+ assert.match(panel,/forge:canonical-reference-clips-progress/);
 });
