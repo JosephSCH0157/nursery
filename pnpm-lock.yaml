@@ -384,6 +384,9 @@ importers:
       '@forge/shared':
         specifier: workspace:*
         version: link:../shared
+      '@runwayml/sdk':
+        specifier: 4.13.1
+        version: 4.13.1
       '@supabase/supabase-js':
         specifier: ^2.98.0
         version: 2.100.1
@@ -1356,6 +1359,10 @@ packages:
 
   '@rtsao/scc@1.1.0':
     resolution: {integrity: sha512-zt6OdqaDoOnJ1ZYsCYGt9YmWzDXl4vQdKTyJev62gFhRGKdx7mcT54V9KIjg+d2wi9EXsPvAPKe7i7WjfVWB8g==}
+
+  '@runwayml/sdk@4.13.1':
+    resolution: {integrity: sha512-LPHZ1WMA3LUhNqNccFbacgQ+vD1l90vilTi04kJLrH3ZR7AP0LYbU3OzuJUozKufwF6NXosOWTJmyAXY7fnfyQ==}
+    hasBin: true
 
   '@sinclair/typebox@0.27.10':
     resolution: {integrity: sha512-MTBk/3jGLNB2tVxv6uLlFh1iu64iYOQ2PbdOSK3NW8JZsmlaOh2q6sdtKowBhfw8QFLmYNzTW4/oK4uATIi6ZA==}
@@ -6087,6 +6094,8 @@ snapshots:
     optional: true
 
   '@rtsao/scc@1.1.0': {}
+
+  '@runwayml/sdk@4.13.1': {}
 
   '@sinclair/typebox@0.27.10': {}
 

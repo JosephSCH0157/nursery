@@ -1874,6 +1874,7 @@ export type Database = {
       }
       broll_operation_receipts: {
         Row: {
+          ambiguity_reason: string | null
           beat_id: string | null
           created_at: string
           created_by: string
@@ -1884,14 +1885,34 @@ export type Database = {
           operation_fingerprint: string
           operation_id: string
           operation_type: string
+          provider_completed_at: string | null
+          provider_completed_hash: string | null
+          provider_completed_json: Json | null
+          provider_last_poll_json: Json | null
+          provider_last_polled_at: string | null
+          provider_next_poll_at: string | null
+          provider_poll_attempt: number
           provider_response_hash: string | null
           provider_response_json: Json | null
+          provider_submission_hash: string | null
+          provider_submission_json: Json | null
+          provider_submitted_at: string | null
+          provider_task_id: string | null
           receipt_json: Json | null
+          reconciled_at: string | null
+          reconciled_by: string | null
+          reconciliation_decision: string | null
+          resubmission_authorized_at: string | null
+          resubmission_authorized_by: string | null
           result_candidate_revision_id: string | null
           result_plan_revision_id: string | null
           result_prompt_revision_id: string | null
           result_selection_id: string | null
           state: string
+          submission_attempt_id: string | null
+          submission_unknown_at: string | null
+          submitting_at: string | null
+          transport_evidence_json: Json | null
           updated_at: string
           verified_asset_id: string | null
           verified_poster_asset_id: string | null
@@ -1899,6 +1920,7 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          ambiguity_reason?: string | null
           beat_id?: string | null
           created_at?: string
           created_by: string
@@ -1909,14 +1931,34 @@ export type Database = {
           operation_fingerprint: string
           operation_id: string
           operation_type: string
+          provider_completed_at?: string | null
+          provider_completed_hash?: string | null
+          provider_completed_json?: Json | null
+          provider_last_poll_json?: Json | null
+          provider_last_polled_at?: string | null
+          provider_next_poll_at?: string | null
+          provider_poll_attempt?: number
           provider_response_hash?: string | null
           provider_response_json?: Json | null
+          provider_submission_hash?: string | null
+          provider_submission_json?: Json | null
+          provider_submitted_at?: string | null
+          provider_task_id?: string | null
           receipt_json?: Json | null
+          reconciled_at?: string | null
+          reconciled_by?: string | null
+          reconciliation_decision?: string | null
+          resubmission_authorized_at?: string | null
+          resubmission_authorized_by?: string | null
           result_candidate_revision_id?: string | null
           result_plan_revision_id?: string | null
           result_prompt_revision_id?: string | null
           result_selection_id?: string | null
           state: string
+          submission_attempt_id?: string | null
+          submission_unknown_at?: string | null
+          submitting_at?: string | null
+          transport_evidence_json?: Json | null
           updated_at?: string
           verified_asset_id?: string | null
           verified_poster_asset_id?: string | null
@@ -1924,6 +1966,7 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          ambiguity_reason?: string | null
           beat_id?: string | null
           created_at?: string
           created_by?: string
@@ -1934,14 +1977,34 @@ export type Database = {
           operation_fingerprint?: string
           operation_id?: string
           operation_type?: string
+          provider_completed_at?: string | null
+          provider_completed_hash?: string | null
+          provider_completed_json?: Json | null
+          provider_last_poll_json?: Json | null
+          provider_last_polled_at?: string | null
+          provider_next_poll_at?: string | null
+          provider_poll_attempt?: number
           provider_response_hash?: string | null
           provider_response_json?: Json | null
+          provider_submission_hash?: string | null
+          provider_submission_json?: Json | null
+          provider_submitted_at?: string | null
+          provider_task_id?: string | null
           receipt_json?: Json | null
+          reconciled_at?: string | null
+          reconciled_by?: string | null
+          reconciliation_decision?: string | null
+          resubmission_authorized_at?: string | null
+          resubmission_authorized_by?: string | null
           result_candidate_revision_id?: string | null
           result_plan_revision_id?: string | null
           result_prompt_revision_id?: string | null
           result_selection_id?: string | null
           state?: string
+          submission_attempt_id?: string | null
+          submission_unknown_at?: string | null
+          submitting_at?: string | null
+          transport_evidence_json?: Json | null
           updated_at?: string
           verified_asset_id?: string | null
           verified_poster_asset_id?: string | null
@@ -8090,6 +8153,21 @@ export type Database = {
         }
         Returns: Json
       }
+      begin_broll_runway_submission: {
+        Args: {
+          p_actor_id: string
+          p_duration_seconds: number
+          p_model: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_prompt_content_hash: string
+          p_prompt_revision: number
+          p_prompt_revision_id: string
+          p_ratio: string
+          p_submission_attempt_id: string
+        }
+        Returns: Json
+      }
       begin_image_prompt_interpretation: {
         Args: {
           p_actor_id: string
@@ -8169,6 +8247,14 @@ export type Database = {
       can_access_workspace: {
         Args: { _workspace_id: string }
         Returns: boolean
+      }
+      claim_broll_runway_poll: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_provider_task_id: string
+        }
+        Returns: Json
       }
       clear_workspace_default_brand_profile: {
         Args: { p_workspace_id: string }
@@ -9102,6 +9188,16 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      mark_broll_submission_unknown: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_reason: string
+          p_submission_attempt_id: string
+          p_transport_evidence: Json
+        }
+        Returns: Json
+      }
       mark_thumbnail_brand_asset_ready: {
         Args: {
           p_actor_id: string
@@ -9149,6 +9245,14 @@ export type Database = {
         }
         Returns: Json
       }
+      read_broll_runway_operation_status: {
+        Args: {
+          p_operation_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       read_current_broll_plan: {
         Args: { p_workpiece_id: string; p_workspace_id: string }
         Returns: Json
@@ -9169,6 +9273,17 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: undefined
       }
+      reconcile_broll_runway_submission: {
+        Args: {
+          p_actor_id: string
+          p_decision: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_provider_task_id: string
+          p_task_evidence: Json
+        }
+        Returns: Json
+      }
       record_billing_event: {
         Args: {
           p_event_type: string
@@ -9187,6 +9302,43 @@ export type Database = {
           p_operation_fingerprint: string
           p_operation_id: string
           p_result: Json
+        }
+        Returns: Json
+      }
+      record_broll_runway_completion: {
+        Args: {
+          p_completed_response: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_provider_task_id: string
+        }
+        Returns: Json
+      }
+      record_broll_runway_pending: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_poll_response: Json
+          p_provider_task_id: string
+        }
+        Returns: Json
+      }
+      record_broll_runway_rejection: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_rejection_evidence: Json
+          p_submission_attempt_id: string
+        }
+        Returns: Json
+      }
+      record_broll_runway_task: {
+        Args: {
+          p_accepted_response: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_provider_task_id: string
+          p_submission_attempt_id: string
         }
         Returns: Json
       }

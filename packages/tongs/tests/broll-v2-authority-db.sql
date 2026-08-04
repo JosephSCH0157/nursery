@@ -51,6 +51,50 @@ begin
  v:=tongs.commit_broll_prompt_creator_edit('08dd1d8d-3e03-447e-8edd-820564a32ba3','6505ce4f-a985-4387-9d8a-0e9323468489',v_beat,null,0,'stale edit','forge:broll:prompt-stale-edit-0005',repeat('5',64),'1f2b06bd-05a8-4f4b-9b23-9c57b09d3237');
  if v->>'disposition'<>'prompt_revision_conflict' then raise exception 'stale prompt edit advanced %',v; end if;
 
+ v:=tongs.begin_broll_operation('08dd1d8d-3e03-447e-8edd-820564a32ba3','6505ce4f-a985-4387-9d8a-0e9323468489',v_beat,'candidate_acquire','forge:broll:runway-known-0001',repeat('4',64),jsonb_build_object('source_kind','generated'),'1f2b06bd-05a8-4f4b-9b23-9c57b09d3237');
+ v:=tongs.begin_broll_runway_submission('forge:broll:runway-known-0001',repeat('4',64),'41000000-0000-4000-8000-000000000001',v_prompt,1,(select content_hash from tongs.broll_prompt_revisions where id=v_prompt),'gen4.5',5,'1280:720','1f2b06bd-05a8-4f4b-9b23-9c57b09d3237');
+ if v->>'disposition'<>'submitting' then raise exception 'Runway did not enter submitting %',v; end if;
+ v:=tongs.begin_broll_runway_submission('forge:broll:runway-known-0001',repeat('4',64),'41000000-0000-4000-8000-000000000001',v_prompt,1,(select content_hash from tongs.broll_prompt_revisions where id=v_prompt),'gen4.5',5,'1280:720','1f2b06bd-05a8-4f4b-9b23-9c57b09d3237');
+ if v->>'disposition'<>'submission_unknown' then raise exception 'in-flight recovery was automatically resubmittable %',v; end if;
+ v:=tongs.record_broll_runway_task('forge:broll:runway-known-0001',repeat('4',64),'41000000-0000-4000-8000-000000000001','runway-task-known-0001',jsonb_build_object('id','runway-task-known-0001','model','gen4.5'));
+ if v->>'disposition'<>'provider_submitted' then raise exception 'known task was not attached from ambiguity %',v; end if;
+ v:=tongs.record_broll_runway_task('forge:broll:runway-known-0001',repeat('4',64),'41000000-0000-4000-8000-000000000001','conflicting-task',jsonb_build_object('id','conflicting-task','model','gen4.5'));
+ if v->>'disposition'<>'provider_task_conflict' then raise exception 'conflicting task identity was accepted %',v; end if;
+ v:=tongs.claim_broll_runway_poll('forge:broll:runway-known-0001',repeat('4',64),'runway-task-known-0001');
+ if v->>'disposition'<>'poll_claimed' then raise exception 'first Runway poll was not claimed %',v; end if;
+ v:=tongs.claim_broll_runway_poll('forge:broll:runway-known-0001',repeat('4',64),'runway-task-known-0001');
+ if v->>'disposition'<>'poll_not_due' then raise exception 'Runway poll interval was not enforced %',v; end if;
+ perform tongs.record_broll_runway_pending('forge:broll:runway-known-0001',repeat('4',64),'runway-task-known-0001',jsonb_build_object('status','RUNNING'));
+ v:=tongs.record_broll_runway_completion('forge:broll:runway-known-0001',repeat('4',64),'runway-task-known-0001',jsonb_build_object('status','SUCCEEDED','canonical_output_url','https://example.invalid/output.mp4'));
+ if v->>'disposition'<>'provider_completed' then raise exception 'Runway completion was not durable %',v; end if;
+ v:=tongs.record_broll_provider_or_upload_result('forge:broll:runway-known-0001',repeat('4',64),jsonb_build_object('storage_key','workpieces/test/runway.mp4','provider_request_id','runway-task-known-0001'));
+ if v->>'disposition'<>'result_recorded' or v#>>'{operation,state}'<>'provider_or_upload_completed' then raise exception 'completed Runway output did not enter acquisition bridge %',v; end if;
+
+ perform tongs.begin_broll_operation('08dd1d8d-3e03-447e-8edd-820564a32ba3','6505ce4f-a985-4387-9d8a-0e9323468489',v_beat,'candidate_acquire','forge:broll:runway-unknown-0002',repeat('8',64),jsonb_build_object('source_kind','generated'),'1f2b06bd-05a8-4f4b-9b23-9c57b09d3237');
+ perform tongs.begin_broll_runway_submission('forge:broll:runway-unknown-0002',repeat('8',64),'42000000-0000-4000-8000-000000000002',v_prompt,1,(select content_hash from tongs.broll_prompt_revisions where id=v_prompt),'gen4.5',5,'1280:720','1f2b06bd-05a8-4f4b-9b23-9c57b09d3237');
+ v:=tongs.mark_broll_submission_unknown('forge:broll:runway-unknown-0002',repeat('8',64),'42000000-0000-4000-8000-000000000002','connection reset',jsonb_build_object('transmitted','unknown'));
+ if v->>'disposition'<>'submission_unknown' then raise exception 'ambiguous transport was not fail-closed %',v; end if;
+ v:=tongs.read_broll_runway_operation_status('08dd1d8d-3e03-447e-8edd-820564a32ba3','6505ce4f-a985-4387-9d8a-0e9323468489','forge:broll:runway-unknown-0002');
+ if v->>'status'<>'submission_unknown' or v->>'provider_task_id' is not null then raise exception 'creator status did not expose safe ambiguity state %',v; end if;
+ v:=tongs.reconcile_broll_runway_submission('forge:broll:runway-unknown-0002',repeat('8',64),'attach_task','runway-task-found-0002',jsonb_build_object('id','runway-task-found-0002','model','wrong-model'),'1f2b06bd-05a8-4f4b-9b23-9c57b09d3237');
+ if v->>'disposition'<>'task_model_mismatch' then raise exception 'reconciliation accepted incompatible task evidence %',v; end if;
+ v:=tongs.reconcile_broll_runway_submission('forge:broll:runway-unknown-0002',repeat('8',64),'attach_task','runway-task-found-0002',jsonb_build_object('id','runway-task-found-0002','model','gen4.5'),'1f2b06bd-05a8-4f4b-9b23-9c57b09d3237');
+ if v->>'disposition'<>'reconciled' or v#>>'{operation,state}'<>'provider_submitted' then raise exception 'discovered task reconciliation failed %',v; end if;
+
+ perform tongs.begin_broll_operation('08dd1d8d-3e03-447e-8edd-820564a32ba3','6505ce4f-a985-4387-9d8a-0e9323468489',v_beat,'candidate_acquire','forge:broll:runway-rejected-0003',repeat('3',64),jsonb_build_object('source_kind','generated'),'1f2b06bd-05a8-4f4b-9b23-9c57b09d3237');
+ perform tongs.begin_broll_runway_submission('forge:broll:runway-rejected-0003',repeat('3',64),'43000000-0000-4000-8000-000000000003',v_prompt,1,(select content_hash from tongs.broll_prompt_revisions where id=v_prompt),'gen4.5',5,'1280:720','1f2b06bd-05a8-4f4b-9b23-9c57b09d3237');
+ v:=tongs.record_broll_runway_rejection('forge:broll:runway-rejected-0003',repeat('3',64),'43000000-0000-4000-8000-000000000003',jsonb_build_object('http_status',400,'provider_request_id','request-400','endpoint','/v1/text_to_video','provider_message','Validation of body failed','validation_issues',jsonb_build_array(jsonb_build_object('path',jsonb_build_array('duration'),'message','Invalid input'))));
+ if v->>'disposition'<>'rejection_recorded' or v#>>'{operation,state}'<>'pending' or v#>>'{operation,transport_evidence_json,latest,provider_request_id}'<>'request-400' then raise exception 'definitive rejection was not preserved safely %',v; end if;
+ if v#>>'{operation,submission_attempt_id}' is not null then raise exception 'definitive rejection did not release the prior attempt %',v; end if;
+ v:=tongs.begin_broll_runway_submission('forge:broll:runway-rejected-0003',repeat('3',64),'43000000-0000-4000-8000-000000000004',v_prompt,1,(select content_hash from tongs.broll_prompt_revisions where id=v_prompt),'gen4.5',5,'1280:720','1f2b06bd-05a8-4f4b-9b23-9c57b09d3237');
+ if v->>'disposition'<>'submitting' or v#>>'{operation,submission_attempt_id}'<>'43000000-0000-4000-8000-000000000004' then raise exception 'corrected request did not receive a new audited attempt identity %',v; end if;
+
+ perform tongs.begin_broll_operation('08dd1d8d-3e03-447e-8edd-820564a32ba3','6505ce4f-a985-4387-9d8a-0e9323468489',v_beat,'candidate_acquire','forge:broll:runway-reconcile-0004',repeat('2',64),jsonb_build_object('source_kind','generated'),'1f2b06bd-05a8-4f4b-9b23-9c57b09d3237');
+ perform tongs.begin_broll_runway_submission('forge:broll:runway-reconcile-0004',repeat('2',64),'44000000-0000-4000-8000-000000000004',v_prompt,1,(select content_hash from tongs.broll_prompt_revisions where id=v_prompt),'gen4.5',5,'1280:720','1f2b06bd-05a8-4f4b-9b23-9c57b09d3237');
+ perform tongs.mark_broll_submission_unknown('forge:broll:runway-reconcile-0004',repeat('2',64),'44000000-0000-4000-8000-000000000004','lost response',jsonb_build_object('transmitted','unknown'));
+ v:=tongs.reconcile_broll_runway_submission('forge:broll:runway-reconcile-0004',repeat('2',64),'confirmed_not_created',null,jsonb_build_object('http_status',400,'provider_request_id','request-reconciled','endpoint','/v1/image_to_video','provider_message','promptImage required'),'1f2b06bd-05a8-4f4b-9b23-9c57b09d3237');
+ if v->>'disposition'<>'reconciled' or v#>>'{operation,state}'<>'pending' or v#>>'{operation,transport_evidence_json,latest,prior_transport_evidence,transmitted}'<>'unknown' or v#>>'{operation,transport_evidence_json,latest,provider_request_id}'<>'request-reconciled' then raise exception 'confirmed-not-created reconciliation lost original attempt history %',v; end if;
+
  v:=tongs.begin_broll_operation('08dd1d8d-3e03-447e-8edd-820564a32ba3','6505ce4f-a985-4387-9d8a-0e9323468489',v_beat,'candidate_acquire','forge:broll:candidate-db-replay-0001',repeat('c',64),'{}','1f2b06bd-05a8-4f4b-9b23-9c57b09d3237');
  perform tongs.record_broll_provider_or_upload_result('forge:broll:candidate-db-replay-0001',repeat('c',64),jsonb_build_object('provider_request_id','video-1'));
  perform set_config('role','service_role',true);

@@ -1587,6 +1587,8 @@ export type TongsCommitApiOptions = {
   openAiApiKey?: string;
   openAiImageModel?: string;
   openAiTextModel?: string;
+  runwayApiKey?: string;
+  brollVideoProvider?: BrollVideoProvider;
 };
 
 export type AcquireBrollCandidateRequest = {
@@ -1603,6 +1605,9 @@ export type AcquireBrollCandidateRequest = {
   provider: string;
   provider_request_id?: string | null;
   final_prompt?: string | null;
+  runway_model?: "gen4.5" | null;
+  duration_seconds?: number | null;
+  ratio?: "1280:720" | "720:1280" | null;
   poster_required?: boolean;
   license_json?: Json;
   provenance_json?: Json;
@@ -1610,16 +1615,66 @@ export type AcquireBrollCandidateRequest = {
 
 export type InterpretBrollMotionPromptRequest = { workspace_id:string; beat_id:string; expected_prompt_revision_id:string|null; expected_prompt_revision:number; creator_direction:string; operation_id:string; operation_fingerprint:string; user_access_token?:string|null };
 export type EditBrollMotionPromptRequest = { workspace_id:string; beat_id:string; expected_prompt_revision_id:string; expected_prompt_revision:number; final_prompt:string; operation_id:string; operation_fingerprint:string; user_access_token?:string|null };
+export type ReconcileBrollRunwayRequest = { workspace_id:string; operation_id:string; operation_fingerprint:string; decision:"attach_task"|"confirmed_not_created"|"authorize_resubmission"; provider_task_id?:string|null; reconciliation_evidence?:Record<string,Json>|null };
 
-export type BrollVideoProviderResult = { bytes: Uint8Array; provider: string; providerRequestId: string };
-export interface BrollVideoProvider {
-  generate(input: { prompt: string; operationId: string }): Promise<BrollVideoProviderResult>;
+type RunwaySubmission = { taskId: string; acceptedResponse: Record<string, unknown> };
+type RunwayTask =
+  | { state: "pending"; taskId: string; response: Record<string, unknown> }
+  | { state: "completed"; taskId: string; outputUrl: string; response: Record<string, unknown> }
+  | { state: "failed"; taskId: string; code: string; message: string; response: Record<string, unknown> };
+export type BrollVideoProvider = {
+  submit(input: { prompt: string; model: "gen4.5"; durationSeconds: number; ratio: "1280:720" | "720:1280"; attemptId: string }): Promise<RunwaySubmission>;
+  poll(taskId: string): Promise<RunwayTask>;
+  download(outputUrl: string): Promise<Uint8Array>;
+};
+
+type RunwayProviderModule = typeof import("./providers/runway-broll-video-provider.js");
+const RUNWAY_SDK_VERSION = "4.13.1";
+
+class LazyRunwayBrollVideoProvider implements BrollVideoProvider {
+  private providerPromise: Promise<InstanceType<RunwayProviderModule["RunwayBrollVideoProvider"]>> | null = null;
+  private readonly apiKey: string;
+  constructor(apiKey: string) { this.apiKey = apiKey; }
+  private load(): Promise<InstanceType<RunwayProviderModule["RunwayBrollVideoProvider"]>> {
+    if (!this.providerPromise) {
+      const providerModuleSpecifier = "@forge/tongs/runway-broll-video-provider";
+      this.providerPromise = import(/* @vite-ignore */ providerModuleSpecifier)
+        .then(({ RunwayBrollVideoProvider }) => new RunwayBrollVideoProvider(this.apiKey));
+    }
+    return this.providerPromise;
+  }
+  async submit(input: Parameters<BrollVideoProvider["submit"]>[0]): Promise<RunwaySubmission> {
+    let provider: InstanceType<RunwayProviderModule["RunwayBrollVideoProvider"]>;
+    try {
+      provider = await this.load();
+    } catch (error) {
+      const loadFailure = new Error("The server-only Runway provider could not be loaded before submission.") as Error & { ambiguous: boolean; evidence: Record<string, unknown> };
+      loadFailure.ambiguous = false;
+      loadFailure.evidence = { stage: "provider_load", transmitted: false, error_name: error instanceof Error ? error.name : "unknown" };
+      throw loadFailure;
+    }
+    return provider.submit(input);
+  }
+  async poll(taskId: string): Promise<RunwayTask> { return (await this.load()).poll(taskId); }
+  async download(outputUrl: string): Promise<Uint8Array> { return (await this.load()).download(outputUrl); }
+}
+
+function asRunwayTransportError(error: unknown): { ambiguous: boolean; evidence: Record<string, unknown>; message: string } | null {
+  if (!(error instanceof Error)) return null;
+  const candidate = error as Error & { ambiguous?: unknown; evidence?: unknown };
+  if (typeof candidate.ambiguous !== "boolean" || !isRecord(candidate.evidence)) return null;
+  return { ambiguous: candidate.ambiguous, evidence: candidate.evidence, message: candidate.message };
 }
 
 export type TongsCommitApiService = {
   createCradle(input: CreateCradleRequest): Promise<CreateCradleResponse>;
   commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse>;
   acquireBrollCandidate(workpieceId: string,input:AcquireBrollCandidateRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  interpretBrollMotionPrompt(workpieceId:string,input:InterpretBrollMotionPromptRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  editBrollMotionPrompt(workpieceId:string,input:EditBrollMotionPromptRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  readBrollMotionPromptStatus(workpieceId:string,workspaceId:string,beatId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  readBrollRunwayOperationStatus(workpieceId:string,workspaceId:string,operationId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  reconcileBrollRunwayOperation(workpieceId:string,input:ReconcileBrollRunwayRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
   transitionHearthScriptReady(
     workpieceId: string,
     input: HearthReadyTransitionRequest,
@@ -2526,6 +2581,33 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
     hex += n.toString(16).padStart(2, "0");
   }
   return hex;
+}
+
+export function imageMapPromptAuthorityBasis(entry: EpisodeImageMapEntryRecord): Record<string, unknown> {
+  const {
+    candidate_assets: _candidateAssets,
+    selected_asset_id: _selectedAssetId,
+    status: _status,
+    ...promptRelevant
+  } = entry;
+  return promptRelevant;
+}
+
+export function buildImageMapPromptSourceContext(
+  entries: EpisodeImageMapEntryRecord[],
+  selectedIndex: number,
+  creatorDirection: string,
+  editorialPurpose: unknown = null,
+): Record<string, unknown> {
+  const entry = entries[selectedIndex];
+  return {
+    before: selectedIndex > 0 ? entries[selectedIndex - 1]?.script_anchor?.span_text || entries[selectedIndex - 1]?.description || null : null,
+    focus: entry?.script_anchor?.span_text || entry?.description || entry?.prompt_basis || null,
+    after: selectedIndex >= 0 && selectedIndex < entries.length - 1 ? entries[selectedIndex + 1]?.script_anchor?.span_text || entries[selectedIndex + 1]?.description || null : null,
+    image_direction: creatorDirection,
+    editorial_purpose: editorialPurpose ?? null,
+    placement_hint: entry?.placement_hint || null,
+  };
 }
 
 async function sha256Text(value: string): Promise<string> {
@@ -12783,7 +12865,7 @@ export class TongsCommitService {
       p_workspace_id: input.workspace_id, p_workpiece_id: workpieceId, p_beat_id: input.beat_id,
       p_operation_type: "candidate_acquire", p_operation_id: input.operation_id,
       p_operation_fingerprint: input.operation_fingerprint,
-      p_inputs: { source_kind: input.source_kind, source_url: input.source_url ?? null, prompt_revision_id: input.prompt_revision_id ?? null, prompt_revision: input.prompt_revision ?? null, prompt_content_hash: input.prompt_content_hash ?? null, final_prompt: input.source_kind==="generated"?input.final_prompt:null, poster_required: posterRequired },
+      p_inputs: { source_kind: input.source_kind, source_url: input.source_url ?? null, prompt_revision_id: input.prompt_revision_id ?? null, prompt_revision: input.prompt_revision ?? null, prompt_content_hash: input.prompt_content_hash ?? null, final_prompt: input.source_kind==="generated"?input.final_prompt:null, runway_model:input.runway_model??"gen4.5", duration_seconds:input.duration_seconds??5, ratio:input.ratio??"1280:720", poster_required: posterRequired },
       p_actor_id: auth.userId,
     });
     if (begun.error || !isRecord(begun.data)) throw new HttpError(502, "broll_operation_begin_failed", begun.error?.message ?? "B-roll operation reservation failed.");
@@ -12792,11 +12874,69 @@ export class TongsCommitService {
     let state = operation ? readStringField(operation, "state") : null;
     if (state === "candidate_committed" && isRecord(operation?.receipt_json)) return operation.receipt_json as Record<string, Json>;
 
-    const acquisitionModulePath = ["./broll", "-acquisition.js"].join("");
+    const acquisitionModuleSpecifier = "@forge/tongs/broll-acquisition";
     const { deriveBrollPoster, fetchExternalBrollMedia, inspectBrollMedia } = await import(
-      /* @vite-ignore */ acquisitionModulePath
+      /* @vite-ignore */ acquisitionModuleSpecifier
     ) as typeof import("./broll-acquisition.js");
     let video: VerifiedBrollMedia | null = null;
+    if (input.source_kind === "generated") {
+      if (!this.brollVideoProvider || !input.final_prompt) throw new HttpError(503, "broll_video_provider_unavailable", "No replay-safe B-roll video provider is configured.");
+      if (input.final_prompt.length > 1000) throw new HttpError(409, "runway_prompt_too_long", "Runway Gen-4.5 accepts at most 1000 characters. Save a shorter canonical prompt revision before generating video.", { prompt_length: input.final_prompt.length, maximum: 1000 });
+      const recoveredStored = state === "pending" ? await downloadStorageObject(this.supabase, this.bucket, videoKey) : null;
+      if (recoveredStored) {
+        video = await inspectBrollMedia(recoveredStored, "video");
+        const recorded=await authority.rpc("record_broll_provider_or_upload_result",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_result:{storage_bucket:this.bucket,storage_key:videoKey,path:videoPath,provider:input.provider,provider_request_id:input.provider_request_id??null,recovered_existing_object:true}});
+        if(recorded.error)throw new HttpError(502,"broll_result_receipt_failed",recorded.error.message);state="provider_or_upload_completed";
+      }
+      const model = input.runway_model ?? "gen4.5";
+      const durationSeconds = input.duration_seconds ?? 5;
+      const ratio = input.ratio ?? "1280:720";
+      if (state === "submission_unknown") throw new HttpError(409, "broll_runway_submission_unknown", "Runway may have accepted this generation, but Forge did not receive its task ID. No automatic retry was made to avoid a possible duplicate charge. This operation requires reconciliation before another generation can begin.", operation ?? undefined);
+      if (!video && (state === "pending" || state === "submitting")) {
+        const attemptId = state === "submitting" && operation ? readStringField(operation, "submission_attempt_id") : randomUuid();
+        if (!attemptId) throw new HttpError(409, "broll_submission_attempt_missing", "The Runway submission attempt identity is missing.");
+        const reserved = await authority.rpc("begin_broll_runway_submission", { p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_submission_attempt_id:attemptId,p_prompt_revision_id:input.prompt_revision_id,p_prompt_revision:input.prompt_revision,p_prompt_content_hash:input.prompt_content_hash,p_model:model,p_duration_seconds:durationSeconds,p_ratio:ratio,p_actor_id:auth.userId });
+        if (reserved.error || !isRecord(reserved.data)) throw new HttpError(502,"broll_runway_submission_reservation_failed",reserved.error?.message??"Runway submission reservation failed.");
+        const disposition=readStringField(reserved.data,"disposition");
+        if(disposition==="submission_unknown")throw new HttpError(409,"broll_runway_submission_unknown","Runway may have accepted this generation, but Forge did not receive its task ID. No automatic retry was made to avoid a possible duplicate charge. This operation requires reconciliation before another generation can begin.",reserved.data);
+        const reservedOperation=isRecord(reserved.data.operation)?reserved.data.operation:null;
+        if(disposition==="submitting"){
+          try {
+            const submitted=await this.brollVideoProvider.submit({prompt:input.final_prompt,model,durationSeconds,ratio,attemptId});
+            const recorded=await authority.rpc("record_broll_runway_task",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_submission_attempt_id:attemptId,p_provider_task_id:submitted.taskId,p_accepted_response:{...submitted.acceptedResponse,provider:"runway",sdk_version:RUNWAY_SDK_VERSION,model,duration_seconds:durationSeconds,ratio}});
+            if(recorded.error||!isRecord(recorded.data)||!["provider_submitted","replay"].includes(readStringField(recorded.data,"disposition")??""))throw new HttpError(502,"broll_runway_task_receipt_failed",recorded.error?.message??"Runway task ID could not be persisted.");
+            state="provider_submitted";input.provider="runway";input.provider_request_id=submitted.taskId;
+          } catch(error) {
+            if(error instanceof HttpError)throw error;
+            const transport=asRunwayTransportError(error)??{message:"Runway submission outcome is unknown.",ambiguous:true,evidence:{stage:"submit",transmitted:"unknown"}};
+            if(transport.ambiguous){await authority.rpc("mark_broll_submission_unknown",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_submission_attempt_id:attemptId,p_reason:transport.message,p_transport_evidence:transport.evidence});throw new HttpError(409,"broll_runway_submission_unknown","Runway may have accepted this generation, but Forge did not receive its task ID. No automatic retry was made to avoid a possible duplicate charge. This operation requires reconciliation before another generation can begin.");}
+            const rejected=await authority.rpc("record_broll_runway_rejection",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_submission_attempt_id:attemptId,p_rejection_evidence:transport.evidence});
+            if(rejected.error||!isRecord(rejected.data)||!['rejection_recorded','replay'].includes(readStringField(rejected.data,'disposition')??''))throw new HttpError(502,'broll_runway_rejection_receipt_failed',rejected.error?.message??'Runway rejection evidence could not be persisted.');
+            const providerMessage=typeof transport.evidence.provider_message==='string'?transport.evidence.provider_message:transport.message;
+            throw new HttpError(400,'broll_runway_request_rejected',providerMessage,transport.evidence as Record<string,Json>);
+          }
+        } else if(disposition==="replay"&&reservedOperation){state=readStringField(reservedOperation,"state");input.provider_request_id=readStringField(reservedOperation,"provider_task_id");}
+      }
+      if(state==="provider_submitted"){
+        const taskId=input.provider_request_id??(operation?readStringField(operation,"provider_task_id"):null);
+        if(!taskId)throw new HttpError(409,"broll_runway_task_missing","The durable Runway task ID is missing.");
+        const claimed=await authority.rpc("claim_broll_runway_poll",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_provider_task_id:taskId});
+        if(claimed.error||!isRecord(claimed.data))throw new HttpError(502,"broll_runway_poll_claim_failed",claimed.error?.message??"Runway polling could not be scheduled.");
+        if(claimed.data.disposition==="poll_not_due")return{disposition:"provider_pending",state:"provider_submitted",operation_id:input.operation_id,provider:"runway",provider_task_id:taskId,retry_at:(claimed.data.retry_at??null) as Json};
+        const task=await this.brollVideoProvider.poll(taskId);
+        if(task.state==="pending"){await authority.rpc("record_broll_runway_pending",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_provider_task_id:taskId,p_poll_response:task.response});return{disposition:"provider_pending",state:"provider_submitted",operation_id:input.operation_id,provider:"runway",provider_task_id:taskId};}
+        if(task.state==="failed"){await authority.rpc("record_broll_runway_pending",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_provider_task_id:taskId,p_poll_response:task.response});throw new HttpError(409,"broll_runway_failed",task.message,{provider_task_id:taskId,failure_code:task.code,state:"failed"});}
+        const completed=await authority.rpc("record_broll_runway_completion",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_provider_task_id:taskId,p_completed_response:{...task.response,canonical_output_url:task.outputUrl}});
+        if(completed.error)throw new HttpError(502,"broll_runway_completion_receipt_failed",completed.error.message);state="provider_completed";input.provider="runway";input.provider_request_id=taskId;
+        video=await inspectBrollMedia(await this.brollVideoProvider.download(task.outputUrl),"video");
+      }
+      if(state==="provider_completed"&&!video){
+        const currentOperation=isRecord(begun.data.operation)?begun.data.operation:null;const completion=isRecord(currentOperation?.provider_completed_json)?currentOperation.provider_completed_json:null;const outputUrl=completion?readStringField(completion,"canonical_output_url"):null;
+        if(!outputUrl)throw new HttpError(409,"broll_runway_output_receipt_missing","The completed Runway output receipt is missing.");
+        video=await inspectBrollMedia(await this.brollVideoProvider.download(outputUrl),"video");input.provider="runway";input.provider_request_id=currentOperation?readStringField(currentOperation,"provider_task_id"):null;
+      }
+      if(video&&state!=="provider_or_upload_completed"){const alreadyStored=await downloadStorageObject(this.supabase,this.bucket,videoKey);if(!alreadyStored)await uploadStorageObject(this.supabase,this.bucket,videoKey,video.bytes,video.mimeType);const recorded=await authority.rpc("record_broll_provider_or_upload_result",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_result:{storage_bucket:this.bucket,storage_key:videoKey,path:videoPath,provider:"runway",provider_request_id:input.provider_request_id??null}});if(recorded.error)throw new HttpError(502,"broll_result_receipt_failed",recorded.error.message);state="provider_or_upload_completed";}
+    }
     if (state === "pending") {
       const alreadyStored = await downloadStorageObject(this.supabase, this.bucket, videoKey);
       if (alreadyStored) {
@@ -12808,12 +12948,8 @@ export class TongsCommitService {
         if (!input.source_url) throw new HttpError(400, "broll_external_url_required", "An external video URL is required.");
         try { video = await fetchExternalBrollMedia(input.source_url); }
         catch (error) { throw new HttpError(400, "broll_external_fetch_rejected", error instanceof Error ? error.message : "External media could not be verified."); }
-      } else {
-        if (!this.brollVideoProvider || !input.final_prompt) throw new HttpError(503, "broll_video_provider_unavailable", "No replay-safe B-roll video provider is configured.");
-        const generated = await this.brollVideoProvider.generate({ prompt: input.final_prompt, operationId: input.operation_id });
-        video = await inspectBrollMedia(generated.bytes, "video");
-        input.provider = generated.provider; input.provider_request_id = generated.providerRequestId;
       }
+      if (!video) throw new HttpError(409, "broll_video_acquisition_incomplete", "B-roll video acquisition did not produce canonical bytes.");
       if (!alreadyStored) await uploadStorageObject(this.supabase, this.bucket, videoKey, video.bytes, video.mimeType);
       const stored = await downloadStorageObject(this.supabase, this.bucket, videoKey);
       if (!stored) throw new HttpError(502, "broll_storage_readback_failed", "Stored B-roll video could not be read back.");
@@ -12880,6 +13016,30 @@ export class TongsCommitService {
     const token=options?.userAccessToken??null;await this.assertWorkspaceRoleFromAccessToken(workspaceId,"viewer",token);await this.assertWorkpieceInWorkspace(workpieceId,workspaceId);
     const result=await this.imagePromptAuthorityClient(token).rpc("read_broll_prompt_status",{p_workspace_id:workspaceId,p_workpiece_id:workpieceId,p_beat_id:beatId});
     if(result.error||!isRecord(result.data))throw new HttpError(502,"broll_prompt_status_failed",result.error?.message??"Tongs could not read B-roll prompt status");return result.data as Record<string,Json>;
+  }
+
+  async readBrollRunwayOperationStatus(workpieceId:string,workspaceId:string,operationId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    const token=options?.userAccessToken??null;await this.assertWorkspaceRoleFromAccessToken(workspaceId,"viewer",token);await this.assertWorkpieceInWorkspace(workpieceId,workspaceId);
+    const result=await this.imagePromptAuthorityClient(token).rpc("read_broll_runway_operation_status",{p_workspace_id:workspaceId,p_workpiece_id:workpieceId,p_operation_id:operationId});
+    if(result.error||!isRecord(result.data))throw new HttpError(502,"broll_runway_status_failed",result.error?.message??"Tongs could not read Runway operation status");return result.data as Record<string,Json>;
+  }
+
+  async reconcileBrollRunwayOperation(workpieceId:string,input:ReconcileBrollRunwayRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    const token=options?.userAccessToken??null;const auth=await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"admin",token);await this.assertWorkpieceInWorkspace(workpieceId,input.workspace_id);
+    let taskEvidence:Json=null;
+    if(input.decision==="attach_task"){
+      if(!input.provider_task_id)throw new HttpError(400,"provider_task_id_required","A discovered Runway task ID is required.");
+      if(!this.brollVideoProvider)throw new HttpError(503,"runway_provider_unavailable","Runway is not configured for this Tongs process.");
+      const task=await this.brollVideoProvider.poll(input.provider_task_id);
+      const expected=await this.imagePromptAuthorityClient(token).from("broll_operation_receipts").select("normalized_inputs_json").eq("operation_id",input.operation_id).eq("workspace_id",input.workspace_id).eq("workpiece_id",workpieceId).maybeSingle();
+      if(expected.error||!isRecord(expected.data))throw new HttpError(409,"broll_reconciliation_operation_missing",expected.error?.message??"The ambiguous operation could not be read.");
+      const normalized=isRecord(expected.data.normalized_inputs_json)?expected.data.normalized_inputs_json:null;const runway=isRecord(normalized?.runway)?normalized.runway:null;const model=runway?readStringField(runway,"model"):null;
+      if(!model)throw new HttpError(409,"broll_reconciliation_evidence_missing","The original Runway model evidence is missing.");
+      taskEvidence={...task.response,model,provider:"runway",provider_task_id:input.provider_task_id,reconciled_via:"tasks.retrieve"};
+    }
+    const reconciliationEvidence=input.decision==='attach_task'?taskEvidence:(input.reconciliation_evidence??null);
+    const result=await this.imagePromptAuthorityClient(token).rpc("reconcile_broll_runway_submission",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_decision:input.decision,p_provider_task_id:input.provider_task_id??null,p_task_evidence:reconciliationEvidence,p_actor_id:auth.userId});
+    if(result.error||!isRecord(result.data))throw new HttpError(502,"broll_runway_reconciliation_failed",result.error?.message??"Runway reconciliation failed.");const disposition=readStringField(result.data,"disposition");if(disposition!=="reconciled")throw new HttpError(409,disposition??"broll_runway_reconciliation_rejected","Tongs rejected Runway reconciliation.",result.data);return result.data as Record<string,Json>;
   }
 
   async interpretBrollMotionPrompt(workpieceId:string,input:InterpretBrollMotionPromptRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
@@ -13009,7 +13169,27 @@ export class TongsCommitService {
     if(!canonicalPromptId||canonicalPromptRevision==null||!canonicalPromptHash||!canonicalPrompt)throw new HttpError(409,"canonical_image_prompt_required","Create and verify a canonical image prompt before generating candidates.");
     if(canonicalPromptId!==input.prompt_revision_id||canonicalPromptRevision!==input.prompt_revision||canonicalPromptHash!==input.prompt_content_hash)throw new HttpError(409,"prompt_revision_conflict","The requested prompt is not the current canonical prompt.",{current_prompt_revision_id:canonicalPromptId,current_prompt_revision:canonicalPromptRevision,current_prompt_content_hash:canonicalPromptHash});
     const verifiedPromptRevision=promptRevision as Record<string,unknown>;
-    if(readStringField(verifiedPromptRevision,"image_map_revision_id")!==canonical.authority.revisionId||Number(verifiedPromptRevision.image_map_revision)!==canonical.authority.revision||readStringField(verifiedPromptRevision,"image_moment_id")!==entry.id||readStringField(verifiedPromptRevision,"script_approval_id")!==canonical.authority.scriptApprovalId||Number(verifiedPromptRevision.script_approval_revision)!==canonical.authority.scriptApprovalRevision)throw new HttpError(409,"prompt_authority_mismatch","The current prompt does not belong to this canonical image-map and approved-script revision.");
+    const promptMapRevisionId=readStringField(verifiedPromptRevision,"image_map_revision_id");
+    const promptMapRevision=Number(verifiedPromptRevision.image_map_revision);
+    const promptMatchesCurrentMap=promptMapRevisionId===canonical.authority.revisionId&&promptMapRevision===canonical.authority.revision;
+    const promptIdentityMatches=readStringField(verifiedPromptRevision,"image_moment_id")===entry.id
+      &&readStringField(verifiedPromptRevision,"script_approval_id")===canonical.authority.scriptApprovalId
+      &&Number(verifiedPromptRevision.script_approval_revision)===canonical.authority.scriptApprovalRevision;
+    let promptBasisStillCurrent=promptMatchesCurrentMap;
+    if(promptIdentityMatches&&!promptMatchesCurrentMap&&promptMapRevisionId&&Number.isInteger(promptMapRevision)&&promptMapRevision>0&&promptMapRevision<canonical.authority.revision){
+      const storedSourceContext=isRecord(verifiedPromptRevision.source_context_json)?verifiedPromptRevision.source_context_json:null;
+      const storedCreatorDirection=readStringField(verifiedPromptRevision,"creator_direction");
+      const currentIndex=canonical.entries.findIndex((candidate)=>candidate.id===entry.id);
+      if(storedSourceContext&&storedCreatorDirection&&currentIndex>=0){
+        const currentSourceContext=buildImageMapPromptSourceContext(canonical.entries,currentIndex,storedCreatorDirection,storedSourceContext.editorial_purpose);
+        const [storedContextHash,currentContextHash]=await Promise.all([
+          sha256Hex(canonicalJsonBytes(storedSourceContext)),
+          sha256Hex(canonicalJsonBytes(currentSourceContext)),
+        ]);
+        promptBasisStillCurrent=storedContextHash===currentContextHash;
+      }
+    }
+    if(!promptIdentityMatches||!promptBasisStillCurrent)throw new HttpError(409,"prompt_authority_mismatch","The current prompt no longer matches this image moment's canonical direction or approved script.");
 
     const priorCandidateAssets = await this.listReadyImageMapCandidateAssets(input.workspace_id, workpieceId, entry.id);
     const visualMode = inferImageMapVisualMode(
@@ -13963,13 +14143,15 @@ export function createTongsCommitService(options: TongsCommitApiOptions): TongsC
   const brollMotionInterpretationProvider = openAiImageApiKey
     ? new OpenAiBrollMotionInterpretationProvider(openAiImageApiKey, options.openAiTextModel?.trim() || "gpt-5-mini")
     : null;
+  const brollVideoProvider = options.brollVideoProvider
+    ?? (options.runwayApiKey?.trim() ? new LazyRunwayBrollVideoProvider(options.runwayApiKey.trim()) : null);
 
   const userClientFactory = (accessToken: string): SupabaseClient<Database> => createClient<Database>(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { Authorization: `Bearer ${accessToken}` } },
   });
 
-  return new TongsCommitService(supabase, bucket, imageProvider, userClientFactory, narrativeInterpretationProvider, null, brollMotionInterpretationProvider);
+  return new TongsCommitService(supabase, bucket, imageProvider, userClientFactory, narrativeInterpretationProvider, brollVideoProvider, brollMotionInterpretationProvider);
 }
 
 function normalizeStageThumbnailAssetRequest(body: Record<string, unknown>): StageThumbnailAssetRequest {
@@ -14507,10 +14689,23 @@ export function createTongsCommitApiHandlerWithService(
           prompt_revision:body.prompt_revision==null?null:normalizePositiveInteger(body.prompt_revision,"prompt_revision"),
           prompt_content_hash:body.prompt_content_hash==null?null:normalizeSha256(body.prompt_content_hash,"prompt_content_hash"),
           provider:normalizeNonEmptyString(body.provider,"provider"),provider_request_id:body.provider_request_id==null?null:normalizeNonEmptyString(body.provider_request_id,"provider_request_id"),
+          runway_model:body.runway_model==null?null:(normalizeNonEmptyString(body.runway_model,"runway_model")==="gen4.5"?"gen4.5":(()=>{throw new HttpError(400,"invalid_runway_model","Only Runway Gen-4.5 is supported.");})()),
+          duration_seconds:body.duration_seconds==null?null:Math.min(10,Math.max(2,normalizePositiveInteger(body.duration_seconds,"duration_seconds"))),
+          ratio:body.ratio==null?null:(normalizeNonEmptyString(body.ratio,"ratio")==="720:1280"?"720:1280":"1280:720"),
           final_prompt:body.final_prompt==null?null:normalizeNonEmptyString(body.final_prompt,"final_prompt"),poster_required:body.poster_required!==false,
           license_json:normalizeJsonValue(body.license_json??{}),provenance_json:normalizeJsonValue(body.provenance_json??{}),
         },{userAccessToken});
         return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="broll-v2"&&parts[4]==="runway-status"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);
+        const result=await service.readBrollRunwayOperationStatus(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),normalizeNonEmptyString(body.operation_id,"operation_id"),{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="broll-v2"&&parts[4]==="runway-reconcile"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const decision=normalizeNonEmptyString(body.decision,"decision");
+        if(decision!=="attach_task"&&decision!=="confirmed_not_created"&&decision!=="authorize_resubmission")throw new HttpError(400,"invalid_reconciliation_decision","decision must be attach_task, confirmed_not_created, or authorize_resubmission");
+        const evidence=body.reconciliation_evidence==null?null:(isRecord(body.reconciliation_evidence)?body.reconciliation_evidence as Record<string,Json>:(()=>{throw new HttpError(400,'invalid_reconciliation_evidence','reconciliation_evidence must be an object');})());
+        const result=await service.reconcileBrollRunwayOperation(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),operation_id:normalizeNonEmptyString(body.operation_id,"operation_id"),operation_fingerprint:normalizeSha256(body.operation_fingerprint,"operation_fingerprint"),decision,provider_task_id:body.provider_task_id==null?null:normalizeNonEmptyString(body.provider_task_id,"provider_task_id"),reconciliation_evidence:evidence},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
       }
       if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="broll-v2"&&parts[4]==="prompt-interpret"){
         requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);

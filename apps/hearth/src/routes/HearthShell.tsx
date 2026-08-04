@@ -3749,7 +3749,6 @@ export default function HearthShell({
     persistBrollPlan,
   });
   const {
-    onCopyBrollPrompt,
     onDownloadBrollBrief,
   } = useHearthBrollBridgeCommands({
     operationAuthority,
@@ -6167,6 +6166,7 @@ export default function HearthShell({
       onGeneratePlan: () => void canonicalBrollV2.generatePlan(readCanonicalScriptForImageMapGeneration),
       onGenerateMotionPrompt: (creatorDirection: string) => selectedBrollBeat ? void canonicalBrollV2.generatePrompt(selectedBrollBeat.id, creatorDirection) : undefined,
       onSaveMotionPrompt: (finalPrompt: string) => selectedBrollBeat ? void canonicalBrollV2.editPrompt(selectedBrollBeat.id, finalPrompt) : undefined,
+      onGenerateVideo: () => selectedBrollBeat ? void canonicalBrollV2.generateVideo(selectedBrollBeat.id) : undefined,
       onFindStock: () => {},
       onUploadAsset: (file: File) => selectedBrollBeat ? void canonicalBrollV2.upload(selectedBrollBeat.id, file) : undefined,
       onSelectCandidate: (candidateId: string) => selectedBrollBeat ? void canonicalBrollV2.select(selectedBrollBeat.id, candidateId) : undefined,

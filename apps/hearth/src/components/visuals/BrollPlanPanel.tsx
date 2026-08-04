@@ -63,6 +63,7 @@ type BrollPlanPanelProps = {
   promptState?: CanonicalBrollPromptState | null;
   onGenerateMotionPrompt?: (creatorDirection: string) => void;
   onSaveMotionPrompt?: (finalPrompt: string) => void;
+  onGenerateVideo?: () => void;
   canonicalV2?: boolean;
 };
 
@@ -427,7 +428,7 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
                 <div className="hs-imap-next-copy">Uploads and external URLs are fetched, inspected, stored, and registered by Tongs. Generate Video requires a configured replay-safe provider.</div>
                 <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions">
                   <button type="button" onClick={() => uploadInputRef.current?.click()} disabled={props.disabled}>Upload video</button>
-                  <button type="button" disabled title="No replay-safe video provider is configured">Generate Video unavailable</button>
+                  <button type="button" onClick={props.onGenerateVideo} disabled={props.disabled || !props.onGenerateVideo || !props.promptState?.revisionId || (props.promptState.status !== "current" && props.promptState.status !== "creator_edited")}>Generate Video</button>
                 </div>
                 <div className="hs-imap-field">
                   <label htmlFor={`${formFieldIdPrefix}-canonical-external-url`}>Verified external video URL</label>

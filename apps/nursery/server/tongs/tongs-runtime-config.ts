@@ -86,6 +86,7 @@ export function resolveTongsRuntimeConfig(): ResolvedTongsRuntimeConfig {
       bucket: readEnv("TONGS_WORKPIECE_BUCKET"),
       openAiImageApiKey: resolveOpenAiImageApiKey() ?? undefined,
       openAiImageModel: readEnv("HEARTH_IMAGE_MODEL") || readEnv("HEARTH_THUMBNAIL_MODEL"),
+      runwayApiKey: readEnv("FORGE_BROLL_RUNWAY_API_KEY"),
     },
     missing,
     allowUnsafeNoToken,

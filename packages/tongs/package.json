@@ -31,6 +31,16 @@
       "types": "./src/ai-usage-taxonomy.ts",
       "import": "./dist/ai-usage-taxonomy.js",
       "default": "./dist/ai-usage-taxonomy.js"
+    },
+    "./broll-acquisition": {
+      "types": "./src/broll-acquisition.ts",
+      "import": "./dist/broll-acquisition.js",
+      "default": "./dist/broll-acquisition.js"
+    },
+    "./runway-broll-video-provider": {
+      "types": "./src/providers/runway-broll-video-provider.ts",
+      "import": "./dist/providers/runway-broll-video-provider.js",
+      "default": "./dist/providers/runway-broll-video-provider.js"
     }
   },
   "scripts": {
@@ -42,7 +52,7 @@
     "migrate:cloud-role-roots": "tsc -p tsconfig.json && node ./dev/migrate-cloud-role-roots.mjs",
     "test:commit-api": "tsc -p tsconfig.json && node --test tests/workpiece-commit-api.test.mjs",
     "test:storage-registry": "tsc -p tsconfig.json && node --test tests/storage-registry-migration.test.mjs",
-    "test": "tsc -p tsconfig.json && node --test tests/ai-policy.test.mjs tests/asset-variant-resolver.test.mjs tests/broll-acquisition.test.mjs tests/broll-motion-prompt-authority.test.mjs tests/broll-v2-authority.test.mjs tests/image-map-anchor-authority.test.mjs tests/image-map-prompt-authority.test.mjs tests/storage-registry-migration.test.mjs tests/thumbnail-asset-lifecycle.test.mjs tests/thumbnail-brand-setup.test.mjs tests/workpiece-commit-api.test.mjs"
+    "test": "tsc -p tsconfig.json && node --test tests/ai-policy.test.mjs tests/asset-variant-resolver.test.mjs tests/broll-acquisition.test.mjs tests/broll-motion-prompt-authority.test.mjs tests/broll-v2-authority.test.mjs tests/runway-broll-video-provider.test.mjs tests/image-map-anchor-authority.test.mjs tests/image-map-prompt-authority.test.mjs tests/storage-registry-migration.test.mjs tests/thumbnail-asset-lifecycle.test.mjs tests/thumbnail-brand-setup.test.mjs tests/workpiece-commit-api.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
@@ -54,6 +64,7 @@
   "dependencies": {
     "@fontsource/inter": "^5.2.8",
     "@forge/shared": "workspace:*",
+    "@runwayml/sdk": "4.13.1",
     "@supabase/supabase-js": "^2.98.0",
     "fflate": "^0.8.2",
     "sharp": "^0.35.3"

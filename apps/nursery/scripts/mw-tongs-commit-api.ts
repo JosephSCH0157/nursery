@@ -6,6 +6,7 @@ import {
   createTongsCommitApiHandlerWithService,
   createTongsCommitService,
 } from "../../../packages/tongs/src/workpiece-commit-api.ts";
+import { RunwayBrollVideoProvider } from "../../../packages/tongs/src/providers/runway-broll-video-provider.ts";
 import { resolveTongsRuntimeConfig } from "../server/tongs/tongs-runtime-config";
 import { ensureWorkpieceJobRunnerStarted } from "../server/tongs/workpiece-job-runner";
 
@@ -59,7 +60,11 @@ async function writeFetchResponse(res: ServerResponse, response: Response): Prom
 export function createNurseryTongsMiddleware(opts?: { routePrefix?: string }) {
   const routePrefix = (opts?.routePrefix ?? "/tongs").replace(/\/+$/, "") || "/tongs";
   const config = resolveTongsRuntimeConfig();
-  const service = config.missing.length ? null : createTongsCommitService(config.options);
+  const runwayApiKey = config.options.runwayApiKey?.trim();
+  const service = config.missing.length ? null : createTongsCommitService({
+    ...config.options,
+    brollVideoProvider: runwayApiKey ? new RunwayBrollVideoProvider(runwayApiKey) : undefined,
+  });
   const handler = service ? createTongsCommitApiHandlerWithService(service, config.options.apiToken) : null;
 
   if (service) {

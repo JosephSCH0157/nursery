@@ -6,6 +6,7 @@ import {
   commitCanonicalBrollPlan,
   editCanonicalBrollPrompt,
   generateCanonicalBrollPrompt,
+  generateCanonicalBrollVideo,
   readCanonicalBrollV2,
   selectCanonicalBrollCandidate,
   type CanonicalBrollV2State,
@@ -91,7 +92,7 @@ export function useCanonicalBrollV2(args: {
     setBusy(true); setError(null); setMessage(null);
     try {
       const acquired = await acquireCanonicalBroll({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, beatId, sourceKind: "upload", file });
-      if (!acquired.ok) { setError(acquired.error); return; }
+      if (!acquired.ok) { setError(acquired.error); setMessage(null); return; }
       setState(acquired.data); setMessage("Video and poster verified. Candidate is ready to preview.");
     } finally { setBusy(false); }
   }, [args.workspaceId, args.workpieceId, busy]);
@@ -105,6 +106,16 @@ export function useCanonicalBrollV2(args: {
       setState(acquired.data); setMessage("External video fetched, verified, and stored canonically.");
     } finally { setBusy(false); }
   }, [args.workspaceId, args.workpieceId, busy]);
+
+  const generateVideo = useCallback(async (beatId: string) => {
+    if (!args.workspaceId || !args.workpieceId || busy) return;
+    setBusy(true); setError(null); setMessage("Runway generation reserved. Waiting for the durable task result…");
+    try {
+      const acquired = await generateCanonicalBrollVideo({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, beatId, prompt: state.promptsByBeat[beatId] });
+      if (!acquired.ok) { setError(acquired.error); setMessage(null); return; }
+      setState(acquired.data); setMessage("Runway video and poster verified. Candidate is ready to preview.");
+    } finally { setBusy(false); }
+  }, [args.workspaceId, args.workpieceId, busy, state.promptsByBeat]);
 
   const select = useCallback(async (beatId: string, candidateRevisionId: string) => {
     if (!args.workspaceId || !args.workpieceId || busy) return;
@@ -137,5 +148,5 @@ export function useCanonicalBrollV2(args: {
   }, [args.workspaceId, args.workpieceId, busy, state.promptsByBeat]);
 
   const progress = useMemo(() => ({ ready: state.plan?.beats.filter((beat) => beat.fulfillment_state === "resolved").length ?? 0, total: state.plan?.beats.length ?? 0 }), [state.plan]);
-  return { state, loading, busy, error, message, progress, refresh, generatePlan, generatePrompt, editPrompt, upload, attachExternal, select };
+  return { state, loading, busy, error, message, progress, refresh, generatePlan, generatePrompt, editPrompt, generateVideo, upload, attachExternal, select };
 }

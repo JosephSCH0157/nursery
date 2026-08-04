@@ -86,6 +86,7 @@ type BuildBrollPanelArgs = {
   onGeneratePlan: () => void;
   onGenerateMotionPrompt: NonNullable<BrollPanelProps["onGenerateMotionPrompt"]>;
   onSaveMotionPrompt: NonNullable<BrollPanelProps["onSaveMotionPrompt"]>;
+  onGenerateVideo: NonNullable<BrollPanelProps["onGenerateVideo"]>;
   onFindStock: () => void;
   onUploadAsset: (file: File) => void;
   onSelectCandidate: (candidateId: string) => void;
@@ -352,6 +353,7 @@ export function buildBrollPlanPanelProps(args: BuildBrollPanelArgs): BrollPanelP
     onGeneratePlan: args.onGeneratePlan,
     onGenerateMotionPrompt: args.onGenerateMotionPrompt,
     onSaveMotionPrompt: args.onSaveMotionPrompt,
+    onGenerateVideo: args.onGenerateVideo,
     onFindStock: args.onFindStock,
     onUploadAsset: args.onUploadAsset,
     onSelectCandidate: args.onSelectCandidate,
