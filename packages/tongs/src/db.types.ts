@@ -5628,7 +5628,9 @@ export type Database = {
           created_at: string
           created_by: string
           creator_direction: string | null
+          desired_material: string | null
           duration_target_ms: number
+          editorial_reason: string | null
           id: string
           immutable_revision_hash: string
           media_range_json: Json
@@ -5640,15 +5642,17 @@ export type Database = {
           revision: number
           script_approval_id: string
           script_approval_revision: number
-          source_id: string
+          search_terms: string[]
+          source_id: string | null
           source_plan_revision: number
           source_plan_revision_id: string
-          source_revision: number
-          source_revision_id: string
+          source_revision: number | null
+          source_revision_id: string | null
+          source_status: string
           workpiece_id: string
-          workpiece_source_link_id: string
-          workpiece_source_link_revision: number
-          workpiece_source_link_revision_id: string
+          workpiece_source_link_id: string | null
+          workpiece_source_link_revision: number | null
+          workpiece_source_link_revision_id: string | null
           workspace_id: string
         }
         Insert: {
@@ -5660,7 +5664,9 @@ export type Database = {
           created_at?: string
           created_by: string
           creator_direction?: string | null
+          desired_material?: string | null
           duration_target_ms: number
+          editorial_reason?: string | null
           id?: string
           immutable_revision_hash: string
           media_range_json?: Json
@@ -5672,15 +5678,17 @@ export type Database = {
           revision: number
           script_approval_id: string
           script_approval_revision: number
-          source_id: string
+          search_terms?: string[]
+          source_id?: string | null
           source_plan_revision: number
           source_plan_revision_id: string
-          source_revision: number
-          source_revision_id: string
+          source_revision?: number | null
+          source_revision_id?: string | null
+          source_status?: string
           workpiece_id: string
-          workpiece_source_link_id: string
-          workpiece_source_link_revision: number
-          workpiece_source_link_revision_id: string
+          workpiece_source_link_id?: string | null
+          workpiece_source_link_revision?: number | null
+          workpiece_source_link_revision_id?: string | null
           workspace_id: string
         }
         Update: {
@@ -5692,7 +5700,9 @@ export type Database = {
           created_at?: string
           created_by?: string
           creator_direction?: string | null
+          desired_material?: string | null
           duration_target_ms?: number
+          editorial_reason?: string | null
           id?: string
           immutable_revision_hash?: string
           media_range_json?: Json
@@ -5704,15 +5714,17 @@ export type Database = {
           revision?: number
           script_approval_id?: string
           script_approval_revision?: number
-          source_id?: string
+          search_terms?: string[]
+          source_id?: string | null
           source_plan_revision?: number
           source_plan_revision_id?: string
-          source_revision?: number
-          source_revision_id?: string
+          source_revision?: number | null
+          source_revision_id?: string | null
+          source_status?: string
           workpiece_id?: string
-          workpiece_source_link_id?: string
-          workpiece_source_link_revision?: number
-          workpiece_source_link_revision_id?: string
+          workpiece_source_link_id?: string | null
+          workpiece_source_link_revision?: number | null
+          workpiece_source_link_revision_id?: string | null
           workspace_id?: string
         }
         Relationships: [
@@ -7599,6 +7611,112 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      unified_visual_plan_operations: {
+        Row: {
+          broll_plan_revision: number | null
+          broll_plan_revision_id: string | null
+          created_at: string
+          created_by: string
+          failed_stage: string | null
+          failure_code: string | null
+          failure_message: string | null
+          image_map_revision: number | null
+          image_map_revision_id: string | null
+          normalized_inputs_json: Json
+          operation_fingerprint: string
+          operation_id: string
+          provider_response_hash: string | null
+          provider_response_json: Json | null
+          receipt_json: Json | null
+          reference_clip_plan_revision: number | null
+          reference_clip_plan_revision_id: string | null
+          script_approval_id: string
+          script_approval_revision: number
+          script_content_hash: string
+          state: string
+          updated_at: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          broll_plan_revision?: number | null
+          broll_plan_revision_id?: string | null
+          created_at?: string
+          created_by: string
+          failed_stage?: string | null
+          failure_code?: string | null
+          failure_message?: string | null
+          image_map_revision?: number | null
+          image_map_revision_id?: string | null
+          normalized_inputs_json: Json
+          operation_fingerprint: string
+          operation_id: string
+          provider_response_hash?: string | null
+          provider_response_json?: Json | null
+          receipt_json?: Json | null
+          reference_clip_plan_revision?: number | null
+          reference_clip_plan_revision_id?: string | null
+          script_approval_id: string
+          script_approval_revision: number
+          script_content_hash: string
+          state?: string
+          updated_at?: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          broll_plan_revision?: number | null
+          broll_plan_revision_id?: string | null
+          created_at?: string
+          created_by?: string
+          failed_stage?: string | null
+          failure_code?: string | null
+          failure_message?: string | null
+          image_map_revision?: number | null
+          image_map_revision_id?: string | null
+          normalized_inputs_json?: Json
+          operation_fingerprint?: string
+          operation_id?: string
+          provider_response_hash?: string | null
+          provider_response_json?: Json | null
+          receipt_json?: Json | null
+          reference_clip_plan_revision?: number | null
+          reference_clip_plan_revision_id?: string | null
+          script_approval_id?: string
+          script_approval_revision?: number
+          script_content_hash?: string
+          state?: string
+          updated_at?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "unified_visual_plan_operation_script_approval_id_workspace_fkey"
+            columns: [
+              "script_approval_id",
+              "workspace_id",
+              "workpiece_id",
+              "script_approval_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "script_approval_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "approval_revision",
+            ]
+          },
+          {
+            foreignKeyName: "unified_visual_plan_operations_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
           },
         ]
       }
@@ -9581,6 +9699,24 @@ export type Database = {
         }
         Returns: Json
       }
+      begin_unified_visual_plan: {
+        Args: {
+          p_actor_id: string
+          p_expected_broll_revision: number
+          p_expected_broll_revision_id: string
+          p_expected_image_revision: number
+          p_expected_image_revision_id: string
+          p_expected_reference_revision: number
+          p_expected_reference_revision_id: string
+          p_normalized_inputs_json: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_script_approval_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       billing_item_is_plan: { Args: { p_item_id: string }; Returns: boolean }
       billing_status_entitles_access: {
         Args: { p_status: string }
@@ -10219,6 +10355,16 @@ export type Database = {
         }
         Returns: Json
       }
+      fail_unified_visual_plan: {
+        Args: {
+          p_failed_stage: string
+          p_failure_code: string
+          p_failure_message: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+        }
+        Returns: Json
+      }
       finalize_brand_asset_revision: {
         Args: {
           p_bytes: number
@@ -10229,6 +10375,21 @@ export type Database = {
           p_operation_id: string
           p_revision_id: string
           p_width?: number
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      fulfill_reference_clip_opportunity: {
+        Args: {
+          p_actor_id: string
+          p_expected_opportunity_revision: number
+          p_expected_opportunity_revision_id: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_opportunity_id: string
+          p_source_revision_id: string
+          p_workpiece_id: string
+          p_workpiece_source_link_revision_id: string
           p_workspace_id: string
         }
         Returns: Json
@@ -10792,6 +10953,10 @@ export type Database = {
         Args: { p_operation_id: string; p_workspace_id: string }
         Returns: Json
       }
+      read_unified_visual_plan_operation: {
+        Args: { p_operation_id: string; p_workspace_id: string }
+        Returns: Json
+      }
       read_workpiece_sources: {
         Args: { p_workpiece_id: string; p_workspace_id: string }
         Returns: Json
@@ -10886,6 +11051,24 @@ export type Database = {
           p_operation_fingerprint: string
           p_operation_id: string
           p_source_evidence: Json
+        }
+        Returns: Json
+      }
+      record_unified_visual_plan_child: {
+        Args: {
+          p_child_kind: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_revision: number
+          p_revision_id: string
+        }
+        Returns: Json
+      }
+      record_unified_visual_plan_provider_response: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_provider_response_json: Json
         }
         Returns: Json
       }
@@ -11434,6 +11617,10 @@ export type Database = {
           p_operation_id: string
           p_workspace_id: string
         }
+        Returns: Json
+      }
+      verify_unified_visual_plan: {
+        Args: { p_operation_fingerprint: string; p_operation_id: string }
         Returns: Json
       }
       workspace_is_creator: {

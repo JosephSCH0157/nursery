@@ -52,7 +52,7 @@
     "migrate:cloud-role-roots": "tsc -p tsconfig.json && node ./dev/migrate-cloud-role-roots.mjs",
     "test:commit-api": "tsc -p tsconfig.json && node --test tests/workpiece-commit-api.test.mjs",
     "test:storage-registry": "tsc -p tsconfig.json && node --test tests/storage-registry-migration.test.mjs",
-    "test": "tsc -p tsconfig.json && node --test tests/ai-policy.test.mjs tests/asset-variant-resolver.test.mjs tests/broll-acquisition.test.mjs tests/broll-motion-prompt-authority.test.mjs tests/broll-v2-authority.test.mjs tests/runway-broll-video-provider.test.mjs tests/image-map-anchor-authority.test.mjs tests/image-map-prompt-authority.test.mjs tests/source-authority.test.mjs tests/reference-clip-authority.test.mjs tests/reference-clip-acquisition.test.mjs tests/storage-registry-migration.test.mjs tests/thumbnail-asset-lifecycle.test.mjs tests/thumbnail-brand-setup.test.mjs tests/workpiece-commit-api.test.mjs"
+    "test": "tsc -p tsconfig.json && node --test tests/ai-policy.test.mjs tests/asset-variant-resolver.test.mjs tests/broll-acquisition.test.mjs tests/broll-motion-prompt-authority.test.mjs tests/broll-v2-authority.test.mjs tests/runway-broll-video-provider.test.mjs tests/image-map-anchor-authority.test.mjs tests/image-map-prompt-authority.test.mjs tests/source-authority.test.mjs tests/reference-clip-authority.test.mjs tests/reference-clip-acquisition.test.mjs tests/unified-visual-plan-authority.test.mjs tests/storage-registry-migration.test.mjs tests/thumbnail-asset-lifecycle.test.mjs tests/thumbnail-brand-setup.test.mjs tests/workpiece-commit-api.test.mjs"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
