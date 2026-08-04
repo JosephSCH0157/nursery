@@ -3,8 +3,11 @@ import { loadImageMapCandidatePreviewDataUrl } from "../../lib/hearth-image-map-
 import type { EpisodeBrollAssetCandidate, EpisodeContextualDataCompositePlan } from "../../lib/episode-package-v2";
 import type { ExternalGenerationProvider } from "../../lib/hearth-visual-actionability";
 import type { PromptPack } from "../../lib/hearth-visual-provider-profiles";
+import CanonicalReferenceClipPanel from "./CanonicalReferenceClipPanel";
 
 type ReferenceClipPlanPanelProps = {
+  canonicalWorkspaceId?: string | null;
+  canonicalWorkpieceId?: string | null;
   entries: EpisodeContextualDataCompositePlan[];
   selectedEntryId: string | null;
   saveState: "saved" | "editing" | "saving" | "error" | "offline";
@@ -176,7 +179,7 @@ function CandidateList(args: {
   );
 }
 
-export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProps) {
+function LegacyReferenceClipPlanPanel(props: ReferenceClipPlanPanelProps) {
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const lastPreviewLoadSignatureRef = useRef<string>("");
   const selectedEntry = useMemo(
@@ -616,4 +619,11 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
       {props.message ? <div className="hs-imap-help-text">{props.message}</div> : null}
     </div>
   );
+}
+
+export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProps) {
+  if (props.canonicalWorkspaceId && props.canonicalWorkpieceId) {
+    return <CanonicalReferenceClipPanel workspaceId={props.canonicalWorkspaceId} workpieceId={props.canonicalWorkpieceId}/>;
+  }
+  return <LegacyReferenceClipPlanPanel {...props}/>;
 }

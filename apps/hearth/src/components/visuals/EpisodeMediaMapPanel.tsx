@@ -11,6 +11,7 @@ import { summarizeMediaMapModalities } from "../../lib/hearth-media-map-builder"
 import type { FullMediaBudgetPolicy } from "../../lib/hearth-media-map-builder";
 
 type EpisodeMediaMapPanelProps = {
+  canonicalItems?: Array<{ id: string; kind: "image" | "broll" | "reference_clip"; focus: string; description: string; status: string }>;
   entries: EpisodeMediaMapEntry[];
   selectedEntryId: string | null;
   scriptVersionLabel: string;
@@ -88,7 +89,7 @@ const CONSTRAINT_CHIPS = [
 ];
 
 function formatMediaKindLabel(kind: string): string {
-  if (kind === "b_roll") return "B-roll";
+  if (kind === "b_roll" || kind === "broll") return "B-roll";
   if (kind === "contextual_data_composite" || kind === "reference_clip") return "Reference Clip";
   return "Image";
 }
@@ -279,6 +280,14 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
   );
   const beatCards = useMemo(() => buildMediaMapBeatCards(props.entries), [props.entries]);
   const modalitySummary = useMemo(() => summarizeMediaMapModalities(props.entries), [props.entries]);
+  const canonicalItems = props.canonicalItems ?? [];
+  const hasCanonicalProjection = props.canonicalItems !== undefined;
+  const displayedCount = hasCanonicalProjection ? canonicalItems.length : props.entries.length;
+  const canonicalCounts = {
+    images: canonicalItems.filter((item) => item.kind === "image").length,
+    broll: canonicalItems.filter((item) => item.kind === "broll").length,
+    referenceClips: canonicalItems.filter((item) => item.kind === "reference_clip").length,
+  };
   const estimatedMinutes = Math.max(0.1, props.budgetPolicy.estimatedDurationSec / 60);
   const cadenceSeconds = props.entries.length > 0
     ? Math.round(props.budgetPolicy.estimatedDurationSec / props.entries.length)
@@ -354,18 +363,18 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
           disabled={props.disabled}
           title={props.generateDisabledReason ?? undefined}
         >
-          {props.entries.length > 0 ? "Regenerate visual plan" : "Create visual plan"}
+          {displayedCount > 0 ? "Regenerate visual plan" : "Create visual plan"}
         </button>
         {props.canRecoverLastGeneration ? (
           <button type="button" className="hs-secondary-btn" onClick={props.onRecoverLastGeneration} disabled={props.disabled}>
             Recover last generation
           </button>
         ) : null}
-        <span className="hs-pill">{props.entries.length} mapped beat{props.entries.length === 1 ? "" : "s"}</span>
-        <span className="hs-pill">Images: {modalitySummary.images}</span>
-        <span className="hs-pill">Motion B-roll: {modalitySummary.motionBroll}</span>
-        <span className="hs-pill">Reference clips: {modalitySummary.referenceClips}</span>
-        <span className="hs-pill">Data/graphics: {modalitySummary.dataComposites}</span>
+        <span className="hs-pill">{displayedCount} {hasCanonicalProjection ? "canonical moments" : "mapped beats"}</span>
+        <span className="hs-pill">Images: {hasCanonicalProjection ? canonicalCounts.images : modalitySummary.images}</span>
+        <span className="hs-pill">Motion B-roll: {hasCanonicalProjection ? canonicalCounts.broll : modalitySummary.motionBroll}</span>
+        <span className="hs-pill">Reference clips: {hasCanonicalProjection ? canonicalCounts.referenceClips : modalitySummary.referenceClips}</span>
+        <span className="hs-pill">Data/graphics: {hasCanonicalProjection ? 0 : modalitySummary.dataComposites}</span>
         <details><summary>Planning details</summary><div>
           <span className="hs-pill">Generation burden: {modalitySummary.generationBurden}</span>
           <span className="hs-pill">Sized for: {estimatedMinutes.toFixed(1)} min</span>
@@ -375,7 +384,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
           <span className="hs-pill">Canonical map state: {props.mapStatus}</span>
           {props.packageState === "loaded" ? <span className="hs-pill">Save state: {props.saveState}</span> : null}
         </div></details>
-        {props.entries.length > 0 ? (
+        {!canonicalItems.length && props.entries.length > 0 ? (
           <button
             type="button"
             className="hs-imap-primary-action"
@@ -387,7 +396,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
         ) : null}
       </div>
 
-      {summary && props.entries.length > 0 ? (
+      {!canonicalItems.length && summary && props.entries.length > 0 ? (
         <section className="hs-imap-summary-band" aria-label="Applied visual plan summary">
           <div className="hs-imap-summary-copy">
             <div className="hs-imap-summary-title">Applied visual plan</div>
@@ -512,7 +521,11 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
         />
       </details>
 
-      {props.entries.length === 0 ? (
+      {canonicalItems.length ? (
+        <section className="hs-imap-beat-cards" aria-label="Canonical visual moments">
+          {canonicalItems.map((item, index) => <article key={`${item.kind}:${item.id}`} className="hs-imap-beat-card"><div className="hs-imap-beat-card-header"><div><div className="hs-imap-beat-card-title">{item.focus}</div><div className="hs-imap-beat-card-meta">Moment {index + 1} · {formatMediaKindLabel(item.kind)} · {item.status.replaceAll("_", " ")}</div></div></div><div className="hs-imap-beat-card-copy">{item.description}</div></article>)}
+        </section>
+      ) : props.entries.length === 0 ? (
         <div className="hs-imap-empty">No visual plan is applied yet.</div>
       ) : (
         <section className="hs-imap-beat-cards" aria-label="Mapped visual beats">

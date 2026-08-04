@@ -420,6 +420,8 @@ import {
 } from "./hearth-shell/useHearthBrollController";
 import { buildHearthBrollDataVisualSpec } from "./hearth-shell/buildHearthBrollViewModel";
 import { useCanonicalBrollV2 } from "../hooks/visuals/useCanonicalBrollV2";
+import { generateOrResumeUnifiedVisualPlan, readLatestUnifiedVisualPlanOperation } from "../lib/hearth-unified-visual-plan-authority";
+import { readCanonicalReferenceClips, type ReferenceClipState } from "../lib/hearth-reference-clip-authority";
 import {
   buildHearthReferenceClipsController,
   useHearthReferenceClipsBridgeCommands,
@@ -2105,16 +2107,26 @@ export default function HearthShell({
   const chatPanelMeta = chatMessages.length > 0
     ? `${chatMessages.length} message${chatMessages.length === 1 ? "" : "s"}`
     : "Ready";
-  const plannedImageCount = mediaMapEntries.filter((entry) => entry.final_media_kind === "image").length;
+  const [canonicalReferenceClipState, setCanonicalReferenceClipState] = useState<ReferenceClipState | null>(null);
+  const refreshCanonicalReferenceClips = useCallback(async () => {
+    if (!workspaceId || !workpieceId) { setCanonicalReferenceClipState(null); return false; }
+    const result = await readCanonicalReferenceClips(workspaceId, workpieceId);
+    if (!result.ok) return false;
+    setCanonicalReferenceClipState(result.data);
+    return true;
+  }, [workspaceId, workpieceId]);
+  useEffect(() => { void refreshCanonicalReferenceClips(); }, [refreshCanonicalReferenceClips]);
+  const plannedImageCount = imageMapEntries.length;
   const imageMapAuthorityUnavailable = imageMapSaveError === "canonical_image_map_authority_unavailable";
   const mediaWorkflowInput = {
     hasApprovedScript: Boolean(scriptApprovalState.hasApprovedScript && scriptApprovalState.approvedScriptVersion && scriptApprovalState.approvedScriptVersion > 0),
     visualPlan: {
-      status: mediaMap?.status ?? null,
-      total: mediaMapEntries.length,
-      images: mediaMapEntries.filter((entry) => entry.final_media_kind === "image").length,
-      broll: mediaMapEntries.filter((entry) => entry.final_media_kind === "b_roll").length,
-      version: mediaMap?.version ?? 0,
+      status: imageMapEntries.length || brollBeats.length || canonicalReferenceClipState?.opportunities.length ? "activated" : null,
+      total: imageMapEntries.length + brollBeats.length + (canonicalReferenceClipState?.opportunities.length ?? 0),
+      images: imageMapEntries.length,
+      broll: brollBeats.length,
+      referenceClips: canonicalReferenceClipState?.opportunities.length ?? 0,
+      version: Math.max(canonicalBrollV2.state.planRevision, canonicalReferenceClipState?.planRevision ?? 0),
     },
     thumbnails: {
       total: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "") ? canonicalThumbnailProgress.candidateCount : 0,
@@ -2301,6 +2313,12 @@ export default function HearthShell({
       });
       return { ok: true as const };
     },
+    generateUnifiedVisualPlan: async (creatorDirection) => {
+      if (!workspaceId || !workpieceId) return { ok: false as const, error: "Select an episode before generating its Visual Plan.", stage: "context" };
+      return generateOrResumeUnifiedVisualPlan({ workspaceId, workpieceId, creatorDirection });
+    },
+    refreshCanonicalBroll: canonicalBrollV2.refresh,
+    notifyCanonicalReferenceClipsChanged: () => { void refreshCanonicalReferenceClips(); window.dispatchEvent(new CustomEvent("forge:canonical-reference-clips-changed", { detail: { workspaceId, workpieceId } })); },
   });
   const onRecoverLastMediaMapGeneration = useCallback(async () => {
     if (!recoverableMediaMap || !episodePackage || isMediaMapBusy) return;
@@ -3647,6 +3665,33 @@ export default function HearthShell({
     setReferenceClipSaveError,
     setReferenceClipMessage,
   });
+
+  useEffect(() => {
+    if (!workspaceId || !workpieceId || !hasApprovedScript) return;
+    let cancelled = false;
+    void (async () => {
+      const latest = await readLatestUnifiedVisualPlanOperation(workspaceId, workpieceId);
+      if (cancelled || !latest.ok || !latest.data || latest.data.state === "verified") return;
+      setIsMediaMapBusy(true);
+      setMediaMapSaveState("saving");
+      setMediaMapMessage(`Resuming canonical Visual Plan from ${String(latest.data.state ?? "the last committed stage").replaceAll("_", " ")}…`);
+      const resumed = await generateOrResumeUnifiedVisualPlan({ workspaceId, workpieceId });
+      if (cancelled) return;
+      if (!resumed.ok) {
+        setMediaMapSaveState("error");
+        setMediaMapSaveError(`${resumed.stage ? `${resumed.stage}: ` : ""}${resumed.error}`);
+      } else {
+        await Promise.all([refreshEpisodePackage(), canonicalBrollV2.refresh(), refreshCanonicalReferenceClips()]);
+        window.dispatchEvent(new CustomEvent("forge:canonical-reference-clips-changed", { detail: { workspaceId, workpieceId } }));
+        if (!cancelled) {
+          setMediaMapSaveState("saved");
+          setMediaMapMessage("Recovered and verified the canonical Visual Plan without another provider request.");
+        }
+      }
+      if (!cancelled) setIsMediaMapBusy(false);
+    })();
+    return () => { cancelled = true; };
+  }, [canonicalBrollV2.refresh, hasApprovedScript, refreshCanonicalReferenceClips, refreshEpisodePackage, setIsMediaMapBusy, setMediaMapMessage, setMediaMapSaveError, setMediaMapSaveState, workspaceId, workpieceId]);
 
   const { refreshReadyScripts } = useHearthReadyCollectionLifecycle({
     workspaceId,
@@ -5961,6 +6006,29 @@ export default function HearthShell({
     });
     const visualPlanSurfaceInput = {
       entries: mediaMapEntries,
+      canonicalItems: [
+        ...imageMapEntries.map((entry) => ({
+          id: entry.id,
+          kind: "image" as const,
+          focus: entry.anchor || entry.description,
+          description: entry.description,
+          status: entry.selected_asset_id ? "selected" : entry.status,
+        })),
+        ...brollBeats.map((beat) => ({
+          id: beat.id,
+          kind: "broll" as const,
+          focus: beat.anchor_text || beat.description,
+          description: beat.description,
+          status: beat.selected_asset_id ? "selected" : beat.fulfillment_state ?? "planned",
+        })),
+        ...(canonicalReferenceClipState?.opportunities ?? []).map((opportunity) => ({
+          id: opportunity.id,
+          kind: "reference_clip" as const,
+          focus: opportunity.focus,
+          description: opportunity.editorialReason || opportunity.desiredMaterial,
+          status: opportunity.selectedRevisionId ? "selected" : opportunity.sourceStatus,
+        })),
+      ],
       selectedEntryId: selectedMediaMapEntryId,
       approvedScriptVersion,
       mediaMap,

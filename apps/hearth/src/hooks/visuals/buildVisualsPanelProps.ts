@@ -28,6 +28,7 @@ type ThumbnailPanelProps = ComponentProps<typeof ThumbnailPanel>;
 
 type BuildMediaMapPanelArgs = {
   entries: EpisodeMediaMapEntry[];
+  canonicalItems?: MediaMapPanelProps["canonicalItems"];
   selectedEntryId: string | null;
   approvedScriptVersion: number | null;
   mediaMap: EpisodeMediaMap | null;
@@ -291,6 +292,7 @@ type BuildThumbnailPanelArgs = {
 export function buildMediaMapPanelProps(args: BuildMediaMapPanelArgs): MediaMapPanelProps {
   return {
     entries: args.entries,
+    canonicalItems: args.canonicalItems,
     selectedEntryId: args.selectedEntryId,
     scriptVersionLabel: args.approvedScriptVersion ? `v${args.approvedScriptVersion}` : "none",
     mapStatus: args.mediaMap?.status ?? "draft",

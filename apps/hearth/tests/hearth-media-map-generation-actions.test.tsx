@@ -87,6 +87,12 @@ test("Visual Plan apply verifies canonical image-map authority before reporting 
         order.push("verify");
         return { ok: true };
       },
+      generateUnifiedVisualPlan: async () => {
+        order.push("unified");
+        return { ok: true, data: { imageMapRevision: 1, brollPlanRevision: 1, referenceClipPlanRevision: 1 } };
+      },
+      refreshCanonicalBroll: async () => { order.push("broll-readback"); return true; },
+      notifyCanonicalReferenceClipsChanged: () => order.push("reference-readback"),
     });
     return null;
   }
@@ -100,9 +106,9 @@ test("Visual Plan apply verifies canonical image-map authority before reporting 
   });
 
   assert.equal(applied, true);
-  assert.deepEqual(order, ["persist", "verify"]);
+  assert.deepEqual(order, ["unified", "verify", "broll-readback", "reference-readback"]);
   assert.deepEqual(saveStates, ["saving", "saved"]);
-  assert.deepEqual(selectedEntries, ["image-entry-1"]);
+  assert.deepEqual(selectedEntries, []);
 });
 
 test("Visual Plan apply remains failed when canonical image-map verification fails", async () => {
@@ -142,6 +148,9 @@ test("Visual Plan apply remains failed when canonical image-map verification fai
       buildMediaMapFromExistingPlans: () => createMap(),
       persistMediaMap: async () => ({ ok: true, episodePackage }),
       repairImageMapAuthority: async () => ({ ok: false, error: "Canonical verification failed." }),
+      generateUnifiedVisualPlan: async () => ({ ok: true, data: { imageMapRevision: 1, brollPlanRevision: 1, referenceClipPlanRevision: 1 } }),
+      refreshCanonicalBroll: async () => true,
+      notifyCanonicalReferenceClipsChanged: () => undefined,
     });
     return null;
   }

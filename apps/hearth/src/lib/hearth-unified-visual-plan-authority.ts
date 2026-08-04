@@ -1,0 +1,131 @@
+import { resolveTongsUserAccessToken, tongsFetch } from "./tongs-fetch";
+
+type JsonRecord = Record<string, unknown>;
+type Result<T> = { ok: true; data: T } | { ok: false; status: number; code: string; error: string; stage: string | null };
+
+export type UnifiedVisualPlanReceipt = {
+  disposition: "verified";
+  operationId: string;
+  operationFingerprint: string;
+  scriptApprovalId: string;
+  scriptApprovalRevision: number;
+  imageMapRevisionId: string;
+  imageMapRevision: number;
+  brollPlanRevisionId: string;
+  brollPlanRevision: number;
+  referenceClipPlanRevisionId: string;
+  referenceClipPlanRevision: number;
+};
+
+const record = (value: unknown): value is JsonRecord => !!value && typeof value === "object" && !Array.isArray(value);
+const string = (value: unknown): string | null => typeof value === "string" && value.trim() ? value.trim() : null;
+const integer = (value: unknown): number => Number.isInteger(Number(value)) ? Number(value) : 0;
+const env = (name: string): string | null => string((import.meta as unknown as { env?: Record<string, string> }).env?.[name]);
+
+function normalize(value: unknown): unknown {
+  if (value === null || typeof value !== "object") return value;
+  if (Array.isArray(value)) return value.map(normalize);
+  return Object.fromEntries(Object.keys(value as JsonRecord).sort().flatMap((key) => typeof (value as JsonRecord)[key] === "undefined" ? [] : [[key, normalize((value as JsonRecord)[key])]]));
+}
+
+async function hash(value: unknown): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(normalize(value))));
+  return Array.from(new Uint8Array(digest), (part) => part.toString(16).padStart(2, "0")).join("");
+}
+
+async function json(response: Response): Promise<unknown> { try { return await response.json(); } catch { return null; } }
+
+function failure(response: Response, value: unknown, fallback: string): Result<never> {
+  const root = record(value) ? value : null;
+  const nested = record(root?.error) ? root.error : null;
+  const detail = record(nested?.details) ? nested.details : record(root?.details) ? root.details : null;
+  return {
+    ok: false,
+    status: response.status,
+    code: string(nested?.code) ?? string(root?.code) ?? "unified_visual_plan_failed",
+    error: string(nested?.message) ?? string(root?.message) ?? fallback,
+    stage: string(detail?.failed_stage) ?? string(detail?.stage),
+  };
+}
+
+async function postgrest(path: string): Promise<Result<unknown>> {
+  const url = env("VITE_SUPABASE_URL"), anon = env("VITE_SUPABASE_ANON_KEY"), token = await resolveTongsUserAccessToken();
+  if (!url || !anon || !token) return { ok: false, status: 401, code: "unified_visual_plan_auth_unavailable", error: "Sign in to generate the canonical Visual Plan.", stage: "authentication" };
+  const response = await fetch(`${url}/rest/v1/${path}`, { headers: { apikey: anon, authorization: `Bearer ${token}`, "accept-profile": "tongs" } });
+  const value = await json(response);
+  return response.ok ? { ok: true, data: value } : failure(response, value, "Tongs canonical Visual Plan readback failed.");
+}
+
+async function currentInputs(workspaceId: string, workpieceId: string): Promise<Result<JsonRecord>> {
+  const approvalResponse = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/script-approval`, { method: "GET" });
+  const approvalBody = await json(approvalResponse);
+  const approval = record(approvalBody) && record(approvalBody.data) && record(approvalBody.data.current_approval) ? approvalBody.data.current_approval : null;
+  const approvalId = string(approval?.id);
+  if (!approvalResponse.ok || !approvalId) return failure(approvalResponse, approvalBody, "Approve the current script before generating a Visual Plan.");
+  const [image, broll, reference] = await Promise.all([
+    postgrest(`workpiece_image_map_sequences?workspace_id=eq.${workspaceId}&workpiece_id=eq.${workpieceId}&select=current_revision_id,current_revision`),
+    postgrest(`broll_plan_sequences?workspace_id=eq.${workspaceId}&workpiece_id=eq.${workpieceId}&select=current_plan_revision_id,current_plan_revision`),
+    postgrest(`reference_clip_plan_sequences?workspace_id=eq.${workspaceId}&workpiece_id=eq.${workpieceId}&select=current_plan_revision_id,current_plan_revision`),
+  ]);
+  if (!image.ok) return image;
+  if (!broll.ok) return broll;
+  if (!reference.ok) return reference;
+  const imageRow = Array.isArray(image.data) && record(image.data[0]) ? image.data[0] : null;
+  const brollRow = Array.isArray(broll.data) && record(broll.data[0]) ? broll.data[0] : null;
+  const referenceRow = Array.isArray(reference.data) && record(reference.data[0]) ? reference.data[0] : null;
+  return { ok: true, data: {
+    workspace_id: workspaceId, workpiece_id: workpieceId, script_approval_id: approvalId,
+    expected_image_revision_id: string(imageRow?.current_revision_id), expected_image_revision: integer(imageRow?.current_revision),
+    expected_broll_revision_id: string(brollRow?.current_plan_revision_id), expected_broll_revision: integer(brollRow?.current_plan_revision),
+    expected_reference_revision_id: string(referenceRow?.current_plan_revision_id), expected_reference_revision: integer(referenceRow?.current_plan_revision),
+    creator_direction: null, contract_version: "forge.unified-visual-plan.v1",
+  } };
+}
+
+export async function readLatestUnifiedVisualPlanOperation(workspaceId: string, workpieceId: string): Promise<Result<JsonRecord | null>> {
+  const result = await postgrest(`unified_visual_plan_operations?workspace_id=eq.${workspaceId}&workpiece_id=eq.${workpieceId}&select=*&order=created_at.desc&limit=1`);
+  if (!result.ok) return result;
+  return { ok: true, data: Array.isArray(result.data) && record(result.data[0]) ? result.data[0] : null };
+}
+
+function receipt(value: unknown): Result<UnifiedVisualPlanReceipt> {
+  const row = record(value) && record(value.data) ? value.data : value;
+  if (!record(row) || row.disposition !== "verified") return { ok: false, status: 502, code: "unified_visual_plan_receipt_invalid", error: "Tongs did not return an immutable verified Visual Plan receipt.", stage: "verification" };
+  const mapped: UnifiedVisualPlanReceipt = {
+    disposition: "verified", operationId: string(row.operation_id) ?? "", operationFingerprint: string(row.operation_fingerprint) ?? "",
+    scriptApprovalId: string(row.script_approval_id) ?? "", scriptApprovalRevision: integer(row.script_approval_revision),
+    imageMapRevisionId: string(row.image_map_revision_id) ?? "", imageMapRevision: integer(row.image_map_revision),
+    brollPlanRevisionId: string(row.broll_plan_revision_id) ?? "", brollPlanRevision: integer(row.broll_plan_revision),
+    referenceClipPlanRevisionId: string(row.reference_clip_plan_revision_id) ?? "", referenceClipPlanRevision: integer(row.reference_clip_plan_revision),
+  };
+  return Object.values(mapped).some((entry) => entry === "") ? { ok: false, status: 502, code: "unified_visual_plan_receipt_incomplete", error: "The verified Visual Plan receipt omitted canonical child identities.", stage: "verification" } : { ok: true, data: mapped };
+}
+
+export async function generateOrResumeUnifiedVisualPlan(args: { workspaceId: string; workpieceId: string; creatorDirection?: string | null }): Promise<Result<UnifiedVisualPlanReceipt>> {
+  const latest = await readLatestUnifiedVisualPlanOperation(args.workspaceId, args.workpieceId);
+  if (!latest.ok) return latest;
+  let inputs: JsonRecord;
+  let operationId: string;
+  let operationFingerprint: string;
+  if (latest.data && string(latest.data.state) !== "verified") {
+    if (!record(latest.data.normalized_inputs_json)) return { ok: false, status: 502, code: "unified_visual_plan_resume_evidence_missing", error: "The durable Visual Plan operation is missing its canonical inputs.", stage: string(latest.data.state) };
+    inputs = latest.data.normalized_inputs_json;
+    operationId = string(latest.data.operation_id) ?? "";
+    operationFingerprint = string(latest.data.operation_fingerprint) ?? "";
+  } else {
+    const current = await currentInputs(args.workspaceId, args.workpieceId);
+    if (!current.ok) return current;
+    inputs = { ...current.data, creator_direction: args.creatorDirection?.trim() || null };
+    operationFingerprint = await hash(inputs);
+    operationId = `forge:unified-visual-plan:${operationFingerprint}`;
+  }
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/visual-plan-v2/generate`, { method: "POST", json: {
+    workspace_id: inputs.workspace_id, script_approval_id: inputs.script_approval_id,
+    expected_image_revision_id: inputs.expected_image_revision_id, expected_image_revision: inputs.expected_image_revision,
+    expected_broll_revision_id: inputs.expected_broll_revision_id, expected_broll_revision: inputs.expected_broll_revision,
+    expected_reference_revision_id: inputs.expected_reference_revision_id, expected_reference_revision: inputs.expected_reference_revision,
+    creator_direction: inputs.creator_direction, operation_id: operationId, operation_fingerprint: operationFingerprint,
+  } });
+  const value = await json(response);
+  return response.ok ? receipt(value) : failure(response, value, "Tongs could not generate the canonical Visual Plan.");
+}
