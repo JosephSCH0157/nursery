@@ -2956,7 +2956,7 @@ function createReadyQueueSupabase({
   };
 }
 
-function createImageMapAssetSupabase({ assets = [], brollPlan = null } = {}) {
+function createImageMapAssetSupabase({ assets = [], brollPlan = null, referencePackage = null } = {}) {
   const state = {
     assetRows: assets.map((row) => ({ ...row })),
     insertCalls: [],
@@ -2979,8 +2979,9 @@ function createImageMapAssetSupabase({ assets = [], brollPlan = null } = {}) {
       assert.equal(schemaName, "tongs");
       return {
         async rpc(name) {
-          if (name !== "read_current_broll_plan") throw new Error(`Unexpected RPC: ${name}`);
-          return { data: brollPlan, error: null };
+          if (name === "read_reference_clip_visual_package") return { data: referencePackage, error: null };
+          if (name === "read_current_broll_plan") return { data: brollPlan, error: null };
+          throw new Error(`Unexpected RPC: ${name}`);
         },
         from(tableName) {
           if (tableName === "workpiece_files") {
@@ -6760,6 +6761,19 @@ test("TongsCommitService.getWorkpieceVisualPackage returns Hammer-ready ordering
         supersedes_asset_id: null,
       },
     ],
+    referencePackage: {
+      clips: [{
+        opportunity_id: "reference-opportunity-1", opportunity_revision_id: "reference-opportunity-revision-2", opportunity_revision: 2,
+        plan_revision_id: "reference-plan-1", plan_revision: 1, placement_hint: "during-breakfast-line", duration_target_ms: 7000,
+        script_anchor: { span_text: "Breakfast in America came with Florida orange juice." }, media_range: { start_ms: 1200, end_ms: 8200 },
+        source_revision_id: "source-revision-1", source_revision: 1, source_link_revision_id: "source-link-revision-1", source_link_revision: 1,
+        candidate_revision_id: "reference-candidate-revision-1", candidate_revision: 1, asset_id: "reference-video-1", asset_content_hash: "b".repeat(64),
+        asset_path: "assets/reference-clips/breakfast.webm", storage_bucket: "forge-workpieces", storage_key: "workpieces/episode/assets/reference-clips/breakfast.webm",
+        mime_type: "video/webm", duration_ms: 75720, poster_asset_id: "reference-poster-1",
+        rights: { rights_basis: "public_domain", rights_holder: "State Library and Archives of Florida" },
+        provenance: { source_url: "https://commons.wikimedia.org/example.webm", acquisition_type: "external_fetch" },
+      }],
+    },
     brollPlan: {
       plan_revision: { id: "broll-plan-1", revision: 1 },
       beats: [{
@@ -6897,17 +6911,22 @@ test("TongsCommitService.getWorkpieceVisualPackage returns Hammer-ready ordering
   assert.equal(result.script_updated_at, "2026-03-10T15:58:00.000Z");
   assert.equal(result.image_map_updated_at, "2026-03-10T15:59:00.000Z");
   assert.equal(result.image_map_asset_updated_at, "2026-03-10T16:00:00.000Z");
-  assert.equal(result.visuals.length, 3);
+  assert.equal(result.visuals.length, 4);
   assert.equal(result.visuals[0]?.entry_id, "image-map-01");
   assert.equal(result.visuals[0]?.visual_mode, "comparison");
   assert.equal(result.visuals[0]?.selected_asset?.asset_id, "candidate-01");
   assert.equal(result.visuals[0]?.selected_asset?.storage_key.endsWith("/image-map-01/explainer.png"), true);
   assert.equal(result.visuals[1]?.entry_id, "image-map-02");
   assert.equal(result.visuals[1]?.selected_asset, null);
-  assert.equal(result.visuals[2]?.asset_class, "broll");
-  assert.equal(result.visuals[2]?.selected_asset?.path, "assets/broll/south.mp4");
-  assert.equal(result.visuals[2]?.script_anchor?.paragraph_id, "s2:p1");
-  assert.equal(result.visuals[2]?.broll_evidence?.prompt_revision_id, "broll-prompt-1");
+  assert.equal(result.visuals[2]?.asset_class, "reference_clip");
+  assert.equal(result.visuals[2]?.selected_asset?.mime_type, "video/webm");
+  assert.equal(result.visuals[2]?.reference_clip_evidence?.source_revision_id, "source-revision-1");
+  assert.equal(result.visuals[2]?.reference_clip_evidence?.rights?.rights_basis, "public_domain");
+  assert.equal(result.visuals[2]?.reference_clip_evidence?.provenance?.acquisition_type, "external_fetch");
+  assert.equal(result.visuals[3]?.asset_class, "broll");
+  assert.equal(result.visuals[3]?.selected_asset?.path, "assets/broll/south.mp4");
+  assert.equal(result.visuals[3]?.script_anchor?.paragraph_id, "s2:p1");
+  assert.equal(result.visuals[3]?.broll_evidence?.prompt_revision_id, "broll-prompt-1");
 });
 
 test("TongsCommitService.saveWorkpieceImageMap writes metadata, asset file, and refreshes the current image-map asset row", async () => {

@@ -1051,6 +1051,26 @@ export type WorkpieceVisualPackageVisual = {
     license: JsonValue | null;
     trim_guidance: JsonValue;
   };
+  reference_clip_evidence?: {
+    plan_revision_id: string;
+    plan_revision: number;
+    opportunity_revision_id: string;
+    opportunity_revision: number;
+    candidate_revision_id: string;
+    candidate_revision: number;
+    source_revision_id: string;
+    source_revision: number;
+    source_link_revision_id: string;
+    source_link_revision: number;
+    asset_content_hash: string;
+    poster_asset_id: string | null;
+    placement_hint: string;
+    duration_target_ms: number;
+    duration_ms: number;
+    media_range: JsonValue;
+    rights: JsonValue;
+    provenance: JsonValue;
+  };
 };
 
 export type WorkpieceVisualPackageResponseData = {
@@ -12873,7 +12893,7 @@ export class TongsCommitService {
     if(typeof (brollClient as {rpc?:unknown}).rpc==="function"){
       try{const reference=await brollClient.rpc("read_reference_clip_visual_package",{p_workspace_id:cradle.workspace_id,p_workpiece_id:workpieceId});
       if(!reference.error&&isRecord(reference.data)&&Array.isArray(reference.data.clips)){
-        const visuals:WorkpieceVisualPackageVisual[]=reference.data.clips.flatMap((clip,index)=>{if(!isRecord(clip))return[];const opportunityId=readStringField(clip,"opportunity_id");const assetId=readStringField(clip,"asset_id");const focus=isRecord(clip.script_anchor)?readStringField(clip.script_anchor,"span_text")??"Reference clip":"Reference clip";if(!opportunityId||!assetId)return[];return[{asset_class:"reference_clip",entry_id:opportunityId,beat_order:index+1,paragraph_beat_order:1,status:"selected",script_anchor:{section_id:"reference-clips",paragraph_id:opportunityId,paragraph_order:index+1,sentence_start:1,sentence_end:1,char_start:0,char_end:focus.length,span_text:focus},visual_mode:"reference_clip",source_provider:"canonical_source",source_label:"reference_clip",selected_asset_id:assetId,selected_asset:{asset_id:assetId,path:readStringField(clip,"asset_path")??"",storage_bucket:readStringField(clip,"storage_bucket")??"",storage_key:readStringField(clip,"storage_key")??"",mime_type:"video/mp4",bytes:0,created_at:"",updated_at:"",variant_label:null,visual_mode:"reference_clip"}}];});
+        const visuals:WorkpieceVisualPackageVisual[]=reference.data.clips.flatMap((clip,index)=>{if(!isRecord(clip))return[];const opportunityId=readStringField(clip,"opportunity_id");const assetId=readStringField(clip,"asset_id");const planRevisionId=readStringField(clip,"plan_revision_id");const opportunityRevisionId=readStringField(clip,"opportunity_revision_id");const candidateRevisionId=readStringField(clip,"candidate_revision_id");const sourceRevisionId=readStringField(clip,"source_revision_id");const sourceLinkRevisionId=readStringField(clip,"source_link_revision_id");const assetContentHash=readStringField(clip,"asset_content_hash");const planRevision=typeof clip.plan_revision==="number"?Math.trunc(clip.plan_revision):null;const opportunityRevision=typeof clip.opportunity_revision==="number"?Math.trunc(clip.opportunity_revision):null;const candidateRevision=typeof clip.candidate_revision==="number"?Math.trunc(clip.candidate_revision):null;const sourceRevision=typeof clip.source_revision==="number"?Math.trunc(clip.source_revision):null;const sourceLinkRevision=typeof clip.source_link_revision==="number"?Math.trunc(clip.source_link_revision):null;const durationTargetMs=typeof clip.duration_target_ms==="number"?Math.trunc(clip.duration_target_ms):null;const durationMs=typeof clip.duration_ms==="number"?Math.trunc(clip.duration_ms):null;const focus=isRecord(clip.script_anchor)?readStringField(clip.script_anchor,"span_text")??"Reference clip":"Reference clip";if(!opportunityId||!assetId||!planRevisionId||!planRevision||!opportunityRevisionId||!opportunityRevision||!candidateRevisionId||!candidateRevision||!sourceRevisionId||!sourceRevision||!sourceLinkRevisionId||!sourceLinkRevision||!assetContentHash||!durationTargetMs||!durationMs)return[];return[{asset_class:"reference_clip",entry_id:opportunityId,beat_order:index+1,paragraph_beat_order:1,status:"selected",script_anchor:{section_id:"reference-clips",paragraph_id:opportunityId,paragraph_order:index+1,sentence_start:1,sentence_end:1,char_start:0,char_end:focus.length,span_text:focus},visual_mode:"reference_clip",source_provider:"canonical_source",source_label:"reference_clip",selected_asset_id:assetId,selected_asset:{asset_id:assetId,path:readStringField(clip,"asset_path")??"",storage_bucket:readStringField(clip,"storage_bucket")??"",storage_key:readStringField(clip,"storage_key")??"",mime_type:readStringField(clip,"mime_type")??"application/octet-stream",bytes:0,created_at:"",updated_at:"",variant_label:null,visual_mode:"reference_clip"},reference_clip_evidence:{plan_revision_id:planRevisionId,plan_revision:planRevision,opportunity_revision_id:opportunityRevisionId,opportunity_revision:opportunityRevision,candidate_revision_id:candidateRevisionId,candidate_revision: candidateRevision,source_revision_id:sourceRevisionId,source_revision:sourceRevision,source_link_revision_id:sourceLinkRevisionId,source_link_revision:sourceLinkRevision,asset_content_hash:assetContentHash,poster_asset_id:readStringField(clip,"poster_asset_id"),placement_hint:readStringField(clip,"placement_hint")??"",duration_target_ms:durationTargetMs,duration_ms:durationMs,media_range:normalizeJsonValue(clip.media_range),rights:normalizeJsonValue(clip.rights),provenance:normalizeJsonValue(clip.provenance)}}];});
         resultWithReferences={...result,visuals:[...result.visuals,...visuals]};
       }}catch{/* Reference Clip authority is optional until its migration is deployed. */}
     }

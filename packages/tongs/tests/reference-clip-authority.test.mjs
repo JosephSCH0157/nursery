@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 const sql=await readFile(new URL("../../../supabase/migrations/20260804170000_tongs_reference_clip_authority.sql",import.meta.url),"utf8");
+const hammerEvidenceSql=await readFile(new URL("../../../supabase/migrations/20260804210000_tongs_reference_clip_hammer_evidence.sql",import.meta.url),"utf8");
 const service=await readFile(new URL("../src/workpiece-commit-api.ts",import.meta.url),"utf8");
 test("Reference Clip authority is immutable, Source-relative, and excludes legacy composites",()=>{
  for(const table of ["reference_clip_plan_revisions","reference_clip_opportunity_revisions","reference_clip_candidate_revisions","reference_clip_selections","reference_clip_operation_receipts"])assert.match(sql,new RegExp(`create table tongs\\.${table}`));
@@ -17,4 +18,10 @@ test("Reference Clip mutations are replay-safe, concurrent, RLS protected, and H
  assert.match(sql,/operation_identity_conflict/g);assert.match(sql,/plan_revision_conflict/g);assert.match(sql,/selection_revision_conflict/);
  assert.match(sql,/reject_reference_clip_immutable_mutation/);assert.match(sql,/enable row level security/);assert.match(sql,/revoke all on tongs\.%I from public,anon,authenticated/);
  assert.match(sql,/read_current_reference_clip_plan/);assert.match(sql,/read_reference_clip_visual_package/);
+});
+test("Hammer projection preserves exact media, Source, rights, and provenance evidence",()=>{
+ for(const field of ["plan_revision_id","opportunity_revision_id","candidate_revision_id","source_revision_id","source_link_revision_id","asset_content_hash","mime_type","duration_ms","poster_asset_id","rights","provenance"])assert.match(hammerEvidenceSql,new RegExp(`'${field}'`));
+ assert.match(hammerEvidenceSql,/forge\.reference-clips\.hammer\.v2/);
+ assert.match(service,/reference_clip_evidence/);
+ assert.match(service,/mime_type:readStringField\(clip,"mime_type"\)/);
 });
