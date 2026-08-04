@@ -6166,6 +6166,7 @@ export default function HearthShell({
       onGeneratePlan: () => void canonicalBrollV2.generatePlan(readCanonicalScriptForImageMapGeneration),
       onGenerateMotionPrompt: (creatorDirection: string) => selectedBrollBeat ? void canonicalBrollV2.generatePrompt(selectedBrollBeat.id, creatorDirection) : undefined,
       onSaveMotionPrompt: (finalPrompt: string) => selectedBrollBeat ? void canonicalBrollV2.editPrompt(selectedBrollBeat.id, finalPrompt) : undefined,
+      onCreateRunwayReadyPrompt: () => selectedBrollBeat ? canonicalBrollV2.proposeRunwayPrompt(selectedBrollBeat.id) : Promise.resolve(null),
       onGenerateVideo: () => selectedBrollBeat ? void canonicalBrollV2.generateVideo(selectedBrollBeat.id) : undefined,
       onFindStock: () => {},
       onUploadAsset: (file: File) => selectedBrollBeat ? void canonicalBrollV2.upload(selectedBrollBeat.id, file) : undefined,

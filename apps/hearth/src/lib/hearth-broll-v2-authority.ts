@@ -245,6 +245,15 @@ export async function editCanonicalBrollPrompt(args: { workspaceId: string; work
   return readCanonicalBrollV2({ workspaceId: args.workspaceId, workpieceId: args.workpieceId });
 }
 
+export async function proposeRunwayReadyBrollPrompt(args: { workspaceId:string;workpieceId:string;beatId:string;current:CanonicalBrollPromptState }):Promise<Result<{finalPrompt:string;lengthUtf16:number}>>{
+  if(!args.current.revisionId)return{ok:false,status:409,code:"prompt_revision_missing",error:"Generate a canonical motion prompt before creating a Runway-ready prompt."};
+  const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/broll-v2/prompt-runway-ready`,{method:"POST",json:{workspace_id:args.workspaceId,beat_id:args.beatId,expected_prompt_revision_id:args.current.revisionId,expected_prompt_revision:args.current.revision}});
+  const body=await json(response);if(!response.ok)return failure(response,body,"Tongs could not create a Runway-ready prompt proposal.");
+  const data=record(body)&&record(body.data)?body.data:null;const finalPrompt=string(data?.final_prompt);const length=typeof data?.prompt_length_utf16==="number"?data.prompt_length_utf16:null;
+  if(!finalPrompt||length==null)return{ok:false,status:502,code:"runway_prompt_proposal_invalid",error:"Tongs returned an incomplete Runway-ready prompt proposal."};
+  return{ok:true,data:{finalPrompt,lengthUtf16:length}};
+}
+
 export async function commitCanonicalBrollPlan(args: { workspaceId: string; workpieceId: string; scriptApprovalId: string; current: CanonicalBrollV2State; beats: JsonRecord[] }): Promise<Result<CanonicalBrollV2State>> {
   const actor = await currentActorId();
   if (!actor) return { ok: false, status: 401, code: "missing_actor", error: "The signed-in creator identity is unavailable." };
@@ -277,6 +286,7 @@ export async function generateCanonicalBrollVideo(args: { workspaceId: string; w
   if (!args.prompt.revisionId || !args.prompt.contentHash || !args.prompt.finalPrompt || (args.prompt.status !== "current" && args.prompt.status !== "creator_edited")) {
     return { ok: false, status: 409, code: "broll_prompt_not_current", error: "A current canonical motion prompt is required before generating video." };
   }
+  if(args.prompt.finalPrompt.length>1000)return{ok:false,status:409,code:"runway_prompt_too_long",error:`Runway Gen-4.5 accepts at most 1000 UTF-16 code units. Current canonical prompt: ${args.prompt.finalPrompt.length}. Create and confirm a Runway-ready prompt before generating video.`};
   const durationSeconds = args.durationSeconds ?? 5;
   const ratio = args.ratio ?? "1280:720";
   const intent = { workspace_id: args.workspaceId, workpiece_id: args.workpieceId, beat_id: args.beatId, source_kind: "generated", source_url: null, prompt_revision_id: args.prompt.revisionId, prompt_revision: args.prompt.revision, prompt_content_hash: args.prompt.contentHash, final_prompt: args.prompt.finalPrompt, runway_model: "gen4.5", duration_seconds: durationSeconds, ratio, poster_required: true };

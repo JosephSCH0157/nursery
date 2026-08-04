@@ -7,6 +7,7 @@ import {
   editCanonicalBrollPrompt,
   generateCanonicalBrollPrompt,
   generateCanonicalBrollVideo,
+  proposeRunwayReadyBrollPrompt,
   readCanonicalBrollV2,
   selectCanonicalBrollCandidate,
   type CanonicalBrollV2State,
@@ -147,6 +148,12 @@ export function useCanonicalBrollV2(args: {
     } finally { setBusy(false); }
   }, [args.workspaceId, args.workpieceId, busy, state.promptsByBeat]);
 
+  const proposeRunwayPrompt = useCallback(async (beatId:string) => {
+    if(!args.workspaceId||!args.workpieceId||busy)return null;
+    setBusy(true);setError(null);setMessage(null);
+    try{const proposed=await proposeRunwayReadyBrollPrompt({workspaceId:args.workspaceId,workpieceId:args.workpieceId,beatId,current:state.promptsByBeat[beatId]});if(!proposed.ok){setError(proposed.error);return null;}setMessage(`Runway-ready proposal created (${proposed.data.lengthUtf16} UTF-16 code units). Confirm it to append a canonical revision.`);return proposed.data;}finally{setBusy(false);}
+  },[args.workspaceId,args.workpieceId,busy,state.promptsByBeat]);
+
   const progress = useMemo(() => ({ ready: state.plan?.beats.filter((beat) => beat.fulfillment_state === "resolved").length ?? 0, total: state.plan?.beats.length ?? 0 }), [state.plan]);
-  return { state, loading, busy, error, message, progress, refresh, generatePlan, generatePrompt, editPrompt, generateVideo, upload, attachExternal, select };
+  return { state, loading, busy, error, message, progress, refresh, generatePlan, generatePrompt, editPrompt, proposeRunwayPrompt, generateVideo, upload, attachExternal, select };
 }
