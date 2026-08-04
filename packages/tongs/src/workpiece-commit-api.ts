@@ -1643,6 +1643,9 @@ export type AdoptLegacySourceRequest = {
   media_range_json?: Record<string, Json>; quotation_excerpt_hash?: string | null;
   relationship_note?: string | null; operation_id: string; operation_fingerprint: string;
 };
+export type CommitReferenceClipPlanRequest = { workspace_id:string; expected_revision_id:string|null; expected_revision:number; script_approval_id:string; contract_version:string; opportunities:Record<string,Json>[]; operation_id:string; operation_fingerprint:string };
+export type CommitReferenceClipCandidateRequest = { workspace_id:string; opportunity_id:string; opportunity_revision_id:string; asset_id:string; poster_asset_id?:string|null; rights:Record<string,Json>; provenance:Record<string,Json>; operation_id:string; operation_fingerprint:string };
+export type SelectReferenceClipCandidateRequest = { workspace_id:string; opportunity_id:string; candidate_revision_id:string; expected_plan_revision_id:string; expected_plan_revision:number; expected_selection_revision:number; operation_id:string; operation_fingerprint:string };
 
 type RunwaySubmission = { taskId: string; acceptedResponse: Record<string, unknown> };
 type RunwayTask =
@@ -2049,6 +2052,10 @@ export type TongsCommitApiService = {
   adoptLegacySource(workpieceId: string, input: AdoptLegacySourceRequest, options?: { userAccessToken?: string | null }): Promise<Record<string, Json>>;
   readCurrentSource(workspaceId: string, sourceId: string, options?: { userAccessToken?: string | null }): Promise<Record<string, Json> | null>;
   readWorkpieceSources(workpieceId: string, workspaceId: string, options?: { userAccessToken?: string | null }): Promise<Record<string, Json> | null>;
+  commitReferenceClipPlan(workpieceId:string,input:CommitReferenceClipPlanRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  commitReferenceClipCandidate(workpieceId:string,input:CommitReferenceClipCandidateRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  selectReferenceClipCandidate(workpieceId:string,input:SelectReferenceClipCandidateRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  readCurrentReferenceClipPlan(workpieceId:string,workspaceId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>|null>;
   getQuenchCanonicalReleaseProjection(workpieceId: string, workspaceId: string, options?: { userAccessToken?: string | null }): Promise<QuenchCanonicalReleaseProjection>;
   commitQuenchSingleCandidate(workpieceId:string,input:CommitQuenchSingleCandidateRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
   commitQuenchExperiment(workpieceId:string,input:CommitQuenchExperimentRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
@@ -12851,14 +12858,22 @@ export class TongsCommitService {
     const brollClient = options?.userAccessToken && this.userClientFactory
       ? this.userClientFactory(options.userAccessToken).schema("tongs") as unknown as UntypedTongsSchemaClient
       : this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
-    if (typeof (brollClient as { rpc?: unknown }).rpc !== "function") return result;
+    let resultWithReferences=result;
+    if(typeof (brollClient as {rpc?:unknown}).rpc==="function"){
+      try{const reference=await brollClient.rpc("read_reference_clip_visual_package",{p_workspace_id:cradle.workspace_id,p_workpiece_id:workpieceId});
+      if(!reference.error&&isRecord(reference.data)&&Array.isArray(reference.data.clips)){
+        const visuals:WorkpieceVisualPackageVisual[]=reference.data.clips.flatMap((clip,index)=>{if(!isRecord(clip))return[];const opportunityId=readStringField(clip,"opportunity_id");const assetId=readStringField(clip,"asset_id");const focus=isRecord(clip.script_anchor)?readStringField(clip.script_anchor,"span_text")??"Reference clip":"Reference clip";if(!opportunityId||!assetId)return[];return[{asset_class:"reference_clip",entry_id:opportunityId,beat_order:index+1,paragraph_beat_order:1,status:"selected",script_anchor:{section_id:"reference-clips",paragraph_id:opportunityId,paragraph_order:index+1,sentence_start:1,sentence_end:1,char_start:0,char_end:focus.length,span_text:focus},visual_mode:"reference_clip",source_provider:"canonical_source",source_label:"reference_clip",selected_asset_id:assetId,selected_asset:{asset_id:assetId,path:readStringField(clip,"asset_path")??"",storage_bucket:readStringField(clip,"storage_bucket")??"",storage_key:readStringField(clip,"storage_key")??"",mime_type:"video/mp4",bytes:0,created_at:"",updated_at:"",variant_label:null,visual_mode:"reference_clip"}}];});
+        resultWithReferences={...result,visuals:[...result.visuals,...visuals]};
+      }}catch{/* Reference Clip authority is optional until its migration is deployed. */}
+    }
+    if (typeof (brollClient as { rpc?: unknown }).rpc !== "function") return resultWithReferences;
     const broll = await brollClient
       .rpc("read_current_broll_plan", { p_workspace_id: cradle.workspace_id, p_workpiece_id: workpieceId });
-    if (broll.error || !isRecord(broll.data) || !Array.isArray(broll.data.beats)) return result;
+    if (broll.error || !isRecord(broll.data) || !Array.isArray(broll.data.beats)) return resultWithReferences;
     const plan = isRecord(broll.data.plan_revision) ? broll.data.plan_revision : null;
     const planId = plan ? readStringField(plan, "id") : null;
     const planRevision = plan && typeof plan.revision === "number" ? Math.trunc(plan.revision) : null;
-    if (!planId || !planRevision) return result;
+    if (!planId || !planRevision) return resultWithReferences;
     const brollVisuals: WorkpieceVisualPackageVisual[] = broll.data.beats.flatMap((value, index) => {
       if (!isRecord(value) || !isRecord(value.membership) || !isRecord(value.beat_revision)) return [];
       const membership = value.membership;
@@ -12931,7 +12946,7 @@ export class TongsCommitService {
         },
       }];
     });
-    return { ...result, visuals: [...result.visuals, ...brollVisuals] };
+    return { ...resultWithReferences, visuals: [...resultWithReferences.visuals, ...brollVisuals] };
   }
 
   private sourceAuthorityClient(userAccessToken?: string | null): UntypedTongsSchemaClient {
@@ -13075,6 +13090,14 @@ export class TongsCommitService {
     if (result.error) throw new HttpError(502, "workpiece_sources_read_failed", "Tongs could not read workpiece Source links.", { reason: result.error.message });
     return isRecord(result.data) ? result.data as Record<string, Json> : null;
   }
+
+  private async referenceClipRpc(workpieceId:string,workspaceId:string,role:"viewer"|"editor",name:string,args:Record<string,unknown>,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>|null>{
+    await this.assertWorkpieceInWorkspace(workpieceId,workspaceId);const auth=await this.assertWorkspaceRoleFromAccessToken(workspaceId,role,options?.userAccessToken);const rpcArgs=role==="editor"?{...args,p_actor_id:auth.userId}:args;const result=await this.sourceAuthorityClient(options?.userAccessToken).rpc(name,rpcArgs);if(result.error)throw new HttpError(502,"reference_clip_authority_failed",`Tongs ${name} failed.`,{reason:result.error.message});return isRecord(result.data)?result.data as Record<string,Json>:null;
+  }
+  async commitReferenceClipPlan(workpieceId:string,input:CommitReferenceClipPlanRequest,options?:{userAccessToken?:string|null}){return (await this.referenceClipRpc(workpieceId,input.workspace_id,"editor","commit_reference_clip_plan",{p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_expected_revision_id:input.expected_revision_id,p_expected_revision:input.expected_revision,p_script_approval_id:input.script_approval_id,p_contract_version:input.contract_version,p_opportunities:input.opportunities,p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint},options))!;}
+  async commitReferenceClipCandidate(workpieceId:string,input:CommitReferenceClipCandidateRequest,options?:{userAccessToken?:string|null}){return (await this.referenceClipRpc(workpieceId,input.workspace_id,"editor","commit_reference_clip_candidate",{p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_opportunity_id:input.opportunity_id,p_opportunity_revision_id:input.opportunity_revision_id,p_asset_id:input.asset_id,p_poster_asset_id:input.poster_asset_id??null,p_rights:input.rights,p_provenance:input.provenance,p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint},options))!;}
+  async selectReferenceClipCandidate(workpieceId:string,input:SelectReferenceClipCandidateRequest,options?:{userAccessToken?:string|null}){return (await this.referenceClipRpc(workpieceId,input.workspace_id,"editor","select_reference_clip_candidate",{p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_opportunity_id:input.opportunity_id,p_candidate_revision_id:input.candidate_revision_id,p_expected_plan_revision_id:input.expected_plan_revision_id,p_expected_plan_revision:input.expected_plan_revision,p_expected_selection_revision:input.expected_selection_revision,p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint},options))!;}
+  async readCurrentReferenceClipPlan(workpieceId:string,workspaceId:string,options?:{userAccessToken?:string|null}){return this.referenceClipRpc(workpieceId,workspaceId,"viewer","read_current_reference_clip_plan",{p_workspace_id:workspaceId,p_workpiece_id:workpieceId},options);}
 
   async acquireBrollCandidate(
     workpieceId: string,
@@ -14941,6 +14964,15 @@ export function createTongsCommitApiHandlerWithService(
         requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);
         const citation=normalizeJsonValue(body.citation_anchor_json??{});const locator=normalizeJsonValue(body.document_locator_json??{});const range=normalizeJsonValue(body.media_range_json??{});if(!isRecord(citation)||!isRecord(locator)||!isRecord(range))throw new HttpError(400,"invalid_legacy_source_evidence","Legacy Source evidence must be objects.");
         const result=await service.adoptLegacySource(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),legacy_source_id:normalizeNonEmptyString(body.legacy_source_id,"legacy_source_id"),relationship_type:normalizeNonEmptyString(body.relationship_type,"relationship_type"),script_approval_id:body.script_approval_id==null?null:normalizeUuid(body.script_approval_id,"script_approval_id"),script_approval_revision:body.script_approval_revision==null?null:normalizePositiveInteger(body.script_approval_revision,"script_approval_revision"),citation_anchor_json:citation as Record<string,Json>,document_locator_json:locator as Record<string,Json>,media_range_json:range as Record<string,Json>,quotation_excerpt_hash:body.quotation_excerpt_hash==null?null:normalizeSha256(body.quotation_excerpt_hash,"quotation_excerpt_hash"),relationship_note:body.relationship_note==null?null:normalizeNonEmptyString(body.relationship_note,"relationship_note"),operation_id:normalizeNonEmptyString(body.operation_id,"operation_id"),operation_fingerprint:normalizeSha256(body.operation_fingerprint,"operation_fingerprint")},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="reference-clips"){
+        const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const action=parts[4];const userAccessToken=requireUserAccessTokenHeader(request);
+        if(action==="current"){requireMethod(request,"GET");const workspaceId=normalizeUuid(new URL(request.url).searchParams.get("workspace_id"),"workspace_id");return jsonResponse(200,{ok:true,data:await service.readCurrentReferenceClipPlan(workpieceId,workspaceId,{userAccessToken})});}
+        requireMethod(request,"POST");const body=await parseJsonBody(request);const workspaceId=normalizeUuid(body.workspace_id,"workspace_id");const operationId=normalizeNonEmptyString(body.operation_id,"operation_id");const fingerprint=normalizeSha256(body.operation_fingerprint,"operation_fingerprint");
+        if(action==="plan"){const opportunities=normalizeJsonValue(body.opportunities);if(!Array.isArray(opportunities)||!opportunities.every(isRecord))throw new HttpError(400,"invalid_reference_opportunities","opportunities must be an array of objects");return jsonResponse(200,{ok:true,data:await service.commitReferenceClipPlan(workpieceId,{workspace_id:workspaceId,expected_revision_id:body.expected_revision_id==null?null:normalizeUuid(body.expected_revision_id,"expected_revision_id"),expected_revision:normalizeNonNegativeInteger(body.expected_revision,"expected_revision"),script_approval_id:normalizeUuid(body.script_approval_id,"script_approval_id"),contract_version:normalizeNonEmptyString(body.contract_version,"contract_version"),opportunities:opportunities as Record<string,Json>[],operation_id:operationId,operation_fingerprint:fingerprint},{userAccessToken})});}
+        if(action==="candidate"){const rights=normalizeJsonValue(body.rights);const provenance=normalizeJsonValue(body.provenance??{});if(!isRecord(rights)||!isRecord(provenance))throw new HttpError(400,"invalid_reference_evidence","rights and provenance must be objects");return jsonResponse(200,{ok:true,data:await service.commitReferenceClipCandidate(workpieceId,{workspace_id:workspaceId,opportunity_id:normalizeUuid(body.opportunity_id,"opportunity_id"),opportunity_revision_id:normalizeUuid(body.opportunity_revision_id,"opportunity_revision_id"),asset_id:normalizeUuid(body.asset_id,"asset_id"),poster_asset_id:body.poster_asset_id==null?null:normalizeUuid(body.poster_asset_id,"poster_asset_id"),rights:rights as Record<string,Json>,provenance:provenance as Record<string,Json>,operation_id:operationId,operation_fingerprint:fingerprint},{userAccessToken})});}
+        if(action==="select")return jsonResponse(200,{ok:true,data:await service.selectReferenceClipCandidate(workpieceId,{workspace_id:workspaceId,opportunity_id:normalizeUuid(body.opportunity_id,"opportunity_id"),candidate_revision_id:normalizeUuid(body.candidate_revision_id,"candidate_revision_id"),expected_plan_revision_id:normalizeUuid(body.expected_plan_revision_id,"expected_plan_revision_id"),expected_plan_revision:normalizePositiveInteger(body.expected_plan_revision,"expected_plan_revision"),expected_selection_revision:normalizeNonNegativeInteger(body.expected_selection_revision,"expected_selection_revision"),operation_id:operationId,operation_fingerprint:fingerprint},{userAccessToken})});
+        throw new HttpError(404,"reference_clip_action_not_found","Unknown Reference Clip action");
       }
       if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="broll-v2"&&parts[4]==="acquire"){
         requireMethod(request,"POST");

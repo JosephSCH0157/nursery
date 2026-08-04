@@ -5219,6 +5219,737 @@ export type Database = {
           },
         ]
       }
+      reference_clip_candidate_revisions: {
+        Row: {
+          asset_content_hash: string
+          asset_id: string
+          asset_path: string
+          attribution_required: boolean
+          attribution_text: string | null
+          candidate_id: string
+          content_hash: string
+          created_at: string
+          created_by: string
+          duration_ms: number
+          expires_at: string | null
+          id: string
+          immutable_revision_hash: string
+          license_identifier: string | null
+          license_url: string | null
+          mime_type: string
+          opportunity_id: string
+          opportunity_revision: number
+          opportunity_revision_id: string
+          poster_asset_id: string | null
+          provenance_json: Json
+          revision: number
+          rights_basis: string
+          rights_evidence_json: Json
+          rights_holder: string | null
+          source_revision: number
+          source_revision_id: string
+          storage_bucket: string
+          storage_key: string
+          territories: string[] | null
+          workpiece_id: string
+          workpiece_source_link_revision: number
+          workpiece_source_link_revision_id: string
+          workspace_id: string
+        }
+        Insert: {
+          asset_content_hash: string
+          asset_id: string
+          asset_path: string
+          attribution_required?: boolean
+          attribution_text?: string | null
+          candidate_id: string
+          content_hash: string
+          created_at?: string
+          created_by: string
+          duration_ms: number
+          expires_at?: string | null
+          id?: string
+          immutable_revision_hash: string
+          license_identifier?: string | null
+          license_url?: string | null
+          mime_type: string
+          opportunity_id: string
+          opportunity_revision: number
+          opportunity_revision_id: string
+          poster_asset_id?: string | null
+          provenance_json?: Json
+          revision: number
+          rights_basis: string
+          rights_evidence_json?: Json
+          rights_holder?: string | null
+          source_revision: number
+          source_revision_id: string
+          storage_bucket: string
+          storage_key: string
+          territories?: string[] | null
+          workpiece_id: string
+          workpiece_source_link_revision: number
+          workpiece_source_link_revision_id: string
+          workspace_id: string
+        }
+        Update: {
+          asset_content_hash?: string
+          asset_id?: string
+          asset_path?: string
+          attribution_required?: boolean
+          attribution_text?: string | null
+          candidate_id?: string
+          content_hash?: string
+          created_at?: string
+          created_by?: string
+          duration_ms?: number
+          expires_at?: string | null
+          id?: string
+          immutable_revision_hash?: string
+          license_identifier?: string | null
+          license_url?: string | null
+          mime_type?: string
+          opportunity_id?: string
+          opportunity_revision?: number
+          opportunity_revision_id?: string
+          poster_asset_id?: string | null
+          provenance_json?: Json
+          revision?: number
+          rights_basis?: string
+          rights_evidence_json?: Json
+          rights_holder?: string | null
+          source_revision?: number
+          source_revision_id?: string
+          storage_bucket?: string
+          storage_key?: string
+          territories?: string[] | null
+          workpiece_id?: string
+          workpiece_source_link_revision?: number
+          workpiece_source_link_revision_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reference_clip_candidate_revi_candidate_id_workspace_id_wo_fkey"
+            columns: [
+              "candidate_id",
+              "workspace_id",
+              "workpiece_id",
+              "opportunity_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "reference_clip_candidates"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "opportunity_id",
+            ]
+          },
+          {
+            foreignKeyName: "reference_clip_candidate_revi_opportunity_revision_id_work_fkey"
+            columns: [
+              "opportunity_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "opportunity_id",
+              "opportunity_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "reference_clip_opportunity_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "opportunity_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "reference_clip_candidate_revi_workpiece_source_link_revisi_fkey"
+            columns: ["workpiece_source_link_revision_id"]
+            isOneToOne: false
+            referencedRelation: "workpiece_source_link_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reference_clip_candidate_revisions_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reference_clip_candidate_revisions_poster_asset_id_fkey"
+            columns: ["poster_asset_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reference_clip_candidate_revisions_source_revision_id_fkey"
+            columns: ["source_revision_id"]
+            isOneToOne: false
+            referencedRelation: "source_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reference_clip_candidates: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          opportunity_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          opportunity_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          opportunity_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
+      reference_clip_operation_receipts: {
+        Row: {
+          created_at: string
+          created_by: string
+          normalized_inputs_json: Json
+          operation_fingerprint: string
+          operation_id: string
+          operation_type: string
+          opportunity_id: string | null
+          receipt_json: Json
+          result_candidate_revision_id: string | null
+          result_plan_revision_id: string | null
+          result_selection_id: string | null
+          state: string
+          updated_at: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          normalized_inputs_json?: Json
+          operation_fingerprint: string
+          operation_id: string
+          operation_type: string
+          opportunity_id?: string | null
+          receipt_json: Json
+          result_candidate_revision_id?: string | null
+          result_plan_revision_id?: string | null
+          result_selection_id?: string | null
+          state: string
+          updated_at?: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          normalized_inputs_json?: Json
+          operation_fingerprint?: string
+          operation_id?: string
+          operation_type?: string
+          opportunity_id?: string | null
+          receipt_json?: Json
+          result_candidate_revision_id?: string | null
+          result_plan_revision_id?: string | null
+          result_selection_id?: string | null
+          state?: string
+          updated_at?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: []
+      }
+      reference_clip_opportunity_revisions: {
+        Row: {
+          citation_anchor_json: Json
+          content_hash: string
+          context_after: string
+          context_before: string
+          context_focus: string
+          created_at: string
+          created_by: string
+          creator_direction: string | null
+          duration_target_ms: number
+          id: string
+          immutable_revision_hash: string
+          media_range_json: Json
+          narrative_purpose: string
+          opportunity_id: string
+          placement_hint: string
+          previous_revision: number | null
+          previous_revision_id: string | null
+          revision: number
+          script_approval_id: string
+          script_approval_revision: number
+          source_id: string
+          source_plan_revision: number
+          source_plan_revision_id: string
+          source_revision: number
+          source_revision_id: string
+          workpiece_id: string
+          workpiece_source_link_id: string
+          workpiece_source_link_revision: number
+          workpiece_source_link_revision_id: string
+          workspace_id: string
+        }
+        Insert: {
+          citation_anchor_json?: Json
+          content_hash: string
+          context_after?: string
+          context_before?: string
+          context_focus: string
+          created_at?: string
+          created_by: string
+          creator_direction?: string | null
+          duration_target_ms: number
+          id?: string
+          immutable_revision_hash: string
+          media_range_json?: Json
+          narrative_purpose: string
+          opportunity_id: string
+          placement_hint: string
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          revision: number
+          script_approval_id: string
+          script_approval_revision: number
+          source_id: string
+          source_plan_revision: number
+          source_plan_revision_id: string
+          source_revision: number
+          source_revision_id: string
+          workpiece_id: string
+          workpiece_source_link_id: string
+          workpiece_source_link_revision: number
+          workpiece_source_link_revision_id: string
+          workspace_id: string
+        }
+        Update: {
+          citation_anchor_json?: Json
+          content_hash?: string
+          context_after?: string
+          context_before?: string
+          context_focus?: string
+          created_at?: string
+          created_by?: string
+          creator_direction?: string | null
+          duration_target_ms?: number
+          id?: string
+          immutable_revision_hash?: string
+          media_range_json?: Json
+          narrative_purpose?: string
+          opportunity_id?: string
+          placement_hint?: string
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          revision?: number
+          script_approval_id?: string
+          script_approval_revision?: number
+          source_id?: string
+          source_plan_revision?: number
+          source_plan_revision_id?: string
+          source_revision?: number
+          source_revision_id?: string
+          workpiece_id?: string
+          workpiece_source_link_id?: string
+          workpiece_source_link_revision?: number
+          workpiece_source_link_revision_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reference_clip_opportunity_re_previous_revision_id_workspa_fkey"
+            columns: [
+              "previous_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "opportunity_id",
+              "previous_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "reference_clip_opportunity_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "opportunity_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "reference_clip_opportunity_re_source_plan_revision_id_work_fkey"
+            columns: [
+              "source_plan_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "source_plan_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "reference_clip_plan_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "reference_clip_opportunity_re_source_revision_id_workspace_fkey"
+            columns: [
+              "source_revision_id",
+              "workspace_id",
+              "source_id",
+              "source_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "source_revisions"
+            referencedColumns: ["id", "workspace_id", "source_id", "revision"]
+          },
+          {
+            foreignKeyName: "reference_clip_opportunity_re_workpiece_source_link_revisi_fkey"
+            columns: [
+              "workpiece_source_link_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "workpiece_source_link_id",
+              "workpiece_source_link_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "workpiece_source_link_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "link_id",
+              "revision",
+            ]
+          },
+        ]
+      }
+      reference_clip_plan_membership: {
+        Row: {
+          opportunity_id: string
+          opportunity_revision: number
+          opportunity_revision_id: string
+          ordinal: number
+          plan_revision: number
+          plan_revision_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          opportunity_id: string
+          opportunity_revision: number
+          opportunity_revision_id: string
+          ordinal: number
+          plan_revision: number
+          plan_revision_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          opportunity_id?: string
+          opportunity_revision?: number
+          opportunity_revision_id?: string
+          ordinal?: number
+          plan_revision?: number
+          plan_revision_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reference_clip_plan_membershi_opportunity_revision_id_work_fkey"
+            columns: [
+              "opportunity_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "opportunity_id",
+              "opportunity_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "reference_clip_opportunity_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "opportunity_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "reference_clip_plan_membershi_plan_revision_id_workspace_i_fkey"
+            columns: [
+              "plan_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "plan_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "reference_clip_plan_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+        ]
+      }
+      reference_clip_plan_revisions: {
+        Row: {
+          content_hash: string
+          contract_version: string
+          created_at: string
+          created_by: string
+          id: string
+          immutable_revision_hash: string
+          previous_revision: number | null
+          previous_revision_id: string | null
+          revision: number
+          script_approval_id: string
+          script_approval_revision: number
+          script_content_hash: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          content_hash: string
+          contract_version: string
+          created_at?: string
+          created_by: string
+          id?: string
+          immutable_revision_hash: string
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          revision: number
+          script_approval_id: string
+          script_approval_revision: number
+          script_content_hash: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          content_hash?: string
+          contract_version?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          immutable_revision_hash?: string
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          revision?: number
+          script_approval_id?: string
+          script_approval_revision?: number
+          script_content_hash?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reference_clip_plan_revisions_previous_revision_id_workspa_fkey"
+            columns: [
+              "previous_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "previous_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "reference_clip_plan_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "reference_clip_plan_revisions_script_approval_id_workspace_fkey"
+            columns: [
+              "script_approval_id",
+              "workspace_id",
+              "workpiece_id",
+              "script_approval_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "script_approval_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "approval_revision",
+            ]
+          },
+          {
+            foreignKeyName: "reference_clip_plan_revisions_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "reference_clip_plan_revisions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      reference_clip_plan_sequences: {
+        Row: {
+          current_plan_revision: number
+          current_plan_revision_id: string | null
+          current_selection_revision: number
+          updated_at: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          current_plan_revision?: number
+          current_plan_revision_id?: string | null
+          current_selection_revision?: number
+          updated_at?: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          current_plan_revision?: number
+          current_plan_revision_id?: string | null
+          current_selection_revision?: number
+          updated_at?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reference_clip_plan_sequences_current_plan_revision_id_wor_fkey"
+            columns: [
+              "current_plan_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "current_plan_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "reference_clip_plan_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "reference_clip_plan_sequences_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+        ]
+      }
+      reference_clip_selections: {
+        Row: {
+          candidate_revision: number
+          candidate_revision_id: string
+          created_at: string
+          created_by: string
+          id: string
+          operation_fingerprint: string
+          operation_id: string
+          opportunity_id: string
+          opportunity_revision: number
+          opportunity_revision_id: string
+          plan_revision: number
+          plan_revision_id: string
+          previous_revision: number | null
+          previous_selection_id: string | null
+          revision: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          candidate_revision: number
+          candidate_revision_id: string
+          created_at?: string
+          created_by: string
+          id?: string
+          operation_fingerprint: string
+          operation_id: string
+          opportunity_id: string
+          opportunity_revision: number
+          opportunity_revision_id: string
+          plan_revision: number
+          plan_revision_id: string
+          previous_revision?: number | null
+          previous_selection_id?: string | null
+          revision: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          candidate_revision?: number
+          candidate_revision_id?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          operation_fingerprint?: string
+          operation_id?: string
+          opportunity_id?: string
+          opportunity_revision?: number
+          opportunity_revision_id?: string
+          plan_revision?: number
+          plan_revision_id?: string
+          previous_revision?: number | null
+          previous_selection_id?: string | null
+          revision?: number
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reference_clip_selections_candidate_revision_id_fkey"
+            columns: ["candidate_revision_id"]
+            isOneToOne: false
+            referencedRelation: "reference_clip_candidate_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reference_clip_selections_plan_revision_id_workspace_id_wo_fkey"
+            columns: [
+              "plan_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "plan_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "reference_clip_plan_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+        ]
+      }
       script_approval_revisions: {
         Row: {
           approval_contract_version: string
@@ -8893,6 +9624,37 @@ export type Database = {
         }
         Returns: Json
       }
+      commit_reference_clip_candidate: {
+        Args: {
+          p_actor_id: string
+          p_asset_id: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_opportunity_id: string
+          p_opportunity_revision_id: string
+          p_poster_asset_id: string
+          p_provenance: Json
+          p_rights: Json
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      commit_reference_clip_plan: {
+        Args: {
+          p_actor_id: string
+          p_contract_version: string
+          p_expected_revision: number
+          p_expected_revision_id: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_opportunities: Json
+          p_script_approval_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       commit_script_approval_snapshot: {
         Args: {
           p_actor_id: string
@@ -9803,12 +10565,24 @@ export type Database = {
         }
         Returns: Json
       }
+      read_current_reference_clip_plan: {
+        Args: { p_workpiece_id: string; p_workspace_id: string }
+        Returns: Json
+      }
       read_current_source: {
         Args: { p_source_id: string; p_workspace_id: string }
         Returns: Json
       }
       read_image_prompt_operation_receipt: {
         Args: { p_operation_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      read_reference_clip_operation_receipt: {
+        Args: { p_operation_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      read_reference_clip_visual_package: {
+        Args: { p_workpiece_id: string; p_workspace_id: string }
         Returns: Json
       }
       read_source_operation_receipt: {
@@ -10141,6 +10915,21 @@ export type Database = {
           p_image_map_entry_id: string
           p_operation_contract_version: string
           p_operation_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      select_reference_clip_candidate: {
+        Args: {
+          p_actor_id: string
+          p_candidate_revision_id: string
+          p_expected_plan_revision: number
+          p_expected_plan_revision_id: string
+          p_expected_selection_revision: number
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_opportunity_id: string
           p_workpiece_id: string
           p_workspace_id: string
         }
