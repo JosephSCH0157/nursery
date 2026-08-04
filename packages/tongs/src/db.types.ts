@@ -5219,6 +5219,148 @@ export type Database = {
           },
         ]
       }
+      reference_clip_acquisition_operations: {
+        Row: {
+          acquisition_type: string
+          created_at: string
+          created_by: string
+          failed_stage: string | null
+          failure_code: string | null
+          failure_evidence_json: Json | null
+          failure_message: string | null
+          normalized_inputs_json: Json
+          operation_fingerprint: string
+          operation_id: string
+          opportunity_id: string
+          opportunity_revision: number
+          opportunity_revision_id: string
+          plan_revision: number
+          plan_revision_id: string
+          receipt_json: Json | null
+          result_candidate_revision_id: string | null
+          source_evidence_hash: string | null
+          source_evidence_json: Json | null
+          state: string
+          updated_at: string
+          verified_poster_asset_id: string | null
+          verified_video_asset_id: string | null
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          acquisition_type: string
+          created_at?: string
+          created_by: string
+          failed_stage?: string | null
+          failure_code?: string | null
+          failure_evidence_json?: Json | null
+          failure_message?: string | null
+          normalized_inputs_json: Json
+          operation_fingerprint: string
+          operation_id: string
+          opportunity_id: string
+          opportunity_revision: number
+          opportunity_revision_id: string
+          plan_revision: number
+          plan_revision_id: string
+          receipt_json?: Json | null
+          result_candidate_revision_id?: string | null
+          source_evidence_hash?: string | null
+          source_evidence_json?: Json | null
+          state: string
+          updated_at?: string
+          verified_poster_asset_id?: string | null
+          verified_video_asset_id?: string | null
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          acquisition_type?: string
+          created_at?: string
+          created_by?: string
+          failed_stage?: string | null
+          failure_code?: string | null
+          failure_evidence_json?: Json | null
+          failure_message?: string | null
+          normalized_inputs_json?: Json
+          operation_fingerprint?: string
+          operation_id?: string
+          opportunity_id?: string
+          opportunity_revision?: number
+          opportunity_revision_id?: string
+          plan_revision?: number
+          plan_revision_id?: string
+          receipt_json?: Json | null
+          result_candidate_revision_id?: string | null
+          source_evidence_hash?: string | null
+          source_evidence_json?: Json | null
+          state?: string
+          updated_at?: string
+          verified_poster_asset_id?: string | null
+          verified_video_asset_id?: string | null
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "reference_clip_acquisition_op_opportunity_revision_id_work_fkey"
+            columns: [
+              "opportunity_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "opportunity_id",
+              "opportunity_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "reference_clip_opportunity_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "opportunity_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "reference_clip_acquisition_op_plan_revision_id_workspace_i_fkey"
+            columns: [
+              "plan_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "plan_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "reference_clip_plan_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "reference_clip_acquisition_op_result_candidate_revision_id_fkey"
+            columns: ["result_candidate_revision_id"]
+            isOneToOne: false
+            referencedRelation: "reference_clip_candidate_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reference_clip_acquisition_operat_verified_poster_asset_id_fkey"
+            columns: ["verified_poster_asset_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reference_clip_acquisition_operati_verified_video_asset_id_fkey"
+            columns: ["verified_video_asset_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       reference_clip_candidate_revisions: {
         Row: {
           asset_content_hash: string
@@ -9405,6 +9547,23 @@ export type Database = {
         }
         Returns: Json
       }
+      begin_reference_clip_acquisition: {
+        Args: {
+          p_acquisition_type: string
+          p_actor_id: string
+          p_inputs: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_opportunity_id: string
+          p_opportunity_revision: number
+          p_opportunity_revision_id: string
+          p_plan_revision: number
+          p_plan_revision_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       begin_thumbnail_brand_setup: {
         Args: {
           p_asset_id: string
@@ -9621,6 +9780,35 @@ export type Database = {
           p_operation_id: string
           p_workpiece_id: string
           p_workspace_id: string
+        }
+        Returns: Json
+      }
+      commit_reference_clip_acquisition_asset: {
+        Args: {
+          p_asset_kind: string
+          p_byte_size: number
+          p_content_hash: string
+          p_duration_ms: number
+          p_height: number
+          p_mime_type: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_path: string
+          p_provider: string
+          p_provider_request_id: string
+          p_storage_bucket: string
+          p_storage_key: string
+          p_width: number
+        }
+        Returns: Json
+      }
+      commit_reference_clip_acquisition_candidate: {
+        Args: {
+          p_actor_id: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_provenance: Json
+          p_rights: Json
         }
         Returns: Json
       }
@@ -10014,6 +10202,17 @@ export type Database = {
         Args: {
           p_failed_stage: string
           p_failure_code: string
+          p_failure_message: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+        }
+        Returns: Json
+      }
+      fail_reference_clip_acquisition: {
+        Args: {
+          p_failed_stage: string
+          p_failure_code: string
+          p_failure_evidence: Json
           p_failure_message: string
           p_operation_fingerprint: string
           p_operation_id: string
@@ -10577,6 +10776,10 @@ export type Database = {
         Args: { p_operation_id: string; p_workspace_id: string }
         Returns: Json
       }
+      read_reference_clip_acquisition: {
+        Args: { p_operation_id: string; p_workspace_id: string }
+        Returns: Json
+      }
       read_reference_clip_operation_receipt: {
         Args: { p_operation_id: string; p_workspace_id: string }
         Returns: Json
@@ -10675,6 +10878,14 @@ export type Database = {
           p_operation_fingerprint: string
           p_operation_id: string
           p_provider_response_json: Json
+        }
+        Returns: Json
+      }
+      record_reference_clip_source_acquired: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_source_evidence: Json
         }
         Returns: Json
       }
