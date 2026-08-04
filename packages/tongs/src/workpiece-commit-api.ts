@@ -1589,6 +1589,7 @@ export type TongsCommitApiOptions = {
   openAiTextModel?: string;
   runwayApiKey?: string;
   brollVideoProvider?: BrollVideoProvider;
+  brollAcquisitionRuntime?: BrollAcquisitionRuntime;
 };
 
 export type AcquireBrollCandidateRequest = {
@@ -1627,6 +1628,34 @@ export type BrollVideoProvider = {
   poll(taskId: string): Promise<RunwayTask>;
   download(outputUrl: string): Promise<Uint8Array>;
 };
+
+export type BrollAcquisitionRuntime = {
+  inspectMedia(bytes: Uint8Array, expectedKind: "video" | "poster"): Promise<VerifiedBrollMedia>;
+  derivePoster(video: VerifiedBrollMedia): Promise<VerifiedBrollMedia>;
+  fetchExternalMedia(url: string): Promise<VerifiedBrollMedia>;
+};
+
+type BrollAcquisitionModule = typeof import("./broll-acquisition.js");
+
+class LazyBrollAcquisitionRuntime implements BrollAcquisitionRuntime {
+  private modulePromise: Promise<BrollAcquisitionModule> | null = null;
+  private load(): Promise<BrollAcquisitionModule> {
+    if (!this.modulePromise) {
+      const moduleSpecifier = "@forge/tongs/broll-acquisition";
+      this.modulePromise = import(/* @vite-ignore */ moduleSpecifier);
+    }
+    return this.modulePromise;
+  }
+  async inspectMedia(bytes: Uint8Array, expectedKind: "video" | "poster"): Promise<VerifiedBrollMedia> {
+    return (await this.load()).inspectBrollMedia(bytes, expectedKind);
+  }
+  async derivePoster(video: VerifiedBrollMedia): Promise<VerifiedBrollMedia> {
+    return (await this.load()).deriveBrollPoster(video);
+  }
+  async fetchExternalMedia(url: string): Promise<VerifiedBrollMedia> {
+    return (await this.load()).fetchExternalBrollMedia(url);
+  }
+}
 
 type RunwayProviderModule = typeof import("./providers/runway-broll-video-provider.js");
 const RUNWAY_SDK_VERSION = "4.13.1";
@@ -5566,6 +5595,7 @@ export class TongsCommitService {
   readonly narrativeInterpretationProvider: NarrativeInterpretationProvider | null;
   readonly brollVideoProvider: BrollVideoProvider | null;
   readonly brollMotionInterpretationProvider: BrollMotionInterpretationProvider | null;
+  readonly brollAcquisitionRuntime: BrollAcquisitionRuntime;
 
   readonly userClientFactory: ((accessToken: string) => SupabaseClient<Database>) | null;
 
@@ -5577,6 +5607,7 @@ export class TongsCommitService {
     narrativeInterpretationProvider: NarrativeInterpretationProvider | null = null,
     brollVideoProvider: BrollVideoProvider | null = null,
     brollMotionInterpretationProvider: BrollMotionInterpretationProvider | null = null,
+    brollAcquisitionRuntime: BrollAcquisitionRuntime = new LazyBrollAcquisitionRuntime(),
   ) {
     this.supabase = supabase;
     this.bucket = bucket;
@@ -5585,6 +5616,7 @@ export class TongsCommitService {
     this.narrativeInterpretationProvider = narrativeInterpretationProvider;
     this.brollVideoProvider = brollVideoProvider;
     this.brollMotionInterpretationProvider = brollMotionInterpretationProvider;
+    this.brollAcquisitionRuntime = brollAcquisitionRuntime;
   }
 
   private async getCradleOrThrow(workpieceId: string): Promise<EpisodeRow> {
@@ -12854,6 +12886,7 @@ export class TongsCommitService {
       const promptCheck=await authority.rpc("assert_current_broll_prompt",{p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_beat_id:input.beat_id,p_prompt_revision_id:input.prompt_revision_id,p_prompt_revision:input.prompt_revision,p_prompt_content_hash:input.prompt_content_hash});
       if(promptCheck.error||!isRecord(promptCheck.data)||promptCheck.data.disposition!=="verified")throw new HttpError(409,isRecord(promptCheck.data)?readStringField(promptCheck.data,"disposition")??"prompt_authority_invalid":"prompt_authority_invalid",promptCheck.error?.message??"The canonical motion prompt is missing, stale, or mismatched.",isRecord(promptCheck.data)?promptCheck.data:undefined);
       const canonicalPrompt=isRecord(promptCheck.data.prompt_revision)?readStringField(promptCheck.data.prompt_revision,"final_prompt"):null;if(!canonicalPrompt)throw new HttpError(409,"prompt_authority_invalid","The canonical motion prompt has no final prompt.");input.final_prompt=canonicalPrompt;
+      if(input.final_prompt.length>1000)throw new HttpError(409,"runway_prompt_too_long",`Runway Gen-4.5 accepts at most 1000 UTF-16 code units. Current canonical prompt: ${input.final_prompt.length}. Create and confirm a Runway-ready prompt before generating video.`,{prompt_length_utf16:input.final_prompt.length,maximum_utf16:1000,operation_reserved:false,transmitted:false});
     }
     const normalizedOperation = input.operation_id.replace(/[^a-zA-Z0-9._-]+/g, "-");
     const videoPath = `assets/broll-v2/${input.beat_id}/${normalizedOperation}/video`;
@@ -12874,14 +12907,12 @@ export class TongsCommitService {
     let state = operation ? readStringField(operation, "state") : null;
     if (state === "candidate_committed" && isRecord(operation?.receipt_json)) return operation.receipt_json as Record<string, Json>;
 
-    const acquisitionModuleSpecifier = "@forge/tongs/broll-acquisition";
-    const { deriveBrollPoster, fetchExternalBrollMedia, inspectBrollMedia } = await import(
-      /* @vite-ignore */ acquisitionModuleSpecifier
-    ) as typeof import("./broll-acquisition.js");
     let video: VerifiedBrollMedia | null = null;
+    const inspectBrollMedia = this.brollAcquisitionRuntime.inspectMedia.bind(this.brollAcquisitionRuntime);
+    const deriveBrollPoster = this.brollAcquisitionRuntime.derivePoster.bind(this.brollAcquisitionRuntime);
+    const fetchExternalBrollMedia = this.brollAcquisitionRuntime.fetchExternalMedia.bind(this.brollAcquisitionRuntime);
     if (input.source_kind === "generated") {
       if (!this.brollVideoProvider || !input.final_prompt) throw new HttpError(503, "broll_video_provider_unavailable", "No replay-safe B-roll video provider is configured.");
-      if (input.final_prompt.length > 1000) throw new HttpError(409, "runway_prompt_too_long", "Runway Gen-4.5 accepts at most 1000 characters. Save a shorter canonical prompt revision before generating video.", { prompt_length: input.final_prompt.length, maximum: 1000 });
       const recoveredStored = state === "pending" ? await downloadStorageObject(this.supabase, this.bucket, videoKey) : null;
       if (recoveredStored) {
         video = await inspectBrollMedia(recoveredStored, "video");
@@ -14151,7 +14182,7 @@ export function createTongsCommitService(options: TongsCommitApiOptions): TongsC
     global: { headers: { Authorization: `Bearer ${accessToken}` } },
   });
 
-  return new TongsCommitService(supabase, bucket, imageProvider, userClientFactory, narrativeInterpretationProvider, brollVideoProvider, brollMotionInterpretationProvider);
+  return new TongsCommitService(supabase, bucket, imageProvider, userClientFactory, narrativeInterpretationProvider, brollVideoProvider, brollMotionInterpretationProvider, options.brollAcquisitionRuntime);
 }
 
 function normalizeStageThumbnailAssetRequest(body: Record<string, unknown>): StageThumbnailAssetRequest {

@@ -5,12 +5,68 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import {
   createTongsCommitApiHandlerWithService,
   createTongsCommitService,
+  type BrollAcquisitionRuntime,
+  type BrollVideoProvider,
+  type TongsCommitApiOptions,
 } from "../../../packages/tongs/src/workpiece-commit-api.ts";
 import { RunwayBrollVideoProvider } from "../../../packages/tongs/src/providers/runway-broll-video-provider.ts";
-import { resolveTongsRuntimeConfig } from "../server/tongs/tongs-runtime-config";
+import {
+  deriveBrollPoster,
+  fetchExternalBrollMedia,
+  inspectBrollMedia,
+} from "../../../packages/tongs/src/broll-acquisition.ts";
+import { resolveTongsRuntimeConfig, type ResolvedTongsRuntimeConfig } from "../server/tongs/tongs-runtime-config";
 import { ensureWorkpieceJobRunnerStarted } from "../server/tongs/workpiece-job-runner";
 
 type Next = (err?: unknown) => void;
+
+export type NurseryTongsProviderBoundary = {
+  options: TongsCommitApiOptions;
+  provider: BrollVideoProvider | undefined;
+  acquisitionRuntime: BrollAcquisitionRuntime;
+  diagnostic: {
+    runwayConfigured: boolean;
+    providerConstructed: boolean;
+    providerInjected: boolean;
+    lazyFallbackDisabled: boolean;
+    acquisitionRuntimeInjected: boolean;
+    lateAcquisitionImportDisabled: boolean;
+  };
+};
+
+export function resolveNurseryTongsProviderBoundary(
+  config: ResolvedTongsRuntimeConfig,
+  createRunwayProvider: (apiKey: string) => BrollVideoProvider = (apiKey) => new RunwayBrollVideoProvider(apiKey),
+): NurseryTongsProviderBoundary {
+  const runwayApiKey = config.options.runwayApiKey?.trim();
+  const provider = runwayApiKey ? createRunwayProvider(runwayApiKey) : undefined;
+  const acquisitionRuntime: BrollAcquisitionRuntime = {
+    inspectMedia: inspectBrollMedia,
+    derivePoster: deriveBrollPoster,
+    fetchExternalMedia: fetchExternalBrollMedia,
+  };
+  const options: TongsCommitApiOptions = {
+    ...config.options,
+    // Nursery owns provider construction. Removing the key from the downstream
+    // options makes the Vite-sensitive lazy fallback impossible in this process.
+    runwayApiKey: undefined,
+    brollVideoProvider: provider,
+    brollAcquisitionRuntime: acquisitionRuntime,
+  };
+  return {
+    options,
+    provider,
+    acquisitionRuntime,
+    diagnostic: {
+      runwayConfigured: Boolean(runwayApiKey),
+      providerConstructed: Boolean(provider),
+      providerInjected: options.brollVideoProvider === provider && Boolean(provider),
+      lazyFallbackDisabled: options.runwayApiKey == null,
+      acquisitionRuntimeInjected: options.brollAcquisitionRuntime === acquisitionRuntime,
+      lateAcquisitionImportDisabled: true,
+    },
+  };
+}
 
 function readBody(req: IncomingMessage): Promise<Uint8Array | undefined> {
   const method = (req.method || "GET").toUpperCase();
@@ -60,12 +116,19 @@ async function writeFetchResponse(res: ServerResponse, response: Response): Prom
 export function createNurseryTongsMiddleware(opts?: { routePrefix?: string }) {
   const routePrefix = (opts?.routePrefix ?? "/tongs").replace(/\/+$/, "") || "/tongs";
   const config = resolveTongsRuntimeConfig();
-  const runwayApiKey = config.options.runwayApiKey?.trim();
-  const service = config.missing.length ? null : createTongsCommitService({
-    ...config.options,
-    brollVideoProvider: runwayApiKey ? new RunwayBrollVideoProvider(runwayApiKey) : undefined,
-  });
+  const providerBoundary = resolveNurseryTongsProviderBoundary(config);
+  const service = config.missing.length ? null : createTongsCommitService(providerBoundary.options);
   const handler = service ? createTongsCommitApiHandlerWithService(service, config.options.apiToken) : null;
+
+  console.info("[nursery:tongs-commit-api] provider boundary", {
+    ...providerBoundary.diagnostic,
+    serviceCreated: Boolean(service),
+    serviceProviderMatches: Boolean(service && providerBoundary.provider && service.brollVideoProvider === providerBoundary.provider),
+    acquisitionRuntimeLoaded: [deriveBrollPoster, fetchExternalBrollMedia, inspectBrollMedia].every(
+      (dependency) => typeof dependency === "function",
+    ),
+    serviceAcquisitionRuntimeMatches: Boolean(service && service.brollAcquisitionRuntime === providerBoundary.acquisitionRuntime),
+  });
 
   if (service) {
     ensureWorkpieceJobRunnerStarted({ service });
