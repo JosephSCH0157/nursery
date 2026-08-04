@@ -96,6 +96,38 @@ test("hearthMediaMapBuilder: caps media maps at 18 selected visual beats", () =>
   assert.ok(map.entries.every((entry) => entry.final_media_kind === "image"));
 });
 
+test("hearthMediaMapBuilder: applying an image plan never duplicates episode moments with thumbnail concepts", () => {
+  const base = createEmptyEpisodePackageV2();
+  const imageEntries = Array.from({ length: 10 }, (_, index) => createImageEntry(index + 1));
+  const packageSource = {
+    ...base,
+    image_map: { entries: imageEntries },
+    thumbnail: {
+      ...base.thumbnail,
+      concepts: Array.from({ length: 10 }, (_, index) => ({
+        id: `thumbnail-concept-${index + 1}`,
+        label: `Thumbnail ${index + 1}`,
+        prompt_text: `Thumbnail prompt ${index + 1}`,
+        created_at: "2026-08-03T00:00:00.000Z",
+      })),
+    },
+  };
+
+  const firstApply = buildMediaMapFromExistingPlans(packageSource, "script-1", "images_only");
+  const repeatedApply = buildMediaMapFromExistingPlans({
+    ...packageSource,
+    media_map: firstApply,
+  }, "script-1", "images_only");
+
+  assert.equal(firstApply.entries.length, 10);
+  assert.equal(repeatedApply.entries.length, 10);
+  assert.deepEqual(
+    repeatedApply.entries.map((entry) => entry.id),
+    imageEntries.map((entry) => `mm_imap_${entry.id}`),
+  );
+  assert.ok(repeatedApply.entries.every((entry) => entry.intent !== "thumbnail_concept"));
+});
+
 test("hearthMediaMapBuilder: rejects unsourced reference clips from handoff maps", () => {
   const base = createEmptyEpisodePackageV2();
   const map = buildMediaMapFromExistingPlans({
