@@ -501,6 +501,8 @@ function installImageMapFetchHarness() {
   };
   let conflictMode = false;
   let generateConflictMode = false;
+  let generateConflictCode = "image_map_conflict";
+  let generateConflictMessage = "Image map changed since last load.";
   const previewFiles = new Map<string, { bytesBase64: string; contentType: string }>();
 
   globalThis.fetch = (async (input: unknown, init?: RequestInit) => {
@@ -550,8 +552,8 @@ function installImageMapFetchHarness() {
         return new Response(JSON.stringify({
           ok: false,
           error: {
-            code: "image_map_conflict",
-            message: "Image map changed since last load.",
+            code: generateConflictCode,
+            message: generateConflictMessage,
           },
         }), {
           status: 409,
@@ -642,6 +644,11 @@ function installImageMapFetchHarness() {
     },
     setGenerateConflictMode(value: boolean) {
       generateConflictMode = value;
+    },
+    setGenerateConflict(value: { code: string; message: string }) {
+      generateConflictMode = true;
+      generateConflictCode = value.code;
+      generateConflictMessage = value.message;
     },
     setPreviewFile(path: string, bytesBase64: string, contentType = "image/png") {
       previewFiles.set(path, { bytesBase64, contentType });
@@ -1490,9 +1497,49 @@ async function testImageMapCandidateGenerationRoundTripsCanonicalRefs() {
   }
 }
 
+async function testImageMapCandidateGenerationPreservesCanonicalPromptConflict() {
+  resetLocalStorage();
+  const harness = installImageMapFetchHarness();
+  harness.setGenerateConflict({
+    code: "prompt_authority_mismatch",
+    message: "The current prompt no longer matches this image moment's canonical direction or approved script.",
+  });
+  try {
+    const result = await generateWorkpieceImageMapCandidates({
+      workpieceId: WORKPIECE_A,
+      workspaceId: WORKSPACE_ID,
+      imageMapEntryId: "image-map-01",
+      promptRevisionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+      promptRevision: 3,
+      promptContentHash: "a".repeat(64),
+      confirmSpend: true,
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.reason, "request_failed");
+      assert.equal(result.error, "The current prompt no longer matches this image moment's canonical direction or approved script.");
+    }
+    assert.deepEqual(harness.getRequests, []);
+  } finally {
+    harness.restore();
+  }
+}
+
 async function testImageMapCandidateSelectionPersistsCanonicalSelectedAsset() {
   resetLocalStorage();
   const harness = installImageMapFetchHarness();
+  const candidates = [
+    { asset_id: "candidate-a", path: "assets/image-map/candidates/a.png", variant_label: "explainer", visual_mode: "comparison", mime_type: "image/png" },
+    { asset_id: "candidate-b", path: "assets/image-map/candidates/b.png", variant_label: "illustrative", visual_mode: "comparison", mime_type: "image/png" },
+  ];
+  harness.setGetPayload({
+    image_map: {
+      workpiece_id: WORKPIECE_A, workspace_id: WORKSPACE_ID,
+      entries: [buildImageMapEntryFixture("image-map-01", { source_type: "ai", status: "candidates_generated", candidate_assets: candidates, selected_asset_id: null })],
+      metadata_updated_at: "2026-03-10T18:00:00.000Z", authority_source: "canonical",
+      image_map_revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", image_map_revision: 7,
+    }, asset: null,
+  });
   harness.setSavePayload({
     image_map: {
       workpiece_id: WORKPIECE_A,
@@ -1521,6 +1568,9 @@ async function testImageMapCandidateSelectionPersistsCanonicalSelectedAsset() {
         }),
       ],
       metadata_updated_at: "2026-03-10T19:00:00.000Z",
+      authority_source: "canonical",
+      image_map_revision_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+      image_map_revision: 8,
     },
     asset: null,
   });
@@ -1560,9 +1610,6 @@ async function testImageMapCandidateSelectionPersistsCanonicalSelectedAsset() {
           }),
         ],
         metadataUpdatedAt: "2026-03-10T18:00:00.000Z",
-        authoritySource: "canonical",
-        revisionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-        revision: 7,
         asset: null,
       },
     });
@@ -1573,6 +1620,7 @@ async function testImageMapCandidateSelectionPersistsCanonicalSelectedAsset() {
       assert.equal(result.imageMap.entries[0]?.status, "selected");
     }
     assert.equal(harness.saveRequests.length, 0);
+    assert.deepEqual(harness.getRequests, [WORKPIECE_A]);
     assert.equal(harness.selectionRequests.length, 1);
     assert.equal(harness.selectionRequests[0]?.body.expected_current_revision, 7);
     assert.equal(harness.selectionRequests[0]?.body.expected_current_revision_id, "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
@@ -1613,6 +1661,9 @@ async function testImageMapCandidateSelectionRejectsDetachedCandidate() {
           }),
         ],
         metadataUpdatedAt: "2026-03-10T18:00:00.000Z",
+        authoritySource: "canonical",
+        revisionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        revision: 7,
         asset: null,
       },
     });
@@ -3476,6 +3527,7 @@ async function run() {
   await testImageMapRepoSaveForwardsExpectedTimestampAndReturnsLatestOnConflict();
   await testImageMapRepoRejectsMismatchedCanonicalAttachment();
   await testImageMapCandidateGenerationRoundTripsCanonicalRefs();
+  await testImageMapCandidateGenerationPreservesCanonicalPromptConflict();
   await testImageMapCandidateSelectionPersistsCanonicalSelectedAsset();
   await testImageMapCandidateSelectionRejectsDetachedCandidate();
   await testImageMapCandidatePreviewLoaderReadsCanonicalFilePath();

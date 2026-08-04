@@ -457,12 +457,15 @@ export async function generateWorkpieceImageMapCandidates(args: {
   const body = await readBodyAsJson(response);
 
   if (response.status === 409) {
-    const latest = await readLatestImageMap(args.workpieceId);
+    const code = readApiErrorCode(body);
+    const error = readApiErrorMessage(body) ?? "Image generation was rejected by canonical authority.";
+    const isImageMapConflict = code === "image_map_conflict" || code === "image_map_revision_conflict";
+    const latest = isImageMapConflict ? await readLatestImageMap(args.workpieceId) : undefined;
     return {
       ok: false,
       status: 409,
-      reason: "conflict",
-      error: "Image map changed since last load.",
+      reason: isImageMapConflict ? "conflict" : "request_failed",
+      error,
       ...(latest ? { latest } : {}),
     };
   }
@@ -677,7 +680,9 @@ export async function selectWorkpieceImageMapCandidate(args: {
   currentImageMap?: WorkpieceImageMapView | null;
 }): Promise<SelectWorkpieceImageMapCandidateResult> {
   const currentImageMap = args.currentImageMap ?? null;
-  const canonical = currentImageMap ?? await (async () => {
+  const canonical = currentImageMap?.authoritySource === "canonical" && currentImageMap.revisionId && currentImageMap.revision
+    ? currentImageMap
+    : await (async () => {
     const fetched = await getWorkpieceImageMap(args.workpieceId);
     return fetched.ok ? fetched.imageMap : null;
   })();

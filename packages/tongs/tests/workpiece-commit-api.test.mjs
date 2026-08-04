@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { TextEncoder } from "node:util";
-import { TongsCommitService, createTongsCommitApiHandlerWithService, extractPdfTextParserA, extractPdfTextParserB, extractPdfTextFallbackChain } from "../dist/workpiece-commit-api.js";
+import { TongsCommitService, buildImageMapPromptSourceContext, createTongsCommitApiHandlerWithService, extractPdfTextParserA, extractPdfTextParserB, extractPdfTextFallbackChain, imageMapPromptAuthorityBasis } from "../dist/workpiece-commit-api.js";
 import { deflateSync } from "node:zlib";
 
 function thumbnailAssetFixture(workpieceId, workspaceId, operationId, status) {
@@ -3116,6 +3116,39 @@ function installCurrentImageMapAuthority(service, workspaceId, workpieceId) {
   service.readCurrentImageMapPrompt = async () => ({ prompt_revision: promptRevision });
   return promptRevision;
 }
+
+test("image prompt authority ignores candidate selection history but not prompt inputs", () => {
+  const original = {
+    id: "moment-1",
+    anchor: "Growers moved south.",
+    description: "Florida orange growers relocating farther south in Florida.",
+    status: "candidates_generated",
+    candidate_assets: [{ asset_id: "asset-a" }],
+    selected_asset_id: null,
+  };
+  const selected = {
+    ...original,
+    status: "selected",
+    candidate_assets: [{ asset_id: "asset-a" }, { asset_id: "asset-b" }],
+    selected_asset_id: "asset-b",
+  };
+  assert.deepEqual(imageMapPromptAuthorityBasis(selected), imageMapPromptAuthorityBasis(original));
+  assert.deepEqual(
+    buildImageMapPromptSourceContext([selected], 0, original.description),
+    {
+      before: null,
+      focus: original.description,
+      after: null,
+      image_direction: original.description,
+      editorial_purpose: null,
+      placement_hint: null,
+    },
+  );
+  assert.notDeepEqual(
+    imageMapPromptAuthorityBasis({ ...selected, description: "A materially different image direction." }),
+    imageMapPromptAuthorityBasis(original),
+  );
+});
 
 function createManifestFixture(workpieceId, workspaceId) {
   const now = "2026-03-02T00:00:00.000Z";
