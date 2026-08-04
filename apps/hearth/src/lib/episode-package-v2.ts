@@ -295,6 +295,7 @@ export const EPISODE_BROLL_PLAN_SOURCE_TYPE_VALUES = [
   "upload",
   "external",
   "hearth_ai",
+  "generated",
   "hammer_upload",
 ] as const;
 
@@ -1872,7 +1873,7 @@ function deriveBrollAssetCategoryFromSource(args: {
   if (args.motionIntent === "explanatory") return "stat_card";
 
   if (args.sourceType === "stock") return "stock_video";
-  if (args.sourceType === "hearth_ai") return "ai_video";
+  if (args.sourceType === "hearth_ai" || args.sourceType === "generated") return "ai_video";
   if (args.sourceType === "upload" || args.sourceType === "hammer_upload") return "uploaded_video";
 
   const mime = readString(args.mimeType)?.toLowerCase() ?? "";

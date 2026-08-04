@@ -112,35 +112,21 @@ async function currentActorId(): Promise<string | null> {
   } catch { return null; }
 }
 
-async function signedAssetUrl(bucket: string | null, key: string | null): Promise<string | null> {
-  if (!bucket || !key) return null;
-  const base = runtimeEnv("VITE_SUPABASE_URL");
-  const anon = runtimeEnv("VITE_SUPABASE_ANON_KEY");
-  const accessToken = await resolveTongsUserAccessToken();
-  if (!base || !anon || !accessToken) return null;
-  const response = await fetch(`${base}/storage/v1/object/sign/${encodeURIComponent(bucket)}/${key.split("/").map(encodeURIComponent).join("/")}`, {
-    method: "POST", headers: { apikey: anon, authorization: `Bearer ${accessToken}`, "content-type": "application/json" }, body: JSON.stringify({ expiresIn: 3600 }),
-  });
-  const body = await json(response);
-  const signed = record(body) ? string(body.signedURL) ?? string(body.signedUrl) : null;
-  return signed && base ? (signed.startsWith("http") ? signed : `${base}/storage/v1${signed}`) : null;
-}
-
-async function readCanonicalAssetDataUrl(workpieceId: string, storageKey: string | null, mimeType: string): Promise<string | null> {
+async function canonicalMediaUrl(workpieceId: string, storageKey: string | null): Promise<string | null> {
   if (!storageKey) return null;
   const prefix = `workpieces/${workpieceId}/`;
   const path = storageKey.startsWith(prefix) ? storageKey.slice(prefix.length) : storageKey;
-  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(path)}&encoding=base64`, { method: "GET" });
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/media-url?path=${encodeURIComponent(path)}`, { method: "GET" });
   const body = await json(response);
   const data = record(body) && record(body.data) ? body.data : null;
-  const bytes = string(data?.bytes_base64);
-  return response.ok && bytes ? `data:${string(data?.content_type) ?? mimeType};base64,${bytes}` : null;
+  return response.ok ? string(data?.url) : null;
 }
 
-function mapCandidate(row: JsonRecord, videoUrl: string | null, posterUrl: string | null): EpisodeBrollAssetCandidate {
+export function mapCanonicalBrollCandidate(row: JsonRecord, videoUrl: string | null, posterUrl: string | null): EpisodeBrollAssetCandidate {
+  const source = (string(row.source_kind) as EpisodeBrollAssetCandidate["source"]) ?? "upload";
   return {
     asset_id: string(row.id) ?? "",
-    source: (string(row.source_kind) as EpisodeBrollAssetCandidate["source"]) ?? "upload",
+    source,
     source_beat_id: string(row.beat_id) ?? "",
     label: `${string(row.provider) ?? "Verified"} clip`,
     uri: videoUrl,
@@ -148,10 +134,11 @@ function mapCandidate(row: JsonRecord, videoUrl: string | null, posterUrl: strin
     preview_path: posterUrl,
     thumbnail_path: posterUrl,
     mime_type: string(row.mime_type),
+    duration_ms: integer(row.duration_ms),
     ingest_status: "ready",
     ingest_error: null,
     source_url: string(row.source_url),
-    asset_category: "uploaded_video",
+    asset_category: source === "generated" ? "ai_video" : "uploaded_video",
     created_at: string(row.created_at) ?? new Date(0).toISOString(),
   };
 }
@@ -161,28 +148,34 @@ export async function readCanonicalBrollV2(args: { workspaceId: string; workpiec
   if (!read.ok) return read;
   if (read.data === null) return { ok: true, data: { plan: null, planRevisionId: null, planRevision: 0, selectionRevision: 0, scriptApprovalId: null, promptsByBeat: {} } };
   if (!record(read.data) || !record(read.data.sequence) || !record(read.data.plan_revision) || !Array.isArray(read.data.beats)) return { ok: false, status: 502, code: "invalid_broll_readback", error: "Tongs returned malformed B-roll V2 state." };
-  const candidateResponse = await postgrest(`broll_candidate_revisions?workpiece_id=eq.${encodeURIComponent(args.workpieceId)}&select=*`);
-  const candidateBody = await json(candidateResponse);
-  if (!candidateResponse.ok || !Array.isArray(candidateBody)) return failure(candidateResponse, candidateBody, "Canonical B-roll candidates could not be read.");
-  const assetIds = Array.from(new Set(candidateBody.flatMap((value) => record(value) ? [string(value.asset_id), string(value.poster_asset_id)].filter((id): id is string => !!id) : [])));
-  let assets: JsonRecord[] = [];
-  if (assetIds.length) {
-    const assetResponse = await postgrest(`assets?id=in.(${assetIds.join(",")})&select=id,storage_bucket,storage_key`);
-    const assetBody = await json(assetResponse);
-    if (!assetResponse.ok || !Array.isArray(assetBody)) return failure(assetResponse, assetBody, "Canonical B-roll assets could not be read.");
-    assets = assetBody.filter(record);
+  const projectedCandidates = read.data.beats.flatMap((entry) => record(entry) && Array.isArray(entry.candidate_revisions) ? entry.candidate_revisions : []);
+  let canonicalCandidates: Array<{ candidate: JsonRecord; video: JsonRecord | null; poster: JsonRecord | null }> = projectedCandidates.flatMap((entry) => {
+    if (!record(entry) || !record(entry.candidate_revision)) return [];
+    return [{ candidate: entry.candidate_revision, video: record(entry.video_asset) ? entry.video_asset : null, poster: record(entry.poster_asset) ? entry.poster_asset : null }];
+  });
+  const hasProjectedCandidateContract = read.data.beats.every((entry) => record(entry) && Array.isArray(entry.candidate_revisions));
+  if (!hasProjectedCandidateContract) {
+    const candidateResponse = await postgrest(`broll_candidate_revisions?workpiece_id=eq.${encodeURIComponent(args.workpieceId)}&select=*`);
+    const candidateBody = await json(candidateResponse);
+    if (!candidateResponse.ok || !Array.isArray(candidateBody)) return failure(candidateResponse, candidateBody, "Canonical B-roll candidates could not be read.");
+    const candidates = candidateBody.filter(record);
+    const assetIds = Array.from(new Set(candidates.flatMap((value) => [string(value.asset_id), string(value.poster_asset_id)].filter((id): id is string => !!id))));
+    let assets: JsonRecord[] = [];
+    if (assetIds.length) {
+      const assetResponse = await postgrest(`assets?id=in.(${assetIds.join(",")})&select=id,storage_bucket,storage_key`);
+      const assetBody = await json(assetResponse);
+      if (!assetResponse.ok || !Array.isArray(assetBody)) return failure(assetResponse, assetBody, "Canonical B-roll assets could not be read.");
+      assets = assetBody.filter(record);
+    }
+    const assetById = new Map(assets.map((asset) => [string(asset.id), asset]));
+    canonicalCandidates = candidates.map((candidate) => ({ candidate, video: assetById.get(string(candidate.asset_id)) ?? null, poster: assetById.get(string(candidate.poster_asset_id)) ?? null }));
   }
-  const assetById = new Map(assets.map((asset) => [string(asset.id), asset]));
-  const mappedCandidates = await Promise.all(candidateBody.filter(record).map(async (candidate) => {
-    const video = assetById.get(string(candidate.asset_id));
-    const poster = assetById.get(string(candidate.poster_asset_id));
+  const mappedCandidates = await Promise.all(canonicalCandidates.map(async ({ candidate, video, poster }) => {
     const videoKey = string(video?.storage_key);
     const posterKey = string(poster?.storage_key);
-    const videoUrl = await signedAssetUrl(string(video?.storage_bucket), videoKey)
-      ?? await readCanonicalAssetDataUrl(args.workpieceId, videoKey, string(candidate.mime_type) ?? "video/mp4");
-    const posterUrl = await signedAssetUrl(string(poster?.storage_bucket), posterKey)
-      ?? await readCanonicalAssetDataUrl(args.workpieceId, posterKey, "image/jpeg");
-    return mapCandidate(candidate, videoUrl, posterUrl);
+    const videoUrl = await canonicalMediaUrl(args.workpieceId, videoKey);
+    const posterUrl = await canonicalMediaUrl(args.workpieceId, posterKey);
+    return mapCanonicalBrollCandidate(candidate, videoUrl, posterUrl);
   }));
   const candidatesByBeat = new Map<string, EpisodeBrollAssetCandidate[]>();
   for (const candidate of mappedCandidates) {

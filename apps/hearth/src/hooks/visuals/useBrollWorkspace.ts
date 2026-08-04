@@ -1,6 +1,14 @@
 import { useCallback, useState } from "react";
 import type { EpisodeBrollMotionAssetCategory, EpisodeBrollPlanBeat } from "../../lib/episode-package-v2";
 
+export function resolveCanonicalBrollBeatSelection(brollBeats: EpisodeBrollPlanBeat[], current: string | null): string | null {
+  if (current && brollBeats.some((beat) => beat.id === current)) return current;
+  return brollBeats.find((beat) => !beat.selected_asset_id && (beat.candidate_assets?.length ?? 0) > 0)?.id
+    ?? brollBeats.find((beat) => !beat.selected_asset_id)?.id
+    ?? brollBeats[0]?.id
+    ?? null;
+}
+
 export function useBrollWorkspace() {
   const [selectedBrollBeatId, setSelectedBrollBeatId] = useState<string | null>(null);
   const [brollAnchorDraft, setBrollAnchorDraft] = useState("");
@@ -131,11 +139,7 @@ export function useBrollWorkspace() {
       setSelectedBrollBeatId(null);
       return;
     }
-    setSelectedBrollBeatId((current) => (
-      current && brollBeats.some((beat) => beat.id === current)
-        ? current
-        : (brollBeats[0]?.id ?? null)
-    ));
+    setSelectedBrollBeatId((current) => resolveCanonicalBrollBeatSelection(brollBeats, current));
   }, []);
 
   const resetBrollWorkspaceForWorkpieceSwitch = useCallback((): void => {
