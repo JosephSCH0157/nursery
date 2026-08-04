@@ -61,14 +61,57 @@ export function validateBrollMotionBrief(brief:BrollMotionBrief):string[]{
 }
 
 function clean(value:string):string{return value.trim().replace(/\s+/g," ").replace(/[.;:,\s]+$/g,"");}
+function finishFragment(value:string):string{return clean(value).replace(/\b(?:and|or|with|where|that|showing|to|from|of|in|on|at|by|for|the|a|an)$/i,"").replace(/[.;:,\s]+$/g,"");}
+function firstCompleteClause(value:string):string{
+  const normalized=clean(value).replace(/\s*\([^)]{1,100}\)/g,"");
+  return finishFragment(normalized.split(/;\s+|(?<=[.!?])\s+/)[0]||normalized);
+}
+function conciseSubject(value:string):string{
+  const normalized=clean(value).replace(/\s*\([^)]{1,100}\)/g,"");
+  return finishFragment(normalized.split(/\b(?:with|where|that|showing|brushing|lining|to anchor|by the end)\b|,\s+/i)[0]||normalized);
+}
+function conciseList(values:string[],maxItems:number):string{return values.slice(0,maxItems).map(conciseSubject).filter(Boolean).join(", ");}
+function wordLimit(value:string,maxWords:number):string{
+  const words=clean(value).replace(/\s*\([^)]{1,100}\)/g,"").split(/\s+/).filter(Boolean);
+  return finishFragment(words.slice(0,maxWords).join(" "));
+}
+function boundedSubject(value:string,maxWords:number):string{
+  const subject=conciseSubject(value);
+  return subject.split(/\s+/).length<=maxWords?subject:wordLimit(subject,maxWords);
+}
+function boundedClause(value:string,maxWords:number):string{
+  const clause=firstCompleteClause(value);
+  return clause.split(/\s+/).length<=maxWords?clause:wordLimit(clause,maxWords);
+}
 export function synthesizeBrollMotionPrompt(brief:BrollMotionBrief):string{
   const sections=[
-    `${clean(brief.visible_subjects.join(", "))} in ${clean(brief.setting)}. ${clean(brief.action_over_time)}.`,
-    `Camera: ${clean(brief.camera_behavior)}. Begin on ${clean(brief.start_frame)}; end on ${clean(brief.end_frame)}.`,
-    `Mood and pacing: ${clean(brief.mood)}, ${clean(brief.pacing)}. Target usable duration: ${clean(brief.target_duration)}.`,
-    `Include ${brief.must_include.map(clean).join(", ")}.`,
-    `Continuity: ${clean(brief.continuity)}. Loop behavior: ${clean(brief.loopability)}.`,
-    `Avoid ${brief.avoid.map((value)=>clean(value).replace(/^(?:avoid|no|do not)\s+/i,"")).join(", ")}.`
+    `Create a ${clean(brief.target_duration)} documentary motion shot showing ${conciseList(brief.visible_subjects,3)}.`,
+    `${firstCompleteClause(brief.action_over_time)}.`,
+    `Use ${firstCompleteClause(brief.camera_behavior)}.`,
+    `Begin on ${firstCompleteClause(brief.start_frame.replace(/^[^:]{1,50}:\s*/,""))}; finish on ${firstCompleteClause(brief.end_frame.replace(/^[^:]{1,50}:\s*/,""))}.`,
+    `Set it in ${firstCompleteClause(brief.setting)}, with a ${firstCompleteClause(brief.mood).toLowerCase()} mood and ${firstCompleteClause(brief.pacing).toLowerCase()} pacing.`,
+    `The shot should communicate ${firstCompleteClause(brief.central_message).replace(/^[A-Z]/u,(letter)=>letter.toLowerCase())} and support ${firstCompleteClause(brief.narrative_purpose).replace(/^[A-Z]/u,(letter)=>letter.toLowerCase())}.`,
+    `Keep ${conciseList(brief.must_include,3)} visible, and do not show ${conciseList(brief.avoid.map((value)=>clean(value).replace(/^(?:avoid|no|do not)\s+/i,"")),4)}.`
   ];
-  return sections.filter(Boolean).join("\n\n");
+  const prompt=sections.filter(Boolean).join("\n");
+  if(prompt.length<=1000)return prompt;
+  const strict=[
+    `Create a ${boundedSubject(brief.target_duration,4)} documentary motion shot showing ${brief.visible_subjects.slice(0,2).map((value)=>boundedSubject(value,5)).join(", ")}.`,
+    `${boundedClause(brief.action_over_time,32)}.`,
+    `Use ${boundedClause(brief.camera_behavior,16)}.`,
+    `Begin on ${boundedSubject(brief.start_frame.replace(/^[^:]{1,50}:\s*/,""),12)}; finish on ${boundedSubject(brief.end_frame.replace(/^[^:]{1,50}:\s*/,""),12)}.`,
+    `Set it in ${boundedSubject(brief.setting,10)}, with a ${boundedClause(brief.mood,8).toLowerCase()} mood and ${boundedClause(brief.pacing,8).toLowerCase()} pacing.`,
+    `It should support ${boundedClause(brief.narrative_purpose,14).replace(/^[A-Z]/u,(letter)=>letter.toLowerCase())}.`,
+    `Keep ${brief.must_include.slice(0,2).map((value)=>boundedClause(value,10)).join(", ")} visible, and do not show ${brief.avoid.slice(0,3).map((value)=>boundedSubject(clean(value).replace(/^(?:avoid|no|do not)\s+/i,""),6)).join(", ")}.`
+  ].join("\n");
+  if(strict.length<=1000)return strict;
+  const ultra=[
+    `Show ${brief.visible_subjects.slice(0,2).map((value)=>boundedSubject(value,4)).join(", ")} in motion.`,
+    `${boundedClause(brief.action_over_time,16)}.`,
+    `Use ${boundedClause(brief.camera_behavior,12)}.`,
+    `Begin on ${boundedSubject(brief.start_frame.replace(/^[^:]{1,50}:\s*/,""),8)}; finish on ${boundedSubject(brief.end_frame.replace(/^[^:]{1,50}:\s*/,""),8)}.`,
+    `Keep ${brief.must_include.slice(0,2).map((value)=>boundedClause(value,5)).join(", ")} visible, and do not show ${brief.avoid.slice(0,3).map((value)=>boundedSubject(clean(value).replace(/^(?:avoid|no|do not)\s+/i,""),3)).join(", ")}.`
+  ].join("\n");
+  if(ultra.length>1000)throw new Error(`Runway-ready B-roll prompt synthesis exceeded 1000 UTF-16 code units (${ultra.length}).`);
+  return ultra;
 }

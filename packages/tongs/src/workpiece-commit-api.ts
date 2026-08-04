@@ -1701,6 +1701,7 @@ export type TongsCommitApiService = {
   acquireBrollCandidate(workpieceId: string,input:AcquireBrollCandidateRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
   interpretBrollMotionPrompt(workpieceId:string,input:InterpretBrollMotionPromptRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
   editBrollMotionPrompt(workpieceId:string,input:EditBrollMotionPromptRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  proposeRunwayReadyBrollPrompt(workpieceId:string,workspaceId:string,beatId:string,expectedRevisionId:string,expectedRevision:number,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
   readBrollMotionPromptStatus(workpieceId:string,workspaceId:string,beatId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
   readBrollRunwayOperationStatus(workpieceId:string,workspaceId:string,operationId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
   reconcileBrollRunwayOperation(workpieceId:string,input:ReconcileBrollRunwayRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
@@ -13128,6 +13129,19 @@ export class TongsCommitService {
     const result=await this.imagePromptAuthorityClient(token).rpc("commit_broll_prompt_creator_edit",{p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_beat_id:input.beat_id,p_expected_prompt_revision_id:input.expected_prompt_revision_id,p_expected_prompt_revision:input.expected_prompt_revision,p_final_prompt:input.final_prompt,p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_actor_id:auth.userId});if(result.error||!isRecord(result.data))throw new HttpError(502,"broll_prompt_edit_failed",result.error?.message??"Tongs could not commit motion prompt edit");const disposition=readStringField(result.data,"disposition");if(disposition!=="committed")throw new HttpError(409,disposition??"broll_prompt_edit_rejected","Tongs rejected the motion prompt edit.",result.data);return result.data as Record<string,Json>;
   }
 
+  async proposeRunwayReadyBrollPrompt(workpieceId:string,workspaceId:string,beatId:string,expectedRevisionId:string,expectedRevision:number,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    const token=options?.userAccessToken??null;await this.assertWorkspaceRoleFromAccessToken(workspaceId,"editor",token);await this.assertWorkpieceInWorkspace(workpieceId,workspaceId);
+    const status=await this.imagePromptAuthorityClient(token).rpc("read_broll_prompt_status",{p_workspace_id:workspaceId,p_workpiece_id:workpieceId,p_beat_id:beatId});
+    if(status.error||!isRecord(status.data))throw new HttpError(502,"broll_prompt_status_failed",status.error?.message??"Tongs could not read B-roll prompt status");
+    const revision=isRecord(status.data.prompt_revision)?status.data.prompt_revision:null;
+    if(!revision||readStringField(revision,"id")!==expectedRevisionId||revision.revision!==expectedRevision)throw new HttpError(409,"prompt_revision_conflict","The canonical motion prompt changed before Runway-ready synthesis.",status.data);
+    if(!isRecord(revision.motion_brief_json))throw new HttpError(409,"broll_motion_brief_missing","The current canonical prompt revision has no structured motion brief.");
+    const brief=revision.motion_brief_json as unknown as BrollMotionBrief;
+    const invalid=validateBrollMotionBrief(brief);if(invalid.length)throw new HttpError(422,"interpretation_incomplete","The canonical motion brief cannot produce a Runway-ready prompt.",{invalid_fields:invalid});
+    const proposed=synthesizeBrollMotionPrompt(brief);
+    return{disposition:"proposed",expected_prompt_revision_id:expectedRevisionId,expected_prompt_revision:expectedRevision,final_prompt:proposed,prompt_length_utf16:proposed.length,maximum_utf16:1000,synthesis_contract_version:"forge.broll-motion-synthesis.runway-v1"};
+  }
+
   async interpretImageMapPrompt(workpieceId:string,input:InterpretImageMapPromptRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
     const token=input.user_access_token??options?.userAccessToken??null;
     const auth=await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"editor",token);
@@ -14776,6 +14790,10 @@ export function createTongsCommitApiHandlerWithService(
       }
       if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="broll-v2"&&parts[4]==="prompt-status"){
         requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const result=await service.readBrollMotionPromptStatus(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),normalizeUuid(body.beat_id,"beat_id"),{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="broll-v2"&&parts[4]==="prompt-runway-ready"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);
+        const result=await service.proposeRunwayReadyBrollPrompt(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),normalizeUuid(body.beat_id,"beat_id"),normalizeUuid(body.expected_prompt_revision_id,"expected_prompt_revision_id"),normalizePositiveInteger(body.expected_prompt_revision,"expected_prompt_revision"),{userAccessToken});return jsonResponse(200,{ok:true,data:result});
       }
       if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="image-prompts"&&parts[4]==="edit"){
         requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const result=await service.editImageMapPrompt(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),image_moment_id:normalizeNonEmptyString(body.image_moment_id,"image_moment_id"),expected_prompt_revision_id:normalizeUuid(body.expected_prompt_revision_id,"expected_prompt_revision_id"),expected_prompt_revision:normalizePositiveInteger(body.expected_prompt_revision,"expected_prompt_revision"),final_prompt:normalizeNonEmptyString(body.final_prompt,"final_prompt"),operation_id:normalizeNonEmptyString(body.operation_id,"operation_id"),operation_fingerprint:normalizeSha256(body.operation_fingerprint,"operation_fingerprint"),user_access_token:userAccessToken},{userAccessToken});return jsonResponse(200,{ok:true,data:result});

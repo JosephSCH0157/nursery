@@ -5,7 +5,7 @@ import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { assertSafeExternalMediaUrl, deriveBrollPoster, inspectBrollMedia } from "../dist/broll-acquisition.js";
-import { TongsCommitService } from "../dist/workpiece-commit-api.js";
+import { TongsCommitService, createTongsCommitApiHandlerWithService } from "../dist/workpiece-commit-api.js";
 
 async function run(command,args){await new Promise((resolve,reject)=>{const child=spawn(command,args,{windowsHide:true});let error="";child.stderr.on("data",chunk=>error+=chunk);child.once("error",reject);child.once("close",code=>code===0?resolve():reject(new Error(error)));});}
 
@@ -82,9 +82,18 @@ test("ambiguous Runway submission fails closed and replay never submits again",a
   assert.equal(providerCalls,1);assert.equal(unknownWrites,1);
 });
 
-test("durable Runway task replay polls by task ID without another creation",async()=>{
+test("over-limit canonical prompt is rejected before operation reservation and transmission",async()=>{
+  let begins=0;let submits=0;const longPrompt="visible motion ".repeat(260);
+  const authority={schema(){return{async rpc(name){if(name==="assert_current_broll_prompt")return{data:{disposition:"verified",prompt_revision:{final_prompt:longPrompt}},error:null};if(name==="begin_broll_operation")begins+=1;throw new Error(`unexpected RPC ${name}`);}}}};
+  const service=new TongsCommitService({},"forge-workpieces",null,()=>authority,null,{async submit(){submits+=1;throw new Error("must not submit");}});
+  service.assertWorkpieceInWorkspace=async()=>undefined;service.assertWorkspaceRoleFromAccessToken=async()=>({userId:"11111111-1111-4111-8111-111111111111",role:"editor"});
+  await assert.rejects(()=>service.acquireBrollCandidate("22222222-2222-4222-8222-222222222222",{workspace_id:"33333333-3333-4333-8333-333333333333",beat_id:"44444444-4444-4444-8444-444444444444",operation_id:"forge:broll:too-long",operation_fingerprint:"a".repeat(64),source_kind:"generated",provider:"runway",prompt_revision_id:"55555555-5555-4555-8555-555555555555",prompt_revision:2,prompt_content_hash:"b".repeat(64),poster_required:true},{userAccessToken:"token"}),error=>error.code==="runway_prompt_too_long"&&error.details?.operation_reserved===false&&error.details?.transmitted===false);
+  assert.equal(begins,0);assert.equal(submits,0);
+});
+
+test("selected Beat 1 route reaches the injected provider and durably records its task without a Vite import",async()=>{
   let state="pending";let taskId=null;let creates=0;let polls=0;
-  const operation=()=>({state,submission_attempt_id:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",provider_task_id:taskId});
+  const operation=()=>({state,submission_attempt_id:"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",provider_task_id:taskId,existing_selected_candidate_id:"77777777-7777-4777-8777-777777777777"});
   const authority={schema(){return{async rpc(name){
     if(name==="assert_current_broll_prompt")return{data:{disposition:"verified",prompt_revision:{id:"55555555-5555-4555-8555-555555555555",revision:1,content_hash:"b".repeat(64),final_prompt:"A slow documentary road transition"}},error:null};
     if(name==="begin_broll_operation")return{data:{disposition:"replay",operation:operation()},error:null};
@@ -97,9 +106,12 @@ test("durable Runway task replay polls by task ID without another creation",asyn
   const supabase={storage:{from(){return{async download(){return{data:null,error:{message:"Object not found",statusCode:404}};}}}}};
   const provider={async submit(){creates+=1;return{taskId:"runway-task-durable-1",acceptedResponse:{id:"runway-task-durable-1"}};},async poll(id){polls+=1;assert.equal(id,"runway-task-durable-1");return{state:"pending",taskId:id,response:{id,status:"RUNNING"}};}};
   const service=new TongsCommitService(supabase,"forge-workpieces",null,()=>authority,null,provider);
+  assert.equal(service.brollVideoProvider,provider,"the acquire service must retain the exact injected provider instance");
   service.assertWorkpieceInWorkspace=async()=>undefined;service.assertWorkspaceRoleFromAccessToken=async()=>({userId:"11111111-1111-4111-8111-111111111111",role:"editor"});
   const request={workspace_id:"33333333-3333-4333-8333-333333333333",beat_id:"44444444-4444-4444-8444-444444444444",operation_id:"forge:broll:runway-pending-test-0002",operation_fingerprint:"a".repeat(64),source_kind:"generated",provider:"runway",final_prompt:"A slow documentary road transition",poster_required:false,prompt_revision_id:"55555555-5555-4555-8555-555555555555",prompt_revision:1,prompt_content_hash:"b".repeat(64)};
-  const first=await service.acquireBrollCandidate("22222222-2222-4222-8222-222222222222",{...request},{userAccessToken:"token"});assert.equal(first.disposition,"provider_pending");
-  const second=await service.acquireBrollCandidate("22222222-2222-4222-8222-222222222222",{...request},{userAccessToken:"token"});assert.equal(second.disposition,"provider_pending");
+  const handler=createTongsCommitApiHandlerWithService(service);
+  const invoke=()=>handler(new Request("http://localhost/tongs/workpieces/22222222-2222-4222-8222-222222222222/broll-v2/acquire",{method:"POST",headers:{"content-type":"application/json","x-forge-user-authorization":"Bearer token"},body:JSON.stringify(request)}));
+  const firstResponse=await invoke();const firstBody=await firstResponse.json();assert.equal(firstResponse.status,200);assert.equal(firstBody.data?.disposition,"provider_pending");
+  const secondResponse=await invoke();const secondBody=await secondResponse.json();assert.equal(secondResponse.status,200);assert.equal(secondBody.data?.disposition,"provider_pending");
   assert.equal(creates,1);assert.equal(polls,1);
 });
