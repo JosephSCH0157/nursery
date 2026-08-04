@@ -63,6 +63,7 @@ type BuildMediaMapPanelArgs = {
 };
 
 type BuildBrollPanelArgs = {
+  canonicalV2?: boolean;
   beats: EpisodeBrollPlan["beats"];
   selectedBeatId: string | null;
   workpieceId: string | null;
@@ -75,6 +76,7 @@ type BuildBrollPanelArgs = {
   requestState: string;
   providers: BrollPanelProps["providers"];
   selectedCandidateId: string | null;
+  promptState: BrollPanelProps["promptState"];
   copyPromptAcknowledged: boolean;
   onSelectBeat: (beatId: string | null) => void;
   onDraftChange: BrollPanelProps["onDraftChange"];
@@ -82,6 +84,10 @@ type BuildBrollPanelArgs = {
   onDeleteBeat: () => void;
   onRegenerateBeat: () => void;
   onGeneratePlan: () => void;
+  onGenerateMotionPrompt: NonNullable<BrollPanelProps["onGenerateMotionPrompt"]>;
+  onSaveMotionPrompt: NonNullable<BrollPanelProps["onSaveMotionPrompt"]>;
+  onCreateRunwayReadyPrompt: NonNullable<BrollPanelProps["onCreateRunwayReadyPrompt"]>;
+  onGenerateVideo: NonNullable<BrollPanelProps["onGenerateVideo"]>;
   onFindStock: () => void;
   onUploadAsset: (file: File) => void;
   onSelectCandidate: (candidateId: string) => void;
@@ -123,6 +129,7 @@ type BuildImageMapPanelArgs = {
   candidateGenerateError: string | null;
   candidateSelectBusy: boolean;
   candidateSelectionError: string | null;
+  promptAuthorityState: ImageMapPanelProps["promptAuthorityState"];
   anchorStatusLabel: string | null;
   anchorStatusTone: ImageMapPanelProps["anchorStatusTone"];
   anchorStatusDetail: string | null;
@@ -153,6 +160,9 @@ type BuildImageMapPanelArgs = {
   onDeleteEntry: () => void;
   onSeedFromScript: () => void;
   onGenerateCandidates: (mode?: "ai" | "stock") => void;
+  onInterpretPrompt: ImageMapPanelProps["onInterpretPrompt"];
+  onSavePromptEdit: ImageMapPanelProps["onSavePromptEdit"];
+  onRefreshPrompt: ImageMapPanelProps["onRefreshPrompt"];
   onUploadAsset: (file: File) => void;
   onSelectCandidate: (candidateId: string) => void;
   onCopyExport: () => void;
@@ -321,6 +331,7 @@ export function buildMediaMapPanelProps(args: BuildMediaMapPanelArgs): MediaMapP
 
 export function buildBrollPlanPanelProps(args: BuildBrollPanelArgs): BrollPanelProps {
   return {
+    canonicalV2: args.canonicalV2,
     beats: args.beats,
     selectedBeatId: args.selectedBeatId,
     workpieceId: args.workpieceId,
@@ -333,6 +344,7 @@ export function buildBrollPlanPanelProps(args: BuildBrollPanelArgs): BrollPanelP
     requestState: args.requestState,
     providers: args.providers,
     selectedCandidateId: args.selectedCandidateId,
+    promptState: args.promptState,
     copyPromptAcknowledged: args.copyPromptAcknowledged,
     onSelectBeat: args.onSelectBeat,
     onDraftChange: args.onDraftChange,
@@ -340,6 +352,10 @@ export function buildBrollPlanPanelProps(args: BuildBrollPanelArgs): BrollPanelP
     onDeleteBeat: args.onDeleteBeat,
     onRegenerateBeat: args.onRegenerateBeat,
     onGeneratePlan: args.onGeneratePlan,
+    onGenerateMotionPrompt: args.onGenerateMotionPrompt,
+    onSaveMotionPrompt: args.onSaveMotionPrompt,
+    onCreateRunwayReadyPrompt: args.onCreateRunwayReadyPrompt,
+    onGenerateVideo: args.onGenerateVideo,
     onFindStock: args.onFindStock,
     onUploadAsset: args.onUploadAsset,
     onSelectCandidate: args.onSelectCandidate,
@@ -383,6 +399,7 @@ export function buildImageMapPanelProps(args: BuildImageMapPanelArgs): ImageMapP
     candidateGenerateError: args.candidateGenerateError,
     candidateSelectBusy: args.candidateSelectBusy,
     candidateSelectionError: args.candidateSelectionError,
+    promptAuthorityState: args.promptAuthorityState,
     anchorStatusLabel: args.anchorStatusLabel,
     anchorStatusTone: args.anchorStatusTone,
     anchorStatusDetail: args.anchorStatusDetail,
@@ -413,6 +430,9 @@ export function buildImageMapPanelProps(args: BuildImageMapPanelArgs): ImageMapP
     onDeleteEntry: args.onDeleteEntry,
     onSeedFromScript: args.onSeedFromScript,
     onGenerateCandidates: args.onGenerateCandidates,
+    onInterpretPrompt: args.onInterpretPrompt,
+    onSavePromptEdit: args.onSavePromptEdit,
+    onRefreshPrompt: args.onRefreshPrompt,
     onUploadAsset: args.onUploadAsset,
     onSelectCandidate: args.onSelectCandidate,
     onCopyExport: args.onCopyExport,

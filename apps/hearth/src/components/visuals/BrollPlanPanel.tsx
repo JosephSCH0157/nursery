@@ -2,6 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { loadImageMapCandidatePreviewDataUrl } from "../../lib/hearth-image-map-repo";
 import type { EpisodeBrollAssetCandidate, EpisodeBrollPlanBeat } from "../../lib/episode-package-v2";
 import type { ExternalGenerationProvider } from "../../lib/hearth-visual-actionability";
+import type { CanonicalBrollPromptState } from "../../lib/hearth-broll-v2-authority";
 
 type BrollPlanPanelProps = {
   beats: EpisodeBrollPlanBeat[];
@@ -59,6 +60,12 @@ type BrollPlanPanelProps = {
   onMarkAwaitingResult: () => void;
   onClearRequestState: () => void;
   onAttachResultFromUrl: () => void;
+  promptState?: CanonicalBrollPromptState | null;
+  onGenerateMotionPrompt?: (creatorDirection: string) => void;
+  onSaveMotionPrompt?: (finalPrompt: string) => void;
+  onCreateRunwayReadyPrompt?: () => Promise<{ finalPrompt:string;lengthUtf16:number }|null>;
+  onGenerateVideo?: () => void;
+  canonicalV2?: boolean;
 };
 
 const MOTION_INTENTS = [
@@ -133,6 +140,42 @@ function resolveBeatState(beat: EpisodeBrollPlanBeat): string {
   return "unresolved";
 }
 
+function formatDuration(durationMs?: number | null): string {
+  if (!durationMs) return "Duration unavailable";
+  return `${(durationMs / 1000).toFixed(durationMs % 1000 ? 1 : 0)} sec`;
+}
+
+function formatCandidateDate(candidate: EpisodeBrollAssetCandidate): string | null {
+  const value = candidate.created_at ?? candidate.attached_at ?? null;
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+}
+
+function candidateSourceLabel(candidate: EpisodeBrollAssetCandidate): string {
+  if (candidate.source === "generated" || candidate.asset_category === "ai_video") return "Runway";
+  if (candidate.source === "upload") return "Upload";
+  if (candidate.source === "external") return "External";
+  return candidate.source_label?.trim() || candidate.source.replaceAll("_", " ");
+}
+
+function creatorBrollProgress(message: string): string {
+  const normalized = message.toLowerCase();
+  if (normalized.includes("candidate is ready") || normalized.includes("ready to preview")) return "Ready to review";
+  if (normalized.includes("poster") || normalized.includes("preview")) return "Creating preview";
+  if (normalized.includes("processing") || normalized.includes("video asset")) return "Processing video";
+  if (normalized.includes("runway") || normalized.includes("durable task")) return "Generating with Runway";
+  if (normalized.includes("reserved") || normalized.includes("preparing")) return "Preparing request";
+  return message;
+}
+
+function creatorBrollError(message: string): string {
+  if (/vite module runner has been closed/i.test(message)) {
+    return "Video generation could not start because the server was unavailable. Restart Forge and try again.";
+  }
+  return message;
+}
+
 function CandidateList(args: {
   candidates: EpisodeBrollAssetCandidate[];
   selectedCandidateId: string | null;
@@ -164,7 +207,15 @@ function CandidateList(args: {
         return (
           <article key={candidate.asset_id} className={`hs-imap-candidate-card${candidate.asset_id === args.selectedCandidateId ? " is-selected" : ""}`}>
             <div className="hs-imap-candidate-media">
-              {previewSource ? (
+              {previewSource && isVideoCandidate(candidate) ? (
+                <video
+                  src={candidate.uri ?? undefined}
+                  poster={candidate.preview_path ?? undefined}
+                  className="hs-imap-candidate-image"
+                  controls
+                  preload="metadata"
+                />
+              ) : previewSource ? (
                 <img
                   src={previewSource}
                   alt={candidate.label ?? "B-roll candidate"}
@@ -188,22 +239,16 @@ function CandidateList(args: {
                 {candidate.label ?? candidate.source}
                 {candidate.asset_id === args.selectedCandidateId ? <span className="hs-imap-candidate-badge">Selected</span> : null}
               </div>
-              <div className="hs-imap-candidate-subtitle">
-                {candidate.source}
-                {candidate.asset_category ? ` • ${candidate.asset_category}` : ""}
-                {candidate.mime_type ? ` • ${candidate.mime_type}` : ""}
-                {` • ${statusLabel}`}
-              </div>
+              <div className="hs-broll-candidate-chips"><span>{candidateSourceLabel(candidate)}</span><span>{formatDuration(candidate.duration_ms)}</span>{formatCandidateDate(candidate) ? <span>{formatCandidateDate(candidate)}</span> : null}</div>
+              <div className="hs-imap-candidate-status">{statusLabel}</div>
               {candidate.ingest_error ? <div className="hs-error-text-small">{candidate.ingest_error}</div> : null}
               {previewError ? <div className="hs-error-text-small">{previewError}</div> : null}
-              {candidate.uri ? (
-                <a href={candidate.uri} target="_blank" rel="noreferrer" className="hs-imap-link-inline">
-                  Open source
-                </a>
-              ) : null}
-              {(candidate.preview_path ?? candidate.path) ? (
-                <div className="hs-imap-candidate-subtitle">{candidate.preview_path ?? candidate.path}</div>
-              ) : null}
+              <details className="hs-broll-candidate-details">
+                <summary>Provenance</summary>
+                <p>Source: {candidateSourceLabel(candidate)}</p>
+                {candidate.mime_type ? <p>Media: {candidate.mime_type}</p> : null}
+                {candidate.uri && (candidate.uri.startsWith("http://") || candidate.uri.startsWith("https://")) ? <a href={candidate.uri} target="_blank" rel="noreferrer" className="hs-imap-link-inline">Open canonical media</a> : null}
+              </details>
             </div>
             <div className="hs-imap-candidate-actions">
               <button
@@ -213,9 +258,9 @@ function CandidateList(args: {
                 onClick={() => args.onSelectCandidate(candidate.asset_id)}
               >
                 {candidate.asset_id === args.selectedCandidateId
-                  ? "Selected for Beat"
+                  ? "Selected clip"
                   : canSelect
-                    ? "Use Selected Asset"
+                    ? "Use this clip"
                     : status === "processing"
                       ? "Not Selectable (Processing)"
                       : "Not Selectable (Failed)"}
@@ -250,6 +295,10 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
   const [previewStateById, setPreviewStateById] = useState<Record<string, CandidatePreviewState>>({});
   const [previewUrlById, setPreviewUrlById] = useState<Record<string, string>>({});
   const [previewErrorById, setPreviewErrorById] = useState<Record<string, string>>({});
+  const [creatorDirection, setCreatorDirection] = useState("");
+  const [finalPromptDraft, setFinalPromptDraft] = useState("");
+  const [runwayProposalPending, setRunwayProposalPending] = useState(false);
+  const [acquisitionMode, setAcquisitionMode] = useState<"generate" | "upload" | "external" | "stock">("generate");
   const previewLoadSignature = useMemo(() => {
     const episodeId = props.workpieceId?.trim() ?? "";
     const beatId = selectedBeat?.id ?? "";
@@ -265,6 +314,11 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
       .join("||");
     return `${episodeId}::${beatId}::${candidateSignature}`;
   }, [beatCandidates, props.workpieceId, selectedBeat?.id]);
+
+  useEffect(() => {
+    setCreatorDirection(props.promptState?.creatorDirection ?? "");
+    setFinalPromptDraft(props.promptState?.finalPrompt ?? "");
+  }, [selectedBeat?.id, props.promptState?.revisionId, props.promptState?.creatorDirection, props.promptState?.finalPrompt]);
 
   useEffect(() => {
     if (lastPreviewLoadSignatureRef.current === previewLoadSignature) {
@@ -335,6 +389,94 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
       cancelled = true;
     };
   }, [beatCandidates, previewLoadSignature, props.workpieceId, selectedBeat]);
+
+  if (props.canonicalV2) {
+    const readyCount = props.beats.filter((beat) => beat.fulfillment_state === "resolved" && beat.selected_asset_id).length;
+    return (
+      <div className="hs-imap-panel hs-broll-v2" data-testid="broll-v2-panel">
+        <div className="hs-imap-header hs-broll-v2-header">
+          <div>
+            <h4 className="hs-imap-title">B-roll</h4>
+            <p className="hs-imap-subtitle">{readyCount} of {props.beats.length} ready</p>
+          </div>
+          {!props.beats.length ? <button type="button" className="hs-primary-btn" onClick={props.onGeneratePlan} disabled={props.disabled || props.saveState === "saving"}>Create B-roll plan</button> : null}
+        </div>
+        {props.saveError ? <div className="hs-error-text" role="alert">{creatorBrollError(props.saveError)}</div> : null}
+        {props.message ? <div className="hs-success-text" role="status">{creatorBrollProgress(props.message)}</div> : null}
+        <div className="hs-imap-grid hs-broll-v2-layout">
+          <section className="hs-imap-list" aria-label="Canonical B-roll beats">
+            {props.beats.length === 0 ? <div className="hs-imap-empty">No canonical B-roll plan exists yet.</div> : props.beats.map((beat, index) => (
+              <button key={beat.id} type="button" className={`hs-imap-entry${beat.id === props.selectedBeatId ? " is-selected" : ""}`} onClick={() => props.onSelectBeat(beat.id)} disabled={props.disabled}>
+                <div className="hs-imap-entry-title"><span className="hs-broll-beat-mark">{beat.selected_asset_id ? "✓" : "•"}</span>{index + 1}. {beat.anchor_text}</div>
+                <div className="hs-imap-entry-meta">{beat.selected_asset_id ? "Selected clip" : `${beat.candidate_assets?.length ?? 0} candidate${(beat.candidate_assets?.length ?? 0) === 1 ? "" : "s"} ready`}</div>
+              </button>
+            ))}
+          </section>
+          <section className="hs-imap-editor" aria-label="Canonical B-roll beat">
+            {!selectedBeat ? <div className="hs-imap-empty">Select a canonical beat.</div> : <>
+              <div className="hs-broll-active-heading">
+                <div><span className="hs-imap-next-eyebrow">B-roll beat</span><h4>{selectedBeat.anchor_text}</h4></div>
+                <span className={`hs-broll-status${selectedBeat.selected_asset_id ? " is-ready" : ""}`}>{selectedBeat.selected_asset_id ? "Ready" : `${beatCandidates.length} candidates`}</span>
+              </div>
+              <div className="hs-imap-next-card hs-broll-section">
+                <div className="hs-imap-next-eyebrow">Script moment</div>
+                <blockquote className="hs-broll-script-focus">{selectedBeat.anchor_text}</blockquote>
+                {selectedBeat.description && selectedBeat.description !== selectedBeat.anchor_text ? <p className="hs-broll-context">{selectedBeat.description}</p> : null}
+                <div className="hs-broll-facts"><span>{selectedBeat.placement_hint.replaceAll("_", " ")}</span><span>{formatDuration(selectedBeat.suggested_duration_ms ?? 4000)}</span></div>
+              </div>
+              <section className="hs-imap-next-card hs-broll-section" aria-label="Canonical motion prompt">
+                <div className="hs-broll-section-heading"><div><div className="hs-imap-next-eyebrow">Motion direction</div><h5>What should this clip show?</h5></div><span className="hs-broll-revision">{props.promptState?.revision ? `Revision ${props.promptState.revision}` : "Not created"}</span></div>
+                {props.promptState?.mismatchReasons.length ? <div className="hs-error-text-small">{props.promptState.mismatchReasons.join(", ")}</div> : null}
+                <div className="hs-imap-field">
+                  <label htmlFor={`${formFieldIdPrefix}-creator-direction`}>Creator direction</label>
+                  <textarea className="hs-broll-creator-direction" id={`${formFieldIdPrefix}-creator-direction`} value={creatorDirection} onChange={(event) => setCreatorDirection(event.target.value)} rows={4} disabled={props.disabled} placeholder="Describe what should happen, camera behavior, pacing, or details that matter." />
+                </div>
+                <button type="button" className="hs-broll-secondary-action" onClick={() => props.onGenerateMotionPrompt?.(creatorDirection)} disabled={props.disabled || !props.onGenerateMotionPrompt}>
+                  {props.promptState?.revisionId ? "Regenerate motion prompt" : "Generate motion prompt"}
+                </button>
+                {props.promptState?.motionBrief ? <details className="hs-broll-advanced"><summary>View motion brief</summary><div className="hs-imap-field-grid" data-testid="broll-motion-brief">{Object.entries(props.promptState.motionBrief).map(([key, value]) => <div key={key}><strong>{key.replaceAll("_", " ")}</strong><p>{Array.isArray(value) ? value.join(", ") : String(value ?? "")}</p></div>)}</div></details> : <p>No canonical AI motion brief exists for this beat yet.</p>}
+                <div className="hs-imap-field">
+                  <label htmlFor={`${formFieldIdPrefix}-final-motion-prompt`}>Canonical final motion prompt</label>
+                  <textarea className="hs-broll-final-prompt" id={`${formFieldIdPrefix}-final-motion-prompt`} value={finalPromptDraft} onChange={(event) => setFinalPromptDraft(event.target.value)} readOnly={!props.promptState?.revisionId} rows={8} placeholder="Generate a motion prompt to create the canonical creator-visible prompt." />
+                </div>
+                <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions hs-broll-prompt-actions">
+                  <button type="button" onClick={async () => {
+                    setRunwayProposalPending(true);
+                    try {
+                      const proposal = await props.onCreateRunwayReadyPrompt?.();
+                      if (proposal) setFinalPromptDraft(proposal.finalPrompt);
+                    } finally {
+                      setRunwayProposalPending(false);
+                    }
+                  }} disabled={props.disabled || runwayProposalPending || !props.promptState?.revisionId || !props.promptState.motionBrief}>{runwayProposalPending ? "Creating Runway-ready prompt…" : "Create Runway-ready prompt"}</button>
+                  <button type="button" onClick={() => props.onSaveMotionPrompt?.(finalPromptDraft)} disabled={props.disabled || !props.promptState?.revisionId || !finalPromptDraft.trim() || finalPromptDraft === props.promptState.finalPrompt}>Save prompt as new revision</button>
+                  <button type="button" onClick={props.onCopyPrompt} disabled={!props.promptState?.finalPrompt}>{props.copyPromptAcknowledged ? "Copied canonical prompt" : "Copy canonical prompt"}</button>
+                </div>
+                {finalPromptDraft ? <div className={finalPromptDraft.length>1000?"hs-error-text-small":"hs-imap-next-copy"}>{finalPromptDraft.length} / 1000 UTF-16 code units{finalPromptDraft!==props.promptState?.finalPrompt?" · proposed or unsaved":" · canonical"}</div>:null}
+              </section>
+              <section className="hs-imap-next-card hs-broll-section" aria-label="Acquire verified B-roll">
+                <div className="hs-imap-next-eyebrow">Get the clip</div>
+                <div className="hs-broll-acquisition-tabs" role="tablist" aria-label="B-roll acquisition method">
+                  {([['generate','Generate video'],['upload','Upload video'],['external','External clip'],['stock','Stock']] as const).map(([mode,label])=><button key={mode} type="button" role="tab" aria-selected={acquisitionMode===mode} className={acquisitionMode===mode?"is-active":""} onClick={()=>setAcquisitionMode(mode)}>{label}</button>)}
+                </div>
+                <div className="hs-broll-acquisition-pane">
+                  {acquisitionMode === "generate" ? <><p>Generate from the exact saved canonical prompt above.</p><button type="button" className="hs-primary-btn" onClick={props.onGenerateVideo} disabled={props.disabled || !props.onGenerateVideo || !props.promptState?.revisionId || (props.promptState.status !== "current" && props.promptState.status !== "creator_edited")}>Generate Video</button></> : null}
+                  {acquisitionMode === "upload" ? <><p>Choose an MP4 or WebM file. Tongs will verify and preserve it.</p><button type="button" className="hs-primary-btn" onClick={() => uploadInputRef.current?.click()} disabled={props.disabled}>Choose video file</button></> : null}
+                  {acquisitionMode === "external" ? <><div className="hs-imap-field"><label htmlFor={`${formFieldIdPrefix}-canonical-external-url`}>Video URL</label><input id={`${formFieldIdPrefix}-canonical-external-url`} value={props.draft.sourceUrl} onChange={(event) => props.onDraftChange("sourceUrl", event.target.value)} disabled={props.disabled} placeholder="https://…/clip.mp4" /></div><button type="button" className="hs-primary-btn" onClick={props.onAttachResultFromUrl} disabled={props.disabled || !props.draft.sourceUrl.trim()}>Fetch and verify external clip</button></> : null}
+                  {acquisitionMode === "stock" ? <p>Licensed stock search will appear here when Forge has a configured provider.</p> : null}
+                </div>
+                <input ref={uploadInputRef} type="file" accept="video/mp4,video/webm" hidden onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) props.onUploadAsset(file); event.currentTarget.value = ""; }} />
+              </section>
+              <div className="hs-broll-section-heading"><div><div className="hs-imap-next-eyebrow">Choose a clip</div><h5>{beatCandidates.length} candidate{beatCandidates.length === 1 ? "" : "s"}</h5></div></div>
+              <CandidateList candidates={beatCandidates} selectedCandidateId={props.selectedCandidateId} disabled={Boolean(props.disabled)} previewStateById={previewStateById} previewUrlById={previewUrlById} previewErrorById={previewErrorById} onSelectCandidate={props.onSelectCandidate} onRetryCandidateIngestion={props.onRetryCandidateIngestion} />
+              {selectedBeat.selected_asset_id ? <div className="hs-success-text">Selected clip saved. It will be included in the episode edit.</div> : null}
+              <details className="hs-broll-advanced"><summary>Advanced details</summary><dl><div><dt>Authority status</dt><dd>{props.promptState?.status ?? "missing"}</dd></div><div><dt>Beat state</dt><dd>{resolveBeatState(selectedBeat)}</dd></div><div><dt>Shot type</dt><dd>{selectedBeat.shot_type ?? "mixed"}</dd></div><div><dt>Mood</dt><dd>{selectedBeat.mood ?? "neutral"}</dd></div></dl><p><strong>Legacy B-roll compatibility:</strong> older episode data remains read-only and cannot override this canonical workflow.</p></details>
+            </>}
+          </section>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="hs-imap-panel">

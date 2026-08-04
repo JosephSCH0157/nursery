@@ -3,6 +3,7 @@ import type { Database, Json } from "./db.types.js";
 import { unzlibSync as fflateUnzlibSync, inflateSync as fflateInflateRawSync } from "fflate";
 import type { ThumbnailCompositeEncoding, ThumbnailCompositeRecipe } from "./thumbnail-composite.js";
 import { markEntriesProvenanceUnknown, repairEntriesAgainstApprovedScript, validateExactAnchorAgainstApprovedScript } from "./image-map-anchor-authority.js";
+import type { VerifiedBrollMedia } from "./broll-acquisition.js";
 
 const THUMBNAIL_BUNDLED_FONT_VERSION = "inter-5.2.8-latin-700";
 const THUMBNAIL_COMPOSITION_ENGINE_VERSION = "forge-thumbnail-compositor-v1";
@@ -38,6 +39,8 @@ import {
   type GenerateImageInput,
   type ImageProvider,
 } from "./providers/image-provider.js";
+import { OpenAiNarrativeInterpretationProvider, validateSubstantiveVisualBrief, synthesizeConcreteVendorPrompt, type NarrativeInterpretationProvider, type ImagePromptVisualBrief } from "./providers/narrative-interpretation-provider.js";
+import { OpenAiBrollMotionInterpretationProvider, synthesizeBrollMotionPrompt, validateBrollMotionBrief, type BrollMotionBrief, type BrollMotionInterpretationProvider } from "./providers/broll-motion-interpretation-provider.js";
 import {
   buildHearthVisualStylePromptLines,
   normalizeHearthVisualStyle,
@@ -1030,6 +1033,23 @@ export type WorkpieceVisualPackageVisual = {
   source_label?: string | null;
   selected_asset_id: string | null;
   selected_asset: WorkpieceVisualPackageSelectedAsset | null;
+  broll_evidence?: {
+    plan_revision_id: string;
+    plan_revision: number;
+    beat_revision_id: string;
+    beat_revision: number;
+    prompt_revision_id: string | null;
+    prompt_revision: number | null;
+    prompt_content_hash: string | null;
+    placement_hint: string;
+    intended_duration_ms: number;
+    narrative_purpose: string;
+    canonical_anchor_assessment: JsonValue;
+    source_kind: string | null;
+    provider: string | null;
+    license: JsonValue | null;
+    trim_guidance: JsonValue;
+  };
 };
 
 export type WorkpieceVisualPackageResponseData = {
@@ -1062,7 +1082,22 @@ export type GenerateImageMapCandidatesRequest = {
   confirm_spend?: boolean;
   always_approve_ai_spend?: boolean;
   user_access_token?: string | null;
+  prompt_revision_id: string;
+  prompt_revision: number;
+  prompt_content_hash: string;
 };
+
+export type SelectImageMapCandidateRequest = {
+  workspace_id: string;
+  image_map_entry_id: string;
+  candidate_asset_id: string;
+  expected_current_revision: number;
+  expected_current_revision_id: string;
+  operation_id: string;
+};
+
+export type InterpretImageMapPromptRequest={workspace_id:string;image_moment_id:string;image_map_revision_id:string;script_approval_id:string;expected_prompt_revision_id:string|null;expected_prompt_revision:number;operation_id:string;operation_fingerprint:string;source_context:Record<string,Json>;creator_direction:string;style:string|null;user_access_token?:string|null};
+export type EditImageMapPromptRequest={workspace_id:string;image_moment_id:string;expected_prompt_revision_id:string;expected_prompt_revision:number;final_prompt:string;operation_id:string;operation_fingerprint:string;user_access_token?:string|null};
 
 export type ImageMapCandidateAssetSummary = {
   id: string;
@@ -1230,7 +1265,35 @@ export type ThumbnailBrandStatus = {
   state: "unresolved" | "canonical_branded" | "canonical_unbranded" | "stale_projection" | "verification_blocked";
   binding: Record<string, Json> | null;
   profile_label: string | null;
+  workspace_default_profile_label: string | null;
+  workspace_default_profile_id: string | null;
+  workspace_default_profile_revision_id: string | null;
+  workspace_default_profile_revision: number | null;
+  episode_profile_revision: number | null;
+  episode_profile_rules: Record<string, Json> | null;
   message: string;
+};
+
+export type ApplyWorkspaceDefaultThumbnailBrandRequest = {
+  workspace_id: string;
+  expected_current_revision: number;
+  profile_id: string;
+  profile_revision_id: string;
+  operation_id: string;
+  operation_fingerprint: string;
+};
+
+export type BeginThumbnailBrandSetupRequest = {
+  workspace_id: string; operation_id: string; operation_fingerprint: string; profile_id: string;
+  asset_id?: string | null; logo_role: "transparent_logo" | "primary_logo" | "watermark_logo";
+  internal_label: string; filename: string; mime_type: string; requested_rules: Record<string, Json>;
+  expected_binding_revision: number;
+};
+export type ThumbnailBrandSetupStageRequest = { workspace_id: string; operation_id: string; operation_fingerprint: string };
+export type ThumbnailBrandAssetReadyRequest = ThumbnailBrandSetupStageRequest;
+export type UploadThumbnailBrandAssetRequest = ThumbnailBrandSetupStageRequest & {
+  bytes_base64: string;
+  mime_type: "image/png" | "image/jpeg" | "image/webp";
 };
 
 export type CommitThumbnailCandidateSetRequest = { workspace_id: string; expected_current_revision: number; candidates: Json[]; operation_id: string; operation_fingerprint: string };
@@ -1523,11 +1586,125 @@ export type TongsCommitApiOptions = {
   openAiImageApiKey?: string;
   openAiApiKey?: string;
   openAiImageModel?: string;
+  openAiTextModel?: string;
+  runwayApiKey?: string;
+  brollVideoProvider?: BrollVideoProvider;
+  brollAcquisitionRuntime?: BrollAcquisitionRuntime;
 };
+
+export type AcquireBrollCandidateRequest = {
+  workspace_id: string;
+  beat_id: string;
+  operation_id: string;
+  operation_fingerprint: string;
+  source_kind: "upload" | "external" | "generated";
+  bytes_base64?: string | null;
+  source_url?: string | null;
+  prompt_revision_id?: string | null;
+  prompt_revision?: number | null;
+  prompt_content_hash?: string | null;
+  provider: string;
+  provider_request_id?: string | null;
+  final_prompt?: string | null;
+  runway_model?: "gen4.5" | null;
+  duration_seconds?: number | null;
+  ratio?: "1280:720" | "720:1280" | null;
+  poster_required?: boolean;
+  license_json?: Json;
+  provenance_json?: Json;
+};
+
+export type InterpretBrollMotionPromptRequest = { workspace_id:string; beat_id:string; expected_prompt_revision_id:string|null; expected_prompt_revision:number; creator_direction:string; operation_id:string; operation_fingerprint:string; user_access_token?:string|null };
+export type EditBrollMotionPromptRequest = { workspace_id:string; beat_id:string; expected_prompt_revision_id:string; expected_prompt_revision:number; final_prompt:string; operation_id:string; operation_fingerprint:string; user_access_token?:string|null };
+export type ReconcileBrollRunwayRequest = { workspace_id:string; operation_id:string; operation_fingerprint:string; decision:"attach_task"|"confirmed_not_created"|"authorize_resubmission"; provider_task_id?:string|null; reconciliation_evidence?:Record<string,Json>|null };
+
+type RunwaySubmission = { taskId: string; acceptedResponse: Record<string, unknown> };
+type RunwayTask =
+  | { state: "pending"; taskId: string; response: Record<string, unknown> }
+  | { state: "completed"; taskId: string; outputUrl: string; response: Record<string, unknown> }
+  | { state: "failed"; taskId: string; code: string; message: string; response: Record<string, unknown> };
+export type BrollVideoProvider = {
+  submit(input: { prompt: string; model: "gen4.5"; durationSeconds: number; ratio: "1280:720" | "720:1280"; attemptId: string }): Promise<RunwaySubmission>;
+  poll(taskId: string): Promise<RunwayTask>;
+  download(outputUrl: string): Promise<Uint8Array>;
+};
+
+export type BrollAcquisitionRuntime = {
+  inspectMedia(bytes: Uint8Array, expectedKind: "video" | "poster"): Promise<VerifiedBrollMedia>;
+  derivePoster(video: VerifiedBrollMedia): Promise<VerifiedBrollMedia>;
+  fetchExternalMedia(url: string): Promise<VerifiedBrollMedia>;
+};
+
+type BrollAcquisitionModule = typeof import("./broll-acquisition.js");
+
+class LazyBrollAcquisitionRuntime implements BrollAcquisitionRuntime {
+  private modulePromise: Promise<BrollAcquisitionModule> | null = null;
+  private load(): Promise<BrollAcquisitionModule> {
+    if (!this.modulePromise) {
+      const moduleSpecifier = "@forge/tongs/broll-acquisition";
+      this.modulePromise = import(/* @vite-ignore */ moduleSpecifier);
+    }
+    return this.modulePromise;
+  }
+  async inspectMedia(bytes: Uint8Array, expectedKind: "video" | "poster"): Promise<VerifiedBrollMedia> {
+    return (await this.load()).inspectBrollMedia(bytes, expectedKind);
+  }
+  async derivePoster(video: VerifiedBrollMedia): Promise<VerifiedBrollMedia> {
+    return (await this.load()).deriveBrollPoster(video);
+  }
+  async fetchExternalMedia(url: string): Promise<VerifiedBrollMedia> {
+    return (await this.load()).fetchExternalBrollMedia(url);
+  }
+}
+
+type RunwayProviderModule = typeof import("./providers/runway-broll-video-provider.js");
+const RUNWAY_SDK_VERSION = "4.13.1";
+
+class LazyRunwayBrollVideoProvider implements BrollVideoProvider {
+  private providerPromise: Promise<InstanceType<RunwayProviderModule["RunwayBrollVideoProvider"]>> | null = null;
+  private readonly apiKey: string;
+  constructor(apiKey: string) { this.apiKey = apiKey; }
+  private load(): Promise<InstanceType<RunwayProviderModule["RunwayBrollVideoProvider"]>> {
+    if (!this.providerPromise) {
+      const providerModuleSpecifier = "@forge/tongs/runway-broll-video-provider";
+      this.providerPromise = import(/* @vite-ignore */ providerModuleSpecifier)
+        .then(({ RunwayBrollVideoProvider }) => new RunwayBrollVideoProvider(this.apiKey));
+    }
+    return this.providerPromise;
+  }
+  async submit(input: Parameters<BrollVideoProvider["submit"]>[0]): Promise<RunwaySubmission> {
+    let provider: InstanceType<RunwayProviderModule["RunwayBrollVideoProvider"]>;
+    try {
+      provider = await this.load();
+    } catch (error) {
+      const loadFailure = new Error("The server-only Runway provider could not be loaded before submission.") as Error & { ambiguous: boolean; evidence: Record<string, unknown> };
+      loadFailure.ambiguous = false;
+      loadFailure.evidence = { stage: "provider_load", transmitted: false, error_name: error instanceof Error ? error.name : "unknown" };
+      throw loadFailure;
+    }
+    return provider.submit(input);
+  }
+  async poll(taskId: string): Promise<RunwayTask> { return (await this.load()).poll(taskId); }
+  async download(outputUrl: string): Promise<Uint8Array> { return (await this.load()).download(outputUrl); }
+}
+
+function asRunwayTransportError(error: unknown): { ambiguous: boolean; evidence: Record<string, unknown>; message: string } | null {
+  if (!(error instanceof Error)) return null;
+  const candidate = error as Error & { ambiguous?: unknown; evidence?: unknown };
+  if (typeof candidate.ambiguous !== "boolean" || !isRecord(candidate.evidence)) return null;
+  return { ambiguous: candidate.ambiguous, evidence: candidate.evidence, message: candidate.message };
+}
 
 export type TongsCommitApiService = {
   createCradle(input: CreateCradleRequest): Promise<CreateCradleResponse>;
   commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse>;
+  acquireBrollCandidate(workpieceId: string,input:AcquireBrollCandidateRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  interpretBrollMotionPrompt(workpieceId:string,input:InterpretBrollMotionPromptRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  editBrollMotionPrompt(workpieceId:string,input:EditBrollMotionPromptRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  proposeRunwayReadyBrollPrompt(workpieceId:string,workspaceId:string,beatId:string,expectedRevisionId:string,expectedRevision:number,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  readBrollMotionPromptStatus(workpieceId:string,workspaceId:string,beatId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  readBrollRunwayOperationStatus(workpieceId:string,workspaceId:string,operationId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  reconcileBrollRunwayOperation(workpieceId:string,input:ReconcileBrollRunwayRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
   transitionHearthScriptReady(
     workpieceId: string,
     input: HearthReadyTransitionRequest,
@@ -1601,6 +1778,16 @@ export type TongsCommitApiService = {
     input: ThumbnailBrandStatusRequest,
     options?: { userAccessToken?: string | null },
   ): Promise<ThumbnailBrandStatus>;
+  applyWorkspaceDefaultThumbnailBrand(
+    workpieceId: string,
+    input: ApplyWorkspaceDefaultThumbnailBrandRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, Json>>;
+  beginThumbnailBrandSetup(workpieceId:string,input:BeginThumbnailBrandSetupRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>|null>;
+  uploadThumbnailBrandSetupAsset(workpieceId:string,input:UploadThumbnailBrandAssetRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>|null>;
+  markThumbnailBrandAssetReady(workpieceId:string,input:ThumbnailBrandAssetReadyRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>|null>;
+  advanceThumbnailBrandSetup(workpieceId:string,stage:"profile"|"binding"|"verify",input:ThumbnailBrandSetupStageRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>|null>;
+  getThumbnailBrandSetupReceipt(workpieceId:string,workspaceId:string,operationId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>|null>;
   commitThumbnailCandidateSet(workpieceId: string,input: CommitThumbnailCandidateSetRequest,options?: { userAccessToken?: string | null }): Promise<Record<string, Json>>;
   getThumbnailCandidateSetProjection(workpieceId: string,workspaceId: string,options?: { userAccessToken?: string | null }): Promise<ThumbnailCandidateSetProjection>;
   decideThumbnailCandidateBrand(workpieceId: string,input: DecideThumbnailCandidateBrandRequest,options?: { userAccessToken?: string | null }): Promise<Record<string, Json>>;
@@ -1806,7 +1993,20 @@ export type TongsCommitApiService = {
   getCanonicalScriptApproval(workpieceId: string, options?: { userAccessToken?: string | null }): Promise<Record<string, unknown>>;
   repairWorkpieceImageMap(
     workpieceId: string,
-    input: { workspace_id: string; operation_id: string },
+    input: {
+      workspace_id: string;
+      operation_id: string;
+      entry_id?: string;
+      expected_current_revision: number;
+      expected_current_revision_id: string;
+      expected_script_approval_id: string;
+      expected_script_approval_revision: number;
+    },
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkpieceImageMapResponseData>;
+  selectWorkpieceImageMapCandidate(
+    workpieceId: string,
+    input: SelectImageMapCandidateRequest,
     options?: { userAccessToken?: string | null },
   ): Promise<WorkpieceImageMapResponseData>;
   resolveWorkpieceImageMapManualAnchor(
@@ -1827,6 +2027,9 @@ export type TongsCommitApiService = {
     input: GenerateImageMapCandidatesRequest,
     options?: { userAccessToken?: string | null },
   ): Promise<GenerateImageMapCandidatesResponse>;
+  interpretImageMapPrompt(workpieceId:string,input:InterpretImageMapPromptRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  editImageMapPrompt(workpieceId:string,input:EditImageMapPromptRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  readCurrentImageMapPrompt(workpieceId:string,workspaceId:string,imageMomentId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>|null>;
   saveWorkpieceImageMap(
     workpieceId: string,
     input: SaveWorkpieceImageMapRequest,
@@ -1839,6 +2042,11 @@ export type TongsCommitApiService = {
   readWorkpieceText(workpieceId: string, path: string): Promise<ReadTextFileResult>;
   readWorkspaceText(workspaceId: string, path: string): Promise<ReadTextFileResult>;
   readWorkpieceBinary(workpieceId: string, path: string): Promise<ReadBinaryFileResult>;
+  createWorkpieceMediaUrl(workpieceId: string, path: string): Promise<{
+    url: string;
+    content_type: string;
+    expires_at: string;
+  }>;
 };
 
 class HttpError extends Error {
@@ -2408,6 +2616,45 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
     hex += n.toString(16).padStart(2, "0");
   }
   return hex;
+}
+
+export function imageMapPromptAuthorityBasis(entry: EpisodeImageMapEntryRecord): Record<string, unknown> {
+  const {
+    candidate_assets: _candidateAssets,
+    selected_asset_id: _selectedAssetId,
+    status: _status,
+    ...promptRelevant
+  } = entry;
+  return promptRelevant;
+}
+
+export function buildImageMapPromptSourceContext(
+  entries: EpisodeImageMapEntryRecord[],
+  selectedIndex: number,
+  creatorDirection: string,
+  editorialPurpose: unknown = null,
+): Record<string, unknown> {
+  const entry = entries[selectedIndex];
+  return {
+    before: selectedIndex > 0 ? entries[selectedIndex - 1]?.script_anchor?.span_text || entries[selectedIndex - 1]?.description || null : null,
+    focus: entry?.script_anchor?.span_text || entry?.description || entry?.prompt_basis || null,
+    after: selectedIndex >= 0 && selectedIndex < entries.length - 1 ? entries[selectedIndex + 1]?.script_anchor?.span_text || entries[selectedIndex + 1]?.description || null : null,
+    image_direction: creatorDirection,
+    editorial_purpose: editorialPurpose ?? null,
+    placement_hint: entry?.placement_hint || null,
+  };
+}
+
+async function sha256Text(value: string): Promise<string> {
+  return sha256Hex(new TextEncoder().encode(value));
+}
+
+function uuidFromSha256(hash: string): string {
+  const hex = hash.slice(0, 32).padEnd(32, "0").split("");
+  hex[12] = "4";
+  hex[16] = ((Number.parseInt(hex[16] ?? "0", 16) & 0x3) | 0x8).toString(16);
+  const value = hex.join("");
+  return `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20)}`;
 }
 
 function buildStorageKey(workpieceId: string, path: string): string {
@@ -4324,6 +4571,9 @@ function normalizeGenerateImageMapCandidatesRequest(
   return {
     workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
     image_map_entry_id: normalizeNonEmptyString(body.image_map_entry_id, "image_map_entry_id"),
+    prompt_revision_id: normalizeUuid(body.prompt_revision_id,"prompt_revision_id"),
+    prompt_revision: normalizePositiveInteger(body.prompt_revision,"prompt_revision"),
+    prompt_content_hash: normalizeSha256(body.prompt_content_hash,"prompt_content_hash"),
     ...(Object.prototype.hasOwnProperty.call(body, "expected_metadata_updated_at")
       ? {
         expected_metadata_updated_at: body.expected_metadata_updated_at === null
@@ -4459,69 +4709,6 @@ function inferImageMapVisualMode(
   return "event_scene";
 }
 
-function buildImageMapCandidatePrompt(args: {
-  entry: EpisodeImageMapEntryRecord;
-  visualMode: string;
-  variantLabel: string;
-  contextBefore: string | null;
-  contextAfter: string | null;
-  spokenBeats?: readonly EpisodeSpokenBeatRecord[];
-  divergenceHint?: string | null;
-}): string {
-  const beatContext = resolveBeatAnchorContext({
-    spokenBeats: args.spokenBeats ?? [],
-    beatAnchor: args.entry.beat_anchor,
-  });
-  const spanText = args.entry.script_anchor?.span_text ?? beatContext.focus ?? args.entry.description;
-  const contextLines = [
-    beatContext.before ? `Editorial beat before: ${beatContext.before}` : null,
-    args.contextBefore ? `Previous context: ${args.contextBefore}` : null,
-    args.entry.script_anchor?.span_text
-      ? `Exact beat span: ${spanText}`
-      : (spanText ? `Editorial beat focus: ${spanText}` : null),
-    args.entry.beat_anchor ? `Beat anchor: ${buildBulletBeatAnchorLabel(args.entry.beat_anchor)}` : null,
-    beatContext.after ? `Editorial beat after: ${beatContext.after}` : null,
-    args.contextAfter ? `Following context: ${args.contextAfter}` : null,
-  ].filter(Boolean);
-
-  const modeInstruction = (() => {
-    switch (args.visualMode) {
-      case "comparison":
-        return "Create a clean explanatory comparison image with obvious visual contrast between the two compared sides.";
-      case "map":
-        return "Create a clear strategic map-style visual with readable geography, but no text, labels, or numbers inside the image.";
-      case "location":
-        return "Create a clear location-establishing still that makes the place immediately legible on screen.";
-      case "person_figure":
-        return "Create a historically grounded figure-focused still with a clear subject and restrained background clutter.";
-      case "object_detail":
-        return "Create a clean object/detail still with a strong silhouette and obvious subject emphasis.";
-      case "concept_illustration":
-        return "Create an explanatory concept illustration that clarifies the idea visually without relying on text in the image.";
-      default:
-        return "Create a clear editorial still that makes the event or action immediately legible on screen.";
-    }
-  })();
-
-  const variantInstruction = args.variantLabel === "explainer"
-    ? "Variant goal: make the beat clearer and more diagrammatic or explanatory."
-    : "Variant goal: make the beat more cinematic and illustrative while staying factual and clear.";
-
-  return [
-    `You are generating a still image candidate for a scripted visual beat.`,
-    `Visual intent: ${args.entry.visual_intent || args.entry.description}`,
-    `Prompt basis: ${args.entry.prompt_basis || args.entry.description}`,
-    ...buildHearthVisualStylePromptLines(args.entry.style_preset),
-    `Visual mode: ${args.visualMode}.`,
-    contextLines.join("\n"),
-    modeInstruction,
-    variantInstruction,
-    "Bias toward clean composition, obvious subject, strong silhouette, readable geography, restrained clutter, and contextual accuracy.",
-    "Do not render text, labels, captions, numbers, or map lettering into the image.",
-    args.divergenceHint ? args.divergenceHint : null,
-  ].filter(Boolean).join("\n\n");
-}
-
 function buildImageMapCandidateAssetMetadata(args: {
   entry: EpisodeImageMapEntryRecord;
   visualMode: string;
@@ -4530,6 +4717,9 @@ function buildImageMapCandidateAssetMetadata(args: {
   revisedPrompt: string | null;
   aspect: string | null;
   size: string | null;
+  promptRevisionId?: string|null;
+  promptRevision?: number|null;
+  promptContentHash?: string|null;
 }): Json {
   return {
     schema: IMAGE_MAP_CANDIDATE_ASSET_SCHEMA,
@@ -4547,6 +4737,9 @@ function buildImageMapCandidateAssetMetadata(args: {
     beat_anchor: (args.entry.beat_anchor ?? null) as unknown as Json,
     aspect: args.aspect,
     size: args.size,
+    prompt_revision_id: args.promptRevisionId??null,
+    prompt_revision: args.promptRevision??null,
+    prompt_content_hash: args.promptContentHash??null,
   } as Json;
 }
 
@@ -5405,6 +5598,10 @@ export class TongsCommitService {
   readonly supabase: SupabaseClient<Database>;
   readonly bucket: string;
   readonly imageProvider: ImageProvider | null;
+  readonly narrativeInterpretationProvider: NarrativeInterpretationProvider | null;
+  readonly brollVideoProvider: BrollVideoProvider | null;
+  readonly brollMotionInterpretationProvider: BrollMotionInterpretationProvider | null;
+  readonly brollAcquisitionRuntime: BrollAcquisitionRuntime;
 
   readonly userClientFactory: ((accessToken: string) => SupabaseClient<Database>) | null;
 
@@ -5413,11 +5610,19 @@ export class TongsCommitService {
     bucket = TONGS_WORKPIECE_BUCKET,
     imageProvider: ImageProvider | null = null,
     userClientFactory: ((accessToken: string) => SupabaseClient<Database>) | null = null,
+    narrativeInterpretationProvider: NarrativeInterpretationProvider | null = null,
+    brollVideoProvider: BrollVideoProvider | null = null,
+    brollMotionInterpretationProvider: BrollMotionInterpretationProvider | null = null,
+    brollAcquisitionRuntime: BrollAcquisitionRuntime = new LazyBrollAcquisitionRuntime(),
   ) {
     this.supabase = supabase;
     this.bucket = bucket;
     this.imageProvider = imageProvider;
     this.userClientFactory = userClientFactory;
+    this.narrativeInterpretationProvider = narrativeInterpretationProvider;
+    this.brollVideoProvider = brollVideoProvider;
+    this.brollMotionInterpretationProvider = brollMotionInterpretationProvider;
+    this.brollAcquisitionRuntime = brollAcquisitionRuntime;
   }
 
   private async getCradleOrThrow(workpieceId: string): Promise<EpisodeRow> {
@@ -10130,9 +10335,6 @@ export class TongsCommitService {
         throw new HttpError(409, "brand_logo_hash_mismatch", "The bound brand logo failed canonical readback verification");
       }
     }
-    if (!logoAssetRevisionId || !logoBytes?.length) {
-      throw new HttpError(409, "brand_logo_unavailable", "The bound Brand Profile does not contain a verified ready logo revision");
-    }
     return {
       provenance,
       treatment: { text_color: textColor.toUpperCase(), shadow_color: shadowColor.toUpperCase(),
@@ -10154,21 +10356,82 @@ export class TongsCommitService {
     const token = options?.userAccessToken?.trim();
     if (!token || !this.userClientFactory) throw new HttpError(503, "brand_resolution_unavailable", "Authenticated Brand Library resolution is unavailable");
     const client = this.userClientFactory(token).schema("tongs") as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<UntypedPostgrestResult> };
+    const tongs = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const defaultResult = await tongs.from("workspace_default_brand_profiles").select("profile_id").eq("workspace_id", input.workspace_id).maybeSingle();
+    const defaultProfileId = !defaultResult.error && isRecord(defaultResult.data) ? readStringField(defaultResult.data, "profile_id") : null;
+    const defaultProfileResult = defaultProfileId
+      ? await tongs.from("brand_profiles").select("internal_label").eq("workspace_id", input.workspace_id).eq("id", defaultProfileId).maybeSingle()
+      : null;
+    const workspaceDefaultProfileLabel = defaultProfileResult && !defaultProfileResult.error && isRecord(defaultProfileResult.data)
+      ? readStringField(defaultProfileResult.data, "internal_label")
+      : null;
+    const defaultRevisionResult = defaultProfileId
+      ? await tongs.from("brand_profile_revisions").select("id,revision").eq("workspace_id", input.workspace_id).eq("profile_id", defaultProfileId)
+        .eq("state", "committed").eq("eligible_for_new_use", true).order("revision", { ascending: false }).limit(1).maybeSingle()
+      : null;
+    const workspaceDefaultProfileRevisionId = defaultRevisionResult && !defaultRevisionResult.error && isRecord(defaultRevisionResult.data)
+      ? readStringField(defaultRevisionResult.data, "id")
+      : null;
+    const workspaceDefaultProfileRevision = defaultRevisionResult && !defaultRevisionResult.error && isRecord(defaultRevisionResult.data)
+      && typeof defaultRevisionResult.data.revision === "number" ? defaultRevisionResult.data.revision : null;
     const current = await client.rpc("get_workpiece_brand_binding", { p_workspace_id: input.workspace_id, p_workpiece_id: workpieceId });
     if (current.error) throw new HttpError(502, "brand_status_failed", "Failed to read thumbnail branding status", { reason: current.error.message });
     const binding = isRecord(current.data) ? current.data : null;
-    if (!binding) return { state: "unresolved", binding: null, profile_label: null, message: "Branding will be resolved by Tongs when the first thumbnail render begins." };
+    const bindingProfileRevisionId = binding ? readStringField(binding, "profile_revision_id") : null;
+    const bindingRevisionResult = bindingProfileRevisionId
+      ? await tongs.from("brand_profile_revisions").select("revision,rules_json").eq("workspace_id", input.workspace_id).eq("id", bindingProfileRevisionId).maybeSingle()
+      : null;
+    const episodeProfileRevision = bindingRevisionResult && !bindingRevisionResult.error && isRecord(bindingRevisionResult.data)
+      && typeof bindingRevisionResult.data.revision === "number" ? bindingRevisionResult.data.revision : null;
+    const episodeProfileRules = bindingRevisionResult && !bindingRevisionResult.error && isRecord(bindingRevisionResult.data)
+      && isRecord(bindingRevisionResult.data.rules_json) ? bindingRevisionResult.data.rules_json as Record<string, Json> : null;
+    const defaultFields = { workspace_default_profile_label: workspaceDefaultProfileLabel, workspace_default_profile_id: defaultProfileId,
+      workspace_default_profile_revision_id: workspaceDefaultProfileRevisionId, workspace_default_profile_revision: workspaceDefaultProfileRevision,
+      episode_profile_revision: episodeProfileRevision, episode_profile_rules: episodeProfileRules };
+    if (!binding) return { state: "unresolved", binding: null, profile_label: null, ...defaultFields, message: "Branding will be resolved by Tongs when the first thumbnail render begins." };
     const bindingId = readStringField(binding, "id");
     const bindingRevision = typeof binding.revision === "number" ? binding.revision : null;
     const stale = input.projected_binding_id !== bindingId || input.projected_binding_revision !== bindingRevision;
-    if (binding.state === "disabled") return { state: stale ? "stale_projection" : "canonical_unbranded", binding: binding as Record<string, Json>, profile_label: null, message: stale ? "The Hearth projection is stale; Tongs has authoritative unbranded state." : "This workpiece is canonically unbranded." };
+    if (binding.state === "disabled") return { state: stale ? "stale_projection" : "canonical_unbranded", binding: binding as Record<string, Json>, profile_label: null, ...defaultFields, message: stale ? "The Hearth projection is stale; Tongs has authoritative unbranded state." : "This workpiece is canonically unbranded." };
+    const bindingProfileId = readStringField(binding, "profile_id");
+    const bindingProfileResult = bindingProfileId
+      ? await tongs.from("brand_profiles").select("internal_label").eq("workspace_id", input.workspace_id).eq("id", bindingProfileId).maybeSingle()
+      : null;
+    const bindingProfileLabel = bindingProfileResult && !bindingProfileResult.error && isRecord(bindingProfileResult.data)
+      ? readStringField(bindingProfileResult.data, "internal_label")
+      : null;
     try {
       const verified = await this.resolveThumbnailBrand(workpieceId, input.workspace_id, token, { establishBinding: false, verifySources: true });
       if (!verified) throw new Error("The canonical Brand Profile binding is unavailable.");
-      return { state: stale ? "stale_projection" : "canonical_branded", binding: binding as Record<string, Json>, profile_label: verified.profileLabel, message: stale ? "The Hearth projection is stale; Tongs has a newer canonical brand binding." : "Canonical Brand Profile verified for thumbnail rendering." };
+      return { state: stale ? "stale_projection" : "canonical_branded", binding: binding as Record<string, Json>, profile_label: verified.profileLabel, ...defaultFields, message: stale ? "The Hearth projection is stale; Tongs has a newer canonical brand binding." : "Canonical Brand Profile verified for thumbnail rendering." };
     } catch (error) {
-      return { state: "verification_blocked", binding: binding as Record<string, Json>, profile_label: null, message: error instanceof Error ? error.message : "Brand verification is blocked." };
+      return { state: "verification_blocked", binding: binding as Record<string, Json>, profile_label: bindingProfileLabel, ...defaultFields, message: error instanceof Error ? error.message : "Brand verification is blocked." };
     }
+  }
+
+  async applyWorkspaceDefaultThumbnailBrand(
+    workpieceId: string,
+    input: ApplyWorkspaceDefaultThumbnailBrandRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, Json>> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const token = options?.userAccessToken?.trim();
+    if (!token || !this.userClientFactory) throw new HttpError(503, "brand_resolution_unavailable", "Authenticated Brand Library mutation is unavailable");
+    const client = this.userClientFactory(token).schema("tongs") as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<UntypedPostgrestResult> };
+    const result = await client.rpc("mutate_workpiece_brand_binding", {
+      p_workspace_id: input.workspace_id,
+      p_workpiece_id: workpieceId,
+      p_intent: "select_profile_revision",
+      p_operation_id: input.operation_id,
+      p_operation_fingerprint: input.operation_fingerprint,
+      p_expected_current_revision: input.expected_current_revision,
+      p_profile_id: input.profile_id,
+      p_profile_revision_id: input.profile_revision_id,
+    });
+    if (result.error) throw new HttpError(409, "brand_binding_mutation_failed", "Tongs could not update the episode brand binding", { reason: result.error.message });
+    if (!isRecord(result.data)) throw new HttpError(502, "invalid_brand_binding_response", "Tongs returned an invalid episode brand binding response");
+    return result.data as Record<string, Json>;
   }
 
   private thumbnailAuthorityClient(token?: string | null) {
@@ -10190,7 +10453,136 @@ export class TongsCommitService {
     await this.assertWorkpieceInWorkspace(workpieceId,workspaceId); await this.assertWorkspaceRoleFromAccessToken(workspaceId,"viewer",options?.userAccessToken);
     const result = await this.thumbnailAuthorityClient(options?.userAccessToken).rpc("get_thumbnail_candidate_set_projection",{ p_workspace_id: workspaceId,p_workpiece_id: workpieceId });
     if (result.error) throw new HttpError(502,"thumbnail_candidate_projection_failed",result.error.message); const data=isRecord(result.data)?result.data:{};
-    return { candidate_set:isRecord(data.candidate_set)?data.candidate_set as Record<string,Json>:null,active_binding_id:readStringField(data,"active_binding_id"),active_binding_revision:typeof data.active_binding_revision==="number"?data.active_binding_revision:null,candidates:Array.isArray(data.candidates)?data.candidates.filter(isRecord) as Record<string,Json>[]:[] };
+    const candidates = Array.isArray(data.candidates) ? data.candidates.filter(isRecord) as Record<string,Json>[] : [];
+    const projectedCandidates = await Promise.all(candidates.map(async (candidate) => {
+      const assetId = readStringField(candidate, "composite_asset_id");
+      const expectedHash = readStringField(candidate, "composite_content_hash");
+      if (!assetId || !expectedHash) return candidate;
+      try {
+        const asset = await this.getThumbnailAssetRow(workpieceId, assetId);
+        if (asset.asset_kind !== "thumbnail_composite" || asset.status !== "ready" || asset.content_hash !== expectedHash) return candidate;
+        return { ...candidate, asset_path: asset.path, asset_mime_type: asset.mime_type } as Record<string, Json>;
+      } catch {
+        return candidate;
+      }
+    }));
+    return { candidate_set:isRecord(data.candidate_set)?data.candidate_set as Record<string,Json>:null,active_binding_id:readStringField(data,"active_binding_id"),active_binding_revision:typeof data.active_binding_revision==="number"?data.active_binding_revision:null,candidates:projectedCandidates };
+  }
+
+  private async thumbnailBrandSetupRpc(
+    workpieceId: string, workspaceId: string, rpcName: string, args: Record<string, unknown>,
+    options?: { userAccessToken?: string | null }, role: "viewer" | "editor" = "editor",
+  ): Promise<Record<string, Json> | null> {
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, role, options?.userAccessToken);
+    const result = await this.thumbnailAuthorityClient(options?.userAccessToken).rpc(rpcName, args);
+    if (result.error) throw new HttpError(409, "thumbnail_brand_setup_failed", result.error.message, { stage: rpcName });
+    if (result.data == null) return null;
+    if (!isRecord(result.data)) throw new HttpError(502, "invalid_thumbnail_brand_setup_response", "Tongs returned an invalid thumbnail brand setup response");
+    return result.data as Record<string, Json>;
+  }
+
+  async beginThumbnailBrandSetup(workpieceId: string, input: BeginThumbnailBrandSetupRequest, options?: { userAccessToken?: string | null }) {
+    return this.thumbnailBrandSetupRpc(workpieceId, input.workspace_id, "begin_thumbnail_brand_setup", {
+      p_workspace_id: input.workspace_id, p_workpiece_id: workpieceId, p_operation_id: input.operation_id,
+      p_operation_fingerprint: input.operation_fingerprint, p_profile_id: input.profile_id, p_asset_id: input.asset_id ?? null,
+      p_logo_role: input.logo_role, p_internal_label: input.internal_label, p_filename: input.filename,
+      p_mime_type: input.mime_type, p_requested_rules: input.requested_rules,
+      p_expected_binding_revision: input.expected_binding_revision,
+    }, options);
+  }
+
+  async uploadThumbnailBrandSetupAsset(workpieceId: string, input: UploadThumbnailBrandAssetRequest, options?: { userAccessToken?: string | null }) {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const current = await this.getThumbnailBrandSetupReceipt(workpieceId, input.workspace_id, input.operation_id, options);
+    if (!current) throw new HttpError(404, "thumbnail_brand_setup_not_found", "Thumbnail brand setup operation was not found");
+    if (current.operation_fingerprint !== input.operation_fingerprint) throw new HttpError(409, "thumbnail_brand_setup_conflict", "Operation identity was reused with a different payload");
+    if (current.state !== "pending") return current;
+    const bucket = readStringField(current, "storage_bucket");
+    const key = readStringField(current, "storage_key");
+    const revisionId = readStringField(current, "logo_asset_revision_id");
+    if (!bucket || !key || !revisionId) throw new HttpError(409, "thumbnail_brand_asset_identity_incomplete", "Reserved logo storage identity is incomplete");
+    const assetResult = await this.supabase.schema("tongs").from("brand_asset_revisions")
+      .select("mime_type").eq("workspace_id", input.workspace_id).eq("id", revisionId).single();
+    if (assetResult.error || !assetResult.data || assetResult.data.mime_type !== input.mime_type) {
+      throw new HttpError(409, "thumbnail_brand_asset_mime_mismatch", "Logo bytes do not match the reserved canonical media type");
+    }
+    const bytes = decodeBase64(input.bytes_base64);
+    if (!bytes.length || bytes.length > 10 * 1024 * 1024) throw new HttpError(413, "thumbnail_brand_asset_size_invalid", "Logo must be between 1 byte and 10 MB");
+    const expectedHash = await sha256Hex(bytes);
+    const existing = await downloadStorageObject(this.supabase, bucket, key);
+    if (existing?.length) {
+      if (existing.length !== bytes.length || await sha256Hex(existing) !== expectedHash) {
+        throw new HttpError(409, "thumbnail_brand_asset_replay_mismatch", "The reserved logo object already contains different bytes");
+      }
+    } else {
+      const uploaded = await this.supabase.storage.from(bucket).upload(key, uint8ToArrayBuffer(bytes), {
+        upsert: false,
+        contentType: input.mime_type,
+      });
+      if (uploaded.error) throw new HttpError(502, "thumbnail_brand_asset_upload_failed", uploaded.error.message);
+      const readback = await downloadStorageObject(this.supabase, bucket, key);
+      if (!readback?.length || readback.length !== bytes.length || await sha256Hex(readback) !== expectedHash) {
+        throw new HttpError(409, "thumbnail_brand_asset_upload_unverified", "Canonical logo upload readback did not match the submitted bytes");
+      }
+    }
+    return this.markThumbnailBrandAssetReady(workpieceId, input, options);
+  }
+
+  async markThumbnailBrandAssetReady(workpieceId: string, input: ThumbnailBrandAssetReadyRequest, options?: { userAccessToken?: string | null }) {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    const actor = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const current = await this.thumbnailBrandSetupRpc(workpieceId, input.workspace_id, "get_thumbnail_brand_setup_receipt", {
+      p_workspace_id: input.workspace_id, p_operation_id: input.operation_id,
+    }, options, "viewer");
+    if (!current) throw new HttpError(404, "thumbnail_brand_setup_not_found", "Thumbnail brand setup operation was not found");
+    if (current.operation_fingerprint !== input.operation_fingerprint) throw new HttpError(409, "thumbnail_brand_setup_conflict", "Operation identity was reused with a different payload");
+    if (current.state !== "pending") return current;
+    const bucket = readStringField(current, "storage_bucket"); const key = readStringField(current, "storage_key");
+    if (!bucket || !key) throw new HttpError(409, "thumbnail_brand_asset_identity_incomplete", "Reserved logo storage identity is incomplete");
+    const bytes = await downloadStorageObject(this.supabase, bucket, key);
+    if (!bytes?.length) throw new HttpError(409, "thumbnail_brand_asset_missing", "The reserved canonical logo object is not available");
+    const contentHash = await sha256Hex(bytes);
+    const result = await (this.supabase.schema("tongs") as unknown as { rpc: (name:string,args:Record<string,unknown>)=>Promise<UntypedPostgrestResult> }).rpc("mark_thumbnail_brand_asset_ready", {
+      p_workspace_id: input.workspace_id, p_operation_id: input.operation_id, p_operation_fingerprint: input.operation_fingerprint,
+      p_actor_id: actor.userId, p_content_hash: contentHash, p_bytes: bytes.length, p_width: null, p_height: null,
+    });
+    if (result.error) throw new HttpError(409, "thumbnail_brand_asset_ready_failed", result.error.message);
+    if (!isRecord(result.data)) throw new HttpError(502, "invalid_thumbnail_brand_setup_response", "Tongs returned an invalid asset readiness response");
+    return result.data as Record<string, Json>;
+  }
+
+  async advanceThumbnailBrandSetup(workpieceId: string, stage: "profile" | "binding" | "verify", input: ThumbnailBrandSetupStageRequest, options?: { userAccessToken?: string | null }) {
+    if (stage === "verify") {
+      await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+      const actor = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+      const current = await this.getThumbnailBrandSetupReceipt(workpieceId, input.workspace_id, input.operation_id, options);
+      if (!current) throw new HttpError(404, "thumbnail_brand_setup_not_found", "Thumbnail brand setup operation was not found");
+      if (current.state === "verified" || current.schema_version === "forge.thumbnail-brand-setup-receipt.v1") return current;
+      if (current.operation_fingerprint !== input.operation_fingerprint) throw new HttpError(409, "thumbnail_brand_setup_conflict", "Operation identity was reused with a different payload");
+      const resolved = await this.resolveThumbnailBrand(workpieceId, input.workspace_id, options?.userAccessToken, { establishBinding: false, verifySources: true });
+      if (!resolved?.treatment || resolved.logoAssetRevisionId !== current.logo_asset_revision_id || !resolved.logoBytes?.length) {
+        throw new HttpError(409, "thumbnail_brand_renderer_verification_failed", "Thumbnail V3 did not resolve the setup operation's exact canonical logo revision");
+      }
+      const verified = await (this.supabase.schema("tongs") as unknown as { rpc: (name:string,args:Record<string,unknown>)=>Promise<UntypedPostgrestResult> }).rpc("verify_thumbnail_brand_setup", {
+        p_workspace_id: input.workspace_id, p_operation_id: input.operation_id, p_operation_fingerprint: input.operation_fingerprint, p_actor_id: actor.userId,
+      });
+      if (verified.error) throw new HttpError(409, "thumbnail_brand_setup_verification_failed", verified.error.message);
+      if (!isRecord(verified.data)) throw new HttpError(502, "invalid_thumbnail_brand_setup_response", "Tongs returned an invalid verified receipt");
+      return verified.data as Record<string, Json>;
+    }
+    const rpcName = stage === "profile" ? "commit_thumbnail_brand_profile_stage"
+      : "commit_thumbnail_brand_binding_stage";
+    return this.thumbnailBrandSetupRpc(workpieceId, input.workspace_id, rpcName, {
+      p_workspace_id: input.workspace_id, p_operation_id: input.operation_id, p_operation_fingerprint: input.operation_fingerprint,
+    }, options);
+  }
+
+  async getThumbnailBrandSetupReceipt(workpieceId: string, workspaceId: string, operationId: string, options?: { userAccessToken?: string | null }) {
+    return this.thumbnailBrandSetupRpc(workpieceId, workspaceId, "get_thumbnail_brand_setup_receipt", {
+      p_workspace_id: workspaceId, p_operation_id: operationId,
+    }, options, "viewer");
   }
 
   private async verifyQuenchCandidateReadback(workpieceId:string,candidate:Record<string,Json>):Promise<Record<string,Json>>{
@@ -12236,7 +12628,15 @@ export class TongsCommitService {
 
   async repairWorkpieceImageMap(
     workpieceId: string,
-    input: { workspace_id: string; operation_id: string },
+    input: {
+      workspace_id: string;
+      operation_id: string;
+      entry_id?: string;
+      expected_current_revision: number;
+      expected_current_revision_id: string;
+      expected_script_approval_id: string;
+      expected_script_approval_revision: number;
+    },
     options?: { userAccessToken?: string | null },
   ): Promise<WorkpieceImageMapResponseData> {
     await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
@@ -12245,6 +12645,13 @@ export class TongsCommitService {
     const approvalSequence = await tongs.from("workpiece_script_approval_sequences").select("current_approval_id,current_revision").eq("workspace_id", input.workspace_id).eq("workpiece_id", workpieceId).maybeSingle();
     if (approvalSequence.error || !isRecord(approvalSequence.data) || !readStringField(approvalSequence.data, "current_approval_id")) throw new HttpError(409, "canonical_approval_required", "Approve the current script before repairing image anchors.");
     const approvalId = readStringField(approvalSequence.data, "current_approval_id")!;
+    const approvalRevision = Number(approvalSequence.data.current_revision ?? 0);
+    if (approvalId !== input.expected_script_approval_id || approvalRevision !== input.expected_script_approval_revision) {
+      throw new HttpError(409, "script_revision_conflict", "The approved script changed before this image moment could be repaired.", {
+        current_script_approval_id: approvalId,
+        current_script_approval_revision: approvalRevision,
+      });
+    }
     const approval = await tongs.from("script_approval_revisions").select("script_text").eq("id", approvalId).maybeSingle();
     if (approval.error || !isRecord(approval.data) || typeof approval.data.script_text !== "string") throw new HttpError(502, "canonical_approval_unavailable", "Canonical approval bytes are unavailable.");
     let canonical = await this.readCanonicalImageMapProjection(input.workspace_id, workpieceId);
@@ -12255,8 +12662,106 @@ export class TongsCommitService {
       canonical = await this.readCanonicalImageMapProjection(input.workspace_id, workpieceId);
     }
     if (!canonical) throw new HttpError(502, "canonical_bootstrap_failed", "Canonical image-map bootstrap did not produce a revision.");
-    const repaired = normalizeEpisodeImageMapEntries(repairEntriesAgainstApprovedScript(canonical.entries as unknown as Array<Record<string, unknown>>, approval.data.script_text));
-    await this.commitCanonicalImageMap({ workspaceId: input.workspace_id, workpieceId, actorId: auth.userId, entries: repaired, mutationKind: "repair_to_approved_script", operationId: input.operation_id, targetApprovalId: approvalId, expectedRevision: canonical.authority.revision, expectedRevisionId: canonical.authority.revisionId, affectedEntryIds: repaired.map((entry) => entry.id) });
+    if (canonical.authority.revision !== input.expected_current_revision || canonical.authority.revisionId !== input.expected_current_revision_id) {
+      throw new HttpError(409, "image_map_revision_conflict", "The image plan changed before this image moment could be repaired.", {
+        current_image_map_revision: canonical.authority.revision,
+        current_image_map_revision_id: canonical.authority.revisionId,
+      });
+    }
+    const targets = input.entry_id
+      ? canonical.entries.filter((entry) => entry.id === input.entry_id)
+      : canonical.entries;
+    if (targets.length === 0) throw new HttpError(404, "image_map_entry_not_found", "Image map entry was not found.");
+    const repairedTargets = normalizeEpisodeImageMapEntries(repairEntriesAgainstApprovedScript(
+      targets as unknown as Array<Record<string, unknown>>,
+      approval.data.script_text,
+    ));
+    const repairedById = new Map(repairedTargets.map((entry) => [entry.id, entry]));
+    const repaired = canonical.entries.map((entry) => repairedById.get(entry.id) ?? entry);
+    const commit = await this.commitCanonicalImageMap({
+      workspaceId: input.workspace_id,
+      workpieceId,
+      actorId: auth.userId,
+      entries: repaired,
+      mutationKind: "repair_to_approved_script",
+      operationId: input.operation_id,
+      targetApprovalId: approvalId,
+      expectedRevision: input.expected_current_revision,
+      expectedRevisionId: input.expected_current_revision_id,
+      affectedEntryIds: targets.map((entry) => entry.id),
+      inputs: input.entry_id
+        ? { entry_id: input.entry_id, repair_strategy: "exact_display_anchor_v2" }
+        : { scope: "plan", repair_strategy: "exact_display_anchor_v2" },
+    });
+    const disposition = readStringField(commit, "disposition");
+    if (disposition === "revision_conflict") throw new HttpError(409, "image_map_revision_conflict", "The image plan changed before this image moment could be repaired.");
+    if (disposition === "script_revision_conflict") throw new HttpError(409, "script_revision_conflict", "The approved script changed before this image moment could be repaired.");
+    if (disposition === "operation_identity_conflict") throw new HttpError(409, "operation_identity_conflict", "This repair operation identity was already used for different inputs.");
+    if (disposition !== "committed" && disposition !== "no_change") throw new HttpError(502, "image_map_repair_failed", "Tongs did not commit the image-moment repair.", { disposition });
+    return this.getWorkpieceImageMap(workpieceId, options);
+  }
+
+  async createWorkpieceMediaUrl(workpieceId: string, path: string): Promise<{
+    url: string;
+    content_type: string;
+    expires_at: string;
+  }> {
+    await this.getCradleOrThrow(workpieceId);
+    const storageKey = buildStorageKey(workpieceId, path);
+    const expiresInSeconds = 3600;
+    const { data, error } = await this.supabase.storage
+      .from(this.bucket)
+      .createSignedUrl(storageKey, expiresInSeconds);
+    if (error || !data?.signedUrl) {
+      throw new HttpError(502, "media_url_failed", "Failed to create a playable canonical media URL", {
+        reason: error?.message,
+      });
+    }
+    return {
+      url: data.signedUrl,
+      content_type: normalizeContentType(undefined, path),
+      expires_at: new Date(Date.now() + expiresInSeconds * 1000).toISOString(),
+    };
+  }
+
+  async selectWorkpieceImageMapCandidate(
+    workpieceId: string,
+    input: SelectImageMapCandidateRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<WorkpieceImageMapResponseData> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const canonical = await this.readCanonicalImageMapProjection(input.workspace_id, workpieceId);
+    if (!canonical) throw new HttpError(409, "canonical_image_map_required", "Apply the visual plan before selecting an image.");
+    if (canonical.authority.revision !== input.expected_current_revision || canonical.authority.revisionId !== input.expected_current_revision_id) {
+      throw new HttpError(409, "image_map_revision_conflict", "The image plan changed before this image could be selected.", {
+        current_image_map_revision: canonical.authority.revision,
+        current_image_map_revision_id: canonical.authority.revisionId,
+      });
+    }
+    const entry = canonical.entries.find((candidate) => candidate.id === input.image_map_entry_id);
+    if (!entry) throw new HttpError(404, "image_map_entry_not_found", "Image map entry was not found.");
+    if (!entry.candidate_assets.some((asset) => asset.asset_id === input.candidate_asset_id)) {
+      throw new HttpError(400, "candidate_not_attached", "Selected image is no longer attached to this visual beat.");
+    }
+    const rpc = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const selected = await rpc.rpc("select_image_map_candidate", {
+      p_workspace_id: input.workspace_id,
+      p_workpiece_id: workpieceId,
+      p_expected_current_revision: input.expected_current_revision,
+      p_expected_current_revision_id: input.expected_current_revision_id,
+      p_image_map_entry_id: input.image_map_entry_id,
+      p_candidate_asset_id: input.candidate_asset_id,
+      p_operation_contract_version: "forge.image-map-candidate-selection.v1",
+      p_operation_id: input.operation_id,
+      p_actor_id: auth.userId,
+    });
+    if (selected.error || !isRecord(selected.data)) throw new HttpError(502, "image_map_selection_failed", "Tongs could not commit canonical image selection.", { reason: selected.error?.message });
+    const commit = selected.data;
+    const disposition = readStringField(commit, "disposition");
+    if (disposition === "revision_conflict") throw new HttpError(409, "image_map_revision_conflict", "The image plan changed before this image could be selected.");
+    if (disposition === "operation_identity_conflict") throw new HttpError(409, "operation_identity_conflict", "This image-selection operation identity was already used for different inputs.");
+    if (disposition !== "committed" && disposition !== "no_change") throw new HttpError(502, "image_map_selection_failed", "Tongs did not commit the image selection.", { disposition });
     return this.getWorkpieceImageMap(workpieceId, options);
   }
 
@@ -12299,7 +12804,7 @@ export class TongsCommitService {
     const selectedAssetRows = await this.listReadyImageMapCandidateAssetsForWorkpiece(cradle.workspace_id, workpieceId);
     const script = await this.resolvePreferredWorkpieceScript({ cradle });
 
-    return this.buildWorkpieceVisualPackageResponse({
+    const result = this.buildWorkpieceVisualPackageResponse({
       workpieceId,
       workspaceId: cradle.workspace_id,
       scriptPath: script.path,
@@ -12310,6 +12815,376 @@ export class TongsCommitService {
       spokenBeats: state.episodePackage.spoken_beats,
       selectedAssetRows,
     });
+    const brollClient = options?.userAccessToken && this.userClientFactory
+      ? this.userClientFactory(options.userAccessToken).schema("tongs") as unknown as UntypedTongsSchemaClient
+      : this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    if (typeof (brollClient as { rpc?: unknown }).rpc !== "function") return result;
+    const broll = await brollClient
+      .rpc("read_current_broll_plan", { p_workspace_id: cradle.workspace_id, p_workpiece_id: workpieceId });
+    if (broll.error || !isRecord(broll.data) || !Array.isArray(broll.data.beats)) return result;
+    const plan = isRecord(broll.data.plan_revision) ? broll.data.plan_revision : null;
+    const planId = plan ? readStringField(plan, "id") : null;
+    const planRevision = plan && typeof plan.revision === "number" ? Math.trunc(plan.revision) : null;
+    if (!planId || !planRevision) return result;
+    const brollVisuals: WorkpieceVisualPackageVisual[] = broll.data.beats.flatMap((value, index) => {
+      if (!isRecord(value) || !isRecord(value.membership) || !isRecord(value.beat_revision)) return [];
+      const membership = value.membership;
+      const beat = value.beat_revision;
+      const prompt = isRecord(value.prompt_revision) ? value.prompt_revision : null;
+      const candidate = isRecord(value.selected_candidate_revision) ? value.selected_candidate_revision : null;
+      const beatId = readStringField(beat, "beat_id");
+      const beatRevisionId = readStringField(beat, "id");
+      const focus = readStringField(beat, "context_focus");
+      if (!beatId || !beatRevisionId || !focus) return [];
+      const assetId = candidate ? readStringField(candidate, "asset_id") : null;
+      const anchorAssessment = isRecord(beat.canonical_anchor_assessment)
+        ? beat.canonical_anchor_assessment
+        : {};
+      let canonicalAnchor: EpisodeImageMapScriptAnchorRecord | null = null;
+      try {
+        canonicalAnchor = normalizeImageMapScriptAnchor(anchorAssessment.exact_anchor, "broll.canonical_anchor_assessment.exact_anchor");
+      } catch {
+        canonicalAnchor = null;
+      }
+      const selectedAsset: WorkpieceVisualPackageSelectedAsset | null = candidate && assetId ? {
+        asset_id: assetId,
+        path: readStringField(candidate, "asset_path") ?? "",
+        storage_bucket: readStringField(candidate, "storage_bucket") ?? "",
+        storage_key: readStringField(candidate, "storage_key") ?? "",
+        mime_type: readStringField(candidate, "mime_type") ?? "video/mp4",
+        bytes: 0,
+        created_at: readStringField(candidate, "created_at") ?? "",
+        updated_at: readStringField(candidate, "created_at") ?? "",
+        variant_label: null,
+        visual_mode: "b_roll",
+      } : null;
+      return [{
+        asset_class: "broll",
+        entry_id: beatId,
+        beat_order: typeof membership.ordinal === "number" ? Math.trunc(membership.ordinal) : index + 1,
+        paragraph_beat_order: 1,
+        status: selectedAsset ? "selected" : "mapped",
+        script_anchor: canonicalAnchor ?? {
+          section_id: "broll-v2",
+          paragraph_id: beatId,
+          paragraph_order: typeof membership.ordinal === "number" ? Math.trunc(membership.ordinal) : index + 1,
+          sentence_start: 1,
+          sentence_end: 1,
+          char_start: 0,
+          char_end: focus.length,
+          span_text: focus,
+        },
+        visual_mode: "b_roll",
+        source_provider: candidate ? readStringField(candidate, "provider") : null,
+        source_label: candidate ? readStringField(candidate, "source_kind") : null,
+        selected_asset_id: assetId,
+        selected_asset: selectedAsset,
+        broll_evidence: {
+          plan_revision_id: planId,
+          plan_revision: planRevision,
+          beat_revision_id: beatRevisionId,
+          beat_revision: typeof beat.revision === "number" ? Math.trunc(beat.revision) : 1,
+          prompt_revision_id: prompt ? readStringField(prompt, "id") : null,
+          prompt_revision: prompt && typeof prompt.revision === "number" ? Math.trunc(prompt.revision) : null,
+          prompt_content_hash: prompt ? readStringField(prompt, "content_hash") : null,
+          placement_hint: readStringField(beat, "placement_hint") ?? "first_occurrence",
+          intended_duration_ms: typeof beat.duration_target_ms === "number" ? Math.trunc(beat.duration_target_ms) : 4000,
+          narrative_purpose: readStringField(beat, "narrative_purpose") ?? "coverage",
+          canonical_anchor_assessment: anchorAssessment as JsonValue,
+          source_kind: candidate ? readStringField(candidate, "source_kind") : null,
+          provider: candidate ? readStringField(candidate, "provider") : null,
+          license: candidate && candidate.license_json != null ? candidate.license_json as JsonValue : null,
+          trim_guidance: beat.trim_guidance_json as JsonValue,
+        },
+      }];
+    });
+    return { ...result, visuals: [...result.visuals, ...brollVisuals] };
+  }
+
+  async acquireBrollCandidate(
+    workpieceId: string,
+    input: AcquireBrollCandidateRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<Record<string, Json>> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    if (!options?.userAccessToken || !this.userClientFactory) throw new HttpError(503, "broll_authority_unavailable", "Authenticated B-roll authority is unavailable.");
+    const authority = this.userClientFactory(options.userAccessToken).schema("tongs") as unknown as UntypedTongsSchemaClient;
+    if(input.source_kind==="generated"){
+      if(!input.prompt_revision_id||!input.prompt_revision||!input.prompt_content_hash)throw new HttpError(409,"prompt_revision_required","A current verified canonical motion prompt is required for generated video.");
+      const promptCheck=await authority.rpc("assert_current_broll_prompt",{p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_beat_id:input.beat_id,p_prompt_revision_id:input.prompt_revision_id,p_prompt_revision:input.prompt_revision,p_prompt_content_hash:input.prompt_content_hash});
+      if(promptCheck.error||!isRecord(promptCheck.data)||promptCheck.data.disposition!=="verified")throw new HttpError(409,isRecord(promptCheck.data)?readStringField(promptCheck.data,"disposition")??"prompt_authority_invalid":"prompt_authority_invalid",promptCheck.error?.message??"The canonical motion prompt is missing, stale, or mismatched.",isRecord(promptCheck.data)?promptCheck.data:undefined);
+      const canonicalPrompt=isRecord(promptCheck.data.prompt_revision)?readStringField(promptCheck.data.prompt_revision,"final_prompt"):null;if(!canonicalPrompt)throw new HttpError(409,"prompt_authority_invalid","The canonical motion prompt has no final prompt.");input.final_prompt=canonicalPrompt;
+      if(input.final_prompt.length>1000)throw new HttpError(409,"runway_prompt_too_long",`Runway Gen-4.5 accepts at most 1000 UTF-16 code units. Current canonical prompt: ${input.final_prompt.length}. Create and confirm a Runway-ready prompt before generating video.`,{prompt_length_utf16:input.final_prompt.length,maximum_utf16:1000,operation_reserved:false,transmitted:false});
+    }
+    const normalizedOperation = input.operation_id.replace(/[^a-zA-Z0-9._-]+/g, "-");
+    const videoPath = `assets/broll-v2/${input.beat_id}/${normalizedOperation}/video`;
+    const videoKey = buildStorageKey(workpieceId, videoPath);
+    const posterPath = `assets/broll-v2/${input.beat_id}/${normalizedOperation}/poster.jpg`;
+    const posterKey = buildStorageKey(workpieceId, posterPath);
+    const posterRequired = input.poster_required !== false;
+    const begun = await authority.rpc("begin_broll_operation", {
+      p_workspace_id: input.workspace_id, p_workpiece_id: workpieceId, p_beat_id: input.beat_id,
+      p_operation_type: "candidate_acquire", p_operation_id: input.operation_id,
+      p_operation_fingerprint: input.operation_fingerprint,
+      p_inputs: { source_kind: input.source_kind, source_url: input.source_url ?? null, prompt_revision_id: input.prompt_revision_id ?? null, prompt_revision: input.prompt_revision ?? null, prompt_content_hash: input.prompt_content_hash ?? null, final_prompt: input.source_kind==="generated"?input.final_prompt:null, runway_model:input.runway_model??"gen4.5", duration_seconds:input.duration_seconds??5, ratio:input.ratio??"1280:720", poster_required: posterRequired },
+      p_actor_id: auth.userId,
+    });
+    if (begun.error || !isRecord(begun.data)) throw new HttpError(502, "broll_operation_begin_failed", begun.error?.message ?? "B-roll operation reservation failed.");
+    if (begun.data.disposition === "operation_identity_conflict") throw new HttpError(409, "broll_operation_identity_conflict", "The B-roll operation ID was reused with different inputs.");
+    const operation = isRecord(begun.data.operation) ? begun.data.operation : null;
+    let state = operation ? readStringField(operation, "state") : null;
+    if (state === "candidate_committed" && isRecord(operation?.receipt_json)) return operation.receipt_json as Record<string, Json>;
+
+    let video: VerifiedBrollMedia | null = null;
+    const inspectBrollMedia = this.brollAcquisitionRuntime.inspectMedia.bind(this.brollAcquisitionRuntime);
+    const deriveBrollPoster = this.brollAcquisitionRuntime.derivePoster.bind(this.brollAcquisitionRuntime);
+    const fetchExternalBrollMedia = this.brollAcquisitionRuntime.fetchExternalMedia.bind(this.brollAcquisitionRuntime);
+    if (input.source_kind === "generated") {
+      if (!this.brollVideoProvider || !input.final_prompt) throw new HttpError(503, "broll_video_provider_unavailable", "No replay-safe B-roll video provider is configured.");
+      const recoveredStored = state === "pending" ? await downloadStorageObject(this.supabase, this.bucket, videoKey) : null;
+      if (recoveredStored) {
+        video = await inspectBrollMedia(recoveredStored, "video");
+        const recorded=await authority.rpc("record_broll_provider_or_upload_result",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_result:{storage_bucket:this.bucket,storage_key:videoKey,path:videoPath,provider:input.provider,provider_request_id:input.provider_request_id??null,recovered_existing_object:true}});
+        if(recorded.error)throw new HttpError(502,"broll_result_receipt_failed",recorded.error.message);state="provider_or_upload_completed";
+      }
+      const model = input.runway_model ?? "gen4.5";
+      const durationSeconds = input.duration_seconds ?? 5;
+      const ratio = input.ratio ?? "1280:720";
+      if (state === "submission_unknown") throw new HttpError(409, "broll_runway_submission_unknown", "Runway may have accepted this generation, but Forge did not receive its task ID. No automatic retry was made to avoid a possible duplicate charge. This operation requires reconciliation before another generation can begin.", operation ?? undefined);
+      if (!video && (state === "pending" || state === "submitting")) {
+        const attemptId = state === "submitting" && operation ? readStringField(operation, "submission_attempt_id") : randomUuid();
+        if (!attemptId) throw new HttpError(409, "broll_submission_attempt_missing", "The Runway submission attempt identity is missing.");
+        const reserved = await authority.rpc("begin_broll_runway_submission", { p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_submission_attempt_id:attemptId,p_prompt_revision_id:input.prompt_revision_id,p_prompt_revision:input.prompt_revision,p_prompt_content_hash:input.prompt_content_hash,p_model:model,p_duration_seconds:durationSeconds,p_ratio:ratio,p_actor_id:auth.userId });
+        if (reserved.error || !isRecord(reserved.data)) throw new HttpError(502,"broll_runway_submission_reservation_failed",reserved.error?.message??"Runway submission reservation failed.");
+        const disposition=readStringField(reserved.data,"disposition");
+        if(disposition==="submission_unknown")throw new HttpError(409,"broll_runway_submission_unknown","Runway may have accepted this generation, but Forge did not receive its task ID. No automatic retry was made to avoid a possible duplicate charge. This operation requires reconciliation before another generation can begin.",reserved.data);
+        const reservedOperation=isRecord(reserved.data.operation)?reserved.data.operation:null;
+        if(disposition==="submitting"){
+          try {
+            const submitted=await this.brollVideoProvider.submit({prompt:input.final_prompt,model,durationSeconds,ratio,attemptId});
+            const recorded=await authority.rpc("record_broll_runway_task",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_submission_attempt_id:attemptId,p_provider_task_id:submitted.taskId,p_accepted_response:{...submitted.acceptedResponse,provider:"runway",sdk_version:RUNWAY_SDK_VERSION,model,duration_seconds:durationSeconds,ratio}});
+            if(recorded.error||!isRecord(recorded.data)||!["provider_submitted","replay"].includes(readStringField(recorded.data,"disposition")??""))throw new HttpError(502,"broll_runway_task_receipt_failed",recorded.error?.message??"Runway task ID could not be persisted.");
+            state="provider_submitted";input.provider="runway";input.provider_request_id=submitted.taskId;
+          } catch(error) {
+            if(error instanceof HttpError)throw error;
+            const transport=asRunwayTransportError(error)??{message:"Runway submission outcome is unknown.",ambiguous:true,evidence:{stage:"submit",transmitted:"unknown"}};
+            if(transport.ambiguous){await authority.rpc("mark_broll_submission_unknown",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_submission_attempt_id:attemptId,p_reason:transport.message,p_transport_evidence:transport.evidence});throw new HttpError(409,"broll_runway_submission_unknown","Runway may have accepted this generation, but Forge did not receive its task ID. No automatic retry was made to avoid a possible duplicate charge. This operation requires reconciliation before another generation can begin.");}
+            const rejected=await authority.rpc("record_broll_runway_rejection",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_submission_attempt_id:attemptId,p_rejection_evidence:transport.evidence});
+            if(rejected.error||!isRecord(rejected.data)||!['rejection_recorded','replay'].includes(readStringField(rejected.data,'disposition')??''))throw new HttpError(502,'broll_runway_rejection_receipt_failed',rejected.error?.message??'Runway rejection evidence could not be persisted.');
+            const providerMessage=typeof transport.evidence.provider_message==='string'?transport.evidence.provider_message:transport.message;
+            throw new HttpError(400,'broll_runway_request_rejected',providerMessage,transport.evidence as Record<string,Json>);
+          }
+        } else if(disposition==="replay"&&reservedOperation){state=readStringField(reservedOperation,"state");input.provider_request_id=readStringField(reservedOperation,"provider_task_id");}
+      }
+      if(state==="provider_submitted"){
+        const taskId=input.provider_request_id??(operation?readStringField(operation,"provider_task_id"):null);
+        if(!taskId)throw new HttpError(409,"broll_runway_task_missing","The durable Runway task ID is missing.");
+        const claimed=await authority.rpc("claim_broll_runway_poll",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_provider_task_id:taskId});
+        if(claimed.error||!isRecord(claimed.data))throw new HttpError(502,"broll_runway_poll_claim_failed",claimed.error?.message??"Runway polling could not be scheduled.");
+        if(claimed.data.disposition==="poll_not_due")return{disposition:"provider_pending",state:"provider_submitted",operation_id:input.operation_id,provider:"runway",provider_task_id:taskId,retry_at:(claimed.data.retry_at??null) as Json};
+        const task=await this.brollVideoProvider.poll(taskId);
+        if(task.state==="pending"){await authority.rpc("record_broll_runway_pending",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_provider_task_id:taskId,p_poll_response:task.response});return{disposition:"provider_pending",state:"provider_submitted",operation_id:input.operation_id,provider:"runway",provider_task_id:taskId};}
+        if(task.state==="failed"){await authority.rpc("record_broll_runway_pending",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_provider_task_id:taskId,p_poll_response:task.response});throw new HttpError(409,"broll_runway_failed",task.message,{provider_task_id:taskId,failure_code:task.code,state:"failed"});}
+        const completed=await authority.rpc("record_broll_runway_completion",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_provider_task_id:taskId,p_completed_response:{...task.response,canonical_output_url:task.outputUrl}});
+        if(completed.error)throw new HttpError(502,"broll_runway_completion_receipt_failed",completed.error.message);state="provider_completed";input.provider="runway";input.provider_request_id=taskId;
+        video=await inspectBrollMedia(await this.brollVideoProvider.download(task.outputUrl),"video");
+      }
+      if(state==="provider_completed"&&!video){
+        const currentOperation=isRecord(begun.data.operation)?begun.data.operation:null;const completion=isRecord(currentOperation?.provider_completed_json)?currentOperation.provider_completed_json:null;const outputUrl=completion?readStringField(completion,"canonical_output_url"):null;
+        if(!outputUrl)throw new HttpError(409,"broll_runway_output_receipt_missing","The completed Runway output receipt is missing.");
+        video=await inspectBrollMedia(await this.brollVideoProvider.download(outputUrl),"video");input.provider="runway";input.provider_request_id=currentOperation?readStringField(currentOperation,"provider_task_id"):null;
+      }
+      if(video&&state!=="provider_or_upload_completed"){const alreadyStored=await downloadStorageObject(this.supabase,this.bucket,videoKey);if(!alreadyStored)await uploadStorageObject(this.supabase,this.bucket,videoKey,video.bytes,video.mimeType);const recorded=await authority.rpc("record_broll_provider_or_upload_result",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_result:{storage_bucket:this.bucket,storage_key:videoKey,path:videoPath,provider:"runway",provider_request_id:input.provider_request_id??null}});if(recorded.error)throw new HttpError(502,"broll_result_receipt_failed",recorded.error.message);state="provider_or_upload_completed";}
+    }
+    if (state === "pending") {
+      const alreadyStored = await downloadStorageObject(this.supabase, this.bucket, videoKey);
+      if (alreadyStored) {
+        video = await inspectBrollMedia(alreadyStored, "video");
+      } else if (input.source_kind === "upload") {
+        if (!input.bytes_base64) throw new HttpError(400, "broll_upload_bytes_required", "Upload bytes are required.");
+        video = await inspectBrollMedia(decodeBase64(input.bytes_base64), "video");
+      } else if (input.source_kind === "external") {
+        if (!input.source_url) throw new HttpError(400, "broll_external_url_required", "An external video URL is required.");
+        try { video = await fetchExternalBrollMedia(input.source_url); }
+        catch (error) { throw new HttpError(400, "broll_external_fetch_rejected", error instanceof Error ? error.message : "External media could not be verified."); }
+      }
+      if (!video) throw new HttpError(409, "broll_video_acquisition_incomplete", "B-roll video acquisition did not produce canonical bytes.");
+      if (!alreadyStored) await uploadStorageObject(this.supabase, this.bucket, videoKey, video.bytes, video.mimeType);
+      const stored = await downloadStorageObject(this.supabase, this.bucket, videoKey);
+      if (!stored) throw new HttpError(502, "broll_storage_readback_failed", "Stored B-roll video could not be read back.");
+      video = await inspectBrollMedia(stored, "video");
+      const recorded = await authority.rpc("record_broll_provider_or_upload_result", {
+        p_operation_id: input.operation_id, p_operation_fingerprint: input.operation_fingerprint,
+        p_result: { storage_bucket: this.bucket, storage_key: videoKey, path: videoPath, provider: input.provider, provider_request_id: input.provider_request_id ?? null },
+      });
+      if (recorded.error) throw new HttpError(502, "broll_result_receipt_failed", recorded.error.message);
+      state = "provider_or_upload_completed";
+    }
+    if (!video) {
+      const stored = await downloadStorageObject(this.supabase, this.bucket, videoKey);
+      if (!stored) throw new HttpError(409, "broll_video_storage_missing", "The reserved B-roll video object is missing.");
+      video = await inspectBrollMedia(stored, "video");
+    }
+    if (state === "provider_or_upload_completed") {
+      const videoHash = await sha256Hex(video.bytes);
+      const committed = await (this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient).rpc("commit_broll_operation_asset", {
+        p_operation_id: input.operation_id, p_operation_fingerprint: input.operation_fingerprint,
+        p_asset_kind: "broll_candidate_video", p_path: `${videoPath}.${video.mimeType === "video/mp4" ? "mp4" : "webm"}`,
+        p_mime_type: video.mimeType, p_byte_size: video.bytes.length, p_content_hash: videoHash,
+        p_storage_bucket: this.bucket, p_storage_key: videoKey, p_width: video.width, p_height: video.height,
+        p_duration_ms: video.durationMs, p_provider: input.provider, p_provider_request_id: input.provider_request_id ?? null,
+      });
+      if (committed.error || !isRecord(committed.data)) throw new HttpError(502, "broll_video_asset_commit_failed", committed.error?.message ?? "Video asset commit failed.");
+      state = "video_asset_verified";
+    }
+    if (posterRequired && state === "video_asset_verified") {
+      let posterBytes = await downloadStorageObject(this.supabase, this.bucket, posterKey);
+      let poster = posterBytes ? await inspectBrollMedia(posterBytes, "poster") : await deriveBrollPoster(video);
+      if (!posterBytes) await uploadStorageObject(this.supabase, this.bucket, posterKey, poster.bytes, poster.mimeType);
+      posterBytes = await downloadStorageObject(this.supabase, this.bucket, posterKey);
+      if (!posterBytes) throw new HttpError(502, "broll_poster_storage_readback_failed", "Stored B-roll poster could not be read back.");
+      poster = await inspectBrollMedia(posterBytes, "poster");
+      const posterHash = await sha256Hex(poster.bytes);
+      const committed = await (this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient).rpc("commit_broll_operation_asset", {
+        p_operation_id: input.operation_id, p_operation_fingerprint: input.operation_fingerprint,
+        p_asset_kind: "broll_candidate_poster", p_path: posterPath, p_mime_type: poster.mimeType,
+        p_byte_size: poster.bytes.length, p_content_hash: posterHash, p_storage_bucket: this.bucket,
+        p_storage_key: posterKey, p_width: poster.width, p_height: poster.height, p_duration_ms: null,
+        p_provider: "tongs-poster", p_provider_request_id: input.operation_id,
+      });
+      if (committed.error) throw new HttpError(502, "broll_poster_asset_commit_failed", committed.error.message);
+      state = "poster_asset_verified";
+    }
+    const candidate = await authority.rpc("commit_broll_candidate", {
+      p_operation_id: input.operation_id, p_operation_fingerprint: input.operation_fingerprint,
+      p_prompt_revision_id: input.prompt_revision_id ?? null, p_source_kind: input.source_kind,
+      p_license_json: input.license_json ?? {}, p_provenance_json: { ...(isRecord(input.provenance_json) ? input.provenance_json : {}), source_url: input.source_url ?? null },
+      p_actor_id: auth.userId,
+    });
+    if (candidate.error || !isRecord(candidate.data)) throw new HttpError(502, "broll_candidate_commit_failed", candidate.error?.message ?? "Candidate commit failed.");
+    if (candidate.data.disposition !== "committed") throw new HttpError(409, String(candidate.data.disposition ?? "broll_candidate_rejected"), "Canonical B-roll candidate commit was rejected.", candidate.data);
+    return candidate.data as Record<string, Json>;
+  }
+
+  private imagePromptAuthorityClient(accessToken:string|null|undefined){
+    if(!accessToken||!this.userClientFactory)throw new HttpError(503,"image_prompt_authority_unavailable","Authenticated image prompt authority is unavailable");
+    return this.userClientFactory(accessToken).schema("tongs") as unknown as {rpc:(name:string,args:Record<string,unknown>)=>Promise<UntypedPostgrestResult>;from:(table:string)=>UntypedPostgrestBuilder};
+  }
+
+  async readBrollMotionPromptStatus(workpieceId:string,workspaceId:string,beatId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    const token=options?.userAccessToken??null;await this.assertWorkspaceRoleFromAccessToken(workspaceId,"viewer",token);await this.assertWorkpieceInWorkspace(workpieceId,workspaceId);
+    const result=await this.imagePromptAuthorityClient(token).rpc("read_broll_prompt_status",{p_workspace_id:workspaceId,p_workpiece_id:workpieceId,p_beat_id:beatId});
+    if(result.error||!isRecord(result.data))throw new HttpError(502,"broll_prompt_status_failed",result.error?.message??"Tongs could not read B-roll prompt status");return result.data as Record<string,Json>;
+  }
+
+  async readBrollRunwayOperationStatus(workpieceId:string,workspaceId:string,operationId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    const token=options?.userAccessToken??null;await this.assertWorkspaceRoleFromAccessToken(workspaceId,"viewer",token);await this.assertWorkpieceInWorkspace(workpieceId,workspaceId);
+    const result=await this.imagePromptAuthorityClient(token).rpc("read_broll_runway_operation_status",{p_workspace_id:workspaceId,p_workpiece_id:workpieceId,p_operation_id:operationId});
+    if(result.error||!isRecord(result.data))throw new HttpError(502,"broll_runway_status_failed",result.error?.message??"Tongs could not read Runway operation status");return result.data as Record<string,Json>;
+  }
+
+  async reconcileBrollRunwayOperation(workpieceId:string,input:ReconcileBrollRunwayRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    const token=options?.userAccessToken??null;const auth=await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"admin",token);await this.assertWorkpieceInWorkspace(workpieceId,input.workspace_id);
+    let taskEvidence:Json=null;
+    if(input.decision==="attach_task"){
+      if(!input.provider_task_id)throw new HttpError(400,"provider_task_id_required","A discovered Runway task ID is required.");
+      if(!this.brollVideoProvider)throw new HttpError(503,"runway_provider_unavailable","Runway is not configured for this Tongs process.");
+      const task=await this.brollVideoProvider.poll(input.provider_task_id);
+      const expected=await this.imagePromptAuthorityClient(token).from("broll_operation_receipts").select("normalized_inputs_json").eq("operation_id",input.operation_id).eq("workspace_id",input.workspace_id).eq("workpiece_id",workpieceId).maybeSingle();
+      if(expected.error||!isRecord(expected.data))throw new HttpError(409,"broll_reconciliation_operation_missing",expected.error?.message??"The ambiguous operation could not be read.");
+      const normalized=isRecord(expected.data.normalized_inputs_json)?expected.data.normalized_inputs_json:null;const runway=isRecord(normalized?.runway)?normalized.runway:null;const model=runway?readStringField(runway,"model"):null;
+      if(!model)throw new HttpError(409,"broll_reconciliation_evidence_missing","The original Runway model evidence is missing.");
+      taskEvidence={...task.response,model,provider:"runway",provider_task_id:input.provider_task_id,reconciled_via:"tasks.retrieve"};
+    }
+    const reconciliationEvidence=input.decision==='attach_task'?taskEvidence:(input.reconciliation_evidence??null);
+    const result=await this.imagePromptAuthorityClient(token).rpc("reconcile_broll_runway_submission",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_decision:input.decision,p_provider_task_id:input.provider_task_id??null,p_task_evidence:reconciliationEvidence,p_actor_id:auth.userId});
+    if(result.error||!isRecord(result.data))throw new HttpError(502,"broll_runway_reconciliation_failed",result.error?.message??"Runway reconciliation failed.");const disposition=readStringField(result.data,"disposition");if(disposition!=="reconciled")throw new HttpError(409,disposition??"broll_runway_reconciliation_rejected","Tongs rejected Runway reconciliation.",result.data);return result.data as Record<string,Json>;
+  }
+
+  async interpretBrollMotionPrompt(workpieceId:string,input:InterpretBrollMotionPromptRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    const token=input.user_access_token??options?.userAccessToken??null;const auth=await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"editor",token);await this.assertWorkpieceInWorkspace(workpieceId,input.workspace_id);
+    const authority=this.imagePromptAuthorityClient(token);const interpretationContract="forge.broll-motion-interpretation.v1";const validatorVersion="forge.broll-motion-validator.v1";const synthesisContract="forge.broll-motion-synthesis.v1";const model="gpt-5-mini";const provider="openai";
+    const current=await authority.rpc("broll_current_creative_input",{p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_beat_id:input.beat_id,p_creator_direction:input.creator_direction,p_interpretation_contract_version:interpretationContract,p_synthesis_contract_version:synthesisContract});
+    if(current.error||!isRecord(current.data)||readStringField(current.data,"disposition")!=="current")throw new HttpError(409,isRecord(current.data)?readStringField(current.data,"disposition")??"broll_creative_input_unavailable":"broll_creative_input_unavailable",current.error?.message??"Canonical B-roll creative inputs are unavailable.",isRecord(current.data)?current.data:undefined);
+    const creativeHash=readStringField(current.data,"creative_input_hash");const creativeInputs=isRecord(current.data.creative_inputs)?current.data.creative_inputs:null;const beat=isRecord(current.data.beat_revision)?current.data.beat_revision:null;
+    if(!creativeHash||!creativeInputs||!beat)throw new HttpError(502,"broll_creative_input_invalid","Canonical B-roll creative input readback was incomplete.");
+    const expectedFingerprint=await sha256Hex(canonicalJsonBytes({workspace_id:input.workspace_id,workpiece_id:workpieceId,beat_id:input.beat_id,expected_prompt_revision_id:input.expected_prompt_revision_id,expected_prompt_revision:input.expected_prompt_revision,creator_direction:input.creator_direction,creative_input_hash:creativeHash,contracts:{interpretation:interpretationContract,validator:validatorVersion,synthesis:synthesisContract}}));
+    if(input.operation_fingerprint!==expectedFingerprint)throw new HttpError(409,"operation_fingerprint_mismatch","Motion-prompt operation fingerprint does not match canonical creative inputs.",{expected_operation_fingerprint:expectedFingerprint,creative_input_hash:creativeHash});
+    const requestJson={creative_inputs:creativeInputs,questions:["What should visibly happen during this clip?","What should the viewer understand?","What does the shot begin and end on?","What should the camera do?","Which evidence makes the clip relevant?"]};
+    const begun=await authority.rpc("begin_broll_prompt_interpretation",{p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_beat_id:input.beat_id,p_expected_prompt_revision_id:input.expected_prompt_revision_id,p_expected_prompt_revision:input.expected_prompt_revision,p_creator_direction:input.creator_direction,p_creative_input_hash:creativeHash,p_interpretation_contract_version:interpretationContract,p_validator_version:validatorVersion,p_synthesis_contract_version:synthesisContract,p_interpretation_provider:provider,p_interpretation_model:model,p_interpretation_request:requestJson,p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_actor_id:auth.userId});
+    if(begun.error||!isRecord(begun.data))throw new HttpError(502,"broll_prompt_begin_failed",begun.error?.message??"Tongs could not reserve motion interpretation");const disposition=readStringField(begun.data,"disposition");if(disposition!=="reserved"&&disposition!=="replay")throw new HttpError(409,disposition??"broll_prompt_begin_rejected","Tongs rejected motion interpretation reservation.",begun.data);
+    const operation=isRecord(begun.data.operation)?begun.data.operation:null;if(operation&&readStringField(operation,"state")==="committed"&&isRecord(operation.receipt_json))return operation.receipt_json as Record<string,Json>;
+    let providerResponse=isRecord(operation?.provider_response_json)?operation.provider_response_json:null;let brief:BrollMotionBrief;
+    if(providerResponse){if(!isRecord(providerResponse.canonical_brief))throw new HttpError(502,"invalid_provider_recovery","Stored motion interpretation has no canonical brief");brief=providerResponse.canonical_brief as unknown as BrollMotionBrief;}
+    else{if(!this.brollMotionInterpretationProvider)throw new HttpError(503,"broll_motion_interpreter_unavailable","B-roll motion interpretation provider is not configured");let interpreted;try{interpreted=await this.runAIRequest({lane:AI_USAGE_LANE.FORGE,userId:auth.userId,workspaceId:input.workspace_id,workpieceId,feature:AI_USAGE_FEATURE.IMAGE_MAP_CANDIDATE_GENERATE,subfeature:AI_USAGE_SUBFEATURE.INTERPRETATION,model,trigger:AI_USAGE_TRIGGER.USER,actionId:input.operation_id,execute:async()=>{const result=await this.brollMotionInterpretationProvider!.interpret({request:requestJson,model});return{result,inputTokens:result.inputTokens,outputTokens:result.outputTokens,totalTokens:result.totalTokens,providerRequestId:result.providerRequestId};}});}catch(error){await authority.rpc("fail_broll_operation",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_failed_stage:"provider",p_failure_code:"provider_failed",p_failure_message:error instanceof Error?error.message:String(error)});throw error;}brief=interpreted.result.brief;providerResponse={canonical_brief:brief as unknown as Json,raw_provider_response:interpreted.result.rawResponse as unknown as Json,model:interpreted.result.model,provider};const recorded=await authority.rpc("record_broll_provider_or_upload_result",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_result:providerResponse});if(recorded.error)throw new HttpError(502,"provider_response_record_failed",recorded.error.message);}
+    const invalid=validateBrollMotionBrief(brief);if(invalid.length){await authority.rpc("fail_broll_operation",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_failed_stage:"validation",p_failure_code:"interpretation_incomplete",p_failure_message:`Invalid fields: ${invalid.join(", ")}`});throw new HttpError(422,"interpretation_incomplete","Motion interpretation is incomplete.",{invalid_fields:invalid});}
+    const finalPrompt=synthesizeBrollMotionPrompt(brief);const committed=await authority.rpc("commit_broll_prompt_interpretation",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_source_beat_revision_id:readStringField(beat,"id"),p_motion_brief:brief,p_final_prompt:finalPrompt,p_interpretation_contract_version:interpretationContract,p_validator_version:validatorVersion,p_synthesis_contract_version:synthesisContract,p_actor_id:auth.userId});
+    if(committed.error||!isRecord(committed.data))throw new HttpError(502,"broll_prompt_commit_failed",committed.error?.message??"Tongs could not commit motion prompt");const committedDisposition=readStringField(committed.data,"disposition");if(committedDisposition!=="committed")throw new HttpError(committedDisposition==="interpretation_incomplete"?422:409,committedDisposition??"broll_prompt_commit_rejected","Tongs rejected the motion prompt commit.",committed.data);return committed.data as Record<string,Json>;
+  }
+
+  async editBrollMotionPrompt(workpieceId:string,input:EditBrollMotionPromptRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    const token=input.user_access_token??options?.userAccessToken??null;const auth=await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"editor",token);await this.assertWorkpieceInWorkspace(workpieceId,input.workspace_id);
+    const expectedFingerprint=await sha256Hex(canonicalJsonBytes({workspace_id:input.workspace_id,workpiece_id:workpieceId,beat_id:input.beat_id,expected_prompt_revision_id:input.expected_prompt_revision_id,expected_prompt_revision:input.expected_prompt_revision,final_prompt:input.final_prompt,operation_type:"prompt_edit"}));if(expectedFingerprint!==input.operation_fingerprint)throw new HttpError(409,"operation_fingerprint_mismatch","Motion-prompt edit fingerprint does not match canonical request.",{expected_operation_fingerprint:expectedFingerprint});
+    const result=await this.imagePromptAuthorityClient(token).rpc("commit_broll_prompt_creator_edit",{p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_beat_id:input.beat_id,p_expected_prompt_revision_id:input.expected_prompt_revision_id,p_expected_prompt_revision:input.expected_prompt_revision,p_final_prompt:input.final_prompt,p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_actor_id:auth.userId});if(result.error||!isRecord(result.data))throw new HttpError(502,"broll_prompt_edit_failed",result.error?.message??"Tongs could not commit motion prompt edit");const disposition=readStringField(result.data,"disposition");if(disposition!=="committed")throw new HttpError(409,disposition??"broll_prompt_edit_rejected","Tongs rejected the motion prompt edit.",result.data);return result.data as Record<string,Json>;
+  }
+
+  async proposeRunwayReadyBrollPrompt(workpieceId:string,workspaceId:string,beatId:string,expectedRevisionId:string,expectedRevision:number,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    const token=options?.userAccessToken??null;await this.assertWorkspaceRoleFromAccessToken(workspaceId,"editor",token);await this.assertWorkpieceInWorkspace(workpieceId,workspaceId);
+    const status=await this.imagePromptAuthorityClient(token).rpc("read_broll_prompt_status",{p_workspace_id:workspaceId,p_workpiece_id:workpieceId,p_beat_id:beatId});
+    if(status.error||!isRecord(status.data))throw new HttpError(502,"broll_prompt_status_failed",status.error?.message??"Tongs could not read B-roll prompt status");
+    const revision=isRecord(status.data.prompt_revision)?status.data.prompt_revision:null;
+    if(!revision||readStringField(revision,"id")!==expectedRevisionId||revision.revision!==expectedRevision)throw new HttpError(409,"prompt_revision_conflict","The canonical motion prompt changed before Runway-ready synthesis.",status.data);
+    if(!isRecord(revision.motion_brief_json))throw new HttpError(409,"broll_motion_brief_missing","The current canonical prompt revision has no structured motion brief.");
+    const brief=revision.motion_brief_json as unknown as BrollMotionBrief;
+    const invalid=validateBrollMotionBrief(brief);if(invalid.length)throw new HttpError(422,"interpretation_incomplete","The canonical motion brief cannot produce a Runway-ready prompt.",{invalid_fields:invalid});
+    const proposed=synthesizeBrollMotionPrompt(brief);
+    return{disposition:"proposed",expected_prompt_revision_id:expectedRevisionId,expected_prompt_revision:expectedRevision,final_prompt:proposed,prompt_length_utf16:proposed.length,maximum_utf16:1000,synthesis_contract_version:"forge.broll-motion-synthesis.runway-v1"};
+  }
+
+  async interpretImageMapPrompt(workpieceId:string,input:InterpretImageMapPromptRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    const token=input.user_access_token??options?.userAccessToken??null;
+    const auth=await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"editor",token);
+    await this.assertWorkpieceInWorkspace(workpieceId,input.workspace_id);
+    const authority=this.imagePromptAuthorityClient(token);
+    const normalizedInputs={source_context:input.source_context,creator_direction:input.creator_direction,interpretation_contract_version:"forge.image-prompt-interpretation.v2",validator_version:"forge.image-prompt-validator.v1",synthesis_contract_version:"forge.image-prompt-synthesis.v3"};
+    const expectedFingerprint=await sha256Hex(canonicalJsonBytes({workspace_id:input.workspace_id,workpiece_id:workpieceId,image_moment_id:input.image_moment_id,image_map_revision_id:input.image_map_revision_id,script_approval_id:input.script_approval_id,expected_prompt_revision_id:input.expected_prompt_revision_id,expected_prompt_revision:input.expected_prompt_revision,source_context:input.source_context,creator_direction:input.creator_direction,style:input.style,contracts:{interpretation:normalizedInputs.interpretation_contract_version,validator:normalizedInputs.validator_version,synthesis:normalizedInputs.synthesis_contract_version}}));
+    if(input.operation_fingerprint!==expectedFingerprint)throw new HttpError(409,"operation_fingerprint_mismatch","Interpretation operation fingerprint does not match the canonical request.",{expected_operation_fingerprint:expectedFingerprint});
+    const begun=await authority.rpc("begin_image_prompt_interpretation",{p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_image_moment_id:input.image_moment_id,p_image_map_revision_id:input.image_map_revision_id,p_script_approval_id:input.script_approval_id,p_expected_prompt_revision_id:input.expected_prompt_revision_id,p_expected_prompt_revision:input.expected_prompt_revision,p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_normalized_inputs_json:normalizedInputs,p_actor_id:auth.userId});
+    if(begun.error||!isRecord(begun.data))throw new HttpError(502,"image_prompt_begin_failed",begun.error?.message??"Tongs could not reserve interpretation");
+    const beginDisposition=readStringField(begun.data,"disposition");
+    if(beginDisposition!=="reserved"&&beginDisposition!=="replay")throw new HttpError(409,beginDisposition??"image_prompt_begin_rejected","Tongs rejected the interpretation reservation.",begun.data);
+    const operation=isRecord(begun.data.operation)?begun.data.operation:null;const state=operation?readStringField(operation,"state"):null;
+    if(state==="committed"&&isRecord(operation?.receipt_json))return operation.receipt_json as Record<string,Json>;
+    let providerResponse=isRecord(operation?.provider_response_json)?operation.provider_response_json:null;
+    let brief:ImagePromptVisualBrief;
+    let model="gpt-5-mini";
+    let requestJson:Record<string,unknown>={...input.source_context,creator_direction:input.creator_direction,image_moment_id:input.image_moment_id,style:input.style};
+    if(providerResponse){
+      const storedBrief=providerResponse.canonical_brief;if(!isRecord(storedBrief))throw new HttpError(502,"invalid_provider_recovery","Stored interpretation response has no canonical brief");brief=storedBrief as unknown as ImagePromptVisualBrief;model=readStringField(providerResponse,"model")??model;
+    }else{
+      if(!this.narrativeInterpretationProvider)throw new HttpError(503,"image_prompt_interpreter_unavailable","Narrative interpretation provider is not configured");
+      let interpreted;try{interpreted=await this.runAIRequest({lane:AI_USAGE_LANE.FORGE,userId:auth.userId,workspaceId:input.workspace_id,workpieceId,feature:AI_USAGE_FEATURE.IMAGE_MAP_CANDIDATE_GENERATE,subfeature:AI_USAGE_SUBFEATURE.INTERPRETATION,model,trigger:AI_USAGE_TRIGGER.USER,actionId:input.operation_id,execute:async()=>{const result=await this.narrativeInterpretationProvider!.interpret({request:requestJson,model});return{result,inputTokens:result.inputTokens,outputTokens:result.outputTokens,totalTokens:result.totalTokens,providerRequestId:result.providerRequestId};}});}catch(error){await authority.rpc("fail_image_prompt_operation",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_failed_stage:"provider",p_failure_code:"provider_failed",p_failure_message:error instanceof Error?error.message:String(error)});throw error;}
+      brief=interpreted.result.brief;model=interpreted.result.model;providerResponse={canonical_brief:brief as unknown as Json,raw_provider_response:interpreted.result.rawResponse as unknown as Json,model};
+      const recorded=await authority.rpc("record_image_prompt_provider_response",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_provider_response_json:providerResponse});
+      if(recorded.error)throw new HttpError(502,"provider_response_record_failed",recorded.error.message);
+    }
+    const invalid=validateSubstantiveVisualBrief(brief);if(invalid.length){await authority.rpc("fail_image_prompt_operation",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_failed_stage:"validation",p_failure_code:"interpretation_incomplete",p_failure_message:`Invalid fields: ${invalid.join(", ")}`});throw new HttpError(422,"interpretation_incomplete","Narrative interpretation is incomplete.",{invalid_fields:invalid});}
+    const finalPrompt=synthesizeConcreteVendorPrompt(brief,input.style);
+    const committed=await authority.rpc("commit_image_prompt_interpretation",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_visual_brief_json:brief,p_ai_synthesized_prompt:finalPrompt,p_final_prompt:finalPrompt,p_interpretation_contract_version:"forge.image-prompt-interpretation.v2",p_validator_version:"forge.image-prompt-validator.v1",p_synthesis_contract_version:"forge.image-prompt-synthesis.v3",p_interpretation_model:model,p_interpretation_request_json:requestJson,p_actor_id:auth.userId});
+    if(committed.error||!isRecord(committed.data)){await authority.rpc("fail_image_prompt_operation",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_failed_stage:"commit",p_failure_code:"image_prompt_commit_failed",p_failure_message:committed.error?.message??"Tongs could not commit interpretation"});throw new HttpError(502,"image_prompt_commit_failed",committed.error?.message??"Tongs could not commit interpretation");}
+    const commitDisposition=readStringField(committed.data,"disposition");if(commitDisposition!=="committed")throw new HttpError(409,commitDisposition??"image_prompt_commit_rejected","Tongs rejected the interpretation commit.",committed.data);return committed.data as Record<string,Json>;
+  }
+
+  async editImageMapPrompt(workpieceId:string,input:EditImageMapPromptRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    const token=input.user_access_token??options?.userAccessToken??null;const auth=await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"editor",token);await this.assertWorkpieceInWorkspace(workpieceId,input.workspace_id);
+    const expectedFingerprint=await sha256Hex(canonicalJsonBytes({workspace_id:input.workspace_id,workpiece_id:workpieceId,image_moment_id:input.image_moment_id,expected_prompt_revision_id:input.expected_prompt_revision_id,expected_prompt_revision:input.expected_prompt_revision,final_prompt:input.final_prompt,operation_type:"creator_edit"}));if(input.operation_fingerprint!==expectedFingerprint)throw new HttpError(409,"operation_fingerprint_mismatch","Creator-edit operation fingerprint does not match the canonical request.",{expected_operation_fingerprint:expectedFingerprint});
+    const result=await this.imagePromptAuthorityClient(token).rpc("commit_image_prompt_creator_edit",{p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_image_moment_id:input.image_moment_id,p_expected_prompt_revision_id:input.expected_prompt_revision_id,p_expected_prompt_revision:input.expected_prompt_revision,p_final_prompt:input.final_prompt,p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_actor_id:auth.userId});
+    if(result.error||!isRecord(result.data))throw new HttpError(502,"image_prompt_edit_failed",result.error?.message??"Tongs could not commit prompt edit");const disposition=readStringField(result.data,"disposition");if(disposition!=="committed")throw new HttpError(409,disposition??"image_prompt_edit_rejected","Tongs rejected the prompt edit.",result.data);return result.data as Record<string,Json>;
+  }
+
+  async readCurrentImageMapPrompt(workpieceId:string,workspaceId:string,imageMomentId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>|null>{
+    const token=options?.userAccessToken??null;await this.assertWorkspaceRoleFromAccessToken(workspaceId,"viewer",token);const result=await this.imagePromptAuthorityClient(token).rpc("read_current_image_prompt",{p_workspace_id:workspaceId,p_workpiece_id:workpieceId,p_image_moment_id:imageMomentId});if(result.error)throw new HttpError(502,"image_prompt_read_failed",result.error.message);return isRecord(result.data)?result.data as Record<string,Json>:null;
   }
 
   async generateImageMapCandidates(
@@ -12352,12 +13227,42 @@ export class TongsCommitService {
     if (!entry) {
       throw new HttpError(404, "image_map_entry_not_found", "Image map entry was not found");
     }
-    if (entry.canonical_anchor_assessment?.state !== "current" || canonical.authority.provenanceState !== "current") {
+    if (entry.canonical_anchor_assessment?.state !== "current") {
       throw new HttpError(409, "canonical_anchor_not_current", "Repair this image moment to the approved script before generating candidates.", { entry_id: entry.id, anchor_state: entry.canonical_anchor_assessment?.state ?? "provenance_unknown" });
     }
     if (!entry.script_anchor?.span_text?.trim() && !entry.beat_anchor) {
       throw new HttpError(400, "image_map_anchor_required", "Image map entry must have a structured anchor before generating candidates");
     }
+    const promptProjection=await this.readCurrentImageMapPrompt(workpieceId,input.workspace_id,entry.id,{userAccessToken});
+    const promptRevision=promptProjection&&isRecord(promptProjection.prompt_revision)?promptProjection.prompt_revision:null;
+    const canonicalPromptId=promptRevision?readStringField(promptRevision,"id"):null;
+    const canonicalPromptRevision=promptRevision&&typeof promptRevision.revision==="number"?promptRevision.revision:null;
+    const canonicalPromptHash=promptRevision?readStringField(promptRevision,"content_hash"):null;
+    const canonicalPrompt=promptRevision?readStringField(promptRevision,"final_prompt"):null;
+    if(!canonicalPromptId||canonicalPromptRevision==null||!canonicalPromptHash||!canonicalPrompt)throw new HttpError(409,"canonical_image_prompt_required","Create and verify a canonical image prompt before generating candidates.");
+    if(canonicalPromptId!==input.prompt_revision_id||canonicalPromptRevision!==input.prompt_revision||canonicalPromptHash!==input.prompt_content_hash)throw new HttpError(409,"prompt_revision_conflict","The requested prompt is not the current canonical prompt.",{current_prompt_revision_id:canonicalPromptId,current_prompt_revision:canonicalPromptRevision,current_prompt_content_hash:canonicalPromptHash});
+    const verifiedPromptRevision=promptRevision as Record<string,unknown>;
+    const promptMapRevisionId=readStringField(verifiedPromptRevision,"image_map_revision_id");
+    const promptMapRevision=Number(verifiedPromptRevision.image_map_revision);
+    const promptMatchesCurrentMap=promptMapRevisionId===canonical.authority.revisionId&&promptMapRevision===canonical.authority.revision;
+    const promptIdentityMatches=readStringField(verifiedPromptRevision,"image_moment_id")===entry.id
+      &&readStringField(verifiedPromptRevision,"script_approval_id")===canonical.authority.scriptApprovalId
+      &&Number(verifiedPromptRevision.script_approval_revision)===canonical.authority.scriptApprovalRevision;
+    let promptBasisStillCurrent=promptMatchesCurrentMap;
+    if(promptIdentityMatches&&!promptMatchesCurrentMap&&promptMapRevisionId&&Number.isInteger(promptMapRevision)&&promptMapRevision>0&&promptMapRevision<canonical.authority.revision){
+      const storedSourceContext=isRecord(verifiedPromptRevision.source_context_json)?verifiedPromptRevision.source_context_json:null;
+      const storedCreatorDirection=readStringField(verifiedPromptRevision,"creator_direction");
+      const currentIndex=canonical.entries.findIndex((candidate)=>candidate.id===entry.id);
+      if(storedSourceContext&&storedCreatorDirection&&currentIndex>=0){
+        const currentSourceContext=buildImageMapPromptSourceContext(canonical.entries,currentIndex,storedCreatorDirection,storedSourceContext.editorial_purpose);
+        const [storedContextHash,currentContextHash]=await Promise.all([
+          sha256Hex(canonicalJsonBytes(storedSourceContext)),
+          sha256Hex(canonicalJsonBytes(currentSourceContext)),
+        ]);
+        promptBasisStillCurrent=storedContextHash===currentContextHash;
+      }
+    }
+    if(!promptIdentityMatches||!promptBasisStillCurrent)throw new HttpError(409,"prompt_authority_mismatch","The current prompt no longer matches this image moment's canonical direction or approved script.");
 
     const priorCandidateAssets = await this.listReadyImageMapCandidateAssets(input.workspace_id, workpieceId, entry.id);
     const visualMode = inferImageMapVisualMode(
@@ -12381,17 +13286,89 @@ export class TongsCommitService {
       prompt: string;
       image: Awaited<ReturnType<ImageProvider["generateImage"]>>;
     }> = [];
-    const imageMapActionId = randomUuid();
+    const imageMapActionHash = await sha256Text(JSON.stringify({
+      workspace_id: input.workspace_id,
+      workpiece_id: workpieceId,
+      image_map_revision_id: canonical.authority.revisionId,
+      image_map_revision: canonical.authority.revision,
+      image_map_entry_id: entry.id,
+      context_before: input.context_before ?? null,
+      context_after: input.context_after ?? null,
+      aspect,
+      size,
+      prompt_revision_id:canonicalPromptId,
+      prompt_revision:canonicalPromptRevision,
+      prompt_content_hash:canonicalPromptHash,
+    }));
+    const imageMapActionId = uuidFromSha256(imageMapActionHash);
+    const generatedAssetRows: AssetRow[] = [];
+    const generatedAssets: ImageMapCandidateAssetSummary[] = [];
+    let totalSpent = 0;
     for (const variant of variants) {
-      const prompt = buildImageMapCandidatePrompt({
-        entry,
-        visualMode,
-        variantLabel: variant.label,
-        contextBefore: input.context_before ?? null,
-        contextAfter: input.context_after ?? null,
-        spokenBeats: current.episodePackage.spoken_beats,
-        divergenceHint: variant.divergenceHint,
-      });
+      const prompt = canonicalPrompt;
+      const assetIdentityHash = await sha256Text(`${imageMapActionHash}:${variant.label}`);
+      const assetId = uuidFromSha256(assetIdentityHash);
+      const requestId = `image-map-candidate:${assetIdentityHash}`;
+      const { data: existingAsset, error: existingAssetError } = await this.supabase
+        .schema("tongs")
+        .from("assets")
+        .select("*")
+        .eq("id", assetId)
+        .maybeSingle();
+      if (existingAssetError) {
+        throw new HttpError(502, "db_read_failed", "Failed to recover generated image-map candidate asset", { reason: existingAssetError.message });
+      }
+      if (existingAsset?.status === "ready") {
+        const recovered = normalizeImageMapCandidateAssetSummary(existingAsset);
+        if (!recovered) throw new HttpError(502, "invalid_generated_asset", "Recovered image-map candidate asset could not be normalized");
+        generatedAssets.push(recovered);
+        continue;
+      }
+
+      const variantSlug = variant.label.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "candidate";
+      const candidatePathPrefix = `${IMAGE_MAP_CANDIDATE_ASSET_PREFIX}/${workpieceId}/${entry.id}/${assetId}-${variantSlug}`;
+      const { data: committedFiles, error: committedFileError } = await this.supabase
+        .schema("tongs")
+        .from("workpiece_files")
+        .select("path,content_type,bytes,hash_value,storage_bucket,storage_key,updated_at")
+        .eq("workpiece_id", workpieceId)
+        .like("path", `${candidatePathPrefix}.%`)
+        .order("updated_at", { ascending: false })
+        .limit(1);
+      if (committedFileError) {
+        throw new HttpError(502, "db_read_failed", "Failed to inspect committed image-map candidate bytes", { reason: committedFileError.message });
+      }
+      const committedFile = committedFiles?.[0] ?? null;
+      if (committedFile) {
+        const recoveredRow = await this.insertAssetRow({
+          id: assetId,
+          workspace_id: input.workspace_id,
+          workpiece_id: workpieceId,
+          path: committedFile.path,
+          mime_type: committedFile.content_type,
+          bytes: committedFile.bytes,
+          storage_bucket: committedFile.storage_bucket,
+          storage_key: committedFile.storage_key,
+          provider: "recovered_committed_file",
+          provider_request_id: null,
+          request_id: requestId,
+          prompt,
+          created_by: auth.userId,
+          asset_kind: IMAGE_MAP_CANDIDATE_ASSET_KIND,
+          status: "ready",
+          metadata_json: buildImageMapCandidateAssetMetadata({ entry, visualMode, variantLabel: variant.label, prompt, revisedPrompt: null, aspect, size,promptRevisionId:canonicalPromptId,promptRevision:canonicalPromptRevision,promptContentHash:canonicalPromptHash }),
+          operation_id: `${imageMapActionId}:${variant.label}`,
+          operation_fingerprint: assetIdentityHash,
+          content_hash: committedFile.hash_value,
+          ready_at: committedFile.updated_at,
+          supersedes_asset_id: null,
+        }, "Failed to recover committed image-map candidate asset");
+        generatedAssetRows.push(recoveredRow);
+        const recovered = normalizeImageMapCandidateAssetSummary(recoveredRow);
+        if (!recovered) throw new HttpError(502, "invalid_generated_asset", "Recovered image-map candidate asset could not be normalized");
+        generatedAssets.push(recovered);
+        continue;
+      }
       const imageCall = await this.runAIRequest({
         lane,
         userId: auth.userId,
@@ -12430,15 +13407,7 @@ export class TongsCommitService {
     }
 
     if (generatedOutputs.length >= 2 && generatedOutputs[0]?.image.bytesBase64 === generatedOutputs[1]?.image.bytesBase64) {
-      const retryPrompt = buildImageMapCandidatePrompt({
-        entry,
-        visualMode,
-        variantLabel: generatedOutputs[1].variantLabel,
-        contextBefore: input.context_before ?? null,
-        contextAfter: input.context_after ?? null,
-        spokenBeats: current.episodePackage.spoken_beats,
-        divergenceHint: "The prior variant was too similar. Produce a substantially different visual take with different framing, subject arrangement, and editorial emphasis.",
-      });
+      const retryPrompt = canonicalPrompt;
       const retryCall = await this.runAIRequest({
         lane,
         userId: auth.userId,
@@ -12483,14 +13452,11 @@ export class TongsCommitService {
       tool_version: "0.0.0",
       lane: "forge-managed",
     };
-    const generatedAssetRows: AssetRow[] = [];
-    const generatedAssets: ImageMapCandidateAssetSummary[] = [];
-    let totalSpent = 0;
-
     try {
       for (const output of generatedOutputs) {
-        const requestId = randomUuid();
-        const assetId = randomUuid();
+        const assetIdentityHash = await sha256Text(`${imageMapActionHash}:${output.variantLabel}`);
+        const requestId = `image-map-candidate:${assetIdentityHash}`;
+        const assetId = uuidFromSha256(assetIdentityHash);
         const assetPath = buildImageMapCandidateAssetPath({
           workpieceId,
           entryId: entry.id,
@@ -12542,7 +13508,12 @@ export class TongsCommitService {
             revisedPrompt: output.image.revisedPrompt,
             aspect,
             size,
+            promptRevisionId:canonicalPromptId,promptRevision:canonicalPromptRevision,promptContentHash:canonicalPromptHash,
           }),
+          operation_id: `${imageMapActionId}:${output.variantLabel}`,
+          operation_fingerprint: assetIdentityHash,
+          content_hash: assetCommit.file_row.hash_value,
+          ready_at: assetCommit.file_row.updated_at ?? new Date().toISOString(),
           supersedes_asset_id: null,
         }, "Failed to register generated image-map candidate asset");
         generatedAssetRows.push(assetRow);
@@ -13239,13 +14210,21 @@ export function createTongsCommitService(options: TongsCommitApiOptions): TongsC
   const imageProvider = openAiImageApiKey
     ? new OpenAiImageProvider(openAiImageApiKey, options.openAiImageModel?.trim() || "gpt-image-1")
     : null;
+  const narrativeInterpretationProvider = openAiImageApiKey
+    ? new OpenAiNarrativeInterpretationProvider(openAiImageApiKey, options.openAiTextModel?.trim() || "gpt-5-mini")
+    : null;
+  const brollMotionInterpretationProvider = openAiImageApiKey
+    ? new OpenAiBrollMotionInterpretationProvider(openAiImageApiKey, options.openAiTextModel?.trim() || "gpt-5-mini")
+    : null;
+  const brollVideoProvider = options.brollVideoProvider
+    ?? (options.runwayApiKey?.trim() ? new LazyRunwayBrollVideoProvider(options.runwayApiKey.trim()) : null);
 
   const userClientFactory = (accessToken: string): SupabaseClient<Database> => createClient<Database>(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
     global: { headers: { Authorization: `Bearer ${accessToken}` } },
   });
 
-  return new TongsCommitService(supabase, bucket, imageProvider, userClientFactory);
+  return new TongsCommitService(supabase, bucket, imageProvider, userClientFactory, narrativeInterpretationProvider, brollVideoProvider, brollMotionInterpretationProvider, options.brollAcquisitionRuntime);
 }
 
 function normalizeStageThumbnailAssetRequest(body: Record<string, unknown>): StageThumbnailAssetRequest {
@@ -13742,6 +14721,139 @@ export function createTongsCommitApiHandlerWithService(
         return jsonResponse(200, { ok: true, data: result });
       }
 
+      if (
+        parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces"
+        && parts[3] === "thumbnail-assets" && parts[4] === "apply-workspace-brand"
+      ) {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const fingerprint = readStringField(body, "operation_fingerprint");
+        if (!fingerprint || !/^[a-f0-9]{64}$/.test(fingerprint)) throw new HttpError(400, "invalid_operation_fingerprint", "operation_fingerprint must be SHA-256");
+        const result = await service.applyWorkspaceDefaultThumbnailBrand(workpieceId, {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          expected_current_revision: normalizePositiveInteger(body.expected_current_revision, "expected_current_revision"),
+          profile_id: normalizeUuid(body.profile_id, "profile_id"),
+          profile_revision_id: normalizeUuid(body.profile_revision_id, "profile_revision_id"),
+          operation_id: normalizeThumbnailOperationId(body.operation_id),
+          operation_fingerprint: fingerprint,
+        }, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="image-prompts"&&parts[4]==="interpret"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const source=normalizeJsonValue(body.source_context);if(!isRecord(source))throw new HttpError(400,"invalid_source_context","source_context must be an object");
+        const result=await service.interpretImageMapPrompt(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),image_moment_id:normalizeNonEmptyString(body.image_moment_id,"image_moment_id"),image_map_revision_id:normalizeUuid(body.image_map_revision_id,"image_map_revision_id"),script_approval_id:normalizeUuid(body.script_approval_id,"script_approval_id"),expected_prompt_revision_id:body.expected_prompt_revision_id==null?null:normalizeUuid(body.expected_prompt_revision_id,"expected_prompt_revision_id"),expected_prompt_revision:normalizeNonNegativeInteger(body.expected_prompt_revision,"expected_prompt_revision"),operation_id:normalizeNonEmptyString(body.operation_id,"operation_id"),operation_fingerprint:normalizeSha256(body.operation_fingerprint,"operation_fingerprint"),source_context:source as Record<string,Json>,creator_direction:normalizeNonEmptyString(body.creator_direction,"creator_direction"),style:body.style==null?null:normalizeNonEmptyString(body.style,"style"),user_access_token:userAccessToken},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="broll-v2"&&parts[4]==="acquire"){
+        requireMethod(request,"POST");
+        const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");
+        const body=await parseJsonBody(request);
+        const userAccessToken=requireUserAccessTokenHeader(request);
+        const sourceKind=body.source_kind;
+        if(sourceKind!=="upload"&&sourceKind!=="external"&&sourceKind!=="generated")throw new HttpError(400,"invalid_broll_source_kind","source_kind must be upload, external, or generated");
+        const result=await service.acquireBrollCandidate(workpieceId,{
+          workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),beat_id:normalizeUuid(body.beat_id,"beat_id"),
+          operation_id:normalizeNonEmptyString(body.operation_id,"operation_id"),operation_fingerprint:normalizeSha256(body.operation_fingerprint,"operation_fingerprint"),
+          source_kind:sourceKind,bytes_base64:body.bytes_base64==null?null:normalizeNonEmptyString(body.bytes_base64,"bytes_base64"),
+          source_url:body.source_url==null?null:normalizeNonEmptyString(body.source_url,"source_url"),
+          prompt_revision_id:body.prompt_revision_id==null?null:normalizeUuid(body.prompt_revision_id,"prompt_revision_id"),
+          prompt_revision:body.prompt_revision==null?null:normalizePositiveInteger(body.prompt_revision,"prompt_revision"),
+          prompt_content_hash:body.prompt_content_hash==null?null:normalizeSha256(body.prompt_content_hash,"prompt_content_hash"),
+          provider:normalizeNonEmptyString(body.provider,"provider"),provider_request_id:body.provider_request_id==null?null:normalizeNonEmptyString(body.provider_request_id,"provider_request_id"),
+          runway_model:body.runway_model==null?null:(normalizeNonEmptyString(body.runway_model,"runway_model")==="gen4.5"?"gen4.5":(()=>{throw new HttpError(400,"invalid_runway_model","Only Runway Gen-4.5 is supported.");})()),
+          duration_seconds:body.duration_seconds==null?null:Math.min(10,Math.max(2,normalizePositiveInteger(body.duration_seconds,"duration_seconds"))),
+          ratio:body.ratio==null?null:(normalizeNonEmptyString(body.ratio,"ratio")==="720:1280"?"720:1280":"1280:720"),
+          final_prompt:body.final_prompt==null?null:normalizeNonEmptyString(body.final_prompt,"final_prompt"),poster_required:body.poster_required!==false,
+          license_json:normalizeJsonValue(body.license_json??{}),provenance_json:normalizeJsonValue(body.provenance_json??{}),
+        },{userAccessToken});
+        return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="broll-v2"&&parts[4]==="runway-status"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);
+        const result=await service.readBrollRunwayOperationStatus(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),normalizeNonEmptyString(body.operation_id,"operation_id"),{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="broll-v2"&&parts[4]==="runway-reconcile"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const decision=normalizeNonEmptyString(body.decision,"decision");
+        if(decision!=="attach_task"&&decision!=="confirmed_not_created"&&decision!=="authorize_resubmission")throw new HttpError(400,"invalid_reconciliation_decision","decision must be attach_task, confirmed_not_created, or authorize_resubmission");
+        const evidence=body.reconciliation_evidence==null?null:(isRecord(body.reconciliation_evidence)?body.reconciliation_evidence as Record<string,Json>:(()=>{throw new HttpError(400,'invalid_reconciliation_evidence','reconciliation_evidence must be an object');})());
+        const result=await service.reconcileBrollRunwayOperation(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),operation_id:normalizeNonEmptyString(body.operation_id,"operation_id"),operation_fingerprint:normalizeSha256(body.operation_fingerprint,"operation_fingerprint"),decision,provider_task_id:body.provider_task_id==null?null:normalizeNonEmptyString(body.provider_task_id,"provider_task_id"),reconciliation_evidence:evidence},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="broll-v2"&&parts[4]==="prompt-interpret"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);
+        const result=await service.interpretBrollMotionPrompt(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),beat_id:normalizeUuid(body.beat_id,"beat_id"),expected_prompt_revision_id:body.expected_prompt_revision_id==null?null:normalizeUuid(body.expected_prompt_revision_id,"expected_prompt_revision_id"),expected_prompt_revision:normalizeNonNegativeInteger(body.expected_prompt_revision,"expected_prompt_revision"),creator_direction:normalizeNonEmptyString(body.creator_direction,"creator_direction"),operation_id:normalizeNonEmptyString(body.operation_id,"operation_id"),operation_fingerprint:normalizeSha256(body.operation_fingerprint,"operation_fingerprint"),user_access_token:userAccessToken},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="broll-v2"&&parts[4]==="prompt-edit"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);
+        const result=await service.editBrollMotionPrompt(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),beat_id:normalizeUuid(body.beat_id,"beat_id"),expected_prompt_revision_id:normalizeUuid(body.expected_prompt_revision_id,"expected_prompt_revision_id"),expected_prompt_revision:normalizePositiveInteger(body.expected_prompt_revision,"expected_prompt_revision"),final_prompt:normalizeNonEmptyString(body.final_prompt,"final_prompt"),operation_id:normalizeNonEmptyString(body.operation_id,"operation_id"),operation_fingerprint:normalizeSha256(body.operation_fingerprint,"operation_fingerprint"),user_access_token:userAccessToken},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="broll-v2"&&parts[4]==="prompt-status"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const result=await service.readBrollMotionPromptStatus(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),normalizeUuid(body.beat_id,"beat_id"),{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="broll-v2"&&parts[4]==="prompt-runway-ready"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);
+        const result=await service.proposeRunwayReadyBrollPrompt(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),normalizeUuid(body.beat_id,"beat_id"),normalizeUuid(body.expected_prompt_revision_id,"expected_prompt_revision_id"),normalizePositiveInteger(body.expected_prompt_revision,"expected_prompt_revision"),{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="image-prompts"&&parts[4]==="edit"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const result=await service.editImageMapPrompt(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),image_moment_id:normalizeNonEmptyString(body.image_moment_id,"image_moment_id"),expected_prompt_revision_id:normalizeUuid(body.expected_prompt_revision_id,"expected_prompt_revision_id"),expected_prompt_revision:normalizePositiveInteger(body.expected_prompt_revision,"expected_prompt_revision"),final_prompt:normalizeNonEmptyString(body.final_prompt,"final_prompt"),operation_id:normalizeNonEmptyString(body.operation_id,"operation_id"),operation_fingerprint:normalizeSha256(body.operation_fingerprint,"operation_fingerprint"),user_access_token:userAccessToken},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="image-prompts"&&parts[4]==="current"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const result=await service.readCurrentImageMapPrompt(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),normalizeNonEmptyString(body.image_moment_id,"image_moment_id"),{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+
+      if (parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "thumbnail-brand-setup") {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const workspaceId = normalizeUuid(body.workspace_id, "workspace_id");
+        const operationId = normalizeUuid(body.operation_id, "operation_id");
+        const stage = parts[4];
+        if (stage === "receipt") {
+          const result = await service.getThumbnailBrandSetupReceipt(workpieceId, workspaceId, operationId, { userAccessToken });
+          return jsonResponse(200, { ok: true, data: result });
+        }
+        const fingerprint = readStringField(body, "operation_fingerprint");
+        if (!fingerprint || !/^[a-f0-9]{64}$/.test(fingerprint)) throw new HttpError(400, "invalid_operation_fingerprint", "operation_fingerprint must be SHA-256");
+        if (stage === "begin") {
+          const role = body.logo_role;
+          if (role !== "transparent_logo" && role !== "primary_logo" && role !== "watermark_logo") throw new HttpError(400, "invalid_logo_role", "Unsupported thumbnail logo role");
+          const expected = Number(body.expected_binding_revision);
+          if (!Number.isInteger(expected) || expected < 0) throw new HttpError(400, "invalid_binding_revision", "expected_binding_revision must be non-negative");
+          if (!isRecord(body.requested_rules)) throw new HttpError(400, "invalid_brand_rules", "requested_rules must be an object");
+          const result = await service.beginThumbnailBrandSetup(workpieceId, {
+            workspace_id: workspaceId, operation_id: operationId, operation_fingerprint: fingerprint,
+            profile_id: normalizeUuid(body.profile_id, "profile_id"), asset_id: body.asset_id == null ? null : normalizeUuid(body.asset_id, "asset_id"),
+            logo_role: role, internal_label: normalizeNonEmptyString(body.internal_label, "internal_label"),
+            filename: normalizeNonEmptyString(body.filename, "filename"), mime_type: normalizeNonEmptyString(body.mime_type, "mime_type"),
+            requested_rules: body.requested_rules as Record<string, Json>, expected_binding_revision: expected,
+          }, { userAccessToken });
+          return jsonResponse(200, { ok: true, data: result });
+        }
+        if (stage === "asset-ready") {
+          const bytesBase64 = readStringField(body, "bytes_base64");
+          const mimeType = readStringField(body, "mime_type");
+          if (bytesBase64 && mimeType !== "image/png" && mimeType !== "image/jpeg" && mimeType !== "image/webp") {
+            throw new HttpError(400, "invalid_logo_mime_type", "Thumbnail logo must be PNG, JPEG, or WebP");
+          }
+          const result = bytesBase64
+            ? await service.uploadThumbnailBrandSetupAsset(workpieceId, { workspace_id: workspaceId, operation_id: operationId,
+              operation_fingerprint: fingerprint, bytes_base64: bytesBase64,
+              mime_type: mimeType as "image/png" | "image/jpeg" | "image/webp" }, { userAccessToken })
+            : await service.markThumbnailBrandAssetReady(workpieceId, { workspace_id: workspaceId, operation_id: operationId,
+              operation_fingerprint: fingerprint }, { userAccessToken });
+          return jsonResponse(200, { ok: true, data: result });
+        }
+        if (stage === "profile" || stage === "binding" || stage === "verify") {
+          const result = await service.advanceThumbnailBrandSetup(workpieceId, stage, {
+            workspace_id: workspaceId, operation_id: operationId, operation_fingerprint: fingerprint,
+          }, { userAccessToken });
+          return jsonResponse(200, { ok: true, data: result });
+        }
+        throw new HttpError(404, "thumbnail_brand_setup_stage_not_found", "Unknown thumbnail brand setup stage");
+      }
+
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "recording-completion") {
         requireMethod(request, "POST");
         const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
@@ -14056,7 +15168,19 @@ export function createTongsCommitApiHandlerWithService(
         const userAccessToken = requireUserAccessTokenHeader(request);
         const operationId = normalizeNonEmptyString(body.operation_id, "operation_id");
         if (!/^forge:image-map:[a-zA-Z0-9._:-]{8,180}$/.test(operationId)) throw new HttpError(400, "invalid_operation_id", "operation_id must use the Forge image-map namespace");
-        const result = await service.repairWorkpieceImageMap(workpieceId, { workspace_id: normalizeUuid(body.workspace_id, "workspace_id"), operation_id: operationId }, { userAccessToken });
+        const expectedRevision = Number(body.expected_current_revision);
+        const expectedApprovalRevision = Number(body.expected_script_approval_revision);
+        if (!Number.isInteger(expectedRevision) || expectedRevision < 1) throw new HttpError(400, "invalid_expected_revision", "expected_current_revision must be a positive integer");
+        if (!Number.isInteger(expectedApprovalRevision) || expectedApprovalRevision < 1) throw new HttpError(400, "invalid_expected_script_revision", "expected_script_approval_revision must be a positive integer");
+        const result = await service.repairWorkpieceImageMap(workpieceId, {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          operation_id: operationId,
+          ...(typeof body.entry_id === "undefined" ? {} : { entry_id: normalizeNonEmptyString(body.entry_id, "entry_id") }),
+          expected_current_revision: expectedRevision,
+          expected_current_revision_id: normalizeUuid(body.expected_current_revision_id, "expected_current_revision_id"),
+          expected_script_approval_id: normalizeUuid(body.expected_script_approval_id, "expected_script_approval_id"),
+          expected_script_approval_revision: expectedApprovalRevision,
+        }, { userAccessToken });
         return jsonResponse(200, { ok: true, data: result });
       }
 
@@ -14069,6 +15193,26 @@ export function createTongsCommitApiHandlerWithService(
         if (!/^forge:image-map:[a-zA-Z0-9._:-]{8,180}$/.test(operationId)) throw new HttpError(400, "invalid_operation_id", "operation_id must use the Forge image-map namespace");
         if (!isRecord(body.script_anchor)) throw new HttpError(400, "invalid_exact_anchor", "script_anchor is required");
         const result = await service.resolveWorkpieceImageMapManualAnchor(workpieceId, { workspace_id: normalizeUuid(body.workspace_id, "workspace_id"), operation_id: operationId, entry_id: normalizeNonEmptyString(body.entry_id, "entry_id"), script_anchor: body.script_anchor }, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "image-map" && parts[4] === "select-candidate") {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const operationId = normalizeNonEmptyString(body.operation_id, "operation_id");
+        if (!/^forge:image-map:[a-zA-Z0-9._:-]{8,180}$/.test(operationId)) throw new HttpError(400, "invalid_operation_id", "operation_id must use the Forge image-map namespace");
+        const expectedRevision = Number(body.expected_current_revision);
+        if (!Number.isInteger(expectedRevision) || expectedRevision < 1) throw new HttpError(400, "invalid_expected_revision", "expected_current_revision must be a positive integer");
+        const result = await service.selectWorkpieceImageMapCandidate(workpieceId, {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          image_map_entry_id: normalizeNonEmptyString(body.image_map_entry_id, "image_map_entry_id"),
+          candidate_asset_id: normalizeUuid(body.candidate_asset_id, "candidate_asset_id"),
+          expected_current_revision: expectedRevision,
+          expected_current_revision_id: normalizeUuid(body.expected_current_revision_id, "expected_current_revision_id"),
+          operation_id: operationId,
+        }, { userAccessToken });
         return jsonResponse(200, { ok: true, data: result });
       }
 
@@ -14926,6 +16070,15 @@ export function createTongsCommitApiHandlerWithService(
           });
         }
         return jsonResponse(200, { ok: true, data: result.text, file_row: result.file_row ?? null });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "media-url") {
+        requireMethod(request, "GET");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const url = new URL(request.url);
+        const path = normalizeRelativePath(url.searchParams.get("path"));
+        const result = await service.createWorkpieceMediaUrl(workpieceId, path);
+        return jsonResponse(200, { ok: true, data: result });
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "read-file") {

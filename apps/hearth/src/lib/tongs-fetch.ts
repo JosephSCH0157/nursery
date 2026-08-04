@@ -160,7 +160,7 @@ function resolveUserAccessTokenFromStorage(): string | null {
   return null;
 }
 
-async function resolveUserAccessToken(): Promise<string | null> {
+export async function resolveTongsUserAccessToken(): Promise<string | null> {
   const fromStorage = resolveUserAccessTokenFromStorage();
   if (fromStorage) return fromStorage;
   if (typeof window === "undefined") return null;
@@ -169,17 +169,21 @@ async function resolveUserAccessToken(): Promise<string | null> {
     __forge_supabase_client__?: {
       auth?: {
         getSession?: () => Promise<unknown>;
+        refreshSession?: () => Promise<unknown>;
       };
     };
   };
 
-  const getSession = runtimeWindow.__forge_supabase_client__?.auth?.getSession;
-  if (typeof getSession !== "function") return null;
+  const auth = runtimeWindow.__forge_supabase_client__?.auth;
+  if (!auth || typeof auth.getSession !== "function") return null;
 
   try {
-    const sessionPayload = await getSession();
-    const token = extractAccessTokenFromAuthPayload(sessionPayload);
-    return sanitizeAccessToken(token);
+    const sessionPayload = await auth.getSession();
+    const token = sanitizeAccessToken(extractAccessTokenFromAuthPayload(sessionPayload));
+    if (token) return token;
+    if (typeof auth.refreshSession !== "function") return null;
+    const refreshedPayload = await auth.refreshSession();
+    return sanitizeAccessToken(extractAccessTokenFromAuthPayload(refreshedPayload));
   } catch {
     return null;
   }
@@ -195,7 +199,7 @@ function resolveFromQuery(): string | null {
 }
 
 export async function hasTongsUserAccessToken(): Promise<boolean> {
-  const token = await resolveUserAccessToken();
+  const token = await resolveTongsUserAccessToken();
   return Boolean(token);
 }
 
@@ -237,7 +241,7 @@ export async function tongsFetch(url: string, options: TongsFetchOptions = {}): 
   const headers = new Headers(initHeaders ?? {});
   // Keep DEV_TOKEN out of status/UI heuristics, but still send it to the local middleware in dev.
   const apiToken = resolveTongsRequestApiToken();
-  const userAccessToken = await resolveUserAccessToken();
+  const userAccessToken = await resolveTongsUserAccessToken();
   const hasAuth = Boolean(apiToken || userAccessToken);
 
   if (!hasAuth) {

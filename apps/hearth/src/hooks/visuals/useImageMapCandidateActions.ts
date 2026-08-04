@@ -13,6 +13,7 @@ import { resolveAiThumbnailAutoApproveFromStorage } from "../../lib/hearth-chat-
 import { nextUnresolvedEpisodeImageId } from "../../lib/hearth-episode-images-view-model";
 import type { EpisodeImageMapEntry, EpisodePackageV2 } from "../../lib/episode-package-v2";
 import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
+import type { CanonicalImagePromptRevision } from "../../lib/hearth-image-prompt-authority";
 
 type CanonicalScriptResult =
   | {
@@ -32,6 +33,7 @@ type UseImageMapCandidateActionsArgs = {
   workspaceId: string | null;
   episodePackage: EpisodePackageV2 | null;
   selectedImageMapEntry: EpisodeImageMapEntry | null;
+  canonicalPromptRevision: CanonicalImagePromptRevision | null;
   thumbnailAspect: "16:9" | "1:1" | "9:16";
   imageMapSaveState: "saved" | "editing" | "saving" | "error" | "offline";
   imageMapMetadataUpdatedAt: string | null;
@@ -93,6 +95,10 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
     }
     if (args.aiBillingMode === "forge" && args.aiTokenBalance != null && args.aiTokenBalance <= 0) {
       args.setImageMapCandidateError("No AI credits remaining.");
+      return;
+    }
+    if (!args.canonicalPromptRevision || args.canonicalPromptRevision.imageMomentId !== args.selectedImageMapEntry.id) {
+      args.setImageMapCandidateError("Create or load the canonical final prompt before generating images.");
       return;
     }
 
@@ -172,6 +178,9 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
           workpieceId: episodeId,
           workspaceId: workspace,
           imageMapEntryId: args.selectedImageMapEntry!.id,
+          promptRevisionId: args.canonicalPromptRevision!.id,
+          promptRevision: args.canonicalPromptRevision!.revision,
+          promptContentHash: args.canonicalPromptRevision!.contentHash,
           expectedMetadataUpdatedAt: metadataUpdatedAt,
           contextBefore: context.before,
           contextAfter: context.after,

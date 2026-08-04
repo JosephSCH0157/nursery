@@ -122,7 +122,8 @@ test("render recipe is sole live presentation authority and prompt reconstructio
     title_id: "title-1", title_revision: 1, provider_id: "forge", intended_aspect_ratio: "16:9",
     provider_settings: {},
     brand_template_id: "brand-1", brand_template_revision: 4, title_text: "DURABLE",
-    treatment: { typography: { font: "Inter" }, placement: { x: 0.1 }, safe_zone: { enabled: true }, shadow: {}, treatment: {} },
+    presentation_override: { text_color: null, treatment: null, logo_visible: true, logo_placement: "top_left", logo_opacity: null, decision_origin: "automatic" },
+    treatment: { typography: { font: "Inter" }, placement: { vertical: "center", horizontal_padding_percent: 8 }, safe_zone: { enabled: true }, shadow: {}, treatment: {} },
     prompt_template_version: THUMBNAIL_PROMPT_TEMPLATE_VERSION,
     composition_engine_version: THUMBNAIL_COMPOSITION_ENGINE_VERSION,
     composition_revision: 1,
@@ -151,6 +152,10 @@ test("render recipe is sole live presentation authority and prompt reconstructio
   assert.notEqual(changedProviderSettings.canonical_hash, first.canonical_hash);
   assert.equal(saved.thumbnail.composition_revisions[0]?.render_recipe_id, recipe.id);
   assert.equal(saved.thumbnail.composition_revisions[0]?.revision, recipe.composition_revision);
+  const reloaded = hydrateEpisodePackageV3({ episode: saved });
+  assert.equal(reloaded.thumbnail.render_recipes[0]?.treatment.placement.vertical, "center");
+  assert.equal(reloaded.thumbnail.render_recipes[0]?.presentation_override?.logo_placement, "top_left");
+  assert.equal(imported.thumbnail.render_recipes.length, 0, "cancelling before save leaves canonical authority unchanged");
   assert.equal(deriveThumbnailPromptPack({ recipe, concept, templateVersion: "v2" }).review_state, "needs_review");
 });
 
@@ -274,9 +279,18 @@ test("launch and publication snapshots append immutable revisions", () => {
     recipe_snapshot_hash: hash, exported_at: recipe.created_at,
   };
   const launched = appendLaunchSnapshot({ episodePackage: withBase, launchVariantId: "launch-1", baseVersionId: "base-1", snapshot, createdAt: recipe.created_at });
-  const revised = appendLaunchSnapshot({ episodePackage: launched, launchVariantId: "launch-1", baseVersionId: "base-1", snapshot: { ...snapshot, asset_id: "composite-2" }, createdAt: recipe.updated_at });
+  const editedRecipe = { ...recipe, revision: 2, composition_revision: 2,
+    presentation_override: { text_color: null, treatment: null, logo_visible: true, logo_placement: "top_left" as const, logo_opacity: null, decision_origin: "automatic" as const },
+    treatment: { ...recipe.treatment, placement: { vertical: "top", horizontal_padding_percent: 8 } } };
+  const withEdit = saveRenderRecipe({ episodePackage: launched, recipe: editedRecipe });
+  const revised = appendLaunchSnapshot({ episodePackage: withEdit, launchVariantId: "launch-1", baseVersionId: "base-1",
+    recipeId: editedRecipe.id, recipeRevision: editedRecipe.revision,
+    snapshot: { ...snapshot, asset_id: "composite-2", recipe_snapshot: { ...snapshot.recipe_snapshot, ...editedRecipe, placement: "top" as const } }, createdAt: recipe.updated_at });
   assert.deepEqual(revised.thumbnail.launch_variant_revisions.map((entry) => entry.revision), [1, 2]);
   assert.equal(revised.thumbnail.launch_variant_revisions[0]?.snapshot.asset_id, "composite-1");
+  assert.equal(revised.thumbnail.launch_variant_revisions[0]?.recipe_revision, 1);
+  assert.equal(revised.thumbnail.launch_variant_revisions[1]?.recipe_revision, 2);
+  assert.equal(revised.thumbnail.launch_variant_revisions[1]?.snapshot.recipe_snapshot.presentation_override?.logo_placement, "top_left");
   const published = appendPublicationEvent({ episodePackage: revised, event: {
     id: "publish-1", launch_variant_id: "launch-1", launch_variant_revision: 2,
     snapshot: revised.thumbnail.launch_variant_revisions[1]!.snapshot,
@@ -285,9 +299,9 @@ test("launch and publication snapshots append immutable revisions", () => {
   assert.equal(published.thumbnail.publication_events.length, 1);
   assert.equal(revised.thumbnail.publication_events.length, 0);
   assert.equal(canReuseLaunchSnapshotForPublish({ launchRevision: revised.thumbnail.launch_variant_revisions[1]!,
-    recipeRevision: 1, compositionEngineVersion: THUMBNAIL_COMPOSITION_ENGINE_VERSION, contentHash: hash }), true);
+    recipeRevision: 2, compositionEngineVersion: THUMBNAIL_COMPOSITION_ENGINE_VERSION, contentHash: hash }), true);
   assert.equal(canReuseLaunchSnapshotForPublish({ launchRevision: revised.thumbnail.launch_variant_revisions[1]!,
-    recipeRevision: 2, compositionEngineVersion: THUMBNAIL_COMPOSITION_ENGINE_VERSION, contentHash: hash }), false);
+    recipeRevision: 1, compositionEngineVersion: THUMBNAIL_COMPOSITION_ENGINE_VERSION, contentHash: hash }), false);
   assert.deepEqual(proveThumbnailMutation({ expected: published, canonical: structuredClone(published),
     kind: "publication_event", entityId: "publish-1" }), { ok: true });
 });

@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { TextEncoder } from "node:util";
-import { TongsCommitService, createTongsCommitApiHandlerWithService, extractPdfTextParserA, extractPdfTextParserB, extractPdfTextFallbackChain } from "../dist/workpiece-commit-api.js";
+import { TongsCommitService, buildImageMapPromptSourceContext, createTongsCommitApiHandlerWithService, extractPdfTextParserA, extractPdfTextParserB, extractPdfTextFallbackChain, imageMapPromptAuthorityBasis } from "../dist/workpiece-commit-api.js";
 import { deflateSync } from "node:zlib";
 
 function thumbnailAssetFixture(workpieceId, workspaceId, operationId, status) {
@@ -68,6 +68,7 @@ function mockService() {
     listWorkspaceReadyScripts: [],
     getWorkpieceVisualPackage: [],
     getWorkpieceImageMap: [],
+    repairWorkpieceImageMap: [],
     saveWorkpieceImageMap: [],
     updateWorkspaceReadyQueueState: [],
     deleteReadyScript: [],
@@ -86,6 +87,7 @@ function mockService() {
     getWorkpieceRecordingTruth: [],
     appendEvent: [],
     readWorkpieceBinary: [],
+    createWorkpieceMediaUrl: [],
     readWorkpieceText: [],
   };
 
@@ -440,6 +442,10 @@ function mockService() {
         credits_warning: null,
         token_balance: 777,
       };
+    },
+    async repairWorkpieceImageMap(workpieceId, input, options) {
+      calls.repairWorkpieceImageMap.push({ workpieceId, input, options: options ?? null });
+      return { image_map: { workpiece_id: workpieceId, workspace_id: input.workspace_id, entries: [] } };
     },
     async createRecordingSessionRecord(input) {
       calls.createRecordingSessionRecord.push({ input });
@@ -1160,6 +1166,14 @@ function mockService() {
         found: true,
         bytes_base64: "AQID",
         content_type: "image/png",
+      };
+    },
+    async createWorkpieceMediaUrl(workpieceId, path) {
+      calls.createWorkpieceMediaUrl.push({ workpieceId, path });
+      return {
+        url: "https://storage.example.test/object/sign/forge-workpieces/video.mp4?token=signed",
+        content_type: "video/mp4",
+        expires_at: "2026-08-04T13:00:00.000Z",
       };
     },
     async readWorkpieceText(workpieceId, path) {
@@ -2942,7 +2956,7 @@ function createReadyQueueSupabase({
   };
 }
 
-function createImageMapAssetSupabase({ assets = [] } = {}) {
+function createImageMapAssetSupabase({ assets = [], brollPlan = null } = {}) {
   const state = {
     assetRows: assets.map((row) => ({ ...row })),
     insertCalls: [],
@@ -2964,7 +2978,23 @@ function createImageMapAssetSupabase({ assets = [] } = {}) {
     schema(schemaName) {
       assert.equal(schemaName, "tongs");
       return {
+        async rpc(name) {
+          if (name !== "read_current_broll_plan") throw new Error(`Unexpected RPC: ${name}`);
+          return { data: brollPlan, error: null };
+        },
         from(tableName) {
+          if (tableName === "workpiece_files") {
+            return {
+              select() {
+                return {
+                  eq() { return this; },
+                  like() { return this; },
+                  order() { return this; },
+                  async limit() { return { data: [], error: null }; },
+                };
+              },
+            };
+          }
           if (tableName !== "assets") {
             throw new Error(`Unexpected table: ${tableName}`);
           }
@@ -2981,6 +3011,10 @@ function createImageMapAssetSupabase({ assets = [] } = {}) {
                 contains(field, value) {
                   containsFilters.push({ field, value });
                   return this;
+                },
+                async maybeSingle() {
+                  const rows = state.assetRows.filter((row) => matchesFilters(row, filters, containsFilters));
+                  return { data: rows[0] ? { ...rows[0] } : null, error: null };
                 },
                 order(field, options) {
                   const rows = state.assetRows
@@ -3067,6 +3101,19 @@ function createImageMapAssetSupabase({ assets = [] } = {}) {
 }
 
 function installCurrentImageMapAuthority(service, workspaceId, workpieceId) {
+  const promptRevision = {
+    id: "77777777-7777-4777-8777-777777777777",
+    revision: 1,
+    content_hash: "d".repeat(64),
+    workspace_id: workspaceId,
+    workpiece_id: workpieceId,
+    image_moment_id: "image-map-01",
+    image_map_revision_id: "88888888-8888-4888-8888-888888888888",
+    image_map_revision: 1,
+    script_approval_id: "99999999-9999-4999-8999-999999999999",
+    script_approval_revision: 1,
+    final_prompt: "Canonical creator-visible image prompt with exact historical context.",
+  };
   service.readCanonicalImageMapProjection = async () => {
     const state = await service.readWorkpieceImageMapState(workpieceId, workspaceId);
     return {
@@ -3075,7 +3122,42 @@ function installCurrentImageMapAuthority(service, workspaceId, workpieceId) {
     };
   };
   service.commitCanonicalImageMap = async () => ({ disposition: "committed" });
+  service.readCurrentImageMapPrompt = async () => ({ prompt_revision: promptRevision });
+  return promptRevision;
 }
+
+test("image prompt authority ignores candidate selection history but not prompt inputs", () => {
+  const original = {
+    id: "moment-1",
+    anchor: "Growers moved south.",
+    description: "Florida orange growers relocating farther south in Florida.",
+    status: "candidates_generated",
+    candidate_assets: [{ asset_id: "asset-a" }],
+    selected_asset_id: null,
+  };
+  const selected = {
+    ...original,
+    status: "selected",
+    candidate_assets: [{ asset_id: "asset-a" }, { asset_id: "asset-b" }],
+    selected_asset_id: "asset-b",
+  };
+  assert.deepEqual(imageMapPromptAuthorityBasis(selected), imageMapPromptAuthorityBasis(original));
+  assert.deepEqual(
+    buildImageMapPromptSourceContext([selected], 0, original.description),
+    {
+      before: null,
+      focus: original.description,
+      after: null,
+      image_direction: original.description,
+      editorial_purpose: null,
+      placement_hint: null,
+    },
+  );
+  assert.notDeepEqual(
+    imageMapPromptAuthorityBasis({ ...selected, description: "A materially different image direction." }),
+    imageMapPromptAuthorityBasis(original),
+  );
+});
 
 function createManifestFixture(workpieceId, workspaceId) {
   const now = "2026-03-02T00:00:00.000Z";
@@ -3650,6 +3732,9 @@ test("POST /tongs/workpieces/:id/image-map/generate-candidates dispatches genera
       body: JSON.stringify({
         workspace_id: "11111111-1111-4111-8111-111111111111",
         image_map_entry_id: "image-map-01",
+        prompt_revision_id: "77777777-7777-4777-8777-777777777777",
+        prompt_revision: 1,
+        prompt_content_hash: "d".repeat(64),
         expected_metadata_updated_at: "2026-03-11T19:00:00.000Z",
         context_before: "Jackson's men watched the British column advance.",
         context_after: "The Mississippi delta made retreat impossible.",
@@ -3696,6 +3781,64 @@ test("GET /tongs/workpieces/:id/image-map dispatches getWorkpieceImageMap", asyn
   assert.equal(body.ok, true);
   assert.equal(body.data?.image_map?.workpiece_id, "11111111-1111-4111-8111-111111111111");
   assert.equal(body.data?.asset?.asset_kind, "image_map_json");
+});
+
+test("POST image-map repair forwards selected moment and exact concurrency authority", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/image-map/repair",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer user_token_abc" },
+      body: JSON.stringify({
+        workspace_id: "22222222-2222-4222-8222-222222222222",
+        entry_id: "image-map-01",
+        expected_current_revision: 7,
+        expected_current_revision_id: "33333333-3333-4333-8333-333333333333",
+        expected_script_approval_id: "44444444-4444-4444-8444-444444444444",
+        expected_script_approval_revision: 3,
+        operation_id: `forge:image-map:repair:${"a".repeat(64)}`,
+      }),
+    },
+  );
+  const response = await handler(request);
+  assert.equal(response.status, 200);
+  assert.deepEqual(calls.repairWorkpieceImageMap[0], {
+    workpieceId: "11111111-1111-4111-8111-111111111111",
+    input: {
+      workspace_id: "22222222-2222-4222-8222-222222222222",
+      entry_id: "image-map-01",
+      expected_current_revision: 7,
+      expected_current_revision_id: "33333333-3333-4333-8333-333333333333",
+      expected_script_approval_id: "44444444-4444-4444-8444-444444444444",
+      expected_script_approval_revision: 3,
+      operation_id: `forge:image-map:repair:${"a".repeat(64)}`,
+    },
+    options: { userAccessToken: "user_token_abc" },
+  });
+});
+
+test("POST image-map repair rejects missing expected approval concurrency", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const response = await handler(new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/image-map/repair",
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer user_token_abc" },
+      body: JSON.stringify({
+        workspace_id: "22222222-2222-4222-8222-222222222222",
+        entry_id: "image-map-01",
+        expected_current_revision: 7,
+        expected_current_revision_id: "33333333-3333-4333-8333-333333333333",
+        expected_script_approval_id: "44444444-4444-4444-8444-444444444444",
+        operation_id: `forge:image-map:repair:${"a".repeat(64)}`,
+      }),
+    },
+  ));
+  assert.equal(response.status, 400);
+  assert.equal(calls.repairWorkpieceImageMap.length, 0);
 });
 
 test("GET /tongs/workpieces/:id/visual-package dispatches getWorkpieceVisualPackage", async () => {
@@ -3868,6 +4011,28 @@ test("GET /tongs/workpieces/:id/read-file?encoding=base64 dispatches readWorkpie
   assert.equal(body.ok, true);
   assert.equal(body.data?.content_type, "image/png");
   assert.equal(body.data?.bytes_base64, "AQID");
+});
+
+test("GET /tongs/workpieces/:id/media-url returns a short-lived canonical storage URL", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service, "secret");
+  const response = await handler(new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/media-url?path=assets%2Fbroll-v2%2Fbeat%2Fvideo.mp4",
+    { headers: { authorization: "Bearer secret" } },
+  ));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), {
+    ok: true,
+    data: {
+      url: "https://storage.example.test/object/sign/forge-workpieces/video.mp4?token=signed",
+      content_type: "video/mp4",
+      expires_at: "2026-08-04T13:00:00.000Z",
+    },
+  });
+  assert.deepEqual(calls.createWorkpieceMediaUrl, [{
+    workpieceId: "11111111-1111-4111-8111-111111111111",
+    path: "assets/broll-v2/beat/video.mp4",
+  }]);
 });
 
 test("thumbnail asset lifecycle routes require and forward canonical operation identity", async () => {
@@ -4637,10 +4802,13 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
     };
   };
 
-  installCurrentImageMapAuthority(service, workspaceId, workpieceId);
+  const promptRevision = installCurrentImageMapAuthority(service, workspaceId, workpieceId);
   const result = await service.generateImageMapCandidates(workpieceId, {
     workspace_id: workspaceId,
     image_map_entry_id: "image-map-01",
+    prompt_revision_id: promptRevision.id,
+    prompt_revision: promptRevision.revision,
+    prompt_content_hash: promptRevision.content_hash,
     context_before: "British forces regrouped after Napoleon's defeat.",
     context_after: "The Mississippi delta made New Orleans strategically decisive.",
     confirm_spend: true,
@@ -4650,13 +4818,8 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
 
   assert.equal(providerCalls.length, 2);
   assert.equal(providerCalls[0]?.aspect, "16:9");
-  assert.match(providerCalls[0]?.prompt ?? "", /Exact beat span:/);
-  assert.match(providerCalls[0]?.prompt ?? "", /Jackson faced 8,000 British troops/);
-  assert.match(providerCalls[0]?.prompt ?? "", /Visual style: Oil Painting\./);
-  assert.match(providerCalls[0]?.prompt ?? "", /Variant goal: make the beat clearer and more diagrammatic or explanatory/);
-  assert.match(providerCalls[1]?.prompt ?? "", /Variant goal: make the beat more cinematic and illustrative/);
-  assert.notEqual(providerCalls[0]?.prompt, providerCalls[1]?.prompt);
-  assert.match(providerCalls[0]?.prompt ?? "", /Do not render text, labels, captions, numbers, or map lettering into the image/);
+  assert.equal(providerCalls[0]?.prompt, promptRevision.final_prompt);
+  assert.equal(providerCalls[1]?.prompt, promptRevision.final_prompt);
 
   assert.equal(commitCalls.length, 4);
   assert.equal(commitCalls[0]?.input.path.includes("assets/image-map/candidates/"), true);
@@ -4667,12 +4830,20 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
   const candidateInserts = state.insertCalls.filter((row) => row.asset_kind === "image_map_candidate_image");
   assert.equal(candidateInserts.length, 2);
   assert.equal(candidateInserts[0]?.status, "ready");
+  assert.equal(candidateInserts[0]?.ready_at, "2026-03-11T19:00:01.000Z");
+  assert.equal(candidateInserts[0]?.content_hash, "hash_abc");
+  assert.match(candidateInserts[0]?.operation_fingerprint ?? "", /^[0-9a-f]{64}$/);
+  assert.match(candidateInserts[0]?.operation_id ?? "", /^[0-9a-f-]{36}:explainer$/);
+  assert.equal(candidateInserts[1]?.ready_at, "2026-03-11T19:00:01.000Z");
   assert.equal(candidateInserts[0]?.metadata_json?.schema, "forge.image-map-candidate.v1");
   assert.equal(candidateInserts[0]?.metadata_json?.image_map_entry_id, "image-map-01");
   assert.equal(candidateInserts[0]?.metadata_json?.variant_label, "explainer");
   assert.equal(candidateInserts[0]?.metadata_json?.style_preset, "oil_painting");
   assert.equal(candidateInserts[1]?.metadata_json?.variant_label, "illustrative");
-  assert.equal(candidateInserts[0]?.prompt?.includes("Exact beat span:"), true);
+  assert.equal(candidateInserts[0]?.prompt, promptRevision.final_prompt);
+  assert.equal(candidateInserts[0]?.metadata_json?.prompt_revision_id, promptRevision.id);
+  assert.equal(candidateInserts[0]?.metadata_json?.prompt_revision, promptRevision.revision);
+  assert.equal(candidateInserts[0]?.metadata_json?.prompt_content_hash, promptRevision.content_hash);
   assert.match(
     candidateInserts[0]?.path ?? "",
     new RegExp(`/image-map-01/${candidateInserts[0]?.id}-explainer\\.png$`),
@@ -4894,19 +5065,21 @@ test("TongsCommitService.generateImageMapCandidates accepts beat anchors for bul
     };
   };
 
-  installCurrentImageMapAuthority(service, workspaceId, workpieceId);
+  const promptRevision = installCurrentImageMapAuthority(service, workspaceId, workpieceId);
   const result = await service.generateImageMapCandidates(workpieceId, {
     workspace_id: workspaceId,
     image_map_entry_id: "image-map-01",
+    prompt_revision_id: promptRevision.id,
+    prompt_revision: promptRevision.revision,
+    prompt_content_hash: promptRevision.content_hash,
     confirm_spend: true,
     lane: "forge",
     user_access_token: "token_bullet",
   });
 
   assert.equal(providerCalls.length, 2);
-  assert.match(providerCalls[0]?.prompt ?? "", /Editorial beat focus:/);
-  assert.match(providerCalls[0]?.prompt ?? "", /Police response changed after dark/);
-  assert.match(providerCalls[0]?.prompt ?? "", /Beat anchor: s1 beat 2:/);
+  assert.equal(providerCalls[0]?.prompt, promptRevision.final_prompt);
+  assert.equal(providerCalls[1]?.prompt, promptRevision.final_prompt);
   assert.equal(result.generated_assets.length, 2);
   assert.equal(result.image_map.entries[0]?.beat_anchor?.beat_id, "beat-s1-02");
   assert.equal(result.image_map.spoken_beats[1]?.id, "beat-s1-02");
@@ -6587,6 +6760,24 @@ test("TongsCommitService.getWorkpieceVisualPackage returns Hammer-ready ordering
         supersedes_asset_id: null,
       },
     ],
+    brollPlan: {
+      plan_revision: { id: "broll-plan-1", revision: 1 },
+      beats: [{
+        membership: { ordinal: 1 },
+        beat_revision: {
+          id: "broll-beat-revision-1", beat_id: "broll-beat-1", revision: 1,
+          context_focus: "Orange growers moved farther south in Florida.", placement_hint: "after-sentence",
+          duration_target_ms: 5000, narrative_purpose: "Show geographic movement", trim_guidance_json: { preferred_in_ms: 200 },
+          canonical_anchor_assessment: { state: "verified", exact_anchor: { section_id: "s2", paragraph_id: "s2:p1", paragraph_order: 2, sentence_start: 1, sentence_end: 1, char_start: 0, char_end: 45, span_text: "Orange growers moved farther south in Florida." } },
+        },
+        prompt_revision: { id: "broll-prompt-1", revision: 2, content_hash: "a".repeat(64) },
+        selected_candidate_revision: {
+          id: "broll-candidate-revision-1", asset_id: "broll-video-1", asset_path: "assets/broll/south.mp4",
+          storage_bucket: "forge-workpieces", storage_key: "workpieces/episode/assets/broll/south.mp4",
+          mime_type: "video/mp4", provider: "openai", source_kind: "generated", created_at: "2026-03-10T16:02:00.000Z", license_json: { license: "provider" },
+        },
+      }],
+    },
   });
 
   const service = new TongsCommitService(supabase, "forge-workpieces", null);
@@ -6706,13 +6897,17 @@ test("TongsCommitService.getWorkpieceVisualPackage returns Hammer-ready ordering
   assert.equal(result.script_updated_at, "2026-03-10T15:58:00.000Z");
   assert.equal(result.image_map_updated_at, "2026-03-10T15:59:00.000Z");
   assert.equal(result.image_map_asset_updated_at, "2026-03-10T16:00:00.000Z");
-  assert.equal(result.visuals.length, 2);
+  assert.equal(result.visuals.length, 3);
   assert.equal(result.visuals[0]?.entry_id, "image-map-01");
   assert.equal(result.visuals[0]?.visual_mode, "comparison");
   assert.equal(result.visuals[0]?.selected_asset?.asset_id, "candidate-01");
   assert.equal(result.visuals[0]?.selected_asset?.storage_key.endsWith("/image-map-01/explainer.png"), true);
   assert.equal(result.visuals[1]?.entry_id, "image-map-02");
   assert.equal(result.visuals[1]?.selected_asset, null);
+  assert.equal(result.visuals[2]?.asset_class, "broll");
+  assert.equal(result.visuals[2]?.selected_asset?.path, "assets/broll/south.mp4");
+  assert.equal(result.visuals[2]?.script_anchor?.paragraph_id, "s2:p1");
+  assert.equal(result.visuals[2]?.broll_evidence?.prompt_revision_id, "broll-prompt-1");
 });
 
 test("TongsCommitService.saveWorkpieceImageMap writes metadata, asset file, and refreshes the current image-map asset row", async () => {

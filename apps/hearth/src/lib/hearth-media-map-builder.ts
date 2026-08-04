@@ -4,7 +4,6 @@ import {
   type EpisodeMediaMap,
   type EpisodeMediaMapEntry,
   type EpisodePackageV2,
-  type EpisodeThumbnailVersion,
 } from "./episode-package-v2";
 import type { MediaMapGenerationScope } from "./hearth-media-map-conversation";
 
@@ -462,44 +461,6 @@ export function buildMediaMapFromExistingPlans(
   options: { videoHeavy?: boolean; budgetPolicy?: FullMediaBudgetPolicy } = {},
 ): EpisodeMediaMap {
   const nowIso = new Date().toISOString();
-  const thumbnailVersionByConceptId = new Map<string, EpisodeThumbnailVersion>();
-  for (const version of current.thumbnail.versions) {
-    if (!thumbnailVersionByConceptId.has(version.concept_id)) {
-      thumbnailVersionByConceptId.set(version.concept_id, version);
-    }
-  }
-  const fromThumbnailPrompts: EpisodeMediaMapEntry[] = current.thumbnail.concepts.map((concept) => {
-    const conceptLabel = concept.label.trim();
-    const promptText = concept.prompt_text.trim();
-    const supportingVersion = thumbnailVersionByConceptId.get(concept.id);
-    return {
-      id: `mm_thumbnail_${concept.id}`,
-      final_media_kind: "image",
-      purpose: "emphasis",
-      anchor: {
-        mode: "section_marker",
-        target: conceptLabel ? `thumbnail:${conceptLabel}` : "thumbnail:concept",
-      },
-      timing: {
-        in_offset_sec: 0,
-        duration_sec: 6,
-      },
-      description: promptText || conceptLabel || "Thumbnail concept prompt",
-      intent: "thumbnail_concept",
-      source: {
-        status: supportingVersion?.asset_id ? "selected" : "unresolved",
-        asset_id: supportingVersion?.asset_id ?? null,
-      },
-      confidence: "medium",
-      fulfillment_status: supportingVersion?.asset_id ? "resolved" : "planned",
-      fulfillment_path: supportingVersion?.asset_id ? "image" : null,
-      optional: false,
-      critical: true,
-      stale: false,
-      created_at: nowIso,
-      updated_at: nowIso,
-    };
-  });
   const fromImageMap = mapImageEntriesToMediaMapEntries(current.image_map.entries, nowIso, "mm_imap_");
   const fromBroll: EpisodeMediaMapEntry[] = current.broll_plan.beats.map((beat) => ({
     id: `mm_broll_${beat.id}`,
@@ -568,7 +529,6 @@ export function buildMediaMapFromExistingPlans(
   const includeBroll = scope === "images_broll" || scope === "full_media_plan";
   const includeReferenceClips = scope === "images_reference_clips" || scope === "full_media_plan";
   const merged = [
-    ...(includeImages && scope !== "full_media_plan" ? fromThumbnailPrompts : []),
     ...(includeImages ? fromImageMap : []),
     ...(includeBroll ? fromBroll : []),
     ...(includeReferenceClips ? fromReferenceClips : []),

@@ -44,8 +44,23 @@ test("empty and partially eligible candidate sets cannot appear complete", () =>
   assert.equal(isCanonicalThumbnailSetComplete({ ...progress, eligibleCandidateCount: 2 }), false);
 });
 
+test("eligible candidates without recoverable canonical previews cannot appear complete", () => {
+  assert.equal(isCanonicalThumbnailSetComplete({ ...progress, previewAssetPaths: [] }), false);
+  assert.equal(isCanonicalThumbnailSetComplete({
+    ...progress,
+    previewAssetPaths: ["thumbnails/candidate-1.png", "thumbnails/candidate-2.png"],
+  }), false);
+});
+
 test("completion requires a non-empty fully eligible canonical set", () => {
-  assert.equal(isCanonicalThumbnailSetComplete(progress), true);
+  assert.equal(isCanonicalThumbnailSetComplete({
+    ...progress,
+    previewAssetPaths: [
+      "thumbnails/candidate-1.png",
+      "thumbnails/candidate-2.png",
+      "thumbnails/candidate-3.png",
+    ],
+  }), true);
 });
 
 test("canonical candidate asset path wins preview resolution", () => {

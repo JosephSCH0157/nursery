@@ -2,3 +2,6 @@
 @media(prefers-reduced-motion:reduce){.hs-media-workflow *{scroll-behavior:auto!important;transition-duration:.01ms!important}}
 .hs-media-thumbnail-summary { display: flex; gap: .5rem; margin-top: .5rem; }
 .hs-media-thumbnail-summary-preview { width: 7rem; aspect-ratio: 16 / 9; object-fit: cover; border-radius: .4rem; }
+#hearth-broll-plan-panel .hs-focus-panel-body-inner{overflow:visible}
+.hs-media-completed-summaries{display:grid;gap:8px}.hs-media-completed-summaries.is-compact{display:flex;flex-wrap:wrap;gap:8px}.hs-media-completed-summaries.is-compact .hs-media-completed-summary{display:flex;min-width:0;padding:7px 10px;gap:8px;border-radius:999px}.hs-media-completed-summaries.is-compact .hs-media-completed-summary>div{display:flex;align-items:center;gap:6px}.hs-media-completed-summaries.is-compact .hs-media-completed-summary span{display:none}.hs-media-completed-summaries.is-compact .hs-media-completed-summary button{padding:3px 8px;font-size:11px;white-space:nowrap}
+@media(max-width:600px){.hs-media-completed-summaries.is-compact{display:none}}

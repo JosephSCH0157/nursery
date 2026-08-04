@@ -8,13 +8,18 @@ const input=(overrides:Record<string,unknown>={})=>({hasApprovedScript:true,visu
 test("cold recovery selects the first canonically incomplete stage",()=>{
   assert.equal(deriveHearthMediaWorkflow(input()).activeStage,"visual_plan");
   assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:4,images:3,broll:1,version:1}})).activeStage,"thumbnails");
-  assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:4,images:3,broll:1,version:1},thumbnails:{eligible:3,total:3},images:{planned:3,completed:1,canonicalCount:3,projectionLoaded:true}})).activeStage,"images");
-  assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:4,images:3,broll:1,version:1},thumbnails:{eligible:3,total:3},images:{planned:3,completed:3,canonicalCount:3,projectionLoaded:true},broll:{planned:1,completed:0}})).activeStage,"broll");
-  assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"fulfilled",total:4,images:3,broll:1,version:1},thumbnails:{eligible:3,total:3},images:{planned:3,completed:3,canonicalCount:3,projectionLoaded:true},broll:{planned:1,completed:1}})).activeStage,"review");
+  assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:4,images:3,broll:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:3,completed:1,canonicalCount:3,projectionLoaded:true}})).activeStage,"images");
+  assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:4,images:3,broll:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:3,completed:3,canonicalCount:3,projectionLoaded:true},broll:{planned:1,completed:0}})).activeStage,"broll");
+  assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"fulfilled",total:4,images:3,broll:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:3,completed:3,canonicalCount:3,projectionLoaded:true},broll:{planned:1,completed:1}})).activeStage,"review");
 });
 
 test("thumbnail completion requires three Tongs-eligible candidates",()=>{
   const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:2,images:2,broll:0,version:1},thumbnails:{eligible:2,total:3}}));
+  assert.equal(workflow.stages[1]?.status,"in_progress");assert.equal(workflow.activeStage,"thumbnails");
+});
+
+test("thumbnail completion requires three recoverable canonical preview paths",()=>{
+  const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:2,images:2,broll:0,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:[]}}));
   assert.equal(workflow.stages[1]?.status,"in_progress");assert.equal(workflow.activeStage,"thumbnails");
 });
 
@@ -26,12 +31,12 @@ test("cold recovery opens Images with canonical thumbnail preview identities",()
 });
 
 test("strict image and B-roll completion never infers skipped work",()=>{
-  const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:3,images:2,broll:1,version:1},thumbnails:{eligible:3,total:3},images:{planned:2,completed:1,canonicalCount:2,projectionLoaded:true},broll:{planned:1,completed:1}}));
+  const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:3,images:2,broll:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:2,completed:1,canonicalCount:2,projectionLoaded:true},broll:{planned:1,completed:1}}));
   assert.equal(workflow.activeStage,"images");assert.equal(workflow.stages[3]?.status,"blocked");
 });
 
 test("upstream revision requests review without deleting downstream summaries",()=>{
-  const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:3,images:2,broll:1,version:2},thumbnails:{eligible:3,total:3},images:{planned:2,completed:2,canonicalCount:2,projectionLoaded:true},broll:{planned:1,completed:1},upstreamChanged:true}));
+  const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:3,images:2,broll:1,version:2},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:2,completed:2,canonicalCount:2,projectionLoaded:true},broll:{planned:1,completed:1},upstreamChanged:true}));
   assert.equal(workflow.activeStage,"visual_plan");assert.equal(workflow.stages[2]?.status,"blocked");assert.match(workflow.stages[2]?.summary??"",/2 of 2/);
 });
 

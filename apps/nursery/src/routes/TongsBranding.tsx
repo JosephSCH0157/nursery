@@ -394,6 +394,10 @@ export default function TongsBranding() {
     () => (selectedId ? capabilityReadiness(draft, library, selectedId) : []),
     [draft, library, selectedId],
   );
+  const primaryLogoPendingSave = Boolean(
+    draft.asset_revision_ids.primary_logo
+    && draft.asset_revision_ids.primary_logo !== revisions[0]?.rules.asset_revision_ids.primary_logo,
+  );
   if (!workspaceId)
     return <WorkspaceRequiredNotice toolName="Tongs Branding" />;
   const run = async (action: () => Promise<unknown>) => {
@@ -640,7 +644,7 @@ export default function TongsBranding() {
                   {capabilities.find(
                     (entry) => entry.label === "Thumbnail branding",
                   )?.ready
-                    ? "Ready for thumbnails"
+                    ? primaryLogoPendingSave ? "Logo ready · save brand changes" : "Ready for thumbnails"
                     : "Brand setup in progress"}
                 </strong>
               </div>
@@ -673,6 +677,11 @@ export default function TongsBranding() {
               ),
             )}
           </nav>
+          {primaryLogoPendingSave ? (
+            <p className="brand-inline-notice" role="status">
+              The primary logo upload is ready, but it is not part of a saved brand version yet. Save brand changes before updating an episode to this brand version.
+            </p>
+          ) : null}
           {tab === "overview" ? (
             <div className="brand-overview-grid">
               <section className="brand-preview-panel">

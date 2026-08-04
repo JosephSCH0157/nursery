@@ -29,7 +29,8 @@ export function deriveHearthMediaWorkflow(input: HearthMediaWorkflowInput) {
     && (input.visualPlan.status === "activated"
       || input.visualPlan.status === "fulfilling"
       || input.visualPlan.status === "fulfilled");
-  const thumbnailsComplete = input.thumbnails.eligible >= 3;
+  const thumbnailsComplete = input.thumbnails.eligible >= 3
+    && (input.thumbnails.previewAssetPaths?.length ?? 0) >= 3;
   const imagePlanExpected = Math.max(0, input.images.planned);
   const imageCanonicalCount = Math.max(0, input.images.canonicalCount);
   const imageProjectionLoaded = input.images.projectionLoaded;

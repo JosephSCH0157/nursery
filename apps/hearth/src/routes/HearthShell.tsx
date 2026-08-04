@@ -48,6 +48,7 @@ import { useHearthWorkspaceSessionLifecycle } from "../hooks/useHearthWorkspaceS
 import { useHearthWorkpieceTabLifecycle } from "../hooks/useHearthWorkpieceTabLifecycle";
 import { useClipboardButtonAcks } from "../hooks/useClipboardButtonAcks";
 import { useVisualsPersistence } from "../hooks/visuals/useVisualsPersistence";
+import { useImagePromptAuthority } from "../hooks/visuals/useImagePromptAuthority";
 import { useEpisodePackageLoader } from "../hooks/visuals/useEpisodePackageLoader";
 import { useVisualWorkspaceResetLifecycle } from "../hooks/visuals/useVisualWorkspaceResetLifecycle";
 import { shouldInvalidateMediaMapForScriptVersion } from "../lib/hearth-visual-artifact-authority";
@@ -418,6 +419,7 @@ import {
   useHearthBrollWorkspaceState,
 } from "./hearth-shell/useHearthBrollController";
 import { buildHearthBrollDataVisualSpec } from "./hearth-shell/buildHearthBrollViewModel";
+import { useCanonicalBrollV2 } from "../hooks/visuals/useCanonicalBrollV2";
 import {
   buildHearthReferenceClipsController,
   useHearthReferenceClipsBridgeCommands,
@@ -1378,7 +1380,6 @@ export default function HearthShell({
     brollResultMetadataDraft,
     brollSaveState,
     setBrollSaveState,
-    brollSaveError,
     setBrollSaveError,
     brollMessage,
     setBrollMessage,
@@ -1724,7 +1725,6 @@ export default function HearthShell({
     workspaceId,
     workpieceId,
     archived: activeWorkpieceIsArchived,
-    composeSetup: effectiveComposeSetup,
     scriptText: activeDraft?.body ?? "",
   });
   const aiRuntimeBusy = isAiProcessing || isThumbnailGenerating || isImageMapCandidateGenerating;
@@ -1808,7 +1808,25 @@ export default function HearthShell({
   );
   const selectedMediaMapEntry = mediaMapEntries.find((entry) => entry.id === selectedMediaMapEntryId) ?? null;
   const selectedImageMapEntry = imageMapEntries.find((entry) => entry.id === selectedImageMapEntryId) ?? null;
-  const brollPlan: EpisodeBrollPlan | null = episodePackage?.broll_plan ?? null;
+  const imagePromptAuthority = useImagePromptAuthority({
+    workpieceId,
+    workspaceId,
+    entries: imageMapEntries,
+    selectedEntry: selectedImageMapEntry,
+    creatorDirection: imageMapDescriptionDraft,
+    style: imageMapStyleDraft,
+  });
+  const canonicalBrollV2 = useCanonicalBrollV2({
+    workspaceId,
+    workpieceId,
+    plannedMoments: mediaMapEntries.filter((entry) => entry.final_media_kind === "b_roll").map((entry) => ({
+      id: entry.id,
+      anchorText: entry.anchor.target || entry.description,
+      description: entry.description,
+      placementHint: null,
+    })),
+  });
+  const brollPlan: EpisodeBrollPlan | null = canonicalBrollV2.state.plan;
   const brollBeats: EpisodeBrollPlanBeat[] = useMemo(
     () => brollPlan?.beats ?? [],
     [brollPlan?.beats],
@@ -3697,12 +3715,7 @@ export default function HearthShell({
     refreshReadyScripts,
   });
   approveScriptActionRef.current = onApproveScript;
-  const {
-    onGenerateBrollPlan,
-    onSaveBrollBeat,
-    onDeleteBrollBeat,
-    onRegenerateBrollBeat,
-  } = useHearthBrollCoreCommands({
+  useHearthBrollCoreCommands({
     operationAuthority,
     isApprovingScript,
     isAiProcessing,
@@ -3736,16 +3749,7 @@ export default function HearthShell({
     persistBrollPlan,
   });
   const {
-    onCopyBrollPrompt,
     onDownloadBrollBrief,
-    onOpenBrollProvider,
-    onMarkBrollRequestState,
-    onClearBrollRequestState,
-    onAttachBrollResultFromUrl,
-    onFindStockForBrollBeat,
-    onUploadBrollBeatAsset,
-    onSelectBrollCandidate,
-    onRetryBrollCandidateIngestion,
   } = useHearthBrollBridgeCommands({
     operationAuthority,
     episodePackage,
@@ -3959,9 +3963,9 @@ export default function HearthShell({
     canonicalImageMapScriptState,
     persistImageMapEntries,
     repairCanonicalImageMap: async () => {
-      if (!workpieceId || !workspaceId || !episodePackage) return { ok: false as const, error: missingImageMapContextError };
+      if (!workpieceId || !workspaceId || !episodePackage || !selectedImageMapEntry) return { ok: false as const, error: missingImageMapContextError };
       const { repairWorkpieceImageMapAuthority } = await import("../lib/hearth-image-map-authority");
-      const repaired = await repairWorkpieceImageMapAuthority({ workpieceId, workspaceId });
+      const repaired = await repairWorkpieceImageMapAuthority({ workpieceId, workspaceId, entryId: selectedImageMapEntry.id });
       if (!repaired.ok) return { ok: false as const, error: repaired.error ?? "Tongs could not repair the image map." };
       applyCanonicalImageMap({
         entries: repaired.imageMap.entries,
@@ -4014,6 +4018,7 @@ export default function HearthShell({
     workspaceId,
     episodePackage,
     selectedImageMapEntry,
+    canonicalPromptRevision: imagePromptAuthority.state.revision,
     thumbnailAspect,
     imageMapSaveState,
     imageMapMetadataUpdatedAt,
@@ -6037,6 +6042,7 @@ export default function HearthShell({
       candidateGenerateError: imageMapCandidateError,
       candidateSelectBusy: isImageMapCandidateSelecting,
       candidateSelectionError: imageMapCandidateSelectionError,
+      promptAuthorityState: imagePromptAuthority.state,
       anchorStatusLabel: imageMapAnchorStatusView?.label ?? null,
       anchorStatusTone: imageMapAnchorStatusView?.tone ?? "neutral",
       anchorStatusDetail: imageMapAnchorStatusView?.detail ?? null,
@@ -6067,6 +6073,9 @@ export default function HearthShell({
       onDeleteEntry: () => void onDeleteImageMapEntry(),
       onSeedFromScript: () => void onSeedImageMapFromScript(),
       onGenerateCandidates: (mode?: "ai" | "stock") => void onGenerateImageMapCandidates(mode ?? "ai"),
+      onInterpretPrompt: () => void imagePromptAuthority.interpret(),
+      onSavePromptEdit: (finalPrompt: string) => void imagePromptAuthority.saveEdit(finalPrompt),
+      onRefreshPrompt: () => void imagePromptAuthority.refresh(),
       onUploadAsset: (file: File) => void onUploadImageMapAsset(file),
       onSelectCandidate: (candidateId: string) => void onSelectImageMapCandidate(candidateId),
       onCopyExport: () => {
@@ -6111,14 +6120,15 @@ export default function HearthShell({
       episodeImagesSurfaceInput,
     });
     const brollSurfaceInput = {
+      canonicalV2: true,
       beats: brollBeats,
       selectedBeatId: selectedBrollBeatId,
       workpieceId,
       coverageStrength: brollPlan?.coverage_strength ?? null,
-      saveState: brollSaveState,
-      saveError: brollSaveError,
-      message: brollMessage,
-      disabled: isApprovingScript || isBrollBusy || !episodePackage,
+      saveState: canonicalBrollV2.error ? "error" as const : canonicalBrollV2.busy || canonicalBrollV2.loading ? "saving" as const : "saved" as const,
+      saveError: canonicalBrollV2.error,
+      message: canonicalBrollV2.message,
+      disabled: isApprovingScript || canonicalBrollV2.busy || canonicalBrollV2.loading || !episodePackage,
       draft: {
         anchorText: brollAnchorDraft,
         description: brollDescriptionDraft,
@@ -6147,29 +6157,36 @@ export default function HearthShell({
       requestState: brollRequestStateLabel,
       providers: brollProviders,
       selectedCandidateId: selectedBrollBeat?.selected_asset_id ?? null,
+      promptState: selectedBrollBeat ? canonicalBrollV2.state.promptsByBeat[selectedBrollBeat.id] ?? null : null,
       onSelectBeat: setSelectedBrollBeatId,
       onDraftChange: onBrollDraftChange,
-      onSaveBeat: () => void onSaveBrollBeat(),
-      onDeleteBeat: () => void onDeleteBrollBeat(),
-      onRegenerateBeat: () => void onRegenerateBrollBeat(),
-      onGeneratePlan: () => void onGenerateBrollPlan(),
-      onFindStock: () => void onFindStockForBrollBeat(),
-      onUploadAsset: (file: File) => void onUploadBrollBeatAsset(file),
-      onSelectCandidate: (candidateId: string) => void onSelectBrollCandidate(candidateId),
-      onRetryCandidateIngestion: (candidateId: string) => void onRetryBrollCandidateIngestion(candidateId),
+      onSaveBeat: () => {},
+      onDeleteBeat: () => {},
+      onRegenerateBeat: () => {},
+      onGeneratePlan: () => void canonicalBrollV2.generatePlan(readCanonicalScriptForImageMapGeneration),
+      onGenerateMotionPrompt: (creatorDirection: string) => selectedBrollBeat ? void canonicalBrollV2.generatePrompt(selectedBrollBeat.id, creatorDirection) : undefined,
+      onSaveMotionPrompt: (finalPrompt: string) => selectedBrollBeat ? void canonicalBrollV2.editPrompt(selectedBrollBeat.id, finalPrompt) : undefined,
+      onCreateRunwayReadyPrompt: () => selectedBrollBeat ? canonicalBrollV2.proposeRunwayPrompt(selectedBrollBeat.id) : Promise.resolve(null),
+      onGenerateVideo: () => selectedBrollBeat ? void canonicalBrollV2.generateVideo(selectedBrollBeat.id) : undefined,
+      onFindStock: () => {},
+      onUploadAsset: (file: File) => selectedBrollBeat ? void canonicalBrollV2.upload(selectedBrollBeat.id, file) : undefined,
+      onSelectCandidate: (candidateId: string) => selectedBrollBeat ? void canonicalBrollV2.select(selectedBrollBeat.id, candidateId) : undefined,
+      onRetryCandidateIngestion: () => void canonicalBrollV2.refresh(),
       onCopyPrompt: () => {
-        void onCopyBrollPrompt().then((copied) => {
-          if (copied) acknowledgeCopy("broll.prompt");
-        });
+        const canonicalPrompt = selectedBrollBeat
+          ? canonicalBrollV2.state.promptsByBeat[selectedBrollBeat.id]?.finalPrompt ?? null
+          : null;
+        if (!canonicalPrompt) return;
+        void navigator.clipboard.writeText(canonicalPrompt).then(() => acknowledgeCopy("broll.prompt"));
       },
       copyPromptAcknowledged: isCopyAcknowledged("broll.prompt"),
       onDownloadBrief: () => void onDownloadBrollBrief("text"),
       onDownloadBriefJson: () => void onDownloadBrollBrief("json"),
-      onOpenProvider: () => void onOpenBrollProvider(),
-      onMarkSent: () => void onMarkBrollRequestState("sent_external"),
-      onMarkAwaitingResult: () => void onMarkBrollRequestState("awaiting_result"),
-      onClearRequestState: () => void onClearBrollRequestState(),
-      onAttachResultFromUrl: () => void onAttachBrollResultFromUrl(),
+      onOpenProvider: () => {},
+      onMarkSent: () => {},
+      onMarkAwaitingResult: () => {},
+      onClearRequestState: () => {},
+      onAttachResultFromUrl: () => selectedBrollBeat && brollSourceUrlDraft.trim() ? void canonicalBrollV2.attachExternal(selectedBrollBeat.id, brollSourceUrlDraft.trim()) : undefined,
     };
     const brollController = buildHearthBrollController({
       active: Boolean(workpieceId),
@@ -6186,9 +6203,9 @@ export default function HearthShell({
       imagePlanningEligibility: imagePlanningController.brollEligibilityInput,
       beats: brollBeats,
       coverageStrength: brollPlan?.coverage_strength ?? null,
-      busy: isBrollBusy,
-      error: brollSaveState === "error",
-      retryBrollLoad: () => void refreshEpisodePackage(),
+      busy: canonicalBrollV2.busy || canonicalBrollV2.loading,
+      error: Boolean(canonicalBrollV2.error),
+      retryBrollLoad: () => void canonicalBrollV2.refresh(),
       surfaceInput: brollSurfaceInput,
     });
     const referenceClipsSurfaceInput = {

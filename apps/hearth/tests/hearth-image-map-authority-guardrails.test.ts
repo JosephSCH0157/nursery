@@ -63,7 +63,7 @@ test("visual-plan image count mismatch reports synchronization unavailable and b
     thumbnails: {
       eligible: 3,
       total: 3,
-      previewAssetPaths: [],
+      previewAssetPaths: ["a", "b", "c"],
     },
     images: {
       planned: 10,
@@ -98,7 +98,7 @@ test("projection load failure never appears as image completion", () => {
     thumbnails: {
       eligible: 3,
       total: 3,
-      previewAssetPaths: [],
+      previewAssetPaths: ["a", "b", "c"],
     },
     images: {
       planned: 6,

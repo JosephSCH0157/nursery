@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { EpisodePackageV3, ThumbnailRenderRecipe } from "../src/lib/episode-package-v3";
 import type { ThumbnailCandidateAuthorityProjection } from "../src/lib/hearth-thumbnail-v3-api";
-import { buildCandidateWorkspaceCards, candidateWorkspaceSummary } from "../src/lib/hearth-thumbnail-candidate-workspace";
+import { buildCandidateWorkspaceCards, buildPendingCandidateWorkspaceCards, candidateWorkspaceSummary } from "../src/lib/hearth-thumbnail-candidate-workspace";
 
 const recipe = (id:string, revision:number, concept:string, title:string):ThumbnailRenderRecipe => ({
   id, revision, concept_revision_id:concept, title_id:title, title_revision:1, title_text:`Title ${title}`,
@@ -39,4 +39,57 @@ test("candidate workspace explains only locked distinction identities",()=>{
 test("candidate workspace reports Quench readiness only from Tongs eligibility",()=>{
   const {pkg,authority}=fixture();const summary=candidateWorkspaceSummary(buildCandidateWorkspaceCards(pkg,authority));
   assert.deepEqual(summary,{complete:true,quenchEligibleCount:2,blockedCount:0,requiresReapprovalCount:1});
+});
+
+test("candidate workspace hydrates previews from the canonical authority asset path",()=>{
+  const {pkg,authority}=fixture();
+  authority.candidates[0] = { ...authority.candidates[0], asset_path: " thumbnails/candidate-a.png " };
+  const cards=buildCandidateWorkspaceCards(pkg,authority);
+  assert.equal(cards[0]?.assetPath,"thumbnails/candidate-a.png");
+});
+
+test("pending replacement uses only the newest ready renders under the active binding",()=>{
+  const launches=["old-binding","active-binding","active-binding","active-binding","active-binding"].map((bindingId,index)=>({
+    launch_variant_id:`launch-${index}`,base_version_id:`base-${index}`,recipe_id:"recipe-a",recipe_revision:1,status:"ready",
+    snapshot:{asset_id:`asset-${index}`,asset_path:`thumbnail-${index}.png`,content_hash:`hash-${index}`,style_source:bindingId==="active-binding"?"brand_profile":"forge_standard",
+      brand_binding_context:{binding_id:bindingId,binding_revision:bindingId==="active-binding"?2:1},brand_logo_asset_revision_id:bindingId==="active-binding"?"logo":null,
+      readability_evidence:{passed:true,evaluation_hash:`evidence-${index}`,applied_treatment:"none"}},
+  }));
+  const pkg={thumbnail:{render_recipes:[recipe("recipe-a",1,"concept-a","title-a")],concept_revisions:[{concept_revision_id:"concept-a",headline:"Concept"}],base_versions:[],launch_variant_revisions:launches}} as unknown as EpisodePackageV3;
+  const cards=buildPendingCandidateWorkspaceCards(pkg,"active-binding",new Set(["asset-1"]));
+  assert.deepEqual(cards.map((card)=>card.id),["launch-2","launch-3","launch-4"]);
+  assert.ok(cards.every((card)=>card.styleSource==="brand_profile"&&card.logoApplied));
+  const brandedOnly=buildPendingCandidateWorkspaceCards(pkg,"active-binding",new Set(),"brand_profile");
+  assert.ok(brandedOnly.every((card)=>card.styleSource==="brand_profile"));
+});
+
+test("saved edit replaces the displayed launch lineage while preserving its prior revision",()=>{
+  const recipes=[
+    {...recipe("recipe-a",1,"concept-a","title-a"),treatment:{placement:{vertical:"top"}},presentation_override:{logo_placement:"bottom_right"}},
+    {...recipe("recipe-a",2,"concept-a","title-a"),treatment:{placement:{vertical:"bottom"}},presentation_override:{logo_placement:"top_left"}},
+    recipe("recipe-b",1,"concept-a","title-a"),recipe("recipe-c",1,"concept-a","title-a"),
+  ] as ThumbnailRenderRecipe[];
+  const launch=(id:string,revision:number,recipeId:string,recipeRevision:number,assetId:string,path:string,passed=true)=>({
+    launch_variant_id:id,revision,supersedes_revision:revision>1?revision-1:null,base_version_id:`base-${id}`,
+    concept_revision_id:"concept-a",title_id:"title-a",title_revision:1,recipe_id:recipeId,recipe_revision:recipeRevision,status:"ready" as const,created_at:`2026-08-02T00:00:0${revision}.000Z`,
+    snapshot:{asset_id:assetId,asset_path:path,content_hash:`hash-${assetId}`,style_source:"brand_profile" as const,
+      brand_binding_context:{binding_id:"binding-1",binding_revision:4},brand_logo_asset_revision_id:"logo-1",
+      readability_evidence:{passed,evaluation_hash:`evidence-${assetId}`,applied_treatment:"none"},
+      recipe_snapshot:recipes.find((entry)=>entry.id===recipeId&&entry.revision===recipeRevision)},
+  });
+  const old=launch("launch-a",1,"recipe-a",1,"asset-old","old.png");
+  const edited=launch("launch-a",2,"recipe-a",2,"asset-new","new.png",false);
+  const pkg={thumbnail:{render_recipes:recipes,concept_revisions:[{concept_revision_id:"concept-a",headline:"Concept"}],base_versions:[],
+    launch_variant_revisions:[old,launch("launch-b",1,"recipe-b",1,"asset-b","b.png"),launch("launch-c",1,"recipe-c",1,"asset-c","c.png"),edited]}} as unknown as EpisodePackageV3;
+  const currentAssets=new Set(["asset-old","asset-b","asset-c"]);
+  const displayed=buildPendingCandidateWorkspaceCards(pkg,"binding-1",currentAssets,"brand_profile");
+  assert.equal(pkg.thumbnail.launch_variant_revisions.includes(old as never),true,"the previous immutable launch remains available");
+  assert.equal(displayed.length,1);
+  assert.equal(displayed[0]?.id,"launch-a");
+  assert.equal(displayed[0]?.assetPath,"new.png");
+  assert.equal(displayed[0]?.recipe?.revision,2);
+  assert.equal(displayed[0]?.recipe?.treatment.placement.vertical,"bottom");
+  assert.equal(displayed[0]?.recipe?.presentation_override?.logo_placement,"top_left");
+  const reloaded=buildPendingCandidateWorkspaceCards(structuredClone(pkg),"binding-1",currentAssets,"brand_profile");
+  assert.equal(reloaded[0]?.assetPath,"new.png","reload resolves the edited canonical launch revision");
 });

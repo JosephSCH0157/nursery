@@ -295,6 +295,7 @@ export const EPISODE_BROLL_PLAN_SOURCE_TYPE_VALUES = [
   "upload",
   "external",
   "hearth_ai",
+  "generated",
   "hammer_upload",
 ] as const;
 
@@ -1232,6 +1233,10 @@ function normalizeImageMapEntryPatch(args: {
   const intent = normalizeImageMapIntent(readString(args.entry.intent));
   const visualPriority = normalizeImageMapVisualPriority(readString(args.entry.visual_priority));
   const visualType = normalizeImageMapVisualType(readString(args.entry.visual_type));
+  const assessment = isRecord(args.entry.canonical_anchor_assessment) ? args.entry.canonical_anchor_assessment : null;
+  const assessmentState = assessment && ["current", "stale", "unresolved", "provenance_unknown"].includes(String(assessment.state))
+    ? assessment.state as "current" | "stale" | "unresolved" | "provenance_unknown"
+    : null;
   return {
     id,
     anchor,
@@ -1269,6 +1274,14 @@ function normalizeImageMapEntryPatch(args: {
       selectedAssetId,
     ),
     placement_hint: readString(args.entry.placement_hint) ?? null,
+    ...(assessmentState ? {
+      canonical_anchor_assessment: {
+        state: assessmentState,
+        reason: readString(assessment!.reason),
+        exact_anchor: normalizeImageMapScriptAnchor(assessment!.exact_anchor),
+        evidence: isRecord(assessment!.evidence) ? assessment!.evidence : {},
+      },
+    } : {}),
   };
 }
 
@@ -1860,7 +1873,7 @@ function deriveBrollAssetCategoryFromSource(args: {
   if (args.motionIntent === "explanatory") return "stat_card";
 
   if (args.sourceType === "stock") return "stock_video";
-  if (args.sourceType === "hearth_ai") return "ai_video";
+  if (args.sourceType === "hearth_ai" || args.sourceType === "generated") return "ai_video";
   if (args.sourceType === "upload" || args.sourceType === "hammer_upload") return "uploaded_video";
 
   const mime = readString(args.mimeType)?.toLowerCase() ?? "";

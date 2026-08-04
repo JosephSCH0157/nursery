@@ -421,6 +421,9 @@ export async function generateWorkpieceImageMapCandidates(args: {
   workpieceId: string;
   workspaceId: string;
   imageMapEntryId: string;
+  promptRevisionId?: string;
+  promptRevision?: number;
+  promptContentHash?: string;
   expectedMetadataUpdatedAt?: string | null;
   contextBefore?: string | null;
   contextAfter?: string | null;
@@ -436,6 +439,9 @@ export async function generateWorkpieceImageMapCandidates(args: {
       json: {
         workspace_id: args.workspaceId,
         image_map_entry_id: args.imageMapEntryId,
+        ...(args.promptRevisionId ? { prompt_revision_id: args.promptRevisionId } : {}),
+        ...(typeof args.promptRevision === "number" ? { prompt_revision: args.promptRevision } : {}),
+        ...(args.promptContentHash ? { prompt_content_hash: args.promptContentHash } : {}),
         ...(typeof args.expectedMetadataUpdatedAt !== "undefined"
           ? { expected_metadata_updated_at: args.expectedMetadataUpdatedAt }
           : {}),
@@ -451,12 +457,15 @@ export async function generateWorkpieceImageMapCandidates(args: {
   const body = await readBodyAsJson(response);
 
   if (response.status === 409) {
-    const latest = await readLatestImageMap(args.workpieceId);
+    const code = readApiErrorCode(body);
+    const error = readApiErrorMessage(body) ?? "Image generation was rejected by canonical authority.";
+    const isImageMapConflict = code === "image_map_conflict" || code === "image_map_revision_conflict";
+    const latest = isImageMapConflict ? await readLatestImageMap(args.workpieceId) : undefined;
     return {
       ok: false,
       status: 409,
-      reason: "conflict",
-      error: "Image map changed since last load.",
+      reason: isImageMapConflict ? "conflict" : "request_failed",
+      error,
       ...(latest ? { latest } : {}),
     };
   }
@@ -671,7 +680,9 @@ export async function selectWorkpieceImageMapCandidate(args: {
   currentImageMap?: WorkpieceImageMapView | null;
 }): Promise<SelectWorkpieceImageMapCandidateResult> {
   const currentImageMap = args.currentImageMap ?? null;
-  const canonical = currentImageMap ?? await (async () => {
+  const canonical = currentImageMap?.authoritySource === "canonical" && currentImageMap.revisionId && currentImageMap.revision
+    ? currentImageMap
+    : await (async () => {
     const fetched = await getWorkpieceImageMap(args.workpieceId);
     return fetched.ok ? fetched.imageMap : null;
   })();
@@ -709,47 +720,53 @@ export async function selectWorkpieceImageMapCandidate(args: {
     };
   }
 
-  const nextEntries = canonical.entries.map((candidate) => {
-    if (candidate.id !== args.imageMapEntryId) return candidate;
+  if (canonical.authoritySource !== "canonical" || !canonical.revisionId || !canonical.revision) {
     return {
-      ...candidate,
-      selected_asset_id: args.candidateAssetId,
-      status: "selected" as const,
+      ok: false,
+      status: 409,
+      reason: "conflict",
+      error: "Apply the visual plan before selecting an image.",
+      latest: canonical,
     };
-  });
+  }
 
-  const saved = await saveWorkpieceImageMap({
-    workpieceId: args.workpieceId,
-    workspaceId: args.workspaceId,
-    entries: nextEntries,
-    expectedMetadataUpdatedAt: typeof args.expectedMetadataUpdatedAt !== "undefined"
-      ? args.expectedMetadataUpdatedAt
-      : canonical.metadataUpdatedAt,
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/image-map/select-candidate`, {
+    method: "POST",
+    json: {
+      workspace_id: args.workspaceId,
+      image_map_entry_id: args.imageMapEntryId,
+      candidate_asset_id: args.candidateAssetId,
+      expected_current_revision: canonical.revision,
+      expected_current_revision_id: canonical.revisionId,
+      operation_id: `forge:image-map:select:${canonical.revisionId}:${args.candidateAssetId}`,
+    },
   });
+  const body = await readBodyAsJson(response);
 
-  if (!saved.ok) {
-    if (saved.reason === "conflict") {
+  if (!response.ok) {
+    if (response.status === 409) {
+      const latest = await readLatestImageMap(args.workpieceId);
       return {
         ok: false,
         status: 409,
         reason: "conflict",
         error: "Image map changed since last load.",
-        ...(saved.latest ? { latest: saved.latest } : {}),
+        ...(latest ? { latest } : {}),
       };
     }
     return {
       ok: false,
-      status: saved.status,
-      reason: saved.reason,
-      error: saved.reason === "invalid_response"
-        ? "Image map selection returned an invalid response."
-        : saved.error ?? "Unable to save image selection.",
-      ...(saved.latest ? { latest: saved.latest } : {}),
+      status: response.status,
+      reason: "request_failed",
+      error: readApiErrorMessage(body) ?? "Unable to save image selection.",
     };
   }
 
+  const imageMap = normalizeWorkpieceImageMapView(body, { workpieceId: args.workpieceId, workspaceId: args.workspaceId });
+  if (!imageMap) return { ok: false, status: response.status, reason: "invalid_response", error: "Image map selection returned an invalid response." };
+
   return {
     ok: true,
-    imageMap: saved.imageMap,
+    imageMap,
   };
 }

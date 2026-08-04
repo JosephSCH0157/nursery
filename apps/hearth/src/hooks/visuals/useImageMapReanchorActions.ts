@@ -50,16 +50,27 @@ export function useImageMapReanchorActions(args: UseImageMapReanchorActionsArgs)
     args.setImageMapCandidateError(null);
     args.setIsImageMapReanchorSaving(true);
     args.setImageMapSaveState("saving");
-    const result = await args.repairCanonicalImageMap();
-    if (!result.ok) {
+    const operation = args.operationAuthority.begin("ira");
+    try {
+      const result = await args.repairCanonicalImageMap();
+      if (!args.operationAuthority.isCurrent(operation)) return;
+      if (!result.ok) {
+        args.setImageMapSaveState("error");
+        args.setImageMapReanchorError(result.error);
+      } else {
+        args.setImageMapSaveState("saved");
+        args.setImageMapExportMessage("Image moment verified against the immutable approved script.");
+        args.setIsImageMapReanchorMode(false);
+      }
+    } catch (error) {
+      if (!args.operationAuthority.isCurrent(operation)) return;
+      const message = error instanceof Error ? error.message : "Tongs could not repair this image moment.";
       args.setImageMapSaveState("error");
-      args.setImageMapReanchorError(result.error);
-    } else {
-      args.setImageMapSaveState("saved");
-      args.setImageMapExportMessage("Image plan checked against the immutable approved script.");
-      args.setIsImageMapReanchorMode(false);
+      args.setImageMapSaveError(message);
+      args.setImageMapReanchorError(message);
+    } finally {
+      if (args.operationAuthority.isCurrent(operation)) args.setIsImageMapReanchorSaving(false);
     }
-    args.setIsImageMapReanchorSaving(false);
   }, [args]);
 
   const onCancelImageMapReanchor = useCallback(() => {

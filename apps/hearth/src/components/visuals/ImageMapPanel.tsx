@@ -15,6 +15,7 @@ import type {
 } from "../../lib/hearth-image-map-beats";
 import { resolveImageMapWorkflowGuidance } from "../../lib/hearth-image-map-workflow";
 import { buildEpisodeImagesWorkspaceViewModel, episodeImageStatusLabel } from "../../lib/hearth-episode-images-view-model";
+import type { ImagePromptAuthorityState } from "../../hooks/visuals/useImagePromptAuthority";
 import {
   buildTimelineImagePromptPack,
   type PromptPack,
@@ -61,6 +62,7 @@ type ImageMapPanelProps = {
   candidateGenerateError: string | null;
   candidateSelectBusy: boolean;
   candidateSelectionError: string | null;
+  promptAuthorityState: ImagePromptAuthorityState;
   anchorStatusLabel: string | null;
   anchorStatusTone: "neutral" | "ok" | "warning" | "danger";
   anchorStatusDetail: string | null;
@@ -91,6 +93,9 @@ type ImageMapPanelProps = {
   onDeleteEntry: () => void;
   onSeedFromScript: () => void;
   onGenerateCandidates: (mode?: "ai" | "stock") => void;
+  onInterpretPrompt: () => void;
+  onSavePromptEdit: (finalPrompt: string) => void;
+  onRefreshPrompt: () => void;
   onUploadAsset: (file: File) => void;
   onSelectCandidate: (candidateId: string) => void;
   onCopyExport: () => void;
@@ -197,6 +202,7 @@ export default function ImageMapPanel({
   candidateGenerateError,
   candidateSelectBusy,
   candidateSelectionError,
+  promptAuthorityState,
   anchorStatusLabel,
   anchorStatusTone,
   anchorStatusDetail,
@@ -227,6 +233,9 @@ export default function ImageMapPanel({
   onDeleteEntry,
   onSeedFromScript,
   onGenerateCandidates,
+  onInterpretPrompt,
+  onSavePromptEdit,
+  onRefreshPrompt,
   onUploadAsset,
   onSelectCandidate,
   onCopyExport,
@@ -257,7 +266,23 @@ export default function ImageMapPanel({
     () => resolveInitialPreviewCandidateId(candidateCards),
   );
   const [activePromptPack, setActivePromptPack] = useState<PromptPack | null>(null);
+  const [episodeDirectionDraft, setEpisodeDirectionDraft] = useState(draftDescription);
+  const [canonicalPromptDraft, setCanonicalPromptDraft] = useState("");
+  const episodeDirectionCanonicalRef = useRef(draftDescription);
+  const episodeDirectionEntryRef = useRef(selectedEntryId);
   const { acknowledgeCopy, isCopyAcknowledged } = useClipboardButtonAcks();
+
+  useEffect(() => {
+    const entryChanged = episodeDirectionEntryRef.current !== selectedEntryId;
+    const wasUnedited = episodeDirectionDraft === episodeDirectionCanonicalRef.current;
+    if (entryChanged || wasUnedited) setEpisodeDirectionDraft(draftDescription);
+    episodeDirectionEntryRef.current = selectedEntryId;
+    episodeDirectionCanonicalRef.current = draftDescription;
+  }, [draftDescription, episodeDirectionDraft, selectedEntryId]);
+
+  useEffect(() => {
+    setCanonicalPromptDraft(promptAuthorityState.revision?.finalPrompt ?? "");
+  }, [promptAuthorityState.revision?.id, promptAuthorityState.revision?.finalPrompt]);
 
   useEffect(() => {
     if (candidateCards.length === 0) {
@@ -347,6 +372,12 @@ export default function ImageMapPanel({
     const imageAuthorityUnavailable = saveError === "canonical_image_map_authority_unavailable";
     const canonicalAnchorState = selectedEntry?.canonical_anchor_assessment?.state ?? "provenance_unknown";
     const needsAnchorRepair = canonicalAnchorState !== "current";
+    const directionDraftDirty = episodeDirectionDraft !== draftDescription;
+    const canonicalPrompt = promptAuthorityState.revision;
+    const canonicalPromptDirty = Boolean(canonicalPrompt && canonicalPromptDraft.trim() !== canonicalPrompt.finalPrompt);
+    const promptMatchesDirection = Boolean(canonicalPrompt && canonicalPrompt.creatorDirection === draftDescription.trim());
+    const promptReady = promptAuthorityState.status === "ready" && Boolean(canonicalPrompt) && promptMatchesDirection && !canonicalPromptDirty;
+    const directionStatus = directionDraftDirty ? "Press Enter to save" : formatSaveState(saveState);
     const workspace = buildEpisodeImagesWorkspaceViewModel({
       entries,
       activeEntryId: selectedEntryId,
@@ -380,10 +411,25 @@ export default function ImageMapPanel({
             {workspace.activeItem && selectedEntry ? <>
               <header className="hs-episode-image-cue"><span>Image {activeNumber} of {workspace.progress.total}</span><h4>Moment in the script</h4><blockquote>{workspace.activeItem.scriptMoment}</blockquote><h4>Suggested image</h4><p>{workspace.activeItem.suggestedImage}</p>{draftSectionIntentNote.trim() ? <><h4>Editorial purpose</h4><p>{draftSectionIntentNote}</p></> : null}</header>
 
-              {needsAnchorRepair ? <aside className="hs-episode-images-repair" role="alert"><strong>This image moment is not verified against the approved script.</strong><p>Tongs can check exact anchors against the immutable approved script. Existing candidates and selected images are preserved.</p><button type="button" onClick={onStartReanchor} disabled={disabled || reanchorBusy}>{reanchorBusy ? "Checking approved script…" : "Repair from approved script"}</button></aside> : null}
+              {needsAnchorRepair ? <aside className="hs-episode-images-repair" role="alert"><strong>This image moment is not verified against the approved script.</strong><p>Tongs can check exact anchors against the immutable approved script. Existing candidates and selected images are preserved.</p>{reanchorError ? <p className="hs-episode-images-repair-error">{reanchorError}</p> : null}<button type="button" onClick={onStartReanchor} disabled={disabled || reanchorBusy}>{reanchorBusy ? "Checking approved script…" : "Repair from approved script"}</button></aside> : null}
+
+              {!selectedEntry.selected_asset_id ? <section className="hs-episode-image-direction" aria-labelledby="episode-image-direction-heading">
+                <div className="hs-episode-image-direction-heading">
+                  <div><span>Before you generate</span><h4 id="episode-image-direction-heading">Shape this image</h4></div>
+                  <strong className={directionDraftDirty ? "is-editing" : `is-${saveState}`} role="status">{directionStatus}</strong>
+                </div>
+                <p>Add the specific people, place, action, period, or visual context the generator needs. The script moment can be brief; this direction should describe what viewers should actually see.</p>
+                <label className="hs-field"><span>Image direction</span><textarea value={episodeDirectionDraft} onChange={(event) => setEpisodeDirectionDraft(event.target.value)} onKeyDown={(event) => { if (event.key !== "Enter" || event.shiftKey) return; event.preventDefault(); onDraftDescriptionChange(episodeDirectionDraft); }} rows={5} disabled={disabled} placeholder="Florida orange growers relocating their groves farther south within Florida, with citrus rows, workers, and a recognizable subtropical landscape." /><small>Press Enter to save this direction. Use Shift+Enter for a new line.</small></label>
+                {saveError ? <p className="hs-episode-image-direction-error" role="alert">{saveError}</p> : null}
+                <div className="hs-episode-image-direction-actions"><button type="button" className="is-primary" onClick={onInterpretPrompt} disabled={disabled || directionDraftDirty || saveState !== "saved" || promptAuthorityState.status === "pending" || !draftDescription.trim()}>{promptAuthorityState.status === "pending" ? "Interpreting image…" : canonicalPrompt ? "Reinterpret image direction" : "Create detailed prompt"}</button><button type="button" onClick={onRefreshPrompt} disabled={disabled || promptAuthorityState.status === "loading"}>Refresh canonical prompt</button></div>
+                {!promptMatchesDirection && canonicalPrompt ? <p className="hs-episode-image-direction-error">Image Direction changed after prompt revision {canonicalPrompt.revision}. Reinterpret explicitly before generation; the existing creator prompt remains preserved.</p> : null}
+                {promptAuthorityState.error ? <p className="hs-episode-image-direction-error" role="alert"><strong>{promptAuthorityState.errorCode ?? "prompt_error"}</strong>: {promptAuthorityState.error}</p> : null}
+                <p className="hs-episode-image-prompt-stage" role="status">Canonical prompt stage: {promptAuthorityState.stage ?? "not started"}{canonicalPrompt ? ` · revision ${canonicalPrompt.revision} · ${canonicalPrompt.promptSource === "creator_edited" ? "creator edited" : "AI derived"}` : ""}</p>
+                {canonicalPrompt ? <section className="hs-episode-image-canonical-prompt" aria-label="Canonical image prompt"><h5>AI visual brief</h5><dl>{Object.entries(canonicalPrompt.visualBrief).filter(([, value]) => typeof value === "string" || Array.isArray(value)).map(([key, value]) => <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{Array.isArray(value) ? value.join(", ") : String(value)}</dd></div>)}</dl><label className="hs-field"><span>Final image prompt</span><textarea value={canonicalPromptDraft} onChange={(event) => setCanonicalPromptDraft(event.target.value)} rows={8} disabled={disabled || promptAuthorityState.status === "saving"} /></label><div className="hs-episode-image-direction-actions"><button type="button" className="is-primary" onClick={() => onSavePromptEdit(canonicalPromptDraft)} disabled={disabled || !canonicalPromptDirty || !canonicalPromptDraft.trim() || promptAuthorityState.status === "saving"}>{promptAuthorityState.status === "saving" ? "Saving canonical prompt…" : "Save prompt as new revision"}</button><button type="button" onClick={() => { void copyTextToClipboard(canonicalPrompt.finalPrompt).then((copied) => { if (copied) acknowledgeCopy("image-map-panel.canonical-prompt"); }); }} disabled={disabled || canonicalPromptDirty}>{isCopyAcknowledged("image-map-panel.canonical-prompt") ? "Prompt copied" : "Copy canonical prompt"}</button></div></section> : promptAuthorityState.status === "loading" ? <p role="status">Reading canonical prompt…</p> : null}
+              </section> : null}
 
               {!selectedEntry.selected_asset_id ? <section className="hs-episode-images-sources" aria-labelledby="episode-image-source-heading"><h4 id="episode-image-source-heading">How would you like to get this image?</h4><div className="hs-episode-images-source-grid">
-                <button type="button" className="is-primary" onClick={() => onGenerateCandidates("ai")} disabled={disabled || candidateGenerateBusy || needsAnchorRepair}><strong>Generate image</strong><span>Create two visual options with the configured generation service. AI credit approval remains explicit.</span></button>
+                <button type="button" className="is-primary" onClick={() => onGenerateCandidates("ai")} disabled={disabled || candidateGenerateBusy || needsAnchorRepair || directionDraftDirty || saveState !== "saved" || !promptReady}><strong>{directionDraftDirty ? "Save image direction first" : !promptReady ? "Create and save the final prompt first" : saveState === "saving" ? "Saving image direction…" : "Generate image"}</strong><span>Generate from the exact canonical final prompt revision shown above. AI credit approval remains explicit.</span></button>
                 <button type="button" onClick={() => uploadInputRef.current?.click()} disabled={disabled || candidateSelectBusy}><strong>Upload an image</strong><span>Choose an existing image, verify it in Tongs, then approve it for this moment.</span></button>
                 <button type="button" className="is-unavailable" disabled aria-disabled="true"><strong>Find stock image</strong><span>Coming later. Forge does not yet have a licensed stock-image provider.</span></button>
               </div><input ref={uploadInputRef} type="file" accept="image/*" aria-label="Upload an image" className="hs-imap-upload-input" onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) onUploadAsset(file); event.currentTarget.value = ""; }} /></section> : null}
@@ -398,7 +444,6 @@ export default function ImageMapPanel({
                 <button type="button" className="is-primary" onClick={() => onSelectCandidate(candidate.id)} disabled={disabled || candidateSelectBusy || candidate.isSelected}>{candidate.isSelected ? "Using this image" : "Use this image"}</button>
               </article>)}</div></section> : <p className="hs-episode-images-no-options">No images created yet.</p>}
 
-              <details className="hs-episode-images-details"><summary>Adjust image direction</summary><label className="hs-field"><span>Suggested image</span><textarea value={draftDescription} onChange={(event) => onDraftDescriptionChange(event.target.value)} rows={4} disabled={disabled} /></label><button type="button" onClick={onGeneratePromptPack} disabled={disabled || !canGeneratePromptPack}>{activePromptPack ? "Regenerate image prompt" : "Review image direction"}</button>{activePromptPack ? <textarea value={activePromptPack.prompt} readOnly rows={5} aria-label="Episode image prompt" /> : null}</details>
               <details className="hs-episode-images-details"><summary>Planning and technical details</summary><p>{activeVisualProvider.bannerLabel}</p><p>{anchorStatusDetail}</p><div className="hs-imap-toolbar"><button type="button" onClick={onCreateEntry} disabled={disabled}>New Entry</button><button type="button" onClick={onDuplicateEntry} disabled={disabled || !hasSelection}>Duplicate</button><button type="button" onClick={onDeleteEntry} disabled={disabled || !hasSelection}>Delete</button><button type="button" onClick={onSeedFromScript} disabled={disabled}>Refresh image plan from script</button><button type="button" onClick={onCopyExport} disabled={disabled}>Copy JSON</button><button type="button" onClick={onDownloadExport} disabled={disabled}>Download JSON</button></div></details>
               <div className="hs-sr-only" aria-live="polite">{exportMessage}</div>
             </> : null}

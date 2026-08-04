@@ -7,43 +7,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      workspaces: {
-        Row: {
-          created_at: string | null
-          created_by: string | null
-          id: string | null
-          name: string | null
-        }
-        Insert: {
-          created_at?: string | null
-          created_by?: string | null
-          id?: string | null
-          name?: string | null
-        }
-        Update: {
-          created_at?: string | null
-          created_by?: string | null
-          id?: string | null
-          name?: string | null
-        }
-        Relationships: []
-      }
-    }
-    Functions: {
-      [_ in never]: never
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   tongs: {
     Tables: {
       account_balances: {
@@ -1547,6 +1510,1151 @@ export type Database = {
           },
         ]
       }
+      broll_beat_revisions: {
+        Row: {
+          asset_category: string
+          beat_id: string
+          canonical_anchor_assessment: Json
+          content_hash: string
+          context_after: string
+          context_before: string
+          context_focus: string
+          created_at: string
+          created_by: string
+          duration_target_ms: number
+          id: string
+          immutable_revision_hash: string
+          mood_pacing: string
+          motion_intent: string
+          narrative_purpose: string
+          placement_hint: string
+          previous_revision: number | null
+          previous_revision_id: string | null
+          revision: number
+          script_approval_id: string
+          script_approval_revision: number
+          shot_type: string
+          source_plan_revision: number
+          source_plan_revision_id: string
+          trim_guidance_json: Json
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          asset_category: string
+          beat_id: string
+          canonical_anchor_assessment: Json
+          content_hash: string
+          context_after?: string
+          context_before?: string
+          context_focus: string
+          created_at?: string
+          created_by: string
+          duration_target_ms: number
+          id?: string
+          immutable_revision_hash: string
+          mood_pacing: string
+          motion_intent: string
+          narrative_purpose: string
+          placement_hint: string
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          revision: number
+          script_approval_id: string
+          script_approval_revision: number
+          shot_type: string
+          source_plan_revision: number
+          source_plan_revision_id: string
+          trim_guidance_json?: Json
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          asset_category?: string
+          beat_id?: string
+          canonical_anchor_assessment?: Json
+          content_hash?: string
+          context_after?: string
+          context_before?: string
+          context_focus?: string
+          created_at?: string
+          created_by?: string
+          duration_target_ms?: number
+          id?: string
+          immutable_revision_hash?: string
+          mood_pacing?: string
+          motion_intent?: string
+          narrative_purpose?: string
+          placement_hint?: string
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          revision?: number
+          script_approval_id?: string
+          script_approval_revision?: number
+          shot_type?: string
+          source_plan_revision?: number
+          source_plan_revision_id?: string
+          trim_guidance_json?: Json
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broll_beat_revisions_previous_revision_id_workspace_id_wor_fkey"
+            columns: [
+              "previous_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "previous_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "broll_beat_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "broll_beat_revisions_script_approval_id_workspace_id_workp_fkey"
+            columns: [
+              "script_approval_id",
+              "workspace_id",
+              "workpiece_id",
+              "script_approval_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "script_approval_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "approval_revision",
+            ]
+          },
+          {
+            foreignKeyName: "broll_beat_revisions_source_plan_revision_id_workspace_id__fkey"
+            columns: [
+              "source_plan_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "source_plan_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "broll_plan_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "broll_beat_revisions_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "broll_beat_revisions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      broll_candidate_revisions: {
+        Row: {
+          asset_content_hash: string
+          asset_id: string
+          asset_path: string
+          beat_id: string
+          candidate_id: string
+          content_hash: string
+          created_at: string
+          created_by: string
+          duration_ms: number
+          height: number
+          id: string
+          immutable_revision_hash: string
+          license_json: Json
+          mime_type: string
+          poster_asset_id: string | null
+          previous_revision: number | null
+          previous_revision_id: string | null
+          prompt_content_hash: string | null
+          prompt_revision: number | null
+          prompt_revision_id: string | null
+          provenance_json: Json
+          provider: string
+          provider_request_id: string | null
+          revision: number
+          source_kind: string
+          source_url: string | null
+          storage_bucket: string
+          storage_key: string
+          width: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          asset_content_hash: string
+          asset_id: string
+          asset_path: string
+          beat_id: string
+          candidate_id: string
+          content_hash: string
+          created_at?: string
+          created_by: string
+          duration_ms: number
+          height: number
+          id?: string
+          immutable_revision_hash: string
+          license_json: Json
+          mime_type: string
+          poster_asset_id?: string | null
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          prompt_content_hash?: string | null
+          prompt_revision?: number | null
+          prompt_revision_id?: string | null
+          provenance_json: Json
+          provider: string
+          provider_request_id?: string | null
+          revision: number
+          source_kind: string
+          source_url?: string | null
+          storage_bucket: string
+          storage_key: string
+          width: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          asset_content_hash?: string
+          asset_id?: string
+          asset_path?: string
+          beat_id?: string
+          candidate_id?: string
+          content_hash?: string
+          created_at?: string
+          created_by?: string
+          duration_ms?: number
+          height?: number
+          id?: string
+          immutable_revision_hash?: string
+          license_json?: Json
+          mime_type?: string
+          poster_asset_id?: string | null
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          prompt_content_hash?: string | null
+          prompt_revision?: number | null
+          prompt_revision_id?: string | null
+          provenance_json?: Json
+          provider?: string
+          provider_request_id?: string | null
+          revision?: number
+          source_kind?: string
+          source_url?: string | null
+          storage_bucket?: string
+          storage_key?: string
+          width?: number
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broll_candidate_revisions_asset_id_fkey"
+            columns: ["asset_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "broll_candidate_revisions_candidate_id_fkey"
+            columns: ["candidate_id"]
+            isOneToOne: false
+            referencedRelation: "broll_candidates"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "broll_candidate_revisions_poster_asset_id_fkey"
+            columns: ["poster_asset_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "broll_candidate_revisions_previous_revision_id_workspace_i_fkey"
+            columns: [
+              "previous_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "previous_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "broll_candidate_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "broll_candidate_revisions_prompt_revision_id_workspace_id__fkey"
+            columns: [
+              "prompt_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "prompt_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "broll_prompt_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "revision",
+            ]
+          },
+        ]
+      }
+      broll_candidates: {
+        Row: {
+          beat_id: string
+          created_at: string
+          created_by: string
+          id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          beat_id: string
+          created_at?: string
+          created_by: string
+          id?: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          beat_id?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broll_candidates_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "broll_candidates_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      broll_operation_receipts: {
+        Row: {
+          ambiguity_reason: string | null
+          beat_id: string | null
+          created_at: string
+          created_by: string
+          failed_stage: string | null
+          failure_code: string | null
+          failure_message: string | null
+          normalized_inputs_json: Json
+          operation_fingerprint: string
+          operation_id: string
+          operation_type: string
+          provider_completed_at: string | null
+          provider_completed_hash: string | null
+          provider_completed_json: Json | null
+          provider_last_poll_json: Json | null
+          provider_last_polled_at: string | null
+          provider_next_poll_at: string | null
+          provider_poll_attempt: number
+          provider_response_hash: string | null
+          provider_response_json: Json | null
+          provider_submission_hash: string | null
+          provider_submission_json: Json | null
+          provider_submitted_at: string | null
+          provider_task_id: string | null
+          receipt_json: Json | null
+          reconciled_at: string | null
+          reconciled_by: string | null
+          reconciliation_decision: string | null
+          resubmission_authorized_at: string | null
+          resubmission_authorized_by: string | null
+          result_candidate_revision_id: string | null
+          result_plan_revision_id: string | null
+          result_prompt_revision_id: string | null
+          result_selection_id: string | null
+          state: string
+          submission_attempt_id: string | null
+          submission_unknown_at: string | null
+          submitting_at: string | null
+          transport_evidence_json: Json | null
+          updated_at: string
+          verified_asset_id: string | null
+          verified_poster_asset_id: string | null
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          ambiguity_reason?: string | null
+          beat_id?: string | null
+          created_at?: string
+          created_by: string
+          failed_stage?: string | null
+          failure_code?: string | null
+          failure_message?: string | null
+          normalized_inputs_json: Json
+          operation_fingerprint: string
+          operation_id: string
+          operation_type: string
+          provider_completed_at?: string | null
+          provider_completed_hash?: string | null
+          provider_completed_json?: Json | null
+          provider_last_poll_json?: Json | null
+          provider_last_polled_at?: string | null
+          provider_next_poll_at?: string | null
+          provider_poll_attempt?: number
+          provider_response_hash?: string | null
+          provider_response_json?: Json | null
+          provider_submission_hash?: string | null
+          provider_submission_json?: Json | null
+          provider_submitted_at?: string | null
+          provider_task_id?: string | null
+          receipt_json?: Json | null
+          reconciled_at?: string | null
+          reconciled_by?: string | null
+          reconciliation_decision?: string | null
+          resubmission_authorized_at?: string | null
+          resubmission_authorized_by?: string | null
+          result_candidate_revision_id?: string | null
+          result_plan_revision_id?: string | null
+          result_prompt_revision_id?: string | null
+          result_selection_id?: string | null
+          state: string
+          submission_attempt_id?: string | null
+          submission_unknown_at?: string | null
+          submitting_at?: string | null
+          transport_evidence_json?: Json | null
+          updated_at?: string
+          verified_asset_id?: string | null
+          verified_poster_asset_id?: string | null
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          ambiguity_reason?: string | null
+          beat_id?: string | null
+          created_at?: string
+          created_by?: string
+          failed_stage?: string | null
+          failure_code?: string | null
+          failure_message?: string | null
+          normalized_inputs_json?: Json
+          operation_fingerprint?: string
+          operation_id?: string
+          operation_type?: string
+          provider_completed_at?: string | null
+          provider_completed_hash?: string | null
+          provider_completed_json?: Json | null
+          provider_last_poll_json?: Json | null
+          provider_last_polled_at?: string | null
+          provider_next_poll_at?: string | null
+          provider_poll_attempt?: number
+          provider_response_hash?: string | null
+          provider_response_json?: Json | null
+          provider_submission_hash?: string | null
+          provider_submission_json?: Json | null
+          provider_submitted_at?: string | null
+          provider_task_id?: string | null
+          receipt_json?: Json | null
+          reconciled_at?: string | null
+          reconciled_by?: string | null
+          reconciliation_decision?: string | null
+          resubmission_authorized_at?: string | null
+          resubmission_authorized_by?: string | null
+          result_candidate_revision_id?: string | null
+          result_plan_revision_id?: string | null
+          result_prompt_revision_id?: string | null
+          result_selection_id?: string | null
+          state?: string
+          submission_attempt_id?: string | null
+          submission_unknown_at?: string | null
+          submitting_at?: string | null
+          transport_evidence_json?: Json | null
+          updated_at?: string
+          verified_asset_id?: string | null
+          verified_poster_asset_id?: string | null
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broll_operation_receipts_verified_asset_id_fkey"
+            columns: ["verified_asset_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "broll_operation_receipts_verified_poster_asset_id_fkey"
+            columns: ["verified_poster_asset_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "broll_operation_receipts_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "broll_operation_receipts_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      broll_plan_beat_membership: {
+        Row: {
+          beat_id: string
+          beat_revision: number
+          beat_revision_id: string
+          ordinal: number
+          plan_revision: number
+          plan_revision_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          beat_id: string
+          beat_revision: number
+          beat_revision_id: string
+          ordinal: number
+          plan_revision: number
+          plan_revision_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          beat_id?: string
+          beat_revision?: number
+          beat_revision_id?: string
+          ordinal?: number
+          plan_revision?: number
+          plan_revision_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broll_plan_beat_membership_beat_revision_id_workspace_id_w_fkey"
+            columns: [
+              "beat_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "beat_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "broll_beat_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "broll_plan_beat_membership_plan_revision_id_workspace_id_w_fkey"
+            columns: [
+              "plan_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "plan_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "broll_plan_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+        ]
+      }
+      broll_plan_revisions: {
+        Row: {
+          content_hash: string
+          created_at: string
+          created_by: string
+          id: string
+          immutable_revision_hash: string
+          previous_revision: number | null
+          previous_revision_id: string | null
+          revision: number
+          script_approval_id: string
+          script_approval_revision: number
+          script_content_hash: string
+          source_context_contract_version: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          content_hash: string
+          created_at?: string
+          created_by: string
+          id?: string
+          immutable_revision_hash: string
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          revision: number
+          script_approval_id: string
+          script_approval_revision: number
+          script_content_hash: string
+          source_context_contract_version: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          content_hash?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          immutable_revision_hash?: string
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          revision?: number
+          script_approval_id?: string
+          script_approval_revision?: number
+          script_content_hash?: string
+          source_context_contract_version?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broll_plan_revisions_previous_revision_id_workspace_id_wor_fkey"
+            columns: [
+              "previous_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "previous_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "broll_plan_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "broll_plan_revisions_script_approval_id_workspace_id_workp_fkey"
+            columns: [
+              "script_approval_id",
+              "workspace_id",
+              "workpiece_id",
+              "script_approval_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "script_approval_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "approval_revision",
+            ]
+          },
+          {
+            foreignKeyName: "broll_plan_revisions_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "broll_plan_revisions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      broll_plan_sequences: {
+        Row: {
+          current_plan_revision: number
+          current_plan_revision_id: string | null
+          current_selection_revision: number
+          updated_at: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          current_plan_revision?: number
+          current_plan_revision_id?: string | null
+          current_selection_revision?: number
+          updated_at?: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          current_plan_revision?: number
+          current_plan_revision_id?: string | null
+          current_selection_revision?: number
+          updated_at?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broll_plan_sequences_current_plan_revision_id_workspace_id_fkey"
+            columns: [
+              "current_plan_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "current_plan_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "broll_plan_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "broll_plan_sequences_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "broll_plan_sequences_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      broll_prompt_revisions: {
+        Row: {
+          authority_status: string
+          beat_id: string
+          content_hash: string
+          created_at: string
+          created_by: string
+          creative_input_hash: string | null
+          creator_direction: string | null
+          final_prompt: string
+          id: string
+          immutable_revision_hash: string
+          interpretation_contract_version: string
+          interpretation_model: string | null
+          interpretation_provider: string | null
+          interpretation_request_json: Json | null
+          motion_brief_json: Json
+          origin_operation_fingerprint: string | null
+          origin_operation_id: string | null
+          previous_revision: number | null
+          previous_revision_id: string | null
+          prompt_source: string
+          provider_response_json: Json | null
+          revision: number
+          script_approval_id: string | null
+          script_approval_revision: number | null
+          script_content_hash: string | null
+          source_beat_revision: number
+          source_beat_revision_id: string
+          source_context_json: Json | null
+          source_plan_revision: number | null
+          source_plan_revision_id: string | null
+          synthesis_contract_version: string
+          validator_version: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          authority_status?: string
+          beat_id: string
+          content_hash: string
+          created_at?: string
+          created_by: string
+          creative_input_hash?: string | null
+          creator_direction?: string | null
+          final_prompt: string
+          id?: string
+          immutable_revision_hash: string
+          interpretation_contract_version: string
+          interpretation_model?: string | null
+          interpretation_provider?: string | null
+          interpretation_request_json?: Json | null
+          motion_brief_json: Json
+          origin_operation_fingerprint?: string | null
+          origin_operation_id?: string | null
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          prompt_source: string
+          provider_response_json?: Json | null
+          revision: number
+          script_approval_id?: string | null
+          script_approval_revision?: number | null
+          script_content_hash?: string | null
+          source_beat_revision: number
+          source_beat_revision_id: string
+          source_context_json?: Json | null
+          source_plan_revision?: number | null
+          source_plan_revision_id?: string | null
+          synthesis_contract_version: string
+          validator_version: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          authority_status?: string
+          beat_id?: string
+          content_hash?: string
+          created_at?: string
+          created_by?: string
+          creative_input_hash?: string | null
+          creator_direction?: string | null
+          final_prompt?: string
+          id?: string
+          immutable_revision_hash?: string
+          interpretation_contract_version?: string
+          interpretation_model?: string | null
+          interpretation_provider?: string | null
+          interpretation_request_json?: Json | null
+          motion_brief_json?: Json
+          origin_operation_fingerprint?: string | null
+          origin_operation_id?: string | null
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          prompt_source?: string
+          provider_response_json?: Json | null
+          revision?: number
+          script_approval_id?: string | null
+          script_approval_revision?: number | null
+          script_content_hash?: string | null
+          source_beat_revision?: number
+          source_beat_revision_id?: string
+          source_context_json?: Json | null
+          source_plan_revision?: number | null
+          source_plan_revision_id?: string | null
+          synthesis_contract_version?: string
+          validator_version?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broll_prompt_revisions_previous_revision_id_workspace_id_w_fkey"
+            columns: [
+              "previous_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "previous_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "broll_prompt_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "broll_prompt_revisions_script_approval_id_workspace_id_wor_fkey"
+            columns: [
+              "script_approval_id",
+              "workspace_id",
+              "workpiece_id",
+              "script_approval_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "script_approval_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "approval_revision",
+            ]
+          },
+          {
+            foreignKeyName: "broll_prompt_revisions_source_beat_revision_id_workspace_i_fkey"
+            columns: [
+              "source_beat_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "source_beat_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "broll_beat_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "broll_prompt_revisions_source_plan_revision_id_workspace_i_fkey"
+            columns: [
+              "source_plan_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "source_plan_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "broll_plan_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "broll_prompt_revisions_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "broll_prompt_revisions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      broll_prompt_sequences: {
+        Row: {
+          beat_id: string
+          creator_direction: string
+          creator_direction_revision: number
+          current_prompt_revision: number
+          current_prompt_revision_id: string | null
+          updated_at: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          beat_id: string
+          creator_direction?: string
+          creator_direction_revision?: number
+          current_prompt_revision?: number
+          current_prompt_revision_id?: string | null
+          updated_at?: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          beat_id?: string
+          creator_direction?: string
+          creator_direction_revision?: number
+          current_prompt_revision?: number
+          current_prompt_revision_id?: string | null
+          updated_at?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broll_prompt_sequences_current_prompt_revision_id_workspac_fkey"
+            columns: [
+              "current_prompt_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "current_prompt_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "broll_prompt_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "broll_prompt_sequences_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+        ]
+      }
+      broll_selections: {
+        Row: {
+          beat_id: string
+          beat_revision: number
+          beat_revision_id: string
+          candidate_revision: number
+          candidate_revision_id: string
+          created_at: string
+          created_by: string
+          decision: string
+          id: string
+          operation_fingerprint: string
+          operation_id: string
+          plan_revision: number
+          plan_revision_id: string
+          previous_revision: number | null
+          previous_selection_id: string | null
+          revision: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          beat_id: string
+          beat_revision: number
+          beat_revision_id: string
+          candidate_revision: number
+          candidate_revision_id: string
+          created_at?: string
+          created_by: string
+          decision: string
+          id?: string
+          operation_fingerprint: string
+          operation_id: string
+          plan_revision: number
+          plan_revision_id: string
+          previous_revision?: number | null
+          previous_selection_id?: string | null
+          revision: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          beat_id?: string
+          beat_revision?: number
+          beat_revision_id?: string
+          candidate_revision?: number
+          candidate_revision_id?: string
+          created_at?: string
+          created_by?: string
+          decision?: string
+          id?: string
+          operation_fingerprint?: string
+          operation_id?: string
+          plan_revision?: number
+          plan_revision_id?: string
+          previous_revision?: number | null
+          previous_selection_id?: string | null
+          revision?: number
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "broll_selections_beat_revision_id_workspace_id_workpiece_i_fkey"
+            columns: [
+              "beat_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "beat_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "broll_beat_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "broll_selections_candidate_revision_id_workspace_id_workpi_fkey"
+            columns: [
+              "candidate_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "candidate_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "broll_candidate_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "beat_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "broll_selections_plan_revision_id_workspace_id_workpiece_i_fkey"
+            columns: [
+              "plan_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "plan_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "broll_plan_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "broll_selections_previous_selection_id_fkey"
+            columns: ["previous_selection_id"]
+            isOneToOne: false
+            referencedRelation: "broll_selections"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       calendar_event_assignments: {
         Row: {
           assignment_id: string
@@ -2545,6 +3653,396 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "henry_user_preferences_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      image_map_prompt_operation_receipts: {
+        Row: {
+          created_at: string
+          created_by: string
+          expected_prompt_revision: number
+          expected_prompt_revision_id: string | null
+          failed_stage: string | null
+          failure_code: string | null
+          failure_message: string | null
+          image_map_revision: number
+          image_map_revision_id: string
+          image_moment_id: string
+          normalized_inputs_json: Json
+          operation_fingerprint: string
+          operation_id: string
+          operation_type: string
+          provider_response_hash: string | null
+          provider_response_json: Json | null
+          receipt_json: Json | null
+          result_revision: number | null
+          result_revision_id: string | null
+          script_approval_id: string
+          script_approval_revision: number
+          state: string
+          updated_at: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          expected_prompt_revision: number
+          expected_prompt_revision_id?: string | null
+          failed_stage?: string | null
+          failure_code?: string | null
+          failure_message?: string | null
+          image_map_revision: number
+          image_map_revision_id: string
+          image_moment_id: string
+          normalized_inputs_json: Json
+          operation_fingerprint: string
+          operation_id: string
+          operation_type: string
+          provider_response_hash?: string | null
+          provider_response_json?: Json | null
+          receipt_json?: Json | null
+          result_revision?: number | null
+          result_revision_id?: string | null
+          script_approval_id: string
+          script_approval_revision: number
+          state: string
+          updated_at?: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          expected_prompt_revision?: number
+          expected_prompt_revision_id?: string | null
+          failed_stage?: string | null
+          failure_code?: string | null
+          failure_message?: string | null
+          image_map_revision?: number
+          image_map_revision_id?: string
+          image_moment_id?: string
+          normalized_inputs_json?: Json
+          operation_fingerprint?: string
+          operation_id?: string
+          operation_type?: string
+          provider_response_hash?: string | null
+          provider_response_json?: Json | null
+          receipt_json?: Json | null
+          result_revision?: number | null
+          result_revision_id?: string | null
+          script_approval_id?: string
+          script_approval_revision?: number
+          state?: string
+          updated_at?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "image_map_prompt_operation_re_expected_prompt_revision_id__fkey"
+            columns: [
+              "expected_prompt_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "image_moment_id",
+              "expected_prompt_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "image_map_prompt_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "image_moment_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "image_map_prompt_operation_re_image_map_revision_id_worksp_fkey"
+            columns: [
+              "image_map_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "image_map_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "image_map_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "image_map_prompt_operation_re_result_revision_id_workspace_fkey"
+            columns: [
+              "result_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "image_moment_id",
+              "result_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "image_map_prompt_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "image_moment_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "image_map_prompt_operation_re_script_approval_id_workspace_fkey"
+            columns: [
+              "script_approval_id",
+              "workspace_id",
+              "workpiece_id",
+              "script_approval_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "script_approval_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "approval_revision",
+            ]
+          },
+          {
+            foreignKeyName: "image_map_prompt_operation_recei_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "image_map_prompt_operation_receipts_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      image_map_prompt_revisions: {
+        Row: {
+          ai_synthesized_prompt: string
+          content_hash: string
+          created_at: string
+          created_by: string
+          creator_direction: string
+          final_prompt: string
+          id: string
+          image_map_revision: number
+          image_map_revision_id: string
+          image_moment_id: string
+          immutable_revision_hash: string
+          interpretation_contract_version: string
+          interpretation_model: string
+          interpretation_request_json: Json
+          interpretation_response_json: Json
+          previous_revision: number | null
+          previous_revision_id: string | null
+          prompt_source: string
+          revision: number
+          script_approval_id: string
+          script_approval_revision: number
+          source_context_json: Json
+          synthesis_contract_version: string
+          validator_version: string
+          visual_brief_json: Json
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          ai_synthesized_prompt: string
+          content_hash: string
+          created_at?: string
+          created_by: string
+          creator_direction: string
+          final_prompt: string
+          id?: string
+          image_map_revision: number
+          image_map_revision_id: string
+          image_moment_id: string
+          immutable_revision_hash: string
+          interpretation_contract_version: string
+          interpretation_model: string
+          interpretation_request_json: Json
+          interpretation_response_json: Json
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          prompt_source: string
+          revision: number
+          script_approval_id: string
+          script_approval_revision: number
+          source_context_json: Json
+          synthesis_contract_version: string
+          validator_version: string
+          visual_brief_json: Json
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          ai_synthesized_prompt?: string
+          content_hash?: string
+          created_at?: string
+          created_by?: string
+          creator_direction?: string
+          final_prompt?: string
+          id?: string
+          image_map_revision?: number
+          image_map_revision_id?: string
+          image_moment_id?: string
+          immutable_revision_hash?: string
+          interpretation_contract_version?: string
+          interpretation_model?: string
+          interpretation_request_json?: Json
+          interpretation_response_json?: Json
+          previous_revision?: number | null
+          previous_revision_id?: string | null
+          prompt_source?: string
+          revision?: number
+          script_approval_id?: string
+          script_approval_revision?: number
+          source_context_json?: Json
+          synthesis_contract_version?: string
+          validator_version?: string
+          visual_brief_json?: Json
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "image_map_prompt_revisions_image_map_revision_id_workspace_fkey"
+            columns: [
+              "image_map_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "image_map_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "image_map_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "image_map_prompt_revisions_previous_revision_id_workspace__fkey"
+            columns: [
+              "previous_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "image_moment_id",
+              "previous_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "image_map_prompt_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "image_moment_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "image_map_prompt_revisions_script_approval_id_workspace_id_fkey"
+            columns: [
+              "script_approval_id",
+              "workspace_id",
+              "workpiece_id",
+              "script_approval_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "script_approval_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "approval_revision",
+            ]
+          },
+          {
+            foreignKeyName: "image_map_prompt_revisions_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "image_map_prompt_revisions_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      image_map_prompt_sequences: {
+        Row: {
+          current_prompt_revision: number
+          current_prompt_revision_id: string | null
+          image_moment_id: string
+          updated_at: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          current_prompt_revision?: number
+          current_prompt_revision_id?: string | null
+          image_moment_id: string
+          updated_at?: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          current_prompt_revision?: number
+          current_prompt_revision_id?: string | null
+          image_moment_id?: string
+          updated_at?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "image_map_prompt_sequences_current_prompt_revision_id_work_fkey"
+            columns: [
+              "current_prompt_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "image_moment_id",
+              "current_prompt_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "image_map_prompt_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "image_moment_id",
+              "revision",
+            ]
+          },
+          {
+            foreignKeyName: "image_map_prompt_sequences_workpiece_id_workspace_id_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "image_map_prompt_sequences_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -3850,6 +5348,193 @@ export type Database = {
             columns: ["org_id"]
             isOneToOne: false
             referencedRelation: "orgs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      thumbnail_brand_setup_operations: {
+        Row: {
+          created_at: string
+          created_by: string
+          expected_binding_revision: number
+          failed_stage: string | null
+          failure_code: string | null
+          failure_message: string | null
+          id: string
+          logo_asset_revision_id: string
+          logo_content_hash: string | null
+          logo_role: string
+          operation_fingerprint: string
+          operation_id: string
+          previous_binding_id: string | null
+          previous_binding_revision: number | null
+          prior_candidate_content_hash: string | null
+          prior_candidate_count: number
+          prior_candidate_set_id: string | null
+          prior_candidate_set_revision: number | null
+          prior_thumbnail_count: number
+          prior_thumbnail_identity_hash: string
+          profile_content_hash: string | null
+          profile_id: string
+          profile_revision: number | null
+          profile_revision_id: string | null
+          receipt_json: Json | null
+          renderer_verified_logo_revision_id: string | null
+          renderer_verified_storage_bucket: string | null
+          renderer_verified_storage_key: string | null
+          requested_rules_json: Json
+          resolved_style_source: string | null
+          resulting_binding_id: string | null
+          resulting_binding_revision: number | null
+          state: string
+          storage_bucket: string
+          storage_key: string
+          updated_at: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          expected_binding_revision: number
+          failed_stage?: string | null
+          failure_code?: string | null
+          failure_message?: string | null
+          id?: string
+          logo_asset_revision_id: string
+          logo_content_hash?: string | null
+          logo_role: string
+          operation_fingerprint: string
+          operation_id: string
+          previous_binding_id?: string | null
+          previous_binding_revision?: number | null
+          prior_candidate_content_hash?: string | null
+          prior_candidate_count?: number
+          prior_candidate_set_id?: string | null
+          prior_candidate_set_revision?: number | null
+          prior_thumbnail_count?: number
+          prior_thumbnail_identity_hash: string
+          profile_content_hash?: string | null
+          profile_id: string
+          profile_revision?: number | null
+          profile_revision_id?: string | null
+          receipt_json?: Json | null
+          renderer_verified_logo_revision_id?: string | null
+          renderer_verified_storage_bucket?: string | null
+          renderer_verified_storage_key?: string | null
+          requested_rules_json: Json
+          resolved_style_source?: string | null
+          resulting_binding_id?: string | null
+          resulting_binding_revision?: number | null
+          state?: string
+          storage_bucket: string
+          storage_key: string
+          updated_at?: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          expected_binding_revision?: number
+          failed_stage?: string | null
+          failure_code?: string | null
+          failure_message?: string | null
+          id?: string
+          logo_asset_revision_id?: string
+          logo_content_hash?: string | null
+          logo_role?: string
+          operation_fingerprint?: string
+          operation_id?: string
+          previous_binding_id?: string | null
+          previous_binding_revision?: number | null
+          prior_candidate_content_hash?: string | null
+          prior_candidate_count?: number
+          prior_candidate_set_id?: string | null
+          prior_candidate_set_revision?: number | null
+          prior_thumbnail_count?: number
+          prior_thumbnail_identity_hash?: string
+          profile_content_hash?: string | null
+          profile_id?: string
+          profile_revision?: number | null
+          profile_revision_id?: string | null
+          receipt_json?: Json | null
+          renderer_verified_logo_revision_id?: string | null
+          renderer_verified_storage_bucket?: string | null
+          renderer_verified_storage_key?: string | null
+          requested_rules_json?: Json
+          resolved_style_source?: string | null
+          resulting_binding_id?: string | null
+          resulting_binding_revision?: number | null
+          state?: string
+          storage_bucket?: string
+          storage_key?: string
+          updated_at?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "thumbnail_brand_setup_operati_renderer_verified_logo_revis_fkey"
+            columns: ["renderer_verified_logo_revision_id"]
+            isOneToOne: false
+            referencedRelation: "brand_asset_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "thumbnail_brand_setup_operations_logo_asset_revision_id_fkey"
+            columns: ["logo_asset_revision_id"]
+            isOneToOne: false
+            referencedRelation: "brand_asset_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "thumbnail_brand_setup_operations_previous_binding_id_fkey"
+            columns: ["previous_binding_id"]
+            isOneToOne: false
+            referencedRelation: "workpiece_brand_bindings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "thumbnail_brand_setup_operations_prior_candidate_set_id_fkey"
+            columns: ["prior_candidate_set_id"]
+            isOneToOne: false
+            referencedRelation: "thumbnail_candidate_sets"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "thumbnail_brand_setup_operations_profile_id_fkey"
+            columns: ["profile_id"]
+            isOneToOne: false
+            referencedRelation: "brand_profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "thumbnail_brand_setup_operations_profile_revision_id_fkey"
+            columns: ["profile_revision_id"]
+            isOneToOne: false
+            referencedRelation: "brand_profile_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "thumbnail_brand_setup_operations_resulting_binding_id_fkey"
+            columns: ["resulting_binding_id"]
+            isOneToOne: false
+            referencedRelation: "workpiece_brand_bindings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "thumbnail_brand_setup_operations_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "thumbnail_brand_setup_operations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
         ]
@@ -6375,6 +8060,17 @@ export type Database = {
           workspace_id: string
         }[]
       }
+      assert_current_broll_prompt: {
+        Args: {
+          p_beat_id: string
+          p_prompt_content_hash: string
+          p_prompt_revision: number
+          p_prompt_revision_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       assert_org_role: {
         Args: { p_min_role?: string; p_org_id: string }
         Returns: string
@@ -6423,6 +8119,88 @@ export type Database = {
         }
         Returns: Json
       }
+      begin_broll_operation: {
+        Args: {
+          p_actor_id: string
+          p_beat_id: string
+          p_inputs: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_operation_type: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      begin_broll_prompt_interpretation: {
+        Args: {
+          p_actor_id: string
+          p_beat_id: string
+          p_creative_input_hash: string
+          p_creator_direction: string
+          p_expected_prompt_revision: number
+          p_expected_prompt_revision_id: string
+          p_interpretation_contract_version: string
+          p_interpretation_model: string
+          p_interpretation_provider: string
+          p_interpretation_request: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_synthesis_contract_version: string
+          p_validator_version: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      begin_broll_runway_submission: {
+        Args: {
+          p_actor_id: string
+          p_duration_seconds: number
+          p_model: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_prompt_content_hash: string
+          p_prompt_revision: number
+          p_prompt_revision_id: string
+          p_ratio: string
+          p_submission_attempt_id: string
+        }
+        Returns: Json
+      }
+      begin_image_prompt_interpretation: {
+        Args: {
+          p_actor_id: string
+          p_expected_prompt_revision: number
+          p_expected_prompt_revision_id: string
+          p_image_map_revision_id: string
+          p_image_moment_id: string
+          p_normalized_inputs_json: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_script_approval_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      begin_thumbnail_brand_setup: {
+        Args: {
+          p_asset_id: string
+          p_expected_binding_revision: number
+          p_filename: string
+          p_internal_label: string
+          p_logo_role: string
+          p_mime_type: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_profile_id: string
+          p_requested_rules: Json
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       billing_item_is_plan: { Args: { p_item_id: string }; Returns: boolean }
       billing_status_entitles_access: {
         Args: { p_status: string }
@@ -6451,6 +8229,17 @@ export type Database = {
       }
       brand_rule_errors: { Args: { p_rules: Json }; Returns: string[] }
       brand_rules_hash: { Args: { p_rules: Json }; Returns: string }
+      broll_current_creative_input: {
+        Args: {
+          p_beat_id: string
+          p_creator_direction: string
+          p_interpretation_contract_version: string
+          p_synthesis_contract_version: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       can_access_workpiece: {
         Args: { _workpiece_id: string }
         Returns: boolean
@@ -6459,8 +8248,90 @@ export type Database = {
         Args: { _workspace_id: string }
         Returns: boolean
       }
+      claim_broll_runway_poll: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_provider_task_id: string
+        }
+        Returns: Json
+      }
       clear_workspace_default_brand_profile: {
         Args: { p_workspace_id: string }
+        Returns: Json
+      }
+      commit_broll_candidate: {
+        Args: {
+          p_actor_id: string
+          p_license_json: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_prompt_revision_id: string
+          p_provenance_json: Json
+          p_source_kind: string
+        }
+        Returns: Json
+      }
+      commit_broll_operation_asset: {
+        Args: {
+          p_asset_kind: string
+          p_byte_size: number
+          p_content_hash: string
+          p_duration_ms: number
+          p_height: number
+          p_mime_type: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_path: string
+          p_provider: string
+          p_provider_request_id: string
+          p_storage_bucket: string
+          p_storage_key: string
+          p_width: number
+        }
+        Returns: Json
+      }
+      commit_broll_plan: {
+        Args: {
+          p_actor_id: string
+          p_beats: Json
+          p_expected_revision: number
+          p_expected_revision_id: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_script_approval_id: string
+          p_source_context_contract_version: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      commit_broll_prompt_creator_edit: {
+        Args: {
+          p_actor_id: string
+          p_beat_id: string
+          p_expected_prompt_revision: number
+          p_expected_prompt_revision_id: string
+          p_final_prompt: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      commit_broll_prompt_interpretation: {
+        Args: {
+          p_actor_id: string
+          p_final_prompt: string
+          p_interpretation_contract_version: string
+          p_motion_brief: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_source_beat_revision_id: string
+          p_synthesis_contract_version: string
+          p_validator_version: string
+        }
         Returns: Json
       }
       commit_image_map_revision: {
@@ -6478,6 +8349,36 @@ export type Database = {
           p_target_script_approval_id: string
           p_workpiece_id: string
           p_workspace_id: string
+        }
+        Returns: Json
+      }
+      commit_image_prompt_creator_edit: {
+        Args: {
+          p_actor_id: string
+          p_expected_prompt_revision: number
+          p_expected_prompt_revision_id: string
+          p_final_prompt: string
+          p_image_moment_id: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      commit_image_prompt_interpretation: {
+        Args: {
+          p_actor_id: string
+          p_ai_synthesized_prompt: string
+          p_final_prompt: string
+          p_interpretation_contract_version: string
+          p_interpretation_model: string
+          p_interpretation_request_json: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_synthesis_contract_version: string
+          p_validator_version: string
+          p_visual_brief_json: Json
         }
         Returns: Json
       }
@@ -6513,6 +8414,22 @@ export type Database = {
           p_source_file_path: string
           p_source_file_revision: number
           p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      commit_thumbnail_brand_binding_stage: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      commit_thumbnail_brand_profile_stage: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
           p_workspace_id: string
         }
         Returns: Json
@@ -6783,6 +8700,26 @@ export type Database = {
         }[]
       }
       ensure_personal_org: { Args: { p_user_id?: string }; Returns: string }
+      fail_broll_operation: {
+        Args: {
+          p_failed_stage: string
+          p_failure_code: string
+          p_failure_message: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+        }
+        Returns: Json
+      }
+      fail_image_prompt_operation: {
+        Args: {
+          p_failed_stage: string
+          p_failure_code: string
+          p_failure_message: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+        }
+        Returns: Json
+      }
       finalize_brand_asset_revision: {
         Args: {
           p_bytes: number
@@ -6936,6 +8873,10 @@ export type Database = {
         Returns: {
           org_id: string
         }[]
+      }
+      get_thumbnail_brand_setup_receipt: {
+        Args: { p_operation_id: string; p_workspace_id: string }
+        Returns: Json
       }
       get_thumbnail_candidate_set_projection: {
         Args: { p_workpiece_id: string; p_workspace_id: string }
@@ -7247,6 +9188,29 @@ export type Database = {
           isSetofReturn: false
         }
       }
+      mark_broll_submission_unknown: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_reason: string
+          p_submission_attempt_id: string
+          p_transport_evidence: Json
+        }
+        Returns: Json
+      }
+      mark_thumbnail_brand_asset_ready: {
+        Args: {
+          p_actor_id: string
+          p_bytes: number
+          p_content_hash: string
+          p_height?: number
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_width?: number
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       mutate_workpiece_brand_binding: {
         Args: {
           p_expected_current_revision: number
@@ -7269,9 +9233,56 @@ export type Database = {
         Args: { p_decision_id: string }
         Returns: Json
       }
+      read_broll_operation_receipt: {
+        Args: { p_operation_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      read_broll_prompt_status: {
+        Args: {
+          p_beat_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      read_broll_runway_operation_status: {
+        Args: {
+          p_operation_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      read_current_broll_plan: {
+        Args: { p_workpiece_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      read_current_image_prompt: {
+        Args: {
+          p_image_moment_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      read_image_prompt_operation_receipt: {
+        Args: { p_operation_id: string; p_workspace_id: string }
+        Returns: Json
+      }
       recompute_account_balance: {
         Args: { p_user_id: string }
         Returns: undefined
+      }
+      reconcile_broll_runway_submission: {
+        Args: {
+          p_actor_id: string
+          p_decision: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_provider_task_id: string
+          p_task_evidence: Json
+        }
+        Returns: Json
       }
       record_billing_event: {
         Args: {
@@ -7286,9 +9297,62 @@ export type Database = {
         }
         Returns: undefined
       }
+      record_broll_provider_or_upload_result: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_result: Json
+        }
+        Returns: Json
+      }
+      record_broll_runway_completion: {
+        Args: {
+          p_completed_response: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_provider_task_id: string
+        }
+        Returns: Json
+      }
+      record_broll_runway_pending: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_poll_response: Json
+          p_provider_task_id: string
+        }
+        Returns: Json
+      }
+      record_broll_runway_rejection: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_rejection_evidence: Json
+          p_submission_attempt_id: string
+        }
+        Returns: Json
+      }
+      record_broll_runway_task: {
+        Args: {
+          p_accepted_response: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_provider_task_id: string
+          p_submission_attempt_id: string
+        }
+        Returns: Json
+      }
       record_hearth_event: {
         Args: { p_episode_id?: string; p_event_type: string; p_payload?: Json }
         Returns: string
+      }
+      record_image_prompt_provider_response: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_provider_response_json: Json
+        }
+        Returns: Json
       }
       remove_team_member: {
         Args: { p_team_id: string; p_user_id: string }
@@ -7503,6 +9567,35 @@ export type Database = {
           inserted_count: number
         }[]
       }
+      select_broll_candidate: {
+        Args: {
+          p_actor_id: string
+          p_beat_id: string
+          p_candidate_revision_id: string
+          p_expected_plan_revision: number
+          p_expected_plan_revision_id: string
+          p_expected_selection_revision: number
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      select_image_map_candidate: {
+        Args: {
+          p_actor_id: string
+          p_candidate_asset_id: string
+          p_expected_current_revision: number
+          p_expected_current_revision_id: string
+          p_image_map_entry_id: string
+          p_operation_contract_version: string
+          p_operation_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       set_adaptive_style_features: {
         Args: {
           p_ai_accelerate_enabled: boolean
@@ -7521,6 +9614,17 @@ export type Database = {
           p_clear_default?: boolean
           p_profile_id: string
           p_replacement_profile_id?: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      set_broll_prompt_creator_direction: {
+        Args: {
+          p_actor_id: string
+          p_beat_id: string
+          p_creator_direction: string
+          p_expected_direction_revision: number
+          p_workpiece_id: string
           p_workspace_id: string
         }
         Returns: Json
@@ -7576,6 +9680,11 @@ export type Database = {
         Args: { p_user_id: string }
         Returns: undefined
       }
+      thumbnail_brand_setup_asset_hash: {
+        Args: { p_workpiece_id: string; p_workspace_id: string }
+        Returns: string
+      }
+      thumbnail_brand_setup_json: { Args: { p_id: string }; Returns: Json }
       thumbnail_candidate_eligibility: {
         Args: { p_active_binding_id: string; p_candidate_id: string }
         Returns: string
@@ -7748,6 +9857,35 @@ export type Database = {
           workspace_id: string
         }[]
       }
+      validate_image_map_visual_brief: {
+        Args: { p_brief: Json }
+        Returns: string[]
+      }
+      verify_broll_operation_asset: {
+        Args: {
+          p_asset_id: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+        }
+        Returns: Json
+      }
+      verify_broll_operation_poster: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_poster_asset_id: string
+        }
+        Returns: Json
+      }
+      verify_thumbnail_brand_setup: {
+        Args: {
+          p_actor_id: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       workspace_is_creator: {
         Args: { _workspace_id: string }
         Returns: boolean
@@ -7894,9 +10032,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  public: {
-    Enums: {},
-  },
   tongs: {
     Enums: {
       ai_decision_type: ["ALLOW", "SOFT_DENY", "HARD_DENY"],
