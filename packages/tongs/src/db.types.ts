@@ -9243,23 +9243,36 @@ export type Database = {
       }
       unified_visual_plan_operations: {
         Row: {
+          broll_plan_content_hash: string | null
+          broll_plan_empty: boolean | null
           broll_plan_revision: number | null
           broll_plan_revision_id: string | null
+          contract_version: string
           created_at: string
           created_by: string
+          expected_reference_visual_revision: number | null
+          expected_reference_visual_revision_id: string | null
           failed_stage: string | null
           failure_code: string | null
           failure_message: string | null
           image_map_revision: number | null
           image_map_revision_id: string | null
+          image_plan_content_hash: string | null
+          image_plan_empty: boolean | null
           normalized_inputs_json: Json
           operation_fingerprint: string
           operation_id: string
           provider_response_hash: string | null
           provider_response_json: Json | null
           receipt_json: Json | null
+          reference_clip_plan_content_hash: string | null
+          reference_clip_plan_empty: boolean | null
           reference_clip_plan_revision: number | null
           reference_clip_plan_revision_id: string | null
+          reference_visual_plan_content_hash: string | null
+          reference_visual_plan_empty: boolean | null
+          reference_visual_plan_revision: number | null
+          reference_visual_plan_revision_id: string | null
           script_approval_id: string
           script_approval_revision: number
           script_content_hash: string
@@ -9269,23 +9282,36 @@ export type Database = {
           workspace_id: string
         }
         Insert: {
+          broll_plan_content_hash?: string | null
+          broll_plan_empty?: boolean | null
           broll_plan_revision?: number | null
           broll_plan_revision_id?: string | null
+          contract_version?: string
           created_at?: string
           created_by: string
+          expected_reference_visual_revision?: number | null
+          expected_reference_visual_revision_id?: string | null
           failed_stage?: string | null
           failure_code?: string | null
           failure_message?: string | null
           image_map_revision?: number | null
           image_map_revision_id?: string | null
+          image_plan_content_hash?: string | null
+          image_plan_empty?: boolean | null
           normalized_inputs_json: Json
           operation_fingerprint: string
           operation_id: string
           provider_response_hash?: string | null
           provider_response_json?: Json | null
           receipt_json?: Json | null
+          reference_clip_plan_content_hash?: string | null
+          reference_clip_plan_empty?: boolean | null
           reference_clip_plan_revision?: number | null
           reference_clip_plan_revision_id?: string | null
+          reference_visual_plan_content_hash?: string | null
+          reference_visual_plan_empty?: boolean | null
+          reference_visual_plan_revision?: number | null
+          reference_visual_plan_revision_id?: string | null
           script_approval_id: string
           script_approval_revision: number
           script_content_hash: string
@@ -9295,23 +9321,36 @@ export type Database = {
           workspace_id: string
         }
         Update: {
+          broll_plan_content_hash?: string | null
+          broll_plan_empty?: boolean | null
           broll_plan_revision?: number | null
           broll_plan_revision_id?: string | null
+          contract_version?: string
           created_at?: string
           created_by?: string
+          expected_reference_visual_revision?: number | null
+          expected_reference_visual_revision_id?: string | null
           failed_stage?: string | null
           failure_code?: string | null
           failure_message?: string | null
           image_map_revision?: number | null
           image_map_revision_id?: string | null
+          image_plan_content_hash?: string | null
+          image_plan_empty?: boolean | null
           normalized_inputs_json?: Json
           operation_fingerprint?: string
           operation_id?: string
           provider_response_hash?: string | null
           provider_response_json?: Json | null
           receipt_json?: Json | null
+          reference_clip_plan_content_hash?: string | null
+          reference_clip_plan_empty?: boolean | null
           reference_clip_plan_revision?: number | null
           reference_clip_plan_revision_id?: string | null
+          reference_visual_plan_content_hash?: string | null
+          reference_visual_plan_empty?: boolean | null
+          reference_visual_plan_revision?: number | null
+          reference_visual_plan_revision_id?: string | null
           script_approval_id?: string
           script_approval_revision?: number
           script_content_hash?: string
@@ -9336,6 +9375,23 @@ export type Database = {
               "workspace_id",
               "workpiece_id",
               "approval_revision",
+            ]
+          },
+          {
+            foreignKeyName: "unified_visual_plan_operations_reference_visual_plan_fkey"
+            columns: [
+              "reference_visual_plan_revision_id",
+              "workspace_id",
+              "workpiece_id",
+              "reference_visual_plan_revision",
+            ]
+            isOneToOne: false
+            referencedRelation: "reference_visual_plan_revisions"
+            referencedColumns: [
+              "id",
+              "workspace_id",
+              "workpiece_id",
+              "revision",
             ]
           },
           {
@@ -11363,6 +11419,8 @@ export type Database = {
           p_expected_image_revision_id: string
           p_expected_reference_revision: number
           p_expected_reference_revision_id: string
+          p_expected_reference_visual_revision: number
+          p_expected_reference_visual_revision_id: string
           p_normalized_inputs_json: Json
           p_operation_fingerprint: string
           p_operation_id: string
@@ -13498,6 +13556,7 @@ export type Database = {
     }
   }
 }
+
 type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
 
 type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
