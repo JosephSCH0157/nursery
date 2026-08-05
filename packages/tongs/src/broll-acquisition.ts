@@ -9,6 +9,11 @@ import sharp from "sharp";
 const MAX_BROLL_BYTES = 250 * 1024 * 1024;
 const FETCH_TIMEOUT_MS = 30_000;
 
+export type FetchedExternalMedia = {
+  bytes: Uint8Array;
+  finalUrl: string;
+};
+
 export type VerifiedBrollMedia = {
   bytes: Uint8Array;
   mimeType: string;
@@ -93,6 +98,11 @@ export async function deriveBrollPoster(video: VerifiedBrollMedia): Promise<Veri
 }
 
 export async function fetchExternalBrollMedia(value: string, fetchImpl: typeof fetch = fetch): Promise<VerifiedBrollMedia> {
+  const fetched = await fetchExternalMediaBytes(value, fetchImpl);
+  return inspectBrollMedia(fetched.bytes, "video");
+}
+
+export async function fetchExternalMediaBytes(value: string, fetchImpl: typeof fetch = fetch): Promise<FetchedExternalMedia> {
   let url = await assertSafeExternalMediaUrl(value);
   for (let redirects = 0; redirects <= 3; redirects += 1) {
     const response = await fetchImpl(url, { redirect: "manual", signal: AbortSignal.timeout(FETCH_TIMEOUT_MS) });
@@ -105,7 +115,9 @@ export async function fetchExternalBrollMedia(value: string, fetchImpl: typeof f
     if (!response.ok) throw new Error(`external_fetch_failed:${response.status}`);
     const declaredLength = Number(response.headers.get("content-length") ?? 0);
     if (declaredLength > MAX_BROLL_BYTES) throw new Error("external_media_too_large");
-    return inspectBrollMedia(new Uint8Array(await response.arrayBuffer()), "video");
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (!bytes.length || bytes.length > MAX_BROLL_BYTES) throw new Error("external_media_too_large");
+    return { bytes, finalUrl: url.toString() };
   }
   throw new Error("external_redirect_invalid");
 }

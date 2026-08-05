@@ -13,8 +13,10 @@ import { RunwayBrollVideoProvider } from "../../../packages/tongs/src/providers/
 import {
   deriveBrollPoster,
   fetchExternalBrollMedia,
+  fetchExternalMediaBytes,
   inspectBrollMedia,
 } from "../../../packages/tongs/src/broll-acquisition.ts";
+import { renderCanonicalReferenceVisual } from "../../../packages/tongs/src/reference-visual-renderer.ts";
 import { resolveTongsRuntimeConfig, type ResolvedTongsRuntimeConfig } from "../server/tongs/tongs-runtime-config";
 import { ensureWorkpieceJobRunnerStarted } from "../server/tongs/workpiece-job-runner";
 
@@ -44,6 +46,9 @@ export function resolveNurseryTongsProviderBoundary(
     inspectMedia: inspectBrollMedia,
     derivePoster: deriveBrollPoster,
     fetchExternalMedia: fetchExternalBrollMedia,
+    inspectReferenceImage: (bytes) => inspectBrollMedia(bytes, "poster"),
+    fetchExternalBytes: fetchExternalMediaBytes,
+    renderReferenceVisual: renderCanonicalReferenceVisual,
   };
   const options: TongsCommitApiOptions = {
     ...config.options,
