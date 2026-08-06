@@ -3,15 +3,15 @@ import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { deriveHearthMediaWorkflow } from "../src/lib/hearth-media-workflow-view-model";
 
-const input=(overrides:Record<string,unknown>={})=>({hasApprovedScript:true,visualPlan:{status:null,total:0,images:0,broll:0,referenceClips:0,version:0},thumbnails:{eligible:0,total:0},images:{planned:0,completed:0,canonicalCount:0,projectionLoaded:true},referenceClips:{planned:0,completed:0},broll:{planned:0,completed:0},...overrides});
+const input=(overrides:Record<string,unknown>={})=>({hasApprovedScript:true,visualPlan:{status:null,total:0,images:0,broll:0,referenceClips:0,referenceVisuals:0,version:0},thumbnails:{eligible:0,total:0},images:{planned:0,completed:0,canonicalCount:0,projectionLoaded:true},referenceClips:{planned:0,completed:0,exists:false},referenceVisuals:{planned:0,completed:0,exists:false},broll:{planned:0,completed:0},...overrides});
 
 test("cold recovery selects the first canonically incomplete stage",()=>{
   assert.equal(deriveHearthMediaWorkflow(input()).activeStage,"visual_plan");
   assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:4,images:3,broll:1,version:1}})).activeStage,"thumbnails");
   assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:4,images:3,broll:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:3,completed:1,canonicalCount:3,projectionLoaded:true}})).activeStage,"images");
-  assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:5,images:3,broll:1,referenceClips:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:3,completed:3,canonicalCount:3,projectionLoaded:true},referenceClips:{planned:1,completed:0},broll:{planned:1,completed:0}})).activeStage,"reference_clips");
-  assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:5,images:3,broll:1,referenceClips:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:3,completed:3,canonicalCount:3,projectionLoaded:true},referenceClips:{planned:1,completed:1},broll:{planned:1,completed:0}})).activeStage,"broll");
-  assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"fulfilled",total:5,images:3,broll:1,referenceClips:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:3,completed:3,canonicalCount:3,projectionLoaded:true},referenceClips:{planned:1,completed:1},broll:{planned:1,completed:1}})).activeStage,"review");
+  assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:5,images:3,broll:1,referenceClips:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:3,completed:3,canonicalCount:3,projectionLoaded:true},referenceClips:{planned:1,completed:0,exists:true},broll:{planned:1,completed:0}})).activeStage,"reference_clips");
+  assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:5,images:3,broll:1,referenceClips:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:3,completed:3,canonicalCount:3,projectionLoaded:true},referenceClips:{planned:1,completed:1,exists:true},broll:{planned:1,completed:0}})).activeStage,"broll");
+  assert.equal(deriveHearthMediaWorkflow(input({visualPlan:{status:"fulfilled",total:5,images:3,broll:1,referenceClips:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:3,completed:3,canonicalCount:3,projectionLoaded:true},referenceClips:{planned:1,completed:1,exists:true},broll:{planned:1,completed:1}})).activeStage,"review");
 });
 
 test("thumbnail completion requires three Tongs-eligible candidates",()=>{
@@ -36,12 +36,27 @@ test("strict image and B-roll completion never infers skipped work",()=>{
   assert.equal(workflow.activeStage,"images");assert.equal(workflow.stages[4]?.status,"blocked");
 });
 
-test("Reference Clips follows Images while B-roll remains deliberately reviewable",()=>{
-  const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:4,images:2,broll:1,referenceClips:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:2,completed:2,canonicalCount:2,projectionLoaded:true},referenceClips:{planned:1,completed:0},broll:{planned:1,completed:0}}));
+test("Reference Material follows Images and combines Source Clip and Reference Visual progress",()=>{
+  const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:4,images:2,broll:1,referenceClips:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:2,completed:2,canonicalCount:2,projectionLoaded:true},referenceClips:{planned:1,completed:0,exists:true},broll:{planned:1,completed:0}}));
   assert.equal(workflow.activeStage,"reference_clips");
-  assert.equal(workflow.stages[3]?.label,"Reference Clips");
-  assert.equal(workflow.stages[3]?.summary,"0 of 1 resolved");
+  assert.equal(workflow.stages[3]?.label,"Reference Material");
+  assert.equal(workflow.stages[3]?.summary,"0 of 1 Source Clips · 0 of 0 Reference Visuals");
   assert.equal(workflow.stages[4]?.status,"ready");
+});
+
+test("Reference Material remains accessible while Images are incomplete",()=>{
+  const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:5,images:3,broll:0,referenceClips:1,referenceVisuals:1,version:4},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:3,completed:0,canonicalCount:3,projectionLoaded:true},referenceClips:{planned:1,completed:0,exists:true},referenceVisuals:{planned:1,completed:0,exists:true}}));
+  assert.equal(workflow.stages[2]?.status,"ready");
+  assert.equal(workflow.stages[2]?.summary,"0 of 3 images ready");
+  assert.equal(workflow.stages[3]?.status,"ready");
+  assert.equal(workflow.stages[3]?.reviewAvailable,true);
+  assert.equal(workflow.stages[5]?.status,"blocked");
+});
+
+test("canonical empty Reference Material child plans are accessible",()=>{
+  const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:2,images:2,broll:0,referenceClips:0,referenceVisuals:0,version:4},images:{planned:2,completed:0,canonicalCount:2,projectionLoaded:true},referenceClips:{planned:0,completed:0,exists:true},referenceVisuals:{planned:0,completed:0,exists:true}}));
+  assert.equal(workflow.stages[3]?.status,"complete");
+  assert.equal(workflow.stages[3]?.reviewAvailable,true);
 });
 
 test("upstream revision requests review without deleting downstream summaries",()=>{

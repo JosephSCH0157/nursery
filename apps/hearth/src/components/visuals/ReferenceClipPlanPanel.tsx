@@ -3,7 +3,7 @@ import { loadImageMapCandidatePreviewDataUrl } from "../../lib/hearth-image-map-
 import type { EpisodeBrollAssetCandidate, EpisodeContextualDataCompositePlan } from "../../lib/episode-package-v2";
 import type { ExternalGenerationProvider } from "../../lib/hearth-visual-actionability";
 import type { PromptPack } from "../../lib/hearth-visual-provider-profiles";
-import CanonicalReferenceClipPanel from "./CanonicalReferenceClipPanel";
+import CanonicalReferenceMaterialPanel from "./CanonicalReferenceMaterialPanel";
 
 type ReferenceClipPlanPanelProps = {
   canonicalWorkspaceId?: string | null;
@@ -623,7 +623,7 @@ function LegacyReferenceClipPlanPanel(props: ReferenceClipPlanPanelProps) {
 
 export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProps) {
   if (props.canonicalWorkspaceId && props.canonicalWorkpieceId) {
-    return <CanonicalReferenceClipPanel workspaceId={props.canonicalWorkspaceId} workpieceId={props.canonicalWorkpieceId}/>;
+    return <CanonicalReferenceMaterialPanel workspaceId={props.canonicalWorkspaceId} workpieceId={props.canonicalWorkpieceId}/>;
   }
   return <LegacyReferenceClipPlanPanel {...props}/>;
 }

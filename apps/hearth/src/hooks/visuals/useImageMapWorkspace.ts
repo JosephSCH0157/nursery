@@ -5,6 +5,7 @@ import type {
   EpisodeImageMapVisualPriority,
   EpisodeImageMapVisualType,
 } from "../../lib/episode-package-v2";
+import { preferredEpisodeImageIdAfterReadback } from "../../lib/hearth-episode-images-view-model";
 import { DEFAULT_HEARTH_VISUAL_STYLE, normalizeHearthVisualStyle } from "../../lib/hearth-visual-styles";
 
 type CanonicalImageMapScriptState = {
@@ -138,7 +139,7 @@ export function useImageMapWorkspace() {
     setSelectedImageMapEntryId((current) => (
       current && entries.some((entry) => entry.id === current)
         ? current
-        : (entries.find((entry) => !entry.selected_asset_id)?.id ?? entries[0]?.id ?? null)
+        : preferredEpisodeImageIdAfterReadback(entries)
     ));
   }, []);
 

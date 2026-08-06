@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useClipboardButtonAcks } from "../../hooks/useClipboardButtonAcks";
+import { getWorkpieceImageMap } from "../../lib/hearth-image-map-repo";
+import { readVisualOpportunityDispositions, type VisualOpportunityDisposition } from "../../lib/hearth-visual-disposition-authority";
+import { VisualOpportunityDispositionControl } from "./VisualOpportunityDispositionControl";
 import {
   EPISODE_IMAGE_MAP_VISUAL_PRIORITY_VALUES,
   EPISODE_IMAGE_MAP_VISUAL_TYPE_VALUES,
@@ -37,6 +40,8 @@ type ImageMapCandidateCard = {
 };
 
 type ImageMapPanelProps = {
+  canonicalWorkspaceId?: string | null;
+  canonicalWorkpieceId?: string | null;
   panelTitle?: string;
   manualOnly?: boolean;
   entries: EpisodeImageMapEntry[];
@@ -177,6 +182,8 @@ function downloadPromptPack(pack: PromptPack, filename: string): void {
 }
 
 export default function ImageMapPanel({
+  canonicalWorkspaceId,
+  canonicalWorkpieceId,
   panelTitle,
   manualOnly = false,
   entries,
@@ -249,10 +256,19 @@ export default function ImageMapPanel({
   onCancelReanchor,
   onPickReanchor,
 }: ImageMapPanelProps) {
+  const [dispositions, setDispositions] = useState<VisualOpportunityDisposition[]>([]);
+  const [canonicalPlan, setCanonicalPlan] = useState<{ revisionId: string; revision: number } | null>(null);
   const resolvedPanelTitle = panelTitle?.trim() || (manualOnly ? "Visual Beats" : "Image Map");
   const entryLabel = manualOnly ? "Anchor" : "Entry";
   const hasSelection = Boolean(selectedEntryId);
   const selectedEntry = entries.find((entry) => entry.id === selectedEntryId) ?? null;
+  const currentDisposition = selectedEntry
+    ? dispositions.find((item) => item.kind === "image" && item.opportunityId === selectedEntry.id) ?? null
+    : null;
+  const skippedImageIds = new Set(dispositions.filter((item) => item.kind === "image" && item.state === "skipped").map((item) => item.opportunityId));
+  const fulfilledImageCount = entries.filter((entry) => Boolean(entry.selected_asset_id) && !skippedImageIds.has(entry.id)).length;
+  const skippedImageCount = entries.filter((entry) => skippedImageIds.has(entry.id)).length;
+  const unresolvedImageCount = entries.length - fulfilledImageCount - skippedImageCount;
   const selectedCandidateId = candidateCards.find((candidate) => candidate.isSelected)?.id ?? null;
   const workflowGuidance = resolveImageMapWorkflowGuidance({
     manualOnly,
@@ -271,6 +287,17 @@ export default function ImageMapPanel({
   const episodeDirectionCanonicalRef = useRef(draftDescription);
   const episodeDirectionEntryRef = useRef(selectedEntryId);
   const { acknowledgeCopy, isCopyAcknowledged } = useClipboardButtonAcks();
+
+  useEffect(() => {
+    if (!canonicalWorkspaceId || !canonicalWorkpieceId) return;
+    void Promise.all([
+      getWorkpieceImageMap(canonicalWorkpieceId),
+      readVisualOpportunityDispositions(canonicalWorkspaceId, canonicalWorkpieceId),
+    ]).then(([map, dispositionResult]) => {
+      if (map.ok && map.imageMap.revisionId) setCanonicalPlan({ revisionId: map.imageMap.revisionId, revision: map.imageMap.revision ?? 0 });
+      if (dispositionResult.ok) setDispositions(dispositionResult.data);
+    });
+  }, [canonicalWorkspaceId, canonicalWorkpieceId]);
 
   useEffect(() => {
     const entryChanged = episodeDirectionEntryRef.current !== selectedEntryId;
@@ -390,7 +417,7 @@ export default function ImageMapPanel({
       <section className="hs-episode-images" aria-label="Episode Images">
         <header className="hs-episode-images-header">
           <div><h3>Episode Images</h3><p>These images support moments in your episode. Hammer handles final placement.</p></div>
-          <div className="hs-episode-images-progress" role="status" aria-live="polite"><strong>{imageAuthorityUnavailable ? "Episode Images unavailable" : workspace.progress.label}</strong><progress value={workspace.progress.ready} max={Math.max(1, workspace.progress.total)} /></div>
+          <div className="hs-episode-images-progress" role="status" aria-live="polite"><strong>{imageAuthorityUnavailable ? "Episode Images unavailable" : `${fulfilledImageCount} fulfilled · ${skippedImageCount} skipped · ${unresolvedImageCount} unresolved`}</strong><progress value={fulfilledImageCount+skippedImageCount} max={Math.max(1, workspace.progress.total)} /></div>
         </header>
 
         {imageAuthorityUnavailable ? (
@@ -409,7 +436,7 @@ export default function ImageMapPanel({
 
           <main className="hs-episode-images-workspace">
             {workspace.activeItem && selectedEntry ? <>
-              <header className="hs-episode-image-cue"><span>Image {activeNumber} of {workspace.progress.total}</span><h4>Moment in the script</h4><blockquote>{workspace.activeItem.scriptMoment}</blockquote><h4>Suggested image</h4><p>{workspace.activeItem.suggestedImage}</p>{draftSectionIntentNote.trim() ? <><h4>Editorial purpose</h4><p>{draftSectionIntentNote}</p></> : null}</header>
+              <header className="hs-episode-image-cue"><span>Image {activeNumber} of {workspace.progress.total}</span><h4>Moment in the script</h4><blockquote>{workspace.activeItem.scriptMoment}</blockquote><h4>Suggested image</h4><p>{workspace.activeItem.suggestedImage}</p>{draftSectionIntentNote.trim() ? <><h4>Editorial purpose</h4><p>{draftSectionIntentNote}</p></> : null}{canonicalWorkspaceId&&canonicalWorkpieceId&&canonicalPlan?<VisualOpportunityDispositionControl workspaceId={canonicalWorkspaceId} workpieceId={canonicalWorkpieceId} kind="image" opportunityId={selectedEntry.id} opportunityRevisionIdentity={selectedEntry.id} childPlanRevisionId={canonicalPlan.revisionId} childPlanRevision={canonicalPlan.revision} current={currentDisposition} onChanged={setDispositions}/>:null}</header>
 
               {needsAnchorRepair ? <aside className="hs-episode-images-repair" role="alert"><strong>This image moment is not verified against the approved script.</strong><p>Tongs can check exact anchors against the immutable approved script. Existing candidates and selected images are preserved.</p>{reanchorError ? <p className="hs-episode-images-repair-error">{reanchorError}</p> : null}<button type="button" onClick={onStartReanchor} disabled={disabled || reanchorBusy}>{reanchorBusy ? "Checking approved script…" : "Repair from approved script"}</button></aside> : null}
 

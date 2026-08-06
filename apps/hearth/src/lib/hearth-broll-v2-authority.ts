@@ -194,7 +194,7 @@ export async function readCanonicalBrollV2(args: { workspaceId: string; workpiec
     const exact = record(assessment?.exact_anchor) ? assessment.exact_anchor : null;
     const candidates = candidatesByBeat.get(beatId) ?? [];
     return [{
-      id: beatId, workpiece_id: args.workpieceId,
+      id: beatId, canonical_revision_id: string(beat.id), workpiece_id: args.workpieceId,
       anchor_text: string(exact?.span_text) ?? string(beat.context_focus) ?? "Script-bound beat",
       description: string(beat.narrative_purpose) ?? string(beat.context_focus) ?? "B-roll coverage",
       purpose: "coverage",

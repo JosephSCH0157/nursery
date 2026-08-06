@@ -50,7 +50,7 @@ type UseMediaMapGenerationActionsArgs = {
   }) => Promise<PersistMediaMapResult>;
   repairImageMapAuthority: () => Promise<{ ok: true } | { ok: false; error: string }>;
   generateUnifiedVisualPlan: (creatorDirection?: string | null) => Promise<
-    | { ok: true; data: { imageMapRevision: number; brollPlanRevision: number; referenceClipPlanRevision: number } }
+    | { ok: true; data: { imageMapRevision: number; brollPlanRevision: number; referenceClipPlanRevision: number; referenceVisualPlanRevision: number } }
     | { ok: false; error: string; stage: string | null }
   >;
   refreshCanonicalBroll: () => Promise<boolean>;
@@ -59,7 +59,11 @@ type UseMediaMapGenerationActionsArgs = {
 
 export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsArgs) {
   const onGenerateEpisodeMediaMapFromPlans = useCallback(async () => {
-    if (!args.episodePackage) return;
+    if (!args.episodePackage) {
+      args.setMediaMapSaveError("Load the episode package before generating its canonical Visual Plan.");
+      args.setMediaMapSaveState("error");
+      return;
+    }
     if (args.isMediaMapBusy) return;
     const operation = args.operationAuthority.begin("media-map.generate");
     args.setIsMediaMapBusy(true);
@@ -82,9 +86,10 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
       }
       await args.refreshCanonicalBroll();
       args.notifyCanonicalReferenceClipsChanged();
+      if(typeof window!=="undefined")window.dispatchEvent(new CustomEvent("forge:canonical-reference-visuals-changed"));
       args.setMediaMapSaveState("saved");
       args.setMediaMapMessage(
-        `Canonical Visual Plan verified: Image plan v${generated.data.imageMapRevision}, B-roll plan v${generated.data.brollPlanRevision}, and Reference Clip plan v${generated.data.referenceClipPlanRevision}. Unresolved Reference Clips are ready for Source fulfillment.`,
+        `Canonical Visual Plan verified: Image v${generated.data.imageMapRevision}, B-roll v${generated.data.brollPlanRevision}, Source Clips v${generated.data.referenceClipPlanRevision}, and Reference Visuals v${generated.data.referenceVisualPlanRevision}.`,
       );
     } catch (error) {
       if (!args.operationAuthority.isCurrent(operation)) return;
@@ -130,9 +135,10 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
       }
       await args.refreshCanonicalBroll();
       args.notifyCanonicalReferenceClipsChanged();
+      if(typeof window!=="undefined")window.dispatchEvent(new CustomEvent("forge:canonical-reference-visuals-changed"));
       args.setMediaMapSaveState("saved");
       args.setMediaMapMessage(
-        `Canonical Visual Plan verified from the approved script with producer direction. Image v${generated.data.imageMapRevision}, B-roll v${generated.data.brollPlanRevision}, Reference Clips v${generated.data.referenceClipPlanRevision}.`,
+        `Canonical Visual Plan verified from the approved script with producer direction. Image v${generated.data.imageMapRevision}, B-roll v${generated.data.brollPlanRevision}, Source Clips v${generated.data.referenceClipPlanRevision}, Reference Visuals v${generated.data.referenceVisualPlanRevision}.`,
       );
       return true;
     } catch {

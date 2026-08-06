@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import test from "node:test";
-import { buildEpisodeImagesWorkspaceViewModel, nextUnresolvedEpisodeImageId } from "../src/lib/hearth-episode-images-view-model";
+import { buildEpisodeImagesWorkspaceViewModel, nextUnresolvedEpisodeImageId, preferredEpisodeImageIdAfterReadback } from "../src/lib/hearth-episode-images-view-model";
 import type { EpisodeImageMapEntry } from "../src/lib/episode-package-v2";
 
 function entry(id: string, selected = false, candidates = 0): EpisodeImageMapEntry {
@@ -16,14 +16,26 @@ function entry(id: string, selected = false, candidates = 0): EpisodeImageMapEnt
   };
 }
 
-test("Episode Images derives strict progress and first unresolved item from canonical selections", () => {
+test("Episode Images derives strict progress and presents a retained selected image after readback", () => {
   const entries = [entry("1", true, 1), entry("2"), entry("3", false, 2)];
   const model = buildEpisodeImagesWorkspaceViewModel({ entries, activeEntryId: null });
   assert.deepEqual(model.progress, { ready: 1, total: 3, label: "1 of 3 ready" });
-  assert.equal(model.activeItem?.id, "2");
+  assert.equal(model.activeItem?.id, "1");
   assert.equal(model.items[0]?.selectedAssetPath, "assets/1-0.png");
   assert.equal(model.items[2]?.status, "options_ready");
   assert.equal(model.stageComplete, false);
+});
+
+test("all retained selections recover their exact candidate assets without regeneration", () => {
+  const entries = Array.from({ length: 19 }, (_, index) => entry(String(index + 1), index >= 3, index >= 3 ? 2 : 0));
+  assert.equal(preferredEpisodeImageIdAfterReadback(entries), "4");
+  const model = buildEpisodeImagesWorkspaceViewModel({ entries, activeEntryId: null });
+  assert.equal(model.progress.ready, 16);
+  assert.equal(model.items.filter((item) => item.status === "selected" || item.status === "complete").length, 16);
+  for (const [index, item] of model.items.slice(3).entries()) {
+    assert.equal(item.selectedAssetPath, `assets/${item.id}-0.png`);
+    assert.equal(entries[index + 3]?.candidate_assets.length, 2);
+  }
 });
 
 test("completion and next-item navigation require selected assets", () => {
@@ -44,7 +56,10 @@ test("creator surface is guided and never routes stock through AI generation", (
   const guided = panel.match(/if \(!manualOnly\) \{[\s\S]*?\n  \}\n  let primaryActionButton/)?.[0] ?? "";
   assert.doesNotMatch(guided, /onGenerateCandidates\("stock"\)/);
   assert.match(panel, /"Use this image"/);
-  assert.match(surface, /Episode images complete\. Reference Clips is ready\./);
+  assert.match(panel, /selectedEntry\.selected_asset_id/);
+  assert.match(panel, /selectedCandidate/);
+  assert.match(panel, /!selectedEntry\.selected_asset_id/);
+  assert.match(surface, /Episode images complete\. Reference Material is ready\./);
 });
 
 test("episode-image prompt language is distinct from thumbnail language", () => {

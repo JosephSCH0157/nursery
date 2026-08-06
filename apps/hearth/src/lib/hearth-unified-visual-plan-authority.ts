@@ -15,6 +15,8 @@ export type UnifiedVisualPlanReceipt = {
   brollPlanRevision: number;
   referenceClipPlanRevisionId: string;
   referenceClipPlanRevision: number;
+  referenceVisualPlanRevisionId: string;
+  referenceVisualPlanRevision: number;
 };
 
 const record = (value: unknown): value is JsonRecord => !!value && typeof value === "object" && !Array.isArray(value);
@@ -61,24 +63,33 @@ async function currentInputs(workspaceId: string, workpieceId: string): Promise<
   const approvalBody = await json(approvalResponse);
   const approval = record(approvalBody) && record(approvalBody.data) && record(approvalBody.data.current_approval) ? approvalBody.data.current_approval : null;
   const approvalId = string(approval?.id);
-  if (!approvalResponse.ok || !approvalId) return failure(approvalResponse, approvalBody, "Approve the current script before generating a Visual Plan.");
-  const [image, broll, reference] = await Promise.all([
+  const approvalRevision = integer(approval?.approval_revision);
+  const scriptContentHash = string(approval?.script_content_hash);
+  if (!approvalResponse.ok || !approvalId || approvalRevision < 1 || !scriptContentHash) return failure(approvalResponse, approvalBody, "Approve the current script before generating a Visual Plan.");
+  const [image, broll, reference, referenceVisual] = await Promise.all([
     postgrest(`workpiece_image_map_sequences?workspace_id=eq.${workspaceId}&workpiece_id=eq.${workpieceId}&select=current_revision_id,current_revision`),
     postgrest(`broll_plan_sequences?workspace_id=eq.${workspaceId}&workpiece_id=eq.${workpieceId}&select=current_plan_revision_id,current_plan_revision`),
     postgrest(`reference_clip_plan_sequences?workspace_id=eq.${workspaceId}&workpiece_id=eq.${workpieceId}&select=current_plan_revision_id,current_plan_revision`),
+    postgrest(`reference_visual_plan_sequences?workspace_id=eq.${workspaceId}&workpiece_id=eq.${workpieceId}&select=current_plan_revision_id,current_plan_revision`),
   ]);
   if (!image.ok) return image;
   if (!broll.ok) return broll;
   if (!reference.ok) return reference;
+  if (!referenceVisual.ok) return referenceVisual;
   const imageRow = Array.isArray(image.data) && record(image.data[0]) ? image.data[0] : null;
   const brollRow = Array.isArray(broll.data) && record(broll.data[0]) ? broll.data[0] : null;
   const referenceRow = Array.isArray(reference.data) && record(reference.data[0]) ? reference.data[0] : null;
+  const referenceVisualRow = Array.isArray(referenceVisual.data) && record(referenceVisual.data[0]) ? referenceVisual.data[0] : null;
   return { ok: true, data: {
     workspace_id: workspaceId, workpiece_id: workpieceId, script_approval_id: approvalId,
+    script_approval_revision: approvalRevision, script_content_hash: scriptContentHash,
     expected_image_revision_id: string(imageRow?.current_revision_id), expected_image_revision: integer(imageRow?.current_revision),
     expected_broll_revision_id: string(brollRow?.current_plan_revision_id), expected_broll_revision: integer(brollRow?.current_plan_revision),
     expected_reference_revision_id: string(referenceRow?.current_plan_revision_id), expected_reference_revision: integer(referenceRow?.current_plan_revision),
-    creator_direction: null, contract_version: "forge.unified-visual-plan.v1",
+    expected_reference_visual_revision_id: string(referenceVisualRow?.current_plan_revision_id), expected_reference_visual_revision: integer(referenceVisualRow?.current_plan_revision),
+    creator_direction: null, contract_version: "forge.unified-visual-plan.v2",
+    provider_contract_version: "forge.unified-visual-plan-provider.v2",
+    model_configuration: { model: "gpt-5-mini" },
   } };
 }
 
@@ -97,6 +108,7 @@ function receipt(value: unknown): Result<UnifiedVisualPlanReceipt> {
     imageMapRevisionId: string(row.image_map_revision_id) ?? "", imageMapRevision: integer(row.image_map_revision),
     brollPlanRevisionId: string(row.broll_plan_revision_id) ?? "", brollPlanRevision: integer(row.broll_plan_revision),
     referenceClipPlanRevisionId: string(row.reference_clip_plan_revision_id) ?? "", referenceClipPlanRevision: integer(row.reference_clip_plan_revision),
+    referenceVisualPlanRevisionId: string(row.reference_visual_plan_revision_id) ?? "", referenceVisualPlanRevision: integer(row.reference_visual_plan_revision),
   };
   return Object.values(mapped).some((entry) => entry === "") ? { ok: false, status: 502, code: "unified_visual_plan_receipt_incomplete", error: "The verified Visual Plan receipt omitted canonical child identities.", stage: "verification" } : { ok: true, data: mapped };
 }
@@ -124,6 +136,7 @@ export async function generateOrResumeUnifiedVisualPlan(args: { workspaceId: str
     expected_image_revision_id: inputs.expected_image_revision_id, expected_image_revision: inputs.expected_image_revision,
     expected_broll_revision_id: inputs.expected_broll_revision_id, expected_broll_revision: inputs.expected_broll_revision,
     expected_reference_revision_id: inputs.expected_reference_revision_id, expected_reference_revision: inputs.expected_reference_revision,
+    expected_reference_visual_revision_id: inputs.expected_reference_visual_revision_id, expected_reference_visual_revision: inputs.expected_reference_visual_revision,
     creator_direction: inputs.creator_direction, operation_id: operationId, operation_fingerprint: operationFingerprint,
   } });
   const value = await json(response);

@@ -17,7 +17,7 @@ test("Reference Clips consume canonical Tongs readback and never write cdc_plan"
 });
 
 test("creator workflow exposes source evidence, upload, external fetch, rights, playback, and selection",()=>{
- for(const contract of ["Why this clip belongs here","Linked Source","Identify the Source","Material to seek","Useful searches","Upload Clip","Attach External Clip","Rights and provenance","Use this clip","video controls","of {state.opportunities.length} resolved"]){assert.ok(panel.includes(contract),`missing ${contract}`);}
+ for(const contract of ["Why this clip belongs here","Linked Source","Identify the Source","Material to seek","Useful searches","Upload Clip","Attach External Clip","Rights and provenance","Use this clip","video controls","fulfilled","skipped","unresolved"]){assert.ok(panel.includes(contract),`missing ${contract}`);}
  assert.match(panel,/opportunity\.sourceStatus!=="linked"/);
  assert.match(panel,/readCanonicalReferenceClips\(workspaceId,workpieceId\)/);
 });

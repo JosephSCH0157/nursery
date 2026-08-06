@@ -89,7 +89,7 @@ test("Visual Plan apply verifies canonical image-map authority before reporting 
       },
       generateUnifiedVisualPlan: async () => {
         order.push("unified");
-        return { ok: true, data: { imageMapRevision: 1, brollPlanRevision: 1, referenceClipPlanRevision: 1 } };
+        return { ok: true, data: { imageMapRevision: 1, brollPlanRevision: 1, referenceClipPlanRevision: 1, referenceVisualPlanRevision: 1 } };
       },
       refreshCanonicalBroll: async () => { order.push("broll-readback"); return true; },
       notifyCanonicalReferenceClipsChanged: () => order.push("reference-readback"),
@@ -148,7 +148,7 @@ test("Visual Plan apply remains failed when canonical image-map verification fai
       buildMediaMapFromExistingPlans: () => createMap(),
       persistMediaMap: async () => ({ ok: true, episodePackage }),
       repairImageMapAuthority: async () => ({ ok: false, error: "Canonical verification failed." }),
-      generateUnifiedVisualPlan: async () => ({ ok: true, data: { imageMapRevision: 1, brollPlanRevision: 1, referenceClipPlanRevision: 1 } }),
+      generateUnifiedVisualPlan: async () => ({ ok: true, data: { imageMapRevision: 1, brollPlanRevision: 1, referenceClipPlanRevision: 1, referenceVisualPlanRevision: 1 } }),
       refreshCanonicalBroll: async () => true,
       notifyCanonicalReferenceClipsChanged: () => undefined,
     });

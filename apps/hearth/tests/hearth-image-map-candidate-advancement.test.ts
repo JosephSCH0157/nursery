@@ -61,14 +61,14 @@ test("progress model advances from image 1 to image 2 and then to stage completi
   assert.equal(complete.progress.label, "Episode images complete");
 });
 
-test("reload selects the first unresolved canonical image", () => {
+test("reload presents the retained selected canonical image before unresolved work", () => {
   const entries = [entry("1", true), entry("2", false), entry("3", false)];
   const model = buildEpisodeImagesWorkspaceViewModel({
     entries,
     activeEntryId: null,
   });
 
-  assert.equal(model.activeItem?.id, "2");
+  assert.equal(model.activeItem?.id, "1");
 });
 
 test("completed queue items remain reviewable while unresolved work remains", () => {

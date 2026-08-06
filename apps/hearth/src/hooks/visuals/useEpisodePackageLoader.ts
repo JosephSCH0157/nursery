@@ -10,6 +10,7 @@ import {
   readRecoverableEpisodeMediaMap,
 } from "../../lib/hearth-media-map-repo";
 import type { EpisodeMediaMap, EpisodePackageV2 } from "../../lib/episode-package-v2";
+import { preferredEpisodeImageIdAfterReadback } from "../../lib/hearth-episode-images-view-model";
 import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 import { resolveCanonicalVisualArtifacts } from "../../lib/hearth-visual-artifact-authority";
 
@@ -212,7 +213,7 @@ export function useEpisodePackageLoader(args: UseEpisodePackageLoaderArgs) {
       const imageEntries = nextEpisodePackage.image_map.entries;
       currentArgs.setSelectedImageMapEntryId((prev) => {
         if (prev && imageEntries.some((entry) => entry.id === prev)) return prev;
-        return imageEntries.find((entry) => !entry.selected_asset_id)?.id ?? imageEntries[0]?.id ?? null;
+        return preferredEpisodeImageIdAfterReadback(imageEntries);
       });
     } catch (error) {
       if (timeoutId) clearTimeout(timeoutId);

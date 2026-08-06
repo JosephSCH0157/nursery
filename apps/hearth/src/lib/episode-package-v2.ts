@@ -392,6 +392,7 @@ export type EpisodeExternalRequestTracker = {
 
 export type EpisodeBrollPlanBeat = {
   id: string;
+  canonical_revision_id?: string | null;
   workpiece_id: string;
   anchor_text: string;
   placement_hint: EpisodeBrollPlacementHint;

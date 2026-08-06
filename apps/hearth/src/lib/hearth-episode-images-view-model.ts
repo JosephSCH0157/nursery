@@ -29,6 +29,13 @@ export function firstUnresolvedEpisodeImageId(entries: EpisodeImageMapEntry[]): 
   return entries.find((entry) => !entry.selected_asset_id)?.id ?? null;
 }
 
+export function preferredEpisodeImageIdAfterReadback(entries: EpisodeImageMapEntry[]): string | null {
+  return entries.find((entry) => Boolean(entry.selected_asset_id) && entry.candidate_assets.some((candidate) => candidate.asset_id === entry.selected_asset_id && Boolean(candidate.path)))?.id
+    ?? firstUnresolvedEpisodeImageId(entries)
+    ?? entries[0]?.id
+    ?? null;
+}
+
 export function nextUnresolvedEpisodeImageId(entries: EpisodeImageMapEntry[], completedId: string): string | null {
   if (!entries.length) return null;
   const start = Math.max(0, entries.findIndex((entry) => entry.id === completedId));
@@ -46,7 +53,7 @@ export function buildEpisodeImagesWorkspaceViewModel(args: {
   needsAttentionEntryId?: string | null;
 }): EpisodeImagesWorkspaceViewModel {
   const ready = args.entries.filter((entry) => Boolean(entry.selected_asset_id)).length;
-  const fallbackActiveId = firstUnresolvedEpisodeImageId(args.entries) ?? args.entries[0]?.id ?? null;
+  const fallbackActiveId = preferredEpisodeImageIdAfterReadback(args.entries);
   const activeId = args.activeEntryId && args.entries.some((entry) => entry.id === args.activeEntryId)
     ? args.activeEntryId
     : fallbackActiveId;

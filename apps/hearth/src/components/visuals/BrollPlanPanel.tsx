@@ -3,6 +3,8 @@ import { loadImageMapCandidatePreviewDataUrl } from "../../lib/hearth-image-map-
 import type { EpisodeBrollAssetCandidate, EpisodeBrollPlanBeat } from "../../lib/episode-package-v2";
 import type { ExternalGenerationProvider } from "../../lib/hearth-visual-actionability";
 import type { CanonicalBrollPromptState } from "../../lib/hearth-broll-v2-authority";
+import { readVisualOpportunityDispositions, type VisualOpportunityDisposition } from "../../lib/hearth-visual-disposition-authority";
+import { VisualOpportunityDispositionControl } from "./VisualOpportunityDispositionControl";
 
 type BrollPlanPanelProps = {
   beats: EpisodeBrollPlanBeat[];
@@ -13,6 +15,9 @@ type BrollPlanPanelProps = {
   message: string | null;
   disabled?: boolean;
   workpieceId: string | null;
+  workspaceId?: string | null;
+  canonicalPlanRevisionId?: string | null;
+  canonicalPlanRevision?: number;
   draft: {
     anchorText: string;
     description: string;
@@ -284,6 +289,7 @@ function CandidateList(args: {
 }
 
 export default function BrollPlanPanel(props: BrollPlanPanelProps) {
+  const [dispositions, setDispositions] = useState<VisualOpportunityDisposition[]>([]);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
   const lastPreviewLoadSignatureRef = useRef<string>("");
   const formFieldIdPrefix = useId();
@@ -291,6 +297,15 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
     () => props.beats.find((beat) => beat.id === props.selectedBeatId) ?? null,
     [props.beats, props.selectedBeatId],
   );
+  const currentDisposition = selectedBeat
+    ? dispositions.find((item) => item.kind === "broll" && item.opportunityId === selectedBeat.id) ?? null
+    : null;
+  useEffect(() => {
+    if (!props.workspaceId || !props.workpieceId || !props.canonicalV2) return;
+    void readVisualOpportunityDispositions(props.workspaceId, props.workpieceId).then((result) => {
+      if (result.ok) setDispositions(result.data);
+    });
+  }, [props.workspaceId, props.workpieceId, props.canonicalV2]);
   const beatCandidates = selectedBeat?.candidate_assets ?? [];
   const [previewStateById, setPreviewStateById] = useState<Record<string, CandidatePreviewState>>({});
   const [previewUrlById, setPreviewUrlById] = useState<Record<string, string>>({});
@@ -391,13 +406,16 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
   }, [beatCandidates, previewLoadSignature, props.workpieceId, selectedBeat]);
 
   if (props.canonicalV2) {
-    const readyCount = props.beats.filter((beat) => beat.fulfillment_state === "resolved" && beat.selected_asset_id).length;
+    const skippedIds = new Set(dispositions.filter((item) => item.kind === "broll" && item.state === "skipped").map((item) => item.opportunityId));
+    const readyCount = props.beats.filter((beat) => beat.fulfillment_state === "resolved" && beat.selected_asset_id && !skippedIds.has(beat.id)).length;
+    const skippedCount = props.beats.filter((beat) => skippedIds.has(beat.id)).length;
+    const unresolvedCount = props.beats.length - readyCount - skippedCount;
     return (
       <div className="hs-imap-panel hs-broll-v2" data-testid="broll-v2-panel">
         <div className="hs-imap-header hs-broll-v2-header">
           <div>
             <h4 className="hs-imap-title">B-roll</h4>
-            <p className="hs-imap-subtitle">{readyCount} of {props.beats.length} ready</p>
+            <p className="hs-imap-subtitle">{readyCount} fulfilled · {skippedCount} skipped · {unresolvedCount} unresolved</p>
           </div>
           {!props.beats.length ? <button type="button" className="hs-primary-btn" onClick={props.onGeneratePlan} disabled={props.disabled || props.saveState === "saving"}>Create B-roll plan</button> : null}
         </div>
@@ -407,8 +425,8 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
           <section className="hs-imap-list" aria-label="Canonical B-roll beats">
             {props.beats.length === 0 ? <div className="hs-imap-empty">No canonical B-roll plan exists yet.</div> : props.beats.map((beat, index) => (
               <button key={beat.id} type="button" className={`hs-imap-entry${beat.id === props.selectedBeatId ? " is-selected" : ""}`} onClick={() => props.onSelectBeat(beat.id)} disabled={props.disabled}>
-                <div className="hs-imap-entry-title"><span className="hs-broll-beat-mark">{beat.selected_asset_id ? "✓" : "•"}</span>{index + 1}. {beat.anchor_text}</div>
-                <div className="hs-imap-entry-meta">{beat.selected_asset_id ? "Selected clip" : `${beat.candidate_assets?.length ?? 0} candidate${(beat.candidate_assets?.length ?? 0) === 1 ? "" : "s"} ready`}</div>
+                <div className="hs-imap-entry-title"><span className="hs-broll-beat-mark">{skippedIds.has(beat.id) ? "−" : beat.selected_asset_id ? "✓" : "•"}</span>{index + 1}. {beat.anchor_text}</div>
+                <div className="hs-imap-entry-meta">{skippedIds.has(beat.id) ? "Skipped" : beat.selected_asset_id ? "Selected clip" : `${beat.candidate_assets?.length ?? 0} candidate${(beat.candidate_assets?.length ?? 0) === 1 ? "" : "s"} ready`}</div>
               </button>
             ))}
           </section>
@@ -423,6 +441,17 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
                 <blockquote className="hs-broll-script-focus">{selectedBeat.anchor_text}</blockquote>
                 {selectedBeat.description && selectedBeat.description !== selectedBeat.anchor_text ? <p className="hs-broll-context">{selectedBeat.description}</p> : null}
                 <div className="hs-broll-facts"><span>{selectedBeat.placement_hint.replaceAll("_", " ")}</span><span>{formatDuration(selectedBeat.suggested_duration_ms ?? 4000)}</span></div>
+                {props.workspaceId && props.workpieceId && props.canonicalPlanRevisionId && selectedBeat.canonical_revision_id ? <VisualOpportunityDispositionControl
+                  workspaceId={props.workspaceId}
+                  workpieceId={props.workpieceId}
+                  kind="broll"
+                  opportunityId={selectedBeat.id}
+                  opportunityRevisionIdentity={selectedBeat.canonical_revision_id}
+                  childPlanRevisionId={props.canonicalPlanRevisionId}
+                  childPlanRevision={props.canonicalPlanRevision ?? 0}
+                  current={currentDisposition}
+                  onChanged={setDispositions}
+                /> : null}
               </div>
               <section className="hs-imap-next-card hs-broll-section" aria-label="Canonical motion prompt">
                 <div className="hs-broll-section-heading"><div><div className="hs-imap-next-eyebrow">Motion direction</div><h5>What should this clip show?</h5></div><span className="hs-broll-revision">{props.promptState?.revision ? `Revision ${props.promptState.revision}` : "Not created"}</span></div>

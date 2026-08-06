@@ -420,8 +420,10 @@ import {
 } from "./hearth-shell/useHearthBrollController";
 import { buildHearthBrollDataVisualSpec } from "./hearth-shell/buildHearthBrollViewModel";
 import { useCanonicalBrollV2 } from "../hooks/visuals/useCanonicalBrollV2";
-import { generateOrResumeUnifiedVisualPlan, readLatestUnifiedVisualPlanOperation } from "../lib/hearth-unified-visual-plan-authority";
+import { useUnifiedVisualPlanRecovery } from "../hooks/visuals/useUnifiedVisualPlanRecovery";
+import { generateOrResumeUnifiedVisualPlan } from "../lib/hearth-unified-visual-plan-authority";
 import { readCanonicalReferenceClips, type ReferenceClipState } from "../lib/hearth-reference-clip-authority";
+import { readCanonicalReferenceVisuals, type ReferenceVisualState } from "../lib/hearth-reference-visual-authority";
 import {
   buildHearthReferenceClipsController,
   useHearthReferenceClipsBridgeCommands,
@@ -2108,6 +2110,7 @@ export default function HearthShell({
     ? `${chatMessages.length} message${chatMessages.length === 1 ? "" : "s"}`
     : "Ready";
   const [canonicalReferenceClipState, setCanonicalReferenceClipState] = useState<ReferenceClipState | null>(null);
+  const [canonicalReferenceVisualState, setCanonicalReferenceVisualState] = useState<ReferenceVisualState | null>(null);
   const refreshCanonicalReferenceClips = useCallback(async () => {
     if (!workspaceId || !workpieceId) { setCanonicalReferenceClipState(null); return false; }
     const result = await readCanonicalReferenceClips(workspaceId, workpieceId);
@@ -2116,6 +2119,15 @@ export default function HearthShell({
     return true;
   }, [workspaceId, workpieceId]);
   useEffect(() => { void refreshCanonicalReferenceClips(); }, [refreshCanonicalReferenceClips]);
+  const refreshCanonicalReferenceVisuals = useCallback(async () => {
+    if (!workspaceId || !workpieceId) { setCanonicalReferenceVisualState(null); return false; }
+    const result = await readCanonicalReferenceVisuals(workspaceId, workpieceId);
+    if (!result.ok) return false;
+    setCanonicalReferenceVisualState(result.data);
+    return true;
+  }, [workspaceId, workpieceId]);
+  useEffect(() => { void refreshCanonicalReferenceVisuals(); }, [refreshCanonicalReferenceVisuals]);
+  useEffect(() => { const listener=()=>void refreshCanonicalReferenceVisuals(); window.addEventListener("forge:canonical-reference-visuals-changed",listener); return()=>window.removeEventListener("forge:canonical-reference-visuals-changed",listener); }, [refreshCanonicalReferenceVisuals]);
   useEffect(() => {
     const listener = (event: Event) => {
       const detail = (event as CustomEvent<{ workspaceId?: string; workpieceId?: string; state?: ReferenceClipState | null }>).detail;
@@ -2129,12 +2141,13 @@ export default function HearthShell({
   const mediaWorkflowInput = {
     hasApprovedScript: Boolean(scriptApprovalState.hasApprovedScript && scriptApprovalState.approvedScriptVersion && scriptApprovalState.approvedScriptVersion > 0),
     visualPlan: {
-      status: imageMapEntries.length || brollBeats.length || canonicalReferenceClipState?.opportunities.length ? "activated" : null,
-      total: imageMapEntries.length + brollBeats.length + (canonicalReferenceClipState?.opportunities.length ?? 0),
+      status: imageMapEntries.length || brollBeats.length || canonicalReferenceClipState?.opportunities.length || canonicalReferenceVisualState?.opportunities.length ? "activated" : null,
+      total: imageMapEntries.length + brollBeats.length + (canonicalReferenceClipState?.opportunities.length ?? 0) + (canonicalReferenceVisualState?.opportunities.length ?? 0),
       images: imageMapEntries.length,
       broll: brollBeats.length,
       referenceClips: canonicalReferenceClipState?.opportunities.length ?? 0,
-      version: Math.max(canonicalBrollV2.state.planRevision, canonicalReferenceClipState?.planRevision ?? 0),
+      referenceVisuals: canonicalReferenceVisualState?.opportunities.length ?? 0,
+      version: Math.max(canonicalBrollV2.state.planRevision, canonicalReferenceClipState?.planRevision ?? 0, canonicalReferenceVisualState?.planRevision ?? 0),
     },
     thumbnails: {
       total: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "") ? canonicalThumbnailProgress.candidateCount : 0,
@@ -2150,6 +2163,12 @@ export default function HearthShell({
     referenceClips: {
       planned: canonicalReferenceClipState?.opportunities.length ?? 0,
       completed: canonicalReferenceClipState?.opportunities.filter((opportunity) => Boolean(opportunity.selectedRevisionId)).length ?? 0,
+      exists: Boolean(canonicalReferenceClipState?.planRevisionId),
+    },
+    referenceVisuals: {
+      planned: canonicalReferenceVisualState?.opportunities.length ?? 0,
+      completed: canonicalReferenceVisualState?.opportunities.filter((opportunity) => Boolean(opportunity.selectedCandidateRevisionId)).length ?? 0,
+      exists: Boolean(canonicalReferenceVisualState?.planRevisionId),
     },
     broll: { planned: brollBeats.length, completed: brollBeats.filter((beat) => beat.fulfillment_state === "resolved" && Boolean(beat.selected_asset_id)).length },
     upstreamChanged: visualPlanRevisionChanged,
@@ -3678,32 +3697,20 @@ export default function HearthShell({
     setReferenceClipMessage,
   });
 
-  useEffect(() => {
-    if (!workspaceId || !workpieceId || !hasApprovedScript) return;
-    let cancelled = false;
-    void (async () => {
-      const latest = await readLatestUnifiedVisualPlanOperation(workspaceId, workpieceId);
-      if (cancelled || !latest.ok || !latest.data || latest.data.state === "verified") return;
-      setIsMediaMapBusy(true);
-      setMediaMapSaveState("saving");
-      setMediaMapMessage(`Resuming canonical Visual Plan from ${String(latest.data.state ?? "the last committed stage").replaceAll("_", " ")}…`);
-      const resumed = await generateOrResumeUnifiedVisualPlan({ workspaceId, workpieceId });
-      if (cancelled) return;
-      if (!resumed.ok) {
-        setMediaMapSaveState("error");
-        setMediaMapSaveError(`${resumed.stage ? `${resumed.stage}: ` : ""}${resumed.error}`);
-      } else {
-        await Promise.all([refreshEpisodePackage(), canonicalBrollV2.refresh(), refreshCanonicalReferenceClips()]);
-        window.dispatchEvent(new CustomEvent("forge:canonical-reference-clips-changed", { detail: { workspaceId, workpieceId } }));
-        if (!cancelled) {
-          setMediaMapSaveState("saved");
-          setMediaMapMessage("Recovered and verified the canonical Visual Plan without another provider request.");
-        }
-      }
-      if (!cancelled) setIsMediaMapBusy(false);
-    })();
-    return () => { cancelled = true; };
-  }, [canonicalBrollV2.refresh, hasApprovedScript, refreshCanonicalReferenceClips, refreshEpisodePackage, setIsMediaMapBusy, setMediaMapMessage, setMediaMapSaveError, setMediaMapSaveState, workspaceId, workpieceId]);
+  const refreshUnifiedVisualPlanRecoveryReadback = useCallback(async () => {
+    await Promise.all([refreshEpisodePackage(), canonicalBrollV2.refresh(), refreshCanonicalReferenceClips(), refreshCanonicalReferenceVisuals()]);
+    window.dispatchEvent(new CustomEvent("forge:canonical-reference-clips-changed", { detail: { workspaceId, workpieceId } }));
+  }, [canonicalBrollV2.refresh, refreshCanonicalReferenceClips, refreshCanonicalReferenceVisuals, refreshEpisodePackage, workspaceId, workpieceId]);
+  useUnifiedVisualPlanRecovery({
+    workspaceId,
+    workpieceId,
+    hasApprovedScript,
+    setBusy: setIsMediaMapBusy,
+    setSaveState: setMediaMapSaveState,
+    setMessage: setMediaMapMessage,
+    setError: setMediaMapSaveError,
+    refresh: refreshUnifiedVisualPlanRecoveryReadback,
+  });
 
   const { refreshReadyScripts } = useHearthReadyCollectionLifecycle({
     workspaceId,
@@ -6201,6 +6208,9 @@ export default function HearthShell({
     });
     const brollSurfaceInput = {
       canonicalV2: true,
+      workspaceId,
+      canonicalPlanRevisionId: canonicalBrollV2.state.planRevisionId,
+      canonicalPlanRevision: canonicalBrollV2.state.planRevision,
       beats: brollBeats,
       selectedBeatId: selectedBrollBeatId,
       workpieceId,

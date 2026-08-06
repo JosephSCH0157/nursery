@@ -4,10 +4,11 @@ export type HearthMediaStageStatus = "unavailable" | "blocked" | "ready" | "in_p
 
 export type HearthMediaWorkflowInput = {
   hasApprovedScript: boolean;
-  visualPlan: { status: string | null; total: number; images: number; broll: number; referenceClips?: number; version: number };
+  visualPlan: { status: string | null; total: number; images: number; broll: number; referenceClips?: number; referenceVisuals?: number; version: number };
   thumbnails: { eligible: number; total: number; previewAssetPaths?: string[] };
   images: { planned: number; completed: number; canonicalCount: number; projectionLoaded: boolean };
-  referenceClips?: { planned: number; completed: number };
+  referenceClips?: { planned: number; completed: number; exists?: boolean };
+  referenceVisuals?: { planned: number; completed: number; exists?: boolean };
   broll: { planned: number; completed: number };
   upstreamChanged?: boolean;
 };
@@ -43,7 +44,11 @@ export function deriveHearthMediaWorkflow(input: HearthMediaWorkflowInput) {
     && input.images.completed === imagePlanExpected;
   const referenceClipsPlanned = input.referenceClips?.planned ?? input.visualPlan.referenceClips ?? 0;
   const referenceClipsCompleted = input.referenceClips?.completed ?? 0;
-  const referenceClipsComplete = imagesComplete && referenceClipsCompleted === referenceClipsPlanned;
+  const referenceVisualsPlanned = input.referenceVisuals?.planned ?? input.visualPlan.referenceVisuals ?? 0;
+  const referenceVisualsCompleted = input.referenceVisuals?.completed ?? 0;
+  const referenceMaterialExists = Boolean(input.referenceClips?.exists || input.referenceVisuals?.exists);
+  const referenceMaterialAccessible = visualComplete && referenceMaterialExists;
+  const referenceClipsComplete = referenceMaterialAccessible && referenceClipsCompleted === referenceClipsPlanned && referenceVisualsCompleted === referenceVisualsPlanned;
   const brollComplete = imagesComplete && input.broll.completed === input.broll.planned;
   const imagesUnavailable = !imageProjectionLoaded || imageSyncMismatch;
   const imageSummary = imagesUnavailable
@@ -52,12 +57,12 @@ export function deriveHearthMediaWorkflow(input: HearthMediaWorkflowInput) {
       : "Episode Images is temporarily unavailable."
     : `${input.images.completed} of ${imagePlanExpected} images ready`;
   const stages: HearthMediaWorkflowStage[] = [
-    { id: "visual_plan", label: "Visual Plan", status: !input.hasApprovedScript ? "blocked" : visualNeedsAttention ? "needs_attention" : visualComplete ? "complete" : "ready", summary: visualExists ? `${input.visualPlan.total} planned visuals · ${input.visualPlan.images} images · ${input.visualPlan.broll} B-roll moments · ${input.visualPlan.referenceClips ?? 0} Reference Clips` : "Create the episode’s visual direction", reviewAvailable: visualExists },
+    { id: "visual_plan", label: "Visual Plan", status: !input.hasApprovedScript ? "blocked" : visualNeedsAttention ? "needs_attention" : visualComplete ? "complete" : "ready", summary: visualExists ? `${input.visualPlan.total} planned visuals · ${input.visualPlan.images} images · ${input.visualPlan.referenceClips ?? 0} Source Clips · ${input.visualPlan.referenceVisuals ?? 0} Reference Visuals · ${input.visualPlan.broll} B-roll moments` : "Create the episode’s visual direction", reviewAvailable: visualExists },
     { id: "thumbnails", label: "Thumbnails", status: !visualComplete ? "blocked" : thumbnailsComplete ? "complete" : input.thumbnails.total > 0 ? "in_progress" : "ready", summary: thumbnailsComplete ? "Three thumbnail candidates are ready" : `${input.thumbnails.eligible} of 3 thumbnails ready`, reviewAvailable: input.thumbnails.total > 0 },
     { id: "images", label: "Images", status: !visualComplete || !thumbnailsComplete ? "blocked" : imagesComplete ? "complete" : imagesUnavailable ? "needs_attention" : input.images.completed > 0 ? "in_progress" : "ready", summary: imageSummary, reviewAvailable: imagePlanExpected > 0 },
-    { id: "reference_clips", label: "Reference Clips", status: !imagesComplete ? "blocked" : referenceClipsComplete ? "complete" : referenceClipsCompleted > 0 ? "in_progress" : "ready", summary: `${referenceClipsCompleted} of ${referenceClipsPlanned} resolved`, reviewAvailable: referenceClipsPlanned > 0 },
+    { id: "reference_clips", label: "Reference Material", status: !referenceMaterialAccessible ? "blocked" : referenceClipsComplete ? "complete" : referenceClipsCompleted + referenceVisualsCompleted > 0 ? "in_progress" : "ready", summary: `${referenceClipsCompleted} of ${referenceClipsPlanned} Source Clips · ${referenceVisualsCompleted} of ${referenceVisualsPlanned} Reference Visuals`, reviewAvailable: referenceMaterialExists },
     { id: "broll", label: "B-roll", status: !imagesComplete ? "blocked" : brollComplete ? "complete" : input.broll.completed > 0 ? "in_progress" : "ready", summary: `${input.broll.completed} of ${input.broll.planned} B-roll moments ready`, reviewAvailable: input.broll.planned > 0 },
-    { id: "review", label: "Review", status: referenceClipsComplete && brollComplete ? "ready" : "blocked", summary: referenceClipsComplete && brollComplete ? "Episode visuals are ready to review" : "Complete the media stages first", reviewAvailable: referenceClipsComplete && brollComplete },
+    { id: "review", label: "Review", status: imagesComplete && referenceClipsComplete && brollComplete ? "ready" : "blocked", summary: imagesComplete && referenceClipsComplete && brollComplete ? "Episode visuals are ready to review" : "Complete the media stages first", reviewAvailable: imagesComplete && referenceClipsComplete && brollComplete },
   ];
   const activeStage = stages.find((stage) => !isComplete(stage) && stage.status !== "blocked")?.id ?? "review";
   return { stages, activeStage, overallStatus: activeStage === "review" ? "ready_for_review" as const : "in_progress" as const };
