@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { OpenAiUnifiedVisualPlanProvider, validateUnifiedVisualPlan } from "../dist/providers/unified-visual-plan-provider.js";
+import { normalizeUnifiedVisualPlanContextAnchors, OpenAiUnifiedVisualPlanProvider, validateUnifiedVisualPlan } from "../dist/providers/unified-visual-plan-provider.js";
 
 const migration=await readFile(new URL("../../../supabase/migrations/20260804200000_tongs_unresolved_reference_and_unified_visual_plan.sql",import.meta.url),"utf8");
 const fourChildMigration=await readFile(new URL("../../../supabase/migrations/20260805130000_tongs_unified_visual_plan_reference_visual_child.sql",import.meta.url),"utf8");
@@ -61,4 +61,20 @@ test("Unified provider submits once and validates exact script-relative mixed ou
 test("every visual category may be intentionally empty",()=>{
   assert.deepEqual(validateUnifiedVisualPlan({images:[],broll:[],reference_clips:[],reference_visuals:[]},"Approved script."),[]);
   assert.doesNotMatch(provider,/images:required|broll:required|reference_clips:required|reference_visuals:required/);
+});
+
+test("stored provider output recovers a unique exact script span across whitespace differences",()=>{
+  const script="Florida citrus didn’t start small.\nCommercial production took off after the Civil War.\nRailroads connected the state to northern markets.";
+  const plan={images:[],broll:[],reference_clips:[],reference_visuals:[{context_before:"",context_focus:"Florida citrus didn’t start small.\nCommercial production took off after the Civil War.\n\nRailroads connected the state to northern markets.",context_after:"",visual_subtype:"timeline",editorial_reason:"Explain the history",audience_understanding:"See the sequence",required_evidence:"Exact historical dates",required_source_type:"State archive",desired_material:"Sourced timeline",search_terms:["Florida citrus history"],placement_hint:"During the history passage",duration_target_ms:5000,creator_direction:"Use exact evidence"}]};
+  normalizeUnifiedVisualPlanContextAnchors(plan,script);
+  assert.equal(plan.reference_visuals[0].context_focus,script);
+  assert.deepEqual(validateUnifiedVisualPlan(plan,script),[]);
+});
+
+test("stored provider output chooses a unique exact sentence when script structure separates its prose",()=>{
+  const script="[s1]\nFlorida citrus didn’t start small.\nCommercial production took off after the Civil War.\n[/s1]\n\n[s1]\nRailroads connected the state to northern markets.\n[/s1]";
+  const plan={images:[],broll:[],reference_clips:[],reference_visuals:[{context_before:"",context_focus:"Florida citrus didn’t start small.\nCommercial production took off after the Civil War.\n\nRailroads connected the state to northern markets.",context_after:"",visual_subtype:"timeline",editorial_reason:"Explain the history",audience_understanding:"See the sequence",required_evidence:"Exact historical dates",required_source_type:"State archive",desired_material:"Sourced timeline",search_terms:["Florida citrus history"],placement_hint:"During the history passage",duration_target_ms:5000,creator_direction:"Use exact evidence"}]};
+  normalizeUnifiedVisualPlanContextAnchors(plan,script);
+  assert.equal(plan.reference_visuals[0].context_focus,"Commercial production took off after the Civil War.");
+  assert.deepEqual(validateUnifiedVisualPlan(plan,script),[]);
 });

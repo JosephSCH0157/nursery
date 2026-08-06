@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { markEntriesProvenanceUnknown, repairEntriesAgainstApprovedScript, validateExactAnchorAgainstApprovedScript } from "../dist/image-map-anchor-authority.js";
+import { assessEntriesAgainstApprovedScript, markEntriesProvenanceUnknown, repairEntriesAgainstApprovedScript, validateExactAnchorAgainstApprovedScript } from "../dist/image-map-anchor-authority.js";
 
 const entry = (span) => ({ id: "moment-1", anchor: span, script_anchor: { section_id: "s1", paragraph_id: "s1:p1", paragraph_order: 1, sentence_start: 1, sentence_end: 1, char_start: 0, char_end: span.length, span_text: span }, candidate_assets: [{ asset_id: "asset-1" }], selected_asset_id: "asset-1" });
 
@@ -41,4 +41,32 @@ test("manual resolution accepts only exact immutable-script coordinates and byte
   const exact = validateExactAnchorAgainstApprovedScript(script, { paragraph_id: "s1:p1", char_start: 0, char_end: 20, sentence_start: 1, sentence_end: 1, span_text: "The orange vanished." });
   assert.equal(exact?.span_text, "The orange vanished.");
   assert.equal(validateExactAnchorAgainstApprovedScript(script, { paragraph_id: "s1:p1", char_start: 0, char_end: 20, sentence_start: 1, sentence_end: 1, span_text: "the orange vanished." }), null);
+});
+
+test("readback distrusts invalid stored coordinates and exposes a deterministic repair", () => {
+  const invalid = {
+    ...entry("And today, you can still see the buildings."),
+    script_anchor: {
+      section_id: "visual-1", paragraph_id: "visual-1", paragraph_order: 1,
+      sentence_start: 1, sentence_end: 1, char_start: 998, char_end: 1041,
+      span_text: "And today, you can still see the buildings.",
+    },
+    canonical_anchor_assessment: { state: "current" },
+  };
+  const [result] = assessEntriesAgainstApprovedScript([invalid], "Before.\n\nAnd today, you can still see the buildings.\n\nAfter.");
+  assert.equal(result.canonical_anchor_assessment.state, "stale");
+  assert.equal(result.canonical_anchor_assessment.reason, "anchor_out_of_bounds");
+  assert.equal(result.canonical_anchor_assessment.evidence.repair_available, true);
+  assert.equal(result.canonical_anchor_assessment.exact_anchor.paragraph_id, "s1:p2");
+  assert.equal(result.selected_asset_id, "asset-1");
+  assert.deepEqual(result.candidate_assets, [{ asset_id: "asset-1" }]);
+});
+
+test("readback keeps a structurally valid retained anchor current", () => {
+  const script = "Before.\n\nIt was everywhere.\n\nAfter.";
+  const [repaired] = repairEntriesAgainstApprovedScript([entry("It was everywhere.")], script);
+  const [result] = assessEntriesAgainstApprovedScript([repaired], script);
+  assert.equal(result.canonical_anchor_assessment.state, "current");
+  assert.equal(result.canonical_anchor_assessment.reason, null);
+  assert.equal(result.script_anchor.paragraph_id, "s1:p2");
 });

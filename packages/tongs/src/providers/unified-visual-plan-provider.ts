@@ -27,4 +27,25 @@ export class OpenAiUnifiedVisualPlanProvider implements UnifiedVisualPlanProvide
   }
 }
 
+function escapeRegExp(value:string):string{return value.replace(/[.*+?^${}()|[\]\\]/g,"\\$&");}
+function exactScriptSpan(scriptText:string,candidate:string):string|null{
+  const trimmed=candidate.trim();
+  if(!trimmed)return null;
+  if(scriptText.includes(trimmed))return trimmed;
+  const tokens=trimmed.split(/\s+/).filter(Boolean);
+  if(!tokens.length)return null;
+  const matcher=new RegExp(tokens.map(escapeRegExp).join("\\s+"),"g");
+  const matches=[...scriptText.matchAll(matcher)];
+  if(matches.length===1&&typeof matches[0].index==="number")return scriptText.slice(matches[0].index,matches[0].index+matches[0][0].length);
+  const exactSegments=trimmed.split(/\n+|(?<=[.!?])\s+/).map((part)=>part.trim()).filter((part)=>part.length>=12&&scriptText.indexOf(part)>=0&&scriptText.indexOf(part)===scriptText.lastIndexOf(part)).sort((left,right)=>right.length-left.length);
+  return exactSegments[0]??null;
+}
+
+export function normalizeUnifiedVisualPlanContextAnchors(plan:UnifiedVisualPlanResult,scriptText:string):UnifiedVisualPlanResult{
+  for(const kind of["images","broll","reference_clips","reference_visuals"]as const){
+    for(const item of plan[kind]??[]){const exact=exactScriptSpan(scriptText,String(item.context_focus??""));if(exact)item.context_focus=exact;}
+  }
+  return plan;
+}
+
 export function validateUnifiedVisualPlan(plan:UnifiedVisualPlanResult,scriptText:string):string[]{const errors:string[]=[];for(const kind of["images","broll","reference_clips","reference_visuals"]as const){const items=plan[kind];if(!Array.isArray(items)){errors.push(`${kind}:array_required`);continue;}for(const[index,item]of items.entries()){if(!item||typeof item!=="object"){errors.push(`${kind}[${index}]:object_required`);continue;}const focus=String((item as{context_focus?:unknown}).context_focus??"").trim();if(!focus||!scriptText.includes(focus))errors.push(`${kind}[${index}]:context_focus_not_exact`);for(const[field,value]of Object.entries(item))if(field!=="context_before"&&field!=="context_after"&&typeof value==="string"&&!value.trim())errors.push(`${kind}[${index}]:${field}_required`);}}for(const kind of["reference_clips","reference_visuals"]as const)for(const[index,item]of(plan[kind]??[]).entries())if(!item.search_terms?.length||item.search_terms.some((term)=>!term.trim()))errors.push(`${kind}[${index}]:search_terms_required`);return[...new Set(errors)];}

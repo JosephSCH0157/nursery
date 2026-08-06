@@ -103,6 +103,30 @@ export function repairEntriesAgainstApprovedScript(entries: Array<Record<string,
   });
 }
 
+export function assessEntriesAgainstApprovedScript(entries: Array<Record<string, unknown>>, scriptText: string) {
+  return entries.map((entry) => {
+    if (entry.anchor_scope === "global" || entry.beat_anchor) {
+      return { ...entry, canonical_anchor_assessment: { state: "current", reason: null, exact_anchor: entry.script_anchor ?? null, evidence: { match_count: 1, assessed_contract_version: "forge.image-map-anchor.v1" } } };
+    }
+    const storedAnchor = entry.script_anchor && typeof entry.script_anchor === "object"
+      ? entry.script_anchor as Record<string, unknown>
+      : null;
+    const exactAnchor = storedAnchor ? validateExactAnchorAgainstApprovedScript(scriptText, storedAnchor) : null;
+    if (exactAnchor) {
+      return { ...entry, script_anchor: exactAnchor, canonical_anchor_assessment: { state: "current", reason: null, exact_anchor: exactAnchor, evidence: { match_count: 1, assessed_contract_version: "forge.image-map-anchor.v1" } } };
+    }
+    const [repairCandidate] = repairEntriesAgainstApprovedScript([entry], scriptText);
+    const candidateAssessment = repairCandidate?.canonical_anchor_assessment as Record<string, unknown> | undefined;
+    if (candidateAssessment?.state === "current") {
+      const repairedAnchor = repairCandidate && typeof repairCandidate === "object" && "script_anchor" in repairCandidate
+        ? repairCandidate.script_anchor
+        : null;
+      return { ...entry, canonical_anchor_assessment: { state: "stale", reason: "anchor_out_of_bounds", exact_anchor: repairedAnchor, evidence: { match_count: 1, assessed_contract_version: "forge.image-map-anchor.v1", repair_available: true } } };
+    }
+    return { ...entry, canonical_anchor_assessment: candidateAssessment ?? { state: "unresolved", reason: "exact_text_not_found", exact_anchor: null, evidence: { match_count: 0, assessed_contract_version: "forge.image-map-anchor.v1" } } };
+  });
+}
+
 export function markEntriesProvenanceUnknown(entries: Array<Record<string, unknown>>) {
   return entries.map((entry) => ({ ...entry, canonical_anchor_assessment: { state: "provenance_unknown", reason: "source_provenance_unknown", exact_anchor: null, evidence: { match_count: null, assessed_contract_version: "forge.image-map-anchor.v1" } } }));
 }
