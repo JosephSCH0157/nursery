@@ -6712,6 +6712,8 @@ export type Database = {
           created_at: string
           created_by: string
           creator_direction: string | null
+          creator_request_json: Json
+          derived_from_opportunity_revision_id: string | null
           desired_material: string
           document_locator_json: Json
           duration_target_ms: number
@@ -6720,6 +6722,7 @@ export type Database = {
           immutable_revision_hash: string
           media_range_json: Json
           opportunity_id: string
+          opportunity_origin: string
           placement_hint: string
           previous_revision: number | null
           previous_revision_id: string | null
@@ -6747,6 +6750,8 @@ export type Database = {
           created_at?: string
           created_by: string
           creator_direction?: string | null
+          creator_request_json?: Json
+          derived_from_opportunity_revision_id?: string | null
           desired_material: string
           document_locator_json?: Json
           duration_target_ms: number
@@ -6755,6 +6760,7 @@ export type Database = {
           immutable_revision_hash: string
           media_range_json?: Json
           opportunity_id: string
+          opportunity_origin?: string
           placement_hint: string
           previous_revision?: number | null
           previous_revision_id?: string | null
@@ -6782,6 +6788,8 @@ export type Database = {
           created_at?: string
           created_by?: string
           creator_direction?: string | null
+          creator_request_json?: Json
+          derived_from_opportunity_revision_id?: string | null
           desired_material?: string
           document_locator_json?: Json
           duration_target_ms?: number
@@ -6790,6 +6798,7 @@ export type Database = {
           immutable_revision_hash?: string
           media_range_json?: Json
           opportunity_id?: string
+          opportunity_origin?: string
           placement_hint?: string
           previous_revision?: number | null
           previous_revision_id?: string | null
@@ -6850,6 +6859,13 @@ export type Database = {
             columns: ["workpiece_source_link_revision_id"]
             isOneToOne: false
             referencedRelation: "workpiece_source_link_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "reference_visual_opportunity_lineage_fkey"
+            columns: ["derived_from_opportunity_revision_id"]
+            isOneToOne: false
+            referencedRelation: "reference_visual_opportunity_revisions"
             referencedColumns: ["id"]
           },
           {
@@ -9247,6 +9263,7 @@ export type Database = {
           broll_plan_empty: boolean | null
           broll_plan_revision: number | null
           broll_plan_revision_id: string | null
+          child_membership_evidence_json: Json
           contract_version: string
           created_at: string
           created_by: string
@@ -9286,6 +9303,7 @@ export type Database = {
           broll_plan_empty?: boolean | null
           broll_plan_revision?: number | null
           broll_plan_revision_id?: string | null
+          child_membership_evidence_json?: Json
           contract_version?: string
           created_at?: string
           created_by: string
@@ -9325,6 +9343,7 @@ export type Database = {
           broll_plan_empty?: boolean | null
           broll_plan_revision?: number | null
           broll_plan_revision_id?: string | null
+          child_membership_evidence_json?: Json
           contract_version?: string
           created_at?: string
           created_by?: string
@@ -11096,6 +11115,34 @@ export type Database = {
         }
         Returns: Json
       }
+      append_reference_visual_opportunity: {
+        Args: {
+          p_actor_id: string
+          p_citation_anchor_json: Json
+          p_context_after: string
+          p_context_before: string
+          p_context_focus: string
+          p_creator_direction: string
+          p_creator_request_json: Json
+          p_derived_from_opportunity_revision_id: string
+          p_desired_material: string
+          p_duration_target_ms: number
+          p_editorial_reason: string
+          p_expected_plan_revision: number
+          p_expected_plan_revision_id: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_placement_hint: string
+          p_script_approval_id: string
+          p_script_approval_revision: number
+          p_script_content_hash: string
+          p_search_terms: Json
+          p_visual_subtype: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       append_thumbnail_launch_experiment: {
         Args: {
           p_content_hash: string
@@ -12832,10 +12879,19 @@ export type Database = {
         Args: { p_operation_id: string; p_workspace_id: string }
         Returns: Json
       }
-      read_unified_visual_plan_operation: {
-        Args: { p_operation_id: string; p_workspace_id: string }
-        Returns: Json
-      }
+      read_unified_visual_plan_operation:
+        | {
+            Args: { p_operation_id: string; p_workspace_id: string }
+            Returns: Json
+          }
+        | {
+            Args: {
+              p_operation_id: string
+              p_workpiece_id: string
+              p_workspace_id: string
+            }
+            Returns: Json
+          }
       read_workpiece_sources: {
         Args: { p_workpiece_id: string; p_workspace_id: string }
         Returns: Json
@@ -13151,6 +13207,61 @@ export type Database = {
         Args: {
           p_operation_fingerprint: string
           p_operation_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      retain_unified_visual_plan_selections: {
+        Args: {
+          p_child_kind: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_provider_plan_revision_id: string
+        }
+        Returns: Json
+      }
+      retain_unified_reference_clip_selections: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_provider_plan_revision_id: string
+        }
+        Returns: Json
+      }
+      adopt_creator_amended_reference_visual_plan: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
+        }
+        Returns: Json
+      }
+      adopt_repaired_image_map_for_unified_operation: {
+        Args: {
+          p_operation_fingerprint: string
+          p_operation_id: string
+        }
+        Returns: Json
+      }
+      read_visual_opportunity_dispositions: {
+        Args: { p_workspace_id: string; p_workpiece_id: string }
+        Returns: Json
+      }
+      set_visual_opportunity_disposition: {
+        Args: {
+          p_actor_id: string
+          p_child_kind: string
+          p_child_plan_revision: number
+          p_child_plan_revision_id: string
+          p_creator_note: string | null
+          p_disposition: string
+          p_expected_disposition_revision: number
+          p_expected_disposition_revision_id: string | null
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_opportunity_id: string
+          p_opportunity_revision_identity: string
+          p_skip_reason: string | null
           p_workpiece_id: string
           p_workspace_id: string
         }
