@@ -30,6 +30,13 @@ test("Reference Visual workflow separates factual Source use from third-party me
  assert.match(panel,/Forge records your declaration; it does not determine fair use/);
  assert.match(panel,/sourceUse\.classification!=="facts_data_only"/);
  assert.match(authority,/rights_declaration_revision_id:factsOnly\?null/);
+ assert.match(panel,/Review Source/);
+ assert.match(panel,/Every proposal remains advisory until you confirm it/);
+ assert.match(authority,/hearth_proposed_source_metadata/);
+ assert.match(authority,/title\.match\(\/\\b\(\\d\+/);
+ assert.doesNotMatch(authority,/\\s\*%\\b/);
+ assert.match(panel,/Canonical provenance/);
+ assert.match(panel,/source_use_revision_id/);
 });
 
 test("linked Reference Material Sources can be changed or removed canonically",()=>{
