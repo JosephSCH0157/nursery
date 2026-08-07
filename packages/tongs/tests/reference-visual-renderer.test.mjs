@@ -24,3 +24,23 @@ test("all V1 deterministic renderer contracts are available and maps remain unsu
     assert.equal(result.rendererName, `forge_${visual_subtype}_v1`);
   }
 });
+
+test("facts-only stat cards preserve approximation and omit an empty public attribution", async () => {
+  const result = await renderCanonicalReferenceVisual(
+    { ...recipe, attribution_text: "", renderer_contract_version: "forge.reference-visual-renderer.v2" },
+    [{ id: "e90", numeric_value: 90, unit: "percent", label: "Florida citrus production decline", raw_excerpt: "Production declined roughly 90% over two decades." }],
+  );
+  assert.match(result.canonicalSvg, />~90%<\/text>/);
+  assert.doesNotMatch(result.canonicalSvg, /Source:/);
+  assert.match(result.canonicalSvg, /Florida citrus production decline/);
+  assert.equal(result.rendererName, "forge_stat_card_v2");
+  assert.equal(result.rendererVersion, "2");
+});
+
+test("renderer V1 remains byte-stable and keeps its historical attribution behavior", async () => {
+  const result = await renderCanonicalReferenceVisual({ ...recipe, attribution_text: "" }, evidence);
+  assert.equal(result.rendererName, "forge_stat_card_v1");
+  assert.equal(result.rendererVersion, "1");
+  assert.match(result.canonicalSvg, /Source:/);
+  assert.doesNotMatch(result.canonicalSvg, />~72%<\/text>/);
+});

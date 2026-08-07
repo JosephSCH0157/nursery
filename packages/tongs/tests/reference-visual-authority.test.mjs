@@ -134,6 +134,9 @@ test("Tongs reconstructs canonical readback before deterministic rendering and c
   assert.ok(method.indexOf('rpc("begin_reference_visual_render_v2"') < method.indexOf("brollAcquisitionRuntime.renderReferenceVisual"));
   assert.ok(method.indexOf("downloadStorageObject") < method.indexOf('rpc("commit_reference_visual_render"'));
   assert.match(method, /canonical_svg_hash/);
+  assert.match(method, /renderer_contract_version/);
+  assert.match(method, /forge\.reference-visual-renderer\.v2/);
+  assert.match(method, /forge_\$\{subtype\}_v\$\{rendererVersion\}/);
   assert.match(service, /reference-visuals"&&parts\[4\]==="render"/);
 });
 

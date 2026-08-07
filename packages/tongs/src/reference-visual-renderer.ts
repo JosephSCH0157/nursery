@@ -17,11 +17,12 @@ export type ReferenceVisualRecipe = {
   attribution_text: string;
   accessibility_text: string;
   recipe_json: Record<string, unknown>;
+  renderer_contract_version?: string | null;
 };
 
 export type ReferenceVisualRender = {
   rendererName: string;
-  rendererVersion: "1";
+  rendererVersion: "1" | "2";
   width: number;
   height: number;
   mimeType: "image/png";
@@ -51,7 +52,7 @@ function textLines(lines: string[], x: number, y: number, size: number, gap = 1.
   return lines.map((line, index) => `<text x="${x}" y="${y + index * size * gap}" font-size="${size}" font-weight="${weight}" fill="#f5f7fb">${escapeXml(line)}</text>`).join("");
 }
 
-function renderBody(recipe: ReferenceVisualRecipe, evidence: ReferenceVisualEvidence[]): string {
+function renderBodyV1(recipe: ReferenceVisualRecipe, evidence: ReferenceVisualEvidence[]): string {
   const first = evidence[0];
   if (recipe.visual_subtype === "stat_card") {
     const value = first?.numeric_value == null ? "—" : `${first.numeric_value}${first.unit === "percent" ? "%" : first.unit ? ` ${first.unit}` : ""}`;
@@ -75,10 +76,22 @@ function renderBody(recipe: ReferenceVisualRecipe, evidence: ReferenceVisualEvid
   }).join("");
 }
 
+function renderBodyV2(recipe: ReferenceVisualRecipe, evidence: ReferenceVisualEvidence[]): string {
+  if (recipe.visual_subtype !== "stat_card") return renderBodyV1(recipe, evidence);
+  const first = evidence[0];
+  const approximate = /\b(?:roughly|about|approximately|nearly|around)\b|~/i.test(first?.raw_excerpt ?? "");
+  const value = first?.numeric_value == null ? "—" : `${approximate ? "~" : ""}${first.numeric_value}${first.unit === "percent" ? "%" : first.unit ? ` ${first.unit}` : ""}`;
+  return `<text x="120" y="610" font-size="248" font-weight="850" letter-spacing="-8" fill="#73cbff">${escapeXml(value)}</text><rect x="124" y="670" width="260" height="8" rx="4" fill="#f4a900"/>${textLines(wrap(first?.label ?? "Confirmed statistic", 48), 128, 760, 48, 1.18, 650)}`;
+}
+
 export async function renderCanonicalReferenceVisual(recipe: ReferenceVisualRecipe, evidence: ReferenceVisualEvidence[]): Promise<ReferenceVisualRender> {
   if (!evidence.length) throw new Error("Reference Visual rendering requires confirmed canonical evidence.");
-  const rendererName = `forge_${recipe.visual_subtype}_v1`;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}"><rect width="1920" height="1080" fill="#0b1220"/><rect x="70" y="70" width="1780" height="940" rx="28" fill="#142238"/><g font-family="Inter,Arial,sans-serif">${textLines(wrap(recipe.title, 58), 120, 175, 66, 1.15, 750)}${recipe.subtitle ? textLines(wrap(recipe.subtitle, 78), 124, 250, 34, 1.15, 450) : ""}${renderBody(recipe, evidence)}<text x="120" y="990" font-size="28" fill="#9fb2c9">Source: ${escapeXml(recipe.attribution_text)}</text></g></svg>`;
+  const v2 = recipe.renderer_contract_version === "forge.reference-visual-renderer.v2";
+  const rendererName = `forge_${recipe.visual_subtype}_${v2 ? "v2" : "v1"}`;
+  const attribution = recipe.attribution_text.trim() ? `<text x="120" y="990" font-size="28" fill="#9fb2c9">Source: ${escapeXml(recipe.attribution_text)}</text>` : "";
+  const svg = v2
+    ? `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}"><rect width="1920" height="1080" fill="#08111f"/><rect x="70" y="70" width="1780" height="940" rx="32" fill="#142238"/><rect x="70" y="70" width="18" height="940" rx="9" fill="#f4a900"/><g font-family="Inter,Arial,sans-serif">${textLines(wrap(recipe.title, 58), 128, 175, 66, 1.15, 750)}${recipe.subtitle ? textLines(wrap(recipe.subtitle, 78), 132, 265, 34, 1.15, 450) : ""}${renderBodyV2(recipe, evidence)}${attribution}</g></svg>`
+    : `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}"><rect width="1920" height="1080" fill="#0b1220"/><rect x="70" y="70" width="1780" height="940" rx="28" fill="#142238"/><g font-family="Inter,Arial,sans-serif">${textLines(wrap(recipe.title, 58), 120, 175, 66, 1.15, 750)}${recipe.subtitle ? textLines(wrap(recipe.subtitle, 78), 124, 250, 34, 1.15, 450) : ""}${renderBodyV1(recipe, evidence)}<text x="120" y="990" font-size="28" fill="#9fb2c9">Source: ${escapeXml(recipe.attribution_text)}</text></g></svg>`;
   const pngBytes = await sharp(Buffer.from(svg)).png({ compressionLevel: 9, adaptiveFiltering: false }).toBuffer();
-  return { rendererName, rendererVersion: "1", width: WIDTH, height: HEIGHT, mimeType: "image/png", canonicalSvg: svg, pngBytes };
+  return { rendererName, rendererVersion: v2 ? "2" : "1", width: WIDTH, height: HEIGHT, mimeType: "image/png", canonicalSvg: svg, pngBytes };
 }

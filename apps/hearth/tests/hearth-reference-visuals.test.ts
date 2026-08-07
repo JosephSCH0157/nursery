@@ -26,17 +26,26 @@ test("Reference Visual workflow separates factual Source use from third-party me
  for(const rpc of ["fulfill_reference_visual_opportunity","commit_reference_visual_evidence","commit_reference_visual_source_use","commit_reference_visual_recipe","commit_reference_visual_rights_declaration","commit_reference_visual_sequence","select_reference_visual_candidate"]){assert.ok(authority.includes(rpc),`missing ${rpc}`);}
  assert.match(authority,/reference-visuals\/render/);
  assert.match(authority,/reference-visuals\/acquire/);
- for(const copy of ["Why this visual belongs here","Confirm canonical evidence","How this Source is used","Using facts/data only","Rights and permissions","Save canonical recipe","Create Reference Visual","Verify and add archival still","Build canonical sequence","Use this visual"]){assert.ok(panel.includes(copy),`missing ${copy}`);}
+ for(const copy of ["Why this visual belongs here","Confirm evidence","How this Source is used","Using facts/data only","Rights and permissions","Prepare visual design","Generate visual","Verify and add archival still","Assemble archival sequence","Use this visual"]){assert.ok(panel.includes(copy),`missing ${copy}`);}
  assert.match(panel,/Forge records your declaration; it does not determine fair use/);
  assert.match(panel,/sourceUse\.classification!=="facts_data_only"/);
  assert.match(authority,/rights_declaration_revision_id:factsOnly\?null/);
- assert.match(panel,/Review Source/);
- assert.match(panel,/Every proposal remains advisory until you confirm it/);
+ assert.match(panel,/Find supporting evidence/);
+ assert.match(panel,/You decide whether the Source supports them/);
  assert.match(authority,/hearth_proposed_source_metadata/);
  assert.match(authority,/title\.match\(\/\\b\(\\d\+/);
  assert.doesNotMatch(authority,/\\s\*%\\b/);
  assert.match(panel,/Canonical provenance/);
  assert.match(panel,/source_use_revision_id/);
+});
+
+test("Hearth leads creators from confirmed evidence to a canonical finished visual",()=>{
+ for(const copy of ["Find supporting evidence","Confirm evidence","Prepare visual design","Generate visual","Adjust design","Use this visual","no AI image credits"]){assert.ok(panel.includes(copy),`missing ${copy}`);}
+ assert.match(authority,/proposeReferenceVisualRecipe/);
+ assert.match(authority,/source_evidence_revision_ids/);
+ assert.match(authority,/target_duration_ms/);
+ assert.match(authority,/reference-visuals\/render/);
+ assert.doesNotMatch(authority,/imageToVideo|textToImage|generateImage|debit.*credit/i);
 });
 
 test("linked Reference Material Sources can be changed or removed canonically",()=>{
