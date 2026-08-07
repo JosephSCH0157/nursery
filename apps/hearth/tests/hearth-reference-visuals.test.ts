@@ -4,6 +4,8 @@ import test from "node:test";
 
 const authority=readFileSync(new URL("../src/lib/hearth-reference-visual-authority.ts",import.meta.url),"utf8");
 const panel=readFileSync(new URL("../src/components/visuals/CanonicalReferenceVisualPanel.tsx",import.meta.url),"utf8");
+const referenceClipAuthority=readFileSync(new URL("../src/lib/hearth-reference-clip-authority.ts",import.meta.url),"utf8");
+const referenceClipPanel=readFileSync(new URL("../src/components/visuals/CanonicalReferenceClipPanel.tsx",import.meta.url),"utf8");
 const shell=readFileSync(new URL("../src/components/visuals/CanonicalReferenceMaterialPanel.tsx",import.meta.url),"utf8");
 const unified=readFileSync(new URL("../src/lib/hearth-unified-visual-plan-authority.ts",import.meta.url),"utf8");
 
@@ -28,6 +30,17 @@ test("Reference Visual workflow separates factual Source use from third-party me
  assert.match(panel,/Forge records your declaration; it does not determine fair use/);
  assert.match(panel,/sourceUse\.classification!=="facts_data_only"/);
  assert.match(authority,/rights_declaration_revision_id:factsOnly\?null/);
+});
+
+test("linked Reference Material Sources can be changed or removed canonically",()=>{
+ assert.match(authority,/reassign_reference_visual_source/);
+ assert.match(authority,/removeReferenceVisualSource/);
+ assert.match(referenceClipAuthority,/reassign_reference_clip_source/);
+ assert.match(referenceClipAuthority,/removeReferenceClipSource/);
+ assert.match(panel,/Change Source/);
+ assert.match(panel,/Remove Source/);
+ assert.match(referenceClipPanel,/Change Source/);
+ assert.match(referenceClipPanel,/Remove Source/);
 });
 
 test("creator-added Reference Visual opportunities use the canonical amendment route",()=>{
