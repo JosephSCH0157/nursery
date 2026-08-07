@@ -2,7 +2,15 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-const sql = await readFile(new URL("../../../supabase/migrations/20260805120000_tongs_reference_visual_authority.sql", import.meta.url), "utf8");
+const migrationSql = [
+  "20260805120000_tongs_reference_visual_authority.sql",
+  "20260806132000_tongs_reference_visual_source_use_authority.sql",
+  "20260806133000_tongs_reference_visual_recipe_ambiguity.sql",
+  "20260806134000_tongs_restore_reference_visual_asset_kind.sql",
+  "20260806135000_tongs_restore_reference_visual_selection_rpc.sql",
+  "20260806136000_tongs_restore_reference_visual_selection_errors.sql",
+].map(async (migration) => readFile(new URL(`../../../supabase/migrations/${migration}`, import.meta.url), "utf8"));
+const sql = (await Promise.all(migrationSql)).join("\n");
 const service = await readFile(new URL("../src/workpiece-commit-api.ts", import.meta.url), "utf8");
 
 test("Reference Visual authority separates opportunities, evidence, recipes, candidates, and sequences", () => {
@@ -80,15 +88,31 @@ test("rights are creator declarations, unresolved use is not release-ready, and 
   assert.match(sql, /fair_use_asserted_by_creator is never a Forge legal determination/);
 });
 
-test("the first milestone does not extend the unified planner, Hearth, or Hammer", () => {
+test("facts-only Source use is immutable, creator-confirmed, and does not require media rights",()=>{
+  for(const table of ["reference_visual_source_use_revisions","reference_visual_source_use_sequences"])assert.match(sql,new RegExp(`create table tongs\\.${table}`));
+  for(const classification of ["facts_data_only","quoted_or_excerpted_text","third_party_media","mixed"])assert.match(sql,new RegExp(`'${classification}'`));
+  assert.match(sql,/source_use_incompatible_with_treatment/);
+  assert.match(sql,/begin_reference_visual_render_v2/);
+  assert.match(sql,/rights_not_applicable/);
+  assert.match(sql,/candidate_not_release_ready/);
+});
+
+test("the base authority does not mutate the unified planner contract", () => {
   assert.doesNotMatch(sql, /alter table tongs\.unified_visual_plan_operations/);
-  assert.doesNotMatch(sql, /read_reference_visual_package/);
+});
+
+test("Hammer projection preserves exact Source use, evidence, recipe, rights, and asset provenance",()=>{
+  assert.match(sql,/read_reference_visual_visual_package/);
+  assert.match(sql,/'source_use',to_jsonb\(u\)/);
+  assert.match(sql,/'evidence'.*reference_visual_evidence_revisions/s);
+  assert.match(service,/reference_visual_evidence/);
+  assert.match(service,/rpc\("read_reference_visual_visual_package"/);
 });
 
 test("Tongs reconstructs canonical readback before deterministic rendering and commits only after storage readback", () => {
   const method = service.slice(service.indexOf("async renderReferenceVisual"), service.indexOf("private async referenceClipRpc"));
-  assert.ok(method.indexOf('rpc("read_current_reference_visual_plan"') < method.indexOf('rpc("begin_reference_visual_render"'));
-  assert.ok(method.indexOf('rpc("begin_reference_visual_render"') < method.indexOf("brollAcquisitionRuntime.renderReferenceVisual"));
+  assert.ok(method.indexOf('rpc("read_current_reference_visual_plan"') < method.indexOf('rpc("begin_reference_visual_render_v2"'));
+  assert.ok(method.indexOf('rpc("begin_reference_visual_render_v2"') < method.indexOf("brollAcquisitionRuntime.renderReferenceVisual"));
   assert.ok(method.indexOf("downloadStorageObject") < method.indexOf('rpc("commit_reference_visual_render"'));
   assert.match(method, /canonical_svg_hash/);
   assert.match(service, /reference-visuals"&&parts\[4\]==="render"/);
