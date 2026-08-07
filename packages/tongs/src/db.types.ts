@@ -13265,6 +13265,36 @@ export type Database = {
         Args: { p_workpiece_id: string; p_workspace_id: string }
         Returns: Json
       }
+      reassign_reference_clip_source: {
+        Args: {
+          p_actor_id: string
+          p_expected_opportunity_revision: number
+          p_expected_opportunity_revision_id: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_opportunity_id: string
+          p_source_revision_id: string
+          p_workpiece_id: string
+          p_workpiece_source_link_revision_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      reassign_reference_visual_source: {
+        Args: {
+          p_actor_id: string
+          p_expected_opportunity_revision: number
+          p_expected_opportunity_revision_id: string
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_opportunity_id: string
+          p_source_revision_id: string
+          p_workpiece_id: string
+          p_workpiece_source_link_revision_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       recompute_account_balance: {
         Args: { p_user_id: string }
         Returns: undefined

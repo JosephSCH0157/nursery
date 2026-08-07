@@ -9,6 +9,8 @@ const migrationSql = [
   "20260806134000_tongs_restore_reference_visual_asset_kind.sql",
   "20260806135000_tongs_restore_reference_visual_selection_rpc.sql",
   "20260806136000_tongs_restore_reference_visual_selection_errors.sql",
+  "20260806140000_tongs_visual_source_reassignment.sql",
+  "20260806141000_tongs_reference_visual_source_projection.sql",
 ].map(async (migration) => readFile(new URL(`../../../supabase/migrations/${migration}`, import.meta.url), "utf8"));
 const sql = (await Promise.all(migrationSql)).join("\n");
 const service = await readFile(new URL("../src/workpiece-commit-api.ts", import.meta.url), "utf8");
@@ -99,6 +101,16 @@ test("facts-only Source use is immutable, creator-confirmed, and does not requir
 
 test("the base authority does not mutate the unified planner contract", () => {
   assert.doesNotMatch(sql, /alter table tongs\.unified_visual_plan_operations/);
+});
+
+test("Source reassignment appends immutable current revisions and invalidates predecessor candidates",()=>{
+ assert.match(sql,/function tongs\.reassign_reference_visual_source/);
+ assert.match(sql,/function tongs\.reassign_reference_clip_source/);
+ assert.match(sql,/source_transition_opportunity_revision/);
+ assert.match(sql,/revision\+1,id,revision,new_plan\.id/);
+ assert.match(sql,/p_source_revision_id is null then 'unresolved' else 'linked'/);
+ assert.match(sql,/opportunity_revision_id=m\.opportunity_revision_id/);
+ assert.match(sql,/u\.opportunity_revision_id=o\.id/);
 });
 
 test("Hammer projection preserves exact Source use, evidence, recipe, rights, and asset provenance",()=>{
