@@ -298,6 +298,14 @@ export async function applyAiTokenDelta(args: {
   });
 
   if (error) {
+    await rpcClient.rpc("record_ai_credit_unfunded_expense", {
+      p_user_id: args.userId,
+      p_event_id: args.requestId,
+      p_provider_request_id: args.openAiRequestId ?? undefined,
+      p_attempted_charge: args.spent,
+      p_reason_code: "postpaid_debit_unfunded",
+      p_evidence_json: { original_reason: args.reason },
+    } as never);
     return { ok: false, warning: "Unable to update credits." };
   }
 

@@ -8778,6 +8778,17 @@ export class TongsCommitService {
     });
 
     if (error) {
+      await (this.supabase.schema("tongs") as unknown as { rpc: (fn: string, params: Record<string, unknown>) => Promise<unknown> }).rpc(
+        "record_ai_credit_unfunded_expense",
+        {
+          p_user_id: args.userId,
+          p_event_id: args.requestId,
+          p_provider_request_id: args.providerRequestId,
+          p_attempted_charge: Math.max(0, Math.ceil(args.spent)),
+          p_reason_code: "postpaid_debit_unfunded",
+          p_evidence_json: { original_reason: args.reason },
+        },
+      );
       return { warning: "Unable to update credits." };
     }
 
