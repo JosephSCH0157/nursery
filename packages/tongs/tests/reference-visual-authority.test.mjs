@@ -11,6 +11,7 @@ const migrationSql = [
   "20260806136000_tongs_restore_reference_visual_selection_errors.sql",
   "20260806140000_tongs_visual_source_reassignment.sql",
   "20260806141000_tongs_reference_visual_source_projection.sql",
+  "20260807120000_tongs_reference_visual_evidence_proposal_origin.sql",
 ].map(async (migration) => readFile(new URL(`../../../supabase/migrations/${migration}`, import.meta.url), "utf8"));
 const sql = (await Promise.all(migrationSql)).join("\n");
 const service = await readFile(new URL("../src/workpiece-commit-api.ts", import.meta.url), "utf8");
@@ -119,6 +120,12 @@ test("Hammer projection preserves exact Source use, evidence, recipe, rights, an
   assert.match(sql,/'evidence'.*reference_visual_evidence_revisions/s);
   assert.match(service,/reference_visual_evidence/);
   assert.match(service,/rpc\("read_reference_visual_visual_package"/);
+});
+
+test("Reference Visual evidence preserves Hearth metadata proposal provenance",()=>{
+  assert.match(sql,/hearth_proposed_source_metadata/);
+  assert.match(sql,/reference_visual_evidence_revisions_origin_check/);
+  assert.doesNotMatch(sql,/disable row level security|drop policy/i);
 });
 
 test("Tongs reconstructs canonical readback before deterministic rendering and commits only after storage readback", () => {
