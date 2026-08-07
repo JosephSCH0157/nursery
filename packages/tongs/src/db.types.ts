@@ -60,6 +60,50 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_credit_corrections: {
+        Row: {
+          actor_id: string | null
+          amount: number
+          correction_type: string
+          created_at: string
+          id: string
+          metadata_json: Json
+          reason_code: string
+          settlement_event_id: number | null
+          user_id: string
+        }
+        Insert: {
+          actor_id?: string | null
+          amount: number
+          correction_type: string
+          created_at?: string
+          id: string
+          metadata_json?: Json
+          reason_code: string
+          settlement_event_id?: number | null
+          user_id: string
+        }
+        Update: {
+          actor_id?: string | null
+          amount?: number
+          correction_type?: string
+          created_at?: string
+          id?: string
+          metadata_json?: Json
+          reason_code?: string
+          settlement_event_id?: number | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_credit_corrections_settlement_event_id_fkey"
+            columns: ["settlement_event_id"]
+            isOneToOne: false
+            referencedRelation: "ai_credit_reservation_events"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_credit_ledger: {
         Row: {
           created_at: string
@@ -126,6 +170,222 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_credit_quotes: {
+        Row: {
+          created_at: string
+          customer_credit_charge: number
+          effective_at: string
+          estimated_provider_expense_micros: number
+          expires_at: string | null
+          generation_mode: string
+          id: string
+          media_kind: string
+          model: string
+          operation_id: string
+          pricing_policy_revision: number
+          pricing_policy_revision_id: string
+          provider: string
+          provider_billable_units: number
+          provider_currency: string
+          request_fingerprint: string
+          request_parameters: Json
+          requested_output_count: number
+          reservation_amount: number
+          tool: string
+          user_id: string
+          workpiece_id: string | null
+          workspace_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          customer_credit_charge: number
+          effective_at: string
+          estimated_provider_expense_micros: number
+          expires_at?: string | null
+          generation_mode: string
+          id: string
+          media_kind: string
+          model: string
+          operation_id: string
+          pricing_policy_revision: number
+          pricing_policy_revision_id: string
+          provider: string
+          provider_billable_units: number
+          provider_currency: string
+          request_fingerprint: string
+          request_parameters: Json
+          requested_output_count: number
+          reservation_amount: number
+          tool: string
+          user_id: string
+          workpiece_id?: string | null
+          workspace_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          customer_credit_charge?: number
+          effective_at?: string
+          estimated_provider_expense_micros?: number
+          expires_at?: string | null
+          generation_mode?: string
+          id?: string
+          media_kind?: string
+          model?: string
+          operation_id?: string
+          pricing_policy_revision?: number
+          pricing_policy_revision_id?: string
+          provider?: string
+          provider_billable_units?: number
+          provider_currency?: string
+          request_fingerprint?: string
+          request_parameters?: Json
+          requested_output_count?: number
+          reservation_amount?: number
+          tool?: string
+          user_id?: string
+          workpiece_id?: string | null
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_credit_quotes_pricing_policy_revision_id_fkey"
+            columns: ["pricing_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "ai_pricing_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_credit_quotes_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_credit_quotes_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_credit_reservation_events: {
+        Row: {
+          actor_id: string | null
+          amount: number
+          created_at: string
+          event_type: string
+          id: number
+          idempotency_key: string
+          metadata_json: Json
+          reason: string
+          reservation_id: string
+          user_id: string
+        }
+        Insert: {
+          actor_id?: string | null
+          amount: number
+          created_at?: string
+          event_type: string
+          id?: number
+          idempotency_key: string
+          metadata_json?: Json
+          reason: string
+          reservation_id: string
+          user_id: string
+        }
+        Update: {
+          actor_id?: string | null
+          amount?: number
+          created_at?: string
+          event_type?: string
+          id?: number
+          idempotency_key?: string
+          metadata_json?: Json
+          reason?: string
+          reservation_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_credit_reservation_events_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "ai_credit_reservations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_credit_reservations: {
+        Row: {
+          amount: number
+          authorization_json: Json
+          created_at: string
+          id: string
+          media_class: string | null
+          operation_id: string
+          purpose: string
+          request_fingerprint: string
+          tool: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          authorization_json: Json
+          created_at?: string
+          id?: string
+          media_class?: string | null
+          operation_id: string
+          purpose: string
+          request_fingerprint: string
+          tool: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          authorization_json?: Json
+          created_at?: string
+          id?: string
+          media_class?: string | null
+          operation_id?: string
+          purpose?: string
+          request_fingerprint?: string
+          tool?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      ai_credit_unfunded_expenses: {
+        Row: {
+          attempted_charge: number
+          created_at: string
+          evidence_json: Json
+          id: string
+          provider_request_id: string | null
+          reason_code: string
+          user_id: string
+        }
+        Insert: {
+          attempted_charge: number
+          created_at?: string
+          evidence_json?: Json
+          id: string
+          provider_request_id?: string | null
+          reason_code: string
+          user_id: string
+        }
+        Update: {
+          attempted_charge?: number
+          created_at?: string
+          evidence_json?: Json
+          id?: string
+          provider_request_id?: string | null
+          reason_code?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       ai_credits: {
         Row: {
           billing_mode: string
@@ -149,6 +409,162 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      ai_pricing_policies: {
+        Row: {
+          created_at: string
+          id: string
+          policy_code: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          policy_code: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          policy_code?: string
+        }
+        Relationships: []
+      }
+      ai_pricing_policy_revisions: {
+        Row: {
+          actor_id: string | null
+          addon_credits: number
+          billable_dimensions: Json
+          content_hash: string
+          created_at: string
+          effective_from: string
+          effective_through: string | null
+          forge_credit_conversion_denominator: number
+          forge_credit_conversion_numerator: number
+          generation_mode: string
+          id: string
+          is_active: boolean
+          markup_denominator: number
+          markup_numerator: number
+          media_kind: string
+          model: string
+          policy_id: string
+          previous_revision_id: string | null
+          price_source_reference: string
+          price_source_type: string
+          price_source_version: string | null
+          provider: string
+          provider_billing_unit: string
+          provider_currency: string
+          provider_price_micros_per_unit: number
+          revision: number
+        }
+        Insert: {
+          actor_id?: string | null
+          addon_credits?: number
+          billable_dimensions: Json
+          content_hash: string
+          created_at?: string
+          effective_from: string
+          effective_through?: string | null
+          forge_credit_conversion_denominator: number
+          forge_credit_conversion_numerator: number
+          generation_mode: string
+          id?: string
+          is_active: boolean
+          markup_denominator: number
+          markup_numerator: number
+          media_kind: string
+          model: string
+          policy_id: string
+          previous_revision_id?: string | null
+          price_source_reference: string
+          price_source_type: string
+          price_source_version?: string | null
+          provider: string
+          provider_billing_unit: string
+          provider_currency: string
+          provider_price_micros_per_unit: number
+          revision: number
+        }
+        Update: {
+          actor_id?: string | null
+          addon_credits?: number
+          billable_dimensions?: Json
+          content_hash?: string
+          created_at?: string
+          effective_from?: string
+          effective_through?: string | null
+          forge_credit_conversion_denominator?: number
+          forge_credit_conversion_numerator?: number
+          generation_mode?: string
+          id?: string
+          is_active?: boolean
+          markup_denominator?: number
+          markup_numerator?: number
+          media_kind?: string
+          model?: string
+          policy_id?: string
+          previous_revision_id?: string | null
+          price_source_reference?: string
+          price_source_type?: string
+          price_source_version?: string | null
+          provider?: string
+          provider_billing_unit?: string
+          provider_currency?: string
+          provider_price_micros_per_unit?: number
+          revision?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_pricing_policy_revisions_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "ai_pricing_policies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_pricing_policy_revisions_previous_revision_id_fkey"
+            columns: ["previous_revision_id"]
+            isOneToOne: false
+            referencedRelation: "ai_pricing_policy_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_pricing_policy_sequences: {
+        Row: {
+          current_revision: number
+          current_revision_id: string
+          policy_id: string
+          updated_at: string
+        }
+        Insert: {
+          current_revision: number
+          current_revision_id: string
+          policy_id: string
+          updated_at?: string
+        }
+        Update: {
+          current_revision?: number
+          current_revision_id?: string
+          policy_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_pricing_policy_sequences_current_revision_id_fkey"
+            columns: ["current_revision_id"]
+            isOneToOne: false
+            referencedRelation: "ai_pricing_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_pricing_policy_sequences_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: true
+            referencedRelation: "ai_pricing_policies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ai_usage_events: {
         Row: {
@@ -11129,6 +11545,7 @@ export type Database = {
       }
     }
     Functions: {
+      _ai_credit_active_holds: { Args: { p_user_id: string }; Returns: number }
       _insert_missing_org_members_from_teams: {
         Args: { p_org_id?: string }
         Returns: number
@@ -11568,6 +11985,19 @@ export type Database = {
           revision: number
         }[]
       }
+      apply_ai_credit_correction: {
+        Args: {
+          p_actor_id: string
+          p_amount: number
+          p_correction_id: string
+          p_correction_type: string
+          p_metadata_json?: Json
+          p_reason_code: string
+          p_settlement_event_id: number
+          p_user_id: string
+        }
+        Returns: Json
+      }
       apply_ai_token_delta: {
         Args: {
           p_delta: number
@@ -11875,6 +12305,34 @@ export type Database = {
       }
       clear_workspace_default_brand_profile: {
         Args: { p_workspace_id: string }
+        Returns: Json
+      }
+      commit_ai_pricing_policy_revision: {
+        Args: {
+          p_actor_id: string
+          p_addon_credits: number
+          p_billable_dimensions: Json
+          p_effective_from: string
+          p_effective_through: string
+          p_expected_revision: number
+          p_forge_credit_conversion_denominator: number
+          p_forge_credit_conversion_numerator: number
+          p_generation_mode: string
+          p_is_active: boolean
+          p_markup_denominator: number
+          p_markup_numerator: number
+          p_media_kind: string
+          p_model: string
+          p_policy_code: string
+          p_price_source_reference: string
+          p_price_source_type: string
+          p_price_source_version: string
+          p_provider: string
+          p_provider_billing_unit: string
+          p_provider_currency: string
+          p_provider_price_micros_per_unit: number
+          p_revision_id: string
+        }
         Returns: Json
       }
       commit_broll_candidate: {
@@ -12357,6 +12815,25 @@ export type Database = {
           missing_members_count: number
         }[]
       }
+      create_ai_credit_quote: {
+        Args: {
+          p_effective_at: string
+          p_expires_at: string
+          p_operation_id: string
+          p_pricing_policy_revision_id: string
+          p_provider_billable_units: number
+          p_quote_id: string
+          p_request_fingerprint: string
+          p_request_parameters: Json
+          p_requested_output_count: number
+          p_reservation_amount: number
+          p_tool: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       create_bellows_join_link: {
         Args: {
           p_created_by_user_id?: string
@@ -12680,6 +13157,15 @@ export type Database = {
       get_brand_asset_revision_for_inspection: {
         Args: { p_revision_id: string }
         Returns: Json
+      }
+      get_my_ai_credit_account: {
+        Args: never
+        Returns: {
+          available_balance: number
+          billing_mode: string
+          reserved_balance: number
+          settled_balance: number
+        }[]
       }
       get_my_ai_credits: {
         Args: never
@@ -13176,6 +13662,43 @@ export type Database = {
         Args: { p_decision_id: string }
         Returns: Json
       }
+      read_active_ai_pricing_policies: {
+        Args: never
+        Returns: {
+          actor_id: string | null
+          addon_credits: number
+          billable_dimensions: Json
+          content_hash: string
+          created_at: string
+          effective_from: string
+          effective_through: string | null
+          forge_credit_conversion_denominator: number
+          forge_credit_conversion_numerator: number
+          generation_mode: string
+          id: string
+          is_active: boolean
+          markup_denominator: number
+          markup_numerator: number
+          media_kind: string
+          model: string
+          policy_id: string
+          previous_revision_id: string | null
+          price_source_reference: string
+          price_source_type: string
+          price_source_version: string | null
+          provider: string
+          provider_billing_unit: string
+          provider_currency: string
+          provider_price_micros_per_unit: number
+          revision: number
+        }[]
+        SetofOptions: {
+          from: "*"
+          to: "ai_pricing_policy_revisions"
+          isOneToOne: false
+          isSetofReturn: true
+        }
+      }
       read_broll_operation_receipt: {
         Args: { p_operation_id: string; p_workspace_id: string }
         Returns: Json
@@ -13222,6 +13745,44 @@ export type Database = {
       }
       read_image_prompt_operation_receipt: {
         Args: { p_operation_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      read_my_ai_credit_quote: {
+        Args: { p_quote_id: string }
+        Returns: {
+          created_at: string
+          customer_credit_charge: number
+          effective_at: string
+          estimated_provider_expense_micros: number
+          expires_at: string | null
+          generation_mode: string
+          id: string
+          media_kind: string
+          model: string
+          operation_id: string
+          pricing_policy_revision: number
+          pricing_policy_revision_id: string
+          provider: string
+          provider_billable_units: number
+          provider_currency: string
+          request_fingerprint: string
+          request_parameters: Json
+          requested_output_count: number
+          reservation_amount: number
+          tool: string
+          user_id: string
+          workpiece_id: string | null
+          workspace_id: string | null
+        }
+        SetofOptions: {
+          from: "*"
+          to: "ai_credit_quotes"
+          isOneToOne: true
+          isSetofReturn: false
+        }
+      }
+      read_my_ai_credit_reservation: {
+        Args: { p_reservation_id: string }
         Returns: Json
       }
       read_reference_clip_acquisition: {
@@ -13309,6 +13870,31 @@ export type Database = {
           p_task_evidence: Json
         }
         Returns: Json
+      }
+      record_ai_credit_unfunded_expense: {
+        Args: {
+          p_attempted_charge: number
+          p_event_id: string
+          p_evidence_json?: Json
+          p_provider_request_id: string
+          p_reason_code: string
+          p_user_id: string
+        }
+        Returns: {
+          attempted_charge: number
+          created_at: string
+          evidence_json: Json
+          id: string
+          provider_request_id: string | null
+          reason_code: string
+          user_id: string
+        }
+        SetofOptions: {
+          from: "*"
+          to: "ai_credit_unfunded_expenses"
+          isOneToOne: true
+          isSetofReturn: false
+        }
       }
       record_billing_event: {
         Args: {
@@ -13422,6 +14008,16 @@ export type Database = {
         Args: { p_candidate_revision_id: string }
         Returns: boolean
       }
+      release_ai_credit_reservation: {
+        Args: {
+          p_metadata_json?: Json
+          p_reason: string
+          p_release_id: string
+          p_reservation_id: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
       remove_team_member: {
         Args: { p_team_id: string; p_user_id: string }
         Returns: {
@@ -13479,6 +14075,20 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      reserve_ai_credits: {
+        Args: {
+          p_amount: number
+          p_authorization_json: Json
+          p_media_class: string
+          p_operation_id: string
+          p_purpose: string
+          p_request_fingerprint: string
+          p_reservation_id: string
+          p_tool: string
+          p_user_id: string
+        }
+        Returns: Json
       }
       reserve_brand_asset_revision: {
         Args: {
@@ -13795,6 +14405,18 @@ export type Database = {
       }
       set_workspace_default_brand_profile: {
         Args: { p_profile_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      settle_ai_credit_reservation: {
+        Args: {
+          p_customer_charge: number
+          p_metadata_json?: Json
+          p_provider_request_id: string
+          p_reason: string
+          p_reservation_id: string
+          p_settlement_id: string
+          p_user_id: string
+        }
         Returns: Json
       }
       snapshot_quench_release_manifest: {
