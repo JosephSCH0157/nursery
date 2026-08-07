@@ -159,20 +159,21 @@ function normalizeMediaMapArtifact(payload: unknown): EpisodeMediaMapArtifact | 
   };
 }
 
-function normalizeVisualAssetClass(value: unknown): "image" | "broll" | "reference_clip" | null {
+function normalizeVisualAssetClass(value: unknown): "image" | "broll" | "reference_clip" | "reference_visual" | null {
   const normalized = readString(value)?.toLowerCase();
-  if (normalized === "image" || normalized === "broll" || normalized === "reference_clip") {
+  if (normalized === "image" || normalized === "broll" || normalized === "reference_clip" || normalized === "reference_visual") {
     return normalized;
   }
   return null;
 }
 
 function resolveFinalMediaKind(args: {
-  assetClass: "image" | "broll" | "reference_clip" | null;
+  assetClass: "image" | "broll" | "reference_clip" | "reference_visual" | null;
   visualMode: string | null;
 }): "image" | "b_roll" | "contextual_data_composite" | "reference_clip" {
   if (args.assetClass === "broll") return "b_roll";
   if (args.assetClass === "reference_clip") return "reference_clip";
+  if (args.assetClass === "reference_visual") return "contextual_data_composite";
   if (args.assetClass === "image") return "image";
   const mode = (args.visualMode ?? "").toLowerCase();
   if (mode.includes("reference_clip") || mode.includes("contextual_data_composite") || mode.includes("cdc")) {

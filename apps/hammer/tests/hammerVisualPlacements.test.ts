@@ -94,6 +94,22 @@ function testPreservesReferenceClipClassWithoutInference() {
   assert.equal(placements.placements[0]?.visual_mode, "reference_clip");
 }
 
+function testPreservesReferenceVisualClassAndTreatment() {
+  const visualPackage = buildVisualPackage();
+  visualPackage.visuals[0] = {
+    ...visualPackage.visuals[0],
+    asset_class: "reference_visual",
+    visual_mode: "stat_card",
+  };
+  const placements = deriveHammerVisualPlacements({
+    transcriptSourceId,
+    transcriptSegments: buildTranscriptSegments(),
+    visualPackage,
+  });
+  assert.equal(placements.placements[0]?.visual_mode, "stat_card");
+  assert.equal(placements.placements[0]?.asset_id, "asset_01");
+}
+
 function testDerivesDeterministicPlacementFromMatchingAnchor() {
   const placements = deriveHammerVisualPlacements({
     transcriptSourceId,
@@ -272,6 +288,7 @@ try {
   testReportsNoSelectedVisualsWhenNoCandidateAssetExists();
   testReusesPlacementArtifactWhenVisualSourcesHaveNotChanged();
   testPreservesReferenceClipClassWithoutInference();
+  testPreservesReferenceVisualClassAndTreatment();
   console.log("Hammer visual placement tests passed.");
 } catch (error) {
   console.error("Hammer visual placement tests failed:", error);
