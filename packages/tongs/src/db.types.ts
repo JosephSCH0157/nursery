@@ -170,18 +170,85 @@ export type Database = {
         }
         Relationships: []
       }
+      ai_credit_quote_usage_components: {
+        Row: {
+          component_kind: string
+          content_hash: string
+          created_at: string
+          currency: string
+          estimated_quantity: number
+          id: string
+          maximum_quantity: number
+          pricing_rate_component_id: string
+          quote_id: string
+          rate_denominator: number
+          rate_numerator: number
+          unit_kind: string
+        }
+        Insert: {
+          component_kind: string
+          content_hash: string
+          created_at?: string
+          currency: string
+          estimated_quantity: number
+          id?: string
+          maximum_quantity: number
+          pricing_rate_component_id: string
+          quote_id: string
+          rate_denominator: number
+          rate_numerator: number
+          unit_kind: string
+        }
+        Update: {
+          component_kind?: string
+          content_hash?: string
+          created_at?: string
+          currency?: string
+          estimated_quantity?: number
+          id?: string
+          maximum_quantity?: number
+          pricing_rate_component_id?: string
+          quote_id?: string
+          rate_denominator?: number
+          rate_numerator?: number
+          unit_kind?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_credit_quote_usage_components_pricing_rate_component_id_fkey"
+            columns: ["pricing_rate_component_id"]
+            isOneToOne: false
+            referencedRelation: "ai_pricing_rate_components"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_credit_quote_usage_components_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: false
+            referencedRelation: "ai_credit_quotes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       ai_credit_quotes: {
         Row: {
           created_at: string
           customer_credit_charge: number
           effective_at: string
+          estimated_customer_credit_charge: number | null
+          estimated_provider_expense_denominator: number | null
           estimated_provider_expense_micros: number
+          estimated_provider_expense_numerator: number | null
           expires_at: string | null
           generation_mode: string
           id: string
+          maximum_customer_credit_charge: number | null
+          maximum_provider_expense_denominator: number | null
+          maximum_provider_expense_numerator: number | null
           media_kind: string
           model: string
           operation_id: string
+          pricing_contract_version: string
           pricing_policy_revision: number
           pricing_policy_revision_id: string
           provider: string
@@ -200,13 +267,20 @@ export type Database = {
           created_at?: string
           customer_credit_charge: number
           effective_at: string
+          estimated_customer_credit_charge?: number | null
+          estimated_provider_expense_denominator?: number | null
           estimated_provider_expense_micros: number
+          estimated_provider_expense_numerator?: number | null
           expires_at?: string | null
           generation_mode: string
           id: string
+          maximum_customer_credit_charge?: number | null
+          maximum_provider_expense_denominator?: number | null
+          maximum_provider_expense_numerator?: number | null
           media_kind: string
           model: string
           operation_id: string
+          pricing_contract_version?: string
           pricing_policy_revision: number
           pricing_policy_revision_id: string
           provider: string
@@ -225,13 +299,20 @@ export type Database = {
           created_at?: string
           customer_credit_charge?: number
           effective_at?: string
+          estimated_customer_credit_charge?: number | null
+          estimated_provider_expense_denominator?: number | null
           estimated_provider_expense_micros?: number
+          estimated_provider_expense_numerator?: number | null
           expires_at?: string | null
           generation_mode?: string
           id?: string
+          maximum_customer_credit_charge?: number | null
+          maximum_provider_expense_denominator?: number | null
+          maximum_provider_expense_numerator?: number | null
           media_kind?: string
           model?: string
           operation_id?: string
+          pricing_contract_version?: string
           pricing_policy_revision?: number
           pricing_policy_revision_id?: string
           provider?: string
@@ -435,8 +516,10 @@ export type Database = {
           billable_dimensions: Json
           content_hash: string
           created_at: string
+          customer_rounding_rule: string
           effective_from: string
           effective_through: string | null
+          endpoint: string | null
           forge_credit_conversion_denominator: number
           forge_credit_conversion_numerator: number
           generation_mode: string
@@ -446,11 +529,13 @@ export type Database = {
           markup_numerator: number
           media_kind: string
           model: string
+          model_snapshot: string | null
           policy_id: string
           previous_revision_id: string | null
           price_source_reference: string
           price_source_type: string
           price_source_version: string | null
+          pricing_contract_version: string
           provider: string
           provider_billing_unit: string
           provider_currency: string
@@ -463,8 +548,10 @@ export type Database = {
           billable_dimensions: Json
           content_hash: string
           created_at?: string
+          customer_rounding_rule?: string
           effective_from: string
           effective_through?: string | null
+          endpoint?: string | null
           forge_credit_conversion_denominator: number
           forge_credit_conversion_numerator: number
           generation_mode: string
@@ -474,11 +561,13 @@ export type Database = {
           markup_numerator: number
           media_kind: string
           model: string
+          model_snapshot?: string | null
           policy_id: string
           previous_revision_id?: string | null
           price_source_reference: string
           price_source_type: string
           price_source_version?: string | null
+          pricing_contract_version?: string
           provider: string
           provider_billing_unit: string
           provider_currency: string
@@ -491,8 +580,10 @@ export type Database = {
           billable_dimensions?: Json
           content_hash?: string
           created_at?: string
+          customer_rounding_rule?: string
           effective_from?: string
           effective_through?: string | null
+          endpoint?: string | null
           forge_credit_conversion_denominator?: number
           forge_credit_conversion_numerator?: number
           generation_mode?: string
@@ -502,11 +593,13 @@ export type Database = {
           markup_numerator?: number
           media_kind?: string
           model?: string
+          model_snapshot?: string | null
           policy_id?: string
           previous_revision_id?: string | null
           price_source_reference?: string
           price_source_type?: string
           price_source_version?: string | null
+          pricing_contract_version?: string
           provider?: string
           provider_billing_unit?: string
           provider_currency?: string
@@ -562,6 +655,56 @@ export type Database = {
             columns: ["policy_id"]
             isOneToOne: true
             referencedRelation: "ai_pricing_policies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_pricing_rate_components: {
+        Row: {
+          component_kind: string
+          content_hash: string
+          created_at: string
+          currency: string
+          id: string
+          metadata_json: Json
+          ordinal: number
+          pricing_policy_revision_id: string
+          rate_denominator: number
+          rate_numerator: number
+          unit_kind: string
+        }
+        Insert: {
+          component_kind: string
+          content_hash: string
+          created_at?: string
+          currency: string
+          id: string
+          metadata_json?: Json
+          ordinal: number
+          pricing_policy_revision_id: string
+          rate_denominator: number
+          rate_numerator: number
+          unit_kind: string
+        }
+        Update: {
+          component_kind?: string
+          content_hash?: string
+          created_at?: string
+          currency?: string
+          id?: string
+          metadata_json?: Json
+          ordinal?: number
+          pricing_policy_revision_id?: string
+          rate_denominator?: number
+          rate_numerator?: number
+          unit_kind?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_pricing_rate_components_pricing_policy_revision_id_fkey"
+            columns: ["pricing_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "ai_pricing_policy_revisions"
             referencedColumns: ["id"]
           },
         ]
@@ -11546,6 +11689,14 @@ export type Database = {
     }
     Functions: {
       _ai_credit_active_holds: { Args: { p_user_id: string }; Returns: number }
+      _ai_pricing_ceil_fraction: {
+        Args: { p_denominator: number; p_numerator: number }
+        Returns: number
+      }
+      _ai_pricing_gcd: {
+        Args: { p_left: number; p_right: number }
+        Returns: number
+      }
       _insert_missing_org_members_from_teams: {
         Args: { p_org_id?: string }
         Returns: number
@@ -12409,6 +12560,36 @@ export type Database = {
         }
         Returns: Json
       }
+      commit_compound_ai_pricing_policy_revision: {
+        Args: {
+          p_actor_id: string
+          p_addon_credits: number
+          p_billable_dimensions: Json
+          p_customer_rounding_rule: string
+          p_effective_from: string
+          p_effective_through: string
+          p_endpoint: string
+          p_expected_revision: number
+          p_forge_credit_conversion_denominator: number
+          p_forge_credit_conversion_numerator: number
+          p_generation_mode: string
+          p_is_active: boolean
+          p_markup_denominator: number
+          p_markup_numerator: number
+          p_media_kind: string
+          p_model: string
+          p_model_snapshot: string
+          p_policy_code: string
+          p_price_source_reference: string
+          p_price_source_type: string
+          p_price_source_version: string
+          p_provider: string
+          p_provider_currency: string
+          p_rate_components: Json
+          p_revision_id: string
+        }
+        Returns: Json
+      }
       commit_image_map_revision: {
         Args: {
           p_actor_id: string
@@ -12924,6 +13105,25 @@ export type Database = {
           p_internal_label: string
           p_operation_id: string
           p_rules: Json
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      create_compound_ai_credit_quote: {
+        Args: {
+          p_effective_at: string
+          p_expires_at: string
+          p_operation_id: string
+          p_pricing_policy_revision_id: string
+          p_quote_id: string
+          p_request_fingerprint: string
+          p_request_parameters: Json
+          p_requested_output_count: number
+          p_reservation_amount: number
+          p_tool: string
+          p_usage_estimates: Json
+          p_user_id: string
+          p_workpiece_id: string
           p_workspace_id: string
         }
         Returns: Json
@@ -13670,8 +13870,10 @@ export type Database = {
           billable_dimensions: Json
           content_hash: string
           created_at: string
+          customer_rounding_rule: string
           effective_from: string
           effective_through: string | null
+          endpoint: string | null
           forge_credit_conversion_denominator: number
           forge_credit_conversion_numerator: number
           generation_mode: string
@@ -13681,11 +13883,13 @@ export type Database = {
           markup_numerator: number
           media_kind: string
           model: string
+          model_snapshot: string | null
           policy_id: string
           previous_revision_id: string | null
           price_source_reference: string
           price_source_type: string
           price_source_version: string | null
+          pricing_contract_version: string
           provider: string
           provider_billing_unit: string
           provider_currency: string
@@ -13698,6 +13902,10 @@ export type Database = {
           isOneToOne: false
           isSetofReturn: true
         }
+      }
+      read_ai_pricing_policy: {
+        Args: { p_pricing_policy_revision_id: string }
+        Returns: Json
       }
       read_broll_operation_receipt: {
         Args: { p_operation_id: string; p_workspace_id: string }
@@ -13753,13 +13961,20 @@ export type Database = {
           created_at: string
           customer_credit_charge: number
           effective_at: string
+          estimated_customer_credit_charge: number | null
+          estimated_provider_expense_denominator: number | null
           estimated_provider_expense_micros: number
+          estimated_provider_expense_numerator: number | null
           expires_at: string | null
           generation_mode: string
           id: string
+          maximum_customer_credit_charge: number | null
+          maximum_provider_expense_denominator: number | null
+          maximum_provider_expense_numerator: number | null
           media_kind: string
           model: string
           operation_id: string
+          pricing_contract_version: string
           pricing_policy_revision: number
           pricing_policy_revision_id: string
           provider: string
@@ -13780,6 +13995,10 @@ export type Database = {
           isOneToOne: true
           isSetofReturn: false
         }
+      }
+      read_my_ai_credit_quote_v2: {
+        Args: { p_quote_id: string }
+        Returns: Json
       }
       read_my_ai_credit_reservation: {
         Args: { p_reservation_id: string }
@@ -14123,6 +14342,19 @@ export type Database = {
           user_id: string
           workspace_id: string
         }[]
+      }
+      resolve_active_compound_ai_pricing_policy: {
+        Args: {
+          p_effective_at?: string
+          p_endpoint: string
+          p_media_kind: string
+          p_model: string
+          p_model_snapshot: string
+          p_provider: string
+          p_quality: string
+          p_size: string
+        }
+        Returns: Json
       }
       resolve_ai_policy: {
         Args: {
@@ -14674,7 +14906,6 @@ export type Database = {
     }
   }
 }
-
 type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
 
 type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
