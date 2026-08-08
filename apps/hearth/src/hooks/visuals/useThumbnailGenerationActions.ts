@@ -109,18 +109,34 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
       return;
     }
 
-    const alwaysApproveSpend = resolveAiThumbnailAutoApproveFromStorage();
-    const confirmed = alwaysApproveSpend
-      ? true
-      : window.confirm("Generate thumbnail? This will spend credits.");
-    if (!confirmed) return;
     const operation = args.operationAuthority.begin("thumbnail.generate");
+    const operationId = crypto.randomUUID();
+    const alwaysApproveSpend = resolveAiThumbnailAutoApproveFromStorage();
 
     args.setIsThumbnailGenerating(true);
     args.setThumbnailGenerateError(null);
     args.setThumbnailUploadError(null);
     args.setAiRuntimeWarning(null);
     try {
+      let confirmed = true;
+      if (args.aiBillingMode === "forge") {
+        const quote = await generateEpisodeThumbnail({
+          workspaceId: workspace, workpieceId: episodeId, conceptId, prompt: promptOverride,
+          preset: effectiveStylePreset, aspect: args.thumbnailAspect, confirmSpend: false,
+          alwaysApproveAiSpend: false, operationId,
+        });
+        if (!args.operationAuthority.isCurrent(operation)) return;
+        if (quote.ok || !quote.requiresConfirmation) {
+          args.setThumbnailGenerateError(quote.ok ? "Paid image quote unexpectedly generated media before approval." : quote.error);
+          return;
+        }
+        confirmed = alwaysApproveSpend || window.confirm(quote.authorizationMessage
+          ?? `Generate thumbnail? Up to ${(quote.authorizedCustomerCeiling ?? 0).toLocaleString()} AI credits will be held.`);
+        if (!confirmed) return;
+      } else {
+        confirmed = window.confirm("Generate thumbnail with your configured provider?");
+        if (!confirmed) return;
+      }
       const generated = await generateEpisodeThumbnail({
         workspaceId: workspace,
         workpieceId: episodeId,
@@ -130,6 +146,7 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
         aspect: args.thumbnailAspect,
         confirmSpend: confirmed,
         alwaysApproveAiSpend: alwaysApproveSpend,
+        operationId,
       });
       if (!args.operationAuthority.isCurrent(operation)) return;
       if (!generated.ok) {
@@ -199,7 +216,7 @@ export function useThumbnailGenerationActions(args: UseThumbnailGenerationAction
       args.publishForgeNotice({
         job: "image-generated",
         title: "Thumbnail ready",
-        message: "Hearth finished generating a thumbnail for this episode.",
+          message: `Hearth finished generating a thumbnail for this episode.${typeof generated.aiCreditsUsed === "number" ? ` ${generated.aiCreditsUsed.toLocaleString()} AI credits used.` : ""}`,
         severity: "success",
       });
     } catch (error) {

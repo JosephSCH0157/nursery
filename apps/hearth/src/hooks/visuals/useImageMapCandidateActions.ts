@@ -138,14 +138,6 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
     }
 
     const alwaysApproveSpend = resolveAiThumbnailAutoApproveFromStorage();
-    const confirmed = alwaysApproveSpend
-      ? true
-      : window.confirm(
-          mode === "stock"
-            ? "Find stock-style still candidates for this visual beat? This will spend AI credits."
-            : "Generate two still candidates for this visual beat? This will spend AI credits.",
-        );
-    if (!confirmed) return;
 
     const requestedSourceType = mode === "stock" ? "stock" : "ai";
     if (args.selectedImageMapEntry.source_type !== requestedSourceType) {
@@ -173,7 +165,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
     args.setImageMapCandidateSelectionError(null);
     args.setAiRuntimeWarning(null);
     try {
-      const requestCandidateGeneration = (metadataUpdatedAt: string | null | undefined) => (
+      const requestCandidateGeneration = (metadataUpdatedAt: string | null | undefined, confirmSpend: boolean) => (
         generateWorkpieceImageMapCandidates({
           workpieceId: episodeId,
           workspaceId: workspace,
@@ -185,12 +177,27 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
           contextBefore: context.before,
           contextAfter: context.after,
           aspect: args.thumbnailAspect,
-          confirmSpend: confirmed,
-          alwaysApproveAiSpend: alwaysApproveSpend,
+          confirmSpend,
+          alwaysApproveAiSpend: confirmSpend && alwaysApproveSpend,
         })
       );
 
-      const generated = await requestCandidateGeneration(expectedMetadataUpdatedAt);
+      let confirmed = true;
+      if (args.aiBillingMode === "forge") {
+        const quote = await requestCandidateGeneration(expectedMetadataUpdatedAt, false);
+        if (!args.operationAuthority.isCurrent(operation)) return;
+        if (quote.ok || !quote.requiresConfirmation) {
+          args.setImageMapCandidateError(quote.ok ? "Paid image quote unexpectedly generated media before approval." : quote.error ?? "Unable to quote image generation.");
+          return;
+        }
+        confirmed = alwaysApproveSpend || window.confirm(quote.authorizationMessage
+          ?? `Generate two images? Up to ${(quote.authorizedCustomerCeiling ?? 0).toLocaleString()} AI credits will be held.`);
+        if (!confirmed) return;
+      } else {
+        confirmed = window.confirm(mode === "stock" ? "Find stock-style candidates with your configured provider?" : "Generate two images with your configured provider?");
+        if (!confirmed) return;
+      }
+      const generated = await requestCandidateGeneration(expectedMetadataUpdatedAt, confirmed);
       if (!args.operationAuthority.isCurrent(operation)) return;
 
       if (!generated.ok) {
@@ -222,8 +229,8 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
       args.setImageMapCandidateSelectionError(null);
       args.setImageMapExportMessage(
         mode === "stock"
-          ? `Found ${generated.generatedAssets.length} stock-style still candidates for the selected visual beat.`
-          : `Generated ${generated.generatedAssets.length} still candidates for the selected visual beat.`,
+          ? `Found ${generated.generatedAssets.length} stock-style still candidates for the selected visual beat.${typeof generated.aiCreditsUsed === "number" ? ` ${generated.aiCreditsUsed.toLocaleString()} AI credits used.` : ""}`
+          : `Generated ${generated.generatedAssets.length} still candidates for the selected visual beat.${typeof generated.aiCreditsUsed === "number" ? ` ${generated.aiCreditsUsed.toLocaleString()} AI credits used.` : ""}`,
       );
       if (typeof generated.tokenBalance === "number") {
         args.setAiTokenBalance(generated.tokenBalance);
@@ -234,7 +241,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
       args.publishForgeNotice({
         job: "image-generated",
         title: mode === "stock" ? "Stock candidates ready" : "Timeline images ready",
-        message: `${mode === "stock" ? "Found" : "Generated"} ${generated.generatedAssets.length} still candidate${generated.generatedAssets.length === 1 ? "" : "s"} for the selected visual beat.`,
+        message: `${mode === "stock" ? "Found" : "Generated"} ${generated.generatedAssets.length} still candidate${generated.generatedAssets.length === 1 ? "" : "s"} for the selected visual beat.${typeof generated.aiCreditsUsed === "number" ? ` ${generated.aiCreditsUsed.toLocaleString()} AI credits used.` : ""}`,
         severity: "success",
       });
     } catch (error) {

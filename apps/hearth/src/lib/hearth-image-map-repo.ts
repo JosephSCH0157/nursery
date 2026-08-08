@@ -76,6 +76,8 @@ export type GenerateWorkpieceImageMapCandidatesResult =
     generatedAssets: WorkpieceImageMapCandidateAssetView[];
     creditsWarning?: string;
     tokenBalance?: number | null;
+    aiCreditsUsed?: number;
+    aiCreditsReleased?: number;
   }
   | {
     ok: false;
@@ -83,6 +85,9 @@ export type GenerateWorkpieceImageMapCandidatesResult =
     reason: "request_failed" | "conflict" | "invalid_response";
     error?: string;
     latest?: WorkpieceImageMapView;
+    requiresConfirmation?: boolean;
+    authorizedCustomerCeiling?: number;
+    authorizationMessage?: string;
   };
 
 export type SelectWorkpieceImageMapCandidateResult =
@@ -461,12 +466,16 @@ export async function generateWorkpieceImageMapCandidates(args: {
     const error = readApiErrorMessage(body) ?? "Image generation was rejected by canonical authority.";
     const isImageMapConflict = code === "image_map_conflict" || code === "image_map_revision_conflict";
     const latest = isImageMapConflict ? await readLatestImageMap(args.workpieceId) : undefined;
+    const details = isRecord(body) && isRecord(body.error) && isRecord(body.error.details) ? body.error.details : null;
     return {
       ok: false,
       status: 409,
       reason: isImageMapConflict ? "conflict" : "request_failed",
       error,
       ...(latest ? { latest } : {}),
+      ...(details?.requires_confirmation === true ? { requiresConfirmation: true } : {}),
+      ...(typeof details?.authorized_customer_ceiling === "number" ? { authorizedCustomerCeiling: details.authorized_customer_ceiling } : {}),
+      ...(readString(details?.message) ? { authorizationMessage: readString(details?.message) ?? undefined } : {}),
     };
   }
 
@@ -520,7 +529,9 @@ export async function generateWorkpieceImageMapCandidates(args: {
     imageMap,
     generatedAssets,
     ...(readString(body.data.credits_warning) ? { creditsWarning: readString(body.data.credits_warning) ?? undefined } : {}),
-    ...(typeof body.data.token_balance === "number" ? { tokenBalance: body.data.token_balance } : {}),
+      ...(typeof body.data.token_balance === "number" ? { tokenBalance: body.data.token_balance } : {}),
+      ...(typeof body.data.ai_credits_used === "number" ? { aiCreditsUsed: body.data.ai_credits_used } : {}),
+      ...(typeof body.data.ai_credits_released === "number" ? { aiCreditsReleased: body.data.ai_credits_released } : {}),
   };
 }
 

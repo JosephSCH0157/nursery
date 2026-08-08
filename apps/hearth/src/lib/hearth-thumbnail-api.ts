@@ -35,6 +35,8 @@ type GenerateThumbnailPayload = {
   primary_version_id?: unknown;
   credits_warning?: unknown;
   token_balance?: unknown;
+  ai_credits_used?: unknown;
+  ai_credits_released?: unknown;
 };
 
 type MetadataReadResult =
@@ -54,6 +56,7 @@ export type GenerateEpisodeThumbnailArgs = {
   aspect?: string | null;
   confirmSpend: boolean;
   alwaysApproveAiSpend: boolean;
+  operationId?: string;
 };
 
 export type GenerateEpisodeThumbnailResult =
@@ -66,6 +69,8 @@ export type GenerateEpisodeThumbnailResult =
       primaryVersionId: string | null;
       creditsWarning?: string;
       tokenBalance?: number | null;
+      aiCreditsUsed?: number;
+      aiCreditsReleased?: number;
     }
   | {
       ok: false;
@@ -73,6 +78,8 @@ export type GenerateEpisodeThumbnailResult =
       error: string;
       code?: string;
       requiresConfirmation?: boolean;
+      authorizedCustomerCeiling?: number;
+      authorizationMessage?: string;
     };
 
 export type SaveEpisodePackageResult =
@@ -126,7 +133,7 @@ function readNumber(value: unknown): number | null {
   return value;
 }
 
-function readErrorBody(body: unknown, fallback: string): { error: string; code?: string; requiresConfirmation?: boolean } {
+function readErrorBody(body: unknown, fallback: string): { error: string; code?: string; requiresConfirmation?: boolean; authorizedCustomerCeiling?: number; authorizationMessage?: string } {
   if (!isRecord(body)) return { error: fallback };
   const errorRoot = isRecord(body.error)
     ? body.error
@@ -141,6 +148,8 @@ function readErrorBody(body: unknown, fallback: string): { error: string; code?:
     error: message,
     ...(code ? { code } : {}),
     ...(details?.requires_confirmation === true ? { requiresConfirmation: true } : {}),
+    ...(typeof details?.authorized_customer_ceiling === "number" ? { authorizedCustomerCeiling: details.authorized_customer_ceiling } : {}),
+    ...(readString(details?.message) ? { authorizationMessage: readString(details?.message) ?? undefined } : {}),
   };
 }
 
@@ -523,7 +532,7 @@ export async function generateEpisodeThumbnail(args: GenerateEpisodeThumbnailArg
     json: {
       workspace_id: args.workspaceId,
       episode_id: args.workpieceId,
-      operation_id: createClientId("thumbnail-generate"),
+      operation_id: args.operationId ?? createClientId("thumbnail-generate"),
       ...(args.conceptId ? { concept_id: args.conceptId } : {}),
       ...(args.prompt ? { prompt: args.prompt } : {}),
       ...(args.preset ? { preset: args.preset } : {}),
@@ -543,6 +552,8 @@ export async function generateEpisodeThumbnail(args: GenerateEpisodeThumbnailArg
       error: parsed.error,
       ...(parsed.code ? { code: parsed.code } : {}),
       ...(parsed.requiresConfirmation ? { requiresConfirmation: true } : {}),
+      ...(typeof parsed.authorizedCustomerCeiling === "number" ? { authorizedCustomerCeiling: parsed.authorizedCustomerCeiling } : {}),
+      ...(parsed.authorizationMessage ? { authorizationMessage: parsed.authorizationMessage } : {}),
     };
   }
   if (!isRecord(body) || body.ok !== true || !isRecord(body.data)) {
@@ -573,6 +584,8 @@ export async function generateEpisodeThumbnail(args: GenerateEpisodeThumbnailArg
     primaryVersionId: readString(payload.primary_version_id),
     ...(readString(payload.credits_warning) ? { creditsWarning: readString(payload.credits_warning) ?? undefined } : {}),
     ...(typeof payload.token_balance === "number" ? { tokenBalance: payload.token_balance } : {}),
+    ...(typeof payload.ai_credits_used === "number" ? { aiCreditsUsed: payload.ai_credits_used } : {}),
+    ...(typeof payload.ai_credits_released === "number" ? { aiCreditsReleased: payload.ai_credits_released } : {}),
   };
 }
 
