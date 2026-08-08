@@ -7,6 +7,43 @@ export type Json =
   | Json[]
 
 export type Database = {
+  public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      workspaces: {
+        Row: {
+          created_at: string | null
+          created_by: string | null
+          id: string | null
+          name: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          created_by?: string | null
+          id?: string | null
+          name?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          created_by?: string | null
+          id?: string | null
+          name?: string | null
+        }
+        Relationships: []
+      }
+    }
+    Functions: {
+      [_ in never]: never
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   tongs: {
     Tables: {
       account_balances: {
@@ -232,6 +269,11 @@ export type Database = {
       }
       ai_credit_quotes: {
         Row: {
+          authorization_policy_revision: number | null
+          authorization_policy_revision_id: string | null
+          authorization_provider_expense_basis_micros: number | null
+          authorization_text_contingency_micros: number | null
+          authorized_customer_ceiling: number | null
           created_at: string
           customer_credit_charge: number
           effective_at: string
@@ -242,6 +284,8 @@ export type Database = {
           expires_at: string | null
           generation_mode: string
           id: string
+          known_image_output_expense_micros: number | null
+          known_image_output_tokens: number | null
           maximum_customer_credit_charge: number | null
           maximum_provider_expense_denominator: number | null
           maximum_provider_expense_numerator: number | null
@@ -251,6 +295,9 @@ export type Database = {
           pricing_contract_version: string
           pricing_policy_revision: number
           pricing_policy_revision_id: string
+          prompt_content_hash: string | null
+          prompt_revision_id: string | null
+          prompt_utf8_bytes: number | null
           provider: string
           provider_billable_units: number
           provider_currency: string
@@ -264,6 +311,11 @@ export type Database = {
           workspace_id: string | null
         }
         Insert: {
+          authorization_policy_revision?: number | null
+          authorization_policy_revision_id?: string | null
+          authorization_provider_expense_basis_micros?: number | null
+          authorization_text_contingency_micros?: number | null
+          authorized_customer_ceiling?: number | null
           created_at?: string
           customer_credit_charge: number
           effective_at: string
@@ -274,6 +326,8 @@ export type Database = {
           expires_at?: string | null
           generation_mode: string
           id: string
+          known_image_output_expense_micros?: number | null
+          known_image_output_tokens?: number | null
           maximum_customer_credit_charge?: number | null
           maximum_provider_expense_denominator?: number | null
           maximum_provider_expense_numerator?: number | null
@@ -283,6 +337,9 @@ export type Database = {
           pricing_contract_version?: string
           pricing_policy_revision: number
           pricing_policy_revision_id: string
+          prompt_content_hash?: string | null
+          prompt_revision_id?: string | null
+          prompt_utf8_bytes?: number | null
           provider: string
           provider_billable_units: number
           provider_currency: string
@@ -296,6 +353,11 @@ export type Database = {
           workspace_id?: string | null
         }
         Update: {
+          authorization_policy_revision?: number | null
+          authorization_policy_revision_id?: string | null
+          authorization_provider_expense_basis_micros?: number | null
+          authorization_text_contingency_micros?: number | null
+          authorized_customer_ceiling?: number | null
           created_at?: string
           customer_credit_charge?: number
           effective_at?: string
@@ -306,6 +368,8 @@ export type Database = {
           expires_at?: string | null
           generation_mode?: string
           id?: string
+          known_image_output_expense_micros?: number | null
+          known_image_output_tokens?: number | null
           maximum_customer_credit_charge?: number | null
           maximum_provider_expense_denominator?: number | null
           maximum_provider_expense_numerator?: number | null
@@ -315,6 +379,9 @@ export type Database = {
           pricing_contract_version?: string
           pricing_policy_revision?: number
           pricing_policy_revision_id?: string
+          prompt_content_hash?: string | null
+          prompt_revision_id?: string | null
+          prompt_utf8_bytes?: number | null
           provider?: string
           provider_billable_units?: number
           provider_currency?: string
@@ -328,6 +395,13 @@ export type Database = {
           workspace_id?: string | null
         }
         Relationships: [
+          {
+            foreignKeyName: "ai_credit_quotes_authorization_policy_revision_id_fkey"
+            columns: ["authorization_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "ai_media_authorization_policy_revisions"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "ai_credit_quotes_pricing_policy_revision_id_fkey"
             columns: ["pricing_policy_revision_id"]
@@ -490,6 +564,194 @@ export type Database = {
           user_id?: string
         }
         Relationships: []
+      }
+      ai_image_output_token_schedules: {
+        Row: {
+          authorization_policy_revision_id: string
+          calculation_evidence_json: Json
+          content_hash: string
+          created_at: string
+          height: number
+          id: string
+          output_tokens_per_image: number
+          quality: string
+          size: string
+          width: number
+        }
+        Insert: {
+          authorization_policy_revision_id: string
+          calculation_evidence_json: Json
+          content_hash: string
+          created_at?: string
+          height: number
+          id: string
+          output_tokens_per_image: number
+          quality: string
+          size: string
+          width: number
+        }
+        Update: {
+          authorization_policy_revision_id?: string
+          calculation_evidence_json?: Json
+          content_hash?: string
+          created_at?: string
+          height?: number
+          id?: string
+          output_tokens_per_image?: number
+          quality?: string
+          size?: string
+          width?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_image_output_token_schedul_authorization_policy_revisio_fkey"
+            columns: ["authorization_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "ai_media_authorization_policy_revisions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_media_authorization_policies: {
+        Row: {
+          created_at: string
+          id: string
+          policy_code: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          policy_code: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          policy_code?: string
+        }
+        Relationships: []
+      }
+      ai_media_authorization_policy_revisions: {
+        Row: {
+          actor_id: string | null
+          allowed_request_shapes: Json
+          authorization_text_contingency_micros: number
+          content_hash: string
+          contract_version: string
+          created_at: string
+          effective_from: string
+          effective_through: string | null
+          endpoint: string
+          id: string
+          is_active: boolean
+          model_alias: string
+          model_snapshot: string
+          output_cost_contract_version: string
+          policy_id: string
+          previous_revision_id: string | null
+          prompt_max_utf8_bytes: number
+          provenance_json: Json
+          provider: string
+          request_kind: string
+          revision: number
+        }
+        Insert: {
+          actor_id?: string | null
+          allowed_request_shapes: Json
+          authorization_text_contingency_micros: number
+          content_hash: string
+          contract_version: string
+          created_at?: string
+          effective_from: string
+          effective_through?: string | null
+          endpoint: string
+          id: string
+          is_active: boolean
+          model_alias: string
+          model_snapshot: string
+          output_cost_contract_version: string
+          policy_id: string
+          previous_revision_id?: string | null
+          prompt_max_utf8_bytes: number
+          provenance_json: Json
+          provider: string
+          request_kind: string
+          revision: number
+        }
+        Update: {
+          actor_id?: string | null
+          allowed_request_shapes?: Json
+          authorization_text_contingency_micros?: number
+          content_hash?: string
+          contract_version?: string
+          created_at?: string
+          effective_from?: string
+          effective_through?: string | null
+          endpoint?: string
+          id?: string
+          is_active?: boolean
+          model_alias?: string
+          model_snapshot?: string
+          output_cost_contract_version?: string
+          policy_id?: string
+          previous_revision_id?: string | null
+          prompt_max_utf8_bytes?: number
+          provenance_json?: Json
+          provider?: string
+          request_kind?: string
+          revision?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_media_authorization_policy_revisio_previous_revision_id_fkey"
+            columns: ["previous_revision_id"]
+            isOneToOne: false
+            referencedRelation: "ai_media_authorization_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_media_authorization_policy_revisions_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: false
+            referencedRelation: "ai_media_authorization_policies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      ai_media_authorization_policy_sequences: {
+        Row: {
+          current_revision: number
+          current_revision_id: string
+          policy_id: string
+          updated_at: string
+        }
+        Insert: {
+          current_revision: number
+          current_revision_id: string
+          policy_id: string
+          updated_at?: string
+        }
+        Update: {
+          current_revision?: number
+          current_revision_id?: string
+          policy_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_media_authorization_policy_sequence_current_revision_id_fkey"
+            columns: ["current_revision_id"]
+            isOneToOne: false
+            referencedRelation: "ai_media_authorization_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_media_authorization_policy_sequences_policy_id_fkey"
+            columns: ["policy_id"]
+            isOneToOne: true
+            referencedRelation: "ai_media_authorization_policies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       ai_pricing_policies: {
         Row: {
@@ -4873,6 +5135,358 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      paid_media_actual_usage_components: {
+        Row: {
+          component_kind: string
+          created_at: string
+          evidence_json: Json
+          expense_denominator: number
+          expense_numerator: number
+          id: string
+          provider_attempt_id: string
+          quantity: number
+          rate_denominator: number
+          rate_numerator: number
+        }
+        Insert: {
+          component_kind: string
+          created_at?: string
+          evidence_json?: Json
+          expense_denominator: number
+          expense_numerator: number
+          id?: string
+          provider_attempt_id: string
+          quantity: number
+          rate_denominator: number
+          rate_numerator: number
+        }
+        Update: {
+          component_kind?: string
+          created_at?: string
+          evidence_json?: Json
+          expense_denominator?: number
+          expense_numerator?: number
+          id?: string
+          provider_attempt_id?: string
+          quantity?: number
+          rate_denominator?: number
+          rate_numerator?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paid_media_actual_usage_components_provider_attempt_id_fkey"
+            columns: ["provider_attempt_id"]
+            isOneToOne: false
+            referencedRelation: "paid_media_provider_attempts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      paid_media_operation_events: {
+        Row: {
+          actor_id: string | null
+          created_at: string
+          event_ordinal: number
+          event_type: string
+          evidence_json: Json
+          id: string
+          paid_media_operation_id: string
+          user_id: string
+        }
+        Insert: {
+          actor_id?: string | null
+          created_at?: string
+          event_ordinal: number
+          event_type: string
+          evidence_json?: Json
+          id: string
+          paid_media_operation_id: string
+          user_id: string
+        }
+        Update: {
+          actor_id?: string | null
+          created_at?: string
+          event_ordinal?: number
+          event_type?: string
+          evidence_json?: Json
+          id?: string
+          paid_media_operation_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paid_media_operation_events_paid_media_operation_id_fkey"
+            columns: ["paid_media_operation_id"]
+            isOneToOne: false
+            referencedRelation: "paid_media_operations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      paid_media_operations: {
+        Row: {
+          active_attempt_id: string | null
+          actor_id: string
+          authorization_policy_revision_id: string
+          authorized_customer_ceiling: number
+          contract_version: string
+          created_at: string
+          creator_approval_json: Json
+          failure_code: string | null
+          failure_message: string | null
+          id: string
+          media_kind: string
+          model_snapshot: string
+          operation_fingerprint: string
+          operation_id: string
+          originating_entity_id: string | null
+          originating_tool: string
+          pricing_policy_revision_id: string
+          prompt_content_hash: string
+          prompt_revision_id: string | null
+          provider: string
+          quote_id: string
+          reconciliation_required: boolean
+          request_parameters: Json
+          reservation_id: string | null
+          state: string
+          terminal_receipt_json: Json | null
+          updated_at: string
+          user_id: string
+          workpiece_id: string | null
+          workspace_id: string | null
+        }
+        Insert: {
+          active_attempt_id?: string | null
+          actor_id: string
+          authorization_policy_revision_id: string
+          authorized_customer_ceiling: number
+          contract_version: string
+          created_at?: string
+          creator_approval_json: Json
+          failure_code?: string | null
+          failure_message?: string | null
+          id: string
+          media_kind: string
+          model_snapshot: string
+          operation_fingerprint: string
+          operation_id: string
+          originating_entity_id?: string | null
+          originating_tool: string
+          pricing_policy_revision_id: string
+          prompt_content_hash: string
+          prompt_revision_id?: string | null
+          provider: string
+          quote_id: string
+          reconciliation_required?: boolean
+          request_parameters: Json
+          reservation_id?: string | null
+          state: string
+          terminal_receipt_json?: Json | null
+          updated_at?: string
+          user_id: string
+          workpiece_id?: string | null
+          workspace_id?: string | null
+        }
+        Update: {
+          active_attempt_id?: string | null
+          actor_id?: string
+          authorization_policy_revision_id?: string
+          authorized_customer_ceiling?: number
+          contract_version?: string
+          created_at?: string
+          creator_approval_json?: Json
+          failure_code?: string | null
+          failure_message?: string | null
+          id?: string
+          media_kind?: string
+          model_snapshot?: string
+          operation_fingerprint?: string
+          operation_id?: string
+          originating_entity_id?: string | null
+          originating_tool?: string
+          pricing_policy_revision_id?: string
+          prompt_content_hash?: string
+          prompt_revision_id?: string | null
+          provider?: string
+          quote_id?: string
+          reconciliation_required?: boolean
+          request_parameters?: Json
+          reservation_id?: string | null
+          state?: string
+          terminal_receipt_json?: Json | null
+          updated_at?: string
+          user_id?: string
+          workpiece_id?: string | null
+          workspace_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paid_media_active_attempt_fk"
+            columns: ["active_attempt_id"]
+            isOneToOne: false
+            referencedRelation: "paid_media_provider_attempts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "paid_media_operations_authorization_policy_revision_id_fkey"
+            columns: ["authorization_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "ai_media_authorization_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "paid_media_operations_pricing_policy_revision_id_fkey"
+            columns: ["pricing_policy_revision_id"]
+            isOneToOne: false
+            referencedRelation: "ai_pricing_policy_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "paid_media_operations_quote_id_fkey"
+            columns: ["quote_id"]
+            isOneToOne: false
+            referencedRelation: "ai_credit_quotes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "paid_media_operations_reservation_id_fkey"
+            columns: ["reservation_id"]
+            isOneToOne: false
+            referencedRelation: "ai_credit_reservations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "paid_media_operations_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "paid_media_operations_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      paid_media_pricing_overages: {
+        Row: {
+          amount_credits: number
+          created_at: string
+          evidence_json: Json
+          id: string
+          paid_media_operation_id: string
+          provider_expense_denominator: number
+          provider_expense_numerator: number
+          reason_code: string
+          user_id: string
+        }
+        Insert: {
+          amount_credits: number
+          created_at?: string
+          evidence_json?: Json
+          id: string
+          paid_media_operation_id: string
+          provider_expense_denominator: number
+          provider_expense_numerator: number
+          reason_code: string
+          user_id: string
+        }
+        Update: {
+          amount_credits?: number
+          created_at?: string
+          evidence_json?: Json
+          id?: string
+          paid_media_operation_id?: string
+          provider_expense_denominator?: number
+          provider_expense_numerator?: number
+          reason_code?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paid_media_pricing_overages_paid_media_operation_id_fkey"
+            columns: ["paid_media_operation_id"]
+            isOneToOne: true
+            referencedRelation: "paid_media_operations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      paid_media_provider_attempts: {
+        Row: {
+          completed_at: string | null
+          created_at: string
+          endpoint: string
+          id: string
+          model_snapshot: string
+          ordinal: number
+          paid_media_operation_id: string
+          provider: string
+          provider_request_id: string | null
+          provider_response_id: string | null
+          provider_response_json: Json | null
+          request_evidence_json: Json
+          request_payload_hash: string
+          state: string
+          submitted_at: string
+          transmitted: boolean | null
+          transport_evidence_json: Json
+          user_id: string
+        }
+        Insert: {
+          completed_at?: string | null
+          created_at?: string
+          endpoint: string
+          id: string
+          model_snapshot: string
+          ordinal: number
+          paid_media_operation_id: string
+          provider: string
+          provider_request_id?: string | null
+          provider_response_id?: string | null
+          provider_response_json?: Json | null
+          request_evidence_json: Json
+          request_payload_hash: string
+          state: string
+          submitted_at: string
+          transmitted?: boolean | null
+          transport_evidence_json?: Json
+          user_id: string
+        }
+        Update: {
+          completed_at?: string | null
+          created_at?: string
+          endpoint?: string
+          id?: string
+          model_snapshot?: string
+          ordinal?: number
+          paid_media_operation_id?: string
+          provider?: string
+          provider_request_id?: string | null
+          provider_response_id?: string | null
+          provider_response_json?: Json | null
+          request_evidence_json?: Json
+          request_payload_hash?: string
+          state?: string
+          submitted_at?: string
+          transmitted?: boolean | null
+          transport_evidence_json?: Json
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "paid_media_provider_attempts_paid_media_operation_id_fkey"
+            columns: ["paid_media_operation_id"]
+            isOneToOne: false
+            referencedRelation: "paid_media_operations"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       plan_credit_grants: {
         Row: {
@@ -11697,6 +12311,10 @@ export type Database = {
         Args: { p_left: number; p_right: number }
         Returns: number
       }
+      _gpt_image_2_output_tokens: {
+        Args: { p_height: number; p_quality: string; p_width: number }
+        Returns: number
+      }
       _insert_missing_org_members_from_teams: {
         Args: { p_org_id?: string }
         Returns: number
@@ -12162,6 +12780,19 @@ export type Database = {
           token_balance: number
         }[]
       }
+      approve_and_reserve_paid_media_operation: {
+        Args: {
+          p_actor_id: string
+          p_contract_version: string
+          p_creator_approval_json: Json
+          p_operation_fingerprint: string
+          p_operation_id: string
+          p_paid_media_operation_id: string
+          p_quote_id: string
+          p_reservation_id: string
+        }
+        Returns: Json
+      }
       archive_my_thumbnail_brand_template: {
         Args: { p_template_id: string; p_workspace_id: string }
         Returns: {
@@ -12298,6 +12929,16 @@ export type Database = {
           p_script_approval_id: string
           p_workpiece_id: string
           p_workspace_id: string
+        }
+        Returns: Json
+      }
+      begin_paid_media_provider_attempt: {
+        Args: {
+          p_attempt_id: string
+          p_operation_fingerprint: string
+          p_paid_media_operation_id: string
+          p_request_evidence_json: Json
+          p_request_payload_hash: string
         }
         Returns: Json
       }
@@ -13159,6 +13800,28 @@ export type Database = {
           updated_at: string
         }[]
       }
+      create_paid_image_authorization_quote: {
+        Args: {
+          p_effective_at: string
+          p_expires_at: string
+          p_operation_id: string
+          p_originating_entity_id: string
+          p_output_count: number
+          p_prompt: string
+          p_prompt_content_hash: string
+          p_prompt_revision_id: string
+          p_quality: string
+          p_quote_id: string
+          p_request_fingerprint: string
+          p_request_metadata: Json
+          p_size: string
+          p_tool: string
+          p_user_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       create_recording_session: {
         Args: {
           p_calendar_event_id?: string
@@ -13827,6 +14490,25 @@ export type Database = {
         }
         Returns: Json
       }
+      mark_paid_media_delivery: {
+        Args: {
+          p_delivery_evidence_json: Json
+          p_operation_fingerprint: string
+          p_paid_media_operation_id: string
+        }
+        Returns: Json
+      }
+      mark_paid_media_submission_unknown: {
+        Args: {
+          p_attempt_id: string
+          p_evidence_json: Json
+          p_failure_code: string
+          p_failure_message: string
+          p_operation_fingerprint: string
+          p_paid_media_operation_id: string
+        }
+        Returns: Json
+      }
       mark_thumbnail_brand_asset_ready: {
         Args: {
           p_actor_id: string
@@ -13958,6 +14640,11 @@ export type Database = {
       read_my_ai_credit_quote: {
         Args: { p_quote_id: string }
         Returns: {
+          authorization_policy_revision: number | null
+          authorization_policy_revision_id: string | null
+          authorization_provider_expense_basis_micros: number | null
+          authorization_text_contingency_micros: number | null
+          authorized_customer_ceiling: number | null
           created_at: string
           customer_credit_charge: number
           effective_at: string
@@ -13968,6 +14655,8 @@ export type Database = {
           expires_at: string | null
           generation_mode: string
           id: string
+          known_image_output_expense_micros: number | null
+          known_image_output_tokens: number | null
           maximum_customer_credit_charge: number | null
           maximum_provider_expense_denominator: number | null
           maximum_provider_expense_numerator: number | null
@@ -13977,6 +14666,9 @@ export type Database = {
           pricing_contract_version: string
           pricing_policy_revision: number
           pricing_policy_revision_id: string
+          prompt_content_hash: string | null
+          prompt_revision_id: string | null
+          prompt_utf8_bytes: number | null
           provider: string
           provider_billable_units: number
           provider_currency: string
@@ -14002,6 +14694,10 @@ export type Database = {
       }
       read_my_ai_credit_reservation: {
         Args: { p_reservation_id: string }
+        Returns: Json
+      }
+      read_my_paid_media_operation: {
+        Args: { p_paid_media_operation_id: string }
         Returns: Json
       }
       read_reference_clip_acquisition: {
@@ -14182,6 +14878,57 @@ export type Database = {
           p_operation_fingerprint: string
           p_operation_id: string
           p_provider_response_json: Json
+        }
+        Returns: Json
+      }
+      record_paid_media_definitive_rejection: {
+        Args: {
+          p_attempt_id: string
+          p_evidence_json: Json
+          p_failure_code: string
+          p_failure_message: string
+          p_operation_fingerprint: string
+          p_paid_media_operation_id: string
+          p_release_id: string
+        }
+        Returns: Json
+      }
+      record_paid_media_provider_reconciliation: {
+        Args: {
+          p_attempt_id: string
+          p_failure_code: string
+          p_failure_message: string
+          p_operation_fingerprint: string
+          p_paid_media_operation_id: string
+          p_provider_request_id: string
+          p_provider_response_id: string
+          p_provider_response_json: Json
+        }
+        Returns: Json
+      }
+      record_paid_media_provider_result: {
+        Args: {
+          p_attempt_id: string
+          p_operation_fingerprint: string
+          p_paid_media_operation_id: string
+          p_provider_request_id: string
+          p_provider_response_id: string
+          p_provider_response_json: Json
+          p_usage_components: Json
+        }
+        Returns: Json
+      }
+      record_paid_media_terminal_failure: {
+        Args: {
+          p_attempt_id: string
+          p_evidence_json: Json
+          p_failure_code: string
+          p_failure_kind: string
+          p_failure_message: string
+          p_operation_fingerprint: string
+          p_paid_media_operation_id: string
+          p_release_id: string
+          p_usage_components: Json
         }
         Returns: Json
       }
@@ -14651,6 +15398,15 @@ export type Database = {
         }
         Returns: Json
       }
+      settle_paid_media_operation: {
+        Args: {
+          p_operation_fingerprint: string
+          p_overage_id: string
+          p_paid_media_operation_id: string
+          p_settlement_id: string
+        }
+        Returns: Json
+      }
       snapshot_quench_release_manifest: {
         Args: {
           p_manifest_bytes: string
@@ -15024,6 +15780,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  public: {
+    Enums: {},
+  },
   tongs: {
     Enums: {
       ai_decision_type: ["ALLOW", "SOFT_DENY", "HARD_DENY"],
