@@ -44,7 +44,7 @@ type PaidImageGenerationContext = {
   reservationId: string;
   authorizedCeiling: number;
   settlementBlocked: boolean;
-  image: Awaited<ReturnType<ImageProvider["generateImage"]>>;
+  image?: Awaited<ReturnType<ImageProvider["generateImage"]>>;
 };
 import {
   ImageProviderRequestError,
@@ -1660,6 +1660,8 @@ export type AcquireBrollCandidateRequest = {
   duration_seconds?: number | null;
   ratio?: "1280:720" | "720:1280" | null;
   poster_required?: boolean;
+  confirm_spend?: boolean;
+  always_approve_ai_spend?: boolean;
   license_json?: Json;
   provenance_json?: Json;
 };
@@ -11047,6 +11049,54 @@ export class TongsCommitService {
     return settled.data as Record<string, unknown>;
   }
 
+  private async executePaidMediaBrollGeneration(args: {
+    userId: string; workspaceId: string; workpieceId: string; operationId: string; tool: string;
+    originatingEntityId: string | null; promptRevisionId: string | null; promptContentHash: string;
+    prompt: string; creatorApproved: boolean; model: "gen4.5"; durationSeconds: number; ratio: "1280:720" | "720:1280";
+    authority: UntypedTongsSchemaClient;
+  }): Promise<PaidImageGenerationContext> {
+    const prepared = await this.preparePaidImageQuote({
+      userId: args.userId, workspaceId: args.workspaceId, workpieceId: args.workpieceId, operationId: args.operationId, tool: args.tool,
+      originatingEntityId: args.originatingEntityId, promptRevisionId: args.promptRevisionId, promptContentHash: args.promptContentHash,
+      prompt: args.prompt, size: "video", quality: "medium",
+    });
+    if (!args.creatorApproved) throw new HttpError(409, "paid_image_authorization_required", "Approve the maximum Forge charge before generation.", {
+      requires_confirmation: true, quote_id: prepared.quoteId, authorized_customer_ceiling: prepared.ceiling,
+      message: `Up to ${prepared.ceiling.toLocaleString("en-US")} AI credits will be held. Your final charge is based on actual generation usage and will not exceed this amount.`,
+    });
+    const paidMediaOperationId = uuidFromSha256(await sha256Hex(canonicalJsonBytes({ operation_id: args.operationId, kind: "paid-media-operation" })));
+    const reservationId = uuidFromSha256(await sha256Hex(canonicalJsonBytes({ operation_id: args.operationId, kind: "paid-media-reservation" })));
+    const attemptId = uuidFromSha256(await sha256Hex(canonicalJsonBytes({ operation_id: args.operationId, kind: "provider-attempt", ordinal: 1 })));
+    const approved = await args.authority.rpc("approve_and_reserve_paid_media_operation", {
+      p_paid_media_operation_id: paidMediaOperationId, p_operation_id: args.operationId,
+      p_operation_fingerprint: prepared.fingerprint, p_quote_id: prepared.quoteId, p_reservation_id: reservationId,
+      p_actor_id: args.userId, p_creator_approval_json: { quote_id: prepared.quoteId, authorized_customer_ceiling: prepared.ceiling, approved_at: new Date().toISOString() },
+      p_contract_version: "forge.paid-media.v1",
+    });
+    if (approved.error) throw new HttpError(409, "paid_image_reservation_failed", approved.error.message, { quote_id: prepared.quoteId, authorized_customer_ceiling: prepared.ceiling });
+    const requestEvidence = {
+      endpoint: "/v1/videos/generations",
+      provider: "runway",
+      model: args.model,
+      duration_seconds: args.durationSeconds,
+      ratio: args.ratio,
+      prompt_content_hash: args.promptContentHash,
+    };
+    const requestHash = await sha256Hex(canonicalJsonBytes(requestEvidence));
+    const begun = await args.authority.rpc("begin_paid_media_provider_attempt", {
+      p_paid_media_operation_id: paidMediaOperationId, p_operation_fingerprint: prepared.fingerprint, p_attempt_id: attemptId,
+      p_request_payload_hash: requestHash, p_request_evidence_json: requestEvidence,
+    });
+    if (begun.error || !isRecord(begun.data)) throw new HttpError(502, "paid_image_attempt_failed", begun.error?.message ?? "Tongs could not begin the paid provider attempt.");
+    const begunOperation = isRecord(begun.data.operation) ? begun.data.operation : null;
+    if (begunOperation?.state === "submission_unknown") throw new HttpError(409, "paid_image_submission_unknown", "Runway may have received this request. No automatic retry was made; reconciliation is required.");
+    if (begunOperation?.state === "settled") throw new HttpError(409, "paid_image_already_settled", "This paid generation operation is already complete.", { receipt: begunOperation.terminal_receipt_json ?? null });
+    return {
+      paidMediaOperationId, operationId: args.operationId, operationFingerprint: prepared.fingerprint,
+      attemptId, quoteId: prepared.quoteId, reservationId, authorizedCeiling: prepared.ceiling, settlementBlocked: false,
+    };
+  }
+
   private async recoverPaidImageSettlement(operationId: string, deliveryEvidence: Record<string, unknown>): Promise<void> {
     const authority = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
     const lookup = await authority.from("paid_media_operations").select("*").eq("operation_id", operationId).maybeSingle();
@@ -11155,15 +11205,18 @@ export class TongsCommitService {
     const resolvedPaidSize = input.size?.trim() || mapThumbnailAspectToPaidSize(input.aspect ?? "16:9");
     const finalPromptHash = await sha256Hex(new TextEncoder().encode(finalPrompt));
     let paidContext: PaidImageGenerationContext | null = null;
-    let imageResult: Awaited<ReturnType<ImageProvider["generateImage"]>>;
+    let imageResult: Awaited<ReturnType<ImageProvider["generateImage"]>> | null = null;
     if (lane === "forge") {
       paidContext = await this.executePaidImageGeneration({ userId, workspaceId: workspace.id, workpieceId, operationId: input.operation_id,
         tool: "hearth_thumbnail", originatingEntityId: input.concept_revision_id ?? conceptId, promptRevisionId: null,
         promptContentHash: finalPromptHash, prompt: finalPrompt, size: resolvedPaidSize, quality: "high",
         creatorApproved: Boolean(input.confirm_spend || input.always_approve_ai_spend) });
-      imageResult = paidContext.image;
+      imageResult = paidContext.image ?? null;
     } else {
       imageResult = await this.imageProvider.generateImage({ prompt: finalPrompt, size: resolvedPaidSize, model: "gpt-image-2-2026-04-21", quality: "high" });
+    }
+    if (!imageResult) {
+      throw new HttpError(502, "paid_image_generation_missing", "The image generation did not produce a canonical image payload.");
     }
 
     const requestId = input.operation_id;
@@ -13453,20 +13506,38 @@ export class TongsCommitService {
     if (state === "candidate_committed" && isRecord(operation?.receipt_json)) return operation.receipt_json as Record<string, Json>;
 
     let video: VerifiedBrollMedia | null = null;
+    let paidContext: PaidImageGenerationContext | null = null;
     const inspectBrollMedia = this.brollAcquisitionRuntime.inspectMedia.bind(this.brollAcquisitionRuntime);
     const deriveBrollPoster = this.brollAcquisitionRuntime.derivePoster.bind(this.brollAcquisitionRuntime);
     const fetchExternalBrollMedia = this.brollAcquisitionRuntime.fetchExternalMedia.bind(this.brollAcquisitionRuntime);
     if (input.source_kind === "generated") {
       if (!this.brollVideoProvider || !input.final_prompt) throw new HttpError(503, "broll_video_provider_unavailable", "No replay-safe B-roll video provider is configured.");
+      const creatorApproved = Boolean(input.confirm_spend || input.always_approve_ai_spend);
+      if (!creatorApproved) {
+        const quote = await this.preparePaidImageQuote({
+          userId: auth.userId, workspaceId: input.workspace_id, workpieceId, operationId: input.operation_id, tool: "tongs_broll_v2",
+          originatingEntityId: null, promptRevisionId: input.prompt_revision_id ?? null, promptContentHash: input.prompt_content_hash ?? "",
+          prompt: input.final_prompt, size: "video", quality: "medium",
+        });
+        throw new HttpError(409, "paid_image_authorization_required", "Approve the maximum Forge charge before generation.", {
+          requires_confirmation: true, quote_id: quote.quoteId, authorized_customer_ceiling: quote.ceiling,
+          message: `Up to ${quote.ceiling.toLocaleString("en-US")} AI credits will be held. Your final charge is based on actual generation usage and will not exceed this amount.`,
+        });
+      }
+      const model = input.runway_model ?? "gen4.5";
+      const durationSeconds = input.duration_seconds ?? 5;
+      const ratio = input.ratio ?? "1280:720";
+      paidContext = await this.executePaidMediaBrollGeneration({
+        userId: auth.userId, workspaceId: input.workspace_id, workpieceId, operationId: input.operation_id, tool: "tongs_broll_v2",
+        originatingEntityId: null, promptRevisionId: input.prompt_revision_id ?? null, promptContentHash: input.prompt_content_hash ?? "",
+        prompt: input.final_prompt, creatorApproved: true, model, durationSeconds, ratio, authority,
+      });
       const recoveredStored = state === "pending" ? await downloadStorageObject(this.supabase, this.bucket, videoKey) : null;
       if (recoveredStored) {
         video = await inspectBrollMedia(recoveredStored, "video");
         const recorded=await authority.rpc("record_broll_provider_or_upload_result",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_result:{storage_bucket:this.bucket,storage_key:videoKey,path:videoPath,provider:input.provider,provider_request_id:input.provider_request_id??null,recovered_existing_object:true}});
         if(recorded.error)throw new HttpError(502,"broll_result_receipt_failed",recorded.error.message);state="provider_or_upload_completed";
       }
-      const model = input.runway_model ?? "gen4.5";
-      const durationSeconds = input.duration_seconds ?? 5;
-      const ratio = input.ratio ?? "1280:720";
       if (state === "submission_unknown") throw new HttpError(409, "broll_runway_submission_unknown", "Runway may have accepted this generation, but Forge did not receive its task ID. No automatic retry was made to avoid a possible duplicate charge. This operation requires reconciliation before another generation can begin.", operation ?? undefined);
       if (!video && (state === "pending" || state === "submitting")) {
         const attemptId = state === "submitting" && operation ? readStringField(operation, "submission_attempt_id") : randomUuid();
@@ -13485,7 +13556,7 @@ export class TongsCommitService {
           } catch(error) {
             if(error instanceof HttpError)throw error;
             const transport=asRunwayTransportError(error)??{message:"Runway submission outcome is unknown.",ambiguous:true,evidence:{stage:"submit",transmitted:"unknown"}};
-            if(transport.ambiguous){await authority.rpc("mark_broll_submission_unknown",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_submission_attempt_id:attemptId,p_reason:transport.message,p_transport_evidence:transport.evidence});throw new HttpError(409,"broll_runway_submission_unknown","Runway may have accepted this generation, but Forge did not receive its task ID. No automatic retry was made to avoid a possible duplicate charge. This operation requires reconciliation before another generation can begin.");}
+            if(transport.ambiguous){await authority.rpc("mark_broll_submission_unknown",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_submission_attempt_id:attemptId,p_reason:transport.message,p_transport_evidence:transport.evidence});if (paidContext) { await authority.rpc("mark_paid_media_submission_unknown",{p_paid_media_operation_id:paidContext.paidMediaOperationId,p_operation_fingerprint:paidContext.operationFingerprint,p_attempt_id:paidContext.attemptId,p_failure_code:"provider_submission_unknown",p_failure_message:transport.message,p_evidence_json:transport.evidence}); } throw new HttpError(409,"broll_runway_submission_unknown","Runway may have accepted this generation, but Forge did not receive its task ID. No automatic retry was made to avoid a possible duplicate charge. This operation requires reconciliation before another generation can begin.");}
             const rejected=await authority.rpc("record_broll_runway_rejection",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_submission_attempt_id:attemptId,p_rejection_evidence:transport.evidence});
             if(rejected.error||!isRecord(rejected.data)||!['rejection_recorded','replay'].includes(readStringField(rejected.data,'disposition')??''))throw new HttpError(502,'broll_runway_rejection_receipt_failed',rejected.error?.message??'Runway rejection evidence could not be persisted.');
             const providerMessage=typeof transport.evidence.provider_message==='string'?transport.evidence.provider_message:transport.message;
@@ -13512,6 +13583,26 @@ export class TongsCommitService {
         video=await inspectBrollMedia(await this.brollVideoProvider.download(outputUrl),"video");input.provider="runway";input.provider_request_id=currentOperation?readStringField(currentOperation,"provider_task_id"):null;
       }
       if(video&&state!=="provider_or_upload_completed"){const alreadyStored=await downloadStorageObject(this.supabase,this.bucket,videoKey);if(!alreadyStored)await uploadStorageObject(this.supabase,this.bucket,videoKey,video.bytes,video.mimeType);const recorded=await authority.rpc("record_broll_provider_or_upload_result",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_result:{storage_bucket:this.bucket,storage_key:videoKey,path:videoPath,provider:"runway",provider_request_id:input.provider_request_id??null}});if(recorded.error)throw new HttpError(502,"broll_result_receipt_failed",recorded.error.message);state="provider_or_upload_completed";}
+      if (paidContext && state === "provider_or_upload_completed" && input.provider_request_id) {
+        const providerResponseJson = {
+          provider: "runway",
+          provider_task_id: input.provider_request_id,
+          model,
+          duration_seconds: durationSeconds,
+          ratio,
+          canonical_output_url: input.provider_request_id,
+        };
+        const paidResult = await authority.rpc("record_paid_media_provider_result", {
+          p_paid_media_operation_id: paidContext.paidMediaOperationId,
+          p_operation_fingerprint: paidContext.operationFingerprint,
+          p_attempt_id: paidContext.attemptId,
+          p_provider_request_id: input.provider_request_id,
+          p_provider_response_id: input.provider_request_id,
+          p_provider_response_json: providerResponseJson,
+          p_usage_components: [],
+        });
+        if (paidResult.error) throw new HttpError(502, "paid_image_provider_receipt_failed", paidResult.error.message);
+      }
     }
     if (state === "pending") {
       const alreadyStored = await downloadStorageObject(this.supabase, this.bucket, videoKey);
@@ -13580,6 +13671,16 @@ export class TongsCommitService {
     });
     if (candidate.error || !isRecord(candidate.data)) throw new HttpError(502, "broll_candidate_commit_failed", candidate.error?.message ?? "Candidate commit failed.");
     if (candidate.data.disposition !== "committed") throw new HttpError(409, String(candidate.data.disposition ?? "broll_candidate_rejected"), "Canonical B-roll candidate commit was rejected.", candidate.data);
+    if (paidContext) {
+      await this.settlePaidImageDelivery(paidContext, {
+        operation_id: input.operation_id,
+        asset_path: videoPath,
+        asset_content_hash: await sha256Hex(video.bytes),
+        provider: input.provider,
+        provider_request_id: input.provider_request_id ?? null,
+        candidate_committed: true,
+      });
+    }
     return candidate.data as Record<string, Json>;
   }
 
@@ -15317,6 +15418,8 @@ export function createTongsCommitApiHandlerWithService(
           duration_seconds:body.duration_seconds==null?null:Math.min(10,Math.max(2,normalizePositiveInteger(body.duration_seconds,"duration_seconds"))),
           ratio:body.ratio==null?null:(normalizeNonEmptyString(body.ratio,"ratio")==="720:1280"?"720:1280":"1280:720"),
           final_prompt:body.final_prompt==null?null:normalizeNonEmptyString(body.final_prompt,"final_prompt"),poster_required:body.poster_required!==false,
+          confirm_spend:normalizeOptionalBoolean(body.confirm_spend,"confirm_spend"),
+          always_approve_ai_spend:normalizeOptionalBoolean(body.always_approve_ai_spend,"always_approve_ai_spend"),
           license_json:normalizeJsonValue(body.license_json??{}),provenance_json:normalizeJsonValue(body.provenance_json??{}),
         },{userAccessToken});
         return jsonResponse(200,{ok:true,data:result});
