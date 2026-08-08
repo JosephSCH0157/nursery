@@ -1,0 +1,100 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import {
+  ImageProviderRequestError,
+  OpenAiImageProvider,
+  extractOpenAiImageUsage,
+} from "../dist/providers/image-provider.js";
+
+test("OpenAiImageProvider submits one explicit pinned GPT Image 2 request and preserves usage evidence", async (t) => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, init });
+    return new Response(JSON.stringify({
+      id: "img-response-1",
+      created: 1,
+      model: "gpt-image-2-2026-04-21",
+      data: [{ b64_json: "AQID", revised_prompt: "Canonical revised prompt" }],
+      usage: {
+        input_tokens: 120,
+        input_tokens_details: { text_tokens: 120, cached_text_tokens: 20 },
+        output_tokens: 5488,
+        total_tokens: 5608,
+      },
+    }), { status: 200, headers: { "x-request-id": "req-image-1" } });
+  };
+
+  const result = await new OpenAiImageProvider("test-key").generateImage({
+    prompt: "A specific documentary scene",
+    size: "1536x1024",
+    quality: "high",
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, "https://api.openai.com/v1/images/generations");
+  const body = JSON.parse(calls[0].init.body);
+  assert.deepEqual(body, {
+    model: "gpt-image-2-2026-04-21",
+    prompt: "A specific documentary scene",
+    size: "1536x1024",
+    quality: "high",
+    output_format: "png",
+  });
+  assert.equal(result.providerRequestId, "req-image-1");
+  assert.equal(result.providerResponseId, "img-response-1");
+  assert.equal(result.usage.textInputTokens, 100);
+  assert.equal(result.usage.cachedTextInputTokens, 20);
+  assert.equal(result.usage.imageOutputTokens, 5488);
+  assert.equal(result.responseEvidence.data[0].b64_json, "AQID");
+});
+
+test("OpenAiImageProvider classifies a complete validation response as definitive", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({ error: { message: "Unsupported size" } }), {
+      status: 400,
+      headers: { "x-request-id": "req-rejected" },
+    });
+  };
+  await assert.rejects(
+    () => new OpenAiImageProvider("test-key").generateImage({ prompt: "x", size: "1536x1024", quality: "high" }),
+    (error) => error instanceof ImageProviderRequestError
+      && error.delivery === "definitive_response"
+      && error.status === 400
+      && error.providerRequestId === "req-rejected",
+  );
+  assert.equal(calls, 1);
+});
+
+test("OpenAiImageProvider classifies a lost create response as ambiguous and never retries", async (t) => {
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    throw new TypeError("socket closed after transmission");
+  };
+  await assert.rejects(
+    () => new OpenAiImageProvider("test-key").generateImage({ prompt: "x", size: "1024x1024", quality: "high" }),
+    (error) => error instanceof ImageProviderRequestError && error.delivery === "ambiguous_transport",
+  );
+  assert.equal(calls, 1);
+});
+
+test("extractOpenAiImageUsage separates cached subsets from non-cached component quantities", () => {
+  const usage = extractOpenAiImageUsage({ usage: {
+    input_tokens: 150,
+    input_tokens_details: { text_tokens: 100, image_tokens: 50, cached_text_tokens: 25, cached_image_tokens: 10 },
+    output_tokens: 200,
+    total_tokens: 350,
+  } });
+  assert.equal(usage.textInputTokens, 75);
+  assert.equal(usage.cachedTextInputTokens, 25);
+  assert.equal(usage.imageInputTokens, 40);
+  assert.equal(usage.cachedImageInputTokens, 10);
+});

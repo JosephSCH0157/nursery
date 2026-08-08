@@ -35,9 +35,21 @@ type UntypedTongsSchemaClient = {
   from: (table: string) => UntypedPostgrestBuilder;
   rpc: (name: string, args: Record<string, unknown>) => Promise<UntypedPostgrestResult>;
 };
+type PaidImageGenerationContext = {
+  paidMediaOperationId: string;
+  operationId: string;
+  operationFingerprint: string;
+  attemptId: string;
+  quoteId: string;
+  reservationId: string;
+  authorizedCeiling: number;
+  settlementBlocked: boolean;
+  image: Awaited<ReturnType<ImageProvider["generateImage"]>>;
+};
 import {
+  ImageProviderRequestError,
+  extractOpenAiImageUsage,
   OpenAiImageProvider,
-  type GenerateImageInput,
   type ImageProvider,
 } from "./providers/image-provider.js";
 import { OpenAiNarrativeInterpretationProvider, validateSubstantiveVisualBrief, synthesizeConcreteVendorPrompt, type NarrativeInterpretationProvider, type ImagePromptVisualBrief } from "./providers/narrative-interpretation-provider.js";
@@ -1157,6 +1169,8 @@ export type GenerateImageMapCandidatesResponse = {
   generated_assets: ImageMapCandidateAssetSummary[];
   credits_warning?: string;
   token_balance?: number | null;
+  ai_credits_used?: number;
+  ai_credits_released?: number;
 };
 
 export type GenerateEpisodeThumbnailRequest = {
@@ -1197,6 +1211,8 @@ export type LegacyGenerateEpisodeThumbnailResponse = {
   primary_version_id: string | null;
   credits_warning?: string;
   token_balance?: number | null;
+  ai_credits_used?: number;
+  ai_credits_released?: number;
 };
 
 export type CanonicalGenerateEpisodeThumbnailStageResponse = {
@@ -2608,6 +2624,27 @@ function normalizeJsonValue(input: unknown): JsonValue {
 function canonicalJsonBytes(input: unknown): Uint8Array {
   const normalized = normalizeJsonValue(input);
   return textEncoder.encode(JSON.stringify(normalized));
+}
+
+function canonicalJsonbText(input: unknown): string {
+  const normalized = normalizeJsonValue(input);
+  const compareJsonbKeys = (left: string, right: string): number => {
+    const leftBytes = textEncoder.encode(left);
+    const rightBytes = textEncoder.encode(right);
+    if (leftBytes.length !== rightBytes.length) return leftBytes.length - rightBytes.length;
+    for (let index = 0; index < leftBytes.length; index += 1) {
+      if (leftBytes[index] !== rightBytes[index]) return (leftBytes[index] ?? 0) - (rightBytes[index] ?? 0);
+    }
+    return 0;
+  };
+  const serialize = (value: JsonValue): string => {
+    if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") {
+      return JSON.stringify(value);
+    }
+    if (Array.isArray(value)) return `[${value.map(serialize).join(", ")}]`;
+    return `{${Object.entries(value).sort(([left], [right]) => compareJsonbKeys(left, right)).map(([key, child]) => `${JSON.stringify(key)}: ${serialize(child)}`).join(", ")}}`;
+  };
+  return serialize(normalized);
 }
 
 function parseJsonText(text: string, field: string): unknown {
@@ -4137,6 +4174,16 @@ function normalizeOptionalLane(input: unknown): "forge" | "byo" | undefined {
   throw new HttpError(400, "invalid_lane", "lane must be forge or byo");
 }
 
+function mapThumbnailAspectToPaidSize(aspect: string | null | undefined): string {
+  const normalized = aspect?.trim().toLowerCase();
+  if (!normalized || normalized === "16:9" || normalized === "landscape") return "1536x1024";
+  if (normalized === "1:1" || normalized === "square") return "1024x1024";
+  if (normalized === "9:16" || normalized === "portrait") {
+    throw new HttpError(400, "unsupported_paid_image_dimensions", "Paid thumbnail generation does not yet support portrait dimensions.");
+  }
+  throw new HttpError(400, "unsupported_paid_image_dimensions", `Paid thumbnail generation does not support aspect ${aspect}.`);
+}
+
 function normalizeGenerateEpisodeThumbnailRequest(
   body: Record<string, unknown>,
   workpieceId: string,
@@ -5004,13 +5051,6 @@ function parseBase64ByteLength(base64: string): number {
   const clean = base64.replace(/\s+/g, "");
   const padding = clean.endsWith("==") ? 2 : clean.endsWith("=") ? 1 : 0;
   return Math.max(0, Math.floor((clean.length * 3) / 4) - padding);
-}
-
-function estimateImageTokenSpend(prompt: string, tokensFromProvider: number | null): number {
-  if (typeof tokensFromProvider === "number" && Number.isFinite(tokensFromProvider) && tokensFromProvider > 0) {
-    return Math.ceil(tokensFromProvider);
-  }
-  return Math.max(1, Math.ceil(prompt.length / 4));
 }
 
 function normalizeThumbnailConcept(value: unknown): EpisodeThumbnailConceptRecord | null {
@@ -8749,61 +8789,6 @@ export class TongsCommitService {
     };
   }
 
-  private async applyAiTokenDelta(args: {
-    userId: string;
-    spent: number;
-    requestId: string;
-    providerRequestId: string | null;
-    reason: string;
-  }): Promise<{ tokenBalance: number | null } | { warning: string }> {
-    const rpcClient = this.supabase.schema("tongs") as unknown as {
-      rpc: (
-        fn: string,
-        params: {
-          p_user_id: string;
-          p_delta: number;
-          p_reason: string;
-          p_request_id: string;
-          p_provider_request_id?: string;
-        },
-      ) => Promise<{ data: unknown; error: { message: string } | null }>;
-    };
-
-    const { data, error } = await rpcClient.rpc("apply_ai_token_delta", {
-      p_user_id: args.userId,
-      p_delta: -Math.max(0, Math.ceil(args.spent)),
-      p_reason: args.reason,
-      p_request_id: args.requestId,
-      p_provider_request_id: args.providerRequestId ?? undefined,
-    });
-
-    if (error) {
-      await (this.supabase.schema("tongs") as unknown as { rpc: (fn: string, params: Record<string, unknown>) => Promise<unknown> }).rpc(
-        "record_ai_credit_unfunded_expense",
-        {
-          p_user_id: args.userId,
-          p_event_id: args.requestId,
-          p_provider_request_id: args.providerRequestId,
-          p_attempted_charge: Math.max(0, Math.ceil(args.spent)),
-          p_reason_code: "postpaid_debit_unfunded",
-          p_evidence_json: { original_reason: args.reason },
-        },
-      );
-      return { warning: "Unable to update credits." };
-    }
-
-    const row = Array.isArray(data) ? data[0] : data;
-    const tokenBalance = (
-      row
-      && typeof row === "object"
-      && typeof (row as Record<string, unknown>).token_balance === "number"
-    )
-      ? ((row as Record<string, unknown>).token_balance as number)
-      : null;
-
-    return { tokenBalance };
-  }
-
   private async recordAiUsageEvent(args: {
     userId: string;
     workspaceId: string;
@@ -10304,6 +10289,12 @@ export class TongsCommitService {
     }
     const { data, error } = await this.supabase.schema("tongs").from("assets").update(patch).eq("id", asset.id).select("*").single();
     if (error || !data) throw new HttpError(502, "db_write_failed", "Failed to transition thumbnail asset", { reason: error?.message });
+    if (input.target_status === "ready" && typeof data.operation_id === "string" && data.operation_id.trim()) {
+      await this.recoverPaidImageSettlement(data.operation_id, {
+        asset_id: data.id, asset_path: data.path, asset_content_hash: data.content_hash ?? null,
+        delivery_kind: "thumbnail_base_art", canonical_reference_committed: true, canonical_asset_ready: true,
+      });
+    }
     return thumbnailAssetSummary(data);
   }
 
@@ -10910,6 +10901,171 @@ export class TongsCommitService {
     }, options);
   }
 
+  private async preparePaidImageQuote(args: {
+    userId: string; workspaceId: string; workpieceId: string; operationId: string; tool: string;
+    originatingEntityId: string | null; promptRevisionId: string | null; promptContentHash: string;
+    prompt: string; size: string; quality: "low" | "medium" | "high";
+  }): Promise<{ quoteId: string; fingerprint: string; ceiling: number; quote: Record<string, unknown> }> {
+    const promptBytes = new TextEncoder().encode(args.prompt).length;
+    if (promptBytes > 16_384) throw new HttpError(400, "paid_image_prompt_too_large", "Image prompt exceeds the 16 KiB paid-generation limit.", { prompt_utf8_bytes: promptBytes, maximum_utf8_bytes: 16_384 });
+    const quoteId = uuidFromSha256(await sha256Hex(canonicalJsonBytes({ operation_id: args.operationId, kind: "paid-image-quote" })));
+    const requestMetadata = { ...(args.originatingEntityId ? { originating_entity_id: args.originatingEntityId } : {}) };
+    const requestParameters = { size: args.size, quality: args.quality, output_count: 1, operation: "generation", metadata: requestMetadata };
+    // PostgreSQL validates this fingerprint over jsonb::text. Preserve its
+    // canonical single-line separators so semantically identical JSON hashes
+    // to the same bytes on both sides of the RPC boundary.
+    const fingerprint = await sha256Hex(new TextEncoder().encode(canonicalJsonbText({
+      user_id: args.userId, operation_id: args.operationId, tool: args.tool, workspace_id: args.workspaceId,
+      workpiece_id: args.workpieceId, originating_entity_id: args.originatingEntityId,
+      prompt_revision_id: args.promptRevisionId, prompt_content_hash: args.promptContentHash,
+      prompt_utf8_bytes: promptBytes, request_parameters: requestParameters,
+      pricing_policy_revision_id: "72000000-0000-4000-8000-000000000001",
+      authorization_policy_revision_id: "74000000-0000-4000-8000-000000000011",
+    })));
+    const rpc = await (this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient).rpc("create_paid_image_authorization_quote", {
+      p_quote_id: quoteId, p_user_id: args.userId, p_operation_id: args.operationId, p_tool: args.tool,
+      p_workspace_id: args.workspaceId, p_workpiece_id: args.workpieceId, p_originating_entity_id: args.originatingEntityId,
+      p_prompt_revision_id: args.promptRevisionId, p_prompt_content_hash: args.promptContentHash, p_prompt: args.prompt,
+      p_size: args.size, p_quality: args.quality, p_output_count: 1, p_request_metadata: requestMetadata,
+      p_request_fingerprint: fingerprint, p_effective_at: new Date().toISOString(), p_expires_at: null,
+    });
+    if (rpc.error || !isRecord(rpc.data) || !isRecord(rpc.data.quote)) throw new HttpError(502, "paid_image_quote_failed", rpc.error?.message ?? "Tongs could not create the paid image authorization quote.");
+    const quote = rpc.data.quote as Record<string, unknown>;
+    const ceiling = Number(quote.authorized_customer_ceiling);
+    if (!Number.isSafeInteger(ceiling) || ceiling <= 0) throw new HttpError(502, "paid_image_quote_invalid", "Tongs returned an invalid paid image authorization ceiling.");
+    return { quoteId, fingerprint, ceiling, quote };
+  }
+
+  private async executePaidImageGeneration(args: {
+    userId: string; workspaceId: string; workpieceId: string; operationId: string; tool: string;
+    originatingEntityId: string | null; promptRevisionId: string | null; promptContentHash: string;
+    prompt: string; size: string; quality: "low" | "medium" | "high"; creatorApproved: boolean;
+  }): Promise<PaidImageGenerationContext> {
+    const prepared = await this.preparePaidImageQuote(args);
+    if (!args.creatorApproved) throw new HttpError(409, "paid_image_authorization_required", "Approve the maximum Forge charge before generation.", {
+      requires_confirmation: true, quote_id: prepared.quoteId, authorized_customer_ceiling: prepared.ceiling,
+      message: `Up to ${prepared.ceiling.toLocaleString("en-US")} AI credits will be held. Your final charge is based on actual generation usage and will not exceed this amount.`,
+    });
+    const paidMediaOperationId = uuidFromSha256(await sha256Hex(canonicalJsonBytes({ operation_id: args.operationId, kind: "paid-media-operation" })));
+    const reservationId = uuidFromSha256(await sha256Hex(canonicalJsonBytes({ operation_id: args.operationId, kind: "paid-media-reservation" })));
+    const attemptId = uuidFromSha256(await sha256Hex(canonicalJsonBytes({ operation_id: args.operationId, kind: "provider-attempt", ordinal: 1 })));
+    const authority = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const approved = await authority.rpc("approve_and_reserve_paid_media_operation", {
+      p_paid_media_operation_id: paidMediaOperationId, p_operation_id: args.operationId,
+      p_operation_fingerprint: prepared.fingerprint, p_quote_id: prepared.quoteId, p_reservation_id: reservationId,
+      p_actor_id: args.userId, p_creator_approval_json: { quote_id: prepared.quoteId, authorized_customer_ceiling: prepared.ceiling, approved_at: new Date().toISOString() },
+      p_contract_version: "forge.paid-media.v1",
+    });
+    if (approved.error) throw new HttpError(409, "paid_image_reservation_failed", approved.error.message, { quote_id: prepared.quoteId, authorized_customer_ceiling: prepared.ceiling });
+    const requestEvidence = { endpoint: "/v1/images/generations", model: "gpt-image-2-2026-04-21", size: args.size, quality: args.quality, output_count: 1, prompt_content_hash: args.promptContentHash };
+    const requestHash = await sha256Hex(canonicalJsonBytes(requestEvidence));
+    const begun = await authority.rpc("begin_paid_media_provider_attempt", { p_paid_media_operation_id: paidMediaOperationId, p_operation_fingerprint: prepared.fingerprint, p_attempt_id: attemptId, p_request_payload_hash: requestHash, p_request_evidence_json: requestEvidence });
+    if (begun.error || !isRecord(begun.data)) throw new HttpError(502, "paid_image_attempt_failed", begun.error?.message ?? "Tongs could not begin the paid provider attempt.");
+    const begunOperation = isRecord(begun.data.operation) ? begun.data.operation : null;
+    const begunAttempt = isRecord(begun.data.attempt) ? begun.data.attempt : null;
+    if (begunOperation?.state === "submission_unknown") throw new HttpError(409, "paid_image_submission_unknown", "OpenAI may have received this request. No automatic retry was made; reconciliation is required.");
+    if (begunOperation?.state === "settled") throw new HttpError(409, "paid_image_already_settled", "This paid generation operation is already complete.", { receipt: begunOperation.terminal_receipt_json ?? null });
+    let image: Awaited<ReturnType<ImageProvider["generateImage"]>>;
+    if (begunOperation?.state === "provider_completed" && begunAttempt && isRecord(begunAttempt.provider_response_json)) {
+      const response = begunAttempt.provider_response_json;
+      const data = Array.isArray(response.data) ? response.data : [];
+      const first = data[0];
+      const b64 = isRecord(first) ? readStringField(first, "b64_json") : null;
+      const usage = extractOpenAiImageUsage({ usage: response.usage });
+      if (!b64 || !usage) throw new HttpError(409, "paid_image_provider_recovery_incomplete", "The durable provider result cannot be recovered automatically; reconciliation is required.");
+      image = { bytesBase64: b64, mimeType: "image/png", provider: "openai",
+        providerRequestId: readStringField(begunAttempt, "provider_request_id"), providerResponseId: readStringField(response, "id"),
+        revisedPrompt: isRecord(first) ? readStringField(first, "revised_prompt") : null, tokensUsed: usage.totalTokens, usage,
+        responseEvidence: response };
+      return { paidMediaOperationId, operationId: args.operationId, operationFingerprint: prepared.fingerprint, attemptId,
+        quoteId: prepared.quoteId, reservationId, authorizedCeiling: prepared.ceiling, settlementBlocked: false, image };
+    }
+    try {
+      image = await this.imageProvider!.generateImage({ prompt: args.prompt, size: args.size, model: "gpt-image-2-2026-04-21", quality: args.quality });
+    } catch (error) {
+      if (error instanceof ImageProviderRequestError && error.delivery === "definitive_response") {
+        const failureEvidence = { ...error.evidence, provider_request_id: error.providerRequestId, status: error.status };
+        if (error.status != null && error.status >= 400) {
+          await authority.rpc("record_paid_media_definitive_rejection", { p_paid_media_operation_id: paidMediaOperationId, p_operation_fingerprint: prepared.fingerprint, p_attempt_id: attemptId,
+            p_failure_code: "provider_rejected", p_failure_message: error.message, p_evidence_json: failureEvidence,
+            p_release_id: uuidFromSha256(await sha256Hex(canonicalJsonBytes({ operation_id: args.operationId, kind: "provider-rejected-release" }))) });
+        } else {
+          const failureUsage = extractOpenAiImageUsage({ usage: error.evidence.usage });
+          const components = failureUsage ? [
+            ...(failureUsage.textInputTokens == null ? [] : [{ component_kind: "text_input", quantity: failureUsage.textInputTokens }]),
+            ...(failureUsage.cachedTextInputTokens == null ? [] : [{ component_kind: "cached_text_input", quantity: failureUsage.cachedTextInputTokens }]),
+            ...(failureUsage.imageInputTokens == null ? [] : [{ component_kind: "image_input", quantity: failureUsage.imageInputTokens }]),
+            ...(failureUsage.cachedImageInputTokens == null ? [] : [{ component_kind: "cached_image_input", quantity: failureUsage.cachedImageInputTokens }]),
+            ...(failureUsage.imageOutputTokens == null ? [] : [{ component_kind: "image_output", quantity: failureUsage.imageOutputTokens }]),
+          ] : [];
+          await authority.rpc("record_paid_media_terminal_failure", { p_paid_media_operation_id: paidMediaOperationId, p_operation_fingerprint: prepared.fingerprint, p_attempt_id: attemptId,
+            p_failure_kind: "provider_billable_failure", p_failure_code: "provider_result_invalid", p_failure_message: error.message,
+            p_evidence_json: failureEvidence, p_usage_components: components,
+            p_release_id: uuidFromSha256(await sha256Hex(canonicalJsonBytes({ operation_id: args.operationId, kind: "provider-failure-release" }))) });
+        }
+      } else {
+        await authority.rpc("mark_paid_media_submission_unknown", { p_paid_media_operation_id: paidMediaOperationId, p_operation_fingerprint: prepared.fingerprint, p_attempt_id: attemptId,
+          p_failure_code: "provider_submission_unknown", p_failure_message: error instanceof Error ? error.message : String(error),
+          p_evidence_json: error instanceof ImageProviderRequestError ? error.evidence : { message: error instanceof Error ? error.message : String(error) } });
+      }
+      throw error;
+    }
+    if (!image.usage || image.usage.textInputTokens == null || image.usage.imageOutputTokens == null) {
+      const reconciled = await authority.rpc("record_paid_media_provider_reconciliation", {
+        p_paid_media_operation_id: paidMediaOperationId, p_operation_fingerprint: prepared.fingerprint, p_attempt_id: attemptId,
+        p_provider_request_id: image.providerRequestId, p_provider_response_id: image.providerResponseId,
+        p_provider_response_json: image.responseEvidence, p_failure_code: "provider_usage_missing",
+        p_failure_message: "OpenAI returned an image without complete authoritative usage.",
+      });
+      if (reconciled.error) throw new HttpError(502, "paid_image_provider_receipt_failed", reconciled.error.message);
+      return { paidMediaOperationId, operationId: args.operationId, operationFingerprint: prepared.fingerprint, attemptId,
+        quoteId: prepared.quoteId, reservationId, authorizedCeiling: prepared.ceiling, settlementBlocked: true, image };
+    }
+    const usage = [
+      { component_kind: "text_input", quantity: image.usage.textInputTokens },
+      ...(image.usage.cachedTextInputTokens == null ? [] : [{ component_kind: "cached_text_input", quantity: image.usage.cachedTextInputTokens }]),
+      ...(image.usage.imageInputTokens == null ? [] : [{ component_kind: "image_input", quantity: image.usage.imageInputTokens }]),
+      ...(image.usage.cachedImageInputTokens == null ? [] : [{ component_kind: "cached_image_input", quantity: image.usage.cachedImageInputTokens }]),
+      { component_kind: "image_output", quantity: image.usage.imageOutputTokens },
+    ];
+    const recorded = await authority.rpc("record_paid_media_provider_result", { p_paid_media_operation_id: paidMediaOperationId, p_operation_fingerprint: prepared.fingerprint,
+      p_attempt_id: attemptId, p_provider_request_id: image.providerRequestId, p_provider_response_id: image.providerResponseId,
+      p_provider_response_json: image.responseEvidence, p_usage_components: usage });
+    if (recorded.error) throw new HttpError(502, "paid_image_provider_receipt_failed", recorded.error.message);
+    return { paidMediaOperationId, operationId: args.operationId, operationFingerprint: prepared.fingerprint, attemptId, quoteId: prepared.quoteId, reservationId, authorizedCeiling: prepared.ceiling, settlementBlocked: false, image };
+  }
+
+  private async settlePaidImageDelivery(context: PaidImageGenerationContext, deliveryEvidence: Record<string, unknown>): Promise<Record<string, unknown>> {
+    const authority = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const delivered = await authority.rpc("mark_paid_media_delivery", { p_paid_media_operation_id: context.paidMediaOperationId, p_operation_fingerprint: context.operationFingerprint, p_delivery_evidence_json: deliveryEvidence });
+    if (delivered.error) throw new HttpError(502, "paid_image_delivery_receipt_failed", delivered.error.message);
+    if (context.settlementBlocked) return delivered.data as Record<string, unknown>;
+    const settlementId = uuidFromSha256(await sha256Hex(canonicalJsonBytes({ operation_id: context.operationId, kind: "settlement" })));
+    const overageId = uuidFromSha256(await sha256Hex(canonicalJsonBytes({ operation_id: context.operationId, kind: "pricing-overage" })));
+    const settled = await authority.rpc("settle_paid_media_operation", { p_paid_media_operation_id: context.paidMediaOperationId, p_operation_fingerprint: context.operationFingerprint, p_settlement_id: settlementId, p_overage_id: overageId });
+    if (settled.error || !isRecord(settled.data)) throw new HttpError(502, "paid_image_settlement_failed", settled.error?.message ?? "Tongs could not settle the paid image operation.");
+    return settled.data as Record<string, unknown>;
+  }
+
+  private async recoverPaidImageSettlement(operationId: string, deliveryEvidence: Record<string, unknown>): Promise<void> {
+    const authority = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const lookup = await authority.from("paid_media_operations").select("*").eq("operation_id", operationId).maybeSingle();
+    if (lookup.error || !isRecord(lookup.data)) return;
+    const operation = lookup.data;
+    const state = readStringField(operation, "state");
+    const id = readStringField(operation, "id");
+    const fingerprint = readStringField(operation, "operation_fingerprint");
+    if (!id || !fingerprint || state === "settled") return;
+    if (state === "provider_completed") {
+      const delivered = await authority.rpc("mark_paid_media_delivery", { p_paid_media_operation_id: id, p_operation_fingerprint: fingerprint, p_delivery_evidence_json: deliveryEvidence });
+      if (delivered.error) throw new HttpError(502, "paid_image_delivery_recovery_failed", delivered.error.message);
+    } else if (state !== "delivered") return;
+    const settlementId = uuidFromSha256(await sha256Hex(canonicalJsonBytes({ operation_id: operationId, kind: "settlement" })));
+    const overageId = uuidFromSha256(await sha256Hex(canonicalJsonBytes({ operation_id: operationId, kind: "pricing-overage" })));
+    const settled = await authority.rpc("settle_paid_media_operation", { p_paid_media_operation_id: id, p_operation_fingerprint: fingerprint, p_settlement_id: settlementId, p_overage_id: overageId });
+    if (settled.error) throw new HttpError(502, "paid_image_settlement_recovery_failed", settled.error.message);
+  }
+
   async generateEpisodeThumbnail(
     workpieceId: string,
     input: GenerateEpisodeThumbnailRequest,
@@ -10928,15 +11084,6 @@ export class TongsCommitService {
     }
 
     const lane = input.lane ?? "forge";
-    const requiresConfirm = lane === "forge"
-      && !input.always_approve_ai_spend
-      && !input.confirm_spend;
-    if (requiresConfirm) {
-      throw new HttpError(409, "confirmation_required", "Generating a thumbnail spends AI credits", {
-        requires_confirmation: true,
-      });
-    }
-
     const userId = await this.resolveUserIdFromAccessToken(input.user_access_token);
     if (!userId) {
       throw new HttpError(401, "authentication_required", "User access token is required for thumbnail generation");
@@ -10951,6 +11098,7 @@ export class TongsCommitService {
           || metadata.render_recipe_revision !== input.render_recipe_revision) {
           throw new HttpError(409, "thumbnail_operation_conflict", "operation_id is already bound to different thumbnail authority");
         }
+        await this.recoverPaidImageSettlement(input.operation_id, { asset_id: existing.id, asset_path: existing.path, asset_content_hash: existing.content_hash, delivery_kind: "thumbnail_base_art", recovered: true });
         return { canonical_stage_only: true, asset: thumbnailAssetSummary(existing) };
       }
     }
@@ -11004,36 +11152,19 @@ export class TongsCommitService {
       THUMBNAIL_EDITORIAL_BASE_HINT,
     ].filter(Boolean).join("\n\n");
 
-    const thumbnailActionId = randomUuid();
-    const imageCall = await this.runAIRequest({
-      lane,
-      userId,
-      workspaceId: workspace.id,
-      workpieceId,
-      feature: AI_USAGE_FEATURE.THUMBNAIL_GENERATE,
-      subfeature: AI_USAGE_SUBFEATURE.CONCEPT_RENDER,
-      model: "gpt-image-1",
-      trigger: AI_USAGE_TRIGGER.USER,
-      actionId: thumbnailActionId,
-      execute: async () => {
-        const image = await this.imageProvider!.generateImage({
-          prompt: finalPrompt,
-          aspect: input.aspect ?? "16:9",
-          size: input.size ?? null,
-        } as GenerateImageInput);
-        const totalTokens = estimateImageTokenSpend(finalPrompt, image.tokensUsed);
-        const inputTokens = Math.min(totalTokens, Math.max(1, Math.ceil(finalPrompt.length / 4)));
-        const outputTokens = Math.max(0, totalTokens - inputTokens);
-        return {
-          result: image,
-          inputTokens,
-          outputTokens,
-          totalTokens,
-          providerRequestId: image.providerRequestId,
-        };
-      },
-    });
-    const imageResult = imageCall.result;
+    const resolvedPaidSize = input.size?.trim() || mapThumbnailAspectToPaidSize(input.aspect ?? "16:9");
+    const finalPromptHash = await sha256Hex(new TextEncoder().encode(finalPrompt));
+    let paidContext: PaidImageGenerationContext | null = null;
+    let imageResult: Awaited<ReturnType<ImageProvider["generateImage"]>>;
+    if (lane === "forge") {
+      paidContext = await this.executePaidImageGeneration({ userId, workspaceId: workspace.id, workpieceId, operationId: input.operation_id,
+        tool: "hearth_thumbnail", originatingEntityId: input.concept_revision_id ?? conceptId, promptRevisionId: null,
+        promptContentHash: finalPromptHash, prompt: finalPrompt, size: resolvedPaidSize, quality: "high",
+        creatorApproved: Boolean(input.confirm_spend || input.always_approve_ai_spend) });
+      imageResult = paidContext.image;
+    } else {
+      imageResult = await this.imageProvider.generateImage({ prompt: finalPrompt, size: resolvedPaidSize, model: "gpt-image-2-2026-04-21", quality: "high" });
+    }
 
     const requestId = input.operation_id;
     const versionId = randomUuid();
@@ -11069,25 +11200,9 @@ export class TongsCommitService {
     }, { userAccessToken: input.user_access_token });
 
     if (input.canonical_stage_only) {
-      let creditsWarning: string | undefined;
-      let tokenBalance: number | null | undefined;
-      if (lane === "forge") {
-        const spent = estimateImageTokenSpend(finalPrompt, imageResult.tokensUsed);
-        const deltaResult = await this.applyAiTokenDelta({
-          userId,
-          spent,
-          requestId,
-          providerRequestId: imageResult.providerRequestId,
-          reason: "hearth:thumbnail_generate",
-        });
-        if ("warning" in deltaResult) creditsWarning = deltaResult.warning;
-        else tokenBalance = deltaResult.tokenBalance;
-      }
       return {
         canonical_stage_only: true,
         asset: stagedAsset,
-        ...(creditsWarning ? { credits_warning: creditsWarning } : {}),
-        ...(typeof tokenBalance !== "undefined" ? { token_balance: tokenBalance } : {}),
       };
     }
 
@@ -11133,23 +11248,18 @@ export class TongsCommitService {
       target_status: "ready",
     }, { userAccessToken: input.user_access_token });
 
-    let creditsWarning: string | undefined;
-    let tokenBalance: number | null | undefined;
-    if (lane === "forge") {
-      const spent = estimateImageTokenSpend(finalPrompt, imageResult.tokensUsed);
-      const deltaResult = await this.applyAiTokenDelta({
-        userId,
-        spent,
-        requestId,
-        providerRequestId: imageResult.providerRequestId,
-        reason: "hearth:thumbnail_generate",
-      });
-      if ("warning" in deltaResult) {
-        creditsWarning = deltaResult.warning;
-      } else {
-        tokenBalance = deltaResult.tokenBalance;
-      }
-    }
+    const paidSettlement = paidContext ? await this.settlePaidImageDelivery(paidContext, {
+      asset_id: assetRow.id, asset_path: assetRow.path, asset_content_hash: assetRow.content_hash ?? null,
+      delivery_kind: "thumbnail_base_art", concept_revision_id: input.concept_revision_id ?? conceptId,
+      canonical_reference_committed: true, canonical_asset_ready: true,
+    }) : null;
+
+    const creditsWarning: string | undefined = undefined;
+    const legacyFinancial = paidSettlement && isRecord(paidSettlement.financial) ? paidSettlement.financial : null;
+    const tokenBalance = legacyFinancial && typeof legacyFinancial.settled_balance === "number" ? legacyFinancial.settled_balance : undefined;
+    const settlementReceipt = paidSettlement && isRecord(paidSettlement.receipt) ? paidSettlement.receipt : null;
+    const creditsUsed = settlementReceipt && typeof settlementReceipt.settled_customer_charge === "number" ? settlementReceipt.settled_customer_charge : undefined;
+    const creditsReleased = settlementReceipt && typeof settlementReceipt.released_reservation === "number" ? settlementReceipt.released_reservation : undefined;
 
     return {
       version,
@@ -11170,6 +11280,8 @@ export class TongsCommitService {
       primary_version_id: episodePackage.thumbnail.primary_version_id,
       ...(creditsWarning ? { credits_warning: creditsWarning } : {}),
       ...(typeof tokenBalance === "number" ? { token_balance: tokenBalance } : {}),
+      ...(typeof creditsUsed === "number" ? { ai_credits_used: creditsUsed } : {}),
+      ...(typeof creditsReleased === "number" ? { ai_credits_released: creditsReleased } : {}),
     };
   }
 
@@ -13606,12 +13718,6 @@ export class TongsCommitService {
     const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", userAccessToken);
 
     const lane = input.lane ?? "forge";
-    if (lane === "forge" && !input.always_approve_ai_spend && !input.confirm_spend) {
-      throw new HttpError(409, "confirmation_required", "Generating still candidates spends AI credits", {
-        requires_confirmation: true,
-      });
-    }
-
     const current = await this.readWorkpieceImageMapState(workpieceId, input.workspace_id);
     const canonical = await this.readCanonicalImageMapProjection(input.workspace_id, workpieceId);
     if (!canonical) throw new HttpError(409, "canonical_image_map_required", "Repair the image plan to the approved script before generating candidates.");
@@ -13675,7 +13781,7 @@ export class TongsCommitService {
       current.episodePackage.spoken_beats,
     );
     const aspect = input.aspect?.trim() || "16:9";
-    const size = input.size?.trim() || null;
+    const size = input.size?.trim() || mapThumbnailAspectToPaidSize(aspect);
     const variants = [
       { label: AI_USAGE_SUBFEATURE.EXPLAINER, divergenceHint: null as string | null },
       {
@@ -13689,6 +13795,7 @@ export class TongsCommitService {
       visualMode: string;
       prompt: string;
       image: Awaited<ReturnType<ImageProvider["generateImage"]>>;
+      paidContext: PaidImageGenerationContext | null;
     }> = [];
     const imageMapActionHash = await sha256Text(JSON.stringify({
       workspace_id: input.workspace_id,
@@ -13707,7 +13814,21 @@ export class TongsCommitService {
     const imageMapActionId = uuidFromSha256(imageMapActionHash);
     const generatedAssetRows: AssetRow[] = [];
     const generatedAssets: ImageMapCandidateAssetSummary[] = [];
-    let totalSpent = 0;
+    const pendingPaidSettlements: Array<{ context: PaidImageGenerationContext; asset: AssetRow; variantLabel: string }> = [];
+    const pendingPaidRecovery: Array<{ operationId: string; asset: AssetRow; variantLabel: string }> = [];
+    if (lane === "forge" && !input.confirm_spend && !input.always_approve_ai_spend) {
+      const quotes = await Promise.all(variants.map(async (variant) => {
+        const operationId = `${imageMapActionId}:${variant.label}`;
+        return this.preparePaidImageQuote({ userId: auth.userId, workspaceId: input.workspace_id, workpieceId, operationId,
+          tool: "hearth_episode_images", originatingEntityId: entry.id, promptRevisionId: canonicalPromptId,
+          promptContentHash: canonicalPromptHash, prompt: canonicalPrompt, size, quality: "high" });
+      }));
+      const ceiling = quotes.reduce((sum, quote) => sum + quote.ceiling, 0);
+      throw new HttpError(409, "paid_image_authorization_required", "Approve the maximum Forge charge before generation.", {
+        requires_confirmation: true, quote_ids: quotes.map((quote) => quote.quoteId), authorized_customer_ceiling: ceiling,
+        message: `Up to ${ceiling.toLocaleString("en-US")} AI credits will be held. Your final charge is based on actual generation usage and will not exceed this amount.`,
+      });
+    }
     for (const variant of variants) {
       const prompt = canonicalPrompt;
       const assetIdentityHash = await sha256Text(`${imageMapActionHash}:${variant.label}`);
@@ -13722,8 +13843,17 @@ export class TongsCommitService {
       if (existingAssetError) {
         throw new HttpError(502, "db_read_failed", "Failed to recover generated image-map candidate asset", { reason: existingAssetError.message });
       }
-      if (existingAsset?.status === "ready") {
-        const recovered = normalizeImageMapCandidateAssetSummary(existingAsset);
+      const expectedOperationId = `${imageMapActionId}:${variant.label}`;
+      const recoverableExistingAsset = existingAsset?.status === "superseded"
+        && existingAsset.operation_id === expectedOperationId
+        ? await this.updateImageMapAssetRow(existingAsset.id, {
+            status: "ready",
+            ready_at: existingAsset.ready_at ?? new Date().toISOString(),
+          }, "Failed to recover superseded image-map candidate asset")
+        : existingAsset;
+      if (recoverableExistingAsset?.status === "ready") {
+        pendingPaidRecovery.push({ operationId: expectedOperationId, asset: recoverableExistingAsset as AssetRow, variantLabel: variant.label });
+        const recovered = normalizeImageMapCandidateAssetSummary(recoverableExistingAsset);
         if (!recovered) throw new HttpError(502, "invalid_generated_asset", "Recovered image-map candidate asset could not be normalized");
         generatedAssets.push(recovered);
         continue;
@@ -13768,83 +13898,38 @@ export class TongsCommitService {
           supersedes_asset_id: null,
         }, "Failed to recover committed image-map candidate asset");
         generatedAssetRows.push(recoveredRow);
+        pendingPaidRecovery.push({ operationId: `${imageMapActionId}:${variant.label}`, asset: recoveredRow, variantLabel: variant.label });
         const recovered = normalizeImageMapCandidateAssetSummary(recoveredRow);
         if (!recovered) throw new HttpError(502, "invalid_generated_asset", "Recovered image-map candidate asset could not be normalized");
         generatedAssets.push(recovered);
         continue;
       }
-      const imageCall = await this.runAIRequest({
-        lane,
-        userId: auth.userId,
-        workspaceId: input.workspace_id,
-        workpieceId,
-        feature: AI_USAGE_FEATURE.IMAGE_MAP_CANDIDATE_GENERATE,
-        subfeature: variant.label,
-        model: "gpt-image-1",
-        trigger: AI_USAGE_TRIGGER.USER,
-        actionId: imageMapActionId,
-        execute: async () => {
-          const image = await this.imageProvider!.generateImage({
-            prompt,
-            aspect,
-            size,
-          });
-          const totalTokens = estimateImageTokenSpend(prompt, image.tokensUsed);
-          const inputTokens = Math.min(totalTokens, Math.max(1, Math.ceil(prompt.length / 4)));
-          const outputTokens = Math.max(0, totalTokens - inputTokens);
-          return {
-            result: image,
-            inputTokens,
-            outputTokens,
-            totalTokens,
-            providerRequestId: image.providerRequestId,
-          };
-        },
-      });
-      const image = imageCall.result;
+      const operationId = `${imageMapActionId}:${variant.label}`;
+      const paidContext = lane === "forge" ? await this.executePaidImageGeneration({ userId: auth.userId, workspaceId: input.workspace_id,
+        workpieceId, operationId, tool: "hearth_episode_images", originatingEntityId: entry.id,
+        promptRevisionId: canonicalPromptId, promptContentHash: canonicalPromptHash, prompt, size, quality: "high", creatorApproved: true }) : null;
+      const image = paidContext?.image ?? await this.imageProvider.generateImage({ prompt, size, model: "gpt-image-2-2026-04-21", quality: "high" });
       generatedOutputs.push({
         variantLabel: variant.label,
         visualMode,
         prompt,
         image,
+        paidContext,
       });
     }
 
     if (generatedOutputs.length >= 2 && generatedOutputs[0]?.image.bytesBase64 === generatedOutputs[1]?.image.bytesBase64) {
       const retryPrompt = canonicalPrompt;
-      const retryCall = await this.runAIRequest({
-        lane,
-        userId: auth.userId,
-        workspaceId: input.workspace_id,
-        workpieceId,
-        feature: AI_USAGE_FEATURE.IMAGE_MAP_CANDIDATE_GENERATE,
-        subfeature: AI_USAGE_SUBFEATURE.ILLUSTRATIVE_RETRY,
-        model: "gpt-image-1",
-        trigger: AI_USAGE_TRIGGER.SYSTEM,
-        actionId: imageMapActionId,
-        execute: async () => {
-          const image = await this.imageProvider!.generateImage({
-            prompt: retryPrompt,
-            aspect,
-            size,
-          });
-          const totalTokens = estimateImageTokenSpend(retryPrompt, image.tokensUsed);
-          const inputTokens = Math.min(totalTokens, Math.max(1, Math.ceil(retryPrompt.length / 4)));
-          const outputTokens = Math.max(0, totalTokens - inputTokens);
-          return {
-            result: image,
-            inputTokens,
-            outputTokens,
-            totalTokens,
-            providerRequestId: image.providerRequestId,
-          };
-        },
-      });
-      const retryImage = retryCall.result;
+      const retryOperationId = `${imageMapActionId}:${AI_USAGE_SUBFEATURE.ILLUSTRATIVE_RETRY}`;
+      const retryPaidContext = lane === "forge" ? await this.executePaidImageGeneration({ userId: auth.userId, workspaceId: input.workspace_id,
+        workpieceId, operationId: retryOperationId, tool: "hearth_episode_images", originatingEntityId: entry.id,
+        promptRevisionId: canonicalPromptId, promptContentHash: canonicalPromptHash, prompt: retryPrompt, size, quality: "high", creatorApproved: true }) : null;
+      const retryImage = retryPaidContext?.image ?? await this.imageProvider.generateImage({ prompt: retryPrompt, size, model: "gpt-image-2-2026-04-21", quality: "high" });
       generatedOutputs[1] = {
         ...generatedOutputs[1],
         prompt: retryPrompt,
         image: retryImage,
+        paidContext: retryPaidContext,
       };
       if (generatedOutputs[0]?.image.bytesBase64 === generatedOutputs[1]?.image.bytesBase64) {
         throw new HttpError(502, "image_map_candidates_too_similar", "Generated candidates were not distinct enough to offer a real editorial choice");
@@ -13921,7 +14006,7 @@ export class TongsCommitService {
           supersedes_asset_id: null,
         }, "Failed to register generated image-map candidate asset");
         generatedAssetRows.push(assetRow);
-        totalSpent += estimateImageTokenSpend(output.prompt, output.image.tokensUsed);
+        if (output.paidContext) pendingPaidSettlements.push({ context: output.paidContext, asset: assetRow, variantLabel: output.variantLabel });
 
         const summary = normalizeImageMapCandidateAssetSummary(assetRow);
         if (!summary) {
@@ -13961,32 +14046,39 @@ export class TongsCommitService {
         affectedEntryIds: [entry.id], inputs: { generated_asset_ids: generatedAssets.map((asset) => asset.id) },
       });
 
+      let creditsUsed = 0;
+      let creditsReleased = 0;
+      for (const pending of pendingPaidSettlements) {
+        const settlement = await this.settlePaidImageDelivery(pending.context, {
+          asset_id: pending.asset.id, asset_path: pending.asset.path, asset_content_hash: pending.asset.content_hash,
+          image_moment_id: entry.id, prompt_revision_id: canonicalPromptId, candidate_variant: pending.variantLabel,
+          canonical_image_map_committed: true,
+        });
+        const receipt = isRecord(settlement.receipt) ? settlement.receipt : null;
+        if (receipt && typeof receipt.settled_customer_charge === "number") creditsUsed += receipt.settled_customer_charge;
+        if (receipt && typeof receipt.released_reservation === "number") creditsReleased += receipt.released_reservation;
+      }
+      for (const pending of pendingPaidRecovery) {
+        await this.recoverPaidImageSettlement(pending.operationId, {
+          asset_id: pending.asset.id, asset_path: pending.asset.path, asset_content_hash: pending.asset.content_hash,
+          image_moment_id: entry.id, prompt_revision_id: canonicalPromptId, candidate_variant: pending.variantLabel,
+          canonical_image_map_committed: true, recovered: true,
+        });
+      }
+
       await this.supersedeAssets(
         priorCandidateAssets.map((asset) => asset.id),
         "Failed to supersede prior image map candidate assets",
       );
 
-      let creditsWarning: string | undefined;
-      let tokenBalance: number | null | undefined;
-      if (lane === "forge") {
-        const deltaResult = await this.applyAiTokenDelta({
-          userId: auth.userId,
-          spent: totalSpent,
-          requestId: randomUuid(),
-          providerRequestId: generatedAssets[0]?.provider_request_id ?? null,
-          reason: "hearth:image_map_candidate_generate",
-        });
-        if ("warning" in deltaResult) {
-          creditsWarning = deltaResult.warning;
-        } else {
-          tokenBalance = deltaResult.tokenBalance;
-        }
-      }
+      const creditsWarning: string | undefined = undefined;
+      const tokenBalance: number | undefined = undefined;
 
       return {
         image_map: saved.image_map,
         asset: saved.asset,
         generated_assets: generatedAssets,
+        ...(pendingPaidSettlements.length > 0 ? { ai_credits_used: creditsUsed, ai_credits_released: creditsReleased } : {}),
         ...(creditsWarning ? { credits_warning: creditsWarning } : {}),
         ...(typeof tokenBalance === "number" ? { token_balance: tokenBalance } : {}),
       };
@@ -14105,6 +14197,7 @@ export class TongsCommitService {
       prompt: null,
       asset_kind: IMAGE_MAP_ASSET_KIND,
       status: "ready",
+      ready_at: assetCommit.file_row.updated_at ?? new Date().toISOString(),
       metadata_json: assetMetadata,
     };
     const assetAtCommittedLocation = await this.getImageMapAssetByStorageLocation(
@@ -14146,6 +14239,7 @@ export class TongsCommitService {
         created_by: auth.userId,
         asset_kind: IMAGE_MAP_ASSET_KIND,
         status: "ready",
+        ready_at: assetCommit.file_row.updated_at ?? new Date().toISOString(),
         metadata_json: assetMetadata,
         supersedes_asset_id: null,
       });
@@ -14612,7 +14706,7 @@ export function createTongsCommitService(options: TongsCommitApiOptions): TongsC
 
   const openAiImageApiKey = options.openAiImageApiKey?.trim() || options.openAiApiKey?.trim();
   const imageProvider = openAiImageApiKey
-    ? new OpenAiImageProvider(openAiImageApiKey, options.openAiImageModel?.trim() || "gpt-image-1")
+    ? new OpenAiImageProvider(openAiImageApiKey, options.openAiImageModel?.trim() || "gpt-image-2-2026-04-21")
     : null;
   const narrativeInterpretationProvider = openAiImageApiKey
     ? new OpenAiNarrativeInterpretationProvider(openAiImageApiKey, options.openAiTextModel?.trim() || "gpt-5-mini")

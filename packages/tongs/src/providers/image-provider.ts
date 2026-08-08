@@ -5,6 +5,17 @@ export type GenerateImageInput = {
   aspect?: ImageAspect | string | null;
   size?: string | null;
   model?: string | null;
+  quality?: "low" | "medium" | "high";
+};
+
+export type ImageProviderUsage = {
+  textInputTokens: number | null;
+  cachedTextInputTokens: number | null;
+  imageInputTokens: number | null;
+  cachedImageInputTokens: number | null;
+  imageOutputTokens: number | null;
+  totalTokens: number | null;
+  raw: Record<string, unknown>;
 };
 
 export type GenerateImageOutput = {
@@ -14,10 +25,34 @@ export type GenerateImageOutput = {
   providerRequestId: string | null;
   revisedPrompt: string | null;
   tokensUsed: number | null;
+  usage: ImageProviderUsage | null;
+  providerResponseId: string | null;
+  responseEvidence: Record<string, unknown>;
 };
 
 export interface ImageProvider {
   generateImage(input: GenerateImageInput): Promise<GenerateImageOutput>;
+}
+
+export class ImageProviderRequestError extends Error {
+  readonly delivery: "definitive_response" | "ambiguous_transport";
+  readonly status: number | null;
+  readonly providerRequestId: string | null;
+  readonly evidence: Record<string, unknown>;
+
+  constructor(message: string, options: {
+    delivery: "definitive_response" | "ambiguous_transport";
+    status?: number | null;
+    providerRequestId?: string | null;
+    evidence?: Record<string, unknown>;
+  }) {
+    super(message);
+    this.name = "ImageProviderRequestError";
+    this.delivery = options.delivery;
+    this.status = options.status ?? null;
+    this.providerRequestId = options.providerRequestId ?? null;
+    this.evidence = options.evidence ?? {};
+  }
 }
 
 function readString(value: unknown): string | null {
@@ -41,6 +76,38 @@ function extractUsageTokens(payload: unknown): number | null {
   const total = (usage as Record<string, unknown>).total_tokens;
   if (typeof total === "number" && Number.isFinite(total) && total >= 0) return total;
   return null;
+}
+
+function nonNegativeInteger(value: unknown): number | null {
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 ? value : null;
+}
+
+export function extractOpenAiImageUsage(payload: unknown): ImageProviderUsage | null {
+  if (!payload || typeof payload !== "object") return null;
+  const usage = (payload as Record<string, unknown>).usage;
+  if (!usage || typeof usage !== "object" || Array.isArray(usage)) return null;
+  const row = usage as Record<string, unknown>;
+  const details = row.input_tokens_details && typeof row.input_tokens_details === "object" && !Array.isArray(row.input_tokens_details)
+    ? row.input_tokens_details as Record<string, unknown>
+    : {};
+  const text = nonNegativeInteger(details.text_tokens);
+  const image = nonNegativeInteger(details.image_tokens);
+  const cachedText = nonNegativeInteger(details.cached_text_tokens ?? details.cached_tokens);
+  const cachedImage = nonNegativeInteger(details.cached_image_tokens);
+  const input = nonNegativeInteger(row.input_tokens);
+  const totalText = text ?? (image == null ? input : input == null ? null : Math.max(0, input - image));
+  return {
+    // OpenAI reports cached tokens as a subset of the corresponding input
+    // category. Split that subset out so compound pricing never charges the
+    // same tokens at both cached and non-cached rates.
+    textInputTokens: totalText == null ? null : Math.max(0, totalText - (cachedText ?? 0)),
+    cachedTextInputTokens: cachedText,
+    imageInputTokens: image == null ? null : Math.max(0, image - (cachedImage ?? 0)),
+    cachedImageInputTokens: cachedImage,
+    imageOutputTokens: nonNegativeInteger(row.output_tokens),
+    totalTokens: nonNegativeInteger(row.total_tokens),
+    raw: row,
+  };
 }
 
 function parseOpenAiImagePayload(payload: unknown): { b64: string; revisedPrompt: string | null } | null {
@@ -71,13 +138,13 @@ export class OpenAiImageProvider implements ImageProvider {
   private readonly apiKey: string;
   private readonly model: string;
 
-  constructor(apiKey: string, model = "gpt-image-1") {
+  constructor(apiKey: string, model = "gpt-image-2-2026-04-21") {
     const trimmedKey = apiKey.trim();
     if (!trimmedKey) {
       throw new Error("OpenAiImageProvider requires non-empty api key");
     }
     this.apiKey = trimmedKey;
-    this.model = model.trim() || "gpt-image-1";
+    this.model = model.trim() || "gpt-image-2-2026-04-21";
   }
 
   async generateImage(input: GenerateImageInput): Promise<GenerateImageOutput> {
@@ -88,21 +155,24 @@ export class OpenAiImageProvider implements ImageProvider {
 
     const size = readString(input.size) ?? mapAspectToSize(input.aspect);
     const model = readString(input.model) ?? this.model;
+    const quality = input.quality ?? "high";
 
-    const response = await fetch("https://api.openai.com/v1/images/generations", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${this.apiKey}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        prompt,
-        size,
-        quality: "high",
-        output_format: "png",
-      }),
-    });
+    let response: Response;
+    try {
+      response = await fetch("https://api.openai.com/v1/images/generations", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${this.apiKey}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ model, prompt, size, quality, output_format: "png" }),
+      });
+    } catch (error) {
+      throw new ImageProviderRequestError(error instanceof Error ? error.message : "OpenAI image request transport failed", {
+        delivery: "ambiguous_transport",
+        evidence: { endpoint: "/v1/images/generations", model, size, quality },
+      });
+    }
 
     const providerRequestId = response.headers.get("x-request-id");
     const rawText = await response.text();
@@ -110,7 +180,12 @@ export class OpenAiImageProvider implements ImageProvider {
     if (!response.ok) {
       const parsedError = extractOpenAiError(rawText);
       const message = parsedError ?? rawText.trim() ?? `OpenAI image generation failed (${response.status})`;
-      throw new Error(message);
+      throw new ImageProviderRequestError(message, {
+        delivery: "definitive_response",
+        status: response.status,
+        providerRequestId,
+        evidence: { endpoint: "/v1/images/generations", model, size, quality, status: response.status, body: rawText.slice(0, 4096) },
+      });
     }
 
     let payload: unknown = null;
@@ -122,9 +197,26 @@ export class OpenAiImageProvider implements ImageProvider {
 
     const parsed = parseOpenAiImagePayload(payload);
     if (!parsed) {
-      throw new Error("OpenAI image generation returned no image payload");
+      const payloadRecord = payload && typeof payload === "object" && !Array.isArray(payload)
+        ? payload as Record<string, unknown>
+        : {};
+      throw new ImageProviderRequestError("OpenAI image generation returned no image payload", {
+        delivery: "definitive_response",
+        status: response.status,
+        providerRequestId,
+        evidence: {
+          endpoint: "/v1/images/generations", model, size, quality, status: response.status,
+          response_id: readString(payloadRecord.id), usage: payloadRecord.usage ?? null,
+          response_parseable: payload !== null,
+        },
+      });
     }
 
+    const payloadRecord = payload && typeof payload === "object" && !Array.isArray(payload)
+      ? payload as Record<string, unknown>
+      : {};
+    const usage = extractOpenAiImageUsage(payload);
+    const providerResponseId = readString(payloadRecord.id);
     return {
       bytesBase64: parsed.b64,
       mimeType: "image/png",
@@ -132,7 +224,15 @@ export class OpenAiImageProvider implements ImageProvider {
       providerRequestId,
       revisedPrompt: parsed.revisedPrompt,
       tokensUsed: extractUsageTokens(payload),
+      usage,
+      providerResponseId,
+      responseEvidence: {
+        id: providerResponseId,
+        created: payloadRecord.created ?? null,
+        model: payloadRecord.model ?? model,
+        usage: usage?.raw ?? null,
+        data: Array.isArray(payloadRecord.data) ? payloadRecord.data : [],
+      },
     };
   }
 }
-

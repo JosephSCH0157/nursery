@@ -4,6 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TextEncoder } from "node:util";
 import { TongsCommitService, buildImageMapPromptSourceContext, createTongsCommitApiHandlerWithService, extractPdfTextParserA, extractPdfTextParserB, extractPdfTextFallbackChain, imageMapPromptAuthorityBasis } from "../dist/workpiece-commit-api.js";
+import { ImageProviderRequestError } from "../dist/providers/image-provider.js";
 import { deflateSync } from "node:zlib";
 
 function thumbnailAssetFixture(workpieceId, workspaceId, operationId, status) {
@@ -3101,6 +3102,116 @@ function createImageMapAssetSupabase({ assets = [], brollPlan = null, referenceP
   };
 }
 
+function installPaidImageRpcMock(supabase) {
+  const calls = [];
+  const originalSchema = supabase.schema.bind(supabase);
+  supabase.schema = (schemaName) => {
+    const client = originalSchema(schemaName);
+    const originalRpc = typeof client.rpc === "function" ? client.rpc.bind(client) : null;
+    const originalFrom = typeof client.from === "function" ? client.from.bind(client) : null;
+    return {
+      ...client,
+      async rpc(name, args) {
+        calls.push({ name, args });
+        if (name === "create_paid_image_authorization_quote") {
+          return { data: { quote: { id: args.p_quote_id, authorized_customer_ceiling: 44_460 } }, error: null };
+        }
+        if (name === "approve_and_reserve_paid_media_operation") {
+          return { data: { operation: { id: args.p_paid_media_operation_id, state: "reserved" } }, error: null };
+        }
+        if (name === "begin_paid_media_provider_attempt") {
+          return { data: { operation: { id: args.p_paid_media_operation_id, state: "submitting" }, attempt: { id: args.p_attempt_id, state: "submitting" } }, error: null };
+        }
+        if (name === "record_paid_media_provider_result") {
+          return { data: { operation: { id: args.p_paid_media_operation_id, state: "provider_completed" }, attempt: { id: args.p_attempt_id, state: "completed" } }, error: null };
+        }
+        if (name === "record_paid_media_provider_reconciliation") {
+          return { data: { operation: { id: args.p_paid_media_operation_id, state: "provider_completed", reconciliation_required: true }, attempt: { id: args.p_attempt_id, state: "evidence_recorded" } }, error: null };
+        }
+        if (name === "mark_paid_media_delivery") {
+          return { data: { operation: { id: args.p_paid_media_operation_id, state: "delivered" } }, error: null };
+        }
+        if (name === "settle_paid_media_operation") {
+          return { data: { operation: { id: args.p_paid_media_operation_id, state: "settled" }, receipt: { settled_customer_charge: 1_000 } }, error: null };
+        }
+        if (name === "record_paid_media_terminal_failure") {
+          return { data: { operation: { id: args.p_paid_media_operation_id, state: args.p_failure_kind === "delivery_failure" ? "delivery_failed" : "provider_failed" } }, error: null };
+        }
+        if (name === "record_paid_media_definitive_rejection" || name === "mark_paid_media_submission_unknown") {
+          return { data: { operation: { id: args.p_paid_media_operation_id, state: name === "mark_paid_media_submission_unknown" ? "submission_unknown" : "provider_failed" } }, error: null };
+        }
+        if (originalRpc) return originalRpc(name, args);
+        throw new Error(`Unexpected RPC: ${name}`);
+      },
+      from(tableName) {
+        if (tableName === "paid_media_operations") {
+          return { select() { return { eq() { return { async maybeSingle() { return { data: null, error: null }; } }; } }; } };
+        }
+        if (originalFrom) return originalFrom(tableName);
+        throw new Error(`Unexpected table: ${tableName}`);
+      },
+    };
+  };
+  return calls;
+}
+
+function paidImageExecutionArgs(overrides = {}) {
+  return {
+    userId: "33333333-3333-4333-8333-333333333333",
+    workspaceId: "11111111-1111-4111-8111-111111111111",
+    workpieceId: "22222222-2222-4222-8222-222222222222",
+    operationId: "test:paid-image:unit",
+    tool: "hearth_episode_images",
+    originatingEntityId: "moment-1",
+    promptRevisionId: null,
+    promptContentHash: "a".repeat(64),
+    prompt: "A concrete documentary frame",
+    size: "1536x1024",
+    quality: "high",
+    creatorApproved: true,
+    ...overrides,
+  };
+}
+
+test("paid image quote-only preflight never reaches the provider", async () => {
+  let providerCalls = 0;
+  const supabase = { schema() { return { from() { throw new Error("Unexpected table"); } }; } };
+  const calls = installPaidImageRpcMock(supabase);
+  const service = new TongsCommitService(supabase, "forge-workpieces", { async generateImage() { providerCalls += 1; throw new Error("must not run"); } });
+  await assert.rejects(() => service.executePaidImageGeneration(paidImageExecutionArgs({ creatorApproved: false })), (error) => error?.code === "paid_image_authorization_required");
+  assert.equal(providerCalls, 0);
+  assert.deepEqual(calls.map((call) => call.name), ["create_paid_image_authorization_quote"]);
+});
+
+test("ambiguous paid image submission is recorded once and never converted into a safe rejection", async () => {
+  let providerCalls = 0;
+  const supabase = { schema() { return { from() { throw new Error("Unexpected table"); } }; } };
+  const calls = installPaidImageRpcMock(supabase);
+  const service = new TongsCommitService(supabase, "forge-workpieces", { async generateImage() {
+    providerCalls += 1;
+    throw new ImageProviderRequestError("response lost", { delivery: "ambiguous_transport", evidence: { transmitted: true } });
+  } });
+  await assert.rejects(() => service.executePaidImageGeneration(paidImageExecutionArgs()), /response lost/);
+  assert.equal(providerCalls, 1);
+  assert.equal(calls.filter((call) => call.name === "begin_paid_media_provider_attempt").length, 1);
+  assert.equal(calls.filter((call) => call.name === "mark_paid_media_submission_unknown").length, 1);
+  assert.equal(calls.filter((call) => call.name === "record_paid_media_definitive_rejection").length, 0);
+});
+
+test("successful image bytes with missing usage are persisted for reconciliation without settlement", async () => {
+  const supabase = { schema() { return { from() { throw new Error("Unexpected table"); } }; } };
+  const calls = installPaidImageRpcMock(supabase);
+  const service = new TongsCommitService(supabase, "forge-workpieces", { async generateImage() {
+    return { bytesBase64: "AQID", mimeType: "image/png", provider: "openai", providerRequestId: "req-missing-usage",
+      providerResponseId: "resp-missing-usage", revisedPrompt: null, tokensUsed: null, usage: null,
+      responseEvidence: { id: "resp-missing-usage", data: [{ b64_json: "AQID" }], usage: null } };
+  } });
+  const context = await service.executePaidImageGeneration(paidImageExecutionArgs());
+  assert.equal(context.settlementBlocked, true);
+  assert.equal(calls.filter((call) => call.name === "record_paid_media_provider_reconciliation").length, 1);
+  assert.equal(calls.filter((call) => call.name === "record_paid_media_provider_result").length, 0);
+});
+
 function installCurrentImageMapAuthority(service, workspaceId, workpieceId) {
   const promptRevision = {
     id: "77777777-7777-4777-8777-777777777777",
@@ -4294,8 +4405,19 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
         mimeType: "image/png",
         provider: "openai",
         providerRequestId: "req_provider_abc",
+        providerResponseId: "resp_provider_abc",
         revisedPrompt: null,
         tokensUsed: 123,
+        usage: {
+          textInputTokens: 100,
+          cachedTextInputTokens: null,
+          imageInputTokens: null,
+          cachedImageInputTokens: null,
+          imageOutputTokens: 5488,
+          totalTokens: 5588,
+          raw: { input_tokens: 100, output_tokens: 5488, total_tokens: 5588 },
+        },
+        responseEvidence: { id: "resp_provider_abc", usage: { input_tokens: 100, output_tokens: 5488, total_tokens: 5588 }, data: [{ b64_json: "AQID" }] },
       };
     },
   };
@@ -4332,6 +4454,7 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
     },
   };
 
+  const paidRpcCalls = installPaidImageRpcMock(supabase);
   const service = new TongsCommitService(supabase, "forge-workpieces", imageProvider);
   const stagedAsset = {
     id: "55555555-5555-4555-8555-555555555555",
@@ -4526,7 +4649,9 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   });
 
   assert.equal(providerCalls.length, 1);
-  assert.equal(providerCalls[0].aspect, "16:9");
+  assert.equal(providerCalls[0].size, "1536x1024");
+  assert.equal(providerCalls[0].quality, "high");
+  assert.equal(providerCalls[0].model, "gpt-image-2-2026-04-21");
   assert.match(providerCalls[0].prompt, /Host in studio with neon glow/);
   assert.match(providerCalls[0].prompt, /Visual style: Studio Photography\./);
   assert.equal(assetInsertCalls.length, 0);
@@ -4545,6 +4670,9 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   assert.equal(result.primary_version_id, result.version.id);
   assert.equal(result.updated_episode_package.launch_variants.length, 1);
   assert.equal(result.asset.storage_bucket, "forge-workpieces");
+  assert.equal(paidRpcCalls.filter((call) => call.name === "create_paid_image_authorization_quote").length, 1);
+  assert.equal(paidRpcCalls.filter((call) => call.name === "begin_paid_media_provider_attempt").length, 1);
+  assert.equal(paidRpcCalls.filter((call) => call.name === "settle_paid_media_operation").length, 1);
 
   service.getThumbnailAssetByOperation = async () => ({
     id: stagedAsset.id, workspace_id: workspaceId, workpiece_id: workpieceId,
@@ -4652,6 +4780,7 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
       },
     ],
   });
+  const paidRpcCalls = installPaidImageRpcMock(supabase);
 
   const imageProvider = {
     async generateImage(input) {
@@ -4662,8 +4791,19 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
         mimeType: "image/png",
         provider: "openai",
         providerRequestId: `req_provider_${index}`,
+        providerResponseId: `resp_provider_${index}`,
         revisedPrompt: null,
         tokensUsed: 120 + index,
+        usage: {
+          textInputTokens: 100,
+          cachedTextInputTokens: null,
+          imageInputTokens: null,
+          cachedImageInputTokens: null,
+          imageOutputTokens: 5488,
+          totalTokens: 5588,
+          raw: { input_tokens: 100, output_tokens: 5488, total_tokens: 5588 },
+        },
+        responseEvidence: { id: `resp_provider_${index}`, usage: { input_tokens: 100, output_tokens: 5488, total_tokens: 5588 }, data: [{ b64_json: index === 1 ? "AQID" : "BAUG" }] },
       };
     },
   };
@@ -4818,7 +4958,11 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
   });
 
   assert.equal(providerCalls.length, 2);
-  assert.equal(providerCalls[0]?.aspect, "16:9");
+  assert.equal(paidRpcCalls.filter((call) => call.name === "begin_paid_media_provider_attempt").length, 2);
+  assert.equal(paidRpcCalls.filter((call) => call.name === "settle_paid_media_operation").length, 2);
+  assert.equal(providerCalls[0]?.size, "1536x1024");
+  assert.equal(providerCalls[0]?.quality, "high");
+  assert.equal(providerCalls[0]?.model, "gpt-image-2-2026-04-21");
   assert.equal(providerCalls[0]?.prompt, promptRevision.final_prompt);
   assert.equal(providerCalls[1]?.prompt, promptRevision.final_prompt);
 
@@ -4873,13 +5017,14 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
   assert.equal(result.image_map.entries[0]?.status, "candidates_generated");
   assert.equal(result.image_map.entries[0]?.selected_asset_id, null);
   assert.equal(result.image_map.entries[0]?.style_preset, "oil_painting");
-  assert.equal(result.token_balance, 777);
+  assert.equal(result.token_balance, undefined, "Paid image settlement no longer uses the legacy postpaid token delta");
 
   const candidateSupersedeCall = state.updateCalls.find((row) => Array.isArray(row.id));
   assert.deepEqual([...candidateSupersedeCall.id].sort(), ["asset-old-candidate-a", "asset-old-candidate-b"]);
   assert.equal(candidateSupersedeCall?.patch?.status, "superseded");
   const imageMapRefreshCall = state.updateCalls.find((row) => row.id === "asset-old-image-map");
   assert.equal(imageMapRefreshCall?.patch?.status, "ready");
+  assert.equal(imageMapRefreshCall?.patch?.ready_at, "2026-03-11T19:00:01.000Z");
   assert.equal(imageMapRefreshCall?.patch?.storage_key, `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`);
 });
 
@@ -4890,6 +5035,7 @@ test("TongsCommitService.generateImageMapCandidates accepts beat anchors for bul
   const providerCalls = [];
   const commitCalls = [];
   const { ...supabase } = createImageMapAssetSupabase();
+  installPaidImageRpcMock(supabase);
 
   const imageProvider = {
     async generateImage(input) {
@@ -4900,8 +5046,19 @@ test("TongsCommitService.generateImageMapCandidates accepts beat anchors for bul
         mimeType: "image/png",
         provider: "openai",
         providerRequestId: `req_provider_bullet_${index}`,
+        providerResponseId: `resp_provider_bullet_${index}`,
         revisedPrompt: null,
         tokensUsed: 80 + index,
+        usage: {
+          textInputTokens: 80,
+          cachedTextInputTokens: null,
+          imageInputTokens: null,
+          cachedImageInputTokens: null,
+          imageOutputTokens: 5488,
+          totalTokens: 5568,
+          raw: { input_tokens: 80, output_tokens: 5488, total_tokens: 5568 },
+        },
+        responseEvidence: { id: `resp_provider_bullet_${index}`, usage: { input_tokens: 80, output_tokens: 5488, total_tokens: 5568 }, data: [{ b64_json: index === 1 ? "AQID" : "BAUG" }] },
       };
     },
   };
