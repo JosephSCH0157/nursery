@@ -10906,13 +10906,19 @@ export class TongsCommitService {
   private async preparePaidImageQuote(args: {
     userId: string; workspaceId: string; workpieceId: string; operationId: string; tool: string;
     originatingEntityId: string | null; promptRevisionId: string | null; promptContentHash: string;
-    prompt: string; size: string; quality: "low" | "medium" | "high";
+    prompt: string; size: string; quality: "low" | "medium" | "high"; kind?: "image" | "video";
+    requestMetadata?: Record<string, unknown>;
+    requestParameters?: Record<string, unknown>;
+    pricingPolicyRevisionId?: string;
+    authorizationPolicyRevisionId?: string;
   }): Promise<{ quoteId: string; fingerprint: string; ceiling: number; quote: Record<string, unknown> }> {
     const promptBytes = new TextEncoder().encode(args.prompt).length;
     if (promptBytes > 16_384) throw new HttpError(400, "paid_image_prompt_too_large", "Image prompt exceeds the 16 KiB paid-generation limit.", { prompt_utf8_bytes: promptBytes, maximum_utf8_bytes: 16_384 });
-    const quoteId = uuidFromSha256(await sha256Hex(canonicalJsonBytes({ operation_id: args.operationId, kind: "paid-image-quote" })));
-    const requestMetadata = { ...(args.originatingEntityId ? { originating_entity_id: args.originatingEntityId } : {}) };
-    const requestParameters = { size: args.size, quality: args.quality, output_count: 1, operation: "generation", metadata: requestMetadata };
+    const quoteId = uuidFromSha256(await sha256Hex(canonicalJsonBytes({ operation_id: args.operationId, kind: args.kind === "video" ? "paid-video-quote" : "paid-image-quote" })));
+    const requestMetadata = args.requestMetadata ?? { ...(args.originatingEntityId ? { originating_entity_id: args.originatingEntityId } : {}) };
+    const requestParameters = args.requestParameters ?? { size: args.size, quality: args.quality, output_count: 1, operation: "generation", metadata: requestMetadata };
+    const pricingPolicyRevisionId = args.pricingPolicyRevisionId ?? "72000000-0000-4000-8000-000000000001";
+    const authorizationPolicyRevisionId = args.authorizationPolicyRevisionId ?? "74000000-0000-4000-8000-000000000011";
     // PostgreSQL validates this fingerprint over jsonb::text. Preserve its
     // canonical single-line separators so semantically identical JSON hashes
     // to the same bytes on both sides of the RPC boundary.
@@ -10921,20 +10927,22 @@ export class TongsCommitService {
       workpiece_id: args.workpieceId, originating_entity_id: args.originatingEntityId,
       prompt_revision_id: args.promptRevisionId, prompt_content_hash: args.promptContentHash,
       prompt_utf8_bytes: promptBytes, request_parameters: requestParameters,
-      pricing_policy_revision_id: "72000000-0000-4000-8000-000000000001",
-      authorization_policy_revision_id: "74000000-0000-4000-8000-000000000011",
+      pricing_policy_revision_id: pricingPolicyRevisionId,
+      authorization_policy_revision_id: authorizationPolicyRevisionId,
     })));
-    const rpc = await (this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient).rpc("create_paid_image_authorization_quote", {
+    const rpc = await (this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient).rpc("create_paid_media_authorization_quote", {
       p_quote_id: quoteId, p_user_id: args.userId, p_operation_id: args.operationId, p_tool: args.tool,
       p_workspace_id: args.workspaceId, p_workpiece_id: args.workpieceId, p_originating_entity_id: args.originatingEntityId,
       p_prompt_revision_id: args.promptRevisionId, p_prompt_content_hash: args.promptContentHash, p_prompt: args.prompt,
-      p_size: args.size, p_quality: args.quality, p_output_count: 1, p_request_metadata: requestMetadata,
+      p_kind: args.kind ?? "image", p_media_kind: args.kind === "video" ? "video" : "image",
+      p_request_metadata: requestMetadata, p_request_parameters: requestParameters,
       p_request_fingerprint: fingerprint, p_effective_at: new Date().toISOString(), p_expires_at: null,
+      p_pricing_policy_revision_id: pricingPolicyRevisionId, p_authorization_policy_revision_id: authorizationPolicyRevisionId,
     });
-    if (rpc.error || !isRecord(rpc.data) || !isRecord(rpc.data.quote)) throw new HttpError(502, "paid_image_quote_failed", rpc.error?.message ?? "Tongs could not create the paid image authorization quote.");
+    if (rpc.error || !isRecord(rpc.data) || !isRecord(rpc.data.quote)) throw new HttpError(502, "paid_image_quote_failed", rpc.error?.message ?? "Tongs could not create the paid media authorization quote.");
     const quote = rpc.data.quote as Record<string, unknown>;
     const ceiling = Number(quote.authorized_customer_ceiling);
-    if (!Number.isSafeInteger(ceiling) || ceiling <= 0) throw new HttpError(502, "paid_image_quote_invalid", "Tongs returned an invalid paid image authorization ceiling.");
+    if (!Number.isSafeInteger(ceiling) || ceiling <= 0) throw new HttpError(502, "paid_image_quote_invalid", "Tongs returned an invalid paid media authorization ceiling.");
     return { quoteId, fingerprint, ceiling, quote };
   }
 
@@ -11037,6 +11045,25 @@ export class TongsCommitService {
     return { paidMediaOperationId, operationId: args.operationId, operationFingerprint: prepared.fingerprint, attemptId, quoteId: prepared.quoteId, reservationId, authorizedCeiling: prepared.ceiling, settlementBlocked: false, image };
   }
 
+  private buildRunwayPaidMediaUsageEvidence(args: { durationSeconds: number }): {
+    usageComponents: Array<{ component_kind: string; unit_kind: string; quantity: number }>;
+    providerResponseUsage: Record<string, unknown>;
+  } {
+    const durationSeconds = Math.max(1, Math.ceil(args.durationSeconds));
+    const usageComponents = [{ component_kind: "video_output", unit_kind: "second", quantity: durationSeconds }];
+    const providerResponseUsage = {
+      kind: "contract_derived_from_successful_duration",
+      provider: "runway",
+      model: "gen4.5",
+      generation_mode: "text_to_video",
+      provider_native_rate: { unit: "credit", per_unit: "second", amount: 12 },
+      provider_native_consumed_credits: durationSeconds * 12,
+      provider_expense_micros: durationSeconds * 120_000,
+      pricing_policy_revision_id: "72000000-0000-4000-8000-000000000001",
+    };
+    return { usageComponents, providerResponseUsage };
+  }
+
   private async settlePaidImageDelivery(context: PaidImageGenerationContext, deliveryEvidence: Record<string, unknown>): Promise<Record<string, unknown>> {
     const authority = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
     const delivered = await authority.rpc("mark_paid_media_delivery", { p_paid_media_operation_id: context.paidMediaOperationId, p_operation_fingerprint: context.operationFingerprint, p_delivery_evidence_json: deliveryEvidence });
@@ -11058,7 +11085,11 @@ export class TongsCommitService {
     const prepared = await this.preparePaidImageQuote({
       userId: args.userId, workspaceId: args.workspaceId, workpieceId: args.workpieceId, operationId: args.operationId, tool: args.tool,
       originatingEntityId: args.originatingEntityId, promptRevisionId: args.promptRevisionId, promptContentHash: args.promptContentHash,
-      prompt: args.prompt, size: "video", quality: "medium",
+      prompt: args.prompt, size: "video", quality: "medium", kind: "video",
+      requestMetadata: { provider: "runway", model: args.model, generation_mode: "text_to_video", duration_seconds: args.durationSeconds, ratio: args.ratio },
+      requestParameters: { provider: "runway", model: args.model, generation_mode: "text_to_video", duration_seconds: args.durationSeconds, ratio: args.ratio, operation: "generation", metadata: { provider: "runway", model: args.model, generation_mode: "text_to_video", duration_seconds: args.durationSeconds, ratio: args.ratio } },
+      pricingPolicyRevisionId: "77000000-0000-4000-8000-000000000001",
+      authorizationPolicyRevisionId: "76000000-0000-4000-8000-000000000001",
     });
     if (!args.creatorApproved) throw new HttpError(409, "paid_image_authorization_required", "Approve the maximum Forge charge before generation.", {
       requires_confirmation: true, quote_id: prepared.quoteId, authorized_customer_ceiling: prepared.ceiling,
@@ -13584,6 +13615,7 @@ export class TongsCommitService {
       }
       if(video&&state!=="provider_or_upload_completed"){const alreadyStored=await downloadStorageObject(this.supabase,this.bucket,videoKey);if(!alreadyStored)await uploadStorageObject(this.supabase,this.bucket,videoKey,video.bytes,video.mimeType);const recorded=await authority.rpc("record_broll_provider_or_upload_result",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_result:{storage_bucket:this.bucket,storage_key:videoKey,path:videoPath,provider:"runway",provider_request_id:input.provider_request_id??null}});if(recorded.error)throw new HttpError(502,"broll_result_receipt_failed",recorded.error.message);state="provider_or_upload_completed";}
       if (paidContext && state === "provider_or_upload_completed" && input.provider_request_id) {
+        const usageEvidence = this.buildRunwayPaidMediaUsageEvidence({ durationSeconds });
         const providerResponseJson = {
           provider: "runway",
           provider_task_id: input.provider_request_id,
@@ -13591,6 +13623,7 @@ export class TongsCommitService {
           duration_seconds: durationSeconds,
           ratio,
           canonical_output_url: input.provider_request_id,
+          usage: usageEvidence.providerResponseUsage,
         };
         const paidResult = await authority.rpc("record_paid_media_provider_result", {
           p_paid_media_operation_id: paidContext.paidMediaOperationId,
@@ -13599,7 +13632,7 @@ export class TongsCommitService {
           p_provider_request_id: input.provider_request_id,
           p_provider_response_id: input.provider_request_id,
           p_provider_response_json: providerResponseJson,
-          p_usage_components: [],
+          p_usage_components: usageEvidence.usageComponents,
         });
         if (paidResult.error) throw new HttpError(502, "paid_image_provider_receipt_failed", paidResult.error.message);
       }

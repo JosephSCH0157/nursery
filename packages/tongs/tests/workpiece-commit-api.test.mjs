@@ -3113,7 +3113,7 @@ function installPaidImageRpcMock(supabase) {
       ...client,
       async rpc(name, args) {
         calls.push({ name, args });
-        if (name === "create_paid_image_authorization_quote") {
+        if (name === "create_paid_media_authorization_quote") {
           return { data: { quote: { id: args.p_quote_id, authorized_customer_ceiling: 44_460 } }, error: null };
         }
         if (name === "approve_and_reserve_paid_media_operation") {
@@ -3180,7 +3180,7 @@ test("paid image quote-only preflight never reaches the provider", async () => {
   const service = new TongsCommitService(supabase, "forge-workpieces", { async generateImage() { providerCalls += 1; throw new Error("must not run"); } });
   await assert.rejects(() => service.executePaidImageGeneration(paidImageExecutionArgs({ creatorApproved: false })), (error) => error?.code === "paid_image_authorization_required");
   assert.equal(providerCalls, 0);
-  assert.deepEqual(calls.map((call) => call.name), ["create_paid_image_authorization_quote"]);
+  assert.deepEqual(calls.map((call) => call.name), ["create_paid_media_authorization_quote"]);
 });
 
 test("ambiguous paid image submission is recorded once and never converted into a safe rejection", async () => {
@@ -4670,7 +4670,7 @@ test("TongsCommitService.generateEpisodeThumbnail writes asset + metadata versio
   assert.equal(result.primary_version_id, result.version.id);
   assert.equal(result.updated_episode_package.launch_variants.length, 1);
   assert.equal(result.asset.storage_bucket, "forge-workpieces");
-  assert.equal(paidRpcCalls.filter((call) => call.name === "create_paid_image_authorization_quote").length, 1);
+  assert.equal(paidRpcCalls.filter((call) => call.name === "create_paid_media_authorization_quote").length, 1);
   assert.equal(paidRpcCalls.filter((call) => call.name === "begin_paid_media_provider_attempt").length, 1);
   assert.equal(paidRpcCalls.filter((call) => call.name === "settle_paid_media_operation").length, 1);
 
