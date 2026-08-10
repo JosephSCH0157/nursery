@@ -83,6 +83,6 @@ test("a direct canonical Image anchor-repair successor can be adopted before fin
 });
 
 test("the authenticated route exposes the canonical append operation", () => {
-  assert.match(service, /parts\[4\]===\"append-opportunity\"/);
+  assert.match(service, /parts\[4\]==="append-opportunity"/);
   assert.match(service, /service\.appendReferenceVisualOpportunity/);
 });

@@ -11,7 +11,7 @@ const generation=readFileSync(new URL("../src/hooks/visuals/useMediaMapGeneratio
 test("Reference Clips consume canonical Tongs readback and never write cdc_plan",()=>{
  assert.match(authority,/read_current_reference_clip_plan/);
  assert.match(authority,/reference-clips\/acquire/);
- assert.match(authority,/reference-clips\/select/);
+ assert.match(authority,/reference-clips\/selection-set/);
  assert.doesNotMatch(authority,/cdc_plan|metadata\.json|persistReferenceClipPlan/);
  assert.match(surface,/canonicalWorkspaceId=\{props\.thumbnailAuthority\.workspaceId\}/);
 });
@@ -23,10 +23,31 @@ test("creator workflow exposes source evidence, upload, external fetch, rights, 
 });
 
 test("acquisition and selection use immutable revision identities and canonical refresh",()=>{
- for(const field of ["plan_revision_id","opportunity_revision_id","operation_fingerprint","candidate_revision_id","expected_selection_revision"]){assert.ok(authority.includes(field),`missing ${field}`);}
+ for(const field of ["plan_revision_id","opportunity_revision_id","operation_fingerprint","candidate_revision_ids","expected_selection_set_revision"]){assert.ok(authority.includes(field),`missing ${field}`);}
  assert.match(authority,/return readCanonicalReferenceClips\(args\.workspaceId,args\.workpieceId\)/);
  assert.match(authority,/storage_key/);
  assert.match(authority,/media-url\?path=/);
+});
+
+test("selection commits and verifies the complete ordered collection",()=>{
+ assert.match(authority,/canonicalSelectionRevision:num\(read\.data\.sequence\.current_selection_revision\)/);
+ assert.match(authority,/expected_selection_set_revision:args\.opportunity\.selectionSetRevision/);
+ assert.match(authority,/addReferenceClipSelectionId\(args\.opportunity\.selectedRevisionIds,args\.candidateRevisionId\)/);
+ assert.match(authority,/removeReferenceClipSelectionId\(args\.opportunity\.selectedRevisionIds,args\.candidateRevisionId\)/);
+ assert.doesNotMatch(authority,/selectedRevisionId[:?]/);
+ assert.match(authority,/disposition!=="committed"/);
+ assert.match(authority,/sameIds\(receiptIds,args\.selectedRevisionIds\)/);
+ assert.match(authority,/reference_clip_selection_receipt_invalid/);
+ assert.match(authority,/reference_clip_selection_readback_mismatch/);
+});
+
+test("Hearth renders additive selection, duplicate prevention, individual removal, and opportunity counters",()=>{
+ assert.match(panel,/selectedRevisionIds\.includes\(revisionId\)/);
+ assert.match(panel,/selectedRevisionIds\.includes\(c\.revisionId\)/);
+ assert.match(panel,/removeSelectedReferenceClip/);
+ assert.match(panel,/>Remove<\/button>/);
+ assert.match(panel,/selectedRevisionIds\.length>0/);
+ assert.match(panel,/selectedRevisionIds\.length\?` · \$\{o\.selectedRevisionIds\.length\} selected`/);
 });
 
 test("unresolved opportunities create or reuse canonical Sources before fulfillment",()=>{
@@ -52,6 +73,7 @@ test("selected Reference Clips require exact Hammer visual-package readback",()=
  assert.match(authority,/\/visual-package/);
  assert.match(authority,/reference_clip_hammer_readback_mismatch/);
  for(const evidence of ["candidate_revision_id","source_revision_id","source_link_revision_id","rights","provenance"]){assert.match(authority,new RegExp(`evidence\\.${evidence}`));}
+ assert.match(authority,/selectedRevisionIds\[index\]/);
  assert.match(panel,/verifyReferenceClipHammerReadback/);
  assert.match(panel,/forge:canonical-reference-clips-progress/);
 });

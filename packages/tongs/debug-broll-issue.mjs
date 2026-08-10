@@ -1,3 +1,4 @@
+/* global console */
 import { TongsCommitService } from './dist/workpiece-commit-api.js';
 
 let state = 'pending';

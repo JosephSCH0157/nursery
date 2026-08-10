@@ -10,13 +10,15 @@ values('84000000-0000-4000-8000-000000000001','82000000-0000-4000-8000-000000000
 insert into tongs.workpiece_script_approval_sequences(workspace_id,workpiece_id,current_approval_id,current_revision)
 values('82000000-0000-4000-8000-000000000001','83000000-0000-4000-8000-000000000001','84000000-0000-4000-8000-000000000001',1);
 insert into tongs.assets(id,workspace_id,workpiece_id,path,mime_type,bytes,storage_bucket,storage_key,provider,prompt,created_by,asset_kind,status,content_hash,ready_at,metadata_json)
-values('85000000-0000-4000-8000-000000000001','82000000-0000-4000-8000-000000000001','83000000-0000-4000-8000-000000000001','assets/reference/retained.mp4','video/mp4',100,'forge-workpieces','reference/retained.mp4','creator-upload','reference','81000000-0000-4000-8000-000000000001','broll_candidate_video','ready',repeat('4',64),now(),'{"duration_ms":5000}');
+values
+('85000000-0000-4000-8000-000000000001','82000000-0000-4000-8000-000000000001','83000000-0000-4000-8000-000000000001','assets/reference/retained.mp4','video/mp4',100,'forge-workpieces','reference/retained.mp4','creator-upload','reference','81000000-0000-4000-8000-000000000001','broll_candidate_video','ready',repeat('4',64),now(),'{"duration_ms":5000}'),
+('85000000-0000-4000-8000-000000000002','82000000-0000-4000-8000-000000000001','83000000-0000-4000-8000-000000000001','assets/reference/retained-2.mp4','video/mp4',100,'forge-workpieces','reference/retained-2.mp4','creator-upload','reference','81000000-0000-4000-8000-000000000001','broll_candidate_video','ready',repeat('5',64),now(),'{"duration_ms":5000}');
 
 set local request.jwt.claims='{"sub":"81000000-0000-4000-8000-000000000001","role":"authenticated"}';
 set local role authenticated;
 
 do $setup$
-declare v jsonb; source_revision uuid; link_revision uuid; plan_id uuid; opportunity_revision uuid; candidate_revision uuid;
+declare v jsonb; source_revision uuid; link_revision uuid; plan_id uuid; opportunity_revision uuid; candidate_revision uuid; candidate_revision_2 uuid;
 begin
   v:=tongs.commit_source_revision('82000000-0000-4000-8000-000000000001',null,'retained-source',0,'video','Retained archive',null,null,null,'https://example.invalid/archive',null,null,null,'{}','{}','v1','v1','forge:source:retention-source',repeat('a',64),'81000000-0000-4000-8000-000000000001');
   source_revision:=(v#>>'{source_revision,id}')::uuid;
@@ -29,6 +31,10 @@ begin
   candidate_revision:=(v#>>'{candidate_revision,id}')::uuid;
   v:=tongs.select_reference_clip_candidate('82000000-0000-4000-8000-000000000001','83000000-0000-4000-8000-000000000001','86000000-0000-4000-8000-000000000001',candidate_revision,plan_id,1,0,'forge:test:retention-selection',repeat('e',64),'81000000-0000-4000-8000-000000000001');
   if v->>'disposition'<>'committed' then raise exception 'selection fixture failed %',v;end if;
+  v:=tongs.commit_reference_clip_candidate('82000000-0000-4000-8000-000000000001','83000000-0000-4000-8000-000000000001','86000000-0000-4000-8000-000000000001',opportunity_revision,'85000000-0000-4000-8000-000000000002',null,'{"basis":"permission_granted"}','{}','forge:test:retention-candidate-2',repeat('f',64),'81000000-0000-4000-8000-000000000001');
+  candidate_revision_2:=(v#>>'{candidate_revision,id}')::uuid;
+  v:=tongs.commit_reference_clip_selection_set('82000000-0000-4000-8000-000000000001','83000000-0000-4000-8000-000000000001','86000000-0000-4000-8000-000000000001',jsonb_build_array(candidate_revision,candidate_revision_2),plan_id,1,1,'forge:test:retention-selection-set',repeat('0',64),'81000000-0000-4000-8000-000000000001');
+  if jsonb_array_length(v->'selected_candidate_revision_ids')<>2 then raise exception 'selection-set fixture failed %',v;end if;
 end
 $setup$;
 
@@ -51,6 +57,7 @@ begin
   v:=tongs.retain_unified_reference_clip_selections('retention-empty',repeat('5',64),provider_id);
   successor_id:=(v->>'revision_id')::uuid;
   if (v->>'retained_count')::int<>1 or (select array_agg(ordinal order by ordinal) from tongs.reference_clip_plan_membership where plan_revision_id=successor_id)<>array[1] then raise exception 'empty-provider retention did not create one-based membership %',v;end if;
+  if (select count(*) from tongs.reference_clip_selection_set_members sm join tongs.reference_clip_selection_set_revisions ss on ss.id=sm.selection_set_revision_id where ss.plan_revision_id=successor_id)<>2 then raise exception 'retention did not preserve the complete selected collection';end if;
   replay_id:=(tongs.retain_unified_reference_clip_selections('retention-empty',repeat('5',64),provider_id)->>'revision_id')::uuid;
   if replay_id<>successor_id then raise exception 'retention replay changed successor identity';end if;
 
@@ -69,7 +76,7 @@ begin
   provider_id:=(v#>>'{plan_revision,id}')::uuid;
   v:=tongs.retain_unified_reference_clip_selections('retention-deduplicated',repeat('9',64),provider_id);
   if (v->>'retained_count')::int<>0 or (select count(*) from tongs.reference_clip_plan_membership where plan_revision_id=provider_id)<>1 then raise exception 'duplicate opportunity was retained twice %',v;end if;
-  if (select count(*) from tongs.reference_clip_candidate_revisions)<>1 then raise exception 'candidate history was mutated';end if;
+  if (select count(*) from tongs.reference_clip_candidate_revisions)<>2 then raise exception 'candidate history was mutated';end if;
 end
 $test$;
 

@@ -2162,7 +2162,7 @@ export default function HearthShell({
     },
     referenceClips: {
       planned: canonicalReferenceClipState?.opportunities.length ?? 0,
-      completed: canonicalReferenceClipState?.opportunities.filter((opportunity) => Boolean(opportunity.selectedRevisionId)).length ?? 0,
+      completed: canonicalReferenceClipState?.opportunities.filter((opportunity) => opportunity.selectedRevisionIds.length > 0).length ?? 0,
       exists: Boolean(canonicalReferenceClipState?.planRevisionId),
     },
     referenceVisuals: {
@@ -6045,7 +6045,7 @@ export default function HearthShell({
           kind: "reference_clip" as const,
           focus: opportunity.focus,
           description: opportunity.editorialReason || opportunity.desiredMaterial,
-          status: opportunity.selectedRevisionId ? "selected" : opportunity.sourceStatus,
+          status: opportunity.selectedRevisionIds.length > 0 ? "selected" : opportunity.sourceStatus,
         })),
       ],
       selectedEntryId: selectedMediaMapEntryId,

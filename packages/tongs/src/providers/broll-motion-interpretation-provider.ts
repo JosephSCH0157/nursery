@@ -38,7 +38,7 @@ export class OpenAiBrollMotionInterpretationProvider implements BrollMotionInter
   async interpret(input:InterpretBrollMotionInput):Promise<InterpretBrollMotionOutput>{
     const model=input.model?.trim()||this.defaultModel;
     const response=await fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{authorization:`Bearer ${this.apiKey}`,"content-type":"application/json"},body:JSON.stringify({model,instructions,input:JSON.stringify(input.request),text:{format:{type:"json_schema",name:"broll_motion_brief",strict:true,schema}}})});
-    const rawText=await response.text();let payload:Record<string,unknown>={};try{payload=JSON.parse(rawText) as Record<string,unknown>}catch{}
+    const rawText=await response.text();let payload:Record<string,unknown>={};try{payload=JSON.parse(rawText) as Record<string,unknown>}catch{/* Invalid JSON is reported through the response status or missing-output checks below. */}
     if(!response.ok)throw new Error((payload.error as {message?:string}|undefined)?.message||rawText||`Motion interpretation failed (${response.status})`);
     const text=outputText(payload);if(!text)throw new Error("Motion interpretation provider returned no structured output");
     const brief=JSON.parse(text) as BrollMotionBrief;const usage=(payload.usage&&typeof payload.usage==="object"?payload.usage:{}) as Record<string,unknown>;

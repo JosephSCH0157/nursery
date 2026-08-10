@@ -6,7 +6,7 @@ const migration=await readFile(new URL("../../../supabase/migrations/20260804180
 const service=await readFile(new URL("../src/workpiece-commit-api.ts",import.meta.url),"utf8");
 test("Reference Clip acquisition has monotonic replay-safe stages and service-only asset commits",()=>{
  for(const stage of ["pending","source_acquired","video_asset_verified","poster_asset_verified","candidate_committed"])assert.match(migration,new RegExp(`'${stage}'`));
- assert.match(migration,/asset_replay_conflict/);assert.match(migration,/source_evidence_conflict/);assert.match(migration,/auth\.role\(\)<>\'service_role\'/);assert.match(migration,/receipt_json is not null/);
+ assert.match(migration,/asset_replay_conflict/);assert.match(migration,/source_evidence_conflict/);assert.match(migration,/auth\.role\(\)<>'service_role'/);assert.match(migration,/receipt_json is not null/);
 });
 test("lost responses resume stored upload and preserve video, poster, and candidate identities",async()=>{
  let state="pending",uploads=0,videoCommits=0,posterCommits=0,candidateCommits=0;const objects=new Map();

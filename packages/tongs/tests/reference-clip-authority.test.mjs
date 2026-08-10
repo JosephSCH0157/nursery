@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 const sql=await readFile(new URL("../../../supabase/migrations/20260804170000_tongs_reference_clip_authority.sql",import.meta.url),"utf8");
 const hammerEvidenceSql=await readFile(new URL("../../../supabase/migrations/20260804210000_tongs_reference_clip_hammer_evidence.sql",import.meta.url),"utf8");
+const selectionSetSql=await readFile(new URL("../../../supabase/migrations/20260810120000_tongs_reference_clip_selection_sets.sql",import.meta.url),"utf8");
 const service=await readFile(new URL("../src/workpiece-commit-api.ts",import.meta.url),"utf8");
 test("Reference Clip authority is immutable, Source-relative, and excludes legacy composites",()=>{
  for(const table of ["reference_clip_plan_revisions","reference_clip_opportunity_revisions","reference_clip_candidate_revisions","reference_clip_selections","reference_clip_operation_receipts"])assert.match(sql,new RegExp(`create table tongs\\.${table}`));
@@ -11,8 +12,29 @@ test("Reference Clip authority is immutable, Source-relative, and excludes legac
  assert.match(sql,/legacy cdc_plan is not authority/);assert.doesNotMatch(sql,/chart_candidate|timeline_candidate|document_composite/);
 });
 test("Tongs exposes canonical Reference Clip routes and adds selected clips to Hammer",()=>{
- for(const action of ["plan","candidate","select","current"])assert.match(service,new RegExp(`action===\\"${action}\\"`));
+ for(const action of ["plan","candidate","select","selection-set","current"])assert.match(service,new RegExp(`action===\\"${action}\\"`));
  assert.match(service,/read_reference_clip_visual_package/);assert.match(service,/asset_class:"reference_clip"/);
+});
+test("Reference Clip selection sets are immutable ordered collections with atomic full-set commits",()=>{
+ for(const table of ["reference_clip_selection_set_revisions","reference_clip_selection_set_members"])assert.match(selectionSetSql,new RegExp(`create table tongs\\.${table}`));
+ assert.match(selectionSetSql,/commit_reference_clip_selection_set/);
+ assert.match(selectionSetSql,/p_candidate_revision_ids jsonb/);
+ assert.match(selectionSetSql,/duplicate_candidate/);
+ assert.match(selectionSetSql,/selection_revision_conflict/);
+ assert.match(selectionSetSql,/for update/);
+ assert.match(selectionSetSql,/selected_candidate_revision_ids/);
+ assert.match(selectionSetSql,/selection_set_revision_id,ordinal/);
+ assert.match(selectionSetSql,/selection-set-backfill/);
+ assert.match(selectionSetSql,/current_plan_revision_id=s\.plan_revision_id/);
+});
+test("latest Reference Clip readback, Hammer, and retention preserve complete collections",()=>{
+ assert.match(selectionSetSql,/'selections'/);
+ assert.match(selectionSetSql,/'fulfilled'/);
+ assert.match(selectionSetSql,/'unresolved'/);
+ assert.match(selectionSetSql,/forge\.reference-clips\.hammer\.v3/);
+ assert.match(selectionSetSql,/order by m\.ordinal,sm\.ordinal/);
+ assert.match(selectionSetSql,/retain_unified_reference_clip_selections_singular_legacy/);
+ assert.match(selectionSetSql,/for sm in select \* from tongs\.reference_clip_selection_set_members/);
 });
 test("Reference Clip mutations are replay-safe, concurrent, RLS protected, and Hammer projected",()=>{
  assert.match(sql,/operation_identity_conflict/g);assert.match(sql,/plan_revision_conflict/g);assert.match(sql,/selection_revision_conflict/);

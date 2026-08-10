@@ -37,7 +37,7 @@ export class OpenAiNarrativeInterpretationProvider implements NarrativeInterpret
   async interpret(input:InterpretImagePromptInput):Promise<InterpretImagePromptOutput>{
     const model=input.model?.trim()||this.defaultModel;
     const response=await fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{authorization:`Bearer ${this.apiKey}`,"content-type":"application/json"},body:JSON.stringify({model,instructions:systemInstruction,input:JSON.stringify(input.request),text:{format:{type:"json_schema",name:"image_prompt_visual_brief",strict:true,schema:briefSchema}}})});
-    const rawText=await response.text();let payload:Record<string,unknown>={};try{payload=JSON.parse(rawText) as Record<string,unknown>}catch{}
+    const rawText=await response.text();let payload:Record<string,unknown>={};try{payload=JSON.parse(rawText) as Record<string,unknown>}catch{/* Invalid JSON is reported through the response status or missing-output checks below. */}
     if(!response.ok)throw new Error((payload.error as {message?:string}|undefined)?.message||rawText||`Interpretation failed (${response.status})`);
     const text=outputText(payload);if(!text)throw new Error("Interpretation provider returned no structured output");
     const brief=JSON.parse(text) as ImagePromptVisualBrief;const usage=(payload.usage&&typeof payload.usage==="object"?payload.usage:{}) as Record<string,unknown>;

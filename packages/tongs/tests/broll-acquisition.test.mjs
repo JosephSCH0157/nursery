@@ -1,3 +1,4 @@
+/* global Request */
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -176,7 +177,7 @@ test("generated Runway acquisition routes through paid-media authorization and s
   };
   const runtime = {
     inspectMedia: async (bytes, expected) => ({ bytes, mimeType: expected === "video" ? "video/mp4" : "image/jpeg", width: 320, height: 180, durationMs: expected === "video" ? 1000 : null }),
-    derivePoster: async (video) => ({ bytes: new Uint8Array([4, 5, 6]), mimeType: "image/jpeg", width: 320, height: 180, durationMs: null }),
+    derivePoster: async () => ({ bytes: new Uint8Array([4, 5, 6]), mimeType: "image/jpeg", width: 320, height: 180, durationMs: null }),
     fetchExternalMedia: async () => { throw new Error("must not fetch"); },
     inspectReferenceImage: async () => ({ bytes: new Uint8Array([1]), mimeType: "image/jpeg", width: 320, height: 180, durationMs: null }),
     fetchExternalBytes: async () => { throw new Error("must not fetch"); },

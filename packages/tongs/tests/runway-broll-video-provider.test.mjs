@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+/* global Headers */
 import test from "node:test";
 import { BadRequestError } from "@runwayml/sdk";
 import { RunwayBrollVideoProvider, RunwayTransportError } from "../dist/providers/runway-broll-video-provider.js";
