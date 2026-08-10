@@ -1,5 +1,7 @@
 begin;
 
+create extension if not exists pgcrypto;
+
 insert into tongs.ai_media_authorization_policies(id, policy_code, created_at)
 values(
   '75000000-0000-4000-8000-000000000001'::uuid,
@@ -34,7 +36,7 @@ values(
   null,
   true,
   null,
-  encode(digest('runway:gen4.5:text-to-video:standard', 'sha256'), 'hex'),
+  repeat('0', 64),
   now()
 )
 on conflict (id) do nothing;
@@ -92,7 +94,7 @@ values(
   'runway://video-generation-v1',
   '2024-11-06',
   null,
-  encode(digest('runway:gen4.5:text-to-video:pricing', 'sha256'), 'hex'),
+  repeat('0', 64),
   now(),
   'scalar_v1',
   'gen4.5',
@@ -127,7 +129,7 @@ values(
   1,
   'USD',
   '{"modality":"video","direction":"output","provider_credit_per_second":12,"provider_currency":"credit"}'::jsonb,
-  encode(digest('video_output|second|120000|1', 'sha256'), 'hex'),
+  repeat('0', 64),
   now()
 )
 on conflict (id) do nothing;

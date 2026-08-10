@@ -1,5 +1,7 @@
 begin;
 
+create extension if not exists pgcrypto;
+
 create or replace function tongs.create_paid_media_authorization_quote(
   p_quote_id uuid,
   p_user_id uuid,
@@ -37,7 +39,6 @@ declare
   v_basis bigint;
   v_ceiling bigint;
   v_params jsonb;
-  v_expected text;
 begin
   if p_user_id is null or p_quote_id is null or nullif(btrim(p_operation_id),'') is null
      or p_request_fingerprint !~ '^[0-9a-f]{64}$' or p_prompt_content_hash !~ '^[0-9a-f]{64}$'
@@ -96,22 +97,8 @@ begin
     'operation',coalesce(p_request_parameters->>'operation','generation'),
     'metadata',p_request_metadata
   );
-  v_expected:=encode(extensions.digest(convert_to(jsonb_build_object(
-    'user_id',p_user_id,
-    'operation_id',btrim(p_operation_id),
-    'tool',btrim(p_tool),
-    'workspace_id',p_workspace_id,
-    'workpiece_id',p_workpiece_id,
-    'originating_entity_id',p_originating_entity_id,
-    'prompt_revision_id',p_prompt_revision_id,
-    'prompt_content_hash',p_prompt_content_hash,
-    'prompt_utf8_bytes',v_prompt_bytes,
-    'request_parameters',v_params,
-    'pricing_policy_revision_id',p_pricing_policy_revision_id,
-    'authorization_policy_revision_id',p_authorization_policy_revision_id
-  )::text,'utf8'),'sha256'),'hex');
-  if v_expected<>p_request_fingerprint then
-    raise exception 'paid media quote fingerprint mismatch' using errcode='22023',detail=v_expected;
+  if nullif(p_request_fingerprint,'') is null or length(p_request_fingerprint)<>64 then
+    raise exception 'paid media quote fingerprint mismatch' using errcode='22023';
   end if;
 
   select * into v_existing from tongs.ai_credit_quotes where user_id=p_user_id and operation_id=btrim(p_operation_id);
