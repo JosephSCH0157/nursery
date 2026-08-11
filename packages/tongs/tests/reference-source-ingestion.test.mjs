@@ -14,6 +14,16 @@ test("missing publication and licensing metadata remain honestly unknown",async(
  assert.equal(result.publishedAt,null);assert.equal(result.publicationDateStatus,"not_provided");assert.equal(result.license.status,"not_found");
 });
 
+test("URL ingestion exposes unique provenance-bound archival image candidates and ignores page chrome",async()=>{
+ const html=`<main><img src="/photos/freeze-1895.jpg" alt="Frozen citrus grove"><img data-src="https://archive.example.net/freeze.jpg" alt="Packing house after the freeze"><img src="/photos/freeze-1895.jpg"><img src="/assets/site-logo.png"><img src="data:image/png;base64,abc"></main>`;
+ const result=await ingestReferenceSourceUrl("https://example.com/freeze",async()=>new Response(html,{status:200,headers:{"content-type":"text/html"}}));
+ assert.deepEqual(result.imageCandidates,[
+  {url:"https://example.com/photos/freeze-1895.jpg",alt:"Frozen citrus grove",ordinal:1,sourcePageUrl:"https://example.com/freeze"},
+  {url:"https://archive.example.net/freeze.jpg",alt:"Packing house after the freeze",ordinal:2,sourcePageUrl:"https://example.com/freeze"},
+ ]);
+ assert.ok(result.provenance.metadata_sources.includes("document_content:images"));
+});
+
 test("URL ingestion denies local and credential-bearing URLs",async()=>{
  await assert.rejects(()=>ingestReferenceSourceUrl("http://127.0.0.1/private"),/external_url_scheme_unsupported/);
  await assert.rejects(()=>ingestReferenceSourceUrl("https://user:pass@example.com/private"),/external_url_credentials_unsupported/);

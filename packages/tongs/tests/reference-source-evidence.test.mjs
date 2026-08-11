@@ -6,10 +6,11 @@ const htmlResponse=(html,url="https://example.org/history")=>new Response(html,{
 
 test("extracts dated and numeric claims without inventing publication dates",async()=>{
   const claims=await extractReferenceSourceEvidence("https://example.org/history",async()=>htmlResponse(`<main><p>Florida citrus production expanded rapidly in 1894 after new rail connections arrived.</p><p>This undated overview contains no event.</p><p>Growers shipped 12 million boxes in 1920.</p></main>`));
-  assert.deepEqual(claims.map(claim=>claim.evidenceDate),["1894","1920"]);
+  assert.deepEqual(claims.map(claim=>claim.evidenceDate),[null,null]);
+  assert.deepEqual(claims.map(claim=>claim.provenance.historical_date_text),["1894","1920"]);
   assert.equal(claims[1].numericValue,12);
   assert.equal(claims[1].unit,"million");
-  assert.equal(claims[0].provenance.extraction_contract,"forge.reference-source-evidence.v1");
+  assert.equal(claims[0].provenance.extraction_contract,"forge.reference-source-evidence.v2");
 });
 
 test("AI Mode shares are research leads and expose only external citations",async()=>{

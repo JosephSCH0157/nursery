@@ -37,6 +37,9 @@ test("Reference Visual workflow separates factual Source use from third-party me
  assert.doesNotMatch(authority,/\\s\*%\\b/);
  assert.match(panel,/Canonical provenance/);
  assert.match(panel,/source_use_revision_id/);
+ assert.match(panel,/Find stills on linked Source/);
+ assert.match(panel,/imageCandidates/);
+ assert.match(panel,/Verify and add this still/);
 });
 
 test("Hearth leads creators from confirmed evidence to a canonical finished visual",()=>{
@@ -45,7 +48,7 @@ test("Hearth leads creators from confirmed evidence to a canonical finished visu
  assert.match(authority,/source_evidence_revision_ids/);
  assert.match(authority,/target_duration_ms/);
  assert.match(authority,/reference-visuals\/render/);
- assert.match(authority,/subtype==="timeline"\?"3"/);
+ assert.match(authority,/subtype==="timeline"\|\|args\.opportunity\.subtype==="quote_card"\?"3"/);
  assert.match(authority,/renderer_name:rendererName,renderer_version:version/);
  assert.doesNotMatch(authority,/imageToVideo|textToImage|generateImage|debit.*credit/i);
 });

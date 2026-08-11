@@ -13,6 +13,7 @@ const migrationSql = [
   "20260806141000_tongs_reference_visual_source_projection.sql",
   "20260807120000_tongs_reference_visual_evidence_proposal_origin.sql",
   "20260811120000_tongs_reference_visual_evidence_extracted_content_origin.sql",
+  "20260811130000_tongs_restore_collection_aware_reference_visual_acquisition.sql",
 ].map(async (migration) => readFile(new URL(`../../../supabase/migrations/${migration}`, import.meta.url), "utf8"));
 const sql = (await Promise.all(migrationSql)).join("\n");
 const service = await readFile(new URL("../src/workpiece-commit-api.ts", import.meta.url), "utf8");
@@ -141,7 +142,7 @@ test("Tongs reconstructs canonical readback before deterministic rendering and c
   assert.match(method, /renderer_contract_version/);
   assert.match(method, /forge\.reference-visual-renderer\.v2/);
   assert.match(method, /forge_\$\{subtype\}_v\$\{rendererVersion\}/);
-  assert.match(method, /subtype==="timeline"\?"3"/);
+  assert.match(method, /subtype==="timeline"\|\|subtype==="quote_card"\?"3"/);
   assert.match(service, /reference-visuals"&&parts\[4\]==="render"/);
 });
 
@@ -152,5 +153,18 @@ test("Tongs reserves archival acquisition before safe fetch or upload and commit
   assert.ok(method.indexOf("downloadStorageObject") < method.indexOf('rpc("record_reference_visual_source_acquired"'));
   assert.ok(method.indexOf('rpc("record_reference_visual_source_acquired"') < method.indexOf('rpc("commit_reference_visual_acquisition"'));
   assert.match(method, /brollAcquisitionRuntime\.inspectReferenceImage\(stored\)/);
+  assert.match(method, /Array\.isArray\(opportunity\.sources\)/);
+  assert.match(method, /member\.source_revision/);
+  assert.match(method, /member\.source_link_revision/);
+  assert.doesNotMatch(method, /rights_declaration_revision_id\|\|readStringField\(opportunity\.opportunity_revision,"source_status"\)!=="linked"/);
   assert.match(service, /reference-visuals"&&parts\[4\]==="acquire"/);
+});
+
+test("the forward acquisition repair restores the RPC with current Source collection and rights authority", () => {
+  assert.match(sql, /create or replace function tongs\.begin_reference_visual_acquisition/);
+  assert.match(sql, /reference_visual_source_set_revisions/);
+  assert.match(sql, /reference_visual_source_set_members/);
+  assert.match(sql, /current_declaration_revision_id=p_rights_declaration_revision_id/);
+  assert.match(sql, /grant execute on function tongs\.begin_reference_visual_acquisition/);
+  assert.match(sql, /notify pgrst,'reload schema'/);
 });

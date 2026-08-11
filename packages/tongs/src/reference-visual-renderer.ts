@@ -49,7 +49,7 @@ function wrap(value: string, max = 54): string[] {
 }
 
 function wrapAll(value: string, max = 54): string[] {
-  const words = value.trim().split(/\s+/).filter(Boolean);
+  const words = value.trim().split(/\s+/).filter(Boolean).flatMap((word) => word.length > max ? word.match(new RegExp(`.{1,${max}}`, "g")) ?? [word] : [word]);
   const lines: string[] = [];
   for (const word of words) {
     const current = lines.at(-1);
@@ -61,6 +61,33 @@ function wrapAll(value: string, max = 54): string[] {
 
 function textLines(lines: string[], x: number, y: number, size: number, gap = 1.22, weight = 500): string {
   return lines.map((line, index) => `<text x="${x}" y="${y + index * size * gap}" font-size="${size}" font-weight="${weight}" fill="#f5f7fb">${escapeXml(line)}</text>`).join("");
+}
+
+function comparableText(value: string | null | undefined): string {
+  return (value ?? "").toLocaleLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function sameViewerText(left: string | null | undefined, right: string | null | undefined): boolean {
+  const a = comparableText(left);
+  const b = comparableText(right);
+  return Boolean(a && b && (a === b || (Math.min(a.length, b.length) >= 48 && (a.includes(b) || b.includes(a)))));
+}
+
+function renderQuoteCard(recipe: ReferenceVisualRecipe, evidence: ReferenceVisualEvidence[]): string {
+  const excerpt = evidence.find((entry) => entry.raw_excerpt?.trim())?.raw_excerpt?.trim() ?? "";
+  const quote = excerpt || recipe.subtitle?.trim() || recipe.title.trim();
+  const heading = recipe.title.trim() && !sameViewerText(recipe.title, quote) ? recipe.title.trim() : "";
+  const supporting = recipe.subtitle?.trim() && !sameViewerText(recipe.subtitle, quote) && !sameViewerText(recipe.subtitle, heading) ? recipe.subtitle.trim() : "";
+  const quoteLines = wrapAll(quote, quote.length > 500 ? 88 : quote.length > 260 ? 72 : quote.length > 150 ? 62 : 54);
+  const headingLines = heading ? wrapAll(heading, 64) : [];
+  const supportingLines = supporting ? wrapAll(supporting, 82) : [];
+  const headingSize = Math.max(30, Math.min(48, 116 / Math.max(1, headingLines.length * 1.15)));
+  const bodyTop = headingLines.length ? 300 : 220;
+  const bodyBottom = supportingLines.length ? 790 : 870;
+  const quoteSize = Math.max(14, Math.min(62, (bodyBottom - bodyTop) / Math.max(1, quoteLines.length * 1.22)));
+  const quoteEnd = bodyTop + Math.max(0, quoteLines.length - 1) * quoteSize * 1.22;
+  const supportingY = Math.min(900, quoteEnd + quoteSize * 1.65);
+  return `<g data-quote-layout="responsive" data-quote-line-count="${quoteLines.length}">${headingLines.length ? textLines(headingLines, 148, 170, headingSize, 1.15, 720) : ""}<text x="126" y="${bodyTop + 12}" font-size="92" font-weight="800" fill="#f4a900">“</text>${textLines(quoteLines, 190, bodyTop, quoteSize, 1.22, 650)}${supportingLines.length ? textLines(supportingLines, 190, supportingY, 28, 1.2, 450) : ""}</g>`;
 }
 
 function timelineDate(entry: ReferenceVisualEvidence): { display: string; sort: number } {
@@ -166,10 +193,13 @@ function renderBodyV2(recipe: ReferenceVisualRecipe, evidence: ReferenceVisualEv
 export async function renderCanonicalReferenceVisual(recipe: ReferenceVisualRecipe, evidence: ReferenceVisualEvidence[]): Promise<ReferenceVisualRender> {
   if (!evidence.length) throw new Error("Reference Visual rendering requires confirmed canonical evidence.");
   const v2 = recipe.renderer_contract_version === "forge.reference-visual-renderer.v2";
-  const rendererVersion = recipe.visual_subtype === "timeline" ? "3" : v2 ? "2" : "1";
+  const rendererVersion = recipe.visual_subtype === "timeline" || recipe.visual_subtype === "quote_card" ? "3" : v2 ? "2" : "1";
   const rendererName = `forge_${recipe.visual_subtype}_v${rendererVersion}`;
   const attribution = recipe.attribution_text.trim() ? `<text x="120" y="990" font-size="28" fill="#9fb2c9">Source: ${escapeXml(recipe.attribution_text)}</text>` : "";
-  const svg = v2
+  const quoteCard = recipe.visual_subtype === "quote_card";
+  const svg = quoteCard
+    ? `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}"><rect width="1920" height="1080" fill="#08111f"/><rect x="70" y="70" width="1780" height="940" rx="32" fill="#142238"/><rect x="70" y="70" width="18" height="940" rx="9" fill="#f4a900"/><g font-family="Inter,Arial,sans-serif">${renderQuoteCard(recipe, evidence)}${attribution}</g></svg>`
+    : v2
     ? `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}"><rect width="1920" height="1080" fill="#08111f"/><rect x="70" y="70" width="1780" height="940" rx="32" fill="#142238"/><rect x="70" y="70" width="18" height="940" rx="9" fill="#f4a900"/><g font-family="Inter,Arial,sans-serif">${textLines(wrap(recipe.title, 58), 128, 175, 66, 1.15, 750)}${recipe.subtitle ? textLines(wrap(recipe.subtitle, 78), 132, 265, 34, 1.15, 450) : ""}${renderBodyV2(recipe, evidence)}${attribution}</g></svg>`
     : `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}"><rect width="1920" height="1080" fill="#0b1220"/><rect x="70" y="70" width="1780" height="940" rx="28" fill="#142238"/><g font-family="Inter,Arial,sans-serif">${textLines(wrap(recipe.title, 58), 120, 175, 66, 1.15, 750)}${recipe.subtitle ? textLines(wrap(recipe.subtitle, 78), 124, 250, 34, 1.15, 450) : ""}${renderBodyV1(recipe, evidence)}<text x="120" y="990" font-size="28" fill="#9fb2c9">Source: ${escapeXml(recipe.attribution_text)}</text></g></svg>`;
   const pngBytes = await sharp(Buffer.from(svg)).png({ compressionLevel: 9, adaptiveFiltering: false }).toBuffer();

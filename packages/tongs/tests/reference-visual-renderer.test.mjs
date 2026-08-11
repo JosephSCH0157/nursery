@@ -21,7 +21,7 @@ test("canonical Reference Visual rendering is deterministic and produces deliver
 test("all V1 deterministic renderer contracts are available and maps remain unsupported", async () => {
   for (const visual_subtype of ["chart", "timeline", "document_excerpt", "quote_card", "stat_card", "comparison"]) {
     const result = await renderCanonicalReferenceVisual({ ...recipe, visual_subtype }, evidence);
-    assert.equal(result.rendererName, visual_subtype === "timeline" ? "forge_timeline_v3" : `forge_${visual_subtype}_v1`);
+    assert.equal(result.rendererName, visual_subtype === "timeline" || visual_subtype === "quote_card" ? `forge_${visual_subtype}_v3` : `forge_${visual_subtype}_v1`);
   }
 });
 
@@ -43,6 +43,27 @@ test("renderer V1 remains byte-stable and keeps its historical attribution behav
   assert.equal(result.rendererVersion, "1");
   assert.match(result.canonicalSvg, /Source:/);
   assert.doesNotMatch(result.canonicalSvg, />~72%<\/text>/);
+});
+
+test("quote cards deduplicate repeated recipe text and responsively contain a long canonical quote", async () => {
+  const quote = "The citrus industry generates an estimated $7 billion annually for Florida’s economy and supports tens of thousands of jobs statewide.";
+  const result = await renderCanonicalReferenceVisual(
+    { ...recipe, visual_subtype: "quote_card", title: quote, subtitle: quote, attribution_text: "News6 Orlando", renderer_contract_version: "forge.reference-visual-renderer.v2" },
+    [{ id: "quote-evidence", raw_excerpt: quote, label: "Economic impact" }],
+  );
+  assert.equal(result.rendererName, "forge_quote_card_v3");
+  assert.equal(result.rendererVersion, "3");
+  assert.match(result.canonicalSvg, /data-quote-layout="responsive"/);
+  assert.equal((result.canonicalSvg.match(/The citrus industry generates/g) ?? []).length, 1);
+  assert.match(result.canonicalSvg, /Source: News6 Orlando/);
+  const quoteLines = [...result.canonicalSvg.matchAll(/<text x="190" y="([\d.]+)" font-size="([\d.]+)"/g)];
+  assert.ok(quoteLines.length >= 2);
+  for (const [, y, size] of quoteLines) {
+    assert.ok(Number(y) >= 220 && Number(y) + Number(size) <= 930);
+  }
+  const metadata = await sharp(result.pngBytes).metadata();
+  assert.equal(metadata.width, 1920);
+  assert.equal(metadata.height, 1080);
 });
 
 test("dense timelines remain chronological, associated, contained, and responsive without internal category labels", async () => {
