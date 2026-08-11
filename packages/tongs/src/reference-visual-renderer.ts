@@ -48,8 +48,52 @@ function wrap(value: string, max = 54): string[] {
   return lines.slice(0, 7);
 }
 
+function wrapAll(value: string, max = 54): string[] {
+  const words = value.trim().split(/\s+/).filter(Boolean);
+  const lines: string[] = [];
+  for (const word of words) {
+    const current = lines.at(-1);
+    if (!current || `${current} ${word}`.length > max) lines.push(word);
+    else lines[lines.length - 1] = `${current} ${word}`;
+  }
+  return lines.length ? lines : ["Confirmed event"];
+}
+
 function textLines(lines: string[], x: number, y: number, size: number, gap = 1.22, weight = 500): string {
   return lines.map((line, index) => `<text x="${x}" y="${y + index * size * gap}" font-size="${size}" font-weight="${weight}" fill="#f5f7fb">${escapeXml(line)}</text>`).join("");
+}
+
+
+function renderTimeline(evidence: ReferenceVisualEvidence[]): string {
+  const events = evidence.map((entry, sourceIndex) => ({ entry, sourceIndex })).sort((left, right) => {
+    const leftTime = left.entry.evidence_date ? Date.parse(`${left.entry.evidence_date}T00:00:00Z`) : Number.POSITIVE_INFINITY;
+    const rightTime = right.entry.evidence_date ? Date.parse(`${right.entry.evidence_date}T00:00:00Z`) : Number.POSITIVE_INFINITY;
+    const safeLeft = Number.isFinite(leftTime) ? leftTime : Number.POSITIVE_INFINITY;
+    const safeRight = Number.isFinite(rightTime) ? rightTime : Number.POSITIVE_INFINITY;
+    return safeLeft - safeRight || left.sourceIndex - right.sourceIndex;
+  });
+  const top = 350;
+  const bottom = 920;
+  const axisX = 960;
+  const slot = (bottom - top) / Math.max(1, events.length);
+  const cardWidth = 660;
+  const cardHeight = Math.min(152, Math.max(72, slot * 1.78));
+  const cardLeft = 150;
+  const cardRight = WIDTH - cardLeft - cardWidth;
+  return `<line x1="${axisX}" y1="${top}" x2="${axisX}" y2="${bottom}" stroke="#3d698c" stroke-width="5"/>${events.map(({ entry }, index) => {
+    const side = index % 2 === 0 ? "left" : "right";
+    const cardX = side === "left" ? cardLeft : cardRight;
+    const nodeY = top + slot * (index + 0.5);
+    const cardY = Math.max(top, Math.min(bottom - cardHeight, nodeY - cardHeight / 2));
+    const label = entry.label?.trim() || entry.raw_excerpt?.trim() || "Confirmed event";
+    const lines = wrapAll(label, 52);
+    const availableTextHeight = cardHeight - 48;
+    const fontSize = Math.max(16, Math.min(25, availableTextHeight / Math.max(1, lines.length * 1.18)));
+    const textX = cardX + 24;
+    const connectorStart = side === "left" ? cardX + cardWidth : cardX;
+    const connectorEnd = side === "left" ? axisX - 16 : axisX + 16;
+    return `<g data-timeline-event="${index}" data-evidence-id="${escapeXml(entry.id)}" data-evidence-date="${escapeXml(entry.evidence_date ?? "")}" data-timeline-side="${side}"><line x1="${connectorStart}" y1="${nodeY}" x2="${connectorEnd}" y2="${nodeY}" stroke="#73cbff" stroke-width="3"/><rect x="${cardX}" y="${cardY}" width="${cardWidth}" height="${cardHeight}" rx="18" fill="#1a2d48" stroke="#31506f" stroke-width="2"/><text x="${textX}" y="${cardY + 31}" font-size="24" font-weight="750" fill="#73cbff">${escapeXml(entry.evidence_date ?? "Date not provided")}</text>${textLines(lines, textX, cardY + 64, fontSize, 1.18, 550)}<circle cx="${axisX}" cy="${nodeY}" r="13" fill="#73cbff" stroke="#142238" stroke-width="6"/></g>`;
+  }).join("")}`;
 }
 
 function renderBodyV1(recipe: ReferenceVisualRecipe, evidence: ReferenceVisualEvidence[]): string {
@@ -62,10 +106,7 @@ function renderBodyV1(recipe: ReferenceVisualRecipe, evidence: ReferenceVisualEv
     return `${textLines(wrap(first?.raw_excerpt ?? "", 58), 150, 365, 54, 1.3, 500)}`;
   }
   if (recipe.visual_subtype === "timeline") {
-    return evidence.slice(0, 6).map((entry, index) => {
-      const x = 180 + index * 290;
-      return `<circle cx="${x}" cy="580" r="16" fill="#73cbff"/><text x="${x - 80}" y="520" font-size="34" fill="#f5f7fb">${escapeXml(entry.evidence_date ?? entry.label ?? "")}</text><text x="${x - 110}" y="650" font-size="28" fill="#cad8ea">${escapeXml(entry.category ?? "")}</text>`;
-    }).join("") + `<line x1="180" y1="580" x2="1630" y2="580" stroke="#73cbff" stroke-width="5"/>`;
+    return renderTimeline(evidence);
   }
   const numeric = evidence.filter((entry) => entry.numeric_value != null).slice(0, 6);
   const max = Math.max(1, ...numeric.map((entry) => Math.abs(entry.numeric_value ?? 0)));

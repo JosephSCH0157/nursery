@@ -161,8 +161,6 @@ function resolveUserAccessTokenFromStorage(): string | null {
 }
 
 export async function resolveTongsUserAccessToken(): Promise<string | null> {
-  const fromStorage = resolveUserAccessTokenFromStorage();
-  if (fromStorage) return fromStorage;
   if (typeof window === "undefined") return null;
 
   const runtimeWindow = window as Window & typeof globalThis & {
@@ -175,18 +173,22 @@ export async function resolveTongsUserAccessToken(): Promise<string | null> {
   };
 
   const auth = runtimeWindow.__forge_supabase_client__?.auth;
-  if (!auth || typeof auth.getSession !== "function") return null;
-
-  try {
-    const sessionPayload = await auth.getSession();
-    const token = sanitizeAccessToken(extractAccessTokenFromAuthPayload(sessionPayload));
-    if (token) return token;
-    if (typeof auth.refreshSession !== "function") return null;
-    const refreshedPayload = await auth.refreshSession();
-    return sanitizeAccessToken(extractAccessTokenFromAuthPayload(refreshedPayload));
-  } catch {
-    return null;
+  if (auth && typeof auth.getSession === "function") {
+    try {
+      const sessionPayload = await auth.getSession();
+      const token = sanitizeAccessToken(extractAccessTokenFromAuthPayload(sessionPayload));
+      if (token) return token;
+      if (typeof auth.refreshSession === "function") {
+        const refreshedPayload = await auth.refreshSession();
+        const refreshedToken = sanitizeAccessToken(extractAccessTokenFromAuthPayload(refreshedPayload));
+        if (refreshedToken) return refreshedToken;
+      }
+    } catch {
+      // Fall through to compatibility storage for older shells that do not
+      // expose a functioning runtime Supabase client.
+    }
   }
+  return resolveUserAccessTokenFromStorage();
 }
 
 function resolveFromQuery(): string | null {

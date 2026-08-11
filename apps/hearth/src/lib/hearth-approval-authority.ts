@@ -1,4 +1,5 @@
 import type { Revision } from "../domain/revision";
+import { tongsFetch } from "./tongs-fetch";
 
 export type ScriptApprovalState = Readonly<{
   hasApprovedScript: boolean;
@@ -11,6 +12,16 @@ export const NO_CANONICAL_SCRIPT_APPROVAL: ScriptApprovalState = Object.freeze({
   approvedScriptVersion: null,
   approvedAt: null,
 });
+
+export async function readTongsCanonicalScriptApproval(workpieceId:string):Promise<ScriptApprovalState>{
+  const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/script-approval`,{method:"GET"});
+  if(!response.ok)return NO_CANONICAL_SCRIPT_APPROVAL;
+  const body=await response.json().catch(()=>null) as {data?:{current_revision?:unknown;current_approval?:{approval_revision?:unknown;created_at?:unknown}}}|null;
+  const version=Number(body?.data?.current_approval?.approval_revision??body?.data?.current_revision??0);
+  if(!Number.isInteger(version)||version<1)return NO_CANONICAL_SCRIPT_APPROVAL;
+  const approvedAt=Date.parse(String(body?.data?.current_approval?.created_at??""));
+  return{hasApprovedScript:true,approvedScriptVersion:version,approvedAt:Number.isFinite(approvedAt)?approvedAt:null};
+}
 
 export function parseApprovedVersionFromNote(note: string | undefined): number | null {
   if (!note) return null;

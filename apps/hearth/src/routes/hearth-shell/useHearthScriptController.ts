@@ -30,6 +30,7 @@ import type { HearthOperationAuthority } from "../../lib/hearth-operation-author
 import {
   NO_CANONICAL_SCRIPT_APPROVAL,
   isScriptApprovalStateEqual,
+  readTongsCanonicalScriptApproval,
   resolveCanonicalScriptApproval,
   type ScriptApprovalState,
 } from "../../lib/hearth-approval-authority";
@@ -298,9 +299,10 @@ export function useHearthCanonicalScriptApprovalLoader(args: {
         : NO_CANONICAL_SCRIPT_APPROVAL
     ));
     if (!episodeId || !draftId) return;
-    void args.store.readCanonicalRevisions(episodeId, draftId).then((result) => {
-      if (!args.operationAuthority.isCurrent(operation) || !result.ok) return;
-      const resolved = resolveCanonicalScriptApproval(result.revisions, draftId);
+    void Promise.all([args.store.readCanonicalRevisions(episodeId, draftId),readTongsCanonicalScriptApproval(episodeId)]).then(([result,tongsApproval]) => {
+      if (!args.operationAuthority.isCurrent(operation)) return;
+      const revisionApproval=result.ok?resolveCanonicalScriptApproval(result.revisions,draftId):NO_CANONICAL_SCRIPT_APPROVAL;
+      const resolved=revisionApproval.hasApprovedScript?revisionApproval:tongsApproval;
       args.setScriptApprovalState((previous) => (
         isScriptApprovalStateEqual(previous, resolved) ? previous : resolved
       ));

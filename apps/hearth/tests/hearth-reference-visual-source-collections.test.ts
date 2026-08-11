@@ -1,0 +1,37 @@
+import assert from "node:assert/strict";
+import {readFileSync} from "node:fs";
+import test from "node:test";
+import {validateReferenceVisualSourceSetReceipt} from "../src/lib/hearth-reference-visual-collections";
+
+const collection=readFileSync(new URL("../src/lib/hearth-reference-visual-collections.ts",import.meta.url),"utf8");
+const panel=readFileSync(new URL("../src/components/visuals/CanonicalReferenceVisualPanel.tsx",import.meta.url),"utf8");
+const migration=readFileSync(new URL("../../../supabase/migrations/20260810130000_tongs_reference_visual_source_sets.sql",import.meta.url),"utf8");
+const originMigration=readFileSync(new URL("../../../supabase/migrations/20260811120000_tongs_reference_visual_evidence_extracted_content_origin.sql",import.meta.url),"utf8");
+
+test("Reference Visual Sources use immutable ordered set authority",()=>{
+ for(const table of ["reference_visual_source_set_revisions","reference_visual_source_set_members"])assert.match(migration,new RegExp(`create table tongs\\.${table}`));
+ assert.match(migration,/commit_reference_visual_source_set/);assert.match(migration,/p_expected_source_set_revision/);assert.match(migration,/source_set_revision_conflict/);assert.match(migration,/duplicate_source/);assert.match(migration,/reference_visual_source_set_retention/);assert.match(migration,/forge\.reference-visual\.hammer\.v3/);
+});
+
+test("Hearth commits and verifies the complete ordered collection",()=>{
+ assert.match(collection,/reference-visuals\/source-set/);assert.match(collection,/expected_source_set_revision/);assert.match(collection,/source_set_receipt_invalid/);assert.match(collection,/source_set_readback_mismatch/);assert.match(collection,/sameMembers/);assert.match(collection,/removeReferenceVisualSourceMember/);
+});
+
+test("collection receipts reject stale conflicts, malformed members, and wrong ordering",()=>{
+ const intended=[{sourceRevisionId:"source-a",sourceLinkRevisionId:"link-a"},{sourceRevisionId:"source-b",sourceLinkRevisionId:"link-b"}],receipt={disposition:"committed",source_set_revision:{revision:2},members:[{source_revision_id:"source-a",workpiece_source_link_revision_id:"link-a"},{source_revision_id:"source-b",workpiece_source_link_revision_id:"link-b"}]};
+ assert.deepEqual(validateReferenceVisualSourceSetReceipt(receipt,intended,1),{ok:true,data:{revision:2}});
+ assert.equal(validateReferenceVisualSourceSetReceipt({...receipt,members:[...receipt.members].reverse()},intended,1).ok,false);
+ assert.equal(validateReferenceVisualSourceSetReceipt({...receipt,source_set_revision:{revision:1}},intended,1).ok,false);
+ assert.deepEqual(validateReferenceVisualSourceSetReceipt({disposition:"source_set_revision_conflict"},intended,1),{ok:false,status:409,code:"source_set_revision_conflict",error:"Reference Visual Sources were not committed."});
+ assert.equal(validateReferenceVisualSourceSetReceipt({disposition:"committed",members:"bad",source_set_revision:{revision:2}},intended,1).ok,false);
+});
+
+test("URL-first workflow exposes working, decision, and ready states without requiring fabricated dates",()=>{
+ assert.match(panel,/Hearth is working/);assert.match(panel,/Ready/);assert.match(panel,/publicationDateStatus==="not_provided"\?"Not provided"/);for(const action of ["Approve","Replace","Skip"])assert.ok(panel.includes(`>${action}<`));assert.match(panel,/Save edits/);assert.match(panel,/readCanonicalReferenceVisualCollections/);assert.match(panel,/Approved Sources/);
+});
+
+test("confirmed collection evidence uses the canonical extracted-content origin without remapping",()=>{
+ assert.match(panel,/origin:"hearth_extracted_source_content"/);
+ for(const origin of ["ai_extracted","creator_entered","hearth_proposed_source_metadata","hearth_extracted_source_content"])assert.match(originMigration,new RegExp(`'${origin}'`));
+ assert.match(originMigration,/reference_visual_evidence_revisions_origin_check/);
+});
