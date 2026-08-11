@@ -45,6 +45,8 @@ test("Hearth leads creators from confirmed evidence to a canonical finished visu
  assert.match(authority,/source_evidence_revision_ids/);
  assert.match(authority,/target_duration_ms/);
  assert.match(authority,/reference-visuals\/render/);
+ assert.match(authority,/subtype==="timeline"\?"3"/);
+ assert.match(authority,/renderer_name:rendererName,renderer_version:version/);
  assert.doesNotMatch(authority,/imageToVideo|textToImage|generateImage|debit.*credit/i);
 });
 

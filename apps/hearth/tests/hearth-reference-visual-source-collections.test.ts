@@ -30,8 +30,19 @@ test("URL-first workflow exposes working, decision, and ready states without req
  assert.match(panel,/Hearth is working/);assert.match(panel,/Ready/);assert.match(panel,/publicationDateStatus==="not_provided"\?"Not provided"/);for(const action of ["Approve","Replace","Skip"])assert.ok(panel.includes(`>${action}<`));assert.match(panel,/Save edits/);assert.match(panel,/readCanonicalReferenceVisualCollections/);assert.match(panel,/Approved Sources/);
 });
 
+test("post-action and authority-event refreshes keep the work area mounted",()=>{
+ assert.match(panel,/async function refresh\(blocking=false\)/);
+ assert.match(panel,/void refresh\(true\)/);
+ assert.match(panel,/listener=\(\)=>void refresh\(false\)/);
+ assert.match(panel,/await refresh\(false\)/);
+ assert.doesNotMatch(panel,/async function refresh\(\)\{setLoading\(true\)/);
+ assert.match(panel,/setSelectedId\(current=>/);
+});
+
 test("confirmed collection evidence uses the canonical extracted-content origin without remapping",()=>{
  assert.match(panel,/origin:"hearth_extracted_source_content"/);
+ assert.match(panel,/date:proposal\.evidenceDate/);
+ assert.doesNotMatch(panel,/evidence_date:proposal\.evidenceDate/);
  for(const origin of ["ai_extracted","creator_entered","hearth_proposed_source_metadata","hearth_extracted_source_content"])assert.match(originMigration,new RegExp(`'${origin}'`));
  assert.match(originMigration,/reference_visual_evidence_revisions_origin_check/);
 });

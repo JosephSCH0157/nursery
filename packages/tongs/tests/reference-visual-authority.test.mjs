@@ -141,6 +141,7 @@ test("Tongs reconstructs canonical readback before deterministic rendering and c
   assert.match(method, /renderer_contract_version/);
   assert.match(method, /forge\.reference-visual-renderer\.v2/);
   assert.match(method, /forge_\$\{subtype\}_v\$\{rendererVersion\}/);
+  assert.match(method, /subtype==="timeline"\?"3"/);
   assert.match(service, /reference-visuals"&&parts\[4\]==="render"/);
 });
 

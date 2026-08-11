@@ -21,7 +21,7 @@ test("canonical Reference Visual rendering is deterministic and produces deliver
 test("all V1 deterministic renderer contracts are available and maps remain unsupported", async () => {
   for (const visual_subtype of ["chart", "timeline", "document_excerpt", "quote_card", "stat_card", "comparison"]) {
     const result = await renderCanonicalReferenceVisual({ ...recipe, visual_subtype }, evidence);
-    assert.equal(result.rendererName, `forge_${visual_subtype}_v1`);
+    assert.equal(result.rendererName, visual_subtype === "timeline" ? "forge_timeline_v3" : `forge_${visual_subtype}_v1`);
   }
 });
 
@@ -75,4 +75,25 @@ test("dense timelines remain chronological, associated, contained, and responsiv
   const metadata = await sharp(result.pngBytes).metadata();
   assert.equal(metadata.width, 1920);
   assert.equal(metadata.height, 1080);
+});
+
+test("the live-density timeline derives missing canonical dates and contains all 24 long events", async () => {
+  const liveDensity = Array.from({ length: 24 }, (_, index) => {
+    const year = 2023 - index * 3;
+    return { id: `live-${year}`, evidence_date: null, label: `${year}: ${"A detailed confirmed milestone remains readable and associated with its exact chronological node. ".repeat(2).trim()}`, category: "timeline" };
+  });
+  const result = await renderCanonicalReferenceVisual({ ...recipe, visual_subtype: "timeline", title: "Timeline", renderer_contract_version: "forge.reference-visual-renderer.v2" }, liveDensity);
+  const dates = [...result.canonicalSvg.matchAll(/data-evidence-date="([^"]+)"/g)].map((match) => Number(match[1]));
+  assert.deepEqual(dates, [...dates].sort((left, right) => left - right));
+  assert.equal((result.canonicalSvg.match(/data-timeline-event=/g) ?? []).length, 24);
+  assert.equal((result.canonicalSvg.match(/data-timeline-layout="grid"/g) ?? []).length, 24);
+  assert.doesNotMatch(result.canonicalSvg, />timeline<\/text>/);
+  assert.equal(result.rendererName, "forge_timeline_v3");
+  assert.equal(result.rendererVersion, "3");
+  const cards = [...result.canonicalSvg.matchAll(/<rect x="([\d.]+)" y="([\d.]+)" width="([\d.]+)" height="([\d.]+)" rx="13"/g)];
+  assert.equal(cards.length, 24);
+  for (const [, x, y, width, height] of cards) {
+    assert.ok(Number(x) >= 128 && Number(x) + Number(width) <= 1792.001);
+    assert.ok(Number(y) >= 342 && Number(y) + Number(height) <= 925.001);
+  }
 });
