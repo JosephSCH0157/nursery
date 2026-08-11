@@ -33,10 +33,10 @@ test("stored upload, external fetch, and provider output resume without repeated
     const path=join(dir,"clip.mp4");
     await run("ffmpeg",["-v","error","-f","lavfi","-i","color=c=blue:s=320x180:d=1","-pix_fmt","yuv420p","-y",path]);
     const bytes=new Uint8Array(await readFile(path));
-    let providerCalls=0;let recorded=0;let assetCommits=0;let candidateCommits=0;
+    let providerCalls=0;let recorded=0;let assetCommits=0;let candidateCommits=0;let begins=0;let paidProviderRequestId=null;
     const authority={schema(){return{async rpc(name){
       if(name==="assert_current_broll_prompt")return{data:{disposition:"verified",prompt_revision:{id:"55555555-5555-4555-8555-555555555555",revision:1,content_hash:"b".repeat(64),final_prompt:"A blue motion clip"}},error:null};
-      if(name==="begin_broll_operation")return{data:{disposition:"replay",operation:{state:"pending"}},error:null};
+      if(name==="begin_broll_operation"){begins+=1;return{data:{disposition:"replay",operation:begins===3?{state:"provider_or_upload_completed",provider:"runway",provider_task_id:"runway-task-replayed-1"}:{state:"pending"}},error:null};}
       if(name==="record_broll_provider_or_upload_result"){recorded+=1;return{data:{disposition:"result_recorded"},error:null};}
       if(name==="commit_broll_candidate"){candidateCommits+=1;return{data:{disposition:"committed",candidate_revision:{id:"candidate-1"}},error:null};}
       if(name==="approve_and_reserve_paid_media_operation")return{data:{operation:{id:"paid-op-1",state:"reserved"}},error:null};
@@ -57,9 +57,10 @@ test("stored upload, external fetch, and provider output resume without repeated
       },
       schema() {
         return {
-          async rpc(name) {
+          async rpc(name,args) {
             if (name === "create_paid_media_authorization_quote") return { data: { quote: { id: "quote-1", authorized_customer_ceiling: 1000 } }, error: null };
             if (name === "commit_broll_operation_asset") { assetCommits += 1; return { data: { disposition: "video_asset_verified" }, error: null }; }
+            if (name === "record_paid_media_provider_result") { paidProviderRequestId=args.p_provider_request_id; return { data: { operation: { id: "paid-op-1", state: "provider_completed" }, attempt: { id: "attempt-1", state: "completed" } }, error: null }; }
             return { data: { disposition: "ok" }, error: null };
           },
         };
@@ -80,7 +81,7 @@ test("stored upload, external fetch, and provider output resume without repeated
       },{userAccessToken:"token"});
       assert.equal(result.disposition,"committed");
     }
-    assert.equal(providerCalls,0);assert.equal(recorded,3);assert.equal(assetCommits,3);assert.equal(candidateCommits,3);
+    assert.equal(providerCalls,0);assert.equal(recorded,2);assert.equal(assetCommits,3);assert.equal(candidateCommits,3);assert.equal(paidProviderRequestId,"runway-task-replayed-1");
   }finally{await rm(dir,{recursive:true,force:true});}
 });
 
@@ -114,6 +115,30 @@ test("over-limit canonical prompt is rejected before operation reservation and t
   service.assertWorkpieceInWorkspace=async()=>undefined;service.assertWorkspaceRoleFromAccessToken=async()=>({userId:"11111111-1111-4111-8111-111111111111",role:"editor"});
   await assert.rejects(()=>service.acquireBrollCandidate("22222222-2222-4222-8222-222222222222",{workspace_id:"33333333-3333-4333-8333-333333333333",beat_id:"44444444-4444-4444-8444-444444444444",operation_id:"forge:broll:too-long",operation_fingerprint:"a".repeat(64),source_kind:"generated",provider:"runway",prompt_revision_id:"55555555-5555-4555-8555-555555555555",prompt_revision:2,prompt_content_hash:"b".repeat(64),poster_required:true},{userAccessToken:"token"}),error=>error.code==="runway_prompt_too_long"&&error.details?.operation_reserved===false&&error.details?.transmitted===false);
   assert.equal(begins,0);assert.equal(submits,0);
+});
+
+test("generated Runway quote preflight uses the canonical video pricing contract",async()=>{
+  let providerCalls=0;let quoteArgs=null;
+  const authority={schema(){return{async rpc(name){
+    if(name==="assert_current_broll_prompt")return{data:{disposition:"verified",prompt_revision:{id:"55555555-5555-4555-8555-555555555555",revision:1,content_hash:"b".repeat(64),final_prompt:"A slow documentary road transition"}},error:null};
+    if(name==="begin_broll_operation")return{data:{disposition:"replay",operation:{state:"pending"}},error:null};
+    throw new Error(`unexpected authority RPC ${name}`);
+  }}}};
+  const supabase={schema(){return{async rpc(name,args){
+    if(name==="create_paid_media_authorization_quote"){quoteArgs=args;return{data:{quote:{id:"quote-video-1",authorized_customer_ceiling:44_460}},error:null};}
+    throw new Error(`unexpected Supabase RPC ${name}`);
+  }}}};
+  const provider={async submit(){providerCalls+=1;throw new Error("must not submit before approval");}};
+  const service=new TongsCommitService(supabase,"forge-workpieces",null,()=>authority,null,provider);
+  service.assertWorkpieceInWorkspace=async()=>undefined;service.assertWorkspaceRoleFromAccessToken=async()=>({userId:"11111111-1111-4111-8111-111111111111",role:"editor"});
+  const request={workspace_id:"33333333-3333-4333-8333-333333333333",beat_id:"44444444-4444-4444-8444-444444444444",operation_id:"forge:broll:video-quote-test-0001",operation_fingerprint:"a".repeat(64),source_kind:"generated",provider:"runway",poster_required:false,prompt_revision_id:"55555555-5555-4555-8555-555555555555",prompt_revision:1,prompt_content_hash:"b".repeat(64),runway_model:"gen4.5",duration_seconds:5,ratio:"1280:720"};
+  await assert.rejects(()=>service.acquireBrollCandidate("22222222-2222-4222-8222-222222222222",request,{userAccessToken:"token"}),error=>error.code==="paid_image_authorization_required");
+  assert.equal(providerCalls,0);
+  assert.equal(quoteArgs.p_kind,"video");
+  assert.equal(quoteArgs.p_media_kind,"video");
+  assert.equal(quoteArgs.p_pricing_policy_revision_id,"78000000-0000-4000-8000-000000000001");
+  assert.equal(quoteArgs.p_authorization_policy_revision_id,"76000000-0000-4000-8000-000000000001");
+  assert.deepEqual(quoteArgs.p_request_parameters,{provider:"runway",model:"gen4.5",generation_mode:"text_to_video",duration_seconds:5,ratio:"1280:720",operation:"generation",metadata:{provider:"runway",model:"gen4.5",generation_mode:"text_to_video",duration_seconds:5,ratio:"1280:720"}});
 });
 
 test("generated Runway acquisition routes through paid-media authorization and settlement", async () => {
@@ -191,9 +216,9 @@ test("generated Runway acquisition routes through paid-media authorization and s
   assert.equal(result.disposition, "committed");
   assert.equal(providerCalls, 1);
   assert.equal(paidRpcCalls.filter((call) => call.name === "create_paid_media_authorization_quote" && call.source === "supabase").length, 1);
-  assert.equal(paidRpcCalls.filter((call) => call.name === "approve_and_reserve_paid_media_operation" && call.source === "authority").length, 1);
-  assert.equal(paidRpcCalls.filter((call) => call.name === "begin_paid_media_provider_attempt" && call.source === "authority").length, 1);
-  const providerResultCalls = paidRpcCalls.filter((call) => call.name === "record_paid_media_provider_result" && call.source === "authority");
+  assert.equal(paidRpcCalls.filter((call) => call.name === "approve_and_reserve_paid_media_operation" && call.source === "supabase").length, 1);
+  assert.equal(paidRpcCalls.filter((call) => call.name === "begin_paid_media_provider_attempt" && call.source === "supabase").length, 1);
+  const providerResultCalls = paidRpcCalls.filter((call) => call.name === "record_paid_media_provider_result" && call.source === "supabase");
   assert.equal(providerResultCalls.length, 1);
   assert.ok(Array.isArray(providerResultCalls[0].args.p_usage_components));
   assert.equal(providerResultCalls[0].args.p_usage_components.length, 1);

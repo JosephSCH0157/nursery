@@ -246,12 +246,12 @@ export default function App(props: BarstockAppProps = {}) {
     const { operation, state, row, acknowledged } = execution;
     setEntityStates((current) => setEntityState(current, operation.kind, operation.entityId, state));
     setPersistenceState(state);
-    if (row) {
-      if (operation.kind === "assignment") setAssignments((current) => upsertAssignment(current, row as Assignment));
-      else setSparks((current) => upsertSpark(current, row as Spark));
-    } else if (acknowledged && (operation.action === "archive" || operation.action === "delete")) {
+    if (acknowledged && (operation.action === "archive" || operation.action === "delete")) {
       if (operation.kind === "assignment") setAssignments((current) => current.filter((item) => item.id !== operation.entityId));
       else setSparks((current) => removeSpark(current, operation.entityId));
+    } else if (row) {
+      if (operation.kind === "assignment") setAssignments((current) => upsertAssignment(current, row as Assignment));
+      else setSparks((current) => upsertSpark(current, row as Spark));
     }
     setOutboxCount(loadRetryCache(localStorage, operation.workspaceId).length);
   }, []);

@@ -46,6 +46,7 @@ function mockService() {
     reconcileThumbnailAssets: [],
     renderThumbnailComposite: [],
     getThumbnailBrandStatus: [],
+    recoverBrandedThumbnailCandidateSet: [],
     getQuenchCanonicalReleaseProjection: [],
     generateImageMapCandidates: [],
     createRecordingSessionRecord: [],
@@ -64,6 +65,7 @@ function mockService() {
     listWorkpieceStorage: [],
     listWorkspaceCanonicalRecordings: [],
     archiveWorkpiece: [],
+    renameWorkpiece: [],
     restoreWorkpiece: [],
     resolveWorkpieceAssetVariant: [],
     listWorkspaceReadyScripts: [],
@@ -734,6 +736,14 @@ function mockService() {
         archive_reason: input.reason ?? null,
       };
     },
+    async recoverBrandedThumbnailCandidateSet(workpieceId, workspaceId, options) {
+      calls.recoverBrandedThumbnailCandidateSet.push({ workpieceId, workspaceId, options });
+      return { disposition: "committed", revision: 2 };
+    },
+    async renameWorkpiece(workpieceId, input, options) {
+      calls.renameWorkpiece.push({ workpieceId, input, options: options ?? null });
+      return { id: workpieceId, workspace_id: input.workspace_id, label: input.label, created_at: "2026-02-20T00:00:00.000Z", updated_at: "2026-08-11T20:00:00.000Z", archived_at: null, archived_by: null, archive_reason: null };
+    },
     async restoreWorkpiece(workpieceId, input, options) {
       calls.restoreWorkpiece.push({ workpieceId, input, options: options ?? null });
       return {
@@ -1191,6 +1201,18 @@ function mockService() {
 
   return { service, calls };
 }
+
+test("POST branded thumbnail recovery forwards canonical scope and user authority", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const response = await handler(new Request("http://localhost/tongs/workpieces/22222222-2222-4222-8222-222222222222/thumbnail-candidates/recover-branded-set", {
+    method: "POST", headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer thumbnail_user_token" },
+    body: JSON.stringify({ workspace_id: "11111111-1111-4111-8111-111111111111" }),
+  }));
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { ok: true, data: { disposition: "committed", revision: 2 } });
+  assert.deepEqual(calls.recoverBrandedThumbnailCandidateSet, [{ workpieceId: "22222222-2222-4222-8222-222222222222", workspaceId: "11111111-1111-4111-8111-111111111111", options: { userAccessToken: "thumbnail_user_token" } }]);
+});
 
 test("GET /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/state returns persisted Hammer snapshot", async () => {
   const { service, calls } = mockService();
@@ -5834,6 +5856,36 @@ test("POST /tongs/workpieces/:id/archive dispatches archiveWorkpiece", async () 
   assert.equal(body.data?.workpiece?.archived_at, "2026-03-11T14:00:00.000Z");
 });
 
+test("successful paid image submits token unit evidence required by the shared media contract", async () => {
+  const supabase = { schema() { return { from() { throw new Error("Unexpected table"); } }; } };
+  const calls = installPaidImageRpcMock(supabase);
+  const usage = { textInputTokens: 100, cachedTextInputTokens: 20, imageInputTokens: 30, cachedImageInputTokens: 5, imageOutputTokens: 5488, totalTokens: 5643 };
+  const service = new TongsCommitService(supabase, "forge-workpieces", { async generateImage() {
+    return { bytesBase64: "AQID", mimeType: "image/png", provider: "openai", providerRequestId: "req-complete",
+      providerResponseId: "resp-complete", revisedPrompt: null, tokensUsed: usage.totalTokens, usage,
+      responseEvidence: { id: "resp-complete", data: [{ b64_json: "AQID" }], usage: {} } };
+  } });
+  const context = await service.executePaidImageGeneration(paidImageExecutionArgs());
+  assert.equal(context.settlementBlocked, false);
+  const recorded = calls.find((call) => call.name === "record_paid_media_provider_result");
+  assert.deepEqual(recorded?.args.p_usage_components, [
+    { component_kind: "text_input", unit_kind: "token", quantity: 100 },
+    { component_kind: "cached_text_input", unit_kind: "token", quantity: 20 },
+    { component_kind: "image_input", unit_kind: "token", quantity: 30 },
+    { component_kind: "cached_image_input", unit_kind: "token", quantity: 5 },
+    { component_kind: "image_output", unit_kind: "token", quantity: 5488 },
+  ]);
+});
+
+test("POST /tongs/workpieces/:id/title updates the canonical episode label", async () => {
+  const { service, calls } = mockService(); const handler = createTongsCommitApiHandlerWithService(service);
+  const request = new Request("http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/title", { method: "POST", headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer user_token_abc" }, body: JSON.stringify({ workspace_id: "22222222-2222-4222-8222-222222222222", label: "Florida Oranges" }) });
+  const response = await handler(request); const body = await response.json();
+  assert.equal(response.status, 200); assert.equal(calls.renameWorkpiece.length, 1);
+  assert.equal(calls.renameWorkpiece[0].input.label, "Florida Oranges"); assert.equal(calls.renameWorkpiece[0].options.userAccessToken, "user_token_abc");
+  assert.equal(body.data.workpiece.label, "Florida Oranges");
+});
+
 test("GET /tongs/workpieces/:id/assets/:assetId/variant dispatches resolveWorkpieceAssetVariant", async () => {
   const { service, calls } = mockService();
   const handler = createTongsCommitApiHandlerWithService(service);
@@ -7147,7 +7199,16 @@ test("TongsCommitService.saveWorkpieceImageMap writes metadata, asset file, and 
       workpiece_id: workpieceId,
       workspace_id: workspaceId,
       episode: {
-        schema: "forge.episode.package.v2",
+        schema: "forge.episode.package.v3",
+        thumbnail: {
+          authority_version: "forge.thumbnail-authority.v3",
+          creative_strategies: [{ id: "strategy-preserved" }],
+          concept_revisions: [{ concept_revision_id: "concept-preserved" }],
+          render_recipes: [{ id: "recipe-preserved", revision: 3 }],
+          launch_variant_revisions: [{ launch_variant_id: "launch-preserved", revision: 2 }],
+          candidate_sets: [{ candidate_set_id: "set-preserved", revision: 4 }],
+          active_candidate_set_id: "set-preserved",
+        },
         image_map: {
           entries: [],
         },
@@ -7270,6 +7331,12 @@ test("TongsCommitService.saveWorkpieceImageMap writes metadata, asset file, and 
   assert.equal(commitCalls[0]?.input.json?.episode?.image_map?.entries?.length, 1);
   assert.equal(commitCalls[0]?.input.json?.episode?.image_map?.entries?.[0]?.script_anchor?.paragraph_id, "s1:p1");
   assert.equal(commitCalls[0]?.input.json?.episode?.spoken_beats?.[0]?.id, "beat-s1-01");
+  assert.equal(commitCalls[0]?.input.json?.episode?.schema, "forge.episode.package.v3");
+  assert.equal(commitCalls[0]?.input.json?.episode?.thumbnail?.creative_strategies?.[0]?.id, "strategy-preserved");
+  assert.equal(commitCalls[0]?.input.json?.episode?.thumbnail?.concept_revisions?.[0]?.concept_revision_id, "concept-preserved");
+  assert.equal(commitCalls[0]?.input.json?.episode?.thumbnail?.render_recipes?.[0]?.id, "recipe-preserved");
+  assert.equal(commitCalls[0]?.input.json?.episode?.thumbnail?.launch_variant_revisions?.[0]?.launch_variant_id, "launch-preserved");
+  assert.equal(commitCalls[0]?.input.json?.episode?.thumbnail?.active_candidate_set_id, "set-preserved");
   assert.equal(commitCalls[1]?.input.json?.spoken_beats?.[0]?.cue_phrase, "Open with the skyline");
   assert.equal(commitCalls[1]?.input.json?.schema, "forge.image-map.v1");
   assert.equal(commitCalls[1]?.input.json?.workpiece_id, workpieceId);

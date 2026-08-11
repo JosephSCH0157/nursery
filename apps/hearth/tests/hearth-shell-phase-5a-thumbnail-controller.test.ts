@@ -63,6 +63,15 @@ test("completion requires a non-empty fully eligible canonical set", () => {
   }), true);
 });
 
+test("completion requires the canonical three-candidate contract", () => {
+  assert.equal(isCanonicalThumbnailSetComplete({
+    ...progress,
+    candidateCount: 4,
+    eligibleCandidateCount: 4,
+    previewAssetPaths: ["a.png", "b.png", "c.png", "d.png"],
+  }), false);
+});
+
 test("canonical candidate asset path wins preview resolution", () => {
   assert.equal(resolveHearthThumbnailCanonicalPreviewPath({
     candidateAssetPath: " canonical/candidate.png ",

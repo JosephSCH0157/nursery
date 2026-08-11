@@ -22,6 +22,13 @@ import { ensureWorkpieceJobRunnerStarted } from "../server/tongs/workpiece-job-r
 
 type Next = (err?: unknown) => void;
 
+export function isClientAbortError(error: unknown, req?: Pick<IncomingMessage, "aborted" | "destroyed">): boolean {
+  if (req?.aborted || req?.destroyed) return true;
+  if (!error || typeof error !== "object") return false;
+  const row = error as { code?: unknown; message?: unknown };
+  return row.code === "ECONNRESET" || row.code === "ERR_STREAM_PREMATURE_CLOSE" || row.message === "aborted";
+}
+
 export type NurseryTongsProviderBoundary = {
   options: TongsCommitApiOptions;
   provider: BrollVideoProvider | undefined;
@@ -183,6 +190,10 @@ export function createNurseryTongsMiddleware(opts?: { routePrefix?: string }) {
       const response = await handler(request);
       await writeFetchResponse(res, response);
     } catch (error) {
+      // Browser navigation, HMR, or cancellation can close a request while a
+      // long-running media operation is in flight. It is not a Vite error and
+      // must not be forwarded to the dev error overlay.
+      if (isClientAbortError(error, req)) return;
       next(error);
     }
   };

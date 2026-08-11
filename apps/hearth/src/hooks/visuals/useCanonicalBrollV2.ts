@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { buildBrollPlanFromScript } from "../../lib/hearth-broll-plan";
 import { tongsFetch } from "../../lib/tongs-fetch";
 import {
@@ -9,6 +9,7 @@ import {
   generateCanonicalBrollVideo,
   proposeRunwayReadyBrollPrompt,
   readCanonicalBrollV2,
+  resumeCanonicalBrollVideo,
   selectCanonicalBrollCandidate,
   type CanonicalBrollV2State,
 } from "../../lib/hearth-broll-v2-authority";
@@ -32,8 +33,10 @@ export function useCanonicalBrollV2(args: {
   const [state, setState] = useState<CanonicalBrollV2State>(EMPTY);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [activeOperation, setActiveOperation] = useState<"motion_prompt" | "video" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const resumedOperations = useRef(new Set<string>());
 
   const refresh = useCallback(async () => {
     if (!args.workspaceId || !args.workpieceId) { setState(EMPTY); return false; }
@@ -45,6 +48,25 @@ export function useCanonicalBrollV2(args: {
   }, [args.workspaceId, args.workpieceId]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  useEffect(() => {
+    if (!args.workspaceId || !args.workpieceId || loading || busy || !state.plan) return;
+    const beats = state.plan.beats.filter((item) => !item.selected_asset_id && (item.candidate_assets?.length ?? 0) === 0 && state.promptsByBeat[item.id]?.revisionId && !resumedOperations.current.has(item.id));
+    if (!beats.length) return;
+    for (const beat of beats) resumedOperations.current.add(beat.id);
+    void (async () => {
+      setBusy(true); setActiveOperation("video"); setMessage("Checking for an existing Runway generation…");
+      try {
+        for (const beat of beats) {
+          const resumed = await resumeCanonicalBrollVideo({ workspaceId: args.workspaceId!, workpieceId: args.workpieceId!, beatId: beat.id, prompt: state.promptsByBeat[beat.id] });
+          if (!resumed.ok) { setError(resumed.error); return; }
+          if (!resumed.data) continue;
+          setState(resumed.data); setError(null); setMessage("Existing Runway generation recovered. Video and poster are ready to preview."); return;
+        }
+        setMessage(null);
+      } finally { setBusy(false); setActiveOperation(null); }
+    })();
+  }, [args.workspaceId, args.workpieceId, busy, loading, state]);
 
   const generatePlan = useCallback(async (readApprovedScript: () => Promise<{ ok: true; text: string } | { ok: false; message: string }>) => {
     if (!args.workspaceId || !args.workpieceId || busy) return;
@@ -110,12 +132,17 @@ export function useCanonicalBrollV2(args: {
 
   const generateVideo = useCallback(async (beatId: string) => {
     if (!args.workspaceId || !args.workpieceId || busy) return;
-    setBusy(true); setError(null); setMessage("Runway generation reserved. Waiting for the durable task result…");
+    setBusy(true); setActiveOperation("video"); setError(null); setMessage("Runway generation is active. Waiting for the durable task result…");
     try {
-      const acquired = await generateCanonicalBrollVideo({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, beatId, prompt: state.promptsByBeat[beatId] });
+      const quote = await generateCanonicalBrollVideo({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, beatId, prompt: state.promptsByBeat[beatId], confirmSpend: false });
+      if (quote.ok) { setState(quote.data); setMessage("Existing Runway generation recovered. Video and poster are ready to preview."); return; }
+      if (!quote.requiresConfirmation) { setError(quote.error); setMessage(null); return; }
+      const confirmed = window.confirm(quote.authorizationMessage ?? `Generate this Runway video? Up to ${(quote.authorizedCustomerCeiling ?? 0).toLocaleString()} AI credits will be held.`);
+      if (!confirmed) { setMessage(null); return; }
+      const acquired = await generateCanonicalBrollVideo({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, beatId, prompt: state.promptsByBeat[beatId], confirmSpend: true });
       if (!acquired.ok) { setError(acquired.error); setMessage(null); return; }
       setState(acquired.data); setMessage("Runway video and poster verified. Candidate is ready to preview.");
-    } finally { setBusy(false); }
+    } finally { setBusy(false); setActiveOperation(null); }
   }, [args.workspaceId, args.workpieceId, busy, state.promptsByBeat]);
 
   const select = useCallback(async (beatId: string, candidateRevisionId: string) => {
@@ -130,12 +157,12 @@ export function useCanonicalBrollV2(args: {
 
   const generatePrompt = useCallback(async (beatId: string, creatorDirection: string) => {
     if (!args.workspaceId || !args.workpieceId || busy) return;
-    setBusy(true); setError(null); setMessage(null);
+    setBusy(true); setActiveOperation("motion_prompt"); setError(null); setMessage("Creating the canonical motion brief and prompt… Keep this page open.");
     try {
       const generated = await generateCanonicalBrollPrompt({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, beatId, creatorDirection, current: state.promptsByBeat[beatId] ?? { status: "missing", revisionId: null, revision: 0, contentHash: null, creatorDirection: "", finalPrompt: null, motionBrief: null, mismatchReasons: [] } });
       if (!generated.ok) { setError(generated.error); return; }
       setState(generated.data); setMessage("Canonical motion brief and prompt are ready.");
-    } finally { setBusy(false); }
+    } finally { setBusy(false); setActiveOperation(null); }
   }, [args.workspaceId, args.workpieceId, busy, state.promptsByBeat]);
 
   const editPrompt = useCallback(async (beatId: string, finalPrompt: string) => {
@@ -155,5 +182,5 @@ export function useCanonicalBrollV2(args: {
   },[args.workspaceId,args.workpieceId,busy,state.promptsByBeat]);
 
   const progress = useMemo(() => ({ ready: state.plan?.beats.filter((beat) => beat.fulfillment_state === "resolved").length ?? 0, total: state.plan?.beats.length ?? 0 }), [state.plan]);
-  return { state, loading, busy, error, message, progress, refresh, generatePlan, generatePrompt, editPrompt, proposeRunwayPrompt, generateVideo, upload, attachExternal, select };
+  return { state, loading, busy, activeOperation, error, message, progress, refresh, generatePlan, generatePrompt, editPrompt, proposeRunwayPrompt, generateVideo, upload, attachExternal, select };
 }

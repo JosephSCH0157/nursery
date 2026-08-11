@@ -14,6 +14,7 @@ const migrationSql = [
   "20260807120000_tongs_reference_visual_evidence_proposal_origin.sql",
   "20260811120000_tongs_reference_visual_evidence_extracted_content_origin.sql",
   "20260811130000_tongs_restore_collection_aware_reference_visual_acquisition.sql",
+  "20260811140000_tongs_restore_reference_visual_archival_completion_rpcs.sql",
 ].map(async (migration) => readFile(new URL(`../../../supabase/migrations/${migration}`, import.meta.url), "utf8"));
 const sql = (await Promise.all(migrationSql)).join("\n");
 const service = await readFile(new URL("../src/workpiece-commit-api.ts", import.meta.url), "utf8");
@@ -167,4 +168,9 @@ test("the forward acquisition repair restores the RPC with current Source collec
   assert.match(sql, /current_declaration_revision_id=p_rights_declaration_revision_id/);
   assert.match(sql, /grant execute on function tongs\.begin_reference_visual_acquisition/);
   assert.match(sql, /notify pgrst,'reload schema'/);
+  assert.match(sql, /create or replace function tongs\.record_reference_visual_source_acquired/);
+  assert.match(sql, /create or replace function tongs\.commit_reference_visual_acquisition/);
+  assert.match(sql, /create or replace function tongs\.commit_reference_visual_sequence/);
+  assert.match(sql, /create table if not exists tongs\.reference_visual_sequence_sequences/);
+  assert.match(sql, /current_source_collection_required/);
 });

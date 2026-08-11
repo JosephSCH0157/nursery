@@ -75,6 +75,7 @@ type BuildBrollPanelArgs = {
   saveState: BrollPanelProps["saveState"];
   saveError: string | null;
   message: string | null;
+  activeOperation?: BrollPanelProps["activeOperation"];
   disabled: boolean;
   draft: BrollPanelProps["draft"];
   requestState: string;
@@ -347,6 +348,7 @@ export function buildBrollPlanPanelProps(args: BuildBrollPanelArgs): BrollPanelP
     saveState: args.saveState,
     saveError: args.saveError,
     message: args.message,
+    activeOperation: args.activeOperation,
     disabled: args.disabled,
     draft: args.draft,
     requestState: args.requestState,

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { createTongsCommitService, type BrollVideoProvider } from "../../../packages/tongs/src/workpiece-commit-api";
-import { resolveNurseryTongsProviderBoundary } from "../scripts/mw-tongs-commit-api";
+import { isClientAbortError, resolveNurseryTongsProviderBoundary } from "../scripts/mw-tongs-commit-api";
 
 test("Nursery constructs and injects one Runway provider while disabling the lazy fallback", () => {
   let constructionCount = 0;
@@ -11,7 +11,7 @@ test("Nursery constructs and injects one Runway provider while disabling the laz
     async poll(taskId) { return { state: "pending", taskId, response: { id: taskId, status: "RUNNING" } }; },
     async download() { return new Uint8Array(); },
   };
-  const boundary = resolveNurseryTongsProviderBoundary({
+const boundary = resolveNurseryTongsProviderBoundary({
     options: {
       supabaseUrl: "https://example.supabase.co",
       supabaseServiceRoleKey: "test-service-key",
@@ -49,4 +49,11 @@ test("B-roll acquisition dependencies are loaded statically before request handl
   );
   assert.doesNotMatch(source, /acquisitionModuleSpecifier/);
   assert.match(source, /this\.brollAcquisitionRuntime\.inspectMedia/);
+});
+
+test("client-aborted Tongs requests do not become Vite application errors", () => {
+  assert.equal(isClientAbortError(Object.assign(new Error("aborted"), { code: "ECONNRESET" })), true);
+  assert.equal(isClientAbortError(new Error("aborted")), true);
+  assert.equal(isClientAbortError(new Error("unrelated failure")), false);
+  assert.equal(isClientAbortError(new Error("unrelated failure"), { aborted: true, destroyed: true }), true);
 });

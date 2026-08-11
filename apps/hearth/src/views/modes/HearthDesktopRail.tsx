@@ -60,6 +60,7 @@ export type HearthDesktopRailProps = {
   formatUpdatedAt: (value: number | undefined) => string;
   resolveDraftEditorName: (draft: Draft) => string;
   saveDraftMeta: (draft: Draft, updates: Partial<Draft>) => void | Promise<void>;
+  onRenameWorkpiece: (workpieceId: string, title: string) => void | Promise<void>;
   onRestoreWorkpiece: (workpieceId: string) => void | Promise<void>;
   onArchiveWorkpiece: (workpieceId: string) => void | Promise<void>;
   onDeleteDraft: (draft: Draft) => void | Promise<void>;
@@ -128,6 +129,7 @@ export default function HearthDesktopRail({
   formatUpdatedAt,
   resolveDraftEditorName,
   saveDraftMeta,
+  onRenameWorkpiece,
   onRestoreWorkpiece,
   onArchiveWorkpiece,
   onDeleteDraft,
@@ -202,6 +204,7 @@ export default function HearthDesktopRail({
           formatUpdatedAt={formatUpdatedAt}
           resolveDraftEditorName={resolveDraftEditorName}
           saveDraftMeta={saveDraftMeta}
+          onRenameWorkpiece={onRenameWorkpiece}
           onRestoreWorkpiece={onRestoreWorkpiece}
           onArchiveWorkpiece={onArchiveWorkpiece}
           onDeleteDraft={onDeleteDraft}

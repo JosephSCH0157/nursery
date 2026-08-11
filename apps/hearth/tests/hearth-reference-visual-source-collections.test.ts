@@ -5,6 +5,8 @@ import {validateReferenceVisualSourceSetReceipt} from "../src/lib/hearth-referen
 
 const collection=readFileSync(new URL("../src/lib/hearth-reference-visual-collections.ts",import.meta.url),"utf8");
 const panel=readFileSync(new URL("../src/components/visuals/CanonicalReferenceVisualPanel.tsx",import.meta.url),"utf8");
+const shell=readFileSync(new URL("../src/routes/HearthShell.tsx",import.meta.url),"utf8");
+const dispositionControl=readFileSync(new URL("../src/components/visuals/VisualOpportunityDispositionControl.tsx",import.meta.url),"utf8");
 const migration=readFileSync(new URL("../../../supabase/migrations/20260810130000_tongs_reference_visual_source_sets.sql",import.meta.url),"utf8");
 const originMigration=readFileSync(new URL("../../../supabase/migrations/20260811120000_tongs_reference_visual_evidence_extracted_content_origin.sql",import.meta.url),"utf8");
 
@@ -37,6 +39,16 @@ test("post-action and authority-event refreshes keep the work area mounted",()=>
  assert.match(panel,/await refresh\(false\)/);
  assert.doesNotMatch(panel,/async function refresh\(\)\{setLoading\(true\)/);
  assert.match(panel,/setSelectedId\(current=>/);
+});
+
+test("Reference Material completion treats current selections and explicit skips as resolved and receives live progress",()=>{
+ assert.match(shell,/selectedRevisionIds\.length > 0 \|\| skippedReferenceClipIds\.has\(opportunity\.id\)/);
+ assert.match(shell,/selectedCandidateRevisionId\) \|\| skippedReferenceVisualIds\.has\(opportunity\.id\)/);
+ assert.match(shell,/forge:canonical-reference-visuals-progress/);
+ assert.match(shell,/forge:visual-opportunity-dispositions-progress/);
+ assert.match(panel,/forge:canonical-reference-visuals-progress/);
+ assert.match(dispositionControl,/forge:visual-opportunity-dispositions-progress/);
+ assert.match(panel,/Boolean\(item\.selectedCandidateRevisionId\)&&!skippedIds\.has\(item\.id\)/);
 });
 
 test("confirmed collection evidence uses the canonical extracted-content origin without remapping",()=>{

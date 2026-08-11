@@ -164,7 +164,7 @@ export function createSupabaseBarStockRepository(client: Client): BarStockReposi
       const db = client.schema("tongs") as any;
       const [assignmentResult, sparkResult, linkResult] = await Promise.all([
         db.from("barstock_assignments").select("id,title,status,revision,created_at,updated_at").eq("workspace_id", scope.workspaceId).neq("status", "archived").order("updated_at", { ascending: false }),
-        db.from("barstock_sparks").select("id,assignment_id,title,body,tags,status,source,pinned,revision,created_at,updated_at,deleted_at").eq("workspace_id", scope.workspaceId).is("deleted_at", null).order("created_at", { ascending: false }),
+        db.from("barstock_sparks").select("id,assignment_id,title,body,tags,status,source,pinned,revision,created_at,updated_at,deleted_at").eq("workspace_id", scope.workspaceId).neq("status", "archived").is("deleted_at", null).order("created_at", { ascending: false }),
         db.from("barstock_project_episode_links").select("project_id,workpiece_id").eq("workspace_id", scope.workspaceId),
       ]);
       const error = assignmentResult.error ?? sparkResult.error ?? linkResult.error;
@@ -175,7 +175,7 @@ export function createSupabaseBarStockRepository(client: Client): BarStockReposi
       }
       return {
         assignments: (assignmentResult.data ?? []).map((row: Record<string, unknown>) => mapAssignment(row, links[String(row.id)] ?? null)).filter((row: Assignment) => row.id && row.name && row.revision > 0),
-        sparks: (sparkResult.data ?? []).map(mapSpark).filter((row: Spark) => row.id && row.body.trim() && row.revision > 0),
+        sparks: (sparkResult.data ?? []).map(mapSpark).filter((row: Spark) => row.id && row.body.trim() && row.revision > 0 && row.status !== "archived"),
         links,
       };
     },

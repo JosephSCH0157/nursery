@@ -1,4 +1,4 @@
-import type { RefObject } from "react";
+import { useState, type RefObject } from "react";
 import type { Draft } from "../../domain/draft";
 
 type SortKey = "updated" | "title";
@@ -38,6 +38,7 @@ type HearthWorkspaceProjectsRailProps = {
   formatUpdatedAt: (value: number | undefined) => string;
   resolveDraftEditorName: (draft: Draft) => string;
   saveDraftMeta: (draft: Draft, updates: Partial<Draft>) => void | Promise<void>;
+  onRenameWorkpiece: (workpieceId: string, title: string) => void | Promise<void>;
   onRestoreWorkpiece: (workpieceId: string) => void | Promise<void>;
   onArchiveWorkpiece: (workpieceId: string) => void | Promise<void>;
   onDeleteDraft: (draft: Draft) => void | Promise<void>;
@@ -68,10 +69,19 @@ export default function HearthWorkspaceProjectsRail({
   formatUpdatedAt,
   resolveDraftEditorName,
   saveDraftMeta,
+  onRenameWorkpiece,
   onRestoreWorkpiece,
   onArchiveWorkpiece,
   onDeleteDraft,
 }: HearthWorkspaceProjectsRailProps) {
+  const [editingEpisodeId, setEditingEpisodeId] = useState<string | null>(null);
+  const [episodeTitle, setEpisodeTitle] = useState("");
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const commitEpisodeTitle = async (workpieceId: string) => {
+    const title = episodeTitle.trim(); if (!title) { setRenameError("Episode title is required."); return; }
+    try { await onRenameWorkpiece(workpieceId, title); setEditingEpisodeId(null); setRenameError(null); }
+    catch { setRenameError("Canonical episode title could not be updated."); }
+  };
   return (
     <>
       <div className="hs-rail-section">
@@ -172,6 +182,7 @@ export default function HearthWorkspaceProjectsRail({
                       <div className="hs-workpiece-updated">Draft label: {draftLabel}</div>
                     ) : null}
                   </button>
+                  {isActive && editingEpisodeId === item.workpieceId ? <label className="hs-workpiece-draft-label-editor"><span className="hs-rail-label">Episode title</span><input aria-label="Edit canonical episode title" value={episodeTitle} maxLength={200} onChange={(event) => setEpisodeTitle(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); void commitEpisodeTitle(item.workpieceId); } if (event.key === "Escape") setEditingEpisodeId(null); }} /><span className="hs-rail-meta">Canonical title used across Forge.</span>{renameError ? <span className="hs-error-text-small" role="alert">{renameError}</span> : null}<button type="button" onClick={() => void commitEpisodeTitle(item.workpieceId)}>Save episode title</button></label> : null}
                   {draft && isEditing ? (
                     <label className="hs-workpiece-draft-label-editor">
                       <span className="hs-rail-label">Draft label</span>
@@ -204,6 +215,7 @@ export default function HearthWorkspaceProjectsRail({
                   ) : null}
                   {draft && !item.isArchived ? (
                     <div className="hs-workpiece-actions">
+                      {isActive ? <button type="button" onClick={() => { setEpisodeTitle(item.title); setEditingEpisodeId(item.workpieceId); setRenameError(null); }}>Edit Episode Title</button> : null}
                       <button
                         type="button"
                         onClick={() => void saveDraftMeta(draft, { pinned: !draft.pinned })}

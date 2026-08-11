@@ -13,6 +13,7 @@ type BrollPlanPanelProps = {
   saveState: "saved" | "editing" | "saving" | "error" | "offline";
   saveError: string | null;
   message: string | null;
+  activeOperation?: "motion_prompt" | "video" | null;
   disabled?: boolean;
   workpieceId: string | null;
   workspaceId?: string | null;
@@ -331,9 +332,9 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
   }, [beatCandidates, props.workpieceId, selectedBeat?.id]);
 
   useEffect(() => {
-    setCreatorDirection(props.promptState?.creatorDirection ?? "");
+    setCreatorDirection(props.promptState?.creatorDirection?.trim() ? props.promptState.creatorDirection : selectedBeat?.description ?? "");
     setFinalPromptDraft(props.promptState?.finalPrompt ?? "");
-  }, [selectedBeat?.id, props.promptState?.revisionId, props.promptState?.creatorDirection, props.promptState?.finalPrompt]);
+  }, [selectedBeat?.id, selectedBeat?.description, props.promptState?.revisionId, props.promptState?.creatorDirection, props.promptState?.finalPrompt]);
 
   useEffect(() => {
     if (lastPreviewLoadSignatureRef.current === previewLoadSignature) {
@@ -453,16 +454,18 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
                   onChanged={setDispositions}
                 /> : null}
               </div>
-              <section className="hs-imap-next-card hs-broll-section" aria-label="Canonical motion prompt">
+              <section className="hs-imap-next-card hs-broll-section" aria-label="Canonical motion prompt" aria-busy={props.activeOperation === "motion_prompt"}>
                 <div className="hs-broll-section-heading"><div><div className="hs-imap-next-eyebrow">Motion direction</div><h5>What should this clip show?</h5></div><span className="hs-broll-revision">{props.promptState?.revision ? `Revision ${props.promptState.revision}` : "Not created"}</span></div>
                 {props.promptState?.mismatchReasons.length ? <div className="hs-error-text-small">{props.promptState.mismatchReasons.join(", ")}</div> : null}
                 <div className="hs-imap-field">
                   <label htmlFor={`${formFieldIdPrefix}-creator-direction`}>Creator direction</label>
                   <textarea className="hs-broll-creator-direction" id={`${formFieldIdPrefix}-creator-direction`} value={creatorDirection} onChange={(event) => setCreatorDirection(event.target.value)} rows={4} disabled={props.disabled} placeholder="Describe what should happen, camera behavior, pacing, or details that matter." />
+                  <small>Hearth populated this direction from the script moment. Edit it if you want to guide the motion differently.</small>
                 </div>
                 <button type="button" className="hs-broll-secondary-action" onClick={() => props.onGenerateMotionPrompt?.(creatorDirection)} disabled={props.disabled || !props.onGenerateMotionPrompt}>
-                  {props.promptState?.revisionId ? "Regenerate motion prompt" : "Generate motion prompt"}
+                  {props.activeOperation === "motion_prompt" ? "Generating motion prompt…" : props.promptState?.revisionId ? "Regenerate motion prompt" : "Generate motion prompt"}
                 </button>
+                {props.activeOperation === "motion_prompt" ? <div className="hs-broll-operation-progress" role="status" aria-live="polite"><span aria-hidden="true" className="hs-broll-operation-spinner" /> <span><strong>Creating motion prompt</strong><small>Hearth is building the motion brief and canonical prompt. Keep this page open.</small></span></div> : null}
                 {props.promptState?.motionBrief ? <details className="hs-broll-advanced"><summary>View motion brief</summary><div className="hs-imap-field-grid" data-testid="broll-motion-brief">{Object.entries(props.promptState.motionBrief).map(([key, value]) => <div key={key}><strong>{key.replaceAll("_", " ")}</strong><p>{Array.isArray(value) ? value.join(", ") : String(value ?? "")}</p></div>)}</div></details> : <p>No canonical AI motion brief exists for this beat yet.</p>}
                 <div className="hs-imap-field">
                   <label htmlFor={`${formFieldIdPrefix}-final-motion-prompt`}>Canonical final motion prompt</label>
@@ -483,13 +486,13 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
                 </div>
                 {finalPromptDraft ? <div className={finalPromptDraft.length>1000?"hs-error-text-small":"hs-imap-next-copy"}>{finalPromptDraft.length} / 1000 UTF-16 code units{finalPromptDraft!==props.promptState?.finalPrompt?" · proposed or unsaved":" · canonical"}</div>:null}
               </section>
-              <section className="hs-imap-next-card hs-broll-section" aria-label="Acquire verified B-roll">
+              <section className="hs-imap-next-card hs-broll-section" aria-label="Acquire verified B-roll" aria-busy={props.activeOperation === "video"}>
                 <div className="hs-imap-next-eyebrow">Get the clip</div>
                 <div className="hs-broll-acquisition-tabs" role="tablist" aria-label="B-roll acquisition method">
                   {([['generate','Generate video'],['upload','Upload video'],['external','External clip'],['stock','Stock']] as const).map(([mode,label])=><button key={mode} type="button" role="tab" aria-selected={acquisitionMode===mode} className={acquisitionMode===mode?"is-active":""} onClick={()=>setAcquisitionMode(mode)}>{label}</button>)}
                 </div>
                 <div className="hs-broll-acquisition-pane">
-                  {acquisitionMode === "generate" ? <><p>Generate from the exact saved canonical prompt above.</p><button type="button" className="hs-primary-btn" onClick={props.onGenerateVideo} disabled={props.disabled || !props.onGenerateVideo || !props.promptState?.revisionId || (props.promptState.status !== "current" && props.promptState.status !== "creator_edited")}>Generate Video</button></> : null}
+                  {acquisitionMode === "generate" ? <><p>Generate from the exact saved canonical prompt above.</p><button type="button" className="hs-primary-btn" onClick={props.onGenerateVideo} disabled={props.disabled || !props.onGenerateVideo || !props.promptState?.revisionId || (props.promptState.status !== "current" && props.promptState.status !== "creator_edited")}>{props.activeOperation === "video" ? "Generating Runway video…" : "Generate Video"}</button>{props.activeOperation === "video" ? <div className="hs-broll-operation-progress" role="status" aria-live="polite"><span aria-hidden="true" className="hs-broll-operation-spinner" /><span><strong>Runway generation in progress</strong><small>Forge is submitting or checking the durable video task. You can leave this page and return; the operation will resume without another submission.</small></span></div> : null}</> : null}
                   {acquisitionMode === "upload" ? <><p>Choose an MP4 or WebM file. Tongs will verify and preserve it.</p><button type="button" className="hs-primary-btn" onClick={() => uploadInputRef.current?.click()} disabled={props.disabled}>Choose video file</button></> : null}
                   {acquisitionMode === "external" ? <><div className="hs-imap-field"><label htmlFor={`${formFieldIdPrefix}-canonical-external-url`}>Video URL</label><input id={`${formFieldIdPrefix}-canonical-external-url`} value={props.draft.sourceUrl} onChange={(event) => props.onDraftChange("sourceUrl", event.target.value)} disabled={props.disabled} placeholder="https://…/clip.mp4" /></div><button type="button" className="hs-primary-btn" onClick={props.onAttachResultFromUrl} disabled={props.disabled || !props.draft.sourceUrl.trim()}>Fetch and verify external clip</button></> : null}
                   {acquisitionMode === "stock" ? <p>Licensed stock search will appear here when Forge has a configured provider.</p> : null}

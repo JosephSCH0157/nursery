@@ -48,6 +48,18 @@ test("candidate workspace hydrates previews from the canonical authority asset p
   assert.equal(cards[0]?.assetPath,"thumbnails/candidate-a.png");
 });
 
+test("recovered canonical assets retain branding, title, and readability without a package launch",()=>{
+  const {pkg,authority}=fixture();
+  pkg.thumbnail.launch_variant_revisions=[];
+  pkg.thumbnail.render_recipes=[];
+  authority.candidates[0]={...authority.candidates[0],asset_path:"recovered.png",title_text:"The Orange Disappeared",brand_logo_asset_revision_id:"logo-revision",readability_passed:true,readability_score:7.2,readability_treatment:"outline"};
+  const card=buildCandidateWorkspaceCards(pkg,authority)[0];
+  assert.equal(card?.assetPath,"recovered.png");
+  assert.equal(card?.title,"The Orange Disappeared");
+  assert.equal(card?.logoApplied,true);
+  assert.deepEqual(card?.readability,{passed:true,score:7.2,treatment:"outline",evidenceHash:"evidence-a"});
+});
+
 test("pending replacement uses only the newest ready renders under the active binding",()=>{
   const launches=["old-binding","active-binding","active-binding","active-binding","active-binding"].map((bindingId,index)=>({
     launch_variant_id:`launch-${index}`,base_version_id:`base-${index}`,recipe_id:"recipe-a",recipe_revision:1,status:"ready",

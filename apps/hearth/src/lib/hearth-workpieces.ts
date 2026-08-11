@@ -44,6 +44,8 @@ export type RestoreHearthWorkpieceInput = {
   workpieceId: string;
 };
 
+export type RenameHearthWorkpieceInput = { workspaceId: string; workpieceId: string; title: string };
+
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -300,5 +302,15 @@ export async function restoreHearthWorkpiece(
   if (!summary) {
     throw new Error("workpiece_restore_failed");
   }
+  return summary;
+}
+
+export async function renameHearthWorkpiece(input: RenameHearthWorkpieceInput): Promise<HearthWorkpieceSummary> {
+  const workspaceId = normalizeUuid(input.workspaceId); const workpieceId = normalizeUuid(input.workpieceId); const title = input.title.trim();
+  if (!workspaceId || !workpieceId || !title || title.length > 200) throw new Error("workpiece_rename_failed");
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/title`, { method: "POST", json: { workspace_id: workspaceId, label: title } });
+  if (!response.ok) throw new Error("workpiece_rename_failed");
+  const summary = parseWorkpieceSummaryFromMutationPayload(workspaceId, await response.json());
+  if (!summary) throw new Error("workpiece_rename_failed");
   return summary;
 }

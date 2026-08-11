@@ -164,6 +164,8 @@ try {
   assert.equal(linkedDelete.outcome, "linked");
   const archivedSpark = await editor.repository.archiveSpark(scopeA, linkedSpark.id, linkedSparkCreated.row!.revision);
   assert.equal(archivedSpark.outcome, "saved");
+  assert.equal((await editor.repository.hydrateWorkspace(scopeA)).sparks.some((spark) => spark.id === linkedSpark.id), false,
+    "archived sparks are absent from a fresh canonical Bar Stock hydration");
   const linkAfterCleanup = await editor.repository.getAssignmentWorkpieceLink(scopeA, linkedAssignment.id);
   const { count: workpieceCount } = await db.from("episodes").select("id", { count: "exact", head: true }).eq("id", workpieceId);
   assert.equal(linkAfterCleanup, workpieceId);

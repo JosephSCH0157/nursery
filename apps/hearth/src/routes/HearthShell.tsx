@@ -33,7 +33,8 @@ import {
   commitHearthPrimaryScript,
   getHearthPrimaryScriptPath,
 } from "../lib/hearth-script-repo";
-import type { HearthWorkpieceSummary } from "../lib/hearth-workpieces";
+import { renameHearthWorkpiece, type HearthWorkpieceSummary } from "../lib/hearth-workpieces";
+import { isCanonicalThumbnailSetComplete } from "./hearth-shell/buildHearthThumbnailViewModel";
 import {
   selectDraftForWorkpiece,
 } from "../lib/hearth-nav-model";
@@ -424,6 +425,7 @@ import { useUnifiedVisualPlanRecovery } from "../hooks/visuals/useUnifiedVisualP
 import { generateOrResumeUnifiedVisualPlan } from "../lib/hearth-unified-visual-plan-authority";
 import { readCanonicalReferenceClips, type ReferenceClipState } from "../lib/hearth-reference-clip-authority";
 import { readCanonicalReferenceVisuals, type ReferenceVisualState } from "../lib/hearth-reference-visual-authority";
+import { readVisualOpportunityDispositions, type VisualOpportunityDisposition } from "../lib/hearth-visual-disposition-authority";
 import {
   buildHearthReferenceClipsController,
   useHearthReferenceClipsBridgeCommands,
@@ -1731,7 +1733,6 @@ export default function HearthShell({
     archived: activeWorkpieceIsArchived,
     scriptText: activeDraft?.body ?? "",
   });
-  const aiRuntimeBusy = isAiProcessing || isThumbnailGenerating || isImageMapCandidateGenerating;
   const aiCreditsDepleted = aiBillingMode === "forge" && aiTokenBalance != null && aiTokenBalance <= 0;
   const aiEpisodeReady = Boolean(workpieceId?.trim());
   const thumbnailConcepts = useMemo(
@@ -1830,6 +1831,7 @@ export default function HearthShell({
       placementHint: null,
     })),
   });
+  const aiRuntimeBusy = isAiProcessing || isThumbnailGenerating || isImageMapCandidateGenerating || canonicalBrollV2.activeOperation !== null;
   const brollPlan: EpisodeBrollPlan | null = canonicalBrollV2.state.plan;
   const brollBeats: EpisodeBrollPlanBeat[] = useMemo(
     () => brollPlan?.beats ?? [],
@@ -2111,6 +2113,7 @@ export default function HearthShell({
     : "Ready";
   const [canonicalReferenceClipState, setCanonicalReferenceClipState] = useState<ReferenceClipState | null>(null);
   const [canonicalReferenceVisualState, setCanonicalReferenceVisualState] = useState<ReferenceVisualState | null>(null);
+  const [visualOpportunityDispositions, setVisualOpportunityDispositions] = useState<VisualOpportunityDisposition[]>([]);
   const refreshCanonicalReferenceClips = useCallback(async () => {
     if (!workspaceId || !workpieceId) { setCanonicalReferenceClipState(null); return false; }
     const result = await readCanonicalReferenceClips(workspaceId, workpieceId);
@@ -2127,6 +2130,14 @@ export default function HearthShell({
     return true;
   }, [workspaceId, workpieceId]);
   useEffect(() => { void refreshCanonicalReferenceVisuals(); }, [refreshCanonicalReferenceVisuals]);
+  const refreshVisualOpportunityDispositions = useCallback(async () => {
+    if (!workspaceId || !workpieceId) { setVisualOpportunityDispositions([]); return false; }
+    const result = await readVisualOpportunityDispositions(workspaceId, workpieceId);
+    if (!result.ok) return false;
+    setVisualOpportunityDispositions(result.data);
+    return true;
+  }, [workspaceId, workpieceId]);
+  useEffect(() => { void refreshVisualOpportunityDispositions(); }, [refreshVisualOpportunityDispositions]);
   useEffect(() => { const listener=()=>void refreshCanonicalReferenceVisuals(); window.addEventListener("forge:canonical-reference-visuals-changed",listener); return()=>window.removeEventListener("forge:canonical-reference-visuals-changed",listener); }, [refreshCanonicalReferenceVisuals]);
   useEffect(() => {
     const listener = (event: Event) => {
@@ -2136,6 +2147,24 @@ export default function HearthShell({
     window.addEventListener("forge:canonical-reference-clips-progress", listener);
     return () => window.removeEventListener("forge:canonical-reference-clips-progress", listener);
   }, [workspaceId, workpieceId]);
+  useEffect(() => {
+    const listener = (event: Event) => {
+      const detail = (event as CustomEvent<{ workspaceId?: string; workpieceId?: string; state?: ReferenceVisualState | null }>).detail;
+      if (detail?.workspaceId === workspaceId && detail?.workpieceId === workpieceId && "state" in detail) setCanonicalReferenceVisualState(detail.state ?? null);
+    };
+    window.addEventListener("forge:canonical-reference-visuals-progress", listener);
+    return () => window.removeEventListener("forge:canonical-reference-visuals-progress", listener);
+  }, [workspaceId, workpieceId]);
+  useEffect(() => {
+    const listener = (event: Event) => {
+      const detail = (event as CustomEvent<{ workspaceId?: string; workpieceId?: string; dispositions?: VisualOpportunityDisposition[] }>).detail;
+      if (detail?.workspaceId === workspaceId && detail?.workpieceId === workpieceId && Array.isArray(detail.dispositions)) setVisualOpportunityDispositions(detail.dispositions);
+    };
+    window.addEventListener("forge:visual-opportunity-dispositions-progress", listener);
+    return () => window.removeEventListener("forge:visual-opportunity-dispositions-progress", listener);
+  }, [workspaceId, workpieceId]);
+  const skippedReferenceClipIds = new Set(visualOpportunityDispositions.filter((item) => item.kind === "reference_clip" && item.state === "skipped").map((item) => item.opportunityId));
+  const skippedReferenceVisualIds = new Set(visualOpportunityDispositions.filter((item) => item.kind === "reference_visual" && item.state === "skipped").map((item) => item.opportunityId));
   const plannedImageCount = imageMapEntries.length;
   const imageMapAuthorityUnavailable = imageMapSaveError === "canonical_image_map_authority_unavailable";
   const mediaWorkflowInput = {
@@ -2162,12 +2191,12 @@ export default function HearthShell({
     },
     referenceClips: {
       planned: canonicalReferenceClipState?.opportunities.length ?? 0,
-      completed: canonicalReferenceClipState?.opportunities.filter((opportunity) => opportunity.selectedRevisionIds.length > 0).length ?? 0,
+      completed: canonicalReferenceClipState?.opportunities.filter((opportunity) => opportunity.selectedRevisionIds.length > 0 || skippedReferenceClipIds.has(opportunity.id)).length ?? 0,
       exists: Boolean(canonicalReferenceClipState?.planRevisionId),
     },
     referenceVisuals: {
       planned: canonicalReferenceVisualState?.opportunities.length ?? 0,
-      completed: canonicalReferenceVisualState?.opportunities.filter((opportunity) => Boolean(opportunity.selectedCandidateRevisionId)).length ?? 0,
+      completed: canonicalReferenceVisualState?.opportunities.filter((opportunity) => Boolean(opportunity.selectedCandidateRevisionId) || skippedReferenceVisualIds.has(opportunity.id)).length ?? 0,
       exists: Boolean(canonicalReferenceVisualState?.planRevisionId),
     },
     broll: { planned: brollBeats.length, completed: brollBeats.filter((beat) => beat.fulfillment_state === "resolved" && Boolean(beat.selected_asset_id)).length },
@@ -2394,7 +2423,12 @@ export default function HearthShell({
     dirty: hasUnsavedMetadataChanges,
   });
   const metadataComplete = metadataProgress.completion === "complete";
-  const thumbnailsSelected = Boolean(primaryThumbnailVersionId);
+  // Thumbnail V3 selects an immutable candidate set, not the legacy V2
+  // primary_version_id. Release review must consume the same Tongs-backed
+  // authority used by the visual workflow or a valid three-thumbnail set is
+  // incorrectly reported as missing after reload.
+  const thumbnailsSelected = canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "")
+    && isCanonicalThumbnailSetComplete(canonicalThumbnailProgress);
   const releasePreparationController = buildHearthReleasePreparationController({
     workspaceId,
     workpieceId,
@@ -6218,6 +6252,7 @@ export default function HearthShell({
       saveState: canonicalBrollV2.error ? "error" as const : canonicalBrollV2.busy || canonicalBrollV2.loading ? "saving" as const : "saved" as const,
       saveError: canonicalBrollV2.error,
       message: canonicalBrollV2.message,
+      activeOperation: canonicalBrollV2.activeOperation,
       disabled: isApprovingScript || canonicalBrollV2.busy || canonicalBrollV2.loading || !episodePackage,
       draft: {
         anchorText: brollAnchorDraft,
@@ -6884,6 +6919,11 @@ export default function HearthShell({
     formatUpdatedAt,
     resolveDraftEditorName,
     saveDraftMeta,
+    onRenameWorkpiece: async (targetWorkpieceId: string, title: string) => {
+      if (!workspaceId) throw new Error("workspace_required");
+      await renameHearthWorkpiece({ workspaceId, workpieceId: targetWorkpieceId, title });
+      await refreshWorkpieces(workspaceId, { includeArchived: showArchived });
+    },
     onRestoreWorkpiece,
     onArchiveWorkpiece,
     onDeleteDraft,

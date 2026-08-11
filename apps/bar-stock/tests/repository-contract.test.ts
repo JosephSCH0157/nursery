@@ -61,3 +61,25 @@ test("repository fails closed on unavailable or malformed migration contracts", 
   );
   assert.equal(failed.outcome, "failed");
 });
+
+test("workspace hydration excludes archived sparks at the query and projection boundaries", async () => {
+  const filters: Array<[string, string, unknown]> = [];
+  const rows = {
+    barstock_assignments: [],
+    barstock_sparks: [{ id: crypto.randomUUID(), assignment_id: null, title: "Old", body: "Archived forged spark", tags: [], status: "archived", source: "manual", pinned: false, revision: 2, created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-02T00:00:00Z", deleted_at: null }],
+    barstock_project_episode_links: [],
+  } as Record<string, unknown[]>;
+  const client = { schema() { return { from(table: string) {
+    const result = { data: rows[table], error: null };
+    const builder: any = {
+      select() { return builder; }, eq(field: string, value: unknown) { filters.push(["eq", field, value]); return builder; },
+      neq(field: string, value: unknown) { filters.push(["neq", field, value]); return builder; },
+      is(field: string, value: unknown) { filters.push(["is", field, value]); return builder; }, order() { return Promise.resolve(result); },
+      then(resolve: (value: unknown) => unknown) { return Promise.resolve(result).then(resolve); },
+    };
+    return builder;
+  } }; } } as any;
+  const snapshot = await createSupabaseBarStockRepository(client).hydrateWorkspace({ workspaceId: crypto.randomUUID(), userId: crypto.randomUUID() });
+  assert.ok(filters.some(([kind, field, value]) => kind === "neq" && field === "status" && value === "archived"));
+  assert.deepEqual(snapshot.sparks, []);
+});

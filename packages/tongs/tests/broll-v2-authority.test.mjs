@@ -3,6 +3,42 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const migration=readFileSync(new URL("../../../supabase/migrations/20260803170000_tongs_broll_v2_authority.sql",import.meta.url),"utf8");
+const paidMediaQuoteMigration=readFileSync(new URL("../../../supabase/migrations/20260808132000_tongs_paid_media_authorization_quote.sql",import.meta.url),"utf8");
+const paidMediaContractMigration=readFileSync(new URL("../../../supabase/migrations/20260811150000_tongs_allow_paid_media_quote_contract.sql",import.meta.url),"utf8");
+const paidVideoShapeMigration=readFileSync(new URL("../../../supabase/migrations/20260811160000_tongs_fix_paid_video_quote_shape.sql",import.meta.url),"utf8");
+const paidVideoOperationMigration=readFileSync(new URL("../../../supabase/migrations/20260811170000_tongs_paid_media_video_operation_identity.sql",import.meta.url),"utf8");
+const paidVideoUsageMigration=readFileSync(new URL("../../../supabase/migrations/20260811180000_tongs_allow_paid_video_actual_usage_component.sql",import.meta.url),"utf8");
+const runwayPricingMigration=readFileSync(new URL("../../../supabase/migrations/20260808131000_tongs_runway_gen45_pricing.sql",import.meta.url),"utf8");
+
+test("paid-media video quotes retain all canonical quote contract versions",()=>{
+  assert.match(paidMediaQuoteMigration,/'forge\.paid-media\.quote\.v1'/);
+  assert.match(paidMediaContractMigration,/pricing_contract_version in \(\s*'scalar_v1',\s*'compound_v2',\s*'forge\.paid-media\.quote\.v1'\s*\)/s);
+  assert.match(paidMediaContractMigration,/validate constraint ai_credit_quotes_contract_version_check/);
+  assert.doesNotMatch(paidMediaContractMigration,/drop constraint if exists/i);
+});
+test("paid-video quotes use a strict video shape and reserve the Forge-credit ceiling",()=>{
+  assert.match(paidVideoShapeMigration,/media_kind = 'image'[\s\S]*known_image_output_tokens is not null/);
+  assert.match(paidVideoShapeMigration,/media_kind = 'video'[\s\S]*known_image_output_tokens is null/);
+  assert.match(paidVideoShapeMigration,/pricing_contract_version = 'forge\.paid-media\.quote\.v1'/);
+  assert.match(paidVideoShapeMigration,/customer_credit_charge = authorized_customer_ceiling/);
+  assert.match(paidVideoShapeMigration,/reservation_amount = authorized_customer_ceiling/);
+  assert.match(paidVideoShapeMigration,/'video','text_to_video',v_params,1,v_provider_native_units,p_pricing_policy_revision_id,1,\s*v_provider_expense_micros,'USD',v_ceiling,v_ceiling/s);
+  assert.doesNotMatch(paidVideoShapeMigration,/authorization_policy_revision_id is null or \(\s*authorization_policy_revision/s);
+});
+test("Runway quotes bind the pricing revision rather than the stable policy identity",()=>{
+  assert.match(runwayPricingMigration,/'78000000-0000-4000-8000-000000000001'::uuid,\s*'77000000-0000-4000-8000-000000000001'::uuid/);
+  assert.match(runwayPricingMigration,/values\(\s*'77000000-0000-4000-8000-000000000001'::uuid,\s*'78000000-0000-4000-8000-000000000001'::uuid/s);
+});
+test("paid-video operations retain their canonical provider identity and endpoint",()=>{
+  assert.match(paidVideoOperationMigration,/case when v_quote\.media_kind='video' then 'paid_video_generation'/);
+  assert.match(paidVideoOperationMigration,/v_quote\.media_kind,v_quote\.provider,v_quote\.model/);
+  assert.match(paidVideoOperationMigration,/case when v_op\.media_kind='video' then '\/v1\/text_to_video'/);
+});
+test("actual usage permits canonical video output without weakening existing component kinds",()=>{
+  assert.match(paidVideoUsageMigration,/component_kind in \(\s*'text_input',\s*'cached_text_input',\s*'image_input',\s*'cached_image_input',\s*'image_output',\s*'video_output'\s*\)/s);
+  assert.match(paidVideoUsageMigration,/validate constraint paid_media_actual_usage_components_component_kind_check/);
+  assert.doesNotMatch(paidVideoUsageMigration,/drop constraint if exists/i);
+});
 const readbackMigration=readFileSync(new URL("../../../supabase/migrations/20260804130000_tongs_broll_candidate_readback.sql",import.meta.url),"utf8");
 test("B-roll V2 establishes immutable plans, beats, prompts, candidates, selections, and receipts",()=>{
   for(const name of ["broll_plan_revisions","broll_beat_revisions","broll_prompt_revisions","broll_candidate_revisions","broll_selections","broll_operation_receipts"])assert.match(migration,new RegExp(`create table tongs\\.${name}`));
