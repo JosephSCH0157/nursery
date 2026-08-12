@@ -48,7 +48,7 @@ test("Hearth leads creators from confirmed evidence to a canonical finished visu
  assert.match(authority,/source_evidence_revision_ids/);
  assert.match(authority,/target_duration_ms/);
  assert.match(authority,/reference-visuals\/render/);
- assert.match(authority,/subtype==="timeline"\|\|args\.opportunity\.subtype==="quote_card"\?"3"/);
+ assert.match(authority,/args\.opportunity\.subtype==="comparison"\|\|args\.opportunity\.subtype==="stat_card"\?"3"/);
  assert.match(authority,/renderer_name:rendererName,renderer_version:version/);
  assert.doesNotMatch(authority,/imageToVideo|textToImage|generateImage|debit.*credit/i);
 });
@@ -72,4 +72,26 @@ test("creator-added Reference Visual opportunities use the canonical amendment r
  assert.match(authority,/creator-amendment/);
  assert.match(authority,/derived_from_opportunity_revision_id/);
  assert.doesNotMatch(authority,/generateUnifiedVisualPlan/);
+});
+
+test("Reference Visual evidence has a distinct canonical start-over action that preserves Sources",()=>{
+ assert.match(panel,/Clear evidence and start over/);
+ assert.match(panel,/Linked Sources stay attached/);
+ assert.match(panel,/clearReferenceVisualEvidence/);
+ assert.match(authority,/reset_reference_visual_evidence/);
+});
+
+test("Reference Clips can be canonically converted to Reference Visuals without losing anchors or Source provenance",()=>{
+ assert.match(referenceClipPanel,/Better as a visual\?/);
+ assert.match(referenceClipPanel,/Convert to Reference Visual/);
+ assert.match(referenceClipPanel,/convert_reference_clip_to_reference_visual/);
+ assert.match(referenceClipPanel,/canonical_script_anchor:opportunity\.citation/);
+ assert.match(referenceClipPanel,/preserve_source_revision_id:opportunity\.source\?\.revisionId/);
+ assert.match(referenceClipPanel,/preserve_source_link_revision_id:opportunity\.sourceLinkRevisionId/);
+ assert.match(referenceClipPanel,/context_focus|focus:opportunity\.focus/);
+ assert.match(referenceClipPanel,/commitReferenceVisualSourceCollection/);
+ assert.match(referenceClipPanel,/linkedVisual\?\.sourceRevisionId!==opportunity\.source\.revisionId/);
+ assert.match(referenceClipPanel,/reason:"duplicate_coverage"/);
+ assert.match(referenceClipPanel,/original clip remains active/i);
+ assert.match(authority,/\.\.\.\(args\.opportunity\.creatorRequest\?\?\{\}\)/);
 });

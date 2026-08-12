@@ -14,6 +14,16 @@ test("missing publication and licensing metadata remain honestly unknown",async(
  assert.equal(result.publishedAt,null);assert.equal(result.publicationDateStatus,"not_provided");assert.equal(result.license.status,"not_found");
 });
 
+test("PDF ingestion derives a usable title from response filename or document URL",async()=>{
+ const fromHeader=await ingestReferenceSourceUrl("https://example.com/DocumentCenter/View/1/download",async()=>new Response(new Uint8Array([37,80,68,70]),{status:200,headers:{"content-type":"application/pdf","content-disposition":"attachment; filename=June-TDT-Collections.pdf"}}));
+ assert.equal(fromHeader.title,"June TDT Collections");
+ assert.ok(fromHeader.provenance.metadata_sources.includes("response_header:filename"));
+ const fromUrl=await ingestReferenceSourceUrl("https://www.occompt.com/DocumentCenter/View/60536/2026-06-June-TDT-Collection-PDF",async()=>new Response(new Uint8Array([37,80,68,70]),{status:200,headers:{"content-type":"application/pdf"}}));
+ assert.equal(fromUrl.title,"2026 06 June TDT Collection");
+ assert.equal(fromUrl.publisher,"occompt.com");
+ assert.ok(fromUrl.provenance.metadata_sources.includes("url_path:document_name"));
+});
+
 test("URL ingestion exposes unique provenance-bound archival image candidates and ignores page chrome",async()=>{
  const html=`<main><img src="/photos/freeze-1895.jpg" alt="Frozen citrus grove"><img data-src="https://archive.example.net/freeze.jpg" alt="Packing house after the freeze"><img src="/photos/freeze-1895.jpg"><img src="/assets/site-logo.png"><img src="data:image/png;base64,abc"></main>`;
  const result=await ingestReferenceSourceUrl("https://example.com/freeze",async()=>new Response(html,{status:200,headers:{"content-type":"text/html"}}));

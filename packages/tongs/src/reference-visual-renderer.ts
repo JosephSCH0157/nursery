@@ -8,6 +8,8 @@ export type ReferenceVisualEvidence = {
   unit?: string | null;
   evidence_date?: string | null;
   category?: string | null;
+  source_set_member_id?: string | null;
+  source_title?: string | null;
 };
 
 export type ReferenceVisualRecipe = {
@@ -59,8 +61,8 @@ function wrapAll(value: string, max = 54): string[] {
   return lines.length ? lines : ["Confirmed event"];
 }
 
-function textLines(lines: string[], x: number, y: number, size: number, gap = 1.22, weight = 500): string {
-  return lines.map((line, index) => `<text x="${x}" y="${y + index * size * gap}" font-size="${size}" font-weight="${weight}" fill="#f5f7fb">${escapeXml(line)}</text>`).join("");
+function textLines(lines: string[], x: number, y: number, size: number, gap = 1.22, weight = 500, fill = "#f5f7fb"): string {
+  return lines.map((line, index) => `<text x="${x}" y="${y + index * size * gap}" font-size="${size}" font-weight="${weight}" fill="${fill}">${escapeXml(line)}</text>`).join("");
 }
 
 function comparableText(value: string | null | undefined): string {
@@ -90,6 +92,19 @@ function renderQuoteCard(recipe: ReferenceVisualRecipe, evidence: ReferenceVisua
   return `<g data-quote-layout="responsive" data-quote-line-count="${quoteLines.length}">${headingLines.length ? textLines(headingLines, 148, 170, headingSize, 1.15, 720) : ""}<text x="126" y="${bodyTop + 12}" font-size="92" font-weight="800" fill="#f4a900">“</text>${textLines(quoteLines, 190, bodyTop, quoteSize, 1.22, 650)}${supportingLines.length ? textLines(supportingLines, 190, supportingY, 28, 1.2, 450) : ""}</g>`;
 }
 
+function renderDocumentExcerpt(recipe: ReferenceVisualRecipe, evidence: ReferenceVisualEvidence[]): string {
+  const excerpt = evidence.find((entry) => entry.raw_excerpt?.trim())?.raw_excerpt?.trim() ?? recipe.subtitle?.trim() ?? recipe.title.trim();
+  const heading = recipe.title.trim() && !sameViewerText(recipe.title, excerpt) ? recipe.title.trim() : "Source document";
+  const supporting = recipe.subtitle?.trim() && !sameViewerText(recipe.subtitle, excerpt) && !sameViewerText(recipe.subtitle, heading) ? recipe.subtitle.trim() : "";
+  const headingLines = wrapAll(heading, 68).slice(0, 3);
+  const supportingLines = supporting ? wrapAll(supporting, 88).slice(0, 3) : [];
+  const bodyLines = wrapAll(excerpt, excerpt.length > 700 ? 105 : excerpt.length > 400 ? 92 : 78);
+  const bodyTop = 315 + supportingLines.length * 31;
+  const bodyBottom = 900;
+  const bodySize = Math.max(15, Math.min(42, (bodyBottom - bodyTop) / Math.max(1, bodyLines.length * 1.22)));
+  return `<g data-document-layout="responsive" data-document-line-count="${bodyLines.length}"><rect x="126" y="126" width="1668" height="774" rx="18" fill="#182a43" stroke="#31506f" stroke-width="2"/><rect x="126" y="126" width="12" height="774" rx="6" fill="#f4a900"/>${textLines(headingLines, 174, 196, 46, 1.13, 760)}${supportingLines.length ? textLines(supportingLines, 174, 270, 27, 1.15, 450) : ""}${textLines(bodyLines, 174, bodyTop, bodySize, 1.22, 500)}</g>`;
+}
+
 function timelineDate(entry: ReferenceVisualEvidence): { display: string; sort: number } {
   const canonical = entry.evidence_date?.trim();
   if (canonical) {
@@ -99,6 +114,10 @@ function timelineDate(entry: ReferenceVisualEvidence): { display: string; sort: 
   const inferred = (entry.label ?? entry.raw_excerpt ?? "").match(/\b((?:1[5-9]\d{2}|20\d{2}|21\d{2})(?:\s*(?:-|–|—|to)\s*(?:1[5-9]\d{2}|20\d{2}|21\d{2}))?)\b/i)?.[1] ?? null;
   const year = inferred?.match(/\d{4}/)?.[0];
   return { display: inferred ?? "Date not provided", sort: year ? Date.parse(`${year}-01-01T00:00:00Z`) : Number.POSITIVE_INFINITY };
+}
+
+function hasTimelineDate(entry: ReferenceVisualEvidence): boolean {
+  return timelineDate(entry).display !== "Date not provided";
 }
 
 function timelineLabel(entry: ReferenceVisualEvidence, dateDisplay: string): string {
@@ -182,24 +201,96 @@ function renderBodyV1(recipe: ReferenceVisualRecipe, evidence: ReferenceVisualEv
   }).join("");
 }
 
+function comparisonValue(entry: ReferenceVisualEvidence): string {
+  if (entry.numeric_value != null) return `${entry.numeric_value}${entry.unit === "percent" ? "%" : entry.unit ? ` ${entry.unit}` : ""}`;
+  return entry.raw_excerpt?.trim() || entry.label?.trim() || "Confirmed detail";
+}
+
+function statValue(entry: ReferenceVisualEvidence): string {
+  if (entry.numeric_value != null) {
+    const approximate = /\b(?:roughly|about|approximately|nearly|around)\b|~/i.test(entry.raw_excerpt ?? "");
+    return `${approximate ? "~" : ""}${entry.numeric_value}${entry.unit === "percent" ? "%" : entry.unit ? ` ${entry.unit}` : ""}`;
+  }
+  return entry.raw_excerpt?.trim() || "Confirmed";
+}
+
+function renderStatCard(evidence: ReferenceVisualEvidence[]): string {
+  const columns = evidence.length === 1 ? 1 : 2;
+  const rows = Math.ceil(evidence.length / columns);
+  const gap = 24;
+  const left = 120;
+  const top = 315;
+  const availableWidth = WIDTH - left * 2;
+  const availableHeight = 620;
+  const cardWidth = (availableWidth - gap * (columns - 1)) / columns;
+  const cardHeight = (availableHeight - gap * (rows - 1)) / rows;
+  return evidence.map((entry, index) => {
+    const column = index % columns;
+    const row = Math.floor(index / columns);
+    const x = left + column * (cardWidth + gap);
+    const y = top + row * (cardHeight + gap);
+    const source = entry.source_title?.trim() || "Canonical Source";
+    const label = entry.label?.trim() || entry.category?.trim() || "Confirmed statistic";
+    const value = statValue(entry);
+    const sourceSize = Math.max(15, Math.min(22, cardHeight * 0.09));
+    const sourceLines = wrapAll(source, columns === 1 ? 72 : 42);
+    const valueLines = wrapAll(value, columns === 1 ? 32 : 20);
+    const labelLines = wrapAll(label, columns === 1 ? 58 : 34);
+    const valueSize = Math.max(24, Math.min(columns === 1 ? 116 : 66, cardHeight * 0.3 / Math.max(1, valueLines.length)));
+    const labelSize = Math.max(17, Math.min(28, cardHeight * 0.12 / Math.max(1, labelLines.length)));
+    const valueOffset = Math.min(170, Math.max(110, cardHeight * 0.42));
+    const valueY = y + Math.max(valueOffset, sourceLines.length * sourceSize * 1.08 + 70);
+    const labelY = valueY + valueLines.length * valueSize * 1.05 + 20;
+    return `<g data-stat-item="${index}" data-evidence-id="${escapeXml(entry.id)}" data-source-set-member-id="${escapeXml(entry.source_set_member_id)}"><rect x="${x}" y="${y}" width="${cardWidth}" height="${cardHeight}" rx="22" fill="#1a2d48" stroke="#31506f" stroke-width="2"/>${textLines(sourceLines, x + 28, y + 35, sourceSize, 1.08, 650)}${textLines(valueLines, x + 28, valueY, valueSize, 1.05, 850, "#73cbff")}${textLines(labelLines, x + 28, labelY, labelSize, 1.15, 550)}<rect x="${x + 28}" y="${y + cardHeight - 22}" width="${Math.min(220, cardWidth - 56)}" height="6" rx="3" fill="#f4a900"/></g>`;
+  }).join("");
+}
+
+function renderComparison(evidence: ReferenceVisualEvidence[]): string {
+  const groups = new Map<string, ReferenceVisualEvidence[]>();
+  for (const entry of evidence) {
+    const key = entry.source_set_member_id || entry.source_title || `evidence:${entry.id}`;
+    groups.set(key, [...(groups.get(key) ?? []), entry]);
+  }
+  const columns = [...groups.values()];
+  if (columns.length !== 2) throw new Error("A comparison requires confirmed evidence from exactly two canonical Source members.");
+  return columns.map((entries, columnIndex) => {
+    const x = columnIndex === 0 ? 120 : 990, width = 810;
+    const sourceTitle = entries[0]?.source_title?.trim() || `Source ${columnIndex + 1}`;
+    const rows = entries.map((entry) => ({ label: entry.label?.trim() || entry.category?.trim() || "Confirmed detail", value: comparisonValue(entry) }));
+    const lineCount = rows.reduce((count, row) => count + wrapAll(row.label, 34).length + wrapAll(row.value, 42).length, 0);
+    const fontSize = Math.max(18, Math.min(30, 620 / Math.max(6, lineCount * 1.35)));
+    let y = 420;
+    const content = rows.map((row, index) => {
+      const labelLines = wrapAll(row.label, 34), valueLines = wrapAll(row.value, 42), valueY = y + labelLines.length * fontSize * 1.18 + 8;
+      const block = `<g data-comparison-row="${index}" data-evidence-id="${escapeXml(entries[index]?.id)}">${textLines(labelLines, x + 34, y, fontSize, 1.18, 750)}${textLines(valueLines, x + 34, valueY, fontSize, 1.18, 500)}</g>`;
+      y = valueY + valueLines.length * fontSize * 1.18 + 34;
+      return block;
+    }).join("");
+    return `<g data-comparison-source="${escapeXml(entries[0]?.source_set_member_id || String(columnIndex + 1))}"><rect x="${x}" y="300" width="${width}" height="640" rx="24" fill="#1a2d48" stroke="#31506f" stroke-width="2"/>${textLines(wrapAll(sourceTitle, 34), x + 34, 355, 34, 1.12, 800)}${content}</g>`;
+  }).join("");
+}
+
 function renderBodyV2(recipe: ReferenceVisualRecipe, evidence: ReferenceVisualEvidence[]): string {
+  if (recipe.visual_subtype === "comparison") return renderComparison(evidence);
   if (recipe.visual_subtype !== "stat_card") return renderBodyV1(recipe, evidence);
-  const first = evidence[0];
-  const approximate = /\b(?:roughly|about|approximately|nearly|around)\b|~/i.test(first?.raw_excerpt ?? "");
-  const value = first?.numeric_value == null ? "—" : `${approximate ? "~" : ""}${first.numeric_value}${first.unit === "percent" ? "%" : first.unit ? ` ${first.unit}` : ""}`;
-  return `<text x="120" y="610" font-size="248" font-weight="850" letter-spacing="-8" fill="#73cbff">${escapeXml(value)}</text><rect x="124" y="670" width="260" height="8" rx="4" fill="#f4a900"/>${textLines(wrap(first?.label ?? "Confirmed statistic", 48), 128, 760, 48, 1.18, 650)}`;
+  return renderStatCard(evidence);
 }
 
 export async function renderCanonicalReferenceVisual(recipe: ReferenceVisualRecipe, evidence: ReferenceVisualEvidence[]): Promise<ReferenceVisualRender> {
   if (!evidence.length) throw new Error("Reference Visual rendering requires confirmed canonical evidence.");
+  if (recipe.visual_subtype === "timeline" && (evidence.length < 2 || evidence.some((entry) => !hasTimelineDate(entry)))) throw new Error("A timeline requires at least two confirmed evidence items with explicit dates.");
+  if ((recipe.visual_subtype === "chart" || recipe.visual_subtype === "stat_card") && !evidence.some((entry) => entry.numeric_value != null)) throw new Error(`A ${recipe.visual_subtype === "chart" ? "chart" : "stat card"} requires confirmed numeric evidence.`);
+  if (recipe.visual_subtype === "comparison" && new Set(evidence.map((entry) => entry.source_set_member_id).filter(Boolean)).size !== 2) throw new Error("A comparison requires confirmed evidence from exactly two canonical Source members.");
   const v2 = recipe.renderer_contract_version === "forge.reference-visual-renderer.v2";
-  const rendererVersion = recipe.visual_subtype === "timeline" || recipe.visual_subtype === "quote_card" ? "3" : v2 ? "2" : "1";
+  const modernLayout = v2 || recipe.visual_subtype === "stat_card";
+  const rendererVersion = recipe.visual_subtype === "timeline" || recipe.visual_subtype === "quote_card" || recipe.visual_subtype === "document_excerpt" || recipe.visual_subtype === "comparison" || recipe.visual_subtype === "stat_card" ? "3" : v2 ? "2" : "1";
   const rendererName = `forge_${recipe.visual_subtype}_v${rendererVersion}`;
   const attribution = recipe.attribution_text.trim() ? `<text x="120" y="990" font-size="28" fill="#9fb2c9">Source: ${escapeXml(recipe.attribution_text)}</text>` : "";
   const quoteCard = recipe.visual_subtype === "quote_card";
-  const svg = quoteCard
-    ? `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}"><rect width="1920" height="1080" fill="#08111f"/><rect x="70" y="70" width="1780" height="940" rx="32" fill="#142238"/><rect x="70" y="70" width="18" height="940" rx="9" fill="#f4a900"/><g font-family="Inter,Arial,sans-serif">${renderQuoteCard(recipe, evidence)}${attribution}</g></svg>`
-    : v2
+  const documentExcerpt = recipe.visual_subtype === "document_excerpt";
+  const svg = quoteCard || documentExcerpt
+    ? `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}"><rect width="1920" height="1080" fill="#08111f"/><rect x="70" y="70" width="1780" height="940" rx="32" fill="#142238"/><rect x="70" y="70" width="18" height="940" rx="9" fill="#f4a900"/><g font-family="Inter,Arial,sans-serif">${quoteCard ? renderQuoteCard(recipe, evidence) : renderDocumentExcerpt(recipe, evidence)}${attribution}</g></svg>`
+    : modernLayout
     ? `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}"><rect width="1920" height="1080" fill="#08111f"/><rect x="70" y="70" width="1780" height="940" rx="32" fill="#142238"/><rect x="70" y="70" width="18" height="940" rx="9" fill="#f4a900"/><g font-family="Inter,Arial,sans-serif">${textLines(wrap(recipe.title, 58), 128, 175, 66, 1.15, 750)}${recipe.subtitle ? textLines(wrap(recipe.subtitle, 78), 132, 265, 34, 1.15, 450) : ""}${renderBodyV2(recipe, evidence)}${attribution}</g></svg>`
     : `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}"><rect width="1920" height="1080" fill="#0b1220"/><rect x="70" y="70" width="1780" height="940" rx="28" fill="#142238"/><g font-family="Inter,Arial,sans-serif">${textLines(wrap(recipe.title, 58), 120, 175, 66, 1.15, 750)}${recipe.subtitle ? textLines(wrap(recipe.subtitle, 78), 124, 250, 34, 1.15, 450) : ""}${renderBodyV1(recipe, evidence)}<text x="120" y="990" font-size="28" fill="#9fb2c9">Source: ${escapeXml(recipe.attribution_text)}</text></g></svg>`;
   const pngBytes = await sharp(Buffer.from(svg)).png({ compressionLevel: 9, adaptiveFiltering: false }).toBuffer();

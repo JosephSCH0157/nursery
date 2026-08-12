@@ -9,6 +9,7 @@ const shell=readFileSync(new URL("../src/routes/HearthShell.tsx",import.meta.url
 const dispositionControl=readFileSync(new URL("../src/components/visuals/VisualOpportunityDispositionControl.tsx",import.meta.url),"utf8");
 const migration=readFileSync(new URL("../../../supabase/migrations/20260810130000_tongs_reference_visual_source_sets.sql",import.meta.url),"utf8");
 const originMigration=readFileSync(new URL("../../../supabase/migrations/20260811120000_tongs_reference_visual_evidence_extracted_content_origin.sql",import.meta.url),"utf8");
+const resetReadbackRepair=readFileSync(new URL("../../../supabase/migrations/20260812150000_tongs_reference_visual_reset_readback_repair.sql",import.meta.url),"utf8");
 
 test("Reference Visual Sources use immutable ordered set authority",()=>{
  for(const table of ["reference_visual_source_set_revisions","reference_visual_source_set_members"])assert.match(migration,new RegExp(`create table tongs\\.${table}`));
@@ -30,6 +31,7 @@ test("collection receipts reject stale conflicts, malformed members, and wrong o
 
 test("URL-first workflow exposes working, decision, and ready states without requiring fabricated dates",()=>{
  assert.match(panel,/Hearth is working/);assert.match(panel,/Ready/);assert.match(panel,/publicationDateStatus==="not_provided"\?"Not provided"/);for(const action of ["Approve","Replace","Skip"])assert.ok(panel.includes(`>${action}<`));assert.match(panel,/Save edits/);assert.match(panel,/readCanonicalReferenceVisualCollections/);assert.match(panel,/Approved Sources/);
+ assert.match(panel,/Source title/);assert.match(panel,/Publisher or organization/);assert.match(panel,/setSourceProposal\(\{\.\.\.sourceProposal,title:event\.target\.value\}\)/);
 });
 
 test("post-action and authority-event refreshes keep the work area mounted",()=>{
@@ -57,4 +59,18 @@ test("confirmed collection evidence uses the canonical extracted-content origin 
  assert.doesNotMatch(panel,/evidence_date:proposal\.evidenceDate/);
  for(const origin of ["ai_extracted","creator_entered","hearth_proposed_source_metadata","hearth_extracted_source_content"])assert.match(originMigration,new RegExp(`'${origin}'`));
  assert.match(originMigration,/reference_visual_evidence_revisions_origin_check/);
+});
+
+test("each newly confirmed collection claim starts its own immutable evidence sequence",()=>{
+ assert.match(panel,/confirmProposal[\s\S]*?expectedRevision:0/);
+ assert.match(panel,/confirmEvidence[\s\S]*?expectedRevision:0/);
+ assert.doesNotMatch(panel,/confirmProposal[\s\S]*?expectedRevision:opportunity\.evidenceSequenceRevision/);
+});
+
+test("evidence reset readback preserves ordered canonical Source collections",()=>{
+ assert.match(resetReadbackRepair,/'source_set',to_jsonb\(ss\)/);
+ assert.match(resetReadbackRepair,/'sources',coalesce/);
+ assert.match(resetReadbackRepair,/reference_visual_source_set_members sm/);
+ assert.match(resetReadbackRepair,/order by sm\.ordinal/);
+ assert.match(resetReadbackRepair,/reference_visual_evidence_resets/);
 });
