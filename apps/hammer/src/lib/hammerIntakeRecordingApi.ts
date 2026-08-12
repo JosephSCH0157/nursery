@@ -16,6 +16,7 @@ export type HammerIntakeResult =
       media_type: Exclude<HammerDetectedMediaType, "unsupported">;
       storage_path: string;
       take_kept_event_id: number | null;
+      import_id: string | null;
     }
   | {
       ok: false;
@@ -25,6 +26,7 @@ export type HammerIntakeResult =
       media_type: HammerDetectedMediaType;
       storage_path: string | null;
       take_kept_event_id: null;
+      import_id: null;
       error: string;
     };
 
@@ -37,10 +39,6 @@ function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed ? trimmed : null;
-}
-
-function readNullableNumber(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function extractTongsErrorMessage(payload: unknown): string | null {
@@ -72,19 +70,24 @@ function encodeBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-function sanitizeFilename(name: string): string {
-  return name.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/-+/g, "-");
+async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", bytes.slice().buffer);
+  return Array.from(new Uint8Array(digest), (value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+function operationIdFromImport(workpieceId: string, hash: string): string {
+  const compact = hash.slice(0, 32).split("");
+  compact[12] = "4";
+  compact[16] = ((Number.parseInt(compact[16] ?? "0", 16) & 0x3) | 0x8).toString(16);
+  const hex = compact.join("");
+  const salt = Array.from(workpieceId.replace(/-/g, "").slice(0, 32));
+  const mixed = Array.from(hex, (char, index) => (Number.parseInt(char, 16) ^ Number.parseInt(salt[index] ?? "0", 16)).toString(16)).join("");
+  return `${mixed.slice(0, 8)}-${mixed.slice(8, 12)}-4${mixed.slice(13, 16)}-${((Number.parseInt(mixed[16] ?? "0", 16) & 3) | 8).toString(16)}${mixed.slice(17, 20)}-${mixed.slice(20, 32)}`;
 }
 
 function buildStandaloneLabelFromFile(file: File): string {
   const base = `Standalone Edit — ${file.name || "Untitled"}`.trim();
   return base.length > 160 ? base.slice(0, 160).trim() : base;
-}
-
-function buildRecordingImportPath(file: File, timestampMs = Date.now()): string {
-  const safeName = sanitizeFilename(file.name || "upload.bin");
-  const stamp = Number.isFinite(timestampMs) ? Math.trunc(timestampMs) : Date.now();
-  return `recordings/imported-${stamp}-${safeName}`;
 }
 
 function detectMediaTypeFromExtension(filename: string): HammerDetectedMediaType {
@@ -208,75 +211,28 @@ export async function createStandaloneCradle(args: {
   return cradleId;
 }
 
-export async function commitRecordingFile(args: {
+export async function importRecordingFile(args: {
+  workspaceId: string;
   workpieceId: string;
   file: File;
-  destPath: string;
   fetcher?: TongsFetcher;
-}): Promise<void> {
+}): Promise<{ importId: string | null; storagePath: string | null; duplicate: boolean }> {
   const bytes = new Uint8Array(await args.file.arrayBuffer());
   const contentType = readString(args.file.type)?.toLowerCase() || "application/octet-stream";
+  const hash = await sha256Hex(bytes);
+  const operationId = operationIdFromImport(args.workpieceId, hash);
   const response = await (args.fetcher ?? tongsFetch)(
-    `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`,
-    {
-      method: "POST",
-      json: {
-        path: args.destPath,
-        content_type: contentType,
-        written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
-        bytes_base64: encodeBase64(bytes),
-        event_name: "take_completed",
-        event_payload: {
-          source: "hammer.intake",
-          file_path: args.destPath,
-          original_name: args.file.name || "upload.bin",
-          bytes: bytes.byteLength,
-          content_type: contentType,
-        },
-      },
-      timeoutMs: 60_000,
-    },
+    `/tongs/workspaces/${encodeURIComponent(args.workspaceId)}/workpieces/${encodeURIComponent(args.workpieceId)}/hammer/recording-import`,
+    { method: "POST", json: { operation_id: operationId, original_filename: args.file.name || "upload.bin", media_hash: hash,
+      media_bytes: bytes.byteLength, media_content_type: contentType, hammer_version: HAMMER_RUNTIME_WRITTEN_BY.tool_version,
+      provenance: { schema: "hammer.recording-import.v1", source: "hammer.intake", deliberate_attach: true },
+      bytes_base64: encodeBase64(bytes) }, timeoutMs: 120_000 },
   );
   const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(extractTongsErrorMessage(payload) ?? "Hammer could not upload media to workpiece recordings.");
-  }
-}
-
-export async function appendTakeKept(args: {
-  workpieceId: string;
-  file: File;
-  filePath: string;
-  bytes: number;
-  contentType: string;
-  fetcher?: TongsFetcher;
-}): Promise<number | null> {
-  const response = await (args.fetcher ?? tongsFetch)(
-    `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/append-event`,
-    {
-      method: "POST",
-      json: {
-        event_name: "take_kept",
-        written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
-        payload: {
-          source: "hammer.intake",
-          file_path: args.filePath,
-          original_name: args.file.name || "upload.bin",
-          bytes: args.bytes,
-          content_type: args.contentType,
-          duration_ms: null,
-        },
-      },
-      timeoutMs: 30_000,
-    },
-  );
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(extractTongsErrorMessage(payload) ?? "Hammer could not mark this take as kept in Tongs.");
-  }
-
-  const eventId = readNullableNumber(readJsonRecord(readJsonRecord(payload)?.data)?.id);
-  return eventId;
+  if (!response.ok) throw new Error(extractTongsErrorMessage(payload) ?? "Hammer could not import this recording.");
+  const data = readJsonRecord(readJsonRecord(payload)?.data);
+  const imported = readJsonRecord(data?.import);
+  return { importId: readString(imported?.id), storagePath: readString(imported?.media_path), duplicate: readString(data?.outcome) === "duplicate" };
 }
 
 export async function intake(args:
@@ -294,13 +250,13 @@ export async function intake(args:
       fetcher?: TongsFetcher;
     }
 ): Promise<HammerIntakeResult> {
-  const startedAt = Date.now();
   const mode = args.mode;
   const workspaceId = args.workspaceId;
   let workpieceId: string | null = "workpieceId" in args ? args.workpieceId : null;
   let mediaType: HammerDetectedMediaType = "unsupported";
   let storagePath: string | null = null;
-  let takeKeptEventId: number | null = null;
+  const takeKeptEventId: number | null = null;
+  let importId: string | null = null;
   let outcome: "success" | "failure" = "failure";
 
   try {
@@ -321,23 +277,10 @@ export async function intake(args:
       throw new Error("Missing workpiece context for media intake.");
     }
 
-    storagePath = buildRecordingImportPath(args.file, startedAt);
-    await commitRecordingFile({
-      workpieceId,
-      file: args.file,
-      destPath: storagePath,
-      fetcher: args.fetcher,
-    });
-
-    const contentType = readString(args.file.type)?.toLowerCase() || "application/octet-stream";
-    takeKeptEventId = await appendTakeKept({
-      workpieceId,
-      file: args.file,
-      filePath: storagePath,
-      bytes: args.file.size,
-      contentType,
-      fetcher: args.fetcher,
-    });
+    const imported = await importRecordingFile({ workspaceId, workpieceId, file: args.file, fetcher: args.fetcher });
+    storagePath = imported.storagePath;
+    importId = imported.importId;
+    if (!storagePath || !importId) throw new Error("Hammer import completed without a canonical receipt.");
 
     outcome = "success";
     const result: HammerIntakeResult = {
@@ -348,6 +291,7 @@ export async function intake(args:
       media_type: mediaType,
       storage_path: storagePath,
       take_kept_event_id: takeKeptEventId,
+      import_id: importId,
     };
     return result;
   } catch (error) {
@@ -362,6 +306,7 @@ export async function intake(args:
       media_type: mediaType,
       storage_path: storagePath,
       take_kept_event_id: null,
+      import_id: null,
       error: message,
     };
   } finally {
@@ -372,6 +317,7 @@ export async function intake(args:
       media_type: mediaType,
       storage_path: storagePath,
       take_kept_event_id: takeKeptEventId,
+      import_id: importId,
       result: outcome,
     };
     // eslint-disable-next-line no-console

@@ -694,6 +694,7 @@ function loadDevAsrThresholds() {
 // src/asr/asr-threshold-store.ts
 var THRESHOLD_EVENT = "tp:asr:thresholds";
 var baseThresholds = normalizeThresholds({ ...DEFAULT_ASR_THRESHOLDS });
+var profileThresholdOverrides = {};
 var driverThresholds = baseThresholds;
 var thresholdsDirty = false;
 function broadcastThresholdUpdate() {
@@ -705,7 +706,7 @@ function broadcastThresholdUpdate() {
   }
 }
 function computeEffectiveThresholds() {
-  return normalizeThresholds({ ...baseThresholds });
+  return normalizeThresholds({ ...baseThresholds, ...profileThresholdOverrides });
 }
 function refreshEffectiveThresholds(force = false) {
   if (!force && thresholdsDirty) return;

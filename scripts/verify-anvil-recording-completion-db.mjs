@@ -37,15 +37,15 @@ function asJson(value) {
 
 function completionRpc({ user = ids.editor, key = "complete-valid-01", revision = 1, hash = mediaHash, evidence } = {}) {
   const body = evidence ?? {
-    schema: "anvil.recording-completion.v1",
+    schema: "anvil.recording-completion.v2",
     completed: true,
     capture_session_id: ids.capture,
-    coverage: { terminal_line_completed: true, unresolved_skipped_line_count: 0, unresolved_skipped_lines: [] },
-    artifact_validation: { ok: true, sha256: hash },
+    asr_diagnostics: { terminal_line_completed: false, unresolved_skipped_line_count: 2 },
+    artifact_validation: { ok: true, sha256: hash, bytes: 4096, content_type: "audio/wav" },
   };
-  const sql = `select tongs.anvil_transition_take_completed('${ids.workspaceA}','${ids.workpieceA}',
-    '${ids.capture}',(select transition_id from tongs.workpiece_ready_script_meta where workpiece_id='${ids.workpieceA}'),
-    1,'${scriptHash}','recordings/phase5c.wav',${revision},'${hash}','${key}','${asJson(body)}'::jsonb)::text;`;
+  const sql = `select tongs.anvil_transition_take_completed_v2('${ids.workspaceA}','${ids.workpieceA}',
+    '${ids.capture}',null,'script/script.md',1,'${scriptHash}','recordings/phase5c.wav',${revision},'${hash}',
+    4096,'audio/wav','forge-workpieces','workpieces/${ids.workpieceA}/recordings/phase5c.wav','${key}','${asJson(body)}'::jsonb)::text;`;
   return JSON.parse(psql(sql, { role: "authenticated", user }).stdout.split(/\r?\n/).at(-1));
 }
 
@@ -87,10 +87,10 @@ try {
   check(ready.outcome === "saved", "fixture establishes an exact validated Ready contract");
 
   const securityShape = psql(`select count(*) from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-    where n.nspname='tongs' and p.proname in ('anvil_transition_take_completed','anvil_transition_take_kept')
+    where n.nspname='tongs' and p.proname in ('anvil_transition_take_completed_v2','reserve_hammer_recording_import','finalize_hammer_recording_import')
       and p.prosecdef and pg_get_userbyid(p.proowner)='postgres'
       and p.proconfig @> array['search_path=pg_catalog, tongs'];`).stdout;
-  check(securityShape === "2", "both transition RPCs are postgres-owned definers with fixed safe search_path");
+  check(securityShape === "3", "recording authority RPCs are postgres-owned definers with fixed safe search_path");
 
   const direct = psql(`insert into tongs.workpiece_events(workpiece_id,event_name,payload,written_by_tool,written_by_tool_version,written_by_lane)
     values('${ids.workpieceA}','take_kept','{}','anvil','0.0.0','forge-managed');`, { allowFailure: true });
@@ -100,46 +100,55 @@ try {
   check(viewer.outcome === "denied" && viewer.completion === null, "viewer completion is denied without row leakage");
   const crossWorkspace = completionRpc({ user: ids.other, key: "complete-cross-01" });
   check(crossWorkspace.outcome === "denied" && crossWorkspace.completion === null, "cross-workspace completion is denied without row leakage");
-  const malformed = completionRpc({ key: "complete-bad-001", evidence: { schema: "anvil.recording-completion.v1", completed: true } });
+  const malformed = completionRpc({ key: "complete-bad-001", evidence: { schema: "anvil.recording-completion.v2", completed: true } });
   check(malformed.outcome === "conflict" && malformed.reason === "invalid_completion_evidence", "incomplete completion evidence is rejected");
   const unresolved = completionRpc({ key: "complete-skip-001", evidence: {
-    schema: "anvil.recording-completion.v1", completed: true, capture_session_id: ids.capture,
-    coverage: { terminal_line_completed: true, unresolved_skipped_line_count: 1, unresolved_skipped_lines: [2] },
-    artifact_validation: { ok: true, sha256: mediaHash },
+    schema: "anvil.recording-completion.v2", completed: true, capture_session_id: ids.capture,
+    asr_diagnostics: { terminal_line_completed: false, unresolved_skipped_line_count: 1, unresolved_skipped_lines: [2] },
+    artifact_validation: { ok: true, sha256: mediaHash, bytes: 4096, content_type: "audio/wav" },
   } });
-  check(unresolved.outcome === "conflict", "unresolved skipped lines prevent completion");
+  check(unresolved.outcome === "saved", "unresolved skipped lines and non-terminal ASR do not prevent completion");
   const stale = completionRpc({ key: "complete-stale-01", revision: 2 });
   check(stale.outcome === "stale" && stale.reason === "media_contract_mismatch", "stale media revision is rejected with canonical evidence");
   const mismatch = completionRpc({ key: "complete-hash-001", hash: "f".repeat(64) });
   check(mismatch.outcome === "stale", "mismatched media hash is rejected");
 
-  const prematureKeep = keepRpc("c2000000-0000-4000-8000-000000000099", { key: "keep-premature-1" });
-  check(prematureKeep.outcome === "not_found" && prematureKeep.keep === null, "keep is refused before canonical completion exists");
-
-  const saved = completionRpc();
+  const saved = unresolved;
   check(saved.outcome === "saved" && saved.completion.media_hash === mediaHash, "valid completion atomically records exact script and artifact authority");
   const completionId = saved.completion.id;
-  const duplicate = completionRpc();
+  const duplicate = completionRpc({ key: "complete-skip-001", evidence: saved.completion.completion_evidence });
   check(duplicate.outcome === "duplicate" && duplicate.completion.id === completionId, "completion retry is idempotent");
-  const conflict = completionRpc({ key: "complete-valid-01", evidence: {
-    schema: "anvil.recording-completion.v1", completed: true, capture_session_id: ids.capture,
-    coverage: { terminal_line_completed: true, unresolved_skipped_line_count: 0, unresolved_skipped_lines: [] },
-    artifact_validation: { ok: true, sha256: mediaHash }, note: "conflicting reuse",
+  const conflict = completionRpc({ key: "complete-skip-001", evidence: {
+    schema: "anvil.recording-completion.v2", completed: true, capture_session_id: ids.capture,
+    artifact_validation: { ok: true, sha256: mediaHash, bytes: 4096, content_type: "audio/wav" }, note: "conflicting reuse",
   } });
   check(conflict.outcome === "conflict" && conflict.reason === "idempotency_key_reused", "conflicting completion idempotency reuse fails");
-  check(psql(`select count(*) from tongs.current_workpiece_recorded_takes where workpiece_id='${ids.workpieceA}';`).stdout === "0",
-    "completed-but-not-kept take does not create recorded truth");
+  check(Number(psql(`select count(*) from tongs.current_workpiece_recorded_takes where workpiece_id='${ids.workpieceA}';`).stdout) >= 1,
+    "completion alone exposes recorded truth without a keep gate");
+  check(psql(`select count(*) from tongs.workpiece_events where workpiece_id='${ids.workpieceA}' and event_name='take_completed';`).stdout === "1",
+    "each accepted completion maps to one append-only derived event");
 
-  const badKeep = keepRpc(completionId, { key: "keep-bad-00001", evidence: { schema: "anvil.take-decision.v1", decision: "discard" } });
-  check(badKeep.outcome === "conflict", "malformed or non-keep decision cannot create recorded truth");
-  const kept = keepRpc(completionId);
-  check(kept.outcome === "saved", "explicit keep decision is saved after completion");
-  const keptAgain = keepRpc(completionId);
-  check(keptAgain.outcome === "duplicate" && keptAgain.keep.id === kept.keep.id, "keep retry is idempotent");
-  check(psql(`select count(*) from tongs.current_workpiece_recorded_takes where workpiece_id='${ids.workpieceA}';`).stdout === "1",
-    "exactly one completed-and-kept take exposes recorded truth");
-  check(psql(`select count(*) from tongs.workpiece_events where workpiece_id='${ids.workpieceA}' and event_name in ('take_completed','take_kept');`).stdout === "2",
-    "accepted transitions map one-to-one to append-only canonical events");
+  const importOperation = "c2000000-0000-4000-8000-000000000010";
+  const importHash = "a".repeat(64);
+  const importFingerprint = "b".repeat(64);
+  const reserveSql = `select tongs.reserve_hammer_recording_import('${ids.workspaceA}','${ids.workpieceA}','${importOperation}',
+    '${importFingerprint}','recordings/imports/${importOperation}/${importHash}.mp4','external.mp4','${importHash}',8192,
+    'video/mp4','forge-workpieces','workpieces/${ids.workpieceA}/recordings/imports/${importOperation}/${importHash}.mp4',
+    'forge-v1.2.0','{"schema":"hammer.recording-import.v1","deliberate_attach":true}'::jsonb)::text;`;
+  const reserved = JSON.parse(psql(reserveSql, { role: "authenticated", user: ids.editor }).stdout);
+  check(reserved.outcome === "reserved", "Hammer import reserves a stable operation before media mutation");
+  const resumed = JSON.parse(psql(reserveSql, { role: "authenticated", user: ids.editor }).stdout);
+  check(resumed.outcome === "resumable" && resumed.import.id === reserved.import.id, "Hammer import reservation replay resumes the same operation");
+  const reserveConflict = JSON.parse(psql(reserveSql.replace(importFingerprint, "c".repeat(64)), { role: "authenticated", user: ids.editor }).stdout);
+  check(reserveConflict.outcome === "conflict", "Hammer import rejects operation-ID reuse with different inputs");
+  const finalized = JSON.parse(psql(`select tongs.finalize_hammer_recording_import('${reserved.import.id}','${importHash}',8192,'video/mp4')::text;`,
+    { role: "authenticated", user: ids.editor }).stdout);
+  check(finalized.outcome === "committed" && finalized.import.state === "committed", "Hammer import finalizes file authority and provenance atomically");
+  const finalizedAgain = JSON.parse(psql(`select tongs.finalize_hammer_recording_import('${reserved.import.id}','${importHash}',8192,'video/mp4')::text;`,
+    { role: "authenticated", user: ids.editor }).stdout);
+  check(finalizedAgain.outcome === "duplicate" && finalizedAgain.import.id === reserved.import.id, "Hammer import finalization retry returns the original receipt");
+  check(psql(`select count(*) from tongs.current_workpiece_recorded_takes where source_kind='hammer_import' and source_authority_id='${reserved.import.id}';`).stdout === "1",
+    "committed Hammer import appears in normalized recorded-media truth");
 
   const crossRead = psql(`select count(*) from tongs.current_workpiece_recorded_takes where workpiece_id='${ids.workpieceA}';`,
     { role: "authenticated", user: ids.other });

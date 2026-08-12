@@ -33400,7 +33400,7 @@ function broadcastThresholdUpdate() {
   }
 }
 function computeEffectiveThresholds() {
-  return normalizeThresholds({ ...baseThresholds });
+  return normalizeThresholds({ ...baseThresholds, ...profileThresholdOverrides });
 }
 function refreshEffectiveThresholds(force = false) {
   if (!force && thresholdsDirty) return;
@@ -33432,6 +33432,10 @@ function getAsrDriverThresholds() {
 function getBaseAsrThresholds() {
   return baseThresholds;
 }
+function setAsrProfileThresholdOverrides(next) {
+  profileThresholdOverrides = next ? { ...next } : {};
+  refreshEffectiveThresholds(true);
+}
 function getSessionLearnedPatches() {
   return {};
 }
@@ -33444,10 +33448,7 @@ function clearAsrThresholdsDirty() {
   if (!thresholdsDirty) return;
   clearThresholdsDirtyInternal();
 }
-function areAsrThresholdsDirty() {
-  return thresholdsDirty;
-}
-var THRESHOLD_EVENT, baseThresholds, driverThresholds, thresholdsDirty;
+var THRESHOLD_EVENT, baseThresholds, profileThresholdOverrides, driverThresholds, thresholdsDirty;
 var init_asr_threshold_store = __esm({
   "src/asr/asr-threshold-store.ts"() {
     "use strict";
@@ -33455,6 +33456,7 @@ var init_asr_threshold_store = __esm({
     init_dev_thresholds();
     THRESHOLD_EVENT = "tp:asr:thresholds";
     baseThresholds = normalizeThresholds({ ...DEFAULT_ASR_THRESHOLDS });
+    profileThresholdOverrides = {};
     driverThresholds = baseThresholds;
     thresholdsDirty = false;
     applyDevOverrides();
@@ -37472,6 +37474,312 @@ var init_asr_backend_liveness = __esm({
   }
 });
 
+// src/ui/speaker-profiles-store.ts
+function normalizeSlot(slot) {
+  if (typeof slot !== "string") return DEFAULT_ACTIVE_SLOT;
+  if (VALID_SLOTS.includes(slot)) return slot;
+  return DEFAULT_ACTIVE_SLOT;
+}
+function normalizeBindings(raw) {
+  const out = { ...DEFAULT_BINDINGS };
+  if (!raw || typeof raw !== "object") return out;
+  for (const slot of VALID_SLOTS) {
+    if (Object.prototype.hasOwnProperty.call(raw, slot)) {
+      out[slot] = raw[slot] ?? null;
+    }
+  }
+  return out;
+}
+function readStorage() {
+  if (typeof window === "undefined") {
+    return {
+      profiles: [...DEFAULT_PROFILES],
+      bindings: { ...DEFAULT_BINDINGS },
+      activeSlot: DEFAULT_ACTIVE_SLOT
+    };
+  }
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY7);
+    if (!raw) throw new Error("missing");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") throw new Error("bad");
+    const profiles = Array.isArray(parsed.profiles) ? parsed.profiles : [];
+    const bindings = normalizeBindings(parsed?.bindings);
+    const activeSlot = normalizeSlot(parsed?.activeSlot);
+    return {
+      profiles,
+      bindings: {
+        ...DEFAULT_BINDINGS,
+        ...bindings
+      },
+      activeSlot
+    };
+  } catch {
+    return {
+      profiles: [...DEFAULT_PROFILES],
+      bindings: { ...DEFAULT_BINDINGS },
+      activeSlot: DEFAULT_ACTIVE_SLOT
+    };
+  }
+}
+function writeStorage(state8) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(STORAGE_KEY7, JSON.stringify(state8));
+  } catch {
+  }
+}
+function getProfileSummaries() {
+  return state4.profiles.map((profile) => ({
+    id: profile.id,
+    name: profile.name
+  }));
+}
+function notifyBindings() {
+  const bindings = getSpeakerBindings();
+  try {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent(BINDING_EVENT, { detail: { bindings, profiles: getProfileSummaries() } })
+      );
+    }
+  } catch {
+  }
+  try {
+    window?.sendToDisplay?.({
+      type: "speaker-bindings",
+      bindings,
+      profiles: getProfileSummaries(),
+      activeSlot: state4.activeSlot
+    });
+  } catch {
+  }
+  subscribers.forEach((cb) => {
+    try {
+      cb(bindings);
+    } catch {
+    }
+  });
+}
+function notifyActiveSpeaker() {
+  const slot = getActiveSpeakerSlot();
+  const bindings = getSpeakerBindings();
+  const profile = getProfileById(bindings[slot] || null);
+  try {
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent(ACTIVE_SPEAKER_EVENT, {
+        detail: {
+          slot,
+          profileId: profile?.id ?? null,
+          profileName: profile?.name ?? ""
+        }
+      }));
+    }
+  } catch {
+  }
+  try {
+    window?.sendToDisplay?.({
+      type: "speaker-active",
+      slot,
+      profileId: profile?.id ?? null,
+      profileName: profile?.name ?? ""
+    });
+  } catch {
+  }
+  activeSubscribers.forEach((cb) => {
+    try {
+      cb(slot);
+    } catch {
+    }
+  });
+}
+function persist() {
+  writeStorage(state4);
+  notifyBindings();
+  notifyActiveSpeaker();
+  notifyStateSubscribers();
+}
+function notifyStateSubscribers() {
+  const snapshot = getSpeakerProfilesSnapshot();
+  stateSubscribers.forEach((cb) => {
+    try {
+      cb(snapshot);
+    } catch {
+    }
+  });
+}
+function getSpeakerProfiles() {
+  return state4.profiles.slice();
+}
+function upsertSpeakerProfile(profile) {
+  const trimmed = profile.name?.trim() || "";
+  const next = {
+    ...profile,
+    name: trimmed || "Untitled",
+    id: profile.id || `profile-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+  };
+  state4 = {
+    ...state4,
+    profiles: [
+      ...state4.profiles.filter((item) => item.id !== next.id),
+      next
+    ]
+  };
+  persist();
+  return next;
+}
+function deleteSpeakerProfile(profileId) {
+  if (!profileId) return;
+  const target = state4.profiles.find((item) => item.id === profileId);
+  if (!target || target.system) return;
+  state4 = {
+    ...state4,
+    profiles: state4.profiles.filter((item) => item.id !== profileId),
+    bindings: Object.fromEntries(
+      Object.entries(state4.bindings).map(([slot, value]) => [
+        slot,
+        value === profileId ? null : value
+      ])
+    )
+  };
+  persist();
+}
+function getSpeakerBindings() {
+  return { ...state4.bindings };
+}
+function setSpeakerBinding(slot, profileId) {
+  if (!slot) return;
+  state4 = {
+    ...state4,
+    bindings: {
+      ...state4.bindings,
+      [slot]: profileId
+    }
+  };
+  persist();
+}
+function getActiveSpeakerSlot() {
+  return state4.activeSlot;
+}
+function setActiveSpeakerSlot(slot) {
+  if (!slot || !VALID_SLOTS.includes(slot)) return;
+  if (state4.activeSlot === slot) return;
+  state4 = {
+    ...state4,
+    activeSlot: slot
+  };
+  persist();
+}
+function subscribeActiveSpeaker(fn) {
+  activeSubscribers.add(fn);
+  fn(getActiveSpeakerSlot());
+  return () => activeSubscribers.delete(fn);
+}
+function getProfileById(id) {
+  if (!id) return void 0;
+  return state4.profiles.find((profile) => profile.id === id);
+}
+function hasPatchValues(patch) {
+  return !!patch && Object.keys(patch).length > 0;
+}
+function createProfile(name, patch) {
+  const trimmed = (name || "").trim() || `Profile ${Date.now()}`;
+  return upsertSpeakerProfile({
+    id: "",
+    name: trimmed,
+    asrTweaks: hasPatchValues(patch) ? { ...patch } : void 0
+  });
+}
+function applyProfileToSlot(slot, profileId) {
+  setSpeakerBinding(slot, profileId);
+}
+function getProfile(profileId) {
+  return getProfileById(profileId);
+}
+function subscribeSpeakerBindings(fn) {
+  subscribers.add(fn);
+  fn(getSpeakerBindings());
+  return () => subscribers.delete(fn);
+}
+function getSpeakerProfilesSnapshot() {
+  return {
+    profiles: state4.profiles.slice(),
+    bindings: { ...state4.bindings },
+    activeSlot: state4.activeSlot
+  };
+}
+function mergeBindings(override) {
+  if (!override) return state4.bindings;
+  const result = { ...DEFAULT_BINDINGS };
+  for (const slot of VALID_SLOTS) {
+    if (Object.prototype.hasOwnProperty.call(override, slot)) {
+      result[slot] = override[slot] ?? null;
+    }
+  }
+  return result;
+}
+function initSpeakerProfilesFromSettings(options) {
+  state4 = {
+    profiles: Array.isArray(options.profiles) ? options.profiles.slice() : state4.profiles,
+    bindings: options.bindings ? mergeBindings(options.bindings) : state4.bindings,
+    activeSlot: normalizeSlot(options.activeSlot ?? state4.activeSlot)
+  };
+  persist();
+}
+function subscribeSpeakerProfileState(fn) {
+  stateSubscribers.add(fn);
+  fn(getSpeakerProfilesSnapshot());
+  return () => stateSubscribers.delete(fn);
+}
+function applyProfileTweaks(profile, tweaks) {
+  const next = {
+    ...profile,
+    asrTweaks: tweaks && Object.keys(tweaks).length ? { ...tweaks } : void 0
+  };
+  return next;
+}
+function setProfileAsrTweaks(profileId, tweaks) {
+  if (!profileId) return;
+  const profile = getProfileById(profileId);
+  if (!profile) return;
+  state4 = {
+    ...state4,
+    profiles: [
+      ...state4.profiles.filter((item) => item.id !== profileId),
+      applyProfileTweaks(profile, tweaks)
+    ]
+  };
+  persist();
+}
+var STORAGE_KEY7, BINDING_EVENT, ACTIVE_SPEAKER_EVENT, DEFAULT_PROFILES, DEFAULT_BINDINGS, DEFAULT_ACTIVE_SLOT, VALID_SLOTS, subscribers, activeSubscribers, stateSubscribers, state4;
+var init_speaker_profiles_store = __esm({
+  "src/ui/speaker-profiles-store.ts"() {
+    "use strict";
+    STORAGE_KEY7 = "tp_speaker_profiles_v1";
+    BINDING_EVENT = "tp:speaker:bindings";
+    ACTIVE_SPEAKER_EVENT = "tp:speaker:active";
+    DEFAULT_PROFILES = [
+      { id: "default-s1", name: "Default S1", system: true },
+      { id: "default-s2", name: "Default S2", system: true }
+    ];
+    DEFAULT_BINDINGS = {
+      s1: "default-s1",
+      s2: "default-s2",
+      g1: null,
+      g2: null
+    };
+    DEFAULT_ACTIVE_SLOT = "s1";
+    VALID_SLOTS = ["s1", "s2", "g1", "g2"];
+    subscribers = /* @__PURE__ */ new Set();
+    activeSubscribers = /* @__PURE__ */ new Set();
+    stateSubscribers = /* @__PURE__ */ new Set();
+    state4 = readStorage();
+    writeStorage(state4);
+    notifyBindings();
+    notifyActiveSpeaker();
+  }
+});
+
 // src/features/asr/asr-scroll-driver.constants.ts
 var DEFAULT_ASR_BACKEND_HEARTBEAT_MS, DEFAULT_ASR_BACKEND_TRANSCRIPT_STALE_MS, DEFAULT_ASR_BACKEND_AUDIO_CHUNK_STALE_MS, DEFAULT_ASR_BACKEND_RESTART_WINDOW_MS, DEFAULT_ASR_BACKEND_FIRST_TRANSCRIPT_GRACE_MS, DEFAULT_ASR_LIVE_SCROLL_STALL_NO_PROGRESS_MS, DEFAULT_ASR_LIVE_SCROLL_STALL_RECOVERY_COOLDOWN_MS, DEFAULT_MIN_TOKEN_COUNT, DEFAULT_MIN_EVIDENCE_CHARS, DEFAULT_NO_MATCH_WINDOW_MS, DEFAULT_NO_MATCH_BUMP_HITS, DEFAULT_NO_MATCH_RELOCK_HITS, DEFAULT_NOISE_INTERIM_MIN_TOKENS, DEFAULT_NOISE_INTERIM_MIN_CHARS, DEFAULT_ASR_VAD_SPEECH_GRACE_MS, DEFAULT_ASR_RUNTIME_SPEECH_GRACE_MS, GUARD_THROTTLE_MS, BAD_CURSOR_ON_CUE_LOG_THROTTLE_MS, DEFAULT_STALL_LOG_COOLDOWN_MS, EVENT_RING_MAX, EVENT_DUMP_COUNT, HOLD_TICK_LOG_THROTTLE_MS, LOG_THROTTLE_MS, HUD_STATUS_THROTTLE_MS, HUD_PURSUE_THROTTLE_MS, SUMMARY_TOAST_DEDUPE_MS, NAN_GUARD_THROTTLE_MS, MANUAL_ANCHOR_MIN_SCROLL_PX, MANUAL_ANCHOR_MAX_SCROLL_WINDOW_MS, MANUAL_ANCHOR_PENDING_TIMEOUT_MS, MANUAL_ANCHOR_WINDOW_LINES, MANUAL_ANCHOR_SIM_SLACK, DEFAULT_MATCH_BACKTRACK_LINES, DEFAULT_MATCH_LOOKAHEAD_LINES, DEFAULT_MATCH_LOOKAHEAD_STEPS, DEFAULT_BAND_BACK_TOLERANCE_LINES;
 var init_asr_scroll_driver_constants = __esm({
@@ -38546,16 +38854,6 @@ function emitPursuitHud(err, vel, target, top) {
   } catch {
   }
 }
-function resolveThreshold() {
-  try {
-    const stored = getAsrSettings();
-    if (typeof stored.threshold === "number") {
-      return clamp5(stored.threshold, 0, 1);
-    }
-  } catch {
-  }
-  return 0.55;
-}
 function isDevMode4() {
   if (typeof window === "undefined") return false;
   try {
@@ -39249,10 +39547,6 @@ function createAsrScrollDriver(options = {}) {
       }
     } catch {
     }
-  }
-  let threshold = resolveThreshold();
-  if (!isDevMode4() && !areAsrThresholdsDirty()) {
-    setAsrDriverThresholds({ candidateMinSim: threshold });
   }
   let lastLineIndex = -1;
   const alignmentEpisodes = new AsrAlignmentEpisodeTracker();
@@ -46063,13 +46357,14 @@ function createAsrScrollDriver(options = {}) {
   } catch {
   }
   applyTuningProfile(getActiveAsrTuningProfile());
+  const unsubscribeSpeakerProfile = subscribeSpeakerProfileState((snapshot) => {
+    const profileId = snapshot.bindings[snapshot.activeSlot];
+    const profile = profileId ? snapshot.profiles.find((candidate) => candidate.id === profileId) : void 0;
+    setAsrProfileThresholdOverrides(profile?.asrTweaks);
+  });
   attachManualScrollWatcher();
   const unsubscribe = speechStore.subscribe((state8) => {
     if (disposed) return;
-    if (typeof state8.threshold === "number" && !isDevMode4() && !areAsrThresholdsDirty()) {
-      threshold = clamp5(state8.threshold, 0, 1);
-      setAsrDriverThresholds({ candidateMinSim: threshold });
-    }
     const nextCalm = !!state8.calmModeEnabled;
     if (nextCalm !== calmModeEnabled) {
       calmModeEnabled = nextCalm;
@@ -71410,6 +71705,10 @@ function createAsrScrollDriver(options = {}) {
     } catch {
     }
     try {
+      unsubscribeSpeakerProfile();
+    } catch {
+    }
+    try {
       window.removeEventListener("tp:asr:silence", silenceHandler);
     } catch {
     }
@@ -73347,6 +73646,7 @@ var init_asr_scroll_driver = __esm({
     init_asr_backend_restart_adapter();
     init_asr_backend_liveness();
     init_asr_threshold_store();
+    init_speaker_profiles_store();
     init_boot_trace();
     init_dev_log();
     init_asr_scroll_driver_constants();
@@ -77377,312 +77677,6 @@ function resolveRuntimeSpeechEngine(options = {}) {
 var init_runtime_engine_selection = __esm({
   "src/speech/runtime-engine-selection.ts"() {
     "use strict";
-  }
-});
-
-// src/ui/speaker-profiles-store.ts
-function normalizeSlot(slot) {
-  if (typeof slot !== "string") return DEFAULT_ACTIVE_SLOT;
-  if (VALID_SLOTS.includes(slot)) return slot;
-  return DEFAULT_ACTIVE_SLOT;
-}
-function normalizeBindings(raw) {
-  const out = { ...DEFAULT_BINDINGS };
-  if (!raw || typeof raw !== "object") return out;
-  for (const slot of VALID_SLOTS) {
-    if (Object.prototype.hasOwnProperty.call(raw, slot)) {
-      out[slot] = raw[slot] ?? null;
-    }
-  }
-  return out;
-}
-function readStorage() {
-  if (typeof window === "undefined") {
-    return {
-      profiles: [...DEFAULT_PROFILES],
-      bindings: { ...DEFAULT_BINDINGS },
-      activeSlot: DEFAULT_ACTIVE_SLOT
-    };
-  }
-  try {
-    const raw = window.localStorage.getItem(STORAGE_KEY7);
-    if (!raw) throw new Error("missing");
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") throw new Error("bad");
-    const profiles = Array.isArray(parsed.profiles) ? parsed.profiles : [];
-    const bindings = normalizeBindings(parsed?.bindings);
-    const activeSlot = normalizeSlot(parsed?.activeSlot);
-    return {
-      profiles,
-      bindings: {
-        ...DEFAULT_BINDINGS,
-        ...bindings
-      },
-      activeSlot
-    };
-  } catch {
-    return {
-      profiles: [...DEFAULT_PROFILES],
-      bindings: { ...DEFAULT_BINDINGS },
-      activeSlot: DEFAULT_ACTIVE_SLOT
-    };
-  }
-}
-function writeStorage(state8) {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(STORAGE_KEY7, JSON.stringify(state8));
-  } catch {
-  }
-}
-function getProfileSummaries() {
-  return state4.profiles.map((profile) => ({
-    id: profile.id,
-    name: profile.name
-  }));
-}
-function notifyBindings() {
-  const bindings = getSpeakerBindings();
-  try {
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(
-        new CustomEvent(BINDING_EVENT, { detail: { bindings, profiles: getProfileSummaries() } })
-      );
-    }
-  } catch {
-  }
-  try {
-    window?.sendToDisplay?.({
-      type: "speaker-bindings",
-      bindings,
-      profiles: getProfileSummaries(),
-      activeSlot: state4.activeSlot
-    });
-  } catch {
-  }
-  subscribers.forEach((cb) => {
-    try {
-      cb(bindings);
-    } catch {
-    }
-  });
-}
-function notifyActiveSpeaker() {
-  const slot = getActiveSpeakerSlot();
-  const bindings = getSpeakerBindings();
-  const profile = getProfileById(bindings[slot] || null);
-  try {
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent(ACTIVE_SPEAKER_EVENT, {
-        detail: {
-          slot,
-          profileId: profile?.id ?? null,
-          profileName: profile?.name ?? ""
-        }
-      }));
-    }
-  } catch {
-  }
-  try {
-    window?.sendToDisplay?.({
-      type: "speaker-active",
-      slot,
-      profileId: profile?.id ?? null,
-      profileName: profile?.name ?? ""
-    });
-  } catch {
-  }
-  activeSubscribers.forEach((cb) => {
-    try {
-      cb(slot);
-    } catch {
-    }
-  });
-}
-function persist() {
-  writeStorage(state4);
-  notifyBindings();
-  notifyActiveSpeaker();
-  notifyStateSubscribers();
-}
-function notifyStateSubscribers() {
-  const snapshot = getSpeakerProfilesSnapshot();
-  stateSubscribers.forEach((cb) => {
-    try {
-      cb(snapshot);
-    } catch {
-    }
-  });
-}
-function getSpeakerProfiles() {
-  return state4.profiles.slice();
-}
-function upsertSpeakerProfile(profile) {
-  const trimmed = profile.name?.trim() || "";
-  const next = {
-    ...profile,
-    name: trimmed || "Untitled",
-    id: profile.id || `profile-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
-  };
-  state4 = {
-    ...state4,
-    profiles: [
-      ...state4.profiles.filter((item) => item.id !== next.id),
-      next
-    ]
-  };
-  persist();
-  return next;
-}
-function deleteSpeakerProfile(profileId) {
-  if (!profileId) return;
-  const target = state4.profiles.find((item) => item.id === profileId);
-  if (!target || target.system) return;
-  state4 = {
-    ...state4,
-    profiles: state4.profiles.filter((item) => item.id !== profileId),
-    bindings: Object.fromEntries(
-      Object.entries(state4.bindings).map(([slot, value]) => [
-        slot,
-        value === profileId ? null : value
-      ])
-    )
-  };
-  persist();
-}
-function getSpeakerBindings() {
-  return { ...state4.bindings };
-}
-function setSpeakerBinding(slot, profileId) {
-  if (!slot) return;
-  state4 = {
-    ...state4,
-    bindings: {
-      ...state4.bindings,
-      [slot]: profileId
-    }
-  };
-  persist();
-}
-function getActiveSpeakerSlot() {
-  return state4.activeSlot;
-}
-function setActiveSpeakerSlot(slot) {
-  if (!slot || !VALID_SLOTS.includes(slot)) return;
-  if (state4.activeSlot === slot) return;
-  state4 = {
-    ...state4,
-    activeSlot: slot
-  };
-  persist();
-}
-function subscribeActiveSpeaker(fn) {
-  activeSubscribers.add(fn);
-  fn(getActiveSpeakerSlot());
-  return () => activeSubscribers.delete(fn);
-}
-function getProfileById(id) {
-  if (!id) return void 0;
-  return state4.profiles.find((profile) => profile.id === id);
-}
-function hasPatchValues(patch) {
-  return !!patch && Object.keys(patch).length > 0;
-}
-function createProfile(name, patch) {
-  const trimmed = (name || "").trim() || `Profile ${Date.now()}`;
-  return upsertSpeakerProfile({
-    id: "",
-    name: trimmed,
-    asrTweaks: hasPatchValues(patch) ? { ...patch } : void 0
-  });
-}
-function applyProfileToSlot(slot, profileId) {
-  setSpeakerBinding(slot, profileId);
-}
-function getProfile(profileId) {
-  return getProfileById(profileId);
-}
-function subscribeSpeakerBindings(fn) {
-  subscribers.add(fn);
-  fn(getSpeakerBindings());
-  return () => subscribers.delete(fn);
-}
-function getSpeakerProfilesSnapshot() {
-  return {
-    profiles: state4.profiles.slice(),
-    bindings: { ...state4.bindings },
-    activeSlot: state4.activeSlot
-  };
-}
-function mergeBindings(override) {
-  if (!override) return state4.bindings;
-  const result = { ...DEFAULT_BINDINGS };
-  for (const slot of VALID_SLOTS) {
-    if (Object.prototype.hasOwnProperty.call(override, slot)) {
-      result[slot] = override[slot] ?? null;
-    }
-  }
-  return result;
-}
-function initSpeakerProfilesFromSettings(options) {
-  state4 = {
-    profiles: Array.isArray(options.profiles) ? options.profiles.slice() : state4.profiles,
-    bindings: options.bindings ? mergeBindings(options.bindings) : state4.bindings,
-    activeSlot: normalizeSlot(options.activeSlot ?? state4.activeSlot)
-  };
-  persist();
-}
-function subscribeSpeakerProfileState(fn) {
-  stateSubscribers.add(fn);
-  fn(getSpeakerProfilesSnapshot());
-  return () => stateSubscribers.delete(fn);
-}
-function applyProfileTweaks(profile, tweaks) {
-  const next = {
-    ...profile,
-    asrTweaks: tweaks && Object.keys(tweaks).length ? { ...tweaks } : void 0
-  };
-  return next;
-}
-function setProfileAsrTweaks(profileId, tweaks) {
-  if (!profileId) return;
-  const profile = getProfileById(profileId);
-  if (!profile) return;
-  state4 = {
-    ...state4,
-    profiles: [
-      ...state4.profiles.filter((item) => item.id !== profileId),
-      applyProfileTweaks(profile, tweaks)
-    ]
-  };
-  persist();
-}
-var STORAGE_KEY7, BINDING_EVENT, ACTIVE_SPEAKER_EVENT, DEFAULT_PROFILES, DEFAULT_BINDINGS, DEFAULT_ACTIVE_SLOT, VALID_SLOTS, subscribers, activeSubscribers, stateSubscribers, state4;
-var init_speaker_profiles_store = __esm({
-  "src/ui/speaker-profiles-store.ts"() {
-    "use strict";
-    STORAGE_KEY7 = "tp_speaker_profiles_v1";
-    BINDING_EVENT = "tp:speaker:bindings";
-    ACTIVE_SPEAKER_EVENT = "tp:speaker:active";
-    DEFAULT_PROFILES = [
-      { id: "default-s1", name: "Default S1", system: true },
-      { id: "default-s2", name: "Default S2", system: true }
-    ];
-    DEFAULT_BINDINGS = {
-      s1: "default-s1",
-      s2: "default-s2",
-      g1: null,
-      g2: null
-    };
-    DEFAULT_ACTIVE_SLOT = "s1";
-    VALID_SLOTS = ["s1", "s2", "g1", "g2"];
-    subscribers = /* @__PURE__ */ new Set();
-    activeSubscribers = /* @__PURE__ */ new Set();
-    stateSubscribers = /* @__PURE__ */ new Set();
-    state4 = readStorage();
-    writeStorage(state4);
-    notifyBindings();
-    notifyActiveSpeaker();
   }
 });
 
@@ -91552,22 +91546,6 @@ async function commitRecordingJsonArtifactToTongs(input) {
     path: input.path
   };
 }
-async function promoteRecordingTranscriptForHammer(input) {
-  return commitRecordingJsonArtifactToTongs({
-    workpieceId: input.workpieceId,
-    path: HAMMER_STRUCTURED_TRANSCRIPT_PATH,
-    data: input.transcript,
-    eventName: "take_transcript_promoted",
-    eventPayload: {
-      source: "anvil.local-auto",
-      transcript_path: HAMMER_STRUCTURED_TRANSCRIPT_PATH,
-      transcript_source_path: input.sourceTranscriptPath ?? null,
-      transcript_status: "ready",
-      anvil_capture_session_id: input.captureSessionId ?? getOrCreateCaptureSessionId(),
-      recording_session_id: input.plannerRecordingSessionId ?? resolvePlannerRecordingSessionId()
-    }
-  });
-}
 async function uploadRecordingWithStrategy(args) {
   if (args.strategy === "single") {
     args.onStatus?.({
@@ -91980,23 +91958,20 @@ async function transitionRecordingCompleted(input) {
   const asr = window.__tpCanonicalAsrAuthority;
   const readyWorkspace = normalizeUuid2(ready?.workspaceId);
   const readyWorkpiece = normalizeUuid2(ready?.workpieceId);
-  const readyTransition = normalizeUuid2(ready?.transitionId);
   const scriptPath = readString7(ready?.path);
   const scriptRevision = typeof ready?.scriptRevision === "number" && Number.isInteger(ready.scriptRevision) ? ready.scriptRevision : null;
   const scriptHash = readString7(ready?.scriptHash)?.toLowerCase() ?? null;
-  const unresolved = Array.isArray(asr?.unresolvedSkippedLines) ? asr.unresolvedSkippedLines : null;
-  const terminal = asr?.terminalCompleted === true;
-  if (!readyWorkspace || readyWorkpiece !== input.commit.workpieceId || !readyTransition || !scriptPath || !scriptRevision || !scriptHash || !/^[0-9a-f]{64}$/.test(scriptHash) || !terminal || !unresolved || unresolved.length !== 0 || input.commit.mediaBytes <= 0) {
+  if (!readyWorkspace || readyWorkpiece !== input.commit.workpieceId || !scriptPath || !scriptRevision || !scriptHash || !/^[0-9a-f]{64}$/.test(scriptHash) || input.commit.mediaBytes <= 0) {
     return { ok: false, outcome: "malformed", reason: "recording_completion_evidence_incomplete" };
   }
   const evidence = {
-    schema: "anvil.recording-completion.v1",
+    schema: "anvil.recording-completion.v2",
     completed: true,
     capture_session_id: input.commit.captureSessionId,
-    coverage: {
-      terminal_line_completed: true,
-      unresolved_skipped_line_count: 0,
-      unresolved_skipped_lines: [],
+    anvil_version: getWrittenBy().tool_version,
+    asr_diagnostics: {
+      terminal_line_completed: asr?.terminalCompleted === true,
+      unresolved_skipped_line_count: Array.isArray(asr?.unresolvedSkippedLines) ? asr.unresolvedSkippedLines.length : null,
       covered_lines: Array.isArray(asr?.coveredLines) ? asr.coveredLines : []
     },
     artifact_validation: {
@@ -92010,19 +91985,21 @@ async function transitionRecordingCompleted(input) {
   };
   const idempotencyKey = `anvil-complete:${input.commit.captureSessionId}:${input.commit.mediaRevision}`;
   try {
-    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-completion`, {
+    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-completion-v2`, {
       method: "POST",
       headers: await buildHeaders(getApiToken()),
       body: JSON.stringify({
         workspace_id: readyWorkspace,
         capture_session_id: input.commit.captureSessionId,
-        ready_transition_id: readyTransition,
+        recording_session_id: input.commit.plannerRecordingSessionId,
         script_path: scriptPath,
         expected_script_revision: scriptRevision,
         expected_script_hash: scriptHash,
         media_path: input.commit.path,
         expected_media_revision: input.commit.mediaRevision,
         expected_media_hash: input.commit.mediaHash,
+        expected_media_bytes: input.commit.mediaBytes,
+        expected_media_content_type: input.commit.mediaContentType,
         idempotency_key: idempotencyKey,
         completion_evidence: evidence
       })
@@ -92044,82 +92021,7 @@ async function transitionRecordingCompleted(input) {
     return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_completion_unavailable" };
   }
 }
-async function transitionRecordingKept(input) {
-  const ready = window.__forgeCanonicalReadyScript;
-  const workspaceId = normalizeUuid2(ready?.workspaceId);
-  if (!workspaceId) return { ok: false, outcome: "malformed", reason: "ready_workspace_missing" };
-  const evidence = { schema: "anvil.take-decision.v1", decision: "keep", completion_id: input.completionId, capture_session_id: input.commit.captureSessionId };
-  try {
-    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-keep`, {
-      method: "POST",
-      headers: await buildHeaders(getApiToken()),
-      body: JSON.stringify({
-        workspace_id: workspaceId,
-        capture_session_id: input.commit.captureSessionId,
-        completion_id: input.completionId,
-        idempotency_key: `anvil-keep:${input.completionId}`,
-        decision_evidence: evidence
-      })
-    });
-    const body = await readBodyAsJson(response);
-    const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
-    if (!response.ok) return { ok: false, outcome: "unavailable", reason: extractApiError(body).code ?? "recording_keep_unavailable", details: body };
-    const outcome = readString7(data?.outcome);
-    const keepId = readAuthorityRowId(data, "keep");
-    const accepted = (outcome === "saved" || outcome === "duplicate") && !!keepId;
-    if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) return { ok: false, outcome: "malformed", reason: "recording_keep_response_malformed", details: body };
-    return { ok: accepted, outcome, ...keepId ? { keepId } : {}, reason: readString7(data?.reason) ?? void 0, details: data };
-  } catch (error) {
-    return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_keep_unavailable" };
-  }
-}
-async function appendRecordingDecisionToTongs(input) {
-  const apiToken = getApiToken();
-  const writtenBy = getWrittenBy();
-  const captureSessionId = readString7(input.captureSessionId) || getOrCreateCaptureSessionId();
-  const response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.workpieceId)}/append-event`, {
-    method: "POST",
-    headers: await buildHeaders(apiToken),
-    body: JSON.stringify({
-      event_name: input.eventName,
-      written_by: writtenBy,
-      payload: {
-        source: "anvil.local-auto",
-        file_path: input.filePath,
-        original_name: input.originalName,
-        bytes: input.bytes,
-        content_type: input.contentType,
-        duration_ms: typeof input.durationMs === "number" && Number.isFinite(input.durationMs) ? Math.max(0, Math.round(input.durationMs)) : null,
-        created_cradle: input.createdCradle === true,
-        recording_session_id: input.plannerRecordingSessionId ?? null,
-        anvil_capture_session_id: captureSessionId,
-        transcript_path: input.transcriptPath ?? null,
-        transcript_status: input.transcriptStatus ?? null,
-        transcript_source_path: input.transcriptSourcePath ?? null,
-        recording_medium: input.recordingMedium ?? null,
-        requires_post_normalization: input.requiresPostNormalization === true
-      },
-      correlation_id: nextCorrelationId(`anvil-${input.eventName}`)
-    })
-  });
-  const body = await readBodyAsJson(response);
-  if (!response.ok) {
-    const apiError = extractApiError(body);
-    return {
-      ok: false,
-      reason: "append_event_failed",
-      status: response.status,
-      ...apiError.code ? { errorCode: apiError.code } : {},
-      ...apiError.message ? { errorMessage: apiError.message } : {},
-      details: body
-    };
-  }
-  return {
-    ok: true,
-    status: response.status
-  };
-}
-var UUID_RE2, DEFAULT_TOOL_VERSION, DEFAULT_LANE, WORKSPACE_STORAGE_KEYS2, WORKPIECE_STORAGE_KEYS2, ACTIVE_WORKPIECE_KEY2, WORKSPACE_WORKPIECE_PREFIX2, CAPTURE_SESSION_KEY, PLANNER_RECORDING_SESSION_KEY, LARGE_UPLOAD_WARN_MB_KEY, CHUNK_UPLOAD_THRESHOLD_MB_KEY, CHUNK_SIZE_MB_KEY, DEFAULT_LARGE_UPLOAD_WARN_MB, DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB, DEFAULT_CHUNK_SIZE_MB, CHUNK_UPLOAD_RETRY_ATTEMPTS, CHUNK_UPLOAD_RETRY_BACKOFF_MS, HAMMER_STRUCTURED_TRANSCRIPT_PATH, correlationSeq;
+var UUID_RE2, DEFAULT_TOOL_VERSION, DEFAULT_LANE, WORKSPACE_STORAGE_KEYS2, WORKPIECE_STORAGE_KEYS2, ACTIVE_WORKPIECE_KEY2, WORKSPACE_WORKPIECE_PREFIX2, CAPTURE_SESSION_KEY, PLANNER_RECORDING_SESSION_KEY, LARGE_UPLOAD_WARN_MB_KEY, CHUNK_UPLOAD_THRESHOLD_MB_KEY, CHUNK_SIZE_MB_KEY, DEFAULT_LARGE_UPLOAD_WARN_MB, DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB, DEFAULT_CHUNK_SIZE_MB, CHUNK_UPLOAD_RETRY_ATTEMPTS, CHUNK_UPLOAD_RETRY_BACKOFF_MS, correlationSeq;
 var init_workpiece_commit = __esm({
   "src/forge/workpiece-commit.ts"() {
     "use strict";
@@ -92145,7 +92047,6 @@ var init_workpiece_commit = __esm({
     DEFAULT_CHUNK_SIZE_MB = 8;
     CHUNK_UPLOAD_RETRY_ATTEMPTS = 3;
     CHUNK_UPLOAD_RETRY_BACKOFF_MS = 250;
-    HAMMER_STRUCTURED_TRANSCRIPT_PATH = "hammer/transcript/structured.v1.json";
     correlationSeq = 0;
   }
 });
@@ -93035,22 +92936,6 @@ function buildWorkingMarkup(options) {
     </div>
   `;
 }
-function buildMarkup(takeName, isRecovery) {
-  const title = isRecovery ? "Recording awaiting review" : "Recording complete";
-  const copy = isRecovery ? "This recording was saved but not reviewed. Keep or discard it?" : "Keep this take for editing?";
-  return `
-    <div class="tp-recording-decision-panel" role="dialog" aria-modal="true" aria-labelledby="${MODAL_ID2}-title">
-      <h2 id="${MODAL_ID2}-title">${title}</h2>
-      <p class="tp-recording-decision-copy">${copy}</p>
-      <div class="tp-recording-decision-file">${escapeHtml3(takeName)}</div>
-      <div class="tp-recording-decision-error" data-role="error" aria-live="polite"></div>
-      <div class="tp-recording-decision-actions">
-        <button type="button" class="tp-recording-decision-btn tp-recording-decision-btn--discard" data-action="discard">Discard Take</button>
-        <button type="button" class="tp-recording-decision-btn tp-recording-decision-btn--keep" data-action="keep">Keep Take</button>
-      </div>
-    </div>
-  `;
-}
 function showRecordingFinalizeIndicator(options = {}) {
   if (typeof document === "undefined") return;
   closeAllRecordingOverlays();
@@ -93064,117 +92949,6 @@ function showRecordingFinalizeIndicator(options = {}) {
 function hideRecordingFinalizeIndicator() {
   if (typeof document === "undefined") return;
   closeWorkingModal();
-}
-async function showRecordingDecisionDialog(options) {
-  if (typeof document === "undefined") return;
-  closeAllRecordingOverlays();
-  applyStyles2();
-  return new Promise((resolve, reject) => {
-    const overlay = document.createElement("div");
-    overlay.id = MODAL_ID2;
-    overlay.className = "tp-recording-decision-overlay";
-    overlay.innerHTML = buildMarkup(options.takeName, options.isRecovery);
-    const discardButton = overlay.querySelector('[data-action="discard"]');
-    const keepButton = overlay.querySelector('[data-action="keep"]');
-    const errorNode = overlay.querySelector('[data-role="error"]');
-    let finished = false;
-    const setBusy = (busy, action) => {
-      if (discardButton) {
-        discardButton.disabled = busy;
-        discardButton.textContent = busy && action === "discard" ? "Discarding..." : "Discard Take";
-      }
-      if (keepButton) {
-        keepButton.disabled = busy;
-        keepButton.textContent = busy && action === "keep" ? "Saving..." : "Keep Take";
-      }
-    };
-    const visibilityGuard = () => {
-      try {
-        if (document.visibilityState !== "visible") return;
-        if (!finished && !document.body.contains(overlay)) {
-          document.body.appendChild(overlay);
-          keepButton?.focus();
-        }
-      } catch {
-      }
-    };
-    const beforeUnloadGuard = (event) => {
-      if (!finished) {
-        event.preventDefault();
-        event.returnValue = "";
-      }
-    };
-    const cleanupGuards = () => {
-      _activeDecisionCleanup = null;
-      try {
-        document.removeEventListener("visibilitychange", visibilityGuard);
-      } catch {
-      }
-      try {
-        window.removeEventListener("beforeunload", beforeUnloadGuard);
-      } catch {
-      }
-    };
-    const finish = () => {
-      if (finished) return;
-      finished = true;
-      cleanupGuards();
-      closeModal2();
-      resolve();
-    };
-    const fail = (error) => {
-      if (finished) return;
-      finished = true;
-      cleanupGuards();
-      closeModal2();
-      reject(error);
-    };
-    const runAction = async (action) => {
-      setBusy(true, action);
-      if (errorNode) errorNode.textContent = "";
-      try {
-        if (action === "keep") {
-          await options.onKeep();
-        } else {
-          await options.onDiscard();
-        }
-        finish();
-      } catch (error) {
-        setBusy(false);
-        if (errorNode) {
-          errorNode.textContent = error instanceof Error && error.message.trim() ? error.message : "Could not save your take decision. Try again.";
-        }
-      }
-    };
-    discardButton?.addEventListener("click", () => {
-      void runAction("discard");
-    });
-    keepButton?.addEventListener("click", () => {
-      void runAction("keep");
-    });
-    overlay.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") {
-        event.preventDefault();
-        void runAction("keep");
-      }
-    });
-    try {
-      document.body.appendChild(overlay);
-      _activeDecisionCleanup = cleanupGuards;
-      try {
-        document.addEventListener("visibilitychange", visibilityGuard);
-      } catch {
-      }
-      try {
-        window.addEventListener("beforeunload", beforeUnloadGuard);
-      } catch {
-      }
-      keepButton?.focus();
-    } catch (error) {
-      cleanupGuards();
-      fail(error);
-    }
-  });
 }
 var MODAL_ID2, WORKING_MODAL_ID, STYLE_ID, _activeDecisionCleanup;
 var init_recording_decision_dialog = __esm({
@@ -94426,118 +94200,6 @@ var init_local_auto = __esm({
       function readCommitResultSuccess(result) {
         return result.ok ? result : null;
       }
-      const PENDING_DECISION_KEY = "anvil_pending_recording_decision_v1";
-      const PENDING_DECISION_TTL_MS = 4 * 60 * 60 * 1e3;
-      function writePendingDecisionState(state8) {
-        try {
-          const entry = { v: 1, savedAt: (/* @__PURE__ */ new Date()).toISOString(), ...state8 };
-          localStorage.setItem(PENDING_DECISION_KEY, JSON.stringify(entry));
-        } catch {
-        }
-      }
-      function readPendingDecisionState() {
-        try {
-          const raw = localStorage.getItem(PENDING_DECISION_KEY);
-          if (!raw) return null;
-          const parsed = JSON.parse(raw);
-          if (parsed?.v !== 1) return null;
-          if (parsed.savedAt) {
-            const age = Date.now() - new Date(parsed.savedAt).getTime();
-            if (!Number.isFinite(age) || age > PENDING_DECISION_TTL_MS) {
-              try {
-                localStorage.removeItem(PENDING_DECISION_KEY);
-              } catch {
-              }
-              return null;
-            }
-          }
-          return parsed;
-        } catch {
-          return null;
-        }
-      }
-      function clearPendingDecisionState() {
-        try {
-          localStorage.removeItem(PENDING_DECISION_KEY);
-        } catch {
-        }
-      }
-      async function promptForTakeDecision(args) {
-        const persistDecision = async (eventName) => {
-          let transcriptPath = args.transcriptFinalize?.finalPath ?? null;
-          let transcriptStatus = args.transcriptFinalize?.status ?? null;
-          let transcriptSourcePath = args.transcriptFinalize?.finalPath ?? null;
-          if (eventName === "take_kept" && args.transcriptFinalize?.finalArtifact && args.transcriptFinalize.workpieceId === args.commitResult.workpieceId) {
-            const promoteResult = await promoteRecordingTranscriptForHammer({
-              workpieceId: args.commitResult.workpieceId,
-              transcript: args.transcriptFinalize.finalArtifact,
-              captureSessionId: args.commitResult.captureSessionId,
-              plannerRecordingSessionId: args.commitResult.plannerRecordingSessionId,
-              sourceTranscriptPath: args.transcriptFinalize.finalPath
-            });
-            if (promoteResult.ok) {
-              transcriptPath = HAMMER_STRUCTURED_TRANSCRIPT_PATH;
-              transcriptStatus = "ready";
-            } else {
-              transcriptStatus = "degraded";
-              showRecorderToast("Transcript could not be promoted into Hammer readiness path. Media was still kept.", "warning");
-            }
-          }
-          const result = eventName === "take_kept" ? await transitionRecordingKept({ commit: args.commitResult, completionId: args.completionId }) : await appendRecordingDecisionToTongs({
-            workpieceId: args.commitResult.workpieceId,
-            eventName,
-            filePath: args.commitResult.path,
-            originalName: args.name,
-            contentType: args.contentType,
-            bytes: args.bytes,
-            durationMs: args.durationMs,
-            createdCradle: args.commitResult.createdCradle,
-            plannerRecordingSessionId: args.commitResult.plannerRecordingSessionId,
-            captureSessionId: args.commitResult.captureSessionId,
-            transcriptPath,
-            transcriptStatus,
-            transcriptSourcePath,
-            recordingMedium: args.strategy?.recordingMedium ?? null,
-            requiresPostNormalization: args.strategy?.requiresPostNormalization === true
-          });
-          if (!result.ok) {
-            const summary = eventName === "take_kept" ? "Could not mark this take as kept in Tongs." : "Could not mark this take as discarded in Tongs.";
-            const resultMessage = "errorMessage" in result ? result.errorMessage : result.reason;
-            const detail = typeof resultMessage === "string" && resultMessage.trim() ? ` ${resultMessage.trim()}` : "";
-            throw new Error(`${summary}${detail}`);
-          }
-          clearPendingDecisionState();
-          showRecorderToast(
-            eventName === "take_kept" ? "Take kept. Hammer can use it now." : "Take discarded. It will stay out of Hammer.",
-            "info"
-          );
-        };
-        writePendingDecisionState({
-          takeName: args.name,
-          workpieceId: args.commitResult.workpieceId,
-          completionId: args.completionId,
-          filePath: args.commitResult.path,
-          contentType: args.contentType,
-          bytes: args.bytes,
-          durationMs: args.durationMs ?? null,
-          captureSessionId: args.commitResult.captureSessionId ?? null,
-          plannerRecordingSessionId: args.commitResult.plannerRecordingSessionId ?? null,
-          createdCradle: args.commitResult.createdCradle === true,
-          transcriptPath: args.transcriptFinalize?.finalPath ?? null,
-          transcriptStatus: args.transcriptFinalize?.status ?? null,
-          transcriptSourcePath: args.transcriptFinalize?.finalPath ?? null,
-          recordingMedium: args.strategy?.recordingMedium ?? null,
-          requiresPostNormalization: args.strategy?.requiresPostNormalization === true,
-          mediaRevision: args.commitResult.mediaRevision,
-          mediaHash: args.commitResult.mediaHash
-        });
-        await showRecordingDecisionDialog({
-          takeName: args.name,
-          onKeep: async () => persistDecision("take_kept"),
-          onDiscard: async () => persistDecision("take_discarded")
-        });
-        clearPendingDecisionState();
-      }
       function getRouteEpisodeTitle() {
         try {
           const params = new URLSearchParams(window.location.search || "");
@@ -95144,31 +94806,6 @@ var init_local_auto = __esm({
                   canonicalErrorMessage = `Recording bytes were saved, but canonical completion remained incomplete (${completion.outcome}).`;
                   showRecorderToast(canonicalErrorMessage, "warning");
                 }
-                if (opts.transcriptFinalize?.finalArtifact && opts.transcriptFinalize.finalPath) {
-                  const artifact = {
-                    ...opts.transcriptFinalize.finalArtifact,
-                    source_media_ref: {
-                      kind: "workpiece",
-                      path: commitResultSuccess.path,
-                      content_type: contentType
-                    }
-                  };
-                  await commitRecordingJsonArtifactToTongs({
-                    workpieceId: commitResultSuccess.workpieceId,
-                    path: opts.transcriptFinalize.finalPath,
-                    data: artifact,
-                    eventName: "take_transcript_linked_media",
-                    eventPayload: {
-                      source: "anvil.local-auto",
-                      transcript_path: opts.transcriptFinalize.finalPath,
-                      file_path: commitResultSuccess.path,
-                      transcript_status: opts.transcriptFinalize.status,
-                      anvil_capture_session_id: commitResultSuccess.captureSessionId,
-                      recording_session_id: commitResultSuccess.plannerRecordingSessionId
-                    }
-                  }).catch(() => void 0);
-                  opts.transcriptFinalize.finalArtifact = artifact;
-                }
                 try {
                   console.log("[core-recorder] canonical commit ok", {
                     workpieceId: commitResultSuccess.workpieceId,
@@ -95291,16 +94928,7 @@ var init_local_auto = __esm({
                   }
                   if (commitResultOk && acceptedCompletionId) {
                     hideRecordingFinalizeIndicator();
-                    await promptForTakeDecision({
-                      commitResult: commitResultOk,
-                      completionId: acceptedCompletionId,
-                      name,
-                      contentType,
-                      bytes: bytes.length,
-                      durationMs: typeof opts.durationMs === "number" && Number.isFinite(opts.durationMs) ? opts.durationMs : null,
-                      transcriptFinalize: opts.transcriptFinalize ?? null,
-                      strategy: opts.strategy ?? null
-                    });
+                    showRecorderToast("Recording verified and ready for Hammer.", "info");
                   }
                   if (!committed) {
                     emitUploadFallbackAudit({
@@ -95439,21 +95067,12 @@ var init_local_auto = __esm({
               }
               if (commitResultOk && acceptedCompletionId) {
                 hideRecordingFinalizeIndicator();
-                await promptForTakeDecision({
-                  commitResult: commitResultOk,
-                  completionId: acceptedCompletionId,
-                  name,
-                  contentType,
-                  bytes: bytes.length,
-                  durationMs: typeof opts.durationMs === "number" && Number.isFinite(opts.durationMs) ? opts.durationMs : null,
-                  transcriptFinalize: opts.transcriptFinalize ?? null,
-                  strategy: opts.strategy ?? null
-                });
+                showRecorderToast("Recording verified and ready for Hammer.", "info");
               }
               return true;
             }
             showRecorderToast(
-              "Recording saved locally only. Forge cannot mark it kept or discarded until the canonical cloud save succeeds.",
+              "Recording saved locally only. Forge could not complete the canonical cloud save.",
               "warning"
             );
             try {
@@ -95576,74 +95195,6 @@ var init_local_auto = __esm({
           console.log("[core-recorder] bridged to __tpRecording");
         } catch {
         }
-      } catch {
-      }
-      function recoverPendingDecision() {
-        const state8 = readPendingDecisionState();
-        if (!state8) return;
-        try {
-          console.log("[core-recorder] found pending recording decision; showing recovery prompt", { workpieceId: state8.workpieceId });
-        } catch {
-        }
-        const makeRecoveryDecision = async (eventName) => {
-          const result = eventName === "take_kept" ? await transitionRecordingKept({
-            completionId: state8.completionId,
-            commit: {
-              ok: true,
-              status: 200,
-              workpieceId: state8.workpieceId,
-              path: state8.filePath,
-              createdCradle: state8.createdCradle,
-              plannerRecordingSessionId: state8.plannerRecordingSessionId,
-              captureSessionId: state8.captureSessionId ?? "",
-              mediaRevision: state8.mediaRevision,
-              mediaHash: state8.mediaHash,
-              mediaBytes: state8.bytes,
-              mediaContentType: state8.contentType
-            }
-          }) : await appendRecordingDecisionToTongs({
-            workpieceId: state8.workpieceId,
-            eventName,
-            filePath: state8.filePath,
-            originalName: state8.takeName,
-            contentType: state8.contentType,
-            bytes: state8.bytes,
-            durationMs: state8.durationMs,
-            createdCradle: state8.createdCradle,
-            plannerRecordingSessionId: state8.plannerRecordingSessionId,
-            captureSessionId: state8.captureSessionId,
-            transcriptPath: state8.transcriptPath,
-            transcriptStatus: state8.transcriptStatus,
-            transcriptSourcePath: state8.transcriptSourcePath,
-            recordingMedium: state8.recordingMedium,
-            requiresPostNormalization: state8.requiresPostNormalization
-          });
-          if (!result.ok) {
-            const summary = eventName === "take_kept" ? "Could not mark this take as kept in Tongs." : "Could not mark this take as discarded in Tongs.";
-            const resultMessage = "errorMessage" in result ? result.errorMessage : result.reason;
-            const detail = typeof resultMessage === "string" && resultMessage.trim() ? ` ${resultMessage.trim()}` : "";
-            throw new Error(`${summary}${detail}`);
-          }
-          clearPendingDecisionState();
-          showRecorderToast(
-            eventName === "take_kept" ? "Take kept. Hammer can use it now." : "Take discarded. It will stay out of Hammer.",
-            "info"
-          );
-        };
-        void showRecordingDecisionDialog({
-          takeName: state8.takeName,
-          isRecovery: true,
-          onKeep: () => makeRecoveryDecision("take_kept"),
-          onDiscard: () => makeRecoveryDecision("take_discarded")
-        }).catch((err) => {
-          try {
-            console.warn("[core-recorder] recovery dialog failed", err);
-          } catch {
-          }
-        });
-      }
-      try {
-        recoverPendingDecision();
       } catch {
       }
     })();

@@ -424,14 +424,8 @@ async function testHammerIntakeEpisodeAttachedSkipsCradleCreation() {
   const calls: FetchCall[] = [];
   const fakeFetch = async (url: string, options: Record<string, unknown>) => {
     calls.push({ url, options });
-    if (url.includes("/commit-file")) {
-      return createOkJsonResponse({ ok: true, data: {} });
-    }
-    if (url.includes("/append-event")) {
-      return new Response(JSON.stringify({ ok: true, data: { id: 123 } }), {
-        status: 201,
-        headers: { "content-type": "application/json" },
-      });
+    if (url.includes("/hammer/recording-import")) {
+      return createOkJsonResponse({ ok: true, data: { outcome: "committed", import: { id: "import-1", media_path: "recordings/imports/op/hash.mp4" } } });
     }
     return new Response(JSON.stringify({ ok: false, error: { message: "unexpected url" } }), {
       status: 404,
@@ -453,14 +447,11 @@ async function testHammerIntakeEpisodeAttachedSkipsCradleCreation() {
 
     assert.equal(result.ok, true);
     assert.equal(calls.some((call) => call.url === "/tongs/cradles"), false);
-    assert.equal(calls.filter((call) => call.url.includes("/commit-file")).length, 1);
-    assert.equal(calls.filter((call) => call.url.includes("/append-event")).length, 1);
-
-    const commitPayload = (calls.find((call) => call.url.includes("/commit-file"))?.options.json ?? null) as Record<string, unknown> | null;
-    assert.ok(commitPayload);
-    assert.equal(typeof commitPayload.path, "string");
-    assert.ok(String(commitPayload.path).startsWith("recordings/imported-"));
-    assert.equal(commitPayload.event_name, "take_completed");
+    assert.equal(calls.filter((call) => call.url.includes("/hammer/recording-import")).length, 1);
+    const importPayload = (calls.find((call) => call.url.includes("/hammer/recording-import"))?.options.json ?? null) as Record<string, unknown> | null;
+    assert.ok(importPayload);
+    assert.equal(importPayload.media_content_type, "video/mp4");
+    assert.equal((importPayload.provenance as Record<string, unknown>).source, "hammer.intake");
   } finally {
     console.info = originalInfo;
   }
@@ -476,14 +467,8 @@ async function testHammerIntakeStandaloneCreatesCradleThenCommits() {
         headers: { "content-type": "application/json" },
       });
     }
-    if (url.includes("/commit-file")) {
-      return createOkJsonResponse({ ok: true, data: {} });
-    }
-    if (url.includes("/append-event")) {
-      return new Response(JSON.stringify({ ok: true, data: { id: 987 } }), {
-        status: 201,
-        headers: { "content-type": "application/json" },
-      });
+    if (url.includes("/hammer/recording-import")) {
+      return createOkJsonResponse({ ok: true, data: { outcome: "committed", import: { id: "import-2", media_path: "recordings/imports/op/hash.mp3" } } });
     }
     return new Response(JSON.stringify({ ok: false, error: { message: "unexpected url" } }), {
       status: 404,
@@ -504,8 +489,7 @@ async function testHammerIntakeStandaloneCreatesCradleThenCommits() {
 
     assert.equal(result.ok, true);
     assert.equal(calls[0]?.url, "/tongs/cradles");
-    assert.equal(calls.filter((call) => call.url.includes("/commit-file")).length, 1);
-    assert.equal(calls.filter((call) => call.url.includes("/append-event")).length, 1);
+    assert.equal(calls.filter((call) => call.url.includes("/hammer/recording-import")).length, 1);
   } finally {
     console.info = originalInfo;
   }

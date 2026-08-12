@@ -5,6 +5,8 @@
 This document defines the canonical user interface layout and workflow for the Hammer editor inside Podcasters Forge.
 
 Hammer is a transcript-first editing tool with a real timeline.
+
+Hammer owns the durable production transcript created during ingest. Verified Anvil completions and deliberate Hammer imports enter through distinct Tongs provenance contracts; neither Hammer import nor editor hydration may fabricate Anvil ASR or Ready-script evidence.
 The interface must support spoken-content editing workflows without turning into a consumer creator app or a developer diagnostics panel.
 
 Canonical Composition Law:

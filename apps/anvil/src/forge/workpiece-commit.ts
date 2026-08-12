@@ -1347,25 +1347,22 @@ export async function transitionRecordingCompleted(input: {
   const asr = (window as any).__tpCanonicalAsrAuthority as Record<string, unknown> | undefined;
   const readyWorkspace = normalizeUuid(ready?.workspaceId);
   const readyWorkpiece = normalizeUuid(ready?.workpieceId);
-  const readyTransition = normalizeUuid(ready?.transitionId);
   const scriptPath = readString(ready?.path);
   const scriptRevision = typeof ready?.scriptRevision === "number" && Number.isInteger(ready.scriptRevision) ? ready.scriptRevision : null;
   const scriptHash = readString(ready?.scriptHash)?.toLowerCase() ?? null;
-  const unresolved = Array.isArray(asr?.unresolvedSkippedLines) ? asr.unresolvedSkippedLines : null;
-  const terminal = asr?.terminalCompleted === true;
-  if (!readyWorkspace || readyWorkpiece !== input.commit.workpieceId || !readyTransition || !scriptPath
+  if (!readyWorkspace || readyWorkpiece !== input.commit.workpieceId || !scriptPath
       || !scriptRevision || !scriptHash || !/^[0-9a-f]{64}$/.test(scriptHash)
-      || !terminal || !unresolved || unresolved.length !== 0 || input.commit.mediaBytes <= 0) {
+      || input.commit.mediaBytes <= 0) {
     return { ok: false, outcome: "malformed", reason: "recording_completion_evidence_incomplete" };
   }
   const evidence = {
-    schema: "anvil.recording-completion.v1",
+    schema: "anvil.recording-completion.v2",
     completed: true,
     capture_session_id: input.commit.captureSessionId,
-    coverage: {
-      terminal_line_completed: true,
-      unresolved_skipped_line_count: 0,
-      unresolved_skipped_lines: [],
+    anvil_version: getWrittenBy().tool_version,
+    asr_diagnostics: {
+      terminal_line_completed: asr?.terminalCompleted === true,
+      unresolved_skipped_line_count: Array.isArray(asr?.unresolvedSkippedLines) ? asr.unresolvedSkippedLines.length : null,
       covered_lines: Array.isArray(asr?.coveredLines) ? asr.coveredLines : [],
     },
     artifact_validation: {
@@ -1379,15 +1376,16 @@ export async function transitionRecordingCompleted(input: {
   };
   const idempotencyKey = `anvil-complete:${input.commit.captureSessionId}:${input.commit.mediaRevision}`;
   try {
-    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-completion`, {
+    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-completion-v2`, {
       method: "POST",
       headers: await buildHeaders(getApiToken()),
       body: JSON.stringify({
         workspace_id: readyWorkspace, capture_session_id: input.commit.captureSessionId,
-        ready_transition_id: readyTransition, script_path: scriptPath,
+        recording_session_id: input.commit.plannerRecordingSessionId, script_path: scriptPath,
         expected_script_revision: scriptRevision, expected_script_hash: scriptHash,
         media_path: input.commit.path, expected_media_revision: input.commit.mediaRevision,
-        expected_media_hash: input.commit.mediaHash, idempotency_key: idempotencyKey,
+        expected_media_hash: input.commit.mediaHash, expected_media_bytes: input.commit.mediaBytes,
+        expected_media_content_type: input.commit.mediaContentType, idempotency_key: idempotencyKey,
         completion_evidence: evidence,
       }),
     });

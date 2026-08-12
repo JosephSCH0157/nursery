@@ -106,4 +106,4 @@ Tongs writes:
 
 **Receipts**
 - Prefer append-only events for state and audit.
-- Example events: `take_completed`, `take_kept`, `take_discarded`, `published`.
+- Recording authority is producer-specific and RPC-only: Anvil completion rows prove verified captures; Hammer import rows prove deliberate external imports. `take_completed` and `hammer.recording.imported.v1` are derived audit events, not persistence authority. Historical `take_kept`/`take_discarded` events do not gate recorded truth.

@@ -126,6 +126,7 @@ export const TONGS_WORKPIECE_BUCKET = "forge-workpieces";
 
 const MANIFEST_PATH = "manifest.json";
 const SHA256_ALGO = "sha256";
+const RESERVED_RECORDING_AUTHORITY_EVENTS = new Set(["take_completed", "take_kept", "hammer.recording.imported.v1"]);
 const RECORDING_UPLOAD_SESSION_SCHEMA = "forge.recording-upload-session.v1";
 const DEFAULT_ORIGIN_TOOL = { name: "tongs", version: "0.1.0" } as const;
 const DEFAULT_WRITTEN_BY = { tool: "tongs", tool_version: "0.1.0", lane: "forge-managed" } as const;
@@ -1423,6 +1424,36 @@ export type AnvilTakeCompletionRequest = {
   user_access_token?: string | null;
 };
 
+export type AnvilTakeCompletionV2Request = {
+  workspace_id: string;
+  capture_session_id: string;
+  recording_session_id?: string | null;
+  script_path: string;
+  expected_script_revision: number;
+  expected_script_hash: string;
+  media_path: string;
+  expected_media_revision: number;
+  expected_media_hash: string;
+  expected_media_bytes: number;
+  expected_media_content_type: string;
+  idempotency_key: string;
+  completion_evidence: Json;
+  user_access_token?: string | null;
+};
+
+export type HammerRecordingImportRequest = {
+  workspace_id: string;
+  operation_id: string;
+  original_filename: string;
+  media_hash: string;
+  media_bytes: number;
+  media_content_type: string;
+  hammer_version: string;
+  provenance: Json;
+  bytes_base64: string;
+  user_access_token?: string | null;
+};
+
 export type AnvilTakeKeepRequest = {
   workspace_id: string;
   capture_session_id: string;
@@ -1819,6 +1850,8 @@ export type TongsCommitApiService = {
     workpieceId: string,
     input: AnvilTakeCompletionRequest,
   ): Promise<AnvilTakeTransitionResult>;
+  transitionAnvilTakeCompletedV2(workpieceId: string, input: AnvilTakeCompletionV2Request): Promise<AnvilTakeTransitionResult>;
+  importHammerRecording(workpieceId: string, input: HammerRecordingImportRequest): Promise<Record<string, Json>>;
   transitionAnvilTakeKept(
     workpieceId: string,
     input: AnvilTakeKeepRequest,
@@ -9441,6 +9474,9 @@ export class TongsCommitService {
   async commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse> {
     const cradle = await this.getCradleOrThrow(workpieceId);
     const path = normalizeRelativePath(input.path);
+    if (input.event_name && RESERVED_RECORDING_AUTHORITY_EVENTS.has(input.event_name.trim())) {
+      throw new HttpError(400, "reserved_recording_authority_event", "Recording authority events must use their dedicated transition endpoint.");
+    }
     if (path === MANIFEST_PATH) {
       throw new HttpError(400, "invalid_path", "manifest.json is managed by Tongs and cannot be committed directly");
     }
@@ -9614,6 +9650,106 @@ export class TongsCommitService {
       p_idempotency_key: input.idempotency_key,
       p_completion_evidence: input.completion_evidence,
     }, input.user_access_token);
+  }
+
+  async transitionAnvilTakeCompletedV2(
+    workpieceId: string,
+    input: AnvilTakeCompletionV2Request,
+  ): Promise<AnvilTakeTransitionResult> {
+    const token = normalizeNonEmptyString(input.user_access_token, "user_access_token");
+    const cradle = await this.getCradleOrThrow(workpieceId);
+    if (cradle.workspace_id !== input.workspace_id) {
+      throw new HttpError(404, "workpiece_not_found", "Workpiece does not belong to the requested workspace.");
+    }
+    const mediaPath = normalizeRelativePath(input.media_path);
+    const fileResult = await this.supabase.schema("tongs").from("workpiece_files")
+      .select("revision,hash_value,bytes,content_type,storage_bucket,storage_key")
+      .eq("workpiece_id", workpieceId).eq("path", mediaPath).maybeSingle();
+    if (fileResult.error) throw new HttpError(502, "db_read_failed", "Failed to read recording metadata.", { reason: fileResult.error.message });
+    if (!fileResult.data) throw new HttpError(404, "media_not_found", "Recorded media metadata was not found.");
+    const stored = await downloadStorageObject(this.supabase, fileResult.data.storage_bucket, fileResult.data.storage_key);
+    if (!stored) throw new HttpError(409, "storage_verification_failed", "Recorded media could not be read back from storage.", { stage: "storage_readback" });
+    const storedHash = await sha256Hex(stored);
+    if (stored.length !== input.expected_media_bytes || storedHash !== input.expected_media_hash.toLowerCase()) {
+      throw new HttpError(409, "storage_verification_failed", "Recorded media readback did not match the completion request.", {
+        stage: "storage_readback", expected_bytes: input.expected_media_bytes, actual_bytes: stored.length,
+        expected_hash: input.expected_media_hash.toLowerCase(), actual_hash: storedHash,
+      });
+    }
+    if (!this.userClientFactory) throw new HttpError(503, "anvil_recording_authority_migration_required", "Anvil recording V2 authority is unavailable.");
+    const rpcClient = this.userClientFactory(token).schema("tongs") as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { code?: string; message: string } | null }> };
+    const { data, error } = await rpcClient.rpc("anvil_transition_take_completed_v2", {
+      p_workspace_id: input.workspace_id, p_workpiece_id: workpieceId, p_capture_session_id: input.capture_session_id,
+      p_recording_session_id: input.recording_session_id ?? null, p_script_path: input.script_path,
+      p_expected_script_revision: input.expected_script_revision, p_expected_script_hash: input.expected_script_hash.toLowerCase(),
+      p_media_path: mediaPath, p_expected_media_revision: input.expected_media_revision,
+      p_expected_media_hash: input.expected_media_hash.toLowerCase(), p_expected_media_bytes: input.expected_media_bytes,
+      p_expected_media_content_type: input.expected_media_content_type.toLowerCase(),
+      p_storage_bucket: fileResult.data.storage_bucket, p_storage_key: fileResult.data.storage_key,
+      p_idempotency_key: input.idempotency_key, p_completion_evidence: input.completion_evidence,
+    });
+    if (error) throw new HttpError(error.code === "PGRST202" ? 503 : 502, "anvil_recording_transition_failed", "Anvil recording completion failed.", { reason: error.message });
+    if (!isRecord(data) || typeof data.outcome !== "string") throw new HttpError(502, "anvil_recording_transition_malformed", "Anvil recording completion returned malformed data.");
+    return data as AnvilTakeTransitionResult;
+  }
+
+  async importHammerRecording(workpieceId: string, input: HammerRecordingImportRequest): Promise<Record<string, Json>> {
+    const token = normalizeNonEmptyString(input.user_access_token, "user_access_token");
+    const cradle = await this.getCradleOrThrow(workpieceId);
+    if (cradle.workspace_id !== input.workspace_id) throw new HttpError(404, "workpiece_not_found", "Workpiece does not belong to the requested workspace.");
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", token);
+    const bytes = decodeBase64(input.bytes_base64);
+    const contentType = input.media_content_type.trim().toLowerCase();
+    if (!contentType.startsWith("audio/") && !contentType.startsWith("video/")) throw new HttpError(400, "unsupported_recording_media", "Hammer imports require audio or video media.");
+    const actualHash = await sha256Hex(bytes);
+    if (bytes.length !== input.media_bytes || actualHash !== input.media_hash.toLowerCase()) throw new HttpError(400, "recording_import_fingerprint_mismatch", "Imported bytes do not match the declared fingerprint.");
+    const extensionByMime: Record<string, string> = { "video/webm": "webm", "video/mp4": "mp4", "video/quicktime": "mov", "audio/wav": "wav", "audio/x-wav": "wav", "audio/mpeg": "mp3", "audio/mp4": "m4a", "audio/aac": "aac", "audio/flac": "flac", "audio/ogg": "ogg" };
+    const extension = extensionByMime[contentType];
+    if (!extension) throw new HttpError(400, "unsupported_recording_media", "Hammer import MIME type is unsupported.", { content_type: contentType });
+    const path = `recordings/imports/${input.operation_id}/${actualHash}.${extension}`;
+    const storageKey = buildStorageKey(workpieceId, path);
+    const requestFingerprint = await sha256Hex(canonicalJsonBytes({ workspace_id: input.workspace_id, workpiece_id: workpieceId, operation_id: input.operation_id, media_hash: actualHash, media_bytes: bytes.length, media_content_type: contentType, original_filename: input.original_filename, hammer_version: input.hammer_version, provenance: input.provenance }));
+    if (!this.userClientFactory) throw new HttpError(503, "hammer_recording_import_migration_required", "Hammer recording import authority is unavailable.");
+    const rpcClient = this.userClientFactory(token).schema("tongs") as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { code?: string; message: string } | null }> };
+    const reserved = await rpcClient.rpc("reserve_hammer_recording_import", { p_workspace_id: input.workspace_id, p_workpiece_id: workpieceId, p_operation_id: input.operation_id, p_request_fingerprint: requestFingerprint, p_media_path: path, p_original_filename: input.original_filename, p_expected_media_hash: actualHash, p_expected_media_bytes: bytes.length, p_expected_media_content_type: contentType, p_storage_bucket: this.bucket, p_storage_key: storageKey, p_hammer_version: input.hammer_version, p_provenance: input.provenance });
+    if (reserved.error || !isRecord(reserved.data)) throw new HttpError(502, "hammer_recording_import_reservation_failed", "Hammer could not reserve the recording import.", { reason: reserved.error?.message });
+    const reservationOutcome = readStringField(reserved.data, "outcome");
+    const reservation = isRecord(reserved.data.import) ? reserved.data.import : null;
+    if (reservationOutcome === "conflict") throw new HttpError(409, "hammer_recording_import_conflict", "This import operation ID was already used for different media.");
+    if (reservationOutcome === "denied") throw new HttpError(403, "hammer_recording_import_denied", "The current user cannot import media into this workspace.");
+    const importId = reservation ? readStringField(reservation, "id") : null;
+    if (!importId) throw new HttpError(502, "hammer_recording_import_reservation_malformed", "Hammer import reservation returned no import ID.");
+    try {
+      const existing = await downloadStorageObject(this.supabase, this.bucket, storageKey);
+      if (existing) {
+        if (existing.length !== bytes.length || await sha256Hex(existing) !== actualHash) throw new HttpError(409, "hammer_recording_import_storage_conflict", "The deterministic import path contains different media.");
+      } else {
+        await uploadStorageObject(this.supabase, this.bucket, storageKey, bytes, contentType);
+      }
+      const readback = await downloadStorageObject(this.supabase, this.bucket, storageKey);
+      if (!readback || readback.length !== bytes.length || await sha256Hex(readback) !== actualHash) throw new HttpError(409, "hammer_recording_import_readback_failed", "Imported media could not be verified after upload.");
+      const finalized = await rpcClient.rpc("finalize_hammer_recording_import", { p_import_id: importId, p_verified_media_hash: actualHash, p_verified_media_bytes: readback.length, p_verified_media_content_type: contentType });
+      if (finalized.error || !isRecord(finalized.data)) throw new HttpError(502, "hammer_recording_import_finalize_failed", "Hammer import authority could not be finalized.", { reason: finalized.error?.message });
+      const finalImport = isRecord(finalized.data.import) ? finalized.data.import : reservation;
+      let projection: "projected" | "failed" = "projected";
+      try {
+        const nowIso = new Date().toISOString();
+        const manifest = await this.loadManifestOrDefault(cradle);
+        manifest.updated_at = nowIso;
+        manifest.files[path] = buildManifestFileEntry("recording", contentType, bytes.length, actualHash, { tool: "hammer", tool_version: input.hammer_version, lane: "forge-managed" }, nowIso);
+        const manifestResult = await finalizeManifestTwoPass(manifest, { tool: "hammer", tool_version: input.hammer_version, lane: "forge-managed" }, nowIso);
+        await uploadStorageObject(this.supabase, this.bucket, buildStorageKey(workpieceId, MANIFEST_PATH), manifestResult.manifestBytes, "application/json");
+        await this.upsertWorkpieceFile([{ workpiece_id: workpieceId, path: MANIFEST_PATH, file_type: "manifest", content_type: "application/json", bytes: manifestResult.finalBytes, hash_algo: SHA256_ALGO, hash_value: manifestResult.finalHash, storage_bucket: this.bucket, storage_key: buildStorageKey(workpieceId, MANIFEST_PATH), written_by_tool: "hammer", written_by_tool_version: input.hammer_version, written_by_lane: "forge-managed" }]);
+        await (this.supabase.schema("tongs") as unknown as { from: (name: string) => { update: (value: unknown) => { eq: (key: string, value: string) => Promise<unknown> } } }).from("hammer_recording_import_requests").update({ manifest_projected_at: nowIso, manifest_projection_error: null }).eq("id", importId);
+      } catch (projectionError) {
+        projection = "failed";
+        await (this.supabase.schema("tongs") as unknown as { from: (name: string) => { update: (value: unknown) => { eq: (key: string, value: string) => Promise<unknown> } } }).from("hammer_recording_import_requests").update({ manifest_projection_error: { message: projectionError instanceof Error ? projectionError.message : String(projectionError) } }).eq("id", importId);
+      }
+      return { outcome: readStringField(finalized.data, "outcome") ?? "committed", import: finalImport as Json, manifest_projection: projection };
+    } catch (error) {
+      await rpcClient.rpc("mark_hammer_recording_import_failure", { p_import_id: importId, p_stage: error instanceof HttpError ? error.code : "upload_or_verify", p_code: error instanceof HttpError ? error.code : "upload_or_verify_failed", p_details: { message: error instanceof Error ? error.message : String(error) } });
+      throw error;
+    }
   }
 
   async transitionAnvilTakeKept(
@@ -14624,7 +14760,7 @@ export class TongsCommitService {
       .from("current_workpiece_recorded_takes")
       .select("workpiece_id,completion_id,keep_id,capture_session_id,media_path,completion_evidence,completed_at,kept_at")
       .in("workpiece_id", [...workpieceIds])
-      .order("kept_at", { ascending: false });
+      .order("completed_at", { ascending: false });
 
     if (error) {
       const missing = error.code === "PGRST205" || /current_workpiece_recorded_takes/i.test(error.message);
@@ -14989,6 +15125,9 @@ export class TongsCommitService {
   }
 
   async appendEvent(workpieceId: string, input: AppendEventRequest): Promise<WorkpieceEventRow> {
+    if (RESERVED_RECORDING_AUTHORITY_EVENTS.has(input.event_name.trim())) {
+      throw new HttpError(400, "reserved_recording_authority_event", "Recording authority events must use their dedicated transition endpoint.");
+    }
     await this.getCradleOrThrow(workpieceId);
     return this.insertEvent({
       workpieceId,
@@ -15792,6 +15931,51 @@ export function createTongsCommitApiHandlerWithService(
           expected_media_hash: normalizeNonEmptyString(body.expected_media_hash, "expected_media_hash").toLowerCase(),
           idempotency_key: normalizeNonEmptyString(body.idempotency_key, "idempotency_key"),
           completion_evidence: normalizeJsonValue(body.completion_evidence),
+          user_access_token: userAccessToken,
+        });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "recording-completion-v2") {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        const result = await service.transitionAnvilTakeCompletedV2(workpieceId, {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          capture_session_id: normalizeUuid(body.capture_session_id, "capture_session_id"),
+          recording_session_id: body.recording_session_id == null ? null : normalizeUuid(body.recording_session_id, "recording_session_id"),
+          script_path: normalizeRelativePath(normalizeNonEmptyString(body.script_path, "script_path")),
+          expected_script_revision: normalizePositiveInteger(body.expected_script_revision, "expected_script_revision"),
+          expected_script_hash: normalizeSha256(body.expected_script_hash, "expected_script_hash"),
+          media_path: normalizeRelativePath(normalizeNonEmptyString(body.media_path, "media_path")),
+          expected_media_revision: normalizePositiveInteger(body.expected_media_revision, "expected_media_revision"),
+          expected_media_hash: normalizeSha256(body.expected_media_hash, "expected_media_hash"),
+          expected_media_bytes: normalizePositiveInteger(body.expected_media_bytes, "expected_media_bytes"),
+          expected_media_content_type: normalizeNonEmptyString(body.expected_media_content_type, "expected_media_content_type").toLowerCase(),
+          idempotency_key: normalizeNonEmptyString(body.idempotency_key, "idempotency_key"),
+          completion_evidence: normalizeJsonValue(body.completion_evidence),
+          user_access_token: userAccessToken,
+        });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 7 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "workpieces" && parts[5] === "hammer" && parts[6] === "recording-import") {
+        requireMethod(request, "POST");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        const result = await service.importHammerRecording(workpieceId, {
+          workspace_id: workspaceId,
+          operation_id: normalizeUuid(body.operation_id, "operation_id"),
+          original_filename: normalizeNonEmptyString(body.original_filename, "original_filename"),
+          media_hash: normalizeSha256(body.media_hash, "media_hash"),
+          media_bytes: normalizePositiveInteger(body.media_bytes, "media_bytes"),
+          media_content_type: normalizeNonEmptyString(body.media_content_type, "media_content_type").toLowerCase(),
+          hammer_version: normalizeNonEmptyString(body.hammer_version, "hammer_version"),
+          provenance: normalizeJsonValue(body.provenance),
+          bytes_base64: normalizeNonEmptyString(body.bytes_base64, "bytes_base64"),
           user_access_token: userAccessToken,
         });
         return jsonResponse(200, { ok: true, data: result });

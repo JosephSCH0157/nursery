@@ -35,6 +35,8 @@ function mockService() {
     createCradle: [],
     commitFile: [],
     transitionHearthScriptReady: [],
+    transitionAnvilTakeCompletedV2: [],
+    importHammerRecording: [],
     createHearthAttachment: [],
     listHearthAttachments: [],
     updateHearthAttachmentExtractedText: [],
@@ -187,6 +189,14 @@ function mockService() {
         reason: null,
         ready: { transition_id: "22222222-2222-4222-8222-222222222222" },
       };
+    },
+    async transitionAnvilTakeCompletedV2(workpieceId, input) {
+      calls.transitionAnvilTakeCompletedV2.push({ workpieceId, input });
+      return { outcome: "saved", completion: { id: "33333333-3333-4333-8333-333333333333" } };
+    },
+    async importHammerRecording(workpieceId, input) {
+      calls.importHammerRecording.push({ workpieceId, input });
+      return { outcome: "committed", import: { id: "44444444-4444-4444-8444-444444444444" } };
     },
     async createHearthAttachment(input, options) {
       calls.createHearthAttachment.push({ input, options: options ?? null });
@@ -2950,8 +2960,8 @@ function createReadyQueueSupabase({
                     const idSet = new Set(values);
                     return {
                       async order(orderField, options) {
-                        assert.equal(orderField, "kept_at");
-                        return { data: sortRows(recordedRows.filter((row) => idSet.has(row.workpiece_id)), "kept_at", options?.ascending ?? true), error: null };
+                        assert.equal(orderField, "completed_at");
+                        return { data: sortRows(recordedRows.filter((row) => idSet.has(row.workpiece_id)), "completed_at", options?.ascending ?? true), error: null };
                       },
                     };
                   },
@@ -3688,6 +3698,36 @@ test("POST /tongs/workpieces/:id/ready-transition forwards exact revision/hash a
   assert.equal(calls.transitionHearthScriptReady[0].input.expected_script_revision, 7);
   assert.equal(calls.transitionHearthScriptReady[0].input.expected_script_hash, "a".repeat(64));
   assert.equal(calls.transitionHearthScriptReady[0].input.user_access_token, "user-token");
+});
+
+test("POST recording-completion-v2 forwards media verification and does not require ASR evidence", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const response = await handler(new Request("http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/recording-completion-v2", {
+    method: "POST", headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer user-token" },
+    body: JSON.stringify({ workspace_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", capture_session_id: "22222222-2222-4222-8222-222222222222",
+      script_path: "script/script.md", expected_script_revision: 2, expected_script_hash: "a".repeat(64), media_path: "recordings/take.webm",
+      expected_media_revision: 1, expected_media_hash: "b".repeat(64), expected_media_bytes: 4096, expected_media_content_type: "video/webm",
+      idempotency_key: "anvil-complete:test:1", completion_evidence: { schema: "anvil.recording-completion.v2", capture_session_id: "22222222-2222-4222-8222-222222222222", artifact_validation: { ok: true, sha256: "b".repeat(64) } } }),
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(calls.transitionAnvilTakeCompletedV2.length, 1);
+  assert.equal(calls.transitionAnvilTakeCompletedV2[0].input.expected_media_bytes, 4096);
+  assert.equal(calls.transitionAnvilTakeCompletedV2[0].input.user_access_token, "user-token");
+});
+
+test("POST Hammer recording-import forwards explicit import provenance", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const response = await handler(new Request("http://localhost/tongs/workspaces/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/workpieces/11111111-1111-4111-8111-111111111111/hammer/recording-import", {
+    method: "POST", headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer hammer-token" },
+    body: JSON.stringify({ operation_id: "22222222-2222-4222-8222-222222222222", original_filename: "external.mp4", media_hash: "c".repeat(64),
+      media_bytes: 3, media_content_type: "video/mp4", hammer_version: "forge-v1.2.0", provenance: { schema: "hammer.recording-import.v1", deliberate_attach: true }, bytes_base64: "AQID" }),
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(calls.importHammerRecording.length, 1);
+  assert.equal(calls.importHammerRecording[0].input.provenance.deliberate_attach, true);
+  assert.equal(calls.importHammerRecording[0].input.user_access_token, "hammer-token");
 });
 
 test("POST /tongs/workpieces/:id/commit-file returns controlled error payload for upstream db/storage failures", async () => {

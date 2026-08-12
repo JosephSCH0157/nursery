@@ -2,22 +2,17 @@
 // Mirrors the legacy JS behavior but typed for the TS runtime.
 import { getRecordingEngine, getRecordingMode } from './recording-settings';
 import {
-  appendRecordingDecisionToTongs,
   beginRecordingCaptureSession,
   commitRecordingJsonArtifactToTongs,
   commitRecordingBytesToTongs,
   ensureRecordingCaptureTarget,
-  HAMMER_STRUCTURED_TRANSCRIPT_PATH,
-  promoteRecordingTranscriptForHammer,
   transitionRecordingCompleted,
-  transitionRecordingKept,
   type RecordingCommitResult,
 } from '../forge/workpiece-commit';
 import { startSpeechBackendForSession, stopSpeechBackendForSession } from '../features/speech-loader';
 import { ScriptStore } from '../features/scripts-store';
 import {
   hideRecordingFinalizeIndicator,
-  showRecordingDecisionDialog,
   showRecordingFinalizeIndicator,
 } from './recording-decision-dialog';
 import { buildRecordingFilename, pickRecordingBaseTitle } from './recording-name';
@@ -413,170 +408,6 @@ import {
     result: RecordingCommitResult,
   ): Extract<RecordingCommitResult, { ok: true }> | null {
     return result.ok ? result : null;
-  }
-
-  // --- Pending recording decision persistence ---
-  // Written to localStorage before showing the keep/discard dialog so that a page
-  // reload or browser crash can recover and re-surface the decision prompt.
-  const PENDING_DECISION_KEY = 'anvil_pending_recording_decision_v1';
-  const PENDING_DECISION_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
-
-  type PendingRecordingDecisionState = {
-    v: 1;
-    savedAt: string;
-    takeName: string;
-    workpieceId: string;
-    completionId: string;
-    filePath: string;
-    contentType: string;
-    bytes: number;
-    durationMs: number | null;
-    captureSessionId: string | null;
-    plannerRecordingSessionId: string | null;
-    createdCradle: boolean;
-    transcriptPath: string | null;
-    transcriptStatus: string | null;
-    transcriptSourcePath: string | null;
-    recordingMedium: string | null;
-    requiresPostNormalization: boolean;
-    mediaRevision: number;
-    mediaHash: string;
-  };
-
-  function writePendingDecisionState(
-    state: Omit<PendingRecordingDecisionState, 'v' | 'savedAt'>,
-  ): void {
-    try {
-      const entry: PendingRecordingDecisionState = { v: 1, savedAt: new Date().toISOString(), ...state };
-      localStorage.setItem(PENDING_DECISION_KEY, JSON.stringify(entry));
-    } catch {}
-  }
-
-  function readPendingDecisionState(): PendingRecordingDecisionState | null {
-    try {
-      const raw = localStorage.getItem(PENDING_DECISION_KEY);
-      if (!raw) return null;
-      const parsed = JSON.parse(raw) as Partial<PendingRecordingDecisionState>;
-      if (parsed?.v !== 1) return null;
-      if (parsed.savedAt) {
-        const age = Date.now() - new Date(parsed.savedAt).getTime();
-        if (!Number.isFinite(age) || age > PENDING_DECISION_TTL_MS) {
-          try { localStorage.removeItem(PENDING_DECISION_KEY); } catch {}
-          return null;
-        }
-      }
-      return parsed as PendingRecordingDecisionState;
-    } catch {
-      return null;
-    }
-  }
-
-  function clearPendingDecisionState(): void {
-    try { localStorage.removeItem(PENDING_DECISION_KEY); } catch {}
-  }
-
-  async function promptForTakeDecision(args: {
-    commitResult: Extract<RecordingCommitResult, { ok: true }>;
-    completionId: string;
-    name: string;
-    contentType: string;
-    bytes: number;
-    durationMs: number | null;
-    transcriptFinalize: RecordingTranscriptFinalizeResult | null;
-    strategy: RecordingCaptureStrategy | null;
-  }): Promise<void> {
-    const persistDecision = async (eventName: 'take_kept' | 'take_discarded'): Promise<void> => {
-      let transcriptPath = args.transcriptFinalize?.finalPath ?? null;
-      let transcriptStatus = args.transcriptFinalize?.status ?? null;
-      let transcriptSourcePath = args.transcriptFinalize?.finalPath ?? null;
-
-      if (
-        eventName === 'take_kept'
-        && args.transcriptFinalize?.finalArtifact
-        && args.transcriptFinalize.workpieceId === args.commitResult.workpieceId
-      ) {
-        const promoteResult = await promoteRecordingTranscriptForHammer({
-          workpieceId: args.commitResult.workpieceId,
-          transcript: args.transcriptFinalize.finalArtifact,
-          captureSessionId: args.commitResult.captureSessionId,
-          plannerRecordingSessionId: args.commitResult.plannerRecordingSessionId,
-          sourceTranscriptPath: args.transcriptFinalize.finalPath,
-        });
-        if (promoteResult.ok) {
-          transcriptPath = HAMMER_STRUCTURED_TRANSCRIPT_PATH;
-          transcriptStatus = 'ready';
-        } else {
-          transcriptStatus = 'degraded';
-          showRecorderToast('Transcript could not be promoted into Hammer readiness path. Media was still kept.', 'warning');
-        }
-      }
-
-      const result = eventName === 'take_kept'
-        ? await transitionRecordingKept({ commit: args.commitResult, completionId: args.completionId })
-        : await appendRecordingDecisionToTongs({
-        workpieceId: args.commitResult.workpieceId,
-        eventName,
-        filePath: args.commitResult.path,
-        originalName: args.name,
-        contentType: args.contentType,
-        bytes: args.bytes,
-        durationMs: args.durationMs,
-        createdCradle: args.commitResult.createdCradle,
-        plannerRecordingSessionId: args.commitResult.plannerRecordingSessionId,
-        captureSessionId: args.commitResult.captureSessionId,
-        transcriptPath,
-        transcriptStatus,
-        transcriptSourcePath,
-        recordingMedium: args.strategy?.recordingMedium ?? null,
-        requiresPostNormalization: args.strategy?.requiresPostNormalization === true,
-        });
-      if (!result.ok) {
-        const summary = eventName === 'take_kept'
-          ? 'Could not mark this take as kept in Tongs.'
-          : 'Could not mark this take as discarded in Tongs.';
-        const resultMessage = 'errorMessage' in result ? result.errorMessage : result.reason;
-        const detail = typeof resultMessage === 'string' && resultMessage.trim()
-          ? ` ${resultMessage.trim()}`
-          : '';
-        throw new Error(`${summary}${detail}`);
-      }
-      clearPendingDecisionState();
-      showRecorderToast(
-        eventName === 'take_kept'
-          ? 'Take kept. Hammer can use it now.'
-          : 'Take discarded. It will stay out of Hammer.',
-        'info',
-      );
-    };
-
-    writePendingDecisionState({
-      takeName: args.name,
-      workpieceId: args.commitResult.workpieceId,
-      completionId: args.completionId,
-      filePath: args.commitResult.path,
-      contentType: args.contentType,
-      bytes: args.bytes,
-      durationMs: args.durationMs ?? null,
-      captureSessionId: args.commitResult.captureSessionId ?? null,
-      plannerRecordingSessionId: args.commitResult.plannerRecordingSessionId ?? null,
-      createdCradle: args.commitResult.createdCradle === true,
-      transcriptPath: args.transcriptFinalize?.finalPath ?? null,
-      transcriptStatus: args.transcriptFinalize?.status ?? null,
-      transcriptSourcePath: args.transcriptFinalize?.finalPath ?? null,
-      recordingMedium: args.strategy?.recordingMedium ?? null,
-      requiresPostNormalization: args.strategy?.requiresPostNormalization === true,
-      mediaRevision: args.commitResult.mediaRevision,
-      mediaHash: args.commitResult.mediaHash,
-    });
-
-    await showRecordingDecisionDialog({
-      takeName: args.name,
-      onKeep: async () => persistDecision('take_kept'),
-      onDiscard: async () => persistDecision('take_discarded'),
-    });
-    // Safety net: if the dialog resolved without going through persistDecision (should not
-    // happen in practice), ensure the pending state is not left behind.
-    clearPendingDecisionState();
   }
 
   function getRouteEpisodeTitle(): string | null {
@@ -1187,31 +1018,6 @@ import {
               canonicalErrorMessage = `Recording bytes were saved, but canonical completion remained incomplete (${completion.outcome}).`;
               showRecorderToast(canonicalErrorMessage, 'warning');
             }
-            if (opts.transcriptFinalize?.finalArtifact && opts.transcriptFinalize.finalPath) {
-              const artifact = {
-                ...opts.transcriptFinalize.finalArtifact,
-                source_media_ref: {
-                  kind: 'workpiece' as const,
-                  path: commitResultSuccess.path,
-                  content_type: contentType,
-                },
-              };
-              await commitRecordingJsonArtifactToTongs({
-                workpieceId: commitResultSuccess.workpieceId,
-                path: opts.transcriptFinalize.finalPath,
-                data: artifact,
-                eventName: 'take_transcript_linked_media',
-                eventPayload: {
-                  source: 'anvil.local-auto',
-                  transcript_path: opts.transcriptFinalize.finalPath,
-                  file_path: commitResultSuccess.path,
-                  transcript_status: opts.transcriptFinalize.status,
-                  anvil_capture_session_id: commitResultSuccess.captureSessionId,
-                  recording_session_id: commitResultSuccess.plannerRecordingSessionId,
-                },
-              }).catch(() => undefined);
-              opts.transcriptFinalize.finalArtifact = artifact;
-            }
             try {
               console.log('[core-recorder] canonical commit ok', {
                 workpieceId: commitResultSuccess.workpieceId,
@@ -1328,18 +1134,7 @@ import {
               } catch {}
               if (commitResultOk && acceptedCompletionId) {
                 hideRecordingFinalizeIndicator();
-                await promptForTakeDecision({
-                  commitResult: commitResultOk,
-                  completionId: acceptedCompletionId,
-                  name,
-                  contentType,
-                  bytes: bytes.length,
-                  durationMs: typeof opts.durationMs === 'number' && Number.isFinite(opts.durationMs)
-                    ? opts.durationMs
-                    : null,
-                  transcriptFinalize: opts.transcriptFinalize ?? null,
-                  strategy: opts.strategy ?? null,
-                });
+                showRecorderToast('Recording verified and ready for Hammer.', 'info');
               }
               if (!committed) {
                 emitUploadFallbackAudit({
@@ -1472,23 +1267,12 @@ import {
           }
           if (commitResultOk && acceptedCompletionId) {
             hideRecordingFinalizeIndicator();
-            await promptForTakeDecision({
-              commitResult: commitResultOk,
-              completionId: acceptedCompletionId,
-              name,
-              contentType,
-              bytes: bytes.length,
-              durationMs: typeof opts.durationMs === 'number' && Number.isFinite(opts.durationMs)
-                ? opts.durationMs
-                : null,
-              transcriptFinalize: opts.transcriptFinalize ?? null,
-              strategy: opts.strategy ?? null,
-            });
+            showRecorderToast('Recording verified and ready for Hammer.', 'info');
           }
           return true;
         }
         showRecorderToast(
-          'Recording saved locally only. Forge cannot mark it kept or discarded until the canonical cloud save succeeds.',
+          'Recording saved locally only. Forge could not complete the canonical cloud save.',
           'warning',
         );
         try {
@@ -1608,72 +1392,6 @@ import {
     try { console.log('[core-recorder] bridged to __tpRecording'); } catch {}
   } catch {}
 
-  // --- Pending recording decision recovery ---
-  // If a previous page session wrote a pending decision state (the keep/discard dialog was
-  // showing when the page reloaded or crashed), re-surface the decision prompt so the user
-  // can still choose. Transcript promotion is skipped on recovery; the recording is still
-  // marked kept and Hammer can process the transcript independently.
-  function recoverPendingDecision(): void {
-    const state = readPendingDecisionState();
-    if (!state) return;
-    try { console.log('[core-recorder] found pending recording decision; showing recovery prompt', { workpieceId: state.workpieceId }); } catch {}
-
-    const makeRecoveryDecision = async (eventName: 'take_kept' | 'take_discarded'): Promise<void> => {
-      const result = eventName === 'take_kept'
-        ? await transitionRecordingKept({
-          completionId: state.completionId,
-          commit: {
-            ok: true, status: 200, workpieceId: state.workpieceId, path: state.filePath,
-            createdCradle: state.createdCradle, plannerRecordingSessionId: state.plannerRecordingSessionId,
-            captureSessionId: state.captureSessionId ?? '', mediaRevision: state.mediaRevision,
-            mediaHash: state.mediaHash, mediaBytes: state.bytes, mediaContentType: state.contentType,
-          },
-        })
-        : await appendRecordingDecisionToTongs({
-        workpieceId: state.workpieceId,
-        eventName,
-        filePath: state.filePath,
-        originalName: state.takeName,
-        contentType: state.contentType,
-        bytes: state.bytes,
-        durationMs: state.durationMs,
-        createdCradle: state.createdCradle,
-        plannerRecordingSessionId: state.plannerRecordingSessionId,
-        captureSessionId: state.captureSessionId,
-        transcriptPath: state.transcriptPath,
-        transcriptStatus: state.transcriptStatus,
-        transcriptSourcePath: state.transcriptSourcePath,
-        recordingMedium: state.recordingMedium,
-        requiresPostNormalization: state.requiresPostNormalization,
-        });
-      if (!result.ok) {
-        const summary = eventName === 'take_kept'
-          ? 'Could not mark this take as kept in Tongs.'
-          : 'Could not mark this take as discarded in Tongs.';
-        const resultMessage = 'errorMessage' in result ? result.errorMessage : result.reason;
-        const detail = typeof resultMessage === 'string' && resultMessage.trim()
-          ? ` ${resultMessage.trim()}`
-          : '';
-        throw new Error(`${summary}${detail}`);
-      }
-      clearPendingDecisionState();
-      showRecorderToast(
-        eventName === 'take_kept' ? 'Take kept. Hammer can use it now.' : 'Take discarded. It will stay out of Hammer.',
-        'info',
-      );
-    };
-
-    void showRecordingDecisionDialog({
-      takeName: state.takeName,
-      isRecovery: true,
-      onKeep: () => makeRecoveryDecision('take_kept'),
-      onDiscard: () => makeRecoveryDecision('take_discarded'),
-    }).catch((err) => {
-      try { console.warn('[core-recorder] recovery dialog failed', err); } catch {}
-    });
-  }
-
-  try { recoverPendingDecision(); } catch {}
 })();
 
 export {};
