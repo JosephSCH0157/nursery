@@ -37,6 +37,8 @@ test("Unified planning reserves before provider work and records exact child ide
   assert.match(migration,/verified unified visual plan operation is immutable/);
   assert.match(service,/begin_unified_visual_plan[\s\S]*unifiedVisualPlanProvider[\s\S]*record_unified_visual_plan_provider_response/);
   assert.match(service,/state==="provider_completed"[\s\S]*record_unified_visual_plan_child/);
+  assert.match(service,/repairEntriesAgainstApprovedScript\(draftEntries,scriptText\)/);
+  assert.doesNotMatch(service,/paragraph_id:`visual-\$\{index\+1\}`/);
   assert.match(service,/state==="image_plan_committed"[\s\S]*commit_broll_plan/);
   assert.match(service,/state==="broll_plan_committed"[\s\S]*commit_reference_clip_plan/);
   assert.match(service,/verify_unified_visual_plan/);

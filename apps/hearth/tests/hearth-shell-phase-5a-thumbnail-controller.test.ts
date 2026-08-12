@@ -90,6 +90,15 @@ test("three generated thumbnails expose an explicit acceptance action beside the
   assert.match(panel,/candidateAuthority\?\.active_binding_id\s*\?\?/);
 });
 
+test("historical-brand approval is available in the standard thumbnail workflow",async()=>{
+  const panel=await readFile(new URL("../src/components/visuals/ThumbnailV3Panel.tsx",import.meta.url),"utf8");
+  const primary=panel.slice(0,panel.indexOf("<details id=\"hearth-thumbnail-advanced\""));
+  assert.match(primary,/aria-label="Approve historical brand thumbnails"/);
+  assert.match(primary,/Approve this thumbnail set and continue/);
+  assert.match(primary,/candidateSummary\.requiresReapprovalCount/);
+  assert.match(primary,/role="alert"/);
+});
+
 test("activating the selected concept set is part of the standard workflow",async()=>{
   const panel=await readFile(new URL("../src/components/visuals/ThumbnailV3Panel.tsx",import.meta.url),"utf8");
   const primary=panel.slice(panel.indexOf("hs-thumbnail-workspace-header"),panel.indexOf("<details id=\"hearth-thumbnail-advanced\""));

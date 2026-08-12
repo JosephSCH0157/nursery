@@ -75,6 +75,21 @@ test("pending replacement uses only the newest ready renders under the active bi
   assert.ok(brandedOnly.every((card)=>card.styleSource==="brand_profile"));
 });
 
+test("historical-brand ready renders remain selectable for canonical commit and reapproval",()=>{
+  const launches=[0,1,2].map((index)=>({
+    launch_variant_id:`historical-${index}`,revision:1,base_version_id:`base-${index}`,recipe_id:"recipe-a",recipe_revision:1,status:"ready" as const,
+    snapshot:{asset_id:`historical-asset-${index}`,asset_path:`historical-${index}.png`,content_hash:`historical-hash-${index}`,style_source:"brand_profile" as const,
+      brand_binding_context:{binding_id:"previous-binding",binding_revision:1},brand_logo_asset_revision_id:"logo",
+      readability_evidence:{passed:true,evaluation_hash:`historical-evidence-${index}`,applied_treatment:"none"}},
+  }));
+  const pkg={thumbnail:{render_recipes:[recipe("recipe-a",1,"concept-a","title-a")],concept_revisions:[{concept_revision_id:"concept-a",headline:"Concept"}],base_versions:[],launch_variant_revisions:launches}} as unknown as EpisodePackageV3;
+
+  const cards=buildPendingCandidateWorkspaceCards(pkg,"current-binding",new Set(),"brand_profile");
+
+  assert.deepEqual(cards.map((card)=>card.id),["historical-0","historical-1","historical-2"]);
+  assert.ok(cards.every((card)=>card.quenchEligible===false),"only Tongs may grant current or historical-brand eligibility");
+});
+
 test("saved edit replaces the displayed launch lineage while preserving its prior revision",()=>{
   const recipes=[
     {...recipe("recipe-a",1,"concept-a","title-a"),treatment:{placement:{vertical:"top"}},presentation_override:{logo_placement:"bottom_right"}},

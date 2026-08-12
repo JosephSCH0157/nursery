@@ -23,15 +23,12 @@ export function buildCandidateWorkspaceCards(pkg:EpisodePackageV3,authority:Thum
 
 export function buildPendingCandidateWorkspaceCards(
   pkg: EpisodePackageV3,
-  activeBindingId: string | null,
+  _activeBindingId: string | null,
   currentCompositeAssetIds: ReadonlySet<string>,
   requiredStyleSource: "brand_profile" | "forge_standard" | null = null,
 ): CandidateWorkspaceCard[] {
-  if (!activeBindingId) return [];
   const eligible = pkg.thumbnail.launch_variant_revisions.filter((entry) => {
-    const provenance = entry.snapshot.brand_binding_context ?? entry.snapshot.brand_application_provenance;
     return entry.status === "ready"
-      && provenance?.binding_id === activeBindingId
       && (!requiredStyleSource || entry.snapshot.style_source === requiredStyleSource)
       && !currentCompositeAssetIds.has(entry.snapshot.asset_id);
   });
