@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { extractReferenceSourceEvidence, inspectReferenceResearchLead } from "../dist/reference-source-ingestion.js";
 
-const htmlResponse=(html,url="https://example.org/history")=>new Response(html,{status:200,headers:{"content-type":"text/html"}});
+const htmlResponse=(html)=>new Response(html,{status:200,headers:{"content-type":"text/html"}});
 
 test("extracts dated and numeric claims without inventing publication dates",async()=>{
   const claims=await extractReferenceSourceEvidence("https://example.org/history",async()=>htmlResponse(`<main><p>Florida citrus production expanded rapidly in 1894 after new rail connections arrived.</p><p>This undated overview contains no event.</p><p>Growers shipped 12 million boxes in 1920.</p></main>`));

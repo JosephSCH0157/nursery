@@ -9,7 +9,7 @@ const migration = readFileSync(
 );
 
 test("uploaded image-map candidates are registered and committed to canonical authority", () => {
-  const saveMethod = source.match(/async saveWorkpieceImageMap\([\s\S]*?\n  private async listLatestKeptTakeByWorkpieceIds/)?.[0] ?? "";
+  const saveMethod = source.match(/async saveWorkpieceImageMap\([\s\S]*?\n {2}private async listLatestKeptTakeByWorkpieceIds/)?.[0] ?? "";
 
   assert.match(saveMethod, /readCanonicalImageMapProjection/);
   assert.match(saveMethod, /candidate\.source !== "upload"/);

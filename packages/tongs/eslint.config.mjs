@@ -17,6 +17,8 @@ export default [
         Blob: "readonly",
         Buffer: "readonly",
         FormData: "readonly",
+        Response: "readonly",
+        TextEncoder: "readonly",
         URL: "readonly",
         console: "readonly",
         process: "readonly",

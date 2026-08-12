@@ -20,12 +20,23 @@ import {
 } from "../../lib/hearth-nav-model";
 import {
   listHearthWorkpieces,
+  renameHearthWorkpiece,
   type HearthWorkpieceSummary,
 } from "../../lib/hearth-workpieces";
 import type { SortKey } from "./hearth-shell-contracts";
 import { normalizeUuid } from "./hearth-shell-route";
 import { useHearthReadyScriptsLifecycle } from "../../hooks/useHearthReadyScriptsLifecycle";
 import { resolveReadyLabel } from "./hearth-shell-formatting";
+
+export type { HearthWorkpieceSummary } from "../../lib/hearth-workpieces";
+
+export async function renameHearthCollectionWorkpiece(args: {
+  workspaceId: string;
+  workpieceId: string;
+  title: string;
+}): Promise<void> {
+  await renameHearthWorkpiece(args);
+}
 
 export {
   useHearthSparkDiscovery as useHearthCollectionSparkDiscovery,

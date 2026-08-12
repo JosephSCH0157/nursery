@@ -3007,6 +3007,16 @@ function createImageMapAssetSupabase({ assets = [], brollPlan = null, referenceP
           throw new Error(`Unexpected RPC: ${name}`);
         },
         from(tableName) {
+          if (tableName === "workpiece_image_map_sequences") {
+            return {
+              select() {
+                return {
+                  eq() { return this; },
+                  async maybeSingle() { return { data: null, error: null }; },
+                };
+              },
+            };
+          }
           if (tableName === "workpiece_files") {
             return {
               select() {

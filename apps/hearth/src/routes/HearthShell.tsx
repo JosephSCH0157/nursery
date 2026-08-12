@@ -33,7 +33,6 @@ import {
   commitHearthPrimaryScript,
   getHearthPrimaryScriptPath,
 } from "../lib/hearth-script-repo";
-import { renameHearthWorkpiece, type HearthWorkpieceSummary } from "../lib/hearth-workpieces";
 import { isCanonicalThumbnailSetComplete } from "./hearth-shell/buildHearthThumbnailViewModel";
 import {
   selectDraftForWorkpiece,
@@ -338,11 +337,13 @@ import {
   useHearthSparkCollectionState,
   useHearthWorkpieceCollectionLoader,
   createHearthCollectionWorkpiece,
+  renameHearthCollectionWorkpiece,
   enqueueBarStockSpark,
   resolveBarStockSparkHearthWorkpieceId,
   upsertBarStockSpark,
   writeBarStockSparks,
   type BarStockSpark,
+  type HearthWorkpieceSummary,
 } from "./hearth-shell/useHearthCollectionController";
 import {
   useHearthScriptApprovalFlow,
@@ -6929,7 +6930,7 @@ export default function HearthShell({
     saveDraftMeta,
     onRenameWorkpiece: async (targetWorkpieceId: string, title: string) => {
       if (!workspaceId) throw new Error("workspace_required");
-      await renameHearthWorkpiece({ workspaceId, workpieceId: targetWorkpieceId, title });
+      await renameHearthCollectionWorkpiece({ workspaceId, workpieceId: targetWorkpieceId, title });
       await refreshWorkpieces(workspaceId, { includeArchived: showArchived });
     },
     onRestoreWorkpiece,
