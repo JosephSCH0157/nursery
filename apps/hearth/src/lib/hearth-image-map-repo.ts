@@ -609,7 +609,7 @@ export async function uploadWorkpieceImageMapCandidateAsset(args: {
   }
 
   const extension = extensionFromMimeType(mimeType);
-  const candidateId = `upload:${crypto.randomUUID()}`;
+  const candidateId = crypto.randomUUID();
   const uploadPath = `assets/image-map/uploads/${args.entryId}/${candidateId}.${extension}`;
   const variantLabel = args.file.name?.trim() || "uploaded-asset";
 

@@ -14355,11 +14355,88 @@ export class TongsCommitService {
       }
     }
 
+    const canonicalBeforeSave = await this.readCanonicalImageMapProjection(input.workspace_id, workpieceId);
+    let authoritativeEntries = input.entries;
+    if (canonicalBeforeSave) {
+      const priorAssetIds = new Set(canonicalBeforeSave.entries.flatMap((entry) => entry.candidate_assets.map((asset) => asset.asset_id)));
+      const attachedEntryIds = new Set<string>();
+      for (const entry of input.entries) {
+        for (const candidate of entry.candidate_assets) {
+          if (candidate.source !== "upload" || priorAssetIds.has(candidate.asset_id)) continue;
+          const assetId = normalizeUuid(candidate.asset_id, "candidate_asset_id");
+          const path = normalizeRelativePath(candidate.path ?? "");
+          if (!path.startsWith("assets/image-map/uploads/")) {
+            throw new HttpError(400, "invalid_uploaded_candidate_path", "Uploaded image candidate path is invalid.");
+          }
+          const committedFile = await this.supabase.schema("tongs").from("workpiece_files")
+            .select("storage_bucket,storage_key,bytes,hash_value,updated_at,content_type")
+            .eq("workpiece_id", workpieceId).eq("path", path).maybeSingle();
+          if (committedFile.error || !isRecord(committedFile.data)) {
+            throw new HttpError(502, "uploaded_candidate_file_missing", "The uploaded image bytes could not be verified for canonical attachment.");
+          }
+          await this.insertAssetRow({
+            id: assetId,
+            workspace_id: input.workspace_id,
+            workpiece_id: workpieceId,
+            path,
+            mime_type: candidate.mime_type ?? readStringField(committedFile.data, "content_type") ?? "image/png",
+            bytes: Number(committedFile.data.bytes ?? 0),
+            storage_bucket: normalizeNonEmptyString(committedFile.data.storage_bucket, "storage_bucket"),
+            storage_key: normalizeNonEmptyString(committedFile.data.storage_key, "storage_key"),
+            provider: "creator_upload",
+            provider_request_id: null,
+            request_id: `image-map-upload:${assetId}`,
+            prompt: null,
+            created_by: auth.userId,
+            asset_kind: IMAGE_MAP_CANDIDATE_ASSET_KIND,
+            status: "ready",
+            metadata_json: {
+              schema: IMAGE_MAP_CANDIDATE_ASSET_SCHEMA,
+              image_map_entry_id: entry.id,
+              variant_label: candidate.variant_label ?? "Uploaded image",
+              source: "upload",
+            },
+            operation_id: `forge:image-map:upload:${assetId}`,
+            operation_fingerprint: readStringField(committedFile.data, "hash_value") ?? assetId,
+            content_hash: readStringField(committedFile.data, "hash_value"),
+            ready_at: readStringField(committedFile.data, "updated_at") ?? new Date().toISOString(),
+            supersedes_asset_id: null,
+          }, "Failed to register uploaded image-map candidate asset");
+          attachedEntryIds.add(entry.id);
+        }
+      }
+      if (attachedEntryIds.size > 0) {
+        const committed = await this.commitCanonicalImageMap({
+          workspaceId: input.workspace_id,
+          workpieceId,
+          actorId: auth.userId,
+          entries: input.entries,
+          mutationKind: "reapply_visual_plan",
+          operationId: `forge:image-map:upload-${randomUuid()}`,
+          targetApprovalId: canonicalBeforeSave.authority.scriptApprovalId,
+          expectedRevision: canonicalBeforeSave.authority.revision,
+          expectedRevisionId: canonicalBeforeSave.authority.revisionId,
+          affectedEntryIds: [...attachedEntryIds],
+          inputs: { reason: "attach_uploaded_candidate" },
+        });
+        const disposition = readStringField(committed, "disposition");
+        if (disposition === "revision_conflict") {
+          throw new HttpError(409, "image_map_conflict", "Image map changed while attaching the uploaded image.");
+        }
+        if (disposition !== "committed" && disposition !== "no_change") {
+          throw new HttpError(502, "canonical_image_map_attach_failed", "Tongs could not attach the uploaded image to canonical image-map authority.", { disposition });
+        }
+        const canonicalAfterSave = await this.readCanonicalImageMapProjection(input.workspace_id, workpieceId);
+        if (!canonicalAfterSave) throw new HttpError(502, "canonical_image_map_readback_failed", "Uploaded image attachment could not be read back.");
+        authoritativeEntries = canonicalAfterSave.entries;
+      }
+    }
+
     const nextEpisodePackage: EpisodePackageRecord = {
       ...current.episodePackage,
       spoken_beats: input.spoken_beats ?? current.episodePackage.spoken_beats,
       image_map: {
-        entries: input.entries,
+        entries: authoritativeEntries,
       },
     };
     // Image Map is a standalone authority, but metadata.json still carries a

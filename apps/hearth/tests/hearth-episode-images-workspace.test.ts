@@ -76,6 +76,8 @@ test("outside episode images are contained in the selected frame and retain fit 
   assert.match(actions, /prepareOutsideImageForFrame\(file, targetWidth, targetHeight\)/);
   assert.match(actions, /preparationEvidence: prepared\.fitEvidence/);
   assert.match(repository, /preparation_evidence: args\.preparationEvidence \?\? null/);
+  assert.match(repository, /const candidateId = crypto\.randomUUID\(\)/);
+  assert.doesNotMatch(repository, /const candidateId = `upload:/);
   assert.match(styles, /\.hs-episode-image-preview img\{object-fit:contain\}/);
   assert.match(styles, /\.hs-imap-candidate-image \{[\s\S]*?object-fit: contain;/);
 });
