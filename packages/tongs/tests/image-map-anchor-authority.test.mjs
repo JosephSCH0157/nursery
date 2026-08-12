@@ -28,6 +28,14 @@ test("repair deterministically recovers a missing structured anchor from one exa
   assert.deepEqual(result.candidate_assets, [{ asset_id: "asset-1" }]);
 });
 
+test("repair canonicalizes line breaks inside one approved-script paragraph", () => {
+  const multiline = { ...entry("Money.\nManagement."), script_anchor: null };
+  const [result] = repairEntriesAgainstApprovedScript([multiline], "Before.\n\nMoney.\nManagement.\nYear-one change.\n\nAfter.");
+  assert.equal(result.canonical_anchor_assessment.state, "current");
+  assert.equal(result.script_anchor.span_text, "Money. Management.");
+  assert.equal(result.script_anchor.paragraph_id, "s1:p2");
+});
+
 test("repair fails closed for duplicate and absent exact text", () => {
   const [duplicate] = repairEntriesAgainstApprovedScript([entry("Same phrase.")], "Same phrase.\n\nSame phrase.");
   const [absent] = repairEntriesAgainstApprovedScript([entry("Missing phrase.")], "Different words.");

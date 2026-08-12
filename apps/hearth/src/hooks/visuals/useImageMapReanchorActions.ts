@@ -57,6 +57,8 @@ export function useImageMapReanchorActions(args: UseImageMapReanchorActionsArgs)
       if (!result.ok) {
         args.setImageMapSaveState("error");
         args.setImageMapReanchorError(result.error);
+        args.setIsImageMapReanchorMode(true);
+        args.setShowScriptPanel(true);
       } else {
         args.setImageMapSaveState("saved");
         args.setImageMapExportMessage("Image moment verified against the immutable approved script.");

@@ -12,6 +12,7 @@ import {
 import { refineConcept, saveRenderRecipe } from "../../lib/hearth-thumbnail-v3-authority";
 import { isValidThumbnailPair, resolveCanonicalThumbnailPair } from "../../lib/hearth-thumbnail-pairing";
 import { buildCandidateWorkspaceCards, buildPendingCandidateWorkspaceCards, candidateWorkspaceSummary } from "../../lib/hearth-thumbnail-candidate-workspace";
+import { prepareOutsideThumbnailImage } from "../../lib/hearth-thumbnail-outside-image-fit";
 import { buildThumbnailDirections, creatorBrandStatus, creatorThumbnailError } from "../../lib/hearth-thumbnail-workspace-view-model";
 import { readHearthAiRuntimeStatus, writeHearthAiRuntimeStatus } from "../../lib/ai-runtime-status";
 import { DEFAULT_VARIATION_LOCKS, appendVariationBatch, createDeterministicVariationBatch, promoteRecipeVariation } from "../../lib/hearth-thumbnail-variations";
@@ -670,10 +671,27 @@ export default function ThumbnailV3Panel(props: Props) {
         writeHearthAiRuntimeStatus({ isAiProcessing: priorAiRuntime.isAiProcessing });
       }
     } else {
+      const targetWidth = renderRecipe.intended_aspect_ratio === "9:16" ? 1080 : renderRecipe.intended_aspect_ratio === "1:1" ? 1080 : 1280;
+      const targetHeight = renderRecipe.intended_aspect_ratio === "9:16" ? 1920 : renderRecipe.intended_aspect_ratio === "1:1" ? 1080 : 720;
+      let preparedImage;
+      try {
+        preparedImage = await prepareOutsideThumbnailImage(file!, targetWidth, targetHeight);
+      } catch (error) {
+        setSaveState("error");
+        setLoadError(error instanceof Error ? error.message : "The outside image could not be fitted to the thumbnail frame.");
+        return;
+      }
       result = await commitOutsideToolBaseArtwork({ workpieceId: props.workpieceId, workspaceId: props.workspaceId,
         expectedMetadataUpdatedAt: renderToken, episodePackage: renderPackage,
-        baseVersion: { ...base, source_type: "outside_tool", provider_id: "outside_tool", provider_request_id: null, mime_type: (file?.type || "image/png") as "image/png" },
-        artwork: { sourceType: "outside_tool", bytes: new Uint8Array(await file!.arrayBuffer()), mimeType: (file!.type || "image/png") as "image/png", providerId: "outside_tool", operationId: crypto.randomUUID() } });
+        baseVersion: { ...base, source_type: "outside_tool", provider_id: "outside_tool", provider_request_id: null, mime_type: preparedImage.mimeType },
+        artwork: {
+          sourceType: "outside_tool",
+          bytes: preparedImage.bytes,
+          mimeType: preparedImage.mimeType,
+          providerId: "outside_tool",
+          operationId: crypto.randomUUID(),
+          preparationEvidence: preparedImage.fitEvidence,
+        } });
     }
     if (!result.ok) { setSaveState("error"); setLoadError(result.error); return; }
     setPkg(result.episodePackage); setToken(result.metadataUpdatedAt); setSelectedBaseId(id);

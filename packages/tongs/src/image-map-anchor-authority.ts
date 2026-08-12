@@ -83,8 +83,8 @@ export function repairEntriesAgainstApprovedScript(entries: Array<Record<string,
       return { ...entry, canonical_anchor_assessment: { state: "current", reason: null, exact_anchor: entry.script_anchor ?? null, evidence: { match_count: 1, assessed_contract_version: "forge.image-map-anchor.v1" } } };
     }
     const oldAnchor = entry.script_anchor && typeof entry.script_anchor === "object" ? entry.script_anchor as Record<string, unknown> : null;
-    const priorSpan = typeof oldAnchor?.span_text === "string" ? oldAnchor.span_text.trim() : "";
-    const displayAnchor = typeof entry.anchor === "string" ? entry.anchor.trim() : "";
+    const priorSpan = typeof oldAnchor?.span_text === "string" ? compact(oldAnchor.span_text) : "";
+    const displayAnchor = typeof entry.anchor === "string" ? compact(entry.anchor) : "";
     const span = priorSpan || displayAnchor;
     if (!span) return { ...entry, script_anchor: null, canonical_anchor_assessment: { state: "unresolved", reason: "source_provenance_unknown", exact_anchor: null, evidence: { match_count: 0, assessed_contract_version: "forge.image-map-anchor.v1" } } };
     const matches: ScriptAnchor[] = [];

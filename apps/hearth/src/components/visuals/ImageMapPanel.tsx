@@ -440,6 +440,13 @@ export default function ImageMapPanel({
 
               {needsAnchorRepair ? <aside className="hs-episode-images-repair" role="alert"><strong>This image moment is not verified against the approved script.</strong><p>Tongs can check exact anchors against the immutable approved script. Existing candidates and selected images are preserved.</p>{reanchorError ? <p className="hs-episode-images-repair-error">{reanchorError}</p> : null}<button type="button" onClick={onStartReanchor} disabled={disabled || reanchorBusy}>{reanchorBusy ? "Checking approved script…" : "Repair from approved script"}</button></aside> : null}
 
+              {needsAnchorRepair && reanchorMode ? <section className="hs-imap-anchor-picker" aria-label="Choose approved script passage">
+                <div className="hs-imap-section-heading"><div><strong>Choose the correct moment manually</strong><p>The automatic exact-text repair could not identify one unique passage. Select the sentence or paragraph this image supports.</p></div>{reanchorScriptSourceLabel ? <small>{reanchorScriptSourceLabel}</small> : null}</div>
+                {reanchorScriptHint ? <p className="hs-field-label-muted">{reanchorScriptHint}</p> : null}
+                {reanchorScriptLoading ? <p role="status">Loading the approved script…</p> : reanchorParagraphs.length===0 ? <p>No approved-script passages are available yet.</p> : <div className="hs-imap-anchor-picker-list">{reanchorParagraphs.map((paragraph)=><article key={paragraph.key} className="hs-imap-anchor-picker-paragraph"><div className="hs-imap-anchor-picker-heading"><strong>{paragraph.label}</strong><button type="button" onClick={()=>onPickReanchor(paragraph.paragraphOption.selection)} disabled={disabled||reanchorBusy}>Use full paragraph</button></div><p className="hs-imap-anchor-picker-text">{paragraph.text}</p><div className="hs-imap-anchor-picker-options">{paragraph.sentenceOptions.map((option)=><button key={option.key} type="button" className="hs-imap-anchor-picker-option" onClick={()=>onPickReanchor(option.selection)} disabled={disabled||reanchorBusy}><span className="hs-imap-anchor-picker-option-label">{option.label}</span><span className="hs-imap-anchor-picker-option-text">{option.text}</span></button>)}</div></article>)}</div>}
+                <button type="button" onClick={onCancelReanchor} disabled={reanchorBusy}>Cancel manual selection</button>
+              </section> : null}
+
               {!selectedEntry.selected_asset_id ? <section className="hs-episode-image-direction" aria-labelledby="episode-image-direction-heading">
                 <div className="hs-episode-image-direction-heading">
                   <div><span>Before you generate</span><h4 id="episode-image-direction-heading">Shape this image</h4></div>

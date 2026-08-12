@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import { repairWorkpieceImageMapAuthority } from "../src/lib/hearth-image-map-authority";
 import { normalizeWorkpieceImageMapView } from "../src/lib/hearth-image-map-repo";
 
@@ -8,6 +9,19 @@ const workspaceId = "22222222-2222-4222-8222-222222222222";
 const revisionId = "33333333-3333-4333-8333-333333333333";
 const approvalId = "44444444-4444-4444-8444-444444444444";
 const candidateId = "55555555-5555-4555-8555-555555555555";
+
+test("an unresolved automatic repair opens the standard manual passage picker", async () => {
+  const [actions, panel] = await Promise.all([
+    readFile(new URL("../src/hooks/visuals/useImageMapReanchorActions.ts", import.meta.url), "utf8"),
+    readFile(new URL("../src/components/visuals/ImageMapPanel.tsx", import.meta.url), "utf8"),
+  ]);
+  const failedRepair = actions.slice(actions.indexOf("if (!result.ok)"), actions.indexOf("} else {", actions.indexOf("if (!result.ok)")));
+  assert.match(failedRepair, /setIsImageMapReanchorMode\(true\)/);
+  assert.match(failedRepair, /setShowScriptPanel\(true\)/);
+  assert.match(panel, /aria-label="Choose approved script passage"/);
+  assert.match(panel, /onPickReanchor\(paragraph\.paragraphOption\.selection\)/);
+  assert.match(panel, /onPickReanchor\(option\.selection\)/);
+});
 
 function installBrowserAuthContext() {
   const storage = new Map([["forge_tongs_api_token_v1", "DEV_TOKEN"]]);

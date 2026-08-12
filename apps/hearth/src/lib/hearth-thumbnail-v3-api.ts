@@ -453,6 +453,7 @@ export type BaseArtworkInput = {
   providerId: string;
   providerRequestId?: string | null;
   operationId: string;
+  preparationEvidence?: Record<string, unknown> | null;
 };
 
 export async function commitThumbnailBaseArtwork(args: {
@@ -493,6 +494,7 @@ export async function commitThumbnailBaseArtwork(args: {
         concept_revision_id: args.baseVersion.concept_revision_id,
         render_recipe_id: args.baseVersion.render_recipe_id,
         render_recipe_revision: args.baseVersion.render_recipe_revision,
+        preparation_evidence: args.artwork.preparationEvidence ?? null,
       },
     },
   });
