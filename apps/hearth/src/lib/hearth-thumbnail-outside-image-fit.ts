@@ -1,5 +1,5 @@
 export type OutsideImageFitEvidence = {
-  contract_version: "forge.thumbnail-outside-image-fit.v1";
+  contract_version: "forge.outside-image-contain-fit.v1";
   fit_mode: "contain";
   source_width: number;
   source_height: number;
@@ -26,7 +26,7 @@ export function calculateOutsideImageContainFit(
   const renderedWidth = Math.max(1, Math.round(sourceWidth * scale));
   const renderedHeight = Math.max(1, Math.round(sourceHeight * scale));
   return {
-    contract_version: "forge.thumbnail-outside-image-fit.v1",
+    contract_version: "forge.outside-image-contain-fit.v1",
     fit_mode: "contain",
     source_width: sourceWidth,
     source_height: sourceHeight,
@@ -40,6 +40,8 @@ export function calculateOutsideImageContainFit(
     background: "near_black",
   };
 }
+
+export const prepareOutsideImageForFrame = prepareOutsideThumbnailImage;
 
 export async function prepareOutsideThumbnailImage(
   file: File,

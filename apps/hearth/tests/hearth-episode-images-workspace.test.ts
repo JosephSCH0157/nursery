@@ -67,3 +67,15 @@ test("episode-image prompt language is distinct from thumbnail language", () => 
   assert.match(profiles, /intendedUse === "timeline_image" \? "an episode visual supporting a script moment"/);
   assert.match(profiles, /"a podcast thumbnail concept"/);
 });
+
+test("outside episode images are contained in the selected frame and retain fit provenance", () => {
+  const actions = readFileSync(resolve(process.cwd(), "src/hooks/visuals/useImageMapCandidateActions.ts"), "utf8");
+  const repository = readFileSync(resolve(process.cwd(), "src/lib/hearth-image-map-repo.ts"), "utf8");
+  const styles = readFileSync(resolve(process.cwd(), "src/routes/HearthShell.css"), "utf8");
+
+  assert.match(actions, /prepareOutsideImageForFrame\(file, targetWidth, targetHeight\)/);
+  assert.match(actions, /preparationEvidence: prepared\.fitEvidence/);
+  assert.match(repository, /preparation_evidence: args\.preparationEvidence \?\? null/);
+  assert.match(styles, /\.hs-episode-image-preview img\{object-fit:contain\}/);
+  assert.match(styles, /\.hs-imap-candidate-image \{[\s\S]*?object-fit: contain;/);
+});

@@ -32,7 +32,7 @@ test("fills a matching frame without cropping or padding", () => {
   assert.equal(fit.offset_x, 0);
   assert.equal(fit.offset_y, 0);
   assert.equal(fit.fit_mode, "contain");
-  assert.equal(fit.contract_version, "forge.thumbnail-outside-image-fit.v1");
+  assert.equal(fit.contract_version, "forge.outside-image-contain-fit.v1");
 });
 
 test("rejects invalid source or frame dimensions", () => {

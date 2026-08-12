@@ -595,6 +595,7 @@ export async function uploadWorkpieceImageMapCandidateAsset(args: {
   entryId: string;
   file: File;
   source?: EpisodeImageMapAssetSource;
+  preparationEvidence?: Record<string, unknown> | null;
 }): Promise<UploadWorkpieceImageMapCandidateAssetResult> {
   const mimeType = resolveUploadMimeType(args.file);
   const source = args.source ?? "upload";
@@ -640,6 +641,7 @@ export async function uploadWorkpieceImageMapCandidateAsset(args: {
         entry_id: args.entryId,
         file_name: args.file.name,
         mime_type: mimeType,
+        preparation_evidence: args.preparationEvidence ?? null,
       },
       correlation_id: `hearth-image-map-upload-${Date.now().toString(36)}`,
     },

@@ -14,6 +14,7 @@ import { nextUnresolvedEpisodeImageId } from "../../lib/hearth-episode-images-vi
 import type { EpisodeImageMapEntry, EpisodePackageV2 } from "../../lib/episode-package-v2";
 import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 import type { CanonicalImagePromptRevision } from "../../lib/hearth-image-prompt-authority";
+import { prepareOutsideImageForFrame } from "../../lib/hearth-thumbnail-outside-image-fit";
 
 type CanonicalScriptResult =
   | {
@@ -370,11 +371,21 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
     args.setImageMapCandidateSelectionError(null);
     args.setImageMapCandidateError(null);
     try {
+      const targetWidth = args.thumbnailAspect === "9:16" ? 1080 : args.thumbnailAspect === "1:1" ? 1080 : 1280;
+      const targetHeight = args.thumbnailAspect === "9:16" ? 1920 : args.thumbnailAspect === "1:1" ? 1080 : 720;
+      const prepared = await prepareOutsideImageForFrame(file, targetWidth, targetHeight);
+      const fittedBytes = new Uint8Array(prepared.bytes.byteLength);
+      fittedBytes.set(prepared.bytes);
+      const fittedFile = new File([fittedBytes.buffer], file.name.replace(/\.[^.]+$/, "") + ".png", {
+        type: prepared.mimeType,
+        lastModified: file.lastModified,
+      });
       const uploaded = await uploadWorkpieceImageMapCandidateAsset({
         workpieceId: episodeId,
         entryId: args.selectedImageMapEntry.id,
-        file,
+        file: fittedFile,
         source: "upload",
+        preparationEvidence: prepared.fitEvidence,
       });
       if (!args.operationAuthority.isCurrent(operation)) return;
       if (!uploaded.ok) {
