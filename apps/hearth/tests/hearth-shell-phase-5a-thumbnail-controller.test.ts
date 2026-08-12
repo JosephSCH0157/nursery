@@ -87,6 +87,7 @@ test("three generated thumbnails expose an explicit acceptance action beside the
   assert.match(panel,/aria-label="Accept generated thumbnails"/);
   assert.match(panel,/Accept these three thumbnails/);
   assert.match(panel,/unlock(?:s)? Images/);
+  assert.match(panel,/candidateAuthority\?\.active_binding_id\s*\?\?/);
 });
 
 test("activating the selected concept set is part of the standard workflow",async()=>{

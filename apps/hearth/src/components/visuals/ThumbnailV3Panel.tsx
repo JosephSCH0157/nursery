@@ -284,7 +284,8 @@ export default function ThumbnailV3Panel(props: Props) {
   const candidateCards = useMemo(() => pkg ? buildCandidateWorkspaceCards(pkg, candidateAuthority) : [], [candidateAuthority, pkg]);
   const currentCompositeAssetIds = useMemo(() => new Set(candidateAuthority?.candidates
     .map((candidate) => typeof candidate.composite_asset_id === "string" ? candidate.composite_asset_id : "").filter(Boolean) ?? []), [candidateAuthority]);
-  const activeBindingId = typeof brandStatus?.binding?.id === "string" ? brandStatus.binding.id : null;
+  const activeBindingId = candidateAuthority?.active_binding_id
+    ?? (typeof brandStatus?.binding?.id === "string" ? brandStatus.binding.id : null);
   const pendingStyleSource = styleSource === "brand_profile" || (styleSource === "auto" && brandPresentation.ready)
     ? "brand_profile" as const
     : "forge_standard" as const;
