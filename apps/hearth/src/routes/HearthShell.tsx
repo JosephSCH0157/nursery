@@ -53,6 +53,7 @@ import { useImagePromptAuthority } from "../hooks/visuals/useImagePromptAuthorit
 import { useEpisodePackageLoader } from "../hooks/visuals/useEpisodePackageLoader";
 import { useVisualWorkspaceResetLifecycle } from "../hooks/visuals/useVisualWorkspaceResetLifecycle";
 import { shouldInvalidateMediaMapForScriptVersion } from "../lib/hearth-visual-artifact-authority";
+import { deriveHearthMediaWorkflow } from "../lib/hearth-media-workflow-view-model";
 import { useVisualSelectionHydration } from "../hooks/visuals/useVisualSelectionHydration";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import {
@@ -178,6 +179,7 @@ import type {
   EpisodeImageMapEntry,
   EpisodeMediaMap,
   EpisodeMediaMapEntry,
+  EpisodeMediaMapStatus,
   EpisodePackageV2,
   EpisodeThumbnailVersion,
 } from "../lib/episode-package-v2";
@@ -2203,6 +2205,11 @@ export default function HearthShell({
     broll: { planned: brollBeats.length, completed: brollBeats.filter((beat) => beat.fulfillment_state === "resolved" && Boolean(beat.selected_asset_id)).length },
     upstreamChanged: visualPlanRevisionChanged,
   };
+  const canonicalMediaWorkflow = deriveHearthMediaWorkflow(mediaWorkflowInput);
+  const canonicalMediaPlanStatus = mediaWorkflowInput.visualPlan.status as EpisodeMediaMapStatus | null;
+  const canonicalMediaComplete = canonicalMediaWorkflow.stages
+    .filter((stage) => stage.id !== "review")
+    .every((stage) => stage.status === "complete");
   const hasBrowserSpeech = (
     typeof window !== "undefined"
     && hasBrowserSpeechRecognition(window)
@@ -2438,9 +2445,9 @@ export default function HearthShell({
     hasApprovedScript,
     approvedScriptVersion,
     mediaAuthorityAvailable: !imageMapAuthorityUnavailable,
-    mediaMapStatus: mediaMap?.status ?? null,
+    mediaMapStatus: canonicalMediaPlanStatus,
     metadataAuthorityAvailable: episodePackageState !== "error",
-    metadataComplete,
+    metadataComplete: metadataComplete || framingPackReady,
     thumbnailAuthorityAvailable: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? ""),
     thumbnailsSelected,
     workspace: releasePreparationWorkspace,
@@ -6458,10 +6465,10 @@ export default function HearthShell({
       metadataPanelMeta: metadataController.meta,
       summary: {
         visuals: {
-          visualCount: mediaMapEntries.length,
+          visualCount: mediaWorkflowInput.visualPlan.total,
           briefCount: displayedThumbnailConceptCount,
-          mediaMapStatus: String(mediaMap?.status ?? "draft"),
-          coverageLevel: mediaMapCoverageLevel,
+          mediaMapStatus: String(canonicalMediaPlanStatus ?? "draft"),
+          coverageLevel: canonicalMediaComplete ? "complete" : mediaMapCoverageLevel,
         },
         metadata: {
           titleCount: framingTitleCount,

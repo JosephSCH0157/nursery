@@ -24,6 +24,13 @@ test("PDF ingestion derives a usable title from response filename or document UR
  assert.ok(fromUrl.provenance.metadata_sources.includes("url_path:document_name"));
 });
 
+test("authoritative PDFs may exceed the conservative HTML intake limit",async()=>{
+ const report=new Uint8Array(9*1024*1024);report.set([37,80,68,70]);
+ const result=await ingestReferenceSourceUrl("https://metroplanorlando.org/regional-transit-needs.pdf",async()=>new Response(report,{status:200,headers:{"content-type":"application/pdf","content-length":String(report.length)}}));
+ assert.equal(result.contentType,"application/pdf");
+ await assert.rejects(()=>ingestReferenceSourceUrl("https://example.com/oversized-page",async()=>new Response(report,{status:200,headers:{"content-type":"text/html","content-length":String(report.length)}})),/reference_source_too_large/);
+});
+
 test("URL ingestion exposes unique provenance-bound archival image candidates and ignores page chrome",async()=>{
  const html=`<main><img src="/photos/freeze-1895.jpg" alt="Frozen citrus grove"><img data-src="https://archive.example.net/freeze.jpg" alt="Packing house after the freeze"><img src="/photos/freeze-1895.jpg"><img src="/assets/site-logo.png"><img src="data:image/png;base64,abc"></main>`;
  const result=await ingestReferenceSourceUrl("https://example.com/freeze",async()=>new Response(html,{status:200,headers:{"content-type":"text/html"}}));

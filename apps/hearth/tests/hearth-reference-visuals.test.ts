@@ -8,6 +8,7 @@ const referenceClipAuthority=readFileSync(new URL("../src/lib/hearth-reference-c
 const referenceClipPanel=readFileSync(new URL("../src/components/visuals/CanonicalReferenceClipPanel.tsx",import.meta.url),"utf8");
 const shell=readFileSync(new URL("../src/components/visuals/CanonicalReferenceMaterialPanel.tsx",import.meta.url),"utf8");
 const unified=readFileSync(new URL("../src/lib/hearth-unified-visual-plan-authority.ts",import.meta.url),"utf8");
+const postResetSelection=readFileSync(new URL("../../../supabase/migrations/20260812153000_tongs_reference_visual_post_reset_selection.sql",import.meta.url),"utf8");
 
 test("Reference Material keeps Source Clips intact and exposes Reference Visuals separately",()=>{
  assert.match(shell,/CanonicalReferenceClipPanel/);
@@ -79,6 +80,13 @@ test("Reference Visual evidence has a distinct canonical start-over action that 
  assert.match(panel,/Linked Sources stay attached/);
  assert.match(panel,/clearReferenceVisualEvidence/);
  assert.match(authority,/reset_reference_visual_evidence/);
+});
+
+test("candidate selection reports failures and can continue its revision chain after start over",()=>{
+ assert.match(authority,/selectReferenceVisual[\s\S]*requireCommitted/);
+ assert.match(postResetSelection,/active_revision:=case/);
+ assert.match(postResetSelection,/previous_selection\.created_at<=latest_reset/);
+ assert.match(postResetSelection,/coalesce\(previous_selection\.revision,0\)\+1/);
 });
 
 test("Reference Clips can be canonically converted to Reference Visuals without losing anchors or Source provenance",()=>{

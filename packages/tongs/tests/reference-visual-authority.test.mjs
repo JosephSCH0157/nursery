@@ -143,6 +143,7 @@ test("Tongs reconstructs canonical readback before deterministic rendering and c
   assert.match(method, /renderer_contract_version/);
   assert.match(method, /forge\.reference-visual-renderer\.v2/);
   assert.match(method, /forge_\$\{subtype\}_v\$\{rendererVersion\}/);
+  assert.match(method, /subtype==="document_excerpt"/);
   assert.match(method, /subtype==="comparison"\|\|subtype==="stat_card"\?"3"/);
   assert.match(method, /reference_visual_source_coverage_required/);
   assert.match(method, /sourceTitles\.size>1/);
@@ -162,6 +163,14 @@ test("Tongs reserves archival acquisition before safe fetch or upload and commit
   assert.match(method, /member\.source_link_revision/);
   assert.doesNotMatch(method, /rights_declaration_revision_id\|\|readStringField\(opportunity\.opportunity_revision,"source_status"\)!=="linked"/);
   assert.match(service, /reference-visuals"&&parts\[4\]==="acquire"/);
+});
+
+test("Source creation safely reuses an existing canonical URL revision",()=>{
+ const method=service.slice(service.indexOf("async commitSourceRevision"),service.indexOf("async commitWorkpieceSourceLink"));
+ assert.match(method,/source_revision_conflict/);
+ assert.match(method,/source_revisions/);
+ assert.match(method,/stable_key/);
+ assert.match(method,/disposition:"reused"/);
 });
 
 test("the forward acquisition repair restores the RPC with current Source collection and rights authority", () => {

@@ -67,6 +67,16 @@ test("each newly confirmed collection claim starts its own immutable evidence se
  assert.doesNotMatch(panel,/confirmProposal[\s\S]*?expectedRevision:opportunity\.evidenceSequenceRevision/);
 });
 
+test("every selected Source exposes evidence coverage and a manual fallback",()=>{
+ assert.match(panel,/Evidence coverage by Source/);
+ assert.match(panel,/hs-reference-visual-source-coverage-card/);
+ assert.match(panel,/hs-reference-visual-source-coverage-copy/);
+ assert.match(panel,/No extractable suggestions found/);
+ assert.match(panel,/Enter evidence for this Source/);
+ assert.match(panel,/Confirm evidence for Source/);
+ assert.match(panel,/evidenceMemberId===member\.memberId/);
+});
+
 test("evidence reset readback preserves ordered canonical Source collections",()=>{
  assert.match(resetReadbackRepair,/'source_set',to_jsonb\(ss\)/);
  assert.match(resetReadbackRepair,/'sources',coalesce/);
