@@ -591,6 +591,11 @@ export default function ThumbnailV3Panel(props: Props) {
     await commitSetMutation({ ...current, thumbnail: { ...current.thumbnail, concept_sets: current.thumbnail.concept_sets.map((set) => set.id === activeSet.id ? { ...set, name } : set) } }, activeSet.id, "hearth.thumbnail.concept-set.renamed.v3");
   };
 
+  const makeSelectedSetActive = async () => {
+    if (!activeSet || !pkg || pkg.thumbnail.active_concept_set_id === activeSet.id) return;
+    await commitSetMutation({ ...pkg, thumbnail: { ...pkg.thumbnail, active_concept_set_id: activeSet.id } }, activeSet.id, "hearth.thumbnail.concept-set.selected.v3");
+  };
+
   const latestReadability = pkg?.thumbnail.launch_variant_revisions.at(-1)?.snapshot.readability_evidence ?? null;
 
   const archiveActiveSet = async () => {
@@ -890,6 +895,10 @@ export default function ThumbnailV3Panel(props: Props) {
             </button>;
           })}
         </div> : <p className="hs-thumbnail-calm-empty">Hearth will curate three complete thumbnail directions from the approved episode.</p>}
+        {activeSet && pkg.thumbnail.active_concept_set_id !== activeSet.id ? <aside className="hs-thumbnail-activation" aria-label="Activate thumbnail direction set">
+          <div><strong>Use this direction set for the episode</strong><p>This set is selected for review but is not yet the episode’s active thumbnail direction set.</p></div>
+          <button type="button" className="is-primary" disabled={saveState === "saving"} onClick={() => void makeSelectedSetActive()}>{saveState === "saving" ? "Making active…" : "Make this concept set active"}</button>
+        </aside> : null}
       </section>
 
       <section className="hs-thumbnail-stage" aria-labelledby="thumbnail-compare-heading">
@@ -996,8 +1005,7 @@ export default function ThumbnailV3Panel(props: Props) {
       {conceptSetPresentation.mode === "selector" ? <label>Concept set<select value={activeSet?.id ?? ""} onChange={(event) => setSelectedSetId(event.target.value)} aria-label="Concept set">
         {availableSets.map((set) => <option key={set.id} value={set.id}>{set.name}</option>)}
       </select></label> : null}
-      {activeSet ? <><button type="button" onClick={() => void commitSetMutation({ ...pkg, thumbnail: { ...pkg.thumbnail, active_concept_set_id: activeSet.id } }, activeSet.id, "hearth.thumbnail.concept-set.selected.v3")}>Make active</button>
-        <button type="button" onClick={() => void renameSet()}>Rename</button>
+      {activeSet ? <><button type="button" onClick={() => void renameSet()}>Rename</button>
         <button type="button" onClick={() => void archiveActiveSet()}>Archive</button></> : null}
     </div>
     {archivedSets.length ? <details><summary>Archived concept sets ({archivedSets.length})</summary>{archivedSets.map((set) => (

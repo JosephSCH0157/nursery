@@ -89,6 +89,15 @@ test("three generated thumbnails expose an explicit acceptance action beside the
   assert.match(panel,/unlock(?:s)? Images/);
 });
 
+test("activating the selected concept set is part of the standard workflow",async()=>{
+  const panel=await readFile(new URL("../src/components/visuals/ThumbnailV3Panel.tsx",import.meta.url),"utf8");
+  const primary=panel.slice(panel.indexOf("hs-thumbnail-workspace-header"),panel.indexOf("<details id=\"hearth-thumbnail-advanced\""));
+  const advanced=panel.slice(panel.indexOf("<details id=\"hearth-thumbnail-advanced\""));
+  assert.match(primary,/aria-label="Activate thumbnail direction set"/);
+  assert.match(primary,/Make this concept set active/);
+  assert.doesNotMatch(advanced,/>Make active</);
+});
+
 test("canonical candidate asset path wins preview resolution", () => {
   assert.equal(resolveHearthThumbnailCanonicalPreviewPath({
     candidateAssetPath: " canonical/candidate.png ",
