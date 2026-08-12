@@ -9,7 +9,7 @@ import {
 } from "../../lib/hearth-thumbnail-v3-api";
 import { buildHearthThumbnailPanelProps } from "../../views/modes/buildHearthThumbnailPanelProps";
 import type { HearthThumbnailController } from "./hearth-thumbnail-contracts";
-import { EMPTY_CANONICAL_THUMBNAIL_PROGRESS } from "./buildHearthThumbnailViewModel";
+import { EMPTY_CANONICAL_THUMBNAIL_PROGRESS, isThumbnailProgressAtLeastAsCurrent } from "./buildHearthThumbnailViewModel";
 import { resolveHearthThumbnailCanonicalPreviewPath } from "./hearth-thumbnail-preview";
 import {
   areEpisodeThumbnailTitleStylesEqual,
@@ -219,14 +219,16 @@ export function useHearthCanonicalThumbnailProjection(args: {
     loadError: null as string | null,
   });
   const onCanonicalProgress = useCallback((progress: {
+    candidateSetRevision: number;
     conceptRevisionCount: number;
     baseVersionCount: number;
     candidateCount: number;
     eligibleCandidateCount: number;
+    pendingCandidateCount: number;
     previewAssetPaths: string[];
   }) => {
     const workpieceId = args.workpieceId?.trim() ?? "";
-    setProjection((current) => ({
+    setProjection((current) => !isThumbnailProgressAtLeastAsCurrent(current.canonical,{workpieceId,candidateSetRevision:progress.candidateSetRevision}) ? current : ({
       ...current,
       canonical: {
         workpieceId,
@@ -266,9 +268,13 @@ export function useHearthCanonicalThumbnailProjection(args: {
         asset_id: entry.snapshot.asset_id,
         asset_path: entry.snapshot.asset_path,
       }));
-      setProjection({
+      const candidateSetRevision = Number(authority.candidate_set?.revision ?? 0);
+      setProjection((current) => !isThumbnailProgressAtLeastAsCurrent(current.canonical,{workpieceId,candidateSetRevision})
+        ? { ...current, loading: false, loadError: null }
+        : ({
         canonical: {
           workpieceId,
+          candidateSetRevision,
           conceptRevisionCount: workspace.episodePackage.thumbnail.concept_revisions.length,
           baseVersionCount: workspace.episodePackage.thumbnail.base_versions.length,
           candidateCount: authority.candidates.length,
@@ -276,6 +282,7 @@ export function useHearthCanonicalThumbnailProjection(args: {
             candidate.eligibility_state === "current"
             || candidate.eligibility_state === "approved_historical_brand"
           ).length,
+          pendingCandidateCount: 0,
           previewAssetPaths: authority.candidates.map((candidate) =>
             resolveHearthThumbnailCanonicalPreviewPath({
               candidateAssetPath: typeof candidate.asset_path === "string" ? candidate.asset_path : null,
@@ -290,14 +297,12 @@ export function useHearthCanonicalThumbnailProjection(args: {
         },
         loading: false,
         loadError: null,
-      });
+      }));
     }).catch((error: unknown) => {
       if (cancelled) return;
-      setProjection({
-        canonical: { ...EMPTY_CANONICAL_THUMBNAIL_PROGRESS, workpieceId },
-        loading: false,
-        loadError: error instanceof Error ? error.message : "Thumbnail authority is unavailable.",
-      });
+      setProjection((current) => current.canonical.workpieceId===workpieceId&&current.canonical.candidateSetRevision>0
+        ? {...current,loading:false,loadError:null}
+        : ({canonical:{...EMPTY_CANONICAL_THUMBNAIL_PROGRESS,workpieceId},loading:false,loadError:error instanceof Error?error.message:"Thumbnail authority is unavailable."}));
     });
     return () => {
       cancelled = true;

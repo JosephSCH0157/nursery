@@ -5,10 +5,12 @@ import type {
 
 export const EMPTY_CANONICAL_THUMBNAIL_PROGRESS: HearthCanonicalThumbnailProgress = {
   workpieceId: "",
+  candidateSetRevision: 0,
   conceptRevisionCount: 0,
   baseVersionCount: 0,
   candidateCount: 0,
   eligibleCandidateCount: 0,
+  pendingCandidateCount: 0,
   previewAssetPaths: [],
   titleCount: 0,
   tagCount: 0,
@@ -33,4 +35,11 @@ export function isCanonicalThumbnailSetComplete(progress: HearthCanonicalThumbna
   return progress.candidateCount === 3
     && progress.eligibleCandidateCount === progress.candidateCount
     && progress.previewAssetPaths.length === progress.candidateCount;
+}
+
+export function isThumbnailProgressAtLeastAsCurrent(
+  current: HearthCanonicalThumbnailProgress,
+  next: Pick<HearthCanonicalThumbnailProgress, "workpieceId" | "candidateSetRevision">,
+): boolean {
+  return current.workpieceId !== next.workpieceId || next.candidateSetRevision >= current.candidateSetRevision;
 }

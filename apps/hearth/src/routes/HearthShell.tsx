@@ -2181,6 +2181,7 @@ export default function HearthShell({
     thumbnails: {
       total: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "") ? canonicalThumbnailProgress.candidateCount : 0,
       eligible: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "") ? canonicalThumbnailProgress.eligibleCandidateCount : 0,
+      pending: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "") ? canonicalThumbnailProgress.pendingCandidateCount : 0,
       previewAssetPaths: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "") ? canonicalThumbnailProgress.previewAssetPaths : [],
     },
     images: {

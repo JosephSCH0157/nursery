@@ -59,8 +59,10 @@ test("Unified provider submits once and validates exact script-relative mixed ou
   try{const result=await new OpenAiUnifiedVisualPlanProvider("test-key").generate({scriptText:script,creatorDirection:null});assert.equal(calls,1);assert.deepEqual(result.plan,plan);assert.deepEqual(validateUnifiedVisualPlan(result.plan,script),[]);}finally{globalThis.fetch=originalFetch;}
 });
 
-test("every visual category may be intentionally empty",()=>{
-  assert.deepEqual(validateUnifiedVisualPlan({images:[],broll:[],reference_clips:[],reference_visuals:[]},"Approved script."),[]);
+test("individual visual categories may be empty but the complete plan may not",()=>{
+  assert.deepEqual(validateUnifiedVisualPlan({images:[],broll:[],reference_clips:[],reference_visuals:[]},"Approved script."),["visual_plan:empty"]);
+  assert.match(provider,/images:\{type:"array",minItems:1/);
+  assert.match(provider,/named public figures/);
   assert.doesNotMatch(provider,/images:required|broll:required|reference_clips:required|reference_visuals:required/);
 });
 

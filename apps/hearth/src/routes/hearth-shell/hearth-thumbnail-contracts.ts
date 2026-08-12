@@ -3,10 +3,12 @@ import type { useThumbnailWorkspace } from "../../hooks/visuals/useThumbnailWork
 
 export type HearthCanonicalThumbnailProgress = {
   workpieceId: string;
+  candidateSetRevision: number;
   conceptRevisionCount: number;
   baseVersionCount: number;
   candidateCount: number;
   eligibleCandidateCount: number;
+  pendingCandidateCount: number;
   previewAssetPaths: string[];
   titleCount: number;
   tagCount: number;

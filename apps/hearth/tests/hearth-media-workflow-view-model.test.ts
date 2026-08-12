@@ -73,6 +73,14 @@ test("creator UI translates Visual Plan while canonical media_map identities rem
   assert.match(surface,/displayedStage==="reference_clips"/);
   assert.doesNotMatch(surface,/Canonical Reference Clip opportunities/);
   assert.match(repo,/hearth\/media_map\.v1\.json/);assert.match(repo,/media_map/);
+  assert.match(repo,/HEARTH_MEDIA_MAP_RECOVERY_PATH\)\}&optional=1/);
+});
+
+test("generated thumbnail revisions are reported as awaiting finalization",()=>{
+  const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:2,images:2,broll:0,version:1},thumbnails:{eligible:0,total:0,pending:3,previewAssetPaths:[]}}));
+  assert.equal(workflow.stages[1]?.status,"in_progress");
+  assert.equal(workflow.stages[1]?.summary,"3 generated · awaiting thumbnail-set finalization");
+  assert.equal(workflow.activeStage,"thumbnails");
 });
 
 test("stage navigation contains no automatic generation, credit, Hammer, or Quench action",async()=>{

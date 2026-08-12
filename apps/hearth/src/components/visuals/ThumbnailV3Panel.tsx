@@ -90,7 +90,7 @@ type Props = {
   onRecoverConcepts: () => Promise<{ ok: boolean; reason?: string; entityId?: string; disposition?: "created" | "existing"; stage?: string } | void>;
   isGeneratingConcepts: boolean;
   onOpenFraming: () => void;
-  onCanonicalProgress?: (progress: { conceptRevisionCount: number; baseVersionCount: number; candidateCount: number; eligibleCandidateCount: number; previewAssetPaths: string[] }) => void;
+  onCanonicalProgress?: (progress: { candidateSetRevision: number; conceptRevisionCount: number; baseVersionCount: number; candidateCount: number; eligibleCandidateCount: number; pendingCandidateCount: number; previewAssetPaths: string[] }) => void;
 };
 
 export function resolveConceptSetPresentation(sets: EpisodePackageV3["thumbnail"]["concept_sets"]) {
@@ -177,10 +177,12 @@ export default function ThumbnailV3Panel(props: Props) {
       setCandidateAuthority(nextCandidateAuthority);
       setPkg(canonical.episodePackage); setToken(canonical.metadataUpdatedAt); setLoadError(null);
       props.onCanonicalProgress?.({
+        candidateSetRevision: Number(nextCandidateAuthority.candidate_set?.revision ?? 0),
         conceptRevisionCount: canonical.episodePackage.thumbnail.concept_revisions.length,
         baseVersionCount: canonical.episodePackage.thumbnail.base_versions.length,
         candidateCount: nextCandidateAuthority.candidates.length,
         eligibleCandidateCount: nextCandidateAuthority.candidates.filter((candidate)=>candidate.eligibility_state==="current"||candidate.eligibility_state==="approved_historical_brand").length,
+        pendingCandidateCount: 0,
         previewAssetPaths: nextCandidateAuthority.candidates
           .map((candidate) => resolveCanonicalCandidatePreviewPath(candidate, canonical.episodePackage))
           .filter(Boolean).slice(0, 3),
@@ -296,6 +298,19 @@ export default function ThumbnailV3Panel(props: Props) {
     && candidateSummary.quenchEligibleCount === 3
     && candidateCards.length === 3
     && candidateCards.every((card) => Boolean(card.assetPath.trim()));
+  useEffect(() => {
+    if (!pkg || !candidateAuthority) return;
+    const eligible = candidateAuthority.candidates.filter((candidate) => candidate.eligibility_state === "current" || candidate.eligibility_state === "approved_historical_brand");
+    props.onCanonicalProgress?.({
+      candidateSetRevision: Number(candidateAuthority.candidate_set?.revision ?? 0),
+      conceptRevisionCount: pkg.thumbnail.concept_revisions.length,
+      baseVersionCount: pkg.thumbnail.base_versions.length,
+      candidateCount: candidateAuthority.candidates.length,
+      eligibleCandidateCount: eligible.length,
+      pendingCandidateCount: pendingCandidateCards.length,
+      previewAssetPaths: eligible.map((candidate) => resolveCanonicalCandidatePreviewPath(candidate, pkg)).filter(Boolean).slice(0, 3),
+    });
+  }, [candidateAuthority, pendingCandidateCards.length, pkg, props.onCanonicalProgress]);
   useEffect(() => {
     if (!activeRecipe) return;
     const typography = activeRecipe.treatment.typography as Record<string, unknown>;
@@ -739,7 +754,7 @@ export default function ThumbnailV3Panel(props: Props) {
 
   const finishThumbnailSet = async (selectedCards: typeof pendingCandidateCards) => { if(!pkg||selectedCards.length!==3)return;
     if(candidateAuthority?.candidate_set&&!window.confirm("Replace the current canonical thumbnail set with these three revisions?\n\nThe existing set will remain in canonical history with its original branding evidence."))return;
-    setSaveState("saving");setLoadError(null);try{const result=await commitReadyLaunchesAsCandidateSet({workpieceId:props.workpieceId,workspaceId:props.workspaceId,episodePackage:pkg,expectedMetadataUpdatedAt:token,selectedLaunchVariantIds:selectedCards.map((card)=>card.id)});if(!result.ok){setSaveState("error");setLoadError(result.error);return;}const authority=await readThumbnailCandidateAuthorityProjection({workspaceId:props.workspaceId,workpieceId:props.workpieceId});setPkg(result.episodePackage);setToken(result.metadataUpdatedAt);setCandidateAuthority(authority);const eligible=authority.candidates.filter((candidate)=>candidate.eligibility_state==="current"||candidate.eligibility_state==="approved_historical_brand");props.onCanonicalProgress?.({conceptRevisionCount:result.episodePackage.thumbnail.concept_revisions.length,baseVersionCount:result.episodePackage.thumbnail.base_versions.length,candidateCount:authority.candidates.length,eligibleCandidateCount:eligible.length,previewAssetPaths:eligible.map((candidate)=>resolveCanonicalCandidatePreviewPath(candidate,result.episodePackage)).filter(Boolean).slice(0,3)});setSaveState("saved");}catch(error){setSaveState("error");setLoadError(error instanceof Error?error.message:"Unable to finish the canonical thumbnail set.");}};
+    setSaveState("saving");setLoadError(null);try{const result=await commitReadyLaunchesAsCandidateSet({workpieceId:props.workpieceId,workspaceId:props.workspaceId,episodePackage:pkg,expectedMetadataUpdatedAt:token,selectedLaunchVariantIds:selectedCards.map((card)=>card.id)});if(!result.ok){setSaveState("error");setLoadError(result.error);return;}const authority=await readThumbnailCandidateAuthorityProjection({workspaceId:props.workspaceId,workpieceId:props.workpieceId});setPkg(result.episodePackage);setToken(result.metadataUpdatedAt);setCandidateAuthority(authority);const eligible=authority.candidates.filter((candidate)=>candidate.eligibility_state==="current"||candidate.eligibility_state==="approved_historical_brand");props.onCanonicalProgress?.({candidateSetRevision:Number(authority.candidate_set?.revision??0),conceptRevisionCount:result.episodePackage.thumbnail.concept_revisions.length,baseVersionCount:result.episodePackage.thumbnail.base_versions.length,candidateCount:authority.candidates.length,eligibleCandidateCount:eligible.length,pendingCandidateCount:0,previewAssetPaths:eligible.map((candidate)=>resolveCanonicalCandidatePreviewPath(candidate,result.episodePackage)).filter(Boolean).slice(0,3)});setSaveState("saved");}catch(error){setSaveState("error");setLoadError(error instanceof Error?error.message:"Unable to finish the canonical thumbnail set.");}};
   const decideHistoricalCandidate=async(candidate:Record<string,unknown>,decision:"approved"|"revoked")=>{const setId=candidateAuthority?.candidate_set?.id,activeBindingId=candidateAuthority?.active_binding_id;if(!setId||!activeBindingId)return;const reason=window.prompt(decision==="approved"?"Reason for approving this older-brand candidate":"Reason for revoking this approval")?.trim();if(!reason)return;setSaveState("saving");try{await decideThumbnailCandidateHistoricalBrand({workpieceId:props.workpieceId,workspaceId:props.workspaceId,candidateRevisionId:String(candidate.id),candidateSetId:String(setId),activeBindingId,decision,reason,expectedDecisionId:typeof candidate.current_decision_id==="string"?candidate.current_decision_id:null,expectedDecisionRevision:Number(candidate.current_decision_revision??0)});setCandidateAuthority(await readThumbnailCandidateAuthorityProjection({workspaceId:props.workspaceId,workpieceId:props.workpieceId}));setSaveState("saved");}catch(error){setSaveState("error");setLoadError(error instanceof Error?error.message:"Unable to record historical-brand authorization.");}};
   const recoverSavedBrandedSet=async()=>{setSaveState("saving");setLoadError(null);try{await recoverBrandedThumbnailCandidateSet({workpieceId:props.workpieceId,workspaceId:props.workspaceId});await reload();setSaveState("saved");}catch(error){setSaveState("error");setLoadError(error instanceof Error?error.message:"Unable to recover the saved branded thumbnails.");}};
 
@@ -883,6 +898,10 @@ export default function ThumbnailV3Panel(props: Props) {
         </div>
         {selectedGenerationState === "generating" ? <p className="hs-inline-note" role="status" aria-live="polite">Forge AI is generating the image{selectedGenerationElapsedSec > 0 ? ` · ${selectedGenerationElapsedSec}s elapsed` : ""}. Image generation can take a minute or more; keep this page open.</p> : null}
         {pendingCandidateCards.length ? <p className="hs-inline-note" role="status"><strong>Pending replacement set.</strong> These are the newest ready thumbnails under the current episode brand. The existing canonical set remains unchanged until you explicitly replace it.</p> : null}
+        {pendingCandidateCards.length === 3 ? <aside className="hs-thumbnail-acceptance" aria-label="Accept generated thumbnails">
+          <div><strong>Your three thumbnails are ready to accept</strong><p>Review the previews below. Accepting them saves this exact set as the episode’s canonical thumbnails and unlocks Images.</p></div>
+          <button type="button" className="is-primary" disabled={saveState === "saving"} onClick={() => void finishThumbnailSet(pendingCandidateCards)}>{saveState === "saving" ? "Accepting thumbnail set…" : candidateAuthority?.candidate_set ? "Accept these three and replace the current set" : "Accept these three thumbnails"}</button>
+        </aside> : null}
         {focusedCandidateCards.length ? <div className="hs-thumbnail-focused-grid">
           {focusedCandidateCards.slice(0, 3).map((card, index) => {
             return <article key={card.id} className="hs-thumbnail-focused-card" aria-label={`Thumbnail ${String.fromCharCode(65 + index)}`}>
@@ -912,7 +931,7 @@ export default function ThumbnailV3Panel(props: Props) {
 
       <div className="hs-thumbnail-completion" role="status" aria-live="polite">
         <div><strong>{pendingCandidateCards.length === 3 ? "Three replacement thumbnails ready" : thumbnailSetComplete ? "Thumbnail set complete" : `${pendingCandidateCards.length} of 3 thumbnails ready`}</strong><span>{pendingCandidateCards.length === 3 ? `Review these exact revisions before replacing the canonical set. ${pendingLogoCount === 3 ? "All three include the canonical brand logo." : pendingLogoCount === 0 ? "These revisions use the brand style but do not include a logo." : `${pendingLogoCount} of 3 include the canonical brand logo.`}` : thumbnailSetComplete ? "Saved with this episode and available for release preparation." : "Style recorded · Text readable · Candidate distinction verified when the set is finished"}</span></div>
-        {pendingCandidateCards.length === 3 ? <button type="button" className="is-primary" disabled={saveState === "saving"} onClick={() => void finishThumbnailSet(pendingCandidateCards)}>{candidateAuthority?.candidate_set ? "Replace candidate set with these three thumbnails" : "Finish thumbnail set"}</button> : null}
+        {pendingCandidateCards.length === 3 ? <button type="button" className="is-primary" disabled={saveState === "saving"} onClick={() => void finishThumbnailSet(pendingCandidateCards)}>{candidateAuthority?.candidate_set ? "Accept these three and replace the current set" : "Accept these three thumbnails"}</button> : null}
       </div>
     </main>
     <details id="hearth-thumbnail-advanced" className="hs-thumbnail-advanced">

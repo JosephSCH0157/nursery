@@ -173,7 +173,7 @@ export async function readRecoverableEpisodeMediaMap(workpieceId: string): Promi
   let response: Response;
   try {
     response = await tongsFetch(
-      `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(HEARTH_MEDIA_MAP_RECOVERY_PATH)}`,
+      `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(HEARTH_MEDIA_MAP_RECOVERY_PATH)}&optional=1`,
       { method: "GET" },
     );
   } catch {

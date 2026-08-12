@@ -1,17 +1,21 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import {
   deriveHearthThumbnailLoadStatus,
+  isThumbnailProgressAtLeastAsCurrent,
   isCanonicalThumbnailSetComplete,
 } from "../src/routes/hearth-shell/buildHearthThumbnailViewModel";
 import { resolveHearthThumbnailCanonicalPreviewPath } from "../src/routes/hearth-shell/hearth-thumbnail-preview";
 
 const progress = {
   workpieceId: "workpiece-1",
+  candidateSetRevision: 1,
   conceptRevisionCount: 1,
   baseVersionCount: 3,
   candidateCount: 3,
   eligibleCandidateCount: 3,
+  pendingCandidateCount: 0,
   previewAssetPaths: ["thumbnails/candidate-1.png"],
   titleCount: 2,
   tagCount: 4,
@@ -70,6 +74,19 @@ test("completion requires the canonical three-candidate contract", () => {
     eligibleCandidateCount: 4,
     previewAssetPaths: ["a.png", "b.png", "c.png", "d.png"],
   }), false);
+});
+
+test("an older asynchronous candidate-set read cannot replace newly approved thumbnail previews",()=>{
+  assert.equal(isThumbnailProgressAtLeastAsCurrent({...progress,candidateSetRevision:4},{workpieceId:"workpiece-1",candidateSetRevision:3}),false);
+  assert.equal(isThumbnailProgressAtLeastAsCurrent({...progress,candidateSetRevision:4},{workpieceId:"workpiece-1",candidateSetRevision:5}),true);
+  assert.equal(isThumbnailProgressAtLeastAsCurrent({...progress,candidateSetRevision:4},{workpieceId:"workpiece-2",candidateSetRevision:1}),true);
+});
+
+test("three generated thumbnails expose an explicit acceptance action beside the previews",async()=>{
+  const panel=await readFile(new URL("../src/components/visuals/ThumbnailV3Panel.tsx",import.meta.url),"utf8");
+  assert.match(panel,/aria-label="Accept generated thumbnails"/);
+  assert.match(panel,/Accept these three thumbnails/);
+  assert.match(panel,/unlock(?:s)? Images/);
 });
 
 test("canonical candidate asset path wins preview resolution", () => {

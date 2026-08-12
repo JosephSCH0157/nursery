@@ -37,3 +37,11 @@ test("Source linkage remains separate from evidence, rights, rendering, and acqu
   );
   assert.doesNotMatch(implementation, /commitReferenceVisualEvidence|commitReferenceVisualRights|renderReferenceVisual|acquireReferenceVisual/);
 });
+
+test("Reference Visual evidence sequence versions use the evidence identity contract", () => {
+  assert.match(
+    visualAuthority,
+    /"reference_visual_evidence_sequences","evidence_id","current_evidence_revision","evidence_id"/,
+  );
+  assert.match(visualAuthority, /evidenceId=evidenceRows\.map\(row=>str\(row\.evidence_id\)\)/);
+});
