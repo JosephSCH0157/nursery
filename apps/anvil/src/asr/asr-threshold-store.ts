@@ -7,6 +7,7 @@ export const THRESHOLD_EVENT = 'tp:asr:thresholds';
 export type LearnedPatch = Partial<AsrThresholds>;
 
 let baseThresholds: AsrThresholds = normalizeThresholds({ ...DEFAULT_ASR_THRESHOLDS });
+let profileThresholdOverrides: Partial<AsrThresholds> = {};
 let driverThresholds: AsrThresholds = baseThresholds;
 let thresholdsDirty = false;
 
@@ -21,7 +22,7 @@ function broadcastThresholdUpdate() {
 }
 
 function computeEffectiveThresholds(): AsrThresholds {
-  return normalizeThresholds({ ...baseThresholds });
+  return normalizeThresholds({ ...baseThresholds, ...profileThresholdOverrides });
 }
 
 function refreshEffectiveThresholds(force = false) {
@@ -70,6 +71,11 @@ export function getEffectiveAsrThresholds(): AsrThresholds {
 
 export function getBaseAsrThresholds(): AsrThresholds {
   return baseThresholds;
+}
+
+export function setAsrProfileThresholdOverrides(next?: Partial<AsrThresholds> | null): void {
+  profileThresholdOverrides = next ? { ...next } : {};
+  refreshEffectiveThresholds(true);
 }
 
 export function getSessionLearnedPatches(): Partial<Record<SpeakerSlot, LearnedPatch>> {

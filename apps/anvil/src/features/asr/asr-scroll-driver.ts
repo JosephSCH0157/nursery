@@ -247,10 +247,10 @@ import {
 } from './asr-backend-restart-adapter';
 import { evaluateBackendLiveness } from './asr-backend-liveness';
 import {
-  areAsrThresholdsDirty,
   getAsrDriverThresholds,
-  setAsrDriverThresholds,
+  setAsrProfileThresholdOverrides,
 } from '../../asr/asr-threshold-store';
+import { subscribeSpeakerProfileState } from '../../ui/speaker-profiles-store';
 import { bootTrace } from '../../boot/boot-trace';
 import { shouldLogLevel, shouldLogTag } from '../../env/dev-log';
 import {
@@ -2687,18 +2687,6 @@ function emitPursuitHud(err: number, vel: number, target: number | null, top: nu
   } catch {}
 }
 
-function resolveThreshold(): number {
-  try {
-    const stored = getAsrSettings();
-    if (typeof stored.threshold === 'number') {
-      return clamp(stored.threshold, 0, 1);
-    }
-  } catch {
-    // ignore
-  }
-  return 0.55;
-}
-
 function isDevMode(): boolean {
   if (typeof window === 'undefined') return false;
   try {
@@ -3602,12 +3590,8 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
       }
     } catch {}
   }
-  let threshold = resolveThreshold();
-  // Respect dev/manual threshold ownership (dev panel/profile overrides) and avoid
-  // resetting candidate gate on every speech start.
-  if (!isDevMode() && !areAsrThresholdsDirty()) {
-    setAsrDriverThresholds({ candidateMinSim: threshold });
-  }
+  // The threshold store is canonical in every runtime mode. Speech settings must
+  // not overwrite active speaker/profile tuning when a session starts.
   let lastLineIndex = -1;
   const alignmentEpisodes = new AsrAlignmentEpisodeTracker();
   let postCatchupUntil = 0;
@@ -13049,14 +13033,17 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     if (hasScript) ensureAsrTuningProfile('reading');
   } catch {}
   applyTuningProfile(getActiveAsrTuningProfile());
+  const unsubscribeSpeakerProfile = subscribeSpeakerProfileState((snapshot) => {
+    const profileId = snapshot.bindings[snapshot.activeSlot];
+    const profile = profileId
+      ? snapshot.profiles.find((candidate) => candidate.id === profileId)
+      : undefined;
+    setAsrProfileThresholdOverrides(profile?.asrTweaks);
+  });
   attachManualScrollWatcher();
 
   const unsubscribe = speechStore.subscribe((state) => {
     if (disposed) return;
-    if (typeof state.threshold === 'number' && !isDevMode() && !areAsrThresholdsDirty()) {
-      threshold = clamp(state.threshold, 0, 1);
-      setAsrDriverThresholds({ candidateMinSim: threshold });
-    }
     const nextCalm = !!state.calmModeEnabled;
     if (nextCalm !== calmModeEnabled) {
       calmModeEnabled = nextCalm;
@@ -46127,6 +46114,11 @@ export function createAsrScrollDriver(options: DriverOptions = {}): AsrScrollDri
     }
     try {
       unsubscribeTuning();
+    } catch {
+      // ignore
+    }
+    try {
+      unsubscribeSpeakerProfile();
     } catch {
       // ignore
     }
