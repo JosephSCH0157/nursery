@@ -3,6 +3,9 @@
   command = "pnpm install && pnpm build"
   publish = "apps/nursery/dist"
 
+  [build.environment]
+    NODE_VERSION = "20.20.0"
+
   [functions]
     directory = "apps/nursery/netlify/functions"
 
