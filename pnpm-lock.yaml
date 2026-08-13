@@ -289,6 +289,9 @@ importers:
       '@supabase/supabase-js':
         specifier: ^2.98.0
         version: 2.100.1
+      fflate:
+        specifier: ^0.8.2
+        version: 0.8.2
       react:
         specifier: ^19.2.0
         version: 19.2.4
