@@ -1,11 +1,19 @@
 import { assertSafeExternalMediaUrl } from "./broll-acquisition.js";
 
 async function loadPdfDocument(bytes: Uint8Array) {
- const canvas=await import("@napi-rs/canvas");
  const runtimeGlobals=globalThis as unknown as Record<string,unknown>;
- runtimeGlobals.DOMMatrix??=canvas.DOMMatrix;
- runtimeGlobals.ImageData??=canvas.ImageData;
- runtimeGlobals.Path2D??=canvas.Path2D;
+ if(!runtimeGlobals.DOMMatrix){
+  class ServerDomMatrix {
+   a=1;b=0;c=0;d=1;e=0;f=0;
+   constructor(values?:number[]){if(values&&values.length>=6)[this.a,this.b,this.c,this.d,this.e,this.f]=values.slice(0,6) as [number,number,number,number,number,number];}
+   multiplySelf(other:ServerDomMatrix){const{a,b,c,d,e,f}=this;this.a=a*other.a+c*other.b;this.b=b*other.a+d*other.b;this.c=a*other.c+c*other.d;this.d=b*other.c+d*other.d;this.e=a*other.e+c*other.f+e;this.f=b*other.e+d*other.f+f;return this;}
+   preMultiplySelf(other:ServerDomMatrix){const current=new ServerDomMatrix([this.a,this.b,this.c,this.d,this.e,this.f]);Object.assign(this,other);return this.multiplySelf(current);}
+   translate(tx=0,ty=0){return new ServerDomMatrix([this.a,this.b,this.c,this.d,this.e,this.f]).multiplySelf(new ServerDomMatrix([1,0,0,1,tx,ty]));}
+   scale(scaleX=1,scaleY=scaleX){return new ServerDomMatrix([this.a,this.b,this.c,this.d,this.e,this.f]).multiplySelf(new ServerDomMatrix([scaleX,0,0,scaleY,0,0]));}
+   inverse(){const determinant=this.a*this.d-this.b*this.c;if(!determinant)return new ServerDomMatrix();return new ServerDomMatrix([this.d/determinant,-this.b/determinant,-this.c/determinant,this.a/determinant,(this.c*this.f-this.d*this.e)/determinant,(this.b*this.e-this.a*this.f)/determinant]);}
+  }
+  runtimeGlobals.DOMMatrix=ServerDomMatrix;
+ }
  const {getDocument}=await import("pdfjs-dist/legacy/build/pdf.mjs");
  return getDocument({data:bytes,useSystemFonts:true,isEvalSupported:false}).promise;
 }

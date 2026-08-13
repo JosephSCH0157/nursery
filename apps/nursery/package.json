@@ -60,7 +60,6 @@
     "@forge/tongs": "workspace:*",
     "@forge/ui-mobile": "workspace:*",
     "@huggingface/inference": "^4.13.15",
-    "@napi-rs/canvas": "0.1.100",
     "@runwayml/sdk": "4.13.1",
     "@supabase/supabase-js": "^2.98.0",
     "fflate": "^0.8.2",

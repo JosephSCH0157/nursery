@@ -72,7 +72,6 @@
     "typescript-eslint": "8.57.2"
   },
   "dependencies": {
-    "@napi-rs/canvas": "0.1.100",
     "@fontsource/inter": "^5.2.8",
     "@forge/shared": "workspace:*",
     "@runwayml/sdk": "4.13.1",
