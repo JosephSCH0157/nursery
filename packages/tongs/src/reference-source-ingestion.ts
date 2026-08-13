@@ -1,5 +1,14 @@
 import { assertSafeExternalMediaUrl } from "./broll-acquisition.js";
-import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+
+async function loadPdfDocument(bytes: Uint8Array) {
+ const canvas=await import("@napi-rs/canvas");
+ const runtimeGlobals=globalThis as unknown as Record<string,unknown>;
+ runtimeGlobals.DOMMatrix??=canvas.DOMMatrix;
+ runtimeGlobals.ImageData??=canvas.ImageData;
+ runtimeGlobals.Path2D??=canvas.Path2D;
+ const {getDocument}=await import("pdfjs-dist/legacy/build/pdf.mjs");
+ return getDocument({data:bytes,useSystemFonts:true,isEvalSupported:false}).promise;
+}
 
 const MAX_HTML_SOURCE_BYTES=5*1024*1024;
 const MAX_PDF_SOURCE_BYTES=25*1024*1024;
@@ -34,7 +43,7 @@ export async function extractReferenceSourceEvidence(value:string,fetchImpl:type
   const html=new TextDecoder().decode(bytes).replace(/<(script|style|nav|footer|header|aside|noscript)[^>]*>[\s\S]*?<\/\1>/gi," ");
   blocks=Array.from(html.matchAll(/<(h[1-6]|p|li|td|th)[^>]*>([\s\S]*?)<\/\1>/gi)).map((match,ordinal)=>({text:decode(match[2]!.replace(/<[^>]+>/g," ")),locator:{kind:"html_text" as const,ordinal:ordinal+1}})).filter(block=>block.text.length>=20&&block.text.length<=1200);
  }else if(contentType==="application/pdf"||url.pathname.toLowerCase().endsWith(".pdf")){
-  const document=await getDocument({data:bytes,useSystemFonts:true,isEvalSupported:false}).promise;
+  const document=await loadPdfDocument(bytes);
   for(let pageNumber=1;pageNumber<=document.numPages;pageNumber+=1){
    const page=await document.getPage(pageNumber),content=await page.getTextContent(),rows=new Map<number,Array<{x:number;text:string}>>();
    for(const item of content.items){if(!("str" in item)||!item.str.trim())continue;const y=Math.round(item.transform[5]!*2)/2,row=rows.get(y)??[];row.push({x:item.transform[4]!,text:item.str.trim()});rows.set(y,row);}

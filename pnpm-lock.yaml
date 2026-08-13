@@ -399,6 +399,9 @@ importers:
       '@forge/shared':
         specifier: workspace:*
         version: link:../shared
+      '@napi-rs/canvas':
+        specifier: 0.1.100
+        version: 0.1.100
       '@runwayml/sdk':
         specifier: 4.13.1
         version: 4.13.1
