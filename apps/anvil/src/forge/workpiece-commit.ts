@@ -391,7 +391,28 @@ export function beginRecordingCaptureSession(): string {
   }
   writeSessionStorage(CAPTURE_SESSION_KEY, next);
   (window as any).__tpAnvilCaptureSessionId = next;
+  const identity = (window as any).__forgeCanonicalScriptIdentity;
+  if (identity && typeof identity === "object") {
+    (window as any).__forgeRecordingScriptIdentityByCapture ??= {};
+    (window as any).__forgeRecordingScriptIdentityByCapture[next] = { ...identity };
+  }
   return next;
+}
+
+export function hasCanonicalRecordingScriptIdentity(): boolean {
+  if (typeof window === 'undefined') return false;
+  const identity = window.__forgeCanonicalScriptIdentity;
+  return Boolean(
+    identity
+    && identity.workspaceId === resolveWorkspaceId()
+    && identity.workpieceId === resolveDirectWorkpieceId()
+    && typeof identity.path === 'string'
+    && identity.path.trim()
+    && Number.isInteger(identity.scriptRevision)
+    && identity.scriptRevision > 0
+    && typeof identity.scriptHash === 'string'
+    && /^[a-f0-9]{64}$/i.test(identity.scriptHash),
+  );
 }
 
 function nextCorrelationId(prefix: string): string {
@@ -1343,14 +1364,17 @@ export async function transitionRecordingCompleted(input: {
   commit: Extract<RecordingCommitResult, { ok: true }>;
   durationMs?: number | null;
 }): Promise<RecordingAuthorityOutcome> {
-  const ready = (window as any).__forgeCanonicalReadyScript as Record<string, unknown> | undefined;
+  const identities = (window as any).__forgeRecordingScriptIdentityByCapture as Record<string, Record<string, unknown>> | undefined;
+  const currentIdentity = (window as any).__forgeCanonicalScriptIdentity as Record<string, unknown> | undefined;
+  const legacyReady = (window as any).__forgeCanonicalReadyScript as Record<string, unknown> | undefined;
+  const scriptIdentity = identities?.[input.commit.captureSessionId] ?? currentIdentity ?? legacyReady;
   const asr = (window as any).__tpCanonicalAsrAuthority as Record<string, unknown> | undefined;
-  const readyWorkspace = normalizeUuid(ready?.workspaceId);
-  const readyWorkpiece = normalizeUuid(ready?.workpieceId);
-  const scriptPath = readString(ready?.path);
-  const scriptRevision = typeof ready?.scriptRevision === "number" && Number.isInteger(ready.scriptRevision) ? ready.scriptRevision : null;
-  const scriptHash = readString(ready?.scriptHash)?.toLowerCase() ?? null;
-  if (!readyWorkspace || readyWorkpiece !== input.commit.workpieceId || !scriptPath
+  const scriptWorkspace = normalizeUuid(scriptIdentity?.workspaceId);
+  const scriptWorkpiece = normalizeUuid(scriptIdentity?.workpieceId);
+  const scriptPath = readString(scriptIdentity?.path);
+  const scriptRevision = typeof scriptIdentity?.scriptRevision === "number" && Number.isInteger(scriptIdentity.scriptRevision) ? scriptIdentity.scriptRevision : null;
+  const scriptHash = readString(scriptIdentity?.scriptHash)?.toLowerCase() ?? null;
+  if (!scriptWorkspace || scriptWorkpiece !== input.commit.workpieceId || !scriptPath
       || !scriptRevision || !scriptHash || !/^[0-9a-f]{64}$/.test(scriptHash)
       || input.commit.mediaBytes <= 0) {
     return { ok: false, outcome: "malformed", reason: "recording_completion_evidence_incomplete" };
@@ -1375,20 +1399,32 @@ export async function transitionRecordingCompleted(input: {
     },
   };
   const idempotencyKey = `anvil-complete:${input.commit.captureSessionId}:${input.commit.mediaRevision}`;
+  const requestBody = JSON.stringify({
+    workspace_id: scriptWorkspace, capture_session_id: input.commit.captureSessionId,
+    recording_session_id: input.commit.plannerRecordingSessionId, script_path: scriptPath,
+    expected_script_revision: scriptRevision, expected_script_hash: scriptHash,
+    media_path: input.commit.path, expected_media_revision: input.commit.mediaRevision,
+    expected_media_hash: input.commit.mediaHash, expected_media_bytes: input.commit.mediaBytes,
+    expected_media_content_type: input.commit.mediaContentType, idempotency_key: idempotencyKey,
+    completion_evidence: evidence,
+  });
   try {
-    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-completion-v2`, {
-      method: "POST",
-      headers: await buildHeaders(getApiToken()),
-      body: JSON.stringify({
-        workspace_id: readyWorkspace, capture_session_id: input.commit.captureSessionId,
-        recording_session_id: input.commit.plannerRecordingSessionId, script_path: scriptPath,
-        expected_script_revision: scriptRevision, expected_script_hash: scriptHash,
-        media_path: input.commit.path, expected_media_revision: input.commit.mediaRevision,
-        expected_media_hash: input.commit.mediaHash, expected_media_bytes: input.commit.mediaBytes,
-        expected_media_content_type: input.commit.mediaContentType, idempotency_key: idempotencyKey,
-        completion_evidence: evidence,
-      }),
-    });
+    let response: Response | null = null;
+    let lastNetworkError: unknown = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-completion-v2`, {
+          method: "POST",
+          headers: await buildHeaders(getApiToken()),
+          body: requestBody,
+        });
+        if (response.status < 500 || attempt === 1) break;
+      } catch (error) {
+        lastNetworkError = error;
+        if (attempt === 1) throw error;
+      }
+    }
+    if (!response) throw lastNetworkError ?? new Error("recording_completion_unavailable");
     const body = await readBodyAsJson(response);
     const data = body && typeof body === "object" && !Array.isArray(body) ? (body as any).data : null;
     if (!response.ok) {

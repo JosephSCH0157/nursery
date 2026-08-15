@@ -1,10 +1,19 @@
-export const HAMMER_VISUAL_TIMELINE_VERSION = 1 as const;
+export const HAMMER_VISUAL_TIMELINE_VERSION = 2 as const;
+export const HAMMER_VISUAL_ANCHOR_RESOLVER_VERSION = "hammer.semantic-anchor.v1" as const;
 export const HAMMER_VISUAL_TIMELINE_SOURCE_MODE = "packaging" as const;
 export const HAMMER_VISUAL_DEFAULT_UPDATED_AT = "1970-01-01T00:00:00.000Z" as const;
 export const HAMMER_VISUAL_DEFAULT_MIN_DURATION_SEC = 0.25 as const;
 
 export type HammerVisualSourceMode = "packaging" | "manual" | "seeded";
 export type HammerVisualTimelineDebugOrigin = "canonical_load" | "legacy_migration" | "empty_init";
+export type HammerVisualAssetRole = "thumbnail" | "timeline_visual";
+export type HammerVisualAnchorStatus =
+  | "anchored"
+  | "anchor_supplied_resolution_failed"
+  | "ambiguous_match"
+  | "detached"
+  | "no_placement_intent";
+export type HammerVisualAnchorResolutionMethod = "exact_ordered_words" | "fuzzy_text" | "manual_transcript" | "unresolved";
 
 export type HammerVisualAssetKind =
   | "image"
@@ -35,6 +44,7 @@ export interface HammerVisualAsset {
   storage_key: string | null;
   mime_type: string | null;
   source_mode: HammerVisualSourceMode;
+  roles: HammerVisualAssetRole[];
   updated_at: string;
 }
 
@@ -56,6 +66,53 @@ export interface HammerVisualAnchorHint {
   anchor_text: string | null;
   anchor_label: string | null;
   detached: boolean;
+}
+
+export interface HammerVisualScriptEvidence {
+  script_path: string | null;
+  script_approval_id: string | null;
+  script_approval_revision: number | null;
+  script_content_hash: string | null;
+  anchor_contract_version: string | null;
+  section_id: string | null;
+  paragraph_id: string | null;
+  sentence_start: number | null;
+  sentence_end: number | null;
+  char_start: number | null;
+  char_end: number | null;
+  quoted_phrase: string | null;
+  resolution_state: "resolved" | "unresolved" | "stale";
+}
+
+export interface HammerVisualTranscriptEvidence {
+  transcript_id: string | null;
+  media_id: string | null;
+  media_signature: string | null;
+  segment_ids: string[];
+  start_sec: number | null;
+  end_sec: number | null;
+  resolution_state: "resolved" | "unresolved" | "stale";
+}
+
+export interface HammerVisualSemanticAnchor {
+  status: HammerVisualAnchorStatus;
+  hearth_entry_id: string | null;
+  hearth_beat_id: string | null;
+  purpose: "coverage" | "explanation" | "emphasis" | null;
+  origin: "hearth" | "hammer_transcript" | "hammer_timeline" | "legacy";
+  placement_intent: string | null;
+  script: HammerVisualScriptEvidence;
+  transcript: HammerVisualTranscriptEvidence;
+  resolution_method: HammerVisualAnchorResolutionMethod;
+  resolution_confidence: number | null;
+  resolver_version: string | null;
+  resolved_at: string | null;
+}
+
+export interface HammerVisualDivergence {
+  state: "aligned" | "review_needed" | "not_comparable";
+  start_delta_sec: number | null;
+  end_delta_sec: number | null;
 }
 
 export interface HammerVisualClip {
@@ -85,6 +142,8 @@ export interface HammerVisualClip {
   locked: boolean;
   source_mode: HammerVisualSourceMode;
   anchor_hint: HammerVisualAnchorHint;
+  semantic_anchor: HammerVisualSemanticAnchor;
+  divergence: HammerVisualDivergence;
   updated_at: string;
 }
 

@@ -5,6 +5,7 @@ import type {
   HammerVisualClip,
   HammerVisualFitMode,
   HammerVisualGeometry,
+  HammerVisualSemanticAnchor,
   HammerVisualTimelineState,
 } from "../model/hammerVisualTypes";
 
@@ -34,6 +35,11 @@ export type HammerVisualTimelineAction =
     clip_id: string;
     start_sec: number;
     end_sec: number;
+  } & HammerVisualMutationMeta)
+  | ({
+    type: "UPDATE_CLIP_SEMANTIC_ANCHOR";
+    clip_id: string;
+    semantic_anchor: HammerVisualSemanticAnchor;
   } & HammerVisualMutationMeta)
   | ({
     type: "UPDATE_CLIP_GEOMETRY";

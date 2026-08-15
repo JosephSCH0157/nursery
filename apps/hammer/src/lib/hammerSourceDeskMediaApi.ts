@@ -10,6 +10,7 @@ const WORKSPACE_INTRO_OUTRO_DEFAULTS_PATH = "hammer/settings/intro-outro-default
 const SOURCE_DESK_UPLOAD_BASE_PATH = "assets/uploads";
 
 export type HammerStoredMediaKind = "image" | "broll" | "reference_clip" | "audio" | "other";
+export type HammerStoredMediaRole = "thumbnail" | "timeline_visual";
 export type HammerSourceDeskUploadCategory = "images" | "broll" | "introoutro";
 
 export type HammerStoredMediaFile = {
@@ -18,6 +19,7 @@ export type HammerStoredMediaFile = {
   kind: HammerStoredMediaKind;
   bytes: number | null;
   updatedAt: string | null;
+  roles: HammerStoredMediaRole[];
 };
 
 export type HammerIntroOutroSelection = {
@@ -45,6 +47,7 @@ type StorageNode = {
   bytes?: number | null;
   updated_at?: string | null;
   children?: StorageNode[];
+  roles?: HammerStoredMediaRole[];
 };
 
 type TongsFetcher = typeof tongsFetch;
@@ -64,9 +67,14 @@ function readNullableNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
-function inferStoredMediaKind(path: string): HammerStoredMediaKind {
+export function classifyHammerStoredMediaKind(path: string): HammerStoredMediaKind {
   const normalized = path.toLowerCase();
   const isBrollPlanUpload = normalized.includes("assets/broll-plan/uploads/");
+  const isExplicitBroll = (
+    normalized.includes("assets/broll-plan/")
+    || normalized.includes("assets/uploads/broll/")
+    || normalized.includes("assets/broll/")
+  );
   const isImage = (
     normalized.endsWith(".jpg")
     || normalized.endsWith(".jpeg")
@@ -92,7 +100,7 @@ function inferStoredMediaKind(path: string): HammerStoredMediaKind {
   if (isImage) {
     return "image";
   }
-  if (isVideo) {
+  if (isVideo && isExplicitBroll) {
     return "broll";
   }
   if (
@@ -104,6 +112,29 @@ function inferStoredMediaKind(path: string): HammerStoredMediaKind {
     return "audio";
   }
   return "other";
+}
+
+export function classifyHammerStoredMediaRoles(
+  path: string,
+  explicitRoles?: readonly HammerStoredMediaRole[] | null,
+): HammerStoredMediaRole[] {
+  if (explicitRoles?.length) return [...new Set(explicitRoles)];
+  const normalized = `/${path.replace(/\\/g, "/").toLowerCase()}`;
+  if (normalized.includes("/thumbnails/") || normalized.includes("/thumbnail/")) {
+    return ["thumbnail"];
+  }
+  if (
+    normalized.includes("/assets/image-map/candidates/")
+    || normalized.includes("/assets/uploads/images/")
+    || normalized.includes("/assets/broll-plan/")
+    || normalized.includes("/reference-clips/")
+    || normalized.includes("/reference_clips/")
+    || normalized.includes("/reference-visuals/")
+    || normalized.includes("/reference_visuals/")
+  ) {
+    return ["timeline_visual"];
+  }
+  return [];
 }
 
 function basename(path: string): string {
@@ -171,9 +202,10 @@ function flattenStorageFiles(nodes: StorageNode[], workpieceId: string): HammerS
       files.push({
         path: workpieceRelativePath,
         name: basename(workpieceRelativePath),
-        kind: inferStoredMediaKind(workpieceRelativePath),
+        kind: classifyHammerStoredMediaKind(workpieceRelativePath),
         bytes: readNullableNumber(node.bytes),
         updatedAt: readString(node.updated_at),
+        roles: classifyHammerStoredMediaRoles(workpieceRelativePath, node.roles),
       });
       return;
     }

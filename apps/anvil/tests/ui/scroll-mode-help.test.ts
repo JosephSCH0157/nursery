@@ -33,4 +33,19 @@ describe('scroll mode help text', () => {
     applyScrollModeUI('asr', root);
     expect(help?.textContent).toBe('ASR mode follows confirmed speech commits. Start speech sync to arm ASR.');
   });
+
+  test.each([
+    ['timed', 'autoRow', 'wpmRow'],
+    ['wpm', 'wpmRow', 'autoRow'],
+    ['hybrid', 'wpmRow', 'autoRow'],
+  ] as const)('%s exposes its speed controls', (mode, visibleId, hiddenId) => {
+    const root = mountModeUi();
+    applyScrollModeUI(mode, root);
+    const visible = root.querySelector<HTMLElement>(`#${visibleId}`);
+    const hidden = root.querySelector<HTMLElement>(`#${hiddenId}`);
+    expect(visible?.classList.contains('visually-hidden')).toBe(false);
+    expect(visible?.getAttribute('aria-hidden')).toBe('false');
+    expect(hidden?.classList.contains('visually-hidden')).toBe(true);
+    expect(hidden?.getAttribute('aria-hidden')).toBe('true');
+  });
 });

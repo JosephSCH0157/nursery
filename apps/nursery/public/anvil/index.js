@@ -26311,80 +26311,6 @@ function applyMode(m) {
   persistMode();
   viewer = document.getElementById("viewer");
   refreshHybridWriter();
-  try {
-    const autoRow = document.querySelector(".row:has(#autoSpeed)");
-    const wpmRow = document.getElementById("wpmRow");
-    const speedLabel = document.querySelector("[data-scroll-speed-label]");
-    const speedHint = document.querySelector("[data-scroll-speed-hint]");
-    const speedInput = document.getElementById("autoSpeed");
-    const modeExplain = document.querySelector("[data-scroll-mode-explain]");
-    const isWpmLike = normalized === "wpm" || normalized === "hybrid";
-    if (isWpmLike) {
-      if (wpmRow) {
-        wpmRow.classList.remove("visually-hidden");
-        wpmRow.removeAttribute("aria-hidden");
-      }
-      if (autoRow) {
-        autoRow.classList.add("visually-hidden");
-        autoRow.setAttribute("aria-hidden", "true");
-      }
-      if (normalized === "wpm") {
-        if (speedLabel) speedLabel.textContent = "Target speed (WPM)";
-        if (speedHint) speedHint.textContent = "Scroll speed is driven purely by this WPM value.";
-      } else {
-        if (speedLabel) speedLabel.textContent = "Baseline speed (WPM)";
-        if (speedHint) speedHint.textContent = "Hybrid: uses this WPM as a floor while ASR can pull the text ahead as you speak.";
-      }
-      if (speedInput) {
-        speedInput.disabled = false;
-        speedInput.dataset.mode = normalized;
-      }
-    } else {
-      if (wpmRow) {
-        wpmRow.classList.add("visually-hidden");
-        wpmRow.setAttribute("aria-hidden", "true");
-      }
-      if (autoRow) {
-        autoRow.classList.remove("visually-hidden");
-        autoRow.removeAttribute("aria-hidden");
-      }
-      if (normalized === "asr") {
-        if (speedLabel) speedLabel.textContent = "Scroll speed";
-        if (speedHint) speedHint.textContent = "ASR-only: scroll position is driven by your voice; speed slider is ignored.";
-        if (speedInput) {
-          speedInput.disabled = true;
-          speedInput.dataset.mode = "asr";
-        }
-      } else {
-        if (speedLabel) speedLabel.textContent = "Scroll speed";
-        if (speedHint) speedHint.textContent = "";
-        if (speedInput) {
-          speedInput.disabled = false;
-          speedInput.dataset.mode = normalized;
-        }
-      }
-    }
-    if (modeExplain) {
-      switch (normalized) {
-        case "wpm":
-          modeExplain.textContent = "WPM: scrolls at a fixed words-per-minute target; good for solo reads.";
-          break;
-        case "hybrid":
-          modeExplain.textContent = "Hybrid: PLL between your voice and the WPM baseline; ASR nudges while the baseline keeps moving.";
-          break;
-        case "asr":
-          modeExplain.textContent = "ASR: pure voice-locked mode - scroll position follows recognized speech; speed slider is ignored.";
-          break;
-        case "timed":
-          modeExplain.textContent = "Timed: scrolls to hit your end time; useful for fixed-slot rehearsals.";
-          break;
-        default:
-          modeExplain.textContent = "";
-          break;
-      }
-    }
-  } catch {
-  }
 }
 function installScrollRouter(opts) {
   const { auto: autoMotor, viewer: viewerInstallFlag = false, hostEl = null } = opts;
@@ -88907,11 +88833,18 @@ async function readWorkpieceScript(workpieceId, path) {
   if (!body || typeof body !== "object" || body.ok !== true) {
     return { ok: false, reason: "invalid_response", status: response.status };
   }
-  const data = body.data;
+  const root = body;
+  const data = root.data;
   if (typeof data !== "string") {
     return { ok: false, reason: "invalid_response", status: response.status };
   }
-  return { ok: true, text: data };
+  const fileRow = root.file_row && typeof root.file_row === "object" ? root.file_row : null;
+  const revision = typeof fileRow?.revision === "number" && Number.isInteger(fileRow.revision) ? fileRow.revision : 0;
+  const hash = readString5(fileRow?.hash_value)?.toLowerCase() ?? "";
+  if (revision < 1 || !/^[0-9a-f]{64}$/.test(hash)) {
+    return { ok: false, reason: "invalid_response", status: response.status };
+  }
+  return { ok: true, text: data, revision, hash };
 }
 async function loadWorkpieceScriptOnBoot() {
   if (booted) return;
@@ -88941,6 +88874,17 @@ async function loadWorkpieceScriptOnBoot() {
     });
     return;
   }
+  if (!workspaceId) {
+    reportScriptHandoffError({ workpieceId, path, reason: "invalid_response" });
+    return;
+  }
+  window.__forgeCanonicalScriptIdentity = {
+    workspaceId,
+    workpieceId,
+    path,
+    scriptRevision: readResult.revision,
+    scriptHash: readResult.hash
+  };
   applyScript(text, "load", { updateEditor: true });
   try {
     window.__tpCurrentName = fileNameFromPath(path);
@@ -91224,7 +91168,19 @@ function beginRecordingCaptureSession() {
   }
   writeSessionStorage(CAPTURE_SESSION_KEY, next);
   window.__tpAnvilCaptureSessionId = next;
+  const identity = window.__forgeCanonicalScriptIdentity;
+  if (identity && typeof identity === "object") {
+    window.__forgeRecordingScriptIdentityByCapture ??= {};
+    window.__forgeRecordingScriptIdentityByCapture[next] = { ...identity };
+  }
   return next;
+}
+function hasCanonicalRecordingScriptIdentity() {
+  if (typeof window === "undefined") return false;
+  const identity = window.__forgeCanonicalScriptIdentity;
+  return Boolean(
+    identity && identity.workspaceId === resolveWorkspaceId2() && identity.workpieceId === resolveDirectWorkpieceId() && typeof identity.path === "string" && identity.path.trim() && Number.isInteger(identity.scriptRevision) && identity.scriptRevision > 0 && typeof identity.scriptHash === "string" && /^[a-f0-9]{64}$/i.test(identity.scriptHash)
+  );
 }
 function nextCorrelationId(prefix) {
   correlationSeq += 1;
@@ -91954,14 +91910,17 @@ function readAuthorityRowId(value, key) {
   return normalizeUuid2(row.id);
 }
 async function transitionRecordingCompleted(input) {
-  const ready = window.__forgeCanonicalReadyScript;
+  const identities = window.__forgeRecordingScriptIdentityByCapture;
+  const currentIdentity = window.__forgeCanonicalScriptIdentity;
+  const legacyReady = window.__forgeCanonicalReadyScript;
+  const scriptIdentity = identities?.[input.commit.captureSessionId] ?? currentIdentity ?? legacyReady;
   const asr = window.__tpCanonicalAsrAuthority;
-  const readyWorkspace = normalizeUuid2(ready?.workspaceId);
-  const readyWorkpiece = normalizeUuid2(ready?.workpieceId);
-  const scriptPath = readString7(ready?.path);
-  const scriptRevision = typeof ready?.scriptRevision === "number" && Number.isInteger(ready.scriptRevision) ? ready.scriptRevision : null;
-  const scriptHash = readString7(ready?.scriptHash)?.toLowerCase() ?? null;
-  if (!readyWorkspace || readyWorkpiece !== input.commit.workpieceId || !scriptPath || !scriptRevision || !scriptHash || !/^[0-9a-f]{64}$/.test(scriptHash) || input.commit.mediaBytes <= 0) {
+  const scriptWorkspace = normalizeUuid2(scriptIdentity?.workspaceId);
+  const scriptWorkpiece = normalizeUuid2(scriptIdentity?.workpieceId);
+  const scriptPath = readString7(scriptIdentity?.path);
+  const scriptRevision = typeof scriptIdentity?.scriptRevision === "number" && Number.isInteger(scriptIdentity.scriptRevision) ? scriptIdentity.scriptRevision : null;
+  const scriptHash = readString7(scriptIdentity?.scriptHash)?.toLowerCase() ?? null;
+  if (!scriptWorkspace || scriptWorkpiece !== input.commit.workpieceId || !scriptPath || !scriptRevision || !scriptHash || !/^[0-9a-f]{64}$/.test(scriptHash) || input.commit.mediaBytes <= 0) {
     return { ok: false, outcome: "malformed", reason: "recording_completion_evidence_incomplete" };
   }
   const evidence = {
@@ -91984,26 +91943,38 @@ async function transitionRecordingCompleted(input) {
     }
   };
   const idempotencyKey = `anvil-complete:${input.commit.captureSessionId}:${input.commit.mediaRevision}`;
+  const requestBody = JSON.stringify({
+    workspace_id: scriptWorkspace,
+    capture_session_id: input.commit.captureSessionId,
+    recording_session_id: input.commit.plannerRecordingSessionId,
+    script_path: scriptPath,
+    expected_script_revision: scriptRevision,
+    expected_script_hash: scriptHash,
+    media_path: input.commit.path,
+    expected_media_revision: input.commit.mediaRevision,
+    expected_media_hash: input.commit.mediaHash,
+    expected_media_bytes: input.commit.mediaBytes,
+    expected_media_content_type: input.commit.mediaContentType,
+    idempotency_key: idempotencyKey,
+    completion_evidence: evidence
+  });
   try {
-    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-completion-v2`, {
-      method: "POST",
-      headers: await buildHeaders(getApiToken()),
-      body: JSON.stringify({
-        workspace_id: readyWorkspace,
-        capture_session_id: input.commit.captureSessionId,
-        recording_session_id: input.commit.plannerRecordingSessionId,
-        script_path: scriptPath,
-        expected_script_revision: scriptRevision,
-        expected_script_hash: scriptHash,
-        media_path: input.commit.path,
-        expected_media_revision: input.commit.mediaRevision,
-        expected_media_hash: input.commit.mediaHash,
-        expected_media_bytes: input.commit.mediaBytes,
-        expected_media_content_type: input.commit.mediaContentType,
-        idempotency_key: idempotencyKey,
-        completion_evidence: evidence
-      })
-    });
+    let response = null;
+    let lastNetworkError = null;
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-completion-v2`, {
+          method: "POST",
+          headers: await buildHeaders(getApiToken()),
+          body: requestBody
+        });
+        if (response.status < 500 || attempt === 1) break;
+      } catch (error) {
+        lastNetworkError = error;
+        if (attempt === 1) throw error;
+      }
+    }
+    if (!response) throw lastNetworkError ?? new Error("recording_completion_unavailable");
     const body = await readBodyAsJson(response);
     const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
     if (!response.ok) {
@@ -92586,6 +92557,14 @@ var init_scripts_store = __esm({
               updated: ready.updatedAt || (/* @__PURE__ */ new Date()).toISOString()
             };
             window.__forgeCanonicalReadyScript = { ...ready };
+            window.__forgeCanonicalScriptIdentity = {
+              workspaceId: ready.workspaceId,
+              workpieceId: ready.workpieceId,
+              path: ready.path,
+              scriptRevision: ready.scriptRevision,
+              scriptHash: ready.scriptHash,
+              readyTransitionId: ready.transitionId
+            };
             scriptsById.set(id, rec2);
             return rec2;
           } catch (err) {
@@ -94559,6 +94538,13 @@ var init_local_auto = __esm({
             return;
           }
           const recordingMode = getRecordingMode();
+          if (!hasCanonicalRecordingScriptIdentity()) {
+            showRecorderToast(
+              "Recording cannot start until this displayed script is bound to its canonical Tongs path, revision, and hash. Reload the script and try again.",
+              "error"
+            );
+            throw new Error("canonical_script_identity_unavailable");
+          }
           try {
             console.log("[core-recorder] start", {
               mode: window.__tpStore?.get?.("scrollMode") || null,

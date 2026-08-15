@@ -181,6 +181,7 @@ import {
   computeIngestFinalStatus,
   evaluateRegisteredTranscriptPointer,
   isSealRaceRecoverable,
+  transcriptMatchesCanonicalMedia,
 } from "../ingest/hammerIngestDecisions";
 import {
   clearHammerTranscriptPrepNonAiMissingBehavior,
@@ -201,7 +202,7 @@ import {
 import { loadHammerVisualTimelineStateFromSnapshot } from "../visuals/persistence/hammerVisualTimelinePersistence";
 import { hasTongsUserAccessToken } from "../lib/tongsFetch";
 import { loadWorkspaceMapping } from "../media/workspaceMapping";
-import { hydrateHammerOpenLaunchContext } from "./hammerOpenHydration";
+import { bindLaunchContextToCanonicalRecording, hydrateHammerOpenLaunchContext } from "./hammerOpenHydration";
 import {
   resolveHammerAuthBootGateViewModel,
   shouldRunHammerTongsBootEffects,
@@ -1402,9 +1403,9 @@ export default function HammerWorkspaceEditor(
         data: null,
       },
       editorial_authority: {
-        path: persistedEditorialAuthority?.path ?? null,
-        updated_at: persistedEditorialAuthority?.updated_at ?? null,
-        data: persistedEditorialAuthority?.data ?? null,
+        path: hasTranscript ? persistedEditorialAuthority?.path ?? null : null,
+        updated_at: hasTranscript ? persistedEditorialAuthority?.updated_at ?? null : null,
+        data: hasTranscript ? persistedEditorialAuthority?.data ?? null : null,
       },
       macro_hooks: {
         recipe_ref: null,
@@ -1604,6 +1605,7 @@ export default function HammerWorkspaceEditor(
           const registeredEval = evaluateRegisteredTranscriptPointer({
             pointerPath: registeredTranscriptPath,
             artifact: registeredArtifact,
+            canonicalMediaId: sessionResult.data.canonical_recording.media_id,
           });
           const registeredTranscript = registeredEval.transcript as any;
           const registeredTranscriptLoadOk = registeredEval.load_ok;
@@ -1612,11 +1614,19 @@ export default function HammerWorkspaceEditor(
           const registeredTranscriptRejectionReason = registeredEval.rejection_reason;
 
           // --- Revision transcript ---
-          const revisionTranscriptLoadOk = !!(revisionTranscript && Array.isArray(revisionTranscript.segments));
+          const revisionTranscriptLoadOk = !!(
+            revisionTranscript
+            && Array.isArray(revisionTranscript.segments)
+            && transcriptMatchesCanonicalMedia(revisionTranscript, sessionResult.data.canonical_recording.media_id)
+          );
           const revisionTranscriptSegmentCount = revisionTranscriptLoadOk ? revisionTranscript.segments.length : null;
 
           // --- Canonical baseline transcript ---
-          const baselineTranscriptLoadOk = !!(canonicalTranscript && Array.isArray(canonicalTranscript.segments));
+          const baselineTranscriptLoadOk = !!(
+            canonicalTranscript
+            && Array.isArray(canonicalTranscript.segments)
+            && transcriptMatchesCanonicalMedia(canonicalTranscript, sessionResult.data.canonical_recording.media_id)
+          );
           const baselineTranscriptSegmentCount = baselineTranscriptLoadOk ? canonicalTranscript.segments.length : null;
 
           if (ingestDiagnosticRef.current) {
@@ -1848,7 +1858,7 @@ export default function HammerWorkspaceEditor(
             initialLaunchContext: nextLaunchContext,
             bootstrapLaunchContext: undefined,
           });
-          nextLaunchContext = withSessionId(openHydration.launchContext);
+          nextLaunchContext = withSessionId(bindLaunchContextToCanonicalRecording(openHydration.launchContext, sessionResult.data.canonical_recording));
           nextHasCanonicalBasis = openHydration.hasCanonicalBasis;
           nextReopenPersistenceSource = openHydration.persistenceSource;
 
@@ -1860,6 +1870,18 @@ export default function HammerWorkspaceEditor(
                 transcript_id: hydratedTranscript.transcript_id,
                 segments: hydratedTranscript.segments.map((segment) => ({ ...segment })),
                 label: hydratedTranscript.transcript_id,
+              },
+            };
+          } else if (nextLaunchContext) {
+            // Never allow an incoming/bootstrap context to smuggle a transcript
+            // from the previous recording into a newly reconciled media revision.
+            nextLaunchContext = {
+              ...nextLaunchContext,
+              transcript: {
+                kind: "tongs-stub",
+                transcript_id: `pending:${sessionResult.data.canonical_recording.media_id ?? sessionResult.data.canonical_recording.id}`,
+                segments: [],
+                label: "Transcript preparation pending",
               },
             };
           }
@@ -1892,7 +1914,7 @@ export default function HammerWorkspaceEditor(
               initialLaunchContext: undefined,
               bootstrapLaunchContext,
             });
-            nextLaunchContext = withSessionId(mergedHydration.launchContext);
+            nextLaunchContext = withSessionId(bindLaunchContextToCanonicalRecording(mergedHydration.launchContext, nextActiveCanonicalRecording));
             nextHasCanonicalBasis = mergedHydration.hasCanonicalBasis;
             nextReopenPersistenceSource = mergedHydration.persistenceSource;
           } catch {
@@ -3536,7 +3558,8 @@ export default function HammerWorkspaceEditor(
       snapshot: loadedPersistenceSnapshot,
     });
 
-    if (persistedNoopFingerprint && hydratedNoopFingerprint === persistedNoopFingerprint) {
+    const hasPendingCanonicalNormalization = snapshot.visualTimeline?.debug_origin === "legacy_migration";
+    if (!hasPendingCanonicalNormalization && persistedNoopFingerprint && hydratedNoopFingerprint === persistedNoopFingerprint) {
       lastSavedPayloadRef.current = payloadKey;
       setHasPendingSaveChanges(false);
       pendingSaveRef.current = null;

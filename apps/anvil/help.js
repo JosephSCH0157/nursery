@@ -218,7 +218,7 @@ export function ensureHelpUI() {
 
         <div class="shortcuts-grid" style="margin-bottom:8px">
           <div><strong>Space</strong></div><div>Toggle Auto-scroll</div>
-          <div><strong>↑ / ↓</strong></div><div>Adjust Auto-scroll speed</div>
+          <div><strong>↑ / ↓</strong></div><div>Adjust speed in Timed, WPM, or Hybrid mode</div>
           <div><strong>Shift + ?</strong></div><div>Open Help</div>
           <div><strong>Ctrl/Cmd + S</strong></div><div>Save to browser</div>
           <div><strong>Ctrl/Cmd + O</strong></div><div>Load selected script</div>
@@ -386,4 +386,3 @@ export function ensureHelpUI() {
     };
   }
 }
-

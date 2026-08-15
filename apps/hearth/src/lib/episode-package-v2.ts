@@ -170,6 +170,7 @@ export type EpisodeImageMapAssetSource = (typeof EPISODE_IMAGE_MAP_ASSET_SOURCE_
 
 export const EPISODE_IMAGE_MAP_ORIGIN_VALUES = [
   "hearth",
+  "creator_hearth",
   "hammer",
   "mixed",
 ] as const;

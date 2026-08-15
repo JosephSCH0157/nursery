@@ -166,6 +166,14 @@ export const ScriptStore = {
           updated: ready.updatedAt || new Date().toISOString(),
         };
         (window as Window & { __forgeCanonicalReadyScript?: ReadyScriptReference }).__forgeCanonicalReadyScript = { ...ready };
+        (window as Window & { __forgeCanonicalScriptIdentity?: unknown }).__forgeCanonicalScriptIdentity = {
+          workspaceId: ready.workspaceId,
+          workpieceId: ready.workpieceId,
+          path: ready.path,
+          scriptRevision: ready.scriptRevision,
+          scriptHash: ready.scriptHash,
+          readyTransitionId: ready.transitionId,
+        };
         scriptsById.set(id, rec);
         return rec;
       } catch (err) {

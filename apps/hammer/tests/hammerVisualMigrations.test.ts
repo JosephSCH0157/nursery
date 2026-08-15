@@ -189,6 +189,30 @@ test("legacy migration is used only when canonical timeline is absent", () => {
   assert.deepEqual(loaded.assets.map((asset) => asset.asset_id).length, 1);
 });
 
+test("canonical v1 normalization is pure, deterministic, and staged", () => {
+  const v2 = migrateLegacyPlacementRecordsToTimelineState({
+    placements: [buildPlacement()],
+    updated_at: "2026-04-02T12:00:00.000Z",
+  });
+  const v1 = {
+    ...v2,
+    version: 1,
+    assets: v2.assets.map(({ roles: _roles, ...asset }) => asset),
+    clips: v2.clips.map(({ semantic_anchor: _semanticAnchor, divergence: _divergence, ...clip }) => clip),
+  } as unknown as HammerPersistenceSnapshot["visual_timeline"]["data"];
+  const snapshot = buildSnapshot({ canonical: v1 });
+  const before = JSON.stringify(snapshot);
+  const first = loadHammerVisualTimelineStateFromSnapshot(snapshot);
+  const second = loadHammerVisualTimelineStateFromSnapshot(snapshot);
+  assert.equal(JSON.stringify(snapshot), before);
+  assert.deepEqual(first, second);
+  assert.equal(first.version, 2);
+  assert.equal(first.debug_origin, "legacy_migration");
+  assert.match(first.debug_migration_hash ?? "", /^v2-[0-9a-f]{8}$/);
+  assert.deepEqual(first.assets[0]?.roles, ["timeline_visual"]);
+  assert.equal(first.clips[0]?.semantic_anchor.status, "anchor_supplied_resolution_failed");
+});
+
 test("structurally unusable canonical data cannot suppress viable legacy recovery", () => {
   const snapshot = buildSnapshot({
     canonical: {

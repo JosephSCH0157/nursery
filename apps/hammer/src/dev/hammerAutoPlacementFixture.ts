@@ -2,6 +2,7 @@ import {
   createDefaultVisualAnimation,
   createDefaultVisualGeometry,
   createDefaultVisualLane,
+  createDefaultSemanticAnchor,
   createEmptyVisualTimelineState,
 } from "../visuals/model/hammerVisualDefaults";
 import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
@@ -19,6 +20,7 @@ export function createHammerAutoPlacementFixtureTimeline(): HammerVisualTimeline
       storage_key: null,
       mime_type: "image/png",
       source_mode: "manual",
+      roles: ["timeline_visual"],
       updated_at: updatedAt,
     }],
     lanes: [createDefaultVisualLane({
@@ -53,6 +55,24 @@ export function createHammerAutoPlacementFixtureTimeline(): HammerVisualTimeline
         anchor_label: "Step 9 fixture",
         detached: false,
       },
+      semantic_anchor: createDefaultSemanticAnchor({
+        status: "anchored",
+        origin: "hammer_transcript",
+        transcript: {
+          transcript_id: "fixture-transcript",
+          media_id: null,
+          media_signature: null,
+          segment_ids: ["seg_001"],
+          start_sec: 0,
+          end_sec: 32,
+          resolution_state: "resolved",
+        },
+        resolution_method: "manual_transcript",
+        resolution_confidence: 1,
+        resolver_version: "hammer.semantic-anchor.v1",
+        resolved_at: updatedAt,
+      }),
+      divergence: { state: "aligned", start_delta_sec: 0, end_delta_sec: 0 },
       updated_at: updatedAt,
     }],
     selected_clip_id: "step9-clip",

@@ -111,10 +111,16 @@ function testPreservesReferenceVisualClassAndTreatment() {
 }
 
 function testDerivesDeterministicPlacementFromMatchingAnchor() {
+  const visualPackage = buildVisualPackage();
+  visualPackage.source_script_approval_id = "approval_01";
+  visualPackage.source_script_approval_revision = 7;
+  visualPackage.source_script_content_hash = "sha256:oranges";
+  visualPackage.anchor_contract_version = "hearth.anchor.v1";
   const placements = deriveHammerVisualPlacements({
     transcriptSourceId,
     transcriptSegments: buildTranscriptSegments(),
-    visualPackage: buildVisualPackage(),
+    visualPackage,
+    transcriptIdentity: { transcript_id: "transcript_01", media_id: "recording_01", media_signature: "sig_01" },
   });
 
   assert.equal(placements.status, "prepared");
@@ -128,7 +134,34 @@ function testDerivesDeterministicPlacementFromMatchingAnchor() {
   assert.equal(placements.placements[0]?.alignment?.state, "aligned");
   assert.equal(placements.placements[0]?.alignment?.transcript_segment_id, "turn_001");
   assert.equal(placements.placements[0]?.asset_ref, "asset_01");
+  assert.equal(placements.placements[0]?.script_approval_id, "approval_01");
+  assert.equal(placements.placements[0]?.transcript_id, "transcript_01");
+  assert.deepEqual(placements.placements[0]?.asset_roles, ["timeline_visual"]);
   assert.equal(placements.source_refs.includes(`transcript:${transcriptSourceId}`), true);
+}
+
+function testFloridaOrangesExactRecoveryNormalizesMarkupAndUnicode() {
+  const visualPackage = buildVisualPackage();
+  visualPackage.visuals[0]!.script_anchor = {
+    ...visualPackage.visuals[0]!.script_anchor!,
+    span_text: "<em>Florida’s oranges</em> — announced themselves.",
+  };
+  const transcript = buildTranscriptSegments();
+  transcript[0] = { ...transcript[0]!, text: "Florida's oranges announced themselves." };
+  const placements = deriveHammerVisualPlacements({ transcriptSourceId, transcriptSegments: transcript, visualPackage });
+  assert.equal(placements.placements[0]?.confidence, 1);
+  assert.equal(placements.placements[0]?.alignment?.match_method, "deterministic_phrase");
+  assert.equal(placements.placements[0]?.status, "placed");
+}
+
+function testRepeatedExactPhraseIsAmbiguous() {
+  const visualPackage = buildVisualPackage();
+  const transcript = buildTranscriptSegments();
+  transcript[1] = { ...transcript[1]!, text: transcript[0]!.text };
+  const placements = deriveHammerVisualPlacements({ transcriptSourceId, transcriptSegments: transcript, visualPackage });
+  assert.equal(placements.placements[0]?.status, "uncertain");
+  assert.equal(placements.placements[0]?.uncertainty_flags.includes("anchor_match_ambiguous"), true);
+  assert.equal(placements.placements[0]?.alignment?.state, "review_needed");
 }
 
 function testFallsBackToReviewableUncertainPlacementWhenMatchIsWeak() {
@@ -289,6 +322,8 @@ try {
   testReusesPlacementArtifactWhenVisualSourcesHaveNotChanged();
   testPreservesReferenceClipClassWithoutInference();
   testPreservesReferenceVisualClassAndTreatment();
+  testFloridaOrangesExactRecoveryNormalizesMarkupAndUnicode();
+  testRepeatedExactPhraseIsAmbiguous();
   console.log("Hammer visual placement tests passed.");
 } catch (error) {
   console.error("Hammer visual placement tests failed:", error);

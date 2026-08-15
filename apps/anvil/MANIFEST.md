@@ -54,6 +54,10 @@ Everything else (`auto`, `off`, `manual`) is a UI/legacy convenience state, not 
 - **Contract:** Must gate ASR subscription and commit handling.
 - **Arm path:** `Start speech sync` while `scrollMode='asr'` must set `session.asrArmed=true` before preroll/live driver creation.
 
+### 1.2.1 Speed Shortcut Contract
+
+- `ArrowUp` / `ArrowDown` are speed-command adapters only in canonical `timed`, `wpm`, and `hybrid` modes. Timed delegates to the auto-speed control authority; WPM/Hybrid emit the existing WPM intent. The shortcut must not directly move the viewport, drive a motor, or persist state, and all other modes retain native arrow behavior.
+
 ### 1.3 ASR Mode Invariants (Hard Boundaries)
 
 In `scrollMode='asr'`:

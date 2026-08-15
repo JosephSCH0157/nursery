@@ -1,17 +1,20 @@
 import {
   createDefaultVisualAnimation,
   createDefaultVisualGeometry,
+  createDefaultSemanticAnchor,
 } from "./hammerVisualDefaults";
 import {
   HAMMER_VISUAL_DEFAULT_MIN_DURATION_SEC,
   HAMMER_VISUAL_TIMELINE_SOURCE_MODE,
   HAMMER_VISUAL_TIMELINE_VERSION,
   type HammerVisualAnchorHint,
+  type HammerVisualAssetRole,
   type HammerVisualAnimation,
   type HammerVisualAnimationPreset,
   type HammerVisualFitMode,
   type HammerVisualGeometry,
   type HammerVisualGeometryAnchor,
+  type HammerVisualSemanticAnchor,
   type HammerVisualTimelineState,
 } from "./hammerVisualTypes";
 
@@ -28,6 +31,7 @@ const VALID_ANIMATION_PRESETS = new Set<HammerVisualAnimationPreset>([
   "shutter_in_fade_out",
 ]);
 const VALID_FIT_MODES = new Set<HammerVisualFitMode>(["contain", "cover"]);
+const VALID_ASSET_ROLES = new Set<HammerVisualAssetRole>(["thumbnail", "timeline_visual"]);
 
 function readFiniteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -150,10 +154,48 @@ export function normalizeAnchorHint(
   };
 }
 
+export function normalizeAssetRoles(value: unknown, fallback: HammerVisualAssetRole[] = ["timeline_visual"]): HammerVisualAssetRole[] {
+  const roles = Array.isArray(value)
+    ? value.filter((role): role is HammerVisualAssetRole => VALID_ASSET_ROLES.has(role as HammerVisualAssetRole))
+    : [];
+  return [...new Set(roles.length > 0 ? roles : fallback)];
+}
+
+export function normalizeSemanticAnchor(value: Partial<HammerVisualSemanticAnchor> | null | undefined): HammerVisualSemanticAnchor {
+  const base = createDefaultSemanticAnchor(value ?? undefined);
+  const statuses = new Set(["anchored", "anchor_supplied_resolution_failed", "ambiguous_match", "detached", "no_placement_intent"]);
+  const methods = new Set(["exact_ordered_words", "fuzzy_text", "manual_transcript", "unresolved"]);
+  const confidence = readFiniteNumber(value?.resolution_confidence);
+  return createDefaultSemanticAnchor({
+    ...base,
+    status: statuses.has(String(value?.status)) ? value!.status : base.status,
+    resolution_method: methods.has(String(value?.resolution_method)) ? value!.resolution_method : "unresolved",
+    resolution_confidence: confidence == null ? null : Number(clampUnitInterval(confidence, 0).toFixed(3)),
+    resolver_version: readTrimmedString(value?.resolver_version),
+    resolved_at: readTrimmedString(value?.resolved_at),
+    script: {
+      ...base.script,
+      script_approval_revision: Number.isInteger(value?.script?.script_approval_revision)
+        ? value?.script?.script_approval_revision ?? null
+        : null,
+      sentence_start: Number.isInteger(value?.script?.sentence_start) ? value?.script?.sentence_start ?? null : null,
+      sentence_end: Number.isInteger(value?.script?.sentence_end) ? value?.script?.sentence_end ?? null : null,
+      char_start: Number.isInteger(value?.script?.char_start) ? value?.script?.char_start ?? null : null,
+      char_end: Number.isInteger(value?.script?.char_end) ? value?.script?.char_end ?? null : null,
+    },
+    transcript: {
+      ...base.transcript,
+      segment_ids: [...new Set(base.transcript.segment_ids.map(readTrimmedString).filter((id): id is string => Boolean(id)))],
+      start_sec: readFiniteNumber(value?.transcript?.start_sec),
+      end_sec: readFiniteNumber(value?.transcript?.end_sec),
+    },
+  });
+}
+
 export function assertValidTimelineState(
   state: HammerVisualTimelineState,
 ): HammerVisualTimelineState {
-  assertCondition(state.version === HAMMER_VISUAL_TIMELINE_VERSION, "Visual timeline version must be 1.");
+  assertCondition(state.version === HAMMER_VISUAL_TIMELINE_VERSION, "Visual timeline version must be 2.");
   assertCondition(state.source_mode === HAMMER_VISUAL_TIMELINE_SOURCE_MODE, "Visual timeline source_mode must be packaging.");
   assertCondition(Number.isInteger(state.revision) && state.revision >= 1, "Visual timeline revision must be a positive integer.");
   assertCondition(Boolean(readTrimmedString(state.updated_at)), "Visual timeline updated_at is required.");
@@ -174,6 +216,8 @@ export function assertValidTimelineState(
     assertCondition(Boolean(readTrimmedString(asset.asset_id)), "Visual asset asset_id is required.");
     assertCondition(Boolean(readTrimmedString(asset.asset_ref)), "Visual asset asset_ref is required.");
     assertCondition(Boolean(readTrimmedString(asset.updated_at)), "Visual asset updated_at is required.");
+    assertCondition(Array.isArray(asset.roles) && asset.roles.length > 0, `Visual asset ${asset.asset_id} roles are required.`);
+    assertCondition(normalizeAssetRoles(asset.roles).every((role, index) => role === asset.roles[index]), `Visual asset ${asset.asset_id} roles are invalid.`);
     assertCondition(!assetIds.has(asset.asset_id), `Duplicate visual asset id: ${asset.asset_id}`);
     assetIds.add(asset.asset_id);
   }
@@ -244,8 +288,18 @@ export function assertValidTimelineState(
       && normalizedAnchor.matched_segment_ids.every((segmentId, index) => segmentId === clip.anchor_hint.matched_segment_ids[index]),
       `Visual clip ${clip.clip_id} anchor_hint is invalid.`,
     );
+    const normalizedSemanticAnchor = normalizeSemanticAnchor(clip.semantic_anchor);
+    assertCondition(JSON.stringify(normalizedSemanticAnchor) === JSON.stringify(clip.semantic_anchor), `Visual clip ${clip.clip_id} semantic_anchor is invalid.`);
+    if (clip.semantic_anchor.status === "anchored") {
+      assertCondition(clip.semantic_anchor.transcript.resolution_state === "resolved", `Anchored visual clip ${clip.clip_id} requires resolved transcript evidence.`);
+      assertCondition(Boolean(clip.semantic_anchor.resolver_version), `Anchored visual clip ${clip.clip_id} requires resolver provenance.`);
+      assertCondition(clip.semantic_anchor.resolution_method !== "unresolved", `Anchored visual clip ${clip.clip_id} requires a resolution method.`);
+      assertCondition(clip.semantic_anchor.resolution_confidence != null, `Anchored visual clip ${clip.clip_id} requires confidence.`);
+    }
     if (clip.asset_id) {
       assertCondition(assetIds.has(clip.asset_id), `Visual clip ${clip.clip_id} references unknown asset ${clip.asset_id}.`);
+      const asset = state.assets.find((candidate) => candidate.asset_id === clip.asset_id);
+      assertCondition(asset?.roles.includes("timeline_visual"), `Visual clip ${clip.clip_id} requires a timeline_visual asset role.`);
     }
     assertCondition(Array.isArray(clip.uncertainty_flags), `Visual clip ${clip.clip_id} uncertainty_flags must be an array.`);
     assertCondition(laneClipIds.has(clip.clip_id), `Visual clip ${clip.clip_id} is not mounted in a lane.`);

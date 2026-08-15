@@ -25,6 +25,7 @@ type UntypedPostgrestResult = {
 type UntypedPostgrestBuilder = PromiseLike<UntypedPostgrestResult> & {
   select: (columns: string) => UntypedPostgrestBuilder;
   eq: (column: string, value: unknown) => UntypedPostgrestBuilder;
+  or: (filters: string) => UntypedPostgrestBuilder;
   insert: (values: Record<string, unknown>) => UntypedPostgrestBuilder;
   update: (values: Record<string, unknown>) => UntypedPostgrestBuilder;
   order: (column: string, options?: { ascending?: boolean }) => UntypedPostgrestBuilder;
@@ -1048,6 +1049,10 @@ export type WorkpieceVisualPackageVisual = {
   visual_mode: string | null;
   source_provider?: string | null;
   source_label?: string | null;
+  purpose?: HearthVisualPurposeRecord | null;
+  origin?: string | null;
+  placement_intent?: string | null;
+  canonical_anchor_assessment?: EpisodeImageMapEntryRecord["canonical_anchor_assessment"] | null;
   selected_asset_id: string | null;
   selected_asset: WorkpieceVisualPackageSelectedAsset | null;
   broll_evidence?: {
@@ -1099,6 +1104,10 @@ export type WorkpieceVisualPackageResponseData = {
   workpiece_id: string;
   script_path: string | null;
   script_updated_at: string | null;
+  source_script_approval_id?: string | null;
+  source_script_approval_revision?: number | null;
+  source_script_content_hash?: string | null;
+  anchor_contract_version?: string | null;
   image_map_updated_at: string | null;
   image_map_asset_updated_at: string | null;
   spoken_beats?: EpisodeSpokenBeatRecord[];
@@ -6795,6 +6804,10 @@ export class TongsCommitService {
     entries: EpisodeImageMapEntryRecord[];
     spokenBeats: EpisodeSpokenBeatRecord[];
     selectedAssetRows: AssetRow[];
+    sourceScriptApprovalId?: string | null;
+    sourceScriptApprovalRevision?: number | null;
+    sourceScriptContentHash?: string | null;
+    anchorContractVersion?: string | null;
   }): WorkpieceVisualPackageResponseData {
     const selectedAssetById = new Map(args.selectedAssetRows.map((row) => [row.id, row] as const));
     const visuals = [...args.entries]
@@ -6833,6 +6846,10 @@ export class TongsCommitService {
           visual_mode: visualMode,
           source_provider: selectedAssetRef?.source ?? null,
           source_label: selectedAsset?.variant_label ?? null,
+          purpose: entry.beat_anchor?.purpose ?? null,
+          origin: entry.source_type ?? null,
+          placement_intent: entry.placement_hint ?? entry.visual_intent ?? null,
+          canonical_anchor_assessment: entry.canonical_anchor_assessment ?? null,
           selected_asset_id: entry.selected_asset_id,
           selected_asset: selectedAsset,
         };
@@ -6843,6 +6860,10 @@ export class TongsCommitService {
       workpiece_id: args.workpieceId,
       script_path: args.scriptPath,
       script_updated_at: args.scriptUpdatedAt,
+      source_script_approval_id: args.sourceScriptApprovalId ?? null,
+      source_script_approval_revision: args.sourceScriptApprovalRevision ?? null,
+      source_script_content_hash: args.sourceScriptContentHash ?? null,
+      anchor_contract_version: args.anchorContractVersion ?? null,
       image_map_updated_at: args.imageMapUpdatedAt,
       image_map_asset_updated_at: args.imageMapAssetRow?.updated_at ?? null,
       spoken_beats: args.spokenBeats,
@@ -7616,6 +7637,61 @@ export class TongsCommitService {
     const writtenBy = normalizeWrittenBy(input.written_by);
 
     const tongsUntyped = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const ensureEpisodePointer = async (canonical: CanonicalRecordingRecord): Promise<void> => {
+      const pointerResult = await tongsUntyped
+        .from("episodes")
+        .update({
+          canonical_recording_id: canonical.id,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("workspace_id", workspaceId)
+        .eq("id", workpieceId)
+        .or(`canonical_recording_id.is.null,canonical_recording_id.neq.${canonical.id}`);
+      if (pointerResult?.error) {
+        throw new HttpError(409, "canonical_recording_pointer_failed", "Hammer found the canonical recording but could not attach it to the episode.", {
+          workpiece_id: workpieceId,
+          canonical_recording_id: canonical.id,
+          reason: pointerResult.error.message,
+        });
+      }
+    };
+    const resetHammerRevisionForNewMedia = async (canonical: CanonicalRecordingRecord): Promise<void> => {
+      const nowIso = new Date().toISOString();
+      const revisionResult = await tongsUntyped
+        .from("recording_revisions")
+        .update({
+          status: "superseded",
+          updated_at: nowIso,
+          updated_by: auth.userId,
+        })
+        .eq("workspace_id", workspaceId)
+        .eq("workpiece_id", workpieceId)
+        .eq("canonical_recording_id", canonical.id)
+        .eq("status", "active");
+      if (revisionResult?.error) {
+        throw new HttpError(409, "canonical_recording_revision_reset_failed", "Hammer adopted newer recorded media but could not retire the previous editing revision.", {
+          workpiece_id: workpieceId,
+          canonical_recording_id: canonical.id,
+          reason: revisionResult.error.message,
+        });
+      }
+      const pointerResult = await tongsUntyped
+        .from("episodes")
+        .update({
+          canonical_recording_id: canonical.id,
+          active_revision_id: null,
+          updated_at: nowIso,
+        })
+        .eq("workspace_id", workspaceId)
+        .eq("id", workpieceId);
+      if (pointerResult?.error) {
+        throw new HttpError(409, "canonical_recording_revision_pointer_reset_failed", "Hammer adopted newer recorded media but could not clear the previous revision pointer.", {
+          workpiece_id: workpieceId,
+          canonical_recording_id: canonical.id,
+          reason: pointerResult.error.message,
+        });
+      }
+    };
 
     const existingResult = await tongsUntyped
       .from("canonical_recordings")
@@ -7630,20 +7706,24 @@ export class TongsCommitService {
     }
     if (existingResult.data) {
       const existing = existingResult.data as CanonicalRecordingRecord;
-      // Check whether the latest accepted take introduced a new media_path that
-      // the canonical recording hasn't yet been reconciled against.
+      // Reconcile on immutable media identity, not path alone: two captures can
+      // legitimately reuse a filename while representing different recordings.
       const truth = await this.getWorkpieceRecordingTruth(workpieceId);
       const latestTake = truth.latest_kept_take;
       const latestPath = latestTake?.file_path?.trim() ?? "";
       const existingPath = existing.media_path?.trim() ?? "";
-      if (latestPath && latestPath !== existingPath) {
-        // The canonical recording is stale relative to the latest accepted take.
-        // Reconcile: update media_path (and take metadata) so Hammer doesn't raise a
-        // false "actual recording mismatch" after the user accepts a new Anvil take.
+      const latestMediaId = latestTake ? this.buildCanonicalRecordingMediaId(workpieceId, latestTake) : "";
+      const mediaIdentityChanged = Boolean(latestPath) && (
+        latestPath !== existingPath
+        || (Boolean(latestMediaId) && latestMediaId !== existing.media_id)
+      );
+      if (mediaIdentityChanged) {
+        // A new recording invalidates every baseline and active editing revision
+        // derived from the previous media, even while the canonical row is draft.
         const nowIso = new Date().toISOString();
-        const mediaId = this.buildCanonicalRecordingMediaId(workpieceId, latestTake!);
-        const isSealed = existing.status === "sealed";
+        const mediaId = latestMediaId;
         const updateFields: Record<string, unknown> = {
+          status: "draft",
           media_path: latestPath,
           kept_take_event_id: latestTake!.event_id ?? null,
           media_content_type: latestTake!.content_type ?? null,
@@ -7653,18 +7733,13 @@ export class TongsCommitService {
           anvil_capture_session_id: latestTake!.anvil_capture_session_id ?? null,
           media_id: mediaId,
           media_signature: null,
+          sealed_at: null,
+          baseline_transcript_path: null,
+          baseline_speaker_map_path: null,
+          baseline_timing_path: null,
           updated_at: nowIso,
           updated_by: auth.userId,
         };
-        if (isSealed) {
-          // Accepting a new take after sealing voids the sealed baseline transcript.
-          // Reset to draft so Hammer knows to re-run prep for the new recording.
-          updateFields.status = "draft";
-          updateFields.sealed_at = null;
-          updateFields.baseline_transcript_path = null;
-          updateFields.baseline_speaker_map_path = null;
-          updateFields.baseline_timing_path = null;
-        }
         const reconcileResult = await tongsUntyped
           .from("canonical_recordings")
           .update(updateFields)
@@ -7673,18 +7748,27 @@ export class TongsCommitService {
           .eq("id", existing.id)
           .select("*")
           .single();
-        if (!reconcileResult.error && reconcileResult.data) {
-          return reconcileResult.data as CanonicalRecordingRecord;
+        if (reconcileResult.error || !reconcileResult.data) {
+          throw new HttpError(409, "canonical_recording_reconciliation_failed", "Recorded media is newer than Hammer's canonical recording, but reconciliation failed.", {
+            workpiece_id: workpieceId,
+            canonical_recording_id: existing.id,
+            canonical_media_path: existingPath,
+            recorded_media_path: latestPath,
+            source_authority_id: latestTake?.completion_id ?? null,
+            reason: reconcileResult.error?.message ?? "updated row was not returned",
+          });
         }
-        // Reconcile write failed (e.g. concurrent update). Fall through and return the
-        // best-effort existing record; Hammer can retry on the next open.
+        const reconciled = reconcileResult.data as CanonicalRecordingRecord;
+        await resetHammerRevisionForNewMedia(reconciled);
+        return reconciled;
       }
+      await ensureEpisodePointer(existing);
       return existing;
     }
 
     const truth = await this.getWorkpieceRecordingTruth(workpieceId);
     if (!truth.latest_kept_take) {
-      throw new HttpError(409, "canonical_recording_missing_take", "No kept take is available to create a canonical recording", {
+      throw new HttpError(409, "canonical_recording_missing_take", "No completed recorded media is available to create a canonical recording", {
         workpiece_id: workpieceId,
       });
     }
@@ -7692,7 +7776,7 @@ export class TongsCommitService {
     const receipt = truth.latest_kept_take;
     const mediaPath = receipt.file_path?.trim() ?? "";
     if (!mediaPath) {
-      throw new HttpError(409, "canonical_recording_missing_media_path", "Kept take receipt did not include a media path", {
+      throw new HttpError(409, "canonical_recording_missing_media_path", "Recorded-media authority did not include a media path", {
         workpiece_id: workpieceId,
       });
     }
@@ -7732,18 +7816,8 @@ export class TongsCommitService {
     }
     const canonical = insertResult.data as CanonicalRecordingRecord;
 
-    // Best-effort: point the workpiece at this canonical recording.
-    const episodeUpdate = await tongsUntyped
-      .from("episodes")
-      .update({
-        canonical_recording_id: canonical.id,
-        updated_at: nowIso,
-      })
-      .eq("workspace_id", workspaceId)
-      .eq("id", workpieceId);
-    if (episodeUpdate?.error) {
-      // preserve canonical; episode pointer can be repaired later.
-    }
+    // The episode pointer is part of a usable Hammer handoff, not optional projection data.
+    await ensureEpisodePointer(canonical);
 
     await this.insertEvent({
       workpieceId,
@@ -13331,6 +13405,7 @@ export class TongsCommitService {
     const imageMapAssetRow = await this.getCurrentReadyImageMapAsset(cradle.workspace_id, workpieceId);
     const selectedAssetRows = await this.listReadyImageMapCandidateAssetsForWorkpiece(cradle.workspace_id, workpieceId);
     const script = await this.resolvePreferredWorkpieceScript({ cradle });
+    const canonicalImageMap = await this.readCanonicalImageMapProjection(cradle.workspace_id, workpieceId);
 
     const result = this.buildWorkpieceVisualPackageResponse({
       workpieceId,
@@ -13342,6 +13417,10 @@ export class TongsCommitService {
       entries: state.episodePackage.image_map.entries,
       spokenBeats: state.episodePackage.spoken_beats,
       selectedAssetRows,
+      sourceScriptApprovalId: canonicalImageMap?.authority.scriptApprovalId ?? null,
+      sourceScriptApprovalRevision: canonicalImageMap?.authority.scriptApprovalRevision ?? null,
+      sourceScriptContentHash: canonicalImageMap?.authority.scriptContentHash ?? null,
+      anchorContractVersion: canonicalImageMap?.authority.anchorContractVersion ?? null,
     });
     const brollClient = options?.userAccessToken && this.userClientFactory
       ? this.userClientFactory(options.userAccessToken).schema("tongs") as unknown as UntypedTongsSchemaClient

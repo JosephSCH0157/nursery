@@ -147,7 +147,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
           ? {
               ...entry,
               source_type: requestedSourceType,
-              origin: "hearth" as const,
+              origin: entry.origin === "creator_hearth" ? "creator_hearth" as const : "hearth" as const,
             }
           : entry
       ));
@@ -396,7 +396,11 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
       const updatedEntries = args.episodePackage.image_map.entries.map((entry) => {
         if (entry.id !== args.selectedImageMapEntry?.id) return entry;
         const existing = entry.candidate_assets.filter((asset) => asset.asset_id !== uploaded.candidateAsset.asset_id);
-        const nextOrigin: "hearth" | "mixed" = entry.origin === "hammer" ? "mixed" : "hearth";
+        const nextOrigin = entry.origin === "hammer"
+          ? "mixed" as const
+          : entry.origin === "creator_hearth"
+          ? "creator_hearth" as const
+          : "hearth" as const;
         return {
           ...entry,
           source_type: "upload",

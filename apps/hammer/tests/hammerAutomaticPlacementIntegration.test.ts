@@ -176,6 +176,9 @@ test("live integration shares one capture token and commits only through canonic
   assert.doesNotMatch(previewBay, /\[canonicalPlacementResult, vm\.automaticPlacement\]/);
   assert.match(previewBay, /analysisFrame=\{vm\.automaticPlacement\?\.enabled \? analysisFrame : null\}/);
   assert.match(shell, /commitImagePlacementTransform\([\s\S]*"Apply automatic visual placement"/);
+  assert.match(shell, /automaticallyPlacedImageIdsRef\.current\.has\(placementId\)/);
+  assert.match(shell, /"Apply initial mask-safe visual placement"/);
+  assert.match(shell, /Once a[\s\S]*clip receives one canonical mask\/face-aware position, later user edits win/);
   assert.doesNotMatch(shell, /forcePreviewAutoPosition/);
   assert.doesNotMatch(toolBay, />\s*FORCE PREVIEW\s*</);
 });

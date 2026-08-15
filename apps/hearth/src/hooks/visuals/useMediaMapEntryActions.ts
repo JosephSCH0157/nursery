@@ -442,7 +442,7 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
       const existingImageById = new Map(args.episodePackage.image_map.entries.map((entry) => [entry.id, entry] as const));
       const existingBrollById = new Map(args.episodePackage.broll_plan.beats.map((beat) => [beat.id, beat] as const));
       const existingReferenceById = new Map(args.episodePackage.cdc_plan.entries.map((entry) => [entry.id, entry] as const));
-      const syncedImageEntries: EpisodeImageMapEntry[] = mediaEntriesForPlans
+      const generatedImageEntries: EpisodeImageMapEntry[] = mediaEntriesForPlans
         .filter((entry) => entry.final_media_kind === "image")
         .map((entry, index) => {
           const suffix = deriveSuffixFromMediaMapEntryId(entry.id);
@@ -454,6 +454,13 @@ export function useMediaMapEntryActions(args: UseMediaMapEntryActionsArgs) {
             beatOrder: index + 1,
           });
         });
+      const generatedImageIds = new Set(generatedImageEntries.map((entry) => entry.id));
+      const syncedImageEntries: EpisodeImageMapEntry[] = [
+        ...generatedImageEntries,
+        ...args.episodePackage.image_map.entries.filter((entry) => (
+          entry.origin === "creator_hearth" && !generatedImageIds.has(entry.id)
+        )),
+      ];
 
       const syncedBrollBeats = mediaEntriesForPlans
         .filter((entry) => entry.final_media_kind === "b_roll")

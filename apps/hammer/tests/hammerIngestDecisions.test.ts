@@ -63,6 +63,38 @@ async function main(): Promise<void> {
   assert.equal(emptySegments.definitive_failure, true);
   assert.equal(emptySegments.rejection_reason, "empty_segments");
 
+  const staleMedia = evaluateRegisteredTranscriptPointer({
+    pointerPath: "hammer/transcript/structured.v1.json",
+    canonicalMediaId: "capture-session:new-recording",
+    artifact: {
+      path: "hammer/transcript/structured.v1.json",
+      updated_at: "2026-08-14T00:00:00.000Z",
+      data: {
+        schema_version: 1,
+        transcript_id: "transcript_old_recording",
+        media_id: "capture-session:first-recording",
+        media_signature: null,
+        prepared_at: "2026-08-13T00:00:00.000Z",
+        structure: "speaker_turns",
+        source_media_ref: null,
+        diarization: {
+          label_scheme: "forge-neutral-speakers.v1",
+          labels: ["S1"],
+          raw_labels: ["speaker_0"],
+          version: null,
+          provider: "openai",
+          provider_request_id: null,
+          model: null,
+        },
+        confidence_flags: [],
+        segments: [{ segment_id: "old-1", speaker: "S1", start_sec: 0, end_sec: 1, text: "Old recording." }],
+      },
+    },
+  });
+  assert.equal(staleMedia.load_ok, false);
+  assert.equal(staleMedia.definitive_failure, true);
+  assert.equal(staleMedia.rejection_reason, "media_identity_mismatch");
+
   // Seal race recovery helper.
   assert.equal(isSealRaceRecoverable("canonical_recording_already_sealed"), true);
   assert.equal(isSealRaceRecoverable("file_conflict"), true);

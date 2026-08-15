@@ -267,6 +267,11 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
     .panel{padding:16px;border-right:1px solid var(--edge);overflow:auto;background:var(--card);min-height:0}
     .panel h2{margin:0 0 12px;font-size:18px}
     .panel .row{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0}
+    #sidebar{display:flex;flex-direction:column}
+    #sidebar > .sidebar-section{order:10}
+    #sidebarSessionSection{order:1!important}
+    #sidebarReadingSection{order:2!important}
+    #sidebarRecordingSection{order:3!important}
     .sidebar-section{
         margin:0 0 14px;
         padding:12px;

@@ -16,6 +16,7 @@ export type RegisteredTranscriptPointerEvaluation = {
 export function evaluateRegisteredTranscriptPointer(args: {
   pointerPath: string | null;
   artifact: HammerPersistedArtifact<HammerPersistedStructuredTranscript> | null;
+  canonicalMediaId?: string | null;
 }): RegisteredTranscriptPointerEvaluation {
   if (!args.pointerPath) {
     return {
@@ -62,6 +63,17 @@ export function evaluateRegisteredTranscriptPointer(args: {
     };
   }
 
+  if (!transcriptMatchesCanonicalMedia(transcript, args.canonicalMediaId)) {
+    return {
+      pointer_path: args.pointerPath,
+      load_ok: false,
+      segment_count: transcript.segments.length,
+      definitive_failure: true,
+      rejection_reason: "media_identity_mismatch",
+      transcript: null,
+    };
+  }
+
   const segmentCount = transcript.segments.length;
   return {
     pointer_path: args.pointerPath,
@@ -71,6 +83,18 @@ export function evaluateRegisteredTranscriptPointer(args: {
     rejection_reason: segmentCount === 0 ? "empty_segments" : null,
     transcript,
   };
+}
+
+export function transcriptMatchesCanonicalMedia(
+  transcript: HammerPersistedStructuredTranscript | null | undefined,
+  canonicalMediaId: string | null | undefined,
+): boolean {
+  const expected = canonicalMediaId?.trim() ?? "";
+  if (!expected || !transcript) return true;
+  const actual = transcript.media_id?.trim()
+    || transcript.source_media_ref?.media_id?.trim()
+    || "";
+  return actual === expected;
 }
 
 export function isSealRaceRecoverable(code: string | null | undefined): boolean {

@@ -6198,7 +6198,12 @@ export default function HearthShell({
       onDraftVisualTypeChange: onImageMapDraftVisualTypeChange,
       onDraftSectionIntentNoteChange: onImageMapDraftSectionIntentNoteChange,
       onDraftPlacementHintChange: onImageMapDraftPlacementHintChange,
-      onCreateEntry: () => void onCreateImageMapEntry(),
+      onCreateEntry: () => {
+        void onCreateImageMapEntry().then(() => {
+          setShowScriptPanel(true);
+          setIsImageMapReanchorMode(true);
+        });
+      },
       onDuplicateEntry: () => void onDuplicateImageMapEntry(),
       onDeleteEntry: () => void onDeleteImageMapEntry(),
       onSeedFromScript: () => void onSeedImageMapFromScript(),

@@ -449,6 +449,7 @@ function normalizeImageMapEntry(value: unknown): EpisodeImageMapEntryRecord | nu
     id,
     anchor,
     script_anchor: normalizeScriptAnchor(row?.script_anchor),
+    beat_anchor: readJsonObject(row?.beat_anchor) as EpisodeImageMapEntryRecord["beat_anchor"],
     description,
     visual_intent: visualIntent,
     prompt_basis: promptBasis,
@@ -461,6 +462,7 @@ function normalizeImageMapEntry(value: unknown): EpisodeImageMapEntryRecord | nu
     selected_asset_id: readString(row?.selected_asset_id),
     status,
     placement_hint: readString(row?.placement_hint),
+    canonical_anchor_assessment: readJsonObject(row?.canonical_anchor_assessment) as EpisodeImageMapEntryRecord["canonical_anchor_assessment"],
   };
 }
 
@@ -484,6 +486,11 @@ function normalizeImageMap(payload: unknown): WorkpieceImageMapResponseData | nu
       entries,
       spoken_beats: Array.isArray(imageMap?.spoken_beats) ? imageMap.spoken_beats as EpisodeSpokenBeatRecord[] : [],
       metadata_updated_at: readString(imageMap?.metadata_updated_at),
+      source_script_approval_id: readString(imageMap?.source_script_approval_id),
+      source_script_approval_revision: readNumber(imageMap?.source_script_approval_revision),
+      source_script_content_hash: readString(imageMap?.source_script_content_hash),
+      anchor_contract_version: readString(imageMap?.anchor_contract_version),
+      provenance_state: readString(imageMap?.provenance_state) as WorkpieceImageMapResponseData["image_map"]["provenance_state"],
     },
     asset: asset
       ? {
@@ -516,7 +523,7 @@ function normalizeVisualPackage(payload: unknown): WorkpieceVisualPackageRespons
   }
 
   const normalizedVisuals = visuals
-    .map((value) => {
+    .map((value): WorkpieceVisualPackageResponseData["visuals"][number] | null => {
       const row = readJsonObject(value);
       const entryId = readString(row?.entry_id);
       const beatOrder = readNumber(row?.beat_order);
@@ -541,6 +548,10 @@ function normalizeVisualPackage(payload: unknown): WorkpieceVisualPackageRespons
         paragraph_beat_order: paragraphBeatOrder,
         status,
         script_anchor: normalizeScriptAnchor(row?.script_anchor),
+        purpose: readString(row?.purpose) as WorkpieceVisualPackageResponseData["visuals"][number]["purpose"],
+        origin: readString(row?.origin),
+        placement_intent: readString(row?.placement_intent),
+        canonical_anchor_assessment: readJsonObject(row?.canonical_anchor_assessment) as WorkpieceVisualPackageResponseData["visuals"][number]["canonical_anchor_assessment"],
         visual_mode: visualMode,
         selected_asset_id: readString(row?.selected_asset_id),
         selected_asset: selectedAssetRow
@@ -566,6 +577,10 @@ function normalizeVisualPackage(payload: unknown): WorkpieceVisualPackageRespons
     workpiece_id: workpieceId,
     script_path: readString(data?.script_path),
     script_updated_at: readString(data?.script_updated_at),
+    source_script_approval_id: readString(data?.source_script_approval_id),
+    source_script_approval_revision: readNumber(data?.source_script_approval_revision),
+    source_script_content_hash: readString(data?.source_script_content_hash),
+    anchor_contract_version: readString(data?.anchor_contract_version),
     image_map_updated_at: readString(data?.image_map_updated_at),
     image_map_asset_updated_at: readString(data?.image_map_asset_updated_at),
     visuals: normalizedVisuals,
@@ -659,13 +674,19 @@ function mergeVisualPackageWithImageMap(
 
   const entryById = new Map(imageMap.image_map.entries.map((entry) => [entry.id, entry] as const));
   const mergedVisuals = visualPackage.visuals.map((visual) => {
-    if (visual.selected_asset) {
-      return visual;
-    }
     const entry = entryById.get(visual.entry_id);
     if (!entry) {
       return visual;
     }
+    const enriched = {
+      ...visual,
+      script_anchor: visual.script_anchor ?? entry.script_anchor,
+      purpose: visual.purpose ?? entry.beat_anchor?.purpose ?? null,
+      origin: visual.origin ?? entry.source_type ?? null,
+      placement_intent: visual.placement_intent ?? entry.placement_hint ?? entry.visual_intent ?? null,
+      canonical_anchor_assessment: visual.canonical_anchor_assessment ?? entry.canonical_anchor_assessment ?? null,
+    };
+    if (visual.selected_asset) return enriched;
 
     const preferredCandidate = entry.selected_asset_id
       ? (entry.candidate_assets.find((asset) => asset.asset_id === entry.selected_asset_id) ?? null)
@@ -673,11 +694,11 @@ function mergeVisualPackageWithImageMap(
     const fallbackCandidate = preferredCandidate ?? entry.candidate_assets[0] ?? null;
     const fallbackSelectedAsset = fallbackCandidate ? buildFallbackSelectedAsset(fallbackCandidate) : null;
     if (!fallbackSelectedAsset) {
-      return visual;
+      return enriched;
     }
 
     return {
-      ...visual,
+      ...enriched,
       visual_mode: visual.visual_mode ?? fallbackSelectedAsset.visual_mode ?? null,
       selected_asset_id: visual.selected_asset_id ?? fallbackSelectedAsset.asset_id,
       selected_asset: fallbackSelectedAsset,
@@ -710,6 +731,10 @@ function mergeVisualPackageWithImageMap(
       paragraph_beat_order: entry.paragraph_beat_order,
       status: entry.status,
       script_anchor: entry.script_anchor,
+      purpose: entry.beat_anchor?.purpose ?? null,
+      origin: entry.source_type ?? null,
+      placement_intent: entry.placement_hint ?? entry.visual_intent ?? null,
+      canonical_anchor_assessment: entry.canonical_anchor_assessment ?? null,
       visual_mode: fallbackSelectedAsset.visual_mode ?? null,
       selected_asset_id: entry.selected_asset_id ?? fallbackSelectedAsset.asset_id,
       selected_asset: fallbackSelectedAsset,
@@ -720,6 +745,10 @@ function mergeVisualPackageWithImageMap(
     ...visualPackage,
     image_map_updated_at: visualPackage.image_map_updated_at ?? imageMap.image_map.metadata_updated_at,
     image_map_asset_updated_at: visualPackage.image_map_asset_updated_at ?? imageMap.asset?.updated_at ?? null,
+    source_script_approval_id: visualPackage.source_script_approval_id ?? imageMap.image_map.source_script_approval_id ?? null,
+    source_script_approval_revision: visualPackage.source_script_approval_revision ?? imageMap.image_map.source_script_approval_revision ?? null,
+    source_script_content_hash: visualPackage.source_script_content_hash ?? imageMap.image_map.source_script_content_hash ?? null,
+    anchor_contract_version: visualPackage.anchor_contract_version ?? imageMap.image_map.anchor_contract_version ?? null,
     visuals: mergedVisuals,
   };
 }
@@ -745,7 +774,11 @@ function readErrorMessage(payload: unknown, fallback: string): string {
 
 function normalizeForMatch(value: string): string {
   return value
+    .normalize("NFKD")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&(?:amp|nbsp|quot|apos|lt|gt);/gi, " ")
     .toLowerCase()
+    .replace(/[’']/g, "")
     .replace(/[^a-z0-9\s]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
@@ -819,7 +852,7 @@ function classifyAnchorMatch(args: {
 } {
   const normalizedAnchor = normalizeForMatch(args.anchorText);
   const normalizedMatched = normalizeForMatch(args.matchedText);
-  const exact = Boolean(normalizedAnchor && normalizedMatched && normalizedAnchor === normalizedMatched);
+  const exact = Boolean(args.deterministicCandidate || (normalizedAnchor && normalizedMatched && normalizedAnchor === normalizedMatched));
 
   const confidence = args.candidate
     ? args.candidate.rawScore
@@ -937,11 +970,12 @@ function findDeterministicPlacementCandidate(
   floorIndex: number,
   maxWindowSegments: number,
   debug: CandidateSearchDebug | null,
-): PlacementCandidate | null {
+): { candidate: PlacementCandidate | null; ambiguous: boolean } {
   const normalizedAnchor = normalizeForMatch(anchorText);
-  if (!normalizedAnchor) return null;
+  if (!normalizedAnchor) return { candidate: null, ambiguous: false };
 
   let best: PlacementCandidate | null = null;
+  let bestEquivalentCount = 0;
   for (let startIndex = Math.max(0, floorIndex); startIndex < transcriptSegments.length; startIndex += 1) {
     for (
       let endIndex = startIndex;
@@ -974,6 +1008,7 @@ function findDeterministicPlacementCandidate(
 
       if (!best) {
         best = candidate;
+        bestEquivalentCount = 1;
         continue;
       }
 
@@ -981,19 +1016,21 @@ function findDeterministicPlacementCandidate(
       const candidateSpan = endIndex - startIndex;
       if (candidate.rawScore > best.rawScore) {
         best = candidate;
+        bestEquivalentCount = 1;
       } else if (candidate.rawScore === best.rawScore && candidateSpan < bestSpan) {
         best = candidate;
+        bestEquivalentCount = 1;
       } else if (
         candidate.rawScore === best.rawScore
         && candidateSpan === bestSpan
-        && candidate.startIndex < best.startIndex
       ) {
-        best = candidate;
+        bestEquivalentCount += 1;
+        if (candidate.startIndex < best.startIndex) best = candidate;
       }
     }
   }
 
-  return best;
+  return { candidate: best, ambiguous: bestEquivalentCount > 1 };
 }
 
 function uniqueFlags(flags: string[]): string[] {
@@ -1169,6 +1206,11 @@ export function deriveHammerVisualPlacements(args: {
   transcriptSourceId: string;
   transcriptSegments: HammerTranscriptSegment[];
   visualPackage: WorkpieceVisualPackageResponseData;
+  transcriptIdentity?: {
+    transcript_id?: string | null;
+    media_id?: string | null;
+    media_signature?: string | null;
+  };
 }): HammerPersistedVisualPlacements {
   const { transcriptSegments, transcriptSourceId, visualPackage } = args;
   if (transcriptSegments.length === 0) {
@@ -1246,13 +1288,14 @@ export function deriveHammerVisualPlacements(args: {
       matched: 0,
       top_candidates: [],
     } : null;
-    const deterministicCandidate = findDeterministicPlacementCandidate(
+    const deterministicResult = findDeterministicPlacementCandidate(
       anchorText,
       transcriptSegments,
       searchFloor,
       maxWindowSegments,
       deterministicDebug,
     );
+    const deterministicCandidate = deterministicResult.candidate;
     const fuzzyCandidate = deterministicCandidate
       ? null
       : findBestPlacementCandidate(
@@ -1264,6 +1307,14 @@ export function deriveHammerVisualPlacements(args: {
       );
     const candidate = deterministicCandidate ?? fuzzyCandidate;
     const placementFlags: string[] = [];
+    if (visual.canonical_anchor_assessment?.state === "stale") {
+      placementFlags.push("anchor_provenance_stale");
+    } else if (visual.canonical_anchor_assessment?.state === "current") {
+      placementFlags.push("anchor_script_current");
+    }
+    if (deterministicResult.ambiguous) {
+      placementFlags.push("anchor_match_ambiguous");
+    }
     let startIndex = searchFloor;
     let endIndex = Math.min(transcriptSegments.length - 1, searchFloor);
     let timingSource: HammerVisualPlacementRecord["timing_source"] = "ordered_fallback";
@@ -1298,7 +1349,9 @@ export function deriveHammerVisualPlacements(args: {
     searchFloor = Math.min(transcriptSegments.length - 1, endIndex + 1);
 
     const promotedCandidate = visual.status !== "selected";
-    if (anchorMatch.classification === "unresolved") {
+    if (deterministicResult.ambiguous) {
+      placementFlags.push("anchor_match_uncertain");
+    } else if (anchorMatch.classification === "unresolved") {
       placementFlags.push("anchor_match_unresolved");
     } else if (anchorMatch.classification === "uncertain") {
       placementFlags.push("anchor_match_uncertain");
@@ -1336,9 +1389,9 @@ export function deriveHammerVisualPlacements(args: {
       || promotedCandidate
     );
     const disposition: "placed" | "placed_with_warning" | "uncertain" | "rejected" = (
-      anchorMatch.classification === "placed"
+      anchorMatch.classification === "placed" && !deterministicResult.ambiguous
         ? (hasWarnings ? "placed_with_warning" : "placed")
-        : anchorMatch.classification === "uncertain"
+        : anchorMatch.classification === "uncertain" || deterministicResult.ambiguous
           ? "uncertain"
           : "rejected"
     );
@@ -1346,14 +1399,14 @@ export function deriveHammerVisualPlacements(args: {
     const persistedStatus: "placed" | "uncertain" = (
       fallbackUsed
         ? "uncertain"
-        : (anchorMatch.classification === "placed" ? "placed" : "uncertain")
+        : (anchorMatch.classification === "placed" && !deterministicResult.ambiguous ? "placed" : "uncertain")
     );
     const alignmentState: "aligned" | "review_needed" | "unresolved" = (
       fallbackUsed
         ? "review_needed"
-        : anchorMatch.classification === "placed"
+        : anchorMatch.classification === "placed" && !deterministicResult.ambiguous
           ? "aligned"
-          : anchorMatch.classification === "uncertain"
+          : anchorMatch.classification === "uncertain" || deterministicResult.ambiguous
             ? "review_needed"
             : "unresolved"
     );
@@ -1428,6 +1481,24 @@ export function deriveHammerVisualPlacements(args: {
         match_method: alignmentMethod,
         state: alignmentState,
       },
+      script_path: visualPackage.script_path ?? null,
+      script_approval_id: visualPackage.source_script_approval_id ?? null,
+      script_approval_revision: visualPackage.source_script_approval_revision ?? null,
+      script_content_hash: visualPackage.source_script_content_hash ?? null,
+      anchor_contract_version: visualPackage.anchor_contract_version ?? null,
+      anchor_section_id: visual.script_anchor?.section_id ?? null,
+      anchor_paragraph_id: visual.script_anchor?.paragraph_id ?? null,
+      anchor_sentence_start: visual.script_anchor?.sentence_start ?? null,
+      anchor_sentence_end: visual.script_anchor?.sentence_end ?? null,
+      anchor_char_start: visual.script_anchor?.char_start ?? null,
+      anchor_char_end: visual.script_anchor?.char_end ?? null,
+      anchor_purpose: visual.purpose ?? null,
+      anchor_origin: visual.origin ?? null,
+      placement_intent: visual.placement_intent ?? "script_visual",
+      transcript_id: args.transcriptIdentity?.transcript_id ?? transcriptSourceId,
+      transcript_media_id: args.transcriptIdentity?.media_id ?? null,
+      transcript_media_signature: args.transcriptIdentity?.media_signature ?? null,
+      asset_roles: ["timeline_visual"],
     });
   }
 

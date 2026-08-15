@@ -7,10 +7,12 @@ import { createDefaultVisualLane, createEmptyVisualTimelineState } from "../mode
 import {
   assertValidTimelineState,
   clampOpacity,
+  normalizeAssetRoles,
   normalizeAnchorHint,
   normalizeAnimation,
   normalizeGeometry,
   normalizeSecRange,
+  normalizeSemanticAnchor,
   normalizeZIndex,
 } from "../model/hammerVisualGuards";
 import { migratePersistedVisualState } from "../model/hammerVisualMigrations";
@@ -38,6 +40,16 @@ function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function stableNormalizationFingerprint(value: unknown): string {
+  const input = JSON.stringify(value) ?? "null";
+  let hash = 2166136261;
+  for (let index = 0; index < input.length; index += 1) {
+    hash ^= input.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `v2-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
 function normalizeAssetKind(value: unknown): HammerVisualAssetKind {
   return value === "broll" || value === "reference_clip" || value === "contextual_data_composite"
     ? value
@@ -51,13 +63,14 @@ function normalizeSourceMode(value: unknown): HammerVisualSourceMode {
 function normalizeCanonicalTimeline(value: unknown): HammerVisualTimelineState | null {
   const row = readRecord(value);
   if (!row) return null;
+  const requiresV2Normalization = row.version !== 2;
 
   const assetsRaw = Array.isArray(row.assets) ? row.assets : [];
   const clipsRaw = Array.isArray(row.clips) ? row.clips : [];
   const lanesRaw = Array.isArray(row.lanes) ? row.lanes : [];
 
   const assets: HammerVisualAsset[] = assetsRaw
-    .map((entry) => {
+    .map((entry): HammerVisualAsset | null => {
       const asset = readRecord(entry);
       if (!asset) return null;
       const assetId = readString(asset?.asset_id);
@@ -72,24 +85,53 @@ function normalizeCanonicalTimeline(value: unknown): HammerVisualTimelineState |
         storage_key: readString(asset.storage_key),
         mime_type: readString(asset.mime_type),
         source_mode: normalizeSourceMode(asset.source_mode),
+        roles: normalizeAssetRoles(asset.roles, ["timeline_visual"]),
         updated_at: readString(asset.updated_at) ?? "1970-01-01T00:00:00.000Z",
       };
     })
     .filter((asset): asset is HammerVisualAsset => Boolean(asset));
 
   const clips: HammerVisualClip[] = clipsRaw
-    .map((entry) => {
+    .map((entry): HammerVisualClip | null => {
       const clip = readRecord(entry);
       if (!clip) return null;
       const clipId = readString(clip?.clip_id);
       const laneId = readString(clip?.lane_id);
       if (!clipId || !laneId) return null;
       const timing = normalizeSecRange(readNumber(clip.start_sec) ?? 0, readNumber(clip.end_sec) ?? 0);
+      const anchorHint = normalizeAnchorHint(readRecord(clip.anchor_hint) as Partial<HammerVisualClip["anchor_hint"]> | null);
+      const semanticRow = readRecord(clip.semantic_anchor);
+      const semanticAnchor = semanticRow
+        ? normalizeSemanticAnchor(semanticRow as Partial<HammerVisualClip["semantic_anchor"]>)
+        : normalizeSemanticAnchor({
+          status: anchorHint.anchor_text || anchorHint.anchor_segment_id ? "anchor_supplied_resolution_failed" : "no_placement_intent",
+          origin: "legacy",
+          hearth_entry_id: readString(clip.entry_id),
+          placement_intent: readString(clip.visual_mode),
+          script: {
+            script_path: null, script_approval_id: null, script_approval_revision: null, script_content_hash: null,
+            anchor_contract_version: null, section_id: null, paragraph_id: null, sentence_start: null, sentence_end: null,
+            char_start: null, char_end: null, quoted_phrase: anchorHint.anchor_text, resolution_state: "unresolved",
+          },
+          transcript: {
+            transcript_id: null, media_id: null, media_signature: null, segment_ids: anchorHint.matched_segment_ids,
+            start_sec: null, end_sec: null, resolution_state: "unresolved",
+          },
+        });
       return {
         clip_id: clipId,
         asset_id: readString(clip.asset_id),
         lane_id: laneId,
+        entry_id: readString(clip.entry_id),
         label: readString(clip.label),
+        visual_mode: readString(clip.visual_mode),
+        confidence: readNumber(clip.confidence),
+        placement_status: clip.placement_status === "uncertain" ? "uncertain" : "placed",
+        ingest_state: clip.ingest_state === "approved" ? "approved" : clip.ingest_state === "suggested" ? "suggested" : null,
+        uncertainty_flags: Array.isArray(clip.uncertainty_flags)
+          ? clip.uncertainty_flags.map(readString).filter((flag): flag is string => Boolean(flag))
+          : [],
+        ...(readString(clip.authority_operation_id) ? { authority_operation_id: readString(clip.authority_operation_id) ?? undefined } : {}),
         start_sec: timing.start_sec,
         end_sec: timing.end_sec,
         geometry: normalizeGeometry(readRecord(clip.geometry) as Partial<HammerVisualClip["geometry"]> | null),
@@ -99,7 +141,17 @@ function normalizeCanonicalTimeline(value: unknown): HammerVisualTimelineState |
         enabled: clip.enabled !== false,
         locked: clip.locked === true,
         source_mode: normalizeSourceMode(clip.source_mode),
-        anchor_hint: normalizeAnchorHint(readRecord(clip.anchor_hint) as Partial<HammerVisualClip["anchor_hint"]> | null),
+        anchor_hint: anchorHint,
+        semantic_anchor: semanticAnchor,
+        divergence: (() => {
+          const row = readRecord(clip.divergence);
+          const state = row?.state === "aligned" || row?.state === "review_needed" ? row.state : "not_comparable";
+          return {
+            state,
+            start_delta_sec: readNumber(row?.start_delta_sec),
+            end_delta_sec: readNumber(row?.end_delta_sec),
+          };
+        })(),
         updated_at: readString(clip.updated_at) ?? "1970-01-01T00:00:00.000Z",
       };
     })
@@ -122,15 +174,19 @@ function normalizeCanonicalTimeline(value: unknown): HammerVisualTimelineState |
 
   try {
     return assertValidTimelineState(createEmptyVisualTimelineState({
-      version: row.version === 1 ? 1 : 1,
+      version: 2,
       revision: typeof row.revision === "number" && Number.isInteger(row.revision) && row.revision > 0 ? row.revision : 1,
       updated_at: readString(row.updated_at) ?? "1970-01-01T00:00:00.000Z",
       selected_clip_id: readString(row.selected_clip_id),
       assets,
       clips,
       lanes,
-      debug_origin: row.debug_origin === "legacy_migration" || row.debug_origin === "empty_init" ? row.debug_origin : "canonical_load",
-      debug_migration_hash: readString(row.debug_migration_hash),
+      debug_origin: requiresV2Normalization || row.debug_origin === "legacy_migration"
+        ? "legacy_migration"
+        : row.debug_origin === "empty_init" ? "empty_init" : "canonical_load",
+      debug_migration_hash: requiresV2Normalization
+        ? stableNormalizationFingerprint(row)
+        : readString(row.debug_migration_hash),
     }));
   } catch {
     return null;
@@ -180,7 +236,10 @@ export function buildHammerVisualTimelineSaveRequest(args: {
     active_session_id: args.active_session_id ?? null,
     last_opened_at: args.last_opened_at,
     visual_timeline: {
-      data: assertValidTimelineState(createEmptyVisualTimelineState(args.timeline)),
+      data: assertValidTimelineState(createEmptyVisualTimelineState({
+        ...args.timeline,
+        debug_origin: "canonical_load",
+      })),
     },
   };
 }

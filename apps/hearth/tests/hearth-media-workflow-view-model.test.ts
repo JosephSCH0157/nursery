@@ -19,6 +19,12 @@ test("thumbnail completion requires three Tongs-eligible candidates",()=>{
   assert.equal(workflow.stages[1]?.status,"in_progress");assert.equal(workflow.activeStage,"thumbnails");
 });
 
+test("approved short episodes can create thumbnails without visual opportunities",()=>{
+  const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:null,total:0,images:0,broll:0,version:0},thumbnails:{eligible:0,total:0},images:{planned:0,completed:0,canonicalCount:0,projectionLoaded:true}}));
+  assert.equal(workflow.stages[1]?.status,"ready");
+  assert.equal(workflow.stages[1]?.reviewAvailable,true);
+});
+
 test("thumbnail completion requires three recoverable canonical preview paths",()=>{
   const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:2,images:2,broll:0,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:[]}}));
   assert.equal(workflow.stages[1]?.status,"in_progress");assert.equal(workflow.activeStage,"thumbnails");

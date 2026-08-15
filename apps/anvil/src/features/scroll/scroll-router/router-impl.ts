@@ -25,6 +25,7 @@ import { focusSidebarCalibrationSelect } from '../../../media/calibration-sideba
 import { showToast } from '../../../ui/toasts';
 import { DEFAULT_SCRIPT_FONT_PX } from '../../../ui/typography-ssot';
 import { shouldLogVerboseDiagnostic } from '../../../env/diag-verbosity';
+import { AUTO_SPEED_ADJUST_EVENT, installSpeedKeyboardShortcuts } from '../speed-keyboard-shortcuts';
 
 const isDevMode = (() => {
   let cache: boolean | null = null;
@@ -3272,77 +3273,6 @@ function applyMode(m) {
   persistMode();
   viewer = document.getElementById("viewer");
   refreshHybridWriter();
-  
-  // Toggle UI controls based on mode
-  try {
-    const autoRow = document.querySelector('.row:has(#autoSpeed)');
-    const wpmRow = document.getElementById('wpmRow');
-    const speedLabel = document.querySelector('[data-scroll-speed-label]') as HTMLElement | null;
-    const speedHint = document.querySelector('[data-scroll-speed-hint]') as HTMLElement | null;
-    const speedInput = document.getElementById('autoSpeed') as HTMLInputElement | null;
-    const modeExplain = document.querySelector('[data-scroll-mode-explain]') as HTMLElement | null;
-
-    const isWpmLike = normalized === 'wpm' || normalized === 'hybrid';
-    if (isWpmLike) {
-      if (wpmRow) {
-        wpmRow.classList.remove('visually-hidden');
-        wpmRow.removeAttribute('aria-hidden');
-      }
-      if (autoRow) {
-        autoRow.classList.add('visually-hidden');
-        autoRow.setAttribute('aria-hidden', 'true');
-      }
-      if (normalized === 'wpm') {
-        if (speedLabel) speedLabel.textContent = 'Target speed (WPM)';
-        if (speedHint) speedHint.textContent = 'Scroll speed is driven purely by this WPM value.';
-      } else {
-        if (speedLabel) speedLabel.textContent = 'Baseline speed (WPM)';
-        if (speedHint) speedHint.textContent = 'Hybrid: uses this WPM as a floor while ASR can pull the text ahead as you speak.';
-      }
-      if (speedInput) { speedInput.disabled = false; speedInput.dataset.mode = normalized; }
-    } else {
-      if (wpmRow) {
-        wpmRow.classList.add('visually-hidden');
-        wpmRow.setAttribute('aria-hidden', 'true');
-      }
-      if (autoRow) {
-        autoRow.classList.remove('visually-hidden');
-        autoRow.removeAttribute('aria-hidden');
-      }
-
-      if (normalized === 'asr') {
-        if (speedLabel) speedLabel.textContent = 'Scroll speed';
-        if (speedHint) speedHint.textContent = 'ASR-only: scroll position is driven by your voice; speed slider is ignored.';
-        if (speedInput) { speedInput.disabled = true; speedInput.dataset.mode = 'asr'; }
-      } else {
-        if (speedLabel) speedLabel.textContent = 'Scroll speed';
-        if (speedHint) speedHint.textContent = '';
-        if (speedInput) { speedInput.disabled = false; speedInput.dataset.mode = normalized; }
-      }
-    }
-
-    // Mode explanation text
-    if (modeExplain) {
-      switch (normalized) {
-        case 'wpm':
-          modeExplain.textContent = 'WPM: scrolls at a fixed words-per-minute target; good for solo reads.';
-          break;
-        case 'hybrid':
-          modeExplain.textContent = 'Hybrid: PLL between your voice and the WPM baseline; ASR nudges while the baseline keeps moving.';
-          break;
-        case 'asr':
-          modeExplain.textContent = 'ASR: pure voice-locked mode - scroll position follows recognized speech; speed slider is ignored.';
-          break;
-        case 'timed':
-          modeExplain.textContent = 'Timed: scrolls to hit your end time; useful for fixed-slot rehearsals.';
-          break;
-        default:
-          modeExplain.textContent = '';
-          break;
-      }
-    }
-  } catch {
-  }
 }
 function installScrollRouter(opts) {
   const { auto: autoMotor, viewer: viewerInstallFlag = false, hostEl = null } = opts;
@@ -6842,22 +6772,35 @@ function applyHybridVelocityCore(silence = hybridSilence) {
     } catch {}
   }
 
-  function handleSidebarWpmChange(val: number, label: 'slider-change' | 'slider-input') {
+  function applyUserWpmValue(
+    val: number,
+    label: 'slider-change' | 'slider-input' | 'hotkey',
+    emitIntent: boolean,
+  ) {
     if (suppressWpmUiEcho) return;
     if (!Number.isFinite(val) || val <= 0) return;
+    const slider = document.getElementById('wpmTarget') as HTMLInputElement | null;
+    const min = Number(slider?.min);
+    const max = Number(slider?.max);
+    const bounded = Math.min(
+      Number.isFinite(max) ? max : Number.POSITIVE_INFINITY,
+      Math.max(Number.isFinite(min) ? min : 1, val),
+    );
+    if (slider) setSliderValueSilently(slider, String(bounded));
+    try { appStore.set?.('wpmTarget', bounded); } catch {}
     try {
-      localStorage.setItem('tp_baseline_wpm', String(val));
+      localStorage.setItem('tp_baseline_wpm', String(bounded));
     } catch {}
     userWpmLocked = true;
-    const pxs = convertWpmToPxPerSec(val);
+    const pxs = convertWpmToPxPerSec(bounded);
     if (!Number.isFinite(pxs) || pxs <= 0) return;
     markSliderInteraction();
-    emitWpmIntent(val, 'sidebar', pxs);
-    applyWpmBaselinePx(pxs, label, val);
+    if (emitIntent) emitWpmIntent(bounded, 'sidebar', pxs);
+    applyWpmBaselinePx(pxs, label, bounded);
     persistProfilePatch({
       scroll: {
-        mode: 'wpm',
-        wpm: { value: val },
+        mode: state2.mode === 'hybrid' ? 'hybrid' : 'wpm',
+        wpm: { value: bounded },
       },
     });
     if (state2.mode === 'wpm') {
@@ -6866,7 +6809,7 @@ function applyHybridVelocityCore(silence = hybridSilence) {
           const status = orch.getStatus();
           const detectedWpm = status.wpm;
           if (detectedWpm && isFinite(detectedWpm) && detectedWpm > 0) {
-            const sensitivity = val / detectedWpm;
+            const sensitivity = bounded / detectedWpm;
             orch.setSensitivity(sensitivity);
           } else {
             orch.setSensitivity(1.0);
@@ -6875,6 +6818,10 @@ function applyHybridVelocityCore(silence = hybridSilence) {
       } catch {
       }
     }
+  }
+
+  function handleSidebarWpmChange(val: number, label: 'slider-change' | 'slider-input') {
+    applyUserWpmValue(val, label, true);
   }
 
   function resolveWpmDetail(detail: Record<string, unknown>) {
@@ -6966,6 +6913,10 @@ function applyHybridVelocityCore(silence = hybridSilence) {
         try {
           console.info('[WPM_INTENT] recv', { wpm: wpmValue, source });
         } catch {}
+        if (source === 'hotkey') {
+          applyUserWpmValue(wpmValue, 'hotkey', false);
+          return;
+        }
         handleWpmEvent(detail, "tp:wpm:intent");
       } catch {}
     });
@@ -7141,6 +7092,35 @@ function applyHybridVelocityCore(silence = hybridSilence) {
     applyGate();
   }
   if (state2.mode === "wpm" || state2.mode === "asr") ensureOrchestratorForMode();
+  installSpeedKeyboardShortcuts({
+    getMode: () => String(appStore.get?.('scrollMode') || ''),
+    adjustTimed: (direction, coarse) => {
+      window.dispatchEvent(new CustomEvent(AUTO_SPEED_ADJUST_EVENT, {
+        detail: { direction, coarse, source: 'hotkey' },
+      }));
+    },
+    adjustWpm: (direction, coarse) => {
+      const slider = document.getElementById('wpmTarget') as HTMLInputElement | null;
+      const storeValue = Number(appStore.get?.('wpmTarget'));
+      const sliderValue = Number(slider?.value);
+      const storedValue = (() => {
+        try { return Number(localStorage.getItem('tp_baseline_wpm')); } catch { return Number.NaN; }
+      })();
+      const current = Number.isFinite(storeValue) && storeValue > 0
+        ? storeValue
+        : Number.isFinite(sliderValue) && sliderValue > 0
+          ? sliderValue
+          : Number.isFinite(storedValue) && storedValue > 0
+            ? storedValue
+            : 150;
+      const fineStep = Number(slider?.step);
+      const step = Number.isFinite(fineStep) && fineStep > 0 ? fineStep : 5;
+      const requestedWpm = current + direction * step * (coarse ? AUTO_STEP_COARSE : 1);
+      window.dispatchEvent(new CustomEvent(WPM_INTENT_EVENT, {
+        detail: { wpm: requestedWpm, source: 'hotkey' },
+      }));
+    },
+  });
   try {
     document.addEventListener("keydown", (e) => {
       try {
@@ -7149,8 +7129,8 @@ function applyHybridVelocityCore(silence = hybridSilence) {
         const tag = (target.tagName || "").toUpperCase();
         if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON" || target.isContentEditable) return;
         if (e.ctrlKey || e.metaKey || e.altKey) return;
-        const wantUp = e.key === "+" || e.code === "NumpadAdd" || e.key === "ArrowUp";
-        const wantDown = e.key === "-" || e.code === "NumpadSubtract" || e.key === "ArrowDown";
+        const wantUp = e.key === "+" || e.code === "NumpadAdd";
+        const wantDown = e.key === "-" || e.code === "NumpadSubtract";
         if (!wantUp && !wantDown) return;
         e.preventDefault();
         const step = wantUp ? AUTO_STEP_FINE : -AUTO_STEP_FINE;

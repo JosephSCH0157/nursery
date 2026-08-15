@@ -205,6 +205,7 @@ import { useHammerWorkspaceShellSourceDeskController } from "./useHammerWorkspac
 import { useHammerWorkspaceShellPreviewRuntime } from "./useHammerWorkspaceShellPreviewRuntime";
 import { useHammerWorkspaceShellReleasePrep } from "./useHammerWorkspaceShellReleasePrep";
 import { useHammerWorkspaceShellVisualEditing } from "./useHammerWorkspaceShellVisualEditing";
+import { applyHammerStudioRackNativePreview } from "./hammerStudioRackNativePreview";
 import {
   buildPreviewBayVM,
   buildSourceBayVM,
@@ -507,6 +508,7 @@ type HammerSourceImageItem = {
   visualMode: string | null;
   assetPath: string | null;
   firstVisibleEditableSec: number | null;
+  anchorStatus: "anchored" | "anchor_supplied_resolution_failed" | "ambiguous_match" | "detached" | "no_placement_intent";
 };
 
 type HammerSourceAssetKind = "image" | "broll" | "reference_clip" | "audio" | "other";
@@ -1181,7 +1183,12 @@ function HammerWorkspaceShellWithContext(
   const editableVisualTimelineRef = useRef<HammerVisualTimelineState | null>(props.visualTimeline ?? null);
   const [previewAutoPositionOverrides, setPreviewAutoPositionOverrides] = useState<Record<string, PreviewPlacementTransform>>({});
   const [previewAutoPositionStatus, setPreviewAutoPositionStatus] = useState<string | null>(null);
-  const [canonicalAutoPlacementResult, setCanonicalAutoPlacementResult] = useState<CanonicalAutomaticPlacementResult | null>(null);
+  const [canonicalAutoPlacementEvidence, setCanonicalAutoPlacementEvidence] = useState<{
+    placementId: string;
+    result: CanonicalAutomaticPlacementResult;
+  } | null>(null);
+  const automaticallyPlacedImageIdsRef = useRef<Set<string>>(new Set());
+  const fallbackPlacedImageIdsRef = useRef<Set<string>>(new Set());
   const placementOutboundDiagnosticsRef = useRef<HammerPlacementOutboundDiagnostics>({
     reason: "init",
     source: "shell_boot",
@@ -1864,6 +1871,13 @@ function HammerWorkspaceShellWithContext(
     : null;
   const effectivePreviewVideoSrc = activePackagingMediaPath ? activePackagingMediaSrc : previewVideoSrc;
   const effectivePlaybackMediaSrc = activePackagingMediaPath ? activePackagingMediaSrc : playbackMediaSrc;
+  useEffect(() => {
+    const previewRack = audioFinalizationCompareMode === "before"
+      ? { ...editableStudioRack, is_bypassed: true }
+      : editableStudioRack;
+    applyHammerStudioRackNativePreview(previewVideoRef.current, previewRack);
+    applyHammerStudioRackNativePreview(previewAudioRef.current, previewRack);
+  }, [audioFinalizationCompareMode, editableStudioRack, effectivePlaybackMediaSrc]);
   const resolveActiveMediaTimeForTransportTime = useCallback(
     (transportTimeSec: number) => transportTimeToActiveMediaTime({
       transport: packagingTransport,
@@ -2203,6 +2217,7 @@ function HammerWorkspaceShellWithContext(
           visualMode: clip.visual_mode,
           assetPath: asset?.path ?? null,
           firstVisibleEditableSec,
+          anchorStatus: clip.semantic_anchor.status,
         };
       })
       .filter((item): item is HammerSourceImageItem => Boolean(item))
@@ -2289,7 +2304,7 @@ function HammerWorkspaceShellWithContext(
     ? (visualPlacementsById.get((linkedPrimaryVisualId ?? effectiveSelectedClipId) as string) ?? null)
     : null;
   const sourceImageLibraryItems = useMemo(
-    () => storedMediaFiles.filter((file) => file.kind === "image"),
+    () => storedMediaFiles.filter((file) => file.kind === "image" && file.roles.includes("timeline_visual")),
     [storedMediaFiles],
   );
   const shellPlacementDiagnostics = useMemo(() => ({
@@ -2651,13 +2666,17 @@ function HammerWorkspaceShellWithContext(
     const byId = new Map<string, HammerSourceAssetItem>();
     for (const placement of editableVisualPlacements?.placements ?? []) {
       const assetId = placement.asset_id ?? placement.asset_ref ?? placement.asset_path ?? placement.placement_id;
-      const existing = byId.get(assetId);
+      // Library cards are path-addressed, while canonical clips usually carry a
+      // derived asset id. Group by the durable path when available so a placed
+      // clip and its stored-library row project as one item with a real use count.
+      const assetKey = placement.asset_path ?? placement.storage_key ?? assetId;
+      const existing = byId.get(assetKey);
       const nextKind = deriveAssetKind({
         visualMode: placement.visual_mode,
         assetPath: placement.asset_path,
       });
       if (!existing) {
-        byId.set(assetId, {
+        byId.set(assetKey, {
           id: assetId,
           label: placement.label ?? placement.asset_ref ?? placement.asset_path ?? assetId,
           kind: nextKind,
@@ -2670,7 +2689,7 @@ function HammerWorkspaceShellWithContext(
         continue;
       }
 
-      byId.set(assetId, {
+      byId.set(assetKey, {
         ...existing,
         usageCount: existing.usageCount + 1,
         firstStartSec: Math.min(existing.firstStartSec, placement.start_sec),
@@ -4682,7 +4701,6 @@ function HammerWorkspaceShellWithContext(
       });
     }
     setAudioFinalizationCompareMode(nextMode);
-    setStudioRackBypassed(nextMode === "before");
   }
 
   function applyVoicePolishPreset(nextPresetId: HammerVoicePolishPresetId): void {
@@ -4705,7 +4723,6 @@ function HammerWorkspaceShellWithContext(
         voice_polish: nextVoicePolish,
       };
     });
-    applyPodcastMasterPass();
     setAudioFinalizationCompareMode("after");
   }
 
@@ -4728,7 +4745,6 @@ function HammerWorkspaceShellWithContext(
         nextEnabled,
       ),
     }));
-    applyPodcastMasterPass();
     setAudioFinalizationCompareMode("after");
   }
 
@@ -4742,7 +4758,6 @@ function HammerWorkspaceShellWithContext(
         nextStrength,
       ),
     }));
-    applyPodcastMasterPass();
     setAudioFinalizationCompareMode("after");
   }
 
@@ -4756,7 +4771,6 @@ function HammerWorkspaceShellWithContext(
         nextProfile,
       ),
     }));
-    applyPodcastMasterPass();
     setAudioFinalizationCompareMode("after");
   }
 
@@ -4771,7 +4785,6 @@ function HammerWorkspaceShellWithContext(
       ),
     }));
     if (nextEnabled) {
-      applyPodcastMasterPass();
       setAudioFinalizationCompareMode("after");
     }
   }
@@ -6964,6 +6977,8 @@ function HammerWorkspaceShellWithContext(
     introOutroSelection,
     introOutroSelectedIntroPath,
     introOutroSelectedOutroPath,
+    introTimelinePlaced: Boolean(packagingIntroPlacement),
+    outroTimelinePlaced: Boolean(packagingOutroPlacement),
     introOutroCandidateItems,
     transcriptSegmentsById,
     visualPlacementCardRefs,
@@ -7089,6 +7104,10 @@ function HammerWorkspaceShellWithContext(
     introOutroSelectedOutroPath,
     introOutroCandidateItems,
   ]);
+  const handleCanonicalAutoPlacementResult = useCallback((result: CanonicalAutomaticPlacementResult | null): void => {
+    const placementId = selectedImagePlacement?.id ?? null;
+    setCanonicalAutoPlacementEvidence(result && placementId ? { placementId, result } : null);
+  }, [selectedImagePlacement?.id]);
   const previewBayVM = useMemo(() => buildPreviewBayVM({
     previewMode,
     activeTool,
@@ -7158,7 +7177,7 @@ function HammerWorkspaceShellWithContext(
     episodeId: (launchContext as any)?.episode_id ?? null,
     expectedMediaPath: preferredPlayback.workpiece_path ?? preferredPlayback.local_relpath ?? mediaRef?.local_relpath ?? null,
     actualMediaPath: effectivePlaybackMediaSrc ?? null,
-    onCanonicalAutoPlacementResult: setCanonicalAutoPlacementResult,
+    onCanonicalAutoPlacementResult: handleCanonicalAutoPlacementResult,
   }), [
     activeTool,
     activeVisualTool,
@@ -7174,7 +7193,7 @@ function HammerWorkspaceShellWithContext(
     isPlaybackActive,
     isVisualPreviewAuthority,
     actualRecordingMismatchWarning,
-    setCanonicalAutoPlacementResult,
+    handleCanonicalAutoPlacementResult,
     mediaLabelMismatchWarning,
     packagingIntroPlacement,
     packagingLogoPlacement,
@@ -7238,11 +7257,14 @@ function HammerWorkspaceShellWithContext(
     });
     const command = resolveHammerAutomaticPlacementCommand({
       selectedPlacementId: selectedImagePlacement?.id ?? null,
-      authorityResult: canonicalAutoPlacementResult,
+      authorityResult: canonicalAutoPlacementEvidence
+        && canonicalAutoPlacementEvidence.placementId === selectedImagePlacement?.id
+        ? canonicalAutoPlacementEvidence.result
+        : null,
       displayedFrame,
     });
     if (command.kind === "refused") {
-      if (command.invalidateEvidence) setCanonicalAutoPlacementResult(null);
+      if (command.invalidateEvidence) setCanonicalAutoPlacementEvidence(null);
       setPreviewAutoPositionStatus(command.status);
       return;
     }
@@ -7255,7 +7277,110 @@ function HammerWorkspaceShellWithContext(
     setPreviewAutoPositionStatus(committed
       ? `Automatic placement saved (${command.zone}).`
       : "Automatic placement already matches the canonical saved geometry.");
-  }, [canonicalAutoPlacementResult, commitImagePlacementTransform, isPlaybackActive, previewVideoRef, selectedImagePlacement]);
+  }, [canonicalAutoPlacementEvidence, commitImagePlacementTransform, isPlaybackActive, previewVideoRef, selectedImagePlacement]);
+  useEffect(() => {
+    const placementId = selectedImagePlacement?.id ?? null;
+    if (!placementId || automaticallyPlacedImageIdsRef.current.has(placementId)) return;
+    if (canonicalAutoPlacementEvidence?.placementId !== placementId) return;
+    const stillAtDefaultGeometry = (
+      Math.abs(selectedImagePlacementTransform.leftPct - DEFAULT_IMAGE_PLACEMENT_TRANSFORM.leftPct) < 0.01
+      && Math.abs(selectedImagePlacementTransform.topPct - DEFAULT_IMAGE_PLACEMENT_TRANSFORM.topPct) < 0.01
+      && Math.abs(selectedImagePlacementTransform.widthPct - DEFAULT_IMAGE_PLACEMENT_TRANSFORM.widthPct) < 0.01
+      && Math.abs(selectedImagePlacementTransform.heightPct - DEFAULT_IMAGE_PLACEMENT_TRANSFORM.heightPct) < 0.01
+    );
+    const frame = canonicalAutoPlacementEvidence.result.requestedFrameRef;
+    const currentRect = {
+      x: frame.width * (selectedImagePlacementTransform.leftPct / 100),
+      y: frame.height * (selectedImagePlacementTransform.topPct / 100),
+      width: frame.width * (selectedImagePlacementTransform.widthPct / 100),
+      height: frame.height * (selectedImagePlacementTransform.heightPct / 100),
+    };
+    const currentlyCoversAHead = canonicalAutoPlacementEvidence.result.headSafeBounds.some((head) => (
+      currentRect.x < head.x + head.width
+      && currentRect.x + currentRect.width > head.x
+      && currentRect.y < head.y + head.height
+      && currentRect.y + currentRect.height > head.y
+    ));
+    if (!stillAtDefaultGeometry && !currentlyCoversAHead && !fallbackPlacedImageIdsRef.current.has(placementId)) {
+      // A non-default placement that is already face-safe is treated as user
+      // authority, even when it came from an older persisted geometry format.
+      automaticallyPlacedImageIdsRef.current.add(placementId);
+      return;
+    }
+
+    const command = resolveHammerAutomaticPlacementCommand({
+      selectedPlacementId: placementId,
+      authorityResult: canonicalAutoPlacementEvidence.result,
+      displayedFrame: readPlacementDisplaySnapshot({
+        video: previewVideoRef.current,
+        playbackActive: isPlaybackActive,
+      }),
+    });
+    if (command.kind === "refused") {
+      if (command.invalidateEvidence) setCanonicalAutoPlacementEvidence(null);
+      return;
+    }
+
+    // Automatic placement is initialization, not continuing ownership. Once a
+    // clip receives one canonical mask/face-aware position, later user edits win.
+    automaticallyPlacedImageIdsRef.current.add(placementId);
+    fallbackPlacedImageIdsRef.current.delete(placementId);
+    const committed = commitImagePlacementTransform(
+      command.placementId,
+      command.transform,
+      "Apply initial mask-safe visual placement",
+    );
+    setPreviewAutoPositionOverrides((current) => clearPreviewOverride(current, command.placementId));
+    setPreviewAutoPositionStatus(committed
+      ? `Mask-safe placement applied automatically (${command.zone}).`
+      : "Mask-safe placement already matches the saved geometry.");
+  }, [
+    canonicalAutoPlacementEvidence,
+    commitImagePlacementTransform,
+    isPlaybackActive,
+    previewVideoRef,
+    selectedImagePlacement?.id,
+    selectedImagePlacementTransform,
+  ]);
+  useEffect(() => {
+    const placementId = selectedImagePlacement?.id ?? null;
+    if (!placementId || automaticallyPlacedImageIdsRef.current.has(placementId)) return;
+    if (!previewBayVM.automaticPlacement?.enabled) return;
+    if (canonicalAutoPlacementEvidence?.placementId === placementId && canonicalAutoPlacementEvidence.result.placement) return;
+
+    const stillAtDefaultGeometry = (
+      Math.abs(selectedImagePlacementTransform.leftPct - DEFAULT_IMAGE_PLACEMENT_TRANSFORM.leftPct) < 0.01
+      && Math.abs(selectedImagePlacementTransform.topPct - DEFAULT_IMAGE_PLACEMENT_TRANSFORM.topPct) < 0.01
+      && Math.abs(selectedImagePlacementTransform.widthPct - DEFAULT_IMAGE_PLACEMENT_TRANSFORM.widthPct) < 0.01
+      && Math.abs(selectedImagePlacementTransform.heightPct - DEFAULT_IMAGE_PLACEMENT_TRANSFORM.heightPct) < 0.01
+    );
+    if (!stillAtDefaultGeometry) return;
+
+    // Face/matte inference can be unavailable or take time to warm up. Never
+    // leave an automatically authored image at the centered legacy default:
+    // that is precisely where a talking-head face is most likely to be. The
+    // canonical resolver may still replace this conservative corner fallback
+    // when current-frame evidence arrives.
+    const timer = window.setTimeout(() => {
+      if (automaticallyPlacedImageIdsRef.current.has(placementId)) return;
+      const fallbackTransform = clampImagePlacementTransform({
+        leftPct: 4,
+        topPct: 6,
+        widthPct: 36,
+        heightPct: 26,
+      });
+      fallbackPlacedImageIdsRef.current.add(placementId);
+      commitImagePlacementTransform(placementId, fallbackTransform, "Apply conservative visual placement fallback");
+      setPreviewAutoPositionStatus("Face-aware analysis unavailable; conservative corner placement applied.");
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [
+    canonicalAutoPlacementEvidence,
+    commitImagePlacementTransform,
+    previewBayVM.automaticPlacement?.enabled,
+    selectedImagePlacement?.id,
+    selectedImagePlacementTransform,
+  ]);
   const previewDiagnosticsSummary = useMemo(() => {
     const diagnostics = previewBayVM.autoPlacementDiagnostics;
     const gateById = new Map((diagnostics?.enabled ? diagnostics.gates : []).map((gate) => [gate.id, gate]));

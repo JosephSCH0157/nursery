@@ -211,6 +211,23 @@ export interface HammerVisualPlacementRecord {
   anchor_segment_id: string;
   matched_segment_ids: string[];
   anchor_text: string | null;
+  script_path?: string | null;
+  script_approval_id?: string | null;
+  script_approval_revision?: number | null;
+  script_content_hash?: string | null;
+  anchor_contract_version?: string | null;
+  anchor_section_id?: string | null;
+  anchor_paragraph_id?: string | null;
+  anchor_sentence_start?: number | null;
+  anchor_sentence_end?: number | null;
+  anchor_char_start?: number | null;
+  anchor_char_end?: number | null;
+  anchor_purpose?: "coverage" | "explanation" | "emphasis" | null;
+  anchor_origin?: string | null;
+  placement_intent?: string | null;
+  transcript_id?: string | null;
+  transcript_media_id?: string | null;
+  transcript_media_signature?: string | null;
   asset_ref: string;
   asset_id: string | null;
   asset_path: string | null;
@@ -224,6 +241,7 @@ export interface HammerVisualPlacementRecord {
   status: "placed" | "uncertain";
   ingest_state?: "suggested" | "approved";
   uncertainty_flags: string[];
+  asset_roles?: Array<"thumbnail" | "timeline_visual">;
   overlay_geometry?: {
     x: number;
     y: number;

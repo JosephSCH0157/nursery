@@ -6,6 +6,7 @@ import {
   commitRecordingJsonArtifactToTongs,
   commitRecordingBytesToTongs,
   ensureRecordingCaptureTarget,
+  hasCanonicalRecordingScriptIdentity,
   transitionRecordingCompleted,
   type RecordingCommitResult,
 } from '../forge/workpiece-commit';
@@ -781,6 +782,13 @@ import {
       }
 
       const recordingMode = getRecordingMode();
+      if (!hasCanonicalRecordingScriptIdentity()) {
+        showRecorderToast(
+          'Recording cannot start until this displayed script is bound to its canonical Tongs path, revision, and hash. Reload the script and try again.',
+          'error',
+        );
+        throw new Error('canonical_script_identity_unavailable');
+      }
       try {
         console.log('[core-recorder] start', {
           mode: (window as any).__tpStore?.get?.('scrollMode') || null,

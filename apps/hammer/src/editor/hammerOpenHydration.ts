@@ -8,6 +8,7 @@ import type {
 } from "../persistence/hammerPersistenceContract";
 import { buildHammerLaunchContextFromPersistence } from "../persistence/hammerPersistence";
 import { isHammerDevConsoleEnabled } from "../lib/hammerDevConsole";
+export { bindLaunchContextToCanonicalRecording } from "./hammerCanonicalMediaBinding";
 
 export type HammerOpenHydrationResult = {
   launchContext: HammerLaunchContext | undefined;

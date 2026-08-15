@@ -1,8 +1,11 @@
+import { AUTO_SPEED_ADJUST_EVENT } from './scroll/speed-keyboard-shortcuts';
+
 const AUTO_SPEED_KEY = 'tp_auto_speed';
 const AUTO_DEFAULT_SPEED = 21;
 const AUTO_MIN_SPEED = 1;
 const AUTO_MAX_SPEED = 60;
 const AUTO_STEP_FINE = 1;
+const AUTO_STEP_COARSE = 5;
 
 function clampSpeed(value: number): number {
   if (!Number.isFinite(value)) return AUTO_DEFAULT_SPEED;
@@ -120,17 +123,24 @@ function initAutoControls(): void {
     handleSpeedChange(currentSpeed + delta);
   };
 
+  window.addEventListener(AUTO_SPEED_ADJUST_EVENT, (ev) => {
+    const detail = (ev as CustomEvent)?.detail || {};
+    const direction = Number(detail.direction);
+    if (direction !== 1 && direction !== -1) return;
+    adjustSpeed(direction * (detail.coarse ? AUTO_STEP_COARSE : AUTO_STEP_FINE));
+  });
+
   if (decBtn) {
     decBtn.addEventListener('click', (ev) => {
       try { ev.preventDefault(); } catch {}
-      adjustSpeed(-AUTO_STEP_FINE);
+      adjustSpeed(-AUTO_STEP_FINE * ((ev as MouseEvent).shiftKey ? AUTO_STEP_COARSE : 1));
     }, { capture: true });
   }
 
   if (incBtn) {
     incBtn.addEventListener('click', (ev) => {
       try { ev.preventDefault(); } catch {}
-      adjustSpeed(AUTO_STEP_FINE);
+      adjustSpeed(AUTO_STEP_FINE * ((ev as MouseEvent).shiftKey ? AUTO_STEP_COARSE : 1));
     }, { capture: true });
   }
 

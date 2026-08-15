@@ -899,6 +899,8 @@ export function buildSourceBayVM(args: any) {
     introOutroSelection: args.introOutroSelection,
     introOutroSelectedIntroPath: args.introOutroSelectedIntroPath,
     introOutroSelectedOutroPath: args.introOutroSelectedOutroPath,
+    introTimelinePlaced: Boolean(args.introTimelinePlaced),
+    outroTimelinePlaced: Boolean(args.outroTimelinePlaced),
     introOutroCandidateItems: args.introOutroCandidateItems,
 
     transcriptSegmentsById: args.transcriptSegmentsById,

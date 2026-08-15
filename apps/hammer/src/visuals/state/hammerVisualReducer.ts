@@ -7,6 +7,7 @@ import {
   normalizeGeometry,
   normalizeFitMode,
   normalizeSecRange,
+  normalizeSemanticAnchor,
   normalizeZIndex,
 } from "../model/hammerVisualGuards";
 import type {
@@ -38,11 +39,27 @@ function cloneClip(clip: HammerVisualClip): HammerVisualClip {
       ...clip.anchor_hint,
       matched_segment_ids: [...clip.anchor_hint.matched_segment_ids],
     },
+    semantic_anchor: normalizeSemanticAnchor(clip.semantic_anchor),
+    divergence: { ...clip.divergence },
   };
 }
 
 function cloneAsset(asset: HammerVisualAsset): HammerVisualAsset {
-  return { ...asset };
+  return { ...asset, roles: asset.roles?.length ? [...asset.roles] : ["timeline_visual"] };
+}
+
+function deriveDivergence(clip: HammerVisualClip, startSec: number, endSec: number): HammerVisualClip["divergence"] {
+  const evidence = clip.semantic_anchor.transcript;
+  if (evidence.resolution_state !== "resolved" || evidence.start_sec == null || evidence.end_sec == null) {
+    return { state: "not_comparable", start_delta_sec: null, end_delta_sec: null };
+  }
+  const startDelta = Number((startSec - evidence.start_sec).toFixed(3));
+  const endDelta = Number((endSec - evidence.end_sec).toFixed(3));
+  return {
+    state: Math.abs(startDelta) > 0.5 || Math.abs(endDelta) > 0.5 ? "review_needed" : "aligned",
+    start_delta_sec: startDelta,
+    end_delta_sec: endDelta,
+  };
 }
 
 function ensureLane(
@@ -113,6 +130,8 @@ function normalizeClip(clip: HammerVisualClip, updatedAt: string): HammerVisualC
     ingest_state: clip.ingest_state === "suggested" || clip.ingest_state === "approved" ? clip.ingest_state : null,
     uncertainty_flags: [...clip.uncertainty_flags],
     anchor_hint: normalizeAnchorHint(clip.anchor_hint),
+    semantic_anchor: normalizeSemanticAnchor(clip.semantic_anchor),
+    divergence: deriveDivergence(clip, timing.start_sec, timing.end_sec),
     updated_at: updatedAt,
   };
 }
@@ -245,11 +264,24 @@ export function hammerVisualTimelineReducer(
             ...clip,
             start_sec: timing.start_sec,
             end_sec: timing.end_sec,
+            divergence: deriveDivergence(clip, timing.start_sec, timing.end_sec),
             updated_at: updatedAt,
           };
         });
         return replaced ?? draft;
       });
+    }
+    case "UPDATE_CLIP_SEMANTIC_ANCHOR": {
+      const currentClip = findClip(state, action.clip_id);
+      if (!currentClip || currentClip.locked) return state;
+      const updatedAt = readTimestamp(action.updated_at);
+      return nextState(state, updatedAt, (draft) => (
+        replaceClip(draft, action.clip_id, (clip) => {
+          const semanticAnchor = normalizeSemanticAnchor(action.semantic_anchor);
+          const nextClip = { ...clip, semantic_anchor: semanticAnchor, updated_at: updatedAt };
+          return { ...nextClip, divergence: deriveDivergence(nextClip, clip.start_sec, clip.end_sec) };
+        }) ?? draft
+      ));
     }
     case "UPDATE_CLIP_GEOMETRY": {
       const currentClip = findClip(state, action.clip_id);
@@ -410,6 +442,11 @@ export function hammerVisualTimelineReducer(
             ...clip.anchor_hint,
             detached: true,
           },
+          semantic_anchor: normalizeSemanticAnchor({
+            ...clip.semantic_anchor,
+            status: "detached",
+            script: { ...clip.semantic_anchor.script, resolution_state: "stale" },
+          }),
           updated_at: updatedAt,
         })) ?? draft
       ));

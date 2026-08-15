@@ -4,6 +4,16 @@ type ForgeWindow = Window & typeof globalThis & {
   __tpWorkpieceScriptBootLoaded?: boolean;
   __forgeTongsApiToken?: unknown;
   __tpTongsApiToken?: unknown;
+  __forgeCanonicalScriptIdentity?: CanonicalScriptIdentity;
+};
+
+type CanonicalScriptIdentity = {
+  workspaceId: string;
+  workpieceId: string;
+  path: string;
+  scriptRevision: number;
+  scriptHash: string;
+  readyTransitionId?: string | null;
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -27,7 +37,7 @@ type ScriptReadErrorReason =
   | "empty";
 
 type ScriptReadResult =
-  | { ok: true; text: string }
+  | { ok: true; text: string; revision: number; hash: string }
   | { ok: false; reason: ScriptReadErrorReason; status?: number };
 
 function readString(value: unknown): string | null {
@@ -242,11 +252,22 @@ async function readWorkpieceScript(workpieceId: string, path: string): Promise<S
     return { ok: false, reason: "invalid_response", status: response.status };
   }
 
-  const data = (body as { data?: unknown }).data;
+  const root = body as { data?: unknown; file_row?: unknown };
+  const data = root.data;
   if (typeof data !== "string") {
     return { ok: false, reason: "invalid_response", status: response.status };
   }
-  return { ok: true, text: data };
+  const fileRow = root.file_row && typeof root.file_row === "object"
+    ? root.file_row as Record<string, unknown>
+    : null;
+  const revision = typeof fileRow?.revision === "number" && Number.isInteger(fileRow.revision)
+    ? fileRow.revision
+    : 0;
+  const hash = readString(fileRow?.hash_value)?.toLowerCase() ?? "";
+  if (revision < 1 || !/^[0-9a-f]{64}$/.test(hash)) {
+    return { ok: false, reason: "invalid_response", status: response.status };
+  }
+  return { ok: true, text: data, revision, hash };
 }
 
 async function loadWorkpieceScriptOnBoot(): Promise<void> {
@@ -282,6 +303,18 @@ async function loadWorkpieceScriptOnBoot(): Promise<void> {
     });
     return;
   }
+
+  if (!workspaceId) {
+    reportScriptHandoffError({ workpieceId, path, reason: "invalid_response" });
+    return;
+  }
+  (window as ForgeWindow).__forgeCanonicalScriptIdentity = {
+    workspaceId,
+    workpieceId,
+    path,
+    scriptRevision: readResult.revision,
+    scriptHash: readResult.hash,
+  };
 
   applyScript(text, "load", { updateEditor: true });
   try { (window as any).__tpCurrentName = fileNameFromPath(path); } catch {}

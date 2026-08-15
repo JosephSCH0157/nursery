@@ -172,7 +172,7 @@ export type UseHammerWorkspaceShellVisualEditingResult = {
   applyImageAnimationPreset: (placementId: string, preset: HammerImageAnimationPreset) => void;
   removeVisualPlacement: (placementId: string) => void;
   removePackagingPlacement: (entryId: string, label: string) => void;
-  addImagePlacementFromLibrary: (args: { assetPath: string; label: string }) => void;
+  addImagePlacementFromLibrary: (args: { assetPath: string; label: string; mode?: "transcript" | "timeline" }) => void;
   addVisualAssetPlacementFromLibrary: (args: {
     assetPath: string;
     label: string;
@@ -218,7 +218,9 @@ export function useHammerWorkspaceShellVisualEditing(
   const visualPlacementsById = useRef<Map<string, HammerVisualPlacementRecord>>(new Map());
   visualPlacementsById.current = new Map((args.editableVisualPlacements?.placements ?? []).map((placement) => [placement.placement_id, placement]));
 
-  const derivedSourceImageLibraryItems = args.storedMediaFiles.filter((file) => file.kind === "image");
+  const derivedSourceImageLibraryItems = args.storedMediaFiles.filter(
+    (file) => file.kind === "image" && file.roles.includes("timeline_visual"),
+  );
   const introOutroCandidateItemsById = buildIntroOutroCandidateItemsById(buildIntroOutroCandidateItems(args.storedMediaFiles));
   const packagingIntroPlacement = (args.editableVisualPlacements?.placements ?? []).find((item) => item.entry_id === PACKAGING_INTRO_ENTRY_ID) ?? null;
   const packagingOutroPlacement = (args.editableVisualPlacements?.placements ?? []).find((item) => item.entry_id === PACKAGING_OUTRO_ENTRY_ID) ?? null;
@@ -432,7 +434,7 @@ export function useHammerWorkspaceShellVisualEditing(
     });
   }, [args]);
 
-  const addImagePlacementFromLibrary = useCallback((placementArgs: { assetPath: string; label: string }): void => {
+  const addImagePlacementFromLibrary = useCallback((placementArgs: { assetPath: string; label: string; mode?: "transcript" | "timeline" }): void => {
     const placementId = createVisualPlacementId();
     args.applyHistoryMutation({
       label: "Add image placement",
@@ -445,8 +447,13 @@ export function useHammerWorkspaceShellVisualEditing(
           ? before.transcriptSegments.find((segment) => segment.segment_id === before.selectedSegmentId) ?? null
           : before.transcriptSegments[0] ?? null;
         if (!anchorSegment) return before;
-        const nextStart = Math.max(0, roundToTenth(before.playheadSec));
-        const nextEnd = Math.max(nextStart + 0.5, Math.min(args.transcriptDurationSec, roundToTenth(nextStart + 3)));
+        const transcriptPlacement = placementArgs.mode === "transcript";
+        const nextStart = transcriptPlacement
+          ? Math.max(0, roundToTenth(anchorSegment.start_sec))
+          : Math.max(0, roundToTenth(before.playheadSec));
+        const nextEnd = transcriptPlacement
+          ? Math.max(nextStart + 0.25, roundToTenth(anchorSegment.end_sec))
+          : Math.max(nextStart + 0.5, Math.min(args.transcriptDurationSec, roundToTenth(nextStart + 3)));
         const visualTimeline = args.resolveCanonicalVisualTimeline(before);
         const updatedAt = new Date().toISOString();
         const nextPlacement: HammerVisualPlacementRecord = {
@@ -468,12 +475,44 @@ export function useHammerWorkspaceShellVisualEditing(
           status: "placed",
           ingest_state: "approved",
           uncertainty_flags: [],
+          placement_intent: transcriptPlacement ? "transcript_selection" : "timeline_drop",
+          transcript_id: "current_transcript",
+          asset_roles: ["timeline_visual"],
           overlay_geometry: DEFAULT_VISUAL_PLACEMENT_GEOMETRY,
           animation_preset: "none",
           overlay_opacity: 1,
           overlay_z_index: visualTimeline.clips.length + 1,
         };
         const assetId = deriveStableHammerVisualAssetId(nextPlacement);
+        const migratedClip = migrateLegacyPlacementRecordToClip({ record: nextPlacement, asset_id: assetId, updated_at: updatedAt });
+        migratedClip.semantic_anchor = {
+          ...migratedClip.semantic_anchor,
+          status: "anchored",
+          origin: transcriptPlacement ? "hammer_transcript" : "hammer_timeline",
+          placement_intent: transcriptPlacement ? "transcript_selection" : "timeline_drop",
+          transcript: {
+            transcript_id: "current_transcript",
+            media_id: null,
+            media_signature: null,
+            segment_ids: [anchorSegment.segment_id],
+            start_sec: anchorSegment.start_sec,
+            end_sec: anchorSegment.end_sec,
+            resolution_state: "resolved",
+          },
+          resolution_method: "manual_transcript",
+          resolution_confidence: 1,
+          resolver_version: "hammer.manual-placement.v1",
+          resolved_at: updatedAt,
+        };
+        migratedClip.divergence = transcriptPlacement ? {
+          state: "aligned",
+          start_delta_sec: Number((nextStart - anchorSegment.start_sec).toFixed(3)),
+          end_delta_sec: Number((nextEnd - anchorSegment.end_sec).toFixed(3)),
+        } : {
+          state: "review_needed",
+          start_delta_sec: Number((nextStart - anchorSegment.start_sec).toFixed(3)),
+          end_delta_sec: Number((nextEnd - anchorSegment.end_sec).toFixed(3)),
+        };
         return args.applyVisualTimelineActions({
           ...before,
           selectedSegmentId: anchorSegment.segment_id,
@@ -485,7 +524,7 @@ export function useHammerWorkspaceShellVisualEditing(
           },
           {
             type: "CREATE_CLIP",
-            clip: migrateLegacyPlacementRecordToClip({ record: nextPlacement, asset_id: assetId, updated_at: updatedAt }),
+            clip: migratedClip,
             updated_at: updatedAt,
           },
         ]);

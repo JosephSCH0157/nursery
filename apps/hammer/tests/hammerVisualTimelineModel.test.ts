@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   createDefaultVisualGeometry,
+  createDefaultSemanticAnchor,
   createEmptyVisualTimelineState,
 } from "../src/visuals/model/hammerVisualDefaults";
 import {
@@ -22,10 +23,10 @@ test("geometry defaults are stable", () => {
   });
 });
 
-test("timeline default has version 1 and revision 1", () => {
+test("timeline default has version 2 and revision 1", () => {
   const state = createEmptyVisualTimelineState();
 
-  assert.equal(state.version, 1);
+  assert.equal(state.version, 2);
   assert.equal(state.revision, 1);
   assert.equal(state.source_mode, "packaging");
   assert.equal(state.lanes.length, 1);
@@ -82,6 +83,7 @@ test("normalized state passes the full timeline guard", () => {
       storage_key: null,
       mime_type: "image/png",
       source_mode: "packaging",
+      roles: ["timeline_visual"],
       updated_at: "2026-04-02T12:00:00.000Z",
     }],
     clips: [{
@@ -109,6 +111,14 @@ test("normalized state passes the full timeline guard", () => {
         matched_segment_ids: ["seg_001", "", "seg_002"],
         anchor_text: "Welcome back",
       }),
+      semantic_anchor: createDefaultSemanticAnchor({
+        status: "anchor_supplied_resolution_failed",
+      }),
+      divergence: {
+        state: "not_comparable",
+        start_delta_sec: null,
+        end_delta_sec: null,
+      },
       updated_at: "2026-04-02T12:00:00.000Z",
     }],
     lanes: [{

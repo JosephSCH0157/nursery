@@ -93,6 +93,7 @@ export type HammerWorkspaceShellSourceBayVM = {
 
 export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspaceShellSourceBayVM }): JSX.Element {
   const vm = props.vm;
+  const [pendingTranscriptPlacement, setPendingTranscriptPlacement] = useState<{ assetPath: string; label: string } | null>(null);
 
   const ctx = vm as any;
   const selectedSourceTab = ctx.selectedSourceTab as string;
@@ -587,16 +588,41 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   function renderSourceDeskPreviewThumb(args: { assetPath: string | null; label: string }): JSX.Element {
     const assetPath = args.assetPath?.trim() ?? "";
     if (assetPath && sourceDeskPreviewUrls[assetPath]) {
+      const normalizedPath = assetPath.toLowerCase().split(/[?#]/, 1)[0] ?? "";
+      const handlePreviewError = () => {
+        if (reportSourceDeskPreviewLoadError) reportSourceDeskPreviewLoadError(assetPath);
+      };
+      if (/\.(mp4|mov|m4v|webm)$/.test(normalizedPath)) {
+        return (
+          <video
+            className="hammer-source-card__thumb"
+            src={sourceDeskPreviewUrls[assetPath]}
+            aria-label={args.label}
+            muted
+            playsInline
+            preload="metadata"
+            onError={handlePreviewError}
+          />
+        );
+      }
+      if (/\.(wav|mp3|aac|m4a)$/.test(normalizedPath)) {
+        return (
+          <audio
+            className="hammer-source-card__thumb"
+            src={sourceDeskPreviewUrls[assetPath]}
+            aria-label={args.label}
+            controls
+            preload="metadata"
+            onError={handlePreviewError}
+          />
+        );
+      }
       return (
         <img
           className="hammer-source-card__thumb"
           src={sourceDeskPreviewUrls[assetPath]}
           alt={args.label}
-          onError={() => {
-            if (assetPath && reportSourceDeskPreviewLoadError) {
-              reportSourceDeskPreviewLoadError(assetPath);
-            }
-          }}
+          onError={handlePreviewError}
         />
       );
     }
@@ -606,6 +632,15 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
     if (assetPath) {
       if (sourceDeskPreviewFailures[assetPath]) {
         message = "Preview unavailable";
+        action = (
+          <button
+            type="button"
+            className="hammer-source-card__thumb-action"
+            onClick={() => requestSourceDeskPreviews([assetPath])}
+          >
+            Retry preview
+          </button>
+        );
       } else if (sourceDeskPreviewPendingPathSet.has(assetPath) || sourceDeskRequestedPreviewPathSet.has(assetPath)) {
         message = "Loading preview...";
       } else {
@@ -633,6 +668,8 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   const introOutroSelection = ctx.introOutroSelection as any;
   const introOutroSelectedIntroPath = ctx.introOutroSelectedIntroPath as string | null;
   const introOutroSelectedOutroPath = ctx.introOutroSelectedOutroPath as string | null;
+  const introTimelinePlaced = Boolean(ctx.introTimelinePlaced);
+  const outroTimelinePlaced = Boolean(ctx.outroTimelinePlaced);
   const introOutroCandidateItems = ctx.introOutroCandidateItems as any[];
   const persistIntroOutroSelection = ctx.persistIntroOutroSelection as (next: any) => void;
   const savingIntroOutro = ctx.savingIntroOutro as boolean;
@@ -864,6 +901,25 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
               {selectedSourceTab === "transcript" ? (
                 editableTranscriptSegments.length > 0 ? (
                   <>
+                    {pendingTranscriptPlacement ? (
+                      <div className="hammer-source-status" role="status">
+                        <strong>Place {pendingTranscriptPlacement.label} from transcript</strong>
+                        <span>Select the spoken segment where this image belongs, then confirm.</span>
+                        <div className="hammer-source-card__actions">
+                          <button
+                            type="button"
+                            disabled={!selectedSegmentId}
+                            onClick={() => {
+                              addImagePlacementFromLibrary({ ...pendingTranscriptPlacement, mode: "transcript" });
+                              setPendingTranscriptPlacement(null);
+                            }}
+                          >
+                            Confirm transcript placement
+                          </button>
+                          <button type="button" onClick={() => setPendingTranscriptPlacement(null)}>Cancel</button>
+                        </div>
+                      </div>
+                    ) : null}
                     <section className="hammer-transcript-page-actions" aria-label="Transcript editor actions">
                       <div className="hammer-transcript-page-actions__meta">
                         <span>Delete-only transcript editing</span>
@@ -1171,6 +1227,13 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                               <span>Uses: 1</span>
                               <span>{item.assetPath ? "Asset linked" : "Asset: not provided"}</span>
                               <span>{item.visualMode ?? "visual"}</span>
+                              <span>{({
+                                anchored: "Anchored",
+                                anchor_supplied_resolution_failed: "Anchor supplied—resolution failed",
+                                ambiguous_match: "Ambiguous match",
+                                detached: "Detached from current script/transcript",
+                                no_placement_intent: "No placement intent supplied",
+                              } as Record<string, string>)[item.anchorStatus] ?? item.anchorStatus}</span>
                               <span>{item.confidence != null ? `${Math.round(item.confidence * 100)}% match` : "match n/a"}</span>
                             </div>
                             <div className="hammer-source-card__actions">
@@ -1270,14 +1333,21 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                               if (!sourceDeskPreviewUrls[file.path] && !sourceDeskPreviewFailures[file.path]) {
                                 requestSourceDeskPreviews([file.path]);
                               }
-                              setFocusOverride("tool-focus");
-                              addImagePlacementFromLibrary({
-                                assetPath: file.path,
-                                label: file.name,
-                              });
+                              setPendingTranscriptPlacement({ assetPath: file.path, label: file.name });
+                              setFocusOverride("source-focus");
+                              vm.tabs.find((tab) => tab.id === "transcript")?.onSelect();
                             }}
                           >
-                            Add placement
+                            Place from Transcript
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setFocusOverride("time-focus");
+                              addImagePlacementFromLibrary({ assetPath: file.path, label: file.name, mode: "timeline" });
+                            }}
+                          >
+                            Send to Timeline
                           </button>
                         </div>
                       </article>
@@ -1480,7 +1550,9 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                         <article key={`broll-step-${item.id}`} className="hammer-source-card">
                           <header className="hammer-source-card__head">
                             <strong>{item.label}</strong>
-                            <span>B-roll</span>
+                            <span className={item.usageCount > 0 ? "is-ready" : ""}>
+                              {item.usageCount > 0 ? "placed" : "not placed"}
+                            </span>
                           </header>
                           {renderSourceDeskPreviewThumb({ assetPath: item.assetPath ?? null, label: item.label })}
                           <div className="hammer-source-card__meta">
@@ -1498,7 +1570,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                               })}
                               disabled={!item.assetPath}
                             >
-                              Place in timeline
+                              {item.usageCount > 0 ? "Place another instance" : "Place in timeline"}
                             </button>
                             {item.usageCount > 0 ? (
                               <button type="button" onClick={() => seekPlayheadToTime(item.firstStartSec, "playhead")}>Cue</button>
@@ -1524,7 +1596,9 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                         <article key={`ref-step-${item.id}`} className="hammer-source-card">
                           <header className="hammer-source-card__head">
                             <strong>{item.label}</strong>
-                            <span>Reference Clip</span>
+                            <span className={item.usageCount > 0 ? "is-ready" : ""}>
+                              {item.usageCount > 0 ? "placed" : "not placed"}
+                            </span>
                           </header>
                           {renderSourceDeskPreviewThumb({ assetPath: item.assetPath ?? null, label: item.label })}
                           <div className="hammer-source-card__meta">
@@ -1542,7 +1616,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                               })}
                               disabled={!item.assetPath}
                             >
-                              Place in timeline
+                              {item.usageCount > 0 ? "Place another instance" : "Place in timeline"}
                             </button>
                             {item.usageCount > 0 ? (
                               <button
@@ -1590,7 +1664,9 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                       <strong>Project Intro</strong>
                       <span>
                         {introOutroSelection.intro_asset_id
-                          ? (introOutroSelectedIntroPath ? "selected" : "selected (unresolved)")
+                          ? (introOutroSelectedIntroPath
+                            ? (introTimelinePlaced ? "placed" : "selected — not placed")
+                            : "selected (unresolved)")
                           : "not set"}
                       </span>
                     </header>
@@ -1632,7 +1708,9 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                       <strong>Project Outro</strong>
                       <span>
                         {introOutroSelection.outro_asset_id
-                          ? (introOutroSelectedOutroPath ? "selected" : "selected (unresolved)")
+                          ? (introOutroSelectedOutroPath
+                            ? (outroTimelinePlaced ? "placed" : "selected — not placed")
+                            : "selected (unresolved)")
                           : "not set"}
                       </span>
                     </header>

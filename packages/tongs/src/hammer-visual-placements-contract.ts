@@ -13,6 +13,23 @@ export interface HammerVisualPlacementRecordContract {
   anchor_segment_id: string;
   matched_segment_ids: string[];
   anchor_text: string | null;
+  script_path?: string | null;
+  script_approval_id?: string | null;
+  script_approval_revision?: number | null;
+  script_content_hash?: string | null;
+  anchor_contract_version?: string | null;
+  anchor_section_id?: string | null;
+  anchor_paragraph_id?: string | null;
+  anchor_sentence_start?: number | null;
+  anchor_sentence_end?: number | null;
+  anchor_char_start?: number | null;
+  anchor_char_end?: number | null;
+  anchor_purpose?: "coverage" | "explanation" | "emphasis" | null;
+  anchor_origin?: string | null;
+  placement_intent?: string | null;
+  transcript_id?: string | null;
+  transcript_media_id?: string | null;
+  transcript_media_signature?: string | null;
   asset_ref: string;
   asset_id: string | null;
   asset_path: string | null;
@@ -26,6 +43,7 @@ export interface HammerVisualPlacementRecordContract {
   status: "placed" | "uncertain";
   ingest_state?: "suggested" | "approved";
   uncertainty_flags: string[];
+  asset_roles?: Array<"thumbnail" | "timeline_visual">;
   overlay_geometry?: HammerVisualPlacementOverlayGeometry | null;
   animation_preset?:
     | "none"
@@ -183,6 +201,23 @@ function normalizePlacementRecord(
     anchor_segment_id: anchorSegmentId,
     matched_segment_ids: uniqueStrings(row.matched_segment_ids),
     anchor_text: readString(row.anchor_text),
+    script_path: readString(row.script_path),
+    script_approval_id: readString(row.script_approval_id),
+    script_approval_revision: readNumber(row.script_approval_revision),
+    script_content_hash: readString(row.script_content_hash),
+    anchor_contract_version: readString(row.anchor_contract_version),
+    anchor_section_id: readString(row.anchor_section_id),
+    anchor_paragraph_id: readString(row.anchor_paragraph_id),
+    anchor_sentence_start: readNumber(row.anchor_sentence_start),
+    anchor_sentence_end: readNumber(row.anchor_sentence_end),
+    anchor_char_start: readNumber(row.anchor_char_start),
+    anchor_char_end: readNumber(row.anchor_char_end),
+    anchor_purpose: row.anchor_purpose === "coverage" || row.anchor_purpose === "explanation" || row.anchor_purpose === "emphasis" ? row.anchor_purpose : null,
+    anchor_origin: readString(row.anchor_origin),
+    placement_intent: readString(row.placement_intent),
+    transcript_id: readString(row.transcript_id),
+    transcript_media_id: readString(row.transcript_media_id),
+    transcript_media_signature: readString(row.transcript_media_signature),
     asset_ref: assetRef,
     asset_id: readString(row.asset_id),
     asset_path: readString(row.asset_path),
@@ -196,6 +231,7 @@ function normalizePlacementRecord(
     status,
     ...(ingestState ? { ingest_state: ingestState } : {}),
     uncertainty_flags: uniqueStrings(row.uncertainty_flags),
+    asset_roles: uniqueStrings(row.asset_roles).filter((role): role is "thumbnail" | "timeline_visual" => role === "thumbnail" || role === "timeline_visual"),
     overlay_geometry: normalizeOverlayGeometry(row.overlay_geometry),
     animation_preset: normalizeAnimationPreset(row.animation_preset),
     overlay_opacity: overlayOpacity == null ? null : clamp(overlayOpacity, 0, 1),

@@ -37,6 +37,8 @@ describe('Anvil canonical recording authority', () => {
   afterEach(() => {
     jest.restoreAllMocks();
     delete (window as any).__forgeCanonicalReadyScript;
+    delete (window as any).__forgeCanonicalScriptIdentity;
+    delete (window as any).__forgeRecordingScriptIdentityByCapture;
     delete (window as any).__tpCanonicalAsrAuthority;
   });
 
@@ -61,5 +63,46 @@ describe('Anvil canonical recording authority', () => {
     expect((global as any).fetch).toHaveBeenCalledWith(expect.stringContaining('/recording-completion-v2'), expect.any(Object));
     (global as any).fetch = jest.fn(async () => response(503, { error: { code: 'anvil_recording_authority_migration_required' } }));
     await expect(transitionRecordingCompleted({ commit })).resolves.toEqual(expect.objectContaining({ ok: false, outcome: 'unavailable' }));
+  });
+
+  test('completes from canonical script-file identity without Ready state or transition', async () => {
+    delete (window as any).__forgeCanonicalReadyScript;
+    (window as any).__forgeCanonicalScriptIdentity = {
+      workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID, path: 'script/script.md',
+      scriptRevision: 7, scriptHash: 'b'.repeat(64),
+    };
+    (global as any).fetch = jest.fn(async () => response(200, { ok: true, data: { outcome: 'saved', completion: { id: COMPLETION_ID } } }));
+    const { transitionRecordingCompleted } = await import('../../src/forge/workpiece-commit');
+    await expect(transitionRecordingCompleted({ commit })).resolves.toEqual(expect.objectContaining({ ok: true, completionId: COMPLETION_ID }));
+    const request = JSON.parse((global as any).fetch.mock.calls[0][1].body);
+    expect(request).toEqual(expect.objectContaining({ expected_script_revision: 7, expected_script_hash: 'b'.repeat(64) }));
+    expect(request).not.toHaveProperty('ready_transition_id');
+  });
+
+  test('capture-bound script identity wins over later navigation state', async () => {
+    (window as any).__forgeRecordingScriptIdentityByCapture = {
+      [CAPTURE_ID]: { workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID, path: 'script/original.md', scriptRevision: 4, scriptHash: 'c'.repeat(64) },
+    };
+    (window as any).__forgeCanonicalScriptIdentity = { workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID, path: 'script/later.md', scriptRevision: 5, scriptHash: 'd'.repeat(64) };
+    (global as any).fetch = jest.fn(async () => response(200, { ok: true, data: { outcome: 'saved', completion: { id: COMPLETION_ID } } }));
+    const { transitionRecordingCompleted } = await import('../../src/forge/workpiece-commit');
+    await transitionRecordingCompleted({ commit });
+    const request = JSON.parse((global as any).fetch.mock.calls[0][1].body);
+    expect(request.script_path).toBe('script/original.md');
+    expect(request.expected_script_revision).toBe(4);
+  });
+
+  test('transient completion retry reuses the same logical idempotency identity', async () => {
+    (window as any).__forgeCanonicalScriptIdentity = { workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID, path: 'script/script.md', scriptRevision: 7, scriptHash: 'b'.repeat(64) };
+    (global as any).fetch = jest.fn()
+      .mockResolvedValueOnce(response(503, { error: { code: 'temporary' } }))
+      .mockResolvedValueOnce(response(200, { ok: true, data: { outcome: 'saved', completion: { id: COMPLETION_ID } } }));
+    const { transitionRecordingCompleted } = await import('../../src/forge/workpiece-commit');
+    await expect(transitionRecordingCompleted({ commit })).resolves.toEqual(expect.objectContaining({ ok: true }));
+    const first = JSON.parse((global as any).fetch.mock.calls[0][1].body);
+    const second = JSON.parse((global as any).fetch.mock.calls[1][1].body);
+    expect(first.idempotency_key).toBe(second.idempotency_key);
+    expect(first.capture_session_id).toBe(second.capture_session_id);
+    expect(first.media_path).toBe(second.media_path);
   });
 });

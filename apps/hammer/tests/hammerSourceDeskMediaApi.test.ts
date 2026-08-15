@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
   buildHammerAssetIdentityKey,
+  classifyHammerStoredMediaRoles,
+  classifyHammerStoredMediaKind,
   buildSourceDeskUploadPath,
   isAcceptedSourceDeskMediaUpload,
   listWorkpieceStoredMedia,
@@ -21,6 +23,15 @@ type FetchCall = {
   url: string;
   options: Record<string, unknown>;
 };
+
+assert.deepEqual(classifyHammerStoredMediaRoles("assets/thumbnails/episode.png"), ["thumbnail"]);
+assert.deepEqual(classifyHammerStoredMediaRoles("assets/image-map/candidates/episode/explainer.png"), ["timeline_visual"]);
+assert.deepEqual(classifyHammerStoredMediaRoles("assets/misc/extra-thumbnail.png"), []);
+assert.deepEqual(classifyHammerStoredMediaRoles("assets/custom/dual.png", ["thumbnail", "timeline_visual"]), ["thumbnail", "timeline_visual"]);
+assert.equal(classifyHammerStoredMediaKind("recordings/old-episode.webm"), "other");
+assert.equal(classifyHammerStoredMediaKind("assets/uploads/introoutro/workspace-intro.mp4"), "other");
+assert.equal(classifyHammerStoredMediaKind("assets/uploads/broll/citrus-grove.mp4"), "broll");
+assert.equal(classifyHammerStoredMediaKind("assets/broll-plan/opportunity/render.webm"), "broll");
 
 function createOkJsonResponse(payload: unknown): Response {
   return new Response(JSON.stringify(payload), {
@@ -285,6 +296,7 @@ async function testListWorkpieceStoredMediaParsesTongsEnvelopeAndNormalizesPaths
     name: "123-intro.mp3",
     kind: "audio",
     bytes: 100,
+    roles: [],
     updatedAt: "2026-04-14T12:00:00.000Z",
   });
 }

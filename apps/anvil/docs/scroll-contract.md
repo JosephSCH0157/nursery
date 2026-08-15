@@ -209,7 +209,12 @@ Current important ASR visual diagnostics include:
 - Profile hydrate must not silently force runtime mode to ASR unless ASR is already engaged or user selected ASR in current session.
 - Hydrate writes affecting scroll mode must be attributable (`withScrollModeWriter` metadata with source tags).
 
-## 5) Kick Contract
+## 5) Speed Shortcut Contract
+
+- `ArrowUp` / `ArrowDown` adjust speed only when canonical `scrollMode` is `timed`, `wpm`, or `hybrid`; the keyboard layer delegates to the existing Timed command or WPM intent path and never writes scroll position directly.
+- Excluded modes, editable targets, composing events, and already-handled events retain native behavior.
+
+## 6) Kick Contract
 
 - Kick is manual movement and never depends on motor/auto-intent.
 - Kick resolves scroller by viewer role (`main` vs `display`) before movement.
@@ -220,13 +225,13 @@ Current important ASR visual diagnostics include:
 - Hotkey typing-target suppression may block only `input`, `textarea`, and contenteditable targets; it must not suppress Kick on actionable controls like `button`/`#recBtn`.
 - Dev globals are allowed only in dev mode and must not leak to production.
 
-## 6) Scroller Resolution Contract
+## 7) Scroller Resolution Contract
 
 - All runtime scroll reads/writes (kick, writer, router apply, step, restore, scheduler bridge) must use shared scroller resolution from `src/scroll/scroller.ts`.
 - Do not target `document.scrollingElement`/`document.body` for script movement in normal runtime paths.
 - Main viewer role target is `main#viewer.viewer` (fallback `#viewer`); display role target is display viewer element (`__tpDisplayViewerEl`) or `#wrap`.
 
-## 7) Forbidden Flows
+## 8) Forbidden Flows
 
 - Motor tick writes while `scrollMode='asr'`.
 - Auto-intent writes while `scrollMode='asr'`.

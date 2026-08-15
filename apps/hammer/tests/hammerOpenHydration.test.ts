@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { HammerPersistenceSnapshot } from "../src/persistence/hammerPersistenceContract";
-import { hydrateHammerOpenLaunchContext } from "../src/editor/hammerOpenHydration";
+import { bindLaunchContextToCanonicalRecording, hydrateHammerOpenLaunchContext } from "../src/editor/hammerOpenHydration";
 import { projectEditorialAuthorityGraphFromEditPlan } from "../src/editor/hammerRenderAssembly";
 
 const target = {
@@ -266,4 +266,40 @@ test("reopen hydration uses structured transcript fallback when editorial author
   } finally {
     console.warn = originalWarn;
   }
+});
+
+test("canonical recording binding cannot retain metadata from a different preview source", () => {
+  const launchContext = {
+    ...fallbackLaunchContext,
+    media: {
+      ...fallbackLaunchContext.media,
+      ref: {
+        ...fallbackLaunchContext.media.ref,
+        media_id: "workspace-default-intro",
+        local_relpath: "branding/intro.mp4",
+        sha256: "a".repeat(64),
+        byte_size: 1234,
+        duration_ms: 2000,
+      },
+    },
+  } as any;
+  const bound = bindLaunchContextToCanonicalRecording(launchContext, {
+    id: "canonical-recording-1",
+    workspace_id: target.workspaceId,
+    workpiece_id: target.workpieceId,
+    status: "draft",
+    media_path: "recordings/anvil-capture.webm",
+    media_id: "capture-session:new-capture",
+    sealed_at: null,
+    baseline_transcript_path: null,
+    baseline_speaker_map_path: null,
+    baseline_timing_path: null,
+  });
+  assert.equal(bound?.media.kind, "tongs-stub");
+  if (bound?.media.kind !== "tongs-stub") return;
+  assert.equal(bound.media.ref.media_id, "capture-session:new-capture");
+  assert.equal(bound.media.ref.local_relpath, "recordings/anvil-capture.webm");
+  assert.equal(bound.media.ref.sha256, undefined);
+  assert.equal(bound.media.ref.byte_size, undefined);
+  assert.equal(bound.media.ref.duration_ms, undefined);
 });

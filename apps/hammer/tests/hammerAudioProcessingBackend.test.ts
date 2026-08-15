@@ -6,6 +6,19 @@ import {
   resolveHammerAudioProcessingBackend,
 } from "../src/editor/hammerAudioProcessingBackend";
 import { createDefaultHammerStudioRackState } from "../src/editor/hammerStudioRack";
+import { buildHammerNativePreviewPlan } from "../src/editor/hammerStudioRackNativePreview";
+
+function testNativePreviewPlanTracksCleanupAndBypass() {
+  const rack = createDefaultHammerStudioRackState();
+  assert.deepEqual(buildHammerNativePreviewPlan(rack), []);
+  rack.is_enabled = true;
+  rack.voice_polish!.voice_cleanup_enabled = true;
+  assert.deepEqual(buildHammerNativePreviewPlan(rack).map((filter) => filter.kind), [
+    "highpass", "peaking", "peaking", "compressor", "gain", "peaking",
+  ]);
+  rack.is_bypassed = true;
+  assert.deepEqual(buildHammerNativePreviewPlan(rack), []);
+}
 
 function testNativeLaneRemainsNative() {
   const runtime = buildHammerMediaBackboneRuntimeSummary();
@@ -156,6 +169,7 @@ async function testRenderExecutionProcessesWhenFfmpegAvailable() {
 }
 
 async function run() {
+  testNativePreviewPlanTracksCleanupAndBypass();
   testNativeLaneRemainsNative();
   testPlaybackStaysNativeWhenFfmpegRequested();
   testRenderUsesFfmpegWhenAvailable();

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { buildSourceDeskPreviewFetchKey } from "./sourceDeskPreviewChurn";
 import { useHammerWorkspaceShellSourceDeskPreviews } from "./hammerWorkspaceShellSourceDeskPreviews";
@@ -112,6 +112,7 @@ export type UseHammerWorkspaceShellSourceDeskControllerResult = {
 export function useHammerWorkspaceShellSourceDeskController(
   args: UseHammerWorkspaceShellSourceDeskControllerArgs,
 ): UseHammerWorkspaceShellSourceDeskControllerResult {
+  const [previewRequestRevision, setPreviewRequestRevision] = useState(0);
   const attemptedWorkspaceDefaultsApplyRef = useRef<string | null>(null);
   const refreshRunIdRef = useRef(0);
   const latestArgsRef = useRef(args);
@@ -209,17 +210,30 @@ export function useHammerWorkspaceShellSourceDeskController(
     return pending;
   }, [sourceDeskAllRequestedPreviewPaths, args.sourceDeskPreviewFailures, args.sourceDeskPreviewUrls]);
   const sourceDeskPreviewFetchKey = useMemo(
-    () => buildSourceDeskPreviewFetchKey(sourceDeskAllRequestedPreviewPaths),
-    [sourceDeskAllRequestedPreviewPaths],
+    () => `${buildSourceDeskPreviewFetchKey(sourceDeskAllRequestedPreviewPaths)}:${previewRequestRevision}`,
+    [previewRequestRevision, sourceDeskAllRequestedPreviewPaths],
   );
 
   const requestSourceDeskPreviews = useCallback((paths: Array<string | null | undefined>): void => {
+    const requested = paths.map((path) => path?.trim() ?? "").filter(Boolean);
+    args.setSourceDeskPreviewFailures((current) => {
+      const next = { ...current };
+      let changed = false;
+      for (const path of requested) {
+        if (next[path]) {
+          delete next[path];
+          changed = true;
+        }
+      }
+      return changed ? next : current;
+    });
     args.setSourceDeskRequestedPreviewPaths((current) => {
       const next = [...current];
       appendUniquePaths(next, paths);
       return areStringArraysEqual(current, next) ? current : next;
     });
-  }, [args.setSourceDeskRequestedPreviewPaths]);
+    setPreviewRequestRevision((current) => current + 1);
+  }, [args.setSourceDeskPreviewFailures, args.setSourceDeskRequestedPreviewPaths]);
 
   const reportSourceDeskPreviewLoadError = useCallback((rawPath: string): void => {
     const path = rawPath.trim();

@@ -1,4 +1,4 @@
-import { createDefaultVisualAnimation, createDefaultVisualGeometry, createDefaultVisualLane, createEmptyVisualTimelineState } from "./hammerVisualDefaults";
+import { createDefaultSemanticAnchor, createDefaultVisualAnimation, createDefaultVisualGeometry, createDefaultVisualLane, createEmptyVisualTimelineState } from "./hammerVisualDefaults";
 import {
   assertValidTimelineState,
   clampOpacity,
@@ -10,6 +10,7 @@ import {
 } from "./hammerVisualGuards";
 import {
   HAMMER_VISUAL_DEFAULT_UPDATED_AT,
+  HAMMER_VISUAL_ANCHOR_RESOLVER_VERSION,
   type HammerVisualAsset,
   type HammerVisualAssetKind,
   type HammerVisualClip,
@@ -36,6 +37,13 @@ function readTrimmedString(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeAnchorOrigin(value: unknown): "hearth" | "hammer_transcript" | "hammer_timeline" | "legacy" {
+  const normalized = readTrimmedString(value);
+  return normalized === "hearth" || normalized === "hammer_transcript" || normalized === "hammer_timeline"
+    ? normalized
+    : "legacy";
 }
 
 function resolveLegacyAssetIdentitySource(record: HammerVisualPlacementRecord): string {
@@ -79,6 +87,22 @@ export function migrateLegacyPlacementRecordToClip(args: {
 }): HammerVisualClip {
   const updatedAt = args.updated_at ?? HAMMER_VISUAL_DEFAULT_UPDATED_AT;
   const timing = normalizeSecRange(args.record.start_sec, args.record.end_sec);
+  const hasAnchorEvidence = Boolean(readTrimmedString(args.record.anchor_text) || readTrimmedString(args.record.script_cue_id));
+  const alignment = args.record.alignment ?? null;
+  const transcriptResolved = Boolean(alignment && alignment.state === "aligned" && alignment.transcript_segment_id);
+  const resolutionConfidence = alignment?.confidence ?? args.record.confidence ?? null;
+  const flags = new Set(args.record.uncertainty_flags);
+  const detached = flags.has("anchor_provenance_stale");
+  const ambiguous = flags.has("anchor_match_ambiguous") || flags.has("anchor_match_uncertain");
+  const anchorStatus = detached
+    ? "detached"
+    : ambiguous
+      ? "ambiguous_match"
+      : transcriptResolved
+        ? "anchored"
+        : hasAnchorEvidence
+          ? "anchor_supplied_resolution_failed"
+          : "no_placement_intent";
   return {
     clip_id: readTrimmedString(args.record.placement_id) ?? `clip_${args.asset_id}`,
     asset_id: args.asset_id,
@@ -110,6 +134,56 @@ export function migrateLegacyPlacementRecordToClip(args: {
       anchor_label: args.record.label ?? args.record.entry_id,
       detached: false,
     }),
+    semantic_anchor: createDefaultSemanticAnchor({
+      status: anchorStatus,
+      hearth_entry_id: readTrimmedString(args.record.entry_id),
+      origin: normalizeAnchorOrigin(args.record.anchor_origin),
+      purpose: args.record.anchor_purpose ?? null,
+      placement_intent: readTrimmedString(args.record.placement_intent) ?? readTrimmedString(args.record.visual_mode),
+      script: {
+        script_path: readTrimmedString(args.record.script_path),
+        script_approval_id: readTrimmedString(args.record.script_approval_id),
+        script_approval_revision: args.record.script_approval_revision ?? null,
+        script_content_hash: readTrimmedString(args.record.script_content_hash),
+        anchor_contract_version: readTrimmedString(args.record.anchor_contract_version),
+        section_id: readTrimmedString(args.record.anchor_section_id),
+        paragraph_id: readTrimmedString(args.record.anchor_paragraph_id),
+        sentence_start: args.record.anchor_sentence_start ?? null,
+        sentence_end: args.record.anchor_sentence_end ?? null,
+        char_start: args.record.anchor_char_start ?? null,
+        char_end: args.record.anchor_char_end ?? null,
+        quoted_phrase: readTrimmedString(args.record.anchor_text),
+        resolution_state: detached
+          ? "stale"
+          : flags.has("anchor_script_current") ? "resolved" : "unresolved",
+      },
+      transcript: {
+        transcript_id: readTrimmedString(args.record.transcript_id),
+        media_id: readTrimmedString(args.record.transcript_media_id),
+        media_signature: readTrimmedString(args.record.transcript_media_signature),
+        segment_ids: [...args.record.matched_segment_ids],
+        start_sec: alignment?.transcript_start_sec ?? null,
+        end_sec: alignment?.transcript_end_sec ?? null,
+        resolution_state: transcriptResolved ? "resolved" : "unresolved",
+      },
+      resolution_method: alignment?.match_method === "deterministic_phrase"
+        ? "exact_ordered_words"
+        : alignment?.match_method === "fuzzy_text"
+          ? "fuzzy_text"
+          : "unresolved",
+      resolution_confidence: resolutionConfidence,
+      resolver_version: alignment ? HAMMER_VISUAL_ANCHOR_RESOLVER_VERSION : null,
+      resolved_at: transcriptResolved ? updatedAt : null,
+    }),
+    divergence: transcriptResolved ? {
+      state: "aligned",
+      start_delta_sec: Number((timing.start_sec - (alignment?.transcript_start_sec ?? timing.start_sec)).toFixed(3)),
+      end_delta_sec: Number((timing.end_sec - (alignment?.transcript_end_sec ?? timing.end_sec)).toFixed(3)),
+    } : {
+      state: "not_comparable",
+      start_delta_sec: null,
+      end_delta_sec: null,
+    },
     updated_at: updatedAt,
   };
 }
@@ -131,6 +205,7 @@ export function migrateLegacyPlacementRecordToAsset(args: {
     storage_key: storageKey,
     mime_type: inferMimeType(path ?? storageKey),
     source_mode: resolveLegacySourceMode(args.record),
+    roles: args.record.asset_roles?.length ? [...args.record.asset_roles] : ["timeline_visual"],
     updated_at: updatedAt,
   };
 }
@@ -205,7 +280,9 @@ export function migratePersistedVisualState(args: {
   if (args.canonical_timeline) {
     return assertValidTimelineState(createEmptyVisualTimelineState({
       ...args.canonical_timeline,
-      debug_origin: "canonical_load",
+      debug_origin: args.canonical_timeline.debug_origin === "legacy_migration"
+        ? "legacy_migration"
+        : "canonical_load",
     }));
   }
 

@@ -37,6 +37,8 @@ export type HammerCanonicalRecordingRecord = {
   workpiece_id: string;
   status: HammerCanonicalRecordingStatus;
   media_path: string;
+  media_id?: string | null;
+  media_signature?: string | null;
   sealed_at: string | null;
   baseline_transcript_path: string | null;
   baseline_speaker_map_path: string | null;

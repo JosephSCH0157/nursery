@@ -3,6 +3,7 @@ const mockShowRecordingDecisionDialog = jest.fn(async (..._args: unknown[]) => {
 
 jest.mock('../../src/forge/workpiece-commit', () => ({
   beginRecordingCaptureSession: jest.fn(() => 'cap-test-1'),
+  hasCanonicalRecordingScriptIdentity: jest.fn(() => true),
   ensureRecordingCaptureTarget: jest.fn(async () => ({ ok: true, workpieceId: 'w-test-1' })),
   commitRecordingBytesToTongs: (...args: unknown[]) => mockCommitRecordingBytesToTongs(...args),
   commitRecordingJsonArtifactToTongs: jest.fn(async () => ({ ok: true })),

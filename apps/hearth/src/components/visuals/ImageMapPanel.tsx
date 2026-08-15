@@ -417,7 +417,7 @@ export default function ImageMapPanel({
       <section className="hs-episode-images" aria-label="Episode Images">
         <header className="hs-episode-images-header">
           <div><h3>Episode Images</h3><p>These images support moments in your episode. Hammer handles final placement.</p></div>
-          <div className="hs-episode-images-progress" role="status" aria-live="polite"><strong>{imageAuthorityUnavailable ? "Episode Images unavailable" : `${fulfilledImageCount} fulfilled · ${skippedImageCount} skipped · ${unresolvedImageCount} unresolved`}</strong><progress value={fulfilledImageCount+skippedImageCount} max={Math.max(1, workspace.progress.total)} /></div>
+          <div className="hs-episode-images-progress" role="status" aria-live="polite"><strong>{imageAuthorityUnavailable ? "Episode Images unavailable" : `${fulfilledImageCount} fulfilled · ${skippedImageCount} skipped · ${unresolvedImageCount} unresolved`}</strong><progress value={fulfilledImageCount+skippedImageCount} max={Math.max(1, workspace.progress.total)} /><button type="button" className="is-primary" onClick={onCreateEntry} disabled={disabled}>Add image</button></div>
         </header>
 
         {imageAuthorityUnavailable ? (
@@ -427,7 +427,7 @@ export default function ImageMapPanel({
             {expectedImageCount > 0 ? <p>Synchronization unavailable: the Visual Plan expects {expectedImageCount} image moment{expectedImageCount === 1 ? "" : "s"}.</p> : null}
             <button type="button" className="is-primary" onClick={onRetryLoad} disabled={disabled}>Retry</button>
           </section>
-        ) : entries.length === 0 ? <section className="hs-episode-images-empty"><h4>No image moments planned yet</h4><p>Refresh the image plan from the approved script to begin.</p><button type="button" className="is-primary" onClick={onSeedFromScript} disabled={disabled}>Refresh image plan from script</button></section> : <div className="hs-episode-images-layout">
+        ) : entries.length === 0 ? <section className="hs-episode-images-empty"><h4>No image moments planned yet</h4><p>Add a creator-authored image, then bind it to the exact approved-script sentence or passage. Automatic suggestions remain optional.</p><button type="button" className="is-primary" onClick={onCreateEntry} disabled={disabled}>Add image</button><button type="button" onClick={onSeedFromScript} disabled={disabled}>Refresh automatic image plan</button></section> : <div className="hs-episode-images-layout">
           <nav className="hs-episode-images-queue" aria-label="Planned episode images">
             {workspace.items.map((item) => <button key={item.id} type="button" className={item.id === workspace.activeItem?.id ? "is-current" : ""} aria-current={item.id === workspace.activeItem?.id ? "step" : undefined} onClick={() => onSelectEntry(item.id)} disabled={disabled}>
               <span className="hs-episode-images-number">{item.number}</span><span><strong>{item.scriptMoment}</strong><small>{item.suggestedImage}</small><em>{episodeImageStatusLabel(item.status)}</em></span>
