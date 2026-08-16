@@ -142,13 +142,18 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
           })),
         }
         : null,
-      visualPlacements: args.editableVisualPlacements?.placements.map((placement) => ({
-        id: placement.placement_id,
-        assetId: placement.asset_id,
-        start: placement.start_sec,
-        end: placement.end_sec,
-        status: placement.status,
-      })) ?? null,
+      // Once a canonical timeline exists, derived compatibility placements are not
+      // an independent emission authority. Including both lets hydration churn in the
+      // adapter change the key and re-emit an otherwise identical canonical timeline.
+      visualPlacements: args.editableVisualTimeline
+        ? null
+        : args.editableVisualPlacements?.placements.map((placement) => ({
+          id: placement.placement_id,
+          assetId: placement.asset_id,
+          start: placement.start_sec,
+          end: placement.end_sec,
+          status: placement.status,
+        })) ?? null,
       audioPolish: args.editableAudioPolish
         ? {
           status: args.editableAudioPolish.status,

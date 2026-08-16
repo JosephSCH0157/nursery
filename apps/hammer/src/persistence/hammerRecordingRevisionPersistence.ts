@@ -9,6 +9,7 @@ import type {
   HammerPersistedVisualPlacements,
 } from "./hammerPersistenceContract";
 import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
+import { assertValidTimelineState } from "../visuals/model/hammerVisualGuards";
 import type { HammerCompositionV2, HammerCompositionHistoryV2 } from "../composition/hammerCompositionV2";
 import type { HammerCompositionTransactionV2 } from "../composition/hammerCompositionTransactionV2";
 import type { HammerMediaProvenanceManifest } from "../composition/hammerMediaProvenance";
@@ -28,6 +29,20 @@ function isHammerCompositionHistoryV2(value: unknown): value is HammerCompositio
 
 const LEGACY_STRUCTURED_TRANSCRIPT_PATH = "hammer/transcript/structured.v1.json";
 const LEGACY_SPEAKER_MAP_PATH = "hammer/transcript/speaker-map.v1.json";
+const canonicalVisualTimelinePath = (revisionId: string) => `hammer/revisions/${revisionId}/visual-timeline.v1.json`;
+
+export function validateCanonicalVisualTimelineArtifact(value: unknown):
+  | { ok: true; timeline: HammerVisualTimelineState }
+  | { ok: false; classification: "malformed_json" | "schema_invalid"; error: string } {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { ok: false, classification: "malformed_json", error: "Canonical visual timeline JSON must be an object." };
+  }
+  try {
+    return { ok: true, timeline: assertValidTimelineState(value as HammerVisualTimelineState) };
+  } catch (error) {
+    return { ok: false, classification: "schema_invalid", error: toErrorMessage(error, "validation failed") };
+  }
+}
 
 export type HammerCanonicalRecordingStatus = "draft" | "sealed" | "archived";
 
@@ -252,6 +267,7 @@ export type HammerRevisionArtifacts = {
   revision_transcript: HammerPersistedStructuredTranscript | null;
   audio_polish: HammerPersistedAudioPolish | null;
   visual_timeline: HammerVisualTimelineState | null;
+  visual_timeline_authority: "canonical" | "absent";
   visual_placements: HammerPersistedVisualPlacements | null;
   composition_v2: HammerCompositionV2 | null;
   composition_transaction: HammerCompositionTransactionV2 | null;
@@ -265,11 +281,44 @@ export async function loadHammerRecordingRevisionArtifacts(
   revision: HammerRecordingRevisionRecord,
 ): Promise<PersistenceResult<HammerRevisionArtifacts>> {
   const workpieceId = revision.workpiece_id;
+  const pointerTimelinePath = revision.visual_timeline_path;
+  const standardTimelinePath = canonicalVisualTimelinePath(revision.id);
+  const pointerTimelineResult = pointerTimelinePath
+    ? await readWorkpieceJsonFile<HammerVisualTimelineState>(workpieceId, pointerTimelinePath, 20_000)
+    : null;
+  if (pointerTimelineResult && (!pointerTimelineResult.ok || !pointerTimelineResult.exists || !pointerTimelineResult.data)) {
+    return {
+      ok: false,
+      status: pointerTimelineResult.ok ? 409 : pointerTimelineResult.status,
+      error: pointerTimelineResult.ok
+        ? "The active revision points to a canonical visual timeline that is missing. Legacy fallback is forbidden."
+        : pointerTimelineResult.error,
+    };
+  }
+  const standardTimelineResult = !pointerTimelinePath
+    ? await readWorkpieceJsonFile<HammerVisualTimelineState>(workpieceId, standardTimelinePath, 20_000)
+    : null;
+  if (standardTimelineResult && !standardTimelineResult.ok) {
+    return { ok: false, status: standardTimelineResult.status, error: standardTimelineResult.error };
+  }
+  const rawVisualTimeline = pointerTimelineResult?.data ?? standardTimelineResult?.data ?? null;
+  let canonicalVisualTimeline: HammerVisualTimelineState | null = null;
+  if (rawVisualTimeline) {
+    const validation = validateCanonicalVisualTimelineArtifact(rawVisualTimeline);
+    if (!validation.ok) {
+      return {
+        ok: false,
+        status: 422,
+        error: `The active revision canonical visual timeline is invalid (${validation.classification}): ${validation.error}`,
+      };
+    }
+    canonicalVisualTimeline = validation.timeline;
+  }
+
   const [
     editorSessionResult,
     transcriptResult,
     audioPolishResult,
-    visualTimelineResult,
     visualPlacementsResult,
     compositionResult,
     historyResult,
@@ -286,9 +335,6 @@ export async function loadHammerRecordingRevisionArtifacts(
     revision.audio_polish_path
       ? readWorkpieceJsonFile<HammerPersistedAudioPolish>(workpieceId, revision.audio_polish_path, 30_000)
       : Promise.resolve({ ok: true as const, exists: false, data: null }),
-    revision.visual_timeline_path
-      ? readWorkpieceJsonFile<HammerVisualTimelineState>(workpieceId, revision.visual_timeline_path, 20_000)
-      : Promise.resolve({ ok: true as const, exists: false, data: null }),
     revision.visual_placements_path
       ? readWorkpieceJsonFile<HammerPersistedVisualPlacements>(workpieceId, revision.visual_placements_path, 20_000)
       : Promise.resolve({ ok: true as const, exists: false, data: null }),
@@ -303,7 +349,6 @@ export async function loadHammerRecordingRevisionArtifacts(
     editorSessionResult,
     transcriptResult,
     audioPolishResult,
-    visualTimelineResult,
     visualPlacementsResult,
     compositionResult,
     historyResult,
@@ -322,7 +367,8 @@ export async function loadHammerRecordingRevisionArtifacts(
       editor_session: editorSessionResult.ok ? editorSessionResult.data : null,
       revision_transcript: transcriptResult.ok ? transcriptResult.data : null,
       audio_polish: audioPolishResult.ok ? audioPolishResult.data : null,
-      visual_timeline: visualTimelineResult.ok ? visualTimelineResult.data : null,
+      visual_timeline: canonicalVisualTimeline,
+      visual_timeline_authority: canonicalVisualTimeline ? "canonical" : "absent",
       visual_placements: visualPlacementsResult.ok ? visualPlacementsResult.data : null,
       composition_v2: compositionResult.ok && compositionResult.data?.schema_version === 2 ? compositionResult.data.composition : null,
       composition_transaction: compositionResult.ok ? compositionResult.data : null,

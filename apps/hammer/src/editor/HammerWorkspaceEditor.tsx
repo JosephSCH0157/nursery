@@ -122,6 +122,11 @@ import {
   upsertHammerPresence,
 } from "../persistence/hammerPersistence";
 import {
+  persistHammerCanonicalSave,
+  type HammerAsyncResponseLane,
+  type HammerAuthorityIdentity,
+} from "../persistence/hammerVisualAuthority";
+import {
   loadHammerCanonicalBaselineArtifacts,
   loadHammerRecordingRevisionArtifacts,
   loadLegacyHammerTranscriptArtifacts,
@@ -680,6 +685,8 @@ export default function HammerWorkspaceEditor(
   const saveTimerRef = useRef<number | null>(null);
   const readyTransitionTimerRef = useRef<number | null>(null);
   const lastSavedPayloadRef = useRef<string | null>(null);
+  const editorGenerationRef = useRef(0);
+  const responseLaneSequencesRef = useRef<Record<HammerAsyncResponseLane, number>>({ canonical_hydration: 0, revision_mutation: 0, workpiece_reconciliation: 0, lifecycle_flush: 0 });
   const pendingSaveRef = useRef<{
     target: HammerPersistenceTarget;
     revisionId: string;
@@ -692,6 +699,7 @@ export default function HammerWorkspaceEditor(
     };
     persistenceRequest: HammerPersistenceSaveRequest;
     payloadKey: string;
+    canonicalSnapshot: HammerPersistenceSnapshot;
   } | null>(null);
   const prepRunKeyRef = useRef<string | null>(null);
   const prepAiNoticeApprovedRunKeyRef = useRef<string | null>(null);
@@ -836,6 +844,11 @@ export default function HammerWorkspaceEditor(
   useEffect(() => {
     activeRevisionRef.current = activeRevision;
   }, [activeRevision]);
+
+  useEffect(() => {
+    editorGenerationRef.current += 1;
+    responseLaneSequencesRef.current = { canonical_hydration: 0, revision_mutation: 0, workpiece_reconciliation: 0, lifecycle_flush: 0 };
+  }, [reloadRequestNonce, targetKey]);
 
   useEffect(() => {
     effectiveLaunchContextRef.current = effectiveLaunchContext;
@@ -1589,6 +1602,9 @@ export default function HammerWorkspaceEditor(
             loadHammerRecordingRevisionArtifacts(sessionResult.data.revision),
             loadHammerPersistenceSnapshot(persistenceTarget),
           ]);
+          if (!revisionArtifactsResult.ok) {
+            throw new Error(`Canonical revision artifact hydration failed: ${revisionArtifactsResult.error}`);
+          }
 
           const canonicalTranscript = baselineResult.ok ? baselineResult.data.structured_transcript : null;
           const canonicalSpeakerMap = baselineResult.ok ? baselineResult.data.speaker_map : null;
@@ -1596,7 +1612,12 @@ export default function HammerWorkspaceEditor(
           const revisionTranscript = revisionArtifactsResult.ok ? revisionArtifactsResult.data.revision_transcript : null;
           const revisionAudioPolish = revisionArtifactsResult.ok ? revisionArtifactsResult.data.audio_polish : null;
           const revisionVisualTimeline = revisionArtifactsResult.ok ? revisionArtifactsResult.data.visual_timeline : null;
-          const revisionVisualPlacements = revisionArtifactsResult.ok ? revisionArtifactsResult.data.visual_placements : null;
+          const revisionVisualPlacements = revisionArtifactsResult.ok
+            ? revisionArtifactsResult.data.visual_timeline_authority === "absent"
+              ? revisionArtifactsResult.data.visual_placements
+                ?? (persistenceSnapshotResult.ok ? persistenceSnapshotResult.data.visual_placements.data : null)
+              : revisionArtifactsResult.data.visual_placements
+            : null;
 
           // --- Registered transcript artifact ---
           const persistenceSnapshot = persistenceSnapshotResult.ok ? persistenceSnapshotResult.data : null;
@@ -3503,7 +3524,7 @@ export default function HammerWorkspaceEditor(
   ]);
 
   const queueRevisionAutosave = useCallback((snapshot: HammerWorkspaceSnapshot, persistNow = false): void => {
-    if (!canPersistCanonicalState || !persistenceTarget || !activeRevision) {
+    if (!canPersistCanonicalState || !persistenceTarget || !activeRevision || !loadedPersistenceSnapshot) {
       return;
     }
 
@@ -3578,6 +3599,7 @@ export default function HammerWorkspaceEditor(
       request,
       persistenceRequest,
       payloadKey,
+      canonicalSnapshot: loadedPersistenceSnapshot,
     };
     setHasPendingSaveChanges(true);
     setSaveFailureMessage(null);
@@ -3589,54 +3611,31 @@ export default function HammerWorkspaceEditor(
 
     const scheduledPayloadKey = payloadKey;
     const persistRevisionAndAuthority = async (pending: NonNullable<typeof pendingSaveRef.current>) => {
-      const revisionResult = await saveHammerRecordingRevision(
-        pending.target,
-        pending.revisionId,
-        pending.request as any,
-      );
-      if (!revisionResult.ok) {
-        return {
-          ok: false as const,
-          error: revisionResult.error,
-          revision: null as HammerRecordingRevisionRecord | null,
-          snapshot: null as HammerPersistenceSnapshot | null,
-        };
-      }
-
-      const persistenceResult = await saveHammerPersistenceSnapshot(
-        pending.target,
-        pending.persistenceRequest,
-      );
-      if (!persistenceResult.ok) {
-        return {
-          ok: false as const,
-          error: persistenceResult.error,
-          revision: revisionResult.data.revision,
-          snapshot: null as HammerPersistenceSnapshot | null,
-        };
-      }
-
-      return {
-        ok: true as const,
-        revision: revisionResult.data.revision,
-        snapshot: persistenceResult.data,
-      };
+      const identity: HammerAuthorityIdentity = { workspaceId: pending.target.workspaceId, workpieceId: pending.target.workpieceId, revisionId: pending.revisionId, editorGeneration: editorGenerationRef.current };
+      return persistHammerCanonicalSave({
+        target: pending.target,
+        revisionId: pending.revisionId,
+        revisionRequest: pending.request,
+        persistenceRequest: pending.persistenceRequest,
+        canonicalSnapshot: pending.canonicalSnapshot,
+        identity,
+        currentIdentity: () => ({
+          workspaceId: persistenceTarget.workspaceId,
+          workpieceId: persistenceTarget.workpieceId,
+          revisionId: activeRevisionRef.current?.id ?? "",
+          editorGeneration: editorGenerationRef.current,
+        }),
+        laneSequences: responseLaneSequencesRef.current,
+      });
     };
 
-    if (persistNow) {
+    const runPendingSave = (pending: NonNullable<typeof pendingSaveRef.current>, clearTimer: boolean) => {
       setSaveInFlight(true);
-      void persistRevisionAndAuthority({
-        target: persistenceTarget,
-        revisionId: activeRevision.id,
-        request,
-        persistenceRequest,
-        payloadKey: scheduledPayloadKey,
-      })
+      void persistRevisionAndAuthority(pending)
         .then((result) => {
+          if ("stale" in result && result.stale) return;
           if (!result.ok) {
-            if (result.revision) {
-              setActiveRevision(result.revision);
-            }
+            if (result.revision) setActiveRevision(result.revision);
             applyHostLoopState(resolveHammerSaveFailure({
               hasPendingSaveChanges: true,
               saveFailureMessage,
@@ -3645,11 +3644,7 @@ export default function HammerWorkspaceEditor(
             }, result.error));
             return;
           }
-
-          if (pendingSaveRef.current?.payloadKey !== scheduledPayloadKey) {
-            return;
-          }
-
+          if (pendingSaveRef.current?.payloadKey !== scheduledPayloadKey) return;
           lastSavedPayloadRef.current = scheduledPayloadKey;
           pendingSaveRef.current = null;
           setHasPendingSaveChanges(false);
@@ -3665,7 +3660,12 @@ export default function HammerWorkspaceEditor(
         })
         .finally(() => {
           setSaveInFlight(false);
+          if (clearTimer) saveTimerRef.current = null;
         });
+    };
+
+    if (persistNow) {
+      runPendingSave(pendingSaveRef.current, false);
       return;
     }
 
@@ -3675,50 +3675,13 @@ export default function HammerWorkspaceEditor(
         return;
       }
 
-      setSaveInFlight(true);
-      void persistRevisionAndAuthority(pending)
-        .then((result) => {
-          if (!result.ok) {
-            if (result.revision) {
-              setActiveRevision(result.revision);
-            }
-            applyHostLoopState(resolveHammerSaveFailure({
-              hasPendingSaveChanges: true,
-              saveFailureMessage,
-              historyRecoveryStatus,
-              presenceConflictDetail,
-            }, result.error));
-            return;
-          }
-
-          if (pendingSaveRef.current?.payloadKey !== scheduledPayloadKey) {
-            return;
-          }
-
-          lastSavedPayloadRef.current = scheduledPayloadKey;
-          pendingSaveRef.current = null;
-          setHasPendingSaveChanges(false);
-          setLastSavedAt(new Date().toISOString());
-          setActiveRevision(result.revision);
-          setLoadedPersistenceSnapshot(result.snapshot);
-          applyHostLoopState(resolveHammerSaveSuccess({
-            hasPendingSaveChanges: false,
-            saveFailureMessage,
-            historyRecoveryStatus,
-            presenceConflictDetail,
-          }));
-        })
-        .finally(() => {
-          setSaveInFlight(false);
-          if (saveTimerRef.current != null) {
-            saveTimerRef.current = null;
-          }
-        });
+      runPendingSave(pending, true);
     }, SAVE_DEBOUNCE_MS);
   }, [
     activeRevision,
     canPersistCanonicalState,
     historyRecoveryStatus,
+    loadedPersistenceSnapshot,
     loadedPersistenceSnapshot?.audio_polish.data,
     loadedPersistenceSnapshot?.structured_transcript.data,
     persistenceTarget,
@@ -3812,9 +3775,27 @@ export default function HammerWorkspaceEditor(
       }
 
       setSaveInFlight(true);
-      void saveHammerRecordingRevision(pending.target, pending.revisionId, pending.request as any)
+      const identity: HammerAuthorityIdentity = { workspaceId: pending.target.workspaceId, workpieceId: pending.target.workpieceId, revisionId: pending.revisionId, editorGeneration: editorGenerationRef.current };
+      void persistHammerCanonicalSave({
+        target: pending.target,
+        revisionId: pending.revisionId,
+        revisionRequest: pending.request,
+        persistenceRequest: pending.persistenceRequest,
+        canonicalSnapshot: pending.canonicalSnapshot,
+        identity,
+        laneSequences: responseLaneSequencesRef.current,
+        lifecycleFlush: true,
+        currentIdentity: () => ({
+          workspaceId: pending.target.workspaceId,
+          workpieceId: pending.target.workpieceId,
+          revisionId: activeRevisionRef.current?.id ?? "",
+          editorGeneration: editorGenerationRef.current,
+        }),
+      })
         .then((result) => {
+          if ("stale" in result && result.stale) return;
           if (!result.ok) {
+            if (result.revision) setActiveRevision(result.revision);
             applyHostLoopState(resolveHammerSaveFailure({
               hasPendingSaveChanges: true,
               saveFailureMessage,
@@ -3823,32 +3804,18 @@ export default function HammerWorkspaceEditor(
             }, result.error));
             return;
           }
-          setActiveRevision(result.data.revision);
-          return saveHammerPersistenceSnapshot(
-            pending.target,
-            pending.persistenceRequest,
-          ).then((persistenceResult) => {
-            if (!persistenceResult.ok) {
-              applyHostLoopState(resolveHammerSaveFailure({
-                hasPendingSaveChanges: true,
-                saveFailureMessage,
-                historyRecoveryStatus,
-                presenceConflictDetail,
-              }, persistenceResult.error));
-              return;
-            }
-            lastSavedPayloadRef.current = pending.payloadKey;
-            pendingSaveRef.current = null;
-            setHasPendingSaveChanges(false);
-            setLastSavedAt(new Date().toISOString());
-            setLoadedPersistenceSnapshot(persistenceResult.data);
-            applyHostLoopState(resolveHammerSaveSuccess({
-              hasPendingSaveChanges: false,
-              saveFailureMessage,
-              historyRecoveryStatus,
-              presenceConflictDetail,
-            }));
-          });
+          setActiveRevision(result.revision);
+          lastSavedPayloadRef.current = pending.payloadKey;
+          pendingSaveRef.current = null;
+          setHasPendingSaveChanges(false);
+          setLastSavedAt(new Date().toISOString());
+          setLoadedPersistenceSnapshot(result.snapshot);
+          applyHostLoopState(resolveHammerSaveSuccess({
+            hasPendingSaveChanges: false,
+            saveFailureMessage,
+            historyRecoveryStatus,
+            presenceConflictDetail,
+          }));
         })
         .catch(() => {
           // keep flush best-effort; normal save loop will retry on next interaction
