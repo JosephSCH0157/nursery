@@ -203,6 +203,7 @@ import { useHammerWorkspaceShellSourceDeskController } from "./useHammerWorkspac
 import { useHammerWorkspaceShellPreviewRuntime } from "./useHammerWorkspaceShellPreviewRuntime";
 import { useHammerWorkspaceShellReleasePrep } from "./useHammerWorkspaceShellReleasePrep";
 import { useHammerWorkspaceShellVisualEditing } from "./useHammerWorkspaceShellVisualEditing";
+import { useHammerWorkspaceShellHydration } from "./useHammerWorkspaceShellHydration";
 import { applyHammerStudioRackNativePreview } from "./hammerStudioRackNativePreview";
 import {
   buildPreviewBayVM,
@@ -412,6 +413,7 @@ const HISTORY_MAX_SIZE = 100;
 const HISTORY_PERSIST_DEBOUNCE_MS = 900;
 const TEXT_EDIT_COALESCE_MS = 1500;
 const PLAYHEAD_SNAP_TOLERANCE_SEC = DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC;
+const EMPTY_VISUAL_TIMELINE_CLIPS: HammerVisualTimelineState["clips"] = [];
 
 const TIMELINE_ZOOM_LEVELS = [100, 125, 150, 200, 300] as const;
 const CAPTION_MIN_BLOCK_DURATION_SEC = 0.05;
@@ -1047,8 +1049,11 @@ function HammerWorkspaceShellWithContext(
   const scrubRectRef = useRef<{ left: number; width: number } | null>(null);
   const scrubAutoPlayRef = useRef(false);
   const scrubReturnToPausedRef = useRef(false);
-  const hydratedInitialEditorStateRef = useRef<string | null>(null);
-  const hydratedVisualPreviewSettingsRef = useRef<string | null>(null);
+  const applyLinkedSelectionStateRef = useRef<null | ((args: {
+    selection: HammerLinkedSelection | null;
+    origin: "system";
+    clearTranscriptTextRange: true;
+  }) => void)>(null);
   const playbackOwnerIdRef = useRef(`hammer-preview-${Math.random().toString(36).slice(2, 10)}`);
   const handledCandidateIdsRef = useRef<{ fillers: Set<string>; retakes: Set<string> }>({
     fillers: new Set(),
@@ -1062,10 +1067,6 @@ function HammerWorkspaceShellWithContext(
     fillers: null,
     retakes: null,
   });
-  const audioPolishHasLocalEditsRef = useRef(false);
-  const editableAudioPolishRef = useRef<HammerPersistedAudioPolish | null>(
-    cloneHammerAudioPolish(props.audioPolish),
-  );
   const onHistoryRecoveryStatusChangeRef = useRef(props.onHistoryRecoveryStatusChange);
   useEffect(() => {
     onHistoryRecoveryStatusChangeRef.current = props.onHistoryRecoveryStatusChange;
@@ -1076,91 +1077,8 @@ function HammerWorkspaceShellWithContext(
     onHistoryRecoveryStatusChangeRef.current?.(historyStatus);
   }, [historyStatus]);
 
-  useEffect(() => {
-    audioPolishHasLocalEditsRef.current = false;
-    editableAudioPolishRef.current = null;
-    setEditableAudioPolish(null);
-    setAudioCutSelectionStartSec(null);
-    setAudioCutSelectionEndSec(null);
-    setDismissedSilenceSuggestionIds(new Set());
-  }, [launchContext.workpiece_id]);
-
-  useEffect(() => {
-    setEditableAudioPolish((current) => {
-      if (!props.audioPolish) {
-        const next = audioPolishHasLocalEditsRef.current ? current : null;
-        editableAudioPolishRef.current = next;
-        return next;
-      }
-
-      const incoming = cloneHammerAudioPolish(props.audioPolish);
-      if (!incoming) {
-        const next = audioPolishHasLocalEditsRef.current ? current : null;
-        editableAudioPolishRef.current = next;
-        return next;
-      }
-      if (!audioPolishHasLocalEditsRef.current) {
-        editableAudioPolishRef.current = incoming;
-        return incoming;
-      }
-
-      const next = {
-        ...incoming,
-        audio_edit: cloneHammerAudioEdit(current?.audio_edit ?? null) ?? cloneHammerAudioEdit(incoming.audio_edit),
-      };
-      editableAudioPolishRef.current = next;
-      return next;
-    });
-  }, [props.audioPolish]);
-  useEffect(() => {
-    editableAudioPolishRef.current = editableAudioPolish;
-  }, [editableAudioPolish]);
-
-  useEffect(() => {
-    const hydrationKey = `${launchContext.workspace_id}:${launchContext.workpiece_id}`;
-    if (hydratedInitialEditorStateRef.current === hydrationKey) return;
-    hydratedInitialEditorStateRef.current = hydrationKey;
-
-    const nextInitialPass = resolveInitialPassId(props.initialCurrentPass);
-    const nextSelectedSegmentId = resolveSelectedSegmentId(transcriptSegments, props.initialSelectedSegmentId ?? null);
-    setCurrentPass(nextInitialPass);
-    setPassStatus(deriveHydratedPassStatus(nextInitialPass));
-    setEditorMode(resolveEditorModeFromPass(nextInitialPass));
-    applyLinkedSelectionState({
-      selection: resolveSelectionFromTranscript({
-        transcriptSegments,
-        visualItems: (editableVisualTimeline?.clips ?? []).map((clip) => ({
-          id: clip.clip_id,
-          anchorSegmentId: clip.anchor_hint.anchor_segment_id
-            ?? clip.anchor_hint.matched_segment_ids[0]
-            ?? nextSelectedSegmentId,
-          startSec: clip.start_sec,
-          endSec: clip.end_sec,
-        })),
-        anchorSegmentId: nextSelectedSegmentId,
-        focusSegmentId: nextSelectedSegmentId,
-      }),
-      origin: "system",
-      clearTranscriptTextRange: true,
-    });
-  }, [
-    launchContext.workspace_id,
-    launchContext.workpiece_id,
-    props.initialCurrentPass,
-    props.initialSelectedSegmentId,
-    transcriptSegments,
-  ]);
-
-  useEffect(() => {
-    hydratedVisualPreviewSettingsRef.current = null;
-  }, [launchContext.workpiece_id]);
-
-  useEffect(() => {
-    if (props.initialVisualPreviewSettings == null) return;
-    if (hydratedVisualPreviewSettingsRef.current === launchContext.workpiece_id) return;
-    hydratedVisualPreviewSettingsRef.current = launchContext.workpiece_id;
-
-    const nextVisualPreviewSettings = normalizeVisualPreviewSettings(props.initialVisualPreviewSettings);
+  const applyHydratedVisualPreviewSettings = useCallback((settings: HammerPersistedVisualPreviewSettings) => {
+    const nextVisualPreviewSettings = normalizeVisualPreviewSettings(settings);
     setVisualWhiteBalance(nextVisualPreviewSettings.white_balance);
     setVisualColorAmount(nextVisualPreviewSettings.color_amount);
     setVisualEyeContactAssistEnabled(Boolean(nextVisualPreviewSettings.eye_contact_assist_enabled ?? false));
@@ -1195,7 +1113,28 @@ function HammerWorkspaceShellWithContext(
     setVisualBackgroundWashEnabled(Boolean(nextVisualPreviewSettings.background_wash_enabled ?? false));
     setVisualBackgroundWashDimAmount(Number(nextVisualPreviewSettings.background_wash_dim_amount ?? 0.35));
     setVisualBackgroundWashDesaturateAmount(Number(nextVisualPreviewSettings.background_wash_desaturate_amount ?? 0.25));
-  }, [launchContext.workpiece_id, props.initialVisualPreviewSettings]);
+  }, []);
+
+  const { audioPolishHasLocalEditsRef, editableAudioPolishRef } = useHammerWorkspaceShellHydration({
+    workspaceId: launchContext.workspace_id,
+    workpieceId: launchContext.workpiece_id,
+    initialCurrentPass: props.initialCurrentPass,
+    initialSelectedSegmentId: props.initialSelectedSegmentId,
+    initialVisualPreviewSettings: props.initialVisualPreviewSettings,
+    incomingAudioPolish: props.audioPolish,
+    transcriptSegments,
+    visualTimelineClips: editableVisualTimeline?.clips ?? EMPTY_VISUAL_TIMELINE_CLIPS,
+    applyLinkedSelectionStateRef,
+    setCurrentPass,
+    setPassStatus,
+    setEditorMode,
+    editableAudioPolish,
+    setEditableAudioPolish,
+    setAudioCutSelectionStartSec,
+    setAudioCutSelectionEndSec,
+    setDismissedSilenceSuggestionIds,
+    applyVisualPreviewSettings: applyHydratedVisualPreviewSettings,
+  });
 
   useEffect(() => {
     setPassStatus((previous) => {
@@ -2626,6 +2565,7 @@ function HammerWorkspaceShellWithContext(
     selectLinkedTranscriptTarget,
     selectVisualClip,
   } = selection;
+  applyLinkedSelectionStateRef.current = applyLinkedSelectionState;
   const dialogueLaneBlocks = useMemo<HammerTimelineLaneBlock[]>(() => (
     editableTranscriptSegments.map((segment) => ({
       id: `dialogue:${segment.segment_id}`,

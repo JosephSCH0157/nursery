@@ -187,12 +187,27 @@ async function modified_markers_persist_until_authoritative_acceptance() {
   );
 }
 
+async function workpiece_hydration_is_owned_by_the_controller() {
+  const shell = await readFile(
+    new URL("../src/editor/HammerWorkspaceShell.tsx", import.meta.url),
+    "utf-8",
+  );
+  const hydration = await readFile(
+    new URL("../src/editor/useHammerWorkspaceShellHydration.ts", import.meta.url),
+    "utf-8",
+  );
+  assert.ok(shell.includes("useHammerWorkspaceShellHydration({"));
+  assert.ok(hydration.includes("const hydrationKey = `${workspaceId}:${workpieceId}`"));
+  assert.ok(hydration.includes("initialSelectedSegmentId"));
+}
+
 async function run() {
   await keeps_selection_locked_during_timing_edits();
   await playhead_updates_active_segment_without_scroll_thrash();
   await same_speaker_adjacent_segments_do_not_confuse_active_line();
   await timing_clamp_shows_hint_only_when_adjusted();
   await modified_markers_persist_until_authoritative_acceptance();
+  await workpiece_hydration_is_owned_by_the_controller();
 
   // Supplemental numerical guards for boundary/tiny behavior.
   const nearZero = seg("zero", 0.2, 1.2);
