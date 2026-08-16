@@ -44,6 +44,47 @@ import {
   preservePlacementRichTimelineDuringHydration,
 } from "./hammerVisualTimelineHydrationGuard";
 
+export type HammerHistoryPostSaveSnapshotRequest = Readonly<{
+  workpieceId: string;
+  sessionId: string;
+  baseRevisionId: string;
+  headEntryId: string | null;
+  undoDepth: number;
+  redoDepth: number;
+  editorState: HammerEditorStateSerializable;
+}>;
+
+export function captureHammerHistoryPostSaveSnapshotRequest(args: {
+  workpieceId: string;
+  controller: HammerHistoryController;
+}): HammerHistoryPostSaveSnapshotRequest {
+  return Object.freeze({
+    workpieceId: args.workpieceId,
+    sessionId: args.controller.document.sessionId,
+    baseRevisionId: args.controller.document.baseRevisionId,
+    headEntryId: args.controller.document.headEntryId ?? null,
+    undoDepth: args.controller.document.undoStack.length,
+    redoDepth: args.controller.document.redoStack.length,
+    editorState: cloneEditorState(args.controller.getState()),
+  });
+}
+
+export async function persistHammerHistorySaveBoundary(args: {
+  saveHistory: () => Promise<{ ok: true } | { ok: false; error: string }>;
+  snapshotRequest: HammerHistoryPostSaveSnapshotRequest;
+  onHistorySaved: (request: HammerHistoryPostSaveSnapshotRequest) => Promise<void>;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const result = await args.saveHistory();
+  if (!result.ok) return result;
+  try {
+    await args.onHistorySaved(args.snapshotRequest);
+  } catch {
+    // History is already durable. Snapshot production remains best-effort and
+    // must not turn a successful history save into a failed save boundary.
+  }
+  return result;
+}
+
 type DerivedLayersState = HammerPersistedStructuredTranscript["derived_text_layers"];
 
 export type UseHammerWorkspaceShellHistoryControllerArgs = {
