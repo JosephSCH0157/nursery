@@ -92,30 +92,7 @@ import {
   syncEditableTranscriptSegments,
   updateTranscriptSegmentSpeaker,
 } from "./hammerWorkspaceTranscript";
-import {
-  previewQuickClean,
-  previewRemoveFillers,
-  previewRemoveRetakes,
-  previewSpeakerMonologue,
-  previewSpeakerPanel,
-  previewSpeakerInterview,
-  previewSpeakerSolo,
-  previewShortenGaps,
-  type HammerCleanupPreview,
-  type RetakeCleanupOptions,
-  type FillerCleanupOptions,
-  type GapCleanupOptions,
-  type SpeakerMonologueOptions,
-  type SpeakerPanelOptions,
-  type SpeakerInterviewOptions,
-  type SpeakerSoloOptions,
-} from "./hammerCleanupTools";
 import { analyzeDeadAirGaps, applyDeadAirClosure, type HammerDeadAirAnalysis } from "./hammerDeadAirClosure";
-import { requestHammerTranscriptCleanupAssist } from "./hammerTranscriptCleanupAssistApi";
-import {
-  buildPolishResultSummaryFromCleanupPreview,
-  type HammerPolishResultSummary,
-} from "./PolishResultSummary";
 import {
   cloneEditorState,
   type HammerEditorStateSerializable,
@@ -124,9 +101,7 @@ import {
   type HammerOutputSelectionState,
 } from "./hammerWorkspaceHistory";
 import {
-  appendHammerDerivedTextLayer,
   cloneHammerDerivedTextLayers,
-  createHammerDerivedTextLayer,
   listHammerDerivedTextLayers,
   normalizeHammerOutputSelectionRef,
   setHammerDerivedTextLayerActive,
@@ -188,6 +163,7 @@ import { useHammerWorkspaceShellPreviewRuntime } from "./useHammerWorkspaceShell
 import { useHammerWorkspaceShellReleasePrep } from "./useHammerWorkspaceShellReleasePrep";
 import { useHammerWorkspaceShellVisualEditing } from "./useHammerWorkspaceShellVisualEditing";
 import { useHammerWorkspaceShellHydration } from "./useHammerWorkspaceShellHydration";
+import { useHammerWorkspaceShellTranscriptCleanup } from "./useHammerWorkspaceShellTranscriptCleanup";
 import { useHammerWorkspaceShellRouting } from "./useHammerWorkspaceShellRouting";
 import { applyHammerStudioRackNativePreview } from "./hammerStudioRackNativePreview";
 import {
@@ -387,7 +363,6 @@ import {
   formatHistoryEntryScope,
   formatHistoryTimestamp,
   formatOutputLayerLabel,
-  formatOutputLayerLabelFromRecipeRef,
   formatStudioRackModuleLabel,
   resolveLaneGaps,
 } from "./hammerWorkspaceShellFormatters";
@@ -740,53 +715,9 @@ function HammerWorkspaceShellWithContext(
   const [timelineZoomPercent, setTimelineZoomPercent] = useState<number>(TIMELINE_ZOOM_LEVELS[0]);
   const [focusOverride, setFocusOverride] = useState<HammerWorkspaceFocusOverride>("auto");
   const [polishStrength, setPolishStrength] = useState(60);
-  const [gapCleanupOptions, setGapCleanupOptions] = useState<GapCleanupOptions>({
-    maxGapSec: 0.4,
-    minPauseSec: 0.1,
-    preserveDramaticPauses: true,
-  });
   const [deadAirThresholdSec, setDeadAirThresholdSec] = useState(1.5);
   const [deadAirAnalysis, setDeadAirAnalysis] = useState<HammerDeadAirAnalysis | null>(null);
   const [deadAirApplyInFlight, setDeadAirApplyInFlight] = useState(false);
-  const [fillerCleanupOptions, setFillerCleanupOptions] = useState<FillerCleanupOptions>({
-    aggressiveness: "medium",
-    protectIntentionalPhrasing: true,
-  });
-  const [retakeCleanupOptions, setRetakeCleanupOptions] = useState<RetakeCleanupOptions>({
-    detection: "normal",
-    preferLaterCleanerTake: true,
-    honorExplicitRetakePhrases: true,
-    sameSpeakerOnly: true,
-  });
-  const [speakerSoloOptions, setSpeakerSoloOptions] = useState<SpeakerSoloOptions>(() => ({
-    targetSpeaker: transcriptSegments[0]?.speaker ?? "S1",
-    collapseInterruptions: true,
-    compressGaps: false,
-    maxInterruptionSec: 0.8,
-  }));
-  const [speakerInterviewOptions, setSpeakerInterviewOptions] = useState<SpeakerInterviewOptions>(() => ({
-    hostSpeaker: transcriptSegments[0]?.speaker ?? "S1",
-    respondentSpeaker: transcriptSegments[1]?.speaker ?? transcriptSegments[0]?.speaker ?? "S2",
-    tightness: "medium",
-    removeBackchannels: true,
-    collapseInterruptions: true,
-    maxInterruptionSec: 0.8,
-  }));
-  const [speakerMonologueOptions, setSpeakerMonologueOptions] = useState<SpeakerMonologueOptions>(() => ({
-    targetSpeaker: transcriptSegments[0]?.speaker ?? "S1",
-    removeBackchannels: true,
-    suppressInterruptions: true,
-    maxInterruptionSec: 0.8,
-    tightenTargetRuns: true,
-    compressGaps: false,
-  }));
-  const [speakerPanelOptions, setSpeakerPanelOptions] = useState<SpeakerPanelOptions>(() => ({
-    hostSpeaker: transcriptSegments[0]?.speaker ?? "S1",
-    primarySpeakerBias: "balanced",
-    removeShortBackchannels: true,
-    suppressShortCrossTalk: true,
-    maxInterruptionSec: 0.8,
-  }));
   const [fillerCandidateCards, setFillerCandidateCards] = useState<HammerCandidateCard[]>([]);
   const [fillerActiveCandidateIndex, setFillerActiveCandidateIndex] = useState(0);
   const [fillerDecisionInFlight, setFillerDecisionInFlight] = useState(false);
@@ -804,8 +735,6 @@ function HammerWorkspaceShellWithContext(
   const selectedTranscriptRangeDetailRef = useRef<HammerSelectedTranscriptRangeDetail | null>(null);
   const lastVisualSelectionLogKeyRef = useRef<string | null>(null);
   const [linkedSelection, setLinkedSelection] = useState<HammerLinkedSelection | null>(null);
-  const [cleanupPreview, setCleanupPreview] = useState<HammerCleanupPreview | null>(null);
-  const [cleanupReceipt, setCleanupReceipt] = useState<HammerPolishResultSummary | null>(null);
   const [editableAudioPolish, setEditableAudioPolish] = useState<HammerPersistedAudioPolish | null>(
     () => cloneHammerAudioPolish(props.audioPolish),
   );
@@ -2690,6 +2619,87 @@ function HammerWorkspaceShellWithContext(
       derived_text_layers: cloneHammerDerivedTextLayers(editableDerivedTextLayers),
     };
   }, [editableDerivedTextLayers, props.structuredTranscript]);
+  const {
+    gapCleanupOptions,
+    setGapCleanupOptions,
+    fillerCleanupOptions,
+    setFillerCleanupOptions,
+    retakeCleanupOptions,
+    setRetakeCleanupOptions,
+    speakerSoloOptions,
+    setSpeakerSoloOptions,
+    speakerInterviewOptions,
+    setSpeakerInterviewOptions,
+    speakerMonologueOptions,
+    setSpeakerMonologueOptions,
+    speakerPanelOptions,
+    setSpeakerPanelOptions,
+    cleanupPreview,
+    cleanupPreviewSummary,
+    cleanupReceipt,
+    setCleanupPreview,
+    clearCleanup,
+    invalidateCleanupPreview,
+    tightenTranscriptSelection,
+    applyCleanup,
+    previewQuickClean,
+    previewRemoveFillers,
+    previewRemoveRetakes,
+    previewShortenGaps,
+    previewSpeakerInterview,
+    previewSpeakerMonologue,
+    previewSpeakerPanel,
+    previewSpeakerSolo,
+    reconcileSpeakerSoloOptions,
+    reconcileSpeakerMonologueOptions,
+    reconcileSpeakerInterviewOptions,
+    reconcileSpeakerPanelOptions,
+  } = useHammerWorkspaceShellTranscriptCleanup({
+    identityKey: [
+      launchContext.workpiece_id,
+      props.recordingRevisionId ?? "",
+      transcriptSourceId,
+      structuredTranscriptResetKey,
+      JSON.stringify(mediaRef),
+      JSON.stringify(editableTranscriptSegments.map((segment) => [
+        segment.segment_id,
+        segment.speaker,
+        segment.text,
+        segment.start_sec,
+        segment.end_sec,
+        segment.is_disabled === true,
+      ])),
+    ].join("|"),
+    workspaceId: launchContext.workspace_id,
+    workpieceId: launchContext.workpiece_id,
+    transcriptSegments: editableTranscriptSegments,
+    selectedSegmentIds: transcriptSelectionRange.segmentIds,
+    hasTranscriptSelection,
+    workspaceStructuredTranscript,
+    editableDerivedTextLayers,
+    selectCleanupPass: () => selectPass("transcript_cleanup"),
+    focusTool: () => setFocusOverride("tool-focus"),
+    setTranscriptTimingHint,
+    createCheckpoint: (label) => historyAuthority.createCheckpoint(label),
+    applyHistoryMutation,
+    applyCompositionCleanup: ({ preview, toolId }) => Boolean(applyCompositionMutation({
+      type: "TRANSCRIPT_APPLY_CLEANUP_PREVIEW",
+      label: preview.label,
+      kind: "cleanup_tool",
+      preview,
+      toolId,
+      immediatePersist: true,
+    })),
+    installDerivedLayers: ({ historyEntry, before, after, layerLabel }) => {
+      setEditableDerivedTextLayers(after);
+      derivedLayerHistoryRef.current.set(historyEntry.id, { before, after, layerLabel });
+    },
+    normalizeOutputSelection: (selection, transcript) => normalizeHammerOutputSelectionRef({
+      selection,
+      layers: listHammerDerivedTextLayers(transcript, { includeDiscarded: false }),
+    }),
+    updateOutputSelection: setEditableOutputSelection,
+  });
 
   const canonicalStructuredTranscriptForPersistence = useMemo(() => {
     const base = preserveTranscriptMetadata(
@@ -2842,10 +2852,6 @@ function HammerWorkspaceShellWithContext(
   const captionSourceLabel = selectedOutputLayer
     ? formatOutputLayerLabel(selectedOutputLayer)
     : "Raw transcript";
-  const cleanupPreviewSummary = useMemo(
-    () => (cleanupPreview ? buildPolishResultSummaryFromCleanupPreview(cleanupPreview) : null),
-    [cleanupPreview],
-  );
   const studioRackEnabledModuleCount = useMemo(
     () => Object.values(editableStudioRack.modules).filter((module) => module.is_enabled && !module.is_bypassed).length,
     [editableStudioRack.modules],
@@ -3007,7 +3013,7 @@ function HammerWorkspaceShellWithContext(
       audioPolishHasLocalEditsRef.current = true;
       return base;
     });
-    setCleanupPreview(null);
+    invalidateCleanupPreview();
   }
 
   function setSelectedClipId(clipId: string | null): void {
@@ -3326,53 +3332,20 @@ function HammerWorkspaceShellWithContext(
   }, [launchContext.workspace_id, launchContext.workpiece_id]);
 
   useEffect(() => {
-    if (speakerOptions.length === 0) return;
-    if (speakerOptions.includes(speakerSoloOptions.targetSpeaker)) return;
-    setSpeakerSoloOptions((current) => ({
-      ...current,
-      targetSpeaker: speakerOptions[0] ?? "S1",
-    }));
-  }, [speakerOptions, speakerSoloOptions.targetSpeaker]);
+    reconcileSpeakerSoloOptions(speakerOptions);
+  }, [reconcileSpeakerSoloOptions, speakerOptions, speakerSoloOptions.targetSpeaker]);
 
   useEffect(() => {
-    if (speakerOptions.length === 0) return;
-    if (speakerOptions.includes(speakerMonologueOptions.targetSpeaker)) return;
-    setSpeakerMonologueOptions((current) => ({
-      ...current,
-      targetSpeaker: speakerOptions[0] ?? "S1",
-    }));
-  }, [speakerMonologueOptions.targetSpeaker, speakerOptions]);
+    reconcileSpeakerMonologueOptions(speakerOptions);
+  }, [reconcileSpeakerMonologueOptions, speakerMonologueOptions.targetSpeaker, speakerOptions]);
 
   useEffect(() => {
-    if (speakerOptions.length === 0) return;
-    setSpeakerInterviewOptions((current) => {
-      let nextHost = current.hostSpeaker;
-      let nextRespondent = current.respondentSpeaker;
-      if (!speakerOptions.includes(nextHost)) {
-        nextHost = speakerOptions[0] ?? "S1";
-      }
-      if (!speakerOptions.includes(nextRespondent) || nextRespondent === nextHost) {
-        nextRespondent = speakerOptions.find((speaker) => speaker !== nextHost) ?? nextHost;
-      }
-      if (nextHost === current.hostSpeaker && nextRespondent === current.respondentSpeaker) {
-        return current;
-      }
-      return {
-        ...current,
-        hostSpeaker: nextHost,
-        respondentSpeaker: nextRespondent,
-      };
-    });
-  }, [speakerOptions]);
+    reconcileSpeakerInterviewOptions(speakerOptions);
+  }, [reconcileSpeakerInterviewOptions, speakerOptions]);
 
   useEffect(() => {
-    if (speakerOptions.length === 0) return;
-    if (speakerOptions.includes(speakerPanelOptions.hostSpeaker)) return;
-    setSpeakerPanelOptions((current) => ({
-      ...current,
-      hostSpeaker: speakerOptions[0] ?? "S1",
-    }));
-  }, [speakerOptions, speakerPanelOptions.hostSpeaker]);
+    reconcileSpeakerPanelOptions(speakerOptions);
+  }, [reconcileSpeakerPanelOptions, speakerOptions, speakerPanelOptions.hostSpeaker]);
 
   useHammerWorkspaceShellHistoryController({
     launchContext,
@@ -4327,35 +4300,6 @@ function HammerWorkspaceShellWithContext(
     setFocusOverride("time-focus");
   }
 
-  function tightenTranscriptSelection(): void {
-    if (!hasTranscriptSelection) {
-      setTranscriptTimingHint("Select transcript segments to tighten.");
-      return;
-    }
-
-    setFocusOverride("tool-focus");
-  selectPass("transcript_cleanup");
-    setCleanupReceipt(null);
-    void (async () => {
-      try {
-        const assisted = await requestHammerTranscriptCleanupAssist({
-          workspace_id: launchContext.workspace_id,
-          workpiece_id: launchContext.workpiece_id,
-          segments: editableTranscriptSegments,
-          segment_ids: transcriptSelectionRange.segmentIds,
-        });
-        setCleanupPreview(assisted.preview);
-        setTranscriptTimingHint(null);
-      } catch (error) {
-        setTranscriptTimingHint(
-          error instanceof Error && error.message.trim()
-            ? error.message
-            : "Hammer could not run transcript cleanup assist.",
-        );
-      }
-    })();
-  }
-
   function resetHandledCandidates(kind: HammerCandidateReviewKind): void {
     handledCandidateIdsRef.current[kind] = new Set();
     lastHandledCandidateIdRef.current[kind] = null;
@@ -4394,8 +4338,7 @@ function HammerWorkspaceShellWithContext(
       ));
     }
     // Avoid mixing queue review with one-off preview summaries.
-    setCleanupPreview(null);
-    setCleanupReceipt(null);
+    clearCleanup();
   }
 
   function refreshCandidateQueue(kind: HammerCandidateReviewKind): void {
@@ -4776,123 +4719,6 @@ function HammerWorkspaceShellWithContext(
       setRetakeActiveCandidateIndex(retakeCandidateCards.length - 1);
     }
   }, [retakeActiveCandidateIndex, retakeCandidateCards.length]);
-
-  function applyCleanup(preview: HammerCleanupPreview): void {
-    const toolId = preview.label.toLowerCase().replace(/\s+/g, "-");
-    const summary = buildPolishResultSummaryFromCleanupPreview(preview);
-    historyAuthority.createCheckpoint(`Before ${preview.label}`);
-    const isSpeakerSoloApply = Boolean(preview.metadata?.speakerSolo);
-    const isSpeakerInterviewApply = Boolean(preview.metadata?.speakerInterview);
-    const isSpeakerMonologueApply = Boolean(preview.metadata?.speakerMonologue);
-    const isSpeakerPanelApply = Boolean(preview.metadata?.speakerPanel);
-    if ((isSpeakerSoloApply || isSpeakerInterviewApply || isSpeakerMonologueApply || isSpeakerPanelApply) && workspaceStructuredTranscript) {
-      const nextLayerChanges = editableTranscriptSegments
-        .map((segment) => {
-          const nextSegment = preview.resultSegments.find((item) => item.segment_id === segment.segment_id) ?? null;
-          if (!nextSegment) return null;
-          const newlySuppressed = Boolean(nextSegment.is_disabled === true && segment.is_disabled !== true);
-          const textChanged = nextSegment.text !== segment.text;
-          if (!newlySuppressed && !textChanged) return null;
-          const cleanedText = newlySuppressed ? "" : nextSegment.text;
-          return {
-            segment_id: segment.segment_id,
-            original_text: segment.text,
-            cleaned_text: cleanedText,
-            operations: [{
-              kind: newlySuppressed ? "retake_fragment_removed" as const : "filler_removed" as const,
-              value: segment.text,
-              start: 0,
-              end: segment.text.length,
-            }],
-          };
-        })
-        .filter((change): change is NonNullable<typeof change> => Boolean(change));
-      if (nextLayerChanges.length === 0) {
-        setTranscriptTimingHint(
-          isSpeakerSoloApply
-            ? "Solo Mode found no non-target segments to suppress."
-            : isSpeakerInterviewApply
-            ? "Interview Mode found no respondent changes to apply."
-            : isSpeakerPanelApply
-            ? "Panel Mode found no low-signal cross-talk or backchannels to suppress."
-            : "Monologue Cleanup found no qualifying interruptions or target-speaker cleanup to apply.",
-        );
-        return;
-      }
-
-      const nowIso = new Date().toISOString();
-      const recipeRef = isSpeakerSoloApply
-        ? `speaker_solo:${preview.metadata?.speakerSolo?.targetSpeaker.trim().toLowerCase() || "speaker"}`
-        : isSpeakerInterviewApply
-        ? `speaker_interview:${preview.metadata?.speakerInterview?.hostSpeaker.trim().toLowerCase() || "host"}->${preview.metadata?.speakerInterview?.respondentSpeaker.trim().toLowerCase() || "guest"}`
-        : isSpeakerPanelApply
-        ? `speaker_panel:${preview.metadata?.speakerPanel?.primarySpeakerBias ?? "balanced"}`
-        : `speaker_monologue:${preview.metadata?.speakerMonologue?.targetSpeaker.trim().toLowerCase() || "speaker"}`;
-      const layerLabel = formatOutputLayerLabelFromRecipeRef(recipeRef);
-      const macroKind = isSpeakerSoloApply
-        ? "speaker_solo" as const
-        : isSpeakerInterviewApply
-        ? "speaker_interview" as const
-        : isSpeakerPanelApply
-        ? "speaker_panel" as const
-        : "speaker_monologue" as const;
-      const layer = createHammerDerivedTextLayer({
-        transcriptId: workspaceStructuredTranscript.transcript_id,
-        recipeRef,
-        macroKind,
-        changes: nextLayerChanges,
-        nowIso,
-      });
-      const beforeDerived = cloneHammerDerivedTextLayers(editableDerivedTextLayers);
-      const withLayer = appendHammerDerivedTextLayer(workspaceStructuredTranscript, layer);
-      const withLayerActive = setHammerDerivedTextLayerActive(withLayer, layer.layer_id);
-      const afterDerived = cloneHammerDerivedTextLayers(withLayerActive.derived_text_layers);
-
-      const historyEntry = applyHistoryMutation({
-        label: `Apply ${layerLabel} as derived layer`,
-        kind: "cleanup_tool",
-        affectedSegments: nextLayerChanges.map((change) => change.segment_id),
-        toolId,
-        immediatePersist: true,
-        computeAfter: (before) => ({
-          ...before,
-          transcriptTimingHint: null,
-        }),
-      });
-      if (!historyEntry) return;
-
-      setEditableDerivedTextLayers(afterDerived);
-      derivedLayerHistoryRef.current.set(historyEntry.id, {
-        before: beforeDerived,
-        after: afterDerived,
-        layerLabel,
-      });
-      setEditableOutputSelection((current) => normalizeHammerOutputSelectionRef({
-        selection: current,
-        layers: listHammerDerivedTextLayers(withLayerActive, { includeDiscarded: false }),
-      }));
-      setCleanupReceipt(summary);
-      setTranscriptTimingHint("Applied as a derived transcript layer. Playback of source media is unchanged until a timeline edit or render is committed.");
-      return;
-    }
-
-    const applied = applyCompositionMutation({
-      type: "TRANSCRIPT_APPLY_CLEANUP_PREVIEW",
-      label: preview.label,
-      kind: "cleanup_tool",
-      preview,
-      toolId,
-      immediatePersist: true,
-    });
-    if (applied) {
-      setCleanupReceipt(summary);
-      if (summary.estimatedSecondsSaved > 0) {
-        setTranscriptTimingHint(`Applied ${preview.label}. Playback now follows the shortened timeline (${summary.estimatedSecondsSaved.toFixed(1)}s saved).`);
-      } else {
-        setTranscriptTimingHint(`Applied ${preview.label}. Playback is unchanged because this edit only changed transcript text.`);
-      }
-    }
-  }
 
   function commitVisualAnchorRefinement(args: {
     clipId: string;

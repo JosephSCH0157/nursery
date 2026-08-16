@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "principalFiles": {
-    "src/editor/HammerWorkspaceShell.tsx": { "maxLines": 8156, "maxExplicitAny": 6 },
+    "src/editor/HammerWorkspaceShell.tsx": { "maxLines": 7982, "maxExplicitAny": 6 },
     "src/editor/HammerWorkspaceEditor.tsx": { "maxLines": 5371, "maxExplicitAny": 4 },
     "src/editor/HammerWorkspaceShellToolBay.tsx": { "maxLines": 4020, "maxExplicitAny": 339 }
   },
