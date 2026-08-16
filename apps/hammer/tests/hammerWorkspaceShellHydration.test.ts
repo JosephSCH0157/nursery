@@ -18,7 +18,7 @@ assert.ok(
 );
 assert.ok(
   shell.indexOf("useHammerWorkspaceShellHydration({")
-    < shell.indexOf("setPassStatus((previous) =>"),
+    < shell.indexOf("useHammerWorkspaceShellRouting({"),
   "hydration effects must remain registered before pass normalization",
 );
 assert.ok(

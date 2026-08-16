@@ -204,6 +204,7 @@ import { useHammerWorkspaceShellPreviewRuntime } from "./useHammerWorkspaceShell
 import { useHammerWorkspaceShellReleasePrep } from "./useHammerWorkspaceShellReleasePrep";
 import { useHammerWorkspaceShellVisualEditing } from "./useHammerWorkspaceShellVisualEditing";
 import { useHammerWorkspaceShellHydration } from "./useHammerWorkspaceShellHydration";
+import { useHammerWorkspaceShellRouting } from "./useHammerWorkspaceShellRouting";
 import { applyHammerStudioRackNativePreview } from "./hammerStudioRackNativePreview";
 import {
   buildPreviewBayVM,
@@ -293,9 +294,7 @@ import {
 import { resolvePodcastMasterUiStatus } from "./hammerPodcastMasterStatus";
 import { evaluateHammerReadinessGate } from "./hammerReadinessGate";
 import {
-  canEnterPass,
   deriveHydratedPassStatus,
-  getPassBlockedReason,
   getPassStatus,
   summarizePassStatuses,
   type HammerPassDerivedStatus,
@@ -358,19 +357,15 @@ import {
   editorModeToSourceTab,
   editorModeToToolSelection,
   editorModeToVisualTool,
-  isHammerModeRoutingDebugEnabled,
   isHammerVisualSelectionDebugEnabled,
-  normalizePassStatus,
   resolveEditorModeFromPass,
   resolveEditorModeFromSourceTab,
   resolveInitialPassId,
   resolvePassMeta,
-  resolveRepresentativePassForEditorMode,
   type HammerEditorMode,
   type HammerSourceTabId,
   type HammerVideoPanelRoute,
   type HammerVisualLutPreset,
-  type HammerVisualToolRackId,
 } from "./hammerWorkspaceShellCore";
 import {
   normalizeVisualPreviewSettings,
@@ -1054,6 +1049,8 @@ function HammerWorkspaceShellWithContext(
     origin: "system";
     clearTranscriptTextRange: true;
   }) => void)>(null);
+  const passSelectorContextRef = useRef<HammerPassSelectorContext | null>(null);
+  const currentPassSelectorResultRef = useRef<HammerPassSelectorResult | null>(null);
   const playbackOwnerIdRef = useRef(`hammer-preview-${Math.random().toString(36).slice(2, 10)}`);
   const handledCandidateIdsRef = useRef<{ fillers: Set<string>; retakes: Set<string> }>({
     fillers: new Set(),
@@ -1136,89 +1133,26 @@ function HammerWorkspaceShellWithContext(
     applyVisualPreviewSettings: applyHydratedVisualPreviewSettings,
   });
 
-  useEffect(() => {
-    setPassStatus((previous) => {
-      const normalized = normalizePassStatus(previous, currentPass);
-      return normalized;
-    });
-  }, [currentPass]);
-
-  const selectEditorMode = useCallback((nextMode: HammerEditorMode, options?: {
-    preferredPass?: HammerPassId;
-    focusOverride?: HammerWorkspaceFocusOverride;
-  }) => {
-    setEditorMode(nextMode);
-    const targetPass = options?.preferredPass ?? resolveRepresentativePassForEditorMode(nextMode);
-    if (targetPass !== currentPass) {
-      setCurrentPass(targetPass);
-      setPassStatus((previous) => {
-        const normalized = normalizePassStatus(previous, targetPass);
-        if (normalized[targetPass] === "not_started") {
-          normalized[targetPass] = "in_progress";
-        }
-        return normalized;
-      });
-    }
-    if (options?.focusOverride) {
-      setFocusOverride(options.focusOverride);
-    }
-  }, [currentPass]);
-
-  function selectPass(passId: HammerPassId): void {
-    const nextPassResult = getPassStatus(passId, passSelectorContext);
-    if (!canEnterPass(passId, passSelectorContext)) {
-      const blockedReason = getPassBlockedReason(passId, passSelectorContext);
-      setTranscriptTimingHint(
-        blockedReason
-          ? `${resolvePassMeta(passId).label} blocked: ${nextPassResult.humanLabel}.`
-          : `${resolvePassMeta(passId).label} is currently blocked.`,
-      );
-      return;
-    }
-    const nextMeta = resolvePassMeta(passId);
-    if (isHammerModeRoutingDebugEnabled()) {
-      console.debug("[HammerModeRouting] selectPass", {
-        passId,
-        label: nextMeta.label,
-        sourceTab: nextMeta.sourceTab,
-        toolId: nextMeta.toolId,
-      });
-    }
-    setCurrentPass(passId);
-    setEditorMode(resolveEditorModeFromPass(passId));
-    setPassStatus((previous) => {
-      const normalized = normalizePassStatus(previous, passId);
-      if (normalized[passId] === "not_started") {
-        normalized[passId] = "in_progress";
-      }
-      return normalized;
-    });
-    setFocusOverride("tool-focus");
-  }
-
-  function selectVisualTool(nextTool: HammerVisualToolRackId): void {
-    if (nextTool === "polish") {
-      selectEditorMode("images", { preferredPass: "visual_finishing", focusOverride: "tool-focus" });
-      return;
-    }
-    if (nextTool === "images") {
-      selectEditorMode("images", { preferredPass: "image_placement", focusOverride: "tool-focus" });
-      return;
-    }
-    selectEditorMode("broll", { preferredPass: "image_animation", focusOverride: "tool-focus" });
-  }
-
-  useEffect(() => {
-    if (!isHammerModeRoutingDebugEnabled()) return;
-    console.debug("[HammerModeRouting] state", {
-      editorMode,
-      currentPass,
-      activeTool,
-      activeVisualTool,
-      selectedSourceTab,
-      videoPanelRoute,
-    });
-  }, [activeTool, activeVisualTool, currentPass, editorMode, selectedSourceTab, videoPanelRoute]);
+  const {
+    selectEditorMode,
+    selectPass,
+    selectVisualTool,
+    markCurrentPassComplete,
+  } = useHammerWorkspaceShellRouting({
+    currentPass,
+    editorMode,
+    activeTool,
+    activeVisualTool,
+    selectedSourceTab,
+    videoPanelRoute,
+    passSelectorContextRef,
+    currentPassSelectorResultRef,
+    setCurrentPass,
+    setPassStatus,
+    setEditorMode,
+    setFocusOverride,
+    setTranscriptTimingHint,
+  });
 
   function isTextEditingTarget(target: EventTarget | null): boolean {
     if (!target) return false;
@@ -1229,30 +1163,6 @@ function HammerWorkspaceShellWithContext(
     const role = target.getAttribute("role")?.toLowerCase() ?? "";
     if (role === "textbox" || role === "combobox") return true;
     return false;
-  }
-
-  function markCurrentPassComplete(): void {
-    if (currentPassSelectorResult.isBlocking || currentPassSelectorResult.isDegraded) {
-      setTranscriptTimingHint(
-        `${currentPassMeta.label} cannot be marked complete: ${currentPassSelectorResult.humanLabel}.`,
-      );
-      return;
-    }
-    setPassStatus((previous) => {
-      const normalized = normalizePassStatus(previous, currentPass);
-      normalized[currentPass] = "completed";
-      const currentIndex = PASS_ORDER.findIndex((pass) => pass.id === currentPass);
-      const nextPass = currentIndex >= 0 ? PASS_ORDER[currentIndex + 1] : null;
-      if (nextPass && normalized[nextPass.id] === "not_started") {
-        normalized[nextPass.id] = "in_progress";
-      }
-      return normalized;
-    });
-    const currentIndex = PASS_ORDER.findIndex((pass) => pass.id === currentPass);
-    const nextPass = currentIndex >= 0 ? PASS_ORDER[currentIndex + 1] : null;
-    if (nextPass) {
-      selectPass(nextPass.id);
-    }
   }
 
   const pauseAuxiliaryMediaPlayback = useCallback((): void => {
@@ -7019,6 +6929,7 @@ function HammerWorkspaceShellWithContext(
     selectedImagePlacement?.id,
     selectedImagePlacementTransform,
   ]);
+  passSelectorContextRef.current = passSelectorContext;
   useEffect(() => {
     const placementId = selectedImagePlacement?.id ?? null;
     if (!placementId || automaticallyPlacedImageIdsRef.current.has(placementId)) return;
@@ -7156,6 +7067,7 @@ function HammerWorkspaceShellWithContext(
     selectPass,
   ]);
   const currentPassSelectorResult = passSelectorResults.get(currentPass) ?? getPassStatus(currentPass, passSelectorContext);
+  currentPassSelectorResultRef.current = currentPassSelectorResult;
 const readinessStatusLabel = readinessVerdict.status === "ready"
     ? "Ready for export"
     : readinessVerdict.status === "blocked"
