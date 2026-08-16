@@ -44,6 +44,7 @@ export default function VisualTimelineDock(props: VisualTimelineDockProps) {
     <section className="hammer-visual-timeline-dock" aria-label="Visual timeline dock" ref={dockRef}>
       <VisualTimelineLane
         label="Visuals"
+        countLabel={`${props.clips.length} composition clips`}
         clips={props.clips}
         durationSec={props.durationSec}
         playheadSec={props.playheadSec}

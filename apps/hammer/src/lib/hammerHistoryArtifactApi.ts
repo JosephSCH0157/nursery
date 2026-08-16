@@ -1,6 +1,7 @@
 import type { HammerHistoryDocumentV1 } from "../editor/hammerWorkspaceHistory";
 import { HAMMER_RUNTIME_WRITTEN_BY } from "../prep/hammerPrep";
 import { tongsFetch } from "./tongsFetch";
+import { parseTongsReadFileResponse } from "./tongsReadFileResponse";
 
 export const HAMMER_HISTORY_ARTIFACT_PATH = "hammer/history.v1.json";
 export const HAMMER_HISTORY_PRESENCE_PATH = "hammer/history.present.v1.json";
@@ -12,7 +13,7 @@ type TongsFetcher = typeof tongsFetch;
 
 type HammerHistoryResult<T> =
   | { ok: true; status: number; exists: boolean; data: T | null }
-  | { ok: false; status: number; error: string };
+  | { ok: false; status: number; classification?: "unauthorized" | "malformed" | "rejected" | "unexpected" | "schema_invalid"; error: string };
 
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -31,13 +32,34 @@ function toErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-function isMissingFileResponse(status: number, payload: unknown): boolean {
-  if (status !== 404) return false;
-  const root = readJsonObject(payload);
-  // Some environments return a plain 404 payload for absent optional artifacts.
-  // For history reads, any 404 should be treated as "missing" instead of "error".
-  if (root == null) return true;
-  return root?.ok === true && root?.exists === false;
+function isHistoryDocument(value: unknown): value is HammerHistoryDocumentV1 {
+  const root = readJsonObject(value);
+  return Boolean(
+    root
+    && root.version === 1
+    && readString(root.workpieceId)
+    && readString(root.sessionId)
+    && readString(root.baseRevisionId)
+    && Array.isArray(root.entries)
+    && Array.isArray(root.undoStack)
+    && Array.isArray(root.redoStack),
+  );
+}
+
+function decodeHistoryRead<T>(response: Response, payload: unknown): HammerHistoryResult<T> {
+  const parsed = parseTongsReadFileResponse<T>({
+    status: response.status,
+    responseOk: response.ok,
+    payload,
+  });
+  if (parsed.kind === "absent") return { ok: true, status: response.status, exists: false, data: null };
+  if (parsed.kind === "failure") {
+    return { ok: false, status: response.status, classification: parsed.classification, error: parsed.message };
+  }
+  if (!isHistoryDocument(parsed.data)) {
+    return { ok: false, status: response.status, classification: "schema_invalid", error: "Hammer history artifact failed schema validation." };
+  }
+  return { ok: true, status: response.status, exists: true, data: parsed.data as T };
 }
 
 export async function loadHammerHistoryDocument(
@@ -62,32 +84,7 @@ export async function loadHammerHistoryDocument(
   }
 
   const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    if (isMissingFileResponse(response.status, payload)) {
-      return {
-        ok: true,
-        status: response.status,
-        exists: false,
-        data: null,
-      };
-    }
-    const row = readJsonObject(payload);
-    return {
-      ok: false,
-      status: response.status,
-      error: readString(readJsonObject(row?.error)?.message) ?? "Hammer could not load persistent history.",
-    };
-  }
-
-  const root = readJsonObject(payload);
-  const exists = root?.exists === true;
-  const data = (root?.data ?? null) as HammerHistoryDocumentV1 | null;
-  return {
-    ok: true,
-    status: response.status,
-    exists,
-    data: exists ? data : null,
-  };
+  return decodeHistoryRead<HammerHistoryDocumentV1>(response, payload);
 }
 
 export async function loadHammerRevisionHistoryDocument(args: {
@@ -114,32 +111,7 @@ export async function loadHammerRevisionHistoryDocument(args: {
   }
 
   const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    if (isMissingFileResponse(response.status, payload)) {
-      return {
-        ok: true,
-        status: response.status,
-        exists: false,
-        data: null,
-      };
-    }
-    const row = readJsonObject(payload);
-    return {
-      ok: false,
-      status: response.status,
-      error: readString(readJsonObject(row?.error)?.message) ?? "Hammer could not load revision history.",
-    };
-  }
-
-  const root = readJsonObject(payload);
-  const exists = root?.exists === true;
-  const data = (root?.data ?? null) as HammerHistoryDocumentV1 | null;
-  return {
-    ok: true,
-    status: response.status,
-    exists,
-    data: exists ? data : null,
-  };
+  return decodeHistoryRead<HammerHistoryDocumentV1>(response, payload);
 }
 
 export async function loadHammerHistoryPresence(
@@ -164,32 +136,18 @@ export async function loadHammerHistoryPresence(
   }
 
   const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    if (isMissingFileResponse(response.status, payload)) {
-      return {
-        ok: true,
-        status: response.status,
-        exists: false,
-        data: null,
-      };
-    }
-    const row = readJsonObject(payload);
-    return {
-      ok: false,
-      status: response.status,
-      error: readString(readJsonObject(row?.error)?.message) ?? "Hammer could not verify persistent history presence.",
-    };
-  }
-
-  const root = readJsonObject(payload);
-  const exists = root?.exists === true;
-  const data = (root?.data ?? null) as { version: number; workpieceId?: string; writtenAt?: string } | null;
-  return {
-    ok: true,
+  const parsed = parseTongsReadFileResponse<{ version: number; workpieceId?: string; writtenAt?: string }>({
     status: response.status,
-    exists,
-    data: exists ? data : null,
-  };
+    responseOk: response.ok,
+    payload,
+  });
+  if (parsed.kind === "absent") return { ok: true, status: response.status, exists: false, data: null };
+  if (parsed.kind === "failure") return { ok: false, status: response.status, classification: parsed.classification, error: parsed.message };
+  const row = readJsonObject(parsed.data);
+  if (!row || row.version !== 1) {
+    return { ok: false, status: response.status, classification: "schema_invalid", error: "Hammer history presence artifact failed schema validation." };
+  }
+  return { ok: true, status: response.status, exists: true, data: parsed.data };
 }
 
 export async function saveHammerHistoryDocument(args: {

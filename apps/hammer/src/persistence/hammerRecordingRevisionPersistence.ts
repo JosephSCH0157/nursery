@@ -15,6 +15,7 @@ import type { HammerCompositionTransactionV2 } from "../composition/hammerCompos
 import type { HammerMediaProvenanceManifest } from "../composition/hammerMediaProvenance";
 import type { HammerRenderJobV1 } from "../composition/hammerRenderJobV1";
 import type { HammerReleasePacketV2 } from "../composition/hammerReleasePacketV2";
+import { parseTongsReadFileResponse } from "../lib/tongsReadFileResponse";
 
 type JsonObject = Record<string, unknown>;
 
@@ -132,12 +133,6 @@ function readErrorInfo(payload: unknown, fallback: string): { message: string; c
   };
 }
 
-function isMissingFileResponse(status: number, payload: unknown): boolean {
-  if (status !== 404) return false;
-  const root = readJsonObject(payload);
-  return root?.ok === true && root?.exists === false;
-}
-
 async function readWorkpieceJsonFile<T>(
   workpieceId: string,
   path: string,
@@ -154,17 +149,10 @@ async function readWorkpieceJsonFile<T>(
   }
 
   const payload = await readJsonBody(response);
-  if (!response.ok) {
-    if (isMissingFileResponse(response.status, payload)) {
-      return { ok: true, exists: false, data: null };
-    }
-    return { ok: false, status: response.status, error: readErrorMessage(payload, "Failed to read artifact.") };
-  }
-
-  const root = readJsonObject(payload);
-  const exists = root?.exists === true;
-  const data = (root?.data ?? null) as T | null;
-  return { ok: true, exists, data: exists ? data : null };
+  const parsed = parseTongsReadFileResponse<T>({ status: response.status, responseOk: response.ok, payload });
+  if (parsed.kind === "absent") return { ok: true, exists: false, data: null };
+  if (parsed.kind === "failure") return { ok: false, status: response.status, error: parsed.message };
+  return { ok: true, exists: true, data: parsed.data };
 }
 
 export type OpenHammerRecordingSessionResult = {

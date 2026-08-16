@@ -33,7 +33,7 @@ test("stored upload, external fetch, and provider output resume without repeated
     const path=join(dir,"clip.mp4");
     await run("ffmpeg",["-v","error","-f","lavfi","-i","color=c=blue:s=320x180:d=1","-pix_fmt","yuv420p","-y",path]);
     const bytes=new Uint8Array(await readFile(path));
-    let providerCalls=0;let recorded=0;let assetCommits=0;let candidateCommits=0;let begins=0;let paidProviderRequestId=null;
+    let providerCalls=0;let recorded=0;let assetCommits=0;let candidateCommits=0;let begins=0;let paidProviderRequestId=null;const assetCommitArgs=[];
     const authority={schema(){return{async rpc(name){
       if(name==="assert_current_broll_prompt")return{data:{disposition:"verified",prompt_revision:{id:"55555555-5555-4555-8555-555555555555",revision:1,content_hash:"b".repeat(64),final_prompt:"A blue motion clip"}},error:null};
       if(name==="begin_broll_operation"){begins+=1;return{data:{disposition:"replay",operation:begins===3?{state:"provider_or_upload_completed",provider:"runway",provider_task_id:"runway-task-replayed-1"}:{state:"pending"}},error:null};}
@@ -59,7 +59,7 @@ test("stored upload, external fetch, and provider output resume without repeated
         return {
           async rpc(name,args) {
             if (name === "create_paid_media_authorization_quote") return { data: { quote: { id: "quote-1", authorized_customer_ceiling: 1000 } }, error: null };
-            if (name === "commit_broll_operation_asset") { assetCommits += 1; return { data: { disposition: "video_asset_verified" }, error: null }; }
+            if (name === "commit_broll_operation_asset") { assetCommits += 1; assetCommitArgs.push(args); return { data: { disposition: "video_asset_verified" }, error: null }; }
             if (name === "record_paid_media_provider_result") { paidProviderRequestId=args.p_provider_request_id; return { data: { operation: { id: "paid-op-1", state: "provider_completed" }, attempt: { id: "attempt-1", state: "completed" } }, error: null }; }
             return { data: { disposition: "ok" }, error: null };
           },
@@ -81,7 +81,7 @@ test("stored upload, external fetch, and provider output resume without repeated
       },{userAccessToken:"token"});
       assert.equal(result.disposition,"committed");
     }
-    assert.equal(providerCalls,0);assert.equal(recorded,2);assert.equal(assetCommits,3);assert.equal(candidateCommits,3);assert.equal(paidProviderRequestId,"runway-task-replayed-1");
+    assert.equal(providerCalls,0);assert.equal(recorded,2);assert.equal(assetCommits,3);assert.equal(candidateCommits,3);assert.equal(paidProviderRequestId,"runway-task-replayed-1");for(const args of assetCommitArgs){assert.match(args.p_path,/\/video$/);assert.equal(args.p_storage_key,`workpieces/22222222-2222-4222-8222-222222222222/${args.p_path}`);}
   }finally{await rm(dir,{recursive:true,force:true});}
 });
 

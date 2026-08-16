@@ -149,6 +149,7 @@ import {
   type HammerPrepSource,
 } from "../prep/hammerPrep";
 import { decideHammerTranscriptHydrationSource } from "./hammerTranscriptSelection";
+import { reconcileTranscriptReuseVisualPlacements } from "./hammerPrepReusePolicy";
 import {
   findRecoveredAnvilSnapshotByWorkpieceId,
 } from "../transcript/hammerAnvilSnapshotRecovery";
@@ -580,6 +581,9 @@ export default function HammerWorkspaceEditor(
     persistenceMode === "canonical" && persistenceTarget ? "resolving" : "ready",
   );
   const [hydrationReady, setHydrationReady] = useState(persistenceMode !== "canonical");
+  const [transcriptDiscoveryStatus, setTranscriptDiscoveryStatus] = useState<"pending" | "complete" | "failed">(
+    persistenceMode === "canonical" ? "pending" : "complete",
+  );
   const [hasCanonicalBasis, setHasCanonicalBasis] = useState(Boolean(incomingLaunchContext));
   const [reopenPersistenceSource, setReopenPersistenceSource] = useState<
     "persistence" | "launch" | "bootstrap" | "transitional" | "none" | null
@@ -1438,6 +1442,7 @@ export default function HammerWorkspaceEditor(
     setPrepAiFallbackRequested(false);
     setWorkspaceSnapshot(null);
     setLoadedPersistenceSnapshot(null);
+    setTranscriptDiscoveryStatus(persistenceMode === "canonical" ? "pending" : "complete");
     setActiveCanonicalRecording(null);
     setActiveRevision(null);
     setPrepTranscriptJobId(null);
@@ -1531,11 +1536,6 @@ export default function HammerWorkspaceEditor(
             opened_at: openedAtRef.current,
           },
         };
-        void writeHammerIngestDiagnostics({
-          workpieceId: persistenceTarget.workpieceId,
-          diagnostic: ingestDiagnosticRef.current,
-          correlationId: ingestCorrelationIdRef.current,
-        });
 
         let nextLaunchContext = incomingLaunchContext;
         let nextHasCanonicalBasis = Boolean(nextLaunchContext);
@@ -1565,11 +1565,6 @@ export default function HammerWorkspaceEditor(
               session_open_status: sessionResult.status,
               session_open_message: sessionResult.error,
             };
-            void writeHammerIngestDiagnostics({
-              workpieceId: persistenceTarget.workpieceId,
-              diagnostic: ingestDiagnosticRef.current,
-              correlationId: ingestCorrelationIdRef.current,
-            });
           }
           return {
             reloadOutcome: "success",
@@ -1603,7 +1598,17 @@ export default function HammerWorkspaceEditor(
             loadHammerPersistenceSnapshot(persistenceTarget),
           ]);
           if (!revisionArtifactsResult.ok) {
-            throw new Error(`Canonical revision artifact hydration failed: ${revisionArtifactsResult.error}`);
+            return {
+              reloadOutcome: "failure",
+              effectiveLaunchContext: nextLaunchContext,
+              hasCanonicalBasis: false,
+              reopenPersistenceSource: nextReopenPersistenceSource,
+              loadedPersistenceSnapshot: null,
+              activeCanonicalRecording: nextActiveCanonicalRecording,
+              activeRevision: nextActiveRevision,
+              prepFailureMessage: `Canonical revision artifact hydration failed: ${revisionArtifactsResult.error}`,
+              prepFailureKind: "ai_failed",
+            };
           }
 
           const canonicalTranscript = baselineResult.ok ? baselineResult.data.structured_transcript : null;
@@ -1981,6 +1986,7 @@ export default function HammerWorkspaceEditor(
           setPrepState(createHammerPrepState("prep_failed", null, result.prepFailureMessage));
         }
         setPrepFailureKind(result.prepFailureKind);
+        setTranscriptDiscoveryStatus(result.prepFailureMessage ? "failed" : "complete");
         effectiveLaunchContextRef.current = result.effectiveLaunchContext;
         setEffectiveLaunchContext(result.effectiveLaunchContext);
         applyHostLoopState(resolveHammerReloadSuccess(hostLoopStateRef.current));
@@ -2017,6 +2023,7 @@ export default function HammerWorkspaceEditor(
         applyHostLoopState(resolveHammerReloadFailure(hostLoopStateRef.current));
         setHasCanonicalBasis(nextHasCanonicalBasis);
         setReopenPersistenceSource(nextLaunchContext ? "bootstrap" : "none");
+        setTranscriptDiscoveryStatus("failed");
         if (ingestDiagnosticRef.current && persistenceTarget) {
           ingestDiagnosticRef.current.final_status = "blocked";
           ingestDiagnosticRef.current.timestamp = new Date().toISOString();
@@ -2046,6 +2053,7 @@ export default function HammerWorkspaceEditor(
     persistenceTarget,
     reloadRequestNonce,
     targetKey,
+    transcriptDiscoveryStatus,
   ]);
 
   const canPersistCanonicalState = persistenceMode === "canonical"
@@ -2577,6 +2585,7 @@ export default function HammerWorkspaceEditor(
     if (persistenceMode !== "canonical" || !persistenceTarget || !hydrationReady || !canRunTongsBootEffects) {
       return;
     }
+    if (transcriptDiscoveryStatus !== "complete") return;
     if (!prepJobHydrationReady) {
       return;
     }
@@ -2741,12 +2750,15 @@ export default function HammerWorkspaceEditor(
         let finalSnapshot: HammerPersistenceSnapshot | null = loadedPersistenceSnapshot;
         try {
           const visualsSpan = run.span("visual_placements:ensure");
-          let nextSnapshot = await ensureVisualPlacements({
-            launchContext: reuseLaunchContext,
-            transcriptSourceId: reusableTranscript.transcript_id,
-            transcriptSegments: reusableTranscriptSegments,
-            currentSnapshot: loadedPersistenceSnapshot,
-            logRun: run,
+          let nextSnapshot = await reconcileTranscriptReuseVisualPlacements({
+            snapshot: loadedPersistenceSnapshot,
+            ensure: () => ensureVisualPlacements({
+              launchContext: reuseLaunchContext,
+              transcriptSourceId: reusableTranscript.transcript_id,
+              transcriptSegments: reusableTranscriptSegments,
+              currentSnapshot: loadedPersistenceSnapshot,
+              logRun: run,
+            }),
           });
           visualsSpan.end({ ok: Boolean(nextSnapshot) });
           if (!isPrepExecutionActive(executionId)) return;
@@ -2811,11 +2823,6 @@ export default function HammerWorkspaceEditor(
               audio_polish_status: audioStatus,
               visual_placements_status: visualStatus,
             };
-            void writeHammerIngestDiagnostics({
-              workpieceId: persistenceTarget.workpieceId,
-              diagnostic: ingestDiagnosticRef.current,
-              correlationId: ingestCorrelationIdRef.current,
-            });
           }
           run.end({
             outcome,
@@ -3346,9 +3353,9 @@ export default function HammerWorkspaceEditor(
 
         setPrepState(createHammerPrepState("preparing", "transcribing_audio"));
         logTranscriptStage("job:create:start");
-        if (!persistenceTarget || !currentRevision || !currentCanonicalRecording) {
-          throw new Error("Hammer transcript jobs require a canonical persistence target.");
-        }
+        if (!persistenceTarget) throw new Error("Hammer transcript jobs require a persistence target.");
+        if (!currentCanonicalRecording) throw new Error("Hammer transcript jobs require a canonical recording identity.");
+        if (!currentRevision) throw new Error("Hammer transcript jobs require an active revision identity.");
         if (prepSource.local_root_abs) {
           throw new Error("Transcript jobs require a canonical workpiece file path (local media is not supported).");
         }

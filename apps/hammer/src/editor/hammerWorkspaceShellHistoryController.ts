@@ -17,6 +17,8 @@ import {
   createHammerHistoryDocument,
   hashEditorState,
   normalizeHammerHistoryDocument,
+  verifyHammerHistoryAgainstCanonicalHead,
+  HammerHistoryVerificationError,
   cloneEditorState,
   type HammerEditorStateSerializable,
   type HammerHistoryController,
@@ -270,44 +272,17 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
 
       let replayBaselineState = baselineState;
       if (loaded.baseRevisionId !== baseRevisionId) {
-        if (args.editorialAuthorityGraph) {
-          args.setHistoryStatus("History base revision mismatch detected. Opened baseline without replay.");
-          return;
-        }
-
-        const legacyNowIso = loaded.createdAt || loaded.updatedAt;
-        const legacyAuthorityGraph = legacyNowIso
-          ? projectEditorialAuthorityGraphFromEditPlan({
-            editPlan: baselineEditPlan,
-            workspaceId: args.launchContext.workspace_id,
-            workpieceId: args.launchContext.workpiece_id,
-            sessionId: args.launchContext.session_id ?? baselineEditPlan.session_id ?? `${args.launchContext.workpiece_id}:session`,
-            nowIso: legacyNowIso,
-          })
-          : null;
-        if (legacyAuthorityGraph && legacyNowIso) {
-          const legacyBaselineState = args.toEditorState({
-            segments: synced.segments,
-            visualPlacements: args.visualPlacements ?? null,
-            visualTimeline: protectedTimeline.timeline,
-            audioEdit: args.audioEdit ?? null,
-            studioRack: createDefaultHammerStudioRackState(),
-            editorialAuthorityGraph: legacyAuthorityGraph,
-            outputSelection: baselineOutputSelection,
-            selectedSegmentId: synced.selectedSegmentId,
-            playheadSec: Math.max(0, Math.min(args.playheadSec, resolveTranscriptDurationSec(synced.segments))),
-            transcriptTimingHint: null,
-          });
-          const legacyBaseRevisionId = hashEditorState(legacyBaselineState);
-          if (loaded.baseRevisionId === legacyBaseRevisionId) {
-            replayBaselineState = legacyBaselineState;
-            args.historyBaselineStateRef.current = cloneEditorState(legacyBaselineState);
-          } else {
-            args.setHistoryStatus("History base revision mismatch detected. Opened baseline without replay.");
-            return;
-          }
-        } else {
-          args.setHistoryStatus("History base revision mismatch detected. Opened baseline without replay.");
+        try {
+          replayBaselineState = verifyHammerHistoryAgainstCanonicalHead({
+            document: loaded,
+            canonicalHead: baselineState,
+          }).baseline;
+          args.historyBaselineStateRef.current = cloneEditorState(replayBaselineState);
+        } catch (error) {
+          const code = error instanceof HammerHistoryVerificationError
+            ? error.code
+            : "history_current_head_mismatch";
+          args.setHistoryStatus(`History verification failed (${code}). Canonical history was not installed.`);
           return;
         }
       }

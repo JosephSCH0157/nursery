@@ -57,6 +57,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "pnpm --filter @forge/shared build && tsc -p tsconfig.json --noEmit",
     "lint": "eslint .",
+    "test:editorial-authority": "tsc -p tsconfig.json && node --test tests/hammer-editorial-authority-commit.test.mjs",
     "pretest": "pnpm --filter @forge/shared build",
     "dev:commit-api": "tsc -p tsconfig.json && node ./dev/commit-api-server.mjs",
     "migrate:cloud-role-roots": "tsc -p tsconfig.json && node ./dev/migrate-cloud-role-roots.mjs",

@@ -11,6 +11,7 @@ export * from "./ai-usage-taxonomy.js";
 export * from "./hammer-orchestration-contract.js";
 export * from "./hammer-structured-transcript-contract.js";
 export * from "./hammer-visual-placements-contract.js";
+export * from "./hammer-editorial-authority-commit.js";
 export * from "./db.types.js";
 export * from "./storage/storage-contract.js";
 export * from "./storage/cloud-prefix.js";

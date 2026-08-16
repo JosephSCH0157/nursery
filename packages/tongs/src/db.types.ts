@@ -3932,6 +3932,9 @@ export type Database = {
           edit_plan_artifact_path: string | null
           edit_plan_signature: string | null
           editor_session_path: string | null
+          editorial_authority_fingerprint: string | null
+          editorial_authority_path: string | null
+          editorial_authority_revision: number
           last_macro_run_ref: string | null
           last_opened_at: string
           macro_recipe_ref: string | null
@@ -3955,6 +3958,9 @@ export type Database = {
           edit_plan_artifact_path?: string | null
           edit_plan_signature?: string | null
           editor_session_path?: string | null
+          editorial_authority_fingerprint?: string | null
+          editorial_authority_path?: string | null
+          editorial_authority_revision?: number
           last_macro_run_ref?: string | null
           last_opened_at?: string
           macro_recipe_ref?: string | null
@@ -3978,6 +3984,9 @@ export type Database = {
           edit_plan_artifact_path?: string | null
           edit_plan_signature?: string | null
           editor_session_path?: string | null
+          editorial_authority_fingerprint?: string | null
+          editorial_authority_path?: string | null
+          editorial_authority_revision?: number
           last_macro_run_ref?: string | null
           last_opened_at?: string
           macro_recipe_ref?: string | null
@@ -12302,6 +12311,20 @@ export type Database = {
       }
     }
     Functions: {
+      acknowledge_hammer_editorial_authority: {
+        Args: {
+          p_canonical_recording_id: string
+          p_expected_authority_path: string | null
+          p_expected_authority_revision: number
+          p_expected_revision_updated_at: string
+          p_fingerprint: string
+          p_path: string
+          p_revision_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       _ai_credit_active_holds: { Args: { p_user_id: string }; Returns: number }
       _ai_pricing_ceil_fraction: {
         Args: { p_denominator: number; p_numerator: number }

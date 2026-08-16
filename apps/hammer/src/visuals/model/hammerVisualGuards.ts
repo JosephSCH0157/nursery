@@ -154,6 +154,22 @@ export function normalizeAnchorHint(
   };
 }
 
+function deepEqualJson(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (Array.isArray(left) || Array.isArray(right)) {
+    return Array.isArray(left) && Array.isArray(right)
+      && left.length === right.length
+      && left.every((value, index) => deepEqualJson(value, right[index]));
+  }
+  if (!left || !right || typeof left !== "object" || typeof right !== "object") return false;
+  const leftRow = left as Record<string, unknown>;
+  const rightRow = right as Record<string, unknown>;
+  const leftKeys = Object.keys(leftRow).sort();
+  const rightKeys = Object.keys(rightRow).sort();
+  return leftKeys.length === rightKeys.length
+    && leftKeys.every((key, index) => key === rightKeys[index] && deepEqualJson(leftRow[key], rightRow[key]));
+}
+
 export function normalizeAssetRoles(value: unknown, fallback: HammerVisualAssetRole[] = ["timeline_visual"]): HammerVisualAssetRole[] {
   const roles = Array.isArray(value)
     ? value.filter((role): role is HammerVisualAssetRole => VALID_ASSET_ROLES.has(role as HammerVisualAssetRole))
@@ -289,7 +305,7 @@ export function assertValidTimelineState(
       `Visual clip ${clip.clip_id} anchor_hint is invalid.`,
     );
     const normalizedSemanticAnchor = normalizeSemanticAnchor(clip.semantic_anchor);
-    assertCondition(JSON.stringify(normalizedSemanticAnchor) === JSON.stringify(clip.semantic_anchor), `Visual clip ${clip.clip_id} semantic_anchor is invalid.`);
+    assertCondition(deepEqualJson(normalizedSemanticAnchor, clip.semantic_anchor), `Visual clip ${clip.clip_id} semantic_anchor is invalid.`);
     if (clip.semantic_anchor.status === "anchored") {
       assertCondition(clip.semantic_anchor.transcript.resolution_state === "resolved", `Anchored visual clip ${clip.clip_id} requires resolved transcript evidence.`);
       assertCondition(Boolean(clip.semantic_anchor.resolver_version), `Anchored visual clip ${clip.clip_id} requires resolver provenance.`);

@@ -366,6 +366,105 @@ export function hashEditorState(state: HammerEditorStateSerializable): string {
   return `hammer-state:${stableHashToken(payload)}`;
 }
 
+export type HammerHistoryVerificationFailureCode =
+  | "history_incomplete_entry_sequence"
+  | "history_bad_inverse_patch"
+  | "history_declared_base_mismatch"
+  | "history_current_head_mismatch";
+
+export class HammerHistoryVerificationError extends Error {
+  readonly code: HammerHistoryVerificationFailureCode;
+
+  constructor(code: HammerHistoryVerificationFailureCode, message: string, cause?: unknown) {
+    super(message, cause === undefined ? undefined : { cause });
+    this.name = "HammerHistoryVerificationError";
+    this.code = code;
+  }
+}
+
+/**
+ * Verifies a persisted active ledger against the exact canonical head. This is
+ * deliberately not a recovery heuristic: every active entry must participate,
+ * inverse replay must produce the declared base, and forward replay must return
+ * to the supplied canonical head.
+ */
+export function verifyHammerHistoryAgainstCanonicalHead(args: {
+  document: HammerHistoryDocumentV1;
+  canonicalHead: HammerEditorStateSerializable;
+}): { baseline: HammerEditorStateSerializable; replayedHead: HammerEditorStateSerializable } {
+  const entriesById = new Map(args.document.entries.map((entry) => [entry.id, entry]));
+  const activeEntries = args.document.undoStack.map((entryId, index) => {
+    const entry = entriesById.get(entryId);
+    if (!entry) {
+      throw new HammerHistoryVerificationError(
+        "history_incomplete_entry_sequence",
+        `Active history entry ${entryId} is missing.`,
+      );
+    }
+    const expectedParent = index === 0 ? null : args.document.undoStack[index - 1];
+    if (entry.parentEntryId !== expectedParent) {
+      throw new HammerHistoryVerificationError(
+        "history_incomplete_entry_sequence",
+        `Active history entry ${entryId} does not follow the declared sequence.`,
+      );
+    }
+    return entry;
+  });
+  if ((activeEntries.at(-1)?.id ?? null) !== args.document.headEntryId) {
+    throw new HammerHistoryVerificationError(
+      "history_incomplete_entry_sequence",
+      "The declared history head does not match the active entry sequence.",
+    );
+  }
+  const declaredHeadHash = activeEntries.at(-1)?.resultStateHash;
+  if (declaredHeadHash && declaredHeadHash !== hashEditorState(args.canonicalHead)) {
+    throw new HammerHistoryVerificationError(
+      "history_current_head_mismatch",
+      "The canonical head does not match the ledger's declared result state.",
+    );
+  }
+
+  let baseline = cloneEditorState(args.canonicalHead);
+  try {
+    for (const entry of [...activeEntries].reverse()) {
+      baseline = applyPatches(baseline, entry.inversePatch);
+    }
+  } catch (error) {
+    if (error instanceof HammerHistoryVerificationError) throw error;
+    throw new HammerHistoryVerificationError(
+      "history_bad_inverse_patch",
+      "An inverse history patch could not reconstruct the declared baseline.",
+      error,
+    );
+  }
+  if (hashEditorState(baseline) !== args.document.baseRevisionId) {
+    throw new HammerHistoryVerificationError(
+      "history_declared_base_mismatch",
+      "Inverse replay did not produce the declared history base revision.",
+    );
+  }
+
+  let replayedHead = cloneEditorState(baseline);
+  try {
+    for (const entry of activeEntries) {
+      replayedHead = applyPatches(replayedHead, entry.forwardPatch);
+    }
+  } catch (error) {
+    throw new HammerHistoryVerificationError(
+      "history_current_head_mismatch",
+      "Forward history replay could not reproduce the canonical head.",
+      error,
+    );
+  }
+  if (hashEditorState(replayedHead) !== hashEditorState(args.canonicalHead)) {
+    throw new HammerHistoryVerificationError(
+      "history_current_head_mismatch",
+      "Forward history replay did not reproduce the canonical head.",
+    );
+  }
+  return { baseline, replayedHead };
+}
+
 function createId(prefix: string): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
     return `${prefix}:${crypto.randomUUID()}`;

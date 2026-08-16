@@ -3,6 +3,7 @@ import VisualClipBlock, { type VisualClipBlockModel } from "./VisualClipBlock";
 
 interface VisualTimelineLaneProps {
   label: string;
+  countLabel?: string;
   clips: VisualClipBlockModel[];
   durationSec: number;
   playheadSec: number;
@@ -31,7 +32,7 @@ export default function VisualTimelineLane(props: VisualTimelineLaneProps) {
     <div className="hammer-visual-timeline-lane">
       <header className="hammer-visual-timeline-lane__head">
         <strong>{props.label}</strong>
-        <span>{props.clips.length} clips</span>
+        <span>{props.countLabel ?? `${props.clips.length} clips`}</span>
         <span>{props.selectedClipId ? `Selected ${props.selectedClipId}` : "No clip selected"}</span>
       </header>
       <div className="hammer-visual-timeline-lane__track">

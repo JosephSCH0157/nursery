@@ -9,6 +9,8 @@ import {
   createHammerHistoryDocument,
   hashEditorState,
   normalizeHammerHistoryDocument,
+  verifyHammerHistoryAgainstCanonicalHead,
+  HammerHistoryVerificationError,
   type HammerEditorStateSerializable,
 } from "../src/editor/hammerWorkspaceHistory";
 import { createDefaultHammerStudioRackState } from "../src/editor/hammerStudioRack";
@@ -610,6 +612,50 @@ async function testCompatibilityPlacementsDoNotDriveHistoryDiffs() {
   assert.equal(patches.forward.some((patch) => patch.path === "/visualTimeline"), false);
 }
 
+async function testStrictHistoryVerification() {
+  const baseline = baseState();
+  const controller = createHammerHistoryController({
+    document: createHammerHistoryDocument({
+      workpieceId: "wp-verified",
+      sessionId: "session-verified",
+      baseRevisionId: hashEditorState(baseline),
+    }),
+    initialState: baseline,
+  });
+  const first = cloneEditorState(baseline);
+  first.playheadSec = 0.5;
+  controller.applyMutation({ label: "First", nextState: first });
+  const head = cloneEditorState(first);
+  head.selectedSegmentId = "b";
+  controller.applyMutation({ label: "Second", nextState: head });
+
+  const verified = verifyHammerHistoryAgainstCanonicalHead({ document: controller.document, canonicalHead: head });
+  assert.equal(hashEditorState(verified.baseline), controller.document.baseRevisionId);
+  assert.equal(hashEditorState(verified.replayedHead), hashEditorState(head));
+
+  const expectCode = (document: typeof controller.document, canonicalHead: HammerEditorStateSerializable, code: string) => {
+    assert.throws(
+      () => verifyHammerHistoryAgainstCanonicalHead({ document, canonicalHead }),
+      (error) => error instanceof HammerHistoryVerificationError && error.code === code,
+    );
+  };
+  const badInverse = structuredClone(controller.document);
+  badInverse.entries[0].inversePatch = [{ op: "replace", path: "/playheadSec", value: 99 }];
+  expectCode(badInverse, head, "history_declared_base_mismatch");
+
+  const wrongBase = structuredClone(controller.document);
+  wrongBase.baseRevisionId = "hammer-state:00000000";
+  expectCode(wrongBase, head, "history_declared_base_mismatch");
+
+  const wrongHead = cloneEditorState(head);
+  wrongHead.playheadSec = 1.5;
+  expectCode(controller.document, wrongHead, "history_current_head_mismatch");
+
+  const incomplete = structuredClone(controller.document);
+  incomplete.entries = incomplete.entries.slice(0, 1);
+  expectCode(incomplete, head, "history_incomplete_entry_sequence");
+}
+
 async function run() {
   await testPatchRoundTrip();
   await testControllerUndoRedoAndRedoClear();
@@ -623,6 +669,7 @@ async function run() {
   await testTranscriptSpanCutMutationUndoRedo();
   await testVisualCompositionFieldsPersistAcrossUndoRedo();
   await testCompatibilityPlacementsDoNotDriveHistoryDiffs();
+  await testStrictHistoryVerification();
   // eslint-disable-next-line no-console
   console.log("Hammer workspace history tests passed.");
 }

@@ -760,6 +760,9 @@ export type RecordingRevisionRecord = {
   composition_revision: number | null;
   composition_fingerprint: string | null;
   composition_history_head_id: string | null;
+  editorial_authority_path: string | null;
+  editorial_authority_fingerprint: string | null;
+  editorial_authority_revision: number;
   created_at: string;
   created_by: string;
   updated_at: string;
@@ -1433,6 +1436,23 @@ export type AnvilTakeCompletionRequest = {
   user_access_token?: string | null;
 };
 
+export type HammerEditorialAuthorityArtifactV1 = {
+  schema_version: 1;
+  workspace_id: string;
+  workpiece_id: string;
+  canonical_recording_id: string;
+  recording_revision_id: string;
+  authority: Record<string, unknown>;
+};
+
+export type AcknowledgeHammerEditorialAuthorityRequest = {
+  artifact_path: string;
+  artifact_fingerprint: string;
+  expected_revision_updated_at: string;
+  expected_authority_revision: number;
+  expected_authority_path: string | null;
+};
+
 export type AnvilTakeCompletionV2Request = {
   workspace_id: string;
   capture_session_id: string;
@@ -2028,6 +2048,13 @@ export type TongsCommitApiService = {
     input: SaveHammerRecordingRevisionRequest,
     options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<RecordingRevisionRecord>;
+  acknowledgeHammerEditorialAuthority(
+    workspaceId: string,
+    workpieceId: string,
+    revisionId: string,
+    input: AcknowledgeHammerEditorialAuthorityRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<{ acknowledgement: Record<string, unknown>; revision: RecordingRevisionRecord }>;
   resetHammerRecordingRevision(
     workspaceId: string,
     workpieceId: string,
@@ -3172,7 +3199,7 @@ async function uploadStorageObject(
   key: string,
   bytes: Uint8Array,
   contentType: string,
-): Promise<void> {
+): Promise<string> {
   const { error } = await supabase.storage.from(bucket).upload(key, uint8ToArrayBuffer(bytes), {
     upsert: true,
     contentType,
@@ -3201,6 +3228,7 @@ async function uploadStorageObject(
       reason: error.message,
     });
   }
+  return key;
 }
 
 function isStorageObjectTooLargeError(error: unknown): boolean {
@@ -4051,6 +4079,33 @@ function normalizeSaveHammerRecordingRevisionRequest(
     ...(typeof body.release_packet === "undefined"
       ? {}
       : { release_packet: normalizeHammerArtifactWriteRequest(body.release_packet, "release_packet") }),
+  };
+}
+
+function normalizeHammerEditorialAuthorityArtifact(value: unknown, field: string): HammerEditorialAuthorityArtifactV1 {
+  if (!isRecord(value) || value.schema_version !== 1 || !isRecord(value.authority)) {
+    throw new HttpError(400, "editorial_authority_artifact_invalid", `${field} must be a version 1 identity-bound authority artifact.`);
+  }
+  return {
+    schema_version: 1,
+    workspace_id: normalizeUuid(value.workspace_id, `${field}.workspace_id`),
+    workpiece_id: normalizeUuid(value.workpiece_id, `${field}.workpiece_id`),
+    canonical_recording_id: normalizeUuid(value.canonical_recording_id, `${field}.canonical_recording_id`),
+    recording_revision_id: normalizeUuid(value.recording_revision_id, `${field}.recording_revision_id`),
+    authority: value.authority,
+  };
+}
+
+function normalizeAcknowledgeHammerEditorialAuthorityRequest(body: Record<string, unknown>): AcknowledgeHammerEditorialAuthorityRequest {
+  const expectedAuthorityRevision = body.expected_authority_revision;
+  if (!Number.isSafeInteger(expectedAuthorityRevision) || (expectedAuthorityRevision as number) < 0) throw new HttpError(400, "editorial_authority_expected_revision_invalid", "expected_authority_revision must be a nonnegative integer.");
+  const fingerprint = normalizeNonEmptyString(body.artifact_fingerprint, "artifact_fingerprint");
+  return {
+    artifact_path: normalizeRelativePath(normalizeNonEmptyString(body.artifact_path, "artifact_path")),
+    artifact_fingerprint: fingerprint,
+    expected_revision_updated_at: normalizeIsoTimestamp(body.expected_revision_updated_at, "expected_revision_updated_at"),
+    expected_authority_revision: expectedAuthorityRevision as number,
+    expected_authority_path: body.expected_authority_path === null ? null : normalizeRelativePath(normalizeNonEmptyString(body.expected_authority_path, "expected_authority_path")),
   };
 }
 
@@ -8356,6 +8411,49 @@ export class TongsCommitService {
     }
 
     return updated.data as RecordingRevisionRecord;
+  }
+
+  async acknowledgeHammerEditorialAuthority(
+    workspaceId: string,
+    workpieceId: string,
+    revisionId: string,
+    input: AcknowledgeHammerEditorialAuthorityRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<{ acknowledgement: Record<string, unknown>; revision: RecordingRevisionRecord }> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+    const { canonical_recording: canonicalRecording, revision } = await this.readHammerRecordingRevision(workspaceId, workpieceId, revisionId, options);
+    this.assertRevisionWritable(revision);
+    const expectedPath = `hammer/revisions/${revisionId}/editorial-authority.v1.json`;
+    if (normalizeRelativePath(input.artifact_path) !== expectedPath) throw new HttpError(400, "editorial_authority_path_invalid", "Editorial authority must use the canonical revision-scoped path.");
+    if (!/^[0-9a-f]{64}$/.test(input.artifact_fingerprint)) throw new HttpError(400, "editorial_authority_fingerprint_invalid", "Editorial authority fingerprint must be a lowercase SHA-256 hash.");
+
+    const read = await this.readWorkpieceJson(workpieceId, expectedPath);
+    if (!read.found || !isRecord(read.data) || !read.file_row) throw new HttpError(409, "editorial_authority_artifact_missing", "The exact authority artifact must be committed before pointer acknowledgement.");
+    const artifact = normalizeHammerEditorialAuthorityArtifact(read.data, "artifact");
+    if (artifact.workspace_id !== workspaceId || artifact.workpiece_id !== workpieceId || artifact.canonical_recording_id !== canonicalRecording.id || artifact.recording_revision_id !== revisionId) {
+      throw new HttpError(409, "editorial_authority_identity_mismatch", "Editorial authority artifact identities do not match the canonical recording revision.");
+    }
+    if (read.file_row.hash_value !== input.artifact_fingerprint) throw new HttpError(409, "editorial_authority_fingerprint_mismatch", "Committed authority bytes do not match the requested fingerprint.");
+
+    if (!this.userClientFactory || !options?.userAccessToken) throw new HttpError(503, "user_client_unavailable", "Authenticated editorial-authority acknowledgement is unavailable.");
+    const client = this.userClientFactory(options.userAccessToken).schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const acknowledged = await client.rpc("acknowledge_hammer_editorial_authority", {
+      p_workspace_id: workspaceId,
+      p_workpiece_id: workpieceId,
+      p_canonical_recording_id: canonicalRecording.id,
+      p_revision_id: revisionId,
+      p_path: expectedPath,
+      p_fingerprint: input.artifact_fingerprint,
+      p_expected_revision_updated_at: input.expected_revision_updated_at,
+      p_expected_authority_revision: input.expected_authority_revision,
+      p_expected_authority_path: input.expected_authority_path,
+    });
+    if (acknowledged.error) throw new HttpError(409, "editorial_authority_conflict", "Editorial authority acknowledgement lost its compare-and-swap race.", { reason: acknowledged.error.message });
+    if (!isRecord(acknowledged.data)) throw new HttpError(502, "editorial_authority_ack_invalid", "Editorial authority acknowledgement was malformed.");
+    const reread = await this.readHammerRecordingRevision(workspaceId, workpieceId, revisionId, options);
+    return { acknowledgement: acknowledged.data, revision: reread.revision };
   }
 
   async resetHammerRecordingRevision(
@@ -13811,15 +13909,15 @@ export class TongsCommitService {
   }
   async acquireReferenceClipCandidate(workpieceId:string,input:AcquireReferenceClipCandidateRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
     await this.assertWorkpieceInWorkspace(workpieceId,input.workspace_id);const auth=await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"editor",options?.userAccessToken);if(!options?.userAccessToken||!this.userClientFactory)throw new HttpError(503,"reference_clip_authority_unavailable","Authenticated Reference Clip authority is unavailable.");
-    const authority=this.userClientFactory(options.userAccessToken).schema("tongs") as unknown as UntypedTongsSchemaClient;const normalizedOperation=input.operation_id.replace(/[^a-zA-Z0-9._-]+/g,"-");const videoPath=`assets/reference-clips/${input.opportunity_id}/${normalizedOperation}/video`;const videoKey=buildStorageKey(workpieceId,videoPath);const posterPath=`assets/reference-clips/${input.opportunity_id}/${normalizedOperation}/poster.jpg`;const posterKey=buildStorageKey(workpieceId,posterPath);
+    const authority=this.userClientFactory(options.userAccessToken).schema("tongs") as unknown as UntypedTongsSchemaClient;const normalizedOperation=input.operation_id.replace(/[^a-zA-Z0-9._-]+/g,"-");const videoPath=`assets/reference-clips/${input.opportunity_id}/${normalizedOperation}/video`;const videoKey=buildStorageKey(workpieceId,videoPath);let committedVideoKey=videoKey;const posterPath=`assets/reference-clips/${input.opportunity_id}/${normalizedOperation}/poster.jpg`;const posterKey=buildStorageKey(workpieceId,posterPath);
     const fingerprintInputs={workspace_id:input.workspace_id,workpiece_id:workpieceId,plan_revision_id:input.plan_revision_id,plan_revision:input.plan_revision,opportunity_id:input.opportunity_id,opportunity_revision_id:input.opportunity_revision_id,opportunity_revision:input.opportunity_revision,acquisition_type:input.acquisition_type,source_url:input.source_url??null,upload_hash:input.bytes_base64?await sha256Hex(decodeBase64(input.bytes_base64)):null,rights:input.rights,provenance:input.provenance};const expectedFingerprint=await sha256Hex(canonicalJsonBytes(fingerprintInputs));if(expectedFingerprint!==input.operation_fingerprint)throw new HttpError(409,"operation_fingerprint_mismatch","Reference Clip acquisition fingerprint does not match canonical inputs.",{expected_operation_fingerprint:expectedFingerprint});
     const begun=await authority.rpc("begin_reference_clip_acquisition",{p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_plan_revision_id:input.plan_revision_id,p_plan_revision:input.plan_revision,p_opportunity_id:input.opportunity_id,p_opportunity_revision_id:input.opportunity_revision_id,p_opportunity_revision:input.opportunity_revision,p_acquisition_type:input.acquisition_type,p_inputs:fingerprintInputs,p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_actor_id:auth.userId});if(begun.error||!isRecord(begun.data))throw new HttpError(502,"reference_clip_operation_begin_failed",begun.error?.message??"Reference Clip acquisition reservation failed.");if(begun.data.disposition==="operation_identity_conflict")throw new HttpError(409,"reference_clip_operation_identity_conflict","The acquisition operation ID was reused with different inputs.");const operation=isRecord(begun.data.operation)?begun.data.operation:null;let state=operation?readStringField(operation,"state"):null;if(state==="candidate_committed"&&isRecord(operation?.receipt_json))return operation.receipt_json as Record<string,Json>;
     const inspect=this.brollAcquisitionRuntime.inspectMedia.bind(this.brollAcquisitionRuntime);const derivePoster=this.brollAcquisitionRuntime.derivePoster.bind(this.brollAcquisitionRuntime);let video:VerifiedBrollMedia|null=null;
     if(state==="pending"){const existing=await downloadStorageObject(this.supabase,this.bucket,videoKey);if(existing)video=await inspect(existing,"video");else if(input.acquisition_type==="upload"){if(!input.bytes_base64)throw new HttpError(400,"reference_clip_upload_bytes_required","Upload bytes are required.");video=await inspect(decodeBase64(input.bytes_base64),"video");}else{if(!input.source_url)throw new HttpError(400,"reference_clip_external_url_required","An HTTPS external video URL is required.");try{video=await this.brollAcquisitionRuntime.fetchExternalMedia(input.source_url);}catch(error){await authority.rpc("fail_reference_clip_acquisition",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_failed_stage:"external_fetch",p_failure_code:"external_fetch_rejected",p_failure_message:error instanceof Error?error.message:String(error),p_failure_evidence:{source_url_host:new URL(input.source_url).hostname}});throw new HttpError(400,"reference_clip_external_fetch_rejected",error instanceof Error?error.message:"External media could not be verified.");}}
-      if(!existing)await uploadStorageObject(this.supabase,this.bucket,videoKey,video.bytes,video.mimeType);const stored=await downloadStorageObject(this.supabase,this.bucket,videoKey);if(!stored)throw new HttpError(502,"reference_clip_storage_readback_failed","Stored Reference Clip video could not be read back.");video=await inspect(stored,"video");const recorded=await authority.rpc("record_reference_clip_source_acquired",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_source_evidence:{storage_bucket:this.bucket,storage_key:videoKey,path:videoPath,acquisition_type:input.acquisition_type,source_url:input.source_url??null,content_hash:await sha256Hex(video.bytes),byte_size:video.bytes.length}});if(recorded.error)throw new HttpError(502,"reference_clip_source_receipt_failed",recorded.error.message);state="source_acquired";
+      if(!existing)committedVideoKey=await uploadStorageObject(this.supabase,this.bucket,videoKey,video.bytes,video.mimeType);const stored=await downloadStorageObject(this.supabase,this.bucket,committedVideoKey);if(!stored)throw new HttpError(502,"reference_clip_storage_readback_failed","Stored Reference Clip video could not be read back.");video=await inspect(stored,"video");const recorded=await authority.rpc("record_reference_clip_source_acquired",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_source_evidence:{storage_bucket:this.bucket,storage_key:committedVideoKey,path:videoPath,acquisition_type:input.acquisition_type,source_url:input.source_url??null,content_hash:await sha256Hex(video.bytes),byte_size:video.bytes.length}});if(recorded.error)throw new HttpError(502,"reference_clip_source_receipt_failed",recorded.error.message);state="source_acquired";
     }
     if(!video){const stored=await downloadStorageObject(this.supabase,this.bucket,videoKey);if(!stored)throw new HttpError(409,"reference_clip_video_storage_missing","The reserved Reference Clip video object is missing.");video=await inspect(stored,"video");}
-    if(state==="source_acquired"){const committed=await(this.supabase.schema("tongs")as unknown as UntypedTongsSchemaClient).rpc("commit_reference_clip_acquisition_asset",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_asset_kind:"reference_clip_video",p_path:`${videoPath}.${video.mimeType==="video/mp4"?"mp4":"webm"}`,p_mime_type:video.mimeType,p_byte_size:video.bytes.length,p_content_hash:await sha256Hex(video.bytes),p_storage_bucket:this.bucket,p_storage_key:videoKey,p_width:video.width,p_height:video.height,p_duration_ms:video.durationMs,p_provider:input.acquisition_type==="upload"?"creator-upload":"external-fetch",p_provider_request_id:null});if(committed.error||!isRecord(committed.data))throw new HttpError(502,"reference_clip_video_asset_commit_failed",committed.error?.message??"Video asset commit failed.");state="video_asset_verified";}
+    if(state==="source_acquired"){const committed=await(this.supabase.schema("tongs")as unknown as UntypedTongsSchemaClient).rpc("commit_reference_clip_acquisition_asset",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_asset_kind:"reference_clip_video",p_path:videoPath,p_mime_type:video.mimeType,p_byte_size:video.bytes.length,p_content_hash:await sha256Hex(video.bytes),p_storage_bucket:this.bucket,p_storage_key:committedVideoKey,p_width:video.width,p_height:video.height,p_duration_ms:video.durationMs,p_provider:input.acquisition_type==="upload"?"creator-upload":"external-fetch",p_provider_request_id:null});if(committed.error||!isRecord(committed.data))throw new HttpError(502,"reference_clip_video_asset_commit_failed",committed.error?.message??"Video asset commit failed.");state="video_asset_verified";}
     if(state==="video_asset_verified"){let posterBytes=await downloadStorageObject(this.supabase,this.bucket,posterKey);let poster=posterBytes?await inspect(posterBytes,"poster"):await derivePoster(video);if(!posterBytes)await uploadStorageObject(this.supabase,this.bucket,posterKey,poster.bytes,poster.mimeType);posterBytes=await downloadStorageObject(this.supabase,this.bucket,posterKey);if(!posterBytes)throw new HttpError(502,"reference_clip_poster_storage_readback_failed","Stored poster could not be read back.");poster=await inspect(posterBytes,"poster");const committed=await(this.supabase.schema("tongs")as unknown as UntypedTongsSchemaClient).rpc("commit_reference_clip_acquisition_asset",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_asset_kind:"reference_clip_poster",p_path:posterPath,p_mime_type:poster.mimeType,p_byte_size:poster.bytes.length,p_content_hash:await sha256Hex(poster.bytes),p_storage_bucket:this.bucket,p_storage_key:posterKey,p_width:poster.width,p_height:poster.height,p_duration_ms:null,p_provider:"tongs-poster",p_provider_request_id:input.operation_id});if(committed.error)throw new HttpError(502,"reference_clip_poster_asset_commit_failed",committed.error.message);state="poster_asset_verified";}
     const candidate=await authority.rpc("commit_reference_clip_acquisition_candidate",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_rights:input.rights,p_provenance:{...input.provenance,source_url:input.source_url??null,acquisition_type:input.acquisition_type},p_actor_id:auth.userId});if(candidate.error||!isRecord(candidate.data))throw new HttpError(502,"reference_clip_candidate_commit_failed",candidate.error?.message??"Candidate commit failed.");if(candidate.data.disposition!=="committed")throw new HttpError(409,String(candidate.data.disposition??"reference_clip_candidate_rejected"),"Canonical Reference Clip candidate commit was rejected.",candidate.data);return candidate.data as Record<string,Json>;
   }
@@ -13852,6 +13950,7 @@ export class TongsCommitService {
     const normalizedOperation = input.operation_id.replace(/[^a-zA-Z0-9._-]+/g, "-");
     const videoPath = `assets/broll-v2/${input.beat_id}/${normalizedOperation}/video`;
     const videoKey = buildStorageKey(workpieceId, videoPath);
+    let committedVideoKey = videoKey;
     const posterPath = `assets/broll-v2/${input.beat_id}/${normalizedOperation}/poster.jpg`;
     const posterKey = buildStorageKey(workpieceId, posterPath);
     const posterRequired = input.poster_required !== false;
@@ -13953,7 +14052,7 @@ export class TongsCommitService {
         if(!outputUrl)throw new HttpError(409,"broll_runway_output_receipt_missing","The completed Runway output receipt is missing.");
         video=await inspectBrollMedia(await this.brollVideoProvider.download(outputUrl),"video");input.provider="runway";input.provider_request_id=currentOperation?readStringField(currentOperation,"provider_task_id"):null;
       }
-      if(video&&state!=="provider_or_upload_completed"){const alreadyStored=await downloadStorageObject(this.supabase,this.bucket,videoKey);if(!alreadyStored)await uploadStorageObject(this.supabase,this.bucket,videoKey,video.bytes,video.mimeType);const recorded=await authority.rpc("record_broll_provider_or_upload_result",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_result:{storage_bucket:this.bucket,storage_key:videoKey,path:videoPath,provider:"runway",provider_request_id:input.provider_request_id??null}});if(recorded.error)throw new HttpError(502,"broll_result_receipt_failed",recorded.error.message);state="provider_or_upload_completed";}
+      if(video&&state!=="provider_or_upload_completed"){const alreadyStored=await downloadStorageObject(this.supabase,this.bucket,videoKey);if(!alreadyStored)committedVideoKey=await uploadStorageObject(this.supabase,this.bucket,videoKey,video.bytes,video.mimeType);const recorded=await authority.rpc("record_broll_provider_or_upload_result",{p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_result:{storage_bucket:this.bucket,storage_key:committedVideoKey,path:videoPath,provider:"runway",provider_request_id:input.provider_request_id??null}});if(recorded.error)throw new HttpError(502,"broll_result_receipt_failed",recorded.error.message);state="provider_or_upload_completed";}
       if (paidContext && state === "provider_or_upload_completed" && input.provider_request_id) {
         const usageEvidence = this.buildRunwayPaidMediaUsageEvidence({ durationSeconds });
         const providerResponseJson = {
@@ -13991,13 +14090,13 @@ export class TongsCommitService {
         catch (error) { throw new HttpError(400, "broll_external_fetch_rejected", error instanceof Error ? error.message : "External media could not be verified."); }
       }
       if (!video) throw new HttpError(409, "broll_video_acquisition_incomplete", "B-roll video acquisition did not produce canonical bytes.");
-      if (!alreadyStored) await uploadStorageObject(this.supabase, this.bucket, videoKey, video.bytes, video.mimeType);
-      const stored = await downloadStorageObject(this.supabase, this.bucket, videoKey);
+      if (!alreadyStored) committedVideoKey = await uploadStorageObject(this.supabase, this.bucket, videoKey, video.bytes, video.mimeType);
+      const stored = await downloadStorageObject(this.supabase, this.bucket, committedVideoKey);
       if (!stored) throw new HttpError(502, "broll_storage_readback_failed", "Stored B-roll video could not be read back.");
       video = await inspectBrollMedia(stored, "video");
       const recorded = await authority.rpc("record_broll_provider_or_upload_result", {
         p_operation_id: input.operation_id, p_operation_fingerprint: input.operation_fingerprint,
-        p_result: { storage_bucket: this.bucket, storage_key: videoKey, path: videoPath, provider: input.provider, provider_request_id: input.provider_request_id ?? null },
+        p_result: { storage_bucket: this.bucket, storage_key: committedVideoKey, path: videoPath, provider: input.provider, provider_request_id: input.provider_request_id ?? null },
       });
       if (recorded.error) throw new HttpError(502, "broll_result_receipt_failed", recorded.error.message);
       state = "provider_or_upload_completed";
@@ -14011,9 +14110,9 @@ export class TongsCommitService {
       const videoHash = await sha256Hex(video.bytes);
       const committed = await (this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient).rpc("commit_broll_operation_asset", {
         p_operation_id: input.operation_id, p_operation_fingerprint: input.operation_fingerprint,
-        p_asset_kind: "broll_candidate_video", p_path: `${videoPath}.${video.mimeType === "video/mp4" ? "mp4" : "webm"}`,
+        p_asset_kind: "broll_candidate_video", p_path: videoPath,
         p_mime_type: video.mimeType, p_byte_size: video.bytes.length, p_content_hash: videoHash,
-        p_storage_bucket: this.bucket, p_storage_key: videoKey, p_width: video.width, p_height: video.height,
+        p_storage_bucket: this.bucket, p_storage_key: committedVideoKey, p_width: video.width, p_height: video.height,
         p_duration_ms: video.durationMs, p_provider: input.provider, p_provider_request_id: input.provider_request_id ?? null,
       });
       if (committed.error || !isRecord(committed.data)) throw new HttpError(502, "broll_video_asset_commit_failed", committed.error?.message ?? "Video asset commit failed.");
@@ -16742,6 +16841,25 @@ export function createTongsCommitApiHandlerWithService(
           { userAccessToken },
         );
         return jsonResponse(200, { ok: true, data: { canonical_recording: canonical } });
+      }
+
+      if (
+        parts.length === 9
+        && parts[0] === "tongs"
+        && parts[1] === "workspaces"
+        && parts[3] === "workpieces"
+        && parts[5] === "hammer"
+        && parts[6] === "revisions"
+        && parts[8] === "editorial-authority"
+      ) {
+        requireMethod(request, "POST");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
+        const revisionId = normalizeUuid(decodeURIComponent(parts[7]), "revision_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const payload = normalizeAcknowledgeHammerEditorialAuthorityRequest(await parseJsonBody(request));
+        const result = await service.acknowledgeHammerEditorialAuthority(workspaceId, workpieceId, revisionId, payload, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
       }
 
       if (
