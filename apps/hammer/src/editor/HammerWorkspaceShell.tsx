@@ -56,20 +56,13 @@ import {
   type HammerWorkspaceFocusOverride,
 } from "./hammerWorkspaceTimeline";
 import {
-  isTimeRangeFullyCoveredByCuts,
   getEffectiveCutRegions,
   resolveNextAudiblePlaybackTime,
 } from "./hammerAudioEditPlayback";
 import {
   commitAudioCutSelection,
-  normalizeAudioCutSelection,
 } from "./hammerAudioEditOperations";
 import {
-  buildSilenceCutSuggestions,
-  filterDismissedSilenceCutSuggestions,
-} from "./hammerSilenceCutSuggestions";
-import {
-  deriveAudioCutsForDeadAirClosure,
   type HammerAudioCutSelection,
   deriveAudioCutsForSubtractiveTextEdits,
 } from "./hammerCleanupExecution";
@@ -92,7 +85,7 @@ import {
   syncEditableTranscriptSegments,
   updateTranscriptSegmentSpeaker,
 } from "./hammerWorkspaceTranscript";
-import { analyzeDeadAirGaps, applyDeadAirClosure, type HammerDeadAirAnalysis } from "./hammerDeadAirClosure";
+import { useHammerWorkspaceShellSilenceEditing } from "./useHammerWorkspaceShellSilenceEditing";
 import {
   cloneEditorState,
   type HammerEditorStateSerializable,
@@ -715,9 +708,6 @@ function HammerWorkspaceShellWithContext(
   const [timelineZoomPercent, setTimelineZoomPercent] = useState<number>(TIMELINE_ZOOM_LEVELS[0]);
   const [focusOverride, setFocusOverride] = useState<HammerWorkspaceFocusOverride>("auto");
   const [polishStrength, setPolishStrength] = useState(60);
-  const [deadAirThresholdSec, setDeadAirThresholdSec] = useState(1.5);
-  const [deadAirAnalysis, setDeadAirAnalysis] = useState<HammerDeadAirAnalysis | null>(null);
-  const [deadAirApplyInFlight, setDeadAirApplyInFlight] = useState(false);
   const [fillerCandidateCards, setFillerCandidateCards] = useState<HammerCandidateCard[]>([]);
   const [fillerActiveCandidateIndex, setFillerActiveCandidateIndex] = useState(0);
   const [fillerDecisionInFlight, setFillerDecisionInFlight] = useState(false);
@@ -738,9 +728,6 @@ function HammerWorkspaceShellWithContext(
   const [editableAudioPolish, setEditableAudioPolish] = useState<HammerPersistedAudioPolish | null>(
     () => cloneHammerAudioPolish(props.audioPolish),
   );
-  const [audioCutSelectionStartSec, setAudioCutSelectionStartSec] = useState<number | null>(null);
-  const [audioCutSelectionEndSec, setAudioCutSelectionEndSec] = useState<number | null>(null);
-  const [dismissedSilenceSuggestionIds, setDismissedSilenceSuggestionIds] = useState<Set<string>>(() => new Set());
   const [audioLevelingEnabled, setAudioLevelingEnabled] = useState(true);
   const [audioNoiseReductionEnabled, setAudioNoiseReductionEnabled] = useState(true);
   const [audioFinalizationCompareMode, setAudioFinalizationCompareMode] = useState<HammerAudioFinalizationCompareMode>("after");
@@ -1045,6 +1032,9 @@ function HammerWorkspaceShellWithContext(
     setVisualBackgroundWashDesaturateAmount(Number(nextVisualPreviewSettings.background_wash_desaturate_amount ?? 0.25));
   }, []);
 
+  const resetSilenceEditingRef = useRef<() => void>(() => undefined);
+  const resetSilenceEditing = useCallback(() => resetSilenceEditingRef.current(), []);
+
   const { audioPolishHasLocalEditsRef, editableAudioPolishRef } = useHammerWorkspaceShellHydration({
     workspaceId: launchContext.workspace_id,
     workpieceId: launchContext.workpiece_id,
@@ -1060,9 +1050,7 @@ function HammerWorkspaceShellWithContext(
     setEditorMode,
     editableAudioPolish,
     setEditableAudioPolish,
-    setAudioCutSelectionStartSec,
-    setAudioCutSelectionEndSec,
-    setDismissedSilenceSuggestionIds,
+    resetSilenceEditing,
     applyVisualPreviewSettings: applyHydratedVisualPreviewSettings,
   });
 
@@ -1443,84 +1431,53 @@ function HammerWorkspaceShellWithContext(
     playbackTransportDurationSec,
     transcriptDurationSec,
   ]);
-  const audioCutSelection = useMemo(() => normalizeAudioCutSelection({
-    selection: {
-      startSec: audioCutSelectionStartSec,
-      endSec: audioCutSelectionEndSec,
-    },
-    durationSec: playbackTransportDurationSec,
-  }), [audioCutSelectionEndSec, audioCutSelectionStartSec, playbackTransportDurationSec]);
-  const hasPendingAudioCutSelection = audioCutSelectionStartSec != null || audioCutSelectionEndSec != null;
   const persistedAudioCutCount = editableAudioPolish?.audio_edit?.operations.length ?? 0;
-  const isAudioCutSelectionCovered = useMemo(() => {
-    if (!audioCutSelection) {
-      return false;
-    }
-    return isTimeRangeFullyCoveredByCuts({
-      effectiveCutRegions: effectivePlaybackCutRegions,
-      startSec: audioCutSelection.startSec,
-      endSec: audioCutSelection.endSec,
-    });
-  }, [audioCutSelection, effectivePlaybackCutRegions]);
-  const audioCutSelectionStatus = useMemo(() => {
-    if (playbackTransportDurationSec <= 0) {
-      return "Timeline duration unavailable. Cut selection is disabled.";
-    }
-    if (audioCutSelection && isAudioCutSelectionCovered) {
-      return `Selection ${audioCutSelection.startSec.toFixed(1)}s-${audioCutSelection.endSec.toFixed(1)}s is already covered by an existing cut.`;
-    }
-    if (audioCutSelection) {
-      return `Cut selection ready: ${audioCutSelection.startSec.toFixed(1)}s-${audioCutSelection.endSec.toFixed(1)}s.`;
-    }
-    if (audioCutSelectionStartSec != null && audioCutSelectionEndSec != null) {
-      return "Selection must be longer than 0.0s to create a cut.";
-    }
-    if (audioCutSelectionStartSec != null) {
-      return `In point marked at ${audioCutSelectionStartSec.toFixed(1)}s. Move the playhead and mark out.`;
-    }
-    if (audioCutSelectionEndSec != null) {
-      return `Out point marked at ${audioCutSelectionEndSec.toFixed(1)}s. Move the playhead and mark in.`;
-    }
-    return "Use the current playhead to mark in, mark out, and create one persisted cut.";
-  }, [
-    audioCutSelection,
-    audioCutSelectionEndSec,
-    audioCutSelectionStartSec,
-    isAudioCutSelectionCovered,
-    playbackTransportDurationSec,
-  ]);
-  const canMarkAudioCutSelection = playbackTransportDurationSec > 0;
-  const canApplyAudioCutSelection = audioCutSelection != null && !isAudioCutSelectionCovered;
-  const silenceCutSuggestions = useMemo(() => buildSilenceCutSuggestions({
+  const silenceEditing = useHammerWorkspaceShellSilenceEditing({
+    identityKey: [
+      launchContext.workspace_id,
+      launchContext.workpiece_id,
+      props.recordingRevisionId ?? "",
+      transcriptSourceId,
+      structuredTranscriptResetKey,
+      JSON.stringify(launchContext.media),
+    ].join("::"),
+    transcriptSegments: editableTranscriptSegments,
     segmentation: editableAudioPolish?.analysis?.segmentation ?? null,
     durationSec: playbackTransportDurationSec,
     effectiveCutRegions: effectivePlaybackCutRegions,
-  }), [
-    editableAudioPolish?.analysis?.segmentation,
-    effectivePlaybackCutRegions,
-    playbackTransportDurationSec,
-  ]);
-  const visibleSilenceCutSuggestions = useMemo(() => filterDismissedSilenceCutSuggestions({
-    suggestions: silenceCutSuggestions,
-    dismissedSuggestionIds: dismissedSilenceSuggestionIds,
-  }), [dismissedSilenceSuggestionIds, silenceCutSuggestions]);
-  const hasSilenceSuggestionAnalysis = editableAudioPolish?.analysis?.segmentation != null;
-  const silenceSuggestionCount = visibleSilenceCutSuggestions.length;
+    playheadSec,
+    captureState: () => historyAuthority.getController()?.getState() ?? null,
+    applyHistoryMutation,
+    setFocusToTime: () => setFocusOverride("time-focus"),
+    setTranscriptTimingHint,
+  });
+  resetSilenceEditingRef.current = silenceEditing.resetForWorkpiece;
+  const {
+    audioCutSelectionStatus,
+    hasPendingAudioCutSelection,
+    canMarkAudioCutSelection,
+    canApplyAudioCutSelection,
+    silenceCutSuggestions,
+    visibleSilenceCutSuggestions,
+    hasSilenceSuggestionAnalysis,
+    silenceSuggestionCount,
+    deadAirThresholdSec,
+    deadAirAnalysis,
+    deadAirApplyInFlight,
+    setDeadAirThresholdSec,
+    markAudioCutBoundary,
+    clearAudioCutSelection,
+    applyAudioCutSelection,
+    acceptSilenceCutSuggestion,
+    dismissSilenceCutSuggestion,
+    reconcileDismissedSuggestions,
+    invalidateDeadAirAnalysis,
+    analyzeDeadAirClosure,
+    applyDeadAirClosureBatch,
+  } = silenceEditing;
   useEffect(() => {
-    if (dismissedSilenceSuggestionIds.size === 0) return;
-    const activeSuggestionIds = new Set(silenceCutSuggestions.map((suggestion) => suggestion.id));
-    let changed = false;
-    const nextDismissedIds = new Set<string>();
-    for (const suggestionId of dismissedSilenceSuggestionIds) {
-      if (activeSuggestionIds.has(suggestionId)) {
-        nextDismissedIds.add(suggestionId);
-      } else {
-        changed = true;
-      }
-    }
-    if (!changed) return;
-    setDismissedSilenceSuggestionIds(nextDismissedIds);
-  }, [dismissedSilenceSuggestionIds, silenceCutSuggestions]);
+    reconcileDismissedSuggestions();
+  }, [reconcileDismissedSuggestions]);
   const playheadBoundaryTimesSec = useMemo(
     () => resolveTimelineBoundaryTimes(editableTranscriptSegments).map((timeSec) => (
       compositionTimeToTransportTime(timeSec, compositionOffsetSec)
@@ -3653,68 +3610,6 @@ function HammerWorkspaceShellWithContext(
     });
   }
 
-  function markAudioCutBoundary(boundary: "start" | "end"): void {
-    if (playbackTransportDurationSec <= 0) return;
-    const markerTimeSec = Math.max(0, Math.min(playbackTransportDurationSec, roundToTenth(playheadSec)));
-    if (boundary === "start") {
-      setAudioCutSelectionStartSec(markerTimeSec);
-      return;
-    }
-    setAudioCutSelectionEndSec(markerTimeSec);
-  }
-
-  function clearAudioCutSelection(): void {
-    setAudioCutSelectionStartSec(null);
-    setAudioCutSelectionEndSec(null);
-  }
-
-  function commitEditableAudioCut(args: {
-    startSec: number | null;
-    endSec: number | null;
-    operationId?: string;
-  }): boolean {
-    const controller = historyAuthority.getController();
-    if (!controller) return false;
-
-    const beforeState = controller.getState();
-    if (args.operationId) {
-      const existing = beforeState.audioEdit?.operations ?? [];
-      if (existing.some((op) => op.id === args.operationId)) {
-        return false;
-      }
-    }
-
-    const committed = commitAudioCutSelection({
-      audioPolish: {
-        ...buildNotStartedHammerAudioPolish(),
-        audio_edit: cloneHammerAudioEdit(beforeState.audioEdit),
-      },
-      selection: {
-        startSec: args.startSec,
-        endSec: args.endSec,
-      },
-      durationSec: playbackTransportDurationSec,
-      operationId: args.operationId,
-    });
-    if (!committed) return false;
-
-    const applied = applyHistoryMutation({
-      label: "Add audio cut",
-      kind: "timing_adjustment",
-      toolId: "polish",
-      immediatePersist: true,
-      computeAfter: (before) => ({
-        ...before,
-        audioEdit: cloneHammerAudioEdit(committed.audioPolish.audio_edit),
-        transcriptTimingHint: null,
-      }),
-    });
-    if (!applied) return false;
-
-    setFocusOverride("time-focus");
-    return true;
-  }
-
   function applyCutSelectionsToAudioEdit(args: {
     audioEdit: HammerPersistedAudioEdit | null | undefined;
     cutSelections: Array<{ startSec: number; endSec: number }>;
@@ -3888,45 +3783,6 @@ function HammerWorkspaceShellWithContext(
       playbackChanged: cutSelections.length > 0 && afterAudioOpCount > beforeAudioOpCount,
       deletedTokenCount: uniqueEdits.reduce((count, edit) => count + edit.deletion.deletedTokenCount, 0),
     };
-  }
-
-  function applyAudioCutSelection(): void {
-    const applied = commitEditableAudioCut({
-      startSec: audioCutSelectionStartSec,
-      endSec: audioCutSelectionEndSec,
-    });
-    if (!applied) {
-      return;
-    }
-    setAudioCutSelectionStartSec(null);
-    setAudioCutSelectionEndSec(null);
-  }
-
-  function acceptSilenceCutSuggestion(suggestionId: string): void {
-    const suggestion = visibleSilenceCutSuggestions.find((item) => item.id === suggestionId) ?? null;
-    if (!suggestion) {
-      return;
-    }
-    const applied = commitEditableAudioCut({
-      startSec: suggestion.startSec,
-      endSec: suggestion.endSec,
-    });
-    if (!applied) {
-      return;
-    }
-    setDismissedSilenceSuggestionIds((current) => {
-      const next = new Set(current);
-      next.delete(suggestionId);
-      return next;
-    });
-  }
-
-  function dismissSilenceCutSuggestion(suggestionId: string): void {
-    setDismissedSilenceSuggestionIds((current) => {
-      const next = new Set(current);
-      next.add(suggestionId);
-      return next;
-    });
   }
 
   function splitSelectedSegmentAtPlayhead(): void {
@@ -4552,77 +4408,6 @@ function HammerWorkspaceShellWithContext(
     }
   }
 
-  function analyzeDeadAirClosure(): void {
-    setDeadAirAnalysis(analyzeDeadAirGaps(editableTranscriptSegments, deadAirThresholdSec));
-  }
-
-  function applyDeadAirClosureBatch(): void {
-    if (deadAirApplyInFlight) return;
-    setDeadAirApplyInFlight(true);
-    try {
-      const { segments: updated, analysis } = applyDeadAirClosure({
-        segments: editableTranscriptSegments,
-        thresholdSec: deadAirThresholdSec,
-      });
-      setDeadAirAnalysis(analysis);
-      if (analysis.eligibleGapCount === 0) return;
-
-      const cutSelections = deriveAudioCutsForDeadAirClosure({
-        analysis,
-        durationSec: playbackTransportDurationSec,
-      });
-
-      const affected = new Set<string>();
-      for (const gap of analysis.gaps) {
-        affected.add(gap.currentSegmentId);
-        affected.add(gap.nextSegmentId);
-      }
-
-      const applied = applyHistoryMutation({
-        label: `Trim dead air (${analysis.thresholdSec.toFixed(1)}s threshold)`,
-        kind: "timing_adjustment",
-        toolId: "polish",
-        affectedSegments: Array.from(affected),
-        immediatePersist: true,
-        computeAfter: (before) => {
-          const synced = syncEditableTranscriptSegments(updated, before.selectedSegmentId);
-          let nextAudioEdit = cloneHammerAudioEdit(before.audioEdit);
-          if (cutSelections.length > 0) {
-            let audioPolish = {
-              ...buildNotStartedHammerAudioPolish(),
-              audio_edit: cloneHammerAudioEdit(before.audioEdit),
-            };
-            for (let index = 0; index < cutSelections.length; index += 1) {
-              const selection = cutSelections[index];
-              const operationId = `dead_air:${analysis.thresholdSec.toFixed(1)}:${index}`;
-              const committed = commitAudioCutSelection({
-                audioPolish,
-                selection: { startSec: selection.startSec, endSec: selection.endSec },
-                durationSec: playbackTransportDurationSec,
-                operationId,
-              });
-              if (committed) {
-                audioPolish = committed.audioPolish;
-              }
-            }
-            nextAudioEdit = cloneHammerAudioEdit(audioPolish.audio_edit);
-          }
-          return {
-            ...before,
-            transcriptSegments: synced.segments,
-            selectedSegmentId: synced.selectedSegmentId,
-            audioEdit: nextAudioEdit,
-            transcriptTimingHint: null,
-          };
-        },
-      });
-      if (!applied) return;
-      setTranscriptTimingHint(`${analysis.eligibleGapCount} gap${analysis.eligibleGapCount === 1 ? "" : "s"} exceed ${analysis.thresholdSec.toFixed(1)}s; removed ${analysis.totalRemovableSec.toFixed(1)}s of dead air.`);
-    } finally {
-      setDeadAirApplyInFlight(false);
-    }
-  }
-
   useEffect(() => {
     if (currentPass === "transcript_cleanup" || currentPass === "retakes") {
       const nextActive: HammerCandidateReviewKind = currentPass === "retakes" ? "retakes" : "fillers";
@@ -4655,8 +4440,8 @@ function HammerWorkspaceShellWithContext(
   useEffect(() => {
   }, [sourceImageItems]);
   useEffect(() => {
-    setDeadAirAnalysis(null);
-  }, [deadAirThresholdSec, editableTranscriptSegments]);
+    invalidateDeadAirAnalysis();
+  }, [deadAirThresholdSec, editableTranscriptSegments, invalidateDeadAirAnalysis]);
 
   const stepTimelineZoom = useCallback((direction: -1 | 1) => {
     setTimelineZoomPercent((current) => {

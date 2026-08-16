@@ -35,9 +35,7 @@ export type UseHammerWorkspaceShellHydrationArgs = {
   setEditorMode: Dispatch<SetStateAction<HammerEditorMode>>;
   editableAudioPolish: HammerPersistedAudioPolish | null;
   setEditableAudioPolish: Dispatch<SetStateAction<HammerPersistedAudioPolish | null>>;
-  setAudioCutSelectionStartSec: Dispatch<SetStateAction<number | null>>;
-  setAudioCutSelectionEndSec: Dispatch<SetStateAction<number | null>>;
-  setDismissedSilenceSuggestionIds: Dispatch<SetStateAction<Set<string>>>;
+  resetSilenceEditing: () => void;
   applyVisualPreviewSettings: (settings: HammerPersistedVisualPreviewSettings) => void;
 };
 
@@ -64,9 +62,7 @@ export function useHammerWorkspaceShellHydration(
     setEditorMode,
     editableAudioPolish,
     setEditableAudioPolish,
-    setAudioCutSelectionStartSec,
-    setAudioCutSelectionEndSec,
-    setDismissedSilenceSuggestionIds,
+    resetSilenceEditing,
     applyVisualPreviewSettings,
   } = args;
   const hydratedInitialEditorStateRef = useRef<string | null>(null);
@@ -80,15 +76,11 @@ export function useHammerWorkspaceShellHydration(
     audioPolishHasLocalEditsRef.current = false;
     editableAudioPolishRef.current = null;
     setEditableAudioPolish(null);
-    setAudioCutSelectionStartSec(null);
-    setAudioCutSelectionEndSec(null);
-    setDismissedSilenceSuggestionIds(new Set());
+    resetSilenceEditing();
   }, [
     workpieceId,
     setEditableAudioPolish,
-    setAudioCutSelectionStartSec,
-    setAudioCutSelectionEndSec,
-    setDismissedSilenceSuggestionIds,
+    resetSilenceEditing,
   ]);
 
   useEffect(() => {
