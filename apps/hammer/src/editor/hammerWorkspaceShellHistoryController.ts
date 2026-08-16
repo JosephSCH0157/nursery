@@ -30,7 +30,6 @@ import {
 import { syncEditableTranscriptSegments, resolveTranscriptDurationSec } from "./hammerWorkspaceTranscript";
 import { createDefaultHammerStudioRackState } from "./hammerStudioRack";
 import { projectEditorialAuthorityGraphFromEditPlan } from "./hammerRenderAssembly";
-import { resolveActiveSnapshotHeadEntryId } from "./hammerSnapshotProduction";
 import { resolveHammerHistoryStatus } from "../lib/hammerHistoryStatus";
 import {
   loadHammerHistoryDocument,
@@ -39,11 +38,7 @@ import {
   saveHammerHistoryDocument,
   saveHammerRevisionHistoryDocument,
 } from "../lib/hammerHistoryArtifactApi";
-import {
-  loadHammerSnapshotManifest,
-  loadHammerSnapshotPayload,
-  type HammerSnapshotManifestV1,
-} from "../lib/hammerSnapshotArtifactApi";
+import type { HammerWorkspaceShellSnapshotAuthority } from "./hammerWorkspaceShellSnapshotEmitter";
 import {
   buildVisualTimelineDiagnostics,
   preservePlacementRichTimelineDuringHydration,
@@ -331,8 +326,7 @@ export type UseHammerWorkspaceShellHistoryControllerArgs = {
 
   historyAuthority: HammerHistoryCommandAuthority;
 
-  snapshotManifestRef: { current: HammerSnapshotManifestV1 | null };
-  lastSnapshottedHeadEntryIdRef: { current: string | null };
+  snapshotAuthority: HammerWorkspaceShellSnapshotAuthority;
   historyBaselineStateRef: { current: HammerEditorStateSerializable | null };
   baselineDerivedLayersRef: { current: DerivedLayersState };
   derivedLayerHistoryRef: { current: Map<string, { before: DerivedLayersState; after: DerivedLayersState }> };
@@ -393,8 +387,7 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
   useEffect(() => {
     let active = true;
     args.historyAuthority.invalidate();
-    args.snapshotManifestRef.current = null;
-    args.lastSnapshottedHeadEntryIdRef.current = null;
+    args.snapshotAuthority.reset();
 
     const synced = syncEditableTranscriptSegments(args.transcriptSegments, args.selectedSegmentId);
     const baselineOutputSelection = args.resolveOutputSelectionFromTranscript(args.structuredTranscript ?? null);
@@ -490,23 +483,17 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
           })
           : { ok: true as const, status: 200, exists: false, data: null as null }
         : await loadHammerHistoryDocument(args.launchContext.workpiece_id);
-      const snapshotManifestResult = revisionId
-        ? { ok: true as const, status: 200, exists: false, data: null as HammerSnapshotManifestV1 | null }
-        : await loadHammerSnapshotManifest(args.launchContext.workpiece_id);
+      const snapshotManifestResult = await args.snapshotAuthority.loadManifest(
+        args.launchContext.workpiece_id,
+        revisionId,
+      );
       const historyPresenceResult = revisionId
         ? { ok: true as const, status: 200, exists: true, data: null as { version: number } | null }
         : await loadHammerHistoryPresence(args.launchContext.workpiece_id);
       if (!active) return;
 
       let snapshotRecoveryStatus: string | null = null;
-      if (!snapshotManifestResult.ok) {
-        args.snapshotManifestRef.current = null;
-        args.lastSnapshottedHeadEntryIdRef.current = null;
-        snapshotRecoveryStatus = "Snapshot fallback: manifest unavailable. Opened with full history replay.";
-      } else {
-        args.snapshotManifestRef.current = snapshotManifestResult.exists ? (snapshotManifestResult.data ?? null) : null;
-        args.lastSnapshottedHeadEntryIdRef.current = resolveActiveSnapshotHeadEntryId(args.snapshotManifestRef.current);
-      }
+      snapshotRecoveryStatus = snapshotManifestResult.status;
 
       if (!historyResult.ok) {
         args.setHistoryStatus(historyResult.error);
@@ -557,44 +544,16 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
       });
       let replayed = controller.getReplayStateFromBaseline(replayBaselineState);
 
-      const manifest = args.snapshotManifestRef.current;
-      const activeSnapshotRef = manifest?.activeSnapshotRef ?? null;
-      if (activeSnapshotRef) {
-        const activeSnapshotEntry = manifest?.snapshots.find((entry) => entry.snapshotRef === activeSnapshotRef) ?? null;
-        if (!activeSnapshotEntry) {
-          snapshotRecoveryStatus = "Snapshot fallback: active snapshot missing from manifest. Opened with full history replay.";
-        } else {
-          const snapshotPayloadResult = await loadHammerSnapshotPayload({
-            workpieceId: args.launchContext.workpiece_id,
-            snapshotRef: activeSnapshotRef,
-          });
-          if (!active) return;
-          if (!snapshotPayloadResult.ok) {
-            snapshotRecoveryStatus = "Snapshot fallback: payload unavailable. Opened with full history replay.";
-          } else if (!snapshotPayloadResult.exists || !snapshotPayloadResult.data) {
-            snapshotRecoveryStatus = "Snapshot fallback: payload missing. Opened with full history replay.";
-          } else {
-            const snapshot = snapshotPayloadResult.data;
-            const workpieceMatches = snapshot.workpieceId === args.launchContext.workpiece_id;
-            const baseRevisionMatches = snapshot.baseRevisionId === baseRevisionId;
-            const headExistsInLedger = snapshot.headEntryId == null || loaded.undoStack.includes(snapshot.headEntryId);
-            if (!workpieceMatches || !baseRevisionMatches || !headExistsInLedger) {
-              const reason = !workpieceMatches
-                ? "workpiece mismatch"
-                : !baseRevisionMatches
-                ? "base revision mismatch"
-                : "snapshot head not found in ledger";
-              snapshotRecoveryStatus = `Snapshot fallback: ${reason}. Opened with full history replay.`;
-            } else {
-              replayed = controller.getReplayStateFromBaseline(
-                snapshot.editorState,
-                snapshot.headEntryId,
-              );
-              snapshotRecoveryStatus = null;
-            }
-          }
-        }
-      }
+      const snapshotRecovery = await args.snapshotAuthority.recover({
+        workpieceId: args.launchContext.workpiece_id,
+        baseRevisionId,
+        historyDocument: loaded,
+        controller,
+        fallbackState: replayed,
+      });
+      if (!active) return;
+      replayed = snapshotRecovery.state;
+      snapshotRecoveryStatus = snapshotRecovery.status ?? snapshotRecoveryStatus;
 
       controller.replaceState(replayed);
       args.historyAuthority.installController(controller);

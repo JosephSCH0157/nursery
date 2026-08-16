@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { HammerEditPlan, HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
@@ -18,6 +18,190 @@ import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTyp
 import { deriveLegacyVisualPlacementsFromTimeline } from "../visuals/persistence/hammerVisualTimelineLegacyAdapter";
 import { createSemanticEditPlanSignature } from "../lib/editPlanSignature";
 import { projectEditPlanFromEditorialAuthorityGraph } from "./hammerRenderAssembly";
+import type { HammerHistoryPostSaveSnapshotRequest } from "./hammerWorkspaceShellHistoryController";
+import type {
+  HammerEditorStateSerializable,
+  HammerHistoryController,
+  HammerHistoryDocumentV1,
+} from "./hammerWorkspaceHistory";
+import {
+  loadHammerSnapshotManifest,
+  loadHammerSnapshotPayload,
+  saveHammerSnapshotManifest,
+  saveHammerSnapshotPayload,
+  type HammerSnapshotManifestV1,
+} from "../lib/hammerSnapshotArtifactApi";
+import {
+  buildHammerHistorySnapshot,
+  resolveActiveSnapshotHeadEntryId,
+  shouldCreateHammerSnapshot,
+  upsertHammerSnapshotManifest,
+} from "./hammerSnapshotProduction";
+
+export type HammerSnapshotRecoveryResult = {
+  state: HammerEditorStateSerializable;
+  status: string | null;
+};
+
+export interface HammerWorkspaceShellSnapshotAuthority {
+  reset(): void;
+  loadManifest(workpieceId: string, revisionId: string | null): Promise<{
+    ok: boolean;
+    exists: boolean;
+    status: string | null;
+  }>;
+  recover(args: {
+    workpieceId: string;
+    baseRevisionId: string;
+    historyDocument: HammerHistoryDocumentV1;
+    controller: HammerHistoryController;
+    fallbackState: HammerEditorStateSerializable;
+  }): Promise<HammerSnapshotRecoveryResult>;
+  produce(request: HammerHistoryPostSaveSnapshotRequest): Promise<void>;
+}
+
+type SnapshotAuthorityDependencies = {
+  loadManifest: typeof loadHammerSnapshotManifest;
+  loadPayload: typeof loadHammerSnapshotPayload;
+  savePayload: typeof saveHammerSnapshotPayload;
+  saveManifest: typeof saveHammerSnapshotManifest;
+  warn: typeof console.warn;
+};
+
+export function createHammerWorkspaceShellSnapshotAuthority(
+  dependencies: Partial<SnapshotAuthorityDependencies> = {},
+): HammerWorkspaceShellSnapshotAuthority {
+  const deps: SnapshotAuthorityDependencies = {
+    loadManifest: dependencies.loadManifest ?? loadHammerSnapshotManifest,
+    loadPayload: dependencies.loadPayload ?? loadHammerSnapshotPayload,
+    savePayload: dependencies.savePayload ?? saveHammerSnapshotPayload,
+    saveManifest: dependencies.saveManifest ?? saveHammerSnapshotManifest,
+    warn: dependencies.warn ?? console.warn,
+  };
+  let manifest: HammerSnapshotManifestV1 | null = null;
+  let lastSnapshottedHeadEntryId: string | null = null;
+  let generation = 0;
+  let requestOrdinal = 0;
+  const inFlightHeads = new Set<string>();
+
+  return {
+    reset() {
+      generation += 1;
+      requestOrdinal = 0;
+      manifest = null;
+      lastSnapshottedHeadEntryId = null;
+      inFlightHeads.clear();
+    },
+    async loadManifest(workpieceId, revisionId) {
+      const loadGeneration = generation;
+      const result = revisionId
+        ? { ok: true as const, status: 200, exists: false, data: null as HammerSnapshotManifestV1 | null }
+        : await deps.loadManifest(workpieceId);
+      if (loadGeneration !== generation) return { ok: false, exists: false, status: null };
+      if (!result.ok) {
+        manifest = null;
+        lastSnapshottedHeadEntryId = null;
+        return {
+          ok: false,
+          exists: false,
+          status: "Snapshot fallback: manifest unavailable. Opened with full history replay.",
+        };
+      }
+      manifest = result.exists ? (result.data ?? null) : null;
+      lastSnapshottedHeadEntryId = resolveActiveSnapshotHeadEntryId(manifest);
+      return { ok: true, exists: result.exists, status: null };
+    },
+    async recover(args) {
+      const recoveryGeneration = generation;
+      const activeSnapshotRef = manifest?.activeSnapshotRef ?? null;
+      if (!activeSnapshotRef) return { state: args.fallbackState, status: null };
+      const activeSnapshotEntry = manifest?.snapshots.find((entry) => entry.snapshotRef === activeSnapshotRef) ?? null;
+      if (!activeSnapshotEntry) {
+        return {
+          state: args.fallbackState,
+          status: "Snapshot fallback: active snapshot missing from manifest. Opened with full history replay.",
+        };
+      }
+      const result = await deps.loadPayload({ workpieceId: args.workpieceId, snapshotRef: activeSnapshotRef });
+      if (recoveryGeneration !== generation) return { state: args.fallbackState, status: null };
+      if (!result.ok) {
+        return { state: args.fallbackState, status: "Snapshot fallback: payload unavailable. Opened with full history replay." };
+      }
+      if (!result.exists || !result.data) {
+        return { state: args.fallbackState, status: "Snapshot fallback: payload missing. Opened with full history replay." };
+      }
+      const snapshot = result.data;
+      const workpieceMatches = snapshot.workpieceId === args.workpieceId;
+      const baseRevisionMatches = snapshot.baseRevisionId === args.baseRevisionId;
+      const headExistsInLedger = snapshot.headEntryId == null || args.historyDocument.undoStack.includes(snapshot.headEntryId);
+      if (!workpieceMatches || !baseRevisionMatches || !headExistsInLedger) {
+        const reason = !workpieceMatches
+          ? "workpiece mismatch"
+          : !baseRevisionMatches
+          ? "base revision mismatch"
+          : "snapshot head not found in ledger";
+        return { state: args.fallbackState, status: `Snapshot fallback: ${reason}. Opened with full history replay.` };
+      }
+      return {
+        state: args.controller.getReplayStateFromBaseline(snapshot.editorState, snapshot.headEntryId),
+        status: null,
+      };
+    },
+    async produce(request) {
+      const productionGeneration = generation;
+      const headKey = request.headEntryId ?? "<baseline>";
+      if (inFlightHeads.has(headKey)) return;
+      const eligible = shouldCreateHammerSnapshot({
+        undoDepth: request.undoDepth,
+        headEntryId: request.headEntryId,
+        lastSnapshottedHeadEntryId,
+      });
+      if (!eligible) return;
+      const ordinal = ++requestOrdinal;
+      inFlightHeads.add(headKey);
+      try {
+        const snapshot = buildHammerHistorySnapshot({ ...request });
+        const payloadSaved = await deps.savePayload({ workpieceId: request.workpieceId, snapshot });
+        if (productionGeneration !== generation) return;
+        if (!payloadSaved.ok) {
+          deps.warn("Hammer snapshot payload write skipped", {
+            workpieceId: request.workpieceId,
+            status: payloadSaved.status,
+            error: payloadSaved.error,
+          });
+          return;
+        }
+        if (ordinal !== requestOrdinal) return;
+        const nextManifest = upsertHammerSnapshotManifest({ manifest, workpieceId: request.workpieceId, snapshot });
+        const manifestSaved = await deps.saveManifest({ workpieceId: request.workpieceId, manifest: nextManifest });
+        if (productionGeneration !== generation || ordinal !== requestOrdinal) return;
+        if (!manifestSaved.ok) {
+          deps.warn("Hammer snapshot manifest write skipped", {
+            workpieceId: request.workpieceId,
+            status: manifestSaved.status,
+            error: manifestSaved.error,
+          });
+          return;
+        }
+        manifest = manifestSaved.data ?? nextManifest;
+        lastSnapshottedHeadEntryId = resolveActiveSnapshotHeadEntryId(manifest);
+      } finally {
+        inFlightHeads.delete(headKey);
+      }
+    },
+  };
+}
+
+export function useHammerSnapshotImmediatePersistenceSignal(): {
+  persistNowRequestNonce: number;
+  requestImmediatePersist: () => void;
+} {
+  const [persistNowRequestNonce, setPersistNowRequestNonce] = useState(0);
+  const requestImmediatePersist = (): void => {
+    setPersistNowRequestNonce((current) => current + 1);
+  };
+  return { persistNowRequestNonce, requestImmediatePersist };
+}
 
 function stableHashToken(value: string): string {
   let hash = 2166136261;

@@ -44,7 +44,7 @@ async function run() {
     "Expected HammerWorkspaceShell to flush visible placement drafts into canonical state before moving on.",
   );
   assert.ok(
-    shellSource.includes("requestDurablePersistBoundary();"),
+    shellSource.includes("requestImmediatePersist();"),
     "Expected HammerWorkspaceShell to request immediate durable persistence after committed edit boundaries.",
   );
 

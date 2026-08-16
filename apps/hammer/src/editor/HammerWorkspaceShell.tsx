@@ -149,17 +149,6 @@ import {
 } from "../visuals/model/hammerVisualMigrations";
 import { hammerVisualTimelineReducer } from "../visuals/state/hammerVisualReducer";
 import {
-  saveHammerSnapshotManifest,
-  saveHammerSnapshotPayload,
-  type HammerSnapshotManifestV1,
-} from "../lib/hammerSnapshotArtifactApi";
-import {
-  buildHammerHistorySnapshot,
-  resolveActiveSnapshotHeadEntryId,
-  shouldCreateHammerSnapshot,
-  upsertHammerSnapshotManifest,
-} from "./hammerSnapshotProduction";
-import {
   type HammerStoredMediaFile,
 } from "../lib/hammerSourceDeskMediaApi";
 import { deriveStableHammerAssetIdFromPath } from "../lib/hammerAssetIdentity";
@@ -336,7 +325,11 @@ import {
   clearPreviewOverride,
   type PreviewPlacementTransform,
 } from "./hammerAutoPreviewPosition";
-import { useHammerWorkspaceShellSnapshotEmitter } from "./hammerWorkspaceShellSnapshotEmitter";
+import {
+  createHammerWorkspaceShellSnapshotAuthority,
+  useHammerSnapshotImmediatePersistenceSignal,
+  useHammerWorkspaceShellSnapshotEmitter,
+} from "./hammerWorkspaceShellSnapshotEmitter";
 import {
   buildCaptionBasisFingerprint,
   buildCaptionChunksFromPreview,
@@ -891,7 +884,7 @@ function HammerWorkspaceShellWithContext(
   const [visualBackgroundMaskPreviewStage, setVisualBackgroundMaskPreviewStage] = useState<"raw" | "expanded" | "feathered" | "refined" | "final_composite">("raw");
   const [visualEyeContactAssistDebugOverlay, setVisualEyeContactAssistDebugOverlay] = useState(false);
   const visualBackgroundEffectCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [persistNowRequestNonce, setPersistNowRequestNonce] = useState(0);
+  const { persistNowRequestNonce, requestImmediatePersist } = useHammerSnapshotImmediatePersistenceSignal();
   const [captionFormatting, setCaptionFormatting] = useState<HammerCaptionFormattingState>({
     style: "sentence",
     maxCharsPerLine: 42,
@@ -1032,8 +1025,11 @@ function HammerWorkspaceShellWithContext(
   const timelineTrackScrollRef = useRef<HTMLDivElement | null>(null);
   const selectionOriginRef = useRef<"system" | "transcript" | "timeline" | "playhead">("system");
   const selectionRevealFrameRef = useRef<number | null>(null);
-  const snapshotManifestRef = useRef<HammerSnapshotManifestV1 | null>(null);
-  const lastSnapshottedHeadEntryIdRef = useRef<string | null>(null);
+  const snapshotAuthorityRef = useRef<ReturnType<typeof createHammerWorkspaceShellSnapshotAuthority> | null>(null);
+  if (!snapshotAuthorityRef.current) {
+    snapshotAuthorityRef.current = createHammerWorkspaceShellSnapshotAuthority();
+  }
+  const snapshotAuthority = snapshotAuthorityRef.current;
   const historyBaselineStateRef = useRef<HammerEditorStateSerializable | null>(null);
   const baselineDerivedLayersRef = useRef<HammerPersistedStructuredTranscript["derived_text_layers"]>(
     cloneHammerDerivedTextLayers(props.structuredTranscript?.derived_text_layers),
@@ -1744,7 +1740,7 @@ function HammerWorkspaceShellWithContext(
     setSourceDeskError,
     setSelectedClipId,
     seekPlayheadToTime,
-    requestDurablePersistBoundary,
+    requestDurablePersistBoundary: requestImmediatePersist,
     applyHistoryMutation,
     applyVisualTimelineAction,
     applyVisualTimelineActions,
@@ -3042,10 +3038,6 @@ function HammerWorkspaceShellWithContext(
     });
   }
 
-  function requestDurablePersistBoundary(): void {
-    setPersistNowRequestNonce((current) => current + 1);
-  }
-
   function flushPendingPlacementDrafts(): void {
     flushPendingPlacementDraftsFromVisualEditing();
   }
@@ -3216,53 +3208,6 @@ function HammerWorkspaceShellWithContext(
     });
   }
 
-  async function producePostHistorySaveSnapshot(request: HammerHistoryPostSaveSnapshotRequest): Promise<void> {
-    const shouldSnapshot = shouldCreateHammerSnapshot({
-      undoDepth: request.undoDepth,
-      headEntryId: request.headEntryId,
-      lastSnapshottedHeadEntryId: lastSnapshottedHeadEntryIdRef.current,
-    });
-    if (!shouldSnapshot) return;
-
-    const snapshot = buildHammerHistorySnapshot({
-      ...request,
-    });
-
-    const payloadSaved = await saveHammerSnapshotPayload({
-      workpieceId: request.workpieceId,
-      snapshot,
-    });
-    if (!payloadSaved.ok) {
-      console.warn("Hammer snapshot payload write skipped", {
-        workpieceId: request.workpieceId,
-        status: payloadSaved.status,
-        error: payloadSaved.error,
-      });
-      return;
-    }
-
-    const nextManifest = upsertHammerSnapshotManifest({
-      manifest: snapshotManifestRef.current,
-      workpieceId: request.workpieceId,
-      snapshot,
-    });
-    const manifestSaved = await saveHammerSnapshotManifest({
-      workpieceId: request.workpieceId,
-      manifest: nextManifest,
-    });
-    if (!manifestSaved.ok) {
-      console.warn("Hammer snapshot manifest write skipped", {
-        workpieceId: request.workpieceId,
-        status: manifestSaved.status,
-        error: manifestSaved.error,
-      });
-      return;
-    }
-
-    snapshotManifestRef.current = manifestSaved.data ?? nextManifest;
-    lastSnapshottedHeadEntryIdRef.current = resolveActiveSnapshotHeadEntryId(snapshotManifestRef.current);
-  }
-
   function syncVisualTimelineFromCompatibilityState(
     state: HammerEditorStateSerializable,
   ): HammerEditorStateSerializable {
@@ -3332,7 +3277,7 @@ function HammerWorkspaceShellWithContext(
       },
       setHistoryStatus,
       captureSnapshotRequest: capturePostHistorySaveRequest,
-      onHistorySaved: producePostHistorySaveSnapshot,
+      onHistorySaved: snapshotAuthority.produce,
     };
   }
 
@@ -3448,8 +3393,7 @@ function HammerWorkspaceShellWithContext(
     visualPlacements: props.visualPlacements ?? null,
     visualTimeline: props.visualTimeline ?? null,
     historyAuthority,
-    snapshotManifestRef,
-    lastSnapshottedHeadEntryIdRef,
+    snapshotAuthority,
     historyBaselineStateRef,
     baselineDerivedLayersRef,
     derivedLayerHistoryRef,
@@ -3890,7 +3834,7 @@ function HammerWorkspaceShellWithContext(
       return { applied: false, playbackChanged: false };
     }
 
-    requestDurablePersistBoundary();
+    requestImmediatePersist();
 
     const afterState = historyAuthority.getController()?.getState() ?? null;
     const afterAudioOpCount = afterState?.audioEdit?.operations?.length ?? beforeAudioOpCount;
@@ -3962,7 +3906,7 @@ function HammerWorkspaceShellWithContext(
       return { applied: false, playbackChanged: false, deletedTokenCount: 0 };
     }
 
-    requestDurablePersistBoundary();
+    requestImmediatePersist();
 
     const afterState = historyAuthority.getController()?.getState() ?? null;
     const afterAudioOpCount = afterState?.audioEdit?.operations?.length ?? beforeAudioOpCount;
