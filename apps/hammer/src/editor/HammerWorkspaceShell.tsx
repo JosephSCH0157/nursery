@@ -365,7 +365,6 @@ import {
   resolveInitialPassId,
   resolvePassMeta,
   resolveRepresentativePassForEditorMode,
-  stableHashToken,
   type HammerEditorMode,
   type HammerSourceTabId,
   type HammerVideoPanelRoute,
@@ -403,6 +402,10 @@ import {
   formatStudioRackModuleLabel,
   resolveLaneGaps,
 } from "./hammerWorkspaceShellFormatters";
+import {
+  buildStructuredTranscriptResetKey,
+  buildVisualTimelineResetKey,
+} from "./hammerWorkspaceShellResetKeys";
 import "./HammerWorkspaceShell.css";
 
 const HISTORY_MAX_SIZE = 100;
@@ -673,43 +676,14 @@ function HammerWorkspaceShellWithContext(
   props: HammerWorkspaceShellProps & { launchContext: HammerLaunchContext },
 ): JSX.Element {
   const launchContext = props.launchContext;
-  const structuredTranscriptResetKey = useMemo(() => {
-    const transcript = props.structuredTranscript;
-    if (!transcript) return "structured-transcript:none";
-    return `structured-transcript:${stableHashToken(JSON.stringify({
-      transcriptId: transcript.transcript_id,
-      preparedAt: transcript.prepared_at,
-      mediaSignature: transcript.media_signature,
-      segmentCount: transcript.segments.length,
-      segments: transcript.segments.map((segment) => ({
-        id: segment.segment_id,
-        speaker: segment.speaker,
-        text: segment.text,
-        start: segment.start_sec,
-        end: segment.end_sec,
-        disabled: segment.is_disabled === true,
-      })),
-      derivedTextLayers: transcript.derived_text_layers
-        ? {
-          activeLayerId: transcript.derived_text_layers.active_layer_id ?? null,
-          outputLayerId: transcript.derived_text_layers.output_layer_id ?? null,
-          layerIds: transcript.derived_text_layers.layers.map((layer) => layer.layer_id),
-        }
-        : null,
-    }))}`;
-  }, [props.structuredTranscript]);
-  const visualTimelineResetKey = useMemo(() => {
-    const timeline = props.visualTimeline;
-    if (!timeline) return "visual-timeline:none";
-    return `visual-timeline:${stableHashToken(JSON.stringify({
-      revision: timeline.revision,
-      updatedAt: timeline.updated_at,
-      selectedClipId: timeline.selected_clip_id,
-      clipCount: timeline.clips.length,
-      assetCount: timeline.assets.length,
-      clipIds: timeline.clips.map((clip) => clip.clip_id),
-    }))}`;
-  }, [props.visualTimeline]);
+  const structuredTranscriptResetKey = useMemo(
+    () => buildStructuredTranscriptResetKey(props.structuredTranscript),
+    [props.structuredTranscript],
+  );
+  const visualTimelineResetKey = useMemo(
+    () => buildVisualTimelineResetKey(props.visualTimeline),
+    [props.visualTimeline],
+  );
   const transcriptSegments = useMemo(
     () => readTranscriptSegments(launchContext, props.structuredTranscript ?? null),
     [launchContext.transcript, structuredTranscriptResetKey],
