@@ -22,6 +22,9 @@ import {
   cloneEditorState,
   type HammerEditorStateSerializable,
   type HammerHistoryController,
+  type HammerHistoryDocumentV1,
+  type HammerHistoryEntry,
+  type HammerHistoryKind,
   type HammerOutputSelectionState,
 } from "./hammerWorkspaceHistory";
 import { syncEditableTranscriptSegments, resolveTranscriptDurationSec } from "./hammerWorkspaceTranscript";
@@ -33,6 +36,8 @@ import {
   loadHammerHistoryDocument,
   loadHammerHistoryPresence,
   loadHammerRevisionHistoryDocument,
+  saveHammerHistoryDocument,
+  saveHammerRevisionHistoryDocument,
 } from "../lib/hammerHistoryArtifactApi";
 import {
   loadHammerSnapshotManifest,
@@ -85,6 +90,224 @@ export async function persistHammerHistorySaveBoundary(args: {
   return result;
 }
 
+export function cloneHammerHistoryDocument(document: HammerHistoryDocumentV1): HammerHistoryDocumentV1 {
+  return structuredClone(document);
+}
+
+export type HammerHistoryCommandAuthorityConfig = {
+  workspaceId: string;
+  workpieceId: string;
+  revisionId: string | null;
+  selectionSegmentId: string | null;
+  activeTool: string | null;
+  captureState: () => HammerEditorStateSerializable;
+  normalizeState: (state: HammerEditorStateSerializable) => HammerEditorStateSerializable;
+  applyState: (state: HammerEditorStateSerializable, reason: string) => void;
+  onUndoRedoEntry: (entry: HammerHistoryEntry, direction: "undo" | "redo") => void;
+  setHistoryStatus: (status: string | null) => void;
+  captureSnapshotRequest: (
+    document: HammerHistoryDocumentV1,
+    state: HammerEditorStateSerializable,
+  ) => HammerHistoryPostSaveSnapshotRequest;
+  onHistorySaved: (request: HammerHistoryPostSaveSnapshotRequest) => Promise<void>;
+  saveDocument?: (document: HammerHistoryDocumentV1) => Promise<{ ok: true } | { ok: false; error: string }>;
+};
+
+export type HammerHistoryMutationArgs = {
+  label: string;
+  kind?: HammerHistoryKind;
+  affectedSegments?: string[];
+  affectedPlacementIds?: string[];
+  toolId?: string;
+  transactionId?: string;
+  allowCoalesce?: boolean;
+  immediatePersist?: boolean;
+  computeAfter: (before: HammerEditorStateSerializable) => HammerEditorStateSerializable;
+};
+
+export interface HammerHistoryCommandAuthority {
+  configure(config: HammerHistoryCommandAuthorityConfig): void;
+  getController(): HammerHistoryController | null;
+  installController(controller: HammerHistoryController | null): void;
+  applyMutation(args: HammerHistoryMutationArgs): HammerHistoryEntry | null;
+  undo(): void;
+  redo(): void;
+  createCheckpoint(label: string): void;
+  jumpToEntry(entryId: string, baseline: HammerEditorStateSerializable): { undoStack: string[]; hasRedo: boolean } | null;
+  restoreCurrentState(): boolean;
+  schedulePersist(immediate?: boolean): void;
+  clearPersistTimer(): void;
+  invalidate(): void;
+}
+
+export function createHammerHistoryCommandAuthority(
+  initialConfig: HammerHistoryCommandAuthorityConfig,
+  debounceMs: number,
+  coalesceWindowMs: number,
+): HammerHistoryCommandAuthority {
+  let config = initialConfig;
+  let controller: HammerHistoryController | null = null;
+  let persistTimer: ReturnType<typeof setTimeout> | null = null;
+  let generation = 0;
+
+  const clearPersistTimer = (): void => {
+    if (persistTimer != null) {
+      clearTimeout(persistTimer);
+      persistTimer = null;
+    }
+  };
+
+  const persist = async (): Promise<void> => {
+    if (!controller) return;
+    const saveGeneration = generation;
+    const saveConfig = config;
+    const document = cloneHammerHistoryDocument(controller.document);
+    document.metadata = {
+      ...(document.metadata ?? {}),
+      lastKnownSelectionSegmentId: saveConfig.selectionSegmentId,
+      lastKnownTool: saveConfig.activeTool,
+    };
+    document.updatedAt = new Date().toISOString();
+    const editorState = cloneEditorState(controller.getState());
+    const snapshotRequest = saveConfig.captureSnapshotRequest(document, editorState);
+    const saveHistory = async (): Promise<{ ok: true } | { ok: false; error: string }> => {
+      if (saveConfig.saveDocument) return saveConfig.saveDocument(document);
+      const result = saveConfig.revisionId
+        ? await saveHammerRevisionHistoryDocument({
+          workspaceId: saveConfig.workspaceId,
+          workpieceId: saveConfig.workpieceId,
+          revisionId: saveConfig.revisionId,
+          document,
+        })
+        : await saveHammerHistoryDocument({ workpieceId: saveConfig.workpieceId, document });
+      return result.ok ? { ok: true } : { ok: false, error: result.error };
+    };
+    const result = await persistHammerHistorySaveBoundary({
+      saveHistory,
+      snapshotRequest,
+      onHistorySaved: async (request) => {
+        if (saveGeneration !== generation || saveConfig.revisionId) return;
+        await saveConfig.onHistorySaved(request);
+      },
+    });
+    if (saveGeneration !== generation) return;
+    config.setHistoryStatus(result.ok ? null : result.error);
+  };
+
+  const schedulePersist = (immediate = false): void => {
+    clearPersistTimer();
+    if (immediate) {
+      void persist();
+      return;
+    }
+    persistTimer = setTimeout(() => {
+      persistTimer = null;
+      void persist();
+    }, debounceMs);
+  };
+
+  return {
+    configure(nextConfig) {
+      config = nextConfig;
+    },
+    getController: () => controller,
+    installController(nextController) {
+      if (controller !== nextController) {
+        clearPersistTimer();
+        generation += 1;
+      }
+      controller = nextController;
+    },
+    applyMutation(args) {
+      if (!controller) return null;
+      const before = config.captureState();
+      const after = cloneEditorState(config.normalizeState(args.computeAfter(cloneEditorState(before))));
+      const entry = controller.applyMutation({
+        label: args.label,
+        kind: args.kind,
+        toolId: args.toolId,
+        affectedSegmentIds: args.affectedSegments,
+        affectedPlacementIds: args.affectedPlacementIds,
+        transactionId: args.transactionId ?? null,
+        allowCoalesce: args.allowCoalesce,
+        coalesceWindowMs,
+        nextState: after,
+      });
+      if (!entry) return null;
+      config.applyState(controller.getState(), "history:mutation_apply");
+      schedulePersist(args.immediatePersist === true);
+      return entry;
+    },
+    undo() {
+      if (!controller) return;
+      const entry = controller.undo();
+      if (!entry) return;
+      config.onUndoRedoEntry(entry, "undo");
+      config.applyState(controller.getState(), "history:undo");
+      schedulePersist();
+    },
+    redo() {
+      if (!controller) return;
+      const entry = controller.redo();
+      if (!entry) return;
+      config.onUndoRedoEntry(entry, "redo");
+      config.applyState(controller.getState(), "history:redo");
+      schedulePersist();
+    },
+    createCheckpoint(label) {
+      controller?.createCheckpoint(label);
+    },
+    jumpToEntry(entryId, baseline) {
+      if (!controller || !controller.document.entries.some((entry) => entry.id === entryId)) return null;
+      const currentPath = [
+        ...controller.document.undoStack,
+        ...[...controller.document.redoStack].reverse(),
+      ];
+      const targetIndex = currentPath.indexOf(entryId);
+      let undoStack: string[];
+      if (targetIndex >= 0) {
+        undoStack = currentPath.slice(0, targetIndex + 1);
+      } else {
+        const entries = new Map(controller.document.entries.map((entry) => [entry.id, entry]));
+        const reversePath: string[] = [];
+        const visited = new Set<string>();
+        let cursor: string | null = entryId;
+        while (cursor && !visited.has(cursor)) {
+          const entry: HammerHistoryEntry | undefined = entries.get(cursor);
+          if (!entry) break;
+          reversePath.push(entry.id);
+          visited.add(cursor);
+          cursor = entry.parentEntryId;
+        }
+        undoStack = reversePath.reverse();
+      }
+      const redoStack = targetIndex >= 0 ? currentPath.slice(targetIndex + 1).reverse() : [];
+      const replayed = controller.getReplayStateFromBaseline(baseline, entryId);
+      controller.document.undoStack = [...undoStack];
+      controller.document.redoStack = [...redoStack];
+      controller.document.headEntryId = entryId;
+      controller.document.updatedAt = new Date().toISOString();
+      controller.replaceState(replayed);
+      config.applyState(replayed, "history:jump");
+      schedulePersist();
+      return { undoStack, hasRedo: redoStack.length > 0 };
+    },
+    restoreCurrentState() {
+      if (!controller || controller.document.redoStack.length === 0) return false;
+      controller.document.redoStack = [];
+      controller.document.updatedAt = new Date().toISOString();
+      schedulePersist(true);
+      return true;
+    },
+    schedulePersist,
+    clearPersistTimer,
+    invalidate() {
+      clearPersistTimer();
+      generation += 1;
+    },
+  };
+}
+
 type DerivedLayersState = HammerPersistedStructuredTranscript["derived_text_layers"];
 
 export type UseHammerWorkspaceShellHistoryControllerArgs = {
@@ -106,13 +329,12 @@ export type UseHammerWorkspaceShellHistoryControllerArgs = {
   visualPlacements: HammerPersistedVisualPlacements | null;
   visualTimeline: HammerVisualTimelineState | null;
 
-  clearPersistTimer: () => void;
+  historyAuthority: HammerHistoryCommandAuthority;
 
   snapshotManifestRef: { current: HammerSnapshotManifestV1 | null };
   lastSnapshottedHeadEntryIdRef: { current: string | null };
   historyBaselineStateRef: { current: HammerEditorStateSerializable | null };
   baselineDerivedLayersRef: { current: DerivedLayersState };
-  historyControllerRef: { current: HammerHistoryController | null };
   derivedLayerHistoryRef: { current: Map<string, { before: DerivedLayersState; after: DerivedLayersState }> };
 
   applyWorkspaceState: (state: HammerEditorStateSerializable, reason?: string) => void;
@@ -170,7 +392,7 @@ export function resolveBaselineAuthorityGraph(args: {
 export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspaceShellHistoryControllerArgs): void {
   useEffect(() => {
     let active = true;
-    args.clearPersistTimer();
+    args.historyAuthority.invalidate();
     args.snapshotManifestRef.current = null;
     args.lastSnapshottedHeadEntryIdRef.current = null;
 
@@ -192,7 +414,7 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
       persistedEditorialAuthorityGraph: args.editorialAuthorityGraph,
       projectedAuthorityGraph: projectedBaselineAuthorityGraph,
     });
-    const previousTimeline = args.historyControllerRef.current?.getState().visualTimeline ?? null;
+    const previousTimeline = args.historyAuthority.getController()?.getState().visualTimeline ?? null;
     const protectedTimeline = preservePlacementRichTimelineDuringHydration({
       previous: previousTimeline,
       incoming: args.visualTimeline ?? null,
@@ -213,7 +435,7 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
     args.baselineDerivedLayersRef.current = args.cloneHammerDerivedTextLayers(args.structuredTranscript?.derived_text_layers);
     const baseRevisionId = hashEditorState(baselineState);
 
-    args.historyControllerRef.current = createHammerHistoryController({
+    args.historyAuthority.installController(createHammerHistoryController({
       document: createHammerHistoryDocument({
         workpieceId: args.launchContext.workpiece_id,
         sessionId: args.launchContext.session_id ?? `${args.launchContext.workpiece_id}:session`,
@@ -221,7 +443,7 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
       }),
       initialState: baselineState,
       maxUndoSteps: args.maxUndoSteps,
-    });
+    }));
 
     if (protectedTimeline.reason === "preserved_anchor_rich_timeline") {
       console.debug("[hammer][hydration] preserved placement-rich timeline during baseline init", {
@@ -254,7 +476,7 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
       args.setHistoryStatus("Actual recording mismatch detected. Opened baseline without replay.");
       return () => {
         active = false;
-        args.clearPersistTimer();
+        args.historyAuthority.invalidate();
       };
     }
 
@@ -375,7 +597,7 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
       }
 
       controller.replaceState(replayed);
-      args.historyControllerRef.current = controller;
+      args.historyAuthority.installController(controller);
       args.applyWorkspaceState(replayed, "history:replay_apply");
       args.setHistoryStatus(resolveHammerHistoryStatus({
         historyExists: true,
@@ -390,7 +612,7 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
 
     return () => {
       active = false;
-      args.clearPersistTimer();
+      args.historyAuthority.invalidate();
     };
   }, [
     args.actualRecordingMismatchWarning,

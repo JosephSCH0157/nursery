@@ -2,9 +2,17 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   captureHammerHistoryPostSaveSnapshotRequest,
+  createHammerHistoryCommandAuthority,
   persistHammerHistorySaveBoundary,
+  type HammerHistoryCommandAuthorityConfig,
 } from "../src/editor/hammerWorkspaceShellHistoryController";
-import { createHammerHistoryController, createHammerHistoryDocument } from "../src/editor/hammerWorkspaceHistory";
+import {
+  cloneEditorState,
+  createHammerHistoryController,
+  createHammerHistoryDocument,
+  type HammerEditorStateSerializable,
+  type HammerHistoryDocumentV1,
+} from "../src/editor/hammerWorkspaceHistory";
 import { createDefaultHammerStudioRackState } from "../src/editor/hammerStudioRack";
 
 const state = () => ({
@@ -70,4 +78,151 @@ test("snapshot failure remains non-fatal after history succeeds", async () => {
     onHistorySaved: async () => { throw new Error("snapshot unavailable"); },
   });
   assert.deepEqual(result, { ok: true });
+});
+
+function authorityFixture(overrides: Partial<HammerHistoryCommandAuthorityConfig> = {}, debounceMs = 900) {
+  let currentState: HammerEditorStateSerializable = state();
+  const saved: HammerHistoryDocumentV1[] = [];
+  const snapshots: Array<{ headEntryId: string | null; text: string }> = [];
+  const statuses: Array<string | null> = [];
+  const config: HammerHistoryCommandAuthorityConfig = {
+    workspaceId: "workspace1",
+    workpieceId: "w1",
+    revisionId: null,
+    selectionSegmentId: "s1",
+    activeTool: "transcript",
+    captureState: () => cloneEditorState(currentState),
+    normalizeState: cloneEditorState,
+    applyState: (next) => { currentState = cloneEditorState(next); },
+    onUndoRedoEntry: () => undefined,
+    setHistoryStatus: (status) => { statuses.push(status); },
+    captureSnapshotRequest: (document, editorState) => Object.freeze({
+      workpieceId: document.workpieceId,
+      sessionId: document.sessionId,
+      baseRevisionId: document.baseRevisionId,
+      headEntryId: document.headEntryId,
+      undoDepth: document.undoStack.length,
+      redoDepth: document.redoStack.length,
+      editorState: cloneEditorState(editorState),
+    }),
+    onHistorySaved: async (request) => {
+      snapshots.push({
+        headEntryId: request.headEntryId,
+        text: request.editorState.transcriptSegments[0]!.text,
+      });
+    },
+    saveDocument: async (document) => { saved.push(cloneHammerDocument(document)); return { ok: true }; },
+    ...overrides,
+  };
+  const authority = createHammerHistoryCommandAuthority(config, debounceMs, 1_500);
+  authority.installController(createHammerHistoryController({
+    document: createHammerHistoryDocument({ workpieceId: "w1", sessionId: "session1", baseRevisionId: "base1" }),
+    initialState: currentState,
+    maxUndoSteps: 10,
+  }));
+  return { authority, config, saved, snapshots, statuses, getState: () => currentState };
+}
+
+function cloneHammerDocument(document: HammerHistoryDocumentV1): HammerHistoryDocumentV1 {
+  return structuredClone(document);
+}
+
+function editText(before: HammerEditorStateSerializable, text: string): HammerEditorStateSerializable {
+  return {
+    ...before,
+    transcriptSegments: [{ ...before.transcriptSegments[0]!, text }],
+  };
+}
+
+test("production authority persists the matching cloned document before its snapshot callback", async () => {
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  const order: string[] = [];
+  const fixture = authorityFixture({
+    saveDocument: async (document) => {
+      fixture.saved.push(cloneHammerDocument(document));
+      await pending;
+      order.push("history");
+      return { ok: true };
+    },
+    onHistorySaved: async (request) => {
+      order.push("snapshot");
+      fixture.snapshots.push({ headEntryId: request.headEntryId, text: request.editorState.transcriptSegments[0]!.text });
+    },
+  });
+  fixture.authority.applyMutation({ label: "First", computeAfter: (before) => editText(before, "first") });
+  fixture.authority.schedulePersist(true);
+  fixture.authority.applyMutation({ label: "Second", computeAfter: (before) => editText(before, "second") });
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(order, ["history", "snapshot"]);
+  assert.equal(fixture.saved[0]!.entries.length, 1);
+  assert.equal(fixture.snapshots[0]!.text, "first");
+  assert.equal(fixture.snapshots[0]!.headEntryId, fixture.saved[0]!.headEntryId);
+  fixture.authority.clearPersistTimer();
+});
+
+test("overlapping successful saves retain matching requests and one callback each", async () => {
+  const releases: Array<() => void> = [];
+  const fixture = authorityFixture({
+    saveDocument: async (document) => {
+      fixture.saved.push(cloneHammerDocument(document));
+      await new Promise<void>((resolve) => { releases.push(resolve); });
+      return { ok: true };
+    },
+  });
+  fixture.authority.applyMutation({ label: "First", computeAfter: (before) => editText(before, "first") });
+  fixture.authority.schedulePersist(true);
+  fixture.authority.applyMutation({ label: "Second", computeAfter: (before) => editText(before, "second") });
+  fixture.authority.schedulePersist(true);
+  releases[1]!();
+  releases[0]!();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(fixture.snapshots.length, 2);
+  assert.deepEqual(new Set(fixture.snapshots.map((item) => item.text)), new Set(["first", "second"]));
+});
+
+test("invalidating authority clears timers and suppresses stale in-flight completion", async () => {
+  let release!: () => void;
+  const pending = new Promise<void>((resolve) => { release = resolve; });
+  const fixture = authorityFixture({ saveDocument: async () => { await pending; return { ok: true }; } });
+  fixture.authority.schedulePersist(true);
+  fixture.authority.invalidate();
+  release();
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.deepEqual(fixture.snapshots, []);
+  assert.deepEqual(fixture.statuses, []);
+});
+
+test("invalidating authority clears a scheduled persistence timer", async () => {
+  let saves = 0;
+  const fixture = authorityFixture({ saveDocument: async () => { saves += 1; return { ok: true }; } }, 5);
+  fixture.authority.schedulePersist();
+  fixture.authority.invalidate();
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  assert.equal(saves, 0);
+});
+
+test("authority owns mutation coalescing and undo redo application", () => {
+  const directions: string[] = [];
+  const fixture = authorityFixture({ onUndoRedoEntry: (_entry, direction) => { directions.push(direction); } });
+  fixture.authority.applyMutation({
+    label: "Typing",
+    transactionId: "typing:s1",
+    allowCoalesce: true,
+    computeAfter: (before) => editText(before, "one"),
+  });
+  fixture.authority.applyMutation({
+    label: "Typing",
+    transactionId: "typing:s1",
+    allowCoalesce: true,
+    computeAfter: (before) => editText(before, "two"),
+  });
+  assert.equal(fixture.authority.getController()!.document.entries.length, 1);
+  fixture.authority.undo();
+  assert.equal(fixture.getState().transcriptSegments[0]!.text, "before");
+  fixture.authority.redo();
+  assert.equal(fixture.getState().transcriptSegments[0]!.text, "two");
+  assert.deepEqual(directions, ["undo", "redo"]);
+  fixture.authority.clearPersistTimer();
 });

@@ -119,7 +119,6 @@ import {
 import {
   cloneEditorState,
   type HammerEditorStateSerializable,
-  type HammerHistoryController,
   type HammerHistoryEntry,
   type HammerHistoryKind,
   type HammerOutputSelectionState,
@@ -133,10 +132,6 @@ import {
   setHammerDerivedTextLayerActive,
   setHammerDerivedTextLayerOutput,
 } from "../macros/hammerDerivedTranscriptLayers";
-import {
-  saveHammerHistoryDocument,
-  saveHammerRevisionHistoryDocument,
-} from "../lib/hammerHistoryArtifactApi";
 import { diffWords, isSubtractiveTranscriptWordEdit } from "../lib/hammerWordDiff";
 import {
   buildCandidateQueue,
@@ -324,7 +319,12 @@ import HammerWorkspaceShellPreviewBay from "./HammerWorkspaceShellPreviewBay";
 import HammerWorkspaceShellTimelineDock from "./HammerWorkspaceShellTimelineDock";
 import HammerWorkspaceShellSourceBay from "./HammerWorkspaceShellSourceBay";
 import HammerWorkspaceShellToolBay from "./HammerWorkspaceShellToolBay";
-import { useHammerWorkspaceShellHistoryController } from "./hammerWorkspaceShellHistoryController";
+import {
+  createHammerHistoryCommandAuthority,
+  useHammerWorkspaceShellHistoryController,
+  type HammerHistoryCommandAuthorityConfig,
+  type HammerHistoryPostSaveSnapshotRequest,
+} from "./hammerWorkspaceShellHistoryController";
 import { buildVisualTimelineDiagnostics } from "./hammerVisualTimelineHydrationGuard";
 import { isAutoPlacementDebugFlagEnabled } from "./hammerAutoPlacementDebugFlag";
 import {
@@ -1032,8 +1032,6 @@ function HammerWorkspaceShellWithContext(
   const timelineTrackScrollRef = useRef<HTMLDivElement | null>(null);
   const selectionOriginRef = useRef<"system" | "transcript" | "timeline" | "playhead">("system");
   const selectionRevealFrameRef = useRef<number | null>(null);
-  const historyControllerRef = useRef<HammerHistoryController | null>(null);
-  const historyPersistTimerRef = useRef<number | null>(null);
   const snapshotManifestRef = useRef<HammerSnapshotManifestV1 | null>(null);
   const lastSnapshottedHeadEntryIdRef = useRef<string | null>(null);
   const historyBaselineStateRef = useRef<HammerEditorStateSerializable | null>(null);
@@ -1041,6 +1039,16 @@ function HammerWorkspaceShellWithContext(
     cloneHammerDerivedTextLayers(props.structuredTranscript?.derived_text_layers),
   );
   const derivedLayerHistoryRef = useRef<Map<string, DerivedLayerHistoryTransition>>(new Map());
+  const historyAuthorityRef = useRef<ReturnType<typeof createHammerHistoryCommandAuthority> | null>(null);
+  if (!historyAuthorityRef.current) {
+    historyAuthorityRef.current = createHammerHistoryCommandAuthority(
+      getHistoryAuthorityConfig(),
+      HISTORY_PERSIST_DEBOUNCE_MS,
+      TEXT_EDIT_COALESCE_MS,
+    );
+  }
+  const historyAuthority = historyAuthorityRef.current;
+  historyAuthority.configure(getHistoryAuthorityConfig());
   const scrubRectRef = useRef<{ left: number; width: number } | null>(null);
   const scrubAutoPlayRef = useRef(false);
   const scrubReturnToPausedRef = useRef(false);
@@ -2750,7 +2758,7 @@ function HammerWorkspaceShellWithContext(
     return mediaSourceLabel;
   }, [mediaSourceLabel, packagingIntroAssetPath, packagingOutroAssetPath, packagingTransport.phase, preferredPlayback.kind, preferredPlayback.local_relpath, preferredPlayback.source_label, preferredPlayback.workpiece_path]);
 
-  const historyController = historyControllerRef.current;
+  const historyController = historyAuthority.getController();
   const historyHeadEntryId = historyController?.document.headEntryId ?? null;
 
   const voicePolish = useMemo(
@@ -2818,13 +2826,6 @@ function HammerWorkspaceShellWithContext(
     () => [...(historyController?.document.entries ?? [])].slice(-12).reverse(),
     [historyController?.document.entries],
   );
-  const historyEntryById = useMemo(() => {
-    const byId = new Map<string, HammerHistoryEntry>();
-    for (const entry of historyController?.document.entries ?? []) {
-      byId.set(entry.id, entry);
-    }
-    return byId;
-  }, [historyController?.document.entries]);
   const undoLabelCompact = compactHistoryActionLabel(undoLabel);
   const redoLabelCompact = compactHistoryActionLabel(redoLabel);
   const outputLayerCandidates = useMemo(
@@ -3188,20 +3189,6 @@ function HammerWorkspaceShellWithContext(
     }
   }
 
-  function buildHistoryPathToEntry(entryId: string): string[] {
-    const path: string[] = [];
-    const visited = new Set<string>();
-    let cursor: string | null = entryId;
-    while (cursor && !visited.has(cursor)) {
-      const entry: HammerHistoryEntry | null = historyEntryById.get(cursor) ?? null;
-      if (!entry) break;
-      path.push(entry.id);
-      visited.add(cursor);
-      cursor = entry.parentEntryId ?? null;
-    }
-    return path.reverse();
-  }
-
   function resolveDerivedLayersForUndoStack(
     undoStack: readonly string[],
   ): HammerPersistedStructuredTranscript["derived_text_layers"] {
@@ -3214,72 +3201,40 @@ function HammerWorkspaceShellWithContext(
     return next;
   }
 
-  function clearPersistTimer(): void {
-    if (historyPersistTimerRef.current != null) {
-      window.clearTimeout(historyPersistTimerRef.current);
-      historyPersistTimerRef.current = null;
-    }
+  function capturePostHistorySaveRequest(
+    document: Parameters<HammerHistoryCommandAuthorityConfig["captureSnapshotRequest"]>[0],
+    editorState: HammerEditorStateSerializable,
+  ): HammerHistoryPostSaveSnapshotRequest {
+    return Object.freeze({
+      workpieceId: document.workpieceId,
+      sessionId: document.sessionId,
+      baseRevisionId: document.baseRevisionId,
+      headEntryId: document.headEntryId ?? null,
+      undoDepth: document.undoStack.length,
+      redoDepth: document.redoStack.length,
+      editorState: cloneEditorState(editorState),
+    });
   }
 
-  async function persistHistoryDocument(): Promise<void> {
-    const controller = historyControllerRef.current;
-    if (!controller) return;
-
-    controller.document.metadata = {
-      ...(controller.document.metadata ?? {}),
-      lastKnownSelectionSegmentId: selectedSegmentId,
-      lastKnownTool: activeTool,
-    };
-    controller.document.updatedAt = new Date().toISOString();
-
-    const result = props.recordingRevisionId
-      ? await saveHammerRevisionHistoryDocument({
-        workspaceId: launchContext.workspace_id,
-        workpieceId: launchContext.workpiece_id,
-        revisionId: props.recordingRevisionId,
-        document: controller.document,
-      })
-      : await saveHammerHistoryDocument({
-        workpieceId: launchContext.workpiece_id,
-        document: controller.document,
-      });
-    if (!result.ok) {
-      setHistoryStatus(result.error);
-      return;
-    }
-    setHistoryStatus(null);
-
-    if (props.recordingRevisionId) {
-      return;
-    }
-
-    const headEntryId = controller.document.headEntryId ?? null;
-    const undoDepth = controller.document.undoStack.length;
-    const redoDepth = controller.document.redoStack.length;
+  async function producePostHistorySaveSnapshot(request: HammerHistoryPostSaveSnapshotRequest): Promise<void> {
     const shouldSnapshot = shouldCreateHammerSnapshot({
-      undoDepth,
-      headEntryId,
+      undoDepth: request.undoDepth,
+      headEntryId: request.headEntryId,
       lastSnapshottedHeadEntryId: lastSnapshottedHeadEntryIdRef.current,
     });
     if (!shouldSnapshot) return;
 
     const snapshot = buildHammerHistorySnapshot({
-      workpieceId: launchContext.workpiece_id,
-      sessionId: controller.document.sessionId,
-      baseRevisionId: controller.document.baseRevisionId,
-      headEntryId,
-      undoDepth,
-      redoDepth,
-      editorState: controller.getState(),
+      ...request,
     });
 
     const payloadSaved = await saveHammerSnapshotPayload({
-      workpieceId: launchContext.workpiece_id,
+      workpieceId: request.workpieceId,
       snapshot,
     });
     if (!payloadSaved.ok) {
       console.warn("Hammer snapshot payload write skipped", {
-        workpieceId: launchContext.workpiece_id,
+        workpieceId: request.workpieceId,
         status: payloadSaved.status,
         error: payloadSaved.error,
       });
@@ -3288,16 +3243,16 @@ function HammerWorkspaceShellWithContext(
 
     const nextManifest = upsertHammerSnapshotManifest({
       manifest: snapshotManifestRef.current,
-      workpieceId: launchContext.workpiece_id,
+      workpieceId: request.workpieceId,
       snapshot,
     });
     const manifestSaved = await saveHammerSnapshotManifest({
-      workpieceId: launchContext.workpiece_id,
+      workpieceId: request.workpieceId,
       manifest: nextManifest,
     });
     if (!manifestSaved.ok) {
       console.warn("Hammer snapshot manifest write skipped", {
-        workpieceId: launchContext.workpiece_id,
+        workpieceId: request.workpieceId,
         status: manifestSaved.status,
         error: manifestSaved.error,
       });
@@ -3306,19 +3261,6 @@ function HammerWorkspaceShellWithContext(
 
     snapshotManifestRef.current = manifestSaved.data ?? nextManifest;
     lastSnapshottedHeadEntryIdRef.current = resolveActiveSnapshotHeadEntryId(snapshotManifestRef.current);
-  }
-
-  function scheduleHistoryPersist(immediate = false): void {
-    clearPersistTimer();
-    if (immediate) {
-      void persistHistoryDocument();
-      return;
-    }
-
-    historyPersistTimerRef.current = window.setTimeout(() => {
-      historyPersistTimerRef.current = null;
-      void persistHistoryDocument();
-    }, HISTORY_PERSIST_DEBOUNCE_MS);
   }
 
   function syncVisualTimelineFromCompatibilityState(
@@ -3357,60 +3299,41 @@ function HammerWorkspaceShellWithContext(
     immediatePersist?: boolean;
     computeAfter: (before: HammerEditorStateSerializable) => HammerEditorStateSerializable;
   }): HammerHistoryEntry | null {
-    const controller = historyControllerRef.current;
-    if (!controller) return null;
-
-    const before = captureWorkspaceState();
-    const after = cloneEditorState(syncVisualTimelineFromCompatibilityState(
-      args.computeAfter(cloneEditorState(before)),
-    ));
-
-    const entry = controller.applyMutation({
-      label: args.label,
-      kind: args.kind,
-      toolId: args.toolId,
-      affectedSegmentIds: args.affectedSegments,
-      affectedPlacementIds: args.affectedPlacementIds,
-      transactionId: args.transactionId ?? null,
-      allowCoalesce: args.allowCoalesce,
-      coalesceWindowMs: TEXT_EDIT_COALESCE_MS,
-      nextState: after,
-    });
-    if (!entry) return null;
-
-    applyWorkspaceState(controller.getState(), "history:mutation_apply");
-    scheduleHistoryPersist(args.immediatePersist === true);
-    return entry;
+    return historyAuthority.applyMutation(args);
   }
 
   function undoHistory(): void {
-    const controller = historyControllerRef.current;
-    if (!controller) return;
-    const entry = controller.undo();
-    if (!entry) return;
-    const derivedTransition = derivedLayerHistoryRef.current.get(entry.id);
-    if (derivedTransition) {
-      setEditableDerivedTextLayers(cloneHammerDerivedTextLayers(derivedTransition.before));
-    }
-    applyWorkspaceState(controller.getState(), "history:undo");
-    selectionOriginRef.current = "system";
-    setFocusOverride("source-focus");
-    scheduleHistoryPersist();
+    historyAuthority.undo();
   }
 
   function redoHistory(): void {
-    const controller = historyControllerRef.current;
-    if (!controller) return;
-    const entry = controller.redo();
-    if (!entry) return;
-    const derivedTransition = derivedLayerHistoryRef.current.get(entry.id);
-    if (derivedTransition) {
-      setEditableDerivedTextLayers(cloneHammerDerivedTextLayers(derivedTransition.after));
-    }
-    applyWorkspaceState(controller.getState(), "history:redo");
-    selectionOriginRef.current = "system";
-    setFocusOverride("source-focus");
-    scheduleHistoryPersist();
+    historyAuthority.redo();
+  }
+
+  function getHistoryAuthorityConfig(): HammerHistoryCommandAuthorityConfig {
+    return {
+      workspaceId: launchContext.workspace_id,
+      workpieceId: launchContext.workpiece_id,
+      revisionId: props.recordingRevisionId ?? null,
+      selectionSegmentId: selectedSegmentId,
+      activeTool,
+      captureState: captureWorkspaceState,
+      normalizeState: syncVisualTimelineFromCompatibilityState,
+      applyState: applyWorkspaceState,
+      onUndoRedoEntry: (entry, direction) => {
+        const transition = derivedLayerHistoryRef.current.get(entry.id);
+        if (transition) {
+          setEditableDerivedTextLayers(cloneHammerDerivedTextLayers(
+            direction === "undo" ? transition.before : transition.after,
+          ));
+        }
+        selectionOriginRef.current = "system";
+        setFocusOverride("source-focus");
+      },
+      setHistoryStatus,
+      captureSnapshotRequest: capturePostHistorySaveRequest,
+      onHistorySaved: producePostHistorySaveSnapshot,
+    };
   }
 
   useEffect(() => {
@@ -3524,12 +3447,11 @@ function HammerWorkspaceShellWithContext(
     structuredTranscript: props.structuredTranscript ?? null,
     visualPlacements: props.visualPlacements ?? null,
     visualTimeline: props.visualTimeline ?? null,
-    clearPersistTimer,
+    historyAuthority,
     snapshotManifestRef,
     lastSnapshottedHeadEntryIdRef,
     historyBaselineStateRef,
     baselineDerivedLayersRef,
-    historyControllerRef,
     derivedLayerHistoryRef,
     applyWorkspaceState,
     setHistoryStatus,
@@ -3834,7 +3756,7 @@ function HammerWorkspaceShellWithContext(
     endSec: number | null;
     operationId?: string;
   }): boolean {
-    const controller = historyControllerRef.current;
+    const controller = historyAuthority.getController();
     if (!controller) return false;
 
     const beforeState = controller.getState();
@@ -3924,7 +3846,7 @@ function HammerWorkspaceShellWithContext(
     applied: boolean;
     playbackChanged: boolean;
   } {
-    const controller = historyControllerRef.current;
+    const controller = historyAuthority.getController();
     if (!controller) {
       return { applied: false, playbackChanged: false };
     }
@@ -3970,7 +3892,7 @@ function HammerWorkspaceShellWithContext(
 
     requestDurablePersistBoundary();
 
-    const afterState = historyControllerRef.current?.getState() ?? null;
+    const afterState = historyAuthority.getController()?.getState() ?? null;
     const afterAudioOpCount = afterState?.audioEdit?.operations?.length ?? beforeAudioOpCount;
     return {
       applied: true,
@@ -3988,7 +3910,7 @@ function HammerWorkspaceShellWithContext(
     playbackChanged: boolean;
     deletedTokenCount: number;
   } {
-    const controller = historyControllerRef.current;
+    const controller = historyAuthority.getController();
     if (!controller || edits.length === 0) {
       return { applied: false, playbackChanged: false, deletedTokenCount: 0 };
     }
@@ -4042,7 +3964,7 @@ function HammerWorkspaceShellWithContext(
 
     requestDurablePersistBoundary();
 
-    const afterState = historyControllerRef.current?.getState() ?? null;
+    const afterState = historyAuthority.getController()?.getState() ?? null;
     const afterAudioOpCount = afterState?.audioEdit?.operations?.length ?? beforeAudioOpCount;
     return {
       applied: true,
@@ -4096,7 +4018,7 @@ function HammerWorkspaceShellWithContext(
       return;
     }
 
-    const state = historyControllerRef.current?.getState() ?? null;
+    const state = historyAuthority.getController()?.getState() ?? null;
     if (!state) {
       setTranscriptTimingHint("Split could not resolve the current workspace state.");
       return;
@@ -4122,7 +4044,7 @@ function HammerWorkspaceShellWithContext(
       return;
     }
 
-    const nextSelection = historyControllerRef.current?.getState().selectedSegmentId ?? null;
+    const nextSelection = historyAuthority.getController()?.getState().selectedSegmentId ?? null;
     setTranscriptSelectionAnchorSegmentId(nextSelection);
     setTranscriptSelectionFocusSegmentId(nextSelection);
     setFocusOverride("time-focus");
@@ -4147,7 +4069,7 @@ function HammerWorkspaceShellWithContext(
       return;
     }
 
-    const nextSelection = historyControllerRef.current?.getState().selectedSegmentId ?? null;
+    const nextSelection = historyAuthority.getController()?.getState().selectedSegmentId ?? null;
     setTranscriptSelectionAnchorSegmentId(nextSelection);
     setTranscriptSelectionFocusSegmentId(nextSelection);
     setFocusOverride("time-focus");
@@ -4284,7 +4206,7 @@ function HammerWorkspaceShellWithContext(
     if (import.meta.env.DEV) {
       console.info("[Hammer][AudioFinalization] compare", {
         nextMode,
-        hasHistoryController: Boolean(historyControllerRef.current),
+        hasHistoryController: Boolean(historyAuthority.getController()),
       });
     }
     setAudioFinalizationCompareMode(nextMode);
@@ -4294,7 +4216,7 @@ function HammerWorkspaceShellWithContext(
     if (import.meta.env.DEV) {
       console.info("[Hammer][AudioFinalization] preset", {
         nextPresetId,
-        hasHistoryController: Boolean(historyControllerRef.current),
+        hasHistoryController: Boolean(historyAuthority.getController()),
         currentVoicePolish: editableStudioRack.voice_polish ?? null,
       });
     }
@@ -4318,7 +4240,7 @@ function HammerWorkspaceShellWithContext(
       console.info("[Hammer][AudioFinalization] fix", {
         fixId,
         nextEnabled,
-        hasHistoryController: Boolean(historyControllerRef.current),
+        hasHistoryController: Boolean(historyAuthority.getController()),
         currentVoicePolish: editableStudioRack.voice_polish ?? null,
       });
     }
@@ -4454,7 +4376,7 @@ function HammerWorkspaceShellWithContext(
       return;
     }
 
-    const state = historyControllerRef.current?.getState();
+    const state = historyAuthority.getController()?.getState();
     const nextSelection = state?.selectedSegmentId ?? null;
     setTranscriptSelectionAnchorSegmentId(nextSelection);
     setTranscriptSelectionFocusSegmentId(nextSelection);
@@ -4666,7 +4588,7 @@ function HammerWorkspaceShellWithContext(
           return;
         }
 
-        const afterState = historyControllerRef.current?.getState() ?? null;
+        const afterState = historyAuthority.getController()?.getState() ?? null;
         const afterAudioOpCount = afterState?.audioEdit?.operations?.length ?? beforeAudioOpCount;
         const committedCutCount = Math.max(0, afterAudioOpCount - beforeAudioOpCount);
 
@@ -4914,7 +4836,7 @@ function HammerWorkspaceShellWithContext(
   function applyCleanup(preview: HammerCleanupPreview): void {
     const toolId = preview.label.toLowerCase().replace(/\s+/g, "-");
     const summary = buildPolishResultSummaryFromCleanupPreview(preview);
-    historyControllerRef.current?.createCheckpoint(`Before ${preview.label}`);
+    historyAuthority.createCheckpoint(`Before ${preview.label}`);
     const isSpeakerSoloApply = Boolean(preview.metadata?.speakerSolo);
     const isSpeakerInterviewApply = Boolean(preview.metadata?.speakerInterview);
     const isSpeakerMonologueApply = Boolean(preview.metadata?.speakerMonologue);
@@ -5783,45 +5705,19 @@ function HammerWorkspaceShellWithContext(
   }
 
   function jumpToHistoryEntry(entryId: string): void {
-    const controller = historyControllerRef.current;
     const baseline = historyBaselineStateRef.current;
-    if (!controller || !baseline) return;
-    if (!historyEntryById.has(entryId)) return;
-
-    const currentPath = [
-      ...controller.document.undoStack,
-      ...[...controller.document.redoStack].reverse(),
-    ];
-    const targetIndex = currentPath.indexOf(entryId);
-    const targetPath = targetIndex >= 0
-      ? currentPath.slice(0, targetIndex + 1)
-      : buildHistoryPathToEntry(entryId);
-    const nextRedo = targetIndex >= 0
-      ? currentPath.slice(targetIndex + 1).reverse()
-      : [];
-    const replayed = controller.getReplayStateFromBaseline(baseline, entryId);
-
-    controller.document.undoStack = [...targetPath];
-    controller.document.redoStack = [...nextRedo];
-    controller.document.headEntryId = entryId;
-    controller.document.updatedAt = new Date().toISOString();
-    controller.replaceState(replayed);
-
-    applyWorkspaceState(replayed, "history:jump");
-    setEditableDerivedTextLayers(resolveDerivedLayersForUndoStack(targetPath));
-    setHistoryStatus(nextRedo.length > 0 ? "History jump mode: reviewing a past state." : null);
+    if (!baseline) return;
+    const result = historyAuthority.jumpToEntry(entryId, baseline);
+    if (!result) return;
+    setEditableDerivedTextLayers(resolveDerivedLayersForUndoStack(result.undoStack));
+    setHistoryStatus(result.hasRedo ? "History jump mode: reviewing a past state." : null);
     selectionOriginRef.current = "system";
     setFocusOverride("source-focus");
-    scheduleHistoryPersist();
   }
 
   function restoreCurrentHistoryState(): void {
-    const controller = historyControllerRef.current;
-    if (!controller || controller.document.redoStack.length === 0) return;
-    controller.document.redoStack = [];
-    controller.document.updatedAt = new Date().toISOString();
+    if (!historyAuthority.restoreCurrentState()) return;
     setHistoryStatus("Restored this state. Future history steps were cleared.");
-    scheduleHistoryPersist(true);
   }
 
   const { workspaceFocusMode } = useHammerWorkspaceShellShortcuts({
