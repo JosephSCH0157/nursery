@@ -150,7 +150,6 @@ import { useHammerWorkspaceShellHydration } from "./useHammerWorkspaceShellHydra
 import { useHammerWorkspaceShellTranscriptCleanup } from "./useHammerWorkspaceShellTranscriptCleanup";
 import { useHammerWorkspaceShellCleanupCandidateReview } from "./useHammerWorkspaceShellCleanupCandidateReview";
 import { useHammerWorkspaceShellRouting } from "./useHammerWorkspaceShellRouting";
-import { applyHammerStudioRackNativePreview } from "./hammerStudioRackNativePreview";
 import {
   buildPreviewBayVM,
   buildSourceBayVM,
@@ -164,29 +163,16 @@ import {
   type HammerSelectedTranscriptRangeDetail,
 } from "./hammerWorkspaceShellSelectionUtils";
 import {
-  cloneHammerStudioRackState,
-  createDefaultHammerStudioRackState,
-  isHammerStudioRackIdentity,
-  normalizeHammerStudioRackState,
-  type HammerStudioRackState,
-} from "./hammerStudioRack";
-import {
-  applyHammerVoicePolishPreset,
-  createDefaultHammerVoicePolishState,
-  setHammerVoiceCleanupEnabled,
-  setHammerVoicePolishDeEsserStrength,
-  setHammerVoicePolishEqProfile,
-  setHammerVoicePolishFixEnabled,
-  type HammerVoicePolishDeEsserStrength,
-  type HammerVoicePolishEqProfile,
-  type HammerVoicePolishFixId,
-  type HammerVoicePolishPresetId,
-} from "./hammerVoicePolish";
-import {
-  processDialogueAudioWithBackend,
-  resolveHammerAudioProcessingBackend,
-  type HammerDialogueRenderExecutionResult,
-} from "./hammerAudioProcessingBackend";
+  createHammerAudioFinishingCommands,
+  useHammerAudioFinishingCompareResetEffect,
+  useHammerAudioFinishingBackendDerivedState,
+  useHammerAudioFinishingEnabledModuleCount,
+  useHammerAudioFinishingRackDerivedState,
+  useHammerAudioFinishingNativePreviewEffect,
+  useHammerAudioFinishingPolishState,
+  useHammerAudioFinishingRenderStatusState,
+  useHammerAudioFinishingStudioRackState,
+} from "./useHammerWorkspaceShellAudioFinishing";
 import { buildHammerMediaBackboneRuntimeSummary } from "../media/hammerMediaBackbone";
 import { preserveTranscriptMetadata } from "../prep/hammerPrep";
 import { resolveHammerRecordingIdentityStatus } from "./hammerRecordingIdentity";
@@ -560,7 +546,6 @@ type HammerTimelineLaneBlock = {
   onSelect: () => void;
 };
 
-type HammerAudioFinalizationCompareMode = "before" | "after";
 
 type HammerTimelineLaneView = {
   id: string;
@@ -678,10 +663,7 @@ function HammerWorkspaceShellWithContext(
       });
     },
   );
-  const [editableStudioRack, setEditableStudioRack] = useState<HammerStudioRackState>(
-    () => createDefaultHammerStudioRackState(),
-  );
-  const [studioRackOpen, setStudioRackOpen] = useState(false);
+  const { editableStudioRack, setEditableStudioRack, studioRackOpen, setStudioRackOpen } = useHammerAudioFinishingStudioRackState();
   const [selectedSegmentId, setSelectedSegmentId] = useState<string | null>(
     resolveSelectedSegmentId(transcriptSegments, props.initialSelectedSegmentId ?? null),
   );
@@ -729,12 +711,7 @@ function HammerWorkspaceShellWithContext(
   const selectedTranscriptRangeDetailRef = useRef<HammerSelectedTranscriptRangeDetail | null>(null);
   const lastVisualSelectionLogKeyRef = useRef<string | null>(null);
   const [linkedSelection, setLinkedSelection] = useState<HammerLinkedSelection | null>(null);
-  const [editableAudioPolish, setEditableAudioPolish] = useState<HammerPersistedAudioPolish | null>(
-    () => cloneHammerAudioPolish(props.audioPolish),
-  );
-  const [audioLevelingEnabled, setAudioLevelingEnabled] = useState(true);
-  const [audioNoiseReductionEnabled, setAudioNoiseReductionEnabled] = useState(true);
-  const [audioFinalizationCompareMode, setAudioFinalizationCompareMode] = useState<HammerAudioFinalizationCompareMode>("after");
+  const { editableAudioPolish, setEditableAudioPolish, audioLevelingEnabled, setAudioLevelingEnabled, audioNoiseReductionEnabled, setAudioNoiseReductionEnabled, audioFinalizationCompareMode, setAudioFinalizationCompareMode } = useHammerAudioFinishingPolishState(props.audioPolish);
   const [videoSnapMode, setVideoSnapMode] = useState<"timeline" | "segment">("timeline");
   const initialVisualPreviewSettings = normalizeVisualPreviewSettings(props.initialVisualPreviewSettings);
   const [visualWhiteBalance, setVisualWhiteBalance] = useState(initialVisualPreviewSettings.white_balance);
@@ -852,7 +829,7 @@ function HammerWorkspaceShellWithContext(
   const [sourceDeskPreviewFailures, setSourceDeskPreviewFailures] = useState<Record<string, true>>({});
   const [sourceDeskRequestedPreviewPaths, setSourceDeskRequestedPreviewPaths] = useState<string[]>([]);
   const [sourceDeskVisiblePreviewPaths, setSourceDeskVisiblePreviewPaths] = useState<string[]>([]);
-  const [studioRackRenderStatus, setStudioRackRenderStatus] = useState<HammerDialogueRenderExecutionResult | null>(null);
+  const [studioRackRenderStatus, setStudioRackRenderStatus] = useHammerAudioFinishingRenderStatusState();
   const [transcriptTimingHint, setTranscriptTimingHint] = useState<string | null>(null);
   const [historyStatus, setHistoryStatus] = useState<string | null>(null);
   const [playbackMediaSrc, setPlaybackMediaSrc] = useState<string | null>(null);
@@ -1126,38 +1103,11 @@ function HammerWorkspaceShellWithContext(
     () => buildHammerMediaBackboneRuntimeSummary(),
     [],
   );
-  const studioRackPlaybackBackendResolution = useMemo(
-    () => resolveHammerAudioProcessingBackend({
-      requestedBackend: editableStudioRack.backend_preference,
-      mode: "playback",
-      runtimeSummary: mediaBackboneRuntime,
-    }),
-    [editableStudioRack.backend_preference, mediaBackboneRuntime],
-  );
-  const studioRackRenderBackendResolution = useMemo(
-    () => resolveHammerAudioProcessingBackend({
-      requestedBackend: editableStudioRack.backend_preference,
-      mode: "render",
-      runtimeSummary: mediaBackboneRuntime,
-    }),
-    [editableStudioRack.backend_preference, mediaBackboneRuntime],
-  );
-  const studioRackPlaybackConfig = useMemo(
-    () => processDialogueAudioWithBackend({
-      rackState: editableStudioRack,
-      mode: "playback",
-      runtimeSummary: mediaBackboneRuntime,
-    }),
-    [editableStudioRack, mediaBackboneRuntime],
-  );
-  const studioRackRenderConfig = useMemo(
-    () => processDialogueAudioWithBackend({
-      rackState: editableStudioRack,
-      mode: "render",
-      runtimeSummary: mediaBackboneRuntime,
-    }),
-    [editableStudioRack, mediaBackboneRuntime],
-  );
+  const audioFinishingBackendDerived = useHammerAudioFinishingBackendDerivedState({ rack: editableStudioRack, runtime: mediaBackboneRuntime });
+  const studioRackPlaybackBackendResolution = audioFinishingBackendDerived.playbackBackendResolution;
+  const studioRackRenderBackendResolution = audioFinishingBackendDerived.renderBackendResolution;
+  const studioRackPlaybackConfig = audioFinishingBackendDerived.playbackConfig;
+  const studioRackRenderConfig = audioFinishingBackendDerived.renderConfig;
 
   const selectedSegment = editableTranscriptSegments.find(
     (segment) => segment.segment_id === (linkedSelection?.anchorId ?? selectedSegmentId),
@@ -1312,13 +1262,7 @@ function HammerWorkspaceShellWithContext(
     : null;
   const effectivePreviewVideoSrc = activePackagingMediaPath ? activePackagingMediaSrc : previewVideoSrc;
   const effectivePlaybackMediaSrc = activePackagingMediaPath ? activePackagingMediaSrc : playbackMediaSrc;
-  useEffect(() => {
-    const previewRack = audioFinalizationCompareMode === "before"
-      ? { ...editableStudioRack, is_bypassed: true }
-      : editableStudioRack;
-    applyHammerStudioRackNativePreview(previewVideoRef.current, previewRack);
-    applyHammerStudioRackNativePreview(previewAudioRef.current, previewRack);
-  }, [audioFinalizationCompareMode, editableStudioRack, effectivePlaybackMediaSrc]);
+  useHammerAudioFinishingNativePreviewEffect({ mode: audioFinalizationCompareMode, rack: editableStudioRack, mediaSrc: effectivePlaybackMediaSrc, videoRef: previewVideoRef, audioRef: previewAudioRef });
   const resolveActiveMediaTimeForTransportTime = useCallback(
     (transportTimeSec: number) => transportTimeToActiveMediaTime({
       transport: packagingTransport,
@@ -2658,22 +2602,10 @@ function HammerWorkspaceShellWithContext(
   const historyController = historyAuthority.getController();
   const historyHeadEntryId = historyController?.document.headEntryId ?? null;
 
-  const voicePolish = useMemo(
-    () => editableStudioRack.voice_polish ?? createDefaultHammerVoicePolishState(),
-    [editableStudioRack.voice_polish],
-  );
-  const voicePolishHasAnyFixEnabled = useMemo(
-    () => Object.values(voicePolish.fixes).some(Boolean),
-    [voicePolish.fixes],
-  );
-  const studioRackHasAudibleProcessing = useMemo(
-    () => (
-      editableStudioRack.is_enabled
-      && !editableStudioRack.is_bypassed
-      && !isHammerStudioRackIdentity(editableStudioRack)
-    ),
-    [editableStudioRack],
-  );
+  const audioFinishingRackDerived = useHammerAudioFinishingRackDerivedState(editableStudioRack);
+  const voicePolish = audioFinishingRackDerived.voicePolish;
+  const voicePolishHasAnyFixEnabled = audioFinishingRackDerived.voicePolishHasAnyFixEnabled;
+  const studioRackHasAudibleProcessing = audioFinishingRackDerived.hasAudibleProcessing;
   const {
     studioRackComparePreviewStatusLabel,
     eyeContactUseBackgroundCanvasAsSource,
@@ -2743,10 +2675,7 @@ function HammerWorkspaceShellWithContext(
   const captionSourceLabel = selectedOutputLayer
     ? formatOutputLayerLabel(selectedOutputLayer)
     : "Raw transcript";
-  const studioRackEnabledModuleCount = useMemo(
-    () => Object.values(editableStudioRack.modules).filter((module) => module.is_enabled && !module.is_bypassed).length,
-    [editableStudioRack.modules],
-  );
+  const studioRackEnabledModuleCount = useHammerAudioFinishingEnabledModuleCount(editableStudioRack);
   const studioRackRenderAppliedModules = useMemo(() => {
     const summary = studioRackRenderStatus?.rawResponse?.settings_summary ?? null;
     const raw = typeof summary?.applied_modules === "string" ? summary.applied_modules : "";
@@ -3840,170 +3769,26 @@ function HammerWorkspaceShellWithContext(
     });
   }
 
-  function applyStudioRackMutation(
-    label: string,
-    updater: (current: HammerStudioRackState) => HammerStudioRackState,
-  ): void {
-    applyHistoryMutation({
-      label,
-      kind: "editor_state_change",
-      toolId: "audio",
-      immediatePersist: true,
-      computeAfter: (before) => ({
-        ...before,
-        studioRack: normalizeHammerStudioRackState(
-          updater(cloneHammerStudioRackState(before.studioRack)),
-        ),
-      }),
-    });
-    setFocusOverride("tool-focus");
-  }
-
-  function setStudioRackEnabled(nextEnabled: boolean): void {
-    applyStudioRackMutation(nextEnabled ? "Enable Studio Rack" : "Disable Studio Rack", (current) => ({
-      ...current,
-      is_enabled: nextEnabled,
-    }));
-  }
-
-  function setStudioRackBypassed(nextBypassed: boolean): void {
-    applyStudioRackMutation(nextBypassed ? "Bypass Studio Rack" : "Un-bypass Studio Rack", (current) => ({
-      ...current,
-      is_bypassed: nextBypassed,
-    }));
-  }
-
-  function setStudioRackBackend(nextBackend: "native" | "ffmpeg"): void {
-    applyStudioRackMutation(
-      nextBackend === "ffmpeg" ? "Set Studio Rack backend to FFmpeg" : "Set Studio Rack backend to native",
-      (current) => ({
-        ...current,
-        backend_preference: nextBackend,
-      }),
-    );
-  }
-
-  function setStudioRackModuleEnabled(moduleId: keyof HammerStudioRackState["modules"], nextEnabled: boolean): void {
-    applyStudioRackMutation(nextEnabled ? `Enable ${moduleId}` : `Disable ${moduleId}`, (current) => ({
-      ...current,
-      modules: {
-        ...current.modules,
-        [moduleId]: {
-          ...current.modules[moduleId],
-          is_enabled: nextEnabled,
-        },
-      },
-    }));
-  }
-
-  function setStudioRackModuleBypassed(moduleId: keyof HammerStudioRackState["modules"], nextBypassed: boolean): void {
-    applyStudioRackMutation(nextBypassed ? `Bypass ${moduleId}` : `Un-bypass ${moduleId}`, (current) => ({
-      ...current,
-      modules: {
-        ...current.modules,
-        [moduleId]: {
-          ...current.modules[moduleId],
-          is_bypassed: nextBypassed,
-        },
-      },
-    }));
-  }
-
-  function setAudioFinalizationCompare(nextMode: HammerAudioFinalizationCompareMode): void {
-    if (import.meta.env.DEV) {
-      console.info("[Hammer][AudioFinalization] compare", {
-        nextMode,
-        hasHistoryController: Boolean(historyAuthority.getController()),
-      });
-    }
-    setAudioFinalizationCompareMode(nextMode);
-  }
-
-  function applyVoicePolishPreset(nextPresetId: HammerVoicePolishPresetId): void {
-    if (import.meta.env.DEV) {
-      console.info("[Hammer][AudioFinalization] preset", {
-        nextPresetId,
-        hasHistoryController: Boolean(historyAuthority.getController()),
-        currentVoicePolish: editableStudioRack.voice_polish ?? null,
-      });
-    }
-    applyStudioRackMutation("Apply audio preset", (current) => {
-      const nextVoicePolish = applyHammerVoicePolishPreset(
-        current.voice_polish ?? createDefaultHammerVoicePolishState(),
-        nextPresetId,
-      );
-      return {
-        ...current,
-        is_enabled: true,
-        is_bypassed: false,
-        voice_polish: nextVoicePolish,
-      };
-    });
-    setAudioFinalizationCompareMode("after");
-  }
-
-  function setVoicePolishFixEnabled(fixId: HammerVoicePolishFixId, nextEnabled: boolean): void {
-    if (import.meta.env.DEV) {
-      console.info("[Hammer][AudioFinalization] fix", {
-        fixId,
-        nextEnabled,
-        hasHistoryController: Boolean(historyAuthority.getController()),
-        currentVoicePolish: editableStudioRack.voice_polish ?? null,
-      });
-    }
-    applyStudioRackMutation(nextEnabled ? `Enable ${fixId}` : `Disable ${fixId}`, (current) => ({
-      ...current,
-      is_enabled: true,
-      is_bypassed: false,
-      voice_polish: setHammerVoicePolishFixEnabled(
-        current.voice_polish ?? createDefaultHammerVoicePolishState(),
-        fixId,
-        nextEnabled,
-      ),
-    }));
-    setAudioFinalizationCompareMode("after");
-  }
-
-  function setVoicePolishDeEsserStrength(nextStrength: HammerVoicePolishDeEsserStrength): void {
-    applyStudioRackMutation("Update de-esser strength", (current) => ({
-      ...current,
-      is_enabled: true,
-      is_bypassed: false,
-      voice_polish: setHammerVoicePolishDeEsserStrength(
-        current.voice_polish ?? createDefaultHammerVoicePolishState(),
-        nextStrength,
-      ),
-    }));
-    setAudioFinalizationCompareMode("after");
-  }
-
-  function setVoicePolishEqProfile(nextProfile: HammerVoicePolishEqProfile): void {
-    applyStudioRackMutation("Update EQ profile", (current) => ({
-      ...current,
-      is_enabled: true,
-      is_bypassed: false,
-      voice_polish: setHammerVoicePolishEqProfile(
-        current.voice_polish ?? createDefaultHammerVoicePolishState(),
-        nextProfile,
-      ),
-    }));
-    setAudioFinalizationCompareMode("after");
-  }
-
-  function setVoiceCleanupEnabled(nextEnabled: boolean): void {
-    applyStudioRackMutation(nextEnabled ? "Enable voice cleanup" : "Disable voice cleanup", (current) => ({
-      ...current,
-      is_enabled: nextEnabled ? true : current.is_enabled,
-      is_bypassed: nextEnabled ? false : current.is_bypassed,
-      voice_polish: setHammerVoiceCleanupEnabled(
-        current.voice_polish ?? createDefaultHammerVoicePolishState(),
-        nextEnabled,
-      ),
-    }));
-    if (nextEnabled) {
-      setAudioFinalizationCompareMode("after");
-    }
-  }
+  const {
+    applyStudioRackMutation,
+    setStudioRackEnabled,
+    setStudioRackBypassed,
+    setStudioRackBackend,
+    setStudioRackModuleEnabled,
+    setStudioRackModuleBypassed,
+    setAudioFinalizationCompare,
+    applyVoicePolishPreset,
+    setVoicePolishFixEnabled,
+    setVoicePolishDeEsserStrength,
+    setVoicePolishEqProfile,
+    setVoiceCleanupEnabled,
+  } = createHammerAudioFinishingCommands({
+    rack: editableStudioRack,
+    applyHistoryMutation,
+    focusTool: () => setFocusOverride("tool-focus"),
+    setCompareMode: setAudioFinalizationCompareMode,
+    hasHistoryController: () => Boolean(historyAuthority.getController()),
+  });
 
   function applyTranscriptSelection(segmentId: string, extendRange: boolean): void {
     const segment = editableTranscriptSegments.find((item) => item.segment_id === segmentId) ?? null;
@@ -4093,9 +3878,7 @@ function HammerWorkspaceShellWithContext(
   useEffect(() => {
     syncReviewPass(currentPass);
   }, [currentPass, syncReviewPass]);
-  useEffect(() => {
-    setAudioFinalizationCompareMode(editableStudioRack.is_bypassed ? "before" : "after");
-  }, [editableStudioRack.is_bypassed]);
+  useHammerAudioFinishingCompareResetEffect({ rackBypassed: editableStudioRack.is_bypassed, setMode: setAudioFinalizationCompareMode });
   useEffect(() => {
   }, [sourceImageItems]);
   useEffect(() => {
