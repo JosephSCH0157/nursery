@@ -32,7 +32,6 @@ import {
 } from "../visuals/state/hammerVisualSelectors";
 import type { VisualClipBlockModel } from "../visuals/components/VisualClipBlock";
 import type { VisualPreviewOverlayModel } from "../visuals/components/VisualPreviewComposer";
-import type { BackgroundBlurSettings } from "../features/visual-effects/types";
 import {
   SEGMENTATION_PROVIDER_DESCRIPTORS,
   resolveSegmentationProviderDescriptor,
@@ -144,6 +143,11 @@ import { useHammerWorkspaceShellShortcuts } from "./useHammerWorkspaceShellShort
 import { useHammerWorkspaceShellSelection } from "./useHammerWorkspaceShellSelection";
 import { useHammerWorkspaceShellSourceDeskController } from "./useHammerWorkspaceShellSourceDeskController";
 import { useHammerWorkspaceShellPreviewRuntime } from "./useHammerWorkspaceShellPreviewRuntime";
+import {
+  useHammerBackgroundBlurProjection,
+  useHammerVisualPreviewProjection,
+  useHammerVisualPreviewState,
+} from "./useHammerWorkspaceShellVisualPreview";
 import { useHammerWorkspaceShellReleasePrep } from "./useHammerWorkspaceShellReleasePrep";
 import { useHammerWorkspaceShellVisualEditing } from "./useHammerWorkspaceShellVisualEditing";
 import { useHammerWorkspaceShellHydration } from "./useHammerWorkspaceShellHydration";
@@ -301,7 +305,6 @@ import {
   type HammerVisualLutPreset,
 } from "./hammerWorkspaceShellCore";
 import {
-  normalizeVisualPreviewSettings,
   resolveOutputSelectionFromTranscript,
   toEditorState,
   toShellState,
@@ -568,24 +571,6 @@ function isSubtractiveTranscriptEdit(previousText: string, nextText: string): bo
   return isSubtractiveTranscriptWordEdit(previousText, nextText);
 }
 
-function resolveVisualPresetFilter(preset: HammerVisualLutPreset): string {
-  switch (preset) {
-    case "clean_daylight":
-      return "contrast(1.03) saturate(1.05)";
-    case "warm_studio":
-      return "sepia(0.08) saturate(1.08)";
-    case "cool_evening":
-      return "hue-rotate(-8deg) saturate(0.95) contrast(1.02)";
-    case "high_contrast":
-      return "contrast(1.12) saturate(1.04)";
-    case "soft_documentary":
-      return "brightness(1.02) contrast(0.96) saturate(0.92)";
-    case "neutral":
-    default:
-      return "none";
-  }
-}
-
 export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): JSX.Element {
   if (!props.launchContext) {
     return (
@@ -705,74 +690,21 @@ function HammerWorkspaceShellWithContext(
   const [linkedSelection, setLinkedSelection] = useState<HammerLinkedSelection | null>(null);
   const { editableAudioPolish, setEditableAudioPolish, audioLevelingEnabled, setAudioLevelingEnabled, audioNoiseReductionEnabled, setAudioNoiseReductionEnabled, audioFinalizationCompareMode, setAudioFinalizationCompareMode } = useHammerAudioFinishingPolishState(props.audioPolish);
   const [videoSnapMode, setVideoSnapMode] = useState<"timeline" | "segment">("timeline");
-  const initialVisualPreviewSettings = normalizeVisualPreviewSettings(props.initialVisualPreviewSettings);
-  const [visualWhiteBalance, setVisualWhiteBalance] = useState(initialVisualPreviewSettings.white_balance);
-  const [visualColorAmount, setVisualColorAmount] = useState(initialVisualPreviewSettings.color_amount);
-  const [visualEyeContactAssistEnabled, setVisualEyeContactAssistEnabled] = useState<boolean>(
-    Boolean(initialVisualPreviewSettings.eye_contact_assist_enabled ?? false),
-  );
-  const [visualEyeContactAssistStrength, setVisualEyeContactAssistStrength] = useState<number>(
-    Number(initialVisualPreviewSettings.eye_contact_assist_strength ?? 0.25),
-  );
-  const [visualBackgroundBlur, setVisualBackgroundBlur] = useState(initialVisualPreviewSettings.background_blur);
-  const [visualBackgroundBlurPx, setVisualBackgroundBlurPx] = useState<number>(
-    Number(initialVisualPreviewSettings.background_blur_px ?? 14),
-  );
-  const [visualBackgroundBlurFeatherPx, setVisualBackgroundBlurFeatherPx] = useState<number>(
-    Number(initialVisualPreviewSettings.background_blur_feather_px ?? 6),
-  );
-  const [visualBackgroundBlurTemporalSmoothing, setVisualBackgroundBlurTemporalSmoothing] = useState<number>(
-    Number(initialVisualPreviewSettings.background_blur_temporal_smoothing ?? 0.25),
-  );
-  const [visualBackgroundBlurSubjectExpansionPx, setVisualBackgroundBlurSubjectExpansionPx] = useState<number>(
-    Number(initialVisualPreviewSettings.background_blur_subject_expansion_px ?? 0),
-  );
-  const [visualBackgroundBlurQualityMode, setVisualBackgroundBlurQualityMode] = useState<BackgroundBlurSettings["qualityMode"]>(
-    (initialVisualPreviewSettings.background_blur_quality_mode as BackgroundBlurSettings["qualityMode"]) ?? "medium",
-  );
-  const [visualBackgroundBlurFallbackMode, setVisualBackgroundBlurFallbackMode] = useState<BackgroundBlurSettings["fallbackMode"]>(
-    (initialVisualPreviewSettings.background_blur_fallback_mode as BackgroundBlurSettings["fallbackMode"]) ?? "disable",
-  );
-  const [visualBackgroundBlurProviderId, setVisualBackgroundBlurProviderId] = useState<string | null>(
-    typeof initialVisualPreviewSettings.background_blur_provider === "string"
-      ? initialVisualPreviewSettings.background_blur_provider
-      : "mediapipe_selfie_segmentation",
-  );
-  const [visualBackgroundReplaceEnabled, setVisualBackgroundReplaceEnabled] = useState<boolean>(
-    Boolean(initialVisualPreviewSettings.background_replace_enabled ?? false),
-  );
-  const [visualBackgroundReplaceMode, setVisualBackgroundReplaceMode] = useState<"solid" | "image" | "checkerboard">(
-    (initialVisualPreviewSettings.background_replace_mode === "image"
-      ? "image"
-      : initialVisualPreviewSettings.background_replace_mode === "checkerboard"
-      ? "checkerboard"
-      : "solid"),
-  );
-  const [visualBackgroundReplaceColor, setVisualBackgroundReplaceColor] = useState<string>(
-    String(initialVisualPreviewSettings.background_replace_color ?? "#2b2b2b"),
-  );
-  const [visualBackgroundReplaceImageUrl, setVisualBackgroundReplaceImageUrl] = useState<string>(
-    String(initialVisualPreviewSettings.background_replace_image_url ?? ""),
-  );
-  const [visualBackgroundReplaceImageAssetPath, setVisualBackgroundReplaceImageAssetPath] = useState<string | null>(
-    typeof initialVisualPreviewSettings.background_replace_image_asset_path === "string"
-      ? initialVisualPreviewSettings.background_replace_image_asset_path
-      : null,
-  );
-  const [visualBackgroundWashEnabled, setVisualBackgroundWashEnabled] = useState<boolean>(
-    Boolean(initialVisualPreviewSettings.background_wash_enabled ?? false),
-  );
-  const [visualBackgroundWashDimAmount, setVisualBackgroundWashDimAmount] = useState<number>(
-    Number(initialVisualPreviewSettings.background_wash_dim_amount ?? 0.35),
-  );
-  const [visualBackgroundWashDesaturateAmount, setVisualBackgroundWashDesaturateAmount] = useState<number>(
-    Number(initialVisualPreviewSettings.background_wash_desaturate_amount ?? 0.25),
-  );
-  const [visualBackgroundBlurDebugMask, setVisualBackgroundBlurDebugMask] = useState(false);
-  const [visualBackgroundMaskPreviewMode, setVisualBackgroundMaskPreviewMode] = useState(false);
-  const [visualBackgroundMaskPreviewStage, setVisualBackgroundMaskPreviewStage] = useState<"raw" | "expanded" | "feathered" | "refined" | "final_composite">("raw");
-  const [visualEyeContactAssistDebugOverlay, setVisualEyeContactAssistDebugOverlay] = useState(false);
-  const visualBackgroundEffectCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const {
+    visualWhiteBalance, setVisualWhiteBalance, visualColorAmount, setVisualColorAmount,
+    visualEyeContactAssistEnabled, setVisualEyeContactAssistEnabled, visualEyeContactAssistStrength, setVisualEyeContactAssistStrength,
+    visualBackgroundBlur, setVisualBackgroundBlur, visualBackgroundBlurPx, setVisualBackgroundBlurPx,
+    visualBackgroundBlurFeatherPx, setVisualBackgroundBlurFeatherPx, visualBackgroundBlurTemporalSmoothing, setVisualBackgroundBlurTemporalSmoothing,
+    visualBackgroundBlurSubjectExpansionPx, setVisualBackgroundBlurSubjectExpansionPx, visualBackgroundBlurQualityMode, setVisualBackgroundBlurQualityMode,
+    visualBackgroundBlurFallbackMode, setVisualBackgroundBlurFallbackMode, visualBackgroundBlurProviderId, setVisualBackgroundBlurProviderId,
+    visualBackgroundReplaceEnabled, setVisualBackgroundReplaceEnabled, visualBackgroundReplaceMode, setVisualBackgroundReplaceMode,
+    visualBackgroundReplaceColor, setVisualBackgroundReplaceColor, visualBackgroundReplaceImageUrl, setVisualBackgroundReplaceImageUrl,
+    visualBackgroundReplaceImageAssetPath, setVisualBackgroundReplaceImageAssetPath, visualBackgroundWashEnabled, setVisualBackgroundWashEnabled,
+    visualBackgroundWashDimAmount, setVisualBackgroundWashDimAmount, visualBackgroundWashDesaturateAmount, setVisualBackgroundWashDesaturateAmount,
+    visualBackgroundBlurDebugMask, setVisualBackgroundBlurDebugMask, visualBackgroundMaskPreviewMode, setVisualBackgroundMaskPreviewMode,
+    visualBackgroundMaskPreviewStage, setVisualBackgroundMaskPreviewStage, visualEyeContactAssistDebugOverlay, setVisualEyeContactAssistDebugOverlay,
+    visualBackgroundEffectCanvasRef, applyHydratedVisualPreviewSettings,
+  } = useHammerVisualPreviewState(props.initialVisualPreviewSettings);
   const { persistNowRequestNonce, requestImmediatePersist } = useHammerSnapshotImmediatePersistenceSignal();
   const { captionFormatting, setCaptionFormatting, selectedCaptionArtifactFormat, setSelectedCaptionArtifactFormat, captionBuildState, setCaptionBuildState, captionEditedState, setCaptionEditedState, activeCaptionArtifactMode, setActiveCaptionArtifactMode, captionBuildFeedback, setCaptionBuildFeedback } = useHammerCaptionState();
   const [detailTag, setDetailTag] = useState("main-edit");
@@ -894,7 +826,7 @@ function HammerWorkspaceShellWithContext(
   });
   const handleBackgroundEffectCanvas = useCallback((canvas: HTMLCanvasElement | null) => {
     visualBackgroundEffectCanvasRef.current = canvas;
-  }, []);
+  }, [visualBackgroundEffectCanvasRef]);
   const workspaceShellRef = useRef<HTMLElement | null>(null);
   const captionEditorRefs = useHammerCaptionEditorRefs();
   const transcriptLineRefs = useRef(new Map<string, HTMLElement>());
@@ -942,44 +874,6 @@ function HammerWorkspaceShellWithContext(
     // Avoid render loops when parents pass unstable callback identities.
     onHistoryRecoveryStatusChangeRef.current?.(historyStatus);
   }, [historyStatus]);
-
-  const applyHydratedVisualPreviewSettings = useCallback((settings: HammerPersistedVisualPreviewSettings) => {
-    const nextVisualPreviewSettings = normalizeVisualPreviewSettings(settings);
-    setVisualWhiteBalance(nextVisualPreviewSettings.white_balance);
-    setVisualColorAmount(nextVisualPreviewSettings.color_amount);
-    setVisualEyeContactAssistEnabled(Boolean(nextVisualPreviewSettings.eye_contact_assist_enabled ?? false));
-    setVisualEyeContactAssistStrength(Math.max(0, Math.min(1, Number(nextVisualPreviewSettings.eye_contact_assist_strength ?? 0.25))));
-    setVisualBackgroundBlur(nextVisualPreviewSettings.background_blur);
-    setVisualBackgroundBlurPx(Number(nextVisualPreviewSettings.background_blur_px ?? 14));
-    setVisualBackgroundBlurFeatherPx(Number(nextVisualPreviewSettings.background_blur_feather_px ?? 6));
-    setVisualBackgroundBlurTemporalSmoothing(Number(nextVisualPreviewSettings.background_blur_temporal_smoothing ?? 0.25));
-    setVisualBackgroundBlurSubjectExpansionPx(Number(nextVisualPreviewSettings.background_blur_subject_expansion_px ?? 0));
-    setVisualBackgroundBlurQualityMode((nextVisualPreviewSettings.background_blur_quality_mode as BackgroundBlurSettings["qualityMode"]) ?? "medium");
-    setVisualBackgroundBlurFallbackMode((nextVisualPreviewSettings.background_blur_fallback_mode as BackgroundBlurSettings["fallbackMode"]) ?? "disable");
-    setVisualBackgroundBlurProviderId(
-      typeof nextVisualPreviewSettings.background_blur_provider === "string"
-        ? nextVisualPreviewSettings.background_blur_provider
-        : "mediapipe_selfie_segmentation",
-    );
-    setVisualBackgroundReplaceEnabled(Boolean(nextVisualPreviewSettings.background_replace_enabled ?? false));
-    setVisualBackgroundReplaceMode(
-      nextVisualPreviewSettings.background_replace_mode === "image"
-        ? "image"
-        : nextVisualPreviewSettings.background_replace_mode === "checkerboard"
-        ? "checkerboard"
-        : "solid",
-    );
-    setVisualBackgroundReplaceColor(String(nextVisualPreviewSettings.background_replace_color ?? "#2b2b2b"));
-    setVisualBackgroundReplaceImageUrl(String(nextVisualPreviewSettings.background_replace_image_url ?? ""));
-    setVisualBackgroundReplaceImageAssetPath(
-      typeof nextVisualPreviewSettings.background_replace_image_asset_path === "string"
-        ? nextVisualPreviewSettings.background_replace_image_asset_path
-        : null,
-    );
-    setVisualBackgroundWashEnabled(Boolean(nextVisualPreviewSettings.background_wash_enabled ?? false));
-    setVisualBackgroundWashDimAmount(Number(nextVisualPreviewSettings.background_wash_dim_amount ?? 0.35));
-    setVisualBackgroundWashDesaturateAmount(Number(nextVisualPreviewSettings.background_wash_desaturate_amount ?? 0.25));
-  }, []);
 
   const resetSilenceEditingRef = useRef<() => void>(() => undefined);
   const resetSilenceEditing = useCallback(() => resetSilenceEditingRef.current(), []);
@@ -1160,19 +1054,12 @@ function HammerWorkspaceShellWithContext(
     () => resolveActiveExposureAdjustment(editableEditorialAuthorityGraph),
     [editableEditorialAuthorityGraph],
   );
-  const visualPreviewFilter = useMemo(() => {
-    const base = resolveVisualPresetFilter(activeLookPreset ?? "neutral");
-    const exposureBoost = 1 + ((activeExposureAdjustment ?? 0) / 100) * 0.35;
-    const temperatureShift = visualWhiteBalance / 3;
-    const colorBoost = 1 + (visualColorAmount / 100) * 0.25;
-    const filterParts = [
-      base !== "none" ? base : "",
-      `brightness(${exposureBoost.toFixed(2)})`,
-      `hue-rotate(${temperatureShift.toFixed(1)}deg)`,
-      `saturate(${colorBoost.toFixed(2)})`,
-    ].filter(Boolean);
-    return filterParts.join(" ");
-  }, [activeExposureAdjustment, activeLookPreset, visualColorAmount, visualWhiteBalance]);
+  const visualPreviewFilter = useHammerVisualPreviewProjection({
+    lookPreset: activeLookPreset,
+    exposureAdjustment: activeExposureAdjustment,
+    whiteBalance: visualWhiteBalance,
+    colorAmount: visualColorAmount,
+  });
   const transcriptSegmentsById = useMemo(() => {
     const byId = new Map<string, HammerTranscriptSegment>();
     for (const segment of editableTranscriptSegments) {
@@ -1782,69 +1669,15 @@ function HammerWorkspaceShellWithContext(
     previewSurfaceRef.current.style.filter = visualPreviewFilter || "";
   }, [visualPreviewFilter]);
 
-  const backgroundBlurSettings = useMemo<BackgroundBlurSettings>(() => ({
-    enabled: visualBackgroundBlur,
-    blurPx: Math.max(0, Math.min(64, Number(visualBackgroundBlurPx) || 0)),
-    replacementEnabled: visualBackgroundReplaceEnabled,
-    replacementMode: visualBackgroundReplaceMode,
-    replacementColor: visualBackgroundReplaceColor,
-    replacementImageUrl: visualBackgroundReplaceImageUrl.trim() ? visualBackgroundReplaceImageUrl.trim() : null,
-    washEnabled: visualBackgroundWashEnabled,
-    washDimAmount: Math.max(0, Math.min(1, Number(visualBackgroundWashDimAmount) || 0)),
-    washDesaturateAmount: Math.max(0, Math.min(1, Number(visualBackgroundWashDesaturateAmount) || 0)),
-    edgeFeatherPx: Math.max(0, Math.min(64, Number(visualBackgroundBlurFeatherPx) || 0)),
-    temporalSmoothing: Math.max(0, Math.min(1, Number(visualBackgroundBlurTemporalSmoothing) || 0)),
-    subjectExpansionPx: Math.max(-12, Math.min(12, Number(visualBackgroundBlurSubjectExpansionPx) || 0)),
-    qualityMode: visualBackgroundBlurQualityMode,
-    fallbackMode: visualBackgroundBlurFallbackMode,
-  }), [
-    visualBackgroundBlur,
-    visualBackgroundBlurFeatherPx,
-    visualBackgroundBlurFallbackMode,
-    visualBackgroundBlurPx,
-    visualBackgroundBlurProviderId,
-    visualBackgroundBlurQualityMode,
-    visualBackgroundBlurSubjectExpansionPx,
-    visualBackgroundBlurTemporalSmoothing,
-    visualBackgroundReplaceColor,
-    visualBackgroundReplaceEnabled,
-    visualBackgroundReplaceImageUrl,
-    visualBackgroundReplaceMode,
-    visualBackgroundWashDesaturateAmount,
-    visualBackgroundWashDimAmount,
-    visualBackgroundWashEnabled,
-  ]);
-  const [previewBackgroundBlurSettings, setPreviewBackgroundBlurSettings] = useState<BackgroundBlurSettings>(backgroundBlurSettings);
-  const previewBackgroundBlurSettingsFrameRef = useRef<number | null>(null);
-  const previewBackgroundBlurSettingsTimerRef = useRef<number | null>(null);
-  useEffect(() => {
-    if (previewBackgroundBlurSettingsFrameRef.current != null) {
-      window.cancelAnimationFrame(previewBackgroundBlurSettingsFrameRef.current);
-      previewBackgroundBlurSettingsFrameRef.current = null;
-    }
-    if (previewBackgroundBlurSettingsTimerRef.current != null) {
-      window.clearTimeout(previewBackgroundBlurSettingsTimerRef.current);
-      previewBackgroundBlurSettingsTimerRef.current = null;
-    }
-    // Keep interaction responsive while capping heavy blur/matte recompute cadence.
-    previewBackgroundBlurSettingsFrameRef.current = window.requestAnimationFrame(() => {
-      previewBackgroundBlurSettingsFrameRef.current = null;
-      previewBackgroundBlurSettingsTimerRef.current = window.setTimeout(() => {
-        previewBackgroundBlurSettingsTimerRef.current = null;
-        setPreviewBackgroundBlurSettings(backgroundBlurSettings);
-      }, 48);
-    });
-    return () => {
-      if (previewBackgroundBlurSettingsFrameRef.current != null) {
-        window.cancelAnimationFrame(previewBackgroundBlurSettingsFrameRef.current);
-        previewBackgroundBlurSettingsFrameRef.current = null;
-      }
-      if (previewBackgroundBlurSettingsTimerRef.current != null) {
-        window.clearTimeout(previewBackgroundBlurSettingsTimerRef.current);
-        previewBackgroundBlurSettingsTimerRef.current = null;
-      }
-    };
-  }, [backgroundBlurSettings]);
+  const { backgroundBlurSettings, previewBackgroundBlurSettings } = useHammerBackgroundBlurProjection({
+    enabled: visualBackgroundBlur, blurPx: visualBackgroundBlurPx,
+    replacementEnabled: visualBackgroundReplaceEnabled, replacementMode: visualBackgroundReplaceMode,
+    replacementColor: visualBackgroundReplaceColor, replacementImageUrl: visualBackgroundReplaceImageUrl,
+    washEnabled: visualBackgroundWashEnabled, washDimAmount: visualBackgroundWashDimAmount,
+    washDesaturateAmount: visualBackgroundWashDesaturateAmount, edgeFeatherPx: visualBackgroundBlurFeatherPx,
+    temporalSmoothing: visualBackgroundBlurTemporalSmoothing, subjectExpansionPx: visualBackgroundBlurSubjectExpansionPx,
+    qualityMode: visualBackgroundBlurQualityMode, fallbackMode: visualBackgroundBlurFallbackMode,
+  });
 
   const backgroundBlurProviderDescriptor = useMemo(
     () => resolveSegmentationProviderDescriptor(visualBackgroundBlurProviderId) ?? resolveSegmentationProviderDescriptor("mediapipe_selfie_segmentation"),
@@ -2418,7 +2251,7 @@ function HammerWorkspaceShellWithContext(
     const previewUrl = sourceDeskPreviewUrls[visualBackgroundReplaceImageAssetPath] ?? "";
     if (!previewUrl || previewUrl === visualBackgroundReplaceImageUrl) return;
     setVisualBackgroundReplaceImageUrl(previewUrl);
-  }, [sourceDeskPreviewUrls, visualBackgroundReplaceImageAssetPath, visualBackgroundReplaceImageUrl]);
+  }, [setVisualBackgroundReplaceImageUrl, sourceDeskPreviewUrls, visualBackgroundReplaceImageAssetPath, visualBackgroundReplaceImageUrl]);
   const speakerOptions = useMemo(() => {
     const labels = new Set<string>();
     for (const segment of editableTranscriptSegments) {

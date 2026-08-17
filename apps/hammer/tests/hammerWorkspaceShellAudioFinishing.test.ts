@@ -42,10 +42,10 @@ test("slot-specific hooks preserve shell and mixed preview registration order", 
   const polish = shell.indexOf("useHammerAudioFinishingPolishState(props.audioPolish)");
   assert.ok(rack >= 0 && cleanupReview > rack && polish > cleanupReview);
   const audioState = preview.indexOf("useHammerAudioFinishingPreviewSourceState()");
-  const visualState = preview.indexOf("useState<HammerBackgroundBlurRuntimeStatus");
+  const visualState = preview.indexOf("useHammerVisualPreviewRuntimeState()");
   const audioRefs = preview.indexOf("useHammerAudioFinishingPreviewRefs()");
   const audioEffects = preview.indexOf("useHammerAudioFinishingPreviewEffects({");
-  const visualDerived = preview.indexOf("const backgroundBlurProviderDescriptor");
+  const visualDerived = preview.indexOf("useHammerVisualPreviewRuntimeDerived({");
   assert.ok(audioState >= 0 && visualState > audioState && audioRefs > visualState && audioEffects > audioRefs && visualDerived > audioEffects);
 });
 

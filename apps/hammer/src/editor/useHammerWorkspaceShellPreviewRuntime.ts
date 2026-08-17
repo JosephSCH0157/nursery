@@ -1,14 +1,10 @@
-import { useMemo, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { MediaRef } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import type { HammerMediaBackboneRuntimeSummary } from "../media/hammerMediaBackbone";
 import type { HammerBackgroundBlurRuntimeStatus } from "../features/visual-effects/render/backgroundBlurPreviewLayer";
-import { summarizeBackgroundEffectRuntimeStatus } from "../features/visual-effects/render/backgroundEffectStatusSummary";
 import type { HammerEyeContactAssistRuntimeStatus } from "../features/eye-contact-assist/render/eyeContactAssistPreviewLayer";
-import { summarizeEyeContactAssistRuntimeStatus } from "../features/eye-contact-assist/render/eyeContactAssistStatusSummary";
 import type { BackgroundBlurSettings } from "../features/visual-effects/types";
-import { resolveSegmentationProviderDescriptor } from "../features/visual-effects/providers/segmentationProviderRegistry";
 import type { HammerStudioRackState } from "./hammerStudioRack";
 import type { HammerDialogueRenderExecutionResult } from "./hammerAudioProcessingBackend";
 import {
@@ -17,6 +13,7 @@ import {
   useHammerAudioFinishingPreviewRefs,
   useHammerAudioFinishingPreviewSourceState,
 } from "./useHammerWorkspaceShellAudioFinishing";
+import { useHammerVisualPreviewRuntimeDerived, useHammerVisualPreviewRuntimeState } from "./useHammerWorkspaceShellVisualPreview";
 
 export type UseHammerWorkspaceShellPreviewRuntimeArgs = {
   activeTool: string;
@@ -63,18 +60,22 @@ export type UseHammerWorkspaceShellPreviewRuntimeResult = {
   eyeContactUseBackgroundCanvasAsSource: boolean;
   visualBackgroundBlurRuntimeStatus: HammerBackgroundBlurRuntimeStatus | null;
   setVisualBackgroundBlurRuntimeStatus: Dispatch<SetStateAction<HammerBackgroundBlurRuntimeStatus | null>>;
-  visualBackgroundBlurStatusSummary: ReturnType<typeof summarizeBackgroundEffectRuntimeStatus> | null;
+  visualBackgroundBlurStatusSummary: ReturnType<typeof useHammerVisualPreviewRuntimeDerived>["visualBackgroundBlurStatusSummary"];
   visualEyeContactAssistRuntimeStatus: HammerEyeContactAssistRuntimeStatus | null;
   setVisualEyeContactAssistRuntimeStatus: Dispatch<SetStateAction<HammerEyeContactAssistRuntimeStatus | null>>;
-  visualEyeContactAssistStatusSummary: ReturnType<typeof summarizeEyeContactAssistRuntimeStatus> | null;
+  visualEyeContactAssistStatusSummary: ReturnType<typeof useHammerVisualPreviewRuntimeDerived>["visualEyeContactAssistStatusSummary"];
 };
 
 export function useHammerWorkspaceShellPreviewRuntime(
   args: UseHammerWorkspaceShellPreviewRuntimeArgs,
 ): UseHammerWorkspaceShellPreviewRuntimeResult {
   const [studioRackPreviewSrc, setStudioRackPreviewSrc] = useHammerAudioFinishingPreviewSourceState();
-  const [visualBackgroundBlurRuntimeStatus, setVisualBackgroundBlurRuntimeStatus] = useState<HammerBackgroundBlurRuntimeStatus | null>(null);
-  const [visualEyeContactAssistRuntimeStatus, setVisualEyeContactAssistRuntimeStatus] = useState<HammerEyeContactAssistRuntimeStatus | null>(null);
+  const {
+    visualBackgroundBlurRuntimeStatus,
+    setVisualBackgroundBlurRuntimeStatus,
+    visualEyeContactAssistRuntimeStatus,
+    setVisualEyeContactAssistRuntimeStatus,
+  } = useHammerVisualPreviewRuntimeState();
 
   const audioPreviewRefs = useHammerAudioFinishingPreviewRefs();
 
@@ -101,40 +102,13 @@ export function useHammerWorkspaceShellPreviewRuntime(
     inferMime: args.inferPlaybackMimeTypeFromPath,
   }, studioRackPreviewSrc, setStudioRackPreviewSrc, audioPreviewRefs);
 
-  const backgroundBlurProviderDescriptor = useMemo(
-    () => resolveSegmentationProviderDescriptor(args.visualBackgroundBlurProviderId) ?? resolveSegmentationProviderDescriptor("mediapipe_selfie_segmentation"),
-    [args.visualBackgroundBlurProviderId],
-  );
-
-  const visualBackgroundBlurStatusSummary = useMemo(() => {
-    if (!visualBackgroundBlurRuntimeStatus) return null;
-    return summarizeBackgroundEffectRuntimeStatus({
-      status: visualBackgroundBlurRuntimeStatus,
-      providerLabel: backgroundBlurProviderDescriptor?.displayName ?? null,
-      showDebugDetails: args.visualBackgroundBlurDebugMask,
-    });
-  }, [args.visualBackgroundBlurDebugMask, backgroundBlurProviderDescriptor, visualBackgroundBlurRuntimeStatus]);
-
-  const eyeContactUseBackgroundCanvasAsSource = useMemo(() => {
-    if (!(args.visualBackgroundBlur || args.visualBackgroundReplaceEnabled || args.visualBackgroundWashEnabled)) return false;
-    if (!visualBackgroundBlurRuntimeStatus) return false;
-    if (args.visualBackgroundBlurFallbackMode === "passthrough") return true;
-    return visualBackgroundBlurRuntimeStatus.degradedReason == null;
-  }, [
-    args.visualBackgroundBlur,
-    args.visualBackgroundBlurFallbackMode,
-    args.visualBackgroundReplaceEnabled,
-    args.visualBackgroundWashEnabled,
-    visualBackgroundBlurRuntimeStatus,
-  ]);
-
-  const visualEyeContactAssistStatusSummary = useMemo(() => {
-    if (!visualEyeContactAssistRuntimeStatus) return null;
-    return summarizeEyeContactAssistRuntimeStatus({
-      status: visualEyeContactAssistRuntimeStatus,
-      showDebugDetails: args.visualEyeContactAssistDebugOverlay,
-    });
-  }, [args.visualEyeContactAssistDebugOverlay, visualEyeContactAssistRuntimeStatus]);
+  const { visualBackgroundBlurStatusSummary, eyeContactUseBackgroundCanvasAsSource, visualEyeContactAssistStatusSummary } = useHammerVisualPreviewRuntimeDerived({
+    blurEnabled: args.visualBackgroundBlur, replacementEnabled: args.visualBackgroundReplaceEnabled,
+    washEnabled: args.visualBackgroundWashEnabled, providerId: args.visualBackgroundBlurProviderId,
+    debugMask: args.visualBackgroundBlurDebugMask, fallbackMode: args.visualBackgroundBlurFallbackMode,
+    blurStatus: visualBackgroundBlurRuntimeStatus, eyeContactDebugOverlay: args.visualEyeContactAssistDebugOverlay,
+    eyeContactStatus: visualEyeContactAssistRuntimeStatus,
+  });
 
   const studioRackComparePreviewStatusLabel = useHammerAudioFinishingCompareStatus({ activeTool: args.activeTool, currentPass: args.currentPass, compareMode: args.audioFinalizationCompareMode, hasAudibleProcessing: args.studioRackHasAudibleProcessing, ffmpegAvailable: args.studioRackRenderBackendFfmpegAvailable, previewSrc: studioRackPreviewSrc, playbackMediaSrc: args.playbackMediaSrc });
 
