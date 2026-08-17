@@ -1,6 +1,9 @@
 import { useEffect, useRef } from "react";
 import type { Dispatch, SetStateAction } from "react";
 
+// Source Desk preview authority owns only URLs it loads. Stale and replaced URLs are revoked;
+// externally supplied media resources remain outside this lifecycle.
+
 export type UseHammerWorkspaceShellSourceDeskPreviewsArgs = {
   workpieceId: string;
   previewPaths: string[];

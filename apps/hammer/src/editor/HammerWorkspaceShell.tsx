@@ -106,9 +106,6 @@ import {
   migrateLegacyPlacementRecordsToTimelineState,
 } from "../visuals/model/hammerVisualMigrations";
 import { hammerVisualTimelineReducer } from "../visuals/state/hammerVisualReducer";
-import {
-  type HammerStoredMediaFile,
-} from "../lib/hammerSourceDeskMediaApi";
 import { deriveStableHammerAssetIdFromPath } from "../lib/hammerAssetIdentity";
 import {
   buildIntroOutroCandidateItems,
@@ -141,7 +138,12 @@ import {
 import { useHammerWorkspaceShellPlayback } from "./useHammerWorkspaceShellPlayback";
 import { useHammerWorkspaceShellShortcuts } from "./useHammerWorkspaceShellShortcuts";
 import { useHammerWorkspaceShellSelection } from "./useHammerWorkspaceShellSelection";
-import { useHammerWorkspaceShellSourceDeskController } from "./useHammerWorkspaceShellSourceDeskController";
+import {
+  useHammerSourceDeskRuntimeState,
+  useHammerSourceDeskStoredMediaState,
+  useHammerSourceDeskUploadRefs,
+  useHammerWorkspaceShellSourceDeskController,
+} from "./useHammerWorkspaceShellSourceDeskController";
 import { useHammerWorkspaceShellPreviewRuntime } from "./useHammerWorkspaceShellPreviewRuntime";
 import {
   deriveHammerAutoPlacementDiagnostics,
@@ -710,7 +712,7 @@ function HammerWorkspaceShellWithContext(
     visualsReviewed: false,
     audioReviewed: false,
   });
-  const [storedMediaFiles, setStoredMediaFiles] = useState<HammerStoredMediaFile[]>([]);
+  const [storedMediaFiles, setStoredMediaFiles] = useHammerSourceDeskStoredMediaState();
   const timelineUpdateReasonRef = useRef<string>("init");
   const sourceDeskMediaUpdateReasonRef = useRef<string>("init");
   const editableVisualTimelineRef = useRef<HammerVisualTimelineState | null>(props.visualTimeline ?? null);
@@ -729,13 +731,12 @@ function HammerWorkspaceShellWithContext(
   });
   const [mediaMapBeats, setMediaMapBeats] = useState<HammerMediaMapBeat[]>([]);
   const [removedMediaMapSegmentIds, setRemovedMediaMapSegmentIds] = useState<string[]>([]);
-  const [sourceDeskLoading, setSourceDeskLoading] = useState(false);
-  const [sourceDeskError, setSourceDeskError] = useState<string | null>(null);
-  const [uploadingCategory, setUploadingCategory] = useState<"images" | "broll" | "introoutro" | null>(null);
-  const [sourceDeskPreviewUrls, setSourceDeskPreviewUrls] = useState<Record<string, string>>({});
-  const [sourceDeskPreviewFailures, setSourceDeskPreviewFailures] = useState<Record<string, true>>({});
-  const [sourceDeskRequestedPreviewPaths, setSourceDeskRequestedPreviewPaths] = useState<string[]>([]);
-  const [sourceDeskVisiblePreviewPaths, setSourceDeskVisiblePreviewPaths] = useState<string[]>([]);
+  const {
+    sourceDeskLoading, setSourceDeskLoading, sourceDeskError, setSourceDeskError,
+    uploadingCategory, setUploadingCategory, sourceDeskPreviewUrls, setSourceDeskPreviewUrls,
+    sourceDeskPreviewFailures, setSourceDeskPreviewFailures, sourceDeskRequestedPreviewPaths,
+    setSourceDeskRequestedPreviewPaths, sourceDeskVisiblePreviewPaths, setSourceDeskVisiblePreviewPaths,
+  } = useHammerSourceDeskRuntimeState();
   const [studioRackRenderStatus, setStudioRackRenderStatus] = useHammerAudioFinishingRenderStatusState();
   const [transcriptTimingHint, setTranscriptTimingHint] = useState<string | null>(null);
   const [historyStatus, setHistoryStatus] = useState<string | null>(null);
@@ -802,9 +803,7 @@ function HammerWorkspaceShellWithContext(
     [editableVisualTimeline?.assets, outroPackagingClip?.asset_id],
   );
   const selectedClipId = compositionVisualTimeline?.selected_clip_id ?? null;
-  const imageUploadInputRef = useRef<HTMLInputElement | null>(null);
-  const brollUploadInputRef = useRef<HTMLInputElement | null>(null);
-  const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const { imageUploadInputRef, brollUploadInputRef, introOutroUploadInputRef } = useHammerSourceDeskUploadRefs();
   const previewAudioRef = useRef<HTMLVideoElement | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement | null>(null);
   const segmentationSourceVideoRef = useRef<HTMLVideoElement | null>(null);
@@ -2176,19 +2175,6 @@ function HammerWorkspaceShellWithContext(
     }
     return usage;
   }, [sourceImageItems]);
-  /*
-    Source Desk preview orchestration lives in useHammerWorkspaceShellSourceDeskController,
-    but the shell-level contract remains:
-
-    const sourceDeskPreviewFetchKey = useMemo(
-      () => buildSourceDeskPreviewFetchKey(sourceDeskPreviewFetchPaths),
-      [sourceDeskPreviewFetchPaths],
-    );
-
-    useHammerWorkspaceShellSourceDeskPreviews({
-      fetchKey: sourceDeskPreviewFetchKey,
-    });
-  */
   const {
     sourceDeskRequestedPreviewPathSet,
     sourceDeskPreviewPendingPathSet,
@@ -2236,17 +2222,10 @@ function HammerWorkspaceShellWithContext(
     setSourceDeskVisiblePreviewPaths,
     applyWorkspaceIntroOutroDefaultsToWorkpiece,
     reconcileIntroOutroSelectionWithPackaging,
+    backgroundReplacementAssetPath: visualBackgroundReplaceImageAssetPath,
+    backgroundReplacementPreviewUrl: visualBackgroundReplaceImageUrl,
+    setBackgroundReplacementPreviewUrl: setVisualBackgroundReplaceImageUrl,
   });
-  useEffect(() => {
-    if (!visualBackgroundReplaceImageAssetPath || sourceDeskPreviewUrls[visualBackgroundReplaceImageAssetPath]) return;
-    requestSourceDeskPreviews([visualBackgroundReplaceImageAssetPath]);
-  }, [requestSourceDeskPreviews, sourceDeskPreviewUrls, visualBackgroundReplaceImageAssetPath]);
-  useEffect(() => {
-    if (!visualBackgroundReplaceImageAssetPath) return;
-    const previewUrl = sourceDeskPreviewUrls[visualBackgroundReplaceImageAssetPath] ?? "";
-    if (!previewUrl || previewUrl === visualBackgroundReplaceImageUrl) return;
-    setVisualBackgroundReplaceImageUrl(previewUrl);
-  }, [setVisualBackgroundReplaceImageUrl, sourceDeskPreviewUrls, visualBackgroundReplaceImageAssetPath, visualBackgroundReplaceImageUrl]);
   const speakerOptions = useMemo(() => {
     const labels = new Set<string>();
     for (const segment of editableTranscriptSegments) {

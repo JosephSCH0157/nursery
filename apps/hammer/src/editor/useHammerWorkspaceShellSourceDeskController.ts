@@ -19,20 +19,16 @@ import {
   buildIntroOutroCandidateItemsById,
   buildWorkspaceIntroOutroDefaultsRepairPlan,
 } from "./hammerIntroOutroState";
+import { appendUniquePaths } from "./hammerWorkspaceShellMediaUtils";
+
+/**
+ * Source Desk authority owns media loading, upload coordination, stored-media synchronization,
+ * and preview request lifecycles. It does not own media-map derivation, timeline placement,
+ * visual-effect projection, view-model composition, or canonical persistence.
+ */
 
 const SOURCE_DESK_PREVIEW_FETCH_CONCURRENCY = 4;
 const SOURCE_DESK_PREVIEW_MAX_ITEMS = 48;
-
-function appendUniquePaths(target: string[], candidates: Array<string | null | undefined>): string[] {
-  const seen = new Set(target);
-  for (const candidate of candidates) {
-    const next = typeof candidate === "string" ? candidate.trim() : "";
-    if (!next || seen.has(next)) continue;
-    seen.add(next);
-    target.push(next);
-  }
-  return target;
-}
 
 function areStringArraysEqual(left: string[], right: string[]): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
@@ -95,6 +91,9 @@ export type UseHammerWorkspaceShellSourceDeskControllerArgs = {
     introSource: "profile" | "episode";
     outroSource: "profile" | "episode";
   }) => void;
+  backgroundReplacementAssetPath: string | null;
+  backgroundReplacementPreviewUrl: string;
+  setBackgroundReplacementPreviewUrl: Dispatch<SetStateAction<string>>;
 };
 
 export type UseHammerWorkspaceShellSourceDeskControllerResult = {
@@ -109,9 +108,35 @@ export type UseHammerWorkspaceShellSourceDeskControllerResult = {
   handleSourceDeskUpload: (category: "images" | "broll" | "introoutro", fileList: FileList | null) => Promise<void>;
 };
 
+export function useHammerSourceDeskStoredMediaState() {
+  return useState<HammerStoredMediaFile[]>([]);
+}
+
+export function useHammerSourceDeskRuntimeState() {
+  const [sourceDeskLoading, setSourceDeskLoading] = useState(false);
+  const [sourceDeskError, setSourceDeskError] = useState<string | null>(null);
+  const [uploadingCategory, setUploadingCategory] = useState<"images" | "broll" | "introoutro" | null>(null);
+  const [sourceDeskPreviewUrls, setSourceDeskPreviewUrls] = useState<Record<string, string>>({});
+  const [sourceDeskPreviewFailures, setSourceDeskPreviewFailures] = useState<Record<string, true>>({});
+  const [sourceDeskRequestedPreviewPaths, setSourceDeskRequestedPreviewPaths] = useState<string[]>([]);
+  const [sourceDeskVisiblePreviewPaths, setSourceDeskVisiblePreviewPaths] = useState<string[]>([]);
+  return { sourceDeskLoading, setSourceDeskLoading, sourceDeskError, setSourceDeskError,
+    uploadingCategory, setUploadingCategory, sourceDeskPreviewUrls, setSourceDeskPreviewUrls,
+    sourceDeskPreviewFailures, setSourceDeskPreviewFailures, sourceDeskRequestedPreviewPaths,
+    setSourceDeskRequestedPreviewPaths, sourceDeskVisiblePreviewPaths, setSourceDeskVisiblePreviewPaths };
+}
+
+export function useHammerSourceDeskUploadRefs() {
+  const imageUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const brollUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const introOutroUploadInputRef = useRef<HTMLInputElement | null>(null);
+  return { imageUploadInputRef, brollUploadInputRef, introOutroUploadInputRef };
+}
+
 export function useHammerWorkspaceShellSourceDeskController(
   args: UseHammerWorkspaceShellSourceDeskControllerArgs,
 ): UseHammerWorkspaceShellSourceDeskControllerResult {
+  const { backgroundReplacementAssetPath, backgroundReplacementPreviewUrl, setBackgroundReplacementPreviewUrl } = args;
   const [previewRequestRevision, setPreviewRequestRevision] = useState(0);
   const attemptedWorkspaceDefaultsApplyRef = useRef<string | null>(null);
   const refreshRunIdRef = useRef(0);
@@ -291,6 +316,19 @@ export function useHammerWorkspaceShellSourceDeskController(
     args.sourceImageItems,
     requestSourceDeskPreviews,
   ]);
+
+  useEffect(() => {
+    const path = backgroundReplacementAssetPath;
+    if (!path || args.sourceDeskPreviewUrls[path]) return;
+    requestSourceDeskPreviews([path]);
+  }, [backgroundReplacementAssetPath, args.sourceDeskPreviewUrls, requestSourceDeskPreviews]);
+  useEffect(() => {
+    const path = backgroundReplacementAssetPath;
+    if (!path) return;
+    const previewUrl = args.sourceDeskPreviewUrls[path] ?? "";
+    if (!previewUrl || previewUrl === backgroundReplacementPreviewUrl) return;
+    setBackgroundReplacementPreviewUrl(previewUrl);
+  }, [args.sourceDeskPreviewUrls, backgroundReplacementAssetPath, backgroundReplacementPreviewUrl, setBackgroundReplacementPreviewUrl]);
 
   const refreshSourceDeskMedia = useCallback(async (): Promise<void> => {
     const refreshRunId = refreshRunIdRef.current + 1;

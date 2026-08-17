@@ -75,7 +75,7 @@ async function stable_key_changes_when_preview_set_changes() {
 
 async function source_desk_effect_depends_on_stable_key() {
   const source = await readFile(
-    new URL("../src/editor/HammerWorkspaceShell.tsx", import.meta.url),
+    new URL("../src/editor/useHammerWorkspaceShellSourceDeskController.ts", import.meta.url),
     "utf-8",
   );
   const hookSource = await readFile(
@@ -85,14 +85,14 @@ async function source_desk_effect_depends_on_stable_key() {
 
   caseAssert(
     source.includes("const sourceDeskPreviewFetchKey = useMemo(")
-      && source.includes("buildSourceDeskPreviewFetchKey(sourceDeskPreviewFetchPaths)"),
+      && source.includes("buildSourceDeskPreviewFetchKey(sourceDeskAllRequestedPreviewPaths)"),
     {
       title: "stable Source Desk preview key memo",
       setup: "Hammer workspace shell computes Source Desk preview dependencies.",
       action: "Inspect memoized preview key source.",
       observed: "Stable key memoization is missing or bypassed.",
       expected: "Preview effect should derive a stable key from preview fetch paths.",
-      likelyDriftPoint: "Source Desk preview key derivation in HammerWorkspaceShell.",
+      likelyDriftPoint: "Source Desk preview key derivation in its authority controller.",
     },
   );
 
@@ -110,6 +110,25 @@ async function source_desk_effect_depends_on_stable_key() {
       likelyDriftPoint: "Source Desk preview useEffect dependency array.",
     },
   );
+}
+
+async function stale_preview_completion_is_rejected_and_cleaned_up() {
+  const source = await readFile(new URL("../src/editor/hammerWorkspaceShellSourceDeskPreviews.ts", import.meta.url), "utf-8");
+  const controller = await readFile(new URL("../src/editor/useHammerWorkspaceShellSourceDeskController.ts", import.meta.url), "utf-8");
+  assert.match(source, /if \(!active\) \{[\s\S]*URL\.revokeObjectURL/);
+  assert.match(source, /URL\.revokeObjectURL\(merged\[key\]\)/);
+  assert.match(source, /\[args\.workpieceId, args\.fetchKey\]/);
+  assert.match(controller, /setPreviewRequestRevision\(\(current\) => current \+ 1\)/);
+  assert.match(controller, /refreshRunId !== refreshRunIdRef\.current/);
+  assert.match(controller, /backgroundReplacementAssetPath/);
+}
+
+async function source_desk_authority_does_not_leak_back_to_shell() {
+  const shell = await readFile(new URL("../src/editor/HammerWorkspaceShell.tsx", import.meta.url), "utf-8");
+  const controller = await readFile(new URL("../src/editor/useHammerWorkspaceShellSourceDeskController.ts", import.meta.url), "utf-8");
+  assert.doesNotMatch(shell, /useState<HammerStoredMediaFile|const \[sourceDeskLoading|const \[sourceDeskPreviewUrls|const imageUploadInputRef = useRef/);
+  assert.match(controller, /Source Desk authority owns media loading, upload coordination, stored-media synchronization/);
+  assert.doesNotMatch(controller, /derive.*MediaMap|resolveHammerAutomaticPlacementCommand|buildSourceBayVM|onWorkspaceSnapshotChange/);
 }
 
 async function timeline_transforms_do_not_request_preview_media() {
@@ -139,6 +158,8 @@ async function run() {
   await stable_key_collapses_equivalent_preview_sets();
   await stable_key_changes_when_preview_set_changes();
   await source_desk_effect_depends_on_stable_key();
+  await stale_preview_completion_is_rejected_and_cleaned_up();
+  await source_desk_authority_does_not_leak_back_to_shell();
   await timeline_transforms_do_not_request_preview_media();
   // eslint-disable-next-line no-console
   console.log("Hammer Source Desk preview churn tests passed.");
