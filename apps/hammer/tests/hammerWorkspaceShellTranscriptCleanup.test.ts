@@ -52,6 +52,6 @@ test("controller routes accepted cleanup through history and excludes adjacent a
   assert.ok(source.includes("kind: \"cleanup_tool\""));
   assert.ok(source.includes("immediatePersist: true"));
   assert.equal(source.includes("hammerDeadAirClosure"), false);
-  assert.equal(source.includes("hammerCandidateQueue"), false);
+  assert.equal(source.includes("hammerCleanupCandidateQueue"), false);
   assert.equal(source.includes("hammerSilenceCutSuggestions"), false);
 });

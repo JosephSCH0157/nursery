@@ -44,7 +44,7 @@
     "test:snapshot-artifacts": "tsx tests/hammerSnapshotArtifactApi.test.ts",
     "test:history-artifacts": "tsx tests/hammerHistoryArtifactApi.test.ts",
     "test:history-status": "tsx tests/hammerHistoryStatus.test.ts",
-    "test:candidate-queue": "tsx tests/hammerCandidateQueue.test.ts",
+    "test:cleanup-candidate-queue": "tsx tests/hammerCleanupCandidateQueue.test.ts",
     "test:snapshot-production": "tsx tests/hammerSnapshotProduction.test.ts",
     "test:snapshot-recovery-flow": "tsx tests/hammerSnapshotRecoveryFlow.test.ts",
     "test:autosave-commit-gap": "tsx tests/hammerAutosaveCommitGap.test.ts",

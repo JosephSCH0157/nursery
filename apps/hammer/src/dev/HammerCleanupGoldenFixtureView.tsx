@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { buildCandidateQueue } from "../editor/hammerCandidateQueue";
+import { buildCleanupCandidateQueue } from "../editor/hammerCleanupCandidateQueue";
 import { previewQuickClean } from "../editor/hammerCleanupTools";
 import {
   buildHammerCleanupGoldenFixture,
@@ -44,7 +44,7 @@ export default function HammerCleanupGoldenFixtureView() {
       fillers: fixture.options.fillers,
       gaps: fixture.options.gaps,
     });
-    const retakeQueue = buildCandidateQueue({
+    const retakeQueue = buildCleanupCandidateQueue({
       kind: "retakes",
       segments: fixture.segments,
       fillerOptions: fixture.options.fillers,
@@ -73,11 +73,11 @@ export default function HammerCleanupGoldenFixtureView() {
 
     const quickSummaryMatches = stableJson(quickClean.summary) === stableJson(hammerCleanupGoldenExpectations.quickClean.summary);
     const quickRowsMatch = stableJson(actualQuickRows) === stableJson(expectedQuickRows);
-    const queueCountMatches = retakeQueue.cards.length === hammerCleanupGoldenExpectations.candidateQueue.retakeCardCount;
+    const queueCountMatches = retakeQueue.cards.length === hammerCleanupGoldenExpectations.cleanupCandidateQueue.retakeCardCount;
     const queueRemovalTextMatches = stableJson(retakeQueue.cards.map((card) => card.suggestedRemovalText))
-      === stableJson(hammerCleanupGoldenExpectations.candidateQueue.suggestedRemovalText);
+      === stableJson(hammerCleanupGoldenExpectations.cleanupCandidateQueue.suggestedRemovalText);
     const queueDescriptionMatches = stableJson(retakeQueue.cards.map((card) => card.description))
-      === stableJson(hammerCleanupGoldenExpectations.candidateQueue.descriptions);
+      === stableJson(hammerCleanupGoldenExpectations.cleanupCandidateQueue.descriptions);
 
     return {
       beforeRows,
@@ -125,7 +125,7 @@ export default function HammerCleanupGoldenFixtureView() {
           </ul>
         </article>
         <article className={`hammer-cleanup-golden__check ${queueCheckPass ? "is-pass" : "is-fail"}`}>
-          <h3>CandidateQueue Expectations</h3>
+          <h3>CleanupCandidateQueue Expectations</h3>
           <p>{queueCheckPass ? "PASS" : "FAIL"}</p>
           <ul>
             <li>Retake card count: {run.queueCountMatches ? "yes" : "no"}</li>

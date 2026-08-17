@@ -1491,7 +1491,7 @@ export function buildToolBayVM(args: any) {
     readinessStatusLabel: args.readinessStatusLabel,
     readinessVerdict: args.readinessVerdict,
     readySummaryAreas: args.readySummaryAreas,
-    refreshCandidateQueue: args.refreshCandidateQueue,
+    refreshCleanupCandidateQueue: args.refreshCleanupCandidateQueue,
     releasePrepError: args.releasePrepError,
     releasePrepLoading: args.releasePrepLoading,
     releasePrepOpenHref: args.releasePrepOpenHref,

@@ -1,4 +1,10 @@
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
+
+/**
+ * Cleanup candidates are transcript-removal proposals for filler and retake review.
+ * They are not short-form content candidates and must not be used as the foundation
+ * for future short-candidate identification.
+ */
 import {
   type HammerCleanupPreview,
   previewRemoveFillers,
@@ -8,11 +14,11 @@ import {
 } from "./hammerCleanupTools";
 import { resolveDeleteOnlyTranscriptSelectionFromTexts } from "./hammerDeleteOnlyTranscriptEditing";
 
-export type HammerCandidateReviewKind = "fillers" | "retakes";
+export type HammerCleanupCandidateReviewKind = "fillers" | "retakes";
 
-export type HammerCandidateCard = {
+export type HammerCleanupCandidateCard = {
   id: string;
-  kind: HammerCandidateReviewKind;
+  kind: HammerCleanupCandidateReviewKind;
   primarySegmentId: string;
   segmentIds: string[];
   description: string;
@@ -95,13 +101,13 @@ function parseRetakeSuggestionId(id: string): { removeIds: string[]; keepId: str
   return { removeIds: [], keepId: null };
 }
 
-export function buildCandidateQueue(args: {
-  kind: HammerCandidateReviewKind;
+export function buildCleanupCandidateQueue(args: {
+  kind: HammerCleanupCandidateReviewKind;
   segments: HammerTranscriptSegment[];
   fillerOptions: FillerCleanupOptions;
   retakeOptions: RetakeCleanupOptions;
   handledCandidateIds: ReadonlySet<string>;
-}): { preview: HammerCleanupPreview; cards: HammerCandidateCard[] } {
+}): { preview: HammerCleanupPreview; cards: HammerCleanupCandidateCard[] } {
   const preview = args.kind === "fillers"
     ? previewRemoveFillers(args.segments, args.fillerOptions)
     : previewRemoveRetakes(args.segments, args.retakeOptions);
@@ -109,7 +115,7 @@ export function buildCandidateQueue(args: {
   const beforeById = new Map(args.segments.map((segment) => [segment.segment_id, segment] as const));
   const afterById = new Map(preview.resultSegments.map((segment) => [segment.segment_id, segment] as const));
 
-  const cards: HammerCandidateCard[] = [];
+  const cards: HammerCleanupCandidateCard[] = [];
   for (const suggestion of preview.suggestions) {
     if (args.handledCandidateIds.has(suggestion.id)) continue;
 
@@ -239,7 +245,7 @@ export function buildCandidateQueue(args: {
   return { preview, cards };
 }
 
-export function clampActiveCandidateIndex(previousIndex: number, cardsLength: number): number {
+export function clampActiveCleanupCandidateIndex(previousIndex: number, cardsLength: number): number {
   const nextLength = Math.max(0, Math.trunc(cardsLength));
   if (nextLength <= 1) return 0;
   const idx = Math.max(0, Math.trunc(previousIndex));

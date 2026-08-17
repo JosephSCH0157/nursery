@@ -111,7 +111,7 @@ export const hammerCleanupGoldenExpectations = {
       },
     ],
   },
-  candidateQueue: {
+  cleanupCandidateQueue: {
     retakeCardCount: 1,
     suggestedRemovalText: [
       "Florida oranges really sta—\nlet me start that again",

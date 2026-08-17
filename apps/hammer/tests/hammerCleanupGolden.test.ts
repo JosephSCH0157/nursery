@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildCandidateQueue } from "../src/editor/hammerCandidateQueue";
+import { buildCleanupCandidateQueue } from "../src/editor/hammerCleanupCandidateQueue";
 import { previewQuickClean } from "../src/editor/hammerCleanupTools";
 import {
   buildHammerCleanupGoldenFixture,
@@ -27,9 +27,9 @@ async function testQuickCleanMatchesGoldenExpectations() {
   );
 }
 
-async function testRetakeCandidateQueueMatchesGoldenExpectations() {
+async function testRetakeCleanupCandidateQueueMatchesGoldenExpectations() {
   const fixture = buildHammerCleanupGoldenFixture();
-  const result = buildCandidateQueue({
+  const result = buildCleanupCandidateQueue({
     kind: "retakes",
     segments: fixture.segments,
     fillerOptions: fixture.options.fillers,
@@ -37,20 +37,20 @@ async function testRetakeCandidateQueueMatchesGoldenExpectations() {
     handledCandidateIds: new Set<string>(),
   });
 
-  assert.equal(result.cards.length, hammerCleanupGoldenExpectations.candidateQueue.retakeCardCount);
+  assert.equal(result.cards.length, hammerCleanupGoldenExpectations.cleanupCandidateQueue.retakeCardCount);
   assert.deepEqual(
     result.cards.map((card) => card.suggestedRemovalText),
-    hammerCleanupGoldenExpectations.candidateQueue.suggestedRemovalText,
+    hammerCleanupGoldenExpectations.cleanupCandidateQueue.suggestedRemovalText,
   );
   assert.deepEqual(
     result.cards.map((card) => card.description),
-    hammerCleanupGoldenExpectations.candidateQueue.descriptions,
+    hammerCleanupGoldenExpectations.cleanupCandidateQueue.descriptions,
   );
 }
 
 async function run() {
   await testQuickCleanMatchesGoldenExpectations();
-  await testRetakeCandidateQueueMatchesGoldenExpectations();
+  await testRetakeCleanupCandidateQueueMatchesGoldenExpectations();
   // eslint-disable-next-line no-console
   console.log("Hammer cleanup golden fixture test passed.");
 }

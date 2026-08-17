@@ -75,14 +75,11 @@ import {
   type HammerAuthorityOp,
 } from "./hammerCompositionMutations";
 import {
-  deriveDeleteOnlyTranscriptCutSelection,
-  resolveDeleteOnlyTranscriptDeletion,
   type HammerDeleteOnlyTranscriptDeletion,
 } from "./hammerDeleteOnlyTranscriptEditing";
 import {
   resolveSelectedSegmentId,
   resolveTranscriptDurationSec,
-  syncEditableTranscriptSegments,
   updateTranscriptSegmentSpeaker,
 } from "./hammerWorkspaceTranscript";
 import { useHammerWorkspaceShellSilenceEditing } from "./useHammerWorkspaceShellSilenceEditing";
@@ -101,12 +98,6 @@ import {
   setHammerDerivedTextLayerOutput,
 } from "../macros/hammerDerivedTranscriptLayers";
 import { diffWords, isSubtractiveTranscriptWordEdit } from "../lib/hammerWordDiff";
-import {
-  buildCandidateQueue,
-  clampActiveCandidateIndex,
-  type HammerCandidateCard,
-  type HammerCandidateReviewKind,
-} from "./hammerCandidateQueue";
 import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
 import { deriveLegacyVisualPlacementsFromTimeline } from "../visuals/persistence/hammerVisualTimelineLegacyAdapter";
 import {
@@ -157,6 +148,7 @@ import { useHammerWorkspaceShellReleasePrep } from "./useHammerWorkspaceShellRel
 import { useHammerWorkspaceShellVisualEditing } from "./useHammerWorkspaceShellVisualEditing";
 import { useHammerWorkspaceShellHydration } from "./useHammerWorkspaceShellHydration";
 import { useHammerWorkspaceShellTranscriptCleanup } from "./useHammerWorkspaceShellTranscriptCleanup";
+import { useHammerWorkspaceShellCleanupCandidateReview } from "./useHammerWorkspaceShellCleanupCandidateReview";
 import { useHammerWorkspaceShellRouting } from "./useHammerWorkspaceShellRouting";
 import { applyHammerStudioRackNativePreview } from "./hammerStudioRackNativePreview";
 import {
@@ -708,19 +700,31 @@ function HammerWorkspaceShellWithContext(
   const [timelineZoomPercent, setTimelineZoomPercent] = useState<number>(TIMELINE_ZOOM_LEVELS[0]);
   const [focusOverride, setFocusOverride] = useState<HammerWorkspaceFocusOverride>("auto");
   const [polishStrength, setPolishStrength] = useState(60);
-  const [fillerCandidateCards, setFillerCandidateCards] = useState<HammerCandidateCard[]>([]);
-  const [fillerActiveCandidateIndex, setFillerActiveCandidateIndex] = useState(0);
-  const [fillerDecisionInFlight, setFillerDecisionInFlight] = useState(false);
-  const [retakeCandidateCards, setRetakeCandidateCards] = useState<HammerCandidateCard[]>([]);
-  const [retakeActiveCandidateIndex, setRetakeActiveCandidateIndex] = useState(0);
-  const [retakeDecisionInFlight, setRetakeDecisionInFlight] = useState(false);
-  const [activeReviewKind, setActiveReviewKind] = useState<HammerCandidateReviewKind>("fillers");
-  const [activeTranscriptToolSection, setActiveTranscriptToolSection] = useState<"fillers" | "retakes" | "silence_gaps">("fillers");
-  const [candidateProposedRemovalById, setCandidateProposedRemovalById] = useState<Record<string, HammerSelectedTranscriptRangeDetail>>({});
-  const [candidateReceiptByKind, setCandidateReceiptByKind] = useState<Record<HammerCandidateReviewKind, string | null>>({
-    fillers: null,
-    retakes: null,
+  const cleanupCandidateReview = useHammerWorkspaceShellCleanupCandidateReview({
+    transcriptSegments: editableTranscriptSegments,
+    getDurationSec: () => playbackTransportDurationSec,
+    getWaveformProxy: () => editableAudioPolish?.analysis?.waveform_proxy ?? null,
+    getFillerOptions: () => fillerCleanupOptions,
+    getRetakeOptions: () => retakeCleanupOptions,
+    getSelectedRemoval: () => selectedTranscriptRangeDetailRef.current,
+    captureState: captureWorkspaceState,
+    getCurrentState: () => historyAuthority.getController()?.getState() ?? null,
+    applyHistoryMutation,
+    clearCleanupPreview: () => clearCleanup(),
+    setTranscriptTimingHint: (value) => setTranscriptTimingHint(value),
   });
+  const {
+    fillerCandidateCards, fillerActiveCandidateIndex, fillerDecisionInFlight,
+    retakeCandidateCards, retakeActiveCandidateIndex, retakeDecisionInFlight,
+    activeReviewKind, candidateReceiptByKind, candidateProposedRemovalById,
+    activeFillerCandidateCard, activeRetakeCandidateCard, candidateSegmentIdSet,
+    activeCandidatePrimarySegmentId, activeCandidateSegmentIdSet,
+    setActiveReviewKind, setFillerActiveCandidateIndex,
+    setRetakeActiveCandidateIndex, updateCandidateProposedRemoval,
+    refreshCandidateQueue: refreshCleanupCandidateQueue, handleCandidateDecision, syncReviewPass,
+    reconcileFillerIndex, reconcileRetakeIndex,
+  } = cleanupCandidateReview;
+  const [activeTranscriptToolSection, setActiveTranscriptToolSection] = useState<"fillers" | "retakes" | "silence_gaps">("fillers");
   const [selectedTranscriptRange, setSelectedTranscriptRange] = useState<HammerSelectedTranscriptRange | null>(null);
   const selectedTranscriptRangeDetailRef = useRef<HammerSelectedTranscriptRangeDetail | null>(null);
   const lastVisualSelectionLogKeyRef = useRef<string | null>(null);
@@ -972,18 +976,6 @@ function HammerWorkspaceShellWithContext(
   const passSelectorContextRef = useRef<HammerPassSelectorContext | null>(null);
   const currentPassSelectorResultRef = useRef<HammerPassSelectorResult | null>(null);
   const playbackOwnerIdRef = useRef(`hammer-preview-${Math.random().toString(36).slice(2, 10)}`);
-  const handledCandidateIdsRef = useRef<{ fillers: Set<string>; retakes: Set<string> }>({
-    fillers: new Set(),
-    retakes: new Set(),
-  });
-  const candidateDecisionInFlightRef = useRef<{ fillers: boolean; retakes: boolean }>({
-    fillers: false,
-    retakes: false,
-  });
-  const lastHandledCandidateIdRef = useRef<{ fillers: string | null; retakes: string | null }>({
-    fillers: null,
-    retakes: null,
-  });
   const onHistoryRecoveryStatusChangeRef = useRef(props.onHistoryRecoveryStatusChange);
   useEffect(() => {
     onHistoryRecoveryStatusChangeRef.current = props.onHistoryRecoveryStatusChange;
@@ -1170,26 +1162,11 @@ function HammerWorkspaceShellWithContext(
   const selectedSegment = editableTranscriptSegments.find(
     (segment) => segment.segment_id === (linkedSelection?.anchorId ?? selectedSegmentId),
   ) ?? null;
-  const activeFillerCandidateCard = fillerCandidateCards[fillerActiveCandidateIndex] ?? null;
-  const activeRetakeCandidateCard = retakeCandidateCards[retakeActiveCandidateIndex] ?? null;
-  const activeCandidateCard = activeReviewKind === "retakes" ? activeRetakeCandidateCard : activeFillerCandidateCard;
   const activeFillerCandidateDiffOps = useMemo(() => {
     if (!activeFillerCandidateCard) return null;
     if (activeFillerCandidateCard.afterText == null) return null;
     return diffWords(activeFillerCandidateCard.beforeText, activeFillerCandidateCard.afterText);
   }, [activeFillerCandidateCard?.beforeText, activeFillerCandidateCard?.afterText]);
-  const candidateSegmentIdSet = useMemo(
-    () => new Set([
-      ...fillerCandidateCards.flatMap((card) => card.segmentIds),
-      ...retakeCandidateCards.flatMap((card) => card.segmentIds),
-    ]),
-    [fillerCandidateCards, retakeCandidateCards],
-  );
-  const activeCandidatePrimarySegmentId = activeCandidateCard?.primarySegmentId ?? null;
-  const activeCandidateSegmentIdSet = useMemo(
-    () => new Set(activeCandidateCard ? activeCandidateCard.segmentIds : []),
-    [activeCandidateCard],
-  );
 
   function setSelectedTranscriptRangeDetail(nextRange: HammerSelectedTranscriptRangeDetail | null): void {
     selectedTranscriptRangeDetailRef.current = nextRange;
@@ -1207,49 +1184,6 @@ function HammerWorkspaceShellWithContext(
     }
   }
 
-  function createCandidateRemovalDraft(card: HammerCandidateCard | null): HammerSelectedTranscriptRangeDetail | null {
-    if (!card || card.suggestedRemoval.length === 0) return null;
-    const text = card.suggestedRemovalText.trim()
-      ? card.suggestedRemovalText
-      : card.suggestedRemoval.map((item) => item.text).join("\n");
-    return {
-      start: 0,
-      end: text.length,
-      text,
-      segments: card.suggestedRemoval.map((item) => ({
-        segmentId: item.segmentId,
-        selectionStart: item.selectionStart,
-        selectionEnd: item.selectionEnd,
-        text: item.text,
-      })),
-    };
-  }
-
-  function resolveCandidateRemovalDraft(card: HammerCandidateCard | null): HammerSelectedTranscriptRangeDetail | null {
-    if (!card) return null;
-    return candidateProposedRemovalById[card.id] ?? createCandidateRemovalDraft(card);
-  }
-
-  function updateCandidateProposedRemoval(kind: HammerCandidateReviewKind): void {
-    setActiveReviewKind(kind);
-    const card = kind === "retakes" ? activeRetakeCandidateCard : activeFillerCandidateCard;
-    const selectedRangeDetail = selectedTranscriptRangeDetailRef.current;
-    if (!card) return;
-    if (!selectedRangeDetail || selectedRangeDetail.segments.length === 0 || !selectedRangeDetail.text.trim()) {
-      setTranscriptTimingHint("Select transcript text, then choose Update Proposed Removal.");
-      return;
-    }
-    setCandidateProposedRemovalById((current) => ({
-      ...current,
-      [card.id]: {
-        start: selectedRangeDetail.start,
-        end: selectedRangeDetail.end,
-        text: selectedRangeDetail.text,
-        segments: selectedRangeDetail.segments.map((segment) => ({ ...segment })),
-      },
-    }));
-    setTranscriptTimingHint(null);
-  }
   const isTranscriptCandidateReviewPass = activeTool === "polish"
     && (currentPass === "transcript_cleanup" || currentPass === "retakes");
   const isTranscriptToolSurface = activeTool === "polish"
@@ -4156,284 +4090,9 @@ function HammerWorkspaceShellWithContext(
     setFocusOverride("time-focus");
   }
 
-  function resetHandledCandidates(kind: HammerCandidateReviewKind): void {
-    handledCandidateIdsRef.current[kind] = new Set();
-    lastHandledCandidateIdRef.current[kind] = null;
-  }
-
-  function rebuildCandidateQueue(args: {
-    kind: HammerCandidateReviewKind;
-    segments: HammerTranscriptSegment[];
-    resetHandled?: boolean;
-    preserveIndex?: number;
-  }): void {
-    if (args.resetHandled) {
-      resetHandledCandidates(args.kind);
-    }
-
-    const handled = handledCandidateIdsRef.current[args.kind];
-    const { cards } = buildCandidateQueue({
-      kind: args.kind,
-      segments: args.segments,
-      fillerOptions: fillerCleanupOptions,
-      retakeOptions: retakeCleanupOptions,
-      handledCandidateIds: handled,
-    });
-
-    if (args.kind === "fillers") {
-      setFillerCandidateCards(cards);
-      setFillerActiveCandidateIndex((previous) => clampActiveCandidateIndex(
-        args.preserveIndex ?? previous,
-        cards.length,
-      ));
-    } else {
-      setRetakeCandidateCards(cards);
-      setRetakeActiveCandidateIndex((previous) => clampActiveCandidateIndex(
-        args.preserveIndex ?? previous,
-        cards.length,
-      ));
-    }
-    // Avoid mixing queue review with one-off preview summaries.
-    clearCleanup();
-  }
-
-  function refreshCandidateQueue(kind: HammerCandidateReviewKind): void {
-    setActiveReviewKind(kind);
-    setCandidateProposedRemovalById({});
-    setCandidateReceiptByKind((current) => ({ ...current, [kind]: null }));
-    rebuildCandidateQueue({
-      kind,
-      segments: editableTranscriptSegments,
-      resetHandled: true,
-      preserveIndex: 0,
-    });
-  }
-
-  function handleCandidateDecision(
-    kind: HammerCandidateReviewKind,
-    approve: boolean,
-  ): void {
-    setActiveReviewKind(kind);
-    const card = kind === "retakes" ? activeRetakeCandidateCard : activeFillerCandidateCard;
-    if (!card) return;
-    if (candidateDecisionInFlightRef.current[kind]) return;
-    if (lastHandledCandidateIdRef.current[card.kind] === card.id) return;
-
-    candidateDecisionInFlightRef.current[kind] = true;
-    if (kind === "fillers") setFillerDecisionInFlight(true);
-    else setRetakeDecisionInFlight(true);
-
-    try {
-      const preserveIndex = kind === "retakes" ? retakeActiveCandidateIndex : fillerActiveCandidateIndex;
-
-      const beforeState = captureWorkspaceState();
-      let nextSegments = beforeState.transcriptSegments;
-
-      if (approve) {
-        const removalDraft = resolveCandidateRemovalDraft(card);
-        if (!removalDraft || removalDraft.segments.length === 0) {
-          setTranscriptTimingHint("No proposed removal is available for this candidate.");
-          lastHandledCandidateIdRef.current[card.kind] = null;
-          return;
-        }
-
-        const uniqueRemovalSlices = removalDraft.segments.filter((slice, index, allSlices) => (
-          allSlices.findIndex((candidate) => candidate.segmentId === slice.segmentId) === index
-        ));
-        const removalEdits = uniqueRemovalSlices.flatMap((slice) => {
-          const segment = beforeState.transcriptSegments.find((item) => item.segment_id === slice.segmentId) ?? null;
-          if (!segment) return [];
-          const deletion = resolveDeleteOnlyTranscriptDeletion({
-            text: String(segment.text ?? ""),
-            selectionStart: slice.selectionStart,
-            selectionEnd: slice.selectionEnd,
-            direction: "selection",
-          });
-          if (!deletion) return [];
-          const cutSelection = deriveDeleteOnlyTranscriptCutSelection({
-            segment,
-            deletion,
-            audioDurationSec: playbackTransportDurationSec,
-            waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
-            editKind: card.kind === "fillers" ? "filler" : "retake",
-          });
-          if (!cutSelection) return [];
-          return [{
-            segmentId: slice.segmentId,
-            nextText: deletion.nextText,
-            deletion,
-            cutSelection,
-          }];
-        });
-
-        if (removalEdits.length === 0) {
-          setTranscriptTimingHint("Proposed removal did not resolve to a valid transcript deletion.");
-          lastHandledCandidateIdRef.current[card.kind] = null;
-          return;
-        }
-
-        const transcriptWouldChange = removalEdits.some((edit) => {
-          const baseline = beforeState.transcriptSegments.find((segment) => segment.segment_id === edit.segmentId)?.text ?? null;
-          return baseline != null && baseline !== edit.nextText;
-        });
-        const cutSelections = removalEdits.map((edit) => edit.cutSelection);
-
-        if (!transcriptWouldChange && cutSelections.length === 0) {
-          setCandidateReceiptByKind((current) => ({
-            ...current,
-            [card.kind]: "No-op: candidate approval produced no transcript or playback changes.",
-          }));
-          lastHandledCandidateIdRef.current[card.kind] = null;
-          return;
-        }
-
-        const beforeAudioOpCount = beforeState.audioEdit?.operations?.length ?? 0;
-
-        const applied = applyHistoryMutation({
-          label: card.kind === "fillers" ? "Approve filler removal" : "Approve retake removal",
-          kind: "cleanup_tool",
-          toolId: "polish",
-          affectedSegments: card.segmentIds,
-          immediatePersist: true,
-          computeAfter: (before) => {
-            const remainingSegments = before.transcriptSegments.flatMap((segment) => {
-              const edit = removalEdits.find((candidate) => candidate.segmentId === segment.segment_id) ?? null;
-              if (!edit) return [segment];
-              if (!edit.nextText.trim()) return [];
-              return [{
-                ...segment,
-                text: edit.nextText,
-              }];
-            });
-            const synced = syncEditableTranscriptSegments(remainingSegments, before.selectedSegmentId);
-            const nextAudioEdit = applyCutSelectionsToAudioEdit({
-              audioEdit: before.audioEdit,
-              cutSelections,
-              operationIdPrefix: `cleanup:${card.kind}:${card.id}`,
-            });
-            const afterAudioOpCount = nextAudioEdit?.operations?.length ?? 0;
-            const changesCommitted = transcriptWouldChange || afterAudioOpCount !== (before.audioEdit?.operations?.length ?? 0);
-            return {
-              ...before,
-              transcriptSegments: synced.segments,
-              selectedSegmentId: synced.selectedSegmentId,
-              audioEdit: nextAudioEdit,
-              transcriptTimingHint: changesCommitted ? null : before.transcriptTimingHint,
-            };
-          },
-        });
-        if (!applied) {
-          setCandidateReceiptByKind((current) => ({
-            ...current,
-            [card.kind]: "No-op: candidate approval did not commit any canonical changes.",
-          }));
-          lastHandledCandidateIdRef.current[card.kind] = null;
-          return;
-        }
-
-        const afterState = historyAuthority.getController()?.getState() ?? null;
-        const afterAudioOpCount = afterState?.audioEdit?.operations?.length ?? beforeAudioOpCount;
-        const committedCutCount = Math.max(0, afterAudioOpCount - beforeAudioOpCount);
-
-        handledCandidateIdsRef.current[card.kind].add(card.id);
-        lastHandledCandidateIdRef.current[card.kind] = card.id;
-
-        if (import.meta.env.DEV && typeof window !== "undefined") {
-          const enabled = Boolean((window as any).__forgeHammerDebugCandidateApproval__);
-          if (enabled) {
-            const effectiveRegions = getEffectiveCutRegions(afterState?.audioEdit ?? null, playbackTransportDurationSec);
-            const seekTarget = afterState
-              ? resolveNextAudiblePlaybackTime({
-                requestedTimeSec: afterState.playheadSec,
-                durationSec: playbackTransportDurationSec,
-                effectiveCutRegions: effectiveRegions,
-                transcriptSegments: afterState.transcriptSegments,
-              })
-              : null;
-            // eslint-disable-next-line no-console
-            console.debug("[HammerCandidateApproval]", {
-              kind: card.kind,
-              cardId: card.id,
-              primarySegmentId: card.primarySegmentId,
-              transcriptWouldChange,
-              removalEdits: removalEdits.map((edit) => ({
-                segmentId: edit.segmentId,
-                deletedText: edit.deletion.deletedText,
-                nextText: edit.nextText,
-              })),
-              plannedCutCount: cutSelections.length,
-              beforeAudioOpCount,
-              afterAudioOpCount,
-              committedCutCount,
-              effectiveCutRegions: effectiveRegions.length,
-              seekTarget,
-            });
-          }
-        }
-
-        setCandidateReceiptByKind((current) => ({
-          ...current,
-          [card.kind]: committedCutCount > 0
-            ? `Applied cleanup + ${committedCutCount} timeline cut${committedCutCount === 1 ? "" : "s"}.`
-            : "Applied transcript cleanup (no new timeline cuts committed).",
-        }));
-        nextSegments = afterState?.transcriptSegments ?? nextSegments;
-      } else {
-        handledCandidateIdsRef.current[card.kind].add(card.id);
-        lastHandledCandidateIdRef.current[card.kind] = card.id;
-        setCandidateReceiptByKind((current) => ({
-          ...current,
-          [card.kind]: "Candidate discarded (no transcript or audio change).",
-        }));
-      }
-
-      // Queue is always rebuilt from the current transcript state, not any cached candidate list.
-      rebuildCandidateQueue({
-        kind: card.kind,
-        segments: nextSegments,
-        preserveIndex,
-      });
-      // Keep the other queue in sync with the new canonical transcript without resetting handled/index.
-      const otherKind: HammerCandidateReviewKind = kind === "fillers" ? "retakes" : "fillers";
-      const otherIndex = otherKind === "retakes" ? retakeActiveCandidateIndex : fillerActiveCandidateIndex;
-      rebuildCandidateQueue({
-        kind: otherKind,
-        segments: nextSegments,
-        preserveIndex: otherIndex,
-      });
-    } finally {
-      candidateDecisionInFlightRef.current[kind] = false;
-      if (kind === "fillers") setFillerDecisionInFlight(false);
-      else setRetakeDecisionInFlight(false);
-    }
-  }
-
   useEffect(() => {
-    if (currentPass === "transcript_cleanup" || currentPass === "retakes") {
-      const nextActive: HammerCandidateReviewKind = currentPass === "retakes" ? "retakes" : "fillers";
-      setActiveReviewKind(nextActive);
-      rebuildCandidateQueue({
-        kind: "fillers",
-        segments: editableTranscriptSegments,
-        resetHandled: true,
-        preserveIndex: 0,
-      });
-      rebuildCandidateQueue({
-        kind: "retakes",
-        segments: editableTranscriptSegments,
-        resetHandled: true,
-        preserveIndex: 0,
-      });
-      return;
-    }
-
-    setFillerCandidateCards([]);
-    setFillerActiveCandidateIndex(0);
-    setFillerDecisionInFlight(false);
-    setRetakeCandidateCards([]);
-    setRetakeActiveCandidateIndex(0);
-    setRetakeDecisionInFlight(false);
-  }, [currentPass]);
+    syncReviewPass(currentPass);
+  }, [currentPass, syncReviewPass]);
   useEffect(() => {
     setAudioFinalizationCompareMode(editableStudioRack.is_bypassed ? "before" : "after");
   }, [editableStudioRack.is_bypassed]);
@@ -4487,23 +4146,11 @@ function HammerWorkspaceShellWithContext(
   }, [zoomTimelineIn, zoomTimelineOut]);
 
   useEffect(() => {
-    if (fillerCandidateCards.length === 0 && fillerActiveCandidateIndex !== 0) {
-      setFillerActiveCandidateIndex(0);
-      return;
-    }
-    if (fillerActiveCandidateIndex >= fillerCandidateCards.length && fillerCandidateCards.length > 0) {
-      setFillerActiveCandidateIndex(fillerCandidateCards.length - 1);
-    }
-  }, [fillerActiveCandidateIndex, fillerCandidateCards.length]);
+    reconcileFillerIndex();
+  }, [fillerActiveCandidateIndex, fillerCandidateCards.length, reconcileFillerIndex]);
   useEffect(() => {
-    if (retakeCandidateCards.length === 0 && retakeActiveCandidateIndex !== 0) {
-      setRetakeActiveCandidateIndex(0);
-      return;
-    }
-    if (retakeActiveCandidateIndex >= retakeCandidateCards.length && retakeCandidateCards.length > 0) {
-      setRetakeActiveCandidateIndex(retakeCandidateCards.length - 1);
-    }
-  }, [retakeActiveCandidateIndex, retakeCandidateCards.length]);
+    reconcileRetakeIndex();
+  }, [retakeActiveCandidateIndex, retakeCandidateCards.length, reconcileRetakeIndex]);
 
   function commitVisualAnchorRefinement(args: {
     clipId: string;
@@ -7243,7 +6890,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     readinessStatusLabel,
     readinessVerdict,
     readySummaryAreas,
-    refreshCandidateQueue,
+    refreshCleanupCandidateQueue,
     releasePrepError,
     releasePrepLoading,
     releasePrepOpenHref,
@@ -7541,7 +7188,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     readinessStatusLabel,
     readinessVerdict,
     readySummaryAreas,
-    refreshCandidateQueue,
+    refreshCleanupCandidateQueue,
     releasePrepError,
     releasePrepLoading,
     releasePrepOpenHref,

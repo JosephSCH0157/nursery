@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildCandidateQueue, clampActiveCandidateIndex } from "../src/editor/hammerCandidateQueue";
+import { buildCleanupCandidateQueue, clampActiveCleanupCandidateIndex } from "../src/editor/hammerCleanupCandidateQueue";
 
 function buildSegments() {
   return [
@@ -31,7 +31,7 @@ const retakeOptions = {
 async function testBuildQueueFiltersHandledCandidates() {
   const segments = buildSegments();
   const handled = new Set<string>();
-  const first = buildCandidateQueue({
+  const first = buildCleanupCandidateQueue({
     kind: "fillers",
     segments: segments as never,
     fillerOptions: fillerOptions as never,
@@ -44,7 +44,7 @@ async function testBuildQueueFiltersHandledCandidates() {
   assert.deepEqual(first.cards[0]?.segmentIds, ["seg_1"]);
 
   handled.add("filler:seg_1");
-  const second = buildCandidateQueue({
+  const second = buildCleanupCandidateQueue({
     kind: "fillers",
     segments: segments as never,
     fillerOptions: fillerOptions as never,
@@ -54,7 +54,7 @@ async function testBuildQueueFiltersHandledCandidates() {
   assert.equal(second.cards.length, 0);
 
   // Strict-mode style double rebuild should remain stable.
-  const third = buildCandidateQueue({
+  const third = buildCleanupCandidateQueue({
     kind: "fillers",
     segments: segments as never,
     fillerOptions: fillerOptions as never,
@@ -75,7 +75,7 @@ async function testFillerCardCanRemoveSegmentWhenFillerOnly() {
     },
   ];
 
-  const result = buildCandidateQueue({
+  const result = buildCleanupCandidateQueue({
     kind: "fillers",
     segments: segments as never,
     fillerOptions: fillerOptions as never,
@@ -112,7 +112,7 @@ async function testRetakePairCardBuildsFromSuggestionId() {
   ];
 
   const handled = new Set<string>();
-  const result = buildCandidateQueue({
+  const result = buildCleanupCandidateQueue({
     kind: "retakes",
     segments: segments as never,
     fillerOptions: fillerOptions as never,
@@ -158,7 +158,7 @@ async function testRetakeChainCardRemovesMarkerAndAbort() {
   ];
 
   const handled = new Set<string>();
-  const result = buildCandidateQueue({
+  const result = buildCleanupCandidateQueue({
     kind: "retakes",
     segments: segments as never,
     fillerOptions: fillerOptions as never,
@@ -197,7 +197,7 @@ async function testRetakeRestartTrimCardShowsCueOnlyAsProposedRemoval() {
     },
   ];
 
-  const result = buildCandidateQueue({
+  const result = buildCleanupCandidateQueue({
     kind: "retakes",
     segments: segments as never,
     fillerOptions: fillerOptions as never,
@@ -234,7 +234,7 @@ async function testRetakeBackwardExplicitCueCardMatchesEditorIntent() {
     },
   ];
 
-  const result = buildCandidateQueue({
+  const result = buildCleanupCandidateQueue({
     kind: "retakes",
     segments: segments as never,
     fillerOptions: fillerOptions as never,
@@ -270,7 +270,7 @@ async function testRetakeCardIncludesPreTriggerAndTriggerRemovalWhenKeepingResta
     },
   ];
 
-  const result = buildCandidateQueue({
+  const result = buildCleanupCandidateQueue({
     kind: "retakes",
     segments: segments as never,
     fillerOptions: fillerOptions as never,
@@ -290,10 +290,10 @@ async function testRetakeCardIncludesPreTriggerAndTriggerRemovalWhenKeepingResta
 }
 
 async function testClampIndex() {
-  assert.equal(clampActiveCandidateIndex(0, 0), 0);
-  assert.equal(clampActiveCandidateIndex(5, 1), 0);
-  assert.equal(clampActiveCandidateIndex(5, 2), 1);
-  assert.equal(clampActiveCandidateIndex(-1, 3), 0);
+  assert.equal(clampActiveCleanupCandidateIndex(0, 0), 0);
+  assert.equal(clampActiveCleanupCandidateIndex(5, 1), 0);
+  assert.equal(clampActiveCleanupCandidateIndex(5, 2), 1);
+  assert.equal(clampActiveCleanupCandidateIndex(-1, 3), 0);
 }
 
 async function run() {
@@ -306,11 +306,11 @@ async function run() {
   await testRetakeCardIncludesPreTriggerAndTriggerRemovalWhenKeepingRestart();
   await testClampIndex();
   // eslint-disable-next-line no-console
-  console.log("Hammer candidate queue tests passed.");
+  console.log("Hammer cleanup candidate queue tests passed.");
 }
 
 run().catch((error) => {
   // eslint-disable-next-line no-console
-  console.error("Hammer candidate queue tests failed:", error);
+  console.error("Hammer cleanup candidate queue tests failed:", error);
   process.exit(1);
 });

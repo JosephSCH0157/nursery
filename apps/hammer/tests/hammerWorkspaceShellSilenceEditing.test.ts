@@ -44,7 +44,7 @@ test("controller uses one canonical history command for accepted silence edits",
 test("silence controller excludes neighboring cleanup, candidate, caption, and finishing authorities", async () => {
   const source = await readFile(new URL("../src/editor/useHammerWorkspaceShellSilenceEditing.ts", import.meta.url), "utf8");
   assert.equal(source.includes("useHammerWorkspaceShellTranscriptCleanup"), false);
-  assert.equal(source.includes("hammerCandidateQueue"), false);
+  assert.equal(source.includes("hammerCleanupCandidateQueue"), false);
   assert.equal(source.includes("Caption"), false);
   assert.equal(source.includes("StudioRack"), false);
   assert.equal(source.includes("audioProcessingBackend"), false);

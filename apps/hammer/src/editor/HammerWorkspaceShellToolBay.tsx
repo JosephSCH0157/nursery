@@ -354,7 +354,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const activeReviewKind = ctx.activeReviewKind as string;
   const setActiveReviewKind = ctx.setActiveReviewKind as (next: any) => void;
   const setActiveTranscriptToolSection = ctx.setActiveTranscriptToolSection as (next: any) => void;
-  const refreshCandidateQueue = ctx.refreshCandidateQueue as (...args: any[]) => void;
+  const refreshCleanupCandidateQueue = ctx.refreshCleanupCandidateQueue as (...args: any[]) => void;
 
   const fillerCleanupOptions = ctx.fillerCleanupOptions as any;
   const setFillerCleanupOptions = ctx.setFillerCleanupOptions as (next: any | ((current: any) => any)) => void;
@@ -538,7 +538,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           aria-label="Refresh filler candidates"
                           onClick={() => {
                             setFocusOverride("tool-focus");
-                            refreshCandidateQueue("fillers");
+                            refreshCleanupCandidateQueue("fillers");
                           }}
                         >
                           Refresh Fillers
@@ -657,7 +657,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                           aria-label="Refresh retake candidates"
                           onClick={() => {
                             setFocusOverride("tool-focus");
-                            refreshCandidateQueue("retakes");
+                            refreshCleanupCandidateQueue("retakes");
                           }}
                         >
                           Refresh Retakes

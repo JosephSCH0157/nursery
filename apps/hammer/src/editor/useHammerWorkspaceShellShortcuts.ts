@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { HammerPassId } from "../persistence/hammerPersistenceContract";
 import type { HammerDeadAirAnalysis } from "./hammerDeadAirClosure";
-import { clampActiveCandidateIndex, type HammerCandidateCard, type HammerCandidateReviewKind } from "./hammerCandidateQueue";
+import { clampActiveCleanupCandidateIndex, type HammerCleanupCandidateCard, type HammerCleanupCandidateReviewKind } from "./hammerCleanupCandidateQueue";
 import {
   LARGE_PLAYHEAD_NUDGE_SEC,
   resolveWorkspaceFocusMode,
@@ -36,9 +36,9 @@ export type UseHammerWorkspaceShellShortcutsArgs = {
   isTranscriptCandidateReviewPass: boolean;
   isTranscriptToolSurface: boolean;
   activeTranscriptToolSection: "fillers" | "retakes" | "silence_gaps";
-  activeReviewKind: HammerCandidateReviewKind;
-  activeFillerCandidateCard: HammerCandidateCard | null;
-  activeRetakeCandidateCard: HammerCandidateCard | null;
+  activeReviewKind: HammerCleanupCandidateReviewKind;
+  activeFillerCandidateCard: HammerCleanupCandidateCard | null;
+  activeRetakeCandidateCard: HammerCleanupCandidateCard | null;
   fillerCandidateCardsLength: number;
   retakeCandidateCardsLength: number;
   fillerDecisionInFlight: boolean;
@@ -47,12 +47,12 @@ export type UseHammerWorkspaceShellShortcutsArgs = {
   deadAirApplyInFlight: boolean;
   zoomTimelineIn: () => void;
   zoomTimelineOut: () => void;
-  setActiveReviewKind: Dispatch<SetStateAction<HammerCandidateReviewKind>>;
+  setActiveReviewKind: Dispatch<SetStateAction<HammerCleanupCandidateReviewKind>>;
   setActiveTranscriptToolSection: Dispatch<SetStateAction<"fillers" | "retakes" | "silence_gaps">>;
   setFocusOverride: Dispatch<SetStateAction<HammerWorkspaceFocusOverride>>;
   setFillerActiveCandidateIndex: Dispatch<SetStateAction<number>>;
   setRetakeActiveCandidateIndex: Dispatch<SetStateAction<number>>;
-  handleCandidateDecision: (kind: HammerCandidateReviewKind, accept: boolean) => void;
+  handleCandidateDecision: (kind: HammerCleanupCandidateReviewKind, accept: boolean) => void;
   selectPass: (passId: HammerPassId) => void;
   analyzeDeadAirClosure: () => void;
   applyDeadAirClosureBatch: () => void;
@@ -113,7 +113,7 @@ export function useHammerWorkspaceShellShortcuts(
             if (kind === "fillers") {
               const length = args.fillerCandidateCardsLength;
               if (length > 1) {
-                args.setFillerActiveCandidateIndex((previous) => clampActiveCandidateIndex(
+                args.setFillerActiveCandidateIndex((previous) => clampActiveCleanupCandidateIndex(
                   previous + (lower === "j" ? 1 : -1),
                   length,
                 ));
@@ -121,7 +121,7 @@ export function useHammerWorkspaceShellShortcuts(
             } else {
               const length = args.retakeCandidateCardsLength;
               if (length > 1) {
-                args.setRetakeActiveCandidateIndex((previous) => clampActiveCandidateIndex(
+                args.setRetakeActiveCandidateIndex((previous) => clampActiveCleanupCandidateIndex(
                   previous + (lower === "j" ? 1 : -1),
                   length,
                 ));
