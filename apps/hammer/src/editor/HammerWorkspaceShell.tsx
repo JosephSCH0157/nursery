@@ -278,19 +278,12 @@ import {
   useHammerWorkspaceShellSnapshotEmitter,
 } from "./hammerWorkspaceShellSnapshotEmitter";
 import {
-  buildCaptionBasisFingerprint,
-  buildCaptionChunksFromPreview,
-  countChangedCaptionBlocks,
-  normalizeCaptionPunctuation,
-  rebuildCaptionArtifactsFromChunks,
-  renderBuiltSrt,
-  renderBuiltVtt,
-  type HammerCaptionArtifactMode,
-  type HammerCaptionBuildState,
-  type HammerCaptionBuiltChunk,
-  type HammerCaptionEditedState,
-  type HammerCaptionFormattingState,
-} from "./hammerWorkspaceShellCaptionUtils";
+  createHammerCaptionCommands,
+  projectHammerCaptionsForRelease,
+  useHammerCaptionDerivedState,
+  useHammerCaptionEditorRefs,
+  useHammerCaptionState,
+} from "./useHammerWorkspaceShellCaptions";
 import {
   PASS_ORDER,
   SOURCE_TABS,
@@ -350,7 +343,6 @@ const PLAYHEAD_SNAP_TOLERANCE_SEC = DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC;
 const EMPTY_VISUAL_TIMELINE_CLIPS: HammerVisualTimelineState["clips"] = [];
 
 const TIMELINE_ZOOM_LEVELS = [100, 125, 150, 200, 300] as const;
-const CAPTION_MIN_BLOCK_DURATION_SEC = 0.05;
 const HAMMER_RENDER_RUNTIME_CAPABILITIES: HammerRenderRuntimeCapabilities = {
   preview_supported_operation_types: ["delete", "mute", "trim", "split", "merge", "hard_cut", "apply_look", "apply_exposure", "apply_background_effect"],
   export_supported_operation_types: [
@@ -782,19 +774,7 @@ function HammerWorkspaceShellWithContext(
   const [visualEyeContactAssistDebugOverlay, setVisualEyeContactAssistDebugOverlay] = useState(false);
   const visualBackgroundEffectCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const { persistNowRequestNonce, requestImmediatePersist } = useHammerSnapshotImmediatePersistenceSignal();
-  const [captionFormatting, setCaptionFormatting] = useState<HammerCaptionFormattingState>({
-    style: "sentence",
-    maxCharsPerLine: 42,
-    maxLinesPerCaption: 2,
-    includeSpeakerLabels: false,
-    punctuationMode: "preserve",
-    readingSpeed: "standard",
-  });
-  const [selectedCaptionArtifactFormat, setSelectedCaptionArtifactFormat] = useState<"srt" | "vtt">("srt");
-  const [captionBuildState, setCaptionBuildState] = useState<HammerCaptionBuildState | null>(null);
-  const [captionEditedState, setCaptionEditedState] = useState<HammerCaptionEditedState | null>(null);
-  const [activeCaptionArtifactMode, setActiveCaptionArtifactMode] = useState<HammerCaptionArtifactMode>("built");
-  const [captionBuildFeedback, setCaptionBuildFeedback] = useState<string | null>(null);
+  const { captionFormatting, setCaptionFormatting, selectedCaptionArtifactFormat, setSelectedCaptionArtifactFormat, captionBuildState, setCaptionBuildState, captionEditedState, setCaptionEditedState, activeCaptionArtifactMode, setActiveCaptionArtifactMode, captionBuildFeedback, setCaptionBuildFeedback } = useHammerCaptionState();
   const [detailTag, setDetailTag] = useState("main-edit");
   const [finishingChecklist, setFinishingChecklist] = useState({
     transcriptReviewed: false,
@@ -916,7 +896,7 @@ function HammerWorkspaceShellWithContext(
     visualBackgroundEffectCanvasRef.current = canvas;
   }, []);
   const workspaceShellRef = useRef<HTMLElement | null>(null);
-  const captionEditorRefs = useRef(new Map<string, HTMLTextAreaElement>());
+  const captionEditorRefs = useHammerCaptionEditorRefs();
   const transcriptLineRefs = useRef(new Map<string, HTMLElement>());
   const visualPlacementCardRefs = useRef(new Map<string, HTMLElement>());
   const timelineTrackScrollRef = useRef<HTMLDivElement | null>(null);
@@ -4779,62 +4759,7 @@ function HammerWorkspaceShellWithContext(
         segments: transcriptForRelease.segments.filter((segment) => !suppressedSegmentIds.has(segment.segment_id)),
       };
     }
-    const captionBasisFingerprint = buildCaptionBasisFingerprint({
-      transcript: transcriptForRelease,
-      outputLayerId: editableOutputSelection.layerId,
-      outputRecipeRef: editableOutputSelection.sourceRecipeRef,
-      formatting: captionFormatting,
-    });
-    const hasCurrentCaptionBuild = captionBuildState?.fingerprint === captionBasisFingerprint;
-    const hasCurrentEditedCaptions = captionEditedState?.baseFingerprint === captionBasisFingerprint;
-    const captionForRelease = hasCurrentEditedCaptions && captionEditedState
-      ? {
-        generatedAt: captionEditedState.updatedAt,
-        approximateTiming: captionEditedState.approximateTiming,
-        entryCount: captionEditedState.chunkCount,
-        srt: captionEditedState.srt,
-        vtt: captionEditedState.vtt,
-      }
-      : hasCurrentCaptionBuild && captionBuildState
-      ? {
-        generatedAt: captionBuildState.builtAt,
-        approximateTiming: captionBuildState.approximateTiming,
-        entryCount: captionBuildState.chunkCount,
-        srt: captionBuildState.srt,
-        vtt: captionBuildState.vtt,
-      }
-      : null;
-    if (captionForRelease) {
-      transcriptForRelease = {
-        ...transcriptForRelease,
-        subtitle_outputs: {
-          schema_version: 1,
-          last_generated_format: selectedCaptionArtifactFormat,
-          srt: {
-            format: "srt",
-            generated_at: captionForRelease.generatedAt,
-            source_transcript_id: transcriptForRelease.transcript_id,
-            source_layer_id: editableOutputSelection.layerId ?? null,
-            source_kind: editableOutputSelection.layerId ? "derived" : "raw",
-            source_recipe_ref: editableOutputSelection.sourceRecipeRef ?? null,
-            approximate_timing: captionForRelease.approximateTiming,
-            entry_count: captionForRelease.entryCount,
-            content: captionForRelease.srt,
-          },
-          vtt: {
-            format: "vtt",
-            generated_at: captionForRelease.generatedAt,
-            source_transcript_id: transcriptForRelease.transcript_id,
-            source_layer_id: editableOutputSelection.layerId ?? null,
-            source_kind: editableOutputSelection.layerId ? "derived" : "raw",
-            source_recipe_ref: editableOutputSelection.sourceRecipeRef ?? null,
-            approximate_timing: captionForRelease.approximateTiming,
-            entry_count: captionForRelease.entryCount,
-            content: captionForRelease.vtt,
-          },
-        },
-      };
-    }
+    transcriptForRelease = projectHammerCaptionsForRelease({ transcript: transcriptForRelease, outputLayerId: editableOutputSelection.layerId, outputRecipeRef: editableOutputSelection.sourceRecipeRef, formatting: captionFormatting, selectedFormat: selectedCaptionArtifactFormat, buildState: captionBuildState, editedState: captionEditedState });
     const editPlan = launchContext.edit_plan
       ? {
         ...launchContext.edit_plan,
@@ -6053,380 +5978,63 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     }
   }, [exportTruthState, loadedPreparedPackage, props.releasePrepHref]);
 
-  function handleRebuildCaptionArtifacts(): void {
-    const preview = buildHammerCaptionPreviewModel(
-      exportBasis.transcriptForRelease.segments,
-      exportBasis.transcriptForRelease,
-    );
-    const formattedChunks = buildCaptionChunksFromPreview({
-      chunks: preview.chunks,
-      formatting: captionFormatting,
-    });
-    const builtAt = new Date().toISOString();
-    const nextBuild: HammerCaptionBuildState = {
-      builtAt,
-      sourceLayerId: editableOutputSelection.layerId ?? null,
-      sourceLabel: captionSourceLabel,
-      fingerprint: captionBasisFingerprint,
-      chunkCount: formattedChunks.length,
-      segmentCount: preview.segment_count,
-      approximateTiming: formattedChunks.some((chunk) => chunk.approximateTiming),
-      chunks: formattedChunks,
-      srt: renderBuiltSrt(formattedChunks),
-      vtt: renderBuiltVtt(formattedChunks),
-    };
-    setCaptionBuildState(nextBuild);
-    setCaptionBuildFeedback(`Built ${formattedChunks.length} caption rows from ${captionSourceLabel}.`);
-  }
-
-  function handleEnableCaptionEdits(): void {
-    if (!captionBuildState) return;
-    const now = new Date().toISOString();
-    setCaptionEditedState({
-      createdAt: now,
-      updatedAt: now,
-      baseFingerprint: captionBasisFingerprint,
-      sourceLayerId: captionBuildState.sourceLayerId,
-      sourceLabel: captionBuildState.sourceLabel,
-      chunkCount: captionBuildState.chunkCount,
-      segmentCount: captionBuildState.segmentCount,
-      approximateTiming: captionBuildState.approximateTiming,
-      chunks: captionBuildState.chunks.map((chunk) => ({ ...chunk, sourceSegmentIds: [...chunk.sourceSegmentIds] })),
-      srt: captionBuildState.srt,
-      vtt: captionBuildState.vtt,
-    });
-    setActiveCaptionArtifactMode("edited");
-    setCaptionBuildFeedback("Created editable caption artifact from the current build.");
-  }
-
-  function handleEditCaptionChunkText(chunkId: string, nextText: string): void {
-    setCaptionEditedState((current) => {
-      if (!current) return current;
-      const normalized = nextText.replace(/\r\n/g, "\n").trim();
-      const nextChunks = current.chunks.map((chunk) => (
-        chunk.id === chunkId
-          ? {
-            ...chunk,
-            text: normalized,
-            lineCount: normalized ? normalized.split("\n").filter(Boolean).length : 0,
-            charCount: normalized.replace(/\n/g, "").length,
-          }
-          : chunk
-      ));
-      const rebuilt = rebuildCaptionArtifactsFromChunks(nextChunks);
-      return {
-        ...current,
-        updatedAt: new Date().toISOString(),
-        chunkCount: rebuilt.chunkCount,
-        approximateTiming: rebuilt.approximateTiming,
-        chunks: nextChunks,
-        srt: rebuilt.srt,
-        vtt: rebuilt.vtt,
-      };
-    });
-  }
-
-  function handleSplitEditedCaptionChunk(chunkId: string): void {
-    setCaptionEditedState((current) => {
-      if (!current) return current;
-      const index = current.chunks.findIndex((chunk) => chunk.id === chunkId);
-      if (index < 0) return current;
-      const chunk = current.chunks[index];
-      const editor = captionEditorRefs.current.get(chunkId) ?? null;
-      const caret = editor ? Math.max(0, Math.min(chunk.text.length, editor.selectionStart ?? 0)) : Math.floor(chunk.text.length / 2);
-      const leftRaw = chunk.text.slice(0, caret).trim();
-      const rightRaw = chunk.text.slice(caret).trim();
-      if (!leftRaw || !rightRaw) {
-        setCaptionBuildFeedback("Split needs text on both sides of the caret.");
-        return current;
-      }
-
-      const duration = Math.max(chunk.endSec - chunk.startSec, CAPTION_MIN_BLOCK_DURATION_SEC * 2);
-      const leftWeight = Math.max(leftRaw.replace(/\s+/g, "").length, 1);
-      const rightWeight = Math.max(rightRaw.replace(/\s+/g, "").length, 1);
-      const totalWeight = leftWeight + rightWeight;
-      let splitSec = chunk.startSec + (duration * (leftWeight / totalWeight));
-      const minSplit = chunk.startSec + CAPTION_MIN_BLOCK_DURATION_SEC;
-      const maxSplit = chunk.endSec - CAPTION_MIN_BLOCK_DURATION_SEC;
-      splitSec = Math.max(minSplit, Math.min(maxSplit, splitSec));
-      if (!(splitSec > chunk.startSec && splitSec < chunk.endSec)) {
-        setCaptionBuildFeedback("Split skipped because the block is too short.");
-        return current;
-      }
-
-      const leftChunk: HammerCaptionBuiltChunk = {
-        ...chunk,
-        id: `${chunk.id}:a`,
-        text: leftRaw,
-        startSec: chunk.startSec,
-        endSec: splitSec,
-        lineCount: leftRaw.split("\n").filter(Boolean).length,
-        charCount: leftRaw.replace(/\n/g, "").length,
-        approximateTiming: true,
-      };
-      const rightChunk: HammerCaptionBuiltChunk = {
-        ...chunk,
-        id: `${chunk.id}:b`,
-        text: rightRaw,
-        startSec: splitSec,
-        endSec: chunk.endSec,
-        lineCount: rightRaw.split("\n").filter(Boolean).length,
-        charCount: rightRaw.replace(/\n/g, "").length,
-        approximateTiming: true,
-      };
-      const nextChunks = [
-        ...current.chunks.slice(0, index),
-        leftChunk,
-        rightChunk,
-        ...current.chunks.slice(index + 1),
-      ];
-      const rebuilt = rebuildCaptionArtifactsFromChunks(nextChunks);
-      setCaptionBuildFeedback("Split caption block in edited captions.");
-      return {
-        ...current,
-        updatedAt: new Date().toISOString(),
-        chunkCount: rebuilt.chunkCount,
-        approximateTiming: rebuilt.approximateTiming,
-        chunks: nextChunks,
-        srt: rebuilt.srt,
-        vtt: rebuilt.vtt,
-      };
-    });
-  }
-
-  function handleMergeEditedCaptionChunk(args: { chunkId: string; direction: "up" | "down" }): void {
-    setCaptionEditedState((current) => {
-      if (!current) return current;
-      const index = current.chunks.findIndex((chunk) => chunk.id === args.chunkId);
-      if (index < 0) return current;
-      const primary = current.chunks[index];
-      const neighborIndex = args.direction === "up" ? index - 1 : index + 1;
-      const neighbor = current.chunks[neighborIndex];
-      if (!neighbor) {
-        setCaptionBuildFeedback("No adjacent block available to merge.");
-        return current;
-      }
-
-      const first = args.direction === "up" ? neighbor : primary;
-      const second = args.direction === "up" ? primary : neighbor;
-      const mergedText = `${first.text.trim()} ${second.text.trim()}`.replace(/\s+/g, " ").trim();
-      const mergedChunk: HammerCaptionBuiltChunk = {
-        ...first,
-        id: `${first.id}:${second.id}:m`,
-        text: mergedText,
-        startSec: first.startSec,
-        endSec: second.endSec,
-        lineCount: mergedText.split("\n").filter(Boolean).length,
-        charCount: mergedText.replace(/\n/g, "").length,
-        sourceSegmentIds: [...new Set([...first.sourceSegmentIds, ...second.sourceSegmentIds])],
-        approximateTiming: true,
-      };
-
-      const startIndex = Math.min(index, neighborIndex);
-      const nextChunks = [
-        ...current.chunks.slice(0, startIndex),
-        mergedChunk,
-        ...current.chunks.slice(startIndex + 2),
-      ];
-      const rebuilt = rebuildCaptionArtifactsFromChunks(nextChunks);
-      setCaptionBuildFeedback(args.direction === "up"
-        ? "Merged caption block with previous."
-        : "Merged caption block with next.");
-      return {
-        ...current,
-        updatedAt: new Date().toISOString(),
-        chunkCount: rebuilt.chunkCount,
-        approximateTiming: rebuilt.approximateTiming,
-        chunks: nextChunks,
-        srt: rebuilt.srt,
-        vtt: rebuilt.vtt,
-      };
-    });
-  }
-
-  function handleNormalizeEditedCaptionChunkPunctuation(chunkId: string): void {
-    setCaptionEditedState((current) => {
-      if (!current) return current;
-      const nextChunks = current.chunks.map((chunk) => (
-        chunk.id === chunkId
-          ? {
-            ...chunk,
-            text: normalizeCaptionPunctuation(chunk.text),
-            lineCount: normalizeCaptionPunctuation(chunk.text).split("\n").filter(Boolean).length,
-            charCount: normalizeCaptionPunctuation(chunk.text).replace(/\n/g, "").length,
-          }
-          : chunk
-      ));
-      const rebuilt = rebuildCaptionArtifactsFromChunks(nextChunks);
-      setCaptionBuildFeedback("Normalized punctuation for selected caption block.");
-      return {
-        ...current,
-        updatedAt: new Date().toISOString(),
-        chunkCount: rebuilt.chunkCount,
-        approximateTiming: rebuilt.approximateTiming,
-        chunks: nextChunks,
-        srt: rebuilt.srt,
-        vtt: rebuilt.vtt,
-      };
-    });
-  }
-
-  function handleToggleEditedCaptionChunkSpeakerLabel(chunkId: string): void {
-    setCaptionEditedState((current) => {
-      if (!current) return current;
-      const nextChunks = current.chunks.map((chunk) => {
-        if (chunk.id !== chunkId) return chunk;
-        const prefix = `${chunk.speaker}: `;
-        const nextText = chunk.text.startsWith(prefix)
-          ? chunk.text.slice(prefix.length).trimStart()
-          : `${prefix}${chunk.text}`.trim();
-        return {
-          ...chunk,
-          text: nextText,
-          lineCount: nextText.split("\n").filter(Boolean).length,
-          charCount: nextText.replace(/\n/g, "").length,
-        };
-      });
-      const rebuilt = rebuildCaptionArtifactsFromChunks(nextChunks);
-      setCaptionBuildFeedback("Toggled speaker label for selected caption block.");
-      return {
-        ...current,
-        updatedAt: new Date().toISOString(),
-        chunkCount: rebuilt.chunkCount,
-        approximateTiming: rebuilt.approximateTiming,
-        chunks: nextChunks,
-        srt: rebuilt.srt,
-        vtt: rebuilt.vtt,
-      };
-    });
-  }
-
-  function handleDiscardEditedCaptions(): void {
-    setCaptionEditedState(null);
-    setActiveCaptionArtifactMode("built");
-    setCaptionBuildFeedback("Discarded edited caption artifact. Built captions remain available.");
-  }
-
-  const captionBasisFingerprint = useMemo(
-    () => buildCaptionBasisFingerprint({
-      transcript: exportBasis.transcriptForRelease,
-      outputLayerId: editableOutputSelection.layerId,
-      outputRecipeRef: editableOutputSelection.sourceRecipeRef,
-      formatting: captionFormatting,
-    }),
-    [
-      captionFormatting,
-      editableOutputSelection.layerId,
-      editableOutputSelection.sourceRecipeRef,
-      exportBasis.transcriptForRelease,
-    ],
-  );
-  const captionBuildFreshness: "missing" | "current" | "stale" = !captionBuildState
-    ? "missing"
-    : captionBuildState.fingerprint === captionBasisFingerprint
-    ? "current"
-    : "stale";
-  const captionBuildStatusLabel = captionBuildFreshness === "missing"
-    ? "Missing caption build"
-    : captionBuildFreshness === "current"
-    ? "Up to date"
-    : "Needs refresh";
-  const captionEditedFreshness: "missing" | "current" | "stale" = !captionEditedState
-    ? "missing"
-    : captionEditedState.baseFingerprint === captionBasisFingerprint
-    ? "current"
-    : "stale";
-  const captionEditedStatusLabel = captionEditedFreshness === "missing"
-    ? "No edits"
-    : captionEditedFreshness === "current"
-    ? "Current"
-    : "Stale";
-  const hasEditableCaptionArtifact = Boolean(captionEditedState);
-  const activeCaptionMode: HammerCaptionArtifactMode = hasEditableCaptionArtifact
-    ? activeCaptionArtifactMode
-    : "built";
-  const activeCaptionState = activeCaptionMode === "edited" ? captionEditedState : captionBuildState;
-  const activeCaptionArtifactText = selectedCaptionArtifactFormat === "srt"
-    ? (activeCaptionState?.srt ?? "")
-    : (activeCaptionState?.vtt ?? "");
-  const captionArtifactStatusLabel = activeCaptionMode === "edited"
-    ? `Edited captions (${captionEditedStatusLabel})`
-    : `Built captions (${captionBuildStatusLabel})`;
-  const captionReleaseSourceLabel = captionEditedFreshness === "current"
-    ? "Edited captions"
-    : captionBuildFreshness === "current"
-    ? "Built captions"
-    : "No current caption artifact";
-  const captionBuiltSummary = captionBuildFreshness === "current"
-    ? "Up to date"
-    : captionBuildFreshness === "stale"
-    ? "Stale"
-    : "Missing";
-  const captionEditedSummary = captionEditedFreshness === "current"
-    ? "Valid"
-    : captionEditedFreshness === "stale"
-    ? "Stale"
-    : "No edits";
-  const captionBuiltTone = captionBuildFreshness === "current"
-    ? "safe"
-    : captionBuildFreshness === "stale"
-    ? "warn"
-    : "neutral";
-  const captionEditedTone = captionEditedFreshness === "current"
-    ? "safe"
-    : captionEditedFreshness === "stale"
-    ? "warn"
-    : "neutral";
-  const captionEditedComparisonBase = useMemo(
-    () => captionBuildState && captionEditedState && captionBuildState.fingerprint === captionEditedState.baseFingerprint
-      ? captionBuildState
-      : null,
-    [captionBuildState, captionEditedState],
-  );
-  const captionEditedModifiedBlockCount = useMemo(
-    () => captionEditedState && captionEditedComparisonBase
-      ? countChangedCaptionBlocks(captionEditedComparisonBase.chunks, captionEditedState.chunks)
-      : null,
-    [captionEditedComparisonBase, captionEditedState],
-  );
-  const captionEditedChangeSummary = !captionEditedState
-    ? "No edited caption artifact."
-    : captionEditedModifiedBlockCount == null
-    ? "Manual changes present."
-    : captionEditedModifiedBlockCount > 0
-    ? `Manual changes present (${captionEditedModifiedBlockCount} blocks modified).`
-    : "Edited artifact created. No manual changes yet.";
-  const captionActiveModeLabel = activeCaptionMode === "edited"
-    ? "Editing: Edited captions"
-    : "Viewing: Built captions (read-only)";
-  const captionActiveModeSourceLabel = `Source: ${activeCaptionState?.sourceLabel ?? captionSourceLabel}`;
-  const captionRebuildConsequenceLabel = captionEditedState
-    ? "Rebuild replaces built captions. Edited captions are preserved."
-    : "Rebuild replaces built captions.";
-  const captionDiscardConsequenceLabel = captionEditedState
-    ? "Discard edits returns to built captions."
-    : null;
-  const captionReleasePrepSafetyState: "safe" | "blocked" = captionEditedFreshness === "current" || captionBuildFreshness === "current"
-    ? "safe"
-    : "blocked";
-  const captionReleasePrepSafetyLabel = captionReleasePrepSafetyState === "safe"
-    ? "Safe for release prep"
-    : "Not safe for release prep";
-  const captionReleasePrepSafetyDetail = captionEditedFreshness === "current"
-    ? "Edited captions match the current export basis and will be used for release prep."
-    : captionBuildFreshness === "current" && captionEditedFreshness === "stale"
-    ? "Edited captions do not match the current export basis. Release prep will use built captions until edits are refreshed."
-    : captionBuildFreshness === "current"
-    ? "Built captions match the current export basis and are safe to ship."
-    : captionEditedFreshness === "stale"
-    ? "Edited captions do not match the current export basis. Refresh captions or discard edits to proceed."
-    : "Generate captions from the current export basis to proceed."
-  const captionEditedBasisDetail = captionEditedFreshness === "current"
-    ? "Matches export basis"
-    : captionEditedFreshness === "stale"
-    ? "Basis changed"
-    : "No edited artifact";
-  const captionReleasePrepSummaryLine = `Using ${captionReleaseSourceLabel} · Built ${captionBuiltSummary} · Edited ${captionEditedSummary}`;
+  const captionDerived = useHammerCaptionDerivedState({
+    transcript: exportBasis.transcriptForRelease,
+    outputLayerId: editableOutputSelection.layerId,
+    outputRecipeRef: editableOutputSelection.sourceRecipeRef,
+    sourceLabel: captionSourceLabel,
+    formatting: captionFormatting,
+    selectedFormat: selectedCaptionArtifactFormat,
+    buildState: captionBuildState,
+    editedState: captionEditedState,
+    requestedMode: activeCaptionArtifactMode,
+  });
+  const {
+    fingerprint: captionBasisFingerprint,
+    captionBuildFreshness,
+    activeCaptionMode,
+    activeCaptionState,
+    activeCaptionArtifactText,
+    captionArtifactStatusLabel,
+    captionReleaseSourceLabel,
+    captionBuiltSummary,
+    captionEditedSummary,
+    captionBuiltTone,
+    captionEditedTone,
+    captionEditedChangeSummary,
+    captionActiveModeLabel,
+    captionActiveModeSourceLabel,
+    captionRebuildConsequenceLabel,
+    captionDiscardConsequenceLabel,
+    captionReleasePrepSafetyState,
+    captionReleasePrepSafetyLabel,
+    captionReleasePrepSafetyDetail,
+    captionEditedBasisDetail,
+    captionReleasePrepSummaryLine,
+  } = captionDerived;
+  const captionCommands = createHammerCaptionCommands({
+    transcript: exportBasis.transcriptForRelease,
+    outputLayerId: editableOutputSelection.layerId,
+    sourceLabel: captionSourceLabel,
+    fingerprint: captionBasisFingerprint,
+    formatting: captionFormatting,
+    buildState: captionBuildState,
+    editorRefs: captionEditorRefs,
+    setBuildState: setCaptionBuildState,
+    setEditedState: setCaptionEditedState,
+    setActiveMode: setActiveCaptionArtifactMode,
+    setFeedback: setCaptionBuildFeedback,
+  });
+  const {
+    rebuildCaptionArtifacts: handleRebuildCaptionArtifacts,
+    enableCaptionEdits: handleEnableCaptionEdits,
+    editChunkText: handleEditCaptionChunkText,
+    splitChunk: handleSplitEditedCaptionChunk,
+    mergeChunk: handleMergeEditedCaptionChunk,
+    normalizeChunkPunctuation: handleNormalizeEditedCaptionChunkPunctuation,
+    toggleChunkSpeakerLabel: handleToggleEditedCaptionChunkSpeakerLabel,
+    discardEditedCaptions: handleDiscardEditedCaptions,
+  } = captionCommands;
 
   const handleSendToQuench = useCallback(async (): Promise<void> => {
     await sendToQuench({
