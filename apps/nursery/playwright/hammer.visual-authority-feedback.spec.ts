@@ -1,4 +1,6 @@
 import { expect, test } from "playwright/test";
+import fs from "node:fs";
+import path from "node:path";
 
 test("mounted Hammer shell does not re-emit a stale workpiece visual downgrade", async ({ page }) => {
   await page.goto("/");
@@ -88,4 +90,10 @@ test("mounted Hammer shell does not re-emit a stale workpiece visual downgrade",
   const metrics = await page.evaluate(() => (window as any).__hammerAuthorityMetrics);
   expect(metrics).toMatchObject({ revisionWrites: 1, workpieceWrites: 1, clips: 30, assets: 30, approvals: 29, timelinePath: "canonical-timeline", identity: metrics.initialIdentity, identityPreserved: true, timerPending: false, completed: true });
   expect(metrics.emissions).toBe(metrics.emissionsAtReconcile);
+});
+
+test("automatic placement remains behind the canonical resolver authority", async () => {
+  const authority = fs.readFileSync(path.resolve(process.cwd(), "../hammer/src/editor/useHammerWorkspaceShellAutomaticPlacement.ts"), "utf8");
+  expect(authority).toContain("resolveHammerAutomaticPlacementCommand");
+  expect(authority).not.toContain("setEditableVisualTimeline");
 });

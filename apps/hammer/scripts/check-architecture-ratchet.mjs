@@ -38,7 +38,10 @@ for (const [pattern, message] of [
 ]) if (pattern.test(toolBay)) failures.push(`src/editor/HammerWorkspaceShellToolBay.tsx: ${message}`);
 
 const shell = inspect("src/editor/HammerWorkspaceShell.tsx").text;
-if (!shell.includes("resolveHammerAutomaticPlacementCommand")) failures.push("HammerWorkspaceShell must route automatic placement through resolveHammerAutomaticPlacementCommand.");
+const automaticPlacementAuthority = inspect("src/editor/useHammerWorkspaceShellAutomaticPlacement.ts").text;
+if (!automaticPlacementAuthority.includes("resolveHammerAutomaticPlacementCommand")) failures.push("Automatic-placement authority must route every placement through resolveHammerAutomaticPlacementCommand.");
+if (shell.includes("resolveHammerAutomaticPlacementCommand")) failures.push("HammerWorkspaceShell reacquired the automatic-placement command boundary.");
+if (/setEditableVisualTimeline|applyVisualTimelineAction/.test(automaticPlacementAuthority)) failures.push("Automatic-placement authority bypassed the canonical placement commit callback.");
 
 const expansionGate = inspect("src/composition/hammerExpansionGateV1.ts").text;
 for (const required of [

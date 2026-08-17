@@ -53,9 +53,11 @@ test("mixed runtime preserves audio then visual registration and delegates visua
 test("shell consumes visual authority without reacquiring projection algorithms", () => {
   const root = path.resolve(import.meta.dirname, "..");
   const shell = fs.readFileSync(path.join(root, "src/editor/HammerWorkspaceShell.tsx"), "utf8");
+  const placementAuthority = fs.readFileSync(path.join(root, "src/editor/useHammerWorkspaceShellAutomaticPlacement.ts"), "utf8");
   assert.match(shell, /useHammerVisualPreviewState\(props\.initialVisualPreviewSettings\)/);
   assert.match(shell, /useHammerVisualPreviewProjection\(/);
   assert.match(shell, /useHammerBackgroundBlurProjection\(/);
   assert.doesNotMatch(shell, /function resolveVisualPresetFilter|setPreviewBackgroundBlurSettings/);
-  assert.match(shell, /resolveHammerAutomaticPlacementCommand/);
+  assert.doesNotMatch(shell, /resolveHammerAutomaticPlacementCommand/);
+  assert.match(placementAuthority, /resolveHammerAutomaticPlacementCommand/);
 });

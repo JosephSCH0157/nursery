@@ -168,6 +168,7 @@ test("live integration shares one capture token and commits only through canonic
   const faceLayer = readFileSync(resolve(hammerRoot, "src/features/eye-contact-assist/render/faceAnalysisPreviewLayer.tsx"), "utf8");
   const previewBay = readFileSync(resolve(hammerRoot, "src/editor/HammerWorkspaceShellPreviewBay.tsx"), "utf8");
   const shell = readFileSync(resolve(hammerRoot, "src/editor/HammerWorkspaceShell.tsx"), "utf8");
+  const authority = readFileSync(resolve(hammerRoot, "src/editor/useHammerWorkspaceShellAutomaticPlacement.ts"), "utf8");
   const toolBay = readFileSync(resolve(hammerRoot, "src/editor/HammerWorkspaceShellToolBay.tsx"), "utf8");
   assert.match(faceLayer, /onCapturedFrame\(cloneFaceAnalysisFrame\(frame\)\)/);
   assert.match(previewBay, /sameFaceAnalysisFrame\(placementPair\.frameRef, analysisFrame\.frameRef\)/);
@@ -175,10 +176,18 @@ test("live integration shares one capture token and commits only through canonic
   assert.match(previewBay, /\[canonicalPlacementResult, onAutomaticPlacementResult\]/);
   assert.doesNotMatch(previewBay, /\[canonicalPlacementResult, vm\.automaticPlacement\]/);
   assert.match(previewBay, /analysisFrame=\{vm\.automaticPlacement\?\.enabled \? analysisFrame : null\}/);
-  assert.match(shell, /commitImagePlacementTransform\([\s\S]*"Apply automatic visual placement"/);
-  assert.match(shell, /automaticallyPlacedImageIdsRef\.current\.has\(placementId\)/);
-  assert.match(shell, /"Apply initial mask-safe visual placement"/);
-  assert.match(shell, /Once a[\s\S]*clip receives one canonical mask\/face-aware position, later user edits win/);
+  assert.match(authority, /commitTransform\(command\.placementId[\s\S]*"Apply automatic visual placement"/);
+  assert.match(authority, /automaticallyPlacedIds\.current\.has\(placementId\)/);
+  assert.match(authority, /"Apply initial mask-safe visual placement"/);
+  assert.match(shell, /useHammerAutomaticPlacementLifecycle\(/);
+  assert.doesNotMatch(shell, /commitImagePlacementTransform\([\s\S]*"Apply automatic visual placement"/);
   assert.doesNotMatch(shell, /forcePreviewAutoPosition/);
   assert.doesNotMatch(toolBay, />\s*FORCE PREVIEW\s*</);
+});
+
+test("workspace automatic-placement lifecycle delegates every mutation through the resolver", () => {
+  const root = resolve(import.meta.dirname, "..");
+  const authority = readFileSync(resolve(root, "src/editor/useHammerWorkspaceShellAutomaticPlacement.ts"), "utf8");
+  assert.match(authority, /resolveHammerAutomaticPlacementCommand/);
+  assert.doesNotMatch(authority, /setEditableVisualTimeline|dispatch\(\{\s*type:\s*["']ADD_CLIP/);
 });

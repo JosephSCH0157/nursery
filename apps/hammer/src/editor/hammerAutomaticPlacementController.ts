@@ -8,6 +8,10 @@ export type HammerAutomaticPlacementCommand = Readonly<{
   selectedPlacementId: string | null;
   authorityResult: CanonicalAutomaticPlacementResult | null;
   displayedFrame: PlacementDisplaySnapshot | null;
+  fallback?: Readonly<{
+    transform: { leftPct: number; topPct: number; widthPct: number; heightPct: number };
+    zone: string;
+  }>;
 }>;
 
 export type HammerAutomaticPlacementCommandResult =
@@ -29,6 +33,14 @@ export function resolveHammerAutomaticPlacementCommand(
 ): HammerAutomaticPlacementCommandResult {
   if (!command.selectedPlacementId) {
     return { kind: "refused", status: "Automatic placement unavailable: select an image clip first.", invalidateEvidence: false };
+  }
+  if (command.fallback) {
+    return {
+      kind: "commit",
+      placementId: command.selectedPlacementId,
+      transform: command.fallback.transform,
+      zone: command.fallback.zone,
+    };
   }
   const authority = command.authorityResult;
   if (!authority) {
