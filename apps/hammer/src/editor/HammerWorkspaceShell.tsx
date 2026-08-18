@@ -152,6 +152,12 @@ import {
   useHammerAutomaticPlacementState,
 } from "./useHammerWorkspaceShellAutomaticPlacement";
 import {
+  deriveHammerMediaMapBeats,
+  useHammerMediaMapBoundObjects,
+  useHammerMediaMapDerived,
+  useHammerMediaMapState,
+} from "./useHammerWorkspaceShellMediaMap";
+import {
   useHammerBackgroundBlurProjection,
   useHammerVisualPreviewProjection,
   useHammerVisualPreviewState,
@@ -228,12 +234,6 @@ import {
   projectEditorialAuthorityGraphFromEditPlan,
   type HammerRenderRuntimeCapabilities,
 } from "./hammerRenderAssembly";
-import {
-  deriveHammerBoundAttentionQueue,
-  deriveHammerBoundObjects,
-  type HammerBoundAttentionQueueItem,
-  type HammerBoundObject,
-} from "./hammerBoundObjects";
 import { resolvePodcastMasterUiStatus } from "./hammerPodcastMasterStatus";
 import { evaluateHammerReadinessGate } from "./hammerReadinessGate";
 import {
@@ -317,7 +317,6 @@ import {
   isSourceDeskAuthMessage,
   readTranscriptSegments,
   resolveMediaRef,
-  resolveMediaMapSuggestionType,
   resolveWorkspaceMapping,
   toErrorMessage,
   type HammerMediaMapSuggestionType,
@@ -465,66 +464,6 @@ type HammerSourceAssetItem = {
   usageCount: number;
   firstStartSec: number;
   lastEndSec: number;
-};
-
-type HammerMediaMapBeat = {
-  id: string;
-  segmentId: string;
-  sourceText: string;
-  suggestedType: HammerMediaMapSuggestionType;
-  selectedType: HammerMediaMapSuggestionType;
-  reason: string;
-  tweak: string;
-  linkedPlacementId: string | null;
-};
-
-type HammerBrollSuggestionItem = {
-  operationId: string;
-  segmentId: string;
-  startSec: number;
-  endSec: number;
-  assetRef: string;
-  intentRef: string | null;
-  intentDescription: string | null;
-  bindingState: "resolved" | "unresolved";
-  duckPreference: "auto" | "none" | "manual";
-};
-
-type HammerResolvedBrollBindingItem = HammerBrollSuggestionItem & {
-  bindingState: "resolved";
-  assetRef: string;
-  linkedPlacementId: string | null;
-};
-
-type HammerBoundBrollInspectorState = {
-  operationId: string;
-  lifecycle: "active" | "reverted" | "superseded";
-  intentSource: "manual" | "hearth_suggestion";
-  intentDescription: string | null;
-  bindingState: "resolved" | "unresolved";
-  startSec: number;
-  endSec: number;
-  assetRef: string;
-  previewPosture: "authoritative" | "degraded" | "unavailable";
-  exportPosture: "authoritative" | "degraded" | "unavailable";
-  handoffPosture: "authoritative" | "degraded" | "unavailable";
-  needsAttention: boolean;
-  attentionFlags: string[];
-  linkedDuck: {
-    operationId: string;
-    startSec: number;
-    endSec: number;
-    aligned: boolean;
-    capability: "executable" | "degraded" | "unavailable";
-    needsAttention: boolean;
-  } | null;
-};
-
-type HammerBoundAttentionItem = {
-  operationId: string;
-  kind: "unresolved_suggestion" | "degraded_binding" | "superseded_binding" | "transition_attention";
-  label: string;
-  reasons: string[];
 };
 
 type HammerTimelineLaneBlock = {
@@ -729,8 +668,7 @@ function HammerWorkspaceShellWithContext(
     placementCount: props.visualTimeline?.clips.length ?? props.visualPlacements?.placements.length ?? 0,
     anchorCount: buildVisualTimelineDiagnostics(props.visualTimeline ?? null).anchorCount,
   });
-  const [mediaMapBeats, setMediaMapBeats] = useState<HammerMediaMapBeat[]>([]);
-  const [removedMediaMapSegmentIds, setRemovedMediaMapSegmentIds] = useState<string[]>([]);
+  const { mediaMapBeats, setMediaMapBeats, removedMediaMapSegmentIds, setRemovedMediaMapSegmentIds } = useHammerMediaMapState();
   const {
     sourceDeskLoading, setSourceDeskLoading, sourceDeskError, setSourceDeskError,
     uploadingCategory, setUploadingCategory, sourceDeskPreviewUrls, setSourceDeskPreviewUrls,
@@ -1904,79 +1842,12 @@ function HammerWorkspaceShellWithContext(
     () => sourceBrollItems.filter((item) => item.kind === "broll"),
     [sourceBrollItems],
   );
-  const referenceClipPlannedBeats = useMemo(
-    () => mediaMapBeats.filter((beat) => beat.selectedType === "reference_clip"),
-    [mediaMapBeats],
-  );
-  const brollSuggestionItems = useMemo<HammerBrollSuggestionItem[]>(() => {
-    const operations = editableEditorialAuthorityGraph?.operations ?? [];
-    return operations.flatMap((operation) => {
-      if (operation.lifecycle !== "active") return [];
-      if (operation.instruction.type !== "insert_broll") return [];
-      return [{
-        operationId: operation.operation_id,
-        segmentId: operation.instruction.segment_id,
-        startSec: operation.instruction.start_sec,
-        endSec: operation.instruction.end_sec,
-        assetRef: operation.instruction.asset_ref,
-        intentRef: operation.instruction.intent_ref ?? null,
-        intentDescription: operation.instruction.intent_description ?? null,
-        bindingState: operation.instruction.asset_binding_state === "unresolved" ? "unresolved" : "resolved",
-        duckPreference: operation.instruction.duck_preference ?? "auto",
-      }];
-    });
-  }, [editableEditorialAuthorityGraph?.operations]);
-  const unresolvedBrollSuggestionItems = useMemo(
-    () => brollSuggestionItems.filter((item) => item.bindingState === "unresolved"),
-    [brollSuggestionItems],
-  );
-  const resolvedBrollBindingItems = useMemo<HammerResolvedBrollBindingItem[]>(() => {
-    const placementsByOperationId = new Map<string, HammerVisualPlacementRecord>();
-    for (const placement of editableVisualPlacements?.placements ?? []) {
-      if (!placement.authority_operation_id) continue;
-      placementsByOperationId.set(placement.authority_operation_id, placement);
-    }
-    return brollSuggestionItems
-      .filter((item): item is HammerBrollSuggestionItem & { bindingState: "resolved" } => item.bindingState === "resolved")
-      .map((item) => {
-        const linkedPlacement = placementsByOperationId.get(item.operationId) ?? null;
-        return {
-          ...item,
-          bindingState: "resolved",
-          assetRef: linkedPlacement?.asset_ref ?? item.assetRef,
-          linkedPlacementId: linkedPlacement?.placement_id ?? null,
-        };
-      });
-  }, [brollSuggestionItems, editableVisualPlacements?.placements]);
-
-  useEffect(() => {
-    const removedSet = new Set(removedMediaMapSegmentIds);
-    setMediaMapBeats((current) => {
-      const nextBase = editableTranscriptSegments
-        .slice(0, 12)
-        .filter((segment) => !removedSet.has(segment.segment_id))
-        .map((segment) => {
-          const suggested = resolveMediaMapSuggestionType(segment.text);
-          const existing = current.find((item) => item.segmentId === segment.segment_id) ?? null;
-          const linkedPlacement = sourceVisualPlacementBySegmentId.get(segment.segment_id) ?? null;
-          const linkedType: HammerMediaMapSuggestionType | null = linkedPlacement
-            ? (linkedPlacement.kind === "reference_clip" ? "reference_clip" : "broll")
-            : null;
-          return {
-            id: existing?.id ?? `map:${segment.segment_id}`,
-            segmentId: segment.segment_id,
-            sourceText: segment.text,
-            suggestedType: suggested.type,
-            selectedType: linkedType ?? existing?.selectedType ?? suggested.type,
-            reason: suggested.reason,
-            tweak: existing?.tweak ?? "",
-            linkedPlacementId: linkedPlacement?.id ?? null,
-          } satisfies HammerMediaMapBeat;
-        });
-      const changed = JSON.stringify(current) !== JSON.stringify(nextBase);
-      return changed ? nextBase : current;
-    });
-  }, [editableTranscriptSegments, removedMediaMapSegmentIds, sourceVisualPlacementBySegmentId]);
+  const { referenceClipPlannedBeats, unresolvedBrollSuggestionItems, resolvedBrollBindingItems } = useHammerMediaMapDerived({
+    mediaMapBeats, setMediaMapBeats, removedSegmentIds: removedMediaMapSegmentIds,
+    segments: editableTranscriptSegments, placementsBySegmentId: sourceVisualPlacementBySegmentId,
+    editorialOperations: editableEditorialAuthorityGraph?.operations,
+    visualPlacements: editableVisualPlacements?.placements,
+  });
   const introOutroSelectedIntroItem = useMemo(() => {
     const assetId = introOutroSelection.intro_asset_id;
     if (!assetId) return null;
@@ -3780,23 +3651,8 @@ function HammerWorkspaceShellWithContext(
 
   function redoMediaMapFromScript(): void {
     setRemovedMediaMapSegmentIds([]);
-    const nextBeats = editableTranscriptSegments.slice(0, 12).map((segment) => {
-      const suggested = resolveMediaMapSuggestionType(segment.text);
-      const linkedPlacement = sourceVisualPlacementBySegmentId.get(segment.segment_id) ?? null;
-      const linkedType: HammerMediaMapSuggestionType | null = linkedPlacement
-        ? (linkedPlacement.kind === "reference_clip" ? "reference_clip" : "broll")
-        : null;
-      return {
-        id: `map:${segment.segment_id}`,
-        segmentId: segment.segment_id,
-        sourceText: segment.text,
-        suggestedType: suggested.type,
-        selectedType: linkedType ?? suggested.type,
-        reason: suggested.reason,
-        tweak: "",
-        linkedPlacementId: linkedPlacement?.id ?? null,
-      } satisfies HammerMediaMapBeat;
-    });
+    const nextBeats = deriveHammerMediaMapBeats({ current: [], segments: editableTranscriptSegments,
+      removedSegmentIds: [], placementsBySegmentId: sourceVisualPlacementBySegmentId });
     setMediaMapBeats(nextBeats);
     setTranscriptTimingHint("Media Map regenerated from current transcript.");
   }
@@ -4773,107 +4629,19 @@ function HammerWorkspaceShellWithContext(
     }),
     [podcastMasterLayer],
   );
-  const boundObjects = useMemo(
-    () => deriveHammerBoundObjects({
-      canonical_graph: editableEditorialAuthorityGraph,
-      render_assembly: exportBasis.renderAssembly,
-    }),
-    [editableEditorialAuthorityGraph, exportBasis.renderAssembly],
-  );
-  const boundObjectById = useMemo(() => {
-    const byId = new Map<string, HammerBoundObject>();
-    for (const object of boundObjects) {
-      byId.set(object.object_id, object);
-    }
-    return byId;
-  }, [boundObjects]);
-  const selectedBoundBrollInspectorState = useMemo<HammerBoundBrollInspectorState | null>(() => {
-    const selectedOperationId = selectedBoundBrollOperationId
-      ?? resolvedBrollBindingItems[0]?.operationId
-      ?? null;
-    if (!selectedOperationId) return null;
-    const selectedBoundObject = boundObjectById.get(selectedOperationId) ?? null;
-    if (!selectedBoundObject || selectedBoundObject.type !== "broll") return null;
-    const linkedDuckObject = selectedBoundObject.linked_object_ids
-      .map((linkedObjectId) => boundObjectById.get(linkedObjectId) ?? null)
-      .find((linkedObject): linkedObject is HammerBoundObject => Boolean(linkedObject && linkedObject.type === "audio_duck"))
-      ?? null;
-    const attentionFlags = [
-      ...(selectedBoundObject.attention_flags.includes("operation_conflict")
-        ? ["Adjusted by structural remap; review recommended."]
-        : []),
-      ...(selectedBoundObject.lifecycle_state === "superseded"
-        ? ["Removed by structural edit."]
-        : []),
-      ...(selectedBoundObject.binding_state === "unresolved"
-        ? ["Unresolved suggestion: not yet media truth."]
-        : []),
-      ...(linkedDuckObject && linkedDuckObject.capability === "degraded"
-        ? ["Linked duck companion requires review."]
-        : []),
-    ];
-    const duckAligned = linkedDuckObject && linkedDuckObject.type === "audio_duck"
-      ? (
-        linkedDuckObject.placement_window.start_sec === selectedBoundObject.placement_window.start_sec
-        && linkedDuckObject.placement_window.end_sec === selectedBoundObject.placement_window.end_sec
-      )
-      : false;
-    return {
-      operationId: selectedOperationId,
-      lifecycle: selectedBoundObject.lifecycle_state,
-      intentSource: selectedBoundObject.intent_source === "system" ? "manual" : selectedBoundObject.intent_source,
-      intentDescription: selectedBoundObject.payload.intent_description ?? null,
-      bindingState: selectedBoundObject.binding_state === "unresolved" ? "unresolved" : "resolved",
-      startSec: selectedBoundObject.placement_window.start_sec,
-      endSec: selectedBoundObject.placement_window.end_sec,
-      assetRef: selectedBoundObject.payload.asset_ref,
-      previewPosture: selectedBoundObject.posture.preview,
-      exportPosture: selectedBoundObject.posture.export,
-      handoffPosture: selectedBoundObject.posture.handoff,
-      needsAttention: attentionFlags.length > 0,
-      attentionFlags,
-      linkedDuck: linkedDuckObject && linkedDuckObject.type === "audio_duck"
-        ? {
-          operationId: linkedDuckObject.object_id,
-          startSec: linkedDuckObject.placement_window.start_sec,
-          endSec: linkedDuckObject.placement_window.end_sec,
-          aligned: duckAligned,
-          capability: linkedDuckObject.capability,
-          needsAttention: !duckAligned || linkedDuckObject.attention_flags.length > 0,
-        }
-        : null,
-    };
-  }, [
+  const {
+    boundObjects,
     boundObjectById,
+    selectedBoundBrollInspectorState,
+    selectedTransitionBoundObject,
+    boundAttentionQueue,
+    boundAttentionQueueForGate,
+  } = useHammerMediaMapBoundObjects({
+    canonicalGraph: editableEditorialAuthorityGraph,
+    renderAssembly: exportBasis.renderAssembly,
+    selectedOperationId: selectedBoundBrollOperationId,
     resolvedBrollBindingItems,
-    selectedBoundBrollOperationId,
-  ]);
-  const selectedTransitionBoundObject = useMemo(() => {
-    const selectedOperationId = selectedBoundBrollOperationId ?? null;
-    if (!selectedOperationId) return null;
-    const selectedBoundObject = boundObjectById.get(selectedOperationId) ?? null;
-    if (!selectedBoundObject || selectedBoundObject.type !== "transition") return null;
-    return selectedBoundObject;
-  }, [boundObjectById, selectedBoundBrollOperationId]);
-  const boundAttentionQueue = useMemo<HammerBoundAttentionItem[]>(() => {
-    const queue = deriveHammerBoundAttentionQueue(boundObjects);
-    return queue.map((item) => ({
-      operationId: item.object_id,
-      kind: item.object_type === "transition"
-        ? "transition_attention"
-        : item.reasons.includes("awaiting_resolution")
-        ? "unresolved_suggestion"
-        : item.reasons.includes("superseded_by_structural_edit")
-        ? "superseded_binding"
-        : "degraded_binding",
-      label: item.label,
-      reasons: item.reasons,
-    }));
-  }, [boundObjects]);
-  const boundAttentionQueueForGate = useMemo<HammerBoundAttentionQueueItem[]>(
-    () => deriveHammerBoundAttentionQueue(boundObjects),
-    [boundObjects],
-  );
+  });
   const boundAttentionSummary = useMemo(() => ({
     total: boundAttentionQueue.length,
     unresolvedCount: boundAttentionQueue.filter((item) => item.kind === "unresolved_suggestion").length,
