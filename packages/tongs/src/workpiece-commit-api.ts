@@ -28,6 +28,7 @@ type UntypedPostgrestBuilder = PromiseLike<UntypedPostgrestResult> & {
   or: (filters: string) => UntypedPostgrestBuilder;
   insert: (values: Record<string, unknown>) => UntypedPostgrestBuilder;
   update: (values: Record<string, unknown>) => UntypedPostgrestBuilder;
+  delete: () => UntypedPostgrestBuilder;
   order: (column: string, options?: { ascending?: boolean }) => UntypedPostgrestBuilder;
   limit: (count: number) => UntypedPostgrestBuilder;
   maybeSingle: () => Promise<UntypedPostgrestResult>;
@@ -475,7 +476,7 @@ export type CommitFileRequest = {
   content_base64?: string;
   jsonl_append?: unknown;
   user_access_token?: string | null;
-  expected_previous_updated_at?: string;
+  expected_previous_updated_at?: string | null;
 };
 
 export type CommitFileResponse = {
@@ -504,7 +505,7 @@ export type BeginRecordingUploadSessionRequest = {
   event_payload?: Json;
   correlation_id?: string;
   user_access_token?: string | null;
-  expected_previous_updated_at?: string;
+  expected_previous_updated_at?: string | null;
   total_bytes: number;
   total_chunks: number;
   chunk_size_bytes: number;
@@ -1453,6 +1454,10 @@ export type AcknowledgeHammerEditorialAuthorityRequest = {
   expected_authority_path: string | null;
 };
 
+const isHammerRevisionEditorialAuthorityPath = (path: string): boolean => (
+  /^hammer\/revisions\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/editorial-authority\.v1\.json$/i.test(path)
+);
+
 export type AnvilTakeCompletionV2Request = {
   workspace_id: string;
   capture_session_id: string;
@@ -2055,6 +2060,14 @@ export type TongsCommitApiService = {
     input: AcknowledgeHammerEditorialAuthorityRequest,
     options?: { userAccessToken?: string | null },
   ): Promise<{ acknowledgement: Record<string, unknown>; revision: RecordingRevisionRecord }>;
+  deleteHammerEditorialAuthorityArtifact(
+    workspaceId: string,
+    workpieceId: string,
+    revisionId: string,
+    path: string,
+    expectedUpdatedAt: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<void>;
   resetHammerRecordingRevision(
     workspaceId: string,
     workpieceId: string,
@@ -3489,9 +3502,11 @@ function normalizeCommitFileRequest(
     bytes_base64: typeof body.bytes_base64 === "string" ? body.bytes_base64 : undefined,
     content_base64: typeof body.content_base64 === "string" ? body.content_base64 : undefined,
     jsonl_append: typeof body.jsonl_append === "undefined" ? undefined : body.jsonl_append,
-    expected_previous_updated_at: typeof body.expected_previous_updated_at === "string"
-      ? normalizeIsoTimestamp(body.expected_previous_updated_at, "expected_previous_updated_at")
-      : undefined,
+    expected_previous_updated_at: body.expected_previous_updated_at === null
+      ? null
+      : typeof body.expected_previous_updated_at === "string"
+        ? normalizeIsoTimestamp(body.expected_previous_updated_at, "expected_previous_updated_at")
+        : undefined,
     user_access_token: userAccessTokenFromHeader
       ?? (typeof body.user_access_token === "string"
         ? normalizeNonEmptyString(body.user_access_token, "user_access_token")
@@ -8456,6 +8471,54 @@ export class TongsCommitService {
     return { acknowledgement: acknowledged.data, revision: reread.revision };
   }
 
+  async deleteHammerEditorialAuthorityArtifact(
+    workspaceId: string,
+    workpieceId: string,
+    revisionId: string,
+    path: string,
+    expectedUpdatedAt: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<void> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+    const { revision } = await this.readHammerRecordingRevision(workspaceId, workpieceId, revisionId, options);
+    this.assertRevisionWritable(revision);
+    const expectedPath = `hammer/revisions/${revisionId}/editorial-authority.v1.json`;
+    if (normalizeRelativePath(path) !== expectedPath) throw new HttpError(400, "editorial_authority_path_invalid", "Editorial authority must use the canonical revision-scoped path.");
+    if (revision.editorial_authority_path === expectedPath) throw new HttpError(409, "editorial_authority_pointer_committed", "A canonical authority artifact cannot be deleted after pointer acknowledgement.");
+    const expectedIso = normalizeIsoTimestamp(expectedUpdatedAt, "expected_updated_at");
+    const tongsUntyped = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const deleted = await tongsUntyped.from("workpiece_files").delete()
+      .eq("workpiece_id", workpieceId).eq("path", expectedPath).eq("updated_at", expectedIso)
+      .select("storage_bucket,storage_key").maybeSingle();
+    if (deleted.error) throw new HttpError(502, "db_write_failed", "Failed to compensate the editorial-authority artifact.", { reason: deleted.error.message });
+    if (!deleted.data) throw new HttpError(409, "editorial_authority_compensation_conflict", "Editorial-authority artifact changed before compensation.");
+    const file = deleted.data as { storage_bucket?: string | null; storage_key?: string | null };
+    const storageBucket = file.storage_bucket?.trim() || this.bucket;
+    const storageKey = file.storage_key?.trim() || buildStorageKey(workpieceId, expectedPath);
+    const nowIso = new Date().toISOString();
+    const manifest = await this.loadManifestOrDefault(await this.getCradleOrThrow(workpieceId));
+    manifest.updated_at = nowIso;
+    delete manifest.files[expectedPath];
+    const finalized = await finalizeManifestTwoPass(manifest, DEFAULT_WRITTEN_BY, nowIso);
+    await uploadStorageObject(this.supabase, this.bucket, buildStorageKey(workpieceId, MANIFEST_PATH), finalized.manifestBytes, "application/json");
+    await this.upsertWorkpieceFile([{
+      workpiece_id: workpieceId, path: MANIFEST_PATH, file_type: "manifest", content_type: "application/json",
+      bytes: finalized.finalBytes, hash_algo: SHA256_ALGO, hash_value: finalized.finalHash,
+      storage_bucket: this.bucket, storage_key: buildStorageKey(workpieceId, MANIFEST_PATH),
+      written_by_tool: DEFAULT_WRITTEN_BY.tool, written_by_tool_version: DEFAULT_WRITTEN_BY.tool_version,
+      written_by_lane: DEFAULT_WRITTEN_BY.lane,
+    }]);
+    await this.insertEvent({
+      workpieceId, eventName: "hammer.revision.editorial-authority.compensated.v1",
+      payload: { revision_id: revisionId, path: expectedPath } as Json,
+      writtenBy: DEFAULT_WRITTEN_BY, correlationId: null,
+    });
+    const removed = await this.supabase.storage.from(storageBucket).remove([storageKey]);
+    if (removed.error) throw new HttpError(502, "storage_delete_failed", "Failed to remove the compensated editorial-authority object.", { reason: removed.error.message });
+  }
+
   async resetHammerRecordingRevision(
     workspaceId: string,
     workpieceId: string,
@@ -9652,14 +9715,14 @@ export class TongsCommitService {
     if (path === MANIFEST_PATH) {
       throw new HttpError(400, "invalid_path", "manifest.json is managed by Tongs and cannot be committed directly");
     }
-    if (READY_SCRIPT_PATH_SET.has(path)) {
+    if (READY_SCRIPT_PATH_SET.has(path) || isHammerRevisionEditorialAuthorityPath(path)) {
       await this.assertWorkspaceRoleFromAccessToken(
         cradle.workspace_id,
         "editor",
         input.user_access_token,
       );
     }
-    if (input.expected_previous_updated_at) {
+    if (typeof input.expected_previous_updated_at !== "undefined") {
       const { data: existingFile, error: existingFileError } = await this.supabase
         .schema("tongs")
         .from("workpiece_files")
@@ -9674,7 +9737,7 @@ export class TongsCommitService {
         });
       }
 
-      const expectedUpdatedAt = new Date(input.expected_previous_updated_at).toISOString();
+      const expectedUpdatedAt = input.expected_previous_updated_at === null ? null : new Date(input.expected_previous_updated_at).toISOString();
       const currentUpdatedAt = existingFile?.updated_at ? new Date(existingFile.updated_at).toISOString() : null;
       if (currentUpdatedAt !== expectedUpdatedAt) {
         throw new HttpError(409, "file_conflict", "File changed since last load", {
@@ -15806,7 +15869,7 @@ export function createTongsCommitApiHandlerWithService(
         const body = await parseJsonBody(request);
         const userAccessToken = readUserAccessTokenHeader(request);
         const payload = normalizeCommitFileRequest(body, userAccessToken);
-        if (READY_SCRIPT_PATH_SET.has(payload.path) && !userAccessToken) {
+        if ((READY_SCRIPT_PATH_SET.has(payload.path) || isHammerRevisionEditorialAuthorityPath(payload.path)) && !userAccessToken) {
           throw new HttpError(
             401,
             "missing_user_token_header",
@@ -16852,11 +16915,17 @@ export function createTongsCommitApiHandlerWithService(
         && parts[6] === "revisions"
         && parts[8] === "editorial-authority"
       ) {
-        requireMethod(request, "POST");
         const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
         const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
         const revisionId = normalizeUuid(decodeURIComponent(parts[7]), "revision_id");
         const userAccessToken = requireUserAccessTokenHeader(request);
+        if (request.method === "DELETE") {
+          const path = normalizeRelativePath(url.searchParams.get("path"));
+          const expectedUpdatedAt = normalizeIsoTimestamp(url.searchParams.get("expected_updated_at"), "expected_updated_at");
+          await service.deleteHammerEditorialAuthorityArtifact(workspaceId, workpieceId, revisionId, path, expectedUpdatedAt, { userAccessToken });
+          return jsonResponse(200, { ok: true, data: { deleted: true, path } });
+        }
+        requireMethod(request, "POST");
         const payload = normalizeAcknowledgeHammerEditorialAuthorityRequest(await parseJsonBody(request));
         const result = await service.acknowledgeHammerEditorialAuthority(workspaceId, workpieceId, revisionId, payload, { userAccessToken });
         return jsonResponse(200, { ok: true, data: result });

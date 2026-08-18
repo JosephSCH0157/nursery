@@ -30,8 +30,8 @@ create or replace function tongs.acknowledge_hammer_editorial_authority(
   p_expected_authority_path text
 ) returns jsonb
 language plpgsql
-security invoker
-set search_path = tongs, public
+security definer
+set search_path = pg_catalog, tongs
 as $$
 declare
   v_row tongs.recording_revisions%rowtype;
@@ -41,6 +41,9 @@ begin
   end if;
   if p_path is null or btrim(p_path) = '' or p_fingerprint !~ '^[0-9a-f]{64}$' then
     raise exception using errcode = '22023', message = 'editorial_authority_ack_invalid';
+  end if;
+  if p_path <> format('hammer/revisions/%s/editorial-authority.v1.json', p_revision_id) then
+    raise exception using errcode = '22023', message = 'editorial_authority_path_invalid';
   end if;
 
   update tongs.recording_revisions
@@ -78,6 +81,8 @@ revoke all on function tongs.acknowledge_hammer_editorial_authority(uuid,uuid,uu
 grant execute on function tongs.acknowledge_hammer_editorial_authority(uuid,uuid,uuid,uuid,text,text,timestamptz,bigint,text) to authenticated;
 grant execute on function tongs.acknowledge_hammer_editorial_authority(uuid,uuid,uuid,uuid,text,text,timestamptz,bigint,text) to service_role;
 
+alter function tongs.acknowledge_hammer_editorial_authority(uuid,uuid,uuid,uuid,text,text,timestamptz,bigint,text) owner to postgres;
+
 -- Reassert the existing row boundary: viewers read; editors mutate.
 alter table tongs.recording_revisions enable row level security;
 drop policy if exists recording_revisions_select_if_workspace_viewer on tongs.recording_revisions;
@@ -95,7 +100,7 @@ with check (
 );
 
 grant select on table tongs.recording_revisions to authenticated;
-grant update on table tongs.recording_revisions to authenticated;
+revoke update on table tongs.recording_revisions from authenticated;
 grant all on table tongs.recording_revisions to service_role;
 
 commit;

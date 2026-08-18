@@ -30,7 +30,12 @@ function snapshot(clipCount: number, marker: string): HammerPersistenceSnapshot 
     transcript_version_registry: artifact(null), speaker_map: artifact(null),
     visual_placements: artifact({ schema_version: 1, placements: Array.from({ length: clipCount }, (_, i) => ({ id: `${marker}-p${i}` })) }, `revision/${marker}/placements`) as any,
     visual_timeline: artifact({ schema_version: 2, version: 2, revision: 1, updated_at: "2026-08-15T00:00:00.000Z", assets: [], clips: Array.from({ length: clipCount }, (_, i) => ({ id: `${marker}-c${i}` })), lanes: [] }, `revision/${marker}/timeline`) as any,
-    audio_polish: artifact(null), edit_plan: artifact(null), editorial_authority: artifact(null),
+    audio_polish: artifact(null), edit_plan: artifact(null), editorial_authority: artifact({
+      schema_version: 1, graph_id: `${marker}-authority`, graph_version: 1,
+      workspace_id: "workspace", workpiece_id: "workpiece", session_id: "session",
+      source_transcript_id: "transcript", operation_order: [], operations: [],
+      created_at: "2026-08-15T00:00:00.000Z", updated_at: "2026-08-15T00:00:00.000Z",
+    }),
     macro_hooks: { recipe_ref: null, last_run_ref: null },
   } as HammerPersistenceSnapshot;
 }
@@ -161,6 +166,7 @@ test("one canonical save performs exactly one revision write and one workpiece w
     status: "active" as const, label: null, editor_session_path: "revision/editor", revision_transcript_path: "revision/transcript",
     audio_polish_path: null, visual_timeline_path: "revision/canonical/timeline", visual_placements_path: "revision/canonical/placements",
     history_path: null, snapshots_manifest_path: null,
+    editorial_authority_path: null, editorial_authority_fingerprint: null, editorial_authority_revision: 0, updated_at: "2026-08-18T00:00:00.000Z",
   };
   let revisionWrites = 0;
   let workpieceWrites = 0;
@@ -169,11 +175,12 @@ test("one canonical save performs exactly one revision write and one workpiece w
   const result = await persistHammerCanonicalSave({
     target: { workspaceId: "workspace", workpieceId: "workpiece" }, revisionId: "revision",
     revisionRequest: { visual_timeline: { data: canonical.visual_timeline.data }, visual_placements: { data: canonical.visual_placements.data } },
-    persistenceRequest: { written_by: { tool: "hammer", tool_version: "test", lane: "test" } }, canonicalSnapshot: canonical,
+    persistenceRequest: { written_by: { tool: "hammer", tool_version: "test", lane: "test" }, editorial_authority: { data: canonical.editorial_authority.data! } }, canonicalSnapshot: canonical,
     identity, currentIdentity: () => identity, laneSequences: lanes,
     adapters: {
       saveRevision: async () => { revisionWrites += 1; return { ok: true, status: 200, data: { revision } }; },
       saveWorkpiece: async () => { workpieceWrites += 1; return { ok: true, status: 200, data: legacy }; },
+      saveRevisionAuthority: async () => ({ revision: { ...revision, editorial_authority_path: "hammer/revisions/revision/editorial-authority.v1.json", editorial_authority_fingerprint: "a".repeat(64), editorial_authority_revision: 1 }, disposition: "committed", fingerprint: "a".repeat(64) }),
     },
   });
   assert.equal(result.ok, true);
@@ -190,6 +197,7 @@ test("lifecycle flush supersedes an active revision mutation", async () => {
     id: "revision", workspace_id: "workspace", workpiece_id: "workpiece", canonical_recording_id: "recording", status: "active" as const,
     label: null, editor_session_path: null, revision_transcript_path: null, audio_polish_path: null,
     visual_timeline_path: "timeline", visual_placements_path: "placements", history_path: null, snapshots_manifest_path: null,
+    editorial_authority_path: null, editorial_authority_fingerprint: null, editorial_authority_revision: 0, updated_at: "2026-08-18T00:00:00.000Z",
   };
   let releaseFirst!: () => void;
   const firstBlocked = new Promise<void>((resolve) => { releaseFirst = resolve; });
@@ -202,8 +210,8 @@ test("lifecycle flush supersedes an active revision mutation", async () => {
   const saveWorkpiece = async () => ({ ok: true as const, status: 200, data: canonical });
   const common = {
     target: { workspaceId: "workspace", workpieceId: "workpiece" }, revisionId: "revision", revisionRequest: {},
-    persistenceRequest: { written_by: { tool: "hammer", tool_version: "test", lane: "test" } }, canonicalSnapshot: canonical,
-    identity, currentIdentity: () => identity, laneSequences: lanes, adapters: { saveRevision, saveWorkpiece },
+    persistenceRequest: { written_by: { tool: "hammer", tool_version: "test", lane: "test" }, editorial_authority: { data: canonical.editorial_authority.data! } }, canonicalSnapshot: canonical,
+    identity, currentIdentity: () => identity, laneSequences: lanes, adapters: { saveRevision, saveWorkpiece, saveRevisionAuthority: async () => ({ revision, disposition: "committed" as const, fingerprint: "a".repeat(64) }) },
   };
   const active = persistHammerCanonicalSave(common);
   const flush = persistHammerCanonicalSave({ ...common, lifecycleFlush: true });

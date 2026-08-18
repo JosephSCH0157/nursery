@@ -173,6 +173,9 @@ importers:
       '@forge/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@forge/tongs':
+        specifier: workspace:*
+        version: link:../../packages/tongs
       '@mediapipe/selfie_segmentation':
         specifier: ^0.1.1675465747
         version: 0.1.1675465747

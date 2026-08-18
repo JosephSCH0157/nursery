@@ -1333,12 +1333,13 @@ export default function HammerWorkspaceEditor(
     revisionAudioPolish: HammerPersistenceSnapshot["audio_polish"]["data"];
     revisionVisualTimeline: HammerPersistenceSnapshot["visual_timeline"]["data"];
     revisionVisualPlacements: HammerPersistenceSnapshot["visual_placements"]["data"];
+    revisionEditorialAuthority: HammerPersistenceSnapshot["editorial_authority"]["data"];
   }): HammerPersistenceSnapshot => {
     const transcript = args.revisionTranscript ?? args.canonicalTranscript ?? null;
     const hasTranscript = Boolean(transcript?.segments?.length);
     const nowIso = new Date().toISOString();
     const persistedState = args.persistenceSnapshot?.state ?? null;
-    const persistedEditorialAuthority = args.persistenceSnapshot?.editorial_authority ?? null;
+    const persistedEditorialAuthority = args.persistenceSnapshot?.editorial_authority ?? null, revisionEditorialAuthority = args.revisionEditorialAuthority ?? null;
     const orchestration = normalizeHammerOrchestrationState({
       prep_status: hasTranscript ? "prepared" : "idle",
       alignment_status: hasTranscript ? "aligned" : "not_started",
@@ -1367,9 +1368,7 @@ export default function HammerWorkspaceEditor(
         audio_polish_artifact_path: args.revision.audio_polish_path,
         edit_plan_artifact_path: null,
         transcript_versions_artifact_path: null,
-        editorial_authority_artifact_path: persistedState?.editorial_authority_artifact_path
-          ?? persistedEditorialAuthority?.path
-          ?? null,
+        editorial_authority_artifact_path: args.revision.editorial_authority_path ?? persistedState?.editorial_authority_artifact_path ?? persistedEditorialAuthority?.path ?? null,
         edit_plan_signature: orchestration.edit_plan_signature,
         prep_status: orchestration.prep_status,
         alignment_status: orchestration.alignment_status,
@@ -1420,9 +1419,9 @@ export default function HammerWorkspaceEditor(
         data: null,
       },
       editorial_authority: {
-        path: hasTranscript ? persistedEditorialAuthority?.path ?? null : null,
-        updated_at: hasTranscript ? persistedEditorialAuthority?.updated_at ?? null : null,
-        data: hasTranscript ? persistedEditorialAuthority?.data ?? null : null,
+        path: hasTranscript ? args.revision.editorial_authority_path ?? persistedEditorialAuthority?.path ?? null : null,
+        updated_at: hasTranscript && !revisionEditorialAuthority ? persistedEditorialAuthority?.updated_at ?? null : null,
+        data: hasTranscript ? revisionEditorialAuthority ?? persistedEditorialAuthority?.data ?? null : null,
       },
       macro_hooks: {
         recipe_ref: null,
@@ -1874,7 +1873,7 @@ export default function HammerWorkspaceEditor(
             revisionTranscript: hydratedTranscript,
             revisionAudioPolish,
             revisionVisualTimeline,
-            revisionVisualPlacements,
+            revisionVisualPlacements, revisionEditorialAuthority: revisionArtifactsResult.data.editorial_authority,
           });
           hydratedSnapshot = nextHydratedSnapshot;
 
@@ -3204,6 +3203,9 @@ export default function HammerWorkspaceEditor(
                   visual_placements_path: null,
                   history_path: null,
                   snapshots_manifest_path: null,
+                  editorial_authority_path: null,
+                  editorial_authority_fingerprint: null,
+                editorial_authority_revision: 0, updated_at: new Date().toISOString(),
                 },
                 persistenceSnapshot: loadedPersistenceSnapshot,
                 canonicalTranscript,
@@ -3213,6 +3215,7 @@ export default function HammerWorkspaceEditor(
                 revisionAudioPolish: revisionArtifactsResult.ok ? revisionArtifactsResult.data?.audio_polish ?? null : null,
                 revisionVisualTimeline: revisionArtifactsResult.ok ? revisionArtifactsResult.data?.visual_timeline ?? null : null,
                 revisionVisualPlacements: revisionArtifactsResult.ok ? revisionArtifactsResult.data?.visual_placements ?? null : null,
+                revisionEditorialAuthority: revisionArtifactsResult.ok ? revisionArtifactsResult.data?.editorial_authority ?? null : null,
               });
 
               setLoadedPersistenceSnapshot(hydratedSnapshot);
@@ -3620,7 +3623,7 @@ export default function HammerWorkspaceEditor(
     const persistRevisionAndAuthority = async (pending: NonNullable<typeof pendingSaveRef.current>) => {
       const identity: HammerAuthorityIdentity = { workspaceId: pending.target.workspaceId, workpieceId: pending.target.workpieceId, revisionId: pending.revisionId, editorGeneration: editorGenerationRef.current };
       return persistHammerCanonicalSave({
-        target: pending.target,
+        target: pending.target, canonicalRecordingId: activeCanonicalRecordingRef.current?.id ?? "",
         revisionId: pending.revisionId,
         revisionRequest: pending.request,
         persistenceRequest: pending.persistenceRequest,
@@ -3784,7 +3787,7 @@ export default function HammerWorkspaceEditor(
       setSaveInFlight(true);
       const identity: HammerAuthorityIdentity = { workspaceId: pending.target.workspaceId, workpieceId: pending.target.workpieceId, revisionId: pending.revisionId, editorGeneration: editorGenerationRef.current };
       void persistHammerCanonicalSave({
-        target: pending.target,
+        target: pending.target, canonicalRecordingId: activeCanonicalRecordingRef.current?.id ?? "",
         revisionId: pending.revisionId,
         revisionRequest: pending.request,
         persistenceRequest: pending.persistenceRequest,

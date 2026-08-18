@@ -11,8 +11,11 @@ export interface EditorialAuthorityCommitAdapter {
 }
 
 export class EditorialAuthorityCommitError extends Error {
-  constructor(readonly code: "original_state_mismatch" | "foreign_state" | "acknowledgement_failed" | "compensation_failed", message: string, options?: { cause?: unknown }) {
+  readonly code: "original_state_mismatch" | "foreign_state" | "acknowledgement_failed" | "compensation_failed";
+
+  constructor(code: "original_state_mismatch" | "foreign_state" | "acknowledgement_failed" | "compensation_failed", message: string, options?: { cause?: unknown }) {
     super(message, options);
+    this.code = code;
     this.name = "EditorialAuthorityCommitError";
   }
 }

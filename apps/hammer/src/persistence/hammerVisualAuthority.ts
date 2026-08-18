@@ -6,6 +6,7 @@ import type {
 import type { HammerRecordingRevisionRecord } from "./hammerRecordingRevisionPersistence";
 import { saveHammerRecordingRevision } from "./hammerRecordingRevisionPersistence";
 import { saveHammerPersistenceSnapshot } from "./hammerPersistence";
+import { persistHammerRevisionEditorialAuthority } from "./hammerRevisionEditorialAuthorityWriter";
 
 export type HammerAsyncResponseLane =
   | "canonical_hydration"
@@ -139,6 +140,7 @@ export function reconcileHammerWorkpieceAcknowledgement(args: {
 
 export async function persistHammerCanonicalSave(args: {
   target: HammerPersistenceTarget;
+  canonicalRecordingId?: string;
   revisionId: string;
   revisionRequest: RevisionSaveArtifacts;
   persistenceRequest: HammerPersistenceSaveRequest;
@@ -148,8 +150,9 @@ export async function persistHammerCanonicalSave(args: {
   laneSequences: Record<HammerAsyncResponseLane, number>;
   lifecycleFlush?: boolean;
   adapters?: {
-    saveRevision: typeof saveHammerRecordingRevision;
-    saveWorkpiece: typeof saveHammerPersistenceSnapshot;
+    saveRevision?: typeof saveHammerRecordingRevision;
+    saveWorkpiece?: typeof saveHammerPersistenceSnapshot;
+    saveRevisionAuthority?: typeof persistHammerRevisionEditorialAuthority;
   };
 }): Promise<
   | { ok: true; revision: HammerRecordingRevisionRecord; snapshot: HammerPersistenceSnapshot }
@@ -181,16 +184,44 @@ export async function persistHammerCanonicalSave(args: {
     return { ok: false, stale: true, error: "stale_workpiece_response", revision: revisionResult.data.revision };
   }
   if (!persistenceResult.ok) return { ok: false, error: persistenceResult.error, revision: revisionResult.data.revision };
+  const authority = args.persistenceRequest.editorial_authority?.data;
+  if (!authority) return { ok: false, error: "Canonical save did not contain editorial authority.", revision: revisionResult.data.revision };
+  let authorityResult: Awaited<ReturnType<typeof persistHammerRevisionEditorialAuthority>>;
+  try {
+    authorityResult = await (args.adapters?.saveRevisionAuthority ?? persistHammerRevisionEditorialAuthority)({
+      target: args.target,
+      canonicalRecordingId: args.canonicalRecordingId ?? revisionResult.data.revision.canonical_recording_id,
+      revision: revisionResult.data.revision,
+      authority,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Revision editorial-authority persistence failed.",
+      revision: revisionResult.data.revision,
+    };
+  }
+  if (!tokenIsCurrent(reconciliationToken)) {
+    return { ok: false, stale: true, error: "stale_authority_response", revision: authorityResult.revision };
+  }
+  const reconciled = reconcileHammerWorkpieceAcknowledgement({
+    canonicalSnapshot: args.canonicalSnapshot,
+    response: persistenceResult.data,
+    revision: authorityResult.revision,
+    revisionRequest: args.revisionRequest,
+    persistenceRequest: args.persistenceRequest,
+  });
   return {
     ok: true,
-    revision: revisionResult.data.revision,
-    snapshot: reconcileHammerWorkpieceAcknowledgement({
-      canonicalSnapshot: args.canonicalSnapshot,
-      response: persistenceResult.data,
-      revision: revisionResult.data.revision,
-      revisionRequest: args.revisionRequest,
-      persistenceRequest: args.persistenceRequest,
-    }),
+    revision: authorityResult.revision,
+    snapshot: {
+      ...reconciled,
+      editorial_authority: {
+        path: authorityResult.revision.editorial_authority_path,
+        updated_at: authorityResult.revision.updated_at,
+        data: authority,
+      },
+    },
   };
 }
 

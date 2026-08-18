@@ -16,6 +16,7 @@ import type { HammerMediaProvenanceManifest } from "../composition/hammerMediaPr
 import type { HammerRenderJobV1 } from "../composition/hammerRenderJobV1";
 import type { HammerReleasePacketV2 } from "../composition/hammerReleasePacketV2";
 import { parseTongsReadFileResponse } from "../lib/tongsReadFileResponse";
+import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
 
 type JsonObject = Record<string, unknown>;
 
@@ -84,6 +85,10 @@ export type HammerRecordingRevisionRecord = {
   composition_revision?: number | null;
   composition_fingerprint?: string | null;
   composition_history_head_id?: string | null;
+  editorial_authority_path: string | null;
+  editorial_authority_fingerprint: string | null;
+  editorial_authority_revision: number;
+  updated_at: string;
 };
 
 type PersistenceResult<T> =
@@ -263,7 +268,81 @@ export type HammerRevisionArtifacts = {
   media_provenance: HammerMediaProvenanceManifest | null;
   render_jobs: readonly HammerRenderJobV1[] | null;
   release_packet: HammerReleasePacketV2 | null;
+  editorial_authority: HammerEditorialAuthorityGraph | null;
 };
+
+type HammerRevisionEditorialAuthorityArtifactV1 = {
+  schema_version: 1;
+  workspace_id: string;
+  workpiece_id: string;
+  canonical_recording_id: string;
+  recording_revision_id: string;
+  authority: HammerEditorialAuthorityGraph;
+};
+
+function validateRevisionEditorialAuthorityArtifact(args: {
+  value: unknown;
+  revision: HammerRecordingRevisionRecord;
+}): HammerRevisionEditorialAuthorityArtifactV1 | null {
+  const artifact = readJsonObject(args.value);
+  const authority = readJsonObject(artifact?.authority);
+  if (
+    artifact?.schema_version !== 1
+    || artifact.workspace_id !== args.revision.workspace_id
+    || artifact.workpiece_id !== args.revision.workpiece_id
+    || artifact.canonical_recording_id !== args.revision.canonical_recording_id
+    || artifact.recording_revision_id !== args.revision.id
+    || authority?.schema_version !== 1
+    || typeof authority.graph_id !== "string"
+    || !Number.isSafeInteger(authority.graph_version)
+    || !Array.isArray(authority.operation_order)
+    || !Array.isArray(authority.operations)
+    || typeof authority.created_at !== "string"
+    || typeof authority.updated_at !== "string"
+  ) return null;
+  if (authority.workspace_id != null && authority.workspace_id !== args.revision.workspace_id) return null;
+  if (authority.workpiece_id != null && authority.workpiece_id !== args.revision.workpiece_id) return null;
+  return artifact as unknown as HammerRevisionEditorialAuthorityArtifactV1;
+}
+
+async function readRevisionEditorialAuthority(
+  revision: HammerRecordingRevisionRecord,
+): Promise<PersistenceResult<HammerEditorialAuthorityGraph | null>> {
+  if (!revision.editorial_authority_path) return { ok: true, status: 200, data: null };
+  const expectedPath = `hammer/revisions/${revision.id}/editorial-authority.v1.json`;
+  if (revision.editorial_authority_path !== expectedPath) {
+    return { ok: false, status: 409, error: "The active revision editorial-authority pointer is not revision-scoped." };
+  }
+  if (!revision.editorial_authority_fingerprint) {
+    return { ok: false, status: 409, error: "The active revision editorial-authority pointer has no fingerprint." };
+  }
+  let response: Response;
+  try {
+    response = await tongsFetch(
+      `/tongs/workpieces/${encodeURIComponent(revision.workpiece_id)}/read-file?path=${encodeURIComponent(revision.editorial_authority_path)}`,
+      { method: "GET", timeoutMs: 20_000 },
+    );
+  } catch (error) {
+    return { ok: false, status: 504, error: toErrorMessage(error, "Failed to read revision editorial authority.") };
+  }
+  const payload = await readJsonBody(response);
+  const parsed = parseTongsReadFileResponse<unknown>({ status: response.status, responseOk: response.ok, payload });
+  if (parsed.kind === "absent") {
+    return { ok: false, status: 409, error: "The active revision points to an editorial-authority artifact that is missing." };
+  }
+  if (parsed.kind === "failure") {
+    return { ok: false, status: response.status || 502, error: parsed.message };
+  }
+  const committedFingerprint = readString(parsed.fileRow?.hash_value)?.toLowerCase() ?? null;
+  if (committedFingerprint !== revision.editorial_authority_fingerprint.toLowerCase()) {
+    return { ok: false, status: 409, error: "The revision editorial-authority artifact fingerprint does not match its canonical pointer." };
+  }
+  const artifact = validateRevisionEditorialAuthorityArtifact({ value: parsed.data, revision });
+  if (!artifact) {
+    return { ok: false, status: 422, error: "The revision editorial-authority artifact is malformed or belongs to stale authority." };
+  }
+  return { ok: true, status: 200, data: artifact.authority };
+}
 
 export async function loadHammerRecordingRevisionArtifacts(
   revision: HammerRecordingRevisionRecord,
@@ -302,6 +381,9 @@ export async function loadHammerRecordingRevisionArtifacts(
     }
     canonicalVisualTimeline = validation.timeline;
   }
+
+  const editorialAuthorityResult = await readRevisionEditorialAuthority(revision);
+  if (!editorialAuthorityResult.ok) return editorialAuthorityResult;
 
   const [
     editorSessionResult,
@@ -366,6 +448,7 @@ export async function loadHammerRecordingRevisionArtifacts(
       media_provenance: provenanceResult.ok ? provenanceResult.data : null,
       render_jobs: renderJobsResult.ok ? renderJobsResult.data : null,
       release_packet: releasePacketResult.ok ? releasePacketResult.data : null,
+      editorial_authority: editorialAuthorityResult.data,
     },
   };
 }

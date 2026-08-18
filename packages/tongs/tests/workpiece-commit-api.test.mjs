@@ -84,6 +84,8 @@ function mockService() {
     createHammerRecordingRevision: [],
     readHammerRecordingRevision: [],
     saveHammerRecordingRevision: [],
+    acknowledgeHammerEditorialAuthority: [],
+    deleteHammerEditorialAuthorityArtifact: [],
     resetHammerRecordingRevision: [],
     openHammerRecordingSession: [],
     resetHammerWorkpieceToRaw: [],
@@ -1095,6 +1097,13 @@ function mockService() {
       calls.saveHammerRecordingRevision.push({ workspaceId, workpieceId, revisionId, input, options: options ?? null });
       return (await service.readHammerRecordingRevision(workspaceId, workpieceId, revisionId, options)).revision;
     },
+    async acknowledgeHammerEditorialAuthority(workspaceId, workpieceId, revisionId, input, options) {
+      calls.acknowledgeHammerEditorialAuthority.push({ workspaceId, workpieceId, revisionId, input, options: options ?? null });
+      return { acknowledgement: { path: input.artifact_path }, revision: (await service.readHammerRecordingRevision(workspaceId, workpieceId, revisionId, options)).revision };
+    },
+    async deleteHammerEditorialAuthorityArtifact(workspaceId, workpieceId, revisionId, path, expectedUpdatedAt, options) {
+      calls.deleteHammerEditorialAuthorityArtifact.push({ workspaceId, workpieceId, revisionId, path, expectedUpdatedAt, options: options ?? null });
+    },
     async resetHammerRecordingRevision(workspaceId, workpieceId, revisionId, input, options) {
       calls.resetHammerRecordingRevision.push({ workspaceId, workpieceId, revisionId, input, options: options ?? null });
       return {
@@ -1521,6 +1530,34 @@ test("PUT /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/revision
   assert.equal(body.ok, true);
   assert.equal(calls.saveHammerRecordingRevision.length, 1);
   assert.equal(calls.saveHammerRecordingRevision[0]?.options?.userAccessToken, "hammer_user_token");
+});
+
+test("POST revision editorial-authority forwards the exact CAS tuple and user token", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const path = "hammer/revisions/dddddddd-dddd-4ddd-8ddd-dddddddddddd/editorial-authority.v1.json";
+  const response = await handler(new Request(
+    "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/workpieces/22222222-2222-4222-8222-222222222222/hammer/revisions/dddddddd-dddd-4ddd-8ddd-dddddddddddd/editorial-authority",
+    { method: "POST", headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer hammer_user_token" }, body: JSON.stringify({ artifact_path: path, artifact_fingerprint: "a".repeat(64), expected_revision_updated_at: "2026-08-18T00:00:00.000Z", expected_authority_revision: 0, expected_authority_path: null }) },
+  ));
+  assert.equal(response.status, 200);
+  assert.equal(calls.acknowledgeHammerEditorialAuthority.length, 1);
+  assert.equal(calls.acknowledgeHammerEditorialAuthority[0].input.artifact_path, path);
+  assert.equal(calls.acknowledgeHammerEditorialAuthority[0].options.userAccessToken, "hammer_user_token");
+});
+
+test("DELETE revision editorial-authority forwards compensation CAS and user token", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const path = "hammer/revisions/dddddddd-dddd-4ddd-8ddd-dddddddddddd/editorial-authority.v1.json";
+  const response = await handler(new Request(
+    `http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/workpieces/22222222-2222-4222-8222-222222222222/hammer/revisions/dddddddd-dddd-4ddd-8ddd-dddddddddddd/editorial-authority?path=${encodeURIComponent(path)}&expected_updated_at=${encodeURIComponent("2026-08-18T00:00:00.000Z")}`,
+    { method: "DELETE", headers: { "x-forge-user-authorization": "Bearer hammer_user_token" } },
+  ));
+  assert.equal(response.status, 200);
+  assert.equal(calls.deleteHammerEditorialAuthorityArtifact.length, 1);
+  assert.equal(calls.deleteHammerEditorialAuthorityArtifact[0].path, path);
+  assert.equal(calls.deleteHammerEditorialAuthorityArtifact[0].options.userAccessToken, "hammer_user_token");
 });
 
 test("POST /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/revisions/:revisionId/reset forwards reset and token", async () => {

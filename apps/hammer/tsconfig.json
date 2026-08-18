@@ -5,6 +5,7 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "paths": {
+      "@forge/tongs": ["../../packages/tongs/src/index.ts"],
       "@forge/shared": ["../../packages/shared/index.ts"],
       "@forge/shared/*": [
         "../../packages/shared/*.ts",
