@@ -192,6 +192,15 @@ export function createHammerWorkspaceShellSnapshotAuthority(
   };
 }
 
+/** Owns the stable snapshot-production authority for one mounted workspace shell. */
+export function useHammerWorkspaceShellSnapshotAuthority(): HammerWorkspaceShellSnapshotAuthority {
+  const authorityRef = useRef<HammerWorkspaceShellSnapshotAuthority | null>(null);
+  if (!authorityRef.current) {
+    authorityRef.current = createHammerWorkspaceShellSnapshotAuthority();
+  }
+  return authorityRef.current;
+}
+
 export function useHammerSnapshotImmediatePersistenceSignal(): {
   persistNowRequestNonce: number;
   requestImmediatePersist: () => void;

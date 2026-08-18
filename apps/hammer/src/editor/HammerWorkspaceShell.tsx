@@ -232,8 +232,8 @@ import {
 import { buildVisualTimelineDiagnostics } from "./hammerVisualTimelineHydrationGuard";
 import { isAutoPlacementDebugFlagEnabled } from "./hammerAutoPlacementDebugFlag";
 import {
-  createHammerWorkspaceShellSnapshotAuthority,
   useHammerSnapshotImmediatePersistenceSignal,
+  useHammerWorkspaceShellSnapshotAuthority,
   useHammerWorkspaceShellSnapshotEmitter,
 } from "./hammerWorkspaceShellSnapshotEmitter";
 import {
@@ -689,11 +689,7 @@ function HammerWorkspaceShellWithContext(
   const timelineTrackScrollRef = useRef<HTMLDivElement | null>(null);
   const selectionOriginRef = useRef<"system" | "transcript" | "timeline" | "playhead">("system");
   const selectionRevealFrameRef = useRef<number | null>(null);
-  const snapshotAuthorityRef = useRef<ReturnType<typeof createHammerWorkspaceShellSnapshotAuthority> | null>(null);
-  if (!snapshotAuthorityRef.current) {
-    snapshotAuthorityRef.current = createHammerWorkspaceShellSnapshotAuthority();
-  }
-  const snapshotAuthority = snapshotAuthorityRef.current;
+  const snapshotAuthority = useHammerWorkspaceShellSnapshotAuthority();
   const historyBaselineStateRef = useRef<HammerEditorStateSerializable | null>(null);
   const baselineDerivedLayersRef = useRef<HammerPersistedStructuredTranscript["derived_text_layers"]>(
     cloneHammerDerivedTextLayers(props.structuredTranscript?.derived_text_layers),

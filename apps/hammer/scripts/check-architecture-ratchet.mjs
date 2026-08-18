@@ -46,6 +46,7 @@ if (/deriveAudioCutsForSubtractiveTextEdits|commitAudioCutSelection|moveSegmentT
 if (/resolveInsertBrollSuggestionInGraph|updateResolvedInsertBrollOperationInGraph|synchronizeLinkedAudioDuckForBrollOperation|deriveStableHammerVisualAssetId/.test(shell)) failures.push("HammerWorkspaceShell reacquired media-map or manual B-roll mutation construction.");
 if (/create(?:HardCut|Crossfade|DipToBlack|FadeAudio|PodcastMasterPass|ApplyLook|ApplyExposure)Instruction/.test(shell)) failures.push("HammerWorkspaceShell reacquired transition, audio-master, or look/exposure mutation construction.");
 if (/buildHammer(?:ReleasePrepPackage|RenderAssembly)\s*\(/.test(shell)) failures.push("HammerWorkspaceShell reacquired release-package construction or release projection.");
+if (/snapshotAuthorityRef|createHammerWorkspaceShellSnapshotAuthority\s*\(/.test(shell)) failures.push("HammerWorkspaceShell reacquired snapshot-production ref ownership; use the snapshot authority hook contract.");
 if (/setEditableVisualTimeline|applyVisualTimelineAction/.test(automaticPlacementAuthority)) failures.push("Automatic-placement authority bypassed the canonical placement commit callback.");
 
 const releasePackageAuthority = inspect("src/editor/hammerWorkspaceShellReleasePackage.ts").text;

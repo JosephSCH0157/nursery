@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import { createHammerWorkspaceShellSnapshotAuthority } from "../src/editor/hammerWorkspaceShellSnapshotEmitter";
 import type { HammerHistoryPostSaveSnapshotRequest } from "../src/editor/hammerWorkspaceShellHistoryController";
@@ -138,4 +139,13 @@ test("reset suppresses stale completion and failures preserve non-fatal behavior
   });
   await assert.doesNotReject(manifestFailure.produce(request("head-40", 40, "failure")));
   assert.ok(warnings.includes("Hammer snapshot manifest write skipped"));
+});
+
+test("snapshot authority ref ownership remains inside the emitter contract", () => {
+  const shellSource = readFileSync(new URL("../src/editor/HammerWorkspaceShell.tsx", import.meta.url), "utf8");
+  const emitterSource = readFileSync(new URL("../src/editor/hammerWorkspaceShellSnapshotEmitter.ts", import.meta.url), "utf8");
+  assert.equal(shellSource.includes("snapshotAuthorityRef"), false);
+  assert.equal(shellSource.includes("createHammerWorkspaceShellSnapshotAuthority()"), false);
+  assert.equal(shellSource.includes("useHammerWorkspaceShellSnapshotAuthority()"), true);
+  assert.equal(emitterSource.includes("const authorityRef = useRef<HammerWorkspaceShellSnapshotAuthority | null>(null)"), true);
 });
