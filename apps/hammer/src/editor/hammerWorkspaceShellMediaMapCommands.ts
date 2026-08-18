@@ -1,0 +1,398 @@
+import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
+import type { HammerVisualPlacementRecord } from "../persistence/hammerPersistenceContract";
+import { DEFAULT_VISUAL_PLACEMENT_GEOMETRY } from "./hammerWorkspaceShellVisualUtils";
+import {
+  deriveStableHammerVisualAssetId,
+  migrateLegacyPlacementRecordToAsset,
+  migrateLegacyPlacementRecordToClip,
+} from "../visuals/model/hammerVisualMigrations";
+import {
+  appendAuthorityInstructionToGraph,
+  createAudioDuckInstruction,
+  resolveInsertBrollSuggestionInGraph,
+  setAuthorityOperationLifecycle,
+  synchronizeLinkedAudioDuckForBrollOperation,
+  updateResolvedInsertBrollOperationInGraph,
+} from "./hammerAuthorityOps";
+import {
+  applyWorkspaceVisualTimelineActions,
+  replaceWorkspaceVisualTimelineState,
+  resolveCanonicalWorkspaceVisualTimeline,
+} from "./hammerWorkspaceMutationGateway";
+import type { HammerHistoryEntry } from "./hammerWorkspaceHistory";
+import type { HammerHistoryMutationArgs } from "./hammerWorkspaceShellHistoryController";
+import { deriveHammerMediaMapBeats, type HammerMediaMapBeat } from "./useHammerWorkspaceShellMediaMap";
+import type { HammerMediaMapSuggestionType } from "./hammerWorkspaceShellMediaUtils";
+import { roundToTenth } from "./hammerWorkspaceTimeline";
+
+/** Media-map and manual B-roll mutation commands. This authority owns no Source Desk loading,
+ * automatic-placement lifecycle, preview effects, persistence, view models, JSX, or shorts. */
+
+type ApplyHistoryMutation = (args: HammerHistoryMutationArgs) => HammerHistoryEntry | null;
+
+export function createHammerMediaMapMutationCommands(args: {
+  applyHistoryMutation: ApplyHistoryMutation;
+  transcriptDurationSec: number;
+  transcriptSegments: HammerTranscriptSegment[];
+  placementsBySegmentId: ReadonlyMap<string, { id: string; kind: string }>;
+  createPlacementId: () => string;
+  identity: { workpieceId: string; workspaceId: string; sessionId: string; transcriptSourceId: string };
+  setMediaMapBeats: (beats: HammerMediaMapBeat[]) => void;
+  setRemovedMediaMapSegmentIds: (ids: string[]) => void;
+  setTimingHint: (hint: string | null) => void;
+}) {
+  const updatePlacementKindFromMediaMap = (
+    placementId: string,
+    nextType: HammerMediaMapSuggestionType,
+  ): void => {
+    args.applyHistoryMutation({
+      label: `Change visual type to ${nextType === "reference_clip" ? "Reference Clip" : "B-roll"}`,
+      kind: "visual_adjustment",
+      toolId: "video",
+      affectedPlacementIds: [placementId],
+      immediatePersist: true,
+      computeAfter: (before) => replaceWorkspaceVisualTimelineState(before, (timeline) => ({
+        ...timeline,
+        clips: timeline.clips.map((clip) => (
+          clip.clip_id === placementId
+            ? {
+              ...clip,
+              visual_mode: nextType === "reference_clip" ? "reference_clip" : "broll",
+              label: clip.label ?? (nextType === "reference_clip" ? "Reference Clip" : "B-roll"),
+            }
+            : clip
+        )),
+      })),
+    });
+  };
+
+  const redoMediaMapFromScript = (): void => {
+    args.setRemovedMediaMapSegmentIds([]);
+    args.setMediaMapBeats(deriveHammerMediaMapBeats({
+      current: [],
+      segments: args.transcriptSegments,
+      removedSegmentIds: [],
+      placementsBySegmentId: args.placementsBySegmentId,
+    }));
+    args.setTimingHint("Media Map regenerated from current transcript.");
+  };
+
+  const resolveHearthBrollSuggestion = (input: {
+    operationId: string;
+    assetPath: string;
+    label: string;
+  }): void => {
+    const placementId = args.createPlacementId();
+    args.applyHistoryMutation({
+      label: "Resolve Hearth B-roll suggestion",
+      kind: "visual_adjustment",
+      toolId: "video",
+      affectedPlacementIds: [placementId],
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const graph = before.editorialAuthorityGraph;
+        if (!graph) return before;
+        const operation = graph.operations.find((item) => item.operation_id === input.operationId) ?? null;
+        if (!operation || operation.instruction.type !== "insert_broll") return before;
+        const startSec = Math.max(0, roundToTenth(operation.instruction.start_sec));
+        const endSec = Math.max(
+          startSec + 0.5,
+          Math.min(args.transcriptDurationSec, roundToTenth(operation.instruction.end_sec)),
+        );
+        const resolvedGraph = resolveInsertBrollSuggestionInGraph({
+          graph,
+          operationId: input.operationId,
+          assetRef: input.assetPath,
+          startSec,
+          endSec,
+        });
+        if (!resolvedGraph) return before;
+        const anchorSegment = before.transcriptSegments.find(
+          (segment) => segment.segment_id === operation.instruction.segment_id,
+        ) ?? before.transcriptSegments[0] ?? null;
+        if (!anchorSegment) return before;
+
+        let nextGraph = resolvedGraph;
+        if ((operation.instruction.duck_preference ?? "auto") === "auto") {
+          nextGraph = appendAuthorityInstructionToGraph({
+            graph: nextGraph,
+            instruction: createAudioDuckInstruction({
+              segmentId: anchorSegment.segment_id,
+              startSec,
+              endSec,
+              duckGainDb: -9,
+              linkedBrollOperationId: input.operationId,
+            }),
+            fallback: {
+              graphId: `${args.identity.workpieceId}:authority`,
+              workspaceId: args.identity.workspaceId,
+              workpieceId: args.identity.workpieceId,
+              sessionId: args.identity.sessionId,
+              sourceTranscriptId: args.identity.transcriptSourceId,
+            },
+          });
+          const duckOperationId = nextGraph.operations.at(-1)?.operation_id ?? null;
+          nextGraph = updateResolvedInsertBrollOperationInGraph({
+            graph: nextGraph,
+            operationId: input.operationId,
+            changes: { companion_audio_duck_operation_id: duckOperationId },
+          }) ?? nextGraph;
+        }
+
+        const brollPlacement: HammerVisualPlacementRecord = {
+          placement_id: placementId,
+          authority_operation_id: input.operationId,
+          entry_id: `manual:${placementId}`,
+          anchor_segment_id: anchorSegment.segment_id,
+          matched_segment_ids: [anchorSegment.segment_id],
+          anchor_text: anchorSegment.text,
+          asset_ref: input.assetPath,
+          asset_id: null,
+          asset_path: input.assetPath,
+          storage_key: input.assetPath,
+          label: input.label,
+          visual_mode: "broll",
+          start_sec: startSec,
+          end_sec: endSec,
+          confidence: null,
+          timing_source: "ordered_fallback",
+          status: "placed",
+          ingest_state: "approved",
+          uncertainty_flags: [],
+          overlay_geometry: { ...DEFAULT_VISUAL_PLACEMENT_GEOMETRY, x: 0.08, y: 0.08, width: 0.84, height: 0.84 },
+          animation_preset: "none",
+          overlay_opacity: 1,
+          overlay_z_index: resolveCanonicalWorkspaceVisualTimeline(before).clips.length + 1,
+        };
+        const updatedAt = new Date().toISOString();
+        const assetId = deriveStableHammerVisualAssetId(brollPlacement);
+        const nextClip = migrateLegacyPlacementRecordToClip({ record: brollPlacement, asset_id: assetId, updated_at: updatedAt });
+        const asset = migrateLegacyPlacementRecordToAsset({ record: brollPlacement, asset_id: assetId, updated_at: updatedAt });
+        return applyWorkspaceVisualTimelineActions({ ...before, editorialAuthorityGraph: nextGraph }, [
+          { type: "UPSERT_ASSETS", assets: [asset], updated_at: updatedAt },
+          { type: "CREATE_CLIP", clip: nextClip, updated_at: updatedAt },
+        ]);
+      },
+    });
+  };
+
+  const discardHearthBrollSuggestion = (operationId: string): void => {
+    args.applyHistoryMutation({
+      label: "Discard Hearth B-roll suggestion",
+      kind: "visual_adjustment",
+      toolId: "video",
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const graph = before.editorialAuthorityGraph;
+        if (!graph) return before;
+        const next = setAuthorityOperationLifecycle({ graph, operationId, lifecycle: "reverted" });
+        return next ? { ...before, editorialAuthorityGraph: next } : before;
+      },
+    });
+  };
+
+  const moveResolvedBrollBinding = (operationId: string, deltaSec: number): void => {
+    args.applyHistoryMutation({
+      label: "Move resolved b-roll binding",
+      kind: "visual_adjustment",
+      toolId: "video",
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const graph = before.editorialAuthorityGraph;
+        if (!graph) return before;
+        const operation = graph.operations.find((item) => item.operation_id === operationId) ?? null;
+        if (!operation || operation.instruction.type !== "insert_broll"
+          || operation.instruction.asset_binding_state === "unresolved") return before;
+        const duration = Math.max(
+          0.5,
+          roundToTenth(operation.instruction.end_sec - operation.instruction.start_sec),
+        );
+        const candidateStart = Math.max(0, roundToTenth(operation.instruction.start_sec + deltaSec));
+        const maxStart = Math.max(0, roundToTenth(args.transcriptDurationSec - duration));
+        const nextStart = Math.min(candidateStart, maxStart);
+        const nextEnd = Math.min(args.transcriptDurationSec, roundToTenth(nextStart + duration));
+        const nextGraph = updateResolvedInsertBrollOperationInGraph({
+          graph,
+          operationId,
+          changes: { start_sec: nextStart, end_sec: nextEnd },
+        });
+        if (!nextGraph) return before;
+        const synchronizedGraph = synchronizeLinkedAudioDuckForBrollOperation({
+          graph: nextGraph,
+          brollOperationId: operationId,
+        }) ?? nextGraph;
+        return replaceWorkspaceVisualTimelineState({ ...before, editorialAuthorityGraph: synchronizedGraph }, (timeline) => ({
+          ...timeline,
+          clips: timeline.clips.map((clip) => clip.authority_operation_id === operationId
+            ? { ...clip, start_sec: nextStart, end_sec: nextEnd }
+            : clip),
+        }));
+      },
+    });
+  };
+
+  const trimResolvedBrollBinding = (
+    operationId: string,
+    edge: "start" | "end",
+    deltaSec: number,
+  ): void => {
+    args.applyHistoryMutation({
+      label: edge === "start" ? "Trim b-roll in point" : "Trim b-roll out point",
+      kind: "visual_adjustment",
+      toolId: "video",
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const graph = before.editorialAuthorityGraph;
+        if (!graph) return before;
+        const operation = graph.operations.find((item) => item.operation_id === operationId) ?? null;
+        if (!operation || operation.instruction.type !== "insert_broll"
+          || operation.instruction.asset_binding_state === "unresolved") return before;
+        let nextStart = operation.instruction.start_sec;
+        let nextEnd = operation.instruction.end_sec;
+        if (edge === "start") {
+          nextStart = Math.max(0, roundToTenth(nextStart + deltaSec));
+          nextStart = Math.min(nextStart, roundToTenth(nextEnd - 0.5));
+        } else {
+          nextEnd = Math.min(args.transcriptDurationSec, roundToTenth(nextEnd + deltaSec));
+          nextEnd = Math.max(nextEnd, roundToTenth(nextStart + 0.5));
+        }
+        if (nextEnd <= nextStart) return before;
+        const nextGraph = updateResolvedInsertBrollOperationInGraph({
+          graph,
+          operationId,
+          changes: { start_sec: nextStart, end_sec: nextEnd },
+        });
+        if (!nextGraph) return before;
+        const synchronizedGraph = synchronizeLinkedAudioDuckForBrollOperation({
+          graph: nextGraph,
+          brollOperationId: operationId,
+        }) ?? nextGraph;
+        return replaceWorkspaceVisualTimelineState({ ...before, editorialAuthorityGraph: synchronizedGraph }, (timeline) => ({
+          ...timeline,
+          clips: timeline.clips.map((clip) => clip.authority_operation_id === operationId
+            ? { ...clip, start_sec: nextStart, end_sec: nextEnd }
+            : clip),
+        }));
+      },
+    });
+  };
+
+  const replaceResolvedBrollBinding = (operationId: string, assetPath: string): void => {
+    args.applyHistoryMutation({
+      label: "Replace resolved b-roll asset",
+      kind: "visual_adjustment",
+      toolId: "video",
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const graph = before.editorialAuthorityGraph;
+        if (!graph) return before;
+        const operation = graph.operations.find((item) => item.operation_id === operationId) ?? null;
+        if (!operation || operation.instruction.type !== "insert_broll"
+          || operation.instruction.asset_binding_state === "unresolved") return before;
+        const nextGraph = updateResolvedInsertBrollOperationInGraph({
+          graph,
+          operationId,
+          changes: { asset_ref: assetPath },
+        });
+        if (!nextGraph) return before;
+        const synchronizedGraph = synchronizeLinkedAudioDuckForBrollOperation({
+          graph: nextGraph,
+          brollOperationId: operationId,
+        }) ?? nextGraph;
+        return replaceWorkspaceVisualTimelineState({ ...before, editorialAuthorityGraph: synchronizedGraph }, (timeline) => {
+          const clip = timeline.clips.find((candidate) => candidate.authority_operation_id === operationId) ?? null;
+          if (!clip) return timeline;
+          const nextRecord: HammerVisualPlacementRecord = {
+            placement_id: clip.clip_id,
+            authority_operation_id: clip.authority_operation_id,
+            entry_id: clip.entry_id ?? `manual:${clip.clip_id}`,
+            anchor_segment_id: clip.anchor_hint.anchor_segment_id ?? "",
+            matched_segment_ids: [...clip.anchor_hint.matched_segment_ids],
+            anchor_text: clip.anchor_hint.anchor_text ?? null,
+            asset_ref: assetPath,
+            asset_id: null,
+            asset_path: assetPath,
+            storage_key: assetPath,
+            label: clip.label,
+            visual_mode: clip.visual_mode,
+            start_sec: clip.start_sec,
+            end_sec: clip.end_sec,
+            confidence: clip.confidence,
+            timing_source: "ordered_fallback",
+            status: clip.placement_status,
+            ingest_state: clip.ingest_state ?? undefined,
+            uncertainty_flags: [...clip.uncertainty_flags],
+            overlay_geometry: { ...clip.geometry },
+            animation_preset: clip.animation.preset,
+            overlay_opacity: clip.opacity,
+            overlay_z_index: clip.z_index,
+          };
+          const assetId = deriveStableHammerVisualAssetId(nextRecord);
+          const asset = migrateLegacyPlacementRecordToAsset({
+            record: nextRecord,
+            asset_id: assetId,
+            updated_at: new Date().toISOString(),
+          });
+          return {
+            ...timeline,
+            assets: timeline.assets.some((item) => item.asset_id === assetId)
+              ? timeline.assets.map((item) => item.asset_id === assetId ? asset : item)
+              : [...timeline.assets, asset],
+            clips: timeline.clips.map((candidate) => candidate.authority_operation_id === operationId
+              ? { ...candidate, asset_id: assetId, updated_at: asset.updated_at }
+              : candidate),
+          };
+        });
+      },
+    });
+  };
+
+  const revertResolvedBrollBinding = (operationId: string): void => {
+    args.applyHistoryMutation({
+      label: "Revert resolved b-roll binding",
+      kind: "visual_adjustment",
+      toolId: "video",
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const graph = before.editorialAuthorityGraph;
+        if (!graph) return before;
+        const brollOperation = graph.operations.find((item) => item.operation_id === operationId) ?? null;
+        if (!brollOperation || brollOperation.instruction.type !== "insert_broll") return before;
+        let nextGraph = setAuthorityOperationLifecycle({ graph, operationId, lifecycle: "reverted" }) ?? graph;
+        const companionDuckId = brollOperation.instruction.companion_audio_duck_operation_id ?? null;
+        if (companionDuckId) {
+          nextGraph = setAuthorityOperationLifecycle({
+            graph: nextGraph,
+            operationId: companionDuckId,
+            lifecycle: "reverted",
+          }) ?? nextGraph;
+        }
+        return replaceWorkspaceVisualTimelineState({ ...before, editorialAuthorityGraph: nextGraph }, (timeline) => ({
+          ...timeline,
+          clips: timeline.clips.filter((clip) => clip.authority_operation_id !== operationId),
+          lanes: timeline.lanes.map((lane) => ({
+            ...lane,
+            clip_ids: lane.clip_ids.filter((clipId) => (
+              timeline.clips.find((clip) => clip.clip_id === clipId)?.authority_operation_id !== operationId
+            )),
+          })),
+          selected_clip_id: timeline.selected_clip_id
+            && timeline.clips.find((clip) => clip.clip_id === timeline.selected_clip_id)?.authority_operation_id === operationId
+            ? null
+            : timeline.selected_clip_id,
+        }));
+      },
+    });
+  };
+
+  return {
+    updatePlacementKindFromMediaMap,
+    redoMediaMapFromScript,
+    resolveHearthBrollSuggestion,
+    discardHearthBrollSuggestion,
+    moveResolvedBrollBinding,
+    trimResolvedBrollBinding,
+    replaceResolvedBrollBinding,
+    revertResolvedBrollBinding,
+  };
+}
