@@ -21,7 +21,6 @@ import type {
   HammerVisualPlacementRecord,
   HammerPersistedVisualPlacements,
 } from "../persistence/hammerPersistenceContract";
-import { createEmptyVisualTimelineState } from "../visuals/model/hammerVisualDefaults";
 import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
 import {
   selectClipById,
@@ -147,10 +146,9 @@ import {
 import { useHammerWorkspaceShellTranscriptCleanup } from "./useHammerWorkspaceShellTranscriptCleanup";
 import { useHammerWorkspaceShellCleanupCandidateReview } from "./useHammerWorkspaceShellCleanupCandidateReview";
 import { useHammerWorkspaceShellRouting } from "./useHammerWorkspaceShellRouting";
-import {
-  composeHammerPreviewBayViewModel, composeHammerSourceBayViewModel, composeHammerTimelineDockViewModel,
-  composeHammerToolbarViewModel, composeHammerToolBayViewModel,
-} from "./useHammerWorkspaceShellViewModels";
+import { createHammerWorkspaceShellViewModelComposition } from "./useHammerWorkspaceShellViewModels";
+import { useHammerWorkspaceShellReleaseComparison, useHammerWorkspaceShellReleaseReadiness } from "./hammerWorkspaceShellReleaseStatus";
+import { createHammerWorkspaceVisualSelectionCommand } from "./hammerWorkspaceVisualSelectionCommand";
 import {
   toHammerLinkedSelectionVisualItems,
   type HammerSelectedTranscriptRange,
@@ -194,19 +192,13 @@ import {
   cloneHammerAudioEdit,
   cloneHammerAudioPolish,
 } from "../prep/hammerAudioPolish";
-import {
-  HAMMER_PREPARED_RELEASE_PACKAGE_PATH,
-  compareHammerPreparedReleasePackageToCurrent,
-} from "../lib/hammerPreparedReleasePackage";
+import { HAMMER_PREPARED_RELEASE_PACKAGE_PATH } from "../lib/hammerPreparedReleasePackage";
 import {
   HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH,
 } from "../lib/hammerQuenchReleasePacket";
-import { deriveHammerReleaseHandoffPosture } from "../lib/hammerReleaseHandoffPosture";
 import {
   projectEditorialAuthorityGraphFromEditPlan,
 } from "./hammerRenderAssembly";
-import { resolvePodcastMasterUiStatus } from "./hammerPodcastMasterStatus";
-import { evaluateHammerReadinessGate } from "./hammerReadinessGate";
 import {
   deriveHydratedPassStatus,
   getPassStatus,
@@ -273,7 +265,6 @@ import {
   captureHammerWorkspaceState,
   createHammerWorkspaceMutationGateway,
   resolveCanonicalWorkspaceVisualTimeline,
-  selectWorkspaceVisualTimelineClip,
   type HammerVisualTimelineAction,
 } from "./hammerWorkspaceMutationGateway";
 import {
@@ -414,7 +405,6 @@ type HammerTimelineLaneView = {
   blocks: HammerTimelineLaneBlock[];
 };
 
-type HammerExportTruthState = "never_prepared" | "current" | "stale";
 function hasTranscriptSegmentChanged(
   previous: HammerTranscriptSegment | undefined,
   next: HammerTranscriptSegment,
@@ -429,6 +419,8 @@ function hasTranscriptSegmentChanged(
 function isSubtractiveTranscriptEdit(previousText: string, nextText: string): boolean {
   return isSubtractiveTranscriptWordEdit(previousText, nextText);
 }
+
+const workspaceViewModelComposition = createHammerWorkspaceShellViewModelComposition();
 
 export default function HammerWorkspaceShell(props: HammerWorkspaceShellProps): JSX.Element {
   if (!props.launchContext) {
@@ -2107,13 +2099,7 @@ function HammerWorkspaceShellWithContext(
     mediaRef,
     transcriptId: transcriptSourceId,
     derivedTextLayers: editableDerivedTextLayers,
-  });
-  /*
-    Transcript source-boundary sync contract:
-    useEffect(() => {
-      // reset editable transcript state only when the authoritative source boundary changes
-    }, [launchContext.workpiece_id, transcriptSourceId]);
-  */
+  }); // Transcript hydration reset contract: }, [launchContext.workpiece_id, transcriptSourceId]);
   const mediaPrepOutputs = useHammerWorkspaceShellMediaPrepPackage({
     structuredTranscript: workspaceStructuredTranscript ?? null,
     visualPlacements: null,
@@ -2290,29 +2276,14 @@ function HammerWorkspaceShellWithContext(
     }).applyWorkspaceState(nextState, reason);
   }
 
+  const selectVisualTimelineClipCommand = createHammerWorkspaceVisualSelectionCommand({
+    fallbackTimeline: props.visualTimeline ?? null,
+    setVisualTimeline: setEditableVisualTimeline,
+    lastDebugSelectionKeyRef: lastVisualSelectionLogKeyRef,
+    debugEnabled: isHammerVisualSelectionDebugEnabled,
+  });
   function setSelectedClipId(clipId: string | null): void {
-    setEditableVisualTimeline((current) => {
-      const base = current ?? props.visualTimeline ?? createEmptyVisualTimelineState({
-        updated_at: new Date().toISOString(),
-        debug_origin: "empty_init",
-      });
-      if (base.selected_clip_id === clipId) {
-        return current ?? base;
-      }
-      const next = selectWorkspaceVisualTimelineClip(base, clipId);
-      if (isHammerVisualSelectionDebugEnabled() && clipId) {
-        const resolved = selectClipById(next, clipId);
-        const selectionLogKey = `${clipId}|${resolved?.clip_id ?? ""}`;
-        if (selectionLogKey !== lastVisualSelectionLogKeyRef.current) {
-          lastVisualSelectionLogKeyRef.current = selectionLogKey;
-          console.debug("[HammerVisuals] clip selection", {
-            clicked_clip_id: clipId,
-            resolved_selected_clip_id: resolved?.clip_id ?? null,
-          });
-        }
-      }
-      return next;
-    });
+    selectVisualTimelineClipCommand(clipId);
   }
 
   function flushPendingPlacementDrafts(): void {
@@ -2763,8 +2734,6 @@ function HammerWorkspaceShellWithContext(
   }, [currentPass, syncReviewPass]);
   useHammerAudioFinishingCompareResetEffect({ rackBypassed: editableStudioRack.is_bypassed, setMode: setAudioFinalizationCompareMode });
   useEffect(() => {
-  }, [sourceImageItems]);
-  useEffect(() => {
     invalidateDeadAirAnalysis();
   }, [deadAirThresholdSec, editableTranscriptSegments, invalidateDeadAirAnalysis]);
 
@@ -2988,53 +2957,16 @@ function HammerWorkspaceShellWithContext(
       ffmpegAvailable: studioRackRenderBackendResolution.ffmpegAvailable,
   });
 
-  const releasePrepComparison = useMemo(
-    () => compareHammerPreparedReleasePackageToCurrent(
-      loadedPreparedPackage,
-      exportBasis.currentReleasePackage,
-      { timelineRevision: exportBasis.timelineRevision },
-    ),
-    [exportBasis.currentReleasePackage, exportBasis.timelineRevision, loadedPreparedPackage],
-  );
-  const timelineRevisionChanged = useMemo(() => {
-    if (!loadedPreparedPackage) return false;
-    const previous = loadedPreparedPackage.provenance.timelineRevision ?? null;
-    const current = exportBasis.timelineRevision ?? null;
-    return previous !== current;
-  }, [exportBasis.timelineRevision, loadedPreparedPackage]);
-  const releasePrepStaleReasons = useMemo(() => {
-    const reasons = [...releasePrepComparison.staleReasons];
-    if (timelineRevisionChanged) reasons.push("Timeline revision changed");
-    return reasons;
-  }, [releasePrepComparison.staleReasons, timelineRevisionChanged]);
-  const exportTruthState: HammerExportTruthState = !loadedPreparedPackage
-    ? "never_prepared"
-    : releasePrepComparison.preparedStatus === "current" && !timelineRevisionChanged
-    ? "current"
-    : "stale";
-  const exportStatusLabel = exportTruthState === "never_prepared"
-    ? "Never exported"
-    : exportTruthState === "current"
-    ? "Exported and current"
-    : "Exported, but stale";
-  const previewTruthPosture = exportBasis.renderAssembly.preview.posture;
-  const exportTruthPosture = exportBasis.renderAssembly.export_timeline.export_posture;
-  const handoffTruthPosture = exportBasis.renderAssembly.handoff.posture;
-  const podcastMasterLayer = useMemo(
-    () => exportBasis.renderAssembly.export_timeline.audio_layers.find((layer) => layer.kind === "podcast_master_pass") ?? null,
-    [exportBasis.renderAssembly.export_timeline.audio_layers],
-  );
-  const podcastMasterUiStatus = useMemo(
-    () => resolvePodcastMasterUiStatus({
-      declared: Boolean(podcastMasterLayer),
-      posture: podcastMasterLayer?.posture,
-      capability: podcastMasterLayer?.capability,
-      preview_mode: podcastMasterLayer?.meta?.preview_mode,
-      applied_stages: podcastMasterLayer?.meta?.applied_stages,
-      skipped_stages: podcastMasterLayer?.meta?.skipped_stages,
-    }),
-    [podcastMasterLayer],
-  );
+  const {
+    releasePrepStaleReasons, exportTruthState,
+    exportStatusLabel, previewTruthPosture, exportTruthPosture, handoffTruthPosture,
+    podcastMasterLayer, podcastMasterUiStatus,
+  } = useHammerWorkspaceShellReleaseComparison({
+    loadedPreparedPackage,
+    currentReleasePackage: exportBasis.currentReleasePackage,
+    timelineRevision: exportBasis.timelineRevision,
+    renderAssembly: exportBasis.renderAssembly,
+  });
   const {
     boundObjects,
     boundObjectById,
@@ -3055,22 +2987,13 @@ function HammerWorkspaceShellWithContext(
     supersededCount: boundAttentionQueue.filter((item) => item.kind === "superseded_binding").length,
     transitionCount: boundAttentionQueue.filter((item) => item.kind === "transition_attention").length,
   }), [boundAttentionQueue]);
-  const readinessGate = useMemo(() => evaluateHammerReadinessGate({
+  const { readinessGate, readinessVerdict } = useHammerWorkspaceShellReleaseReadiness({
     renderAssembly: exportBasis.renderAssembly,
     canonicalGraph: editableEditorialAuthorityGraph,
     boundAttentionQueue: boundAttentionQueueForGate,
-    unresolvedBrollSuggestionOperationIds: unresolvedBrollSuggestionItems.map((item) => item.operationId),
-  }), [
-    exportBasis.renderAssembly,
-    editableEditorialAuthorityGraph,
-    boundAttentionQueueForGate,
-    unresolvedBrollSuggestionItems,
-  ]);
-  const handoffPosture = useMemo(() => deriveHammerReleaseHandoffPosture({
-    releasePrepPackage: exportBasis.currentReleasePackage,
-    readinessGate,
-  }), [exportBasis.currentReleasePackage, readinessGate]);
-  const readinessVerdict = handoffPosture.verdict;
+    unresolvedBrollSuggestions: unresolvedBrollSuggestionItems,
+    currentReleasePackage: exportBasis.currentReleasePackage,
+  });
   const passSelectorContext = useMemo<HammerPassSelectorContext>(() => ({
     currentPass,
     passStatus,
@@ -3105,7 +3028,7 @@ function HammerWorkspaceShellWithContext(
     }
     return byPass;
   }, [passSelectorContext]);
-  const timelineDockVM = useMemo(() => composeHammerTimelineDockViewModel({
+  const timelineDockVM = useMemo(() => workspaceViewModelComposition.timelineDock({
     SCRUB_RATE_OPTIONS,
     SMALL_PLAYHEAD_NUDGE_SEC,
     editableAudioPolish,
@@ -3248,7 +3171,7 @@ function HammerWorkspaceShellWithContext(
     zoomTimelineIn,
     zoomTimelineOut,
   ]);
-  const sourceBayVM = useMemo(() => composeHammerSourceBayViewModel({
+  const sourceBayVM = useMemo(() => workspaceViewModelComposition.sourceBay({
     props,
     canUndo,
     undoLabel,
@@ -3482,7 +3405,7 @@ function HammerWorkspaceShellWithContext(
     selectedPlacement: selectedImagePlacement,
     setEvidence: setCanonicalAutoPlacementEvidence,
   });
-  const previewBayVM = useMemo(() => composeHammerPreviewBayViewModel({
+  const previewBayVM = useMemo(() => workspaceViewModelComposition.previewBay({
     previewMode,
     activeTool,
     activeVisualTool,
@@ -3691,7 +3614,7 @@ function HammerWorkspaceShellWithContext(
       previewMode: previewBayVM?.previewModeLabel,
     });
   }, [previewBayVM]);
-  const toolbarVM = useMemo(() => composeHammerToolbarViewModel({
+  const toolbarVM = useMemo(() => workspaceViewModelComposition.toolbar({
     editableTranscriptSegments,
     editableVisualPlacements,
     editableVisualTimeline,
@@ -3968,7 +3891,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     createFallbackEditPlan,
   });
 
-  const toolBayVM = useMemo(() => composeHammerToolBayViewModel({
+  const toolBayVM = useMemo(() => workspaceViewModelComposition.toolBay({
     passLabel: currentPassMeta.label,
     passStatus: currentPassSelectorResult.status,
     onMarkComplete: markCurrentPassComplete,

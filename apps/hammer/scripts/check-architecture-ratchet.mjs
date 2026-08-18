@@ -72,6 +72,19 @@ for (const [pattern, message] of [
   [/onWorkspaceSnapshotChange|setEditable[A-Z]|dispatch\s*\(/, "Release-package construction acquired canonical mutation ownership."],
 ]) if (pattern.test(releasePackageAuthority)) failures.push(`src/editor/hammerWorkspaceShellReleasePackage.ts: ${message}`);
 
+for (const legacyComposer of [
+  "composeHammerTimelineDockViewModel", "composeHammerSourceBayViewModel", "composeHammerPreviewBayViewModel",
+  "composeHammerToolbarViewModel", "composeHammerToolBayViewModel",
+]) if (shell.includes(legacyComposer)) failures.push(`HammerWorkspaceShell bypassed the single view-model composition authority via ${legacyComposer}.`);
+if ((shell.match(/createHammerWorkspaceShellViewModelComposition\s*\(\)/g) ?? []).length !== 1) failures.push("HammerWorkspaceShell must install exactly one coordinated five-view-model composition authority.");
+if (/\b(?:compareHammerPreparedReleasePackageToCurrent|evaluateHammerReadinessGate|deriveHammerReleaseHandoffPosture|resolvePodcastMasterUiStatus)\s*\(/.test(shell)) failures.push("HammerWorkspaceShell reacquired release comparison, readiness, handoff, or podcast-master status projection.");
+if (!/useHammerWorkspaceShellReleaseComparison\s*\(/.test(shell) || !/useHammerWorkspaceShellReleaseReadiness\s*\(/.test(shell)) failures.push("HammerWorkspaceShell must use the coordinated release-prep status authority.");
+if (/setEditableVisualTimeline\s*\(/.test(shell)) failures.push("HammerWorkspaceShell bypassed the canonical visual-selection command with a direct timeline setter call.");
+const releaseStatusAuthority = inspect("src/editor/hammerWorkspaceShellReleaseStatus.ts").text;
+if (/\b(?:saveHammer|loadHammer|fetch|localStorage|sessionStorage|setEditable[A-Z]|createPortal)\b/.test(releaseStatusAuthority)) failures.push("Release-status authority acquired persistence, canonical mutation, or JSX ownership.");
+const visualSelectionCommand = inspect("src/editor/hammerWorkspaceVisualSelectionCommand.ts").text;
+if (!/selectWorkspaceVisualTimelineClip\s*\(/.test(visualSelectionCommand) || /hammerVisualTimelineReducer|\b(?:saveHammer|fetch|localStorage)\b/.test(visualSelectionCommand)) failures.push("Visual-selection command bypassed the workspace mutation gateway or acquired persistence ownership.");
+
 const expansionGate = inspect("src/composition/hammerExpansionGateV1.ts").text;
 for (const required of [
   "HAMMER_PERFORMANCE_BUDGETS_V1",

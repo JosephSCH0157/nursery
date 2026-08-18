@@ -26,22 +26,12 @@ export type HammerWorkspaceShellComposedViewModels = {
   toolBayVM: ReturnType<typeof buildToolBayVM>;
 };
 
-export function composeHammerTimelineDockViewModel(input: TimelineDockInput) {
-  return buildTimelineDockVM(input);
-}
-
-export function composeHammerSourceBayViewModel(input: SourceBayInput) {
-  return buildSourceBayVM(input);
-}
-
-export function composeHammerPreviewBayViewModel(input: PreviewBayInput) {
-  return buildPreviewBayVM(input);
-}
-
-export function composeHammerToolbarViewModel(input: ToolbarInput) {
-  return buildToolbarVM(input);
-}
-
-export function composeHammerToolBayViewModel(input: ToolBayInput) {
-  return buildToolBayVM(input);
+export function createHammerWorkspaceShellViewModelComposition() {
+  return {
+    timelineDock: (input: TimelineDockInput) => buildTimelineDockVM(input),
+    sourceBay: (input: SourceBayInput) => buildSourceBayVM(input),
+    previewBay: (input: PreviewBayInput) => buildPreviewBayVM(input),
+    toolbar: (input: ToolbarInput) => buildToolbarVM(input),
+    toolBay: (input: ToolBayInput) => buildToolBayVM(input),
+  };
 }
