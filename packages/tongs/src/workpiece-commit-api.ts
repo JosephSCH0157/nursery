@@ -633,7 +633,32 @@ export type WorkpieceRecordingTruth = {
   workpiece_id: string;
   recorded: boolean;
   latest_kept_take: WorkpieceTakeReceipt | null;
+  canonical_recording: WorkpieceCanonicalRecordingProjection | null;
 };
+
+export type WorkpieceCanonicalRecordingProjection = {
+  id: string;
+  status: string;
+  media_id: string;
+  media_path: string;
+  media_content_type: string | null;
+  media_bytes: number | null;
+  media_duration_ms: number | null;
+  sealed_at: string | null;
+};
+
+export function buildWorkpieceRecordingTruth(args: {
+  workpieceId: string;
+  eligibleCandidate: WorkpieceTakeReceipt | null;
+  canonicalRecording: WorkpieceCanonicalRecordingProjection | null;
+}): WorkpieceRecordingTruth {
+  return {
+    workpiece_id: args.workpieceId,
+    recorded: Boolean(args.canonicalRecording || args.eligibleCandidate),
+    latest_kept_take: args.eligibleCandidate,
+    canonical_recording: args.canonicalRecording,
+  };
+}
 
 export type RecordingSessionStatus = (typeof RECORDING_SESSION_STATUS_VALUES)[number];
 
@@ -1581,6 +1606,7 @@ export type WorkspaceEpisodeSummary = Pick<
 > & {
   recorded: boolean;
   latest_kept_take: WorkpieceTakeReceipt | null;
+  canonical_recording: WorkpieceCanonicalRecordingProjection | null;
 };
 
 export type ListWorkspaceSparksOptions = {
@@ -5511,7 +5537,11 @@ function readyScriptPathPriority(path: string): number {
 
 function toWorkspaceEpisodeSummary(
   row: EpisodeRow,
-  recordingTruth?: { recorded: boolean; latest_kept_take: WorkpieceTakeReceipt | null },
+  recordingTruth?: {
+    recorded: boolean;
+    latest_kept_take: WorkpieceTakeReceipt | null;
+    canonical_recording: WorkpieceCanonicalRecordingProjection | null;
+  },
 ): WorkspaceEpisodeSummary {
   return {
     id: row.id,
@@ -5524,6 +5554,7 @@ function toWorkspaceEpisodeSummary(
     archive_reason: row.archive_reason ?? null,
     recorded: recordingTruth?.recorded ?? false,
     latest_kept_take: recordingTruth?.latest_kept_take ?? null,
+    canonical_recording: recordingTruth?.canonical_recording ?? null,
   };
 }
 
@@ -12592,10 +12623,12 @@ export class TongsCommitService {
 
     const rows = data ?? [];
     const keptTakeByWorkpiece = await this.listLatestKeptTakeByWorkpieceIds(rows.map((row) => row.id));
+    const canonicalByWorkpiece = await this.listCanonicalRecordingProjectionsByWorkpieceIds(rows.map((row) => row.id));
 
     return rows.map((row) => toWorkspaceEpisodeSummary(row as EpisodeRow, {
-      recorded: keptTakeByWorkpiece.has(row.id),
+      recorded: canonicalByWorkpiece.has(row.id) || keptTakeByWorkpiece.has(row.id),
       latest_kept_take: keptTakeByWorkpiece.get(row.id) ?? null,
+      canonical_recording: canonicalByWorkpiece.get(row.id) ?? null,
     }));
   }
 
@@ -15096,14 +15129,49 @@ export class TongsCommitService {
     return next;
   }
 
+  private async listCanonicalRecordingProjectionsByWorkpieceIds(
+    workpieceIds: readonly string[],
+  ): Promise<Map<string, WorkpieceCanonicalRecordingProjection>> {
+    const next = new Map<string, WorkpieceCanonicalRecordingProjection>();
+    if (!workpieceIds.length) return next;
+    const { data, error } = await this.supabase
+      .schema("tongs")
+      .from("canonical_recordings")
+      .select("id,workpiece_id,status,media_id,media_path,media_content_type,media_bytes,media_duration_ms,sealed_at")
+      .in("workpiece_id", [...workpieceIds]);
+    if (error) {
+      throw new HttpError(502, "db_read_failed", "Failed to list canonical recording authority", {
+        reason: error.message,
+      });
+    }
+    for (const row of data ?? []) {
+      const mediaPath = row.media_path?.trim() ?? "";
+      if (!row.workpiece_id || !mediaPath || !row.media_id) continue;
+      next.set(row.workpiece_id, {
+        id: row.id,
+        status: row.status,
+        media_id: row.media_id,
+        media_path: mediaPath,
+        media_content_type: row.media_content_type,
+        media_bytes: row.media_bytes,
+        media_duration_ms: row.media_duration_ms,
+        sealed_at: row.sealed_at,
+      });
+    }
+    return next;
+  }
+
   async getWorkpieceRecordingTruth(workpieceId: string): Promise<WorkpieceRecordingTruth> {
     await this.getCradleOrThrow(workpieceId);
-    const keptTakeByWorkpiece = await this.listLatestKeptTakeByWorkpieceIds([workpieceId]);
-    return {
-      workpiece_id: workpieceId,
-      recorded: keptTakeByWorkpiece.has(workpieceId),
-      latest_kept_take: keptTakeByWorkpiece.get(workpieceId) ?? null,
-    };
+    const [keptTakeByWorkpiece, canonicalByWorkpiece] = await Promise.all([
+      this.listLatestKeptTakeByWorkpieceIds([workpieceId]),
+      this.listCanonicalRecordingProjectionsByWorkpieceIds([workpieceId]),
+    ]);
+    return buildWorkpieceRecordingTruth({
+      workpieceId,
+      eligibleCandidate: keptTakeByWorkpiece.get(workpieceId) ?? null,
+      canonicalRecording: canonicalByWorkpiece.get(workpieceId) ?? null,
+    });
   }
 
   async listWorkspaceReadyScripts(

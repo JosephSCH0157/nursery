@@ -4,11 +4,24 @@ import {
   buildHammerLaunchContextFromRecordingTruth,
   classifyHammerRuntimeProject,
   extractHammerWorkpieceRecordingTruth,
+  projectHammerRecordingTruth,
   readHammerStoredActiveWorkspaceId,
 } from "../src/app/hammerRuntimeData";
 
+const FLORIDA_CANONICAL = {
+  id: "6c5b0d00-f775-4611-ac67-284dd9ae7d39",
+  status: "sealed",
+  media_id: "capture-session:4d85f684-1c96-4bf5-bd32-5619777d606a",
+  media_path: "recordings/Episode_fixture_2026-08-15_08-42-01.webm",
+  media_content_type: "video/webm;codecs=vp9,opus",
+  media_bytes: 91774859,
+  media_duration_ms: 494890,
+  sealed_at: "2026-08-15T12:49:05.093Z",
+};
+
 test("classifyHammerRuntimeProject keeps workspace-only items below the ready line", () => {
   const result = classifyHammerRuntimeProject({
+    hasCanonicalRecording: false,
     hasKeptTake: false,
     hasEditorSession: false,
     hasStructuredTranscript: false,
@@ -23,6 +36,7 @@ test("classifyHammerRuntimeProject keeps workspace-only items below the ready li
 
 test("classifyHammerRuntimeProject moves kept-take workpieces above the ready line", () => {
   const result = classifyHammerRuntimeProject({
+    hasCanonicalRecording: false,
     hasKeptTake: true,
     hasEditorSession: false,
     hasStructuredTranscript: false,
@@ -37,6 +51,7 @@ test("classifyHammerRuntimeProject moves kept-take workpieces above the ready li
 
 test("classifyHammerRuntimeProject treats persisted Hammer artifacts as edit-ready even without recordings", () => {
   const result = classifyHammerRuntimeProject({
+    hasCanonicalRecording: false,
     hasKeptTake: false,
     hasEditorSession: true,
     hasStructuredTranscript: true,
@@ -71,7 +86,10 @@ test("extractHammerWorkpieceRecordingTruth reads kept-take truth from API payloa
   });
 
   assert.deepEqual(result, {
+    hasRecording: true,
+    hasCanonicalRecording: false,
     hasKeptTake: true,
+    canonicalRecording: null,
     latestKeptTakePath: "recordings/session-a.wav",
     latestKeptTake: {
       eventId: 7,
@@ -193,6 +211,72 @@ test("buildHammerLaunchContextFromRecordingTruth preserves canonical kept takes 
     },
     preview_mode: "edit-aware",
   });
+});
+
+test("Florida-shaped sealed canonical authority drives recording status, preview, readiness, and bootstrap", () => {
+  const recordingTruth = extractHammerWorkpieceRecordingTruth({
+    recorded: true,
+    latest_kept_take: null,
+    canonical_recording: FLORIDA_CANONICAL,
+  });
+  assert.equal(recordingTruth.hasRecording, true);
+  assert.equal(recordingTruth.hasCanonicalRecording, true);
+  assert.equal(recordingTruth.hasKeptTake, false);
+  assert.equal(recordingTruth.latestKeptTake, null);
+
+  const projection = projectHammerRecordingTruth(recordingTruth);
+  assert.equal(projection.hasRecording, true);
+  assert.equal(projection.mediaPath, FLORIDA_CANONICAL.media_path);
+  assert.equal(projection.mediaKind, "recording_video");
+  assert.equal(projection.mediaDurationMs, FLORIDA_CANONICAL.media_duration_ms);
+
+  const readiness = classifyHammerRuntimeProject({
+    hasCanonicalRecording: true,
+    hasKeptTake: false,
+    hasEditorSession: false,
+    hasStructuredTranscript: false,
+    hasVisualPlacements: false,
+    hasAudioPolish: false,
+    hasEditPlan: false,
+  });
+  assert.equal(readiness.isEditReady, true);
+  assert.deepEqual(readiness.editReadyReasons, ["Canonical recording available"]);
+
+  const launch = buildHammerLaunchContextFromRecordingTruth({
+    workspaceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    workpieceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    recordingTruth,
+    workspaceMapping: null,
+  });
+  assert.equal(launch?.media.ref.media_id, FLORIDA_CANONICAL.media_id);
+  assert.equal(launch?.media.ref.local_relpath, FLORIDA_CANONICAL.media_path);
+});
+
+test("canonical media remains authoritative when a different candidate is also projected", () => {
+  const recordingTruth = extractHammerWorkpieceRecordingTruth({
+    recorded: true,
+    canonical_recording: FLORIDA_CANONICAL,
+    latest_kept_take: {
+      event_id: null,
+      created_at: "2026-08-18T12:00:00Z",
+      file_path: "recordings/newer-eligible.webm",
+      recording_session_id: null,
+      anvil_capture_session_id: "newer-capture",
+      content_type: "video/webm",
+      bytes: 100,
+      duration_ms: 20_000,
+      original_name: "newer-eligible.webm",
+    },
+  });
+  const launch = buildHammerLaunchContextFromRecordingTruth({
+    workspaceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    workpieceId: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+    recordingTruth,
+    workspaceMapping: null,
+  });
+  assert.equal(launch?.media.ref.media_id, FLORIDA_CANONICAL.media_id);
+  assert.equal(launch?.media.ref.local_relpath, FLORIDA_CANONICAL.media_path);
+  assert.equal(projectHammerRecordingTruth(recordingTruth).mediaPath, FLORIDA_CANONICAL.media_path);
 });
 
 test("readHammerStoredActiveWorkspaceId prefers Hammer-owned workspace cache before shared Forge keys", () => {

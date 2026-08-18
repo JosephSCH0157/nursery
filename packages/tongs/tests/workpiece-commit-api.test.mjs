@@ -2560,6 +2560,7 @@ function createReadyQueueSupabase({
   queueState = [],
   events = [],
   recordedRows = [],
+  canonicalRows = [],
 } = {}) {
   const state = {
     fileRows: files.map((row) => ({ ...row })),
@@ -3011,6 +3012,23 @@ function createReadyQueueSupabase({
                           },
                         };
                       },
+                    };
+                  },
+                };
+              },
+            };
+          }
+
+          if (tableName === "canonical_recordings") {
+            return {
+              select() {
+                return {
+                  async in(field, values) {
+                    assert.equal(field, "workpiece_id");
+                    const idSet = new Set(values);
+                    return {
+                      data: canonicalRows.filter((row) => idSet.has(row.workpiece_id)),
+                      error: null,
                     };
                   },
                 };
@@ -6473,6 +6491,17 @@ test("TongsCommitService.listWorkspaceEpisodes returns workspace-scoped summarie
         archive_reason: null,
       },
     ],
+    canonicalRows: [{
+      id: "44444444-4444-4444-8444-444444444444",
+      workpiece_id: "11111111-1111-4111-8111-111111111111",
+      status: "sealed",
+      media_id: "capture-session:55555555-5555-4555-8555-555555555555",
+      media_path: "recordings/legacy-sealed.webm",
+      media_content_type: "video/webm",
+      media_bytes: 4096,
+      media_duration_ms: 20_000,
+      sealed_at: "2026-03-10T09:00:00.000Z",
+    }],
   });
 
   const service = new TongsCommitService(supabase, "forge-workpieces", null);
@@ -6497,6 +6526,9 @@ test("TongsCommitService.listWorkspaceEpisodes returns workspace-scoped summarie
   );
   assert.equal(result[0]?.workspace_id, workspaceId);
   assert.equal(result[0]?.label, "Newest Episode");
+  assert.equal(result[0]?.recorded, true);
+  assert.equal(result[0]?.latest_kept_take, null);
+  assert.equal(result[0]?.canonical_recording?.media_path, "recordings/legacy-sealed.webm");
   assert.equal(result.some((row) => row.workspace_id === otherWorkspaceId), false);
   assert.equal(result.some((row) => row.archived_at != null), false);
 });

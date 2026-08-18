@@ -28,6 +28,7 @@ type HammerWorkspaceEpisodeRow = {
   archived_at: string | null;
   recorded: boolean;
   latest_kept_take: unknown | null;
+  canonical_recording: unknown | null;
 };
 
 const workspaceProjectsInFlight = new Map<string, Promise<HammerRuntimeProjectCard[]>>();
@@ -50,7 +51,12 @@ export type HammerRuntimeProjectCard = {
   isEditReady: boolean;
   readiness: HammerRuntimeReadiness;
   recording: {
+    hasRecording: boolean;
+    hasCanonicalRecording: boolean;
     hasKeptTake: boolean;
+    mediaPath: string | null;
+    mediaKind: "recording_video" | "recording_audio" | "unknown";
+    mediaDurationMs: number | null;
     keptTakePath: string | null;
     keptTakeKind: "recording_video" | "recording_audio" | "unknown";
     keptTakeDurationMs: number | null;
@@ -59,6 +65,7 @@ export type HammerRuntimeProjectCard = {
 };
 
 export type HammerRuntimeProjectSignals = {
+  hasCanonicalRecording: boolean;
   hasKeptTake: boolean;
   hasEditorSession: boolean;
   hasStructuredTranscript: boolean;
@@ -68,7 +75,19 @@ export type HammerRuntimeProjectSignals = {
 };
 
 export type HammerWorkpieceRecordingTruth = {
+  hasRecording: boolean;
+  hasCanonicalRecording: boolean;
   hasKeptTake: boolean;
+  canonicalRecording: {
+    id: string;
+    status: string;
+    mediaId: string;
+    mediaPath: string;
+    contentType: string | null;
+    bytes: number | null;
+    durationMs: number | null;
+    sealedAt: string | null;
+  } | null;
   latestKeptTakePath: string | null;
   latestKeptTake: {
     eventId: number | null;
@@ -92,6 +111,9 @@ export function classifyHammerRuntimeProject(
 ): { isEditReady: boolean; editReadyReasons: string[] } {
   const editReadyReasons: string[] = [];
 
+  if (signals.hasCanonicalRecording) {
+    editReadyReasons.push("Canonical recording available");
+  }
   if (signals.hasKeptTake) {
     editReadyReasons.push("Kept take available");
   }
@@ -271,6 +293,7 @@ async function listHammerWorkspaceEpisodes(workspaceId: string): Promise<HammerW
         archived_at: readString(row?.archived_at),
         recorded: row?.recorded === true,
         latest_kept_take: (row?.latest_kept_take as unknown) ?? null,
+        canonical_recording: (row?.canonical_recording as unknown) ?? null,
       };
     })
     .filter((row): row is HammerWorkspaceEpisodeRow => Boolean(row));
@@ -280,6 +303,7 @@ function recordingTruthFromEpisodeRow(episode: HammerWorkspaceEpisodeRow): Hamme
   return extractHammerWorkpieceRecordingTruth({
     recorded: episode.recorded,
     latest_kept_take: episode.latest_kept_take,
+    canonical_recording: episode.canonical_recording,
   });
 }
 
@@ -336,6 +360,20 @@ export function extractHammerWorkpieceRecordingTruth(
   value: unknown,
 ): HammerWorkpieceRecordingTruth {
   const truth = readJsonRecord(value);
+  const canonicalRow = readJsonRecord(truth?.canonical_recording);
+  const canonicalMediaPath = readString(canonicalRow?.media_path);
+  const canonicalRecording = canonicalRow && canonicalMediaPath
+    ? {
+      id: readString(canonicalRow.id) ?? "",
+      status: readString(canonicalRow.status) ?? "unknown",
+      mediaId: readString(canonicalRow.media_id) ?? "",
+      mediaPath: canonicalMediaPath,
+      contentType: readString(canonicalRow.media_content_type),
+      bytes: readFiniteNumber(canonicalRow.media_bytes),
+      durationMs: readFiniteNumber(canonicalRow.media_duration_ms),
+      sealedAt: readString(canonicalRow.sealed_at),
+    }
+    : null;
   const latestKeptTake = readJsonRecord(truth?.latest_kept_take);
   const keptTake = latestKeptTake
     ? {
@@ -351,7 +389,10 @@ export function extractHammerWorkpieceRecordingTruth(
     }
     : null;
   return {
-    hasKeptTake: truth?.recorded === true,
+    hasRecording: truth?.recorded === true || Boolean(canonicalRecording) || Boolean(keptTake),
+    hasCanonicalRecording: Boolean(canonicalRecording),
+    hasKeptTake: Boolean(keptTake),
+    canonicalRecording,
     latestKeptTakePath: keptTake?.filePath ?? null,
     latestKeptTake: keptTake,
   };
@@ -373,10 +414,42 @@ function inferKeptTakeMediaKind(
 }
 
 function inferRecordingKindFromTruth(truth: HammerWorkpieceRecordingTruth): "recording_video" | "recording_audio" | "unknown" {
+  if (truth.canonicalRecording) {
+    const kind = inferMediaKind(truth.canonicalRecording.contentType, truth.canonicalRecording.mediaPath);
+    return kind;
+  }
   if (!truth.hasKeptTake || !truth.latestKeptTake) return "unknown";
   const kind = inferKeptTakeMediaKind(truth.latestKeptTake);
   if (kind === "recording_audio") return "recording_audio";
   if (kind === "recording_video") return "recording_video";
+  return "unknown";
+}
+
+export function projectHammerRecordingTruth(
+  truth: HammerWorkpieceRecordingTruth,
+): HammerRuntimeProjectCard["recording"] {
+  return {
+    hasRecording: truth.hasRecording,
+    hasCanonicalRecording: truth.hasCanonicalRecording,
+    hasKeptTake: truth.hasKeptTake,
+    mediaPath: truth.canonicalRecording?.mediaPath ?? truth.latestKeptTakePath,
+    mediaKind: inferRecordingKindFromTruth(truth),
+    mediaDurationMs: truth.canonicalRecording?.durationMs ?? truth.latestKeptTake?.durationMs ?? null,
+    keptTakePath: truth.latestKeptTakePath,
+    keptTakeKind: truth.latestKeptTake
+      ? (inferKeptTakeMediaKind(truth.latestKeptTake) as "recording_video" | "recording_audio")
+      : "unknown",
+    keptTakeDurationMs: truth.latestKeptTake?.durationMs ?? null,
+    thumbnailPath: null,
+  };
+}
+
+function inferMediaKind(contentType: string | null, filePath: string): "recording_video" | "recording_audio" | "unknown" {
+  const normalizedType = contentType?.trim().toLowerCase() ?? "";
+  if (normalizedType.startsWith("audio/")) return "recording_audio";
+  if (normalizedType.startsWith("video/")) return "recording_video";
+  if (/\.(wav|mp3|m4a|aac|flac|ogg|opus)$/i.test(filePath)) return "recording_audio";
+  if (/\.(webm|mp4|mov|mkv|avi|m4v)$/i.test(filePath)) return "recording_video";
   return "unknown";
 }
 
@@ -402,17 +475,21 @@ export function buildHammerLaunchContextFromRecordingTruth(args: {
   recordingTruth: HammerWorkpieceRecordingTruth;
   workspaceMapping: WorkspaceMediaMapping | null;
 }): HammerLaunchContext | null {
+  const canonical = args.recordingTruth.canonicalRecording;
   const keptTake = args.recordingTruth.latestKeptTake;
-  if (!args.recordingTruth.hasKeptTake || !keptTake) {
+  if (!canonical && (!args.recordingTruth.hasKeptTake || !keptTake)) {
     return null;
   }
 
-  const filePath = keptTake.filePath?.trim() ?? "";
+  const filePath = canonical?.mediaPath.trim() ?? keptTake?.filePath?.trim() ?? "";
   if (!filePath) {
     return null;
   }
 
-  const mediaId = buildKeptTakeMediaId(args.workpieceId, keptTake);
+  const mediaId = canonical?.mediaId || (keptTake ? buildKeptTakeMediaId(args.workpieceId, keptTake) : "");
+  const contentType = canonical?.contentType ?? keptTake?.contentType ?? null;
+  const byteSize = canonical?.bytes ?? keptTake?.bytes ?? null;
+  const durationMs = canonical?.durationMs ?? keptTake?.durationMs ?? null;
   const hasLocalWorkspaceMapping = Boolean(args.workspaceMapping?.local_root_abs);
   return {
     workspace_id: args.workspaceId,
@@ -428,17 +505,17 @@ export function buildHammerLaunchContextFromRecordingTruth(args: {
       kind: "tongs-stub",
       ref: {
         media_id: mediaId,
-        kind: inferKeptTakeMediaKind(keptTake),
+        kind: inferMediaKind(contentType, filePath) === "recording_audio" ? "recording_audio" : "recording_video",
         source_hint: hasLocalWorkspaceMapping ? "local" : "cloud",
         local_relpath: filePath,
         ...(!hasLocalWorkspaceMapping
           ? { cloud_uri: `tongs://workpieces/${args.workpieceId}/${filePath}` }
           : {}),
-        ...(keptTake.bytes != null ? { byte_size: keptTake.bytes } : {}),
-        ...(keptTake.durationMs != null ? { duration_ms: keptTake.durationMs } : {}),
+        ...(byteSize != null ? { byte_size: byteSize } : {}),
+        ...(durationMs != null ? { duration_ms: durationMs } : {}),
       },
       ...(args.workspaceMapping ? { workspace_mapping: { ...args.workspaceMapping } } : {}),
-      label: keptTake.originalName?.trim() || `tongs:${mediaId}`,
+      label: canonical ? `tongs:${mediaId}` : keptTake?.originalName?.trim() || `tongs:${mediaId}`,
     },
     preview_mode: "edit-aware",
   };
@@ -499,7 +576,10 @@ export async function loadHammerWorkpieceRecordingTruth(
 
   if (response.status === 404) {
     return {
+      hasRecording: false,
+      hasCanonicalRecording: false,
       hasKeptTake: false,
+      canonicalRecording: null,
       latestKeptTakePath: null,
       latestKeptTake: null,
     };
@@ -531,7 +611,7 @@ export async function loadHammerWorkspaceProjects(
       episodes.map(async (episode) => {
         const recordingTruth = recordingTruthFromEpisodeRow(episode);
 
-        const persistenceResult = recordingTruth.hasKeptTake
+        const persistenceResult = recordingTruth.hasRecording
           ? await Promise.allSettled([
               loadHammerPersistenceSnapshot({
                 workspaceId,
@@ -555,7 +635,14 @@ export async function loadHammerWorkspaceProjects(
         : null;
       const recordingTruth = detailResult?.status === "fulfilled"
         ? detailResult.value.recordingTruth
-        : { hasKeptTake: false, latestKeptTakePath: null, latestKeptTake: null };
+        : {
+          hasRecording: false,
+          hasCanonicalRecording: false,
+          hasKeptTake: false,
+          canonicalRecording: null,
+          latestKeptTakePath: null,
+          latestKeptTake: null,
+        };
       const snapshotState = persistenceResult?.ok ? persistenceResult.data.state : null;
       const prepStatus = snapshotState?.prep_status ?? null;
       const hasEditorSession = Boolean(snapshotState?.editor_session_path);
@@ -564,6 +651,7 @@ export async function loadHammerWorkspaceProjects(
       const hasAudioPolish = Boolean(snapshotState?.audio_polish_artifact_path);
       const hasEditPlan = false;
       const editReadiness = classifyHammerRuntimeProject({
+        hasCanonicalRecording: recordingTruth.hasCanonicalRecording,
         hasKeptTake: recordingTruth.hasKeptTake,
         hasEditorSession,
         hasStructuredTranscript,
@@ -589,13 +677,7 @@ export async function loadHammerWorkspaceProjects(
           editInstructionCount,
           stateUnavailable,
         }),
-        recording: {
-          hasKeptTake: recordingTruth.hasKeptTake,
-          keptTakePath: recordingTruth.latestKeptTakePath,
-          keptTakeKind: inferRecordingKindFromTruth(recordingTruth),
-          keptTakeDurationMs: recordingTruth.latestKeptTake?.durationMs ?? null,
-          thumbnailPath: null,
-        },
+        recording: projectHammerRecordingTruth(recordingTruth),
       };
     });
   })();

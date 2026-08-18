@@ -170,9 +170,9 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
       const nextUrls: Record<string, string> = {};
       const nextKinds: Record<string, "image" | "video"> = {};
       for (const project of projects) {
-        if (!project.recording.hasKeptTake) continue;
-        if (project.recording.keptTakeKind !== "recording_video") continue;
-        if (!project.recording.keptTakePath) continue;
+        if (!project.recording.hasRecording) continue;
+        if (project.recording.mediaKind !== "recording_video") continue;
+        if (!project.recording.mediaPath) continue;
 
         let previewUrl: string | null = null;
         let thumbnailPath = project.recording.thumbnailPath;
@@ -192,8 +192,8 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
         if (!previewUrl) {
           previewUrl = await loadWorkpieceMediaPreviewUrl({
             workpieceId: project.workpieceId,
-            path: project.recording.keptTakePath,
-            mimeType: inferVideoMimeTypeFromPath(project.recording.keptTakePath),
+            path: project.recording.mediaPath,
+            mimeType: inferVideoMimeTypeFromPath(project.recording.mediaPath),
             surface: "project_library_preview",
           }).catch(() => null);
           if (previewUrl) {
@@ -340,7 +340,7 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
       <div className="hammer-project-library__grid">
         {items.map((project) => {
           const isSelected = project.workpieceId === (routeWorkpieceId ?? selectedWorkpieceId);
-          const recordingDurationLabel = formatDurationLabel(project.recording.keptTakeDurationMs);
+          const recordingDurationLabel = formatDurationLabel(project.recording.mediaDurationMs);
           return (
             <article
               key={project.workpieceId}
@@ -378,11 +378,11 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
                       )
                     ) : (
                       <div className="hammer-project-library__card-thumb-fallback">
-                        {project.recording.hasKeptTake ? "Rec" : "None"}
+                        {project.recording.hasRecording ? "Rec" : "None"}
                       </div>
                     )}
                   </div>
-                  {project.recording.hasKeptTake ? (
+                  {project.recording.hasRecording ? (
                     <span className="hammer-project-library__card-media-badge">
                       Recorded
                       {recordingDurationLabel ? (
