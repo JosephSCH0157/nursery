@@ -75,7 +75,7 @@ import {
   normalizeHammerOutputSelectionRef,
 } from "../macros/hammerDerivedTranscriptLayers";
 import { diffWords, isSubtractiveTranscriptWordEdit } from "../lib/hammerWordDiff";
-import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
+import { useHammerWorkspaceShellMediaPrepPackage } from "./hammerWorkspaceShellMediaPrepPackage";
 import { deriveLegacyVisualPlacementsFromTimeline } from "../visuals/persistence/hammerVisualTimelineLegacyAdapter";
 import { deriveStableHammerAssetIdFromPath } from "../lib/hammerAssetIdentity";
 import {
@@ -2111,21 +2111,13 @@ function HammerWorkspaceShellWithContext(
       // reset editable transcript state only when the authoritative source boundary changes
     }, [launchContext.workpiece_id, transcriptSourceId]);
   */
-  const mediaPrepOutputs = useMemo(
-    () => buildHammerMediaPrepOutputsPackage({
-      structuredTranscript: workspaceStructuredTranscript ?? null,
-      visualPlacements: null,
-      audioPolish: editableAudioPolish,
-      mediaRef,
-      mediaSourceLabel,
-    }),
-    [
-      editableAudioPolish,
-      mediaRef,
-      mediaSourceLabel,
-      workspaceStructuredTranscript,
-    ],
-  );
+  const mediaPrepOutputs = useHammerWorkspaceShellMediaPrepPackage({
+    structuredTranscript: workspaceStructuredTranscript ?? null,
+    visualPlacements: null,
+    audioPolish: editableAudioPolish,
+    mediaRef,
+    mediaSourceLabel,
+  });
   const preferredPlayback = mediaPrepOutputs.audio.preferred_playback;
   const playbackSourceLabel = useMemo(() => {
     if (packagingTransport.phase === "intro") {
