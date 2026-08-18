@@ -1,5 +1,5 @@
 import type { HammerEditPlan, HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
-import type { HammerLaunchSourceMode } from "../../../../packages/contracts/hammer/launch-context.contract";
+import type { HammerLaunchContext, HammerLaunchSourceMode } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { MediaRef, WorkspaceMediaMapping } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import {
@@ -34,6 +34,7 @@ import type {
   HammerCaptionEditedState,
   HammerCaptionFormattingState,
 } from "./hammerWorkspaceShellCaptionUtils";
+import { createFallbackEditPlan } from "./hammerWorkspaceShellMediaUtils";
 
 export const HAMMER_RELEASE_RENDER_RUNTIME_CAPABILITIES: HammerRenderRuntimeCapabilities = {
   preview_supported_operation_types: ["delete", "mute", "trim", "split", "merge", "hard_cut", "apply_look", "apply_exposure", "apply_background_effect"],
@@ -87,6 +88,118 @@ export interface HammerWorkspaceShellReleasePackageProjection {
   canonicalGraph: HammerEditorialAuthorityGraph;
   renderAssembly: HammerRenderAssemblyResult;
   subtitles: { srt: string | null; vtt: string | null };
+}
+
+export interface HammerWorkspaceShellReleaseBasisInput {
+  launchContext: HammerLaunchContext;
+  previewMode: HammerPreviewMode;
+  transcriptSourceId: string;
+  transcriptSegments: HammerTranscriptSegment[];
+  structuredTranscript: HammerPersistedStructuredTranscript | null;
+  outputSelection: { layerId: string | null; sourceRecipeRef: string | null };
+  captionFormatting: HammerCaptionFormattingState;
+  selectedCaptionArtifactFormat: "srt" | "vtt";
+  captionBuildState: HammerCaptionBuildState | null;
+  captionEditedState: HammerCaptionEditedState | null;
+  editorialAuthorityGraph: HammerEditorialAuthorityGraph | null;
+  visualTimeline: HammerVisualTimelineState | null;
+  visualPlacements: HammerPersistedVisualPlacements | null;
+  audioPolish: HammerPersistedAudioPolish | null;
+  selectedSegmentId: string | null;
+  selectedClipId: string | null;
+  mediaRef: MediaRef | null;
+  workspaceMapping: WorkspaceMediaMapping | null;
+  mediaSourceLabel: string | null;
+  visualWhiteBalance: HammerPersistedVisualPreviewSettings["white_balance"];
+  visualColorAmount: HammerPersistedVisualPreviewSettings["color_amount"];
+  visualBackgroundBlur: boolean;
+  visualEyeContactAssistEnabled: boolean;
+  visualEyeContactAssistStrength: number;
+  visualBackgroundBlurPx: number;
+  visualBackgroundBlurFeatherPx: number;
+  visualBackgroundBlurTemporalSmoothing: number;
+  visualBackgroundBlurSubjectExpansionPx: number;
+  visualBackgroundBlurQualityMode: HammerPersistedVisualPreviewSettings["background_blur_quality_mode"];
+  visualBackgroundBlurFallbackMode: HammerPersistedVisualPreviewSettings["background_blur_fallback_mode"];
+  visualBackgroundBlurProviderId: string | null;
+  visualBackgroundReplaceEnabled: boolean;
+  visualBackgroundReplaceMode: HammerPersistedVisualPreviewSettings["background_replace_mode"];
+  visualBackgroundReplaceColor: string;
+  visualBackgroundReplaceImageUrl: string;
+  visualBackgroundReplaceImageAssetPath: string | null;
+  selectedBackgroundReplacementAssetId: string | null;
+  visualBackgroundWashEnabled: boolean;
+  visualBackgroundWashDimAmount: number;
+  visualBackgroundWashDesaturateAmount: number;
+  ffmpegAvailable: boolean;
+}
+
+export function buildHammerWorkspaceShellReleaseBasis(
+  input: HammerWorkspaceShellReleaseBasisInput,
+  now: () => string = () => new Date().toISOString(),
+): HammerWorkspaceShellReleasePackageProjection {
+  const editPlan = input.launchContext.edit_plan
+    ? {
+      ...input.launchContext.edit_plan,
+      instructions: input.launchContext.edit_plan.instructions.map((instruction) => ({ ...instruction })),
+    }
+    : createFallbackEditPlan(input.launchContext, input.transcriptSourceId, input.previewMode);
+  const transcriptPreparedAt = input.structuredTranscript?.transcript_id === input.transcriptSourceId
+    ? input.structuredTranscript.prepared_at ?? now()
+    : now();
+  return buildHammerWorkspaceShellReleasePackage({
+    workspaceId: input.launchContext.workspace_id,
+    workpieceId: input.launchContext.workpiece_id,
+    sessionId: input.launchContext.session_id ?? null,
+    sourceMode: input.launchContext.source_mode,
+    previewMode: input.previewMode,
+    transcriptSourceId: input.transcriptSourceId,
+    editPlan,
+    transcriptSegments: input.transcriptSegments,
+    structuredTranscript: input.structuredTranscript,
+    transcriptPreparedAt,
+    outputSelection: input.outputSelection,
+    captionFormatting: input.captionFormatting,
+    selectedCaptionArtifactFormat: input.selectedCaptionArtifactFormat,
+    captionBuildState: input.captionBuildState,
+    captionEditedState: input.captionEditedState,
+    editorialAuthorityGraph: input.editorialAuthorityGraph,
+    canonicalGraphUpdatedAt: input.editorialAuthorityGraph ? now() : editPlan.updated_at,
+    visualTimeline: input.visualTimeline,
+    visualPlacements: input.visualPlacements,
+    audioPolish: input.audioPolish,
+    selectedSegmentId: input.selectedSegmentId,
+    selectedClipId: input.selectedClipId,
+    mediaRef: input.mediaRef,
+    workspaceMapping: input.workspaceMapping,
+    mediaSourceLabel: input.mediaSourceLabel,
+    visualPreview: {
+      white_balance: input.visualWhiteBalance,
+      color_amount: input.visualColorAmount,
+      background_blur: input.visualBackgroundBlur,
+      eye_contact_assist_enabled: input.visualEyeContactAssistEnabled,
+      eye_contact_assist_strength: input.visualEyeContactAssistStrength,
+      background_blur_px: input.visualBackgroundBlurPx,
+      background_blur_feather_px: input.visualBackgroundBlurFeatherPx,
+      background_blur_temporal_smoothing: input.visualBackgroundBlurTemporalSmoothing,
+      background_blur_subject_expansion_px: input.visualBackgroundBlurSubjectExpansionPx,
+      background_blur_quality_mode: input.visualBackgroundBlurQualityMode,
+      background_blur_fallback_mode: input.visualBackgroundBlurFallbackMode,
+      background_blur_provider: input.visualBackgroundBlurProviderId ?? "mediapipe_selfie_segmentation",
+      background_replace_enabled: input.visualBackgroundReplaceEnabled,
+      background_replace_mode: input.visualBackgroundReplaceMode,
+      background_replace_color: input.visualBackgroundReplaceColor,
+      background_replace_image_url: input.visualBackgroundReplaceImageUrl.trim() ? input.visualBackgroundReplaceImageUrl.trim() : null,
+      background_replace_image_asset_path: input.visualBackgroundReplaceImageAssetPath,
+      background_replace_image_asset_id: input.selectedBackgroundReplacementAssetId,
+      background_replace_image_asset_type: input.visualBackgroundReplaceImageAssetPath ? "image" : null,
+      background_wash_enabled: input.visualBackgroundWashEnabled,
+      background_wash_dim_amount: input.visualBackgroundWashDimAmount,
+      background_wash_desaturate_amount: input.visualBackgroundWashDesaturateAmount,
+    },
+    editorLastOpenedAt: now(),
+    ffmpegAvailable: input.ffmpegAvailable,
+  });
 }
 
 export function buildHammerWorkspaceShellReleasePackage(

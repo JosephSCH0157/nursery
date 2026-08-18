@@ -64,6 +64,8 @@ if (/\b(?:saveHammer|upload|onWorkspaceSnapshotChange|buildHammer(?:Release|Work
 if (/setEditableVisualTimeline|applyVisualTimelineAction/.test(automaticPlacementAuthority)) failures.push("Automatic-placement authority bypassed the canonical placement commit callback.");
 
 const releasePackageAuthority = inspect("src/editor/hammerWorkspaceShellReleasePackage.ts").text;
+if (/buildHammerWorkspaceShellReleasePackage\s*\(/.test(shell) || /const\s+exportBasis\s*=\s*useMemo/.test(shell) || !/useHammerWorkspaceShellReleaseBasis\s*\(/.test(shell)) failures.push("HammerWorkspaceShell reacquired release-basis projection or low-level package construction.");
+if (/\b(?:transcriptPreparedAt|canonicalGraphUpdatedAt|editorLastOpenedAt)\b/.test(shell)) failures.push("HammerWorkspaceShell reacquired release-specific timestamp projection.");
 for (const [pattern, message] of [
   [/\buse(?:State|Effect|Memo|Ref|Callback)\s*\(/, "Release-package construction acquired React hook ownership."],
   [/\b(?:saveHammer|loadHammer|fetch|localStorage|sessionStorage)\b/, "Release-package construction acquired artifact I/O or persistence ownership."],

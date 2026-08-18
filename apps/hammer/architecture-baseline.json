@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "principalFiles": {
-    "src/editor/HammerWorkspaceShell.tsx": { "maxLines": 4709, "maxExplicitAny": 6 },
+    "src/editor/HammerWorkspaceShell.tsx": { "maxLines": 4647, "maxExplicitAny": 6 },
     "src/editor/HammerWorkspaceEditor.tsx": { "maxLines": 5371, "maxExplicitAny": 4 },
     "src/editor/HammerWorkspaceShellToolBay.tsx": { "maxLines": 4020, "maxExplicitAny": 339 }
   },
@@ -20,6 +20,7 @@
     "src/editor/useHammerWorkspaceShellVisualPreview.ts": { "maxLines": 253 },
     "src/editor/hammerWorkspaceShellHistoryController.ts": { "maxLines": 684 },
     "src/editor/hammerWorkspaceShellSnapshotEmitter.ts": { "maxLines": 521 },
-    "src/editor/hammerWorkspaceShellReleasePackage.ts": { "maxLines": 230 }
+    "src/editor/hammerWorkspaceShellReleasePackage.ts": { "maxLines": 343 },
+    "src/editor/useHammerWorkspaceShellReleasePrep.ts": { "maxLines": 399 }
   }
 }

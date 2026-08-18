@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import type { HammerPreparedNextStepActionId } from "./hammerPreparedHandoff";
 import type { HammerPassId } from "../persistence/hammerPersistenceContract";
@@ -26,6 +26,82 @@ import type { HammerReleasePrepPackage } from "../lib/hammerReleasePrepPackage";
 import { buildHammerQuenchReleasePacket } from "../lib/hammerQuenchReleasePacket";
 import { saveHammerQuenchReleasePacket } from "../lib/hammerQuenchReleasePacketApi";
 import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
+import {
+  buildHammerWorkspaceShellReleaseBasis,
+  type HammerWorkspaceShellReleaseBasisInput,
+  type HammerWorkspaceShellReleasePackageProjection,
+} from "./hammerWorkspaceShellReleasePackage";
+
+export function useHammerWorkspaceShellReleaseBasis(
+  input: HammerWorkspaceShellReleaseBasisInput,
+): HammerWorkspaceShellReleasePackageProjection {
+  const {
+    launchContext, previewMode, transcriptSourceId, transcriptSegments, structuredTranscript,
+    outputSelection, captionFormatting, selectedCaptionArtifactFormat, captionBuildState,
+    captionEditedState, editorialAuthorityGraph, visualTimeline, visualPlacements, audioPolish,
+    selectedSegmentId, selectedClipId, mediaRef, workspaceMapping, mediaSourceLabel,
+    visualWhiteBalance, visualColorAmount, visualBackgroundBlur, visualEyeContactAssistEnabled,
+    visualEyeContactAssistStrength, visualBackgroundBlurPx, visualBackgroundBlurFeatherPx,
+    visualBackgroundBlurTemporalSmoothing, visualBackgroundBlurSubjectExpansionPx,
+    visualBackgroundBlurQualityMode, visualBackgroundBlurFallbackMode, visualBackgroundBlurProviderId,
+    visualBackgroundReplaceEnabled, visualBackgroundReplaceMode, visualBackgroundReplaceColor,
+    visualBackgroundReplaceImageUrl, visualBackgroundReplaceImageAssetPath,
+    selectedBackgroundReplacementAssetId, visualBackgroundWashEnabled,
+    visualBackgroundWashDimAmount, visualBackgroundWashDesaturateAmount, ffmpegAvailable,
+  } = input;
+  return useMemo(() => buildHammerWorkspaceShellReleaseBasis({
+    launchContext, previewMode, transcriptSourceId, transcriptSegments, structuredTranscript,
+    outputSelection, captionFormatting, selectedCaptionArtifactFormat, captionBuildState,
+    captionEditedState, editorialAuthorityGraph, visualTimeline, visualPlacements, audioPolish,
+    selectedSegmentId, selectedClipId, mediaRef, workspaceMapping, mediaSourceLabel,
+    visualWhiteBalance, visualColorAmount, visualBackgroundBlur, visualEyeContactAssistEnabled,
+    visualEyeContactAssistStrength, visualBackgroundBlurPx, visualBackgroundBlurFeatherPx,
+    visualBackgroundBlurTemporalSmoothing, visualBackgroundBlurSubjectExpansionPx,
+    visualBackgroundBlurQualityMode, visualBackgroundBlurFallbackMode, visualBackgroundBlurProviderId,
+    visualBackgroundReplaceEnabled, visualBackgroundReplaceMode, visualBackgroundReplaceColor,
+    visualBackgroundReplaceImageUrl, visualBackgroundReplaceImageAssetPath,
+    selectedBackgroundReplacementAssetId, visualBackgroundWashEnabled,
+    visualBackgroundWashDimAmount, visualBackgroundWashDesaturateAmount, ffmpegAvailable,
+  }), [
+    captionBuildState,
+    captionEditedState,
+    captionFormatting,
+    outputSelection.layerId,
+    outputSelection.sourceRecipeRef,
+    transcriptSegments,
+    launchContext,
+    mediaRef,
+    mediaSourceLabel,
+    previewMode,
+    structuredTranscript,
+    visualPlacements,
+    audioPolish,
+    selectedCaptionArtifactFormat,
+    selectedSegmentId,
+    visualBackgroundBlur,
+    visualBackgroundBlurFallbackMode,
+    visualBackgroundBlurFeatherPx,
+    visualBackgroundBlurPx,
+    visualBackgroundBlurProviderId,
+    visualBackgroundBlurQualityMode,
+    visualBackgroundBlurSubjectExpansionPx,
+    visualBackgroundBlurTemporalSmoothing,
+    visualBackgroundReplaceColor,
+    visualBackgroundReplaceEnabled,
+    visualBackgroundReplaceImageAssetPath,
+    selectedBackgroundReplacementAssetId,
+    visualBackgroundReplaceImageUrl,
+    visualBackgroundReplaceMode,
+    visualColorAmount,
+    visualEyeContactAssistEnabled,
+    visualEyeContactAssistStrength,
+    visualWhiteBalance,
+    transcriptSourceId,
+    workspaceMapping,
+    editorialAuthorityGraph,
+    ffmpegAvailable,
+  ]);
+}
 
 export type HammerReleasePrepSaveState = {
   preparedAt: string;

@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import type { HammerWorkspaceShellReleasePackageInput } from "../src/editor/hammerWorkspaceShellReleasePackage";
-import { buildHammerWorkspaceShellReleasePackage } from "../src/editor/hammerWorkspaceShellReleasePackage";
+import type { HammerLaunchContext } from "../../../packages/contracts/hammer/launch-context.contract";
+import type { HammerWorkspaceShellReleaseBasisInput, HammerWorkspaceShellReleasePackageInput } from "../src/editor/hammerWorkspaceShellReleasePackage";
+import { buildHammerWorkspaceShellReleaseBasis, buildHammerWorkspaceShellReleasePackage } from "../src/editor/hammerWorkspaceShellReleasePackage";
 import { buildCaptionBasisFingerprint } from "../src/editor/hammerWorkspaceShellCaptionUtils";
 
 const formatting = {
@@ -152,17 +153,103 @@ function buildInput(selectedFormat: "srt" | "vtt" = "srt"): HammerWorkspaceShell
       white_balance: 0.15,
       color_amount: 0.25,
       background_blur: true,
+      eye_contact_assist_enabled: false,
+      eye_contact_assist_strength: 0.25,
       background_blur_px: 18,
+      background_blur_feather_px: 6,
+      background_blur_temporal_smoothing: 0.25,
+      background_blur_subject_expansion_px: 0,
+      background_blur_quality_mode: "medium",
+      background_blur_fallback_mode: "disable",
       background_blur_provider: "mediapipe_selfie_segmentation",
       background_replace_enabled: true,
       background_replace_mode: "image",
+      background_replace_color: "#2b2b2b",
+      background_replace_image_url: null,
       background_replace_image_asset_path: "assets/background.jpg",
       background_replace_image_asset_id: "background-01",
       background_replace_image_asset_type: "image",
+      background_wash_enabled: false,
+      background_wash_dim_amount: 0.35,
+      background_wash_desaturate_amount: 0.25,
     },
     editorLastOpenedAt: "2026-08-18T12:05:00.000Z",
     ffmpegAvailable: true,
   };
+}
+
+function buildBasisInput(input: HammerWorkspaceShellReleasePackageInput): HammerWorkspaceShellReleaseBasisInput {
+  return {
+    launchContext: {
+      workspace_id: input.workspaceId,
+      workpiece_id: input.workpieceId,
+      session_id: input.sessionId,
+      source_mode: input.sourceMode,
+      preview_mode: input.previewMode,
+      media: { kind: "dev-tone", duration_sec: 8, label: "Florida Oranges" },
+      edit_plan: structuredClone(input.editPlan),
+    } as HammerLaunchContext,
+    previewMode: input.previewMode,
+    transcriptSourceId: input.transcriptSourceId,
+    transcriptSegments: input.transcriptSegments,
+    structuredTranscript: input.structuredTranscript,
+    outputSelection: input.outputSelection,
+    captionFormatting: input.captionFormatting,
+    selectedCaptionArtifactFormat: input.selectedCaptionArtifactFormat,
+    captionBuildState: input.captionBuildState,
+    captionEditedState: input.captionEditedState,
+    editorialAuthorityGraph: input.editorialAuthorityGraph,
+    visualTimeline: input.visualTimeline,
+    visualPlacements: input.visualPlacements,
+    audioPolish: input.audioPolish,
+    selectedSegmentId: input.selectedSegmentId,
+    selectedClipId: input.selectedClipId,
+    mediaRef: input.mediaRef,
+    workspaceMapping: input.workspaceMapping,
+    mediaSourceLabel: input.mediaSourceLabel,
+    visualWhiteBalance: input.visualPreview.white_balance,
+    visualColorAmount: input.visualPreview.color_amount,
+    visualBackgroundBlur: input.visualPreview.background_blur,
+    visualEyeContactAssistEnabled: Boolean(input.visualPreview.eye_contact_assist_enabled),
+    visualEyeContactAssistStrength: Number(input.visualPreview.eye_contact_assist_strength),
+    visualBackgroundBlurPx: Number(input.visualPreview.background_blur_px),
+    visualBackgroundBlurFeatherPx: Number(input.visualPreview.background_blur_feather_px),
+    visualBackgroundBlurTemporalSmoothing: Number(input.visualPreview.background_blur_temporal_smoothing),
+    visualBackgroundBlurSubjectExpansionPx: Number(input.visualPreview.background_blur_subject_expansion_px),
+    visualBackgroundBlurQualityMode: input.visualPreview.background_blur_quality_mode,
+    visualBackgroundBlurFallbackMode: input.visualPreview.background_blur_fallback_mode,
+    visualBackgroundBlurProviderId: input.visualPreview.background_blur_provider ?? null,
+    visualBackgroundReplaceEnabled: Boolean(input.visualPreview.background_replace_enabled),
+    visualBackgroundReplaceMode: input.visualPreview.background_replace_mode,
+    visualBackgroundReplaceColor: String(input.visualPreview.background_replace_color),
+    visualBackgroundReplaceImageUrl: String(input.visualPreview.background_replace_image_url ?? ""),
+    visualBackgroundReplaceImageAssetPath: input.visualPreview.background_replace_image_asset_path ?? null,
+    selectedBackgroundReplacementAssetId: input.visualPreview.background_replace_image_asset_id ?? null,
+    visualBackgroundWashEnabled: Boolean(input.visualPreview.background_wash_enabled),
+    visualBackgroundWashDimAmount: Number(input.visualPreview.background_wash_dim_amount),
+    visualBackgroundWashDesaturateAmount: Number(input.visualPreview.background_wash_desaturate_amount),
+    ffmpegAvailable: input.ffmpegAvailable,
+  };
+}
+
+{
+  const legacyInput = buildInput("srt");
+  const basisInput = buildBasisInput(legacyInput);
+  const before = structuredClone(basisInput);
+  const timestamps: string[] = [];
+  const basis = buildHammerWorkspaceShellReleaseBasis(basisInput, () => {
+    timestamps.push("2026-08-18T12:05:00.000Z");
+    return "2026-08-18T12:05:00.000Z";
+  });
+  const expected = buildHammerWorkspaceShellReleasePackage(legacyInput);
+  assert.deepEqual(basis, expected, "basis projection must preserve the exact serialized release package");
+  assert.equal(JSON.stringify(basis), JSON.stringify(expected));
+  assert.deepEqual(timestamps, ["2026-08-18T12:05:00.000Z"], "timestamp injection must retain capture count and position");
+  assert.deepEqual(basisInput, before, "basis projection must not mutate authority inputs");
+  assert.deepEqual(buildHammerWorkspaceShellReleaseBasis(structuredClone(basisInput), () => "2026-08-18T12:05:00.000Z"), basis);
+  basisInput.transcriptSegments[0]!.text = "later mutation";
+  basisInput.visualBackgroundReplaceImageUrl = "later mutation";
+  assert.equal(basis.transcriptForRelease.segments[0]?.text, "Florida oranges are bright.");
 }
 
 {
@@ -221,6 +308,9 @@ function buildInput(selectedFormat: "srt" | "vtt" = "srt"): HammerWorkspaceShell
   const moduleSource = readFileSync(modulePath, "utf8");
   assert.equal(shellSource.includes("buildHammerReleasePrepPackage({"), false);
   assert.equal(shellSource.includes("buildHammerRenderAssembly({"), false);
+  assert.equal(shellSource.includes("buildHammerWorkspaceShellReleasePackage"), false);
+  assert.equal(shellSource.includes("const exportBasis = useMemo"), false);
+  assert.equal(shellSource.includes("useHammerWorkspaceShellReleaseBasis({"), true);
   for (const forbidden of ["useState(", "useEffect(", "useRef(", "localStorage", "saveHammer", "fetch(", "onWorkspaceSnapshotChange"] as const) {
     assert.equal(moduleSource.includes(forbidden), false, `release constructor must not contain ${forbidden}`);
   }

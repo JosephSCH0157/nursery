@@ -137,7 +137,7 @@ import {
   useHammerVisualPreviewProjection,
   useHammerVisualPreviewState,
 } from "./useHammerWorkspaceShellVisualPreview";
-import { useHammerWorkspaceShellReleasePrep } from "./useHammerWorkspaceShellReleasePrep";
+import { useHammerWorkspaceShellReleaseBasis, useHammerWorkspaceShellReleasePrep } from "./useHammerWorkspaceShellReleasePrep";
 import { useHammerWorkspaceShellVisualEditing } from "./useHammerWorkspaceShellVisualEditing";
 import {
   useHammerWorkspaceShellHydration,
@@ -302,7 +302,6 @@ import {
   buildStructuredTranscriptResetKey,
   buildVisualTimelineResetKey,
 } from "./hammerWorkspaceShellResetKeys";
-import { buildHammerWorkspaceShellReleasePackage } from "./hammerWorkspaceShellReleasePackage";
 import "./HammerWorkspaceShell.css";
 
 const HISTORY_MAX_SIZE = 100;
@@ -2945,36 +2944,18 @@ function HammerWorkspaceShellWithContext(
     redoHistory,
   });
 
-  const exportBasis = useMemo(() => {
-    const editPlan = launchContext.edit_plan
-      ? {
-        ...launchContext.edit_plan,
-        instructions: launchContext.edit_plan.instructions.map((instruction) => ({ ...instruction })),
-      }
-      : createFallbackEditPlan(launchContext, transcriptSourceId, previewMode);
-    const transcriptPreparedAt = workspaceStructuredTranscript?.transcript_id === transcriptSourceId
-      ? workspaceStructuredTranscript.prepared_at ?? new Date().toISOString()
-      : new Date().toISOString();
-    return buildHammerWorkspaceShellReleasePackage({
-      workspaceId: launchContext.workspace_id,
-      workpieceId: launchContext.workpiece_id,
-      sessionId: launchContext.session_id ?? null,
-      sourceMode: launchContext.source_mode,
+  const exportBasis = useHammerWorkspaceShellReleaseBasis({
+      launchContext,
       previewMode,
       transcriptSourceId,
-      editPlan,
       transcriptSegments: editableTranscriptSegments,
       structuredTranscript: workspaceStructuredTranscript ?? null,
-      transcriptPreparedAt,
       outputSelection: editableOutputSelection,
       captionFormatting,
       selectedCaptionArtifactFormat,
       captionBuildState,
       captionEditedState,
       editorialAuthorityGraph: editableEditorialAuthorityGraph,
-      canonicalGraphUpdatedAt: editableEditorialAuthorityGraph
-        ? new Date().toISOString()
-        : editPlan.updated_at,
       visualTimeline: editableVisualTimeline,
       visualPlacements: editableVisualPlacements,
       audioPolish: editableAudioPolish,
@@ -2983,72 +2964,29 @@ function HammerWorkspaceShellWithContext(
       mediaRef,
       workspaceMapping,
       mediaSourceLabel,
-      visualPreview: {
-        white_balance: visualWhiteBalance,
-        color_amount: visualColorAmount,
-        background_blur: visualBackgroundBlur,
-        eye_contact_assist_enabled: visualEyeContactAssistEnabled,
-        eye_contact_assist_strength: visualEyeContactAssistStrength,
-        background_blur_px: visualBackgroundBlurPx,
-        background_blur_feather_px: visualBackgroundBlurFeatherPx,
-        background_blur_temporal_smoothing: visualBackgroundBlurTemporalSmoothing,
-        background_blur_subject_expansion_px: visualBackgroundBlurSubjectExpansionPx,
-        background_blur_quality_mode: visualBackgroundBlurQualityMode,
-        background_blur_fallback_mode: visualBackgroundBlurFallbackMode,
-        background_blur_provider: visualBackgroundBlurProviderId ?? "mediapipe_selfie_segmentation",
-        background_replace_enabled: visualBackgroundReplaceEnabled,
-        background_replace_mode: visualBackgroundReplaceMode,
-        background_replace_color: visualBackgroundReplaceColor,
-        background_replace_image_url: visualBackgroundReplaceImageUrl.trim() ? visualBackgroundReplaceImageUrl.trim() : null,
-        background_replace_image_asset_path: visualBackgroundReplaceImageAssetPath,
-        background_replace_image_asset_id: selectedBackgroundReplacementAssetId,
-        background_replace_image_asset_type: visualBackgroundReplaceImageAssetPath ? "image" : null,
-        background_wash_enabled: visualBackgroundWashEnabled,
-        background_wash_dim_amount: visualBackgroundWashDimAmount,
-        background_wash_desaturate_amount: visualBackgroundWashDesaturateAmount,
-      },
-      editorLastOpenedAt: new Date().toISOString(),
+      visualWhiteBalance,
+      visualColorAmount,
+      visualBackgroundBlur,
+      visualEyeContactAssistEnabled,
+      visualEyeContactAssistStrength,
+      visualBackgroundBlurPx,
+      visualBackgroundBlurFeatherPx,
+      visualBackgroundBlurTemporalSmoothing,
+      visualBackgroundBlurSubjectExpansionPx,
+      visualBackgroundBlurQualityMode,
+      visualBackgroundBlurFallbackMode,
+      visualBackgroundBlurProviderId,
+      visualBackgroundReplaceEnabled,
+      visualBackgroundReplaceMode,
+      visualBackgroundReplaceColor,
+      visualBackgroundReplaceImageUrl,
+      visualBackgroundReplaceImageAssetPath,
+      selectedBackgroundReplacementAssetId,
+      visualBackgroundWashEnabled,
+      visualBackgroundWashDimAmount,
+      visualBackgroundWashDesaturateAmount,
       ffmpegAvailable: studioRackRenderBackendResolution.ffmpegAvailable,
-    });
-  }, [
-    captionBuildState,
-    captionEditedState,
-    captionFormatting,
-    editableOutputSelection.layerId,
-    editableOutputSelection.sourceRecipeRef,
-    editableTranscriptSegments,
-    launchContext,
-    mediaRef,
-    mediaSourceLabel,
-    previewMode,
-    workspaceStructuredTranscript,
-    editableVisualPlacements,
-    editableAudioPolish,
-    selectedCaptionArtifactFormat,
-    selectedSegmentId,
-    visualBackgroundBlur,
-    visualBackgroundBlurFallbackMode,
-    visualBackgroundBlurFeatherPx,
-    visualBackgroundBlurPx,
-    visualBackgroundBlurProviderId,
-    visualBackgroundBlurQualityMode,
-    visualBackgroundBlurSubjectExpansionPx,
-    visualBackgroundBlurTemporalSmoothing,
-    visualBackgroundReplaceColor,
-    visualBackgroundReplaceEnabled,
-    visualBackgroundReplaceImageAssetPath,
-    selectedBackgroundReplacementAssetId,
-    visualBackgroundReplaceImageUrl,
-    visualBackgroundReplaceMode,
-    visualColorAmount,
-    visualEyeContactAssistEnabled,
-    visualEyeContactAssistStrength,
-    visualWhiteBalance,
-    transcriptSourceId,
-    workspaceMapping,
-    editableEditorialAuthorityGraph,
-    studioRackRenderBackendResolution.ffmpegAvailable,
-  ]);
+  });
 
   const releasePrepComparison = useMemo(
     () => compareHammerPreparedReleasePackageToCurrent(
