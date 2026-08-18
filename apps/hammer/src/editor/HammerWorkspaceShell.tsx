@@ -128,6 +128,10 @@ import {
 } from "./useHammerWorkspaceShellMediaMap";
 import { createHammerMediaMapMutationCommands } from "./hammerWorkspaceShellMediaMapCommands";
 import {
+  clearInvalidHammerOutputSelection,
+  selectHammerOutputLayerForExport,
+} from "./hammerWorkspaceShellOutputSelectionCommands";
+import {
   createHammerVisualLookExposureCommands,
   useHammerBackgroundBlurProjection,
   useHammerVisualPreviewProjection,
@@ -2417,29 +2421,10 @@ function HammerWorkspaceShellWithContext(
   }
 
   useEffect(() => {
-    if (!editableOutputSelection.layerId) return;
-
-    const normalized = normalizeHammerOutputSelectionRef({
-      selection: editableOutputSelection,
+    clearInvalidHammerOutputSelection({
       layers: outputLayerCandidates,
-    });
-
-    if (
-      normalized.layerId === editableOutputSelection.layerId
-      && normalized.sourceRecipeRef === editableOutputSelection.sourceRecipeRef
-    ) {
-      return;
-    }
-
-    applyHistoryMutation({
-      label: "Clear invalid export output selection",
-      kind: "output_selection",
-      toolId: "export",
-      immediatePersist: true,
-      computeAfter: (before) => ({
-        ...before,
-        outputSelection: normalized,
-      }),
+      currentSelection: editableOutputSelection,
+      applyHistoryMutation,
     });
   }, [editableOutputSelection, outputLayerCandidates]);
 
@@ -2935,34 +2920,11 @@ function HammerWorkspaceShellWithContext(
     appendAuthorityInstruction: appendAuthorityInstructionForState,
   });
   function selectOutputLayerForExport(layerId: string | null): void {
-    const targetLayer = layerId
-      ? outputLayerCandidates.find((layer) => layer.layer_id === layerId) ?? null
-      : null;
-    const nextSelection: HammerOutputSelectionState = {
-      layerId: targetLayer?.layer_id ?? null,
-      sourceRecipeRef: targetLayer?.recipe_ref ?? null,
-    };
-    if (
-      nextSelection.layerId === editableOutputSelection.layerId
-      && nextSelection.sourceRecipeRef === editableOutputSelection.sourceRecipeRef
-    ) {
-      return;
-    }
-
-    applyHistoryMutation({
-      label: targetLayer
-        ? `Set export output to ${formatOutputLayerLabel(targetLayer)}`
-        : "Set export output to Raw transcript",
-      kind: "output_selection",
-      toolId: "export",
-      immediatePersist: true,
-      computeAfter: (before) => ({
-        ...before,
-        outputSelection: {
-          layerId: nextSelection.layerId,
-          sourceRecipeRef: nextSelection.sourceRecipeRef,
-        },
-      }),
+    selectHammerOutputLayerForExport({
+      layerId,
+      layers: outputLayerCandidates,
+      currentSelection: editableOutputSelection,
+      applyHistoryMutation,
     });
   }
 

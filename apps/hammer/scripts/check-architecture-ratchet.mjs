@@ -50,6 +50,9 @@ if (/snapshotAuthorityRef|createHammerWorkspaceShellSnapshotAuthority\s*\(/.test
 if (/history(?:Authority|BaselineState)Ref|baselineDerivedLayersRef|derivedLayerHistoryRef/.test(shell)) failures.push("HammerWorkspaceShell reacquired history baseline or derived-layer ref ownership.");
 if (/function\s+(?:jumpToHistoryEntry|restoreCurrentHistoryState|selectViewingLayer)\b|setHammerDerivedTextLayerActive/.test(shell)) failures.push("HammerWorkspaceShell reacquired history navigation or viewing-layer mutation construction.");
 if (/hammerVisualTimelineReducer|RELABEL_CLIP_ANCHOR/.test(shell)) failures.push("HammerWorkspaceShell reacquired canonical visual selection or anchor mutation construction.");
+if (/kind:\s*["']output_selection["']|Clear invalid export output selection|Set export output to Raw transcript/.test(shell)) failures.push("HammerWorkspaceShell reacquired export-output history mutation construction.");
+const outputSelectionAuthority = inspect("src/editor/hammerWorkspaceShellOutputSelectionCommands.ts").text;
+if (/\b(?:saveHammer|upload|onWorkspaceSnapshotChange|buildHammer(?:Release|WorkspaceShellReleasePackage)|renderBuilt(?:Srt|Vtt))\s*\(/.test(outputSelectionAuthority)) failures.push("Output-selection authority acquired artifact I/O, persistence, caption rendering, or release construction.");
 if (/setEditableVisualTimeline|applyVisualTimelineAction/.test(automaticPlacementAuthority)) failures.push("Automatic-placement authority bypassed the canonical placement commit callback.");
 
 const releasePackageAuthority = inspect("src/editor/hammerWorkspaceShellReleasePackage.ts").text;
