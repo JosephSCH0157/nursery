@@ -42,6 +42,7 @@ const automaticPlacementAuthority = inspect("src/editor/useHammerWorkspaceShellA
 if (!automaticPlacementAuthority.includes("resolveHammerAutomaticPlacementCommand")) failures.push("Automatic-placement authority must route every placement through resolveHammerAutomaticPlacementCommand.");
 if (shell.includes("resolveHammerAutomaticPlacementCommand")) failures.push("HammerWorkspaceShell reacquired the automatic-placement command boundary.");
 if (/applyTranscript(?:DeleteRange|CleanupPreview|ToggleMuteSegments|Split|TrimSegment)Composition/.test(shell)) failures.push("HammerWorkspaceShell reacquired composition history-command construction.");
+if (/deriveAudioCutsForSubtractiveTextEdits|commitAudioCutSelection|moveSegmentTiming|trimSegment(?:Start|End)Timing|updateSegmentGain/.test(shell)) failures.push("HammerWorkspaceShell reacquired ordinary transcript-editing mutation construction.");
 if (/setEditableVisualTimeline|applyVisualTimelineAction/.test(automaticPlacementAuthority)) failures.push("Automatic-placement authority bypassed the canonical placement commit callback.");
 
 const expansionGate = inspect("src/composition/hammerExpansionGateV1.ts").text;

@@ -16,7 +16,6 @@ import type { HammerPlacementOutboundDiagnostics, HammerWorkspaceSnapshot } from
 import type {
   HammerPassId,
   HammerPassStatusMap,
-  HammerPersistedAudioEdit,
   HammerPersistedAudioPolish,
   HammerPersistedVisualPreviewSettings,
   HammerPersistedStructuredTranscript,
@@ -40,17 +39,11 @@ import type { HammerPreparedNextStepActionId } from "./hammerPreparedHandoff";
 import {
   DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC,
   SMALL_PLAYHEAD_NUDGE_SEC,
-  moveSegmentTiming,
-  resolveAdjacentSegmentSelection,
   resolvePreviewLabel,
   resolvePlayheadSegment,
   resolveTranscriptSegmentRange,
   resolveTimelineBoundaryTimes,
   roundToTenth,
-  snapPlayheadToBoundary,
-  trimSegmentEndTiming,
-  trimSegmentStartTiming,
-  updateSegmentGain,
   updateSegmentInTimeline,
   type HammerWorkspaceFocusOverride,
 } from "./hammerWorkspaceTimeline";
@@ -59,18 +52,12 @@ import {
   resolveNextAudiblePlaybackTime,
 } from "./hammerAudioEditPlayback";
 import {
-  commitAudioCutSelection,
-} from "./hammerAudioEditOperations";
-import {
-  type HammerAudioCutSelection,
-  deriveAudioCutsForSubtractiveTextEdits,
-} from "./hammerCleanupExecution";
-import {
   type HammerAuthorityOp,
 } from "./hammerCompositionMutations";
 import {
-  type HammerDeleteOnlyTranscriptDeletion,
-} from "./hammerDeleteOnlyTranscriptEditing";
+  createHammerTranscriptEditingCommands,
+  createHammerTranscriptSelectionCommands,
+} from "./useHammerWorkspaceShellTranscriptEditing";
 import {
   resolveSelectedSegmentId,
   resolveTranscriptDurationSec,
@@ -2847,357 +2834,33 @@ function HammerWorkspaceShellWithContext(
   });
 
 
-  function updateSegmentTiming(
-    segmentId: string,
-    label: string,
-    updater: (segment: HammerTranscriptSegment) => HammerTranscriptSegment,
-    playheadUpdater?: (currentPlayheadSec: number) => number,
-  ): void {
-    applyHistoryMutation({
-      label,
-      kind: "timing_adjustment",
-      affectedSegments: [segmentId],
-      computeAfter: (before) => ({
-        ...before,
-        transcriptSegments: updateSegmentInTimeline(before.transcriptSegments, segmentId, updater),
-        playheadSec: playheadUpdater ? playheadUpdater(before.playheadSec) : before.playheadSec,
-        transcriptTimingHint: null,
-      }),
-    });
-  }
-
-  function moveSegment(segmentId: string, deltaSec: number): void {
-    updateSegmentTiming(
-      segmentId,
-      "Adjust segment timing",
-      (segment) => moveSegmentTiming(segment, deltaSec),
-      (current) => Math.max(0, roundToTenth(current + deltaSec)),
-    );
-  }
-
-  function trimSegmentStart(segmentId: string, deltaSec: number): void {
-    const segment = editableTranscriptSegments.find((candidate) => candidate.segment_id === segmentId) ?? null;
-    if (!segment) return;
-    const trimmed = trimSegmentStartTiming(segment, deltaSec);
-    applyCompositionMutation({
-      type: "TRANSCRIPT_TRIM_SEGMENT",
-      label: "Trim segment start",
-      kind: "timing_adjustment",
-      segmentId,
-      trimStartSec: trimmed.start_sec,
-      trimEndSec: trimmed.end_sec,
-    });
-  }
-
-  function trimSegmentEnd(segmentId: string, deltaSec: number): void {
-    const segment = editableTranscriptSegments.find((candidate) => candidate.segment_id === segmentId) ?? null;
-    if (!segment) return;
-    const trimmed = trimSegmentEndTiming(segment, deltaSec);
-    applyCompositionMutation({
-      type: "TRANSCRIPT_TRIM_SEGMENT",
-      label: "Trim segment end",
-      kind: "timing_adjustment",
-      segmentId,
-      trimStartSec: trimmed.start_sec,
-      trimEndSec: trimmed.end_sec,
-    });
-  }
-
-  function applyCutSelectionsToAudioEdit(args: {
-    audioEdit: HammerPersistedAudioEdit | null | undefined;
-    cutSelections: Array<{ startSec: number; endSec: number }>;
-    operationIdPrefix: string;
-  }): HammerPersistedAudioEdit | null {
-    let nextAudioEdit = cloneHammerAudioEdit(args.audioEdit);
-    if (args.cutSelections.length === 0) {
-      return nextAudioEdit;
-    }
-
-    let audioPolish = {
-      ...buildNotStartedHammerAudioPolish(),
-      audio_edit: cloneHammerAudioEdit(args.audioEdit),
-    };
-    for (let index = 0; index < args.cutSelections.length; index += 1) {
-      const committed = commitAudioCutSelection({
-        audioPolish,
-        selection: args.cutSelections[index],
-        durationSec: playbackTransportDurationSec,
-        operationId: `${args.operationIdPrefix}:${index}`,
-      });
-      if (committed) {
-        audioPolish = committed.audioPolish;
-      }
-    }
-    nextAudioEdit = cloneHammerAudioEdit(audioPolish.audio_edit);
-    return nextAudioEdit;
-  }
-
-  function applyDraftTranscriptEdits(
-    segments: HammerTranscriptSegment[],
-    draftTextBySegmentId: Record<string, string>,
-  ): HammerTranscriptSegment[] {
-    let updatedSegments = segments;
-    for (const [segmentId, draftText] of Object.entries(draftTextBySegmentId)) {
-      updatedSegments = updateSegmentInTimeline(
-        updatedSegments,
-        segmentId,
-        (segment) => ({ ...segment, text: draftText }),
-      );
-    }
-    return updatedSegments;
-  }
-
-  function commitTranscriptTextEdits(draftTextBySegmentId: Record<string, string>): {
-    applied: boolean;
-    playbackChanged: boolean;
-  } {
-    const controller = historyAuthority.getController();
-    if (!controller) {
-      return { applied: false, playbackChanged: false };
-    }
-
-    const beforeState = controller.getState();
-    const updatedSegments = applyDraftTranscriptEdits(beforeState.transcriptSegments, draftTextBySegmentId);
-    const textCutSelections = deriveAudioCutsForSubtractiveTextEdits({
-      beforeSegments: beforeState.transcriptSegments,
-      afterSegments: updatedSegments,
-      durationSec: playbackTransportDurationSec,
-      waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
-    });
-    const beforeAudioOpCount = beforeState.audioEdit?.operations?.length ?? 0;
-
-    const applied = applyHistoryMutation({
-      label: "Edit transcript",
-      kind: "transcript_text_edit",
-      affectedSegments: Object.keys(draftTextBySegmentId),
-      immediatePersist: true,
-      computeAfter: (before) => {
-        const nextSegments = applyDraftTranscriptEdits(before.transcriptSegments, draftTextBySegmentId);
-        const nextTextCutSelections = deriveAudioCutsForSubtractiveTextEdits({
-          beforeSegments: before.transcriptSegments,
-          afterSegments: nextSegments,
-          durationSec: playbackTransportDurationSec,
-          waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
-        });
-        return {
-          ...before,
-          transcriptSegments: nextSegments,
-          audioEdit: applyCutSelectionsToAudioEdit({
-            audioEdit: before.audioEdit,
-            cutSelections: nextTextCutSelections,
-            operationIdPrefix: "transcript-edit",
-          }),
-          transcriptTimingHint: null,
-        };
-      },
-    });
-    if (!applied) {
-      return { applied: false, playbackChanged: false };
-    }
-
-    requestImmediatePersist();
-
-    const afterState = historyAuthority.getController()?.getState() ?? null;
-    const afterAudioOpCount = afterState?.audioEdit?.operations?.length ?? beforeAudioOpCount;
-    return {
-      applied: true,
-      playbackChanged: textCutSelections.length > 0 && afterAudioOpCount > beforeAudioOpCount,
-    };
-  }
-
-  function commitDeleteOnlyTranscriptEdits(edits: Array<{
-    segmentId: string;
-    nextText: string;
-    deletion: HammerDeleteOnlyTranscriptDeletion;
-    cutSelection: HammerAudioCutSelection | null;
-  }>): {
-    applied: boolean;
-    playbackChanged: boolean;
-    deletedTokenCount: number;
-  } {
-    const controller = historyAuthority.getController();
-    if (!controller || edits.length === 0) {
-      return { applied: false, playbackChanged: false, deletedTokenCount: 0 };
-    }
-
-    const beforeState = controller.getState();
-    const uniqueEdits = edits.filter((edit, index, allEdits) => (
-      allEdits.findIndex((candidate) => candidate.segmentId === edit.segmentId) === index
-    ));
-    if (uniqueEdits.length === 0) {
-      return { applied: false, playbackChanged: false, deletedTokenCount: 0 };
-    }
-
-    const cutSelections = uniqueEdits
-      .map((edit) => edit.cutSelection)
-      .filter((selection): selection is HammerAudioCutSelection => Boolean(selection));
-    if (cutSelections.length !== uniqueEdits.length) {
-      return { applied: false, playbackChanged: false, deletedTokenCount: 0 };
-    }
-    const transcriptChanged = uniqueEdits.some((edit) => {
-      const baseline = beforeState.transcriptSegments.find((segment) => segment.segment_id === edit.segmentId)?.text ?? null;
-      return baseline != null && baseline !== edit.nextText;
-    });
-    if (!transcriptChanged && cutSelections.length === 0) {
-      return { applied: false, playbackChanged: false, deletedTokenCount: 0 };
-    }
-
-    const beforeAudioOpCount = beforeState.audioEdit?.operations?.length ?? 0;
-    const applied = applyHistoryMutation({
-      label: "Delete transcript tokens",
-      kind: "transcript_text_edit",
-      affectedSegments: uniqueEdits.map((edit) => edit.segmentId),
-      immediatePersist: true,
-      computeAfter: (before) => ({
-        ...before,
-        transcriptSegments: uniqueEdits.reduce((segments, edit) => updateSegmentInTimeline(
-          segments,
-          edit.segmentId,
-          (segment) => ({ ...segment, text: edit.nextText }),
-        ), before.transcriptSegments),
-        audioEdit: applyCutSelectionsToAudioEdit({
-          audioEdit: before.audioEdit,
-          cutSelections,
-          operationIdPrefix: "transcript-delete",
-        }),
-        transcriptTimingHint: null,
-      }),
-    });
-    if (!applied) {
-      return { applied: false, playbackChanged: false, deletedTokenCount: 0 };
-    }
-
-    requestImmediatePersist();
-
-    const afterState = historyAuthority.getController()?.getState() ?? null;
-    const afterAudioOpCount = afterState?.audioEdit?.operations?.length ?? beforeAudioOpCount;
-    return {
-      applied: true,
-      playbackChanged: cutSelections.length > 0 && afterAudioOpCount > beforeAudioOpCount,
-      deletedTokenCount: uniqueEdits.reduce((count, edit) => count + edit.deletion.deletedTokenCount, 0),
-    };
-  }
-
-  function splitSelectedSegmentAtPlayhead(): void {
-    if (!selectedSegmentId) {
-      setTranscriptTimingHint("Select a segment to split.");
-      return;
-    }
-
-    const state = historyAuthority.getController()?.getState() ?? null;
-    if (!state) {
-      setTranscriptTimingHint("Split could not resolve the current workspace state.");
-      return;
-    }
-    const boundaries = resolveTimelineBoundaryTimes(state.transcriptSegments);
-    const snappedPlayhead = snapPlayheadToBoundary({
-      nextPlayheadSec: state.playheadSec,
-      boundaryTimesSec: boundaries,
-      toleranceSec: PLAYHEAD_SNAP_TOLERANCE_SEC,
-    });
-
-    const applied = applyCompositionMutation({
-      type: "TRANSCRIPT_SPLIT",
-      label: "Split segment at playhead",
-      kind: "segment_structure",
-      segmentId: selectedSegmentId,
-      splitTimeSec: snappedPlayhead,
-      immediatePersist: true,
-    });
-
-    if (!applied) {
-      setTranscriptTimingHint("Playhead must sit within the selected segment to split.");
-      return;
-    }
-
-    const nextSelection = historyAuthority.getController()?.getState().selectedSegmentId ?? null;
-    setTranscriptSelectionAnchorSegmentId(nextSelection);
-    setTranscriptSelectionFocusSegmentId(nextSelection);
-    setFocusOverride("time-focus");
-  }
-
-  function deleteSelectedSegmentAndRipple(): void {
-    if (!selectedSegmentId) {
-      setTranscriptTimingHint("Select a segment to delete.");
-      return;
-    }
-
-    const applied = applyCompositionMutation({
-      type: "TRANSCRIPT_DELETE_RANGE",
-      label: "Delete segment and ripple",
-      kind: "segment_structure",
-      segmentIds: [selectedSegmentId],
-      immediatePersist: true,
-    });
-
-    if (!applied) {
-      setTranscriptTimingHint("Selected segment could not be deleted.");
-      return;
-    }
-
-    const nextSelection = historyAuthority.getController()?.getState().selectedSegmentId ?? null;
-    setTranscriptSelectionAnchorSegmentId(nextSelection);
-    setTranscriptSelectionFocusSegmentId(nextSelection);
-    setFocusOverride("time-focus");
-  }
-
-  function selectAdjacentSegment(direction: "previous" | "next"): void {
-    const nextSegmentId = resolveAdjacentSegmentSelection(
-      editableTranscriptSegments,
-      selectedSegmentId,
-      direction,
-    );
-    if (!nextSegmentId || nextSegmentId === selectedSegmentId) return;
-    const nextSegment = editableTranscriptSegments.find((segment) => segment.segment_id === nextSegmentId) ?? null;
-    if (!nextSegment) return;
-    selectLinkedTimelineRange({
-      startSec: nextSegment.start_sec,
-      endSec: nextSegment.end_sec,
-      segmentIds: [nextSegmentId],
-      anchorId: nextSegmentId,
-    });
-  }
-
-  function toggleSelectedSegmentDisabled(): void {
-    if (!selectedSegmentId) {
-      setTranscriptTimingHint("Select a segment to disable.");
-      return;
-    }
-
-    const selected = editableTranscriptSegments.find((segment) => segment.segment_id === selectedSegmentId) ?? null;
-    applyCompositionMutation({
-      type: "TRANSCRIPT_TOGGLE_MUTE_SEGMENTS",
-      label: selected?.is_disabled ? "Enable segment" : "Disable segment",
-      kind: "segment_structure",
-      segmentIds: [selectedSegmentId],
-      disabled: selected?.is_disabled !== true,
-      immediatePersist: true,
-    });
-  }
-
-  function adjustSelectedSegmentGain(deltaDb: number): void {
-    if (!selectedSegmentId) {
-      setTranscriptTimingHint("Select a segment to adjust gain.");
-      return;
-    }
-
-    applyHistoryMutation({
-      label: deltaDb > 0 ? "Increase segment gain" : "Decrease segment gain",
-      kind: "editor_state_change",
-      toolId: "audio",
-      affectedSegments: [selectedSegmentId],
-      immediatePersist: true,
-      computeAfter: (before) => ({
-        ...before,
-        transcriptSegments: updateSegmentInTimeline(
-          before.transcriptSegments,
-          selectedSegmentId,
-          (segment) => updateSegmentGain(segment, deltaDb),
-        ),
-        transcriptTimingHint: null,
-      }),
-    });
-  }
+  const {
+    moveSegment,
+    trimSegmentStart,
+    trimSegmentEnd,
+    commitTranscriptTextEdits,
+    commitDeleteOnlyTranscriptEdits,
+    splitSelectedSegmentAtPlayhead,
+    deleteSelectedSegmentAndRipple,
+    selectAdjacentSegment,
+    toggleSelectedSegmentDisabled,
+    adjustSelectedSegmentGain,
+  } = createHammerTranscriptEditingCommands({
+    segments: editableTranscriptSegments,
+    selectedSegmentId,
+    playbackDurationSec: playbackTransportDurationSec,
+    waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
+    historyAuthority,
+    applyHistoryMutation,
+    applyCompositionMutation,
+    requestImmediatePersist,
+    setTimingHint: setTranscriptTimingHint,
+    setSelectionAnchor: setTranscriptSelectionAnchorSegmentId,
+    setSelectionFocus: setTranscriptSelectionFocusSegmentId,
+    focusTime: () => setFocusOverride("time-focus"),
+    selectLinkedTimelineRange,
+    snapToleranceSec: PLAYHEAD_SNAP_TOLERANCE_SEC,
+  });
 
   const {
     applyStudioRackMutation,
@@ -3220,90 +2883,34 @@ function HammerWorkspaceShellWithContext(
     hasHistoryController: () => Boolean(historyAuthority.getController()),
   });
 
-  function applyTranscriptSelection(segmentId: string, extendRange: boolean): void {
-    const segment = editableTranscriptSegments.find((item) => item.segment_id === segmentId) ?? null;
-    if (!segment) return;
-
-    const selectedRangeDetail = selectedTranscriptRangeDetailRef.current;
-    const isSameSingleSegmentSelection = !extendRange
-      && transcriptSelectionAnchorSegmentId === segmentId
-      && transcriptSelectionFocusSegmentId === segmentId
-      && transcriptSelectionRange.segmentIds.length === 1
-      && transcriptSelectionRange.segmentIds[0] === segmentId
-      && !selectedRangeDetail;
-    if (isSameSingleSegmentSelection) {
-      if (transcriptTimingHint) {
-        setTranscriptTimingHint(null);
-      }
-      return;
-    }
-
-    const anchorSegmentId = extendRange && transcriptSelectionAnchorSegmentId
-      ? transcriptSelectionAnchorSegmentId
-      : segmentId;
-    selectLinkedTranscriptTarget({
-      anchorSegmentId,
-      focusSegmentId: segmentId,
-    });
-    setTranscriptTimingHint(null);
-  }
-
-  function clearTranscriptSelection(): void {
-    clearLinkedTranscriptSelection();
-    setTranscriptTimingHint(null);
-  }
+  const {
+    applyTranscriptSelection,
+    clearTranscriptSelection,
+    disableTranscriptSelection,
+    cutTranscriptSelection,
+  } = createHammerTranscriptSelectionCommands({
+    segments: editableTranscriptSegments,
+    getSelectedRangeDetail: () => selectedTranscriptRangeDetailRef.current,
+    anchorId: transcriptSelectionAnchorSegmentId,
+    focusId: transcriptSelectionFocusSegmentId,
+    range: transcriptSelectionRange,
+    timingHint: transcriptTimingHint,
+    hasSelection: hasTranscriptSelection,
+    selectLinkedTarget: selectLinkedTranscriptTarget,
+    clearLinkedSelection: clearLinkedTranscriptSelection,
+    setTimingHint: setTranscriptTimingHint,
+    applyCompositionMutation,
+    historyAuthority,
+    setSelectionAnchor: setTranscriptSelectionAnchorSegmentId,
+    setSelectionFocus: setTranscriptSelectionFocusSegmentId,
+    focusTime: () => setFocusOverride("time-focus"),
+  });
 
   /*
     Transcript timing-input clamp hint contract:
     - show the hint only when the typed value was adjusted by clamping
     - preserve explicit comparisons like nextStart !== parsed and adjustedEnd !== parsed
   */
-
-  function disableTranscriptSelection(): void {
-    if (!hasTranscriptSelection) {
-      setTranscriptTimingHint("Select transcript segments to disable.");
-      return;
-    }
-
-    const selectedIdSet = new Set(transcriptSelectionRange.segmentIds);
-    const selectedSegments = editableTranscriptSegments.filter((segment) => selectedIdSet.has(segment.segment_id));
-    const targetDisabled = !selectedSegments.every((segment) => segment.is_disabled === true);
-
-    applyCompositionMutation({
-      type: "TRANSCRIPT_TOGGLE_MUTE_SEGMENTS",
-      label: targetDisabled ? "Disable transcript selection" : "Enable transcript selection",
-      kind: "segment_structure",
-      segmentIds: transcriptSelectionRange.segmentIds,
-      disabled: targetDisabled,
-      immediatePersist: true,
-    });
-  }
-
-  function cutTranscriptSelection(): void {
-    if (!hasTranscriptSelection) {
-      setTranscriptTimingHint("Select transcript segments to cut.");
-      return;
-    }
-
-    const applied = applyCompositionMutation({
-      type: "TRANSCRIPT_DELETE_RANGE",
-      label: "Cut transcript selection",
-      kind: "segment_structure",
-      segmentIds: transcriptSelectionRange.segmentIds,
-      immediatePersist: true,
-    });
-
-    if (!applied) {
-      setTranscriptTimingHint("Transcript selection cut did not change the timeline.");
-      return;
-    }
-
-    const state = historyAuthority.getController()?.getState();
-    const nextSelection = state?.selectedSegmentId ?? null;
-    setTranscriptSelectionAnchorSegmentId(nextSelection);
-    setTranscriptSelectionFocusSegmentId(nextSelection);
-    setFocusOverride("time-focus");
-  }
 
   useEffect(() => {
     syncReviewPass(currentPass);

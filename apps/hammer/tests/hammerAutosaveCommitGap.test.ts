@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 const WORKSPACE_EDITOR_PATH = new URL("../src/editor/HammerWorkspaceEditor.tsx", import.meta.url);
 const SNAPSHOT_EMITTER_PATH = new URL("../src/editor/hammerWorkspaceShellSnapshotEmitter.ts", import.meta.url);
 const WORKSPACE_SHELL_PATH = new URL("../src/editor/HammerWorkspaceShell.tsx", import.meta.url);
+const TRANSCRIPT_EDITING_PATH = new URL("../src/editor/useHammerWorkspaceShellTranscriptEditing.ts", import.meta.url);
 
 async function run() {
   const emitterSource = await readFile(SNAPSHOT_EMITTER_PATH, "utf-8");
@@ -39,13 +40,18 @@ async function run() {
   );
 
   const shellSource = await readFile(WORKSPACE_SHELL_PATH, "utf-8");
+  const transcriptEditingSource = await readFile(TRANSCRIPT_EDITING_PATH, "utf-8");
   assert.ok(
     shellSource.includes("function flushPendingPlacementDrafts(): void"),
     "Expected HammerWorkspaceShell to flush visible placement drafts into canonical state before moving on.",
   );
   assert.ok(
-    shellSource.includes("requestImmediatePersist();"),
-    "Expected HammerWorkspaceShell to request immediate durable persistence after committed edit boundaries.",
+    shellSource.includes("requestImmediatePersist,"),
+    "Expected HammerWorkspaceShell to provide the immediate-persistence signal to transcript editing authority.",
+  );
+  assert.ok(
+    transcriptEditingSource.includes("args.requestImmediatePersist();"),
+    "Expected transcript editing authority to request immediate durable persistence after committed edit boundaries.",
   );
 
   // eslint-disable-next-line no-console
