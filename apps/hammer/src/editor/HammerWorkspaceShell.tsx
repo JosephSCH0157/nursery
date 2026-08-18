@@ -139,7 +139,11 @@ import {
 } from "./useHammerWorkspaceShellVisualPreview";
 import { useHammerWorkspaceShellReleasePrep } from "./useHammerWorkspaceShellReleasePrep";
 import { useHammerWorkspaceShellVisualEditing } from "./useHammerWorkspaceShellVisualEditing";
-import { useHammerWorkspaceShellHydration } from "./useHammerWorkspaceShellHydration";
+import {
+  useHammerWorkspaceShellHydration,
+  useHammerWorkspaceShellWorkpieceLabelHydration,
+  useHammerWorkspaceShellWorkpieceLabelState,
+} from "./useHammerWorkspaceShellHydration";
 import { useHammerWorkspaceShellTranscriptCleanup } from "./useHammerWorkspaceShellTranscriptCleanup";
 import { useHammerWorkspaceShellCleanupCandidateReview } from "./useHammerWorkspaceShellCleanupCandidateReview";
 import { useHammerWorkspaceShellRouting } from "./useHammerWorkspaceShellRouting";
@@ -194,7 +198,6 @@ import {
   HAMMER_PREPARED_RELEASE_PACKAGE_PATH,
   compareHammerPreparedReleasePackageToCurrent,
 } from "../lib/hammerPreparedReleasePackage";
-import { loadHammerWorkspaceWorkpieceLabel } from "../app/hammerRuntimeData";
 import {
   HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH,
 } from "../lib/hammerQuenchReleasePacket";
@@ -599,7 +602,8 @@ function HammerWorkspaceShellWithContext(
   const [historyStatus, setHistoryStatus] = useState<string | null>(null);
   const [playbackMediaSrc, setPlaybackMediaSrc] = useState<string | null>(null);
   const [previewVideoSrc, setPreviewVideoSrc] = useState<string | null>(null);
-  const [canonicalWorkpieceLabel, setCanonicalWorkpieceLabel] = useState<string | null>(null);
+  const { canonicalWorkpieceLabel, hydrationAuthority: workpieceLabelHydrationAuthority } =
+    useHammerWorkspaceShellWorkpieceLabelState();
   const [visualTimelineFocusNonce, setVisualTimelineFocusNonce] = useState(0);
   const currentPassMeta = useMemo(() => resolvePassMeta(currentPass), [currentPass]);
   const modeToolSelection = useMemo(() => editorModeToToolSelection(editorMode), [editorMode]);
@@ -2408,22 +2412,11 @@ function HammerWorkspaceShellWithContext(
     });
   }, [editableOutputSelection, outputLayerCandidates]);
 
-  useEffect(() => {
-    let active = true;
-    setCanonicalWorkpieceLabel(null);
-    void loadHammerWorkspaceWorkpieceLabel(launchContext.workspace_id, launchContext.workpiece_id)
-      .then((label) => {
-        if (!active) return;
-        setCanonicalWorkpieceLabel(label?.trim() || null);
-      })
-      .catch(() => {
-        if (!active) return;
-        setCanonicalWorkpieceLabel(null);
-      });
-    return () => {
-      active = false;
-    };
-  }, [launchContext.workspace_id, launchContext.workpiece_id]);
+  useHammerWorkspaceShellWorkpieceLabelHydration({
+    workspaceId: launchContext.workspace_id,
+    workpieceId: launchContext.workpiece_id,
+    hydrationAuthority: workpieceLabelHydrationAuthority,
+  });
 
   useEffect(() => {
     reconcileSpeakerSoloOptions(speakerOptions);

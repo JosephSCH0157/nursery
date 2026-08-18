@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import type {
@@ -13,6 +13,71 @@ import { deriveHydratedPassStatus } from "./hammerPassSelectors";
 import { resolveSelectedSegmentId } from "./hammerWorkspaceTranscript";
 import { resolveEditorModeFromPass, resolveInitialPassId, type HammerEditorMode } from "./hammerWorkspaceShellCore";
 import { resolveSelectionFromTranscript, type HammerLinkedSelection } from "./hammerLinkedSelection";
+import { loadHammerWorkspaceWorkpieceLabel } from "../app/hammerRuntimeData";
+
+type WorkpieceLabelSetter = Dispatch<SetStateAction<string | null>>;
+export type HammerWorkpieceLabelHydrationAuthority = object;
+
+const workpieceLabelAuthorityBySetter = new WeakMap<WorkpieceLabelSetter, HammerWorkpieceLabelHydrationAuthority>();
+const workpieceLabelSetterByAuthority = new WeakMap<HammerWorkpieceLabelHydrationAuthority, WorkpieceLabelSetter>();
+
+export type HammerWorkpieceLabelHydrationState = {
+  canonicalWorkpieceLabel: string | null;
+  hydrationAuthority: HammerWorkpieceLabelHydrationAuthority;
+};
+
+export function useHammerWorkspaceShellWorkpieceLabelState(): HammerWorkpieceLabelHydrationState {
+  const [canonicalWorkpieceLabel, setCanonicalWorkpieceLabel] = useState<string | null>(null);
+  let hydrationAuthority = workpieceLabelAuthorityBySetter.get(setCanonicalWorkpieceLabel);
+  if (!hydrationAuthority) {
+    hydrationAuthority = {};
+    workpieceLabelAuthorityBySetter.set(setCanonicalWorkpieceLabel, hydrationAuthority);
+    workpieceLabelSetterByAuthority.set(hydrationAuthority, setCanonicalWorkpieceLabel);
+  }
+  return { canonicalWorkpieceLabel, hydrationAuthority };
+}
+
+export type HammerWorkpieceLabelLoader = (workspaceId: string, workpieceId: string) => Promise<string | null>;
+
+export function beginHammerWorkspaceWorkpieceLabelHydration(args: {
+  workspaceId: string;
+  workpieceId: string;
+  setCanonicalWorkpieceLabel: WorkpieceLabelSetter;
+  loadLabel?: HammerWorkpieceLabelLoader;
+}): () => void {
+  const { workspaceId, workpieceId, setCanonicalWorkpieceLabel, loadLabel = loadHammerWorkspaceWorkpieceLabel } = args;
+  let active = true;
+  setCanonicalWorkpieceLabel(null);
+  void loadLabel(workspaceId, workpieceId)
+    .then((label) => {
+      if (!active) return;
+      setCanonicalWorkpieceLabel(label?.trim() || null);
+    })
+    .catch(() => {
+      if (!active) return;
+      setCanonicalWorkpieceLabel(null);
+    });
+  return () => {
+    active = false;
+  };
+}
+
+export function useHammerWorkspaceShellWorkpieceLabelHydration(args: {
+  workspaceId: string;
+  workpieceId: string;
+  hydrationAuthority: HammerWorkpieceLabelHydrationAuthority;
+}): void {
+  const { workspaceId, workpieceId, hydrationAuthority } = args;
+  useEffect(() => {
+    const setCanonicalWorkpieceLabel = workpieceLabelSetterByAuthority.get(hydrationAuthority);
+    if (!setCanonicalWorkpieceLabel) return undefined;
+    return beginHammerWorkspaceWorkpieceLabelHydration({
+      workspaceId,
+      workpieceId,
+      setCanonicalWorkpieceLabel,
+    });
+  }, [workspaceId, workpieceId, hydrationAuthority]);
+}
 
 type ApplyLinkedSelectionState = (args: {
   selection: HammerLinkedSelection | null;
