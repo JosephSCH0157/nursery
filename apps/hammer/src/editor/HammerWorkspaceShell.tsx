@@ -11,7 +11,6 @@ import {
   cloneHammerEditorialAuthorityGraph,
   type HammerEditorialAuthorityGraph,
 } from "../../../../packages/contracts/hammer/editorial-authority.contract";
-import { createSemanticEditPlanSignature } from "../lib/editPlanSignature";
 import type { HammerPlacementOutboundDiagnostics, HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
 import type {
   HammerPassId,
@@ -75,12 +74,11 @@ import {
   listHammerDerivedTextLayers,
   normalizeHammerOutputSelectionRef,
   setHammerDerivedTextLayerActive,
-  setHammerDerivedTextLayerOutput,
 } from "../macros/hammerDerivedTranscriptLayers";
 import { diffWords, isSubtractiveTranscriptWordEdit } from "../lib/hammerWordDiff";
 import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
-import { deriveLegacyVisualPlacementsFromTimeline } from "../visuals/persistence/hammerVisualTimelineLegacyAdapter";
 import { hammerVisualTimelineReducer } from "../visuals/state/hammerVisualReducer";
+import { deriveLegacyVisualPlacementsFromTimeline } from "../visuals/persistence/hammerVisualTimelineLegacyAdapter";
 import { deriveStableHammerAssetIdFromPath } from "../lib/hammerAssetIdentity";
 import {
   buildIntroOutroCandidateItems,
@@ -191,7 +189,6 @@ import {
   cloneHammerAudioEdit,
   cloneHammerAudioPolish,
 } from "../prep/hammerAudioPolish";
-import { buildHammerReleasePrepPackage } from "../lib/hammerReleasePrepPackage";
 import {
   HAMMER_PREPARED_RELEASE_PACKAGE_PATH,
   compareHammerPreparedReleasePackageToCurrent,
@@ -202,10 +199,7 @@ import {
 } from "../lib/hammerQuenchReleasePacket";
 import { deriveHammerReleaseHandoffPosture } from "../lib/hammerReleaseHandoffPosture";
 import {
-  buildHammerRenderAssembly,
-  projectEditPlanFromEditorialAuthorityGraph,
   projectEditorialAuthorityGraphFromEditPlan,
-  type HammerRenderRuntimeCapabilities,
 } from "./hammerRenderAssembly";
 import { resolvePodcastMasterUiStatus } from "./hammerPodcastMasterStatus";
 import { evaluateHammerReadinessGate } from "./hammerReadinessGate";
@@ -224,9 +218,6 @@ import {
   normalizeHammerHistoryCompatibilityState,
   resolveHammerDerivedLayersForUndoStack,
 } from "./hammerCompositionHistoryCommands";
-import {
-  buildHammerCaptionPreviewModel,
-} from "../lib/hammerCaptionPreview";
 import HammerWorkspaceShellToolbar from "./HammerWorkspaceShellToolbar";
 import HammerWorkspaceShellPreviewBay from "./HammerWorkspaceShellPreviewBay";
 import HammerWorkspaceShellTimelineDock from "./HammerWorkspaceShellTimelineDock";
@@ -247,7 +238,6 @@ import {
 } from "./hammerWorkspaceShellSnapshotEmitter";
 import {
   createHammerCaptionCommands,
-  projectHammerCaptionsForRelease,
   useHammerCaptionDerivedState,
   useHammerCaptionEditorRefs,
   useHammerCaptionState,
@@ -307,6 +297,7 @@ import {
   buildStructuredTranscriptResetKey,
   buildVisualTimelineResetKey,
 } from "./hammerWorkspaceShellResetKeys";
+import { buildHammerWorkspaceShellReleasePackage } from "./hammerWorkspaceShellReleasePackage";
 import "./HammerWorkspaceShell.css";
 
 const HISTORY_MAX_SIZE = 100;
@@ -316,46 +307,6 @@ const PLAYHEAD_SNAP_TOLERANCE_SEC = DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC;
 const EMPTY_VISUAL_TIMELINE_CLIPS: HammerVisualTimelineState["clips"] = [];
 
 const TIMELINE_ZOOM_LEVELS = [100, 125, 150, 200, 300] as const;
-const HAMMER_RENDER_RUNTIME_CAPABILITIES: HammerRenderRuntimeCapabilities = {
-  preview_supported_operation_types: ["delete", "mute", "trim", "split", "merge", "hard_cut", "apply_look", "apply_exposure", "apply_background_effect"],
-  export_supported_operation_types: [
-    "delete",
-    "mute",
-    "trim",
-    "split",
-    "merge",
-    "hard_cut",
-    "cut_range",
-    "ripple_delete",
-    "insert_broll",
-    "overlay_graphic",
-    "crossfade",
-    "dip_to_black",
-    "fade_audio",
-    "audio_duck",
-    "apply_look",
-    "apply_exposure",
-  ],
-  handoff_supported_operation_types: [
-    "delete",
-    "mute",
-    "trim",
-    "split",
-    "merge",
-    "hard_cut",
-    "cut_range",
-    "ripple_delete",
-    "insert_broll",
-    "overlay_graphic",
-    "crossfade",
-    "dip_to_black",
-    "fade_audio",
-    "audio_duck",
-    "apply_look",
-    "apply_exposure",
-    "podcast_master_pass",
-  ],
-};
 
 type HammerWorkspaceShellProps = {
   launchContext?: HammerLaunchContext;
@@ -3181,155 +3132,70 @@ function HammerWorkspaceShellWithContext(
   });
 
   const exportBasis = useMemo(() => {
-    const exportTranscriptSegments = editableTranscriptSegments.filter((segment) => !segment.is_disabled);
-    const transcriptForReleaseBase = preserveTranscriptMetadata(
-      exportTranscriptSegments,
-      workspaceStructuredTranscript ?? null,
-      mediaRef,
-      transcriptSourceId,
-    );
-    let transcriptForRelease = setHammerDerivedTextLayerOutput(
-      transcriptForReleaseBase,
-      editableOutputSelection.layerId,
-    );
-    const selectedLayer = transcriptForRelease.derived_text_layers?.layers.find(
-      (layer) => layer.layer_id === editableOutputSelection.layerId && layer.status !== "discarded",
-    ) ?? null;
-    if (
-      selectedLayer?.macro_kind === "speaker_solo"
-      || selectedLayer?.macro_kind === "speaker_interview"
-      || selectedLayer?.macro_kind === "speaker_monologue"
-    ) {
-      const suppressedSegmentIds = new Set(
-        selectedLayer.changes
-          .filter((change) => change.cleaned_text.trim().length === 0)
-          .map((change) => change.segment_id),
-      );
-      transcriptForRelease = {
-        ...transcriptForRelease,
-        segments: transcriptForRelease.segments.filter((segment) => !suppressedSegmentIds.has(segment.segment_id)),
-      };
-    }
-    transcriptForRelease = projectHammerCaptionsForRelease({ transcript: transcriptForRelease, outputLayerId: editableOutputSelection.layerId, outputRecipeRef: editableOutputSelection.sourceRecipeRef, formatting: captionFormatting, selectedFormat: selectedCaptionArtifactFormat, buildState: captionBuildState, editedState: captionEditedState });
     const editPlan = launchContext.edit_plan
       ? {
         ...launchContext.edit_plan,
         instructions: launchContext.edit_plan.instructions.map((instruction) => ({ ...instruction })),
       }
       : createFallbackEditPlan(launchContext, transcriptSourceId, previewMode);
-    const canonicalGraph = editableEditorialAuthorityGraph
-      ? {
-        ...editableEditorialAuthorityGraph,
-        updated_at: new Date().toISOString(),
-      }
-      : projectEditorialAuthorityGraphFromEditPlan({
-        editPlan,
-        workspaceId: launchContext.workspace_id,
-        workpieceId: launchContext.workpiece_id,
-        sessionId: launchContext.session_id ?? editPlan.session_id ?? `${launchContext.workpiece_id}:session`,
-      });
-    const canonicalEditPlan = projectEditPlanFromEditorialAuthorityGraph({
-      graph: canonicalGraph,
-      fallback: editPlan,
-    });
-    const timelineRevision = createSemanticEditPlanSignature(
-      transcriptSourceId,
-      previewMode,
-      canonicalEditPlan.instructions,
-    );
-    const renderAssembly = buildHammerRenderAssembly({
-      canonicalGraph,
-      runtimeCapabilities: {
-        ...HAMMER_RENDER_RUNTIME_CAPABILITIES,
-        export_supported_operation_types: studioRackRenderBackendResolution.ffmpegAvailable
-          ? [...HAMMER_RENDER_RUNTIME_CAPABILITIES.export_supported_operation_types, "podcast_master_pass"]
-          : HAMMER_RENDER_RUNTIME_CAPABILITIES.export_supported_operation_types,
-        podcast_master: {
-          available: studioRackRenderBackendResolution.ffmpegAvailable,
-          preview_supported: false,
-          stages: {
-            normalize: studioRackRenderBackendResolution.ffmpegAvailable,
-            compress: studioRackRenderBackendResolution.ffmpegAvailable,
-            limit: studioRackRenderBackendResolution.ffmpegAvailable,
-            noise_cleanup_light: studioRackRenderBackendResolution.ffmpegAvailable,
-          },
-        },
-      },
-      transcriptSegments: transcriptForRelease.segments.map((segment) => ({
-        segment_id: segment.segment_id,
-        start_sec: segment.start_sec,
-        end_sec: segment.end_sec,
-      })),
-      captionChunks: buildHammerCaptionPreviewModel(
-        transcriptForRelease.segments,
-        transcriptForRelease,
-      ).chunks.map((chunk) => ({
-        chunk_id: chunk.chunk_id,
-        start_sec: chunk.start_sec,
-        end_sec: chunk.end_sec,
-        segment_ids: [...chunk.segment_ids],
-      })),
-    });
-    const currentReleasePackage = buildHammerReleasePrepPackage({
+    const transcriptPreparedAt = workspaceStructuredTranscript?.transcript_id === transcriptSourceId
+      ? workspaceStructuredTranscript.prepared_at ?? new Date().toISOString()
+      : new Date().toISOString();
+    return buildHammerWorkspaceShellReleasePackage({
       workspaceId: launchContext.workspace_id,
       workpieceId: launchContext.workpiece_id,
-      prepStatus: transcriptForRelease.segments.length > 0 ? "prepared" : "idle",
-      alignmentStatus: transcriptForRelease.segments.length > 0 ? "aligned" : "not_started",
-      structuredTranscript: transcriptForRelease,
-      visualPlacements: editableVisualTimeline
-        ? deriveLegacyVisualPlacementsFromTimeline(editableVisualTimeline)
-        : editableVisualPlacements,
+      sessionId: launchContext.session_id ?? null,
+      sourceMode: launchContext.source_mode,
+      previewMode,
+      transcriptSourceId,
+      editPlan,
+      transcriptSegments: editableTranscriptSegments,
+      structuredTranscript: workspaceStructuredTranscript ?? null,
+      transcriptPreparedAt,
+      outputSelection: editableOutputSelection,
+      captionFormatting,
+      selectedCaptionArtifactFormat,
+      captionBuildState,
+      captionEditedState,
+      editorialAuthorityGraph: editableEditorialAuthorityGraph,
+      canonicalGraphUpdatedAt: editableEditorialAuthorityGraph
+        ? new Date().toISOString()
+        : editPlan.updated_at,
+      visualTimeline: editableVisualTimeline,
+      visualPlacements: editableVisualPlacements,
       audioPolish: editableAudioPolish,
-      editorSession: {
-        schema_version: 1,
-        session_id: launchContext.session_id ?? editPlan.session_id ?? `${launchContext.workpiece_id}:session`,
-        source_mode: launchContext.source_mode,
-        preview_mode: previewMode,
-        transcript_source_id: transcriptSourceId,
-        selected_segment_id: selectedSegmentId,
-        selected_overlay_row_id: selectedClipId,
-        media_ref: mediaRef ? { ...mediaRef } : null,
-        workspace_mapping: workspaceMapping ? { ...workspaceMapping } : null,
-        media_source_label: mediaSourceLabel,
-        visual_preview: {
-          white_balance: visualWhiteBalance,
-          color_amount: visualColorAmount,
-          background_blur: visualBackgroundBlur,
-          eye_contact_assist_enabled: visualEyeContactAssistEnabled,
-          eye_contact_assist_strength: visualEyeContactAssistStrength,
-          background_blur_px: visualBackgroundBlurPx,
-          background_blur_feather_px: visualBackgroundBlurFeatherPx,
-          background_blur_temporal_smoothing: visualBackgroundBlurTemporalSmoothing,
-          background_blur_subject_expansion_px: visualBackgroundBlurSubjectExpansionPx,
-          background_blur_quality_mode: visualBackgroundBlurQualityMode,
-          background_blur_fallback_mode: visualBackgroundBlurFallbackMode,
-          background_blur_provider: visualBackgroundBlurProviderId ?? "mediapipe_selfie_segmentation",
-          background_replace_enabled: visualBackgroundReplaceEnabled,
-          background_replace_mode: visualBackgroundReplaceMode,
-          background_replace_color: visualBackgroundReplaceColor,
-          background_replace_image_url: visualBackgroundReplaceImageUrl.trim() ? visualBackgroundReplaceImageUrl.trim() : null,
-          background_replace_image_asset_path: visualBackgroundReplaceImageAssetPath,
-          background_replace_image_asset_id: selectedBackgroundReplacementAssetId,
-          background_replace_image_asset_type: visualBackgroundReplaceImageAssetPath ? "image" : null,
-          background_wash_enabled: visualBackgroundWashEnabled,
-          background_wash_dim_amount: visualBackgroundWashDimAmount,
-          background_wash_desaturate_amount: visualBackgroundWashDesaturateAmount,
-        },
-        last_opened_at: new Date().toISOString(),
+      selectedSegmentId,
+      selectedClipId,
+      mediaRef,
+      workspaceMapping,
+      mediaSourceLabel,
+      visualPreview: {
+        white_balance: visualWhiteBalance,
+        color_amount: visualColorAmount,
+        background_blur: visualBackgroundBlur,
+        eye_contact_assist_enabled: visualEyeContactAssistEnabled,
+        eye_contact_assist_strength: visualEyeContactAssistStrength,
+        background_blur_px: visualBackgroundBlurPx,
+        background_blur_feather_px: visualBackgroundBlurFeatherPx,
+        background_blur_temporal_smoothing: visualBackgroundBlurTemporalSmoothing,
+        background_blur_subject_expansion_px: visualBackgroundBlurSubjectExpansionPx,
+        background_blur_quality_mode: visualBackgroundBlurQualityMode,
+        background_blur_fallback_mode: visualBackgroundBlurFallbackMode,
+        background_blur_provider: visualBackgroundBlurProviderId ?? "mediapipe_selfie_segmentation",
+        background_replace_enabled: visualBackgroundReplaceEnabled,
+        background_replace_mode: visualBackgroundReplaceMode,
+        background_replace_color: visualBackgroundReplaceColor,
+        background_replace_image_url: visualBackgroundReplaceImageUrl.trim() ? visualBackgroundReplaceImageUrl.trim() : null,
+        background_replace_image_asset_path: visualBackgroundReplaceImageAssetPath,
+        background_replace_image_asset_id: selectedBackgroundReplacementAssetId,
+        background_replace_image_asset_type: visualBackgroundReplaceImageAssetPath ? "image" : null,
+        background_wash_enabled: visualBackgroundWashEnabled,
+        background_wash_dim_amount: visualBackgroundWashDimAmount,
+        background_wash_desaturate_amount: visualBackgroundWashDesaturateAmount,
       },
+      editorLastOpenedAt: new Date().toISOString(),
+      ffmpegAvailable: studioRackRenderBackendResolution.ffmpegAvailable,
     });
-
-    return {
-      transcriptForRelease,
-      currentReleasePackage,
-      timelineRevision,
-      canonicalGraph,
-      renderAssembly,
-      subtitles: {
-        srt: currentReleasePackage.text_outputs?.subtitles.srt.artifact?.content ?? null,
-        vtt: currentReleasePackage.text_outputs?.subtitles.vtt.artifact?.content ?? null,
-      },
-    };
   }, [
     captionBuildState,
     captionEditedState,

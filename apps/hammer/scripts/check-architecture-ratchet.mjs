@@ -45,7 +45,15 @@ if (/applyTranscript(?:DeleteRange|CleanupPreview|ToggleMuteSegments|Split|TrimS
 if (/deriveAudioCutsForSubtractiveTextEdits|commitAudioCutSelection|moveSegmentTiming|trimSegment(?:Start|End)Timing|updateSegmentGain/.test(shell)) failures.push("HammerWorkspaceShell reacquired ordinary transcript-editing mutation construction.");
 if (/resolveInsertBrollSuggestionInGraph|updateResolvedInsertBrollOperationInGraph|synchronizeLinkedAudioDuckForBrollOperation|deriveStableHammerVisualAssetId/.test(shell)) failures.push("HammerWorkspaceShell reacquired media-map or manual B-roll mutation construction.");
 if (/create(?:HardCut|Crossfade|DipToBlack|FadeAudio|PodcastMasterPass|ApplyLook|ApplyExposure)Instruction/.test(shell)) failures.push("HammerWorkspaceShell reacquired transition, audio-master, or look/exposure mutation construction.");
+if (/buildHammer(?:ReleasePrepPackage|RenderAssembly)\s*\(/.test(shell)) failures.push("HammerWorkspaceShell reacquired release-package construction or release projection.");
 if (/setEditableVisualTimeline|applyVisualTimelineAction/.test(automaticPlacementAuthority)) failures.push("Automatic-placement authority bypassed the canonical placement commit callback.");
+
+const releasePackageAuthority = inspect("src/editor/hammerWorkspaceShellReleasePackage.ts").text;
+for (const [pattern, message] of [
+  [/\buse(?:State|Effect|Memo|Ref|Callback)\s*\(/, "Release-package construction acquired React hook ownership."],
+  [/\b(?:saveHammer|loadHammer|fetch|localStorage|sessionStorage)\b/, "Release-package construction acquired artifact I/O or persistence ownership."],
+  [/onWorkspaceSnapshotChange|setEditable[A-Z]|dispatch\s*\(/, "Release-package construction acquired canonical mutation ownership."],
+]) if (pattern.test(releasePackageAuthority)) failures.push(`src/editor/hammerWorkspaceShellReleasePackage.ts: ${message}`);
 
 const expansionGate = inspect("src/composition/hammerExpansionGateV1.ts").text;
 for (const required of [
