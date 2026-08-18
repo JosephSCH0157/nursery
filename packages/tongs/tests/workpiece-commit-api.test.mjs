@@ -2996,9 +2996,20 @@ function createReadyQueueSupabase({
                     assert.equal(field, "workpiece_id");
                     const idSet = new Set(values);
                     return {
-                      async order(orderField, options) {
-                        assert.equal(orderField, "completed_at");
-                        return { data: sortRows(recordedRows.filter((row) => idSet.has(row.workpiece_id)), "completed_at", options?.ascending ?? true), error: null };
+                      or(filters) {
+                        assert.equal(filters, "keep_id.not.is.null,source_kind.eq.hammer_import");
+                        return {
+                          async order(orderField, options) {
+                            assert.equal(orderField, "completed_at");
+                            return {
+                              data: sortRows(recordedRows.filter((row) => (
+                                idSet.has(row.workpiece_id)
+                                && (Boolean(row.keep_id) || row.source_kind === "hammer_import")
+                              )), "completed_at", options?.ascending ?? true),
+                              error: null,
+                            };
+                          },
+                        };
                       },
                     };
                   },

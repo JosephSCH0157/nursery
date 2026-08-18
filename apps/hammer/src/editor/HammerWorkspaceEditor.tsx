@@ -190,11 +190,10 @@ import {
   transcriptMatchesCanonicalMedia,
 } from "../ingest/hammerIngestDecisions";
 import {
-  clearHammerTranscriptPrepNonAiMissingBehavior,
-  readHammerTranscriptPrepNonAiMissingBehavior,
   saveHammerTranscriptPrepNonAiMissingBehavior,
   type HammerTranscriptPrepNonAiMissingBehavior,
 } from "../prep/hammerTranscriptPrepPromptPreference";
+import { HammerPrepFailurePanel } from "./HammerPrepFailurePanel";
 import {
   buildHammerLaunchContextFromRecordingTruth,
   loadHammerWorkpieceRecordingTruth,
@@ -228,6 +227,16 @@ import {
   shouldSkipDuplicatePrepKick,
   type HammerCanonicalOpenHydrationResult,
 } from "./hammerWorkspaceEditorLifecycle";
+import {
+  canRetryHammerTranscript,
+  classifyHammerSessionOpenFailure,
+  createHammerSessionRetryTransition,
+  isActiveHammerTranscriptPrepJob,
+  mapHammerSessionOpenErrorToUserMessage,
+  shouldPollHammerTranscriptPrepJob,
+  shouldTerminateIdleHammerLoadingContext,
+  type HammerPrepFailureKind,
+} from "./hammerSessionStabilization";
 
 export interface HammerWorkspaceEditorProps {
   launchContext?: HammerLaunchContext;
@@ -246,6 +255,7 @@ export interface HammerWorkspaceEditorProps {
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
 const READY_HANDOFF_DELAY_MS = 320;
+const IDLE_LOADING_CONTEXT_TIMEOUT_MS = 15_000;
 const SAVE_DEBOUNCE_MS = 400;
 const AUTH_BOOT_POLL_INTERVAL_MS = 1_500;
 const LEGACY_TRANSCRIPT_MISS_CACHE_MS = 20_000;
@@ -605,7 +615,8 @@ export default function HammerWorkspaceEditor(
   const [showPreparedHandoff, setShowPreparedHandoff] = useState(false);
   const [preparedActionIntent, setPreparedActionIntent] = useState<HammerPreparedActionIntent | null>(null);
   const [prepAttemptNonce, setPrepAttemptNonce] = useState(0);
-  const [prepFailureKind, setPrepFailureKind] = useState<"non_ai_missing" | "ai_failed" | "auth_missing" | null>(null);
+  const [prepFailureKind, setPrepFailureKind] = useState<HammerPrepFailureKind>(null);
+  const [prepFailureCode, setPrepFailureCode] = useState<string | null>(null);
   const [prepAiFallbackRequested, setPrepAiFallbackRequested] = useState(false);
   const [prepFailureDontAskAgain, setPrepFailureDontAskAgain] = useState(false);
   const [transcriptPrepPreferenceNotice, setTranscriptPrepPreferenceNotice] = useState<{
@@ -648,6 +659,7 @@ export default function HammerWorkspaceEditor(
   const [regenAiTranscriptError, setRegenAiTranscriptError] = useState<string | null>(null);
   const [regenAiTranscriptResult, setRegenAiTranscriptResult] = useState<HammerAiTranscriptRegenerationResult | null>(null);
   const [prepTranscriptJobId, setPrepTranscriptJobId] = useState<string | null>(null);
+  const canonicalHydrationInFlightRef = useRef(false);
   const [prepJobHydrationReady, setPrepJobHydrationReady] = useState(
     persistenceMode !== "canonical" || !persistenceTarget,
   );
@@ -1438,6 +1450,7 @@ export default function HammerWorkspaceEditor(
     prepRunKeyRef.current = null;
     prepInFlightRunKeyRef.current = null;
     setPrepFailureKind(null);
+    setPrepFailureCode(null);
     setPrepAiFallbackRequested(false);
     setWorkspaceSnapshot(null);
     setLoadedPersistenceSnapshot(null);
@@ -1550,7 +1563,8 @@ export default function HammerWorkspaceEditor(
 
         const sessionResult = await openHammerRecordingSession(persistenceTarget);
         if (!sessionResult.ok) {
-          const message = mapSessionOpenErrorToUserMessage({
+          const sessionFailure = classifyHammerSessionOpenFailure(sessionResult.error_code ?? null);
+          const message = mapHammerSessionOpenErrorToUserMessage({
             code: sessionResult.error_code ?? null,
             message: sessionResult.error,
           });
@@ -1574,7 +1588,8 @@ export default function HammerWorkspaceEditor(
             activeCanonicalRecording: null,
             activeRevision: null,
             prepFailureMessage: message,
-            prepFailureKind: "ai_failed",
+            prepFailureKind: sessionFailure.kind,
+            prepFailureCode: sessionFailure.code,
           };
         }
 
@@ -1607,6 +1622,7 @@ export default function HammerWorkspaceEditor(
               activeRevision: nextActiveRevision,
               prepFailureMessage: `Canonical revision artifact hydration failed: ${revisionArtifactsResult.error}`,
               prepFailureKind: "ai_failed",
+              prepFailureCode: revisionArtifactsResult.error_code ?? null,
             };
           }
 
@@ -1959,9 +1975,11 @@ export default function HammerWorkspaceEditor(
           activeRevision: nextActiveRevision,
           prepFailureMessage: null,
           prepFailureKind: null,
+          prepFailureCode: null,
         };
     };
 
+    canonicalHydrationInFlightRef.current = true;
     void getSharedCanonicalOpenHydrationPromise({
       key: canonicalOpenKey,
       factory: runCanonicalOpenHydration,
@@ -1985,6 +2003,7 @@ export default function HammerWorkspaceEditor(
           setPrepState(createHammerPrepState("prep_failed", null, result.prepFailureMessage));
         }
         setPrepFailureKind(result.prepFailureKind);
+        setPrepFailureCode(result.prepFailureCode);
         setTranscriptDiscoveryStatus(result.prepFailureMessage ? "failed" : "complete");
         effectiveLaunchContextRef.current = result.effectiveLaunchContext;
         setEffectiveLaunchContext(result.effectiveLaunchContext);
@@ -2023,6 +2042,13 @@ export default function HammerWorkspaceEditor(
         setHasCanonicalBasis(nextHasCanonicalBasis);
         setReopenPersistenceSource(nextLaunchContext ? "bootstrap" : "none");
         setTranscriptDiscoveryStatus("failed");
+        setPrepFailureKind("session_open_failed");
+        setPrepFailureCode("session_open_exception");
+        setPrepState(createHammerPrepState(
+          "prep_failed",
+          null,
+          toErrorMessage(error, "Failed to open Hammer session."),
+        ));
         if (ingestDiagnosticRef.current && persistenceTarget) {
           ingestDiagnosticRef.current.final_status = "blocked";
           ingestDiagnosticRef.current.timestamp = new Date().toISOString();
@@ -2038,6 +2064,9 @@ export default function HammerWorkspaceEditor(
           });
         }
         setHydrationReady(true);
+      })
+      .finally(() => {
+        canonicalHydrationInFlightRef.current = false;
       });
 
     return () => {
@@ -2406,10 +2435,7 @@ export default function HammerWorkspaceEditor(
       setPrepJobHydrationReady(true);
       setJobsStatusUnavailable(null);
       const jobs = result.data.jobs;
-      const activePrep = jobs.find((job) => (
-        job.job_type === "hammer_transcript_prep"
-        && (job.status === "queued" || job.status === "running")
-      ));
+      const activePrep = jobs.find(isActiveHammerTranscriptPrepJob);
       if (activePrep && activePrep.status !== lastLoggedStatus && ingestLog.enabled) {
         lastLoggedStatus = activePrep.status;
         // eslint-disable-next-line no-console
@@ -2491,7 +2517,7 @@ export default function HammerWorkspaceEditor(
 
   useEffect(() => {
     if (!canRunTongsBootEffects) return;
-    if (!prepTranscriptJobId) return;
+    if (!shouldPollHammerTranscriptPrepJob(prepTranscriptJobId)) return;
     if (!persistenceTarget) return;
 
     let active = true;
@@ -2579,6 +2605,30 @@ export default function HammerWorkspaceEditor(
       if (timer != null) window.clearTimeout(timer);
     };
   }, [canRunTongsBootEffects, prepTranscriptJobId, persistenceTarget, setReloadRequestNonce, setPrepState, setShowPreparedHandoff]);
+
+  useEffect(() => {
+    if (persistenceMode !== "canonical" || prepState.status !== "preparing" || prepState.step !== "loading_context") {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      if (!shouldTerminateIdleHammerLoadingContext({
+        prepStatus: prepState.status,
+        prepStep: prepState.step,
+        hydrationInFlight: canonicalHydrationInFlightRef.current,
+        prepExecutionInFlight: prepInFlightRunKeyRef.current !== null,
+        transcriptJobId: prepTranscriptJobId,
+        readyTransitionPending: readyTransitionTimerRef.current !== null,
+      })) return;
+      setPrepFailureKind("session_open_failed");
+      setPrepFailureCode("preparation_stalled");
+      setPrepState(createHammerPrepState(
+        "prep_failed",
+        null,
+        "Hammer preparation stopped because no session, transcript job, or preparation task was active. Retry the session open.",
+      ));
+    }, IDLE_LOADING_CONTEXT_TIMEOUT_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [persistenceMode, prepState.status, prepState.step, prepTranscriptJobId]);
 
   useEffect(() => {
     if (persistenceMode !== "canonical" || !persistenceTarget || !hydrationReady || !canRunTongsBootEffects) {
@@ -4201,6 +4251,13 @@ export default function HammerWorkspaceEditor(
     behavior: HammerTranscriptPrepNonAiMissingBehavior,
     options?: { remember?: boolean; announce?: boolean },
   ): void => {
+    if (!canRetryHammerTranscript({
+      hydrationReady,
+      transcriptDiscoveryStatus,
+      failureKind: prepFailureKind,
+    })) {
+      return;
+    }
     if (options?.remember) {
       saveHammerTranscriptPrepNonAiMissingBehavior(behavior);
       setTranscriptPrepPreferenceNonce((current) => current + 1);
@@ -4241,7 +4298,25 @@ export default function HammerWorkspaceEditor(
     setTranscriptPrepPreferenceNonce,
     bumpPrepAttemptNonce,
     resetPrepRunKey,
+    hydrationReady,
+    prepFailureKind,
+    transcriptDiscoveryStatus,
   ]);
+
+  const retryCanonicalSessionOpen = useCallback((): void => {
+    beginPrepExecution();
+    resetPrepRunKey("retry_canonical_session_open", { error_code: prepFailureCode });
+    setPrepTranscriptJobId(null);
+    setPrepAiFallbackRequested(false);
+    setPrepFailureKind(null);
+    setPrepFailureCode(null);
+    const transition = createHammerSessionRetryTransition(reloadRequestNonce);
+    setTranscriptDiscoveryStatus(transition.transcriptDiscoveryStatus);
+    setHydrationReady(false);
+    setShowPreparedHandoff(false);
+    setPrepState(createHammerPrepState("preparing", "loading_context"));
+    setReloadRequestNonce(transition.reloadNonce);
+  }, [beginPrepExecution, prepFailureCode, reloadRequestNonce, resetPrepRunKey]);
 
   const openRegenAiTranscriptModal = useCallback((): void => {
     setRegenAiTranscriptError(null);
@@ -4407,22 +4482,6 @@ export default function HammerWorkspaceEditor(
 
   // Note: We intentionally do not auto-apply saved transcript-prep preferences (non-AI missing) via an effect.
   // Auto-retrying can create tight restart loops (and React "maximum update depth exceeded") when no transcript exists yet.
-
-  function mapSessionOpenErrorToUserMessage(args: { code: string | null; message: string }): string {
-    switch (args.code) {
-      case "canonical_recording_missing_take":
-        return "No kept take is available for this workpiece. Record a take in Anvil, keep it, then reopen Hammer.";
-      case "canonical_recording_missing_media_path":
-        return "Kept take receipt is missing a media path. Re-record the take (or repair the receipt) and retry.";
-      case "canonical_recording_missing":
-        return "Canonical recording is missing for this revision. Reload Hammer; if it persists, contact support.";
-      case "AUTH_REQUIRED":
-      case "auth_required":
-        return "Sign in required to open this Hammer session. Refresh and sign in, then retry.";
-      default:
-        return args.message || "Failed to open Hammer session.";
-    }
-  }
 
   function handlePreparedHandoffAction(actionId: HammerPreparedNextStepActionId): void {
     if (actionId === "export_later") {
@@ -4718,110 +4777,21 @@ export default function HammerWorkspaceEditor(
   }
 
   if (persistenceMode === "canonical" && prepState.status === "prep_failed") {
-    const canOfferAiFallback = prepFailureKind === "non_ai_missing";
-    const savedPreference = canOfferAiFallback
-      ? readHammerTranscriptPrepNonAiMissingBehavior()
-      : null;
-
-    if (savedPreference) {
-      return (
-        <section className="hammer-prep-shell__failure">
-          <div className="hammer-prep-shell__failure-card">
-            <h2>Hammer transcript prep stopped.</h2>
-            <p>{prepState.error ?? "Hammer could not prepare this episode transcript."}</p>
-            <p>
-              Using saved preference: {savedPreference === "retry-non-ai" ? "Retry non-AI" : "Use AI fallback"}.
-            </p>
-            <div className="hammer-prep-shell__handoff-actions">
-              <button
-                type="button"
-                className="hammer-prep-shell__action-button"
-                onClick={() => restartTranscriptPrep(savedPreference, { announce: true })}
-              >
-                {savedPreference === "retry-non-ai" ? "Retry non-AI" : "Use AI fallback"}
-              </button>
-              {canRenderPrepAiNoticeSettingsAction ? (
-                <button
-                  type="button"
-                  className="hammer-prep-shell__action-button hammer-prep-shell__action-button--placeholder"
-                  onClick={() => props.onRequestAiSettings?.()}
-                >
-                  Change
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="hammer-prep-shell__action-button hammer-prep-shell__action-button--dismiss"
-                onClick={() => {
-                  clearHammerTranscriptPrepNonAiMissingBehavior();
-                  setTranscriptPrepPreferenceNotice(null);
-                  setTranscriptPrepPreferenceNonce((current) => current + 1);
-                }}
-              >
-                Ask every time
-              </button>
-            </div>
-          </div>
-          {prepAiNoticeModal}
-        </section>
-      );
-    }
     return (
-      <section className="hammer-prep-shell__failure">
-        <div className="hammer-prep-shell__failure-card">
-          <h2>Hammer transcript prep stopped.</h2>
-          <p>{prepState.error ?? "Hammer could not prepare this episode transcript."}</p>
-          <p>
-            Hammer will always try to reuse an existing transcript first. AI transcription only runs if you explicitly choose the AI fallback.
-          </p>
-          {canOfferAiFallback ? (
-            <label>
-              <input
-                type="checkbox"
-                checked={prepFailureDontAskAgain}
-                onChange={(event) => setPrepFailureDontAskAgain(event.target.checked)}
-              />
-              Don&apos;t ask again
-            </label>
-          ) : null}
-          <div className="hammer-prep-shell__handoff-actions">
-            <button
-              type="button"
-              className="hammer-prep-shell__button"
-              onClick={() => {
-                restartTranscriptPrep("retry-non-ai", { remember: canOfferAiFallback && prepFailureDontAskAgain });
-              }}
-            >
-              Retry non-AI
-            </button>
-            {canOfferAiFallback ? (
-              <button
-                type="button"
-                className="hammer-prep-shell__button"
-                onClick={() => {
-                  restartTranscriptPrep("use-ai-fallback", { remember: prepFailureDontAskAgain });
-                }}
-              >
-                Use AI fallback
-              </button>
-            ) : null}
-            {canOfferAiFallback ? (
-              <button
-                type="button"
-                className="hammer-prep-shell__action-button hammer-prep-shell__action-button--dismiss"
-                onClick={() => {
-                  setPrepAiFallbackRequested(false);
-                  setPrepFailureKind(null);
-                  setPrepState(createHammerPrepState("prep_failed", null, "Prep cancelled. You can retry later."));
-                }}
-              >
-                Cancel
-              </button>
-            ) : null}
-          </div>
-        </div>
-        {prepAiNoticeModal}
-      </section>
+      <HammerPrepFailurePanel
+        failureKind={prepFailureKind}
+        failureCode={prepFailureCode}
+        error={prepState.error}
+        dontAskAgain={prepFailureDontAskAgain}
+        aiNoticeModal={prepAiNoticeModal}
+        canShowAiSettings={canRenderPrepAiNoticeSettingsAction}
+        onRetrySession={retryCanonicalSessionOpen}
+        onRestartTranscript={restartTranscriptPrep}
+        onDontAskAgainChange={setPrepFailureDontAskAgain}
+        onRequestAiSettings={props.onRequestAiSettings}
+        onAskEveryTime={() => { setTranscriptPrepPreferenceNotice(null); setTranscriptPrepPreferenceNonce((current) => current + 1); }}
+        onCancel={() => { setPrepAiFallbackRequested(false); setPrepFailureKind(null); setPrepState(createHammerPrepState("prep_failed", null, "Prep cancelled. You can retry later.")); }}
+      />
     );
   }
 

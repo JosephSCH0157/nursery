@@ -19,12 +19,13 @@ export type ThumbnailResolvedStyleSource = Exclude<ThumbnailRequestedStyleSource
 
 type UntypedPostgrestResult = {
   data: unknown;
-  error: { message: string } | null;
+  error: { message: string; code?: string } | null;
 };
 
 type UntypedPostgrestBuilder = PromiseLike<UntypedPostgrestResult> & {
   select: (columns: string) => UntypedPostgrestBuilder;
   eq: (column: string, value: unknown) => UntypedPostgrestBuilder;
+  in: (column: string, values: readonly unknown[]) => UntypedPostgrestBuilder;
   or: (filters: string) => UntypedPostgrestBuilder;
   insert: (values: Record<string, unknown>) => UntypedPostgrestBuilder;
   update: (values: Record<string, unknown>) => UntypedPostgrestBuilder;
@@ -588,6 +589,45 @@ export type WorkpieceTakeReceipt = {
   duration_ms: number | null;
   original_name: string | null;
 };
+
+type HammerRecordingTruthCandidate = {
+  keep_id?: string | null;
+  source_kind?: string | null;
+};
+
+type HammerRecordingTruthRow = HammerRecordingTruthCandidate & {
+  workpiece_id: string | null;
+  completion_id: string | null;
+  capture_session_id: string | null;
+  media_path: string | null;
+  completion_evidence: Json | null;
+  completed_at: string | null;
+  kept_at: string | null;
+};
+
+export function isEligibleHammerRecordingTruthCandidate(
+  row: HammerRecordingTruthCandidate,
+): boolean {
+  return Boolean(row.keep_id) || row.source_kind === "hammer_import";
+}
+
+export function resolveHammerCanonicalMediaChange(args: {
+  canonicalStatus: string;
+  sealedAt: string | null;
+  canonicalMediaPath: string;
+  canonicalMediaId: string;
+  recordedMediaPath: string;
+  recordedMediaId: string;
+}): "unchanged" | "reconcile" | "supersession_required" {
+  const identityChanged = Boolean(args.recordedMediaPath) && (
+    args.recordedMediaPath !== args.canonicalMediaPath
+    || (Boolean(args.recordedMediaId) && args.recordedMediaId !== args.canonicalMediaId)
+  );
+  if (!identityChanged) return "unchanged";
+  return Boolean(args.sealedAt) || args.canonicalStatus === "sealed"
+    ? "supersession_required"
+    : "reconcile";
+}
 
 export type WorkpieceRecordingTruth = {
   workpiece_id: string;
@@ -7788,6 +7828,22 @@ export class TongsCommitService {
         || (Boolean(latestMediaId) && latestMediaId !== existing.media_id)
       );
       if (mediaIdentityChanged) {
+        if (resolveHammerCanonicalMediaChange({
+          canonicalStatus: existing.status,
+          sealedAt: existing.sealed_at,
+          canonicalMediaPath: existingPath,
+          canonicalMediaId: existing.media_id,
+          recordedMediaPath: latestPath,
+          recordedMediaId: latestMediaId,
+        }) === "supersession_required") {
+          throw new HttpError(409, "canonical_recording_supersession_required", "A newer explicitly kept recording is available, but the sealed canonical recording cannot be replaced during session open.", {
+            workpiece_id: workpieceId,
+            canonical_recording_id: existing.id,
+            canonical_media_path: existingPath,
+            recorded_media_path: latestPath,
+            source_authority_id: latestTake?.completion_id ?? null,
+          });
+        }
         // A new recording invalidates every baseline and active editing revision
         // derived from the previous media, even while the canonical row is draft.
         const nowIso = new Date().toISOString();
@@ -14996,11 +15052,12 @@ export class TongsCommitService {
     const next = new Map<string, WorkpieceTakeReceipt>();
     if (!workpieceIds.length) return next;
 
-    const { data, error } = await this.supabase
-      .schema("tongs")
+    const { data, error } = await (this.supabase
+      .schema("tongs") as unknown as UntypedTongsSchemaClient)
       .from("current_workpiece_recorded_takes")
-      .select("workpiece_id,completion_id,keep_id,capture_session_id,media_path,completion_evidence,completed_at,kept_at")
+      .select("workpiece_id,completion_id,keep_id,capture_session_id,media_path,completion_evidence,completed_at,kept_at,source_kind")
       .in("workpiece_id", [...workpieceIds])
+      .or("keep_id.not.is.null,source_kind.eq.hammer_import")
       .order("completed_at", { ascending: false });
 
     if (error) {
@@ -15012,9 +15069,11 @@ export class TongsCommitService {
       });
     }
 
-    for (const row of data ?? []) {
+    const rows = Array.isArray(data) ? data as HammerRecordingTruthRow[] : [];
+    for (const row of rows) {
       if (!row.workpiece_id) continue;
       if (next.has(row.workpiece_id)) continue;
+      if (!isEligibleHammerRecordingTruthCandidate(row)) continue;
       const receiptCreatedAt = row.kept_at ?? row.completed_at;
       if (!receiptCreatedAt || !row.media_path) continue;
       const evidence = isRecord(row.completion_evidence) ? row.completion_evidence : {};

@@ -4,6 +4,7 @@ import type {
   HammerCanonicalRecordingRecord,
   HammerRecordingRevisionRecord,
 } from "../persistence/hammerRecordingRevisionPersistence";
+import type { HammerPrepFailureKind } from "./hammerSessionStabilization";
 
 export type HammerCanonicalOpenHydrationResult = {
   reloadOutcome: "success" | "failure";
@@ -14,7 +15,8 @@ export type HammerCanonicalOpenHydrationResult = {
   activeCanonicalRecording: HammerCanonicalRecordingRecord | null;
   activeRevision: HammerRecordingRevisionRecord | null;
   prepFailureMessage: string | null;
-  prepFailureKind: "ai_failed" | "auth_missing" | null;
+  prepFailureKind: HammerPrepFailureKind;
+  prepFailureCode: string | null;
 };
 
 const CANONICAL_OPEN_DEDUPE_WINDOW_MS = 4_000;
