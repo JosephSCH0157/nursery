@@ -743,7 +743,7 @@ export function buildSourceBayVM(args: any) {
   }));
   const historyEntries = args.recentHistoryEntries.map((entry: any) => {
     const isCurrent = entry.id === args.historyHeadEntryId;
-    const derivedTransition = args.derivedLayerHistoryRef.current.get(entry.id) ?? null;
+    const derivedTransition = args.getDerivedLayerTransition(entry.id);
     const derivedLayerCreated = Boolean(derivedTransition);
     return {
       id: entry.id,

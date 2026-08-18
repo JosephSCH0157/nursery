@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { HammerEditPlan, HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import {
@@ -43,6 +43,12 @@ import {
   buildVisualTimelineDiagnostics,
   preservePlacementRichTimelineDuringHydration,
 } from "./hammerVisualTimelineHydrationGuard";
+import {
+  cloneHammerDerivedTextLayers,
+  listHammerDerivedTextLayers,
+  setHammerDerivedTextLayerActive,
+} from "../macros/hammerDerivedTranscriptLayers";
+import { resolveHammerDerivedLayersForUndoStack } from "./hammerCompositionHistoryCommands";
 
 export type HammerHistoryPostSaveSnapshotRequest = Readonly<{
   workpieceId: string;
@@ -98,7 +104,10 @@ export type HammerHistoryCommandAuthorityConfig = {
   captureState: () => HammerEditorStateSerializable;
   normalizeState: (state: HammerEditorStateSerializable) => HammerEditorStateSerializable;
   applyState: (state: HammerEditorStateSerializable, reason: string) => void;
-  onUndoRedoEntry: (entry: HammerHistoryEntry, direction: "undo" | "redo") => void;
+  setDerivedLayers: (layers: DerivedLayersState) => void;
+  onHistoryNavigation: () => void;
+  getViewingTranscript: () => HammerPersistedStructuredTranscript | null;
+  formatDerivedLayerLabel: (layer: NonNullable<DerivedLayersState>["layers"][number]) => string;
   setHistoryStatus: (status: string | null) => void;
   captureSnapshotRequest: (
     document: HammerHistoryDocumentV1,
@@ -128,8 +137,13 @@ export interface HammerHistoryCommandAuthority {
   undo(): void;
   redo(): void;
   createCheckpoint(label: string): void;
-  jumpToEntry(entryId: string, baseline: HammerEditorStateSerializable): { undoStack: string[]; hasRedo: boolean } | null;
+  installBaseline(state: HammerEditorStateSerializable, derivedLayers: DerivedLayersState): void;
+  updateBaselineState(state: HammerEditorStateSerializable): void;
+  installDerivedLayerTransition(entryId: string, transition: DerivedLayerHistoryTransition): void;
+  getDerivedLayerTransition(entryId: string): DerivedLayerHistoryTransition | null;
+  jumpToEntry(entryId: string): { undoStack: string[]; hasRedo: boolean } | null;
   restoreCurrentState(): boolean;
+  selectViewingLayer(layerId: string | null): void;
   schedulePersist(immediate?: boolean): void;
   clearPersistTimer(): void;
   invalidate(): void;
@@ -144,6 +158,17 @@ export function createHammerHistoryCommandAuthority(
   let controller: HammerHistoryController | null = null;
   let persistTimer: ReturnType<typeof setTimeout> | null = null;
   let generation = 0;
+  let baselineState: HammerEditorStateSerializable | null = null;
+  let baselineDerivedLayers: DerivedLayersState = cloneHammerDerivedTextLayers(undefined);
+  const derivedLayerTransitions = new Map<string, DerivedLayerHistoryTransition>();
+
+  const resolveDerivedLayers = (undoStack: readonly string[]): DerivedLayersState => (
+    resolveHammerDerivedLayersForUndoStack({
+      undoStack,
+      baseline: baselineDerivedLayers,
+      transitions: derivedLayerTransitions,
+    })
+  );
 
   const clearPersistTimer = (): void => {
     if (persistTimer != null) {
@@ -201,7 +226,7 @@ export function createHammerHistoryCommandAuthority(
     }, debounceMs);
   };
 
-  return {
+  const authority: HammerHistoryCommandAuthority = {
     configure(nextConfig) {
       config = nextConfig;
     },
@@ -237,7 +262,9 @@ export function createHammerHistoryCommandAuthority(
       if (!controller) return;
       const entry = controller.undo();
       if (!entry) return;
-      config.onUndoRedoEntry(entry, "undo");
+      const transition = derivedLayerTransitions.get(entry.id);
+      if (transition) config.setDerivedLayers(cloneHammerDerivedTextLayers(transition.before));
+      config.onHistoryNavigation();
       config.applyState(controller.getState(), "history:undo");
       schedulePersist();
     },
@@ -245,14 +272,41 @@ export function createHammerHistoryCommandAuthority(
       if (!controller) return;
       const entry = controller.redo();
       if (!entry) return;
-      config.onUndoRedoEntry(entry, "redo");
+      const transition = derivedLayerTransitions.get(entry.id);
+      if (transition) config.setDerivedLayers(cloneHammerDerivedTextLayers(transition.after));
+      config.onHistoryNavigation();
       config.applyState(controller.getState(), "history:redo");
       schedulePersist();
     },
     createCheckpoint(label) {
       controller?.createCheckpoint(label);
     },
-    jumpToEntry(entryId, baseline) {
+    installBaseline(state, derivedLayers) {
+      baselineState = cloneEditorState(state);
+      baselineDerivedLayers = cloneHammerDerivedTextLayers(derivedLayers);
+      derivedLayerTransitions.clear();
+    },
+    updateBaselineState(state) {
+      baselineState = cloneEditorState(state);
+    },
+    installDerivedLayerTransition(entryId, transition) {
+      config.setDerivedLayers(cloneHammerDerivedTextLayers(transition.after));
+      derivedLayerTransitions.set(entryId, {
+        before: cloneHammerDerivedTextLayers(transition.before),
+        after: cloneHammerDerivedTextLayers(transition.after),
+        layerLabel: transition.layerLabel,
+      });
+    },
+    getDerivedLayerTransition(entryId) {
+      const transition = derivedLayerTransitions.get(entryId);
+      return transition ? {
+        before: cloneHammerDerivedTextLayers(transition.before),
+        after: cloneHammerDerivedTextLayers(transition.after),
+        layerLabel: transition.layerLabel,
+      } : null;
+    },
+    jumpToEntry(entryId) {
+      if (!baselineState) return null;
       if (!controller || !controller.document.entries.some((entry) => entry.id === entryId)) return null;
       const currentPath = [
         ...controller.document.undoStack,
@@ -277,13 +331,16 @@ export function createHammerHistoryCommandAuthority(
         undoStack = reversePath.reverse();
       }
       const redoStack = targetIndex >= 0 ? currentPath.slice(targetIndex + 1).reverse() : [];
-      const replayed = controller.getReplayStateFromBaseline(baseline, entryId);
+      const replayed = controller.getReplayStateFromBaseline(baselineState, entryId);
       controller.document.undoStack = [...undoStack];
       controller.document.redoStack = [...redoStack];
       controller.document.headEntryId = entryId;
       controller.document.updatedAt = new Date().toISOString();
       controller.replaceState(replayed);
       config.applyState(replayed, "history:jump");
+      config.setDerivedLayers(resolveDerivedLayers(undoStack));
+      config.setHistoryStatus(redoStack.length > 0 ? "History jump mode: reviewing a past state." : null);
+      config.onHistoryNavigation();
       schedulePersist();
       return { undoStack, hasRedo: redoStack.length > 0 };
     },
@@ -292,7 +349,31 @@ export function createHammerHistoryCommandAuthority(
       controller.document.redoStack = [];
       controller.document.updatedAt = new Date().toISOString();
       schedulePersist(true);
+      config.setHistoryStatus("Restored this state. Future history steps were cleared.");
       return true;
+    },
+    selectViewingLayer(layerId) {
+      const transcript = config.getViewingTranscript();
+      if (!transcript) return;
+      const currentLayerId = transcript.derived_text_layers?.active_layer_id ?? null;
+      if (currentLayerId === layerId) return;
+      const withActiveLayer = setHammerDerivedTextLayerActive(transcript, layerId);
+      const before = cloneHammerDerivedTextLayers(transcript.derived_text_layers);
+      const after = cloneHammerDerivedTextLayers(withActiveLayer.derived_text_layers);
+      const targetLayer = layerId
+        ? listHammerDerivedTextLayers(withActiveLayer, { includeDiscarded: false })
+          .find((layer) => layer.layer_id === layerId) ?? null
+        : null;
+      const layerLabel = targetLayer ? config.formatDerivedLayerLabel(targetLayer) : "Raw transcript";
+      const entry = authority.applyMutation({
+        label: targetLayer ? `Switch viewing layer to ${layerLabel}` : "Switch viewing layer to Raw transcript",
+        kind: "editor_state_change",
+        toolId: "polish",
+        immediatePersist: true,
+        computeAfter: (beforeState) => ({ ...beforeState, transcriptTimingHint: null }),
+      });
+      if (!entry) return;
+      authority.installDerivedLayerTransition(entry.id, { before, after, layerLabel });
     },
     schedulePersist,
     clearPersistTimer,
@@ -301,9 +382,29 @@ export function createHammerHistoryCommandAuthority(
       generation += 1;
     },
   };
+  return authority;
+}
+
+export function useHammerHistoryCommandAuthority(
+  config: HammerHistoryCommandAuthorityConfig,
+  debounceMs: number,
+  coalesceWindowMs: number,
+): HammerHistoryCommandAuthority {
+  const authorityRef = useRef<HammerHistoryCommandAuthority | null>(null);
+  if (!authorityRef.current) {
+    authorityRef.current = createHammerHistoryCommandAuthority(config, debounceMs, coalesceWindowMs);
+  }
+  authorityRef.current.configure(config);
+  return authorityRef.current;
 }
 
 type DerivedLayersState = HammerPersistedStructuredTranscript["derived_text_layers"];
+
+export type DerivedLayerHistoryTransition = {
+  before: DerivedLayersState;
+  after: DerivedLayersState;
+  layerLabel: string;
+};
 
 export type UseHammerWorkspaceShellHistoryControllerArgs = {
   launchContext: HammerLaunchContext;
@@ -327,10 +428,6 @@ export type UseHammerWorkspaceShellHistoryControllerArgs = {
   historyAuthority: HammerHistoryCommandAuthority;
 
   snapshotAuthority: HammerWorkspaceShellSnapshotAuthority;
-  historyBaselineStateRef: { current: HammerEditorStateSerializable | null };
-  baselineDerivedLayersRef: { current: DerivedLayersState };
-  derivedLayerHistoryRef: { current: Map<string, { before: DerivedLayersState; after: DerivedLayersState }> };
-
   applyWorkspaceState: (state: HammerEditorStateSerializable, reason?: string) => void;
   setHistoryStatus: (status: string | null) => void;
   toErrorMessage: (error: unknown, fallback: string) => string;
@@ -424,8 +521,10 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
       playheadSec: Math.max(0, Math.min(args.playheadSec, resolveTranscriptDurationSec(synced.segments))),
       transcriptTimingHint: null,
     });
-    args.historyBaselineStateRef.current = cloneEditorState(baselineState);
-    args.baselineDerivedLayersRef.current = args.cloneHammerDerivedTextLayers(args.structuredTranscript?.derived_text_layers);
+    args.historyAuthority.installBaseline(
+      baselineState,
+      args.cloneHammerDerivedTextLayers(args.structuredTranscript?.derived_text_layers),
+    );
     const baseRevisionId = hashEditorState(baselineState);
 
     args.historyAuthority.installController(createHammerHistoryController({
@@ -455,7 +554,6 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
     args.setPreviewCanvasDragState(null);
     args.setImageAnimationContextMenu(null);
     args.setEditableDerivedTextLayers(args.cloneHammerDerivedTextLayers(args.structuredTranscript?.derived_text_layers));
-    args.derivedLayerHistoryRef.current.clear();
     args.setCaptionBuildState(null);
     args.setCaptionEditedState(null);
     args.setActiveCaptionArtifactMode("built");
@@ -527,7 +625,7 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
             document: loaded,
             canonicalHead: baselineState,
           }).baseline;
-          args.historyBaselineStateRef.current = cloneEditorState(replayBaselineState);
+          args.historyAuthority.updateBaselineState(replayBaselineState);
         } catch (error) {
           const code = error instanceof HammerHistoryVerificationError
             ? error.code

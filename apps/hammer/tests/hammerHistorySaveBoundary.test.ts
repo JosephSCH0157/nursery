@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
   captureHammerHistoryPostSaveSnapshotRequest,
@@ -85,6 +86,7 @@ function authorityFixture(overrides: Partial<HammerHistoryCommandAuthorityConfig
   const saved: HammerHistoryDocumentV1[] = [];
   const snapshots: Array<{ headEntryId: string | null; text: string }> = [];
   const statuses: Array<string | null> = [];
+  let derivedLayers = { schema_version: 1 as const, active_layer_id: null, output_layer_id: null, layers: [] };
   const config: HammerHistoryCommandAuthorityConfig = {
     workspaceId: "workspace1",
     workpieceId: "w1",
@@ -94,7 +96,10 @@ function authorityFixture(overrides: Partial<HammerHistoryCommandAuthorityConfig
     captureState: () => cloneEditorState(currentState),
     normalizeState: cloneEditorState,
     applyState: (next) => { currentState = cloneEditorState(next); },
-    onUndoRedoEntry: () => undefined,
+    setDerivedLayers: (layers) => { derivedLayers = structuredClone(layers ?? derivedLayers); },
+    onHistoryNavigation: () => undefined,
+    getViewingTranscript: () => null,
+    formatDerivedLayerLabel: () => "layer",
     setHistoryStatus: (status) => { statuses.push(status); },
     captureSnapshotRequest: (document, editorState) => Object.freeze({
       workpieceId: document.workpieceId,
@@ -115,12 +120,13 @@ function authorityFixture(overrides: Partial<HammerHistoryCommandAuthorityConfig
     ...overrides,
   };
   const authority = createHammerHistoryCommandAuthority(config, debounceMs, 1_500);
+  authority.installBaseline(currentState, derivedLayers);
   authority.installController(createHammerHistoryController({
     document: createHammerHistoryDocument({ workpieceId: "w1", sessionId: "session1", baseRevisionId: "base1" }),
     initialState: currentState,
     maxUndoSteps: 10,
   }));
-  return { authority, config, saved, snapshots, statuses, getState: () => currentState };
+  return { authority, config, saved, snapshots, statuses, getState: () => currentState, getDerivedLayers: () => derivedLayers };
 }
 
 function cloneHammerDocument(document: HammerHistoryDocumentV1): HammerHistoryDocumentV1 {
@@ -204,8 +210,8 @@ test("invalidating authority clears a scheduled persistence timer", async () => 
 });
 
 test("authority owns mutation coalescing and undo redo application", () => {
-  const directions: string[] = [];
-  const fixture = authorityFixture({ onUndoRedoEntry: (_entry, direction) => { directions.push(direction); } });
+  let navigations = 0;
+  const fixture = authorityFixture({ onHistoryNavigation: () => { navigations += 1; } });
   fixture.authority.applyMutation({
     label: "Typing",
     transactionId: "typing:s1",
@@ -223,6 +229,64 @@ test("authority owns mutation coalescing and undo redo application", () => {
   assert.equal(fixture.getState().transcriptSegments[0]!.text, "before");
   fixture.authority.redo();
   assert.equal(fixture.getState().transcriptSegments[0]!.text, "two");
-  assert.deepEqual(directions, ["undo", "redo"]);
+  assert.equal(navigations, 2);
   fixture.authority.clearPersistTimer();
+});
+
+test("authority owns baseline, derived transitions, jump, and restore bookkeeping", () => {
+  const fixture = authorityFixture();
+  const beforeLayers = { schema_version: 1 as const, active_layer_id: null, output_layer_id: null, layers: [] };
+  const afterLayers = {
+    schema_version: 1 as const,
+    active_layer_id: "layer-1",
+    output_layer_id: null,
+    layers: [{
+      layer_id: "layer-1",
+      recipe_ref: "macro:podcast_cleanup.v1",
+      macro_kind: "filler_cleanup" as const,
+      status: "active" as const,
+      created_at: "2026-08-18T12:00:00.000Z",
+      based_on_transcript_id: "t1",
+      summary: { changed_segment_count: 0, removal_count: 0, untouched_segment_count: 1 },
+      changes: [],
+    }],
+  };
+  const entry = fixture.authority.applyMutation({
+    label: "Switch viewing layer to Clean",
+    kind: "editor_state_change",
+    toolId: "polish",
+    immediatePersist: true,
+    computeAfter: (before) => editText(before, "layer state"),
+  });
+  assert.ok(entry);
+  fixture.authority.installDerivedLayerTransition(entry!.id, {
+    before: beforeLayers,
+    after: afterLayers,
+    layerLabel: "Clean",
+  });
+  assert.equal(fixture.getDerivedLayers().active_layer_id, "layer-1");
+  fixture.authority.undo();
+  assert.equal(fixture.getDerivedLayers().active_layer_id, null);
+  fixture.authority.redo();
+  assert.equal(fixture.getDerivedLayers().active_layer_id, "layer-1");
+  const jumped = fixture.authority.jumpToEntry(entry!.id);
+  assert.deepEqual(jumped, { undoStack: [entry!.id], hasRedo: false });
+  assert.equal(fixture.getDerivedLayers().active_layer_id, "layer-1");
+  fixture.authority.undo();
+  assert.equal(fixture.authority.restoreCurrentState(), true);
+  assert.equal(fixture.statuses.at(-1), "Restored this state. Future history steps were cleared.");
+  fixture.authority.clearPersistTimer();
+});
+
+test("history refs and navigation construction remain outside the shell", () => {
+  const shell = readFileSync(new URL("../src/editor/HammerWorkspaceShell.tsx", import.meta.url), "utf8");
+  const controller = readFileSync(new URL("../src/editor/hammerWorkspaceShellHistoryController.ts", import.meta.url), "utf8");
+  for (const forbidden of ["historyAuthorityRef", "historyBaselineStateRef", "baselineDerivedLayersRef", "derivedLayerHistoryRef"] as const) {
+    assert.equal(shell.includes(forbidden), false);
+  }
+  assert.equal(shell.includes("function jumpToHistoryEntry"), false);
+  assert.equal(shell.includes("function restoreCurrentHistoryState"), false);
+  assert.equal(shell.includes("function selectViewingLayer"), false);
+  assert.equal(controller.includes("const derivedLayerTransitions = new Map"), true);
+  assert.equal(controller.includes("useHammerHistoryCommandAuthority"), true);
 });

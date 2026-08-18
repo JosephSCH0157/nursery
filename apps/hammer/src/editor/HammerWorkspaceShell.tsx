@@ -73,7 +73,6 @@ import {
   cloneHammerDerivedTextLayers,
   listHammerDerivedTextLayers,
   normalizeHammerOutputSelectionRef,
-  setHammerDerivedTextLayerActive,
 } from "../macros/hammerDerivedTranscriptLayers";
 import { diffWords, isSubtractiveTranscriptWordEdit } from "../lib/hammerWordDiff";
 import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
@@ -216,7 +215,6 @@ import {
   captureHammerPostHistorySaveRequest,
   executeHammerCompositionHistoryMutation,
   normalizeHammerHistoryCompatibilityState,
-  resolveHammerDerivedLayersForUndoStack,
 } from "./hammerCompositionHistoryCommands";
 import HammerWorkspaceShellToolbar from "./HammerWorkspaceShellToolbar";
 import HammerWorkspaceShellPreviewBay from "./HammerWorkspaceShellPreviewBay";
@@ -224,7 +222,7 @@ import HammerWorkspaceShellTimelineDock from "./HammerWorkspaceShellTimelineDock
 import HammerWorkspaceShellSourceBay from "./HammerWorkspaceShellSourceBay";
 import HammerWorkspaceShellToolBay from "./HammerWorkspaceShellToolBay";
 import {
-  createHammerHistoryCommandAuthority,
+  useHammerHistoryCommandAuthority,
   useHammerWorkspaceShellHistoryController,
   type HammerHistoryCommandAuthorityConfig,
   type HammerHistoryPostSaveSnapshotRequest,
@@ -411,12 +409,6 @@ type HammerTimelineLaneView = {
 };
 
 type HammerExportTruthState = "never_prepared" | "current" | "stale";
-type DerivedLayerHistoryTransition = {
-  before: HammerPersistedStructuredTranscript["derived_text_layers"];
-  after: HammerPersistedStructuredTranscript["derived_text_layers"];
-  layerLabel: string;
-};
-
 function hasTranscriptSegmentChanged(
   previous: HammerTranscriptSegment | undefined,
   next: HammerTranscriptSegment,
@@ -690,21 +682,11 @@ function HammerWorkspaceShellWithContext(
   const selectionOriginRef = useRef<"system" | "transcript" | "timeline" | "playhead">("system");
   const selectionRevealFrameRef = useRef<number | null>(null);
   const snapshotAuthority = useHammerWorkspaceShellSnapshotAuthority();
-  const historyBaselineStateRef = useRef<HammerEditorStateSerializable | null>(null);
-  const baselineDerivedLayersRef = useRef<HammerPersistedStructuredTranscript["derived_text_layers"]>(
-    cloneHammerDerivedTextLayers(props.structuredTranscript?.derived_text_layers),
+  const historyAuthority = useHammerHistoryCommandAuthority(
+    getHistoryAuthorityConfig(),
+    HISTORY_PERSIST_DEBOUNCE_MS,
+    TEXT_EDIT_COALESCE_MS,
   );
-  const derivedLayerHistoryRef = useRef<Map<string, DerivedLayerHistoryTransition>>(new Map());
-  const historyAuthorityRef = useRef<ReturnType<typeof createHammerHistoryCommandAuthority> | null>(null);
-  if (!historyAuthorityRef.current) {
-    historyAuthorityRef.current = createHammerHistoryCommandAuthority(
-      getHistoryAuthorityConfig(),
-      HISTORY_PERSIST_DEBOUNCE_MS,
-      TEXT_EDIT_COALESCE_MS,
-    );
-  }
-  const historyAuthority = historyAuthorityRef.current;
-  historyAuthority.configure(getHistoryAuthorityConfig());
   const scrubRectRef = useRef<{ left: number; width: number } | null>(null);
   const scrubAutoPlayRef = useRef(false);
   const scrubReturnToPausedRef = useRef(false);
@@ -2103,8 +2085,7 @@ function HammerWorkspaceShellWithContext(
       immediatePersist: true,
     })),
     installDerivedLayers: ({ historyEntry, before, after, layerLabel }) => {
-      setEditableDerivedTextLayers(after);
-      derivedLayerHistoryRef.current.set(historyEntry.id, { before, after, layerLabel });
+      historyAuthority.installDerivedLayerTransition(historyEntry.id, { before, after, layerLabel });
     },
     normalizeOutputSelection: (selection, transcript) => normalizeHammerOutputSelectionRef({
       selection,
@@ -2380,13 +2361,6 @@ function HammerWorkspaceShellWithContext(
     });
   }
 
-  function resolveDerivedLayersForUndoStack(
-    undoStack: readonly string[],
-  ): HammerPersistedStructuredTranscript["derived_text_layers"] {
-    return resolveHammerDerivedLayersForUndoStack({ undoStack, baseline: baselineDerivedLayersRef.current,
-      transitions: derivedLayerHistoryRef.current });
-  }
-
   function capturePostHistorySaveRequest(
     document: Parameters<HammerHistoryCommandAuthorityConfig["captureSnapshotRequest"]>[0],
     editorState: HammerEditorStateSerializable,
@@ -2432,16 +2406,13 @@ function HammerWorkspaceShellWithContext(
       captureState: captureWorkspaceState,
       normalizeState: syncVisualTimelineFromCompatibilityState,
       applyState: applyWorkspaceState,
-      onUndoRedoEntry: (entry, direction) => {
-        const transition = derivedLayerHistoryRef.current.get(entry.id);
-        if (transition) {
-          setEditableDerivedTextLayers(cloneHammerDerivedTextLayers(
-            direction === "undo" ? transition.before : transition.after,
-          ));
-        }
+      setDerivedLayers: setEditableDerivedTextLayers,
+      onHistoryNavigation: () => {
         selectionOriginRef.current = "system";
         setFocusOverride("source-focus");
       },
+      getViewingTranscript: () => workspaceStructuredTranscript,
+      formatDerivedLayerLabel: formatOutputLayerLabel,
       setHistoryStatus,
       captureSnapshotRequest: capturePostHistorySaveRequest,
       onHistorySaved: snapshotAuthority.produce,
@@ -2528,9 +2499,6 @@ function HammerWorkspaceShellWithContext(
     visualTimeline: props.visualTimeline ?? null,
     historyAuthority,
     snapshotAuthority,
-    historyBaselineStateRef,
-    baselineDerivedLayersRef,
-    derivedLayerHistoryRef,
     applyWorkspaceState,
     setHistoryStatus,
     toErrorMessage,
@@ -3034,55 +3002,6 @@ function HammerWorkspaceShellWithContext(
     });
   }
 
-  function selectViewingLayer(layerId: string | null): void {
-    if (!workspaceStructuredTranscript) return;
-    const currentLayerId = workspaceStructuredTranscript.derived_text_layers?.active_layer_id ?? null;
-    if (currentLayerId === layerId) return;
-
-    const withActiveLayer = setHammerDerivedTextLayerActive(workspaceStructuredTranscript, layerId);
-    const beforeDerived = cloneHammerDerivedTextLayers(workspaceStructuredTranscript.derived_text_layers);
-    const afterDerived = cloneHammerDerivedTextLayers(withActiveLayer.derived_text_layers);
-    const targetLayer = layerId
-      ? listHammerDerivedTextLayers(withActiveLayer, { includeDiscarded: false }).find((layer) => layer.layer_id === layerId) ?? null
-      : null;
-    const layerLabel = targetLayer ? formatOutputLayerLabel(targetLayer) : "Raw transcript";
-
-    const historyEntry = applyHistoryMutation({
-      label: targetLayer ? `Switch viewing layer to ${layerLabel}` : "Switch viewing layer to Raw transcript",
-      kind: "editor_state_change",
-      toolId: "polish",
-      immediatePersist: true,
-      computeAfter: (before) => ({
-        ...before,
-        transcriptTimingHint: null,
-      }),
-    });
-    if (!historyEntry) return;
-
-    setEditableDerivedTextLayers(afterDerived);
-    derivedLayerHistoryRef.current.set(historyEntry.id, {
-      before: beforeDerived,
-      after: afterDerived,
-      layerLabel,
-    });
-  }
-
-  function jumpToHistoryEntry(entryId: string): void {
-    const baseline = historyBaselineStateRef.current;
-    if (!baseline) return;
-    const result = historyAuthority.jumpToEntry(entryId, baseline);
-    if (!result) return;
-    setEditableDerivedTextLayers(resolveDerivedLayersForUndoStack(result.undoStack));
-    setHistoryStatus(result.hasRedo ? "History jump mode: reviewing a past state." : null);
-    selectionOriginRef.current = "system";
-    setFocusOverride("source-focus");
-  }
-
-  function restoreCurrentHistoryState(): void {
-    if (!historyAuthority.restoreCurrentState()) return;
-    setHistoryStatus("Restored this state. Future history steps were cleared.");
-  }
-
   const { workspaceFocusMode } = useHammerWorkspaceShellShortcuts({
     activeTool,
     focusOverride,
@@ -3516,16 +3435,16 @@ function HammerWorkspaceShellWithContext(
     outputLayerCandidates,
     formatOutputLayerLabel,
     setFocusOverride,
-    selectViewingLayer,
+    selectViewingLayer: historyAuthority.selectViewingLayer,
     editableOutputSelection,
     selectOutputLayerForExport,
-    restoreCurrentHistoryState,
+    restoreCurrentHistoryState: historyAuthority.restoreCurrentState,
     recentHistoryEntries,
     historyHeadEntryId,
-    derivedLayerHistoryRef,
+    getDerivedLayerTransition: historyAuthority.getDerivedLayerTransition,
     formatHistoryTimestamp,
     formatHistoryEntryScope,
-    jumpToHistoryEntry,
+    jumpToHistoryEntry: historyAuthority.jumpToEntry,
     editableTranscriptSegments,
     selectedSegment,
     selectedSegmentId,
@@ -3639,7 +3558,7 @@ function HammerWorkspaceShellWithContext(
     introOutroSelectedOutroPath,
     introOutroUploadInputRef,
     isSubtractiveTranscriptEdit,
-    jumpToHistoryEntry,
+    historyAuthority.jumpToEntry,
     modifiedSegmentCount,
     modifiedTranscriptSegmentIds,
     outputLayerCandidates,
@@ -3653,7 +3572,7 @@ function HammerWorkspaceShellWithContext(
     redoLabel,
     redoLabelCompact,
     recentHistoryEntries,
-    restoreCurrentHistoryState,
+    historyAuthority.restoreCurrentState,
     roundToTenth,
     savingIntroOutro,
     workspaceIntroOutroDefaults,
@@ -3668,7 +3587,7 @@ function HammerWorkspaceShellWithContext(
     setFocusOverride,
     setTranscriptTimingHint,
     selectOutputLayerForExport,
-    selectViewingLayer,
+    historyAuthority.selectViewingLayer,
     sourceDeskError,
     sourceDeskLoading,
     sourceDeskPreviewFailures,
