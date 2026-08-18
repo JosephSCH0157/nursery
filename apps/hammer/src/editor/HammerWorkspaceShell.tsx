@@ -124,7 +124,6 @@ import {
   buildLinkedSelectionTranscriptSegmentIdSet,
   buildLinkedSelectionVisualIdSet,
   resolveSelectionFromTranscript,
-  resolveSelectionFromVisual,
   type HammerLinkedSelection,
 } from "./hammerLinkedSelection";
 import {
@@ -305,6 +304,15 @@ import {
   toEditorState,
   toShellState,
 } from "./hammerWorkspaceShellStateAdapters";
+import {
+  applyWorkspaceVisualTimelineAction,
+  applyWorkspaceVisualTimelineActions,
+  captureHammerWorkspaceState,
+  createHammerWorkspaceMutationGateway,
+  replaceWorkspaceVisualTimelineState,
+  resolveCanonicalWorkspaceVisualTimeline,
+  type HammerVisualTimelineAction,
+} from "./hammerWorkspaceMutationGateway";
 import {
   appendUniquePaths,
   createFallbackEditPlan,
@@ -2355,7 +2363,7 @@ function HammerWorkspaceShellWithContext(
     return deferred;
   }, [studioRackRenderStatus]);
   function captureWorkspaceState(): HammerEditorStateSerializable {
-    return toEditorState({
+    return captureHammerWorkspaceState({
       segments: editableTranscriptSegments,
       visualPlacements: editableVisualPlacements,
       visualTimeline: editableVisualTimeline,
@@ -2368,127 +2376,39 @@ function HammerWorkspaceShellWithContext(
       transcriptTimingHint,
     });
   }
-
   function resolveCanonicalVisualTimeline(state: HammerEditorStateSerializable): HammerVisualTimelineState {
-    if (state.visualTimeline) {
-      return state.visualTimeline;
-    }
-    if (state.visualPlacements) {
-      return migrateLegacyPlacementRecordsToTimelineState({
-        placements: state.visualPlacements.placements,
-        selected_overlay_row_id: null,
-        updated_at: new Date().toISOString(),
-      });
-    }
-    return createEmptyVisualTimelineState({
-      updated_at: new Date().toISOString(),
-      debug_origin: "empty_init",
-    });
+    return resolveCanonicalWorkspaceVisualTimeline(state);
   }
-
-  function applyVisualTimelineAction(
-    state: HammerEditorStateSerializable,
-    action: Parameters<typeof hammerVisualTimelineReducer>[1],
-  ): HammerEditorStateSerializable {
-    const nextTimeline = hammerVisualTimelineReducer(resolveCanonicalVisualTimeline(state), action);
-    return {
-      ...state,
-      visualTimeline: nextTimeline,
-      visualPlacements: deriveLegacyVisualPlacementsFromTimeline(nextTimeline),
-    };
+  function applyVisualTimelineAction(state: HammerEditorStateSerializable, action: HammerVisualTimelineAction): HammerEditorStateSerializable {
+    return applyWorkspaceVisualTimelineAction(state, action);
   }
-
-  function applyVisualTimelineActions(
-    state: HammerEditorStateSerializable,
-    actions: Parameters<typeof hammerVisualTimelineReducer>[1][],
-  ): HammerEditorStateSerializable {
-    return actions.reduce(
-      (current, action) => applyVisualTimelineAction(current, action),
-      state,
-    );
+  function applyVisualTimelineActions(state: HammerEditorStateSerializable, actions: HammerVisualTimelineAction[]): HammerEditorStateSerializable {
+    return applyWorkspaceVisualTimelineActions(state, actions);
   }
-
-  function replaceVisualTimelineState(
-    state: HammerEditorStateSerializable,
-    updater: (timeline: HammerVisualTimelineState) => HammerVisualTimelineState,
-  ): HammerEditorStateSerializable {
-    const nextTimeline = hammerVisualTimelineReducer(
-      resolveCanonicalVisualTimeline(state),
-      { type: "LOAD_TIMELINE", timeline: updater(resolveCanonicalVisualTimeline(state)) },
-    );
-    return {
-      ...state,
-      visualTimeline: nextTimeline,
-      visualPlacements: deriveLegacyVisualPlacementsFromTimeline(nextTimeline),
-    };
+  function replaceVisualTimelineState(state: HammerEditorStateSerializable, updater: (timeline: HammerVisualTimelineState) => HammerVisualTimelineState): HammerEditorStateSerializable {
+    return replaceWorkspaceVisualTimelineState(state, updater);
   }
-
   function applyWorkspaceState(nextState: HammerEditorStateSerializable, reason = "workspace_state_apply"): void {
-    timelineUpdateReasonRef.current = reason;
-    const normalized = toShellState(nextState);
-    const previousTimeline = editableVisualTimelineRef.current;
-    const previousDiagnostics = buildVisualTimelineDiagnostics(previousTimeline);
-    const incomingDiagnostics = buildVisualTimelineDiagnostics(normalized.visualTimeline);
-    const isDestructiveSourceDeskRefresh = (
-      (reason === "history:baseline_init" || reason === "history:mutation_apply")
-      && sourceDeskMediaUpdateReasonRef.current === "source_desk_refresh"
-      && (previousDiagnostics.anchorCount > 0 || previousDiagnostics.clipCount > 0)
-      && incomingDiagnostics.anchorCount === 0
-      && incomingDiagnostics.clipCount === 0
-    );
-    const protectedTimeline = isDestructiveSourceDeskRefresh
-      ? previousTimeline
-      : normalized.visualTimeline;
-    if (isDestructiveSourceDeskRefresh) {
-      console.error("[hammer][placements] blocked destructive refresh update", {
-        reason,
-        mediaReason: sourceDeskMediaUpdateReasonRef.current,
-        beforeVisualPlacementsCount: previousDiagnostics.clipCount,
-        afterVisualPlacementsCount: incomingDiagnostics.clipCount,
-        beforeAnchorsCount: previousDiagnostics.anchorCount,
-        afterAnchorsCount: incomingDiagnostics.anchorCount,
-      });
-    }
-    const protectedDiagnostics = buildVisualTimelineDiagnostics(protectedTimeline);
-    placementOutboundDiagnosticsRef.current = {
-      reason,
-      source: sourceDeskMediaUpdateReasonRef.current,
-      explicitUserAction: false,
-      placementCount: protectedDiagnostics.clipCount,
-      anchorCount: protectedDiagnostics.anchorCount,
-    };
-    setEditableTranscriptSegments(normalized.segments);
-    setEditableVisualTimeline(protectedTimeline);
-    setEditableStudioRack(normalized.studioRack);
-    setEditableEditorialAuthorityGraph(normalized.editorialAuthorityGraph);
-    setEditableOutputSelection(normalized.outputSelection);
-    setSelectedSegmentId(normalized.selectedSegmentId);
-    setPlayheadSec(normalized.playheadSec);
-    setTranscriptTimingHint(normalized.transcriptTimingHint);
-    setLinkedSelection(
-      protectedTimeline?.selected_clip_id
-        ? resolveSelectionFromVisual({
-          transcriptSegments: normalized.segments,
-          visualItems: linkedSelectionVisualItems,
-          visualId: protectedTimeline.selected_clip_id,
-        })
-        : resolveSelectionFromTranscript({
-          transcriptSegments: normalized.segments,
-          visualItems: linkedSelectionVisualItems,
-          anchorSegmentId: normalized.selectedSegmentId,
-          focusSegmentId: normalized.selectedSegmentId,
-        }),
-    );
-    setEditableAudioPolish((current) => {
-      const base = cloneHammerAudioPolish(current)
-        ?? cloneHammerAudioPolish(props.audioPolish)
-        ?? buildNotStartedHammerAudioPolish();
-      base.audio_edit = cloneHammerAudioEdit(normalized.audioEdit);
-      editableAudioPolishRef.current = base;
-      audioPolishHasLocalEditsRef.current = true;
-      return base;
-    });
-    invalidateCleanupPreview();
+    createHammerWorkspaceMutationGateway({
+      capture: toShellState(nextState),
+      getCurrentTimeline: () => editableVisualTimelineRef.current,
+      getMediaUpdateReason: () => sourceDeskMediaUpdateReasonRef.current,
+      setTimelineUpdateReason: (value) => { timelineUpdateReasonRef.current = value; },
+      setPlacementOutboundDiagnostics: (value) => { placementOutboundDiagnosticsRef.current = value; },
+      setTranscriptSegments: setEditableTranscriptSegments, setVisualTimeline: setEditableVisualTimeline,
+      setStudioRack: setEditableStudioRack, setEditorialAuthorityGraph: setEditableEditorialAuthorityGraph,
+      setOutputSelection: setEditableOutputSelection, setSelectedSegmentId, setPlayheadSec, setTranscriptTimingHint,
+      linkedSelectionVisualItems, setLinkedSelection,
+      applyAudioEdit: (audioEdit) => setEditableAudioPolish((current) => {
+        const base = cloneHammerAudioPolish(current) ?? cloneHammerAudioPolish(props.audioPolish) ?? buildNotStartedHammerAudioPolish();
+        base.audio_edit = cloneHammerAudioEdit(audioEdit);
+        editableAudioPolishRef.current = base;
+        audioPolishHasLocalEditsRef.current = true;
+        return base;
+      }),
+      invalidateCleanupPreview,
+      reportBlockedRefresh: (details) => console.error("[hammer][placements] blocked destructive refresh update", details),
+    }).applyWorkspaceState(nextState, reason);
   }
 
   function setSelectedClipId(clipId: string | null): void {
