@@ -66,11 +66,6 @@ import {
   deriveAudioCutsForSubtractiveTextEdits,
 } from "./hammerCleanupExecution";
 import {
-  applyTranscriptCleanupPreviewComposition,
-  applyTranscriptDeleteRangeComposition,
-  applyTranscriptSplitComposition,
-  applyTranscriptTrimSegmentComposition,
-  applyTranscriptToggleMuteSegmentsComposition,
   type HammerAuthorityOp,
 } from "./hammerCompositionMutations";
 import {
@@ -83,7 +78,6 @@ import {
 } from "./hammerWorkspaceTranscript";
 import { useHammerWorkspaceShellSilenceEditing } from "./useHammerWorkspaceShellSilenceEditing";
 import {
-  cloneEditorState,
   type HammerEditorStateSerializable,
   type HammerHistoryEntry,
   type HammerHistoryKind,
@@ -103,7 +97,6 @@ import {
   deriveStableHammerVisualAssetId,
   migrateLegacyPlacementRecordToAsset,
   migrateLegacyPlacementRecordToClip,
-  migrateLegacyPlacementRecordsToTimelineState,
 } from "../visuals/model/hammerVisualMigrations";
 import { hammerVisualTimelineReducer } from "../visuals/state/hammerVisualReducer";
 import { deriveStableHammerAssetIdFromPath } from "../lib/hammerAssetIdentity";
@@ -255,6 +248,13 @@ import {
   synchronizeLinkedAudioDuckForBrollOperation,
   updateResolvedInsertBrollOperationInGraph,
 } from "./hammerAuthorityOps";
+import {
+  appendHammerAuthorityInstructionForHistory,
+  captureHammerPostHistorySaveRequest,
+  executeHammerCompositionHistoryMutation,
+  normalizeHammerHistoryCompatibilityState,
+  resolveHammerDerivedLayersForUndoStack,
+} from "./hammerCompositionHistoryCommands";
 import {
   buildHammerCaptionPreviewModel,
 } from "../lib/hammerCaptionPreview";
@@ -2447,9 +2447,8 @@ function HammerWorkspaceShellWithContext(
     state: HammerEditorStateSerializable,
     instruction: HammerEditInstruction,
   ): HammerEditorialAuthorityGraph {
-    return appendAuthorityInstructionToGraph({
-      graph: state.editorialAuthorityGraph,
-      instruction,
+    return appendHammerAuthorityInstructionForHistory({
+      state, instruction,
       fallback: {
         graphId: `${launchContext.workpiece_id}:authority`,
         workspaceId: launchContext.workspace_id,
@@ -2461,177 +2460,33 @@ function HammerWorkspaceShellWithContext(
   }
 
   function applyCompositionMutation(op: HammerAuthorityOp): HammerHistoryEntry | null {
-    switch (op.type) {
-      case "TRANSCRIPT_DELETE_RANGE":
-        return applyHistoryMutation({
-          label: op.label,
-          kind: op.kind ?? "segment_structure",
-          toolId: op.toolId,
-          affectedSegments: op.segmentIds,
-          immediatePersist: op.immediatePersist === true,
-          computeAfter: (before) => applyTranscriptDeleteRangeComposition({
-            before,
-            op,
-            context: {
-              playbackDurationSec: playbackTransportDurationSec,
-              waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
-              authorityFallback: {
-                graphId: `${launchContext.workpiece_id}:authority`,
-                workspaceId: launchContext.workspace_id,
-                workpieceId: launchContext.workpiece_id,
-                sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
-                sourceTranscriptId: transcriptSourceId,
-              },
-            },
-          }),
-        });
-      case "TRANSCRIPT_APPLY_CLEANUP_PREVIEW":
-        return applyHistoryMutation({
-          label: op.label,
-          kind: op.kind ?? "cleanup_tool",
-          toolId: op.toolId,
-          affectedSegments: op.preview.suggestions.map((suggestion) => suggestion.segmentId),
-          immediatePersist: op.immediatePersist === true,
-          computeAfter: (before) => applyTranscriptCleanupPreviewComposition({
-            before,
-            op,
-            context: {
-              playbackDurationSec: playbackTransportDurationSec,
-              waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
-              authorityFallback: {
-                graphId: `${launchContext.workpiece_id}:authority`,
-                workspaceId: launchContext.workspace_id,
-                workpieceId: launchContext.workpiece_id,
-                sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
-                sourceTranscriptId: transcriptSourceId,
-              },
-            },
-          }),
-        });
-      case "TRANSCRIPT_TOGGLE_MUTE_SEGMENTS":
-        return applyHistoryMutation({
-          label: op.label,
-          kind: op.kind ?? "segment_structure",
-          toolId: op.toolId,
-          affectedSegments: op.segmentIds,
-          immediatePersist: op.immediatePersist === true,
-          computeAfter: (before) => applyTranscriptToggleMuteSegmentsComposition({
-            before,
-            op,
-            context: {
-              playbackDurationSec: playbackTransportDurationSec,
-              waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
-              authorityFallback: {
-                graphId: `${launchContext.workpiece_id}:authority`,
-                workspaceId: launchContext.workspace_id,
-                workpieceId: launchContext.workpiece_id,
-                sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
-                sourceTranscriptId: transcriptSourceId,
-              },
-            },
-          }),
-        });
-      case "TRANSCRIPT_SPLIT":
-        return applyHistoryMutation({
-          label: op.label,
-          kind: op.kind ?? "segment_structure",
-          toolId: op.toolId,
-          affectedSegments: [op.segmentId],
-          immediatePersist: op.immediatePersist === true,
-          computeAfter: (before) => applyTranscriptSplitComposition({
-            before,
-            op,
-            context: {
-              playbackDurationSec: playbackTransportDurationSec,
-              waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
-              authorityFallback: {
-                graphId: `${launchContext.workpiece_id}:authority`,
-                workspaceId: launchContext.workspace_id,
-                workpieceId: launchContext.workpiece_id,
-                sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
-                sourceTranscriptId: transcriptSourceId,
-              },
-            },
-          }),
-        });
-      case "TRANSCRIPT_TRIM_SEGMENT":
-        return applyHistoryMutation({
-          label: op.label,
-          kind: op.kind ?? "timing_adjustment",
-          toolId: op.toolId,
-          affectedSegments: [op.segmentId],
-          immediatePersist: op.immediatePersist === true,
-          computeAfter: (before) => applyTranscriptTrimSegmentComposition({
-            before,
-            op,
-            context: {
-              playbackDurationSec: playbackTransportDurationSec,
-              waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
-              authorityFallback: {
-                graphId: `${launchContext.workpiece_id}:authority`,
-                workspaceId: launchContext.workspace_id,
-                workpieceId: launchContext.workpiece_id,
-                sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
-                sourceTranscriptId: transcriptSourceId,
-              },
-            },
-          }),
-        });
-      default:
-        return null;
-    }
+    return executeHammerCompositionHistoryMutation({
+      op, applyMutation: applyHistoryMutation, playbackDurationSec: playbackTransportDurationSec,
+      waveformProxy: editableAudioPolish?.analysis?.waveform_proxy ?? null,
+      authorityFallback: { graphId: `${launchContext.workpiece_id}:authority`, workspaceId: launchContext.workspace_id,
+        workpieceId: launchContext.workpiece_id, sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
+        sourceTranscriptId: transcriptSourceId },
+    });
   }
 
   function resolveDerivedLayersForUndoStack(
     undoStack: readonly string[],
   ): HammerPersistedStructuredTranscript["derived_text_layers"] {
-    let next = cloneHammerDerivedTextLayers(baselineDerivedLayersRef.current);
-    for (const entryId of undoStack) {
-      const transition = derivedLayerHistoryRef.current.get(entryId);
-      if (!transition) continue;
-      next = cloneHammerDerivedTextLayers(transition.after);
-    }
-    return next;
+    return resolveHammerDerivedLayersForUndoStack({ undoStack, baseline: baselineDerivedLayersRef.current,
+      transitions: derivedLayerHistoryRef.current });
   }
 
   function capturePostHistorySaveRequest(
     document: Parameters<HammerHistoryCommandAuthorityConfig["captureSnapshotRequest"]>[0],
     editorState: HammerEditorStateSerializable,
   ): HammerHistoryPostSaveSnapshotRequest {
-    return Object.freeze({
-      workpieceId: document.workpieceId,
-      sessionId: document.sessionId,
-      baseRevisionId: document.baseRevisionId,
-      headEntryId: document.headEntryId ?? null,
-      undoDepth: document.undoStack.length,
-      redoDepth: document.redoStack.length,
-      editorState: cloneEditorState(editorState),
-    });
+    return captureHammerPostHistorySaveRequest({ document, editorState });
   }
 
   function syncVisualTimelineFromCompatibilityState(
     state: HammerEditorStateSerializable,
   ): HammerEditorStateSerializable {
-    if (state.visualTimeline) {
-      return {
-        ...state,
-        visualPlacements: deriveLegacyVisualPlacementsFromTimeline(state.visualTimeline),
-      };
-    }
-    if (!state.visualPlacements) {
-      return {
-        ...state,
-        visualTimeline: props.visualTimeline ?? null,
-      };
-    }
-    return {
-      ...state,
-      visualTimeline: migrateLegacyPlacementRecordsToTimelineState({
-        placements: state.visualPlacements.placements,
-        selected_overlay_row_id: null,
-        updated_at: new Date().toISOString(),
-      }),
-    };
+    return normalizeHammerHistoryCompatibilityState({ state, fallbackTimeline: props.visualTimeline ?? null });
   }
 
   function applyHistoryMutation(args: {
