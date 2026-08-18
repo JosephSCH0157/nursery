@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { HammerEditPlan, HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
@@ -37,6 +37,51 @@ import {
   shouldCreateHammerSnapshot,
   upsertHammerSnapshotManifest,
 } from "./hammerSnapshotProduction";
+import { preserveTranscriptMetadata } from "../prep/hammerPrep";
+import {
+  cloneHammerDerivedTextLayers,
+  cloneHammerStructuredTranscript,
+} from "../macros/hammerDerivedTranscriptLayers";
+
+export type HammerPersistedTranscriptProjectionInput = {
+  segments: HammerTranscriptSegment[];
+  existingTranscript: HammerPersistedStructuredTranscript | null;
+  mediaRef: MediaRef | null;
+  transcriptId: string;
+  derivedTextLayers: HammerPersistedStructuredTranscript["derived_text_layers"];
+};
+
+export function buildHammerPersistedTranscriptProjection(
+  input: HammerPersistedTranscriptProjectionInput,
+): HammerPersistedStructuredTranscript {
+  const base = preserveTranscriptMetadata(
+    input.segments,
+    cloneHammerStructuredTranscript(input.existingTranscript),
+    input.mediaRef,
+    input.transcriptId,
+  );
+  return {
+    ...base,
+    derived_text_layers: cloneHammerDerivedTextLayers(input.derivedTextLayers),
+  };
+}
+
+/** Slot-preserving persistence projection hook owned by the snapshot emitter authority. */
+export function useHammerPersistedTranscriptProjection(
+  input: HammerPersistedTranscriptProjectionInput,
+): HammerPersistedStructuredTranscript {
+  const { segments, existingTranscript, mediaRef, transcriptId, derivedTextLayers } = input;
+  return useMemo(
+    () => buildHammerPersistedTranscriptProjection({
+      segments,
+      existingTranscript,
+      mediaRef,
+      transcriptId,
+      derivedTextLayers,
+    }),
+    [derivedTextLayers, existingTranscript, mediaRef, segments, transcriptId],
+  );
+}
 
 export type HammerSnapshotRecoveryResult = {
   state: HammerEditorStateSerializable;

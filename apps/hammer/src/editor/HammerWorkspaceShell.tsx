@@ -166,7 +166,6 @@ import {
 } from "./useHammerWorkspaceShellAudioFinishing";
 import { createHammerTransitionCommands } from "./hammerWorkspaceShellTransitionCommands";
 import { buildHammerMediaBackboneRuntimeSummary } from "../media/hammerMediaBackbone";
-import { preserveTranscriptMetadata } from "../prep/hammerPrep";
 import { resolveHammerRecordingIdentityStatus } from "./hammerRecordingIdentity";
 import {
   clampImagePlacementTransform,
@@ -234,6 +233,7 @@ import { buildVisualTimelineDiagnostics } from "./hammerVisualTimelineHydrationG
 import { isAutoPlacementDebugFlagEnabled } from "./hammerAutoPlacementDebugFlag";
 import {
   useHammerSnapshotImmediatePersistenceSignal,
+  useHammerPersistedTranscriptProjection,
   useHammerWorkspaceShellSnapshotAuthority,
   useHammerWorkspaceShellSnapshotEmitter,
 } from "./hammerWorkspaceShellSnapshotEmitter";
@@ -2098,25 +2098,13 @@ function HammerWorkspaceShellWithContext(
     updateOutputSelection: setEditableOutputSelection,
   });
 
-  const canonicalStructuredTranscriptForPersistence = useMemo(() => {
-    const base = preserveTranscriptMetadata(
-      editableTranscriptSegments,
-      workspaceStructuredTranscript ?? props.structuredTranscript ?? null,
-      mediaRef,
-      transcriptSourceId,
-    );
-    return {
-      ...base,
-      derived_text_layers: cloneHammerDerivedTextLayers(editableDerivedTextLayers),
-    };
-  }, [
-    editableDerivedTextLayers,
-    editableTranscriptSegments,
+  const persistedTranscriptProjection = useHammerPersistedTranscriptProjection({
+    segments: editableTranscriptSegments,
+    existingTranscript: workspaceStructuredTranscript ?? props.structuredTranscript ?? null,
     mediaRef,
-    props.structuredTranscript,
-    transcriptSourceId,
-    workspaceStructuredTranscript,
-  ]);
+    transcriptId: transcriptSourceId,
+    derivedTextLayers: editableDerivedTextLayers,
+  });
   /*
     Transcript source-boundary sync contract:
     useEffect(() => {
@@ -4021,7 +4009,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     actualRecordingMismatchWarning,
     selectedMacroRecipeRef: props.selectedMacroRecipeRef ?? null,
     lastMacroRunRef: props.lastMacroRunRef ?? null,
-    canonicalStructuredTranscript: canonicalStructuredTranscriptForPersistence,
+    canonicalStructuredTranscript: persistedTranscriptProjection,
     exportCanonicalGraph: exportBasis.canonicalGraph,
     currentPass,
     passStatus,
