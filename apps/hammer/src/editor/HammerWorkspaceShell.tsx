@@ -132,6 +132,7 @@ import {
 } from "./useHammerWorkspaceShellMediaMap";
 import { createHammerMediaMapMutationCommands } from "./hammerWorkspaceShellMediaMapCommands";
 import {
+  createHammerVisualLookExposureCommands,
   useHammerBackgroundBlurProjection,
   useHammerVisualPreviewProjection,
   useHammerVisualPreviewState,
@@ -153,6 +154,7 @@ import {
 } from "./hammerWorkspaceShellSelectionUtils";
 import {
   createHammerAudioFinishingCommands,
+  createHammerPodcastMasterCommands,
   useHammerAudioFinishingCompareResetEffect,
   useHammerAudioFinishingBackendDerivedState,
   useHammerAudioFinishingEnabledModuleCount,
@@ -162,6 +164,7 @@ import {
   useHammerAudioFinishingRenderStatusState,
   useHammerAudioFinishingStudioRackState,
 } from "./useHammerWorkspaceShellAudioFinishing";
+import { createHammerTransitionCommands } from "./hammerWorkspaceShellTransitionCommands";
 import { buildHammerMediaBackboneRuntimeSummary } from "../media/hammerMediaBackbone";
 import { preserveTranscriptMetadata } from "../prep/hammerPrep";
 import { resolveHammerRecordingIdentityStatus } from "./hammerRecordingIdentity";
@@ -214,16 +217,6 @@ import {
   type HammerPassSelectorContext,
   type HammerPassSelectorResult,
 } from "./hammerPassSelectors";
-import {
-  createApplyExposureInstruction,
-  createApplyLookInstruction,
-  createCrossfadeInstruction,
-  createDipToBlackInstruction,
-  createFadeAudioInstruction,
-  createHardCutInstruction,
-  createPodcastMasterPassInstruction,
-  setAuthorityOperationLifecycle,
-} from "./hammerAuthorityOps";
 import {
   appendHammerAuthorityInstructionForHistory,
   captureHammerPostHistorySaveRequest,
@@ -3047,207 +3040,21 @@ function HammerWorkspaceShellWithContext(
     focusBoundAttentionOperation(operationId);
   }
 
-  function addMinimalTransition(transitionType: "hard_cut" | "crossfade" | "dip_to_black" | "fade_audio"): void {
-    applyHistoryMutation({
-      label: `Add ${transitionType.replace("_", " ")}`,
-      kind: "visual_adjustment",
-      toolId: "video",
-      immediatePersist: true,
-      computeAfter: (before) => {
-        const graph = before.editorialAuthorityGraph;
-        if (!graph) return before;
-        const segment = before.selectedSegmentId
-          ? before.transcriptSegments.find((item) => item.segment_id === before.selectedSegmentId) ?? null
-          : before.transcriptSegments[0] ?? null;
-        if (!segment) return before;
-        const startSec = Math.max(0, roundToTenth(before.playheadSec));
-        const defaultDuration = transitionType === "hard_cut" ? 0.1 : transitionType === "crossfade" ? 0.6 : 0.5;
-        const endSec = Math.min(transcriptDurationSec, roundToTenth(startSec + defaultDuration));
-        const instruction = transitionType === "hard_cut"
-          ? createHardCutInstruction({
-            segmentId: segment.segment_id,
-            startSec,
-            endSec: Math.max(startSec + 0.1, endSec),
-          })
-          : transitionType === "crossfade"
-          ? createCrossfadeInstruction({
-            segmentId: segment.segment_id,
-            nextSegmentId: before.transcriptSegments.find((item) => item.start_sec >= segment.end_sec)?.segment_id ?? segment.segment_id,
-            durationSec: Math.max(0.1, endSec - startSec),
-            startSec,
-            endSec: Math.max(startSec + 0.1, endSec),
-          })
-          : transitionType === "dip_to_black"
-          ? createDipToBlackInstruction({
-            segmentId: segment.segment_id,
-            startSec,
-            endSec: Math.max(startSec + 0.1, endSec),
-          })
-          : createFadeAudioInstruction({
-            segmentId: segment.segment_id,
-            startSec,
-            endSec: Math.max(startSec + 0.1, endSec),
-            fadeCurve: "linear",
-          });
-        const nextGraph = appendAuthorityInstructionForState(before, instruction);
-        return {
-          ...before,
-          editorialAuthorityGraph: nextGraph,
-        };
-      },
-    });
-  }
-
-  function applyPodcastMasterPass(): void {
-    applyHistoryMutation({
-      label: "Apply Podcast Master pass",
-      kind: "editor_state_change",
-      toolId: "audio",
-      immediatePersist: true,
-      computeAfter: (before) => {
-        const graph = before.editorialAuthorityGraph;
-        if (!graph) return before;
-        const existingActive = graph.operations.find((operation) => (
-          operation.lifecycle === "active"
-          && operation.instruction.type === "podcast_master_pass"
-        ));
-        if (existingActive) return before;
-        const segment = before.selectedSegmentId
-          ? before.transcriptSegments.find((item) => item.segment_id === before.selectedSegmentId) ?? null
-          : before.transcriptSegments[0] ?? null;
-        if (!segment) return before;
-        const instruction = createPodcastMasterPassInstruction({
-          segmentId: segment.segment_id,
-          noiseCleanup: "light",
-          normalizationLufs: -16,
-          compressionAmount: "medium",
-          limiterCeilingDbtp: -1,
-        });
-        return {
-          ...before,
-          editorialAuthorityGraph: appendAuthorityInstructionForState(before, instruction),
-        };
-      },
-    });
-  }
-
-  function applyLookPresetSelection(preset: HammerVisualLutPreset | "neutral"): void {
-    if ((activeLookPreset ?? "neutral") === preset) {
-      return;
-    }
-
-    applyHistoryMutation({
-      label: preset === "neutral"
-        ? "Clear look preset"
-        : `Apply ${preset.replace(/_/g, " ")} look`,
-      kind: "editor_state_change",
-      toolId: "video",
-      immediatePersist: true,
-      computeAfter: (before) => {
-        let graph = before.editorialAuthorityGraph;
-        if (!graph) return before;
-
-        for (const operation of graph.operations) {
-          if (operation.lifecycle !== "active" || operation.instruction.type !== "apply_look") continue;
-          graph = setAuthorityOperationLifecycle({
-            graph,
-            operationId: operation.operation_id,
-            lifecycle: "superseded",
-          }) ?? graph;
-        }
-
-        if (preset === "neutral") {
-          return {
-            ...before,
-            editorialAuthorityGraph: graph,
-          };
-        }
-
-        const segment = before.selectedSegmentId
-          ? before.transcriptSegments.find((item) => item.segment_id === before.selectedSegmentId) ?? null
-          : before.transcriptSegments[0] ?? null;
-        if (!segment) {
-          return {
-            ...before,
-            editorialAuthorityGraph: graph,
-          };
-        }
-
-        const instruction = createApplyLookInstruction({
-          segmentId: segment.segment_id,
-          preset,
-        });
-
-        return {
-          ...before,
-          editorialAuthorityGraph: appendAuthorityInstructionForState({
-            ...before,
-            editorialAuthorityGraph: graph,
-          }, instruction),
-        };
-      },
-    });
-  }
-
-  function applyExposureAdjustment(nextExposure: number): void {
-    const normalizedExposure = Math.max(-100, Math.min(100, Math.round(nextExposure)));
-    if ((activeExposureAdjustment ?? 0) === normalizedExposure) {
-      return;
-    }
-
-    applyHistoryMutation({
-      label: normalizedExposure === 0
-        ? "Reset exposure"
-        : `Set exposure to ${normalizedExposure > 0 ? "+" : ""}${normalizedExposure}`,
-      kind: "editor_state_change",
-      toolId: "video",
-      immediatePersist: true,
-      computeAfter: (before) => {
-        let graph = before.editorialAuthorityGraph;
-        if (!graph) return before;
-
-        for (const operation of graph.operations) {
-          if (operation.lifecycle !== "active" || operation.instruction.type !== "apply_exposure") continue;
-          graph = setAuthorityOperationLifecycle({
-            graph,
-            operationId: operation.operation_id,
-            lifecycle: "superseded",
-          }) ?? graph;
-        }
-
-        if (normalizedExposure === 0) {
-          return {
-            ...before,
-            editorialAuthorityGraph: graph,
-          };
-        }
-
-        const segment = before.selectedSegmentId
-          ? before.transcriptSegments.find((item) => item.segment_id === before.selectedSegmentId) ?? null
-          : before.transcriptSegments[0] ?? null;
-        if (!segment) {
-          return {
-            ...before,
-            editorialAuthorityGraph: graph,
-          };
-        }
-
-        const instruction = createApplyExposureInstruction({
-          segmentId: segment.segment_id,
-          exposure: normalizedExposure,
-        });
-
-        return {
-          ...before,
-          editorialAuthorityGraph: appendAuthorityInstructionForState({
-            ...before,
-            editorialAuthorityGraph: graph,
-          }, instruction),
-        };
-      },
-    });
-  }
-
+  const { addMinimalTransition } = createHammerTransitionCommands({
+    transcriptDurationSec,
+    applyHistoryMutation,
+    appendAuthorityInstruction: appendAuthorityInstructionForState,
+  });
+  const { applyPodcastMasterPass } = createHammerPodcastMasterCommands({
+    applyHistoryMutation,
+    appendAuthorityInstruction: appendAuthorityInstructionForState,
+  });
+  const { applyLookPresetSelection, applyExposureAdjustment } = createHammerVisualLookExposureCommands({
+    activeLookPreset,
+    activeExposureAdjustment,
+    applyHistoryMutation,
+    appendAuthorityInstruction: appendAuthorityInstructionForState,
+  });
   function selectOutputLayerForExport(layerId: string | null): void {
     const targetLayer = layerId
       ? outputLayerCandidates.find((layer) => layer.layer_id === layerId) ?? null

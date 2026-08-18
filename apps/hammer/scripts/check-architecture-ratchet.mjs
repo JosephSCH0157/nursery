@@ -44,6 +44,7 @@ if (shell.includes("resolveHammerAutomaticPlacementCommand")) failures.push("Ham
 if (/applyTranscript(?:DeleteRange|CleanupPreview|ToggleMuteSegments|Split|TrimSegment)Composition/.test(shell)) failures.push("HammerWorkspaceShell reacquired composition history-command construction.");
 if (/deriveAudioCutsForSubtractiveTextEdits|commitAudioCutSelection|moveSegmentTiming|trimSegment(?:Start|End)Timing|updateSegmentGain/.test(shell)) failures.push("HammerWorkspaceShell reacquired ordinary transcript-editing mutation construction.");
 if (/resolveInsertBrollSuggestionInGraph|updateResolvedInsertBrollOperationInGraph|synchronizeLinkedAudioDuckForBrollOperation|deriveStableHammerVisualAssetId/.test(shell)) failures.push("HammerWorkspaceShell reacquired media-map or manual B-roll mutation construction.");
+if (/create(?:HardCut|Crossfade|DipToBlack|FadeAudio|PodcastMasterPass|ApplyLook|ApplyExposure)Instruction/.test(shell)) failures.push("HammerWorkspaceShell reacquired transition, audio-master, or look/exposure mutation construction.");
 if (/setEditableVisualTimeline|applyVisualTimelineAction/.test(automaticPlacementAuthority)) failures.push("Automatic-placement authority bypassed the canonical placement commit callback.");
 
 const expansionGate = inspect("src/composition/hammerExpansionGateV1.ts").text;

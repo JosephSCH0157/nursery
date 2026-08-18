@@ -9,12 +9,76 @@ import { summarizeEyeContactAssistRuntimeStatus } from "../features/eye-contact-
 import { resolveSegmentationProviderDescriptor } from "../features/visual-effects/providers/segmentationProviderRegistry";
 import { normalizeVisualPreviewSettings } from "./hammerWorkspaceShellStateAdapters";
 import type { HammerVisualLutPreset } from "./hammerWorkspaceShellCore";
+import type { HammerEditInstruction } from "../../../../packages/contracts/hammer/edit-instruction.contract";
+import { createApplyExposureInstruction, createApplyLookInstruction, setAuthorityOperationLifecycle } from "./hammerAuthorityOps";
+import type { HammerEditorStateSerializable, HammerHistoryEntry } from "./hammerWorkspaceHistory";
+import type { HammerHistoryMutationArgs } from "./hammerWorkspaceShellHistoryController";
 
 /**
  * Visual-preview authority projects existing visual settings into preview. It does not own
  * timeline placement, automatic placement, Source Desk orchestration, canonical media
  * selection, or release rendering.
  */
+
+export function createHammerVisualLookExposureCommands(args: {
+  activeLookPreset: HammerVisualLutPreset | null;
+  activeExposureAdjustment: number | null;
+  applyHistoryMutation: (mutation: HammerHistoryMutationArgs) => HammerHistoryEntry | null;
+  appendAuthorityInstruction: (state: HammerEditorStateSerializable, instruction: HammerEditInstruction) =>
+    HammerEditorStateSerializable["editorialAuthorityGraph"];
+}) {
+  const applyLookPresetSelection = (preset: HammerVisualLutPreset | "neutral"): void => {
+    if ((args.activeLookPreset ?? "neutral") === preset) return;
+    args.applyHistoryMutation({
+      label: preset === "neutral" ? "Clear look preset" : `Apply ${preset.replace(/_/g, " ")} look`,
+      kind: "editor_state_change", toolId: "video", immediatePersist: true,
+      computeAfter: (before) => {
+        let graph = before.editorialAuthorityGraph;
+        if (!graph) return before;
+        for (const operation of graph.operations) {
+          if (operation.lifecycle !== "active" || operation.instruction.type !== "apply_look") continue;
+          graph = setAuthorityOperationLifecycle({ graph, operationId: operation.operation_id, lifecycle: "superseded" }) ?? graph;
+        }
+        if (preset === "neutral") return { ...before, editorialAuthorityGraph: graph };
+        const segment = before.selectedSegmentId
+          ? before.transcriptSegments.find((item) => item.segment_id === before.selectedSegmentId) ?? null
+          : before.transcriptSegments[0] ?? null;
+        if (!segment) return { ...before, editorialAuthorityGraph: graph };
+        const instruction = createApplyLookInstruction({ segmentId: segment.segment_id, preset });
+        return { ...before, editorialAuthorityGraph: args.appendAuthorityInstruction(
+          { ...before, editorialAuthorityGraph: graph }, instruction,
+        ) };
+      },
+    });
+  };
+  const applyExposureAdjustment = (nextExposure: number): void => {
+    const normalizedExposure = Math.max(-100, Math.min(100, Math.round(nextExposure)));
+    if ((args.activeExposureAdjustment ?? 0) === normalizedExposure) return;
+    args.applyHistoryMutation({
+      label: normalizedExposure === 0 ? "Reset exposure"
+        : `Set exposure to ${normalizedExposure > 0 ? "+" : ""}${normalizedExposure}`,
+      kind: "editor_state_change", toolId: "video", immediatePersist: true,
+      computeAfter: (before) => {
+        let graph = before.editorialAuthorityGraph;
+        if (!graph) return before;
+        for (const operation of graph.operations) {
+          if (operation.lifecycle !== "active" || operation.instruction.type !== "apply_exposure") continue;
+          graph = setAuthorityOperationLifecycle({ graph, operationId: operation.operation_id, lifecycle: "superseded" }) ?? graph;
+        }
+        if (normalizedExposure === 0) return { ...before, editorialAuthorityGraph: graph };
+        const segment = before.selectedSegmentId
+          ? before.transcriptSegments.find((item) => item.segment_id === before.selectedSegmentId) ?? null
+          : before.transcriptSegments[0] ?? null;
+        if (!segment) return { ...before, editorialAuthorityGraph: graph };
+        const instruction = createApplyExposureInstruction({ segmentId: segment.segment_id, exposure: normalizedExposure });
+        return { ...before, editorialAuthorityGraph: args.appendAuthorityInstruction(
+          { ...before, editorialAuthorityGraph: graph }, instruction,
+        ) };
+      },
+    });
+  };
+  return { applyLookPresetSelection, applyExposureAdjustment };
+}
 
 export function resolveHammerVisualPresetFilter(preset: HammerVisualLutPreset): string {
   switch (preset) {

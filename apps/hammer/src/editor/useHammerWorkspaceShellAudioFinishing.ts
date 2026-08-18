@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import type { MediaRef } from "../../../../packages/contracts/hammer/media-resolver.contract";
+import type { HammerEditInstruction } from "../../../../packages/contracts/hammer/edit-instruction.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import type { HammerPersistedAudioPolish } from "../persistence/hammerPersistenceContract";
 import { cloneHammerAudioPolish } from "../prep/hammerAudioPolish";
@@ -28,6 +29,8 @@ import {
   type HammerVoicePolishPresetId,
 } from "./hammerVoicePolish";
 import type { HammerEditorStateSerializable, HammerHistoryEntry } from "./hammerWorkspaceHistory";
+import { createPodcastMasterPassInstruction } from "./hammerAuthorityOps";
+import type { HammerHistoryMutationArgs } from "./hammerWorkspaceShellHistoryController";
 
 /**
  * Audio finishing exposes coordinated slot-specific hooks solely to preserve the
@@ -35,6 +38,42 @@ import type { HammerEditorStateSerializable, HammerHistoryEntry } from "./hammer
  * Together these entry points are the single Studio Rack and audio-polish authority.
  */
 export type HammerAudioFinalizationCompareMode = "before" | "after";
+
+export function createHammerPodcastMasterCommands(args: {
+  applyHistoryMutation: (mutation: HammerHistoryMutationArgs) => HammerHistoryEntry | null;
+  appendAuthorityInstruction: (state: HammerEditorStateSerializable, instruction: HammerEditInstruction) =>
+    HammerEditorStateSerializable["editorialAuthorityGraph"];
+}) {
+  const applyPodcastMasterPass = (): void => {
+    args.applyHistoryMutation({
+      label: "Apply Podcast Master pass",
+      kind: "editor_state_change",
+      toolId: "audio",
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const graph = before.editorialAuthorityGraph;
+        if (!graph) return before;
+        const existingActive = graph.operations.find((operation) => (
+          operation.lifecycle === "active" && operation.instruction.type === "podcast_master_pass"
+        ));
+        if (existingActive) return before;
+        const segment = before.selectedSegmentId
+          ? before.transcriptSegments.find((item) => item.segment_id === before.selectedSegmentId) ?? null
+          : before.transcriptSegments[0] ?? null;
+        if (!segment) return before;
+        const instruction = createPodcastMasterPassInstruction({
+          segmentId: segment.segment_id,
+          noiseCleanup: "light",
+          normalizationLufs: -16,
+          compressionAmount: "medium",
+          limiterCeilingDbtp: -1,
+        });
+        return { ...before, editorialAuthorityGraph: args.appendAuthorityInstruction(before, instruction) };
+      },
+    });
+  };
+  return { applyPodcastMasterPass };
+}
 
 export function createHammerAudioFinishingRequestLifecycle(initialIdentity: string) {
   let identity = initialIdentity;
