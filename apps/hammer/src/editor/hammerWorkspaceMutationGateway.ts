@@ -41,6 +41,13 @@ export function applyWorkspaceVisualTimelineAction(
   return { ...state, visualTimeline: nextTimeline, visualPlacements: deriveLegacyVisualPlacementsFromTimeline(nextTimeline) };
 }
 
+export function selectWorkspaceVisualTimelineClip(
+  timeline: HammerVisualTimelineState,
+  clipId: string | null,
+): HammerVisualTimelineState {
+  return hammerVisualTimelineReducer(timeline, { type: "SELECT_CLIP", clip_id: clipId });
+}
+
 export function applyWorkspaceVisualTimelineActions(
   state: HammerEditorStateSerializable,
   actions: HammerVisualTimelineAction[],

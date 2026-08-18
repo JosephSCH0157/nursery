@@ -15,10 +15,12 @@ import {
   updateResolvedInsertBrollOperationInGraph,
 } from "./hammerAuthorityOps";
 import {
+  applyWorkspaceVisualTimelineAction,
   applyWorkspaceVisualTimelineActions,
   replaceWorkspaceVisualTimelineState,
   resolveCanonicalWorkspaceVisualTimeline,
 } from "./hammerWorkspaceMutationGateway";
+import { selectClipById } from "../visuals/state/hammerVisualSelectors";
 import type { HammerHistoryEntry } from "./hammerWorkspaceHistory";
 import type { HammerHistoryMutationArgs } from "./hammerWorkspaceShellHistoryController";
 import { deriveHammerMediaMapBeats, type HammerMediaMapBeat } from "./useHammerWorkspaceShellMediaMap";
@@ -41,6 +43,40 @@ export function createHammerMediaMapMutationCommands(args: {
   setRemovedMediaMapSegmentIds: (ids: string[]) => void;
   setTimingHint: (hint: string | null) => void;
 }) {
+  const commitVisualAnchorRefinement = (input: {
+    clipId: string;
+    anchorText: string;
+    anchorLabel: string;
+    detached: boolean;
+    label: string;
+  }): void => {
+    const nextAnchorText = input.anchorText.trim();
+    const nextAnchorLabel = input.anchorLabel.trim();
+    args.applyHistoryMutation({
+      label: input.label,
+      kind: "visual_adjustment",
+      toolId: "video",
+      affectedPlacementIds: [input.clipId],
+      immediatePersist: true,
+      computeAfter: (before) => {
+        const timeline = resolveCanonicalWorkspaceVisualTimeline(before);
+        const clip = selectClipById(timeline, input.clipId);
+        if (!clip) return before;
+        return applyWorkspaceVisualTimelineAction(before, {
+          type: "RELABEL_CLIP_ANCHOR",
+          clip_id: input.clipId,
+          anchor_hint: {
+            ...clip.anchor_hint,
+            anchor_text: nextAnchorText.length > 0 ? nextAnchorText : null,
+            anchor_label: nextAnchorLabel.length > 0 ? nextAnchorLabel : null,
+            detached: input.detached,
+          },
+          updated_at: new Date().toISOString(),
+        });
+      },
+    });
+  };
+
   const updatePlacementKindFromMediaMap = (
     placementId: string,
     nextType: HammerMediaMapSuggestionType,
@@ -386,6 +422,7 @@ export function createHammerMediaMapMutationCommands(args: {
   };
 
   return {
+    commitVisualAnchorRefinement,
     updatePlacementKindFromMediaMap,
     redoMediaMapFromScript,
     resolveHearthBrollSuggestion,

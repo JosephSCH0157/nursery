@@ -76,7 +76,6 @@ import {
 } from "../macros/hammerDerivedTranscriptLayers";
 import { diffWords, isSubtractiveTranscriptWordEdit } from "../lib/hammerWordDiff";
 import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
-import { hammerVisualTimelineReducer } from "../visuals/state/hammerVisualReducer";
 import { deriveLegacyVisualPlacementsFromTimeline } from "../visuals/persistence/hammerVisualTimelineLegacyAdapter";
 import { deriveStableHammerAssetIdFromPath } from "../lib/hammerAssetIdentity";
 import {
@@ -267,6 +266,7 @@ import {
   captureHammerWorkspaceState,
   createHammerWorkspaceMutationGateway,
   resolveCanonicalWorkspaceVisualTimeline,
+  selectWorkspaceVisualTimelineClip,
   type HammerVisualTimelineAction,
 } from "./hammerWorkspaceMutationGateway";
 import {
@@ -2312,10 +2312,7 @@ function HammerWorkspaceShellWithContext(
       if (base.selected_clip_id === clipId) {
         return current ?? base;
       }
-      const next = hammerVisualTimelineReducer(base, {
-        type: "SELECT_CLIP",
-        clip_id: clipId,
-      });
+      const next = selectWorkspaceVisualTimelineClip(base, clipId);
       if (isHammerVisualSelectionDebugEnabled() && clipId) {
         const resolved = selectClipById(next, clipId);
         const selectionLogKey = `${clipId}|${resolved?.clip_id ?? ""}`;
@@ -2864,41 +2861,8 @@ function HammerWorkspaceShellWithContext(
     reconcileRetakeIndex();
   }, [retakeActiveCandidateIndex, retakeCandidateCards.length, reconcileRetakeIndex]);
 
-  function commitVisualAnchorRefinement(args: {
-    clipId: string;
-    anchorText: string;
-    anchorLabel: string;
-    detached: boolean;
-    label: string;
-  }): void {
-    const nextAnchorText = args.anchorText.trim();
-    const nextAnchorLabel = args.anchorLabel.trim();
-    applyHistoryMutation({
-      label: args.label,
-      kind: "visual_adjustment",
-      toolId: "video",
-      affectedPlacementIds: [args.clipId],
-      immediatePersist: true,
-      computeAfter: (before) => {
-        const timeline = resolveCanonicalVisualTimeline(before);
-        const clip = selectClipById(timeline, args.clipId);
-        if (!clip) return before;
-        return applyVisualTimelineAction(before, {
-          type: "RELABEL_CLIP_ANCHOR",
-          clip_id: args.clipId,
-          anchor_hint: {
-            ...clip.anchor_hint,
-            anchor_text: nextAnchorText.length > 0 ? nextAnchorText : null,
-            anchor_label: nextAnchorLabel.length > 0 ? nextAnchorLabel : null,
-            detached: args.detached,
-          },
-          updated_at: new Date().toISOString(),
-        });
-      },
-    });
-  }
-
   const {
+    commitVisualAnchorRefinement,
     updatePlacementKindFromMediaMap,
     redoMediaMapFromScript,
     resolveHearthBrollSuggestion,

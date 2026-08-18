@@ -127,6 +127,38 @@ test("resolved binding move, replace, and revert preserve operation identity and
   ]);
 });
 
+test("visual anchor refinement preserves canonical timeline and history intent", () => {
+  const fixture = commandFixture();
+  fixture.commands.resolveHearthBrollSuggestion({ operationId: "op:b1", assetPath: "assets/product.mp4", label: "Product" });
+  fixture.commands.commitVisualAnchorRefinement({
+    clipId: "placement1",
+    anchorText: "  refined anchor  ",
+    anchorLabel: "  Product detail  ",
+    detached: true,
+    label: "Refine visual anchor",
+  });
+  const clip = fixture.getState().visualTimeline?.clips.find((candidate) => candidate.clip_id === "placement1");
+  assert.deepEqual({
+    text: clip?.anchor_hint.anchor_text,
+    label: clip?.anchor_hint.anchor_label,
+    detached: clip?.anchor_hint.detached,
+  }, { text: "refined anchor", label: "Product detail", detached: true });
+  const mutation = fixture.mutations.at(-1);
+  assert.deepEqual({
+    label: mutation?.label,
+    kind: mutation?.kind,
+    toolId: mutation?.toolId,
+    affected: mutation?.affectedPlacementIds,
+    immediate: mutation?.immediatePersist,
+  }, {
+    label: "Refine visual anchor",
+    kind: "visual_adjustment",
+    toolId: "video",
+    affected: ["placement1"],
+    immediate: true,
+  });
+});
+
 test("media-map authority excludes loading, placement mutation, view models, persistence, and shorts", () => {
   const root = path.resolve(import.meta.dirname, "..");
   const authority = fs.readFileSync(path.join(root, "src/editor/useHammerWorkspaceShellMediaMap.ts"), "utf8");

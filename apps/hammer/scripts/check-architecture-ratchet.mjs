@@ -49,6 +49,7 @@ if (/buildHammer(?:ReleasePrepPackage|RenderAssembly)\s*\(/.test(shell)) failure
 if (/snapshotAuthorityRef|createHammerWorkspaceShellSnapshotAuthority\s*\(/.test(shell)) failures.push("HammerWorkspaceShell reacquired snapshot-production ref ownership; use the snapshot authority hook contract.");
 if (/history(?:Authority|BaselineState)Ref|baselineDerivedLayersRef|derivedLayerHistoryRef/.test(shell)) failures.push("HammerWorkspaceShell reacquired history baseline or derived-layer ref ownership.");
 if (/function\s+(?:jumpToHistoryEntry|restoreCurrentHistoryState|selectViewingLayer)\b|setHammerDerivedTextLayerActive/.test(shell)) failures.push("HammerWorkspaceShell reacquired history navigation or viewing-layer mutation construction.");
+if (/hammerVisualTimelineReducer|RELABEL_CLIP_ANCHOR/.test(shell)) failures.push("HammerWorkspaceShell reacquired canonical visual selection or anchor mutation construction.");
 if (/setEditableVisualTimeline|applyVisualTimelineAction/.test(automaticPlacementAuthority)) failures.push("Automatic-placement authority bypassed the canonical placement commit callback.");
 
 const releasePackageAuthority = inspect("src/editor/hammerWorkspaceShellReleasePackage.ts").text;

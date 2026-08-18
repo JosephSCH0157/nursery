@@ -7,6 +7,7 @@ import {
   createHammerWorkspaceMutationGateway,
   replaceWorkspaceVisualTimelineState,
   resolveCanonicalWorkspaceVisualTimeline,
+  selectWorkspaceVisualTimelineClip,
 } from "../src/editor/hammerWorkspaceMutationGateway";
 import { createEmptyVisualTimelineState } from "../src/visuals/model/hammerVisualDefaults";
 
@@ -37,6 +38,16 @@ test("timeline gateway preserves reducer action ordering and legacy projection",
   const replacement = replaceWorkspaceVisualTimelineState(before, (timeline) => ({ ...timeline, updated_at: "2026-08-18T00:00:00.000Z" }));
   assert.equal(replacement.visualTimeline?.updated_at, "2026-08-18T00:00:00.000Z");
   assert.equal(resolveCanonicalWorkspaceVisualTimeline(before), before.visualTimeline);
+});
+
+test("timeline gateway owns canonical clip selection and clearing", () => {
+  const timeline = createEmptyVisualTimelineState({ updated_at: "2026-08-17T00:00:00.000Z" });
+  const selected = selectWorkspaceVisualTimelineClip(timeline, "clip-1");
+  assert.equal(selected.selected_clip_id, "clip-1");
+  assert.equal(timeline.selected_clip_id, null);
+  const repeated = selectWorkspaceVisualTimelineClip(selected, "clip-1");
+  assert.equal(repeated.selected_clip_id, "clip-1");
+  assert.equal(selectWorkspaceVisualTimelineClip(repeated, null).selected_clip_id, null);
 });
 
 test("workspace gateway applies normalized state, diagnostics, selection, and cleanup in exact order", () => {
