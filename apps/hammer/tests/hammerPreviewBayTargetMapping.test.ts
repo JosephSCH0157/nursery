@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { buildPreviewBayVM } from "../src/editor/hammerWorkspaceShellViewModels";
+import { composeHammerPreviewBayViewModel } from "../src/editor/useHammerWorkspaceShellViewModels";
 
 function buildArgs(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
@@ -59,7 +59,7 @@ function buildArgs(overrides: Record<string, unknown> = {}): Record<string, unkn
 }
 
 {
-  const vm = buildPreviewBayVM(buildArgs());
+  const vm = composeHammerPreviewBayViewModel(buildArgs() as never);
   assert.equal(vm.backgroundEffect.enabled, true);
   assert.equal(vm.eyeContactAssist.enabled, true);
   assert.equal(
@@ -69,7 +69,7 @@ function buildArgs(overrides: Record<string, unknown> = {}): Record<string, unkn
 }
 
 {
-  const vm = buildPreviewBayVM(buildArgs({ effectivePreviewVideoSrc: null }));
+  const vm = composeHammerPreviewBayViewModel(buildArgs({ effectivePreviewVideoSrc: null }) as never);
   assert.equal(vm.backgroundEffect.enabled, false);
   assert.equal(vm.eyeContactAssist.enabled, false);
   assert.equal(

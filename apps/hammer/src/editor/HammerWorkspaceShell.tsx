@@ -169,12 +169,9 @@ import { useHammerWorkspaceShellTranscriptCleanup } from "./useHammerWorkspaceSh
 import { useHammerWorkspaceShellCleanupCandidateReview } from "./useHammerWorkspaceShellCleanupCandidateReview";
 import { useHammerWorkspaceShellRouting } from "./useHammerWorkspaceShellRouting";
 import {
-  buildPreviewBayVM,
-  buildSourceBayVM,
-  buildTimelineDockVM,
-  buildToolbarVM,
-  buildToolBayVM,
-} from "./hammerWorkspaceShellViewModels";
+  composeHammerPreviewBayViewModel, composeHammerSourceBayViewModel, composeHammerTimelineDockViewModel,
+  composeHammerToolbarViewModel, composeHammerToolBayViewModel,
+} from "./useHammerWorkspaceShellViewModels";
 import {
   toHammerLinkedSelectionVisualItems,
   type HammerSelectedTranscriptRange,
@@ -4699,7 +4696,7 @@ function HammerWorkspaceShellWithContext(
     }
     return byPass;
   }, [passSelectorContext]);
-  const timelineDockVM = useMemo(() => buildTimelineDockVM({
+  const timelineDockVM = useMemo(() => composeHammerTimelineDockViewModel({
     SCRUB_RATE_OPTIONS,
     SMALL_PLAYHEAD_NUDGE_SEC,
     editableAudioPolish,
@@ -4842,7 +4839,7 @@ function HammerWorkspaceShellWithContext(
     zoomTimelineIn,
     zoomTimelineOut,
   ]);
-  const sourceBayVM = useMemo(() => buildSourceBayVM({
+  const sourceBayVM = useMemo(() => composeHammerSourceBayViewModel({
     props,
     canUndo,
     undoLabel,
@@ -5076,7 +5073,7 @@ function HammerWorkspaceShellWithContext(
     selectedPlacement: selectedImagePlacement,
     setEvidence: setCanonicalAutoPlacementEvidence,
   });
-  const previewBayVM = useMemo(() => buildPreviewBayVM({
+  const previewBayVM = useMemo(() => composeHammerPreviewBayViewModel({
     previewMode,
     activeTool,
     activeVisualTool,
@@ -5285,7 +5282,7 @@ function HammerWorkspaceShellWithContext(
       previewMode: previewBayVM?.previewModeLabel,
     });
   }, [previewBayVM]);
-  const toolbarVM = useMemo(() => buildToolbarVM({
+  const toolbarVM = useMemo(() => composeHammerToolbarViewModel({
     editableTranscriptSegments,
     editableVisualPlacements,
     editableVisualTimeline,
@@ -5562,7 +5559,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     createFallbackEditPlan,
   });
 
-  const toolBayVM = useMemo(() => buildToolBayVM({
+  const toolBayVM = useMemo(() => composeHammerToolBayViewModel({
     passLabel: currentPassMeta.label,
     passStatus: currentPassSelectorResult.status,
     onMarkComplete: markCurrentPassComplete,
