@@ -10,6 +10,7 @@ import type {
 } from "./hammerPersistenceContract";
 import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
 import { assertValidTimelineState } from "../visuals/model/hammerVisualGuards";
+import { normalizeLegacyCanonicalVisualTimelineV1 } from "../visuals/persistence/hammerVisualTimelinePersistence";
 import type { HammerCompositionV2, HammerCompositionHistoryV2 } from "../composition/hammerCompositionV2";
 import type { HammerCompositionTransactionV2 } from "../composition/hammerCompositionTransactionV2";
 import type { HammerMediaProvenanceManifest } from "../composition/hammerMediaProvenance";
@@ -39,8 +40,17 @@ export function validateCanonicalVisualTimelineArtifact(value: unknown):
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return { ok: false, classification: "malformed_json", error: "Canonical visual timeline JSON must be an object." };
   }
+  const version = (value as { version?: unknown }).version;
   try {
-    return { ok: true, timeline: assertValidTimelineState(value as HammerVisualTimelineState) };
+    if (version === 2) {
+      return { ok: true, timeline: assertValidTimelineState(value as HammerVisualTimelineState) };
+    }
+    if (version === 1) {
+      const normalized = normalizeLegacyCanonicalVisualTimelineV1(value);
+      if (!normalized) throw new Error("Legacy visual timeline v1 is structurally invalid.");
+      return { ok: true, timeline: assertValidTimelineState(normalized) };
+    }
+    throw new Error(`Unsupported visual timeline version: ${String(version)}.`);
   } catch (error) {
     return { ok: false, classification: "schema_invalid", error: toErrorMessage(error, "validation failed") };
   }

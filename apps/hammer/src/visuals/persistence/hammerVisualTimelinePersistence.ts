@@ -11,6 +11,7 @@ import {
   normalizeAnchorHint,
   normalizeAnimation,
   normalizeGeometry,
+  normalizeFitMode,
   normalizeSecRange,
   normalizeSemanticAnchor,
   normalizeZIndex,
@@ -123,6 +124,14 @@ function normalizeCanonicalTimeline(value: unknown): HammerVisualTimelineState |
         asset_id: readString(clip.asset_id),
         lane_id: laneId,
         entry_id: readString(clip.entry_id),
+        ...(clip.system_managed === true ? { system_managed: true } : {}),
+        ...(clip.system_type === "intro" || clip.system_type === "outro" ? { system_type: clip.system_type } : {}),
+        ...(clip.system_source === "profile" || clip.system_source === "episode" || clip.system_source === "manual"
+          ? { system_source: clip.system_source }
+          : {}),
+        ...(typeof clip.system_asset_id === "string" || clip.system_asset_id === null
+          ? { system_asset_id: readString(clip.system_asset_id) }
+          : {}),
         label: readString(clip.label),
         visual_mode: readString(clip.visual_mode),
         confidence: readNumber(clip.confidence),
@@ -135,6 +144,7 @@ function normalizeCanonicalTimeline(value: unknown): HammerVisualTimelineState |
         start_sec: timing.start_sec,
         end_sec: timing.end_sec,
         geometry: normalizeGeometry(readRecord(clip.geometry) as Partial<HammerVisualClip["geometry"]> | null),
+        fit_mode: normalizeFitMode(clip.fit_mode as HammerVisualClip["fit_mode"]),
         animation: normalizeAnimation(readRecord(clip.animation) as Partial<HammerVisualClip["animation"]> | null),
         opacity: clampOpacity(readNumber(clip.opacity)),
         z_index: normalizeZIndex(readNumber(clip.z_index)),
@@ -242,4 +252,90 @@ export function buildHammerVisualTimelineSaveRequest(args: {
       })),
     },
   };
+}
+
+/**
+ * Strict compatibility boundary for revision-owned canonical v1 timelines.
+ * Unlike snapshot recovery, this never drops malformed entries or synthesizes
+ * missing lanes. It returns only a complete v2 projection suitable for the
+ * canonical installation guard.
+ */
+export function normalizeLegacyCanonicalVisualTimelineV1(value: unknown): HammerVisualTimelineState | null {
+  const row = readRecord(value);
+  if (!row || row.version !== 1 || row.source_mode !== "packaging") return null;
+  if (!Number.isInteger(row.revision) || Number(row.revision) < 1 || !readString(row.updated_at)) return null;
+  if (!Array.isArray(row.assets) || !Array.isArray(row.clips) || !Array.isArray(row.lanes)) return null;
+  if (row.selected_clip_id !== null && typeof row.selected_clip_id !== "undefined" && !readString(row.selected_clip_id)) return null;
+
+  const assetIds = new Set<string>();
+  for (const entry of row.assets) {
+    const asset = readRecord(entry);
+    const assetId = readString(asset?.asset_id);
+    if (!asset || !assetId || !readString(asset.asset_ref) || assetIds.has(assetId)) return null;
+    if (!["image", "broll", "reference_clip", "contextual_data_composite"].includes(String(asset.kind))) return null;
+    if (!["packaging", "manual", "seeded"].includes(String(asset.source_mode)) || !readString(asset.updated_at)) return null;
+    if (typeof asset.roles !== "undefined") {
+      if (!Array.isArray(asset.roles) || JSON.stringify(normalizeAssetRoles(asset.roles)) !== JSON.stringify(asset.roles)) return null;
+    }
+    assetIds.add(assetId);
+  }
+
+  const laneIds = new Set<string>();
+  const mountedClipIds = new Set<string>();
+  for (const entry of row.lanes) {
+    const lane = readRecord(entry);
+    const laneId = readString(lane?.lane_id);
+    if (!lane || !laneId || !readString(lane.label) || laneIds.has(laneId) || !Array.isArray(lane.clip_ids)) return null;
+    laneIds.add(laneId);
+    for (const value of lane.clip_ids) {
+      const clipId = readString(value);
+      if (!clipId || mountedClipIds.has(clipId)) return null;
+      mountedClipIds.add(clipId);
+    }
+  }
+
+  const clipIds = new Set<string>();
+  for (const entry of row.clips) {
+    const clip = readRecord(entry);
+    const clipId = readString(clip?.clip_id);
+    const laneId = readString(clip?.lane_id);
+    const assetId = clip?.asset_id == null ? null : readString(clip.asset_id);
+    if (!clip || !clipId || !laneId || clipIds.has(clipId) || !laneIds.has(laneId) || !mountedClipIds.has(clipId)) return null;
+    if (clip.asset_id != null && (!assetId || !assetIds.has(assetId))) return null;
+    if (!Number.isFinite(clip.start_sec) || !Number.isFinite(clip.end_sec) || !readString(clip.updated_at)) return null;
+    const geometry = readRecord(clip.geometry) as Partial<HammerVisualClip["geometry"]> | null;
+    const animation = readRecord(clip.animation) as Partial<HammerVisualClip["animation"]> | null;
+    const normalizedGeometry = normalizeGeometry(geometry);
+    if (!geometry
+      || normalizedGeometry.x !== geometry.x
+      || normalizedGeometry.y !== geometry.y
+      || normalizedGeometry.width !== geometry.width
+      || normalizedGeometry.height !== geometry.height
+      || normalizedGeometry.anchor !== geometry.anchor) return null;
+    if (!animation || normalizeAnimation(animation).preset !== animation.preset) return null;
+    const timing = normalizeSecRange(Number(clip.start_sec), Number(clip.end_sec));
+    if (timing.start_sec !== Number(clip.start_sec) || timing.end_sec !== Number(clip.end_sec)) return null;
+    if (clampOpacity(readNumber(clip.opacity)) !== clip.opacity || normalizeZIndex(readNumber(clip.z_index)) !== clip.z_index) return null;
+    if (!["packaging", "manual", "seeded"].includes(String(clip.source_mode))) return null;
+    if (clip.fit_mode != null && clip.fit_mode !== "contain" && clip.fit_mode !== "cover") return null;
+    const anchorHint = readRecord(clip.anchor_hint) as Partial<HammerVisualClip["anchor_hint"]> | null;
+    const normalizedAnchorHint = normalizeAnchorHint(anchorHint);
+    if (!anchorHint
+      || normalizedAnchorHint.anchor_segment_id !== anchorHint.anchor_segment_id
+      || normalizedAnchorHint.anchor_text !== anchorHint.anchor_text
+      || normalizedAnchorHint.anchor_label !== anchorHint.anchor_label
+      || normalizedAnchorHint.detached !== anchorHint.detached
+      || !Array.isArray(anchorHint.matched_segment_ids)
+      || normalizedAnchorHint.matched_segment_ids.length !== anchorHint.matched_segment_ids.length
+      || normalizedAnchorHint.matched_segment_ids.some((segmentId, index) => segmentId !== anchorHint.matched_segment_ids?.[index])) return null;
+    if (!Array.isArray(clip.uncertainty_flags) || clip.uncertainty_flags.some((flag) => !readString(flag))) return null;
+    clipIds.add(clipId);
+  }
+  if ([...mountedClipIds].some((clipId) => !clipIds.has(clipId))) return null;
+  const selectedClipId = readString(row.selected_clip_id);
+  if (selectedClipId && !clipIds.has(selectedClipId)) return null;
+
+  const normalized = normalizeCanonicalTimeline(row);
+  if (!normalized || normalized.assets.length !== row.assets.length || normalized.clips.length !== row.clips.length || normalized.lanes.length !== row.lanes.length) return null;
+  return normalized;
 }
