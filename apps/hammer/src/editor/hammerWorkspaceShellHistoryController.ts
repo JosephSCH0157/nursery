@@ -34,7 +34,6 @@ import { resolveHammerHistoryStatus } from "../lib/hammerHistoryStatus";
 import {
   loadHammerHistoryDocument,
   loadHammerHistoryPresence,
-  loadHammerRevisionHistoryDocument,
   saveHammerHistoryDocument,
   saveHammerRevisionHistoryDocument,
 } from "../lib/hammerHistoryArtifactApi";
@@ -49,56 +48,17 @@ import {
   setHammerDerivedTextLayerActive,
 } from "../macros/hammerDerivedTranscriptLayers";
 import { resolveHammerDerivedLayersForUndoStack } from "./hammerCompositionHistoryCommands";
-
-export type HammerHistoryPostSaveSnapshotRequest = Readonly<{
-  workpieceId: string;
-  sessionId: string;
-  baseRevisionId: string;
-  headEntryId: string | null;
-  undoDepth: number;
-  redoDepth: number;
-  editorState: HammerEditorStateSerializable;
-}>;
-
-export function captureHammerHistoryPostSaveSnapshotRequest(args: {
-  workpieceId: string;
-  controller: HammerHistoryController;
-}): HammerHistoryPostSaveSnapshotRequest {
-  return Object.freeze({
-    workpieceId: args.workpieceId,
-    sessionId: args.controller.document.sessionId,
-    baseRevisionId: args.controller.document.baseRevisionId,
-    headEntryId: args.controller.document.headEntryId ?? null,
-    undoDepth: args.controller.document.undoStack.length,
-    redoDepth: args.controller.document.redoStack.length,
-    editorState: cloneEditorState(args.controller.getState()),
-  });
-}
-
-export async function persistHammerHistorySaveBoundary(args: {
-  saveHistory: () => Promise<{ ok: true } | { ok: false; error: string }>;
-  snapshotRequest: HammerHistoryPostSaveSnapshotRequest;
-  onHistorySaved: (request: HammerHistoryPostSaveSnapshotRequest) => Promise<void>;
-}): Promise<{ ok: true } | { ok: false; error: string }> {
-  const result = await args.saveHistory();
-  if (!result.ok) return result;
-  try {
-    await args.onHistorySaved(args.snapshotRequest);
-  } catch {
-    // History is already durable. Snapshot production remains best-effort and
-    // must not turn a successful history save into a failed save boundary.
-  }
-  return result;
-}
-
-export function cloneHammerHistoryDocument(document: HammerHistoryDocumentV1): HammerHistoryDocumentV1 {
-  return structuredClone(document);
-}
+import { startAndHydrateHammerHistoryEpoch, type HammerHistoryEpochPersistenceAuthority, type HammerHistoryEpochPersistenceState } from "./hammerHistoryEpochPersistence";
+import { loadHammerRevisionHistoryHydration, type HammerHistoryEpochTransportRequest, type HammerRevisionHistoryHydration } from "../lib/hammerHistoryEpochApi";
+export { captureHammerHistoryPostSaveSnapshotRequest, persistHammerHistorySaveBoundary } from "./hammerHistorySaveBoundary";
+export type { HammerHistoryPostSaveSnapshotRequest } from "./hammerHistorySaveBoundary";
+import { cloneHammerHistoryDocument, persistHammerHistorySaveBoundary, type HammerHistoryPostSaveSnapshotRequest } from "./hammerHistorySaveBoundary";
 
 export type HammerHistoryCommandAuthorityConfig = {
   workspaceId: string;
   workpieceId: string;
   revisionId: string | null;
+  historyPath?: string | null;
   selectionSegmentId: string | null;
   activeTool: string | null;
   captureState: () => HammerEditorStateSerializable;
@@ -115,6 +75,7 @@ export type HammerHistoryCommandAuthorityConfig = {
   ) => HammerHistoryPostSaveSnapshotRequest;
   onHistorySaved: (request: HammerHistoryPostSaveSnapshotRequest) => Promise<void>;
   saveDocument?: (document: HammerHistoryDocumentV1) => Promise<{ ok: true } | { ok: false; error: string }>;
+  epochPersistence?: HammerHistoryEpochPersistenceAuthority;
 };
 
 export type HammerHistoryMutationArgs = {
@@ -133,6 +94,8 @@ export interface HammerHistoryCommandAuthority {
   configure(config: HammerHistoryCommandAuthorityConfig): void;
   getController(): HammerHistoryController | null;
   installController(controller: HammerHistoryController | null): void;
+  installHydration(hydration: HammerRevisionHistoryHydration, controller: HammerHistoryController | null, identity: { workspaceId: string; workpieceId: string; canonicalRecordingId: string; revisionId: string }): void;
+  getEpochPersistenceState(): HammerHistoryEpochPersistenceState | null; startHistoryEpoch(request: HammerHistoryEpochTransportRequest): Promise<import("../lib/hammerHistoryEpochApi").HammerHistoryTransitionResult>;
   applyMutation(args: HammerHistoryMutationArgs): HammerHistoryEntry | null;
   undo(): void;
   redo(): void;
@@ -191,12 +154,17 @@ export function createHammerHistoryCommandAuthority(
     const editorState = cloneEditorState(controller.getState());
     const snapshotRequest = saveConfig.captureSnapshotRequest(document, editorState);
     const saveHistory = async (): Promise<{ ok: true } | { ok: false; error: string }> => {
+      if (saveConfig.epochPersistence?.getState()) {
+        const result = await saveConfig.epochPersistence.enqueue(document, editorState);
+        return result.outcome === "conflict" ? { ok: false, error: result.code } : { ok: true };
+      }
       if (saveConfig.saveDocument) return saveConfig.saveDocument(document);
       const result = saveConfig.revisionId
         ? await saveHammerRevisionHistoryDocument({
           workspaceId: saveConfig.workspaceId,
           workpieceId: saveConfig.workpieceId,
           revisionId: saveConfig.revisionId,
+          historyPath: saveConfig.historyPath,
           document,
         })
         : await saveHammerHistoryDocument({ workpieceId: saveConfig.workpieceId, document });
@@ -237,6 +205,22 @@ export function createHammerHistoryCommandAuthority(
         generation += 1;
       }
       controller = nextController;
+    },
+    installHydration(hydration, nextController, identity) {
+      authority.installController(nextController);
+      if (hydration.kind === "epoch_anchor" || hydration.kind === "epoch_head") config.epochPersistence?.install(hydration, identity);
+      else config.epochPersistence?.clear();
+    },
+    getEpochPersistenceState: () => config.epochPersistence?.getState() ?? null,
+    startHistoryEpoch: async (request) => {
+      if (!config.epochPersistence) return { outcome: "conflict", code: "history_epoch_authority_unavailable", terminal: true, retryable: false };
+      const canonicalState = cloneEditorState(config.captureState());
+      const started = await startAndHydrateHammerHistoryEpoch({ persistence: config.epochPersistence, request, canonicalState, maxUndoSteps: 100 });
+      if (!started.hydration || !started.controller) return started.result;
+      authority.installHydration(started.hydration, started.controller, { workspaceId: request.envelope.workspace_id,
+        workpieceId: request.envelope.workpiece_id, canonicalRecordingId: request.envelope.canonical_recording_id,
+        revisionId: request.envelope.recording_revision_id });
+      return started.result;
     },
     applyMutation(args) {
       if (!controller) return null;
@@ -411,6 +395,7 @@ export type UseHammerWorkspaceShellHistoryControllerArgs = {
   actualRecordingMismatchWarning: string | null;
   recordingRevisionId: string | null;
   recordingRevisionHistoryPath: string | null;
+  recordingRevisionUpdatedAt: string | null; canonicalRecordingId: string | null;
   editorialAuthorityGraph: HammerEditorialAuthorityGraph | null;
   structuredTranscriptResetKey: string;
   visualTimelineResetKey: string;
@@ -575,10 +560,11 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
       const revisionId = args.recordingRevisionId ?? null;
       const historyResult = revisionId
         ? args.recordingRevisionHistoryPath
-          ? await loadHammerRevisionHistoryDocument({
-            workpieceId: args.launchContext.workpiece_id,
-            historyPath: args.recordingRevisionHistoryPath,
-          })
+          ? args.recordingRevisionUpdatedAt && args.canonicalRecordingId
+            ? await loadHammerRevisionHistoryHydration({ workspaceId: args.launchContext.workspace_id,
+              workpieceId: args.launchContext.workpiece_id, canonicalRecordingId: args.canonicalRecordingId,
+              revisionId, historyPath: args.recordingRevisionHistoryPath, revisionUpdatedAt: args.recordingRevisionUpdatedAt })
+            : { ok: false as const, status: 409, classification: "identity_conflict" as const, error: "Revision identity tokens are unavailable." }
           : { ok: true as const, status: 200, exists: false, data: null as null }
         : await loadHammerHistoryDocument(args.launchContext.workpiece_id);
       const snapshotManifestResult = await args.snapshotAuthority.loadManifest(
@@ -594,6 +580,7 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
       snapshotRecoveryStatus = snapshotManifestResult.status;
 
       if (!historyResult.ok) {
+        if (revisionId && args.recordingRevisionHistoryPath) args.historyAuthority.installController(null);
         args.setHistoryStatus(historyResult.error);
         return;
       }
@@ -601,7 +588,9 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
       const historyPresenceSentinelExists = historyPresenceResult.ok
         ? historyPresenceResult.exists
         : true; // unknown -> do not suppress warnings
-      const historyExists = historyResult.exists && Boolean(historyResult.data);
+      const hydration = "hydration" in historyResult ? historyResult.hydration : null;
+      const historyData = hydration?.document ?? ("data" in historyResult ? historyResult.data : null);
+      const historyExists = Boolean(hydration) || ("exists" in historyResult && historyResult.exists && Boolean(historyData));
       if (!historyExists) {
         args.setHistoryStatus(resolveHammerHistoryStatus({
           historyExists: false,
@@ -612,13 +601,18 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
         return;
       }
 
-      const loaded = normalizeHammerHistoryDocument(historyResult.data, {
+      const loaded = normalizeHammerHistoryDocument(historyData, {
         workpieceId: args.launchContext.workpiece_id,
         sessionId: args.launchContext.session_id ?? `${args.launchContext.workpiece_id}:session`,
         baseRevisionId,
       });
 
       let replayBaselineState = baselineState;
+      if (hydration?.kind === "epoch_anchor" && loaded.baseRevisionId !== baseRevisionId) {
+        args.historyAuthority.installController(null);
+        args.setHistoryStatus("Epoch anchor canonical base mismatch. History traversal is blocked.");
+        return;
+      }
       if (loaded.baseRevisionId !== baseRevisionId) {
         try {
           replayBaselineState = verifyHammerHistoryAgainstCanonicalHead({
@@ -654,7 +648,11 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
       snapshotRecoveryStatus = snapshotRecovery.status ?? snapshotRecoveryStatus;
 
       controller.replaceState(replayed);
-      args.historyAuthority.installController(controller);
+      if (hydration && revisionId && args.canonicalRecordingId) args.historyAuthority.installHydration(hydration, controller, {
+        workspaceId: args.launchContext.workspace_id, workpieceId: args.launchContext.workpiece_id,
+        canonicalRecordingId: args.canonicalRecordingId, revisionId,
+      });
+      else args.historyAuthority.installController(controller);
       args.applyWorkspaceState(replayed, "history:replay_apply");
       args.setHistoryStatus(resolveHammerHistoryStatus({
         historyExists: true,
@@ -676,6 +674,8 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
     args.launchContext.workpiece_id,
     args.recordingRevisionId,
     args.recordingRevisionHistoryPath,
+    args.recordingRevisionUpdatedAt,
+    args.canonicalRecordingId,
     args.structuredTranscriptResetKey,
     args.transcriptSourceId,
     args.visualTimelineResetKey,

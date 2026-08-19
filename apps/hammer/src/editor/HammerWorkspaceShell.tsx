@@ -224,6 +224,7 @@ import {
   type HammerHistoryCommandAuthorityConfig,
   type HammerHistoryPostSaveSnapshotRequest,
 } from "./hammerWorkspaceShellHistoryController";
+import { useHammerHistoryEpochPersistenceAuthority } from "./hammerHistoryEpochPersistence";
 import { buildVisualTimelineDiagnostics } from "./hammerVisualTimelineHydrationGuard";
 import { isAutoPlacementDebugFlagEnabled } from "./hammerAutoPlacementDebugFlag";
 import {
@@ -289,10 +290,7 @@ import {
   formatStudioRackModuleLabel,
   resolveLaneGaps,
 } from "./hammerWorkspaceShellFormatters";
-import {
-  buildStructuredTranscriptResetKey,
-  buildVisualTimelineResetKey,
-} from "./hammerWorkspaceShellResetKeys";
+import { buildStructuredTranscriptResetKey, buildVisualTimelineResetKey } from "./hammerWorkspaceShellResetKeys";
 import "./HammerWorkspaceShell.css";
 
 const HISTORY_MAX_SIZE = 100;
@@ -307,7 +305,7 @@ type HammerWorkspaceShellProps = {
   launchContext?: HammerLaunchContext;
   canonicalMediaPath?: string | null;
   recordingRevisionId?: string | null;
-  recordingRevisionHistoryPath?: string | null;
+  recordingRevisionHistoryPath?: string | null; recordingRevisionUpdatedAt?: string | null; canonicalRecordingId?: string | null; historyEpochComponentPaths?: import("../lib/hammerHistoryEpochApi").HammerHistoryComponentPaths; historyEpochPersistenceAuthority?: import("./hammerHistoryEpochPersistence").HammerHistoryEpochPersistenceAuthority;
   structuredTranscript?: HammerPersistedStructuredTranscript | null;
   editorialAuthorityGraph?: HammerEditorialAuthorityGraph | null;
   visualPlacements?: HammerPersistedVisualPlacements | null;
@@ -681,6 +679,7 @@ function HammerWorkspaceShellWithContext(
   const selectionOriginRef = useRef<"system" | "transcript" | "timeline" | "playhead">("system");
   const selectionRevealFrameRef = useRef<number | null>(null);
   const snapshotAuthority = useHammerWorkspaceShellSnapshotAuthority();
+  const defaultHistoryEpochPersistence = useHammerHistoryEpochPersistenceAuthority({ workpieceId: launchContext.workpiece_id, paths: props.historyEpochComponentPaths, override: props.historyEpochPersistenceAuthority });
   const historyAuthority = useHammerHistoryCommandAuthority(
     getHistoryAuthorityConfig(),
     HISTORY_PERSIST_DEBOUNCE_MS,
@@ -2355,7 +2354,7 @@ function HammerWorkspaceShellWithContext(
     return {
       workspaceId: launchContext.workspace_id,
       workpieceId: launchContext.workpiece_id,
-      revisionId: props.recordingRevisionId ?? null,
+      revisionId: props.recordingRevisionId ?? null, historyPath: props.recordingRevisionHistoryPath ?? null,
       selectionSegmentId: selectedSegmentId,
       activeTool,
       captureState: captureWorkspaceState,
@@ -2370,7 +2369,7 @@ function HammerWorkspaceShellWithContext(
       formatDerivedLayerLabel: formatOutputLayerLabel,
       setHistoryStatus,
       captureSnapshotRequest: capturePostHistorySaveRequest,
-      onHistorySaved: snapshotAuthority.produce,
+      onHistorySaved: snapshotAuthority.produce, epochPersistence: props.historyEpochPersistenceAuthority ?? defaultHistoryEpochPersistence,
     };
   }
 
@@ -2408,7 +2407,7 @@ function HammerWorkspaceShellWithContext(
     launchContext,
     actualRecordingMismatchWarning,
     recordingRevisionId: props.recordingRevisionId ?? null,
-    recordingRevisionHistoryPath: props.recordingRevisionHistoryPath ?? null,
+    recordingRevisionHistoryPath: props.recordingRevisionHistoryPath ?? null, recordingRevisionUpdatedAt: props.recordingRevisionUpdatedAt ?? null, canonicalRecordingId: props.canonicalRecordingId ?? null,
     editorialAuthorityGraph: props.editorialAuthorityGraph ?? null,
     structuredTranscriptResetKey,
     visualTimelineResetKey,

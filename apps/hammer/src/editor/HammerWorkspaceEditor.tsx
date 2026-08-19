@@ -5224,6 +5224,11 @@ export default function HammerWorkspaceEditor(
             canonicalMediaPath={activeCanonicalRecording?.media_path ?? null}
             recordingRevisionId={activeRevision?.id ?? null}
             recordingRevisionHistoryPath={activeRevision?.history_path ?? null}
+            recordingRevisionUpdatedAt={activeRevision?.updated_at ?? null} canonicalRecordingId={activeRevision?.canonical_recording_id ?? null}
+            historyEpochComponentPaths={activeRevision?.audio_polish_path && activeRevision.editorial_authority_path && activeRevision.revision_transcript_path && activeRevision.visual_placements_path && activeRevision.visual_timeline_path ? {
+              audio: activeRevision.audio_polish_path, editorial_authority: activeRevision.editorial_authority_path, transcript: activeRevision.revision_transcript_path,
+              visual_placements: activeRevision.visual_placements_path, visual_timeline: activeRevision.visual_timeline_path,
+            } : undefined}
             structuredTranscript={loadedPersistenceSnapshot?.structured_transcript.data ?? null}
             editorialAuthorityGraph={loadedPersistenceSnapshot?.editorial_authority.data ?? null}
             visualPlacements={visualPlacementData}

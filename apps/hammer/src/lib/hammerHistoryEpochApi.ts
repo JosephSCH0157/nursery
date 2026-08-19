@@ -10,6 +10,7 @@ const SHA_RE = /^[0-9a-f]{64}$/;
 const STATE_RE = /^hammer-state:[0-9a-f]{8}$/;
 const COMPONENTS = ["audio", "editorial_authority", "transcript", "visual_placements", "visual_timeline"] as const;
 type Component = (typeof COMPONENTS)[number];
+export type HammerHistoryComponentPaths = Readonly<Record<Component, string>>;
 type JsonObject = Record<string, unknown>;
 type Fetcher = typeof tongsFetch;
 
@@ -45,7 +46,7 @@ type DurableBasis = Readonly<{ revision_updated_at: string; history_path: string
 export type HammerRevisionHistoryHydration =
   | Readonly<{ kind: "legacy_history"; pointer: string; document: HammerHistoryDocumentV1; registry: HammerHistoryRegistryTuple | null }>
   | Readonly<{ kind: "epoch_anchor"; pointer: string; epoch: HammerHistoryEpochEnvelopeV1; sequence: 0; document: HammerHistoryDocumentV1; durable_basis: DurableBasis }>
-  | Readonly<{ kind: "epoch_head"; pointer: string; epoch_id: string; head_id: string; sequence: number; document: HammerHistoryDocumentV1; parent: HammerHistoryEpochHeadEnvelopeV1["parent"]; epoch_anchor: HammerHistoryEpochHeadEnvelopeV1["epoch_anchor"]; result: HammerHistoryEpochHeadEnvelopeV1["result"]; boundary: HammerHistoryBoundary; durable_basis: DurableBasis }>;
+  | Readonly<{ kind: "epoch_head"; pointer: string; epoch_id: string; head_id: string; sequence: number; document: HammerHistoryDocumentV1; parent: HammerHistoryEpochHeadEnvelopeV1["parent"]; epoch_anchor: HammerHistoryEpochHeadEnvelopeV1["epoch_anchor"]; base: HammerHistoryEpochHeadEnvelopeV1["base"]; result: HammerHistoryEpochHeadEnvelopeV1["result"]; boundary: HammerHistoryBoundary; durable_basis: DurableBasis }>;
 export type HammerRevisionHistoryHydrationResult =
   | Readonly<{ ok: true; status: number; hydration: HammerRevisionHistoryHydration }>
   | Readonly<{ ok: false; status: number; classification: "missing" | "malformed" | "unauthorized" | "rejected" | "unsupported" | "identity_conflict" | "registry_conflict" | "pointer_invalid"; error: string }>;
@@ -130,6 +131,20 @@ function registry(fileRow: Record<string, unknown> | null, pointer: string, work
   return { path: pointer, sha256: fileRow.hash_value, bytes: fileRow.bytes, revision: fileRow.revision, updated_at: fileRow.updated_at, storage_bucket: fileRow.storage_bucket, storage_key: fileRow.storage_key };
 }
 
+export async function loadHammerHistoryComponentAuthority(args: { workpieceId: string; paths: Readonly<Record<Component, string>>; fetcher?: Fetcher }): Promise<HammerHistoryComponentAuthority> {
+  const rows = await Promise.all(COMPONENTS.map(async (component) => {
+    const path = args.paths[component];
+    const response = await (args.fetcher ?? tongsFetch)(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/read-file?path=${encodeURIComponent(path)}`, { method: "GET", timeoutMs: 30_000 });
+    const payload = await response.json().catch(() => null);
+    const parsed = parseTongsReadFileResponse<unknown>({ status: response.status, responseOk: response.ok, payload });
+    if (parsed.kind !== "present") throw new Error(`Canonical ${component} authority is unavailable.`);
+    const tuple = registry(parsed.fileRow, path, args.workpieceId);
+    if (!tuple) throw new Error(`Canonical ${component} registry authority is invalid.`);
+    return [component, { path, sha256: tuple.sha256, bytes: tuple.bytes, registry_revision: tuple.revision, registry_updated_at: tuple.updated_at }] as const;
+  }));
+  return Object.freeze(Object.fromEntries(rows)) as HammerHistoryComponentAuthority;
+}
+
 export async function loadHammerRevisionHistoryHydration(args: HammerHistoryHydrationIdentity & { fetcher?: Fetcher }): Promise<HammerRevisionHistoryHydrationResult> {
   let response: Response;
   try { response = await (args.fetcher ?? tongsFetch)(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/read-file?path=${encodeURIComponent(args.historyPath)}`, { method: "GET", timeoutMs: 30_000 }); }
@@ -149,7 +164,7 @@ export async function loadHammerRevisionHistoryHydration(args: HammerHistoryHydr
       return { ok: true, status: response.status, hydration: { kind: "epoch_anchor", pointer: args.historyPath, epoch, sequence: 0, document, durable_basis: { revision_updated_at: args.revisionUpdatedAt, history_path: args.historyPath, registry: row } } };
     }
     const head = validateHammerHistoryEpochHeadEnvelope(parsed.data, args); if (!head) return { ok: false, status: 422, classification: "identity_conflict", error: "The immutable epoch head failed strict authority validation." };
-    return { ok: true, status: response.status, hydration: { kind: "epoch_head", pointer: args.historyPath, epoch_id: head.epoch_id, head_id: head.head_id, sequence: head.sequence, document: head.history, parent: head.parent, epoch_anchor: head.epoch_anchor, result: head.result, boundary: head.boundary, durable_basis: { revision_updated_at: args.revisionUpdatedAt, history_path: args.historyPath, registry: row } } };
+    return { ok: true, status: response.status, hydration: { kind: "epoch_head", pointer: args.historyPath, epoch_id: head.epoch_id, head_id: head.head_id, sequence: head.sequence, document: head.history, parent: head.parent, epoch_anchor: head.epoch_anchor, base: head.base, result: head.result, boundary: head.boundary, durable_basis: { revision_updated_at: args.revisionUpdatedAt, history_path: args.historyPath, registry: row } } };
   }
   if (schema !== undefined) return { ok: false, status: 422, classification: "unsupported", error: "The revision history pointer uses an unsupported schema or version." };
   if (object(parsed.data) && parsed.data.version !== undefined && parsed.data.version !== 1) return { ok: false, status: 422, classification: "unsupported", error: "The revision history pointer uses an unsupported legacy history version." };

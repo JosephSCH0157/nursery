@@ -170,6 +170,15 @@ async function testSaveRevisionHistoryUsesRevisionEndpoint() {
   assert.deepEqual(payload.history, { data: document });
 }
 
+async function testGenericRevisionSaveRejectsReservedEpochPaths() {
+  let writes = 0;
+  const result = await saveHammerRevisionHistoryDocument({ workspaceId: "workspace-123", workpieceId: "workpiece-123", revisionId: "rev-123",
+    historyPath: "hammer/revisions/rev-123/history/epochs/epoch-123/heads/head-123.history.v1.json",
+    document: { version: 1, workpieceId: "workpiece-123", sessionId: "session-123", baseRevisionId: "base-abc", createdAt: "2026-04-08T00:00:00.000Z", updatedAt: "2026-04-08T00:00:00.000Z", headEntryId: null, entries: [], checkpoints: [], undoStack: [], redoStack: [] },
+    fetcher: (async () => { writes += 1; return createJsonResponse(200, {}); }) as never });
+  assert.equal(result.ok, false); assert.equal(writes, 0);
+}
+
 async function run() {
   await testHistoryMissing404IsNonError();
   await testPresenceMissing404IsNonError();
@@ -178,6 +187,7 @@ async function run() {
   await testHistoryReadFailuresRemainClassified();
   await testSaveWritesPresenceSentinelBestEffort();
   await testSaveRevisionHistoryUsesRevisionEndpoint();
+  await testGenericRevisionSaveRejectsReservedEpochPaths();
   // eslint-disable-next-line no-console
   console.log("Hammer history artifact API tests passed.");
 }

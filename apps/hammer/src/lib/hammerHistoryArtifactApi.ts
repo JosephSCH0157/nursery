@@ -222,8 +222,13 @@ export async function saveHammerRevisionHistoryDocument(args: {
   workpieceId: string;
   revisionId: string;
   document: HammerHistoryDocumentV1;
+  historyPath?: string | null;
   fetcher?: TongsFetcher;
 }): Promise<HammerHistoryResult<HammerHistoryDocumentV1>> {
+  if (args.historyPath && /\/history\/epochs\//.test(args.historyPath)) return {
+    ok: false, status: 409, classification: "rejected",
+    error: "Immutable epoch anchors and heads cannot use the generic history save boundary.",
+  };
   const fetcher = args.fetcher ?? tongsFetch;
   try {
     const response = await fetcher(
