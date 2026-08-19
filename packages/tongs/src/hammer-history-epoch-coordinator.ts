@@ -271,7 +271,7 @@ export function buildHammerHistoryEpochPath(revisionId: string, epochId: string)
 }
 
 export function isProtectedHammerHistoryEpochPath(path: string): boolean {
-  return /^hammer\/revisions\/[0-9a-f-]+\/history\/(?:archive\/[0-9a-f]{64}\.history\.v1\.json|epochs\/[0-9a-f-]+\.v1\.json)$/i.test(path);
+  return /^hammer\/revisions\/[0-9a-f-]+\/history\/(?:archive\/[0-9a-f]{64}\.history\.v1\.json|epochs\/[0-9a-f-]+(?:\.v1\.json|\/heads\/[0-9a-f-]+\.history\.v1\.json))$/i.test(path);
 }
 
 async function compensateOwned(args: {
