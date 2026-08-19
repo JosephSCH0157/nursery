@@ -12,6 +12,7 @@ export interface HammerEditorRuntimeProps {
   prepAiNoticeResolutionError?: string | null;
   onPrepAiNoticeAcknowledgeLane?: (laneSignature: string) => void | Promise<void>;
   onRequestAiSettings?: () => void;
+  workspaceRole?: string | null;
 }
 
 export default function HammerEditorRuntime(props: HammerEditorRuntimeProps): JSX.Element {
@@ -35,6 +36,7 @@ export default function HammerEditorRuntime(props: HammerEditorRuntimeProps): JS
       prepAiNoticeResolutionError={props.prepAiNoticeResolutionError}
       onPrepAiNoticeAcknowledgeLane={props.onPrepAiNoticeAcknowledgeLane}
       onRequestAiSettings={props.onRequestAiSettings}
+      workspaceRole={props.workspaceRole ?? null}
     />
   );
 }

@@ -73,6 +73,7 @@ export default function HammerEditorRoute() {
       prepAiNoticeResolutionError={context.prepAiNoticeResolutionError}
       onPrepAiNoticeAcknowledgeLane={context.savePrepAiNoticeAcknowledgedLane}
       onRequestAiSettings={context.openAiSettings}
+      workspaceRole={context.workspaces.find((workspace) => workspace.id === context.workspaceId)?.role ?? null}
     />
   );
 }

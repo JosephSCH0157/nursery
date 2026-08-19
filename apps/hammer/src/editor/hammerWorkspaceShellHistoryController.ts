@@ -1,16 +1,9 @@
 import { useEffect, useRef } from "react";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { HammerEditPlan, HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
-import {
-  cloneHammerEditorialAuthorityGraph,
-  type HammerEditorialAuthorityGraph,
-} from "../../../../packages/contracts/hammer/editorial-authority.contract";
+import { cloneHammerEditorialAuthorityGraph, type HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
-import type {
-  HammerPersistedAudioEdit,
-  HammerPersistedStructuredTranscript,
-  HammerPersistedVisualPlacements,
-} from "../persistence/hammerPersistenceContract";
+import type { HammerPersistedAudioEdit, HammerPersistedStructuredTranscript, HammerPersistedVisualPlacements } from "../persistence/hammerPersistenceContract";
 import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
 import {
   createHammerHistoryController,
@@ -31,24 +24,13 @@ import { syncEditableTranscriptSegments, resolveTranscriptDurationSec } from "./
 import { createDefaultHammerStudioRackState } from "./hammerStudioRack";
 import { projectEditorialAuthorityGraphFromEditPlan } from "./hammerRenderAssembly";
 import { resolveHammerHistoryStatus } from "../lib/hammerHistoryStatus";
-import {
-  loadHammerHistoryDocument,
-  loadHammerHistoryPresence,
-  saveHammerHistoryDocument,
-  saveHammerRevisionHistoryDocument,
-} from "../lib/hammerHistoryArtifactApi";
+import { loadHammerHistoryDocument, loadHammerHistoryPresence, saveHammerHistoryDocument, saveHammerRevisionHistoryDocument } from "../lib/hammerHistoryArtifactApi";
 import type { HammerWorkspaceShellSnapshotAuthority } from "./hammerWorkspaceShellSnapshotEmitter";
-import {
-  buildVisualTimelineDiagnostics,
-  preservePlacementRichTimelineDuringHydration,
-} from "./hammerVisualTimelineHydrationGuard";
-import {
-  cloneHammerDerivedTextLayers,
-  listHammerDerivedTextLayers,
-  setHammerDerivedTextLayerActive,
-} from "../macros/hammerDerivedTranscriptLayers";
+import { buildVisualTimelineDiagnostics, preservePlacementRichTimelineDuringHydration } from "./hammerVisualTimelineHydrationGuard";
+import { cloneHammerDerivedTextLayers, listHammerDerivedTextLayers, setHammerDerivedTextLayerActive } from "../macros/hammerDerivedTranscriptLayers";
 import { resolveHammerDerivedLayersForUndoStack } from "./hammerCompositionHistoryCommands";
 import { startAndHydrateHammerHistoryEpoch, type HammerHistoryEpochPersistenceAuthority, type HammerHistoryEpochPersistenceState } from "./hammerHistoryEpochPersistence";
+import type { HammerHistoryEpochStartCandidate } from "./hammerHistoryEpochStartWorkflow";
 import { loadHammerRevisionHistoryHydration, type HammerHistoryEpochTransportRequest, type HammerRevisionHistoryHydration } from "../lib/hammerHistoryEpochApi";
 export { captureHammerHistoryPostSaveSnapshotRequest, persistHammerHistorySaveBoundary } from "./hammerHistorySaveBoundary";
 export type { HammerHistoryPostSaveSnapshotRequest } from "./hammerHistorySaveBoundary";
@@ -76,6 +58,7 @@ export type HammerHistoryCommandAuthorityConfig = {
   onHistorySaved: (request: HammerHistoryPostSaveSnapshotRequest) => Promise<void>;
   saveDocument?: (document: HammerHistoryDocumentV1) => Promise<{ ok: true } | { ok: false; error: string }>;
   epochPersistence?: HammerHistoryEpochPersistenceAuthority;
+  isTransitionPending?: () => boolean;
 };
 
 export type HammerHistoryMutationArgs = {
@@ -95,7 +78,7 @@ export interface HammerHistoryCommandAuthority {
   getController(): HammerHistoryController | null;
   installController(controller: HammerHistoryController | null): void;
   installHydration(hydration: HammerRevisionHistoryHydration, controller: HammerHistoryController | null, identity: { workspaceId: string; workpieceId: string; canonicalRecordingId: string; revisionId: string }): void;
-  getEpochPersistenceState(): HammerHistoryEpochPersistenceState | null; startHistoryEpoch(request: HammerHistoryEpochTransportRequest): Promise<import("../lib/hammerHistoryEpochApi").HammerHistoryTransitionResult>;
+  getEpochPersistenceState(): HammerHistoryEpochPersistenceState | null; startHistoryEpoch(request: HammerHistoryEpochTransportRequest, frozenState?: HammerEditorStateSerializable): Promise<import("../lib/hammerHistoryEpochApi").HammerHistoryTransitionResult>;
   applyMutation(args: HammerHistoryMutationArgs): HammerHistoryEntry | null;
   undo(): void;
   redo(): void;
@@ -212,10 +195,11 @@ export function createHammerHistoryCommandAuthority(
       else config.epochPersistence?.clear();
     },
     getEpochPersistenceState: () => config.epochPersistence?.getState() ?? null,
-    startHistoryEpoch: async (request) => {
+    startHistoryEpoch: async (request, frozenState) => {
       if (!config.epochPersistence) return { outcome: "conflict", code: "history_epoch_authority_unavailable", terminal: true, retryable: false };
-      const canonicalState = cloneEditorState(config.captureState());
+      const startGeneration = generation, canonicalState = cloneEditorState(frozenState ?? config.captureState());
       const started = await startAndHydrateHammerHistoryEpoch({ persistence: config.epochPersistence, request, canonicalState, maxUndoSteps: 100 });
+      if (startGeneration !== generation) return { outcome: "conflict", code: "history_epoch_install_stale_generation", terminal: true, retryable: false };
       if (!started.hydration || !started.controller) return started.result;
       authority.installHydration(started.hydration, started.controller, { workspaceId: request.envelope.workspace_id,
         workpieceId: request.envelope.workpiece_id, canonicalRecordingId: request.envelope.canonical_recording_id,
@@ -223,6 +207,7 @@ export function createHammerHistoryCommandAuthority(
       return started.result;
     },
     applyMutation(args) {
+      if (config.isTransitionPending?.()) return null;
       if (!controller) return null;
       const before = config.captureState();
       const after = cloneEditorState(config.normalizeState(args.computeAfter(cloneEditorState(before))));
@@ -243,6 +228,7 @@ export function createHammerHistoryCommandAuthority(
       return entry;
     },
     undo() {
+      if (config.isTransitionPending?.()) return;
       if (!controller) return;
       const entry = controller.undo();
       if (!entry) return;
@@ -253,6 +239,7 @@ export function createHammerHistoryCommandAuthority(
       schedulePersist();
     },
     redo() {
+      if (config.isTransitionPending?.()) return;
       if (!controller) return;
       const entry = controller.redo();
       if (!entry) return;
@@ -396,6 +383,9 @@ export type UseHammerWorkspaceShellHistoryControllerArgs = {
   recordingRevisionId: string | null;
   recordingRevisionHistoryPath: string | null;
   recordingRevisionUpdatedAt: string | null; canonicalRecordingId: string | null;
+  historyEpochComponentPaths: import("../lib/hammerHistoryEpochApi").HammerHistoryComponentPaths | null;
+  setHistoryEpochStartCandidate: (candidate: HammerHistoryEpochStartCandidate | null) => void;
+  setHistoryEpochArchivedNotice: (visible: boolean) => void;
   editorialAuthorityGraph: HammerEditorialAuthorityGraph | null;
   structuredTranscriptResetKey: string;
   visualTimelineResetKey: string;
@@ -469,6 +459,8 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
   useEffect(() => {
     let active = true;
     args.historyAuthority.invalidate();
+    args.setHistoryEpochStartCandidate(null);
+    args.setHistoryEpochArchivedNotice(false);
     args.snapshotAuthority.reset();
 
     const synced = syncEditableTranscriptSegments(args.transcriptSegments, args.selectedSegmentId);
@@ -589,6 +581,7 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
         ? historyPresenceResult.exists
         : true; // unknown -> do not suppress warnings
       const hydration = "hydration" in historyResult ? historyResult.hydration : null;
+      args.setHistoryEpochArchivedNotice(hydration?.kind === "epoch_anchor" || hydration?.kind === "epoch_head");
       const historyData = hydration?.document ?? ("data" in historyResult ? historyResult.data : null);
       const historyExists = Boolean(hydration) || ("exists" in historyResult && historyResult.exists && Boolean(historyData));
       if (!historyExists) {
@@ -624,7 +617,14 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
           const code = error instanceof HammerHistoryVerificationError
             ? error.code
             : "history_current_head_mismatch";
+          args.historyAuthority.installController(null);
           args.setHistoryStatus(`History verification failed (${code}). Canonical history was not installed.`);
+          if (hydration?.kind === "legacy_history" && hydration.registry && args.recordingRevisionUpdatedAt && args.canonicalRecordingId && args.historyEpochComponentPaths) args.setHistoryEpochStartCandidate({
+            workspaceId: args.launchContext.workspace_id, workpieceId: args.launchContext.workpiece_id,
+            canonicalRecordingId: args.canonicalRecordingId, revisionId: revisionId!, revisionUpdatedAt: args.recordingRevisionUpdatedAt,
+            historyPath: hydration.pointer, registry: hydration.registry, canonicalBaseHash: baseRevisionId,
+            canonicalState: cloneEditorState(baselineState), componentPaths: args.historyEpochComponentPaths,
+          });
           return;
         }
       }

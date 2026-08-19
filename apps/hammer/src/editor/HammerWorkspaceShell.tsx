@@ -2,15 +2,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { JSX, WheelEvent as ReactWheelEvent } from "react";
 import { createPortal } from "react-dom";
 import type { HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
-import type {
-  HammerEditInstruction,
-} from "../../../../packages/contracts/hammer/edit-instruction.contract";
+import type { HammerEditInstruction } from "../../../../packages/contracts/hammer/edit-instruction.contract";
 import type { HammerLaunchContext } from "../../../../packages/contracts/hammer/launch-context.contract";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
-import {
-  cloneHammerEditorialAuthorityGraph,
-  type HammerEditorialAuthorityGraph,
-} from "../../../../packages/contracts/hammer/editorial-authority.contract";
+import { cloneHammerEditorialAuthorityGraph, type HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
 import type { HammerPlacementOutboundDiagnostics, HammerWorkspaceSnapshot } from "./hammerWorkspaceSnapshot";
 import type {
   HammerPassId,
@@ -22,17 +17,10 @@ import type {
   HammerPersistedVisualPlacements,
 } from "../persistence/hammerPersistenceContract";
 import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
-import {
-  selectClipById,
-  selectPrimaryActiveClipAtTime,
-  selectPreviewClips,
-} from "../visuals/state/hammerVisualSelectors";
+import { selectClipById, selectPrimaryActiveClipAtTime, selectPreviewClips } from "../visuals/state/hammerVisualSelectors";
 import type { VisualClipBlockModel } from "../visuals/components/VisualClipBlock";
 import type { VisualPreviewOverlayModel } from "../visuals/components/VisualPreviewComposer";
-import {
-  SEGMENTATION_PROVIDER_DESCRIPTORS,
-  resolveSegmentationProviderDescriptor,
-} from "../features/visual-effects/providers/segmentationProviderRegistry";
+import { SEGMENTATION_PROVIDER_DESCRIPTORS, resolveSegmentationProviderDescriptor } from "../features/visual-effects/providers/segmentationProviderRegistry";
 import type { HammerPreparedNextStepActionId } from "./hammerPreparedHandoff";
 import {
   DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC,
@@ -207,32 +195,18 @@ import {
   type HammerPassSelectorContext,
   type HammerPassSelectorResult,
 } from "./hammerPassSelectors";
-import {
-  appendHammerAuthorityInstructionForHistory,
-  captureHammerPostHistorySaveRequest,
-  executeHammerCompositionHistoryMutation,
-  normalizeHammerHistoryCompatibilityState,
-} from "./hammerCompositionHistoryCommands";
+import { appendHammerAuthorityInstructionForHistory, captureHammerPostHistorySaveRequest, executeHammerCompositionHistoryMutation, normalizeHammerHistoryCompatibilityState } from "./hammerCompositionHistoryCommands";
 import HammerWorkspaceShellToolbar from "./HammerWorkspaceShellToolbar";
 import HammerWorkspaceShellPreviewBay from "./HammerWorkspaceShellPreviewBay";
 import HammerWorkspaceShellTimelineDock from "./HammerWorkspaceShellTimelineDock";
 import HammerWorkspaceShellSourceBay from "./HammerWorkspaceShellSourceBay";
 import HammerWorkspaceShellToolBay from "./HammerWorkspaceShellToolBay";
-import {
-  useHammerHistoryCommandAuthority,
-  useHammerWorkspaceShellHistoryController,
-  type HammerHistoryCommandAuthorityConfig,
-  type HammerHistoryPostSaveSnapshotRequest,
-} from "./hammerWorkspaceShellHistoryController";
+import { useHammerHistoryCommandAuthority, useHammerWorkspaceShellHistoryController, type HammerHistoryCommandAuthorityConfig, type HammerHistoryPostSaveSnapshotRequest } from "./hammerWorkspaceShellHistoryController";
 import { useHammerHistoryEpochPersistenceAuthority } from "./hammerHistoryEpochPersistence";
+import { HammerHistoryEpochStartWorkflow, type HammerHistoryEpochStartCandidate } from "./hammerHistoryEpochStartWorkflow";
 import { buildVisualTimelineDiagnostics } from "./hammerVisualTimelineHydrationGuard";
 import { isAutoPlacementDebugFlagEnabled } from "./hammerAutoPlacementDebugFlag";
-import {
-  useHammerSnapshotImmediatePersistenceSignal,
-  useHammerPersistedTranscriptProjection,
-  useHammerWorkspaceShellSnapshotAuthority,
-  useHammerWorkspaceShellSnapshotEmitter,
-} from "./hammerWorkspaceShellSnapshotEmitter";
+import { useHammerSnapshotImmediatePersistenceSignal, useHammerPersistedTranscriptProjection, useHammerWorkspaceShellSnapshotAuthority, useHammerWorkspaceShellSnapshotEmitter } from "./hammerWorkspaceShellSnapshotEmitter";
 import {
   createHammerCaptionCommands,
   useHammerCaptionDerivedState,
@@ -330,6 +304,7 @@ type HammerWorkspaceShellProps = {
   regenerateAiTranscriptDisabled?: boolean;
   transcriptVersionRegistry?: import("../../../../packages/contracts/hammer/transcript-versions.contract").HammerPersistedTranscriptVersionRegistry | null;
   onHistoryRecoveryStatusChange?: (status: string | null) => void;
+  workspaceRole?: string | null; onHistoryEpochPendingChange?: (pending: boolean) => void;
   onWorkspaceSnapshotChange?: (
     snapshot: HammerWorkspaceSnapshot,
     options?: { persistNow?: boolean; placementDiagnostics?: HammerPlacementOutboundDiagnostics },
@@ -589,6 +564,11 @@ function HammerWorkspaceShellWithContext(
   const [studioRackRenderStatus, setStudioRackRenderStatus] = useHammerAudioFinishingRenderStatusState();
   const [transcriptTimingHint, setTranscriptTimingHint] = useState<string | null>(null);
   const [historyStatus, setHistoryStatus] = useState<string | null>(null);
+  const [historyEpochStartCandidate, setHistoryEpochStartCandidate] = useState<HammerHistoryEpochStartCandidate | null>(null);
+  const historyEpochStartCandidateRef = useRef<HammerHistoryEpochStartCandidate | null>(null);
+  const [historyEpochPending, setHistoryEpochPending] = useState(false);
+  const [historyEpochArchivedNotice, setHistoryEpochArchivedNotice] = useState(false);
+  historyEpochStartCandidateRef.current = historyEpochStartCandidate;
   const [playbackMediaSrc, setPlaybackMediaSrc] = useState<string | null>(null);
   const [previewVideoSrc, setPreviewVideoSrc] = useState<string | null>(null);
   const { canonicalWorkpieceLabel, hydrationAuthority: workpieceLabelHydrationAuthority } =
@@ -2175,8 +2155,8 @@ function HammerWorkspaceShellWithContext(
   });
   const mediaLabelMismatchWarning = recordingIdentity.labelMismatchWarning;
   const actualRecordingMismatchWarning = recordingIdentity.actualRecordingMismatchWarning;
-  const canUndo = historyController?.canUndo() ?? false;
-  const canRedo = historyController?.canRedo() ?? false;
+  const canUndo = !historyEpochPending && (historyController?.canUndo() ?? false);
+  const canRedo = !historyEpochPending && (historyController?.canRedo() ?? false);
   const undoLabel = historyController?.peekUndoEntry()?.label ?? null;
   const redoLabel = historyController?.peekRedoEntry()?.label ?? null;
   const undoDepth = historyController?.document.undoStack.length ?? 0;
@@ -2370,6 +2350,7 @@ function HammerWorkspaceShellWithContext(
       setHistoryStatus,
       captureSnapshotRequest: capturePostHistorySaveRequest,
       onHistorySaved: snapshotAuthority.produce, epochPersistence: props.historyEpochPersistenceAuthority ?? defaultHistoryEpochPersistence,
+      isTransitionPending: () => historyEpochPending,
     };
   }
 
@@ -2408,6 +2389,8 @@ function HammerWorkspaceShellWithContext(
     actualRecordingMismatchWarning,
     recordingRevisionId: props.recordingRevisionId ?? null,
     recordingRevisionHistoryPath: props.recordingRevisionHistoryPath ?? null, recordingRevisionUpdatedAt: props.recordingRevisionUpdatedAt ?? null, canonicalRecordingId: props.canonicalRecordingId ?? null,
+    historyEpochComponentPaths: props.historyEpochComponentPaths ?? null,
+    setHistoryEpochStartCandidate, setHistoryEpochArchivedNotice,
     editorialAuthorityGraph: props.editorialAuthorityGraph ?? null,
     structuredTranscriptResetKey,
     visualTimelineResetKey,
@@ -4509,6 +4492,13 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
         currentPass === "visual_finishing" ? "is-visual-finishing" : "",
       ].filter(Boolean).join(" ")}
     >
+      {historyEpochArchivedNotice ? <aside className="hammer-history-epoch-notice">Archived history is preserved. New undo history begins with the next user edit and cannot cross the epoch boundary.</aside> : null}
+      <HammerHistoryEpochStartWorkflow candidate={historyEpochStartCandidate} workspaceRole={props.workspaceRole ?? null}
+        commandAvailable={Boolean(defaultHistoryEpochPersistence)} getCurrentCandidate={() => historyEpochStartCandidateRef.current}
+        start={(request, frozenState) => historyAuthority.startHistoryEpoch(request, frozenState)}
+        onPendingChange={(pending) => { setHistoryEpochPending(pending); props.onHistoryEpochPendingChange?.(pending); }}
+        onRequireFreshReadback={() => setHistoryEpochStartCandidate(null)}
+        onSuccess={() => { setHistoryEpochStartCandidate(null); setHistoryEpochArchivedNotice(true); setHistoryStatus("Archived history is preserved. New undo history begins with the next user edit."); }} />
       <div className="hammer-workspace-shell__main">
         <div className="hammer-workspace-shell__top">
           <section className="hammer-source-bay">

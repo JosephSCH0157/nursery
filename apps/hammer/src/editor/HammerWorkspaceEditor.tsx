@@ -31,12 +31,7 @@ import type {
   HammerPresenceRow,
 } from "../persistence/hammerPersistenceContract";
 import { applyHammerSessionAction } from "./hammerSessionActions";
-import {
-  resolveHammerReloadFailure,
-  resolveHammerReloadSuccess,
-  resolveHammerSaveFailure,
-  resolveHammerSaveSuccess,
-} from "./hammerSessionHostLoop";
+import { resolveHammerReloadFailure, resolveHammerReloadSuccess, resolveHammerSaveFailure, resolveHammerSaveSuccess } from "./hammerSessionHostLoop";
 import { deriveHammerSessionState } from "./hammerSessionState";
 import { deriveHammerIssueDiagnostics, type HammerIssueFixActionId } from "./hammerIssueDiagnostics";
 import { HammerWorkspaceDiagnosticsBanner } from "./HammerWorkspaceDiagnosticsBanner";
@@ -252,6 +247,7 @@ export interface HammerWorkspaceEditorProps {
   onPrepAiNoticeAcknowledgeLane?: (laneSignature: string) => void | Promise<void>;
   onRequestAiSettings?: () => void;
   visualTimelineOverride?: HammerVisualTimelineState | null;
+  workspaceRole?: string | null;
 }
 
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -648,6 +644,7 @@ export default function HammerWorkspaceEditor(
   }, [ingestLog.enabled]);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [historyRecoveryStatus, setHistoryRecoveryStatus] = useState<string | null>(null);
+  const [historyEpochPending, setHistoryEpochPending] = useState(false);
   const [presenceConflictDetail, setPresenceConflictDetail] = useState<string | null>(null);
   const [resetToRawInFlight, setResetToRawInFlight] = useState(false);
   const [resetToRawError, setResetToRawError] = useState<string | null>(null);
@@ -4538,6 +4535,7 @@ export default function HammerWorkspaceEditor(
   }
 
   function handleSessionAction(actionId: "retry_save" | "reload_latest"): void {
+    if (historyEpochPending && actionId === "reload_latest") return;
     const next = applyHammerSessionAction({
       hasPendingSaveChanges,
       saveFailureMessage,
@@ -4841,7 +4839,7 @@ export default function HammerWorkspaceEditor(
                 issues={diagnosticsIssues}
                 fallbackTitle={sessionState.humanLabel}
                 fallbackSummary={sessionState.detail}
-                inFlightFixActionId={diagnosticsFixInFlight}
+                inFlightFixActionId={historyEpochPending ? "reload_latest" : diagnosticsFixInFlight}
                 fixErrorMessage={diagnosticsFixErrorMessage}
                 onRunFixAction={runDiagnosticsFixAction}
                 onRunFixAll={runDiagnosticsFixAll}
@@ -5250,6 +5248,7 @@ export default function HammerWorkspaceEditor(
             regenerateAiTranscriptDisabled={!canPersistCanonicalState || regenAiTranscriptInFlight}
             transcriptVersionRegistry={loadedPersistenceSnapshot?.transcript_version_registry?.data ?? null}
             onHistoryRecoveryStatusChange={setHistoryRecoveryStatus}
+            workspaceRole={props.workspaceRole ?? null} onHistoryEpochPendingChange={setHistoryEpochPending}
             onWorkspaceSnapshotChange={canPersistCanonicalState ? handleWorkspaceSnapshotChange : undefined}
           />
         </div>
