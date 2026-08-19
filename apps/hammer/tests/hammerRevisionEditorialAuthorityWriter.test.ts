@@ -35,7 +35,7 @@ const revision = (): HammerRecordingRevisionRecord => ({
   visual_timeline_path: null, visual_placements_path: null, history_path: null,
   snapshots_manifest_path: null, editorial_authority_path: null,
   editorial_authority_fingerprint: null, editorial_authority_revision: 0,
-  updated_at: "2026-08-18T00:00:00.000Z",
+  updated_at: "2026-08-19 03:19:38.999674+00",
 });
 
 function fixture(options: { acknowledgement?: "fail" | "ambiguous" | "foreign"; compensationFails?: boolean; originalArtifact?: boolean } = {}) {
@@ -51,16 +51,17 @@ function fixture(options: { acknowledgement?: "fail" | "ambiguous" | "foreign"; 
     async writeArtifact(_path, bytes, expected) {
       calls.push("write"); assert.equal(expected, artifact.updatedAt);
       const hash = await crypto.subtle.digest("SHA-256", Uint8Array.from(bytes));
-      artifact = { hash: [...new Uint8Array(hash)].map((v) => v.toString(16).padStart(2, "0")).join(""), updatedAt: "file-2", bytes };
+      artifact = { hash: [...new Uint8Array(hash)].map((v) => v.toString(16).padStart(2, "0")).join(""), updatedAt: "2026-08-19 03:19:39.123456+00", bytes };
       return { hash: artifact.hash, updatedAt: artifact.updatedAt };
     },
     async deleteArtifact(_path, expected) {
-      calls.push("compensate"); assert.equal(expected, "file-2");
+      calls.push("compensate"); assert.equal(expected, "2026-08-19 03:19:39.123456+00");
       if (options.compensationFails) throw new Error("compensation race");
       artifact = { ...original };
     },
     async acknowledgePointer({ path, fingerprint, expected }) {
       calls.push("ack"); assert.equal(expected.revisionUpdatedAt, row.updated_at);
+      if (row.editorial_authority_revision === 0) assert.equal(expected.revisionUpdatedAt, "2026-08-19 03:19:38.999674+00");
       if (options.acknowledgement === "fail") throw new Error("CAS conflict");
       if (options.acknowledgement === "foreign") {
         row = { ...row, editorial_authority_path: "foreign", updated_at: "rev-foreign" };

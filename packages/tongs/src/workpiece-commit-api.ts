@@ -3677,6 +3677,21 @@ function normalizeIsoTimestamp(input: unknown, field: string): string {
   return date.toISOString();
 }
 
+function validateOpaqueCasTimestampToken(input: unknown, field: string): string {
+  if (typeof input !== "string" || !input.trim()) {
+    throw new HttpError(400, "invalid_timestamp", `${field} must be a non-empty timestamp string with an explicit timezone`);
+  }
+  const token = input.trim();
+  if (!/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}(?::?\d{2})?)$/i.test(token)) {
+    throw new HttpError(400, "invalid_timestamp", `${field} must be a valid timestamp with an explicit timezone`);
+  }
+  const validationToken = /[+-]\d{2}$/.test(token) ? `${token}:00` : token;
+  if (Number.isNaN(new Date(validationToken).valueOf())) {
+    throw new HttpError(400, "invalid_timestamp", `${field} must be a valid timestamp with an explicit timezone`);
+  }
+  return token;
+}
+
 function normalizeComparableIsoTimestampOrNull(input: unknown): string | null {
   if (typeof input !== "string" || !input.trim()) {
     return null;
@@ -4184,7 +4199,7 @@ function normalizeAcknowledgeHammerEditorialAuthorityRequest(body: Record<string
   return {
     artifact_path: normalizeRelativePath(normalizeNonEmptyString(body.artifact_path, "artifact_path")),
     artifact_fingerprint: fingerprint,
-    expected_revision_updated_at: normalizeIsoTimestamp(body.expected_revision_updated_at, "expected_revision_updated_at"),
+    expected_revision_updated_at: validateOpaqueCasTimestampToken(body.expected_revision_updated_at, "expected_revision_updated_at"),
     expected_authority_revision: expectedAuthorityRevision as number,
     expected_authority_path: body.expected_authority_path === null ? null : normalizeRelativePath(normalizeNonEmptyString(body.expected_authority_path, "expected_authority_path")),
   };
@@ -8574,10 +8589,10 @@ export class TongsCommitService {
     const expectedPath = `hammer/revisions/${revisionId}/editorial-authority.v1.json`;
     if (normalizeRelativePath(path) !== expectedPath) throw new HttpError(400, "editorial_authority_path_invalid", "Editorial authority must use the canonical revision-scoped path.");
     if (revision.editorial_authority_path === expectedPath) throw new HttpError(409, "editorial_authority_pointer_committed", "A canonical authority artifact cannot be deleted after pointer acknowledgement.");
-    const expectedIso = normalizeIsoTimestamp(expectedUpdatedAt, "expected_updated_at");
+    const expectedToken = validateOpaqueCasTimestampToken(expectedUpdatedAt, "expected_updated_at");
     const tongsUntyped = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
     const deleted = await tongsUntyped.from("workpiece_files").delete()
-      .eq("workpiece_id", workpieceId).eq("path", expectedPath).eq("updated_at", expectedIso)
+      .eq("workpiece_id", workpieceId).eq("path", expectedPath).eq("updated_at", expectedToken)
       .select("storage_bucket,storage_key").maybeSingle();
     if (deleted.error) throw new HttpError(502, "db_write_failed", "Failed to compensate the editorial-authority artifact.", { reason: deleted.error.message });
     if (!deleted.data) throw new HttpError(409, "editorial_authority_compensation_conflict", "Editorial-authority artifact changed before compensation.");
@@ -17048,7 +17063,7 @@ export function createTongsCommitApiHandlerWithService(
         const userAccessToken = requireUserAccessTokenHeader(request);
         if (request.method === "DELETE") {
           const path = normalizeRelativePath(url.searchParams.get("path"));
-          const expectedUpdatedAt = normalizeIsoTimestamp(url.searchParams.get("expected_updated_at"), "expected_updated_at");
+          const expectedUpdatedAt = validateOpaqueCasTimestampToken(url.searchParams.get("expected_updated_at"), "expected_updated_at");
           await service.deleteHammerEditorialAuthorityArtifact(workspaceId, workpieceId, revisionId, path, expectedUpdatedAt, { userAccessToken });
           return jsonResponse(200, { ok: true, data: { deleted: true, path } });
         }

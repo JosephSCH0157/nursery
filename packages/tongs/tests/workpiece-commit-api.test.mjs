@@ -1538,11 +1538,12 @@ test("POST revision editorial-authority forwards the exact CAS tuple and user to
   const path = "hammer/revisions/dddddddd-dddd-4ddd-8ddd-dddddddddddd/editorial-authority.v1.json";
   const response = await handler(new Request(
     "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/workpieces/22222222-2222-4222-8222-222222222222/hammer/revisions/dddddddd-dddd-4ddd-8ddd-dddddddddddd/editorial-authority",
-    { method: "POST", headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer hammer_user_token" }, body: JSON.stringify({ artifact_path: path, artifact_fingerprint: "a".repeat(64), expected_revision_updated_at: "2026-08-18T00:00:00.000Z", expected_authority_revision: 0, expected_authority_path: null }) },
+    { method: "POST", headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer hammer_user_token" }, body: JSON.stringify({ artifact_path: path, artifact_fingerprint: "a".repeat(64), expected_revision_updated_at: "2026-08-19 03:19:38.999674+00", expected_authority_revision: 0, expected_authority_path: null }) },
   ));
   assert.equal(response.status, 200);
   assert.equal(calls.acknowledgeHammerEditorialAuthority.length, 1);
   assert.equal(calls.acknowledgeHammerEditorialAuthority[0].input.artifact_path, path);
+  assert.equal(calls.acknowledgeHammerEditorialAuthority[0].input.expected_revision_updated_at, "2026-08-19 03:19:38.999674+00");
   assert.equal(calls.acknowledgeHammerEditorialAuthority[0].options.userAccessToken, "hammer_user_token");
 });
 
@@ -1551,13 +1552,37 @@ test("DELETE revision editorial-authority forwards compensation CAS and user tok
   const handler = createTongsCommitApiHandlerWithService(service);
   const path = "hammer/revisions/dddddddd-dddd-4ddd-8ddd-dddddddddddd/editorial-authority.v1.json";
   const response = await handler(new Request(
-    `http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/workpieces/22222222-2222-4222-8222-222222222222/hammer/revisions/dddddddd-dddd-4ddd-8ddd-dddddddddddd/editorial-authority?path=${encodeURIComponent(path)}&expected_updated_at=${encodeURIComponent("2026-08-18T00:00:00.000Z")}`,
+    `http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/workpieces/22222222-2222-4222-8222-222222222222/hammer/revisions/dddddddd-dddd-4ddd-8ddd-dddddddddddd/editorial-authority?path=${encodeURIComponent(path)}&expected_updated_at=${encodeURIComponent("2026-08-19 03:19:38.999674+00")}`,
     { method: "DELETE", headers: { "x-forge-user-authorization": "Bearer hammer_user_token" } },
   ));
   assert.equal(response.status, 200);
   assert.equal(calls.deleteHammerEditorialAuthorityArtifact.length, 1);
   assert.equal(calls.deleteHammerEditorialAuthorityArtifact[0].path, path);
+  assert.equal(calls.deleteHammerEditorialAuthorityArtifact[0].expectedUpdatedAt, "2026-08-19 03:19:38.999674+00");
   assert.equal(calls.deleteHammerEditorialAuthorityArtifact[0].options.userAccessToken, "hammer_user_token");
+});
+
+test("editorial-authority CAS tokens accept timezone-bearing forms unchanged and reject invalid tokens", async () => {
+  const path = "hammer/revisions/dddddddd-dddd-4ddd-8ddd-dddddddddddd/editorial-authority.v1.json";
+  for (const token of ["2026-08-19T03:19:38.999Z", "2026-08-19T03:19:38.999674+00:00", "2026-08-19 03:19:38.999674+00"]) {
+    const { service, calls } = mockService();
+    const handler = createTongsCommitApiHandlerWithService(service);
+    const response = await handler(new Request(
+      "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/workpieces/22222222-2222-4222-8222-222222222222/hammer/revisions/dddddddd-dddd-4ddd-8ddd-dddddddddddd/editorial-authority",
+      { method: "POST", headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer hammer_user_token" }, body: JSON.stringify({ artifact_path: path, artifact_fingerprint: "a".repeat(64), expected_revision_updated_at: token, expected_authority_revision: 0, expected_authority_path: null }) },
+    ));
+    assert.equal(response.status, 200);
+    assert.equal(calls.acknowledgeHammerEditorialAuthority[0].input.expected_revision_updated_at, token);
+  }
+  for (const token of [undefined, null, "", "   ", "2026-08-19T03:19:38.999674", "not-a-timestamp", 123]) {
+    const { service } = mockService();
+    const handler = createTongsCommitApiHandlerWithService(service);
+    const response = await handler(new Request(
+      "http://localhost/tongs/workspaces/11111111-1111-4111-8111-111111111111/workpieces/22222222-2222-4222-8222-222222222222/hammer/revisions/dddddddd-dddd-4ddd-8ddd-dddddddddddd/editorial-authority",
+      { method: "POST", headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer hammer_user_token" }, body: JSON.stringify({ artifact_path: path, artifact_fingerprint: "a".repeat(64), expected_revision_updated_at: token, expected_authority_revision: 0, expected_authority_path: null }) },
+    ));
+    assert.equal(response.status, 400);
+  }
 });
 
 test("POST /tongs/workspaces/:workspaceId/workpieces/:workpieceId/hammer/revisions/:revisionId/reset forwards reset and token", async () => {
