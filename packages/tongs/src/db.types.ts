@@ -3875,6 +3875,226 @@ export type Database = {
           },
         ]
       }
+      hammer_history_epoch_transitions: {
+        Row: {
+          archive_registry_revision: number
+          archive_registry_updated_at: string
+          canonical_recording_id: string
+          committed_at: string
+          committed_history_path: string
+          committed_revision_updated_at: string
+          epoch_artifact_bytes: number
+          epoch_artifact_sha256: string
+          epoch_id: string
+          epoch_registry_revision: number
+          epoch_registry_updated_at: string
+          expected_history_path: string
+          expected_revision_updated_at: string
+          idempotency_key: string
+          initiated_by: string
+          operation_fingerprint: string
+          outcome: string
+          predecessor_archive_path: string
+          predecessor_bytes: number
+          predecessor_original_path: string
+          predecessor_registry_revision: number
+          predecessor_registry_updated_at: string
+          predecessor_sha256: string
+          recording_revision_id: string
+          transition_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          archive_registry_revision: number
+          archive_registry_updated_at: string
+          canonical_recording_id: string
+          committed_at?: string
+          committed_history_path: string
+          committed_revision_updated_at: string
+          epoch_artifact_bytes: number
+          epoch_artifact_sha256: string
+          epoch_id: string
+          epoch_registry_revision: number
+          epoch_registry_updated_at: string
+          expected_history_path: string
+          expected_revision_updated_at: string
+          idempotency_key: string
+          initiated_by: string
+          operation_fingerprint: string
+          outcome: string
+          predecessor_archive_path: string
+          predecessor_bytes: number
+          predecessor_original_path: string
+          predecessor_registry_revision: number
+          predecessor_registry_updated_at: string
+          predecessor_sha256: string
+          recording_revision_id: string
+          transition_id?: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          archive_registry_revision?: number
+          archive_registry_updated_at?: string
+          canonical_recording_id?: string
+          committed_at?: string
+          committed_history_path?: string
+          committed_revision_updated_at?: string
+          epoch_artifact_bytes?: number
+          epoch_artifact_sha256?: string
+          epoch_id?: string
+          epoch_registry_revision?: number
+          epoch_registry_updated_at?: string
+          expected_history_path?: string
+          expected_revision_updated_at?: string
+          idempotency_key?: string
+          initiated_by?: string
+          operation_fingerprint?: string
+          outcome?: string
+          predecessor_archive_path?: string
+          predecessor_bytes?: number
+          predecessor_original_path?: string
+          predecessor_registry_revision?: number
+          predecessor_registry_updated_at?: string
+          predecessor_sha256?: string
+          recording_revision_id?: string
+          transition_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hammer_history_epoch_transitions_epoch_identity_fkey"
+            columns: [
+              "epoch_id",
+              "workspace_id",
+              "workpiece_id",
+              "canonical_recording_id",
+              "recording_revision_id",
+            ]
+            isOneToOne: false
+            referencedRelation: "hammer_history_epochs"
+            referencedColumns: [
+              "epoch_id",
+              "workspace_id",
+              "workpiece_id",
+              "canonical_recording_id",
+              "recording_revision_id",
+            ]
+          },
+        ]
+      }
+      hammer_history_epochs: {
+        Row: {
+          archive_registry_revision: number
+          archive_registry_updated_at: string
+          artifact_bytes: number
+          artifact_path: string
+          artifact_registry_revision: number
+          artifact_registry_updated_at: string
+          artifact_sha256: string
+          base_component_sha256: Json
+          base_editor_state_hash: string
+          canonical_recording_id: string
+          created_at: string
+          creation_reason: string
+          epoch_id: string
+          initiating_user_id: string
+          predecessor_archive_path: string
+          predecessor_bytes: number
+          predecessor_original_path: string
+          predecessor_registry_revision: number
+          predecessor_registry_updated_at: string
+          predecessor_sha256: string
+          recording_revision_id: string
+          schema_version: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          archive_registry_revision: number
+          archive_registry_updated_at: string
+          artifact_bytes: number
+          artifact_path: string
+          artifact_registry_revision: number
+          artifact_registry_updated_at: string
+          artifact_sha256: string
+          base_component_sha256: Json
+          base_editor_state_hash: string
+          canonical_recording_id: string
+          created_at?: string
+          creation_reason: string
+          epoch_id: string
+          initiating_user_id: string
+          predecessor_archive_path: string
+          predecessor_bytes: number
+          predecessor_original_path: string
+          predecessor_registry_revision: number
+          predecessor_registry_updated_at: string
+          predecessor_sha256: string
+          recording_revision_id: string
+          schema_version?: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          archive_registry_revision?: number
+          archive_registry_updated_at?: string
+          artifact_bytes?: number
+          artifact_path?: string
+          artifact_registry_revision?: number
+          artifact_registry_updated_at?: string
+          artifact_sha256?: string
+          base_component_sha256?: Json
+          base_editor_state_hash?: string
+          canonical_recording_id?: string
+          created_at?: string
+          creation_reason?: string
+          epoch_id?: string
+          initiating_user_id?: string
+          predecessor_archive_path?: string
+          predecessor_bytes?: number
+          predecessor_original_path?: string
+          predecessor_registry_revision?: number
+          predecessor_registry_updated_at?: string
+          predecessor_sha256?: string
+          recording_revision_id?: string
+          schema_version?: number
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hammer_history_epochs_canonical_recording_id_fkey"
+            columns: ["canonical_recording_id"]
+            isOneToOne: false
+            referencedRelation: "canonical_recordings"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_history_epochs_recording_revision_id_fkey"
+            columns: ["recording_revision_id"]
+            isOneToOne: false
+            referencedRelation: "recording_revisions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_history_epochs_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "hammer_history_epochs_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       hammer_workpiece_presence: {
         Row: {
           created_at: string
@@ -13254,6 +13474,34 @@ export type Database = {
         }
         Returns: Json
       }
+      commit_hammer_history_epoch: {
+        Args: {
+          p_archive_path: string
+          p_archive_registry_revision: number
+          p_archive_registry_updated_at: string
+          p_base_component_sha256: Json
+          p_base_editor_state_hash: string
+          p_canonical_recording_id: string
+          p_epoch_bytes: number
+          p_epoch_id: string
+          p_epoch_path: string
+          p_epoch_registry_revision: number
+          p_epoch_registry_updated_at: string
+          p_epoch_sha256: string
+          p_expected_history_path: string
+          p_expected_revision_updated_at: string
+          p_idempotency_key: string
+          p_operation_fingerprint: string
+          p_predecessor_bytes: number
+          p_predecessor_registry_revision: number
+          p_predecessor_registry_updated_at: string
+          p_predecessor_sha256: string
+          p_revision_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       commit_image_map_revision: {
         Args: {
           p_actor_id: string
@@ -14648,12 +14896,25 @@ export type Database = {
         Args: { p_workpiece_id: string; p_workspace_id: string }
         Returns: Json
       }
+      is_hammer_history_component_sha256: {
+        Args: { p_hashes: Json }
+        Returns: boolean
+      }
       read_current_reference_visual_plan: {
         Args: { p_workpiece_id: string; p_workspace_id: string }
         Returns: Json
       }
       read_current_source: {
         Args: { p_source_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      read_hammer_history_epoch_operation: {
+        Args: {
+          p_idempotency_key: string
+          p_revision_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
         Returns: Json
       }
       read_image_prompt_operation_receipt: {

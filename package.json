@@ -6,6 +6,7 @@
     "dev": "pnpm --filter nursery dev",
     "preflight:workspace": "node scripts/verify-workspace-contracts.mjs && node scripts/verify-test-runner-exit.mjs",
     "test:db:anvil-recording": "node scripts/verify-anvil-recording-completion-db.mjs",
+    "test:db:hammer-history-epoch": "node scripts/verify-hammer-history-epoch-db.mjs",
     "test:db:hearth-ready": "node scripts/verify-hearth-ready-transition-db.mjs",
     "typecheck": "pnpm preflight:workspace && pnpm -r --workspace-concurrency=2 typecheck",
     "types": "pnpm typecheck",
