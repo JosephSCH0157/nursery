@@ -577,7 +577,7 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
         ? args.recordingRevisionHistoryPath
           ? await loadHammerRevisionHistoryDocument({
             workpieceId: args.launchContext.workpiece_id,
-            revisionId,
+            historyPath: args.recordingRevisionHistoryPath,
           })
           : { ok: true as const, status: 200, exists: false, data: null as null }
         : await loadHammerHistoryDocument(args.launchContext.workpiece_id);

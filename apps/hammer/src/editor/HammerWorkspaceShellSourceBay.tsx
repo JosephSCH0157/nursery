@@ -607,6 +607,8 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
       }
       if (/\.(wav|mp3|aac|m4a)$/.test(normalizedPath)) {
         return (
+          // Raw source audio has no caption artifact at this preview boundary.
+          // eslint-disable-next-line jsx-a11y/media-has-caption
           <audio
             className="hammer-source-card__thumb"
             src={sourceDeskPreviewUrls[assetPath]}

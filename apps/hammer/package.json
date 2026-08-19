@@ -43,6 +43,7 @@
     "test:runtime-data": "tsx tests/hammerRuntimeData.test.ts",
     "test:snapshot-artifacts": "tsx tests/hammerSnapshotArtifactApi.test.ts",
     "test:history-artifacts": "tsx tests/hammerHistoryArtifactApi.test.ts",
+    "test:history-epochs": "tsx tests/hammerHistoryEpochApi.test.ts",
     "test:history-status": "tsx tests/hammerHistoryStatus.test.ts",
     "test:cleanup-candidate-queue": "tsx tests/hammerCleanupCandidateQueue.test.ts",
     "test:snapshot-production": "tsx tests/hammerSnapshotProduction.test.ts",

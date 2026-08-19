@@ -49,7 +49,7 @@ async function testRevisionHistoryMissing404IsNonError() {
   const fakeFetch = async () => createMissingJsonResponse();
   const result = await loadHammerRevisionHistoryDocument({
     workpieceId: "workpiece-123",
-    revisionId: "rev-123",
+    historyPath: "hammer/revisions/rev-123/history.v1.json",
     fetcher: fakeFetch as never,
   });
   assert.equal(result.ok, true);
@@ -69,7 +69,7 @@ async function testCanonicalRevisionHistoryEnvelopeInstallsFrozenControllerState
   for (let mount = 0; mount < 2; mount += 1) {
     const result = await loadHammerRevisionHistoryDocument({
       workpieceId: "85d076d6-54e6-4b56-ab60-5eff4c87cdd0",
-      revisionId: "f642b5d9-cec2-4656-804e-49bb33bc0cb5",
+      historyPath: "hammer/revisions/f642b5d9-cec2-4656-804e-49bb33bc0cb5/history.v1.json",
       fetcher: fakeFetch as never,
     });
     assert.equal(result.ok && result.exists, true);
@@ -84,11 +84,11 @@ async function testCanonicalRevisionHistoryEnvelopeInstallsFrozenControllerState
 }
 
 async function testHistoryReadFailuresRemainClassified() {
-  const malformed = await loadHammerRevisionHistoryDocument({ workpieceId: "w", revisionId: "r", fetcher: (async () => new Response("not-json", { status: 200 })) as never });
+  const malformed = await loadHammerRevisionHistoryDocument({ workpieceId: "w", historyPath: "exact", fetcher: (async () => new Response("not-json", { status: 200 })) as never });
   assert.equal(!malformed.ok && malformed.classification, "malformed");
-  const unauthorized = await loadHammerRevisionHistoryDocument({ workpieceId: "w", revisionId: "r", fetcher: (async () => createJsonResponse(403, { ok: false })) as never });
+  const unauthorized = await loadHammerRevisionHistoryDocument({ workpieceId: "w", historyPath: "exact", fetcher: (async () => createJsonResponse(403, { ok: false })) as never });
   assert.equal(!unauthorized.ok && unauthorized.classification, "unauthorized");
-  const invalid = await loadHammerRevisionHistoryDocument({ workpieceId: "w", revisionId: "r", fetcher: (async () => createJsonResponse(200, { ok: true, data: { version: 1 }, file_row: {} })) as never });
+  const invalid = await loadHammerRevisionHistoryDocument({ workpieceId: "w", historyPath: "exact", fetcher: (async () => createJsonResponse(200, { ok: true, data: { version: 1 }, file_row: {} })) as never });
   assert.equal(!invalid.ok && invalid.classification, "schema_invalid");
 }
 

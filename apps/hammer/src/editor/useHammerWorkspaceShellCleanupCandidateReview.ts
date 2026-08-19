@@ -158,7 +158,7 @@ export function useHammerWorkspaceShellCleanupCandidateReview(args: UseHammerWor
         const afterState = argsRef.current.getCurrentState();
         const committedCutCount = Math.max(0, (afterState?.audioEdit?.operations?.length ?? beforeAudioOpCount) - beforeAudioOpCount);
         handledIdsRef.current[card.kind].add(card.id); lastHandledIdRef.current[card.kind] = card.id;
-        if (import.meta.env.DEV && typeof window !== "undefined" && Boolean((window as any).__forgeHammerDebugCandidateApproval__)) {
+        if (import.meta.env.DEV && typeof window !== "undefined" && Boolean((window as Window & { __forgeHammerDebugCandidateApproval__?: unknown }).__forgeHammerDebugCandidateApproval__)) {
           const durationSec = argsRef.current.getDurationSec();
           const effectiveRegions = getEffectiveCutRegions(afterState?.audioEdit ?? null, durationSec);
           const seekTarget = afterState ? resolveNextAudiblePlaybackTime({ requestedTimeSec: afterState.playheadSec, durationSec, effectiveCutRegions: effectiveRegions, transcriptSegments: afterState.transcriptSegments }) : null;

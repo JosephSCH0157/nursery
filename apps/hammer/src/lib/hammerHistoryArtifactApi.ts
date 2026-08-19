@@ -89,10 +89,10 @@ export async function loadHammerHistoryDocument(
 
 export async function loadHammerRevisionHistoryDocument(args: {
   workpieceId: string;
-  revisionId: string;
+  historyPath: string;
   fetcher?: TongsFetcher;
 }): Promise<HammerHistoryResult<HammerHistoryDocumentV1>> {
-  const path = buildHammerRevisionHistoryArtifactPath(args.revisionId);
+  const path = args.historyPath;
   let response: Response;
   try {
     response = await (args.fetcher ?? tongsFetch)(
