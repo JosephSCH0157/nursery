@@ -66,12 +66,19 @@ function fixture(options: { acknowledgement?: "fail" | "ambiguous" | "foreign"; 
         row = { ...row, editorial_authority_path: "foreign", updated_at: "rev-foreign" };
         throw new Error("CAS conflict");
       }
-      row = { ...row, editorial_authority_path: path, editorial_authority_fingerprint: fingerprint, editorial_authority_revision: 1, updated_at: "rev-2" };
+      row = { ...row, editorial_authority_path: path, editorial_authority_fingerprint: fingerprint, editorial_authority_revision: row.editorial_authority_revision + 1, updated_at: `rev-${row.editorial_authority_revision + 2}` };
       if (options.acknowledgement === "ambiguous") throw new Error("response lost");
       return row;
     },
   };
-  return { transport, calls, getRow: () => row, getArtifact: () => artifact };
+  return {
+    transport,
+    calls,
+    getRow: () => row,
+    getArtifact: () => artifact,
+    setRow: (next: HammerRecordingRevisionRecord) => { row = next; },
+    setArtifact: (next: typeof artifact) => { artifact = next; },
+  };
 }
 
 test("deterministic artifact serialization is identity-bound", () => {
@@ -84,8 +91,80 @@ test("isolated fixture proves artifact write then pointer CAS then readback", as
   const h = fixture();
   const result = await persistHammerRevisionEditorialAuthority({ target: { workspaceId: ids.workspace, workpieceId: ids.workpiece }, canonicalRecordingId: ids.recording, revision: revision(), authority, transport: h.transport });
   assert.equal(result.disposition, "committed");
-  assert.deepEqual(h.calls, ["read", "read-revision", "read", "read-revision", "write", "ack", "read", "read-revision"]);
+  assert.deepEqual(h.calls, ["read-revision", "read", "read", "read-revision", "write", "ack", "read", "read-revision"]);
   assert.equal(h.getRow().editorial_authority_fingerprint, h.getArtifact().hash);
+});
+
+test("independent identical adapter calls converge without another write or CAS", async () => {
+  const h = fixture();
+  const input = { target: { workspaceId: ids.workspace, workpieceId: ids.workpiece }, canonicalRecordingId: ids.recording, revision: revision(), authority, transport: h.transport };
+  const first = await persistHammerRevisionEditorialAuthority(input);
+  const firstRow = structuredClone(h.getRow());
+  const firstArtifact = { ...h.getArtifact(), bytes: Uint8Array.from(h.getArtifact().bytes!) };
+  const second = await persistHammerRevisionEditorialAuthority({ ...input, authority: structuredClone(authority), revision: h.getRow() });
+  const third = await persistHammerRevisionEditorialAuthority({ ...input, revision: h.getRow() });
+  assert.equal(first.disposition, "committed");
+  assert.equal(second.disposition, "already_committed");
+  assert.equal(third.disposition, "already_committed");
+  assert.equal(h.calls.filter((call) => call === "write").length, 1);
+  assert.equal(h.calls.filter((call) => call === "ack").length, 1);
+  assert.deepEqual(h.getRow(), firstRow);
+  assert.deepEqual(h.getArtifact(), firstArtifact);
+});
+
+test("changed canonical bytes commit once and advance authority revision once", async () => {
+  const h = fixture();
+  const input = { target: { workspaceId: ids.workspace, workpieceId: ids.workpiece }, canonicalRecordingId: ids.recording, revision: revision(), authority, transport: h.transport };
+  await persistHammerRevisionEditorialAuthority(input);
+  const changed = { ...authority, graph_version: 2, updated_at: "2026-08-18T00:01:00.000Z" };
+  const result = await persistHammerRevisionEditorialAuthority({ ...input, revision: h.getRow(), authority: changed });
+  assert.equal(result.disposition, "committed");
+  assert.equal(h.calls.filter((call) => call === "write").length, 2);
+  assert.equal(h.calls.filter((call) => call === "ack").length, 2);
+  assert.equal(h.getRow().editorial_authority_revision, 2);
+});
+
+test("matching pointer fails closed for missing or corrupt artifacts and wrong registry hashes", async () => {
+  const input = { target: { workspaceId: ids.workspace, workpieceId: ids.workpiece }, canonicalRecordingId: ids.recording, revision: revision(), authority };
+  for (const corruption of ["missing", "corrupt", "registry"] as const) {
+    const h = fixture();
+    await persistHammerRevisionEditorialAuthority({ ...input, transport: h.transport });
+    const committed = h.getArtifact();
+    if (corruption === "missing") h.setArtifact({ hash: null, updatedAt: null, bytes: null });
+    if (corruption === "corrupt") h.setArtifact({ ...committed, bytes: new Uint8Array([123]) });
+    if (corruption === "registry") h.setArtifact({ ...committed, hash: "f".repeat(64) });
+    const writes = h.calls.filter((call) => call === "write").length;
+    const acknowledgements = h.calls.filter((call) => call === "ack").length;
+    await assert.rejects(() => persistHammerRevisionEditorialAuthority({ ...input, revision: h.getRow(), transport: h.transport }), /missing|corrupt|registry hash|fingerprint/);
+    assert.equal(h.calls.filter((call) => call === "write").length, writes);
+    assert.equal(h.calls.filter((call) => call === "ack").length, acknowledgements);
+  }
+});
+
+test("matching fingerprint fails closed for wrong envelope identity and canonical path mismatch", async () => {
+  const input = { target: { workspaceId: ids.workspace, workpieceId: ids.workpiece }, canonicalRecordingId: ids.recording, revision: revision(), authority };
+  const identity = fixture();
+  await persistHammerRevisionEditorialAuthority({ ...input, transport: identity.transport });
+  const wrongBytes = serializeHammerRevisionEditorialAuthorityArtifact({
+    schema_version: 1,
+    workspace_id: "50000000-0000-4000-8000-000000000005",
+    workpiece_id: ids.workpiece,
+    canonical_recording_id: ids.recording,
+    recording_revision_id: ids.revision,
+    authority,
+  });
+  const wrongHash = await crypto.subtle.digest("SHA-256", wrongBytes);
+  const fingerprint = [...new Uint8Array(wrongHash)].map((value) => value.toString(16).padStart(2, "0")).join("");
+  identity.setArtifact({ hash: fingerprint, updatedAt: "file-wrong", bytes: wrongBytes });
+  identity.setRow({ ...identity.getRow(), editorial_authority_fingerprint: fingerprint });
+  await assert.rejects(() => persistHammerRevisionEditorialAuthority({ ...input, revision: identity.getRow(), transport: identity.transport }), /identities/);
+  assert.equal(identity.calls.filter((call) => call === "write").length, 1);
+
+  const path = fixture();
+  await persistHammerRevisionEditorialAuthority({ ...input, transport: path.transport });
+  path.setRow({ ...path.getRow(), editorial_authority_path: "hammer/revisions/foreign/editorial-authority.v1.json" });
+  await assert.rejects(() => persistHammerRevisionEditorialAuthority({ ...input, revision: path.getRow(), transport: path.transport }), /path is not canonical/);
+  assert.equal(path.calls.filter((call) => call === "write").length, 1);
 });
 
 test("ambiguous acknowledgement resolves by readback without retry", async () => {

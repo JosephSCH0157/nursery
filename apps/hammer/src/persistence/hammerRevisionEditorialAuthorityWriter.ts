@@ -31,6 +31,7 @@ export interface HammerEditorialAuthorityTransport {
 }
 
 const encoder = new TextEncoder();
+const decoder = new TextDecoder();
 
 function isRecord(value: unknown): value is JsonRecord {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -49,6 +50,58 @@ export function serializeHammerRevisionEditorialAuthorityArtifact(artifact: Hamm
 export async function sha256Hex(bytes: Uint8Array): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", Uint8Array.from(bytes));
   return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+function bytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  return left.byteLength === right.byteLength && left.every((value, index) => value === right[index]);
+}
+
+function parseAuthorityArtifact(bytes: Uint8Array): HammerRevisionEditorialAuthorityArtifact {
+  let value: unknown;
+  try {
+    value = JSON.parse(decoder.decode(bytes)) as unknown;
+  } catch (error) {
+    throw new Error("The committed editorial-authority artifact is corrupt.", { cause: error });
+  }
+  const authority = isRecord(value) ? value.authority : null;
+  if (!isRecord(value) || value.schema_version !== 1 || typeof value.workspace_id !== "string" || typeof value.workpiece_id !== "string" || typeof value.canonical_recording_id !== "string" || typeof value.recording_revision_id !== "string" || !isRecord(authority)
+    || authority.schema_version !== 1 || typeof authority.graph_id !== "string" || !Number.isSafeInteger(authority.graph_version)
+    || !Array.isArray(authority.operation_order) || !Array.isArray(authority.operations) || typeof authority.created_at !== "string" || typeof authority.updated_at !== "string") {
+    throw new Error("The committed editorial-authority artifact envelope is invalid.");
+  }
+  return value as HammerRevisionEditorialAuthorityArtifact;
+}
+
+async function isVerifiedCommittedAuthority(args: {
+  path: string;
+  bytes: Uint8Array;
+  fingerprint: string;
+  artifact: { state: EditorialAuthorityArtifactState; bytes: Uint8Array | null };
+  revision: HammerRecordingRevisionRecord;
+  target: HammerPersistenceTarget;
+  canonicalRecordingId: string;
+}): Promise<boolean> {
+  const pointerPresent = args.revision.editorial_authority_path !== null
+    || args.revision.editorial_authority_fingerprint !== null
+    || args.revision.editorial_authority_revision !== 0;
+  if (!pointerPresent) return false;
+  if (args.revision.editorial_authority_path !== args.path) throw new Error("The committed editorial-authority pointer path is not canonical for this revision.");
+  if (!Number.isSafeInteger(args.revision.editorial_authority_revision) || args.revision.editorial_authority_revision < 1) throw new Error("The committed editorial-authority pointer revision is invalid.");
+  if (!args.revision.editorial_authority_fingerprint || !/^[a-f0-9]{64}$/.test(args.revision.editorial_authority_fingerprint)) throw new Error("The committed editorial-authority pointer fingerprint is invalid.");
+  if (!args.artifact.bytes || !args.artifact.state.hash || !args.artifact.state.updatedAt) throw new Error("The committed editorial-authority artifact is missing or unreadable.");
+  if (args.artifact.state.hash !== args.revision.editorial_authority_fingerprint) throw new Error("The committed editorial-authority registry hash does not match its pointer.");
+  const storedFingerprint = await sha256Hex(args.artifact.bytes);
+  if (storedFingerprint !== args.revision.editorial_authority_fingerprint) throw new Error("The committed editorial-authority bytes do not match their fingerprint.");
+  const artifact = parseAuthorityArtifact(args.artifact.bytes);
+  if (artifact.workspace_id !== args.target.workspaceId || artifact.workpiece_id !== args.target.workpieceId || artifact.canonical_recording_id !== args.canonicalRecordingId || artifact.recording_revision_id !== args.revision.id) {
+    throw new Error("The committed editorial-authority artifact identities do not match its revision.");
+  }
+  if ((artifact.authority.workspace_id != null && artifact.authority.workspace_id !== args.target.workspaceId) || (artifact.authority.workpiece_id != null && artifact.authority.workpiece_id !== args.target.workpieceId)) {
+    throw new Error("The committed editorial-authority graph identities do not match its revision.");
+  }
+  if (args.revision.editorial_authority_fingerprint !== args.fingerprint) return false;
+  if (!bytesEqual(args.artifact.bytes, args.bytes)) throw new Error("The committed editorial-authority bytes do not match the canonical snapshot.");
+  return true;
 }
 
 async function readPayload(response: Response): Promise<JsonRecord> {
@@ -176,7 +229,23 @@ export async function persistHammerRevisionEditorialAuthority(args: {
   });
   const fingerprint = await sha256Hex(bytes);
   const transport = args.transport ?? createHammerEditorialAuthorityHttpTransport({ target: args.target, revisionId: args.revision.id });
-  let currentRevision = args.revision;
+  let currentRevision = await transport.readRevision();
+  if (currentRevision.status !== "active" || currentRevision.workspace_id !== args.target.workspaceId || currentRevision.workpiece_id !== args.target.workpieceId || currentRevision.canonical_recording_id !== args.canonicalRecordingId || currentRevision.id !== args.revision.id) {
+    throw new Error("The current editorial-authority revision is no longer the active canonical revision.");
+  }
+  const pointerPath = currentRevision.editorial_authority_path;
+  const preflightArtifact = await transport.readArtifact(pointerPath ?? path);
+  if (await isVerifiedCommittedAuthority({
+    path,
+    bytes,
+    fingerprint,
+    artifact: preflightArtifact,
+    revision: currentRevision,
+    target: args.target,
+    canonicalRecordingId: args.canonicalRecordingId,
+  })) {
+    return { revision: currentRevision, disposition: "already_committed", fingerprint };
+  }
   const readState = async (): Promise<EditorialAuthorityCommitState> => {
     const [artifact, rereadRevision] = await Promise.all([transport.readArtifact(path), transport.readRevision()]);
     currentRevision = rereadRevision;
@@ -190,7 +259,15 @@ export async function persistHammerRevisionEditorialAuthority(args: {
       },
     };
   };
-  const original = await readState();
+  const original: EditorialAuthorityCommitState = {
+    artifact: preflightArtifact.state,
+    pointer: {
+      path: currentRevision.editorial_authority_path,
+      fingerprint: currentRevision.editorial_authority_fingerprint,
+      authorityRevision: currentRevision.editorial_authority_revision,
+      revisionUpdatedAt: currentRevision.updated_at,
+    },
+  };
   const adapter: EditorialAuthorityCommitAdapter = {
     read: readState,
     writeArtifact: ({ path: writePath, bytes: writeBytes, expectedUpdatedAt }) => transport.writeArtifact(writePath, writeBytes, expectedUpdatedAt),
