@@ -7,6 +7,17 @@ import type { VerifiedBrollMedia } from "./broll-acquisition.js";
 import type { ReferenceVisualEvidence, ReferenceVisualRecipe, ReferenceVisualRender } from "./reference-visual-renderer.js";
 import { extractReferenceSourceEvidence, ingestReferenceSourceUrl, inspectReferenceResearchLead, type ReferenceSourceIngestion, type ReferenceSourceEvidenceClaim } from "./reference-source-ingestion.js";
 import { inspectYouTubeReference } from "./youtube-reference.js";
+import {
+  coordinateHammerHistoryEpoch,
+  isProtectedHammerHistoryEpochPath,
+  type HammerHistoryEpochCandidate,
+  type HammerHistoryEpochCommitResult,
+  type HammerHistoryEpochCoordinatorAdapter,
+  type HammerHistoryEpochEnvelopeV1,
+  type HammerHistoryEpochReadbackResult,
+  type HammerHistoryEpochRegistryRecord,
+  type HammerHistoryEpochRequest,
+} from "./hammer-history-epoch-coordinator.js";
 
 const THUMBNAIL_BUNDLED_FONT_VERSION = "inter-5.2.8-latin-700";
 const THUMBNAIL_COMPOSITION_ENGINE_VERSION = "forge-thumbnail-compositor-v1";
@@ -1502,6 +1513,21 @@ export type AnvilTakeCompletionRequest = {
   user_access_token?: string | null;
 };
 
+export type StartHammerHistoryEpochRequest = Readonly<{
+  canonical_recording_id: string;
+  idempotency_key: string;
+  expected_revision_updated_at: string;
+  expected_history_path: string;
+  expected_predecessor: Readonly<{
+    revision: number;
+    updated_at: string;
+    sha256: string;
+    bytes: number;
+  }>;
+  epoch_path: string;
+  envelope: HammerHistoryEpochEnvelopeV1;
+}>;
+
 export type HammerEditorialAuthorityArtifactV1 = {
   schema_version: 1;
   workspace_id: string;
@@ -2119,6 +2145,20 @@ export type TongsCommitApiService = {
     input: SaveHammerRecordingRevisionRequest,
     options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<RecordingRevisionRecord>;
+  startHammerHistoryEpoch(
+    workspaceId: string,
+    workpieceId: string,
+    revisionId: string,
+    input: StartHammerHistoryEpochRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HammerHistoryEpochCommitResult>;
+  readHammerHistoryEpochOperation(
+    workspaceId: string,
+    workpieceId: string,
+    revisionId: string,
+    idempotencyKey: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HammerHistoryEpochReadbackResult>;
   acknowledgeHammerEditorialAuthority(
     workspaceId: string,
     workpieceId: string,
@@ -2436,13 +2476,14 @@ function toHttpLikeError(error: unknown): {
 }
 
 function errorResponse(error: unknown, requestId?: string): Response {
-  if (error instanceof HttpError) {
-    return jsonResponse(error.status, {
+  const httpLike = toHttpLikeError(error);
+  if (httpLike) {
+    return jsonResponse(httpLike.status, {
       ok: false,
       error: {
-        code: error.code,
-        message: error.message,
-        ...(typeof error.details === "undefined" ? {} : { details: error.details }),
+        code: httpLike.code,
+        message: httpLike.message,
+        ...(typeof httpLike.details === "undefined" ? {} : { details: httpLike.details }),
         ...(requestId ? { request_id: requestId } : {}),
       },
     }, requestId);
@@ -4202,6 +4243,40 @@ function normalizeAcknowledgeHammerEditorialAuthorityRequest(body: Record<string
     expected_revision_updated_at: validateOpaqueCasTimestampToken(body.expected_revision_updated_at, "expected_revision_updated_at"),
     expected_authority_revision: expectedAuthorityRevision as number,
     expected_authority_path: body.expected_authority_path === null ? null : normalizeRelativePath(normalizeNonEmptyString(body.expected_authority_path, "expected_authority_path")),
+  };
+}
+
+function normalizeStartHammerHistoryEpochRequest(body: unknown): StartHammerHistoryEpochRequest {
+  if (!isRecord(body)) throw new HttpError(400, "history_epoch_request_invalid", "History epoch request must be an object.");
+  const allowed = new Set(["canonical_recording_id", "idempotency_key", "expected_revision_updated_at", "expected_history_path", "expected_predecessor", "epoch_path", "envelope"]);
+  if (Object.keys(body).some((key) => !allowed.has(key)) || Object.keys(body).length !== allowed.size) {
+    throw new HttpError(400, "history_epoch_request_invalid", "History epoch request fields are invalid.");
+  }
+  const predecessor = body.expected_predecessor;
+  if (!isRecord(predecessor) || Object.keys(predecessor).sort().join(",") !== "bytes,revision,sha256,updated_at") {
+    throw new HttpError(400, "history_epoch_request_invalid", "Expected predecessor metadata is invalid.");
+  }
+  const revision = predecessor.revision;
+  const bytes = predecessor.bytes;
+  const sha256 = typeof predecessor.sha256 === "string" ? predecessor.sha256.trim().toLowerCase() : "";
+  if (!Number.isSafeInteger(revision) || Number(revision) <= 0 || !Number.isSafeInteger(bytes) || Number(bytes) <= 0 || !/^[0-9a-f]{64}$/.test(sha256)) {
+    throw new HttpError(400, "history_epoch_request_invalid", "Expected predecessor fingerprint is invalid.");
+  }
+  const idempotencyKey = normalizeNonEmptyString(body.idempotency_key, "idempotency_key");
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/.test(idempotencyKey)) throw new HttpError(400, "history_epoch_idempotency_key_invalid", "idempotency_key is not canonical.");
+  return {
+    canonical_recording_id: normalizeUuid(body.canonical_recording_id, "canonical_recording_id"),
+    idempotency_key: idempotencyKey,
+    expected_revision_updated_at: validateOpaqueCasTimestampToken(body.expected_revision_updated_at, "expected_revision_updated_at"),
+    expected_history_path: normalizeRelativePath(body.expected_history_path),
+    expected_predecessor: {
+      revision: Number(revision),
+      updated_at: validateOpaqueCasTimestampToken(predecessor.updated_at, "expected_predecessor.updated_at"),
+      sha256,
+      bytes: Number(bytes),
+    },
+    epoch_path: normalizeRelativePath(body.epoch_path),
+    envelope: body.envelope as HammerHistoryEpochEnvelopeV1,
   };
 }
 
@@ -8530,6 +8605,159 @@ export class TongsCommitService {
     return updated.data as RecordingRevisionRecord;
   }
 
+  async readHammerHistoryEpochOperation(
+    workspaceId: string,
+    workpieceId: string,
+    revisionId: string,
+    idempotencyKey: string,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HammerHistoryEpochReadbackResult> {
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+    if (!options?.userAccessToken || !this.userClientFactory) throw new HttpError(503, "history_epoch_authority_unavailable", "Authenticated history epoch readback is unavailable.");
+    const client = this.userClientFactory(options.userAccessToken).schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const result = await client.rpc("read_hammer_history_epoch_operation", {
+      p_workspace_id: workspaceId, p_workpiece_id: workpieceId, p_revision_id: revisionId, p_idempotency_key: idempotencyKey,
+    });
+    if (result.error || !isRecord(result.data)) throw new HttpError(502, "history_epoch_readback_unavailable", "History epoch readback failed.", { reason: result.error?.message ?? "malformed response" });
+    if (result.data.outcome === "absent") return { outcome: "absent" };
+    if ((result.data.outcome === "committed" || result.data.outcome === "already_committed")
+      && typeof result.data.epoch_id === "string" && typeof result.data.transition_id === "string"
+      && typeof result.data.history_path === "string" && typeof result.data.revision_updated_at === "string"
+      && typeof result.data.operation_fingerprint === "string") return result.data as HammerHistoryEpochReadbackResult;
+    throw new HttpError(502, "history_epoch_readback_invalid", "History epoch readback returned an invalid contract.");
+  }
+
+  async startHammerHistoryEpoch(
+    workspaceId: string,
+    workpieceId: string,
+    revisionId: string,
+    input: StartHammerHistoryEpochRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HammerHistoryEpochCommitResult> {
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+    if (!options?.userAccessToken || !this.userClientFactory) throw new HttpError(503, "history_epoch_authority_unavailable", "Authenticated history epoch transition is unavailable.");
+    const authority = this.userClientFactory(options.userAccessToken).schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const canonical = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+
+    const request: HammerHistoryEpochRequest = {
+      workspaceId, workpieceId, revisionId, initiatingUserId: auth.userId,
+      canonicalRecordingId: input.canonical_recording_id, idempotencyKey: input.idempotency_key,
+      expectedRevisionUpdatedAt: input.expected_revision_updated_at, expectedHistoryPath: input.expected_history_path,
+      expectedPredecessor: {
+        revision: input.expected_predecessor.revision, updatedAt: input.expected_predecessor.updated_at,
+        sha256: input.expected_predecessor.sha256, bytes: input.expected_predecessor.bytes,
+      },
+      epochPath: input.epoch_path, envelope: input.envelope,
+    };
+
+    const registryFromRow = (row: WorkpieceFileRow): HammerHistoryEpochRegistryRecord => ({
+      path: row.path, fileType: row.file_type, contentType: row.content_type as "application/json",
+      hashAlgo: row.hash_algo as "sha256", sha256: row.hash_value.toLowerCase(), bytes: row.bytes,
+      revision: row.revision, updatedAt: row.updated_at, storageBucket: row.storage_bucket, storageKey: row.storage_key,
+    });
+    const readCandidate = async (path: string): Promise<HammerHistoryEpochCandidate | null> => {
+      const result = await canonical.from("workpiece_files").select("*").eq("workpiece_id", workpieceId).eq("path", path).maybeSingle();
+      if (result.error) throw new HttpError(502, "history_epoch_registry_read_failed", "Failed to read staged history artifact metadata.", { reason: result.error.message });
+      if (!result.data) return null;
+      const row = result.data as WorkpieceFileRow;
+      const bytes = await downloadStorageObject(this.supabase, row.storage_bucket, row.storage_key);
+      if (!bytes) throw new HttpError(409, "history_epoch_staged_object_missing", "A staged registry row has no matching storage object.", { path });
+      return { registry: registryFromRow(row), bytes, operationId: null };
+    };
+    const readOperation = () => this.readHammerHistoryEpochOperation(workspaceId, workpieceId, revisionId, input.idempotency_key, options);
+
+    const adapter: HammerHistoryEpochCoordinatorAdapter = {
+      readOperation,
+      readPreflight: async () => {
+        const current = await this.readHammerRecordingRevision(workspaceId, workpieceId, revisionId, options);
+        const workpiece = await canonical.from("episodes").select("active_revision_id").eq("workspace_id", workspaceId).eq("id", workpieceId).maybeSingle();
+        if (workpiece.error || !workpiece.data) throw new HttpError(409, "history_epoch_identity_conflict", "The active workpiece revision could not be verified.");
+        const predecessor = await readCandidate(input.expected_history_path);
+        if (!predecessor) throw new HttpError(409, "history_epoch_predecessor_registry_conflict", "The active history registry row is absent.");
+        return {
+          workspaceId, workpieceId, canonicalRecordingId: current.canonical_recording.id, revisionId,
+          activeRevisionId: String((workpiece.data as Record<string, unknown>).active_revision_id ?? ""),
+          revisionStatus: current.revision.status, revisionUpdatedAt: current.revision.updated_at,
+          historyPath: current.revision.history_path, predecessor: predecessor.registry, predecessorBytes: predecessor.bytes,
+        };
+      },
+      readCandidate: ({ path }) => readCandidate(path),
+      createCandidate: async ({ path, fileType, bytes, sha256, operationId }) => {
+        const storageKey = buildStorageKey(workpieceId, path);
+        const existingObject = await downloadStorageObject(this.supabase, this.bucket, storageKey);
+        let objectCreated = false;
+        if (existingObject) {
+          if (existingObject.length !== bytes.length || await sha256Hex(existingObject) !== sha256) {
+            throw new HttpError(409, "history_epoch_unregistered_object_conflict", "An unregistered object with different bytes occupies the canonical candidate path.", { path });
+          }
+        } else {
+          const uploaded = await this.supabase.storage.from(this.bucket).upload(storageKey, uint8ToArrayBuffer(bytes), { upsert: false, contentType: "application/json" });
+          if (uploaded.error) throw new HttpError(409, "history_epoch_create_only_conflict", "The candidate object could not be created without overwrite.", { path });
+          objectCreated = true;
+        }
+        const readback = await downloadStorageObject(this.supabase, this.bucket, storageKey);
+        if (!readback || readback.length !== bytes.length || await sha256Hex(readback) !== sha256) {
+          throw new HttpError(409, "history_epoch_storage_readback_conflict", "Candidate storage readback did not match the exact submitted bytes.", { path });
+        }
+        const inserted = await canonical.from("workpiece_files").insert({
+          workpiece_id: workpieceId, path, file_type: fileType, content_type: "application/json", bytes: bytes.length,
+          hash_algo: SHA256_ALGO, hash_value: sha256, storage_bucket: this.bucket, storage_key: storageKey,
+          written_by_tool: "tongs", written_by_tool_version: "history-epoch-v1", written_by_lane: "forge-managed",
+        }).select("*").maybeSingle();
+        if (inserted.error || !inserted.data) {
+          const registryAfterFailure = await canonical.from("workpiece_files").select("path").eq("workpiece_id", workpieceId).eq("path", path).maybeSingle();
+          const unchanged = objectCreated ? await downloadStorageObject(this.supabase, this.bucket, storageKey) : null;
+          if (!registryAfterFailure.error && !registryAfterFailure.data && unchanged && unchanged.length === bytes.length && await sha256Hex(unchanged) === sha256) {
+            const finalRegistryCheck = await canonical.from("workpiece_files").select("path").eq("workpiece_id", workpieceId).eq("path", path).maybeSingle();
+            if (!finalRegistryCheck.error && !finalRegistryCheck.data) await this.supabase.storage.from(this.bucket).remove([storageKey]);
+          }
+          throw new HttpError(409, "history_epoch_registry_create_conflict", "The create-only candidate registry insert failed.", { path, reason: inserted.error?.message });
+        }
+        const row = inserted.data as WorkpieceFileRow;
+        return { registry: registryFromRow(row), bytes: readback, operationId };
+      },
+      commit: async ({ request: commitRequest, archive, epoch, epochSha256, epochBytes, operationFingerprint }) => {
+        const result = await authority.rpc("commit_hammer_history_epoch", {
+          p_workspace_id: workspaceId, p_workpiece_id: workpieceId, p_canonical_recording_id: commitRequest.canonicalRecordingId,
+          p_revision_id: revisionId, p_epoch_id: commitRequest.envelope.epoch_id, p_idempotency_key: commitRequest.idempotencyKey,
+          p_operation_fingerprint: operationFingerprint, p_expected_revision_updated_at: commitRequest.expectedRevisionUpdatedAt,
+          p_expected_history_path: commitRequest.expectedHistoryPath, p_predecessor_registry_revision: commitRequest.expectedPredecessor.revision,
+          p_predecessor_registry_updated_at: commitRequest.expectedPredecessor.updatedAt, p_predecessor_sha256: commitRequest.expectedPredecessor.sha256,
+          p_predecessor_bytes: commitRequest.expectedPredecessor.bytes, p_archive_path: archive.path,
+          p_archive_registry_revision: archive.revision, p_archive_registry_updated_at: archive.updatedAt,
+          p_epoch_path: epoch.path, p_epoch_registry_revision: epoch.revision, p_epoch_registry_updated_at: epoch.updatedAt,
+          p_epoch_sha256: epochSha256, p_epoch_bytes: epochBytes, p_base_editor_state_hash: commitRequest.envelope.base.editor_state_hash,
+          p_base_component_sha256: commitRequest.envelope.base.component_sha256,
+        });
+        if (result.error) throw new Error("history epoch commit response was ambiguous");
+        if (!isRecord(result.data) || !["committed", "already_committed", "conflict"].includes(String(result.data.outcome))) throw new Error("history epoch commit response was malformed");
+        return result.data as HammerHistoryEpochCommitResult;
+      },
+      compensate: async ({ candidate }) => {
+        const epochReference = await canonical.from("hammer_history_epochs").select("epoch_id").eq("workpiece_id", workpieceId).or(`artifact_path.eq.${candidate.registry.path},predecessor_archive_path.eq.${candidate.registry.path}`).maybeSingle();
+        if (epochReference.error || epochReference.data) return "stale_or_referenced";
+        const current = await readCandidate(candidate.registry.path);
+        if (!current) return "absent";
+        const expected = candidate.registry;
+        if (current.registry.revision !== expected.revision || current.registry.updatedAt !== expected.updatedAt || current.registry.sha256 !== expected.sha256
+          || current.registry.bytes !== expected.bytes || current.registry.storageBucket !== expected.storageBucket || current.registry.storageKey !== expected.storageKey
+          || await sha256Hex(current.bytes) !== expected.sha256) return "stale_or_referenced";
+        const deleted = await canonical.from("workpiece_files").delete().eq("workpiece_id", workpieceId).eq("path", expected.path)
+          .eq("revision", expected.revision).eq("updated_at", expected.updatedAt).eq("hash_value", expected.sha256).eq("bytes", expected.bytes)
+          .eq("storage_bucket", expected.storageBucket).eq("storage_key", expected.storageKey).select("path").maybeSingle();
+        if (deleted.error || !deleted.data) return "stale_or_referenced";
+        const unchanged = await downloadStorageObject(this.supabase, expected.storageBucket, expected.storageKey);
+        if (!unchanged) return "absent";
+        if (unchanged.length !== expected.bytes || await sha256Hex(unchanged) !== expected.sha256) return "stale_or_referenced";
+        const removed = await this.supabase.storage.from(expected.storageBucket).remove([expected.storageKey]);
+        return removed.error ? "stale_or_referenced" : "removed";
+      },
+    };
+    return coordinateHammerHistoryEpoch({ request, adapter });
+  }
+
   async acknowledgeHammerEditorialAuthority(
     workspaceId: string,
     workpieceId: string,
@@ -9811,6 +10039,9 @@ export class TongsCommitService {
   async commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse> {
     const cradle = await this.getCradleOrThrow(workpieceId);
     const path = normalizeRelativePath(input.path);
+    if (isProtectedHammerHistoryEpochPath(path)) {
+      throw new HttpError(409, "hammer_history_epoch_path_reserved", "History epoch and archive paths are create-only and may only be written by the history epoch coordinator.");
+    }
     if (input.event_name && RESERVED_RECORDING_AUTHORITY_EVENTS.has(input.event_name.trim())) {
       throw new HttpError(400, "reserved_recording_authority_event", "Recording authority events must use their dedicated transition endpoint.");
     }
@@ -16942,6 +17173,46 @@ export function createTongsCommitApiHandlerWithService(
       }
 
       if (
+        parts.length === 11
+        && parts[0] === "tongs"
+        && parts[1] === "workspaces"
+        && parts[3] === "workpieces"
+        && parts[5] === "hammer"
+        && parts[6] === "revisions"
+        && parts[8] === "history-epochs"
+        && parts[9] === "operations"
+      ) {
+        requireMethod(request, "GET");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
+        const revisionId = normalizeUuid(decodeURIComponent(parts[7]), "revision_id");
+        const idempotencyKey = normalizeNonEmptyString(decodeURIComponent(parts[10]), "idempotency_key");
+        if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/.test(idempotencyKey)) throw new HttpError(400, "history_epoch_idempotency_key_invalid", "idempotency_key is not canonical.");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const result = await service.readHammerHistoryEpochOperation(workspaceId, workpieceId, revisionId, idempotencyKey, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 9
+        && parts[0] === "tongs"
+        && parts[1] === "workspaces"
+        && parts[3] === "workpieces"
+        && parts[5] === "hammer"
+        && parts[6] === "revisions"
+        && parts[8] === "history-epochs"
+      ) {
+        requireMethod(request, "POST");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
+        const revisionId = normalizeUuid(decodeURIComponent(parts[7]), "revision_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const payload = normalizeStartHammerHistoryEpochRequest(await parseJsonBody(request));
+        const result = await service.startHammerHistoryEpoch(workspaceId, workpieceId, revisionId, payload, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
         parts.length === 8
         && parts[0] === "tongs"
         && parts[1] === "workspaces"
@@ -17661,13 +17932,14 @@ export function createTongsCommitApiHandlerWithService(
 
       throw new HttpError(404, "not_found", "Endpoint not found");
     } catch (error) {
-      if (error instanceof HttpError && (error.status === 401 || error.status === 403)) {
+      const httpLike = toHttpLikeError(error);
+      if (httpLike && (httpLike.status === 401 || httpLike.status === 403)) {
         try {
           console.warn("[tongs-auth-deny]", {
             request_id: requestId,
-            code: error.code,
-            message: error.message,
-            details: error.details ?? null,
+            code: httpLike.code,
+            message: httpLike.message,
+            details: httpLike.details ?? null,
             path: request.url,
             method: request.method,
           });
@@ -17675,15 +17947,15 @@ export function createTongsCommitApiHandlerWithService(
           // ignore logging failures
         }
       }
-      const uncaughtStatus = error instanceof HttpError ? error.status : 500;
+      const uncaughtStatus = httpLike?.status ?? 500;
       if (uncaughtStatus >= 500) {
         try {
           console.error("[tongs-api-5xx]", {
             request_id: requestId,
             status: uncaughtStatus,
-            code: error instanceof HttpError ? error.code : "internal_error",
+            code: httpLike?.code ?? "internal_error",
             message: error instanceof Error ? error.message : String(error),
-            details: error instanceof HttpError ? (error.details ?? null) : null,
+            details: httpLike?.details ?? null,
             path: request.url,
             method: request.method,
             stack: isDevDiagnosticsEnabled() && error instanceof Error ? (error.stack ?? null) : null,
