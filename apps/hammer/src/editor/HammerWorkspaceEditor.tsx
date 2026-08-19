@@ -126,6 +126,7 @@ import {
   type HammerAsyncResponseLane,
   type HammerAuthorityIdentity,
 } from "../persistence/hammerVisualAuthority";
+import type { HammerRevisionAutosaveArtifacts } from "../persistence/hammerAutosaveQuiescence";
 import {
   loadHammerCanonicalBaselineArtifacts,
   loadHammerRecordingRevisionArtifacts,
@@ -300,6 +301,8 @@ function stripEditorSessionOpenMetadata(value: unknown): unknown {
   return {
     ...row,
     last_opened_at: null,
+    selected_segment_id: null,
+    selected_overlay_row_id: null,
   };
 }
 
@@ -331,6 +334,7 @@ function normalizeVisualTimelineForFingerprint(value: unknown): unknown {
     updated_at: null,
     debug_origin: null,
     debug_migration_hash: null,
+    selected_clip_id: null,
     assets,
     clips,
   };
@@ -706,17 +710,13 @@ export default function HammerWorkspaceEditor(
   const pendingSaveRef = useRef<{
     target: HammerPersistenceTarget;
     revisionId: string;
-    request: {
-      editor_session: unknown;
-      revision_transcript: unknown;
-      audio_polish?: unknown;
-      visual_timeline?: unknown;
-      visual_placements?: unknown;
-    };
+    request: HammerRevisionAutosaveArtifacts;
     persistenceRequest: HammerPersistenceSaveRequest;
     payloadKey: string;
     canonicalSnapshot: HammerPersistenceSnapshot;
   } | null>(null);
+  const autosaveInFlightRef = useRef(false);
+  const deferredAutosaveRef = useRef<NonNullable<typeof pendingSaveRef.current> | null>(null);
   const prepRunKeyRef = useRef<string | null>(null);
   const prepAiNoticeApprovedRunKeyRef = useRef<string | null>(null);
   const prepAiNoticeCancelledRunKeyRef = useRef<string | null>(null);
@@ -1445,6 +1445,8 @@ export default function HammerWorkspaceEditor(
   useEffect(() => {
     beginPrepExecution();
     lastSavedPayloadRef.current = null;
+    autosaveInFlightRef.current = false;
+    deferredAutosaveRef.current = null;
     setSaveInFlight(false);
     setLastSavedAt(null);
     prepRunKeyRef.current = null;
@@ -3639,8 +3641,7 @@ export default function HammerWorkspaceEditor(
       snapshot: loadedPersistenceSnapshot,
     });
 
-    const hasPendingCanonicalNormalization = snapshot.visualTimeline?.debug_origin === "legacy_migration";
-    if (!hasPendingCanonicalNormalization && persistedNoopFingerprint && hydratedNoopFingerprint === persistedNoopFingerprint) {
+    if (persistedNoopFingerprint && hydratedNoopFingerprint === persistedNoopFingerprint) {
       lastSavedPayloadRef.current = payloadKey;
       setHasPendingSaveChanges(false);
       pendingSaveRef.current = null;
@@ -3675,6 +3676,7 @@ export default function HammerWorkspaceEditor(
       return persistHammerCanonicalSave({
         target: pending.target, canonicalRecordingId: activeCanonicalRecordingRef.current?.id ?? "",
         revisionId: pending.revisionId,
+        currentRevision: activeRevisionRef.current ?? undefined,
         revisionRequest: pending.request,
         persistenceRequest: pending.persistenceRequest,
         canonicalSnapshot: pending.canonicalSnapshot,
@@ -3690,10 +3692,20 @@ export default function HammerWorkspaceEditor(
     };
 
     const runPendingSave = (pending: NonNullable<typeof pendingSaveRef.current>, clearTimer: boolean) => {
+      if (autosaveInFlightRef.current) {
+        deferredAutosaveRef.current = pending;
+        if (clearTimer) saveTimerRef.current = null;
+        return;
+      }
+      autosaveInFlightRef.current = true;
       setSaveInFlight(true);
+      let completed = false;
       void persistRevisionAndAuthority(pending)
         .then((result) => {
-          if ("stale" in result && result.stale) return;
+          if ("stale" in result && result.stale) {
+            completed = true;
+            return;
+          }
           if (!result.ok) {
             if (result.revision) setActiveRevision(result.revision);
             applyHostLoopState(resolveHammerSaveFailure({
@@ -3704,8 +3716,9 @@ export default function HammerWorkspaceEditor(
             }, result.error));
             return;
           }
-          if (pendingSaveRef.current?.payloadKey !== scheduledPayloadKey) return;
-          lastSavedPayloadRef.current = scheduledPayloadKey;
+          completed = true;
+          if (pendingSaveRef.current?.payloadKey !== pending.payloadKey) return;
+          lastSavedPayloadRef.current = pending.payloadKey;
           pendingSaveRef.current = null;
           setHasPendingSaveChanges(false);
           setLastSavedAt(new Date().toISOString());
@@ -3719,8 +3732,19 @@ export default function HammerWorkspaceEditor(
           }));
         })
         .finally(() => {
-          setSaveInFlight(false);
+          autosaveInFlightRef.current = false;
           if (clearTimer) saveTimerRef.current = null;
+          const deferred = completed
+            ? deferredAutosaveRef.current ?? (
+              pendingSaveRef.current?.payloadKey !== pending.payloadKey ? pendingSaveRef.current : null
+            )
+            : null;
+          deferredAutosaveRef.current = null;
+          if (deferred && deferred.payloadKey !== lastSavedPayloadRef.current) {
+            runPendingSave(deferred, false);
+            return;
+          }
+          setSaveInFlight(false);
         });
     };
 
@@ -3839,6 +3863,7 @@ export default function HammerWorkspaceEditor(
       void persistHammerCanonicalSave({
         target: pending.target, canonicalRecordingId: activeCanonicalRecordingRef.current?.id ?? "",
         revisionId: pending.revisionId,
+        currentRevision: activeRevisionRef.current ?? undefined,
         revisionRequest: pending.request,
         persistenceRequest: pending.persistenceRequest,
         canonicalSnapshot: pending.canonicalSnapshot,

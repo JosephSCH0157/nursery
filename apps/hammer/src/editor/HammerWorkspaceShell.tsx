@@ -3856,7 +3856,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     selectedMacroRecipeRef: props.selectedMacroRecipeRef ?? null,
     lastMacroRunRef: props.lastMacroRunRef ?? null,
     canonicalStructuredTranscript: persistedTranscriptProjection,
-    exportCanonicalGraph: exportBasis.canonicalGraph,
+    exportCanonicalGraph: editableEditorialAuthorityGraph ?? exportBasis.canonicalGraph,
     currentPass,
     passStatus,
     editableTranscriptSegments,

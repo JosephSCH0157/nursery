@@ -7,6 +7,11 @@ import type { HammerRecordingRevisionRecord } from "./hammerRecordingRevisionPer
 import { saveHammerRecordingRevision } from "./hammerRecordingRevisionPersistence";
 import { saveHammerPersistenceSnapshot } from "./hammerPersistence";
 import { persistHammerRevisionEditorialAuthority } from "./hammerRevisionEditorialAuthorityWriter";
+import {
+  areHammerAuthorityGraphsSemanticallyEqual,
+  selectChangedHammerRevisionArtifacts,
+  type HammerRevisionAutosaveArtifacts,
+} from "./hammerAutosaveQuiescence";
 
 export type HammerAsyncResponseLane =
   | "canonical_hydration"
@@ -56,13 +61,7 @@ export function isHammerAuthorityTokenCurrent(args: {
   );
 }
 
-type RevisionSaveArtifacts = {
-  editor_session?: unknown;
-  revision_transcript?: unknown;
-  audio_polish?: unknown;
-  visual_timeline?: unknown;
-  visual_placements?: unknown;
-};
+type RevisionSaveArtifacts = HammerRevisionAutosaveArtifacts;
 
 function readWriteData(value: unknown): unknown {
   return value && typeof value === "object" && "data" in value ? (value as { data?: unknown }).data : undefined;
@@ -142,6 +141,7 @@ export async function persistHammerCanonicalSave(args: {
   target: HammerPersistenceTarget;
   canonicalRecordingId?: string;
   revisionId: string;
+  currentRevision?: HammerRecordingRevisionRecord;
   revisionRequest: RevisionSaveArtifacts;
   persistenceRequest: HammerPersistenceSaveRequest;
   canonicalSnapshot: HammerPersistenceSnapshot;
@@ -164,10 +164,24 @@ export async function persistHammerCanonicalSave(args: {
   const lifecycleToken = args.lifecycleFlush
     ? issueHammerAuthorityToken({ identity: args.identity, lane: "lifecycle_flush", laneSequences: args.laneSequences, saveAttemptId })
     : null;
+  const changedRevisionRequest = selectChangedHammerRevisionArtifacts({
+    request: args.revisionRequest,
+    installed: args.canonicalSnapshot,
+  });
+  const requestedAuthority = args.persistenceRequest.editorial_authority?.data ?? null;
+  const authorityChanged = !areHammerAuthorityGraphsSemanticallyEqual(
+    requestedAuthority,
+    args.canonicalSnapshot.editorial_authority.data,
+  );
+  if (Object.keys(changedRevisionRequest).length === 0 && !authorityChanged && args.currentRevision) {
+    return { ok: true, revision: args.currentRevision, snapshot: args.canonicalSnapshot };
+  }
   const revisionToken = issueHammerAuthorityToken({
     identity: args.identity, lane: "revision_mutation", laneSequences: args.laneSequences, saveAttemptId,
   });
-  const revisionResult = await (args.adapters?.saveRevision ?? saveHammerRecordingRevision)(args.target, args.revisionId, args.revisionRequest as any);
+  const revisionResult = Object.keys(changedRevisionRequest).length === 0 && args.currentRevision
+    ? { ok: true as const, status: 200, data: { revision: args.currentRevision } }
+    : await (args.adapters?.saveRevision ?? saveHammerRecordingRevision)(args.target, args.revisionId, changedRevisionRequest);
   const tokenIsCurrent = (token: HammerAuthorityToken) => isHammerAuthorityTokenCurrent({
     token, identity: args.currentIdentity(), laneSequences: args.laneSequences, saveAttemptId,
   });
@@ -184,22 +198,30 @@ export async function persistHammerCanonicalSave(args: {
     return { ok: false, stale: true, error: "stale_workpiece_response", revision: revisionResult.data.revision };
   }
   if (!persistenceResult.ok) return { ok: false, error: persistenceResult.error, revision: revisionResult.data.revision };
-  const authority = args.persistenceRequest.editorial_authority?.data;
+  const authority = requestedAuthority;
   if (!authority) return { ok: false, error: "Canonical save did not contain editorial authority.", revision: revisionResult.data.revision };
   let authorityResult: Awaited<ReturnType<typeof persistHammerRevisionEditorialAuthority>>;
-  try {
-    authorityResult = await (args.adapters?.saveRevisionAuthority ?? persistHammerRevisionEditorialAuthority)({
-      target: args.target,
-      canonicalRecordingId: args.canonicalRecordingId ?? revisionResult.data.revision.canonical_recording_id,
+  if (!authorityChanged) {
+    authorityResult = {
       revision: revisionResult.data.revision,
-      authority,
-    });
-  } catch (error) {
-    return {
-      ok: false,
-      error: error instanceof Error ? error.message : "Revision editorial-authority persistence failed.",
-      revision: revisionResult.data.revision,
+      disposition: "already_committed",
+      fingerprint: revisionResult.data.revision.editorial_authority_fingerprint ?? "",
     };
+  } else {
+    try {
+      authorityResult = await (args.adapters?.saveRevisionAuthority ?? persistHammerRevisionEditorialAuthority)({
+        target: args.target,
+        canonicalRecordingId: args.canonicalRecordingId ?? revisionResult.data.revision.canonical_recording_id,
+        revision: revisionResult.data.revision,
+        authority,
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        error: error instanceof Error ? error.message : "Revision editorial-authority persistence failed.",
+        revision: revisionResult.data.revision,
+      };
+    }
   }
   if (!tokenIsCurrent(reconciliationToken)) {
     return { ok: false, stale: true, error: "stale_authority_response", revision: authorityResult.revision };
@@ -208,7 +230,7 @@ export async function persistHammerCanonicalSave(args: {
     canonicalSnapshot: args.canonicalSnapshot,
     response: persistenceResult.data,
     revision: authorityResult.revision,
-    revisionRequest: args.revisionRequest,
+    revisionRequest: changedRevisionRequest,
     persistenceRequest: args.persistenceRequest,
   });
   return {
