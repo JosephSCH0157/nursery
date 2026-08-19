@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { HammerEditorialAuthorityGraph } from "../../../packages/contracts/hammer/editorial-authority.contract";
 import {
+  createHammerEditorialAuthorityHttpTransport,
   persistHammerRevisionEditorialAuthority,
   serializeHammerRevisionEditorialAuthorityArtifact,
   type HammerEditorialAuthorityTransport,
@@ -202,4 +203,158 @@ test("stale or cross-identity revisions fail before fixture writes", async () =>
   await assert.rejects(() => persistHammerRevisionEditorialAuthority({ target: { workspaceId: ids.workspace, workpieceId: ids.workpiece }, canonicalRecordingId: ids.recording, revision: { ...revision(), workpiece_id: "50000000-0000-4000-8000-000000000005" }, authority, transport: h.transport }), /identities/);
   await assert.rejects(() => persistHammerRevisionEditorialAuthority({ target: { workspaceId: ids.workspace, workpieceId: ids.workpiece }, canonicalRecordingId: ids.recording, revision: { ...revision(), status: "superseded" }, authority, transport: h.transport }), /active/);
   assert.equal(h.calls.includes("write"), false);
+});
+
+const originalFetch = globalThis.fetch;
+const runtimeGlobals = globalThis as unknown as {
+  window?: typeof globalThis;
+  localStorage?: { getItem(key: string): string | null; key(index: number): string | null; readonly length: number };
+  __forgeTongsApiToken?: string;
+  location?: { search: string };
+};
+
+function installHttpTransportRuntime(fetchImpl: typeof globalThis.fetch): () => void {
+  const previous = {
+    window: runtimeGlobals.window,
+    localStorage: runtimeGlobals.localStorage,
+    apiToken: runtimeGlobals.__forgeTongsApiToken,
+    location: runtimeGlobals.location,
+  };
+  const storage = new Map([["forge-auth", JSON.stringify({ access_token: "header.eyJleHAiOjE5ODM4MTI5OTZ9.signature" })]]);
+  runtimeGlobals.window = globalThis;
+  runtimeGlobals.localStorage = {
+    getItem: (key) => storage.get(key) ?? null,
+    key: (index) => [...storage.keys()][index] ?? null,
+    get length() { return storage.size; },
+  };
+  runtimeGlobals.__forgeTongsApiToken = "fixture-api-token";
+  runtimeGlobals.location = { search: "" };
+  globalThis.fetch = fetchImpl;
+  return () => {
+    globalThis.fetch = originalFetch;
+    runtimeGlobals.window = previous.window;
+    runtimeGlobals.localStorage = previous.localStorage;
+    runtimeGlobals.__forgeTongsApiToken = previous.apiToken;
+    runtimeGlobals.location = previous.location;
+  };
+}
+
+function jsonResponse(status: number, payload: unknown): Response {
+  return new Response(JSON.stringify(payload), { status, headers: { "content-type": "application/json" } });
+}
+
+async function fingerprint(bytes: Uint8Array): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", Uint8Array.from(bytes));
+  return [...new Uint8Array(digest)].map((value) => value.toString(16).padStart(2, "0")).join("");
+}
+
+test("HTTP transport recognizes only the exact defined 404 absent-artifact contract", async () => {
+  let restore = installHttpTransportRuntime(async () => jsonResponse(404, { ok: true, exists: false }));
+  try {
+    const transport = createHammerEditorialAuthorityHttpTransport({ target: { workspaceId: ids.workspace, workpieceId: ids.workpiece }, revisionId: ids.revision });
+    assert.deepEqual(await transport.readArtifact("fixture"), { state: { hash: null, updatedAt: null }, bytes: null });
+  } finally { restore(); }
+
+  const rejected = [
+    new Response("not-json", { status: 404 }),
+    jsonResponse(404, { ok: false, exists: false }),
+    jsonResponse(404, { ok: true }),
+    jsonResponse(404, { ok: true, exists: true }),
+    jsonResponse(404, { ok: true, exists: false, extra: true }),
+    jsonResponse(403, { ok: true, exists: false }),
+    jsonResponse(500, { ok: true, exists: false }),
+  ];
+  for (const rejectedResponse of rejected) {
+    restore = installHttpTransportRuntime(async () => rejectedResponse.clone());
+    try {
+      const transport = createHammerEditorialAuthorityHttpTransport({ target: { workspaceId: ids.workspace, workpieceId: ids.workpiece }, revisionId: ids.revision });
+      await assert.rejects(() => transport.readArtifact("fixture"));
+    } finally { restore(); }
+  }
+});
+
+test("HTTP transport preserves valid existing artifacts and rejects malformed present metadata", async () => {
+  const artifact = { schema_version: 1 as const, workspace_id: ids.workspace, workpiece_id: ids.workpiece, canonical_recording_id: ids.recording, recording_revision_id: ids.revision, authority };
+  const bytes = serializeHammerRevisionEditorialAuthorityArtifact(artifact);
+  const hash = await fingerprint(bytes);
+  let restore = installHttpTransportRuntime(async () => jsonResponse(200, { ok: true, data: artifact, file_row: { hash_value: hash, updated_at: "2026-08-19 04:00:00.123456+00" } }));
+  try {
+    const transport = createHammerEditorialAuthorityHttpTransport({ target: { workspaceId: ids.workspace, workpieceId: ids.workpiece }, revisionId: ids.revision });
+    const result = await transport.readArtifact("fixture");
+    assert.deepEqual(result, { state: { hash, updatedAt: "2026-08-19 04:00:00.123456+00" }, bytes });
+  } finally { restore(); }
+
+  for (const payload of [
+    { ok: true, exists: true, data: artifact },
+    { ok: true, exists: true, data: artifact, file_row: { hash_value: "bad", updated_at: "token" } },
+    { ok: true, exists: true, data: null, file_row: { hash_value: hash, updated_at: "token" } },
+  ]) {
+    restore = installHttpTransportRuntime(async () => jsonResponse(200, payload));
+    try {
+      const transport = createHammerEditorialAuthorityHttpTransport({ target: { workspaceId: ids.workspace, workpieceId: ids.workpiece }, revisionId: ids.revision });
+      await assert.rejects(() => transport.readArtifact("fixture"), /malformed/);
+    } finally { restore(); }
+  }
+});
+
+test("production HTTP adapter commits once from absence then deduplicates the identical call", async () => {
+  let row = revision();
+  let stored: { data: unknown; hash: string; updatedAt: string } | null = null;
+  let writes = 0;
+  let acknowledgements = 0;
+  const restore = installHttpTransportRuntime(async (input, init) => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+    if (method === "GET" && url.endsWith(`/hammer/revisions/${ids.revision}`)) return jsonResponse(200, { ok: true, data: { revision: row } });
+    if (method === "GET" && url.includes("/read-file?")) {
+      if (!stored) return jsonResponse(404, { ok: true, exists: false });
+      return jsonResponse(200, { ok: true, data: stored.data, file_row: { hash_value: stored.hash, updated_at: stored.updatedAt } });
+    }
+    if (method === "POST" && url.endsWith("/commit-file")) {
+      writes += 1;
+      const body = JSON.parse(String(init?.body)) as { json: Parameters<typeof serializeHammerRevisionEditorialAuthorityArtifact>[0] };
+      const bytes = serializeHammerRevisionEditorialAuthorityArtifact(body.json);
+      stored = { data: body.json, hash: await fingerprint(bytes), updatedAt: "2026-08-19 04:00:00.123456+00" };
+      return jsonResponse(200, { ok: true, data: { hash: stored.hash, file_row: { updated_at: stored.updatedAt } } });
+    }
+    if (method === "POST" && url.endsWith("/editorial-authority")) {
+      acknowledgements += 1;
+      const body = JSON.parse(String(init?.body)) as { artifact_path: string; artifact_fingerprint: string };
+      row = { ...row, editorial_authority_path: body.artifact_path, editorial_authority_fingerprint: body.artifact_fingerprint, editorial_authority_revision: 1, updated_at: "2026-08-19 04:00:01.654321+00" };
+      return jsonResponse(200, { ok: true, data: { revision: row } });
+    }
+    return jsonResponse(500, { ok: false });
+  });
+  try {
+    const input = { target: { workspaceId: ids.workspace, workpieceId: ids.workpiece }, canonicalRecordingId: ids.recording, revision: row, authority };
+    const first = await persistHammerRevisionEditorialAuthority(input);
+    const second = await persistHammerRevisionEditorialAuthority({ ...input, revision: first.revision, authority: structuredClone(authority) });
+    assert.deepEqual([first.disposition, second.disposition], ["committed", "already_committed"]);
+    assert.equal(writes, 1);
+    assert.equal(acknowledgements, 1);
+  } finally { restore(); }
+});
+
+test("exact absent response remains fail-closed when a pointer advertises the artifact", async () => {
+  const path = `hammer/revisions/${ids.revision}/editorial-authority.v1.json`;
+  const pointed = { ...revision(), editorial_authority_path: path, editorial_authority_fingerprint: "a".repeat(64), editorial_authority_revision: 1 };
+  let writes = 0;
+  let acknowledgements = 0;
+  const restore = installHttpTransportRuntime(async (input, init) => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+    if (method === "GET" && url.endsWith(`/hammer/revisions/${ids.revision}`)) return jsonResponse(200, { ok: true, data: { revision: pointed } });
+    if (method === "GET" && url.includes("/read-file?")) return jsonResponse(404, { ok: true, exists: false });
+    if (method === "POST" && url.endsWith("/commit-file")) writes += 1;
+    if (method === "POST" && url.endsWith("/editorial-authority")) acknowledgements += 1;
+    return jsonResponse(500, { ok: false });
+  });
+  try {
+    await assert.rejects(
+      () => persistHammerRevisionEditorialAuthority({ target: { workspaceId: ids.workspace, workpieceId: ids.workpiece }, canonicalRecordingId: ids.recording, revision: pointed, authority }),
+      /missing or unreadable/,
+    );
+    assert.equal(writes, 0);
+    assert.equal(acknowledgements, 0);
+  } finally { restore(); }
 });

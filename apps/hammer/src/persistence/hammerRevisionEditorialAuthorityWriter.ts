@@ -120,6 +120,14 @@ function decodeCanonicalBytes(value: unknown): Uint8Array | null {
   return serializeHammerRevisionEditorialAuthorityArtifact(value as HammerRevisionEditorialAuthorityArtifact);
 }
 
+function isExactAbsentArtifactResponse(response: Response, payload: JsonRecord): boolean {
+  return response.status === 404
+    && response.ok === false
+    && payload.ok === true
+    && payload.exists === false
+    && Object.keys(payload).length === 2;
+}
+
 export function createHammerEditorialAuthorityHttpTransport(args: {
   target: HammerPersistenceTarget;
   revisionId: string;
@@ -139,18 +147,26 @@ export function createHammerEditorialAuthorityHttpTransport(args: {
     async readArtifact(path) {
       const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.target.workpieceId)}/read-file?path=${encodeURIComponent(path)}`, { method: "GET" });
       const payload = await readPayload(response);
-      if (!response.ok) throw new Error(responseError(payload, "Failed to read the editorial-authority artifact."));
-      if (payload.exists === false) {
+      if (isExactAbsentArtifactResponse(response, payload)) {
         if (typeof originalBytes === "undefined") originalBytes = null;
         return { state: { hash: null, updatedAt: null }, bytes: null };
       }
+      if (!response.ok) throw new Error(responseError(payload, "Failed to read the editorial-authority artifact."));
+      if (payload.ok !== true || payload.exists === false) throw new Error("Tongs returned a malformed editorial-authority artifact response.");
       const fileRow = isRecord(payload.file_row) ? payload.file_row : null;
       const bytes = decodeCanonicalBytes(payload.data);
+      const hash = typeof fileRow?.hash_value === "string" && /^[a-f0-9]{64}$/.test(fileRow.hash_value)
+        ? fileRow.hash_value
+        : null;
+      const updatedAt = typeof fileRow?.updated_at === "string" && fileRow.updated_at.trim()
+        ? fileRow.updated_at
+        : null;
+      if (!fileRow || !bytes || !hash || !updatedAt) throw new Error("Tongs returned malformed editorial-authority artifact data or metadata.");
       if (typeof originalBytes === "undefined") originalBytes = bytes;
       return {
         state: {
-          hash: typeof fileRow?.hash_value === "string" ? fileRow.hash_value : null,
-          updatedAt: typeof fileRow?.updated_at === "string" ? fileRow.updated_at : null,
+          hash,
+          updatedAt,
         },
         bytes,
       };
