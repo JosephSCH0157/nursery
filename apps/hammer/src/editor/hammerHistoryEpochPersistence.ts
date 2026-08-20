@@ -1,4 +1,4 @@
-import { createHammerHistoryController, hashEditorState, type HammerEditorStateSerializable, type HammerHistoryController, type HammerHistoryDocumentV1 } from "./hammerWorkspaceHistory";
+import { HAMMER_EDITOR_STATE_HASH_ALGORITHM, HAMMER_EDITOR_STATE_LEGACY_HASH_ALGORITHM, createHammerHistoryController, hashEditorState, type HammerEditorStateHashAlgorithm, type HammerEditorStateSerializable, type HammerHistoryController, type HammerHistoryDocumentV1 } from "./hammerWorkspaceHistory";
 import { useMemo } from "react";
 import {
   buildHammerHistoryEpochHeadRequest,
@@ -27,6 +27,7 @@ export type HammerHistoryEpochDurableBasis = Readonly<{
   workspaceId: string; workpieceId: string; canonicalRecordingId: string; revisionId: string;
   epochId: string; epochAnchorPath: string; epochAnchorSha256: string;
   epochBaseHash: string; componentHashes: HammerHistoryComponentHashes;
+  canonicalEpochBaseHash: string; epochBaseHashAlgorithm: HammerEditorStateHashAlgorithm;
   headId: string | null; historyPath: string; sequence: number;
   revisionUpdatedAt: string; registry: HammerHistoryRegistryTuple;
   componentAuthority: HammerHistoryComponentAuthority | null;
@@ -51,7 +52,7 @@ export type HammerHistoryEpochPersistenceState = Readonly<{
 }>;
 
 export interface HammerHistoryEpochPersistenceAuthority {
-  install(hydration: Extract<HammerRevisionHistoryHydration, { kind: "epoch_anchor" | "epoch_head" }>, identity: { workspaceId: string; workpieceId: string; canonicalRecordingId: string; revisionId: string }): void;
+  install(hydration: Extract<HammerRevisionHistoryHydration, { kind: "epoch_anchor" | "epoch_head" }>, identity: { workspaceId: string; workpieceId: string; canonicalRecordingId: string; revisionId: string }, baseMatch?: { canonicalHash: string; algorithm: HammerEditorStateHashAlgorithm }): void;
   clear(): void;
   getState(): HammerHistoryEpochPersistenceState | null;
   enqueue(document: HammerHistoryDocumentV1, state: HammerEditorStateSerializable): Promise<HammerHistoryTransitionResult>;
@@ -61,11 +62,14 @@ export interface HammerHistoryEpochPersistenceAuthority {
 export function durableBasisFromHydration(
   hydration: Extract<HammerRevisionHistoryHydration, { kind: "epoch_anchor" | "epoch_head" }>,
   identity: { workspaceId: string; workpieceId: string; canonicalRecordingId: string; revisionId: string },
+  baseMatch?: { canonicalHash: string; algorithm: HammerEditorStateHashAlgorithm },
 ): HammerHistoryEpochDurableBasis {
   if (hydration.kind === "epoch_anchor") return Object.freeze({
     ...identity, epochId: hydration.epoch.epoch_id, epochAnchorPath: hydration.pointer,
     epochAnchorSha256: hydration.durable_basis.registry.sha256,
     epochBaseHash: hydration.epoch.base.editor_state_hash, componentHashes: hydration.epoch.base.component_sha256,
+    canonicalEpochBaseHash: baseMatch?.canonicalHash ?? hydration.epoch.base.editor_state_hash,
+    epochBaseHashAlgorithm: baseMatch?.algorithm ?? HAMMER_EDITOR_STATE_HASH_ALGORITHM,
     headId: null, historyPath: hydration.pointer, sequence: 0,
     revisionUpdatedAt: hydration.durable_basis.revision_updated_at,
     registry: hydration.durable_basis.registry, componentAuthority: null,
@@ -73,6 +77,8 @@ export function durableBasisFromHydration(
   return Object.freeze({
     ...identity, epochId: hydration.epoch_id, epochAnchorPath: hydration.epoch_anchor.path,
     epochAnchorSha256: hydration.epoch_anchor.sha256, epochBaseHash: hydration.document.baseRevisionId,
+    canonicalEpochBaseHash: hydration.base.canonical_editor_state_hash ?? hydration.document.baseRevisionId,
+    epochBaseHashAlgorithm: hydration.base.hash_algorithm ?? HAMMER_EDITOR_STATE_HASH_ALGORITHM,
     componentHashes: hydration.base.component_sha256,
     headId: hydration.head_id, historyPath: hydration.pointer, sequence: hydration.sequence,
     revisionUpdatedAt: hydration.durable_basis.revision_updated_at,
@@ -89,8 +95,10 @@ export function buildHammerHistoryEpochCommitDraft(args: HammerHistoryEpochCommi
     creation: { created_at: args.createdAt, initiating_user_id: args.initiatingUserId },
     epoch_anchor: { path: args.basis.epochAnchorPath, sha256: args.basis.epochAnchorSha256 },
     parent: { head_id: args.basis.headId, path: args.basis.historyPath, sha256: args.basis.registry.sha256, registry_revision: args.basis.registry.revision, registry_updated_at: args.basis.registry.updated_at },
-    base: { editor_state_hash: args.basis.epochBaseHash, component_sha256: args.basis.componentHashes },
-    result: { editor_state_hash: hashEditorState(args.state), component_authority: args.componentAuthority },
+    base: args.basis.epochBaseHashAlgorithm === HAMMER_EDITOR_STATE_LEGACY_HASH_ALGORITHM
+      ? { editor_state_hash: args.basis.epochBaseHash, component_sha256: args.basis.componentHashes, hash_algorithm: HAMMER_EDITOR_STATE_LEGACY_HASH_ALGORITHM, canonical_editor_state_hash: args.basis.canonicalEpochBaseHash }
+      : { editor_state_hash: args.basis.epochBaseHash, component_sha256: args.basis.componentHashes },
+    result: { editor_state_hash: hashEditorState(args.state), component_authority: args.componentAuthority, hash_algorithm: HAMMER_EDITOR_STATE_HASH_ALGORITHM },
     history: args.document, boundary: BOUNDARY,
   } as const;
   return buildHammerHistoryEpochHeadRequest({
@@ -107,7 +115,7 @@ export function createHammerHistoryEpochPersistenceAuthority(adapters: HammerHis
   let tail: Promise<unknown> = Promise.resolve();
   const conflict = (code: string): HammerHistoryTransitionResult => ({ outcome: "conflict", code, terminal: true, retryable: false });
   return {
-    install(hydration, identity) { generation += 1; basis = durableBasisFromHydration(hydration, identity); pendingCount = 0; lastConflict = null; tail = Promise.resolve(); },
+    install(hydration, identity, baseMatch) { generation += 1; basis = durableBasisFromHydration(hydration, identity, baseMatch); pendingCount = 0; lastConflict = null; tail = Promise.resolve(); },
     clear() { generation += 1; basis = null; pendingCount = 0; lastConflict = null; tail = Promise.resolve(); },
     getState: () => basis ? { basis, pending: pendingCount > 0, lastConflict } : null,
     enqueue(document, state) {

@@ -32,10 +32,10 @@ import { resolveHammerDerivedLayersForUndoStack } from "./hammerCompositionHisto
 import { startAndHydrateHammerHistoryEpoch, type HammerHistoryEpochPersistenceAuthority, type HammerHistoryEpochPersistenceState } from "./hammerHistoryEpochPersistence";
 import type { HammerHistoryEpochStartCandidate } from "./hammerHistoryEpochStartWorkflow";
 import { loadHammerRevisionHistoryHydration, type HammerHistoryEpochTransportRequest, type HammerRevisionHistoryHydration } from "../lib/hammerHistoryEpochApi";
+import { reconstructLegacyEditorStateHashInput, verifyEpochAnchorBaseHash } from "./hammerHistoryHashCompatibility";
 export { captureHammerHistoryPostSaveSnapshotRequest, persistHammerHistorySaveBoundary } from "./hammerHistorySaveBoundary";
 export type { HammerHistoryPostSaveSnapshotRequest } from "./hammerHistorySaveBoundary";
 import { cloneHammerHistoryDocument, persistHammerHistorySaveBoundary, type HammerHistoryPostSaveSnapshotRequest } from "./hammerHistorySaveBoundary";
-
 export type HammerHistoryCommandAuthorityConfig = {
   workspaceId: string;
   workpieceId: string;
@@ -60,7 +60,6 @@ export type HammerHistoryCommandAuthorityConfig = {
   epochPersistence?: HammerHistoryEpochPersistenceAuthority;
   isTransitionPending?: () => boolean;
 };
-
 export type HammerHistoryMutationArgs = {
   label: string;
   kind?: HammerHistoryKind;
@@ -72,12 +71,11 @@ export type HammerHistoryMutationArgs = {
   immediatePersist?: boolean;
   computeAfter: (before: HammerEditorStateSerializable) => HammerEditorStateSerializable;
 };
-
 export interface HammerHistoryCommandAuthority {
   configure(config: HammerHistoryCommandAuthorityConfig): void;
   getController(): HammerHistoryController | null;
   installController(controller: HammerHistoryController | null): void;
-  installHydration(hydration: HammerRevisionHistoryHydration, controller: HammerHistoryController | null, identity: { workspaceId: string; workpieceId: string; canonicalRecordingId: string; revisionId: string }): void;
+  installHydration(hydration: HammerRevisionHistoryHydration, controller: HammerHistoryController | null, identity: { workspaceId: string; workpieceId: string; canonicalRecordingId: string; revisionId: string }, baseMatch?: { canonicalHash: string; algorithm: import("./hammerWorkspaceHistory").HammerEditorStateHashAlgorithm }): void;
   getEpochPersistenceState(): HammerHistoryEpochPersistenceState | null; startHistoryEpoch(request: HammerHistoryEpochTransportRequest, frozenState?: HammerEditorStateSerializable): Promise<import("../lib/hammerHistoryEpochApi").HammerHistoryTransitionResult>;
   applyMutation(args: HammerHistoryMutationArgs): HammerHistoryEntry | null;
   undo(): void;
@@ -189,9 +187,9 @@ export function createHammerHistoryCommandAuthority(
       }
       controller = nextController;
     },
-    installHydration(hydration, nextController, identity) {
+    installHydration(hydration, nextController, identity, baseMatch) {
       authority.installController(nextController);
-      if (hydration.kind === "epoch_anchor" || hydration.kind === "epoch_head") config.epochPersistence?.install(hydration, identity);
+      if (hydration.kind === "epoch_anchor" || hydration.kind === "epoch_head") config.epochPersistence?.install(hydration, identity, baseMatch);
       else config.epochPersistence?.clear();
     },
     getEpochPersistenceState: () => config.epochPersistence?.getState() ?? null,
@@ -398,10 +396,8 @@ export type UseHammerWorkspaceShellHistoryControllerArgs = {
   transcriptSegments: HammerTranscriptSegment[];
   structuredTranscript: HammerPersistedStructuredTranscript | null;
   visualPlacements: HammerPersistedVisualPlacements | null;
-  visualTimeline: HammerVisualTimelineState | null;
-
+  visualTimeline: HammerVisualTimelineState | null; legacyHashVisualTimeline: HammerVisualTimelineState | null;
   historyAuthority: HammerHistoryCommandAuthority;
-
   snapshotAuthority: HammerWorkspaceShellSnapshotAuthority;
   applyWorkspaceState: (state: HammerEditorStateSerializable, reason?: string) => void;
   setHistoryStatus: (status: string | null) => void;
@@ -503,6 +499,7 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
       args.cloneHammerDerivedTextLayers(args.structuredTranscript?.derived_text_layers),
     );
     const baseRevisionId = hashEditorState(baselineState);
+    const legacyBaselineState = reconstructLegacyEditorStateHashInput(baselineState, args.legacyHashVisualTimeline);
 
     args.historyAuthority.installController(createHammerHistoryController({
       document: createHammerHistoryDocument({
@@ -601,17 +598,19 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
       });
 
       let replayBaselineState = baselineState;
-      if (hydration?.kind === "epoch_anchor" && loaded.baseRevisionId !== baseRevisionId) {
-        args.historyAuthority.installController(null);
-        args.setHistoryStatus("Epoch anchor canonical base mismatch. History traversal is blocked.");
-        return;
+      const epochBaseVerification = hydration?.kind === "epoch_anchor"
+        ? await verifyEpochAnchorBaseHash({ expectedHash: loaded.baseRevisionId, canonicalState: baselineState,
+          legacyReconstruction: legacyBaselineState, workpieceId: args.launchContext.workpiece_id,
+          componentPaths: args.historyEpochComponentPaths, componentHashes: hydration.epoch.base.component_sha256 })
+        : null;
+      if (epochBaseVerification && !epochBaseVerification.ok) {
+        args.historyAuthority.installController(null); args.setHistoryStatus(epochBaseVerification.error); return;
       }
-      if (loaded.baseRevisionId !== baseRevisionId) {
+      if (hydration?.kind !== "epoch_anchor" && loaded.baseRevisionId !== baseRevisionId) {
         try {
-          replayBaselineState = verifyHammerHistoryAgainstCanonicalHead({
-            document: loaded,
-            canonicalHead: baselineState,
-          }).baseline;
+          replayBaselineState = verifyHammerHistoryAgainstCanonicalHead({ document: loaded, canonicalHead: baselineState,
+            legacyCanonicalHeadReconstruction: legacyBaselineState,
+            canonicalBaseHash: hydration?.kind === "epoch_head" ? hydration.base.canonical_editor_state_hash ?? null : null }).baseline;
           args.historyAuthority.updateBaselineState(replayBaselineState);
         } catch (error) {
           const code = error instanceof HammerHistoryVerificationError
@@ -651,7 +650,7 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
       if (hydration && revisionId && args.canonicalRecordingId) args.historyAuthority.installHydration(hydration, controller, {
         workspaceId: args.launchContext.workspace_id, workpieceId: args.launchContext.workpiece_id,
         canonicalRecordingId: args.canonicalRecordingId, revisionId,
-      });
+      }, epochBaseVerification?.ok && epochBaseVerification.match.algorithm ? { canonicalHash: epochBaseVerification.match.canonicalHash, algorithm: epochBaseVerification.match.algorithm } : undefined);
       else args.historyAuthority.installController(controller);
       args.applyWorkspaceState(replayed, "history:replay_apply");
       args.setHistoryStatus(resolveHammerHistoryStatus({
@@ -679,5 +678,6 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
     args.structuredTranscriptResetKey,
     args.transcriptSourceId,
     args.visualTimelineResetKey,
+    args.legacyHashVisualTimeline,
   ]);
 }

@@ -46,6 +46,17 @@ test("anchor advances to first immutable head and exact replay writes nothing", 
   assert.equal((await coordinateHammerHistoryEpochHead(f)).outcome, "already_committed"); assert.equal(f.state.writes, 1); assert.equal(f.state.commitCalls, 1);
 });
 
+test("verified legacy base discriminator commits a canonical result without weakening the epoch boundary", async () => {
+  const f = fixture();
+  f.request.envelope.base.hash_algorithm = "json-stringify-v0";
+  f.request.envelope.base.canonical_editor_state_hash = "hammer-state:abcdef12";
+  f.request.envelope.result.hash_algorithm = "canonical-json-v1";
+  const result = await coordinateHammerHistoryEpochHead(f);
+  assert.equal(result.outcome, "committed");
+  assert.equal(f.state.commitCalls, 1);
+  assert.equal(f.request.envelope.base.editor_state_hash, "hammer-state:1234abcd");
+});
+
 test("same idempotency key with altered bytes is a terminal conflict", async () => {
   const f = fixture(); assert.equal((await coordinateHammerHistoryEpochHead(f)).outcome, "committed");
   f.request.envelope.history.updatedAt = "2026-08-19T14:01:09.123455Z";

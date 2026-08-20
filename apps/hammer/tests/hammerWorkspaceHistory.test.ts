@@ -8,6 +8,9 @@ import {
   createHammerHistoryController,
   createHammerHistoryDocument,
   hashEditorState,
+  hashEditorStateLegacy,
+  matchEditorStateHash,
+  serializeCanonicalEditorState,
   normalizeHammerHistoryDocument,
   verifyHammerHistoryAgainstCanonicalHead,
   HammerHistoryVerificationError,
@@ -656,6 +659,55 @@ async function testStrictHistoryVerification() {
   expectCode(incomplete, head, "history_incomplete_entry_sequence");
 }
 
+async function testVersionAwareCanonicalHashing() {
+  const anchor = baseState();
+  const reopen = structuredClone(anchor);
+  const reverseKeys = (value: unknown): unknown => {
+    if (Array.isArray(value)) return value.map(reverseKeys);
+    if (!value || typeof value !== "object") return value;
+    return Object.fromEntries(Object.keys(value as Record<string, unknown>).reverse().map((key) => [key, reverseKeys((value as Record<string, unknown>)[key])]));
+  };
+  reopen.visualTimeline = reverseKeys(anchor.visualTimeline) as HammerVisualTimelineState;
+  assert.notEqual(hashEditorStateLegacy(anchor), hashEditorStateLegacy(reopen));
+  assert.equal(hashEditorState(anchor), hashEditorState(reopen));
+  assert.equal(serializeCanonicalEditorState(anchor), serializeCanonicalEditorState(reopen));
+
+  const legacy = hashEditorStateLegacy(anchor);
+  assert.deepEqual(matchEditorStateHash({ expectedHash: legacy, canonicalState: reopen, legacyReconstruction: anchor }), {
+    matched: true,
+    algorithm: "json-stringify-v0",
+    canonicalHash: hashEditorState(reopen),
+    legacyHash: legacy,
+  });
+  assert.equal(matchEditorStateHash({ expectedHash: "hammer-state:00000000", canonicalState: reopen, legacyReconstruction: anchor }).matched, false);
+
+  const changed = structuredClone(reopen);
+  changed.playheadSec += 0.001;
+  assert.notEqual(hashEditorState(anchor), hashEditorState(changed));
+  const reorderedArray = structuredClone(reopen);
+  reorderedArray.transcriptSegments.reverse();
+  assert.notEqual(hashEditorState(anchor), hashEditorState(reorderedArray));
+  assert.notEqual(serializeCanonicalEditorState({ missing: false }), serializeCanonicalEditorState({ missing: null }));
+  assert.notEqual(serializeCanonicalEditorState({ missing: 0 }), serializeCanonicalEditorState({}));
+  assert.notEqual(serializeCanonicalEditorState({ missing: [] }), serializeCanonicalEditorState({ missing: {} }));
+}
+
+async function testExistingLegacyHistoryVerificationRemainsAvailable() {
+  const baseline = baseState();
+  const head = cloneEditorState(baseline); head.playheadSec = 0.75;
+  const controller = createHammerHistoryController({ document: createHammerHistoryDocument({
+    workpieceId: "legacy-workpiece", sessionId: "legacy-session", baseRevisionId: hashEditorState(baseline),
+  }), initialState: baseline });
+  controller.applyMutation({ label: "legacy edit", nextState: head });
+  controller.document.baseRevisionId = hashEditorStateLegacy(baseline);
+  controller.document.entries[0]!.baseStateHash = hashEditorStateLegacy(baseline);
+  controller.document.entries[0]!.resultStateHash = hashEditorStateLegacy(head);
+  const verified = verifyHammerHistoryAgainstCanonicalHead({
+    document: controller.document, canonicalHead: head, legacyCanonicalHeadReconstruction: head,
+  });
+  assert.equal(hashEditorState(verified.replayedHead), hashEditorState(head));
+}
+
 async function run() {
   await testPatchRoundTrip();
   await testControllerUndoRedoAndRedoClear();
@@ -670,6 +722,8 @@ async function run() {
   await testVisualCompositionFieldsPersistAcrossUndoRedo();
   await testCompatibilityPlacementsDoNotDriveHistoryDiffs();
   await testStrictHistoryVerification();
+  await testVersionAwareCanonicalHashing();
+  await testExistingLegacyHistoryVerificationRemainsAvailable();
   // eslint-disable-next-line no-console
   console.log("Hammer workspace history tests passed.");
 }

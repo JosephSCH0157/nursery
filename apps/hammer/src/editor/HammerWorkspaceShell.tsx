@@ -284,6 +284,7 @@ type HammerWorkspaceShellProps = {
   editorialAuthorityGraph?: HammerEditorialAuthorityGraph | null;
   visualPlacements?: HammerPersistedVisualPlacements | null;
   visualTimeline?: HammerVisualTimelineState | null;
+  legacyHashVisualTimeline?: HammerVisualTimelineState | null;
   audioPolish?: HammerPersistedAudioPolish | null;
   initialVisualPreviewSettings?: HammerPersistedVisualPreviewSettings | null;
   initialCurrentPass?: HammerPassId;
@@ -2404,6 +2405,7 @@ function HammerWorkspaceShellWithContext(
     structuredTranscript: props.structuredTranscript ?? null,
     visualPlacements: props.visualPlacements ?? null,
     visualTimeline: props.visualTimeline ?? null,
+    legacyHashVisualTimeline: props.legacyHashVisualTimeline ?? null,
     historyAuthority,
     snapshotAuthority,
     applyWorkspaceState,

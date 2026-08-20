@@ -5231,6 +5231,7 @@ export default function HammerWorkspaceEditor(
             editorialAuthorityGraph={loadedPersistenceSnapshot?.editorial_authority.data ?? null}
             visualPlacements={visualPlacementData}
             visualTimeline={visualTimelineData}
+            legacyHashVisualTimeline={loadedPersistenceSnapshot?.visual_timeline.data ?? null}
             audioPolish={audioPolishData}
             initialVisualPreviewSettings={loadedPersistenceSnapshot?.editor_session.data?.visual_preview ?? null}
             initialCurrentPass={loadedPersistenceSnapshot?.state?.current_pass}

@@ -361,9 +361,78 @@ function stableHashToken(value: string): string {
   return hash.toString(16).padStart(8, "0");
 }
 
+export const HAMMER_EDITOR_STATE_HASH_ALGORITHM = "canonical-json-v1" as const;
+export const HAMMER_EDITOR_STATE_LEGACY_HASH_ALGORITHM = "json-stringify-v0" as const;
+export type HammerEditorStateHashAlgorithm =
+  | typeof HAMMER_EDITOR_STATE_HASH_ALGORITHM
+  | typeof HAMMER_EDITOR_STATE_LEGACY_HASH_ALGORITHM;
+
+/**
+ * JSON.stringify-compatible canonical serialization for editor authority.
+ * Object construction order is not semantic; array order and JSON values are.
+ */
+export function serializeCanonicalEditorState(value: unknown): string {
+  const seen = new Set<object>();
+  const visit = (input: unknown, inArray: boolean): string | undefined => {
+    if (input === null || typeof input === "boolean" || typeof input === "string") return JSON.stringify(input);
+    if (typeof input === "number") return Number.isFinite(input) ? JSON.stringify(input) : "null";
+    if (typeof input === "undefined" || typeof input === "function" || typeof input === "symbol") {
+      return inArray ? "null" : undefined;
+    }
+    if (typeof input === "bigint") throw new TypeError("Canonical editor state cannot contain bigint values.");
+    if (typeof input !== "object") return undefined;
+    if (seen.has(input)) throw new TypeError("Canonical editor state cannot contain circular values.");
+    seen.add(input);
+    try {
+      if (Array.isArray(input)) {
+        return `[${input.map((entry) => visit(entry, true) ?? "null").join(",")}]`;
+      }
+      const entries = Object.keys(input as Record<string, unknown>)
+        .sort()
+        .flatMap((key) => {
+          const serialized = visit((input as Record<string, unknown>)[key], false);
+          return serialized === undefined ? [] : [`${JSON.stringify(key)}:${serialized}`];
+        });
+      return `{${entries.join(",")}}`;
+    } finally {
+      seen.delete(input);
+    }
+  };
+  const serialized = visit(value, false);
+  if (serialized === undefined) throw new TypeError("Canonical editor state must be JSON-compatible.");
+  return serialized;
+}
+
+export function hashEditorStateLegacy(state: HammerEditorStateSerializable): string {
+  return `hammer-state:${stableHashToken(JSON.stringify(state))}`;
+}
+
 export function hashEditorState(state: HammerEditorStateSerializable): string {
-  const payload = JSON.stringify(state);
+  const payload = serializeCanonicalEditorState(state);
   return `hammer-state:${stableHashToken(payload)}`;
+}
+
+export type HammerEditorStateHashMatch = Readonly<{
+  matched: boolean;
+  algorithm: HammerEditorStateHashAlgorithm | null;
+  canonicalHash: string;
+  legacyHash: string | null;
+}>;
+
+export function matchEditorStateHash(args: {
+  expectedHash: string;
+  canonicalState: HammerEditorStateSerializable;
+  legacyReconstruction?: HammerEditorStateSerializable | null;
+}): HammerEditorStateHashMatch {
+  const canonicalHash = hashEditorState(args.canonicalState);
+  if (args.expectedHash === canonicalHash) {
+    return { matched: true, algorithm: HAMMER_EDITOR_STATE_HASH_ALGORITHM, canonicalHash, legacyHash: null };
+  }
+  const legacyHash = args.legacyReconstruction ? hashEditorStateLegacy(args.legacyReconstruction) : null;
+  if (legacyHash !== null && args.expectedHash === legacyHash) {
+    return { matched: true, algorithm: HAMMER_EDITOR_STATE_LEGACY_HASH_ALGORITHM, canonicalHash, legacyHash };
+  }
+  return { matched: false, algorithm: null, canonicalHash, legacyHash };
 }
 
 export type HammerHistoryVerificationFailureCode =
@@ -391,6 +460,8 @@ export class HammerHistoryVerificationError extends Error {
 export function verifyHammerHistoryAgainstCanonicalHead(args: {
   document: HammerHistoryDocumentV1;
   canonicalHead: HammerEditorStateSerializable;
+  legacyCanonicalHeadReconstruction?: HammerEditorStateSerializable | null;
+  canonicalBaseHash?: string | null;
 }): { baseline: HammerEditorStateSerializable; replayedHead: HammerEditorStateSerializable } {
   const entriesById = new Map(args.document.entries.map((entry) => [entry.id, entry]));
   const activeEntries = args.document.undoStack.map((entryId, index) => {
@@ -417,7 +488,11 @@ export function verifyHammerHistoryAgainstCanonicalHead(args: {
     );
   }
   const declaredHeadHash = activeEntries.at(-1)?.resultStateHash;
-  if (declaredHeadHash && declaredHeadHash !== hashEditorState(args.canonicalHead)) {
+  if (declaredHeadHash && !matchEditorStateHash({
+    expectedHash: declaredHeadHash,
+    canonicalState: args.canonicalHead,
+    legacyReconstruction: args.legacyCanonicalHeadReconstruction,
+  }).matched) {
     throw new HammerHistoryVerificationError(
       "history_current_head_mismatch",
       "The canonical head does not match the ledger's declared result state.",
@@ -425,9 +500,13 @@ export function verifyHammerHistoryAgainstCanonicalHead(args: {
   }
 
   let baseline = cloneEditorState(args.canonicalHead);
+  let legacyBaseline = args.legacyCanonicalHeadReconstruction
+    ? cloneEditorState(args.legacyCanonicalHeadReconstruction)
+    : null;
   try {
     for (const entry of [...activeEntries].reverse()) {
       baseline = applyPatches(baseline, entry.inversePatch);
+      if (legacyBaseline) legacyBaseline = applyPatches(legacyBaseline, entry.inversePatch);
     }
   } catch (error) {
     if (error instanceof HammerHistoryVerificationError) throw error;
@@ -437,7 +516,12 @@ export function verifyHammerHistoryAgainstCanonicalHead(args: {
       error,
     );
   }
-  if (hashEditorState(baseline) !== args.document.baseRevisionId) {
+  const expectedCanonicalBase = args.canonicalBaseHash ?? args.document.baseRevisionId;
+  const canonicalBaseMatches = hashEditorState(baseline) === expectedCanonicalBase;
+  const verifiedLegacyBaseMatches = legacyBaseline !== null
+    && hashEditorStateLegacy(legacyBaseline) === args.document.baseRevisionId
+    && hashEditorState(legacyBaseline) === hashEditorState(baseline);
+  if (!canonicalBaseMatches && !verifiedLegacyBaseMatches) {
     throw new HammerHistoryVerificationError(
       "history_declared_base_mismatch",
       "Inverse replay did not produce the declared history base revision.",

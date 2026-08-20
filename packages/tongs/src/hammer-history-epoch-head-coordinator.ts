@@ -9,6 +9,9 @@ const STATE_RE = /^hammer-state:[0-9a-f]{8}$/;
 const IDEMPOTENCY_RE = /^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/;
 const UTC_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$/;
 const COMPONENTS = ["audio", "editorial_authority", "transcript", "visual_placements", "visual_timeline"] as const;
+const CANONICAL_HASH_ALGORITHM = "canonical-json-v1" as const;
+const LEGACY_HASH_ALGORITHM = "json-stringify-v0" as const;
+type EditorStateHashAlgorithm = typeof CANONICAL_HASH_ALGORITHM | typeof LEGACY_HASH_ALGORITHM;
 
 type JsonObject = Record<string, unknown>;
 export type HammerHistoryComponentAuthority = Readonly<Record<(typeof COMPONENTS)[number], Readonly<{
@@ -31,8 +34,8 @@ export type HammerHistoryEpochHeadEnvelopeV1 = Readonly<{
   creation: Readonly<{ created_at: string; initiating_user_id: string }>;
   epoch_anchor: Readonly<{ path: string; sha256: string }>;
   parent: Readonly<{ head_id: string | null; path: string; sha256: string; registry_revision: number; registry_updated_at: string }>;
-  base: Readonly<{ editor_state_hash: string; component_sha256: HammerHistoryEpochComponentHashes }>;
-  result: Readonly<{ editor_state_hash: string; component_authority: HammerHistoryComponentAuthority }>;
+  base: Readonly<{ editor_state_hash: string; component_sha256: HammerHistoryEpochComponentHashes; hash_algorithm?: EditorStateHashAlgorithm; canonical_editor_state_hash?: string }>;
+  result: Readonly<{ editor_state_hash: string; component_authority: HammerHistoryComponentAuthority; hash_algorithm?: EditorStateHashAlgorithm }>;
   history: HammerHistoryDocumentV1;
   boundary: Readonly<{ prior_history_status: "unavailable"; merged: false; traversable: false; statement: "Prior undo history is unavailable and was not merged into this epoch." }>;
 }>;
@@ -71,6 +74,7 @@ const exact = (v: JsonObject, keys: readonly string[]) => Object.keys(v).sort().
 const uuid = (v: unknown): v is string => typeof v === "string" && UUID_RE.test(v);
 const sha = (v: unknown): v is string => typeof v === "string" && SHA_RE.test(v);
 const stateHash = (v: unknown): v is string => typeof v === "string" && STATE_RE.test(v);
+const hashAlgorithm = (v: unknown): v is EditorStateHashAlgorithm => v === CANONICAL_HASH_ALGORITHM || v === LEGACY_HASH_ALGORITHM;
 const positive = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
 const timestamp = (v: unknown): v is string => typeof v === "string" && v.length >= 20 && v.length <= 64 && Number.isFinite(Date.parse(v));
 const utcTimestamp = (v: unknown): v is string => timestamp(v) && UTC_RE.test(v);
@@ -148,8 +152,10 @@ function validateEnvelope(request: HammerHistoryEpochHeadRequest): HammerHistory
   if (!object(v.creation) || !exact(v.creation, ["created_at", "initiating_user_id"]) || !utcTimestamp(v.creation.created_at) || v.creation.initiating_user_id !== request.initiatingUserId) return conflict("history_epoch_head_creation_invalid");
   if (!object(v.parent) || !exact(v.parent, ["head_id", "path", "sha256", "registry_revision", "registry_updated_at"]) || v.parent.path !== request.expectedHistoryPath || v.parent.head_id !== request.expectedParent.headId || v.parent.sha256 !== request.expectedParent.sha256 || v.parent.registry_revision !== request.expectedParent.revision || v.parent.registry_updated_at !== request.expectedParent.updatedAt) return conflict("history_epoch_head_parent_conflict");
   if (!object(v.epoch_anchor) || !exact(v.epoch_anchor, ["path", "sha256"]) || typeof v.epoch_anchor.path !== "string" || !sha(v.epoch_anchor.sha256)) return conflict("history_epoch_head_anchor_invalid");
-  if (!object(v.base) || !exact(v.base, ["editor_state_hash", "component_sha256"]) || !stateHash(v.base.editor_state_hash) || !object(v.base.component_sha256) || !exact(v.base.component_sha256, COMPONENTS) || !COMPONENTS.every((k) => sha((v.base.component_sha256 as JsonObject)[k]))) return conflict("history_epoch_head_base_conflict");
-  if (!object(v.result) || !exact(v.result, ["editor_state_hash", "component_authority"]) || !stateHash(v.result.editor_state_hash) || !validateAuthority(v.result.component_authority)) return conflict("history_epoch_head_component_authority_conflict");
+  if (!object(v.base) || !(exact(v.base, ["editor_state_hash", "component_sha256"]) || exact(v.base, ["editor_state_hash", "component_sha256", "hash_algorithm", "canonical_editor_state_hash"])) || !stateHash(v.base.editor_state_hash) || !object(v.base.component_sha256) || !exact(v.base.component_sha256, COMPONENTS) || !COMPONENTS.every((k) => sha((v.base.component_sha256 as JsonObject)[k]))
+    || ("hash_algorithm" in v.base && (v.base.hash_algorithm !== LEGACY_HASH_ALGORITHM || !stateHash(v.base.canonical_editor_state_hash)))) return conflict("history_epoch_head_base_conflict");
+  if (!object(v.result) || !(exact(v.result, ["editor_state_hash", "component_authority"]) || exact(v.result, ["editor_state_hash", "component_authority", "hash_algorithm"])) || !stateHash(v.result.editor_state_hash) || !validateAuthority(v.result.component_authority)
+    || ("hash_algorithm" in v.result && !hashAlgorithm(v.result.hash_algorithm))) return conflict("history_epoch_head_component_authority_conflict");
   if (!validateHistory(v.history, request)) return conflict("history_epoch_head_history_invalid");
   if (!object(v.boundary) || !exact(v.boundary, ["prior_history_status", "merged", "traversable", "statement"]) || v.boundary.prior_history_status !== "unavailable" || v.boundary.merged !== false || v.boundary.traversable !== false || v.boundary.statement !== "Prior undo history is unavailable and was not merged into this epoch.") return conflict("history_epoch_head_boundary_invalid");
   return null;

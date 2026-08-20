@@ -1,4 +1,4 @@
-import { normalizeHammerHistoryDocument, type HammerHistoryDocumentV1 } from "../editor/hammerWorkspaceHistory";
+import { HAMMER_EDITOR_STATE_HASH_ALGORITHM, HAMMER_EDITOR_STATE_LEGACY_HASH_ALGORITHM, normalizeHammerHistoryDocument, type HammerEditorStateHashAlgorithm, type HammerHistoryDocumentV1 } from "../editor/hammerWorkspaceHistory";
 import { tongsFetch } from "./tongsFetch";
 import { parseTongsReadFileResponse } from "./tongsReadFileResponse";
 
@@ -36,8 +36,8 @@ export type HammerHistoryEpochHeadEnvelopeV1 = Readonly<{
   creation: Readonly<{ created_at: string; initiating_user_id: string }>;
   epoch_anchor: Readonly<{ path: string; sha256: string }>;
   parent: Readonly<{ head_id: string | null; path: string; sha256: string; registry_revision: number; registry_updated_at: string }>;
-  base: Readonly<{ editor_state_hash: string; component_sha256: HammerHistoryComponentHashes }>;
-  result: Readonly<{ editor_state_hash: string; component_authority: HammerHistoryComponentAuthority }>;
+  base: Readonly<{ editor_state_hash: string; component_sha256: HammerHistoryComponentHashes; hash_algorithm?: HammerEditorStateHashAlgorithm; canonical_editor_state_hash?: string }>;
+  result: Readonly<{ editor_state_hash: string; component_authority: HammerHistoryComponentAuthority; hash_algorithm?: HammerEditorStateHashAlgorithm }>;
   history: HammerHistoryDocumentV1; boundary: HammerHistoryBoundary;
 }>;
 
@@ -56,6 +56,7 @@ const exact = (value: JsonObject, keys: readonly string[]) => Object.keys(value)
 const uuid = (value: unknown): value is string => typeof value === "string" && UUID_RE.test(value);
 const sha = (value: unknown): value is string => typeof value === "string" && SHA_RE.test(value);
 const state = (value: unknown): value is string => typeof value === "string" && STATE_RE.test(value);
+const algorithm = (value: unknown): value is HammerEditorStateHashAlgorithm => value === HAMMER_EDITOR_STATE_HASH_ALGORITHM || value === HAMMER_EDITOR_STATE_LEGACY_HASH_ALGORITHM;
 const positive = (value: unknown): value is number => typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 const timestamp = (value: unknown): value is string => typeof value === "string" && value.length >= 20 && value.length <= 64 && Number.isFinite(Date.parse(value));
 const utc = (value: unknown): value is string => timestamp(value) && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?Z$/.test(value);
@@ -119,8 +120,10 @@ export function validateHammerHistoryEpochHeadEnvelope(value: unknown, identity:
     || !object(anchor) || !exact(anchor, ["path", "sha256"]) || anchor.path !== `hammer/revisions/${identity.revisionId}/history/epochs/${String(value.epoch_id)}.v1.json` || !sha(anchor.sha256)
     || !object(parent) || !exact(parent, ["head_id", "path", "sha256", "registry_revision", "registry_updated_at"]) || !sha(parent.sha256) || !positive(parent.registry_revision) || !timestamp(parent.registry_updated_at)
     || (value.sequence === 1 ? parent.head_id !== null || parent.path !== anchor.path : !uuid(parent.head_id) || parent.path !== `hammer/revisions/${identity.revisionId}/history/epochs/${String(value.epoch_id)}/heads/${String(parent.head_id)}.history.v1.json`)
-    || !object(base) || !exact(base, ["editor_state_hash", "component_sha256"]) || !state(base.editor_state_hash) || !validateHashes(base.component_sha256)
-    || !object(result) || !exact(result, ["editor_state_hash", "component_authority"]) || !state(result.editor_state_hash) || !validateAuthority(result.component_authority) || !validateBoundary(value.boundary)) return null;
+    || !object(base) || !(exact(base, ["editor_state_hash", "component_sha256"]) || exact(base, ["editor_state_hash", "component_sha256", "hash_algorithm", "canonical_editor_state_hash"])) || !state(base.editor_state_hash) || !validateHashes(base.component_sha256)
+    || ("hash_algorithm" in base && (base.hash_algorithm !== HAMMER_EDITOR_STATE_LEGACY_HASH_ALGORITHM || !state(base.canonical_editor_state_hash)))
+    || !object(result) || !(exact(result, ["editor_state_hash", "component_authority"]) || exact(result, ["editor_state_hash", "component_authority", "hash_algorithm"])) || !state(result.editor_state_hash) || !validateAuthority(result.component_authority)
+    || ("hash_algorithm" in result && !algorithm(result.hash_algorithm)) || !validateBoundary(value.boundary)) return null;
   const path = `hammer/revisions/${identity.revisionId}/history/epochs/${String(value.epoch_id)}/heads/${String(value.head_id)}.history.v1.json`;
   if (identity.historyPath !== path || !strictHistory(value.history, identity.workpieceId, String(base.editor_state_hash), String(result.editor_state_hash))) return null;
   return { ...value, history: strictHistory(value.history, identity.workpieceId, String(base.editor_state_hash), String(result.editor_state_hash))! } as HammerHistoryEpochHeadEnvelopeV1;
