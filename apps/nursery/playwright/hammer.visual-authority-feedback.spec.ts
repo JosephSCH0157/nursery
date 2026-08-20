@@ -1,16 +1,33 @@
 import { expect, test } from "playwright/test";
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const repositoryRoot = path.resolve(__dirname, "../../..");
+const viteFsUrl = (relativePath: string) => `/@fs/${path.resolve(repositoryRoot, relativePath).replaceAll("\\", "/")}`;
+const moduleUrls = {
+  shell: viteFsUrl("apps/hammer/src/editor/HammerWorkspaceShell.tsx"),
+  presets: viteFsUrl("apps/hammer/src/dev/hammerLaunchPresets.ts"),
+  defaults: viteFsUrl("apps/hammer/src/visuals/model/hammerVisualDefaults.ts"),
+  authority: viteFsUrl("apps/hammer/src/persistence/hammerVisualAuthority.ts"),
+};
+
+test.beforeEach(async ({ baseURL }) => {
+  const host = new URL(baseURL ?? "http://127.0.0.1").hostname;
+  expect(["127.0.0.1", "::1", "localhost"]).toContain(host);
+});
 
 test("mounted Hammer shell does not re-emit a stale workpiece visual downgrade", async ({ page }) => {
   await page.goto("/");
-  await page.evaluate(async () => {
+  await page.evaluate(async (urls) => {
     const React = (await import("/node_modules/.vite/deps/react.js")).default;
     const { createRoot } = (await import("/node_modules/.vite/deps/react-dom_client.js")).default;
-    const { default: HammerWorkspaceShell } = await import("/@fs/D:/nursery/nursery/apps/hammer/src/editor/HammerWorkspaceShell.tsx");
-    const { getHammerDevLaunchPreset } = await import("/@fs/D:/nursery/nursery/apps/hammer/src/dev/hammerLaunchPresets.ts");
-    const { createDefaultSemanticAnchor, createDefaultVisualAnimation, createDefaultVisualGeometry } = await import("/@fs/D:/nursery/nursery/apps/hammer/src/visuals/model/hammerVisualDefaults.ts");
-    const { persistHammerCanonicalSave } = await import("/@fs/D:/nursery/nursery/apps/hammer/src/persistence/hammerVisualAuthority.ts");
+    const { default: HammerWorkspaceShell } = await import(urls.shell);
+    const { getHammerDevLaunchPreset } = await import(urls.presets);
+    const { createDefaultSemanticAnchor, createDefaultVisualAnimation, createDefaultVisualGeometry } = await import(urls.defaults);
+    const { persistHammerCanonicalSave } = await import(urls.authority);
     const updatedAt = "2026-08-15T19:04:47.000Z";
     const assets = Array.from({ length: 30 }, (_, index) => ({
       asset_id: `asset-${index}`, asset_ref: `asset-${index}`, kind: index % 2 ? "image" : "broll", label: `Asset ${index}`,
@@ -25,13 +42,14 @@ test("mounted Hammer shell does not re-emit a stale workpiece visual downgrade",
       semantic_anchor: createDefaultSemanticAnchor(), divergence: { state: "not_comparable", start_delta_sec: null, end_delta_sec: null }, updated_at: updatedAt,
     }));
     const canonicalTimeline = { version: 2, revision: 7, updated_at: updatedAt, source_mode: "packaging", selected_clip_id: "clip-0", assets, clips, lanes: [{ lane_id: "lane:primary", label: "Visuals", clip_ids: clips.map((clip) => clip.clip_id) }], debug_origin: "canonical_load" };
+    const canonicalAuthority = { schema_version: 1, graph_id: "workpiece:plan:authority", graph_version: 1, workspace_id: "workspace", workpiece_id: "workpiece", session_id: "session", source_transcript_id: null, operation_order: [], operations: [], created_at: updatedAt, updated_at: updatedAt };
     const artifact = (data: unknown, path: string | null = null) => ({ path, updated_at: updatedAt, data });
     const canonicalSnapshot: any = {
       schema_version: 1,
       state: { workspace_id: "workspace", workpiece_id: "workpiece", active_session_id: "session", current_pass: "visual_assembly", pass_order_version: 1, pass_status: {}, editor_session_path: null, transcript_artifact_path: null, transcript_versions_artifact_path: null, speaker_map_artifact_path: null, visual_placement_artifact_path: "canonical-placements", visual_timeline_artifact_path: "canonical-timeline", audio_polish_artifact_path: null, edit_plan_artifact_path: null, editorial_authority_artifact_path: null, edit_plan_signature: null, prep_status: "prepared", alignment_status: "aligned", macro_recipe_ref: null, last_macro_run_ref: null, last_opened_at: updatedAt, updated_at: updatedAt, updated_by: "revision" },
       editor_session: artifact(null), structured_transcript: artifact(null), transcript_version_registry: artifact(null), speaker_map: artifact(null),
       visual_placements: artifact({ schema_version: 1, status: "prepared", source_refs: [], uncertainty_flags: [], placements: clips.map((clip) => ({ placement_id: clip.clip_id, entry_id: clip.entry_id, anchor_segment_id: "segment-0", matched_segment_ids: ["segment-0"], anchor_text: null, asset_ref: clip.asset_id, asset_id: clip.asset_id, asset_path: `visuals/${clip.clip_id}.png`, storage_key: null, label: clip.label, visual_mode: clip.visual_mode, start_sec: clip.start_sec, end_sec: clip.end_sec, confidence: clip.confidence, timing_source: "ordered_fallback", status: clip.placement_status, ingest_state: clip.ingest_state, uncertainty_flags: [] })) }, "canonical-placements"),
-      visual_timeline: artifact(canonicalTimeline, "canonical-timeline"), audio_polish: artifact(null), edit_plan: artifact(null), editorial_authority: artifact(null), macro_hooks: { recipe_ref: null, last_run_ref: null },
+      visual_timeline: artifact(canonicalTimeline, "canonical-timeline"), audio_polish: artifact(null), edit_plan: artifact(null), editorial_authority: artifact(canonicalAuthority, "canonical-authority"), macro_hooks: { recipe_ref: null, last_run_ref: null },
     };
     const stale = structuredClone(canonicalSnapshot);
     stale.visual_timeline.data = null;
@@ -60,7 +78,7 @@ test("mounted Hammer shell does not re-emit a stale workpiece visual downgrade",
           const result = await persistHammerCanonicalSave({
             target: { workspaceId: "workspace", workpieceId: "workpiece" }, revisionId: "revision",
             revisionRequest: { visual_timeline: { data: canonicalTimeline }, visual_placements: { data: canonicalSnapshot.visual_placements.data } },
-            persistenceRequest: { written_by: { tool: "hammer", tool_version: "test", lane: "test" } }, canonicalSnapshot,
+            persistenceRequest: { editorial_authority: { data: canonicalAuthority }, written_by: { tool: "hammer", tool_version: "test", lane: "test" } }, canonicalSnapshot,
             identity: { workspaceId: "workspace", workpieceId: "workpiece", revisionId: "revision", editorGeneration: 1 },
             currentIdentity: () => ({ workspaceId: "workspace", workpieceId: "workpiece", revisionId: "revision", editorGeneration: 1 }), laneSequences: lanes,
             adapters: {
@@ -82,7 +100,7 @@ test("mounted Hammer shell does not re-emit a stale workpiece visual downgrade",
     }
     document.body.innerHTML = "<div id='hammer-mounted-authority-root'></div>";
     createRoot(document.getElementById("hammer-mounted-authority-root")!).render(React.createElement(Harness));
-  });
+  }, moduleUrls);
   await expect(page.locator("section.hammer-timeline-dock")).toBeVisible();
   await expect(page.locator(".hammer-timeline-block--image, .hammer-timeline-block--broll")).toHaveCount(30);
   await expect.poll(() => page.evaluate(() => (window as any).__hammerAuthorityMetrics.completed)).toBe(true);
