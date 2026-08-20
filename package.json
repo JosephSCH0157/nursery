@@ -9,6 +9,8 @@
     "test:db:hammer-history-epoch": "node scripts/verify-hammer-history-epoch-db.mjs",
     "test:db:hammer-history-epoch-head": "node scripts/verify-hammer-history-epoch-head-db.mjs",
     "test:he3a:isolation": "node scripts/test-he3a-docker-loopback-proxy.mjs && node scripts/test-he3a-disposable-contract.mjs",
+    "test:he3c:contract": "node scripts/test-he3c-synthetic-history-contract.mjs",
+    "test:he3c:lifecycle": "pnpm --filter nursery exec tsx ../../scripts/verify-he3c-synthetic-history-lifecycle.mts",
     "test:db:hearth-ready": "node scripts/verify-hearth-ready-transition-db.mjs",
     "typecheck": "pnpm preflight:workspace && pnpm -r --workspace-concurrency=2 typecheck",
     "types": "pnpm typecheck",

@@ -18,7 +18,7 @@ export type HammerHistoryRegistryTuple = Readonly<{
   path: string; sha256: string; bytes: number; revision: number; updated_at: string; storage_bucket: string; storage_key: string;
 }>;
 export type HammerHistoryComponentHashes = Readonly<Record<Component, string>>;
-export type HammerHistoryComponentAuthority = Readonly<Record<Component, Readonly<{ path: string; sha256: string; bytes: number; registry_revision: number; registry_updated_at: string }>>>;
+export type HammerHistoryComponentAuthority = Readonly<Record<Component, Readonly<{ workpiece_id: string; path: string; sha256: string; bytes: number; registry_revision: number; registry_updated_at: string; content_type: "application/json" }>>>;
 export type HammerHistoryBoundary = Readonly<{ prior_history_status: "unavailable"; merged: false; traversable: false; statement: typeof BOUNDARY_STATEMENT }>;
 
 export type HammerHistoryEpochEnvelopeV1 = Readonly<{
@@ -78,7 +78,7 @@ function validateBoundary(value: unknown): value is HammerHistoryBoundary {
 }
 function validateHashes(value: unknown): value is HammerHistoryComponentHashes { return object(value) && exact(value, COMPONENTS) && COMPONENTS.every((key) => sha(value[key])); }
 function validateAuthority(value: unknown): value is HammerHistoryComponentAuthority {
-  return object(value) && exact(value, COMPONENTS) && COMPONENTS.every((key) => { const row = value[key]; return object(row) && exact(row, ["path", "sha256", "bytes", "registry_revision", "registry_updated_at"]) && typeof row.path === "string" && row.path.length > 0 && sha(row.sha256) && positive(row.bytes) && positive(row.registry_revision) && timestamp(row.registry_updated_at); });
+  return object(value) && exact(value, COMPONENTS) && COMPONENTS.every((key) => { const row = value[key]; return object(row) && exact(row, ["workpiece_id", "path", "sha256", "bytes", "registry_revision", "registry_updated_at", "content_type"]) && uuid(row.workpiece_id) && typeof row.path === "string" && row.path.length > 0 && sha(row.sha256) && positive(row.bytes) && positive(row.registry_revision) && timestamp(row.registry_updated_at) && row.content_type === "application/json"; });
 }
 
 function strictHistory(value: unknown, workpieceId: string, baseHash: string, resultHash?: string): HammerHistoryDocumentV1 | null {
@@ -140,7 +140,7 @@ export async function loadHammerHistoryComponentAuthority(args: { workpieceId: s
     if (parsed.kind !== "present") throw new Error(`Canonical ${component} authority is unavailable.`);
     const tuple = registry(parsed.fileRow, path, args.workpieceId);
     if (!tuple) throw new Error(`Canonical ${component} registry authority is invalid.`);
-    return [component, { path, sha256: tuple.sha256, bytes: tuple.bytes, registry_revision: tuple.revision, registry_updated_at: tuple.updated_at }] as const;
+    return [component, { workpiece_id: args.workpieceId, path, sha256: tuple.sha256, bytes: tuple.bytes, registry_revision: tuple.revision, registry_updated_at: tuple.updated_at, content_type: "application/json" as const }] as const;
   }));
   return Object.freeze(Object.fromEntries(rows)) as HammerHistoryComponentAuthority;
 }

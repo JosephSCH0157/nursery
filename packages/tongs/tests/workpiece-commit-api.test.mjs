@@ -94,11 +94,13 @@ function mockService() {
     getWorkpieceRecordingTruth: [],
     appendEvent: [],
     readWorkpieceBinary: [],
+    authorizeWorkpieceRead: [],
     createWorkpieceMediaUrl: [],
     readWorkpieceText: [],
   };
 
   const service = {
+    async authorizeWorkpieceRead(workpieceId, options) { calls.authorizeWorkpieceRead.push({ workpieceId, options }); },
     async createCradle(input) {
       calls.createCradle.push(input);
       return {
@@ -4273,7 +4275,7 @@ test("GET /tongs/workpieces/:id/read-file?encoding=base64 dispatches readWorkpie
 
   const request = new Request(
     "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/read-file?path=assets%2Fthumbnails%2F111%2F222.png&encoding=base64",
-    { method: "GET" },
+    { method: "GET", headers: { "x-forge-user-authorization": "Bearer user_token_abc" } },
   );
 
   const response = await handler(request);
@@ -4286,6 +4288,23 @@ test("GET /tongs/workpieces/:id/read-file?encoding=base64 dispatches readWorkpie
   assert.equal(body.ok, true);
   assert.equal(body.data?.content_type, "image/png");
   assert.equal(body.data?.bytes_base64, "AQID");
+  assert.deepEqual(calls.authorizeWorkpieceRead, [{
+    workpieceId: "11111111-1111-4111-8111-111111111111",
+    options: { userAccessToken: "user_token_abc" },
+  }]);
+});
+
+test("GET /tongs/workpieces/:id/read-file requires authenticated workspace authority", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const response = await handler(new Request(
+    "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/read-file?path=script%2Fscript.md",
+  ));
+  const body = await response.json();
+  assert.equal(response.status, 401);
+  assert.equal(body.error?.code, "missing_user_token_header");
+  assert.equal(calls.authorizeWorkpieceRead.length, 0);
+  assert.equal(calls.readWorkpieceText.length, 0);
 });
 
 test("GET /tongs/workpieces/:id/media-url returns a short-lived canonical storage URL", async () => {
@@ -4396,7 +4415,7 @@ test("GET optional base64 read returns a non-error missing payload", async () =>
   const handler = createTongsCommitApiHandlerWithService(service);
   const request = new Request(
     "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/read-file?path=assets%2Foptional.png&encoding=base64&optional=1",
-    { method: "GET" },
+    { method: "GET", headers: { "x-forge-user-authorization": "Bearer user_token_abc" } },
   );
 
   const response = await handler(request);
@@ -4417,7 +4436,7 @@ test("GET optional JSON read returns a non-error missing payload", async () => {
   const handler = createTongsCommitApiHandlerWithService(service);
   const request = new Request(
     "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/read-file?path=production%2Fv2%2Fpack.json&optional=1",
-    { method: "GET" },
+    { method: "GET", headers: { "x-forge-user-authorization": "Bearer user_token_abc" } },
   );
 
   const response = await handler(request);
@@ -4440,7 +4459,7 @@ test("GET optional text read returns a non-error missing payload", async () => {
   const handler = createTongsCommitApiHandlerWithService(service);
   const request = new Request(
     "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/read-file?path=production%2Fv2%2Fpack.txt&optional=1",
-    { method: "GET" },
+    { method: "GET", headers: { "x-forge-user-authorization": "Bearer user_token_abc" } },
   );
 
   const response = await handler(request);
@@ -4460,7 +4479,7 @@ test("GET /tongs/workpieces/:id/read-file?encoding=binary returns raw bytes", as
 
   const request = new Request(
     "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/read-file?path=assets%2Fthumbnails%2F111%2F222.png&encoding=binary",
-    { method: "GET" },
+    { method: "GET", headers: { "x-forge-user-authorization": "Bearer user_token_abc" } },
   );
 
   const response = await handler(request);
@@ -4484,7 +4503,7 @@ test("GET /tongs/workpieces/:id/read-file returns bootstrap-empty payload for mi
 
   const request = new Request(
     "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/read-file?path=script%2Fscript.md",
-    { method: "GET" },
+    { method: "GET", headers: { "x-forge-user-authorization": "Bearer user_token_abc" } },
   );
 
   const response = await handler(request);
@@ -4509,7 +4528,7 @@ test("GET /tongs/workpieces/:id/read-file returns bootstrap-empty payload for mi
 
   const request = new Request(
     "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/read-file?path=hearth%2Fchat.v1.json",
-    { method: "GET" },
+    { method: "GET", headers: { "x-forge-user-authorization": "Bearer user_token_abc" } },
   );
 
   const response = await handler(request);
@@ -4534,7 +4553,7 @@ test("GET /tongs/workpieces/:id/read-file returns bootstrap-empty payload for mi
 
   const request = new Request(
     "http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/read-file?path=hearth%2Fmedia_map.v1.json",
-    { method: "GET" },
+    { method: "GET", headers: { "x-forge-user-authorization": "Bearer user_token_abc" } },
   );
 
   const response = await handler(request);

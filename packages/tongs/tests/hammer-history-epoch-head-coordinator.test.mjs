@@ -11,7 +11,7 @@ const anchorPath = `hammer/revisions/${ids.revision}/history/epochs/${ids.epoch}
 const anchorBytes = new TextEncoder().encode('{"anchor":true}');
 
 function authority() {
-  return Object.fromEntries(Object.keys(hashes).map((key, i) => [key, { path: `hammer/revisions/${ids.revision}/${key}.json`, sha256: String(i + 4).repeat(64).slice(0, 64), bytes: 20 + i, registry_revision: i + 1, registry_updated_at: `2026-08-19T14:00:0${i}.12345${i}Z` }]));
+  return Object.fromEntries(Object.keys(hashes).map((key, i) => [key, { workpiece_id: ids.workpiece, path: `hammer/revisions/${ids.revision}/${key}.json`, sha256: String(i + 4).repeat(64).slice(0, 64), bytes: 20 + i, registry_revision: i + 1, registry_updated_at: `2026-08-19T14:00:0${i}.12345${i}Z`, content_type: "application/json" }]));
 }
 function history(kind = "edit", count = 1) {
   const entries = Array.from({ length: count }, (_, i) => ({ id: `${kind}-${i}`, parentEntryId: i ? `${kind}-${i - 1}` : null, timestamp: `2026-08-19T14:01:0${i}.123456Z`, kind: "editor_state_change", label: kind, forwardPatch: [{ op: "replace", path: "/playheadSec", value: i + 1 }], inversePatch: [{ op: "replace", path: "/playheadSec", value: i }] }));

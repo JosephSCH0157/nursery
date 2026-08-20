@@ -148,10 +148,10 @@ export function isReservedHammerHistoryPath(path: string): boolean {
   return /\/history\/epochs\/[0-9a-f-]+(?:\.v1\.json|\/heads\/[0-9a-f-]+\.history\.v1\.json)$/i.test(path);
 }
 
-export async function startAndHydrateHammerHistoryEpoch(args: { persistence: HammerHistoryEpochPersistenceAuthority; request: HammerHistoryEpochTransportRequest; canonicalState: HammerEditorStateSerializable; maxUndoSteps: number }): Promise<{ result: HammerHistoryTransitionResult; hydration?: Extract<HammerRevisionHistoryHydration, { kind: "epoch_anchor" }>; controller?: HammerHistoryController }> {
+export async function startAndHydrateHammerHistoryEpoch(args: { persistence: HammerHistoryEpochPersistenceAuthority; request: HammerHistoryEpochTransportRequest; canonicalState: HammerEditorStateSerializable; maxUndoSteps: number; loadHydration?: typeof loadHammerRevisionHistoryHydration }): Promise<{ result: HammerHistoryTransitionResult; hydration?: Extract<HammerRevisionHistoryHydration, { kind: "epoch_anchor" }>; controller?: HammerHistoryController }> {
   const result = await args.persistence.startEpoch(args.request); if (result.outcome === "conflict") return { result };
   const envelope = args.request.envelope;
-  const loaded = await loadHammerRevisionHistoryHydration({ workspaceId: envelope.workspace_id, workpieceId: envelope.workpiece_id,
+  const loaded = await (args.loadHydration ?? loadHammerRevisionHistoryHydration)({ workspaceId: envelope.workspace_id, workpieceId: envelope.workpiece_id,
     canonicalRecordingId: envelope.canonical_recording_id, revisionId: envelope.recording_revision_id,
     historyPath: result.history_path, revisionUpdatedAt: result.revision_updated_at });
   if (!loaded.ok || loaded.hydration.kind !== "epoch_anchor" || hashEditorState(args.canonicalState) !== loaded.hydration.epoch.base.editor_state_hash) return { result: { outcome: "conflict", code: "history_epoch_install_readback_invalid", terminal: true, retryable: false } };

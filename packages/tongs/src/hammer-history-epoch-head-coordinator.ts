@@ -12,7 +12,7 @@ const COMPONENTS = ["audio", "editorial_authority", "transcript", "visual_placem
 
 type JsonObject = Record<string, unknown>;
 export type HammerHistoryComponentAuthority = Readonly<Record<(typeof COMPONENTS)[number], Readonly<{
-  path: string; sha256: string; bytes: number; registry_revision: number; registry_updated_at: string;
+  workpiece_id: string; path: string; sha256: string; bytes: number; registry_revision: number; registry_updated_at: string; content_type: "application/json";
 }>>>;
 
 export type HammerHistoryDocumentV1 = Readonly<{
@@ -135,8 +135,8 @@ function validateAuthority(value: unknown): value is HammerHistoryComponentAutho
   if (!object(value) || !exact(value, COMPONENTS)) return false;
   return COMPONENTS.every((key) => {
     const row = value[key];
-    return object(row) && exact(row, ["path", "sha256", "bytes", "registry_revision", "registry_updated_at"])
-      && typeof row.path === "string" && row.path.length > 0 && sha(row.sha256) && positive(row.bytes) && positive(row.registry_revision) && timestamp(row.registry_updated_at);
+    return object(row) && exact(row, ["workpiece_id", "path", "sha256", "bytes", "registry_revision", "registry_updated_at", "content_type"])
+      && uuid(row.workpiece_id) && typeof row.path === "string" && row.path.length > 0 && sha(row.sha256) && positive(row.bytes) && positive(row.registry_revision) && timestamp(row.registry_updated_at) && row.content_type === "application/json";
   });
 }
 

@@ -574,7 +574,7 @@ export type CommitWorkspaceFileResponse = {
 };
 
 export type ReadJsonFileResult =
-  | { found: true; data: unknown; file_row: { updated_at: string | null; revision?: number | null; hash_value?: string | null } | null }
+  | { found: true; data: unknown; file_row: Pick<WorkpieceFileRow, "path" | "hash_algo" | "hash_value" | "bytes" | "revision" | "updated_at" | "storage_bucket" | "storage_key"> | null }
   | { found: false };
 
 export type ReadTextFileResult =
@@ -2381,6 +2381,7 @@ export type TongsCommitApiService = {
   ): Promise<WorkpieceImageMapResponseData>;
   getWorkpieceRecordingTruth(workpieceId: string): Promise<WorkpieceRecordingTruth>;
   appendEvent(workpieceId: string, input: AppendEventRequest): Promise<WorkpieceEventRow>;
+  authorizeWorkpieceRead(workpieceId: string, options?: { userAccessToken?: string | null }): Promise<void>;
   readWorkpieceJson(workpieceId: string, path: string): Promise<ReadJsonFileResult>;
   readWorkspaceJson(workspaceId: string, path: string): Promise<ReadJsonFileResult>;
   readWorkpieceText(workpieceId: string, path: string): Promise<ReadTextFileResult>;
@@ -7057,7 +7058,7 @@ export class TongsCommitService {
     }
 
     for (const path of candidatePaths) {
-      const fileRow = await this.readWorkpieceFileUpdatedAt(args.cradle.id, path);
+      const fileRow = await this.readWorkpieceFileMetadata(args.cradle.id, path);
       if (fileRow) {
         return {
           path,
@@ -12685,14 +12686,14 @@ export class TongsCommitService {
     }));
   }
 
-  private async readWorkpieceFileUpdatedAt(
+  private async readWorkpieceFileMetadata(
     workpieceId: string,
     path: string,
-  ): Promise<{ updated_at: string | null; revision: number | null; hash_value: string | null } | null> {
+  ): Promise<Pick<WorkpieceFileRow, "path" | "hash_algo" | "hash_value" | "bytes" | "revision" | "updated_at" | "storage_bucket" | "storage_key"> | null> {
     const { data: fileRow, error: fileRowError } = await this.supabase
       .schema("tongs")
       .from("workpiece_files")
-      .select("updated_at,revision,hash_value")
+      .select("path,hash_algo,hash_value,bytes,revision,updated_at,storage_bucket,storage_key")
       .eq("workpiece_id", workpieceId)
       .eq("path", path)
       .maybeSingle();
@@ -12703,13 +12704,7 @@ export class TongsCommitService {
       });
     }
 
-    return fileRow
-      ? {
-        updated_at: fileRow.updated_at ?? null,
-        revision: typeof fileRow.revision === "number" ? fileRow.revision : null,
-        hash_value: typeof fileRow.hash_value === "string" ? fileRow.hash_value : null,
-      }
-      : null;
+    return fileRow ?? null;
   }
 
   async readWorkpieceJson(workpieceId: string, path: string): Promise<ReadJsonFileResult> {
@@ -12717,7 +12712,7 @@ export class TongsCommitService {
     const storageKey = buildStorageKey(workpieceId, path);
     const bytes = await downloadStorageObject(this.supabase, this.bucket, storageKey);
     if (!bytes) return { found: false };
-    const fileRow = await this.readWorkpieceFileUpdatedAt(workpieceId, path);
+    const fileRow = await this.readWorkpieceFileMetadata(workpieceId, path);
     const parsed = parseJsonText(textDecoder.decode(bytes), path);
     return { found: true, data: parsed, file_row: fileRow };
   }
@@ -12742,7 +12737,7 @@ export class TongsCommitService {
     const storageKey = buildStorageKey(workpieceId, path);
     const bytes = await downloadStorageObject(this.supabase, this.bucket, storageKey);
     if (!bytes) return { found: false };
-    const fileRow = await this.readWorkpieceFileUpdatedAt(workpieceId, path);
+    const fileRow = await this.readWorkpieceFileMetadata(workpieceId, path);
     const text = normalizeLf(stripBom(textDecoder.decode(bytes)));
     return { found: true, text, file_row: fileRow };
   }
@@ -15535,6 +15530,11 @@ export class TongsCommitService {
     return next;
   }
 
+  async authorizeWorkpieceRead(workpieceId: string, options?: { userAccessToken?: string | null }): Promise<void> {
+    const cradle = await this.getCradleOrThrow(workpieceId);
+    await this.assertWorkspaceRoleFromAccessToken(cradle.workspace_id, "viewer", options?.userAccessToken);
+  }
+
   private async listCanonicalRecordingProjectionsByWorkpieceIds(
     workpieceIds: readonly string[],
   ): Promise<Map<string, WorkpieceCanonicalRecordingProjection>> {
@@ -17983,6 +17983,8 @@ export function createTongsCommitApiHandlerWithService(
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "read-file") {
         requireMethod(request, "GET");
         const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        await service.authorizeWorkpieceRead(workpieceId, { userAccessToken });
         const url = new URL(request.url);
         const path = normalizeRelativePath(url.searchParams.get("path"));
         const encoding = (url.searchParams.get("encoding") ?? "").trim().toLowerCase();
