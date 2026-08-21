@@ -13749,6 +13749,37 @@ export type Database = {
         }
         Returns: Json
       }
+      commit_hammer_history_epoch_head_with_components: {
+        Args: {
+          p_canonical_recording_id: string
+          p_component_changes: Json
+          p_envelope: Json
+          p_epoch_id: string
+          p_expected_history_path: string
+          p_expected_revision_updated_at: string
+          p_head_bytes: number
+          p_head_id: string
+          p_head_path: string
+          p_head_registry_revision: number
+          p_head_registry_updated_at: string
+          p_head_sha256: string
+          p_head_storage_bucket: string
+          p_head_storage_key: string
+          p_idempotency_key: string
+          p_operation_fingerprint: string
+          p_parent_head_id: string
+          p_parent_registry_revision: number
+          p_parent_registry_updated_at: string
+          p_parent_sha256: string
+          p_result_component_authority: Json
+          p_result_editor_state_hash: string
+          p_revision_id: string
+          p_sequence: number
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       commit_image_map_revision: {
         Args: {
           p_actor_id: string
@@ -15160,6 +15191,17 @@ export type Database = {
         Returns: Json
       }
       read_hammer_history_epoch_head_operation: {
+        Args: {
+          p_head_id?: string
+          p_idempotency_key: string
+          p_operation_fingerprint?: string
+          p_revision_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      read_hammer_history_epoch_head_with_components_operation: {
         Args: {
           p_head_id?: string
           p_idempotency_key: string
