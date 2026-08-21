@@ -27,6 +27,15 @@ import {
   type HammerHistoryEpochHeadReadbackResult,
   type HammerHistoryEpochHeadRequest,
 } from "./hammer-history-epoch-head-coordinator.js";
+import {
+  coordinateHammerHistoryAtomicComponentHead,
+  isProtectedHammerHistoryAtomicStagingPath,
+  type HammerHistoryAtomicCoordinatorAdapter,
+  type HammerHistoryAtomicReadback,
+  type HammerHistoryAtomicRequest,
+  type HammerHistoryAtomicResult,
+  type HammerHistoryAtomicStagedObject,
+} from "./hammer-history-atomic-coordinator.js";
 
 const THUMBNAIL_BUNDLED_FONT_VERSION = "inter-5.2.8-latin-700";
 const THUMBNAIL_COMPOSITION_ENGINE_VERSION = "forge-thumbnail-compositor-v1";
@@ -1546,6 +1555,7 @@ export type AdvanceHammerHistoryEpochHeadRequest = Readonly<{
   head_path: string;
   envelope: HammerHistoryEpochHeadEnvelopeV1;
 }>;
+export type CommitHammerHistoryAtomicRequest = HammerHistoryAtomicRequest;
 
 export type HammerEditorialAuthorityArtifactV1 = {
   schema_version: 1;
@@ -2186,6 +2196,14 @@ export type TongsCommitApiService = {
     workspaceId: string, workpieceId: string, revisionId: string, idempotencyKey: string,
     options?: { userAccessToken?: string | null; operationFingerprint?: string | null; headId?: string | null },
   ): Promise<HammerHistoryEpochHeadReadbackResult>;
+  commitHammerHistoryAtomicComponentHead(
+    workspaceId: string, workpieceId: string, revisionId: string, input: CommitHammerHistoryAtomicRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HammerHistoryAtomicResult>;
+  readHammerHistoryAtomicOperation(
+    workspaceId: string, workpieceId: string, revisionId: string, idempotencyKey: string,
+    options?: { userAccessToken?: string | null; operationFingerprint?: string | null; headId?: string | null },
+  ): Promise<HammerHistoryAtomicReadback>;
   acknowledgeHammerEditorialAuthority(
     workspaceId: string,
     workpieceId: string,
@@ -4326,6 +4344,24 @@ function normalizeAdvanceHammerHistoryEpochHeadRequest(body: unknown): AdvanceHa
     expected_parent: { head_id: parent.head_id === null ? null : normalizeUuid(parent.head_id, "expected_parent.head_id"), sha256: digest, revision, sequence, updated_at: validateOpaqueCasTimestampToken(parent.updated_at, "expected_parent.updated_at") },
     head_path: normalizeRelativePath(body.head_path), envelope: body.envelope as HammerHistoryEpochHeadEnvelopeV1,
   };
+}
+
+function normalizeCommitHammerHistoryAtomicRequest(body: unknown): CommitHammerHistoryAtomicRequest {
+  if (!isRecord(body)) throw new HttpError(400, "history_epoch_atomic_request_invalid", "Atomic history request must be an object.");
+  const keys = ["workspace_id","workpiece_id","canonical_recording_id","recording_revision_id","initiating_user_id","idempotency_key","operation_fingerprint","expected_revision_updated_at","expected_history_path","parent","component_authority","component_changes","head","envelope","history"];
+  if (Object.keys(body).sort().join("|") !== [...keys].sort().join("|")) throw new HttpError(400, "history_epoch_atomic_request_shape_invalid", "Atomic history request fields are not exact.");
+  if (!Array.isArray(body.component_changes) || !isRecord(body.head)) throw new HttpError(400, "history_epoch_atomic_request_invalid", "Atomic history staged bytes are missing.");
+  const componentChanges = body.component_changes.map((value) => {
+    if (!isRecord(value)) throw new HttpError(400, "history_epoch_atomic_component_plan_invalid", "Component change must be an object.");
+    const changeKeys = ["component","path","expected","next","content_type","serialized_bytes_base64"];
+    if (Object.keys(value).sort().join("|") !== changeKeys.sort().join("|") || typeof value.serialized_bytes_base64 !== "string") throw new HttpError(400, "history_epoch_atomic_component_plan_invalid", "Component change fields are not exact.");
+    const { serialized_bytes_base64, ...change } = value;
+    return { ...change, serialized_bytes: decodeBase64(serialized_bytes_base64) };
+  });
+  const headKeys = ["head_id","path","sha256","bytes","registry_revision","registry_updated_at","content_type","serialized_bytes_base64"];
+  if (Object.keys(body.head).sort().join("|") !== headKeys.sort().join("|") || typeof body.head.serialized_bytes_base64 !== "string") throw new HttpError(400, "history_epoch_atomic_head_invalid", "Head fields are not exact.");
+  const { serialized_bytes_base64: headBase64, ...head } = body.head;
+  return { ...body, component_changes: componentChanges, head: { ...head, serialized_bytes: decodeBase64(headBase64) } } as unknown as CommitHammerHistoryAtomicRequest;
 }
 
 function normalizeResetHammerRecordingRevisionRequest(
@@ -8806,6 +8842,84 @@ export class TongsCommitService {
     return coordinateHammerHistoryEpoch({ request, adapter });
   }
 
+  async readHammerHistoryAtomicOperation(
+    workspaceId: string, workpieceId: string, revisionId: string, idempotencyKey: string,
+    options?: { userAccessToken?: string | null; operationFingerprint?: string | null; headId?: string | null },
+  ): Promise<HammerHistoryAtomicReadback> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    if (!options?.userAccessToken || !this.userClientFactory) throw new HttpError(401, "user_access_token_required", "Authenticated atomic history readback is required.");
+    const authority = this.userClientFactory(options.userAccessToken).schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const result = await authority.rpc("read_hammer_history_epoch_head_with_components_operation", { p_workspace_id: workspaceId, p_workpiece_id: workpieceId, p_revision_id: revisionId, p_idempotency_key: idempotencyKey, p_operation_fingerprint: options.operationFingerprint ?? null, p_head_id: options.headId ?? null });
+    if (result.error || !isRecord(result.data)) throw new HttpError(502, "history_epoch_atomic_readback_unavailable", "Atomic history readback was unavailable.", { reason: result.error?.message });
+    return result.data;
+  }
+
+  async commitHammerHistoryAtomicComponentHead(
+    workspaceId: string, workpieceId: string, revisionId: string, input: CommitHammerHistoryAtomicRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<HammerHistoryAtomicResult> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+    if (input.workspace_id !== workspaceId || input.workpiece_id !== workpieceId || input.recording_revision_id !== revisionId) throw new HttpError(409, "history_epoch_atomic_identity_conflict", "Atomic history route identities do not match the request.");
+    if (input.initiating_user_id !== auth.userId) throw new HttpError(403, "history_epoch_atomic_initiator_forbidden", "The authenticated editor does not match the frozen initiating user.");
+    if (!options?.userAccessToken || !this.userClientFactory) throw new HttpError(401, "user_access_token_required", "Authenticated atomic history commit is required.");
+    const authority = this.userClientFactory(options.userAccessToken).schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const readObject = async (expected: HammerHistoryAtomicStagedObject, operationId: string | null = null): Promise<HammerHistoryAtomicStagedObject | null> => {
+      const bytes = await downloadStorageObject(this.supabase, expected.storage_bucket, expected.storage_key);
+      if (!bytes) return null;
+      return { ...expected, bytes: bytes.length, sha256: await sha256Hex(bytes), serialized_bytes: bytes, operation_id: operationId };
+    };
+    const adapter: HammerHistoryAtomicCoordinatorAdapter = {
+      readOperation: (request) => this.readHammerHistoryAtomicOperation(workspaceId, workpieceId, revisionId, request.idempotency_key, { userAccessToken: options.userAccessToken, operationFingerprint: request.operation_fingerprint, headId: request.head.head_id }),
+      readStagedObject: readObject,
+      createStagedObject: async (expected) => {
+        const existing = await downloadStorageObject(this.supabase, expected.storage_bucket, expected.storage_key);
+        if (existing) throw new HttpError(409, "history_epoch_atomic_create_only_conflict", "A staged object already occupies the reserved path.", { path: expected.path });
+        const uploaded = await this.supabase.storage.from(expected.storage_bucket).upload(expected.storage_key, uint8ToArrayBuffer(expected.serialized_bytes), { upsert: false, contentType: expected.content_type });
+        if (uploaded.error) throw new HttpError(409, "history_epoch_atomic_create_only_conflict", "Staged object creation failed without overwrite.", { path: expected.path, reason: uploaded.error.message });
+        const readback = await readObject(expected, expected.operation_id);
+        if (!readback) throw new HttpError(502, "history_epoch_atomic_storage_readback_failed", "Staged object readback was absent.", { path: expected.path });
+        return readback;
+      },
+      commit: async (request) => {
+        const changes = request.component_changes.map(({ serialized_bytes: _bytes, content_type: _contentType, ...change }) => { void _bytes; void _contentType; return change; });
+        const result = await authority.rpc("commit_hammer_history_epoch_head_with_components", {
+          p_workspace_id: workspaceId, p_workpiece_id: workpieceId, p_canonical_recording_id: request.canonical_recording_id, p_revision_id: revisionId,
+          p_epoch_id: request.envelope.epoch_id, p_head_id: request.head.head_id, p_sequence: request.envelope.sequence,
+          p_idempotency_key: request.idempotency_key, p_operation_fingerprint: request.operation_fingerprint,
+          p_expected_revision_updated_at: request.expected_revision_updated_at, p_expected_history_path: request.expected_history_path,
+          p_parent_head_id: request.parent.head_id, p_parent_sha256: request.parent.sha256, p_parent_bytes: request.parent.bytes,
+          p_parent_registry_revision: request.parent.registry_revision, p_parent_registry_updated_at: request.parent.registry_updated_at,
+          p_component_changes: changes, p_head_path: request.head.path, p_head_sha256: request.head.sha256, p_head_bytes: request.head.bytes,
+          p_head_registry_revision: request.head.registry_revision, p_head_registry_updated_at: request.head.registry_updated_at,
+          p_head_storage_bucket: "forge-workpieces", p_head_storage_key: `workpieces/${workpieceId}/${request.head.path}`,
+          p_result_editor_state_hash: request.envelope.result.editor_state_hash, p_result_component_authority: request.envelope.result.component_authority, p_envelope: request.envelope,
+        });
+        if (result.error) throw new Error("atomic history commit response was ambiguous");
+        if (!isRecord(result.data) || !["committed", "already_committed", "conflict"].includes(String(result.data.outcome))) throw new Error("atomic history commit response was malformed");
+        return result.data;
+      },
+      compensate: async ({ request, object }) => {
+        if (object.operation_id !== request.idempotency_key) return "foreign";
+        const current = await readObject(object, object.operation_id); if (!current) return "absent";
+        if (current.sha256 !== object.sha256 || current.bytes !== object.bytes || current.content_type !== object.content_type || current.storage_key !== object.storage_key) return "replacement";
+        const registry = await this.supabase.schema("tongs").from("workpiece_files").select("path").eq("storage_bucket", object.storage_bucket).eq("storage_key", object.storage_key).limit(1).maybeSingle();
+        if (registry.error) return "uncertain"; if (registry.data) return "referenced";
+        const head = await this.supabase.schema("tongs").from("hammer_history_epoch_heads").select("head_id").eq("workpiece_id", workpieceId).eq("artifact_path", object.path).maybeSingle();
+        if (head.error) return "uncertain"; if (head.data) return "referenced";
+        const transition = await this.supabase.schema("tongs").from("hammer_history_epoch_head_transitions").select("transition_id").eq("workpiece_id", workpieceId).eq("committed_history_path", object.path).maybeSingle();
+        if (transition.error) return "uncertain"; if (transition.data) return "referenced";
+        const pointer = await this.supabase.schema("tongs").from("recording_revisions").select("id").eq("id", revisionId).eq("history_path", object.path).maybeSingle();
+        if (pointer.error) return "uncertain"; if (pointer.data) return "referenced";
+        const removed = await this.supabase.storage.from(object.storage_bucket).remove([object.storage_key]);
+        return removed.error ? "uncertain" : "removed";
+      },
+    };
+    return coordinateHammerHistoryAtomicComponentHead({ request: input, adapter });
+  }
+
   async readHammerHistoryEpochHeadOperation(
     workspaceId: string, workpieceId: string, revisionId: string, idempotencyKey: string,
     options?: { userAccessToken?: string | null; operationFingerprint?: string | null; headId?: string | null },
@@ -10200,7 +10314,7 @@ export class TongsCommitService {
   async commitFile(workpieceId: string, input: CommitFileRequest): Promise<CommitFileResponse> {
     const cradle = await this.getCradleOrThrow(workpieceId);
     const path = normalizeRelativePath(input.path);
-    if (isProtectedHammerHistoryEpochPath(path)) {
+    if (isProtectedHammerHistoryEpochPath(path) || isProtectedHammerHistoryAtomicStagingPath(path)) {
       throw new HttpError(409, "hammer_history_epoch_path_reserved", "History epoch and archive paths are create-only and may only be written by the history epoch coordinator.");
     }
     if (input.event_name && RESERVED_RECORDING_AUTHORITY_EVENTS.has(input.event_name.trim())) {
@@ -17330,6 +17444,41 @@ export function createTongsCommitApiHandlerWithService(
             warnings: result.warnings,
           },
         });
+      }
+
+      if (
+        parts.length === 12
+        && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "workpieces"
+        && parts[5] === "hammer" && parts[6] === "revisions" && parts[8] === "history-epochs"
+        && parts[9] === "atomic-heads" && parts[10] === "operations"
+      ) {
+        requireMethod(request, "GET");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
+        const revisionId = normalizeUuid(decodeURIComponent(parts[7]), "revision_id");
+        const idempotencyKey = normalizeNonEmptyString(decodeURIComponent(parts[11]), "idempotency_key");
+        if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{15,127}$/.test(idempotencyKey)) throw new HttpError(400, "history_epoch_atomic_idempotency_key_invalid", "idempotency_key is not canonical.");
+        const userAccessToken = requireUserAccessTokenHeader(request); const url = new URL(request.url);
+        const fingerprint = url.searchParams.get("operation_fingerprint"); const headId = url.searchParams.get("head_id");
+        if (fingerprint !== null && !/^[0-9a-f]{64}$/.test(fingerprint)) throw new HttpError(400, "history_epoch_atomic_fingerprint_invalid", "operation_fingerprint must be a lowercase SHA-256 hash.");
+        if (headId !== null) normalizeUuid(headId, "head_id");
+        const result = await service.readHammerHistoryAtomicOperation(workspaceId, workpieceId, revisionId, idempotencyKey, { userAccessToken, operationFingerprint: fingerprint, headId });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (
+        parts.length === 10
+        && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "workpieces"
+        && parts[5] === "hammer" && parts[6] === "revisions" && parts[8] === "history-epochs" && parts[9] === "atomic-heads"
+      ) {
+        requireMethod(request, "POST");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
+        const revisionId = normalizeUuid(decodeURIComponent(parts[7]), "revision_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const payload = normalizeCommitHammerHistoryAtomicRequest(await parseJsonBody(request));
+        const result = await service.commitHammerHistoryAtomicComponentHead(workspaceId, workpieceId, revisionId, payload, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: result });
       }
 
       if (
