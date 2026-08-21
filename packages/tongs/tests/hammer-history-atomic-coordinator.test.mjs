@@ -17,7 +17,7 @@ async function fixture(options = {}) {
   const changes = lanes.map((component, index) => {
     const bytes = enc({ schema: `synthetic.${component}`, workspace_id: ids.workspace, workpiece_id: ids.workpiece, recording_revision_id: ids.revision, value: index + 1 });
     const current = authority[component];
-    return { component, path: current.path, expected: { sha256: current.sha256, bytes: current.bytes, revision: current.registry_revision, updated_at: current.registry_updated_at, storage_bucket: "forge-workpieces", storage_key: `workpieces/${ids.workpiece}/${current.path}` }, next: { sha256: sha(bytes), bytes: bytes.length, revision: current.registry_revision + 1, updated_at: "2026-08-21T18:22:34.999999Z", storage_bucket: "forge-workpieces", storage_key: `workpieces/${ids.workpiece}/${buildHammerHistoryAtomicComponentStoragePath(ids.head, component)}` }, content_type: "application/json", serialized_bytes: bytes };
+    return { component, path: current.path, expected: { sha256: current.sha256, bytes: current.bytes, revision: current.registry_revision, updated_at: current.registry_updated_at, storage_bucket: "forge-workpieces", storage_key: options.expectedStorageKey?.(component, ids, current) ?? `workpieces/${ids.workpiece}/${current.path}` }, next: { sha256: sha(bytes), bytes: bytes.length, revision: current.registry_revision + 1, updated_at: "2026-08-21T18:22:34.999999Z", storage_bucket: "forge-workpieces", storage_key: `workpieces/${ids.workpiece}/${buildHammerHistoryAtomicComponentStoragePath(ids.head, component)}` }, content_type: "application/json", serialized_bytes: bytes };
   });
   const frozenChanges = changes.map(({ serialized_bytes: _bytes, content_type: _content, ...change }) => { void _bytes; void _content; return change; });
   const resultAuthority = structuredClone(authority);
@@ -44,6 +44,27 @@ async function fixture(options = {}) {
 }
 
 test("successful single and multiple component plans stage and commit atomically",async()=>{for(const multiple of [false,true]){const f=await fixture({multiple});const result=await coordinateHammerHistoryAtomicComponentHead(f);assert.equal(result.outcome,"committed");assert.equal(f.state.writes,f.request.component_changes.length+1);assert.equal(f.state.commits,1);}});
+test("canonical authority and promoted operation-owned authority support first edit, reopen, undo, and redo",async()=>{
+  const canonical=await fixture();assert.equal((await coordinateHammerHistoryAtomicComponentHead(canonical)).outcome,"committed");
+  for(const phase of ["second-edit","undo","redo"]){const priorOperation=randomUUID();const f=await fixture({expectedStorageKey:(component,ids)=>`workpieces/${ids.workpiece}/${buildHammerHistoryAtomicComponentStoragePath(priorOperation,component)}`});assert.equal((await coordinateHammerHistoryAtomicComponentHead(f)).outcome,"committed",phase);}
+});
+test("promoted authority grammar rejects foreign identities, operations, traversal, reserved paths, and wrong lanes",async()=>{
+  const invalid=[
+    ()=>`workpieces/${randomUUID()}/hammer/staging/history-atomic/${randomUUID()}/visual_placements.json`,
+    (_component,ids)=>`workpieces/${ids.workpiece}/hammer/staging/history-atomic/not-an-operation/visual_placements.json`,
+    (_component,ids)=>`workpieces/${ids.workpiece}/hammer/staging/history-atomic/${randomUUID()}/../visual_placements.json`,
+    (_component,ids)=>`workpieces/${ids.workpiece}/hammer/revisions/${ids.revision}/history/epochs/${randomUUID()}.v1.json`,
+    (_component,ids)=>`workpieces/${ids.workpiece}/hammer/staging/history-atomic/${randomUUID()}/transcript.json`,
+    (_component,ids)=>`workpieces/${ids.workpiece}/arbitrary/${randomUUID()}.json`,
+  ];
+  for(const expectedStorageKey of invalid){const f=await fixture({expectedStorageKey});const result=await coordinateHammerHistoryAtomicComponentHead(f);assert.equal(result.code,"history_epoch_atomic_component_plan_invalid");assert.equal(f.state.writes,0);}
+  const foreignRevision=await fixture();foreignRevision.request.component_changes[0].path=`hammer/revisions/${randomUUID()}/visual_placements.v1.json`;assert.equal((await coordinateHammerHistoryAtomicComponentHead(foreignRevision)).code,"history_epoch_atomic_component_plan_invalid");
+  for(const path of [`hammer/revisions/${randomUUID()}/history/archive/file.json`,`hammer/revisions/${randomUUID()}/../visual_placements.json`]){const f=await fixture();const revision=f.ids.revision;const invalidPath=path.replace(/^hammer\/revisions\/[^/]+/,`hammer/revisions/${revision}`);const change=f.request.component_changes[0];f.request.component_authority[change.component].path=invalidPath;change.path=invalidPath;change.expected.storage_key=`workpieces/${f.ids.workpiece}/${invalidPath}`;assert.equal((await coordinateHammerHistoryAtomicComponentHead(f)).code,"history_epoch_atomic_component_authority_invalid");}
+});
+test("stale promoted tuples fail at CAS and compensation never removes prior promoted authority",async()=>{
+  const priorKeyHolder={key:""};const f=await fixture({conflict:"history_epoch_atomic_component_conflict",expectedStorageKey:(component,ids)=>{priorKeyHolder.key=`workpieces/${ids.workpiece}/${buildHammerHistoryAtomicComponentStoragePath(randomUUID(),component)}`;return priorKeyHolder.key;}});
+  const marker={path:"prior-authority",operation_id:"prior"};f.state.objects.set(priorKeyHolder.key,marker);const result=await coordinateHammerHistoryAtomicComponentHead(f);assert.equal(result.code,"history_epoch_atomic_component_conflict");assert.equal(f.state.objects.get(priorKeyHolder.key),marker);assert.equal(f.state.objects.size,1);
+});
 test("exact independent replay is already committed with no further write or RPC",async()=>{const f=await fixture();assert.equal((await coordinateHammerHistoryAtomicComponentHead(f)).outcome,"committed");const counts=[f.state.writes,f.state.commits];assert.equal((await coordinateHammerHistoryAtomicComponentHead({request:structuredClone(f.request),adapter:f.adapter})).outcome,"already_committed");assert.deepEqual([f.state.writes,f.state.commits],counts);});
 test("changed replay and parent byte changes fail closed through readback",async()=>{const f=await fixture();await coordinateHammerHistoryAtomicComponentHead(f);const changed=structuredClone(f.request);changed.parent.bytes++;assert.equal((await coordinateHammerHistoryAtomicComponentHead({request:changed,adapter:f.adapter})).code,"history_epoch_atomic_fingerprint_conflict");});
 test("unchanged, duplicate lane, and duplicate path plans are rejected before staging",async()=>{for(const mutate of [r=>r.component_changes[0].next.sha256=r.component_changes[0].expected.sha256,r=>r.component_changes.push(structuredClone(r.component_changes[0])),r=>{const x=structuredClone(r.component_changes[0]);x.component="transcript";r.component_changes.push(x);}]){const f=await fixture();mutate(f.request);const result=await coordinateHammerHistoryAtomicComponentHead(f);assert.equal(result.code,"history_epoch_atomic_component_plan_invalid");assert.equal(f.state.writes,0);}});

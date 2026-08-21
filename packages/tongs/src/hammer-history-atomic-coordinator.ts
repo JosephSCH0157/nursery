@@ -79,6 +79,20 @@ function validateRegistry(value: HammerHistoryAtomicRegistryTuple): boolean {
     && value.storage_bucket === "forge-workpieces" && typeof value.storage_key === "string" && value.storage_key.length > 0;
 }
 
+function isExpectedComponentStorageKey(request: HammerHistoryAtomicRequest, component: HammerHistoryAtomicComponent, path: string, storageKey: string): boolean {
+  if (storageKey === `workpieces/${request.workpiece_id}/${path}`) return true;
+  const match = /^workpieces\/([0-9a-f-]+)\/hammer\/staging\/history-atomic\/([0-9a-f-]+)\/(audio|editorial_authority|transcript|visual_placements|visual_timeline)\.json$/i.exec(storageKey);
+  return Boolean(match && match[1] === request.workpiece_id && UUID_RE.test(match[2]!) && match[3] === component);
+}
+
+function isRevisionComponentPath(request: HammerHistoryAtomicRequest, path: string): boolean {
+  const prefix = `hammer/revisions/${request.recording_revision_id}/`;
+  if (!path.startsWith(prefix) || !path.endsWith(".json") || path.includes("\\") || path.includes("?") || path.includes("#")) return false;
+  const relative = path.slice(prefix.length); const segments = relative.split("/");
+  return segments.length > 0 && segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..")
+    && segments[0] !== "history";
+}
+
 async function validateRequest(request: HammerHistoryAtomicRequest): Promise<HammerHistoryAtomicConflict | null> {
   if (!object(request) || !exact(request, ["workspace_id", "workpiece_id", "canonical_recording_id", "recording_revision_id", "initiating_user_id", "idempotency_key", "operation_fingerprint", "expected_revision_updated_at", "expected_history_path", "parent", "component_authority", "component_changes", "head", "envelope", "history"])) return conflict("history_epoch_atomic_request_shape_invalid");
   if (![request.workspace_id, request.workpiece_id, request.canonical_recording_id, request.recording_revision_id, request.initiating_user_id, request.head.head_id].every((value) => typeof value === "string" && UUID_RE.test(value))
@@ -88,12 +102,14 @@ async function validateRequest(request: HammerHistoryAtomicRequest): Promise<Ham
     || !(request.parent.head_id === null || UUID_RE.test(request.parent.head_id)) || !Number.isSafeInteger(request.parent.sequence) || request.parent.sequence < 0
     || !SHA_RE.test(request.parent.sha256) || !positive(request.parent.bytes) || !positive(request.parent.registry_revision) || !timestampToken(request.parent.registry_updated_at) || request.parent.content_type !== "application/json") return conflict("history_epoch_atomic_parent_invalid");
   if (!object(request.component_authority) || !exact(request.component_authority as unknown as JsonObject, COMPONENTS)) return conflict("history_epoch_atomic_component_authority_invalid");
+  const authorityPaths = new Set<string>();
   for (const component of COMPONENTS) {
     const authority = request.component_authority[component];
     if (!object(authority) || !exact(authority as unknown as JsonObject, ["workpiece_id", "path", "sha256", "bytes", "registry_revision", "registry_updated_at", "content_type"])
-      || authority.workpiece_id !== request.workpiece_id || typeof authority.path !== "string" || !authority.path.startsWith(`hammer/revisions/${request.recording_revision_id}/`)
+      || authority.workpiece_id !== request.workpiece_id || typeof authority.path !== "string" || !isRevisionComponentPath(request, authority.path) || authorityPaths.has(authority.path)
       || !SHA_RE.test(authority.sha256) || !positive(authority.bytes) || !positive(authority.registry_revision)
       || !timestampToken(authority.registry_updated_at) || authority.content_type !== "application/json") return conflict("history_epoch_atomic_component_authority_invalid");
+    authorityPaths.add(authority.path);
   }
   if (!Array.isArray(request.component_changes) || request.component_changes.length < 1 || request.component_changes.length > COMPONENTS.length) return conflict("history_epoch_atomic_component_plan_invalid");
   const lanes = new Set<string>(); const paths = new Set<string>();
@@ -103,8 +119,8 @@ async function validateRequest(request: HammerHistoryAtomicRequest): Promise<Ham
       || !(change.serialized_bytes instanceof Uint8Array) || !validateRegistry(change.expected) || !validateRegistry(change.next)
       || change.next.revision !== change.expected.revision + 1 || change.next.sha256 === change.expected.sha256 || change.next.bytes !== change.serialized_bytes.length
       || await sha256(change.serialized_bytes) !== change.next.sha256
-      || !change.path.startsWith(`hammer/revisions/${request.recording_revision_id}/`)
-      || change.expected.storage_key !== `workpieces/${request.workpiece_id}/${change.path}`
+      || !isRevisionComponentPath(request, change.path)
+      || !isExpectedComponentStorageKey(request, change.component, change.path, change.expected.storage_key)
       || change.next.storage_key !== `workpieces/${request.workpiece_id}/${buildHammerHistoryAtomicComponentStoragePath(request.head.head_id, change.component)}`) return conflict("history_epoch_atomic_component_plan_invalid");
     const authority = request.component_authority[change.component as HammerHistoryAtomicComponent];
     if (!authority || authority.workpiece_id !== request.workpiece_id || authority.path !== change.path || authority.sha256 !== change.expected.sha256 || authority.bytes !== change.expected.bytes || authority.registry_revision !== change.expected.revision || authority.registry_updated_at !== change.expected.updated_at || authority.content_type !== change.content_type) return conflict("history_epoch_atomic_component_authority_conflict");
