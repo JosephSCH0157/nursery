@@ -3875,6 +3875,44 @@ export type Database = {
           },
         ]
       }
+      hammer_history_epoch_atomic_parent_evidence: {
+        Row: {
+          created_at: string
+          idempotency_key: string
+          parent_bytes: number
+          recording_revision_id: string
+          transition_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          idempotency_key: string
+          parent_bytes: number
+          recording_revision_id: string
+          transition_id: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          idempotency_key?: string
+          parent_bytes?: number
+          recording_revision_id?: string
+          transition_id?: string
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "hammer_history_epoch_atomic_parent_evidence_transition_id_fkey"
+            columns: ["transition_id"]
+            isOneToOne: true
+            referencedRelation: "hammer_history_epoch_head_transitions"
+            referencedColumns: ["transition_id"]
+          },
+        ]
+      }
       hammer_history_epoch_head_transitions: {
         Row: {
           canonical_recording_id: string
@@ -13767,6 +13805,7 @@ export type Database = {
           p_head_storage_key: string
           p_idempotency_key: string
           p_operation_fingerprint: string
+          p_parent_bytes: number
           p_parent_head_id: string
           p_parent_registry_revision: number
           p_parent_registry_updated_at: string
