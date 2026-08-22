@@ -7,6 +7,7 @@ import VisualTimelineDock, {
   resolveVisualTimelineDisplayDurationSec,
 } from "../src/visuals/components/VisualTimelineDock";
 import type { HammerVisualClip } from "../src/visuals/model/hammerVisualTypes";
+import { layoutVisualClipRows } from "../src/visuals/components/VisualTimelineLane";
 
 test("dock identifies composition and packaging counts without duplicating packaging", () => {
   const clips = Array.from({ length: 29 }, (_, index) => ({
@@ -39,6 +40,24 @@ test("dock identifies composition and packaging counts without duplicating packa
   assert.doesNotMatch(markup, /packaging:intro/);
 });
 
+test("rendered collisions receive deterministic independent rows", () => {
+  const target = { clipId: "target", label: "Target", startSec: 386.5, endSec: 389.25, selected: false };
+  const duplicate = { ...target, clipId: "duplicate" };
+  const separated = { clipId: "separated", label: "Separated", startSec: 416.622, endSec: 419.322, selected: false };
+
+  const narrow = layoutVisualClipRows([target, duplicate, separated], 462.894, 160);
+  assert.equal(narrow.rowByClipId.get("target"), 0);
+  assert.equal(narrow.rowByClipId.get("duplicate"), 1);
+  assert.equal(narrow.rowByClipId.get("separated"), 2);
+  assert.equal(narrow.rowCount, 3);
+
+  const wide = layoutVisualClipRows([target, duplicate, separated], 462.894, 800);
+  assert.equal(wide.rowByClipId.get("target"), 0);
+  assert.equal(wide.rowByClipId.get("duplicate"), 1);
+  assert.equal(wide.rowByClipId.get("separated"), 0);
+  assert.equal(wide.rowCount, 2);
+});
+
 test("dock display duration includes mounted clips beyond playback duration", () => {
   const target = {
     clipId: "placement-target",
@@ -68,7 +87,7 @@ test("dock display duration includes mounted clips beyond playback duration", ()
     />,
   );
 
-  assert.match(markup, /data-clip-id="placement-target"[^>]*style="left:92\.1774[^"]*;width:1%"/);
-  assert.match(markup, /data-clip-id="placement-later"[^>]*style="left:99\.3560[^"]*;width:1%"/);
+  assert.match(markup, /data-clip-id="placement-target"[^>]*style="left:92\.1774[^"]*;width:1%[^"]*"/);
+  assert.match(markup, /data-clip-id="placement-later"[^>]*style="left:99\.3560[^"]*;width:1%[^"]*"/);
   assert.doesNotMatch(markup, /data-clip-id="placement-target"[^>]*style="left:100%/);
 });

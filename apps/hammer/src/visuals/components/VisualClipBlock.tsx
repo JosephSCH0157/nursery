@@ -10,10 +10,14 @@ export interface VisualClipBlockModel {
   locked?: boolean;
 }
 
+export const VISUAL_CLIP_MIN_WIDTH_PX = 14;
+export const VISUAL_CLIP_ROW_HEIGHT_PX = 36;
+
 interface VisualClipBlockProps {
   clip: VisualClipBlockModel;
   durationSec: number;
   showTrimHandles?: boolean;
+  rowIndex?: number;
   onSelect: (clipId: string) => void;
   onMovePointerDown?: (event: MouseEvent<HTMLDivElement>, clipId: string) => void;
   onTrimStartPointerDown?: (event: MouseEvent<HTMLDivElement>, clipId: string) => void;
@@ -43,7 +47,12 @@ export default function VisualClipBlock(props: VisualClipBlockProps) {
         clip.disabled ? "is-disabled" : "",
         clip.locked ? "is-locked" : "",
       ].filter(Boolean).join(" ")}
-      style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }}
+      style={{
+        left: `${leftPercent}%`,
+        width: `${widthPercent}%`,
+        minWidth: `${VISUAL_CLIP_MIN_WIDTH_PX}px`,
+        top: `${6 + ((props.rowIndex ?? 0) * VISUAL_CLIP_ROW_HEIGHT_PX)}px`,
+      }}
       onMouseDown={(event) => {
         props.onMovePointerDown?.(event, clip.clipId);
       }}

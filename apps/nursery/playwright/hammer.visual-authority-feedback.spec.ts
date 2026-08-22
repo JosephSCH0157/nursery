@@ -16,6 +16,12 @@ const moduleUrls = {
 };
 
 test("visual clips beyond playback duration retain distinct native pointer targets", async ({ page }) => {
+  const mutationRequests: string[] = [];
+  page.on("request", (request) => {
+    if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) {
+      mutationRequests.push(`${request.method()} ${request.url()}`);
+    }
+  });
   await page.route("**/*", async (route) => {
     const host = new URL(route.request().url()).hostname;
     if (["127.0.0.1", "::1", "localhost"].includes(host)) {
@@ -33,8 +39,8 @@ test("visual clips beyond playback duration retain distinct native pointer targe
     (window as any).__hammerTimelineHitTestSelections = selected;
     document.body.innerHTML = `
       <style>
-        .hammer-visual-timeline-lane__track { position: relative; width: 400px; height: 44px; overflow: hidden; }
-        .hammer-visual-clip-block { position: absolute; top: 6px; height: 32px; box-sizing: border-box; }
+        .hammer-visual-timeline-lane__track { position: relative; width: 160px; min-height: 44px; overflow: hidden; }
+        .hammer-visual-clip-block { position: absolute; height: 32px; box-sizing: border-box; padding: 0; }
       </style>
       <div id="hammer-visual-hit-test-root"></div>
     `;
@@ -42,6 +48,7 @@ test("visual clips beyond playback duration retain distinct native pointer targe
       React.createElement(VisualTimelineDock, {
         clips: [
           { clipId: "placement-target", label: "Entire seasons lost.", startSec: 386.5, endSec: 389.2, selected: false },
+          { clipId: "placement-exact-duplicate", label: "Entire supply chains evaporated.", startSec: 386.5, endSec: 389.2, selected: false },
           { clipId: "placement-later", label: "Later placement", startSec: 416.6, endSec: 419.3, selected: false },
         ],
         playheadSec: 0,
@@ -54,17 +61,40 @@ test("visual clips beyond playback duration retain distinct native pointer targe
   }, moduleUrls);
 
   const target = page.locator('[data-clip-id="placement-target"]');
+  const duplicate = page.locator('[data-clip-id="placement-exact-duplicate"]');
   const later = page.locator('[data-clip-id="placement-later"]');
   await expect(target).toBeVisible();
+  await expect(duplicate).toBeVisible();
   await expect(later).toBeVisible();
   const targetBox = await target.boundingBox();
+  const duplicateBox = await duplicate.boundingBox();
   const laterBox = await later.boundingBox();
   expect(targetBox).not.toBeNull();
   expect(laterBox).not.toBeNull();
-  expect((targetBox?.x ?? 0) + (targetBox?.width ?? 0)).toBeLessThan(laterBox?.x ?? 0);
+  expect(duplicateBox).not.toBeNull();
+  expect(targetBox?.y).not.toBe(duplicateBox?.y);
+  expect(targetBox?.y).not.toBe(laterBox?.y);
+
+  await page.locator(".hammer-visual-timeline-lane__track").evaluate((track) => {
+    (track as HTMLElement).style.width = "800px";
+  });
+  await expect.poll(async () => (await target.boundingBox())?.y).toBe((await later.boundingBox())?.y);
+  expect((await target.boundingBox())?.y).not.toBe((await duplicate.boundingBox())?.y);
+
+  await page.locator(".hammer-visual-timeline-lane__track").evaluate((track) => {
+    (track as HTMLElement).style.width = "160px";
+  });
+  await expect.poll(async () => (await target.boundingBox())?.y).not.toBe((await later.boundingBox())?.y);
 
   await target.click();
-  await expect.poll(() => page.evaluate(() => (window as any).__hammerTimelineHitTestSelections)).toEqual(["placement-target"]);
+  await duplicate.click();
+  await later.click();
+  await expect.poll(() => page.evaluate(() => (window as any).__hammerTimelineHitTestSelections)).toEqual([
+    "placement-target",
+    "placement-exact-duplicate",
+    "placement-later",
+  ]);
+  expect(mutationRequests).toEqual([]);
 });
 
 test.beforeEach(async ({ baseURL }) => {
