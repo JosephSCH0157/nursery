@@ -16,8 +16,19 @@ interface VisualTimelineDockProps {
   onTrimClipEnd?: (event: MouseEvent<HTMLDivElement>, clip: VisualClipBlockModel) => void;
 }
 
+export function resolveVisualTimelineDisplayDurationSec(
+  durationSec: number,
+  clips: VisualClipBlockModel[],
+): number {
+  return clips.reduce(
+    (displayDurationSec, clip) => Math.max(displayDurationSec, clip.endSec),
+    Math.max(0, durationSec),
+  );
+}
+
 export default function VisualTimelineDock(props: VisualTimelineDockProps) {
   const dockRef = useRef<HTMLDivElement | null>(null);
+  const displayDurationSec = resolveVisualTimelineDisplayDurationSec(props.durationSec, props.clips);
 
   useEffect(() => {
     if (!props.selectedClipId) return;
@@ -46,7 +57,7 @@ export default function VisualTimelineDock(props: VisualTimelineDockProps) {
         label="Visuals"
         countLabel={`${props.clips.length} composition clips`}
         clips={props.clips}
-        durationSec={props.durationSec}
+        durationSec={displayDurationSec}
         playheadSec={props.playheadSec}
         selectedClipId={props.selectedClipId}
         editable={props.editable}

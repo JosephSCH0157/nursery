@@ -30,12 +30,6 @@ export default function VisualClipBlock(props: VisualClipBlockProps) {
   const leftPercent = toPercent(clip.startSec, durationSec);
   const widthPercent = Math.max(1, toPercent(clip.endSec - clip.startSec, durationSec));
 
-  const applyBlockLayout = (node: HTMLDivElement | null) => {
-    if (!node) return;
-    node.style.left = `${leftPercent}%`;
-    node.style.width = `${widthPercent}%`;
-  };
-
   return (
     <div
       role="button"
@@ -49,7 +43,7 @@ export default function VisualClipBlock(props: VisualClipBlockProps) {
         clip.disabled ? "is-disabled" : "",
         clip.locked ? "is-locked" : "",
       ].filter(Boolean).join(" ")}
-      ref={applyBlockLayout}
+      style={{ left: `${leftPercent}%`, width: `${widthPercent}%` }}
       onMouseDown={(event) => {
         props.onMovePointerDown?.(event, clip.clipId);
       }}

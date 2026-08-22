@@ -9,10 +9,63 @@ const repositoryRoot = path.resolve(__dirname, "../../..");
 const viteFsUrl = (relativePath: string) => `/@fs/${path.resolve(repositoryRoot, relativePath).replaceAll("\\", "/")}`;
 const moduleUrls = {
   shell: viteFsUrl("apps/hammer/src/editor/HammerWorkspaceShell.tsx"),
+  visualTimelineDock: viteFsUrl("apps/hammer/src/visuals/components/VisualTimelineDock.tsx"),
   presets: viteFsUrl("apps/hammer/src/dev/hammerLaunchPresets.ts"),
   defaults: viteFsUrl("apps/hammer/src/visuals/model/hammerVisualDefaults.ts"),
   authority: viteFsUrl("apps/hammer/src/persistence/hammerVisualAuthority.ts"),
 };
+
+test("visual clips beyond playback duration retain distinct native pointer targets", async ({ page }) => {
+  await page.route("**/*", async (route) => {
+    const host = new URL(route.request().url()).hostname;
+    if (["127.0.0.1", "::1", "localhost"].includes(host)) {
+      await route.continue();
+      return;
+    }
+    await route.abort("blockedbyclient");
+  });
+  await page.goto("/");
+  await page.evaluate(async (urls) => {
+    const React = (await import("/node_modules/.vite/deps/react.js")).default;
+    const { createRoot } = (await import("/node_modules/.vite/deps/react-dom_client.js")).default;
+    const { default: VisualTimelineDock } = await import(urls.visualTimelineDock);
+    const selected: string[] = [];
+    (window as any).__hammerTimelineHitTestSelections = selected;
+    document.body.innerHTML = `
+      <style>
+        .hammer-visual-timeline-lane__track { position: relative; width: 400px; height: 44px; overflow: hidden; }
+        .hammer-visual-clip-block { position: absolute; top: 6px; height: 32px; box-sizing: border-box; }
+      </style>
+      <div id="hammer-visual-hit-test-root"></div>
+    `;
+    createRoot(document.getElementById("hammer-visual-hit-test-root")!).render(
+      React.createElement(VisualTimelineDock, {
+        clips: [
+          { clipId: "placement-target", label: "Entire seasons lost.", startSec: 386.5, endSec: 389.2, selected: false },
+          { clipId: "placement-later", label: "Later placement", startSec: 416.6, endSec: 419.3, selected: false },
+        ],
+        playheadSec: 0,
+        durationSec: 30,
+        selectedClipId: null,
+        editable: true,
+        onSelectClip: (clipId: string) => selected.push(clipId),
+      }),
+    );
+  }, moduleUrls);
+
+  const target = page.locator('[data-clip-id="placement-target"]');
+  const later = page.locator('[data-clip-id="placement-later"]');
+  await expect(target).toBeVisible();
+  await expect(later).toBeVisible();
+  const targetBox = await target.boundingBox();
+  const laterBox = await later.boundingBox();
+  expect(targetBox).not.toBeNull();
+  expect(laterBox).not.toBeNull();
+  expect((targetBox?.x ?? 0) + (targetBox?.width ?? 0)).toBeLessThan(laterBox?.x ?? 0);
+
+  await target.click();
+  await expect.poll(() => page.evaluate(() => (window as any).__hammerTimelineHitTestSelections)).toEqual(["placement-target"]);
+});
 
 test.beforeEach(async ({ baseURL }) => {
   const host = new URL(baseURL ?? "http://127.0.0.1").hostname;
