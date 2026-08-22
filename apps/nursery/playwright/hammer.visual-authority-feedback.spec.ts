@@ -327,6 +327,169 @@ test("Florida-shaped below-viewport clip remains selected after locator scroll a
   expect(mutationRequests).toEqual([]);
 });
 
+test("mounted Florida-shaped shell routes a below-viewport visual selection out of Transcript Cleanup", async ({ page }) => {
+  const mutationRequests: string[] = [];
+  page.on("request", (request) => {
+    if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) {
+      mutationRequests.push(`${request.method()} ${request.url()}`);
+    }
+  });
+  await page.route("**/api/**", async (route) => {
+    await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ ok: false, error: "fixture_source_desk_unavailable" }) });
+  });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/");
+  await page.evaluate(async (urls) => {
+    const React = (await import("/node_modules/.vite/deps/react.js")).default;
+    const { createRoot } = (await import("/node_modules/.vite/deps/react-dom_client.js")).default;
+    const { default: HammerWorkspaceShell } = await import(urls.shell);
+    const { getHammerDevLaunchPreset } = await import(urls.presets);
+    const { createDefaultSemanticAnchor, createDefaultVisualAnimation, createDefaultVisualGeometry } = await import(urls.defaults);
+    const targetId = "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2";
+    const duplicateId = "placement_mm_from_media_still_broll-beat-155848e3-0799-44b2-9fea-9457bfd48cdf";
+    const interceptorId = "placement_6c70e9c8-575b-4849-abd2-86377bc7334e";
+    const updatedAt = "2026-08-22T12:00:00.000Z";
+    const transcriptSegments = Array.from({ length: 137 }, (_, index) => ({
+      segment_id: `turn_${String(index + 1).padStart(3, "0")}`,
+      start_sec: index * 3.6,
+      end_sec: (index * 3.6) + 3,
+      speaker: "S1",
+      text: index === 106 ? "Entire seasons lost." : `Frozen Florida transcript segment ${index + 1}.`,
+    }));
+    const exactIds = [targetId, duplicateId, interceptorId];
+    const placementIds = [
+      ...Array.from({ length: 27 }, (_, index) => `synthetic-florida-placement-${String(index + 1).padStart(2, "0")}`),
+      ...exactIds,
+    ];
+    const assets = placementIds.map((id, index) => ({
+      asset_id: `asset-${index}`,
+      asset_ref: `asset-${index}`,
+      kind: "image",
+      label: id === targetId ? "Entire seasons lost." : `Florida visual ${index + 1}`,
+      path: `visuals/${index}.png`,
+      storage_key: null,
+      mime_type: "image/png",
+      source_mode: "manual",
+      roles: ["timeline_visual"],
+      updated_at: updatedAt,
+    }));
+    const clips = placementIds.map((id, index) => {
+      const exactStart = id === targetId || id === duplicateId ? 380.456 : id === interceptorId ? 410.578 : index * 12;
+      const exactEnd = id === targetId || id === duplicateId ? 383.206 : id === interceptorId ? 413.278 : (index * 12) + 3;
+      return {
+        clip_id: id,
+        asset_id: assets[index].asset_id,
+        lane_id: "lane:primary",
+        entry_id: `entry-${index}`,
+        label: assets[index].label,
+        visual_mode: "image",
+        confidence: id === targetId ? 0.3 : 1,
+        placement_status: "placed",
+        ingest_state: id === targetId ? "suggested" : "approved",
+        uncertainty_flags: id === targetId ? ["low_confidence"] : [],
+        start_sec: exactStart,
+        end_sec: exactEnd,
+        geometry: createDefaultVisualGeometry(),
+        fit_mode: "contain",
+        animation: createDefaultVisualAnimation(),
+        opacity: 1,
+        z_index: index,
+        enabled: true,
+        locked: false,
+        source_mode: "manual",
+        anchor_hint: { anchor_segment_id: "turn_107", matched_segment_ids: ["turn_107"], anchor_text: id === targetId ? "Entire seasons lost." : null, anchor_label: null, detached: false },
+        semantic_anchor: createDefaultSemanticAnchor(),
+        divergence: { state: "not_comparable", start_delta_sec: null, end_delta_sec: null },
+        updated_at: updatedAt,
+      };
+    });
+    const visualTimeline = {
+      version: 2,
+      revision: 8,
+      updated_at: updatedAt,
+      source_mode: "packaging",
+      selected_clip_id: null,
+      assets,
+      clips,
+      lanes: [{ lane_id: "lane:primary", label: "Visuals", clip_ids: placementIds }],
+      debug_origin: "canonical_load",
+    };
+    const visualPlacements = {
+      schema_version: 1,
+      status: "prepared",
+      source_refs: ["transcript:frozen-florida"],
+      uncertainty_flags: ["three_review_flags"],
+      placements: clips.map((clip: any) => ({
+        placement_id: clip.clip_id,
+        entry_id: clip.entry_id,
+        anchor_segment_id: "turn_107",
+        matched_segment_ids: ["turn_107"],
+        anchor_text: clip.clip_id === targetId ? "Entire seasons lost." : null,
+        asset_ref: clip.asset_id,
+        asset_id: clip.asset_id,
+        asset_path: `visuals/${clip.asset_id}.png`,
+        storage_key: null,
+        label: clip.label,
+        visual_mode: "image",
+        start_sec: clip.start_sec,
+        end_sec: clip.end_sec,
+        confidence: clip.confidence,
+        timing_source: "ordered_fallback",
+        status: "placed",
+        ingest_state: clip.ingest_state,
+        uncertainty_flags: clip.uncertainty_flags,
+      })),
+    };
+    const structuredTranscript = {
+      schema_version: 1,
+      transcript_id: "frozen-florida-transcript",
+      media_id: "frozen-florida-media",
+      media_signature: "frozen-florida-signature",
+      prepared_at: updatedAt,
+      structure: "speaker_turns",
+      source_media_ref: null,
+      diarization: { label_scheme: "forge-neutral-speakers.v1", labels: ["S1"], raw_labels: ["speaker_0"], version: "fixture", provider: "fixture", provider_request_id: "fixture", model: "fixture" },
+      confidence_flags: [],
+      segments: transcriptSegments,
+      derived_text_layers: { schema_version: 1, active_layer_id: null, output_layer_id: null, layers: [] },
+      subtitle_outputs: { schema_version: 1, last_generated_format: null, srt: null, vtt: null },
+    };
+    const evidence = { emissions: 0, events: [] as any[], renders: [] as any[] };
+    (window as any).__hammerMountedFloridaSelectionEvidence = evidence;
+    for (const eventName of ["pointerdown", "mousedown", "focus", "pointerup", "click"] as const) {
+      document.addEventListener(eventName, (event) => {
+        const target = event.target instanceof Element ? event.target.closest("[data-clip-id]") : null;
+        evidence.events.push({ event: eventName, target_id: target?.getAttribute("data-clip-id") ?? null });
+      }, true);
+    }
+    document.body.innerHTML = "<div id='hammer-mounted-florida-selection-root'></div>";
+    createRoot(document.getElementById("hammer-mounted-florida-selection-root")!).render(React.createElement(HammerWorkspaceShell, {
+      launchContext: getHammerDevLaunchPreset("tongs-stub-clean"),
+      recordingRevisionId: "frozen-florida-revision",
+      structuredTranscript,
+      visualTimeline,
+      visualPlacements,
+      initialCurrentPass: "transcript_cleanup",
+      onWorkspaceSnapshotChange: () => { evidence.emissions += 1; },
+    }));
+  }, moduleUrls);
+
+  const target = page.locator('[data-clip-id="placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2"]');
+  await expect(target).toHaveCount(1);
+  const preClickBox = await target.boundingBox();
+  expect(preClickBox?.y).toBeGreaterThan(720);
+  const emissionsBefore = await page.evaluate(() => (window as any).__hammerMountedFloridaSelectionEvidence.emissions);
+  await target.click();
+  await expect(target).toHaveClass(/is-selected/);
+  await expect(page.getByText(`selected placement id: ${"placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2"}`, { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Remove Clip", exact: true })).toBeVisible();
+  const evidence = await page.evaluate(() => (window as any).__hammerMountedFloridaSelectionEvidence);
+  expect(evidence.events.map((event: any) => event.event)).toEqual(["pointerdown", "mousedown", "focus", "pointerup", "click"]);
+  expect(evidence.events.slice(0, 2).every((event: any) => event.target_id === "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2")).toBe(true);
+  expect(evidence.emissions).toBe(emissionsBefore + 1);
+  expect(mutationRequests).toEqual([]);
+});
+
 test("archived-history notice keeps Visuals controls inside the exact 1280x720 staging viewport", async ({ page }) => {
   const mutationRequests: string[] = [];
   page.on("request", (request) => {
