@@ -25,6 +25,7 @@ Breakpoint intent:
 - <=1600: preserve readability without early collapse.
 - <=1440: compress gracefully while keeping source/tool usable.
 - <=1280: tighter preview cap with controlled min-width reductions.
+- Supported editor viewport floor: 960px wide by 720px high; controls reflow within their bay at that floor.
 
 Guardrails:
 - Do not move shell geometry ownership out of HammerWorkspaceShell*.
@@ -43,6 +44,7 @@ Guardrails:
   --hammer-shell-timeline-track-min-height: 140px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) var(--hammer-shell-toolbar-width);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 8px;
   width: 100%;
   height: 100%;
@@ -52,6 +54,8 @@ Guardrails:
 }
 
 .hammer-workspace-shell__main {
+  grid-column: 1;
+  grid-row: 2;
   display: grid;
   grid-template-rows: minmax(0, 1fr) var(--hammer-shell-timeline-height);
   min-height: 0;
@@ -70,6 +74,16 @@ Guardrails:
   gap: 8px;
   overflow: hidden;
   transition: grid-template-columns 180ms ease;
+}
+
+.hammer-workspace-shell__notices {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  min-width: 0;
+}
+
+.hammer-workspace-shell__notices:empty {
+  display: none;
 }
 
 .hammer-source-bay,
@@ -103,6 +117,8 @@ Guardrails:
 }
 
 .hammer-toolbar {
+  grid-column: 2;
+  grid-row: 2;
   width: var(--hammer-shell-toolbar-width);
   min-width: var(--hammer-shell-toolbar-width);
   max-width: var(--hammer-shell-toolbar-width);
@@ -1031,6 +1047,7 @@ Guardrails:
 
 .hammer-source-card__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 6px;
 }
 

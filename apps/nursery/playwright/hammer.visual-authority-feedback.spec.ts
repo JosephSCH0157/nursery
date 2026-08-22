@@ -97,6 +97,83 @@ test("visual clips beyond playback duration retain distinct native pointer targe
   expect(mutationRequests).toEqual([]);
 });
 
+test("archived-history notice keeps Visuals controls inside the exact 1280x720 staging viewport", async ({ page }) => {
+  const mutationRequests: string[] = [];
+  page.on("request", (request) => {
+    if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) {
+      mutationRequests.push(`${request.method()} ${request.url()}`);
+    }
+  });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/");
+  await page.evaluate(() => {
+    (window as any).__hammerResponsiveControlClicks = [];
+    document.body.innerHTML = `
+      <section class="hammer-workspace-shell is-tool-focus" style="height:720px">
+        <div class="hammer-workspace-shell__notices">
+          <aside class="hammer-history-epoch-notice">Archived history is preserved.</aside>
+        </div>
+        <div class="hammer-workspace-shell__main">
+          <div class="hammer-workspace-shell__top">
+            <section class="hammer-source-bay"><div class="hammer-bay-body">Source</div></section>
+            <section class="hammer-preview-bay"><div class="hammer-bay-body">Preview</div></section>
+            <section class="hammer-tool-bay">
+              <div class="hammer-bay-body">
+                <section class="hammer-tool-card hammer-visual-tool-selector">
+                  <div class="hammer-source-card__actions">
+                    <button type="button">Visuals</button>
+                    <button type="button">Images</button>
+                    <button type="button">Remove Clip</button>
+                  </div>
+                </section>
+              </div>
+            </section>
+          </div>
+          <section class="hammer-timeline-dock">Timeline</section>
+        </div>
+        <nav class="hammer-toolbar">Tools</nav>
+      </section>
+    `;
+    for (const button of document.querySelectorAll(".hammer-tool-bay button")) {
+      button.addEventListener("click", () => (window as any).__hammerResponsiveControlClicks.push(button.textContent));
+    }
+  });
+
+  const assertContained = async (viewportWidth: number) => {
+    await page.setViewportSize({ width: viewportWidth, height: 720 });
+    const geometry = await page.locator(".hammer-workspace-shell").evaluate((shell) => {
+      const box = (selector: string) => {
+        const rect = shell.querySelector(selector)!.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, width: rect.width };
+      };
+      return {
+        shell: box(".hammer-workspace-shell__main"),
+        top: box(".hammer-workspace-shell__top"),
+        tool: box(".hammer-tool-bay"),
+        remove: box(".hammer-tool-bay button:last-child"),
+      };
+    });
+    expect(geometry.shell.width).toBeGreaterThan(700);
+    expect(geometry.top.right).toBeLessThanOrEqual(geometry.shell.right + 0.5);
+    expect(geometry.tool.right).toBeLessThanOrEqual(geometry.top.right + 0.5);
+    expect(geometry.remove.right).toBeLessThanOrEqual(geometry.tool.right + 0.5);
+    await expect(page.getByRole("button", { name: "Remove Clip", exact: true })).toBeVisible();
+  };
+
+  await assertContained(1280);
+  await page.getByRole("button", { name: "Visuals", exact: true }).click();
+  await page.getByRole("button", { name: "Images", exact: true }).click();
+  await page.getByRole("button", { name: "Remove Clip", exact: true }).click();
+  await assertContained(960);
+  await assertContained(1280);
+  await expect.poll(() => page.evaluate(() => (window as any).__hammerResponsiveControlClicks)).toEqual([
+    "Visuals",
+    "Images",
+    "Remove Clip",
+  ]);
+  expect(mutationRequests).toEqual([]);
+});
+
 test.beforeEach(async ({ baseURL }) => {
   const host = new URL(baseURL ?? "http://127.0.0.1").hostname;
   expect(["127.0.0.1", "::1", "localhost"]).toContain(host);

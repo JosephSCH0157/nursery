@@ -4497,13 +4497,15 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
         currentPass === "visual_finishing" ? "is-visual-finishing" : "",
       ].filter(Boolean).join(" ")}
     >
-      {historyEpochArchivedNotice ? <aside className="hammer-history-epoch-notice">Archived history is preserved. New undo history begins with the next user edit and cannot cross the epoch boundary.</aside> : null}
-      <HammerHistoryEpochStartWorkflow candidate={historyEpochStartCandidate} workspaceRole={props.workspaceRole ?? null}
-        commandAvailable={Boolean(defaultHistoryEpochPersistence)} getCurrentCandidate={() => historyEpochStartCandidateRef.current}
-        start={(request, frozenState) => historyAuthority.startHistoryEpoch(request, frozenState)}
-        onPendingChange={(pending) => { setHistoryEpochPending(pending); props.onHistoryEpochPendingChange?.(pending); }}
-        onRequireFreshReadback={() => setHistoryEpochStartCandidate(null)}
-        onSuccess={() => { setHistoryEpochStartCandidate(null); setHistoryEpochArchivedNotice(true); setHistoryStatus("Archived history is preserved. New undo history begins with the next user edit."); }} />
+      <div className="hammer-workspace-shell__notices">
+        {historyEpochArchivedNotice ? <aside className="hammer-history-epoch-notice">Archived history is preserved. New undo history begins with the next user edit and cannot cross the epoch boundary.</aside> : null}
+        <HammerHistoryEpochStartWorkflow candidate={historyEpochStartCandidate} workspaceRole={props.workspaceRole ?? null}
+          commandAvailable={Boolean(defaultHistoryEpochPersistence)} getCurrentCandidate={() => historyEpochStartCandidateRef.current}
+          start={(request, frozenState) => historyAuthority.startHistoryEpoch(request, frozenState)}
+          onPendingChange={(pending) => { setHistoryEpochPending(pending); props.onHistoryEpochPendingChange?.(pending); }}
+          onRequireFreshReadback={() => setHistoryEpochStartCandidate(null)}
+          onSuccess={() => { setHistoryEpochStartCandidate(null); setHistoryEpochArchivedNotice(true); setHistoryStatus("Archived history is preserved. New undo history begins with the next user edit."); }} />
+      </div>
       <div className="hammer-workspace-shell__main">
         <div className="hammer-workspace-shell__top">
           <section className="hammer-source-bay">
