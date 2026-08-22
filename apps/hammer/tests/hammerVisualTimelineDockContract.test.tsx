@@ -10,8 +10,10 @@ import type { HammerVisualClip } from "../src/visuals/model/hammerVisualTypes";
 import { layoutVisualClipRows } from "../src/visuals/components/VisualTimelineLane";
 
 test("dock identifies composition and packaging counts without duplicating packaging", () => {
+  const authorizedTargetId = "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2";
+  const packagingIntroId = "placement:bd3c4759-ebaf-4994-8462-f3956361b275";
   const clips = Array.from({ length: 29 }, (_, index) => ({
-    clipId: `composition-${index}`,
+    clipId: index === 21 ? authorizedTargetId : `composition-${index}`,
     label: `Composition ${index}`,
     startSec: index,
     endSec: index + 1,
@@ -28,16 +30,25 @@ test("dock identifies composition and packaging counts without duplicating packa
     />,
   );
   const packagingIntro = {
-    clip_id: "placement:bd3c4759-ebaf-4994-8462-f3956361b275",
+    clip_id: packagingIntroId,
     entry_id: "packaging:intro",
     asset_id: "asset_0b368a47",
     system_type: "intro",
   } as HammerVisualClip;
+  const canonicalPlacementIds = new Set([...clips.map((clip) => clip.clipId), packagingIntro.clip_id]);
+  const mountedCompositionIds = new Set(clips.map((clip) => clip.clipId));
+  const canonicalOnlyIds = [...canonicalPlacementIds].filter((id) => !mountedCompositionIds.has(id));
+
   assert.equal(isIntroOutroPackagingClip(packagingIntro), true);
-  assert.equal(clips.length + Number(isIntroOutroPackagingClip(packagingIntro)), 30);
+  assert.equal(canonicalPlacementIds.size, 30);
+  assert.equal(mountedCompositionIds.size, 29);
+  assert.deepEqual(canonicalOnlyIds, [packagingIntroId]);
+  assert.equal(clips.filter((clip) => clip.clipId === authorizedTargetId).length, 1);
   assert.match(markup, /29 composition clips/);
   assert.equal((markup.match(/data-clip-id=/g) ?? []).length, 29);
+  assert.equal((markup.match(new RegExp(`data-clip-id="${authorizedTargetId}"`, "g")) ?? []).length, 1);
   assert.doesNotMatch(markup, /packaging:intro/);
+  assert.doesNotMatch(markup, new RegExp(packagingIntroId));
 });
 
 test("rendered collisions receive deterministic independent rows", () => {
