@@ -660,7 +660,9 @@ function HammerWorkspaceShellWithContext(
   const selectionOriginRef = useRef<"system" | "transcript" | "timeline" | "playhead">("system");
   const selectionRevealFrameRef = useRef<number | null>(null);
   const snapshotAuthority = useHammerWorkspaceShellSnapshotAuthority();
-  const defaultHistoryEpochPersistence = useHammerHistoryEpochPersistenceAuthority({ workpieceId: launchContext.workpiece_id, paths: props.historyEpochComponentPaths, override: props.historyEpochPersistenceAuthority });
+  const defaultHistoryEpochPersistence = useHammerHistoryEpochPersistenceAuthority({ workpieceId: launchContext.workpiece_id, paths: props.historyEpochComponentPaths,
+    override: props.historyEpochPersistenceAuthority, derivedTextLayers: editableDerivedTextLayers,
+    onPendingChange: (pending) => { setHistoryEpochPending(pending); props.onHistoryEpochPendingChange?.(pending); } });
   const historyAuthority = useHammerHistoryCommandAuthority(
     getHistoryAuthorityConfig(),
     HISTORY_PERSIST_DEBOUNCE_MS,
@@ -2351,7 +2353,7 @@ function HammerWorkspaceShellWithContext(
       setHistoryStatus,
       captureSnapshotRequest: capturePostHistorySaveRequest,
       onHistorySaved: snapshotAuthority.produce, epochPersistence: props.historyEpochPersistenceAuthority ?? defaultHistoryEpochPersistence,
-      isTransitionPending: () => historyEpochPending,
+      isTransitionPending: () => historyEpochPending || Boolean((props.historyEpochPersistenceAuthority ?? defaultHistoryEpochPersistence)?.getState()?.pending),
     };
   }
 
@@ -3825,6 +3827,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
   ]);
 
   useHammerWorkspaceShellSnapshotEmitter({
+    suppressCanonicalPersistence: Boolean((props.historyEpochPersistenceAuthority ?? defaultHistoryEpochPersistence)?.getState()),
     onWorkspaceSnapshotChange: props.onWorkspaceSnapshotChange,
     persistNowRequestNonce,
     launchContext,

@@ -615,6 +615,37 @@ async function testCompatibilityPlacementsDoNotDriveHistoryDiffs() {
   assert.equal(patches.forward.some((patch) => patch.path === "/visualTimeline"), false);
 }
 
+async function testCanonicalTimelineMutationCarriesDerivedPlacements() {
+  const before = baseState();
+  const after = cloneEditorState(before);
+  assert.ok(after.visualTimeline?.clips[0]);
+  assert.ok(after.visualPlacements?.placements[0]);
+  after.visualTimeline.clips = [];
+  after.visualTimeline.lanes = after.visualTimeline.lanes.map((lane) => ({ ...lane, clip_ids: [] }));
+  after.visualTimeline.selected_clip_id = null;
+  after.visualPlacements.placements = [];
+
+  const patches = buildStatePatches(before, after);
+  assert.equal(patches.forward.some((patch) => patch.path === "/visualTimeline"), true);
+  assert.equal(patches.forward.some((patch) => patch.path === "/visualPlacements"), true);
+
+  const controller = createHammerHistoryController({
+    document: createHammerHistoryDocument({
+      workpieceId: "canonical-visual-workpiece",
+      sessionId: "canonical-visual-session",
+      baseRevisionId: hashEditorState(before),
+    }),
+    initialState: before,
+  });
+  assert.ok(controller.applyMutation({ label: "Remove unresolved visual", nextState: after }));
+  assert.ok(controller.undo());
+  assert.equal(controller.getState().visualTimeline?.clips.length, 1);
+  assert.equal(controller.getState().visualPlacements?.placements.length, 1);
+  assert.ok(controller.redo());
+  assert.equal(controller.getState().visualTimeline?.clips.length, 0);
+  assert.equal(controller.getState().visualPlacements?.placements.length, 0);
+}
+
 async function testStrictHistoryVerification() {
   const baseline = baseState();
   const controller = createHammerHistoryController({
@@ -721,6 +752,7 @@ async function run() {
   await testTranscriptSpanCutMutationUndoRedo();
   await testVisualCompositionFieldsPersistAcrossUndoRedo();
   await testCompatibilityPlacementsDoNotDriveHistoryDiffs();
+  await testCanonicalTimelineMutationCarriesDerivedPlacements();
   await testStrictHistoryVerification();
   await testVersionAwareCanonicalHashing();
   await testExistingLegacyHistoryVerificationRemainsAvailable();

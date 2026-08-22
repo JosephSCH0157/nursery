@@ -729,6 +729,13 @@ function areVisualTimelinesEqual(
   return JSON.stringify(left) === JSON.stringify(right);
 }
 
+function areVisualPlacementsEqual(
+  left: HammerPersistedVisualPlacements | null,
+  right: HammerPersistedVisualPlacements | null,
+): boolean {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function areStudioRackEqual(
   left: HammerStudioRackState,
   right: HammerStudioRackState,
@@ -1116,7 +1123,8 @@ export function buildStatePatches(
     inverse.unshift({ op: "replace", path: "/transcriptTimingHint", value: before.transcriptTimingHint });
   }
 
-  if (!areVisualTimelinesEqual(before.visualTimeline, after.visualTimeline)) {
+  const visualTimelineChanged = !areVisualTimelinesEqual(before.visualTimeline, after.visualTimeline);
+  if (visualTimelineChanged) {
     forward.push({
       op: "replace",
       path: "/visualTimeline",
@@ -1127,6 +1135,18 @@ export function buildStatePatches(
       path: "/visualTimeline",
       value: clonePatchValue(before.visualTimeline),
     });
+    if (!areVisualPlacementsEqual(before.visualPlacements, after.visualPlacements)) {
+      forward.push({
+        op: "replace",
+        path: "/visualPlacements",
+        value: clonePatchValue(after.visualPlacements),
+      });
+      inverse.unshift({
+        op: "replace",
+        path: "/visualPlacements",
+        value: clonePatchValue(before.visualPlacements),
+      });
+    }
   }
 
   if (!areAudioEditsEqual(before.audioEdit, after.audioEdit)) {

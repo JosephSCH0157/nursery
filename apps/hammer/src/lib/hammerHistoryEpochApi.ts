@@ -39,6 +39,12 @@ export type HammerHistoryEpochHeadEnvelopeV1 = Readonly<{
   base: Readonly<{ editor_state_hash: string; component_sha256: HammerHistoryComponentHashes; hash_algorithm?: HammerEditorStateHashAlgorithm; canonical_editor_state_hash?: string }>;
   result: Readonly<{ editor_state_hash: string; component_authority: HammerHistoryComponentAuthority; hash_algorithm?: HammerEditorStateHashAlgorithm }>;
   history: HammerHistoryDocumentV1; boundary: HammerHistoryBoundary;
+  component_changes?: readonly Readonly<{
+    component: Component; path: string;
+    expected: Readonly<{ sha256: string; bytes: number; revision: number; updated_at: string; storage_bucket: string; storage_key: string }>;
+    next: Readonly<{ sha256: string; bytes: number; revision: number; updated_at: string; storage_bucket: string; storage_key: string }>;
+  }>[];
+  artifact?: Readonly<{ path: string; content_type: "application/json" }>;
 }>;
 
 export type HammerHistoryHydrationIdentity = Readonly<{ workspaceId: string; workpieceId: string; canonicalRecordingId: string; revisionId: string; historyPath: string; revisionUpdatedAt: string }>;
@@ -82,6 +88,44 @@ function validateAuthority(value: unknown): value is HammerHistoryComponentAutho
   return object(value) && exact(value, COMPONENTS) && COMPONENTS.every((key) => { const row = value[key]; return object(row) && exact(row, ["workpiece_id", "path", "sha256", "bytes", "registry_revision", "registry_updated_at", "content_type"]) && uuid(row.workpiece_id) && typeof row.path === "string" && row.path.length > 0 && sha(row.sha256) && positive(row.bytes) && positive(row.registry_revision) && timestamp(row.registry_updated_at) && row.content_type === "application/json"; });
 }
 
+function revisionComponentPath(revisionId: string, path: string): boolean {
+  const prefix = `hammer/revisions/${revisionId}/`;
+  if (!path.startsWith(prefix) || !path.endsWith(".json") || path.includes("\\") || path.includes("?") || path.includes("#")) return false;
+  const segments = path.slice(prefix.length).split("/");
+  return segments.length > 0 && segments.every((segment) => segment.length > 0 && segment !== "." && segment !== "..") && segments[0] !== "history";
+}
+
+function validateAtomicHeadExtension(value: JsonObject, identity: HammerHistoryHydrationIdentity): boolean {
+  const changes = value.component_changes; const artifact = value.artifact;
+  if (!Array.isArray(changes) || changes.length < 1 || changes.length > COMPONENTS.length || !object(artifact)
+    || !exact(artifact, ["path", "content_type"]) || artifact.path !== identity.historyPath || artifact.content_type !== "application/json") return false;
+  const lanes = new Set<string>(); const paths = new Set<string>();
+  for (const change of changes) {
+    if (!object(change) || !exact(change, ["component", "path", "expected", "next"]) || !COMPONENTS.includes(change.component as Component)
+      || lanes.has(String(change.component)) || paths.has(String(change.path)) || typeof change.path !== "string"
+      || !revisionComponentPath(identity.revisionId, change.path) || !object(change.expected) || !object(change.next)
+      || !exact(change.expected, ["sha256", "bytes", "revision", "updated_at", "storage_bucket", "storage_key"])
+      || !exact(change.next, ["sha256", "bytes", "revision", "updated_at", "storage_bucket", "storage_key"])
+      || !sha(change.expected.sha256) || !positive(change.expected.bytes) || !positive(change.expected.revision) || !timestamp(change.expected.updated_at)
+      || change.expected.storage_bucket !== "forge-workpieces" || !isAtomicComponentStorageKey(identity.workpieceId, String(change.component), change.path, String(change.expected.storage_key))
+      || !sha(change.next.sha256) || !positive(change.next.bytes) || change.next.revision !== Number(change.expected.revision) + 1 || !timestamp(change.next.updated_at)
+      || change.next.storage_bucket !== "forge-workpieces" || change.next.storage_key !== `workpieces/${identity.workpieceId}/hammer/staging/history-atomic/${String(value.head_id)}/${String(change.component)}.json`
+      || change.next.sha256 === change.expected.sha256) return false;
+    lanes.add(String(change.component)); paths.add(String(change.path));
+    const authority = object(value.result) && object(value.result.component_authority) ? value.result.component_authority[String(change.component)] : null;
+    if (!object(authority) || authority.path !== change.path || authority.sha256 !== change.next.sha256 || authority.bytes !== change.next.bytes
+      || authority.registry_revision !== change.next.revision || authority.registry_updated_at !== change.next.updated_at) return false;
+  }
+  return true;
+}
+
+function isAtomicComponentStorageKey(workpieceId: string, component: string, path: unknown, storageKey: string): boolean {
+  if (typeof path !== "string") return false;
+  if (storageKey === `workpieces/${workpieceId}/${path}`) return true;
+  const match = /^workpieces\/([0-9a-f-]+)\/hammer\/staging\/history-atomic\/([0-9a-f-]+)\/(audio|editorial_authority|transcript|visual_placements|visual_timeline)\.json$/i.exec(storageKey);
+  return Boolean(match && match[1] === workpieceId && uuid(match[2]) && match[3] === component);
+}
+
 function strictHistory(value: unknown, workpieceId: string, baseHash: string, resultHash?: string): HammerHistoryDocumentV1 | null {
   if (!object(value) || value.version !== 1 || value.workpieceId !== workpieceId || typeof value.sessionId !== "string" || !value.sessionId || value.baseRevisionId !== baseHash || !utc(value.createdAt) || !utc(value.updatedAt)
     || !(value.headEntryId === null || typeof value.headEntryId === "string") || !Array.isArray(value.entries) || !Array.isArray(value.checkpoints) || !Array.isArray(value.undoStack) || !Array.isArray(value.redoStack) || !value.entries.every(object) || !value.checkpoints.every(object)) return null;
@@ -113,7 +157,8 @@ export function validateHammerHistoryEpochEnvelope(value: unknown, identity: Ham
 }
 
 export function validateHammerHistoryEpochHeadEnvelope(value: unknown, identity: HammerHistoryHydrationIdentity): HammerHistoryEpochHeadEnvelopeV1 | null {
-  if (!object(value) || !exact(value, ["schema", "schema_version", "workspace_id", "workpiece_id", "canonical_recording_id", "recording_revision_id", "epoch_id", "head_id", "sequence", "creation", "epoch_anchor", "parent", "base", "result", "history", "boundary"]) || value.schema !== HAMMER_HISTORY_EPOCH_HEAD_SCHEMA || value.schema_version !== 1 || !uuid(value.epoch_id) || !uuid(value.head_id) || !positive(value.sequence)
+  if (!object(value) || !(exact(value, ["schema", "schema_version", "workspace_id", "workpiece_id", "canonical_recording_id", "recording_revision_id", "epoch_id", "head_id", "sequence", "creation", "epoch_anchor", "parent", "base", "result", "history", "boundary"])
+    || exact(value, ["schema", "schema_version", "workspace_id", "workpiece_id", "canonical_recording_id", "recording_revision_id", "epoch_id", "head_id", "sequence", "creation", "epoch_anchor", "parent", "base", "result", "history", "boundary", "component_changes", "artifact"])) || value.schema !== HAMMER_HISTORY_EPOCH_HEAD_SCHEMA || value.schema_version !== 1 || !uuid(value.epoch_id) || !uuid(value.head_id) || !positive(value.sequence)
     || value.workspace_id !== identity.workspaceId || value.workpiece_id !== identity.workpieceId || value.canonical_recording_id !== identity.canonicalRecordingId || value.recording_revision_id !== identity.revisionId) return null;
   const creation = value.creation; const anchor = value.epoch_anchor; const parent = value.parent; const base = value.base; const result = value.result;
   if (!object(creation) || !exact(creation, ["created_at", "initiating_user_id"]) || !utc(creation.created_at) || !uuid(creation.initiating_user_id)
@@ -123,7 +168,8 @@ export function validateHammerHistoryEpochHeadEnvelope(value: unknown, identity:
     || !object(base) || !(exact(base, ["editor_state_hash", "component_sha256"]) || exact(base, ["editor_state_hash", "component_sha256", "hash_algorithm", "canonical_editor_state_hash"])) || !state(base.editor_state_hash) || !validateHashes(base.component_sha256)
     || ("hash_algorithm" in base && (base.hash_algorithm !== HAMMER_EDITOR_STATE_LEGACY_HASH_ALGORITHM || !state(base.canonical_editor_state_hash)))
     || !object(result) || !(exact(result, ["editor_state_hash", "component_authority"]) || exact(result, ["editor_state_hash", "component_authority", "hash_algorithm"])) || !state(result.editor_state_hash) || !validateAuthority(result.component_authority)
-    || ("hash_algorithm" in result && !algorithm(result.hash_algorithm)) || !validateBoundary(value.boundary)) return null;
+    || ("hash_algorithm" in result && !algorithm(result.hash_algorithm)) || !validateBoundary(value.boundary)
+    || ("component_changes" in value && !validateAtomicHeadExtension(value, identity))) return null;
   const path = `hammer/revisions/${identity.revisionId}/history/epochs/${String(value.epoch_id)}/heads/${String(value.head_id)}.history.v1.json`;
   if (identity.historyPath !== path || !strictHistory(value.history, identity.workpieceId, String(base.editor_state_hash), String(result.editor_state_hash))) return null;
   return { ...value, history: strictHistory(value.history, identity.workpieceId, String(base.editor_state_hash), String(result.editor_state_hash))! } as HammerHistoryEpochHeadEnvelopeV1;

@@ -265,8 +265,8 @@ function stableHashToken(value: string): string {
   }
   return Math.abs(hash >>> 0).toString(36);
 }
-
 export type UseHammerWorkspaceShellSnapshotEmitterArgs = {
+  suppressCanonicalPersistence?: boolean;
   onWorkspaceSnapshotChange?: (
     snapshot: HammerWorkspaceSnapshot,
     options?: { persistNow?: boolean; placementDiagnostics?: HammerPlacementOutboundDiagnostics },
@@ -316,10 +316,9 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
 
   // NOTE: We intentionally use a layout effect here so that committed canonical workspace
   // mutations (history/apply actions) produce a parent-visible snapshot as soon as possible.
-  // This reduces the "commit gap" where a user can close the page before autosave has a
-  // chance to queue the new revision payload.
+  // Reduce the commit gap before autosave can queue the new revision payload.
   useLayoutEffect(() => {
-    if (!args.onWorkspaceSnapshotChange) return;
+    if (!args.onWorkspaceSnapshotChange || args.suppressCanonicalPersistence) return;
 
     const editPlan = args.launchContext.edit_plan
       ? {
@@ -516,5 +515,6 @@ export function useHammerWorkspaceShellSnapshotEmitter(args: UseHammerWorkspaceS
     args.visualTimelineProp,
     args.persistNowRequestNonce,
     args.placementOutboundDiagnostics,
+    args.suppressCanonicalPersistence,
   ]);
 }

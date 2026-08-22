@@ -6,11 +6,12 @@ import { fileURLToPath } from "node:url";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { createTongsCommitService } from "../packages/tongs/src/workpiece-commit-api.ts";
 import { serializeHammerRevisionEditorialAuthorityArtifact } from "../apps/hammer/src/persistence/hammerRevisionEditorialAuthorityWriter.ts";
-import { createEmptyVisualTimelineState } from "../apps/hammer/src/visuals/model/hammerVisualDefaults.ts";
+import { createDefaultVisualAnimation, createDefaultVisualGeometry, createDefaultVisualLane, createEmptyVisualTimelineState } from "../apps/hammer/src/visuals/model/hammerVisualDefaults.ts";
 import { createDefaultHammerStudioRackState } from "../apps/hammer/src/editor/hammerStudioRack.ts";
 import { createHammerHistoryController, hashEditorState, type HammerEditorStateSerializable, type HammerHistoryDocumentV1 } from "../apps/hammer/src/editor/hammerWorkspaceHistory.ts";
 import { buildHammerHistoryEpochRequest, loadHammerHistoryComponentAuthority, loadHammerRevisionHistoryHydration, serializeHammerHistoryEpochEnvelope, startHammerHistoryEpoch, type HammerHistoryComponentPaths, type HammerHistoryEpochEnvelopeV1 } from "../apps/hammer/src/lib/hammerHistoryEpochApi.ts";
 import { createHammerHistoryEpochPersistenceAuthority, startAndHydrateHammerHistoryEpoch } from "../apps/hammer/src/editor/hammerHistoryEpochPersistence.ts";
+import { commitHammerHistoryAtomic, loadHammerHistoryAtomicComponentBasis, projectHammerHistoryAtomicComponents } from "../apps/hammer/src/lib/hammerHistoryAtomicApi.ts";
 
 const projectId = process.env.FORGE_DISPOSABLE_PROJECT_ID ?? "";
 const workdir = process.env.FORGE_DISPOSABLE_WORKDIR ?? "";
@@ -90,6 +91,7 @@ function startServer(env: Record<string, string>): ChildProcess {
 }
 
 async function main() {
+  const progress = (stage: string) => process.stderr.write(`[he3c-lifecycle] ${stage}\n`);
   const env = localEnv(); const supabaseUrl = assertLoopback(env.API_URL).origin;
   assert.ok(env.ANON_KEY && env.SERVICE_ROLE_KEY);
   const tongsOrigin = assertLoopback(`http://127.0.0.1:${apiPort}`).origin;
@@ -105,13 +107,15 @@ async function main() {
   assert.ifError((await admin.schema("tongs").from("canonical_recordings").insert({ id: ids.recording, workspace_id: ids.workspace, workpiece_id: ids.workpiece, status: "sealed", media_path: "synthetic/he3c.wav", media_id: "synthetic:he3c", created_by: owner.id, updated_by: owner.id, sealed_at: fixed.created })).error);
 
   const transcriptSegments = [{ id: "synthetic-segment-1", start: 0, end: 4, text: "Synthetic history begins here.", speaker: "Synthetic Host" }] as never[];
-  const timeline = createEmptyVisualTimelineState({ updated_at: fixed.created });
-  const placements = { version: 1, workpiece_id: ids.workpiece, placements: [], uncertainty_flags: [] };
-  const audio = { version: 1, workpiece_id: ids.workpiece, cuts: [], gain_db: 0 };
+  const timeline = createEmptyVisualTimelineState({ updated_at: fixed.created, assets: [{ asset_id: "synthetic-asset", asset_ref: "synthetic/asset.png", kind: "image", label: "Synthetic unresolved visual", path: "synthetic/asset.png", storage_key: `workpieces/${ids.workpiece}/synthetic/asset.png`, mime_type: "image/png", source_mode: "manual", updated_at: fixed.created }], clips: [{ clip_id: "synthetic-clip", asset_id: "synthetic-asset", lane_id: "lane:primary", entry_id: "synthetic-entry", label: "unresolved", visual_mode: "cutaway", confidence: 0.3, placement_status: "uncertain", ingest_state: "approved", uncertainty_flags: ["low_confidence"], start_sec: 1, end_sec: 2, geometry: createDefaultVisualGeometry(), animation: createDefaultVisualAnimation(), opacity: 1, z_index: 1, enabled: true, locked: false, source_mode: "manual", anchor_hint: { anchor_segment_id: "synthetic-segment-1", matched_segment_ids: ["synthetic-segment-1"], anchor_text: "Synthetic history begins here.", anchor_label: "unresolved", detached: false }, updated_at: fixed.created }], lanes: [createDefaultVisualLane({ lane_id: "lane:primary", clip_ids: ["synthetic-clip"] })], selected_clip_id: "synthetic-clip" });
+  const placement = { placement_id: "a3b00000-0000-4000-8000-00000000000b", entry_id: "synthetic-entry", anchor_segment_id: "synthetic-segment-1", matched_segment_ids: ["synthetic-segment-1"], anchor_text: "Synthetic history begins here.", asset_ref: "synthetic-asset", asset_id: null, asset_path: null, storage_key: null, label: "unresolved", visual_mode: "cutaway", start_sec: 1, end_sec: 2, confidence: 0.3, timing_source: "transcript_match", status: "uncertain", uncertainty_flags: ["low_confidence"] };
+  const placements = { schema_version: 1, status: "prepared", source_refs: ["synthetic"], placements: [placement], uncertainty_flags: ["low_confidence"] };
+  const audioEdit = { version: 1, workpiece_id: ids.workpiece, cuts: [], gain_db: 0 };
+  const audio = { schema_version: 1, audio_edit: audioEdit };
   const session = { schema_version: 1, workpiece_id: ids.workpiece, recording_revision_id: ids.revision, playhead_sec: 0 };
   const authority = { schema_version: 1 as const, graph_id: ids.graph, graph_version: 1, workspace_id: ids.workspace, workpiece_id: ids.workpiece, session_id: "synthetic-session", source_transcript_id: ids.transcript, operation_order: [], operations: [], created_at: fixed.created, updated_at: fixed.created };
   const authorityBytes = serializeHammerRevisionEditorialAuthorityArtifact({ schema_version: 1, workspace_id: ids.workspace, workpiece_id: ids.workpiece, canonical_recording_id: ids.recording, recording_revision_id: ids.revision, authority });
-  const state: HammerEditorStateSerializable = { transcriptSegments: transcriptSegments as never, visualPlacements: placements as never, visualTimeline: timeline, audioEdit: audio as never, studioRack: createDefaultHammerStudioRackState(), editorialAuthorityGraph: authority, outputSelection: { layerId: null, sourceRecipeRef: null }, selectedSegmentId: null, playheadSec: 0, transcriptTimingHint: null };
+  const state: HammerEditorStateSerializable = { transcriptSegments: transcriptSegments as never, visualPlacements: placements as never, visualTimeline: timeline, audioEdit: audioEdit as never, studioRack: createDefaultHammerStudioRackState(), editorialAuthorityGraph: authority, outputSelection: { layerId: null, sourceRecipeRef: null }, selectedSegmentId: null, playheadSec: 0, transcriptTimingHint: null };
   const baseHash = hashEditorState(state);
   const reverseObjectKeys = (value: unknown): unknown => Array.isArray(value) ? value.map(reverseObjectKeys)
     : value && typeof value === "object" ? Object.fromEntries(Object.keys(value as Record<string, unknown>).reverse().map((key) => [key, reverseObjectKeys((value as Record<string, unknown>)[key])])) : value;
@@ -129,9 +133,11 @@ async function main() {
   const persistedRevision = await admin.schema("tongs").from("recording_revisions").select("updated_at").eq("id", ids.revision).single();
   assert.ifError(persistedRevision.error); assert.equal(typeof persistedRevision.data.updated_at, "string");
 
-  const server = startServer(env); const serverErrors: string[] = []; server.stderr?.on("data", (chunk) => serverErrors.push(String(chunk)));
+  progress("fixture-seeded");
+  const server = startServer(env); const serverErrors: string[] = []; server.stderr?.on("data", (chunk) => serverErrors.push(String(chunk))); server.stdout?.on("data", (chunk) => serverErrors.push(String(chunk)));
   try {
     await waitForServer(`${tongsOrigin}/health`);
+    progress("server-ready");
     const requestLog: Array<{ method: string; url: string }> = [];
     const request = async (urlOrPath: string, token: string | null, init: RequestInit & { json?: unknown } = {}) => { const url = assertLoopback(urlOrPath.startsWith("http") ? urlOrPath : `${tongsOrigin}${urlOrPath}`); const method = init.method ?? "GET"; requestLog.push({ method, url: url.toString() }); const headers = new Headers(init.headers); if (token) headers.set("x-forge-user-authorization", `Bearer ${token}`); if (init.json !== undefined) headers.set("content-type", "application/json"); return fetch(url, { ...init, headers, body: init.json === undefined ? init.body : JSON.stringify(init.json) }); };
     for (const [path, expected] of seeded) {
@@ -139,6 +145,7 @@ async function main() {
       assert.equal((await request(`/tongs/workpieces/${ids.workpiece}/read-file?path=${encodeURIComponent(path)}&encoding=base64`, null)).status, 401);
       assert.equal((await request(`/tongs/workpieces/${ids.workpiece}/read-file?path=${encodeURIComponent(path)}&encoding=base64`, outsider.token)).status, 403);
     }
+    progress("authenticated-reads-complete");
     const hammerFetcher = (token: string) => async (url: string, options: { method?: string; json?: unknown; timeoutMs?: number } = {}) => request(url, token, { method: options.method, json: options.json });
     const componentPaths: HammerHistoryComponentPaths = { audio: paths.audio, editorial_authority: paths.editorial_authority, transcript: paths.transcript, visual_placements: paths.visual_placements, visual_timeline: paths.visual_timeline };
     const ownerFetch = hammerFetcher(owner.token);
@@ -149,18 +156,32 @@ async function main() {
     assert.equal(serializeHammerHistoryEpochEnvelope(structuredClone(epoch)), serializeHammerHistoryEpochEnvelope(epoch));
     const epochRequest = buildHammerHistoryEpochRequest({ canonical_recording_id: ids.recording, idempotency_key: "hammer-epoch:he3c-deterministic-0001", expected_revision_updated_at: persistedRevision.data.updated_at, expected_history_path: paths.history, expected_predecessor: { revision: historyRow.revision, updated_at: historyRow.updated_at, sha256: historyRow.hash_value, bytes: historyRow.bytes }, envelope: epoch });
     const transition = await startHammerHistoryEpoch({ workspaceId: ids.workspace, workpieceId: ids.workpiece, revisionId: ids.revision, request: epochRequest, fetcher: ownerFetch as never }); assert.equal(transition.outcome, "committed", JSON.stringify(transition));
-    const persistence = createHammerHistoryEpochPersistenceAuthority({ createId: (() => { const values = [ids.head, "a3a00000-0000-4000-8000-00000000000a"]; return () => values.shift()!; })(), now: () => fixed.edited, initiatingUserId: () => owner.id, resolveComponentAuthority: () => loadHammerHistoryComponentAuthority({ workpieceId: ids.workpiece, paths: componentPaths, fetcher: ownerFetch as never }), commitHead: (args) => import("../apps/hammer/src/lib/hammerHistoryEpochApi.ts").then(({ commitHammerHistoryEpochHead }) => commitHammerHistoryEpochHead({ ...args, fetcher: ownerFetch as never })), loadHydration: (args) => loadHammerRevisionHistoryHydration({ ...args, fetcher: ownerFetch as never }), startEpoch: (args) => startHammerHistoryEpoch({ ...args, fetcher: ownerFetch as never }) });
+    progress("epoch-committed");
+    await loadHammerHistoryAtomicComponentBasis({ workpieceId: ids.workpiece, paths: componentPaths, fetcher: ownerFetch as never });
+    const persistence = createHammerHistoryEpochPersistenceAuthority({ createId: (() => { const values = [ids.head, "a3a00000-0000-4000-8000-00000000000a"]; return () => values.shift()!; })(), now: () => fixed.edited, initiatingUserId: () => owner.id,
+      resolveComponents: async (editorState, basis) => { const current = await loadHammerHistoryAtomicComponentBasis({ workpieceId: ids.workpiece, paths: componentPaths, fetcher: ownerFetch as never }); return { current, projected: projectHammerHistoryAtomicComponents({ state: editorState, current, identity: { workspaceId: basis.workspaceId, workpieceId: basis.workpieceId, canonicalRecordingId: basis.canonicalRecordingId, revisionId: basis.revisionId } }) }; },
+      commitAtomic: (args) => commitHammerHistoryAtomic({ ...args, fetcher: ownerFetch as never }), startEpoch: (args) => startHammerHistoryEpoch({ ...args, fetcher: ownerFetch as never }) });
     const installed = await startAndHydrateHammerHistoryEpoch({ persistence, request: epochRequest, canonicalState: reorderedReopenState, maxUndoSteps: 100, loadHydration: (args) => loadHammerRevisionHistoryHydration({ ...args, fetcher: ownerFetch as never }) }); assert.equal(installed.result.outcome, "already_committed"); assert.ok(installed.controller && installed.hydration); persistence.install(installed.hydration!, { workspaceId: ids.workspace, workpieceId: ids.workpiece, canonicalRecordingId: ids.recording, revisionId: ids.revision });
+    progress("epoch-hydrated");
     const controller = installed.controller!; assert.equal(controller.document.entries.length, 0); assert.equal(controller.canUndo(), false);
-    const editedState = { ...controller.getState(), playheadSec: 2 };
-    controller.applyMutation({ label: "Synthetic playhead edit", kind: "editor_state_change", nextState: editedState });
-    const headResult = await persistence.enqueue(controller.document, controller.getState()); assert.equal(headResult.outcome, "committed", JSON.stringify(headResult));
+    assert.equal(controller.getState().visualPlacements?.placements.length, 1);
+    const editedState = { ...controller.getState(), visualPlacements: { ...placements, placements: [], uncertainty_flags: [] } as never, visualTimeline: createEmptyVisualTimelineState({ ...timeline, revision: timeline.revision + 1, clips: [], lanes: [createDefaultVisualLane({ lane_id: "lane:primary", clip_ids: [] })], selected_clip_id: null, updated_at: fixed.edited }) };
+    assert.ok(controller.applyMutation({ label: "Remove unresolved placement", kind: "visual_adjustment", nextState: editedState, affectedPlacementIds: [placement.placement_id] }));
+    const headResult = await persistence.enqueue(controller.document, controller.getState()); assert.equal(headResult.outcome, "committed", JSON.stringify({ headResult, serverErrors }));
+    progress("head-committed");
     const revision = (await admin.schema("tongs").from("recording_revisions").select("history_path,updated_at").eq("id", ids.revision).single()).data!;
     const reopened = await loadHammerRevisionHistoryHydration({ workspaceId: ids.workspace, workpieceId: ids.workpiece, canonicalRecordingId: ids.recording, revisionId: ids.revision, historyPath: revision.history_path, revisionUpdatedAt: revision.updated_at, fetcher: ownerFetch as never }); assert.ok(reopened.ok && reopened.hydration.kind === "epoch_head");
-    const reopenedController = createHammerHistoryController({ document: reopened.ok ? reopened.hydration.document : history, initialState: controller.getState(), maxUndoSteps: 100 }); assert.equal(reopenedController.canUndo(), true); reopenedController.undo(); assert.equal(reopenedController.getState().playheadSec, 0); assert.equal(reopenedController.canRedo(), true); reopenedController.redo(); assert.equal(reopenedController.getState().playheadSec, 2);
+    const reopenedController = createHammerHistoryController({ document: reopened.ok ? reopened.hydration.document : history, initialState: controller.getState(), maxUndoSteps: 100 });
+    assert.equal(reopenedController.canUndo(), true);
+    assert.ok(reopenedController.undo());
+    assert.equal(reopenedController.getState().visualPlacements?.placements.length, 1);
+    assert.equal(reopenedController.canRedo(), true);
+    assert.ok(reopenedController.redo());
+    progress("reopen-undo-redo-complete");
+    assert.equal(reopenedController.getState().visualPlacements?.placements.length, 0);
     assert.ok(requestLog.every((entry) => ["127.0.0.1", "localhost", "::1"].includes(new URL(entry.url).hostname))); assert.ok(requestLog.every((entry) => forbidden.every((value) => !entry.url.includes(value))));
     const finalRows = await admin.schema("tongs").from("workpiece_files").select("path,hash_value,bytes,revision,updated_at").eq("workpiece_id", ids.workpiece).order("path"); assert.ifError(finalRows.error);
-    const evidence = { schema: "forge.he3c-synthetic-history-lifecycle.v1", project_id: projectId, identities: ids, principals: { owner: owner.id, viewer: viewer.id, outsider: outsider.id }, artifact_manifest: finalRows.data, initial_editor_state_hash: baseHash, reordered_reopen_state_hash: hashEditorState(reorderedReopenState), legacy_history: { path: paths.history, divergent: true, declared_base: history.baseRevisionId, entry_base: history.entries[0].baseStateHash }, authenticated_reads: { editor: "allowed", viewer: "allowed", anonymous: "denied", cross_workspace: "denied", byte_exact_artifacts: seeded.size }, lifecycle: { archive_anchor: transition.outcome, empty_anchor_entries: 0, head_commit: headResult.outcome, reopen: "epoch_head", undo_playhead: 0, redo_playhead: 2 }, request_count: requestLog.length, loopback_only: true, forbidden_identity_hits: 0, server_errors: serverErrors };
+    const evidence = { schema: "forge.he3c-synthetic-history-lifecycle.v2", project_id: projectId, identities: ids, principals: { owner: owner.id, viewer: viewer.id, outsider: outsider.id }, artifact_manifest: finalRows.data, initial_editor_state_hash: baseHash, reordered_reopen_state_hash: hashEditorState(reorderedReopenState), legacy_history: { path: paths.history, divergent: true, declared_base: history.baseRevisionId, entry_base: history.entries[0].baseStateHash }, authenticated_reads: { editor: "allowed", viewer: "allowed", anonymous: "denied", cross_workspace: "denied", byte_exact_artifacts: seeded.size }, lifecycle: { archive_anchor: transition.outcome, empty_anchor_entries: 0, atomic_head_commit: headResult.outcome, changed_components: ["visual_timeline", "visual_placements"], reopen: "epoch_head", undo_placements: 1, redo_placements: 0 }, request_count: requestLog.length, loopback_only: true, forbidden_identity_hits: 0, server_errors: serverErrors };
     console.log(JSON.stringify(evidence, null, 2));
   } finally { server.kill("SIGTERM"); }
 }
