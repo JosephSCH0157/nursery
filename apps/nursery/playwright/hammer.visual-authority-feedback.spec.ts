@@ -97,6 +97,112 @@ test("visual clips beyond playback duration retain distinct native pointer targe
   expect(mutationRequests).toEqual([]);
 });
 
+test("Florida-shaped editable clip remains selected when mousedown reflows the timeline before click", async ({ page }) => {
+  const mutationRequests: string[] = [];
+  page.on("request", (request) => {
+    if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) {
+      mutationRequests.push(`${request.method()} ${request.url()}`);
+    }
+  });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/");
+  await page.evaluate(async (urls) => {
+    const React = (await import("/node_modules/.vite/deps/react.js")).default;
+    const { createRoot } = (await import("/node_modules/.vite/deps/react-dom_client.js")).default;
+    const { default: VisualTimelineDock } = await import(urls.visualTimelineDock);
+    const targetId = "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2";
+    const duplicateId = "placement_mm_from_media_still_broll-beat-155848e3-0799-44b2-9fea-9457bfd48cdf";
+    const interceptorId = "placement_6c70e9c8-575b-4849-abd2-86377bc7334e";
+    const evidence = { events: [] as any[], transitions: [] as any[], renders: [] as any[] };
+    (window as any).__hammerSelectionRaceEvidence = evidence;
+    document.body.innerHTML = `
+      <style>
+        .hammer-visual-timeline-lane__track { position: relative; width: 160px; min-height: 44px; overflow: hidden; }
+        .hammer-visual-clip-block { position: absolute; height: 32px; box-sizing: border-box; padding: 0; }
+      </style>
+      <div id="hammer-selection-race-root"></div>
+    `;
+    for (const eventName of ["pointerdown", "pointerup", "click"] as const) {
+      document.addEventListener(eventName, (event) => {
+        const target = event.target instanceof Element ? event.target.closest("[data-clip-id]") : null;
+        const selected = document.querySelector(`[data-clip-id="${targetId}"]`);
+        const rect = selected?.getBoundingClientRect();
+        evidence.events.push({
+          event: eventName,
+          target_id: target?.getAttribute("data-clip-id") ?? null,
+          target_instance: target?.getAttribute("data-instance") ?? null,
+          selected_instance: selected?.getAttribute("data-instance") ?? null,
+          selected_geometry: rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null,
+        });
+      }, true);
+    }
+    function Harness() {
+      const [selectedId, setSelectedId] = React.useState<string | null>(null);
+      const [shifted, setShifted] = React.useState(false);
+      React.useEffect(() => {
+        evidence.renders.push({ selected_id: selectedId, shifted });
+      }, [selectedId, shifted]);
+      const clips = [
+        { clipId: targetId, label: "Entire seasons lost.", startSec: 380.456, endSec: 383.206 },
+        { clipId: duplicateId, label: "Duplicate interval", startSec: 380.456, endSec: 383.206 },
+        { clipId: interceptorId, label: "Former interceptor", startSec: 410.578, endSec: 413.278 },
+      ].map((clip) => ({ ...clip, selected: selectedId === clip.clipId }));
+      return React.createElement("div", { style: { transform: shifted ? "translateY(120px)" : "none" } },
+        React.createElement(VisualTimelineDock, {
+          clips,
+          playheadSec: 0,
+          durationSec: 487.6,
+          selectedClipId: selectedId,
+          editable: true,
+          onSelectClip: (clipId: string) => {
+            evidence.transitions.push({ from: selectedId, to: clipId, reason: "select" });
+            setSelectedId(clipId);
+          },
+          onMoveClip: () => {
+            evidence.transitions.push({ from: selectedId, to: selectedId, reason: "editable_mousedown_reflow" });
+            setShifted(true);
+          },
+        }),
+      );
+    }
+    createRoot(document.getElementById("hammer-selection-race-root")!).render(React.createElement(Harness));
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    document.querySelector(`[data-clip-id="${targetId}"]`)?.setAttribute("data-instance", "target-stable-node");
+  }, moduleUrls);
+
+  const target = page.locator('[data-clip-id="placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2"]');
+  await target.click();
+  await expect(target).toHaveClass(/is-selected/);
+  await expect.poll(() => page.evaluate(() => (window as any).__hammerSelectionRaceEvidence.renders.at(-1))).toEqual({
+    selected_id: "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2",
+    shifted: true,
+  });
+  const evidence = await page.evaluate(() => (window as any).__hammerSelectionRaceEvidence);
+  expect(evidence.events[0]).toMatchObject({
+    event: "pointerdown",
+    target_id: "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2",
+    target_instance: "target-stable-node",
+    selected_instance: "target-stable-node",
+  });
+  expect(evidence.events[1]).toMatchObject({
+    event: "pointerup",
+    target_id: null,
+    selected_instance: "target-stable-node",
+  });
+  expect(evidence.events[2]).toMatchObject({
+    event: "click",
+    target_id: null,
+    selected_instance: "target-stable-node",
+  });
+  expect(evidence.events[1].selected_geometry.y - evidence.events[0].selected_geometry.y).toBe(120);
+  expect(evidence.transitions.filter((transition: any) => transition.reason === "select")).toEqual([{
+    from: null,
+    to: "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2",
+    reason: "select",
+  }]);
+  expect(mutationRequests).toEqual([]);
+});
+
 test("archived-history notice keeps Visuals controls inside the exact 1280x720 staging viewport", async ({ page }) => {
   const mutationRequests: string[] = [];
   page.on("request", (request) => {

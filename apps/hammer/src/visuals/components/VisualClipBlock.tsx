@@ -54,11 +54,16 @@ export default function VisualClipBlock(props: VisualClipBlockProps) {
         top: `${6 + ((props.rowIndex ?? 0) * VISUAL_CLIP_ROW_HEIGHT_PX)}px`,
       }}
       onMouseDown={(event) => {
+        // Selection must settle before editable drag/focus effects can reflow the
+        // timeline and move this element away from the eventual click target.
+        props.onSelect(clip.clipId);
         props.onMovePointerDown?.(event, clip.clipId);
       }}
       onClick={(event) => {
         event.stopPropagation();
-        props.onSelect(clip.clipId);
+        // Pointer activation already selected on mousedown. Preserve click-only
+        // activation for assistive technology and programmatic button semantics.
+        if (event.detail === 0) props.onSelect(clip.clipId);
       }}
       onKeyDown={(event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
