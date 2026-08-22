@@ -154,7 +154,14 @@ describe('HA-3B performance presentation boundary', () => {
     const invalidActive: ActivePresentation = {
       ...value,
       status: 'active',
-      activation: { renderer: 'performance-projection-v1', installedProjectionId: 'wrong' },
+      activation: {
+        schema: 'anvil.performance-presentation-installation.v1',
+        rendererVersion: 'performance-projection-renderer-v1', projectionId: 'wrong',
+        installationEpoch: 'epoch-1', presentationGeneration: 1,
+        installedBlockCount: value.projection.blocks.length, installedWordCount: value.projection.words.length,
+        orderedAnchorIntegrityHash: 'a'.repeat(64), orderedWordMappingHash: 'b'.repeat(64),
+        rootIdentity: 'script', sourceScriptRevision: 7, sourceScriptHash: HASH,
+      },
     };
     expect(() => serializeActivePresentationEvidence(invalidActive)).toThrow(expect.objectContaining({
       diagnostic: expect.objectContaining({ code: 'ACTIVE_PRESENTATION_INVALID' }),
@@ -163,7 +170,14 @@ describe('HA-3B performance presentation boundary', () => {
     const futureActive: ActivePresentation = {
       ...value,
       status: 'active',
-      activation: { renderer: 'performance-projection-v1', installedProjectionId: value.projection.projectionId },
+      activation: {
+        schema: 'anvil.performance-presentation-installation.v1',
+        rendererVersion: 'performance-projection-renderer-v1', projectionId: value.projection.projectionId,
+        installationEpoch: 'epoch-1', presentationGeneration: 1,
+        installedBlockCount: value.projection.blocks.length, installedWordCount: value.projection.words.length,
+        orderedAnchorIntegrityHash: 'a'.repeat(64), orderedWordMappingHash: 'b'.repeat(64),
+        rootIdentity: 'script', sourceScriptRevision: 7, sourceScriptHash: HASH,
+      },
     };
     expect(serializeActivePresentationEvidence(futureActive)).toEqual(expect.objectContaining({
       mode: 'performance-projection-v1',

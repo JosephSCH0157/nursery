@@ -57,8 +57,18 @@ export type ActivePresentation = Readonly<{
   source: CanonicalScriptIdentity;
   projection: AnvilPerformanceProjectionV1;
   activation: Readonly<{
-    renderer: typeof PERFORMANCE_PRESENTATION_MODE;
-    installedProjectionId: string;
+    schema: 'anvil.performance-presentation-installation.v1';
+    rendererVersion: 'performance-projection-renderer-v1';
+    projectionId: string;
+    installationEpoch: string;
+    presentationGeneration: number;
+    installedBlockCount: number;
+    installedWordCount: number;
+    orderedAnchorIntegrityHash: string;
+    orderedWordMappingHash: string;
+    rootIdentity: string;
+    sourceScriptRevision: number;
+    sourceScriptHash: string;
   }>;
 }>;
 
@@ -183,8 +193,15 @@ export function serializeActivePresentationEvidence(state: PerformancePresentati
     ));
   }
   const projection = state.projection;
-  if (state.activation.renderer !== PERFORMANCE_PRESENTATION_MODE
-    || state.activation.installedProjectionId !== projection.projectionId
+  if (state.activation.schema !== 'anvil.performance-presentation-installation.v1'
+    || state.activation.rendererVersion !== 'performance-projection-renderer-v1'
+    || state.activation.projectionId !== projection.projectionId
+    || state.activation.installedBlockCount !== projection.blocks.length
+    || state.activation.installedWordCount !== projection.words.length
+    || !SHA256_RE.test(state.activation.orderedAnchorIntegrityHash)
+    || !SHA256_RE.test(state.activation.orderedWordMappingHash)
+    || state.activation.sourceScriptHash !== state.source.scriptHash
+    || state.activation.sourceScriptRevision !== state.source.scriptRevision
     || projection.source.scriptHash !== state.source.scriptHash
     || projection.source.scriptRevision !== state.source.scriptRevision) {
     throw new PresentationBoundaryError(diagnostic(

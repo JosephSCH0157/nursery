@@ -1,6 +1,7 @@
 // @ts-nocheck
 // Minimal DOM helpers for the UI layer
 
+import { observeCommittedPresentationMutations } from '../script/performance-presentation-mirror-observer';
 import { computeAnchorLineIndex } from '../scroll/scroll-helpers';
 import { getScrollWriter } from '../scroll/scroll-writer';
 import { dispatchAsrManualAnchor } from '../features/asr/manual-anchor';
@@ -385,10 +386,9 @@ export function wireDisplayMirror() {
     });
     try {
       if (scriptEl) {
-        const mo = new MutationObserver(() => {
+        observeCommittedPresentationMutations(scriptEl, () => {
           if (!renderPending) { renderPending = true; requestAnimationFrame(sendRender); }
         });
-        mo.observe(scriptEl, { childList: true, subtree: true });
       }
     } catch {}
   } catch {}
