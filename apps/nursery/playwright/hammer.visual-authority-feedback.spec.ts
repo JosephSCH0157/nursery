@@ -327,7 +327,16 @@ test("Florida-shaped below-viewport clip remains selected after locator scroll a
   expect(mutationRequests).toEqual([]);
 });
 
-test("mounted Florida-shaped shell routes a below-viewport visual selection out of Transcript Cleanup", async ({ page }) => {
+const mountedShellSourceDeskCases = [
+  { mode: "success", settleBeforeSelectionMs: 250 },
+  { mode: "pending", settleBeforeSelectionMs: 250 },
+  { mode: "timeout", settleBeforeSelectionMs: 31_000 },
+  { mode: "failure", settleBeforeSelectionMs: 250 },
+] as const;
+
+for (const sourceDeskCase of mountedShellSourceDeskCases) {
+test(`mounted Florida-shaped shell retains visual selection while Source Desk is ${sourceDeskCase.mode}`, async ({ page }) => {
+  test.setTimeout(sourceDeskCase.mode === "timeout" ? 60_000 : 30_000);
   const mutationRequests: string[] = [];
   page.on("request", (request) => {
     if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) {
@@ -335,7 +344,19 @@ test("mounted Florida-shaped shell routes a below-viewport visual selection out 
     }
   });
   await page.route("**/api/**", async (route) => {
-    await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ ok: false, error: "fixture_source_desk_unavailable" }) });
+    if (sourceDeskCase.mode === "pending" || sourceDeskCase.mode === "timeout") {
+      await new Promise<void>(() => undefined);
+      return;
+    }
+    if (sourceDeskCase.mode === "failure") {
+      await route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ ok: false, error: "fixture_source_desk_unavailable" }) });
+      return;
+    }
+    const url = new URL(route.request().url());
+    const body = url.pathname.endsWith("/storage")
+      ? { ok: true, data: { listing: { nodes: [] } } }
+      : { ok: true, exists: false };
+    await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   });
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto("/");
@@ -454,8 +475,24 @@ test("mounted Florida-shaped shell routes a below-viewport visual selection out 
       derived_text_layers: { schema_version: 1, active_layer_id: null, output_layer_id: null, layers: [] },
       subtitle_outputs: { schema_version: 1, last_generated_format: null, srt: null, vtt: null },
     };
-    const evidence = { emissions: 0, events: [] as any[], renders: [] as any[] };
+    const evidence = { emissions: 0, events: [] as any[], selectedSnapshots: [] as string[][] };
     (window as any).__hammerMountedFloridaSelectionEvidence = evidence;
+    let priorSelectedSnapshot = "";
+    const recordSelectedSnapshot = () => {
+      const selectedIds = Array.from(document.querySelectorAll("[data-clip-id].is-selected"))
+        .map((element) => element.getAttribute("data-clip-id") ?? "");
+      const serialized = JSON.stringify(selectedIds);
+      if (serialized === priorSelectedSnapshot) return;
+      priorSelectedSnapshot = serialized;
+      evidence.selectedSnapshots.push(selectedIds);
+    };
+    new MutationObserver(recordSelectedSnapshot).observe(document.body, {
+      attributes: true,
+      attributeFilter: ["class"],
+      childList: true,
+      subtree: true,
+    });
+    recordSelectedSnapshot();
     for (const eventName of ["pointerdown", "mousedown", "focus", "pointerup", "click"] as const) {
       document.addEventListener(eventName, (event) => {
         const target = event.target instanceof Element ? event.target.closest("[data-clip-id]") : null;
@@ -481,14 +518,22 @@ test("mounted Florida-shaped shell routes a below-viewport visual selection out 
   const emissionsBefore = await page.evaluate(() => (window as any).__hammerMountedFloridaSelectionEvidence.emissions);
   await target.click();
   await expect(target).toHaveClass(/is-selected/);
+  await page.waitForTimeout(sourceDeskCase.settleBeforeSelectionMs);
+  await expect(target).toHaveClass(/is-selected/);
   await expect(page.getByText(`selected placement id: ${"placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2"}`, { exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "Remove Clip", exact: true })).toBeVisible();
   const evidence = await page.evaluate(() => (window as any).__hammerMountedFloridaSelectionEvidence);
   expect(evidence.events.map((event: any) => event.event)).toEqual(["pointerdown", "mousedown", "focus", "pointerup", "click"]);
   expect(evidence.events.slice(0, 2).every((event: any) => event.target_id === "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2")).toBe(true);
+  const firstSelectedSnapshot = evidence.selectedSnapshots.findIndex((ids: string[]) => ids.length > 0);
+  expect(firstSelectedSnapshot).toBeGreaterThanOrEqual(0);
+  expect(evidence.selectedSnapshots.slice(firstSelectedSnapshot)).toEqual([
+    ["placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2"],
+  ]);
   expect(evidence.emissions).toBe(emissionsBefore + 1);
   expect(mutationRequests).toEqual([]);
 });
+}
 
 test("archived-history notice keeps Visuals controls inside the exact 1280x720 staging viewport", async ({ page }) => {
   const mutationRequests: string[] = [];
