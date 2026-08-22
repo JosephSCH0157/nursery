@@ -61,9 +61,10 @@ export default function VisualClipBlock(props: VisualClipBlockProps) {
       }}
       onClick={(event) => {
         event.stopPropagation();
-        // Pointer activation already selected on mousedown. Preserve click-only
-        // activation for assistive technology and programmatic button semantics.
-        if (event.detail === 0) props.onSelect(clip.clipId);
+        // Reassert after a completed activation. Scroll/focus/pass reconciliation
+        // can settle between mousedown and click; the click is the final user
+        // intent boundary when the browser was able to deliver it.
+        if (!clip.selected) props.onSelect(clip.clipId);
       }}
       onKeyDown={(event) => {
         if (event.key !== "Enter" && event.key !== " ") return;

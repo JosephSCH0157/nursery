@@ -89,7 +89,9 @@ test("visual clips beyond playback duration retain distinct native pointer targe
   await target.click();
   await duplicate.click();
   await later.click();
-  await expect.poll(() => page.evaluate(() => (window as any).__hammerTimelineHitTestSelections)).toEqual([
+  await expect.poll(() => page.evaluate(() => (
+    (window as any).__hammerTimelineHitTestSelections as string[]
+  ).filter((value, index, values) => index === 0 || value !== values[index - 1]))).toEqual([
     "placement-target",
     "placement-exact-duplicate",
     "placement-later",
@@ -203,6 +205,128 @@ test("Florida-shaped editable clip remains selected when mousedown reflows the t
   expect(mutationRequests).toEqual([]);
 });
 
+test("Florida-shaped below-viewport clip remains selected after locator scroll and reconciliation settle", async ({ page }) => {
+  const mutationRequests: string[] = [];
+  page.on("request", (request) => {
+    if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) {
+      mutationRequests.push(`${request.method()} ${request.url()}`);
+    }
+  });
+  await page.setViewportSize({ width: 1280, height: 720 });
+  await page.goto("/");
+  await page.evaluate(async (urls) => {
+    const React = (await import("/node_modules/.vite/deps/react.js")).default;
+    const { createRoot } = (await import("/node_modules/.vite/deps/react-dom_client.js")).default;
+    const { default: VisualTimelineDock } = await import(urls.visualTimelineDock);
+    const targetId = "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2";
+    const duplicateId = "placement_mm_from_media_still_broll-beat-155848e3-0799-44b2-9fea-9457bfd48cdf";
+    const interceptorId = "placement_6c70e9c8-575b-4849-abd2-86377bc7334e";
+    const evidence = {
+      events: [] as any[],
+      transitions: [] as any[],
+      renders: [] as any[],
+      geometry: {} as Record<string, any>,
+      transcriptSegmentCount: 137,
+      placementCount: 30,
+    };
+    (window as any).__hammerScrolledSelectionEvidence = evidence;
+    document.body.innerHTML = `
+      <style>
+        body { margin: 0; }
+        #scroll-spacer { height: 880px; }
+        .hammer-visual-timeline-lane__track { position: relative; width: 960px; min-height: 116px; overflow: hidden; }
+        .hammer-visual-clip-block { position: absolute; height: 32px; box-sizing: border-box; padding: 0; }
+      </style>
+      <div id="scroll-spacer"></div>
+      <div id="hammer-scrolled-selection-root"></div>
+    `;
+    const geometry = () => {
+      const element = document.querySelector(`[data-clip-id="${targetId}"]`);
+      const rect = element?.getBoundingClientRect();
+      return rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null;
+    };
+    for (const eventName of ["pointerdown", "mousedown", "focus", "pointerup", "click"] as const) {
+      document.addEventListener(eventName, (event) => {
+        const target = event.target instanceof Element ? event.target.closest("[data-clip-id]") : null;
+        evidence.events.push({
+          event: eventName,
+          target_id: target?.getAttribute("data-clip-id") ?? null,
+          target_instance: target?.getAttribute("data-instance") ?? null,
+          scroll_y: window.scrollY,
+          geometry: geometry(),
+        });
+      }, true);
+    }
+    function Harness() {
+      const [selectedId, setSelectedId] = React.useState<string | null>(null);
+      const [reconcileGeneration, setReconcileGeneration] = React.useState(0);
+      const reconciledGeneration = React.useRef(0);
+      React.useLayoutEffect(() => {
+        if (reconcileGeneration === 0 || reconciledGeneration.current === reconcileGeneration) return;
+        reconciledGeneration.current = reconcileGeneration;
+        evidence.transitions.push({ from: targetId, to: null, reason: "scroll_focus_reconciliation" });
+        setSelectedId(null);
+      }, [reconcileGeneration]);
+      React.useEffect(() => {
+        evidence.renders.push({ selected_id: selectedId, reconcile_generation: reconcileGeneration });
+      }, [reconcileGeneration, selectedId]);
+      const exact = [
+        { clipId: targetId, label: "Entire seasons lost.", startSec: 380.456, endSec: 383.206 },
+        { clipId: duplicateId, label: "Duplicate interval", startSec: 380.456, endSec: 383.206 },
+        { clipId: interceptorId, label: "Former interceptor", startSec: 410.578, endSec: 413.278 },
+      ];
+      const filler = Array.from({ length: 27 }, (_, index) => ({
+        clipId: `synthetic-florida-placement-${String(index + 1).padStart(2, "0")}`,
+        label: `Synthetic Florida placement ${index + 1}`,
+        startSec: index * 12,
+        endSec: (index * 12) + 3,
+      }));
+      const clips = [...filler, ...exact].map((clip) => ({ ...clip, selected: selectedId === clip.clipId }));
+      return React.createElement(VisualTimelineDock, {
+        clips,
+        playheadSec: 0,
+        durationSec: 487.6,
+        selectedClipId: selectedId,
+        editable: true,
+        onSelectClip: (clipId: string) => {
+          evidence.transitions.push({ from: selectedId, to: clipId, reason: "user_select" });
+          setSelectedId(clipId);
+        },
+        onMoveClip: () => setReconcileGeneration((current: number) => current + 1),
+      });
+    }
+    createRoot(document.getElementById("hammer-scrolled-selection-root")!).render(React.createElement(Harness));
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const target = document.querySelector(`[data-clip-id="${targetId}"]`);
+    target?.setAttribute("data-instance", "florida-target-stable-node");
+    evidence.geometry.pre_scroll = geometry();
+  }, moduleUrls);
+
+  const target = page.locator('[data-clip-id="placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2"]');
+  const preScroll = await page.evaluate(() => (window as any).__hammerScrolledSelectionEvidence.geometry.pre_scroll);
+  expect(preScroll.y).toBeGreaterThan(720);
+  await target.click();
+  await expect(target).toHaveClass(/is-selected/);
+  await expect.poll(() => page.evaluate(() => (window as any).__hammerScrolledSelectionEvidence.renders.at(-1)?.selected_id)).toBe(
+    "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2",
+  );
+  const evidence = await page.evaluate(() => (window as any).__hammerScrolledSelectionEvidence);
+  expect(evidence.transcriptSegmentCount).toBe(137);
+  expect(evidence.placementCount).toBe(30);
+  expect(evidence.events.map((event: any) => event.event)).toEqual([
+    "pointerdown", "mousedown", "focus", "pointerup", "click",
+  ]);
+  expect(evidence.events.every((event: any) => event.target_id === "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2")).toBe(true);
+  expect(evidence.events.every((event: any) => event.target_instance === "florida-target-stable-node")).toBe(true);
+  expect(evidence.events[0].scroll_y).toBeGreaterThan(0);
+  expect(evidence.events.at(-1).geometry.y).toBeLessThan(720);
+  expect(evidence.transitions.map((transition: any) => transition.reason)).toEqual([
+    "user_select", "scroll_focus_reconciliation", "user_select",
+  ]);
+  expect(evidence.transitions.at(-1).to).toBe("placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2");
+  expect(mutationRequests).toEqual([]);
+});
+
 test("archived-history notice keeps Visuals controls inside the exact 1280x720 staging viewport", async ({ page }) => {
   const mutationRequests: string[] = [];
   page.on("request", (request) => {
@@ -280,9 +404,18 @@ test("archived-history notice keeps Visuals controls inside the exact 1280x720 s
   expect(mutationRequests).toEqual([]);
 });
 
-test.beforeEach(async ({ baseURL }) => {
+test.beforeEach(async ({ baseURL, page }) => {
   const host = new URL(baseURL ?? "http://127.0.0.1").hostname;
   expect(["127.0.0.1", "::1", "localhost"]).toContain(host);
+  await page.addInitScript(() => localStorage.clear());
+  await page.route("**/*", async (route) => {
+    const requestHost = new URL(route.request().url()).hostname;
+    if (["127.0.0.1", "::1", "localhost"].includes(requestHost)) {
+      await route.continue();
+      return;
+    }
+    await route.abort("blockedbyclient");
+  });
 });
 
 test("mounted Hammer shell does not re-emit a stale workpiece visual downgrade", async ({ page }) => {

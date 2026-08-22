@@ -41,7 +41,10 @@ export default defineConfig({
   webServer: hasExternalBaseURL
     ? undefined
     : {
-      command: "pnpm --filter nursery dev --host 127.0.0.1 --port 5173",
+      // Browser verification is read-only with respect to generated workspace
+      // assets. Bypass the package predev generator and serve the checked-out
+      // tree exactly as it stands.
+      command: "pnpm --filter nursery exec node scripts/run-vite.mjs --configLoader runner --host 127.0.0.1 --port 5173",
       url: baseURL,
       reuseExistingServer: true,
       timeout: 180_000,
