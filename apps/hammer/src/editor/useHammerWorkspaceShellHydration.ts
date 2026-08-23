@@ -11,10 +11,10 @@ import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTyp
 import { cloneHammerAudioEdit, cloneHammerAudioPolish } from "../prep/hammerAudioPolish";
 import { deriveHydratedPassStatus } from "./hammerPassSelectors";
 import { resolveSelectedSegmentId } from "./hammerWorkspaceTranscript";
-import { resolveEditorModeFromPass, resolveInitialPassId, type HammerEditorMode } from "./hammerWorkspaceShellCore";
+import { resolveInitialPassId, type HammerEditorMode } from "./hammerWorkspaceShellCore";
+import { resolveHammerToolBayEditorModeForPass } from "./hammerToolBayRouteDecision";
 import { resolveSelectionFromTranscript, type HammerLinkedSelection } from "./hammerLinkedSelection";
 import { loadHammerWorkspaceWorkpieceLabel } from "../app/hammerRuntimeData";
-
 type WorkpieceLabelSetter = Dispatch<SetStateAction<string | null>>;
 export type HammerWorkpieceLabelHydrationAuthority = object;
 
@@ -186,7 +186,7 @@ export function useHammerWorkspaceShellHydration(
     const nextSelectedSegmentId = resolveSelectedSegmentId(transcriptSegments, initialSelectedSegmentId ?? null);
     setCurrentPass(nextInitialPass);
     setPassStatus(deriveHydratedPassStatus(nextInitialPass));
-    setEditorMode(resolveEditorModeFromPass(nextInitialPass));
+    setEditorMode(resolveHammerToolBayEditorModeForPass(nextInitialPass));
     applyLinkedSelectionStateRef.current?.({
       selection: resolveSelectionFromTranscript({
         transcriptSegments: transcriptSegments,

@@ -113,6 +113,13 @@ for (const [pattern, message] of [
   [/\b(?:saveHammer|loadHammer|fetch|localStorage|sessionStorage|onWorkspaceSnapshotChange)\b/, "Route resolver acquired I/O or persistence ownership."],
   [/\b(?:dispatch|setSelected|setCurrentPass|setEditorMode|applyHistoryMutation|hammerVisualTimelineReducer)\s*\(/, "Route resolver acquired selection, navigation, reducer, or history command ownership."],
 ]) if (pattern.test(toolBayRouteResolver)) failures.push(`src/editor/hammerToolBayRouteDecision.ts: ${message}`);
+const toolBayRouteApplication = inspect("src/editor/hammerToolBayRouteApplication.ts").text;
+for (const [pattern, message] of [
+  [/\buse(?:State|Effect|Memo|Ref|Callback)\s*\(/, "Route application acquired React lifecycle ownership."],
+  [/\b(?:saveHammer|loadHammer|fetch|localStorage|sessionStorage|onWorkspaceSnapshotChange)\b/, "Route application acquired I/O or persistence ownership."],
+  [/\b(?:dispatch|setSelected|applyHistoryMutation|hammerVisualTimelineReducer)\s*\(/, "Route application acquired selection, reducer, or history command ownership."],
+  [/resolveHammerToolBayRoute\s*\(/, "Route application began reinterpreting the canonical resolver."],
+]) if (pattern.test(toolBayRouteApplication)) failures.push(`src/editor/hammerToolBayRouteApplication.ts: ${message}`);
 
 const expansionGate = inspect("src/composition/hammerExpansionGateV1.ts").text;
 for (const required of [

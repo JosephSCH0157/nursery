@@ -1333,6 +1333,7 @@ export function buildToolBayVM(args: any) {
     passStatus: args.passStatus,
     onMarkComplete: args.markCurrentPassComplete,
     activeVisualTool: args.activeVisualTool,
+    routeDecision: args.toolBayRouteDecision,
     onSelectVisualTool: args.selectVisualTool,
     shellProps: args.props,
     uploadingCategory: args.uploadingCategory,

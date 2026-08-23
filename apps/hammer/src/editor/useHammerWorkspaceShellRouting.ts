@@ -2,6 +2,16 @@ import { useCallback, useEffect } from "react";
 import type { Dispatch, MutableRefObject, SetStateAction } from "react";
 import type { HammerPassId, HammerPassStatusMap } from "../persistence/hammerPersistenceContract";
 import type { HammerWorkspaceFocusOverride } from "./hammerWorkspaceTimeline";
+import type { HammerSelectedVisualContext } from "./hammerSelectedVisualContext";
+import { applyHammerToolBayRouteDecision } from "./hammerToolBayRouteApplication";
+import {
+  deriveHammerToolBayRouteState,
+  HAMMER_SUPPORTED_TOOL_BAY_SURFACES,
+  resolveHammerToolBayEditorModeForPass,
+  resolveHammerToolBayRoute,
+  type HammerToolBayRouteDecision,
+  type HammerToolBayUnsupportedReason,
+} from "./hammerToolBayRouteDecision";
 import {
   canEnterPass,
   getPassBlockedReason,
@@ -13,7 +23,6 @@ import {
   PASS_ORDER,
   isHammerModeRoutingDebugEnabled,
   normalizePassStatus,
-  resolveEditorModeFromPass,
   resolvePassMeta,
   resolveRepresentativePassForEditorMode,
   type HammerEditorMode,
@@ -26,9 +35,11 @@ export type UseHammerWorkspaceShellRoutingArgs = {
   currentPass: HammerPassId;
   editorMode: HammerEditorMode;
   activeTool: string;
-  activeVisualTool: HammerVisualToolRackId;
+  activeVisualTool: HammerVisualToolRackId | null;
   selectedSourceTab: HammerSourceTabId;
   videoPanelRoute: HammerVideoPanelRoute;
+  selectedVisualContext: HammerSelectedVisualContext;
+  unsupportedReason: HammerToolBayUnsupportedReason | null;
   passSelectorContextRef: MutableRefObject<HammerPassSelectorContext | null>;
   currentPassSelectorResultRef: MutableRefObject<HammerPassSelectorResult | null>;
   setCurrentPass: Dispatch<SetStateAction<HammerPassId>>;
@@ -36,6 +47,7 @@ export type UseHammerWorkspaceShellRoutingArgs = {
   setEditorMode: Dispatch<SetStateAction<HammerEditorMode>>;
   setFocusOverride: Dispatch<SetStateAction<HammerWorkspaceFocusOverride>>;
   setTranscriptTimingHint: Dispatch<SetStateAction<string | null>>;
+  setUnsupportedReason: Dispatch<SetStateAction<HammerToolBayUnsupportedReason | null>>;
 };
 
 export type UseHammerWorkspaceShellRoutingResult = {
@@ -45,6 +57,7 @@ export type UseHammerWorkspaceShellRoutingResult = {
   ) => void;
   selectPass: (passId: HammerPassId) => void;
   selectVisualTool: (tool: HammerVisualToolRackId) => void;
+  applyRouteDecision: (decision: HammerToolBayRouteDecision) => void;
   markCurrentPassComplete: () => void;
 };
 
@@ -58,6 +71,8 @@ export function useHammerWorkspaceShellRouting(
     activeVisualTool,
     selectedSourceTab,
     videoPanelRoute,
+    selectedVisualContext,
+    unsupportedReason,
     passSelectorContextRef,
     currentPassSelectorResultRef,
     setCurrentPass,
@@ -65,7 +80,15 @@ export function useHammerWorkspaceShellRouting(
     setEditorMode,
     setFocusOverride,
     setTranscriptTimingHint,
+    setUnsupportedReason,
   } = args;
+
+  const applyRouteDecision = useCallback((decision: HammerToolBayRouteDecision): void => {
+    applyHammerToolBayRouteDecision({
+      decision, currentPass, editorMode, unsupportedReason,
+      setCurrentPass, setEditorMode, setUnsupportedReason,
+    });
+  }, [currentPass, editorMode, setCurrentPass, setEditorMode, setUnsupportedReason, unsupportedReason]);
 
   useEffect(() => {
     setPassStatus((previous) => normalizePassStatus(previous, currentPass));
@@ -75,10 +98,15 @@ export function useHammerWorkspaceShellRouting(
     preferredPass?: HammerPassId;
     focusOverride?: HammerWorkspaceFocusOverride;
   }): void => {
-    setEditorMode(nextMode);
     const targetPass = options?.preferredPass ?? resolveRepresentativePassForEditorMode(nextMode);
-    if (targetPass !== currentPass) {
-      setCurrentPass(targetPass);
+    const targetState = deriveHammerToolBayRouteState(targetPass, nextMode);
+    const decision = resolveHammerToolBayRoute({
+      selectedVisualContext, currentPass: targetPass, editorMode: nextMode,
+      activeTool: targetState?.activeTool ?? null, activeVisualTool: targetState?.activeVisualTool ?? null,
+      intent: "editor_mode", lifecycleSettled: true, supportedSurfaces: HAMMER_SUPPORTED_TOOL_BAY_SURFACES,
+    });
+    applyRouteDecision(decision);
+    if (decision.status === "resolved" && targetPass !== currentPass) {
       setPassStatus((previous) => {
         const normalized = normalizePassStatus(previous, targetPass);
         if (normalized[targetPass] === "not_started") normalized[targetPass] = "in_progress";
@@ -86,7 +114,7 @@ export function useHammerWorkspaceShellRouting(
       });
     }
     if (options?.focusOverride) setFocusOverride(options.focusOverride);
-  }, [currentPass, setCurrentPass, setEditorMode, setFocusOverride, setPassStatus]);
+  }, [applyRouteDecision, currentPass, selectedVisualContext, setFocusOverride, setPassStatus]);
 
   const selectPass = useCallback((passId: HammerPassId): void => {
     const context = passSelectorContextRef.current;
@@ -110,27 +138,33 @@ export function useHammerWorkspaceShellRouting(
         toolId: nextMeta.toolId,
       });
     }
-    setCurrentPass(passId);
-    setEditorMode(resolveEditorModeFromPass(passId));
+    const nextMode = resolveHammerToolBayEditorModeForPass(passId);
+    const targetState = deriveHammerToolBayRouteState(passId, nextMode);
+    const decision = resolveHammerToolBayRoute({
+      selectedVisualContext, currentPass: passId, editorMode: nextMode,
+      activeTool: targetState?.activeTool ?? null, activeVisualTool: targetState?.activeVisualTool ?? null,
+      intent: "current_pass", lifecycleSettled: true, supportedSurfaces: HAMMER_SUPPORTED_TOOL_BAY_SURFACES,
+    });
+    applyRouteDecision(decision);
+    if (decision.status !== "resolved") return;
     setPassStatus((previous) => {
       const normalized = normalizePassStatus(previous, passId);
       if (normalized[passId] === "not_started") normalized[passId] = "in_progress";
       return normalized;
     });
     setFocusOverride("tool-focus");
-  }, [passSelectorContextRef, setCurrentPass, setEditorMode, setFocusOverride, setPassStatus, setTranscriptTimingHint]);
+  }, [applyRouteDecision, passSelectorContextRef, selectedVisualContext, setFocusOverride, setPassStatus, setTranscriptTimingHint]);
 
   const selectVisualTool = useCallback((nextTool: HammerVisualToolRackId): void => {
-    if (nextTool === "polish") {
-      selectEditorMode("images", { preferredPass: "visual_finishing", focusOverride: "tool-focus" });
-      return;
-    }
-    if (nextTool === "images") {
-      selectEditorMode("images", { preferredPass: "image_placement", focusOverride: "tool-focus" });
-      return;
-    }
-    selectEditorMode("broll", { preferredPass: "image_animation", focusOverride: "tool-focus" });
-  }, [selectEditorMode]);
+    const decision = resolveHammerToolBayRoute({
+      selectedVisualContext, currentPass, editorMode, activeTool, activeVisualTool,
+      intent: "manual_navigation", lifecycleSettled: true,
+      manualSelection: { activeTool: "video", activeVisualTool: nextTool },
+      supportedSurfaces: HAMMER_SUPPORTED_TOOL_BAY_SURFACES,
+    });
+    applyRouteDecision(decision);
+    if (decision.status === "resolved") setFocusOverride("tool-focus");
+  }, [activeTool, activeVisualTool, applyRouteDecision, currentPass, editorMode, selectedVisualContext, setFocusOverride]);
 
   const markCurrentPassComplete = useCallback((): void => {
     const currentResult = currentPassSelectorResultRef.current;
@@ -164,5 +198,5 @@ export function useHammerWorkspaceShellRouting(
     });
   }, [activeTool, activeVisualTool, currentPass, editorMode, selectedSourceTab, videoPanelRoute]);
 
-  return { selectEditorMode, selectPass, selectVisualTool, markCurrentPassComplete };
+  return { selectEditorMode, selectPass, selectVisualTool, applyRouteDecision, markCurrentPassComplete };
 }

@@ -139,6 +139,14 @@ import { useHammerWorkspaceShellReleaseComparison, useHammerWorkspaceShellReleas
 import { createHammerWorkspaceVisualSelectionCommand } from "./hammerWorkspaceVisualSelectionCommand";
 import { deriveHammerSelectedVisualContext } from "./hammerSelectedVisualContext";
 import {
+  deriveHammerToolBayRouteState,
+  HAMMER_SUPPORTED_TOOL_BAY_SURFACES,
+  resolveHammerToolBayEditorModeForPass,
+  resolveHammerToolBayRoute,
+  type HammerToolBayRouteDecision,
+  type HammerToolBayUnsupportedReason,
+} from "./hammerToolBayRouteDecision";
+import {
   toHammerLinkedSelectionVisualItems,
   type HammerSelectedTranscriptRange,
   type HammerSelectedTranscriptRangeDetail,
@@ -218,16 +226,12 @@ import {
   PASS_ORDER,
   SOURCE_TABS,
   editorModeToSourceTab,
-  editorModeToToolSelection,
-  editorModeToVisualTool,
   isHammerVisualSelectionDebugEnabled,
-  resolveEditorModeFromPass,
   resolveEditorModeFromSourceTab,
   resolveInitialPassId,
   resolvePassMeta,
   type HammerEditorMode,
   type HammerSourceTabId,
-  type HammerVideoPanelRoute,
   type HammerVisualLutPreset,
 } from "./hammerWorkspaceShellCore";
 import {
@@ -430,7 +434,8 @@ function HammerWorkspaceShellWithContext(
   const initialCurrentPass = resolveInitialPassId(props.initialCurrentPass);
   const [currentPass, setCurrentPass] = useState<HammerPassId>(initialCurrentPass);
   const [passStatus, setPassStatus] = useState<HammerPassStatusMap>(() => deriveHydratedPassStatus(initialCurrentPass));
-  const [editorMode, setEditorMode] = useState<HammerEditorMode>(() => resolveEditorModeFromPass(initialCurrentPass));
+  const [editorMode, setEditorMode] = useState<HammerEditorMode>(() => resolveHammerToolBayEditorModeForPass(initialCurrentPass));
+  const [toolBayUnsupportedReason, setToolBayUnsupportedReason] = useState<HammerToolBayUnsupportedReason | null>(null);
   const [selectedBoundBrollOperationId, setSelectedBoundBrollOperationId] = useState<string | null>(null);
   const [editableDerivedTextLayers, setEditableDerivedTextLayers] = useState<
     HammerPersistedStructuredTranscript["derived_text_layers"]
@@ -575,23 +580,16 @@ function HammerWorkspaceShellWithContext(
     useHammerWorkspaceShellWorkpieceLabelState();
   const [visualTimelineFocusNonce, setVisualTimelineFocusNonce] = useState(0);
   const currentPassMeta = useMemo(() => resolvePassMeta(currentPass), [currentPass]);
-  const modeToolSelection = useMemo(() => editorModeToToolSelection(editorMode), [editorMode]);
-  // TODO: DEPRECATE - derived from editorMode
-  const activeTool = currentPassMeta.toolId === "export" ? currentPassMeta.toolId : modeToolSelection.activeTool;
+  const currentRouteState = useMemo(() => deriveHammerToolBayRouteState(currentPass, editorMode), [currentPass, editorMode]);
+  const lastValidRouteStateRef = useRef(currentRouteState);
+  if (currentRouteState) lastValidRouteStateRef.current = currentRouteState;
+  const renderedRouteState = currentRouteState ?? lastValidRouteStateRef.current;
+  const activeTool = renderedRouteState?.activeTool ?? currentPassMeta.toolId;
   // TODO: DEPRECATE - derived from editorMode
   const selectedSourceTab = useMemo(() => editorModeToSourceTab(editorMode), [editorMode]);
   // TODO: DEPRECATE - derived from editorMode
-  const activeVisualTool = useMemo(
-    () => modeToolSelection.activeVisualTool ?? editorModeToVisualTool(editorMode, currentPass),
-    [currentPass, editorMode, modeToolSelection.activeVisualTool],
-  );
-  // TODO: DEPRECATE - derived from editorMode
-  const videoPanelRoute = useMemo<HammerVideoPanelRoute>(() => {
-    if (activeTool !== "video") return "non_video";
-    return modeToolSelection.videoPanelRoute === "non_video"
-      ? activeVisualTool
-      : modeToolSelection.videoPanelRoute;
-  }, [activeTool, activeVisualTool, modeToolSelection.videoPanelRoute]);
+  const activeVisualTool = renderedRouteState?.activeVisualTool ?? null;
+  const videoPanelRoute = activeTool === "video" && activeVisualTool ? activeVisualTool : "non_video";
   const editableVisualPlacements = useMemo(
     () => deriveLegacyVisualPlacementsFromTimeline(editableVisualTimeline),
     [editableVisualTimeline],
@@ -708,27 +706,6 @@ function HammerWorkspaceShellWithContext(
     setEditableAudioPolish,
     resetSilenceEditing,
     applyVisualPreviewSettings: applyHydratedVisualPreviewSettings,
-  });
-
-  const {
-    selectEditorMode,
-    selectPass,
-    selectVisualTool,
-    markCurrentPassComplete,
-  } = useHammerWorkspaceShellRouting({
-    currentPass,
-    editorMode,
-    activeTool,
-    activeVisualTool,
-    selectedSourceTab,
-    videoPanelRoute,
-    passSelectorContextRef,
-    currentPassSelectorResultRef,
-    setCurrentPass,
-    setPassStatus,
-    setEditorMode,
-    setFocusOverride,
-    setTranscriptTimingHint,
   });
 
   function isTextEditingTarget(target: EventTarget | null): boolean {
@@ -1332,6 +1309,24 @@ function HammerWorkspaceShellWithContext(
   const selectedVisualContext = useMemo(() => deriveHammerSelectedVisualContext({
     timeline: compositionVisualTimeline, selectedPlacementId: linkedPrimaryVisualId ?? effectiveSelectedClipId,
   }), [compositionVisualTimeline, effectiveSelectedClipId, linkedPrimaryVisualId]);
+  const resolvedToolBayRouteDecision = useMemo(() => resolveHammerToolBayRoute({
+    selectedVisualContext, currentPass, editorMode, activeTool, activeVisualTool,
+    intent: "current_pass", lifecycleSettled: true, supportedSurfaces: HAMMER_SUPPORTED_TOOL_BAY_SURFACES,
+  }), [activeTool, activeVisualTool, currentPass, editorMode, selectedVisualContext]);
+  const toolBayRouteDecision: HammerToolBayRouteDecision = resolvedToolBayRouteDecision.status === "unsupported"
+    ? resolvedToolBayRouteDecision
+    : toolBayUnsupportedReason
+      ? { status: "unsupported", reason: toolBayUnsupportedReason, selectedPlacementId: selectedVisualContext.status === "selected" ? selectedVisualContext.placementId : null, navigationPermitted: false, selectionPreserved: true }
+      : resolvedToolBayRouteDecision;
+  const {
+    selectEditorMode, selectPass, selectVisualTool, applyRouteDecision: applyToolBayRouteDecision, markCurrentPassComplete,
+  } = useHammerWorkspaceShellRouting({
+    currentPass, editorMode, activeTool, activeVisualTool, selectedSourceTab, videoPanelRoute,
+    selectedVisualContext, unsupportedReason: toolBayUnsupportedReason,
+    passSelectorContextRef, currentPassSelectorResultRef,
+    setCurrentPass, setPassStatus, setEditorMode, setFocusOverride, setTranscriptTimingHint,
+    setUnsupportedReason: setToolBayUnsupportedReason,
+  });
   const selectedImagePlacement = useMemo(
     () => sourceVisualPlacementItems.find((item) => item.id === (linkedPrimaryVisualId ?? effectiveSelectedClipId)) ?? null,
     [effectiveSelectedClipId, linkedPrimaryVisualId, sourceVisualPlacementItems],
@@ -1793,9 +1788,11 @@ function HammerWorkspaceShellWithContext(
     seekPlayheadToTime,
     revealBottomTimelineAtTime,
     revealVisualSelectionUI: (placement) => {
-      selectEditorMode(placement.kind === "image" ? "images" : "broll", {
-        preferredPass: placement.kind === "image" ? "image_placement" : "image_animation",
-      });
+      const context = deriveHammerSelectedVisualContext({ timeline: compositionVisualTimeline, selectedPlacementId: placement.id });
+      applyToolBayRouteDecision(resolveHammerToolBayRoute({
+        selectedVisualContext: context, currentPass, editorMode, activeTool, activeVisualTool,
+        intent: "explicit_visual_selection", lifecycleSettled: true, supportedSurfaces: HAMMER_SUPPORTED_TOOL_BAY_SURFACES,
+      }));
     },
   });
   const {
@@ -3885,6 +3882,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     passStatus: currentPassSelectorResult.status,
     onMarkComplete: markCurrentPassComplete,
     activeVisualTool,
+    toolBayRouteDecision,
     onSelectVisualTool: selectVisualTool,
     shellProps: props,
     hasSilenceSuggestionAnalysis,
@@ -4189,6 +4187,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     workspaceFocusMode,
   }), [
     activeVisualTool,
+    toolBayRouteDecision,
     currentPassMeta.label,
     currentPassSelectorResult.status,
     markCurrentPassComplete,

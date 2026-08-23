@@ -36,6 +36,7 @@ function input(overrides: Partial<HammerToolBayRouteInput> = {}): HammerToolBayR
     activeTool: "video",
     activeVisualTool: "images",
     intent: "current_pass",
+    lifecycleSettled: true,
     supportedSurfaces: ALL_SURFACES,
     ...overrides,
   };
@@ -58,6 +59,7 @@ test("explicit image, B-roll, and reference selection reveal their frozen prefer
         activeTool: "video",
         activeVisualTool: kind === "image" ? "images" : "broll",
         representativePass: kind === "image" ? "image_placement" : "image_animation",
+        editorMode: kind === "image" ? "images" : "broll",
         source: "explicit_selection",
         navigationPermitted: true,
         selectionPreserved: true,
@@ -188,6 +190,17 @@ test("none, stale identity, unsupported context, packaging restoration, and miss
   assert.equal(stale.status === "unsupported" && stale.selectedPlacementId, "placement:stale");
   assert.equal(packagingRestore.status === "preserve" && packagingRestore.reason, "passive_selection_preserved");
   assert.equal(missingManualVisual.status === "preserve" && missingManualVisual.reason, "manual_visual_tool_missing");
+});
+
+test("incomplete hydration preserves transitional disagreement while settled invalid state fails closed", () => {
+  const transitional = input({
+    intent: "hydration_restoration", lifecycleSettled: false,
+    selectedVisualContext: { status: "unsupported", placementId: "placement:loading", reason: "timeline pending" },
+    currentPass: "future_pending_pass", editorMode: "future_pending_mode", activeTool: null, activeVisualTool: null,
+  });
+  const settled = { ...transitional, lifecycleSettled: true };
+  assert.equal(resolveHammerToolBayRoute(transitional).status, "preserve");
+  assert.equal(resolveHammerToolBayRoute(settled).status, "unsupported");
 });
 
 test("route decisions are stable across rerenders and accept data-only inputs with zero activity channels", () => {

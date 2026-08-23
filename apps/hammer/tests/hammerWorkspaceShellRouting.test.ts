@@ -8,13 +8,13 @@ const shell = readFileSync(path.resolve(testDir, "../src/editor/HammerWorkspaceS
 const controller = readFileSync(path.resolve(testDir, "../src/editor/useHammerWorkspaceShellRouting.ts"), "utf8");
 
 assert.ok(shell.includes("useHammerWorkspaceShellRouting({"));
-assert.ok(controller.includes('nextTool === "polish"'));
-assert.ok(controller.includes('preferredPass: "visual_finishing"'));
-assert.ok(controller.includes('nextTool === "images"'));
-assert.ok(controller.includes('preferredPass: "image_placement"'));
-assert.ok(controller.includes('selectEditorMode("broll", { preferredPass: "image_animation"'));
+assert.ok(controller.includes("resolveHammerToolBayRoute"));
+assert.ok(controller.includes("applyHammerToolBayRouteDecision"));
+assert.ok(controller.includes('intent: "manual_navigation"'));
+assert.ok(controller.includes('intent: "current_pass"'));
 assert.ok(controller.includes('console.debug("[HammerModeRouting] selectPass"'));
 assert.ok(controller.includes('console.debug("[HammerModeRouting] state"'));
-assert.ok(controller.indexOf("setCurrentPass(passId)") < controller.indexOf("setEditorMode(resolveEditorModeFromPass(passId))"));
+assert.ok(!controller.includes('nextTool === "polish"'));
+assert.ok(!controller.includes('nextTool === "images"'));
 
 console.log("Hammer workspace shell routing controller tests passed.");

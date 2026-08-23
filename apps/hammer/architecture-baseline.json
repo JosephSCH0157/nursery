@@ -9,7 +9,7 @@
     "path": "src/editor/HammerWorkspaceShellToolBay.tsx",
     "maxCtxPropertyReferences": 299,
     "maxAsAnyAssertions": 229,
-    "maxDirectVisualRoutingPredicatesOutsideResolver": 2,
+    "maxDirectVisualRoutingPredicatesOutsideResolver": 0,
     "selectedImagePlacementConsumers": {
       "src/editor/HammerWorkspaceShell.tsx": 11,
       "src/editor/HammerWorkspaceShellToolBay.tsx": 31,

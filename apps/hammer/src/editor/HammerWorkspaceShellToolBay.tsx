@@ -17,14 +17,15 @@ import type {
   HammerLogoOverlaySize,
 } from "./hammerWorkspaceShellVisualUtils";
 import HammerBrollSelectionControls from "./HammerBrollSelectionControls";
+import type { HammerToolBayRouteDecision } from "./hammerToolBayRouteDecision";
 export type HammerWorkspaceShellToolBayVM = {
   passLabel: string;
   passStatus: string;
   onMarkComplete: () => void;
   activeVisualTool?: "polish" | "images" | "broll";
   onSelectVisualTool?: (nextTool: "polish" | "images" | "broll") => void;
+  routeDecision?: HammerToolBayRouteDecision;
 };
-
 export type PackagingIntroStatusView = {
   selectionStatusLine: string;
   placementStatusLine: string;
@@ -66,7 +67,7 @@ function isTruthyDevToggle(value: string | null): boolean {
 }
 
 function isDevBlurControlsEnabled(): boolean {
-  const isDevBuild = import.meta.env.DEV;
+  const isDevBuild = import.meta.env?.DEV;
   if (!isDevBuild || typeof window === "undefined") return false;
   try {
     const params = new URLSearchParams(window.location.search ?? "");
@@ -455,7 +456,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
     if (committedText.trim()) return committedText;
     return selectedTranscriptRange?.text ?? "";
   }
-
+  const unsupportedRoute = vm.routeDecision?.status === "unsupported" ? vm.routeDecision : null;
   return (
     <>
       <header className="hammer-bay-head">
@@ -466,12 +467,17 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
           <span className={`hammer-pass-badge hammer-pass-badge--${vm.passStatus}`}>
             {vm.passStatus}
           </span>
-          <button type="button" onClick={vm.onMarkComplete}>
+          {!unsupportedRoute ? <button type="button" onClick={vm.onMarkComplete}>
             Mark Complete
-          </button>
+          </button> : null}
         </div>
       </header>
       <div className="hammer-bay-body">
+        {unsupportedRoute ? (
+          <section className="hammer-tool-card" data-hammer-tool-bay-route-reason={unsupportedRoute.reason}>
+            <header className="hammer-tool-card__head">Unsupported Tool Bay State</header>
+            <div className="hammer-tool-hint">Route unavailable: {unsupportedRoute.reason}</div></section>
+        ) : <>
         {activeTool === "video" ? (
           <section className="hammer-tool-card hammer-visual-tool-selector" aria-label="Visual tool selector">
             <header className="hammer-tool-card__head">Visual Tools</header>
@@ -3311,14 +3317,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                     </div>
                   )}
                 </section>
-              ) : (
-                <section className="hammer-tool-card">
-                  <header className="hammer-tool-card__head">Unsupported Video Mode</header>
-                  <div className="hammer-tool-hint">
-                    Current visual tool does not have a panel route. Pass: {currentPass}
-                  </div>
-                </section>
-              )
+              ) : null
             ) : null}
 
               {activeTool === "captions" ? (
@@ -4013,6 +4012,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                 <div>Release prep: {releasePrepOpenHref ? "available" : "unavailable"}</div>
                 <div>Preview truth: {previewTruthPosture}</div>
               </div>
+        </>}
       </div>
     </>
   );
