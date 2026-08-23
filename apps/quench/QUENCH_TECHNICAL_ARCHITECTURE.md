@@ -1,823 +1,357 @@
 # QUENCH Technical Architecture Companion
 
-Status: Draft (Phase-aligned)
+Status: Current architecture baseline
 
-Scope: Developer-facing architecture note for Quench v1
-
-Purpose: Define the implementation model for Quench as the Forge release engine.
+Scope: Quench canonical authority, release decisions, readiness, and distribution boundaries
 
 ## 1. Purpose
 
-Quench is the release orchestration layer of Podcaster's Forge.
+Quench is the release-decision and distribution layer of Podcaster's Forge. It operates on finished artifacts and canonical metadata; it does not create or reshape content.
 
-Its job is to:
+Its responsibilities are to:
 
-- read canonical release-ready episode data from Tongs
-- resolve asset location and publishability
-- collect minimal user release decisions
-- dispatch platform-specific publish jobs
-- track status and retries
-- write normalized receipts back to Tongs
+- resolve Tongs-authorized release state
+- validate readiness truthfully
+- collect minimal release and destination decisions
+- persist those decisions through Tongs
+- dispatch platform adapters when real execution exists
+- record verified outcomes through Tongs for later Ledger use
 
-Quench is not a creative system. It does not author metadata, edit media, or generate assets. It operates on assets and metadata that already exist.
+## 2. Canonical System Position
 
-## 2. System Position
+```text
+Hammer -> Tongs -> Quench -> Tongs -> Ledger
+```
 
-Quench sits after content preparation and before downstream analytics.
+- Hammer produces finished media, packet artifacts, and completed candidate assets.
+- Tongs verifies, versions, and projects canonical authority.
+- Quench decides and distributes against that authority.
+- Tongs records durable release decisions and outcomes.
+- Ledger consumes verified release and platform evidence.
 
-Pipeline position:
+There is no direct Hammer-to-Quench operational-authority channel. A path, prepared-package parameter, or client-side release object is a locator only.
 
-Bar Stock -> Hearth -> Anvil -> Hammer -> Tongs -> Quench -> Ledger
+## 3. Non-Creative Boundary
 
-Dependencies:
+Quench must not:
 
-- Upstream: Tongs (canonical storage and metadata), Hammer (exports), Hearth (metadata/title/description/tags), Anvil (recording/session lineage)
-- Downstream: Ledger (analytics and post-release performance)
+- edit, render, compile, mix, or master media
+- create thumbnails, graphics, shorts, clips, or alternate formats
+- change Hammer timeline or project structure
+- author canonical metadata
+- request Hearth or Hammer to generate variants during release execution
+- store canonical assets or release history outside Tongs
+- claim provider execution without provider acknowledgement
 
-## 3. Core Runtime Model
+Metadata assistance may return an uncommitted draft. Candidate selection and experiment planning operate only on immutable candidates already authorized through Tongs.
 
-Quench should be implemented as a release orchestrator with four major layers:
+## 4. Runtime Layers
 
-Release Resolution Layer:
+Quench has five runtime layers.
 
-Resolves which episode/workpiece is being published and whether it is release-ready.
+### 4.1 Canonical resolution
 
-Decision Layer:
+Resolves the active workspace and workpiece through Tongs and obtains `forge.quench-release-projection.v2`. Development fixtures are a separate authority class and are never merged into an authenticated canonical workpiece.
 
-Collects user choices such as platform targets, publish mode, schedule, premiere settings, and shorts cadence.
+### 4.2 Readiness
 
-Execution Layer:
+Separates packet ingestion, canonical Hammer handoff evidence, and destination-specific publish readiness. Execution is fail-closed.
 
-Dispatches work to platform adapters and tracks progress.
+### 4.3 Decision
 
-Receipt Layer:
+Collects platform scope, release mode, schedule, selected candidate, and provider-neutral experiment intent. Durable decisions are committed through Tongs as immutable revisions.
 
-Normalizes platform outputs and writes results back to Tongs.
+### 4.4 Adapter execution
 
-## 4. Canonical Data Boundaries
+Validates selected destination capabilities and dispatches a live adapter only when both the adapter and server-side provider integration exist.
 
-### 4.1 Tongs is the source of truth
+### 4.5 Receipt and evidence
 
-Quench must never become a second metadata authority.
+Normalizes provider acknowledgement and writes durable operation or platform receipts through Tongs. Ledger consumes only verified downstream evidence.
 
-Canonical episode/release data lives in Tongs, including:
+## 5. Hammer Release Packet Authority
 
-- workpiece identity
-- episode title
-- description
-- tags
-- SEO metadata
-- transcript references
-- export references
-- thumbnail references
-- clip/short references
-- publish receipts
+The current Hammer packet manifest path is:
 
-Quench may create platform-specific overrides, but those overrides must be written back into Tongs as structured data.
+```text
+hammer/release-packet/manifest.v1.json
+```
 
-### 4.2 Quench-local state
+The manifest declares packet identity, artifact references, and Hammer handoff-readiness evidence. Quench and Tongs must not infer packet structure from neighboring filenames.
 
-Quench may maintain transient UI/runtime state for:
+Tongs verifies:
 
-- selected episode
-- selected platforms
-- draft scheduling choices
-- current job progress
-- retry status
-- temporary validation errors
+- workspace and workpiece identity
+- source file revision
+- exact manifest bytes
+- manifest content hash
+- manifest shape and contract version
+- canonical Hammer readiness status
 
-This state is not canonical unless committed back to Tongs.
+Verified bytes are stored as an immutable manifest snapshot. A later manifest revision does not mutate an earlier snapshot.
 
-## 5. Phase Split: Current Ingest vs Future Publish
+## 6. Canonical Release Projection
 
-Quench architecture has two explicit phases:
+Authenticated Quench workpieces resolve `forge.quench-release-projection.v2` through Tongs.
 
-- Current executable MVP: ingest Hammer release packets and render truthful readiness/attention state.
-- Future release orchestration: platform adapters, scheduling, RSS execution, and publish receipts.
+The projection provides, as applicable:
 
-Both phases keep the same core boundary:
+- workspace and workpiece identity
+- immutable Hammer manifest snapshot identity and hash
+- parsed manifest and canonical handoff-readiness evidence
+- canonical metadata plus revision and content hash
+- active brand binding
+- active thumbnail candidate set and verified members
+- current destination scopes and capability revisions
+- current release-decision revisions and assignments
+- applicability state for existing decisions
 
-- manifest is authority for packet shape
-- payload files are referenced artifacts
-- Tongs remains canonical SSOT
+Projection rules:
 
-### 5.1 Current Hammer Packet Contract (ingest authority)
+1. Exact upstream authority is snapshotted before release decisions bind to it.
+2. A canonical projection is never synthesized from a route parameter alone.
+3. Mock packets remain fixtures and cannot authorize authenticated release behavior.
+4. Missing or contradictory authority fails closed.
+5. Current decisions expose whether their bound authority remains applicable.
 
-The current packet contract is the Hammer-exported canonical bundle rooted at:
+## 7. Readiness Taxonomy
 
-- `hammer/release-packet/manifest.v1.json`
+The word `ready` is incomplete without its layer.
 
-The manifest references packet payloads:
+### 7.1 Ingest readiness
 
-- transcript artifact (text path)
-- captions artifacts (SRT required for current Hammer export, VTT optional)
-- visual placements artifact (optional at ingest)
-- canonical audio authority (workpiece path/media reference fields)
+Determines whether Quench can inspect the Hammer packet truthfully.
 
-Quench ingest must validate this contract directly and must not infer packet structure from filenames outside manifest references.
-
-### 5.2 Future publish projection (deferred)
-
-A broader publish projection (title/description/tags/thumbnail/platform overrides/shorts) remains valid architecture direction, but is out of scope for the current ingest slice.
-
-## 6. Readiness Model (Split)
-
-Readiness is explicitly split into ingest readiness now and publish readiness later.
-
-### 6.1 Ingest readiness (current slice)
-
-Quench ingest must deterministically classify:
-
-- packet invalid
-- needs attention
-- ready for publish
-
-Current ingest checks:
+Checks include:
 
 - manifest readable and shape-valid
 - audio reference resolvable
 - transcript artifact loadable
-- captions present or missing (attention state, not invalid packet)
-- visual placements loadable or truthfully missing (warning path)
+- captions present or truthfully reported missing
+- visual placements loadable or truthfully reported missing/invalid
 
-### 6.2 Publish readiness (future slice)
+Ingest readiness does not authorize a destination publish.
 
-Before publish execution exists, Quench will add publish readiness checks for platform metadata, thumbnails, exports, capability constraints, and schedule validity.
+### 7.2 Canonical handoff readiness
 
-### 6.3 Future validation categories (publish execution)
+This is Hammer's readiness evidence from the exact Tongs-verified manifest snapshot. It establishes whether the upstream production handoff is ready for Quench review.
 
-Core identity:
+It is immutable for that snapshot, but it can become non-current when the canonical Hammer manifest advances.
 
-- workpiece_id present
-- episode_id present
-- workspace_id present
+### 7.3 Publish readiness
 
-Metadata:
+Quench evaluates the current projection for the selected destinations. Checks include:
 
-- title present
-- description present
-- tags present or intentionally empty
+- canonical workspace, workpiece, and episode identity
+- required title and description
+- selected and eligible thumbnail where required
+- required video or audio export
+- asset accessibility and public URL requirements
+- selected platform capability
+- publish mode and schedule validity
+- current decision applicability
 
-Assets:
+Publish readiness uses `ready`, `needs_review`, and `blocked`. Adapter execution requires a `ready` status and agreeing readiness flags. Missing, stale, or contradictory authority denies execution.
 
-- thumbnail resolvable
-- required media export resolvable
-- media file accessible from declared source
+## 8. Canonical Release Decisions
 
-Platform suitability:
+Tongs persists Quench decisions as immutable revisions rather than mutable rows.
 
-- video exists for video platforms
-- audio URL exists for RSS or Spotify flows that require it
-- publish mode supported by selected adapter
+Current decision kinds include:
 
-### 6.4 Example publish-readiness result shape
+- `single_candidate`
+- `experiment_intent`
 
-```json
-{
-  "ready": false,
-  "checks": {
-    "title": true,
-    "description": true,
-    "thumbnail": false,
-    "video_export": true,
-    "audio_export": true
-  },
-  "errors": [
-    {
-      "code": "THUMBNAIL_MISSING",
-      "message": "No thumbnail asset found for this release packet."
-    }
-  ]
-}
-```
+A decision binds to:
 
-The UI should surface readiness clearly before launch.
+- workspace and workpiece
+- destination scope and capability revision
+- exact manifest snapshot and hash
+- canonical metadata revision and hash
+- candidate set and content hash
+- active brand binding and revision
+- ordered candidate assignments
+- previous decision revision
 
-## 7. Asset Source Resolution
+This binding makes decisions auditable and prevents a selection from silently drifting to newly generated or modified assets.
 
-Quench must support multiple asset origins.
+## 9. Concurrency and Operation Receipts
 
-### 7.1 Supported source modes
+Decision commits use optimistic concurrency and idempotent operation identity.
 
-`local`:
+- The client supplies the expected current decision and revision.
+- Tongs checks authorization before canonical reads, locks, receipt replay, or mutation.
+- Locks follow a stable global order across manifest, metadata, binding, candidate set, capability, decision, and operation authority.
+- A stale expectation returns a revision conflict rather than overwriting current authority.
+- Reusing an operation ID with the same identity replays its immutable result.
+- Reusing an operation ID with different identity returns an operation conflict.
+- Immutable-history tables reject update and delete operations.
 
-Assets live on the user machine. Quench reads from mapped local folder or file references. Publish operations may execute from the client or via staged upload.
+Operation receipts prove the database decision mutation. They are not platform publish receipts and do not prove external execution.
 
-`cloud`:
+## 10. Decision Applicability
 
-Assets live in Forge-managed cloud storage. Quench resolves public or signed URLs via backend services. This is the preferred path for Studio and future cloud users.
+An immutable decision can remain historically valid while becoming unsuitable for current execution.
 
-`external_url`:
+Tongs reevaluates applicability when any bound authority advances, including:
 
-Assets already live on a third-party host. Quench consumes the provided URL without hosting responsibility.
+- Hammer manifest revision or hash
+- metadata revision or hash
+- candidate-set authority
+- active brand binding
+- candidate asset integrity or eligibility
+- destination capability revision
 
-### 7.2 Resolution rule
+The UI must distinguish a current applicable decision from a historical decision that requires review.
 
-The packet or associated workpiece contract must declare the expected asset source.
+## 11. Thumbnail Authority
 
-Quench should not guess.
+Thumbnail candidates are authored upstream and returned through the canonical Tongs projection.
 
-Example:
+Quench may:
 
-```json
-{
-  "asset_source": "cloud"
-}
-```
+- inspect verified candidate provenance and eligibility
+- choose an eligible candidate for a destination scope
+- persist an immutable selection decision
+- plan or cancel provider-neutral experiment intent using eligible candidates
 
-### 7.3 Source abstraction
+Quench may not:
 
-Implement an internal resolver interface:
+- generate or edit a candidate
+- rewrite a recipe
+- request regeneration during release execution
+- bypass candidate-set or brand-binding authority
+- automatically restore an earlier selection when canceling experiment intent
 
-```ts
-interface AssetResolver {
-  resolveVideo(packet: ReleasePacket): Promise<ResolvedAsset | null>;
-  resolveAudio(packet: ReleasePacket): Promise<ResolvedAsset | null>;
-  resolveThumbnail(packet: ReleasePacket): Promise<ResolvedAsset | null>;
-  resolveShorts(packet: ReleasePacket): Promise<ResolvedAsset[]>;
-}
-```
+Cancellation creates a new zero-assignment canonical decision. It does not rewrite history.
 
-This prevents platform adapters from knowing where assets came from.
+## 12. Experiment Intent vs Execution Evidence
 
-## 8. Platform Adapter Architecture
+Experiment planning and provider execution are separate facts.
 
-Quench should use adapter modules per destination.
+Provider-neutral intent may identify:
 
-### 8.1 Goal
+- a control candidate
+- one or more variants
+- an optional allocation model when supported
+- the destination scope and capability revision
 
-Keep platform-specific logic isolated so Quench core remains stable.
+It does not establish that a provider supports automatic rotation, accepted the plan, served a candidate, or produced performance evidence.
 
-### 8.2 Suggested structure
+Active execution requires a capable live adapter and provider acknowledgement. Ledger evidence requires verified provider observations. Quench must not manufacture either fact from intent alone.
 
-```text
-apps/quench/
-  src/
-    core/
-      release-engine.ts
-      readiness.ts
-      receipt-writer.ts
-      asset-resolver.ts
-      job-runner.ts
-    adapters/
-      youtube/
-        youtube.adapter.ts
-        youtube.types.ts
-        youtube.auth.ts
-        youtube.mapper.ts
-      rumble/
-        rumble.adapter.ts
-        rumble.types.ts
-        rumble.auth.ts
-        rumble.mapper.ts
-      spotify/
-        spotify.adapter.ts
-        spotify.types.ts
-        spotify.auth.ts
-        spotify.mapper.ts
-      rss/
-        rss.adapter.ts
-        rss.types.ts
-        rss.renderer.ts
-```
+## 13. Adapter Architecture
 
-### 8.3 Adapter contract
+Each destination adapter implements a shared boundary for:
 
-```ts
-interface QuenchPlatformAdapter {
-  platform: string;
-  getCapabilities(): Promise<PlatformCapabilities>;
-  validate(
-    packet: ReleasePacket,
-    options: PlatformPublishOptions
-  ): Promise<AdapterValidationResult>;
-  publish(
-    packet: ReleasePacket,
-    options: PlatformPublishOptions,
-    context: PublishContext
-  ): Promise<AdapterPublishResult>;
-  retry(
-    receipt: PlatformReceipt,
-    context: PublishContext
-  ): Promise<AdapterPublishResult>;
-}
-```
-
-### 8.4 Adapter responsibilities
-
-Each adapter owns:
-
-- platform auth/token handling hooks
 - capability reporting
-- payload mapping
-- scheduling/premiere formatting
-- execution call(s)
-- response normalization
-- platform-specific retry behavior
+- packet and option validation
+- publish execution
+- retry execution
+- normalized results and receipts
 
-Adapters must not own canonical metadata storage.
+Current package scaffolds exist for YouTube and RSS. They provide real validation and deterministic stub-mode behavior, but live publish calls intentionally return `not_implemented`.
 
-## 9. Capability Model
+No real Rumble or Spotify adapter currently exists.
 
-Not every platform supports the same behaviors.
+Platform adapters must not own canonical metadata, asset storage, decision history, credentials in the client, or authoritative receipts outside Tongs.
 
-Quench should expose capabilities as structured flags.
+## 14. Capability Model
 
-### 9.1 Example capability shape
+Destination controls must be driven by structured capabilities rather than assumptions.
 
-```json
-{
-  "platform": "youtube",
-  "supports_video": true,
-  "supports_audio_only": false,
-  "supports_schedule": true,
-  "supports_premiere": true,
-  "supports_shorts": true,
-  "supports_ab_testing": true
-}
-```
+Capabilities may include:
 
-### 9.2 Why this matters
+- video and audio support
+- scheduling support
+- premiere support
+- shorts support
+- experiment-planning support
+- provider rotation support
 
-The UI should only present controls the selected platform actually supports.
+Planning support and execution support are different capabilities. The UI must not offer or claim an operation that the selected capability revision does not support.
 
-Examples:
+## 15. Publish Jobs and Partial Failure
 
-- YouTube may show premiere options.
-- RSS will not.
-- Shorts cadence controls should appear only if shorts exist and the platform accepts them.
+Live distribution remains future work, but its authority model is fixed:
 
-## 10. Publish Job Model
+- validate all selected destinations first
+- create independently recoverable destination jobs
+- preserve one destination's success when another fails
+- keep secrets and provider execution server-side
+- allow safe polling or subscription for progress
+- bind retries to canonical provider receipts
+- record verified schedules and external identifiers through Tongs
 
-Quench should treat each platform publish as a job with normalized lifecycle states.
+Long-running execution must not require the browser to remain open.
 
-### 10.1 Job states
+## 16. RSS Boundary
 
-Recommended states:
+RSS publication requires a stable public media URL. Local-only audio cannot become a public enclosure without an authorized hosting step.
 
-- pending
-- validating
-- queued
-- uploading
-- processing
-- scheduled
-- published
-- failed
-- retrying
-- canceled
+Future RSS execution should render from canonical show and episode metadata, maintain stable GUIDs and enclosure details, and write publication evidence through Tongs. The current RSS adapter does not render or publish a live feed.
 
-### 10.2 Job shape
+## 17. Authentication and Platform Connections
 
-```json
-{
-  "job_id": "job_001",
-  "release_packet_id": "rp_001",
-  "platform": "youtube",
-  "state": "uploading",
-  "progress": 42,
-  "attempt": 1,
-  "error": null
-}
-```
-
-### 10.3 Execution model
-
-For v1, Quench may run jobs serially or in a limited parallel model.
-
-Recommended initial behavior:
-
-- validate all selected platforms first
-- dispatch publish jobs platform by platform
-- allow independent success or failure per platform
-- never fail the entire release because one platform failed
-
-## 11. Local vs Cloud Execution
-
-Quench needs dual execution support.
-
-### 11.1 Local mode
-
-Use when assets are local.
-
-Possible approaches:
-
-- browser-assisted upload
-- local companion process later, if needed
-- direct signed-upload handoff for staged cloud transitions
-
-Local mode should be treated as a first-class release path, not a temporary hack.
-
-### 11.2 Cloud mode
-
-Use when assets are already in Forge cloud storage.
-
-Preferred for:
-
-- Studio accounts
-- future remote recording outputs
-- fully hosted RSS/media flows
-
-Cloud mode is also the natural path for large-scale automation.
-
-### 11.3 Contract-led behavior
-
-Execution path should be derived from the workpiece or release contract and available asset source.
-
-## 12. RSS Architecture
-
-### 12.1 Ownership
-
-Quench should generate and maintain Forge-hosted RSS feeds.
-
-Examples:
-
-- `https://podcastersforge.com/rss/show-slug.xml`
-- `https://feeds.podcastersforge.com/show-slug.xml`
-
-### 12.2 Feed generation model
-
-RSS should be rendered from canonical show and episode metadata.
-
-The feed should not be edited manually in Quench.
-
-### 12.3 RSS requirements
-
-A valid episode item requires:
-
-- stable GUID
-- title
-- description
-- publication date
-- enclosure URL
-- enclosure MIME type
-- duration if available
-- artwork and show metadata where appropriate
-
-### 12.4 Important constraint
-
-RSS requires publicly accessible media URLs.
-
-That means local-only audio cannot be referenced directly in a public feed.
-
-Forge-hosted or externally hosted audio must exist before RSS publication is considered ready.
-
-This should be enforced during readiness validation.
-
-## 13. Authentication and Platform Connections
-
-Quench needs a durable platform-connection model.
-
-### 13.1 Connection objects
-
-Connections should be workspace-scoped or user-scoped depending on the platform model.
-
-Suggested fields:
-
-- connection_id
-- workspace_id
-- platform
-- auth_type
-- token metadata
-- refresh metadata
-- status
-- created_at
-- updated_at
-
-### 13.2 Supported auth styles
-
-- OAuth
-- API key
-- static credentials where unavoidable
-
-### 13.3 Rules
-
-- never store raw passwords unless absolutely unavoidable
-- prefer OAuth or token-based auth
-- keep secret material server-side
-- expose only safe connection status to the UI
-
-### 13.4 Expiration handling
-
-If a token expires:
-
-- mark connection degraded
-- show reconnect action
-- do not destroy prior configuration metadata
-
-## 14. Platform Publish Options
-
-Quench should separate canonical packet data from per-release decision data.
-
-### 14.1 Example publish options shape
-
-```json
-{
-  "platforms": {
-    "youtube": {
-      "enabled": true,
-      "mode": "premiere",
-      "scheduled_for": "2026-03-15T19:00:00Z"
-    },
-    "spotify": {
-      "enabled": true,
-      "mode": "schedule",
-      "scheduled_for": "2026-03-15T19:05:00Z"
-    },
-    "rss": {
-      "enabled": true,
-      "mode": "publish"
-    }
-  },
-  "shorts_strategy": {
-    "enabled": true,
-    "cadence": "daily"
-  }
-}
-```
-
-These choices should be persistable as a draft if desired, but persisted drafts remain Tongs-owned data.
-
-## 15. Release Receipts
-
-Every publish action should generate normalized receipts.
-
-### 15.1 Goal
-
-Receipts provide canonical evidence of what happened.
-
-### 15.2 Receipt contents
-
-Suggested fields:
-
-- platform
-- external_id
-- external_url
-- published_at
-- scheduled_for
-- status
-- payload summary
-- raw adapter metadata snapshot
-- retry count
-
-### 15.3 Example
-
-```json
-{
-  "platform": "youtube",
-  "external_id": "yt_abc123",
-  "external_url": "https://youtube.com/watch?v=abc123",
-  "status": "published",
-  "published_at": "2026-03-07T15:20:00Z"
-}
-```
-
-### 15.4 Storage
-
-Receipts should be written back to Tongs as part of the workpiece release history.
-
-## 16. Retry and Failure Strategy
-
-Quench must be resilient to partial failure.
-
-### 16.1 Rule
-
-A release is not all-or-nothing.
-
-If YouTube succeeds and Rumble fails, YouTube remains published and Rumble can be retried independently.
-
-### 16.2 Error normalization
-
-Adapters should map platform errors to Quench-facing categories.
-
-Suggested categories:
-
-- auth_error
-- validation_error
-- upload_error
-- rate_limit
-- unsupported_option
-- remote_platform_error
-- unknown_error
-
-### 16.3 User-facing recovery
-
-The UI should present actionable retry controls like:
-
-- reconnect platform
-- retry upload
-- remove unsupported option
-- re-resolve missing asset
-
-## 17. A/B Variant Request Flow
-
-Quench does not generate variants itself.
-
-If a user requests title or thumbnail testing:
-
-- Quench validates platform support
-- Quench creates a variant request
-- Hearth generates variant candidates
-- Tongs stores them
-- Quench refreshes packet projection
-- Quench publishes using the selected test-capable adapter path
-
-### 17.1 Variant request shape
-
-```json
-{
-  "request_type": "ab_variant_request",
-  "episode_id": "ep_001",
-  "need_titles": 2,
-  "need_thumbnails": 2,
-  "target_platform": "youtube"
-}
-```
-
-This preserves role boundaries.
-
-## 18. UI Architecture Notes
-
-### 18.1 Page model
-
-Quench should be a standalone Forge page with the standard hamburger menu and simple top bar.
-
-Top bar contents:
-
-- module name and version
-- logged-in user identity
-- logout
-
-No AI indicators are needed.
-
-### 18.2 Three-column layout
-
-Left column:
-
-- publishable episodes or workpieces
-- readiness badges
-- optional release history tab later
-
-Center column:
-
-- episode overview
-- readiness summary
-- release strategy controls
-- launch button
-- live execution and progress board
-
-Right column:
-
-- platform list
-- platform-specific controls rendered by capability
-
-### 18.3 UX principle
-
-Quench should feel like a release console, not a generic dashboard.
-
-## 19. Suggested Service Boundaries
-
-### 19.1 Quench core services
-
-Suggested modules:
-
-- release-packet.service
-- readiness.service
-- asset-resolution.service
-- connection.service
-- publish-orchestrator.service
-- receipt.service
-- rss.service
-
-### 19.2 Backend responsibilities
-
-Backend services should handle:
-
-- credential protection
-- token refresh
-- signed URL generation
-- cloud-mode publish execution
-- feed rendering
-- receipt persistence
-
-### 19.3 Frontend responsibilities
-
-Frontend should handle:
-
-- selection and configuration UI
-- status rendering
-- launch initiation
-- safe polling or subscription for job progress
-
-## 20. Queueing and Background Work
-
-Quench publish operations may require queue-backed execution even in v1 if uploads are not instantaneous.
-
-Recommended model:
-
-- create release job set
-- enqueue per-platform job entries
-- stream or poll state back to UI
-- persist final receipts
-
-Future cloud-native operation should support long-running execution without requiring the browser to remain open.
-
-## 21. Security and Compliance Notes
-
-Quench handles sensitive integrations and must treat them accordingly.
+Future live connections may be workspace- or user-scoped according to the provider contract.
 
 Rules:
 
-- secrets server-side only
-- signed URLs for cloud asset access where possible
-- least-privilege scopes when connecting platforms
-- audit publish actions in Tongs event history
-- separate user-facing error text from raw provider error blobs
+- secret material remains server-side
+- OAuth or token-based authorization is preferred
+- least-privilege provider scopes are required
+- the client receives only safe connection status
+- expired credentials become a reconnectable degraded state
+- prior configuration and release history are preserved
 
-## 22. Eventing and Audit Trail
+## 18. UI Architecture
 
-Quench actions should write structured events back to Tongs.
+Quench is a three-column release console:
 
-Examples:
+- left: canonical workpiece selection and readiness
+- center: release summary, metadata review, decisions, validation, and execution state
+- right: thumbnail authority, experiment intent, destinations, capabilities, and destination options
 
-- release_requested
-- readiness_failed
-- publish_started
-- platform_published
-- platform_failed
-- release_completed
-- release_partially_completed
+The UI must label fixture versus canonical authority, stub versus live mode, and planning versus provider execution. Metadata assistance must remain visibly draft-only.
 
-These events become the operational trail for debugging, support, and Ledger integration.
+## 19. Current Implementation Boundary
 
-## 23. MVP Boundary
+Implemented today:
 
-Current executable MVP should include:
+- Hammer packet ingest and validation
+- canonical release projection
+- immutable manifest snapshots
+- publish-readiness contracts and fail-closed guard
+- canonical thumbnail selection
+- provider-neutral experiment planning and cancellation
+- immutable decision revisions, concurrency checks, and operation receipts
+- YouTube and RSS validation scaffolds
+- integrated release-console UI
 
-- ingest Hammer release packet from Tongs/canonical artifact paths
-- discover and read manifest
-- validate manifest shape
-- resolve canonical audio reference
-- load transcript/captions/visual placements
-- render truthful state:
-  - Ready for publish
-  - Needs attention: audio reference unresolved
-  - Needs attention: captions missing
-  - Needs attention: transcript missing
-  - Needs attention: packet invalid
+Not live today:
 
-Current executable MVP should exclude:
+- provider authentication and token refresh
+- media upload or scheduling
+- RSS rendering and hosting
+- YouTube, Rumble, Spotify, or RSS provider execution
+- provider publish receipts
+- provider-side experiment rotation
+- Ledger performance ingestion
 
-- platform adapters
-- scheduling
-- RSS execution
-- connection/auth setup
-- publish orchestration
-- publish receipts
+Contracts, UI controls, fixtures, and stub receipts must never be described as proof that these future capabilities are live.
 
-Future Quench v1+ release orchestration may include:
+## 20. Security and Audit Rules
 
-- episode selection from Tongs
-- manual platform selection
-- YouTube adapter
-- Rumble adapter
-- Spotify adapter
-- RSS feed generation and update
-- basic schedule support
-- publish status board
-- platform connection setup
-- receipt persistence
+- Supabase/Tongs remains the canonical SSOT.
+- RLS protects workspace-scoped release records.
+- Authorization precedes lock acquisition, replay, and mutation.
+- Canonical history is append-only and immutable.
+- Raw provider errors must not leak secrets.
+- Signed or server-resolved URLs are preferred for protected cloud assets.
+- Publish actions and acknowledgements must be auditable.
 
-All future slices should continue to exclude:
+## 21. Evolution Rule
 
-- social autoposting
-- advanced analytics dashboards
-- comment automation
-- broad marketing campaign tooling
-- full thumbnail or image editing
-- complex queue dashboards
+If logic creates or reshapes content, it belongs upstream. If it establishes durable authority, it flows through Tongs. If it delivers already-authorized content, it belongs in Quench.
 
-## 24. Long-Term Direction
-
-Future Quench evolution may include:
-
-- release templates
-- coordinated release campaigns
-- shorts drip scheduling engine
-- platform-specific override editor
-- automated post-release notifications
-- analytics ingestion hooks into Ledger
-- public website or podcast page generation
-
-These should be added without compromising the core rule:
-
-Quench assembles, executes, and records releases. It does not become a creative workspace.
-
-## 25. Canonical Implementation Principle
-
-If there is ever ambiguity about whether logic belongs in Quench, apply this rule:
-
-If it creates or reshapes content, it probably belongs upstream.
-
-If it executes delivery of already-created content, it belongs in Quench.
-
-This rule should remain the primary anti-scope-creep safeguard.
+New features must preserve that boundary even when they add destinations, scheduling, release templates, experiments, notifications, or Ledger integration.

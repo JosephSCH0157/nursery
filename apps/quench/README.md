@@ -1,83 +1,113 @@
 # Quench
 
-Distribution and release engine for Podcaster's Forge.
+Quench is the release-decision and distribution console for Podcaster's Forge.
 
-## Overview
+## Canonical Authority Flow
 
-Quench is the final execution layer in the Forge pipeline.
+```text
+Hammer -> Tongs -> Quench -> Tongs -> Ledger
+```
 
-It takes completed exports and finalized metadata from Tongs, then publishes those assets to external platforms and RSS feeds.
+- Hammer produces finished media and completed candidate assets.
+- Tongs verifies and projects canonical release authority.
+- Quench validates that authority, records release decisions, and dispatches distribution when a live adapter exists.
+- Tongs persists canonical decisions, receipts, schedules, and publish history.
+- Ledger consumes verified release and performance evidence.
 
-Quench is intentionally non-creative. It does not write scripts, edit media, or generate assets.
+Quench does not accept operational authority directly from Hammer. A manifest path, prepared-package parameter, or client-side object is a locator only; authenticated workpieces must resolve a canonical release projection through Tongs.
 
-## Forge Pipeline Context
+## Product Boundary
 
-Bar Stock -> Hearth -> Anvil -> Hammer -> Tongs -> Quench -> Ledger
+Quench is intentionally non-creative. It does not write scripts, edit or render media, mix or master audio, create thumbnails or shorts, or request new variants during release execution.
 
-- Tongs owns canonical release metadata and publish history.
-- Hammer provides finalized exports.
-- Quench executes distribution.
-- Ledger consumes release outputs and downstream performance later.
+Quench may select among eligible Tongs-authorized candidates and record provider-neutral experiment intent. Intent does not prove that a destination is rotating candidates; provider acknowledgement is required for execution evidence.
 
-## Status
+Metadata assistance may return an uncommitted draft. Tongs remains authoritative for committed metadata.
 
-- Status: canonical preflight projection in progress; live adapters remain stubbed
-- Canonical manifest: [`../../docs/QUENCH_MANIFEST.md`](../../docs/QUENCH_MANIFEST.md)
+## Capability Status
+
+### Implemented
+
+- Hammer release-packet manifest ingestion and deterministic validation
+- Tongs-resolved `forge.quench-release-projection.v2` for authenticated workpieces
+- exact Hammer manifest verification and immutable snapshot authority
+- separate canonical handoff and publish-readiness evaluation
+- fail-closed publish-authority guard
+- canonical metadata and thumbnail candidate-set projection
+- immutable thumbnail-selection decisions
+- provider-neutral thumbnail experiment intent and cancellation
+- optimistic concurrency, idempotent replay, and immutable operation receipts for release decisions
+- destination capability projection and capability-gated UI
+- development fixtures kept separate from authenticated canonical workpieces
+- uncommitted metadata-assistance drafts
+- three-column release-console UI
+
+### Scaffolded, not live
+
+- YouTube adapter contract, capability reporting, and validation
+- RSS adapter contract, capability reporting, and validation
+- deterministic stub-mode receipts for development
+- publish/retry interfaces and release-readiness contracts
+- UI controls for publish modes, scheduling, and destination selection
+
+In `live` mode, the YouTube and RSS adapters intentionally return `not_implemented`. Stub receipts are not provider receipts and must not be represented as external execution.
+
+### Future
+
+- real server-side platform authentication and connection management
+- live YouTube upload, schedule, premiere, retry, and provider receipts
+- live RSS rendering, hosting, publication, and update
+- Rumble and Spotify adapters
+- durable platform publish jobs and background execution
+- real platform schedule execution
+- provider-side thumbnail experiment execution and acknowledgement
+- canonical platform receipts and publish history written through Tongs
+- Ledger ingestion of verified downstream outcomes
+
+## Readiness Terminology
+
+Quench uses three different readiness concepts:
+
+- **Ingest readiness:** the packet is readable, structurally valid, and its inspection artifacts can be resolved. This does not authorize publishing.
+- **Canonical handoff readiness:** Hammer's exact Tongs-verified manifest snapshot says the completed upstream handoff is ready for Quench. This is upstream evidence, not destination validation.
+- **Publish readiness:** the current canonical projection satisfies the selected destination's metadata, asset, capability, accessibility, decision, and schedule requirements. Only this fail-closed verdict can permit adapter execution.
+
+Do not use a generic "ready" label without identifying which layer produced it.
+
+## Package Contents
+
+- `src/core/hammer-release-packet.*` — Hammer packet types and ingest validation
+- `src/core/canonical-release-projection.types.ts` — Tongs projection contract
+- `src/core/readiness.ts` — publish-readiness evaluation
+- `src/core/publish-guard.ts` — fail-closed execution authority
+- `src/core/asset-resolver.ts` — asset-source abstraction
+- `src/core/quenchMetadataAssist.contract.ts` — uncommitted metadata-assist contract
+- `src/adapters/adapter.contract.ts` — shared destination adapter boundary
+- `src/adapters/youtube/` and `src/adapters/rss/` — non-live adapter scaffolds
+- `tests/` — ingest, readiness, authority, projection, and persistence-contract coverage
+
+The integrated UI lives at `apps/nursery/src/routes/Quench.tsx`. Canonical persistence and projection support live behind Tongs migrations and routes rather than inside this package.
+
+## Canonical Documents
+
+- Product manifest: [`../../docs/QUENCH_MANIFEST.md`](../../docs/QUENCH_MANIFEST.md)
 - Technical architecture: [`./QUENCH_TECHNICAL_ARCHITECTURE.md`](./QUENCH_TECHNICAL_ARCHITECTURE.md)
+- Boundary contract: [`../hammer/HAMMER_QUENCH_HANDOFF_SPEC.md`](../hammer/HAMMER_QUENCH_HANDOFF_SPEC.md)
 
-## Scope of this scaffold
+## Development
 
-This package is contract-first. It establishes the types and adapter boundaries Quench will build around without pretending the platform integrations are live.
+From the repository root:
 
-Current scaffold includes:
+```text
+pnpm --filter @forge/quench typecheck
+pnpm --filter @forge/quench test
+```
 
-- release packet and platform option types
-- deterministic readiness checks
-- asset resolver interface plus a static dev resolver
-- adapter contract shared by platform implementations
-- stubbed RSS adapter
-- stubbed YouTube adapter
+## Non-Negotiable Rules
 
-## Initial Scope
-
-- release packet resolution from Tongs
-- readiness validation
-- multi-platform publish orchestration
-- RSS generation and update
-- receipt persistence back to Tongs
-
-## Non-Goals
-
-- creative AI assistance
-- thumbnail generation
-- editing workflows
-- canonical asset storage
-
-## Local Development
-
-`apps/quench` currently holds the module documentation, typed scaffold, and architecture baseline.
-
-## Stubbed vs real adapters
-
-`src/adapters/rss/rss.adapter.ts` and `src/adapters/youtube/youtube.adapter.ts` are stubs.
-
-What stubbed means here:
-
-- validation is real enough to exercise Quench control flow
-- capability reporting is real enough to drive UI gating
-- `publish()` in `stub` mode returns deterministic receipts for shell and queue work
-- `publish()` in `live` mode intentionally returns `not_implemented`
-
-What a real adapter must add later:
-
-- server-side auth and connection handling
-- payload mapping to provider APIs
-- upload and schedule execution
-- provider response normalization
-- retry semantics tied to persisted receipts in Tongs
-
-Runtime scaffolding and adapters can be added on top of this contract.
-
-## Design Rule
-
-Quench must not fake persistence or publishing. If a path is not implemented, adapters must say so explicitly rather than simulating success in live mode.
+- Tongs is the canonical persistence authority.
+- Quench must not create a second metadata, asset, decision, or receipt authority.
+- Canonical projections and persisted decisions must fail closed when authority is stale or unverifiable.
+- Fixtures and stub receipts must remain visibly non-production.
+- A path or route parameter cannot authorize release.
+- Quench must never fake live publishing, scheduling, RSS delivery, or provider experiment execution.

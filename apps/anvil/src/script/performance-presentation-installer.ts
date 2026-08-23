@@ -52,7 +52,6 @@ export class PerformancePresentationAuthority {
   authorizePrepared(prepared: PreparedPresentation): number {
     assertPreparedPresentationFresh(prepared, this.canonicalIdentity);
     this.preparedValue = prepared;
-    this.activeValue = null;
     return this.generationValue;
   }
 
@@ -172,6 +171,11 @@ export async function installPerformancePresentation(input: {
   root: HTMLElement;
   expectedGeneration: number;
   fault?: (stage: 'after-replace' | 'before-receipt') => void;
+  transactionHooks?: Readonly<{
+    beforeActiveCommit: () => void;
+    afterActiveCommit: (active: ActivePresentation) => void;
+    rollBack: () => void;
+  }>;
 }): Promise<ActivePresentation> {
   const { authority, preparedPresentation: prepared, candidate, root } = input;
   if (authority.prepared !== prepared) throw new PerformancePresentationInstallError('PREPARED_STATE_NOT_AUTHORIZED');
@@ -186,6 +190,7 @@ export async function installPerformancePresentation(input: {
   const epoch = createEpoch();
   const rootIdentity = root.id || root.dataset.role || 'anonymous-script-root';
   let mutationTransaction: PresentationMutationTransaction | null = null;
+  let runtimeCommitStarted = false;
   try {
     mutationTransaction = beginPresentationMutationTransaction(root, epoch);
     candidate.blockElements.forEach((element) => { element.dataset.presentationEpoch = epoch; });
@@ -218,7 +223,10 @@ export async function installPerformancePresentation(input: {
         sourceScriptHash: prepared.source.scriptHash,
       }),
     });
+    runtimeCommitStarted = true;
+    input.transactionHooks?.beforeActiveCommit();
     authority.commitActive(active, input.expectedGeneration);
+    input.transactionHooks?.afterActiveCommit(active);
     commitPresentationMutationTransaction(mutationTransaction);
     await Promise.resolve();
     return active;
@@ -226,6 +234,7 @@ export async function installPerformancePresentation(input: {
     if (mutationTransaction) rollBackPresentationMutationTransaction(mutationTransaction);
     restoreRoot(root, snapshot);
     if (authority.generation === input.expectedGeneration) authority.restoreActive(previousActive);
+    if (runtimeCommitStarted) input.transactionHooks?.rollBack();
     for (const element of candidate.blockElements) candidate.fragment.appendChild(element);
     await Promise.resolve();
     if (error instanceof PerformancePresentationInstallError) throw error;

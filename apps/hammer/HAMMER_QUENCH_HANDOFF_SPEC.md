@@ -1,303 +1,188 @@
-# HAMMER -> QUENCH Handoff Specification
+# HAMMER -> TONGS -> QUENCH Handoff Specification
 
-Compilation Boundary Contract  
-Derived from Forge Design Session - March 21, 2026
+Status: Canonical boundary contract
+
+Authority model: Hammer produces; Tongs authorizes; Quench decides and distributes
+
+Supersedes: the historical Hammer-to-Quench blueprint compilation model
 
 ## Purpose
 
-This document defines the formal boundary between Hammer (editing) and Quench (compilation and distribution).
+This document defines the release boundary among Hammer, Tongs, and Quench. It prevents responsibility overlap, preserves a single persistence authority, and ensures Quench operates only on finished, authorized artifacts.
 
-It ensures:
+Canonical authority flow:
 
-- no responsibility overlap
-- no duplicated encoding logic
-- clear ownership of final outputs
-- consistent pipeline behavior
-- stable interchange format
-- predictable user expectations
+```text
+Hammer -> Tongs -> Quench -> Tongs -> Ledger
+```
 
-Hammer shapes the workpiece.  
-Quench sets the workpiece.
+- Hammer produces finished media, captions, transcripts, visual-placement evidence, and completed candidate assets.
+- Tongs stores, verifies, versions, and projects canonical release authority.
+- Quench validates that authority, records release decisions, and executes distribution when a live adapter exists.
+- Tongs records canonical decisions, operation receipts, platform receipts, schedules, and publish history.
+- Ledger consumes verified release and performance evidence.
 
-## 1. Pipeline Relationship
+Neighboring applications do not confer operational authority directly on one another. A Hammer path, route parameter, prepared-package reference, or client-side object is a locator only. Tongs must resolve and authorize the canonical release projection.
 
-Hammer and Quench are sequential stages.
+## 1. Boundary Principles
 
-Anvil -> Hammer -> Quench -> Ledger
+1. Hammer completes production before release handoff.
+2. Tongs is the canonical single source of truth for persisted release state.
+3. Quench is a release-decision and distribution system, not a media-production environment.
+4. Release execution is fail-closed against current Tongs authority.
+5. Every durable Quench decision or execution receipt returns to Tongs.
+6. Creative or structural changes require a new authorized upstream revision.
 
-- Anvil records raw material
-- Hammer edits and prepares
-- Quench compiles and distributes
-- Ledger analyzes outcomes
+## 2. Hammer Responsibilities
 
-Hammer never performs Quench functions.
+Hammer owns post-production shaping and completed release artifacts, including as applicable:
 
-## 2. Nature of the Handoff
+- final video and audio exports
+- edit and render execution within Hammer's production boundary
+- captions, transcripts, and visual-placement outputs
+- completed shorts or clips
+- completed thumbnails or upstream-authored thumbnail candidates
+- deterministic lineage from source media to finished outputs
+- canonical readiness evidence for the Hammer handoff
 
-The handoff transfers a prepared project package, not a rendered video.
+Hammer writes its release packet through the Tongs-backed storage path. The current manifest authority is:
 
-This package contains:
+```text
+hammer/release-packet/manifest.v1.json
+```
 
-- structural blueprint of the edit
-- references to media assets
-- timing information
-- transformation data
-- output intent metadata
+The manifest declares packet structure and artifact references. Consumers must not reconstruct authority from filename conventions or hidden Hammer runtime state.
 
-It must contain everything required to reconstruct the edit deterministically.
+## 3. Tongs Responsibilities at Handoff
 
-## 3. Handoff Trigger
+Tongs mediates the Hammer-to-Quench boundary. It owns:
 
-The user initiates handoff explicitly.
+- canonical workpiece identity and access control
+- exact Hammer manifest-byte verification and immutable snapshots
+- artifact references, revisions, and content hashes
+- canonical metadata and metadata revision authority
+- active thumbnail candidate-set and brand-binding authority
+- destination scopes and capability revisions
+- canonical release projections delivered to Quench
+- persisted release-decision revisions and assignments
+- concurrency control and idempotent operation receipts
+- publish receipts, schedules, and release history when execution exists
 
-Handoff represents:
+Tongs must reject stale, mismatched, unauthorized, or unverifiable authority. It must not silently substitute a newer artifact for the exact revision a decision claims to use.
 
-- completion of editing
-- readiness for compilation
-- confidence in structure
+## 4. Quench Inputs
 
-Hammer should not auto-send projects to Quench.
+Quench consumes a Tongs-resolved canonical release projection. Depending on the current slice and available upstream outputs, it may contain:
 
-## 4. Hammer Output - Prepared Release Package
+- an immutable Hammer manifest snapshot
+- canonical handoff-readiness evidence
+- transcript, captions, and visual-placement references
+- final audio and video references
+- canonical episode metadata
+- verified thumbnail candidates and current selection authority
+- destination scopes and capability revisions
+- current release decisions and their applicability
 
-Hammer produces a structured release package that includes:
+Development fixtures may exercise UI and adapter contracts, but they must never be mixed into an authenticated canonical workpiece or represented as release authority.
 
-### 4.1 Timeline Blueprint
+## 5. Readiness Boundaries
 
-- complete timeline state
-- track structure
-- clip placements
-- durations
-- gaps
-- layering order
-- transforms
+The system uses three distinct readiness concepts.
 
-This is the authoritative edit definition.
+### 5.1 Ingest readiness
 
-### 4.2 Media References
+Quench can read and validate the packet contract and resolve the artifacts needed for packet inspection. This answers whether a packet can be truthfully ingested; it does not authorize publishing.
 
-References to all required source assets:
+### 5.2 Canonical handoff readiness
 
-- video recordings
-- images
-- B-roll
-- audio tracks
-- overlays
-- graphics
+Hammer's Tongs-verified manifest declares whether the completed upstream handoff is ready for Quench. This evidence is immutable for the snapshotted manifest revision. It does not replace destination-specific publish validation.
 
-Assets are referenced, not embedded.
+### 5.3 Publish readiness
 
-### 4.3 Audio Preparation Data
+Quench evaluates the current canonical projection against selected destination capabilities, required metadata, required exports, current decisions, asset accessibility, and schedule constraints. Only a fail-closed `ready` verdict may permit adapter execution.
 
-Information about audio treatments applied:
-
-- cleanup
-- leveling
-- noise reduction
-- balancing
-
-Hammer prepares; Quench may finalize mastering.
-
-### 4.4 Visual Placement Data
-
-Includes:
-
-- positioning
-- scaling
-- timing
-- overlay relationships
-- transitions (if applicable)
-
-### 4.5 Text Outputs
-
-Such as:
-
-- subtitles or captions
-- transcript variants
-- title overlays
-
-### 4.6 Export Intent Metadata
-
-High-level intent for compilation:
-
-- primary output type
-- orientation (landscape/vertical)
-- project duration
-- content classification
-
-Not platform-specific encoding instructions.
-
-## 5. What Hammer Does Not Include
-
-Hammer does not provide:
-
-- encoded video files
-- platform-ready uploads
-- distribution packaging
-- delivery scheduling
-- analytics hooks
-- CDN instructions
-
-Those belong to Quench.
+These concepts must not be collapsed into one generic "ready" flag.
 
 ## 6. Quench Responsibilities
 
-Upon receiving the release package, Quench performs:
+Quench owns:
 
-### 6.1 Compilation
+- resolving the canonical release projection through Tongs
+- truthfully presenting ingest, canonical-handoff, and publish readiness
+- collecting minimal destination and release-mode choices
+- selecting among Tongs-authorized immutable candidates
+- recording provider-neutral experiment intent against verified candidates
+- validating destination capabilities and release requirements
+- dispatching live platform adapters when those adapters exist
+- reporting independent per-destination outcomes and recovery actions
+- writing durable decisions and execution receipts through Tongs
 
-Transforms the blueprint into concrete media outputs:
+Quench may offer metadata assistance only as an uncommitted draft. Applying or committing metadata must preserve Tongs as canonical authority.
 
-- renders final video
-- mixes audio
-- applies final mastering
-- resolves compositions
-
-### 6.2 Derivative Generation
-
-Creates additional deliverables:
-
-- shorts
-- clips
-- alternate formats
-- thumbnails
-- preview assets
-
-### 6.3 Platform Encoding
-
-Produces versions suitable for specific platforms.
-
-### 6.4 Distribution
-
-Handles:
-
-- uploads
-- scheduling
-- publishing
-- platform integration
-
-## 7. Immutable Boundary
-
-Once handed off:
-
-Hammer does not modify Quench's outputs.
-
-If edits are required:
-
-- the project returns to Hammer
-- a new package is produced
-
-No live editing of compiled media.
-
-## 8. Versioning
-
-Each handoff should be versioned.
-
-This allows:
-
-- revisions
-- rollback
-- comparison
-- auditability
-
-Quench must know which version it compiled.
-
-## 9. Determinism Requirement
-
-Quench must be able to reconstruct the edit solely from the package.
-
-No hidden dependencies on Hammer runtime state.
-
-## 10. Persistence Model
-
-Release packages should remain accessible after compilation for:
-
-- re-export
-- corrections
-- alternative outputs
-- archival
-
-## 11. User Mental Model
-
-Hammer = shaping  
-Quench = setting
-
-Analogy:
-
-Blacksmith shapes hot iron on the anvil.  
-Then plunges it into water to set the structure.
-
-After quenching, changes require reheating (return to Hammer).
-
-## 12. Error Handling at Boundary
-
-If Quench cannot compile the package:
-
-- the user must be informed clearly
-- the package must remain intact
-- actionable feedback should be provided
-- the project can return to Hammer
-
-Silent failures are unacceptable.
-
-## 13. Partial Compilation
-
-Quench may allow selective output generation (for example, only shorts).
-
-However, the package remains the single authoritative source.
-
-## 14. Security and Integrity
-
-Quench must verify package integrity before processing.
-
-Corrupt or incomplete packages should be rejected safely.
-
-## 15. Performance Considerations
-
-Compilation may be resource-intensive and asynchronous.
-
-Hammer should not block while Quench processes.
-
-## 16. Forbidden Behaviors
-
-Hammer must not:
-
-- encode final deliverables
-- perform distribution tasks
-- maintain parallel export pipelines
-- silently auto-handoff
-- depend on Quench availability to function
+## 7. Explicit Quench Non-Responsibilities
 
 Quench must not:
 
-- alter project structure
-- reinterpret ambiguous timeline data
-- inject edits
+- edit audio or video
+- render or compile a Hammer timeline
+- mix or master audio
+- create thumbnails, graphics, shorts, clips, or alternate media formats
+- reinterpret ambiguous edit structure or mutate Hammer's project structure
+- request Hearth or Hammer to generate new variants during release execution
+- treat route state, a local path, or a client object as release authority
+- store canonical assets or establish a second metadata authority
+- claim provider publishing, scheduling, or experiment rotation without provider acknowledgement
 
-## 17. Cross-Tool Consistency
+If a required artifact does not exist or is unsuitable, Quench reports the exact readiness failure. The workpiece returns upstream for a new artifact or authorized revision.
 
-Terminology and mental model must remain coherent across Forge:
+## 8. Thumbnail Selection and Experiment Intent
 
-- Anvil produces raw material
-- Hammer shapes
-- Quench sets
-- Ledger evaluates
+Thumbnail candidates are created upstream and verified through Tongs before Quench can use them.
 
-## 18. Implementation Guidance for Codex/Copilot
+Quench may select eligible candidates, assign control and variants, persist provider-neutral experiment intent, and cancel intent through a new canonical decision.
 
-When implementing handoff features:
+Quench may not alter candidate recipes or pixels, request regeneration during release execution, treat experiment intent as active provider rotation, or write Ledger performance evidence before verified provider observations exist.
 
-- Treat Hammer output as a blueprint, not media.
-- Maintain strict separation of responsibilities.
-- Preserve versioning.
-- Ensure determinism.
-- Do not leak Quench logic into Hammer.
-- Keep user control explicit.
-- Provide clear feedback loops.
+Every decision is bound to its manifest snapshot, metadata revision, candidate set, brand binding, and destination capability revision. If any authority advances, applicability must be reevaluated.
 
-## 19. Canonical Summary
+## 9. Handoff and Revision Semantics
 
-Hammer prepares the workpiece for finalization.  
-Quench transforms it into finished deliverables.
+Hammer must not silently auto-authorize a release. The user initiates release review, and Tongs resolves current canonical authority.
 
-The boundary is intentional and must remain sharp.
+After handoff:
+
+- Hammer does not modify a Quench decision or downstream provider output.
+- Quench does not modify Hammer production artifacts.
+- A production correction creates a new upstream artifact and manifest revision.
+- Tongs preserves immutable prior snapshots and release-decision history.
+- Existing decisions require applicability review when their bound authority advances.
+
+## 10. Failure and Recovery
+
+Boundary failures must be explicit and actionable. Examples include an invalid manifest, a handoff that is not ready, advanced metadata or candidate authority, an absent export, an unsupported capability, a decision revision conflict, or provider execution failure.
+
+Canonical history remains intact. A failure on one destination must not erase another destination's success. Retries must be idempotent and tied to persisted operation or platform receipts.
+
+## 11. Security and Integrity
+
+- Tongs authorization precedes canonical reads, locks, receipt replay, and mutation.
+- Platform secrets remain server-side and use least-privilege scopes.
+- Exact manifest bytes and hashes are verified before becoming release authority.
+- Durable decisions are immutable revisions, not in-place edits.
+- Client state cannot elevate itself into canonical authority.
+- Raw provider errors are retained safely without exposing secrets to the UI.
+
+## 12. Current and Future Execution
+
+The authority contract applies even when a destination adapter is only scaffolded.
+
+- Stub validation and deterministic fixture receipts are development behavior only.
+- A live adapter must return `not_implemented` or an equivalent truthful failure until provider execution exists.
+- Scheduling, upload, RSS rendering, and provider-side experiment execution are not live merely because contracts or UI controls exist.
+- Provider acknowledgement is required before Tongs or Ledger records a real external outcome.
+
+## 13. Canonical Summary
+
+Hammer finishes the media. Tongs establishes release authority. Quench decides and executes distribution against that authority. Tongs records the durable result. Ledger evaluates verified outcomes.
+
+If work creates or reshapes content, it belongs upstream. If work authorizes persisted state, it flows through Tongs. If work delivers already-authorized content, it belongs in Quench.

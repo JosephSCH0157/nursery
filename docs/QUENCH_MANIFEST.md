@@ -1,8 +1,8 @@
 # QUENCH MANIFEST
 
-Release baseline: **Forge v1.2.0 Fire Burning** (`forge-v1.2.0`).
+Product lineage baseline: **Forge v1.2.0 Fire Burning** (`forge-v1.2.0`).
 
-Status: Canonical Design Document (Phase-aligned)
+Status: Canonical current-state product and authority document
 
 ## Identity
 
@@ -26,17 +26,21 @@ Three clicks to publish everywhere.
 
 ## Position in the Forge Pipeline
 
-Bar Stock
--> Hearth
--> Anvil
--> Hammer
--> Tongs
--> Quench
--> Audience
+Bar Stock -> Hearth -> Anvil -> Hammer -> Tongs -> Quench -> Tongs -> Ledger -> Audience
 
 Quench is the final release step in the Forge workflow.
 
 It converts a completed workpiece into a public release.
+
+Canonical release authority flows through Tongs in both directions:
+
+```text
+Hammer -> Tongs -> Quench -> Tongs -> Ledger
+```
+
+Hammer produces finished media and completed candidate assets. Tongs verifies and projects canonical authority. Quench makes release and distribution decisions against that authority. Tongs records durable decisions and verified outcomes. Ledger consumes downstream release and performance evidence.
+
+A manifest path, prepared-package parameter, or client-side object is a locator only and cannot authorize release.
 
 ## Core Responsibilities
 
@@ -44,6 +48,11 @@ Quench is responsible for:
 
 - ingesting canonical release artifacts from Hammer/Tongs
 - validating ingest readiness truthfully
+- resolving canonical release projections through Tongs
+- evaluating canonical-handoff and publish readiness as distinct layers
+- selecting among Tongs-authorized immutable candidates
+- recording provider-neutral experiment intent
+- persisting immutable release decisions and operation receipts through Tongs
 - publishing media to external platforms (future slice)
 - managing release scheduling (future slice)
 - generating and maintaining RSS feeds (future slice)
@@ -59,6 +68,9 @@ Quench does not:
 - edit audio or video
 - create thumbnails or graphics
 - perform creative AI tasks
+- render, compile, mix, or master media
+- create shorts, clips, or alternate media formats
+- request upstream variant generation during release execution
 - manage recording sessions
 - store canonical assets
 
@@ -94,7 +106,7 @@ Future publish slice assets may include:
 
 Metadata may be partial during ingest. Publish-specific completeness is a later readiness layer.
 
-## Current Release Packet Contract (Hammer -> Quench Ingest)
+## Current Release Packet Contract (Hammer -> Tongs -> Quench)
 
 A release packet is the canonical bundle Quench ingests first.
 
@@ -112,11 +124,25 @@ Current ingest verdicts:
 - `Needs attention: transcript missing`
 - `Needs attention: packet invalid`
 
-## Canonical Release Projection
+## Canonical Release Projection and Decisions
 
 Authenticated workpieces resolve `forge.quench-release-projection.v2` through Tongs. Tongs verifies and immutably snapshots the exact Hammer manifest bytes, joins canonical metadata, and returns the active thumbnail candidate-set authority. A path or prepared-package route parameter is only a locator and cannot authorize release.
 
 Development mock packets remain fixtures only and are never mixed into an authenticated canonical workpiece.
+
+Current canonical release decisions include single-candidate thumbnail selection and provider-neutral experiment intent. Decisions are immutable revisions bound to the exact manifest snapshot, metadata revision, candidate set, brand binding, destination scope, and capability revision.
+
+Tongs enforces optimistic concurrency, idempotent operation replay, immutable operation receipts, and applicability checks when bound authority advances. Operation receipts prove a canonical decision mutation; they do not prove provider publishing or experiment execution.
+
+## Readiness Terminology
+
+Quench uses three distinct readiness concepts:
+
+- **Ingest readiness:** the packet can be read, validated, and inspected truthfully. This does not authorize publishing.
+- **Canonical handoff readiness:** Hammer's exact Tongs-verified manifest snapshot declares the completed upstream handoff ready for Quench.
+- **Publish readiness:** the current canonical projection satisfies selected destination metadata, asset, capability, accessibility, decision, and schedule requirements.
+
+Only fail-closed publish readiness may authorize adapter execution. Documents and UI copy must identify the readiness layer rather than using an unqualified `ready` label.
 
 ## Distribution Targets (Future)
 
@@ -205,15 +231,15 @@ Example cadence options:
 
 Shorts are drawn from assets generated earlier in the pipeline.
 
-## A/B Testing Support (Future)
+## Thumbnail Selection and Experiment Intent
 
-Quench may optionally support title and thumbnail testing.
+Quench currently supports selecting eligible Tongs-verified thumbnail candidates and persisting provider-neutral thumbnail experiment intent.
 
 If enabled, Quench receives completed immutable candidates authored by Hearth and verified through Tongs. Quench may select candidates or persist provider-neutral experiment intent, but it cannot rewrite recipes or request regeneration as part of release execution.
 
 Provider-neutral intent is not evidence that a destination is actively rotating thumbnails. Active execution requires a capable live adapter and provider acknowledgement.
 
-This feature is optional and platform dependent.
+Planning support is distinct from provider execution support. Provider-side testing remains future, optional, and platform dependent.
 
 ## Hosting Model
 
@@ -229,7 +255,7 @@ For the ingest slice, Quench requires a resolvable audio reference from the pack
 
 ## RSS Generation (Future)
 
-Quench generates and maintains RSS feeds when enabled.
+In a future live slice, Quench will generate and maintain RSS feeds when enabled.
 
 Example enclosure:
 
@@ -312,12 +338,14 @@ After configuration, publishing requires minimal input.
 
 ## Release Flow
 
-Current ingest workflow:
+Current canonical review workflow:
 
-1. Open packet from canonical manifest path.
-2. Validate packet shape.
-3. Resolve audio reference and load artifacts.
-4. Render truthful ready/attention state.
+1. Resolve the authenticated workpiece through Tongs.
+2. Verify and snapshot the exact Hammer manifest authority.
+3. Load canonical metadata, artifacts, thumbnail candidates, destination capabilities, and current decisions.
+4. Render distinct ingest, canonical-handoff, and publish-readiness states.
+5. Commit eligible thumbnail selection or provider-neutral experiment intent through Tongs when requested.
+6. Reevaluate applicability when canonical authority advances.
 
 Future publish workflow:
 
@@ -345,6 +373,20 @@ Current ingest states:
 - ready
 - attention
 - invalid
+
+Current publish-readiness states:
+
+- ready
+- needs_review
+- blocked
+
+Current release-decision dispositions include:
+
+- committed
+- replayed
+- no_change
+- revision_conflict
+- blocked or authority-specific conflict
 
 Possible future publish states:
 
