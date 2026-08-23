@@ -120,6 +120,21 @@ for (const [pattern, message] of [
   [/\b(?:dispatch|setSelected|applyHistoryMutation|hammerVisualTimelineReducer)\s*\(/, "Route application acquired selection, reducer, or history command ownership."],
   [/resolveHammerToolBayRoute\s*\(/, "Route application began reinterpreting the canonical resolver."],
 ]) if (pattern.test(toolBayRouteApplication)) failures.push(`src/editor/hammerToolBayRouteApplication.ts: ${message}`);
+const typedToolBayContext = inspect(baseline.typedToolBayContext.path).text;
+const typedContextSurfaceBlock = typedToolBayContext.match(/HAMMER_TOOL_BAY_CONTEXT_SURFACES\s*=\s*\[([\s\S]*?)\]\s*as const/);
+const typedContextSurfaceCount = typedContextSurfaceBlock ? (typedContextSurfaceBlock[1].match(/"[a-z_]+"/g) ?? []).length : 0;
+if (typedContextSurfaceCount !== baseline.typedToolBayContext.surfaceCount) failures.push(`${baseline.typedToolBayContext.path}: typed surface inventory is ${typedContextSurfaceCount} (required ${baseline.typedToolBayContext.surfaceCount}). Keep every HTB-0 surface explicit.`);
+for (const [pattern, message] of [
+  [/\buse(?:State|Effect|Memo|Ref|Callback)\s*\(/, "Typed context acquired React lifecycle ownership."],
+  [/from\s+["'][^"']*(?:History|historyController|persistenceClient|tongs|supabase|reducer)[^"']*["']/, "Typed context imported history, persistence, database, or reducer ownership."],
+  [/\b(?:saveHammer|loadHammer|fetch|localStorage|sessionStorage|onWorkspaceSnapshotChange|dispatch|applyHistoryMutation)\b/, "Typed context acquired I/O, mutation, history, or persistence ownership."],
+  [/\[\s*key\s*:\s*string\s*\]/, "Typed context introduced a generic string index signature."],
+  [/\bcommands\s*\?\s*:/, "Typed context introduced an optional command dumping ground."],
+  [/\bcommands\s*:\s*(?:Partial|Record\s*<\s*string)/, "Typed context weakened surface-specific command groups."],
+]) if (pattern.test(typedToolBayContext)) failures.push(`${baseline.typedToolBayContext.path}: ${message}`);
+for (const productionPath of ["src/editor/HammerWorkspaceShell.tsx", "src/editor/HammerWorkspaceShellToolBay.tsx", "src/editor/hammerWorkspaceShellViewModels.ts"]) {
+  if (inspect(productionPath).text.includes("hammerToolBayContext")) failures.push(`${productionPath}: HTB-3A context must remain outside production construction and consumption.`);
+}
 
 const expansionGate = inspect("src/composition/hammerExpansionGateV1.ts").text;
 for (const required of [

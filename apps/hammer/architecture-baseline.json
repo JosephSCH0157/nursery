@@ -17,6 +17,10 @@
       "src/editor/useHammerWorkspaceShellSourceDeskController.ts": 5
     }
   },
+  "typedToolBayContext": {
+    "path": "src/editor/hammerToolBayContext.ts",
+    "surfaceCount": 20
+  },
   "extractedControllers": {
     "src/editor/hammerAutomaticPlacementController.ts": { "maxLines": 100 },
     "src/editor/hammerWorkspaceEditorLifecycle.ts": { "maxLines": 100 },
