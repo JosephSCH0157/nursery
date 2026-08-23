@@ -137,6 +137,7 @@ import { useHammerWorkspaceShellRouting } from "./useHammerWorkspaceShellRouting
 import { createHammerWorkspaceShellViewModelComposition } from "./useHammerWorkspaceShellViewModels";
 import { useHammerWorkspaceShellReleaseComparison, useHammerWorkspaceShellReleaseReadiness } from "./hammerWorkspaceShellReleaseStatus";
 import { createHammerWorkspaceVisualSelectionCommand } from "./hammerWorkspaceVisualSelectionCommand";
+import { deriveHammerSelectedVisualContext } from "./hammerSelectedVisualContext";
 import {
   toHammerLinkedSelectionVisualItems,
   type HammerSelectedTranscriptRange,
@@ -266,13 +267,11 @@ import {
 } from "./hammerWorkspaceShellFormatters";
 import { buildStructuredTranscriptResetKey, buildVisualTimelineResetKey } from "./hammerWorkspaceShellResetKeys";
 import "./HammerWorkspaceShell.css";
-
 const HISTORY_MAX_SIZE = 100;
 const HISTORY_PERSIST_DEBOUNCE_MS = 900;
 const TEXT_EDIT_COALESCE_MS = 1500;
 const PLAYHEAD_SNAP_TOLERANCE_SEC = DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC;
 const EMPTY_VISUAL_TIMELINE_CLIPS: HammerVisualTimelineState["clips"] = [];
-
 const TIMELINE_ZOOM_LEVELS = [100, 125, 150, 200, 300] as const;
 
 type HammerWorkspaceShellProps = {
@@ -1330,6 +1329,9 @@ function HammerWorkspaceShellWithContext(
     () => (compositionVisualTimeline ? selectClipById(compositionVisualTimeline, linkedPrimaryVisualId ?? effectiveSelectedClipId) : null),
     [compositionVisualTimeline, effectiveSelectedClipId, linkedPrimaryVisualId],
   );
+  const selectedVisualContext = useMemo(() => deriveHammerSelectedVisualContext({
+    timeline: compositionVisualTimeline, selectedPlacementId: linkedPrimaryVisualId ?? effectiveSelectedClipId,
+  }), [compositionVisualTimeline, effectiveSelectedClipId, linkedPrimaryVisualId]);
   const selectedImagePlacement = useMemo(
     () => sourceVisualPlacementItems.find((item) => item.id === (linkedPrimaryVisualId ?? effectiveSelectedClipId)) ?? null,
     [effectiveSelectedClipId, linkedPrimaryVisualId, sourceVisualPlacementItems],
@@ -4056,6 +4058,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     selectedBoundBrollOperationId,
     selectedCaptionArtifactFormat,
     selectedImageAnimationLabel,
+    selectedVisualContext,
     selectedImagePlacement,
     selectedImagePlacementTransform,
     autoPlacementDebugEnabled,
@@ -4354,6 +4357,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     selectedBoundBrollOperationId,
     selectedCaptionArtifactFormat,
     selectedImageAnimationLabel,
+    selectedVisualContext,
     selectedImagePlacement,
     selectedImagePlacementTransform,
     autoPlacementDebugEnabled,

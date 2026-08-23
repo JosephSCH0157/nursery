@@ -94,6 +94,13 @@ const releaseStatusAuthority = inspect("src/editor/hammerWorkspaceShellReleaseSt
 if (/\b(?:saveHammer|loadHammer|fetch|localStorage|sessionStorage|setEditable[A-Z]|createPortal)\b/.test(releaseStatusAuthority)) failures.push("Release-status authority acquired persistence, canonical mutation, or JSX ownership.");
 const visualSelectionCommand = inspect("src/editor/hammerWorkspaceVisualSelectionCommand.ts").text;
 if (!/selectWorkspaceVisualTimelineClip\s*\(/.test(visualSelectionCommand) || /hammerVisualTimelineReducer|\b(?:saveHammer|fetch|localStorage)\b/.test(visualSelectionCommand)) failures.push("Visual-selection command bypassed the workspace mutation gateway or acquired persistence ownership.");
+const selectedVisualContextProjection = inspect("src/editor/hammerSelectedVisualContext.ts").text;
+for (const [pattern, message] of [
+  [/\buse(?:State|Effect|Memo|Ref|Callback)\s*\(/, "Selected-visual context projection acquired React lifecycle ownership."],
+  [/\b(?:saveHammer|loadHammer|fetch|localStorage|sessionStorage|onWorkspaceSnapshotChange)\b/, "Selected-visual context projection acquired I/O or persistence ownership."],
+  [/\b(?:dispatch|setSelected|applyHistoryMutation|hammerVisualTimelineReducer)\s*\(/, "Selected-visual context projection acquired selection, reducer, or history command ownership."],
+]) if (pattern.test(selectedVisualContextProjection)) failures.push(`src/editor/hammerSelectedVisualContext.ts: ${message}`);
+if (!/deriveAssetKind\s*\(/.test(selectedVisualContextProjection)) failures.push("Selected-visual context projection must reuse the frozen asset classification helper.");
 
 const expansionGate = inspect("src/composition/hammerExpansionGateV1.ts").text;
 for (const required of [
@@ -122,6 +129,12 @@ for (const directory of [join(root, "src"), join(root, "tests")]) {
 for (const path of productionAndTests) {
   const text = readFileSync(path, "utf8");
   if (/@ts-nocheck/.test(text)) failures.push(`${relative(root, path)}: @ts-nocheck is prohibited.`);
+  const selectedImagePlacementReferences = (text.match(/\bselectedImagePlacement\b/g) ?? []).length;
+  if (selectedImagePlacementReferences === 0) continue;
+  const relativePath = relative(root, path).replaceAll("\\", "/");
+  const maxReferences = baseline.toolBay.selectedImagePlacementConsumers[relativePath];
+  if (typeof maxReferences !== "number") failures.push(`${relativePath}: new selectedImagePlacement consumer is prohibited. Use HammerSelectedVisualContext.`);
+  else if (selectedImagePlacementReferences > maxReferences) failures.push(`${relativePath}: selectedImagePlacement references grew to ${selectedImagePlacementReferences} (cap ${maxReferences}). Use HammerSelectedVisualContext for new consumers.`);
 }
 
 // Representative self-proof: the presentation ownership detector must catch a forbidden cache owner.

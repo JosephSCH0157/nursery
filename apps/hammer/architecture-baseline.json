@@ -8,7 +8,13 @@
   "toolBay": {
     "path": "src/editor/HammerWorkspaceShellToolBay.tsx",
     "maxCtxPropertyReferences": 299,
-    "maxAsAnyAssertions": 229
+    "maxAsAnyAssertions": 229,
+    "selectedImagePlacementConsumers": {
+      "src/editor/HammerWorkspaceShell.tsx": 11,
+      "src/editor/HammerWorkspaceShellToolBay.tsx": 31,
+      "src/editor/hammerWorkspaceShellViewModels.ts": 7,
+      "src/editor/useHammerWorkspaceShellSourceDeskController.ts": 5
+    }
   },
   "extractedControllers": {
     "src/editor/hammerAutomaticPlacementController.ts": { "maxLines": 100 },

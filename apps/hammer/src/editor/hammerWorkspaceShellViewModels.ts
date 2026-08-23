@@ -1514,6 +1514,7 @@ export function buildToolBayVM(args: any) {
     selectedBoundBrollOperationId: args.selectedBoundBrollOperationId,
     selectedCaptionArtifactFormat: args.selectedCaptionArtifactFormat,
     selectedImageAnimationLabel: args.selectedImageAnimationLabel,
+    selectedVisualContext: args.selectedVisualContext,
     selectedImagePlacement: args.selectedImagePlacement,
     selectedImagePlacementTransform: args.selectedImagePlacementTransform,
     selectedTransitionBoundObject: args.selectedTransitionBoundObject,
