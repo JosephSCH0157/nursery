@@ -12,6 +12,8 @@ import type {
   HammerRetakesToolBayContext,
   HammerGapPacingToolBayContext,
   HammerTranscriptPolishToolBayContext,
+  HammerPackagingToolBayContext,
+  HammerFinishingToolBayContext,
 } from "./hammerToolBayContext";
 import { HammerTypedAudioCaptionMetadataSurface } from "./HammerTypedAudioCaptionMetadataSurface";
 
@@ -26,7 +28,9 @@ export type HammerMigratedToolBayBodyContext =
   | HammerTranscriptCleanupToolBayContext
   | HammerRetakesToolBayContext
   | HammerGapPacingToolBayContext
-  | HammerTranscriptPolishToolBayContext;
+  | HammerTranscriptPolishToolBayContext
+  | HammerPackagingToolBayContext
+  | HammerFinishingToolBayContext;
 
 export function HammerTypedPassCompletionHeader(props: { context: HammerPassCompletionToolBayContext }): JSX.Element {
   const { data, commands } = props.context;
@@ -128,6 +132,6 @@ function ExportSurface(props: { context: HammerExportToolBayContext }): JSX.Elem
 export function HammerTypedToolBayBody(props: { context: HammerMigratedToolBayBodyContext }): JSX.Element {
   if (props.context.surface === "unsupported") return <UnsupportedSurface context={props.context} />;
   if (props.context.surface === "release_readiness") return <ReadinessSurface context={props.context} />;
-  if (props.context.surface === "audio_finalization" || props.context.surface === "audio_adjustments" || props.context.surface === "captions" || props.context.surface === "metadata" || props.context.surface === "transcript_cleanup" || props.context.surface === "retakes" || props.context.surface === "gap_pacing" || props.context.surface === "transcript_polish") return <HammerTypedAudioCaptionMetadataSurface surface={props.context.surface} model={props.context.data.model} />;
+  if (props.context.surface === "audio_finalization" || props.context.surface === "audio_adjustments" || props.context.surface === "captions" || props.context.surface === "metadata" || props.context.surface === "transcript_cleanup" || props.context.surface === "retakes" || props.context.surface === "gap_pacing" || props.context.surface === "transcript_polish" || props.context.surface === "packaging" || props.context.surface === "finishing") return <HammerTypedAudioCaptionMetadataSurface surface={props.context.surface} model={props.context.data.model} />;
   return <ExportSurface context={props.context} />;
 }

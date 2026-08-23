@@ -23,13 +23,15 @@ export const HAMMER_MIGRATED_TOOL_BAY_SURFACES = [
   "retakes",
   "gap_pacing",
   "transcript_polish",
+  "packaging",
+  "finishing",
 ] as const;
 
 export const HAMMER_TOOL_BAY_LEGACY_REMOVAL_DEADLINE = "HTB-3B completion" as const;
 
 export type HammerToolBayRuntimeContexts = Readonly<{
   completion: HammerPassCompletionToolBayContext | null;
-  body: Extract<HammerToolBayContext, { surface: "unsupported" | "release_readiness" | "export" | "audio_finalization" | "audio_adjustments" | "captions" | "metadata" | "transcript_cleanup" | "retakes" | "gap_pacing" | "transcript_polish" }> | null;
+  body: Extract<HammerToolBayContext, { surface: "unsupported" | "release_readiness" | "export" | "audio_finalization" | "audio_adjustments" | "captions" | "metadata" | "transcript_cleanup" | "retakes" | "gap_pacing" | "transcript_polish" | "packaging" | "finishing" }> | null;
 }>;
 
 export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
@@ -49,6 +51,8 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
   retakeCommands: Extract<HammerToolBayContext, { surface: "retakes" }>["commands"];
   gapCommands: Extract<HammerToolBayContext, { surface: "gap_pacing" }>["commands"];
   transcriptPolishCommands: Extract<HammerToolBayContext, { surface: "transcript_polish" }>["commands"];
+  packagingCommands: Extract<HammerToolBayContext, { surface: "packaging" }>["commands"];
+  finishingCommands: Extract<HammerToolBayContext, { surface: "finishing" }>["commands"];
 }>): HammerToolBayRuntimeContexts {
   if (args.route.status === "unsupported") {
     return {
@@ -71,6 +75,13 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
     commands: { markPassComplete: args.markPassComplete },
   });
   const typedCompletion = completion.surface === "pass_completion" ? completion : null;
+  if (args.route.surface === "packaging" || args.route.surface === "finishing") {
+    const data = args.migratedEditorModel === null ? null : { model: args.migratedEditorModel };
+    const body = args.route.surface === "packaging"
+      ? buildHammerToolBayContext({ surface: "packaging", route: args.route, data, commands: args.packagingCommands })
+      : buildHammerToolBayContext({ surface: "finishing", route: args.route, data, commands: args.finishingCommands });
+    return { completion: typedCompletion, body: body.surface === args.route.surface || body.surface === "unsupported" ? body : null };
+  }
   if (args.route.surface === "transcript_cleanup" || args.route.surface === "retakes" || args.route.surface === "gap_pacing" || args.route.surface === "transcript_polish") {
     const data = args.migratedEditorModel === null ? null : { model: args.migratedEditorModel };
     const body = args.route.surface === "transcript_cleanup"

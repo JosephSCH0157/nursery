@@ -1,10 +1,6 @@
 import type { JSX } from "react";
 import type { BackgroundBlurSettings } from "../features/visual-effects/types";
 import type { HammerVisualLutPreset } from "./hammerWorkspaceShellCore";
-import type {
-  HammerLogoOverlayPosition,
-  HammerLogoOverlaySize,
-} from "./hammerWorkspaceShellVisualUtils";
 import HammerBrollSelectionControls from "./HammerBrollSelectionControls";
 import type { HammerToolBayRouteDecision } from "./hammerToolBayRouteDecision";
 import { HammerTypedPassCompletionHeader, HammerTypedToolBayBody } from "./HammerTypedToolBaySurfaces";
@@ -81,10 +77,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const anchorLabelDraft = ctx.anchorLabelDraft as any;
   const anchorTextDraft = ctx.anchorTextDraft as any;
   const applyExposureAdjustment = ctx.applyExposureAdjustment as any;
-  const applyIntroPlacement = ctx.applyIntroPlacement as any;
-  const applyLogoOverlayStyle = ctx.applyLogoOverlayStyle as any;
   const applyLookPresetSelection = ctx.applyLookPresetSelection as any;
-  const applyOutroPlacement = ctx.applyOutroPlacement as any;
   const backgroundBlurProviderDescriptor = ctx.backgroundBlurProviderDescriptor as any;
   const boundAttentionQueue = ctx.boundAttentionQueue as any;
   const boundAttentionSummary = ctx.boundAttentionSummary as any;
@@ -95,28 +88,13 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const DEFAULT_IMAGE_PLACEMENT_TRANSFORM = ctx.DEFAULT_IMAGE_PLACEMENT_TRANSFORM as any;
   const discardHearthBrollSuggestion = ctx.discardHearthBrollSuggestion as any;
   const editableVisualPlacements = ctx.editableVisualPlacements as any;
-  const finishingChecklist = ctx.finishingChecklist as any;
   const focusBoundAttentionOperation = ctx.focusBoundAttentionOperation as any;
-  const introOutroSelectedIntroPath = ctx.introOutroSelectedIntroPath as any;
-  const introOutroSelectedOutroPath = ctx.introOutroSelectedOutroPath as any;
-  const introOutroSelection = ctx.introOutroSelection as any;
-  const LOGO_POSITION_OPTIONS = ctx.LOGO_POSITION_OPTIONS as any;
-  const LOGO_SIZE_OPTIONS = ctx.LOGO_SIZE_OPTIONS as any;
   const MIN_IMAGE_PLACEMENT_DURATION_SEC = ctx.MIN_IMAGE_PLACEMENT_DURATION_SEC as any;
   const moveResolvedBrollBinding = ctx.moveResolvedBrollBinding as any;
   const navigateBoundAttention = ctx.navigateBoundAttention as any;
   const outputSelectionSummary = ctx.outputSelectionSummary as any;
-  const PACKAGING_INTRO_ENTRY_ID = ctx.PACKAGING_INTRO_ENTRY_ID as any;
-  const PACKAGING_OUTRO_ENTRY_ID = ctx.PACKAGING_OUTRO_ENTRY_ID as any;
-  const packagingIntroPlacement = ctx.packagingIntroPlacement as any;
-  const packagingLogoAssetPath = ctx.packagingLogoAssetPath as any;
-  const packagingLogoPlacement = ctx.packagingLogoPlacement as any;
-  const packagingLogoPosition = ctx.packagingLogoPosition as any;
-  const packagingLogoSize = ctx.packagingLogoSize as any;
-  const packagingOutroPlacement = ctx.packagingOutroPlacement as any;
   const previewTruthPosture = ctx.previewTruthPosture as any;
   const releasePrepOpenHref = ctx.releasePrepOpenHref as any;
-  const removePackagingPlacement = ctx.removePackagingPlacement as any;
   const removeVisualPlacement = ctx.removeVisualPlacement as any;
   const replaceResolvedBrollBinding = ctx.replaceResolvedBrollBinding as any;
   const resolvedBrollBindingItems = ctx.resolvedBrollBindingItems as any;
@@ -177,7 +155,6 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
     : null;
   const setAnchorLabelDraft = ctx.setAnchorLabelDraft as any;
   const setAnchorTextDraft = ctx.setAnchorTextDraft as any;
-  const setFinishingChecklist = ctx.setFinishingChecklist as any;
   const setTranscriptTimingHint = ctx.setTranscriptTimingHint as any;
   const setVideoSnapMode = ctx.setVideoSnapMode as any;
   const setVisualBackgroundBlur = ctx.setVisualBackgroundBlur as any;
@@ -212,7 +189,6 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const visualBackgroundReplaceImageAssetPath = ctx.visualBackgroundReplaceImageAssetPath as string | null;
   const handleSourceDeskUpload = ctx.handleSourceDeskUpload as ((category: "images" | "broll" | "introoutro", fileList: FileList | null) => Promise<void>) | undefined;
   const uploadingCategory = ctx.uploadingCategory as ("images" | "broll" | "introoutro" | null);
-  const toggleLogoOverlay = ctx.toggleLogoOverlay as any;
   const trimResolvedBrollBinding = ctx.trimResolvedBrollBinding as any;
   const unresolvedBrollSuggestionItems = ctx.unresolvedBrollSuggestionItems as any;
   const updateImagePlacementTransform = ctx.updateImagePlacementTransform as any;
@@ -249,16 +225,10 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
 
 
   const activeTool = ctx.activeTool as string;
-  const currentPass = ctx.currentPass as string;
   const activeVisualTool = (ctx.activeVisualTool ?? vm.activeVisualTool ?? "polish") as "polish" | "images" | "broll";
   const onSelectVisualTool = (ctx.onSelectVisualTool ?? vm.onSelectVisualTool ?? null) as ((nextTool: "polish" | "images" | "broll") => void) | null;
   const setFocusOverride = ctx.setFocusOverride as (mode: "auto" | "source-focus" | "tool-focus" | "time-focus") => void;
   const devBlurControlsEnabled = isDevBlurControlsEnabled();
-  const introStatusView = derivePackagingIntroStatusView({
-    selectedIntroAssetId: introOutroSelection?.intro_asset_id ?? null,
-    selectedIntroPath: introOutroSelectedIntroPath ?? null,
-    introPlaced: Boolean(packagingIntroPlacement),
-  });
 
 
   const unsupportedRoute = p.runtimeContexts.body?.surface === "unsupported"; const activeSurface = vm.routeDecision?.status === "resolved" ? vm.routeDecision.surface : null;
@@ -1482,187 +1452,6 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                 </section>
               ) : null
             ) : null}
-
-              {activeTool === "finishing" ? (
-                currentPass === "packaging" ? (
-                  <section className="hammer-tool-card">
-                    <header className="hammer-tool-card__head">Packaging</header>
-                    <div className="hammer-tool-hint">
-                      Packaging placement controls only. Choose intro/outro assets in Source Desk.
-                    </div>
-                    <div className="hammer-source-card__actions">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFocusOverride("tool-focus");
-                          applyIntroPlacement();
-                        }}
-                        disabled={!introStatusView.canApply}
-                      >
-                        {introStatusView.applyActionLabel}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFocusOverride("tool-focus");
-                          removePackagingPlacement(PACKAGING_INTRO_ENTRY_ID, "Remove packaging intro");
-                        }}
-                        disabled={!introStatusView.canRemove}
-                      >
-                        {introStatusView.removeActionLabel}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFocusOverride("tool-focus");
-                          applyOutroPlacement();
-                        }}
-                        disabled={!introOutroSelection.outro_asset_id || !introOutroSelectedOutroPath}
-                      >
-                        Apply Outro
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFocusOverride("tool-focus");
-                          removePackagingPlacement(PACKAGING_OUTRO_ENTRY_ID, "Remove packaging outro");
-                        }}
-                        disabled={!packagingOutroPlacement}
-                      >
-                        Remove Outro
-                      </button>
-                    </div>
-                    <div className="hammer-tool-hint">
-                      {introStatusView.selectionStatusLine} ·
-                      {" "}Outro: {introOutroSelection.outro_asset_id
-                        ? (introOutroSelectedOutroPath ? "selected" : "selected (unresolved)")
-                        : "not selected"}
-                    </div>
-                    <div className="hammer-tool-hint">
-                      {introStatusView.placementStatusLine} ·
-                      {" "}Outro applied: {packagingOutroPlacement ? "yes" : "no"}
-                    </div>
-
-                    <label className="hammer-tool-field">
-                      <span>Logo Asset</span>
-                      <select
-                        value={packagingLogoAssetPath ?? ""}
-                        onChange={(event) => {
-                          const nextPath = event.target.value || null;
-                          setFocusOverride("tool-focus");
-                          applyLogoOverlayStyle({ assetPath: nextPath });
-                        }}
-                      >
-                        <option value="">No logo selected</option>
-                        {sourceImageLibraryItems.map((item: any) => (
-                          <option key={`logo-${item.path}`} value={item.path}>
-                            {item.name}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="hammer-source-card__actions">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setFocusOverride("tool-focus");
-                          toggleLogoOverlay();
-                        }}
-                        disabled={!packagingLogoPlacement && !packagingLogoAssetPath}
-                      >
-                        {packagingLogoPlacement ? "Disable Logo Overlay" : "Toggle Logo Overlay"}
-                      </button>
-                    </div>
-                    <label className="hammer-tool-field">
-                      <span>Logo Position</span>
-                      <select
-                        value={packagingLogoPosition}
-                        onChange={(event) => {
-                          const next = event.target.value as HammerLogoOverlayPosition;
-                          setFocusOverride("tool-focus");
-                          applyLogoOverlayStyle({ position: next });
-                        }}
-                      >
-                        {LOGO_POSITION_OPTIONS.map((option: any) => (
-                          <option key={`logo-position-${option.id}`} value={option.id}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <label className="hammer-tool-field">
-                      <span>Logo Size</span>
-                      <select
-                        value={packagingLogoSize}
-                        onChange={(event) => {
-                          const next = event.target.value as HammerLogoOverlaySize;
-                          setFocusOverride("tool-focus");
-                          applyLogoOverlayStyle({ size: next });
-                        }}
-                      >
-                        {LOGO_SIZE_OPTIONS.map((option: any) => (
-                          <option key={`logo-size-${option.id}`} value={option.id}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                    <div className="hammer-tool-hint">
-                      Logo overlay: {packagingLogoPlacement ? "enabled (episode-wide)" : "disabled"}
-                    </div>
-                    <div className="hammer-tool-hint">
-                      Thumbnails and visual prompts are generated in Hearth. Hammer only consumes existing assets from Tongs / workspace.
-                    </div>
-                  </section>
-                ) : (
-                <section className="hammer-tool-card">
-                  <header className="hammer-tool-card__head">Finishing Checklist</header>
-                  <label className="hammer-tool-check">
-                    <input
-                      type="checkbox"
-                      checked={finishingChecklist.transcriptReviewed}
-                      onChange={(event) => {
-                        setFocusOverride("tool-focus");
-                        setFinishingChecklist((current: any) => ({
-                          ...current,
-                          transcriptReviewed: event.target.checked,
-                        }));
-                      }}
-                    />
-                    <span>Transcript reviewed</span>
-                  </label>
-                  <label className="hammer-tool-check">
-                    <input
-                      type="checkbox"
-                      checked={finishingChecklist.visualsReviewed}
-                      onChange={(event) => {
-                        setFocusOverride("tool-focus");
-                        setFinishingChecklist((current: any) => ({
-                          ...current,
-                          visualsReviewed: event.target.checked,
-                        }));
-                      }}
-                    />
-                    <span>Visuals reviewed</span>
-                  </label>
-                  <label className="hammer-tool-check">
-                    <input
-                      type="checkbox"
-                      checked={finishingChecklist.audioReviewed}
-                      onChange={(event) => {
-                        setFocusOverride("tool-focus");
-                        setFinishingChecklist((current: any) => ({
-                          ...current,
-                          audioReviewed: event.target.checked,
-                        }));
-                      }}
-                    />
-                    <span>Audio reviewed</span>
-                  </label>
-                </section>
-                )
-              ) : null}
-
 
               <div className="hammer-tool-state-grid">
                 <div>Workspace mode: {workspaceFocusMode}</div>

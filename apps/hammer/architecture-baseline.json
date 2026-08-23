@@ -3,12 +3,12 @@
   "principalFiles": {
     "src/editor/HammerWorkspaceShell.tsx": { "maxLines": 4570, "maxExplicitAny": 6 },
     "src/editor/HammerWorkspaceEditor.tsx": { "maxLines": 5371, "maxExplicitAny": 4 },
-    "src/editor/HammerWorkspaceShellToolBay.tsx": { "maxLines": 1681, "maxExplicitAny": 139 }
+    "src/editor/HammerWorkspaceShellToolBay.tsx": { "maxLines": 1470, "maxExplicitAny": 113 }
   },
   "toolBay": {
     "path": "src/editor/HammerWorkspaceShellToolBay.tsx",
-    "maxCtxPropertyReferences": 141,
-    "maxAsAnyAssertions": 126,
+    "maxCtxPropertyReferences": 120,
+    "maxAsAnyAssertions": 106,
     "maxDirectVisualRoutingPredicatesOutsideResolver": 0,
     "selectedImagePlacementConsumers": {
       "src/editor/HammerWorkspaceShell.tsx": 11,
@@ -20,8 +20,8 @@
   "typedToolBayContext": {
     "path": "src/editor/hammerToolBayContext.ts",
     "surfaceCount": 20,
-    "migratedSurfaceCount": 12,
-    "remainingLegacySurfaceCount": 9,
+    "migratedSurfaceCount": 14,
+    "remainingLegacySurfaceCount": 7,
     "legacyRemovalDeadline": "HTB-3B completion"
   },
   "exactToolBayRouting": {
