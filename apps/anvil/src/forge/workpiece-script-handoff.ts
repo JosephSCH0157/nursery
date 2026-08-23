@@ -1,4 +1,6 @@
 import { applyScript } from "../features/apply-script";
+import { appStore } from "../state/app-store";
+import { dispatchAuthenticatedWorkpieceScript } from "./workpiece-performance-entrypoint";
 
 type ForgeWindow = Window & typeof globalThis & {
   __tpWorkpieceScriptBootLoaded?: boolean;
@@ -308,15 +310,20 @@ async function loadWorkpieceScriptOnBoot(): Promise<void> {
     reportScriptHandoffError({ workpieceId, path, reason: "invalid_response" });
     return;
   }
-  (window as ForgeWindow).__forgeCanonicalScriptIdentity = {
+  const canonicalIdentity: CanonicalScriptIdentity = {
     workspaceId,
     workpieceId,
     path,
     scriptRevision: readResult.revision,
     scriptHash: readResult.hash,
   };
-
-  applyScript(text, "load", { updateEditor: true });
+  const dispatchResult = await dispatchAuthenticatedWorkpieceScript({
+    canonicalIdentity,
+    canonicalText: text,
+    scrollMode: String(appStore.get("scrollMode") || ""),
+    legacyApply: (legacyText) => applyScript(legacyText, "load", { updateEditor: true }),
+  });
+  if (dispatchResult.outcome === "rejected") return;
   try { (window as any).__tpCurrentName = fileNameFromPath(path); } catch {}
   try {
     window.dispatchEvent(

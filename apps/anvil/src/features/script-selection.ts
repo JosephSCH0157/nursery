@@ -1,6 +1,8 @@
 import { applyScript } from './apply-script';
 import { ScriptStore } from './scripts-store';
 import { persistActiveWorkpieceFromScriptId } from '../forge/workpiece-context';
+import { appStore } from '../state/app-store';
+import { dispatchAuthenticatedCanonicalScript } from '../script/authenticated-performance-dispatcher';
 
 const LAST_SCRIPT_KEY = 'tp:last_script_id';
 let restoreAttempted = false;
@@ -65,6 +67,12 @@ export function restoreStillPossible(): boolean {
 
 export async function loadScriptById(id: string): Promise<boolean> {
   if (!id) return false;
+  const authorityBeforeLoad = {
+    identityPresent: Object.prototype.hasOwnProperty.call(window, '__forgeCanonicalScriptIdentity'),
+    identity: (window as any).__forgeCanonicalScriptIdentity,
+    readyPresent: Object.prototype.hasOwnProperty.call(window, '__forgeCanonicalReadyScript'),
+    ready: (window as any).__forgeCanonicalReadyScript,
+  };
   try {
     const rec = await ScriptStore.get(id);
     if (!rec || typeof rec.content !== 'string' || rec.content.trim().length === 0) {
@@ -78,7 +86,31 @@ export async function loadScriptById(id: string): Promise<boolean> {
       return false;
     }
     const text = rec.content;
-    applyScript(text, 'load', { updateEditor: true });
+    const ready = ScriptStore.getReadyReference(id);
+    const dispatchResult = await dispatchAuthenticatedCanonicalScript({
+      source: ready ? 'ready-script' : 'non-authoritative',
+      authenticated: Boolean(ready),
+      canonicalIdentity: ready ? {
+        workspaceId: ready.workspaceId,
+        workpieceId: ready.workpieceId,
+        path: ready.path,
+        scriptRevision: ready.scriptRevision,
+        scriptHash: ready.scriptHash,
+        readyTransitionId: ready.transitionId,
+      } : null,
+      canonicalText: text,
+      canonicalUtf8Bytes: ready ? new TextEncoder().encode(text) : null,
+      canonicalReadyScript: ready,
+      scrollMode: String(appStore.get('scrollMode') || ''),
+      legacyApply: (legacyText) => applyScript(legacyText, 'load', { updateEditor: true }),
+    });
+    if (dispatchResult.outcome === 'rejected') {
+      if (authorityBeforeLoad.identityPresent) (window as any).__forgeCanonicalScriptIdentity = authorityBeforeLoad.identity;
+      else delete (window as any).__forgeCanonicalScriptIdentity;
+      if (authorityBeforeLoad.readyPresent) (window as any).__forgeCanonicalReadyScript = authorityBeforeLoad.ready;
+      else delete (window as any).__forgeCanonicalReadyScript;
+      return false;
+    }
     try {
       window.dispatchEvent(
         new CustomEvent('tp:script-load', {

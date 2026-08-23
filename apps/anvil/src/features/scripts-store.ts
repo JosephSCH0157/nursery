@@ -207,6 +207,11 @@ export const ScriptStore = {
     }
   },
 
+  getReadyReference(id: string): ReadyScriptReference | null {
+    const ready = readyRefsById.get(id);
+    return ready ? { ...ready } : null;
+  },
+
   save(data: { id?: string | null; title: string; content: string }): string {
     const fallbackId = data.title?.trim() || `script-${Date.now()}`;
     const id = (data.id || '').trim() || fallbackId;
