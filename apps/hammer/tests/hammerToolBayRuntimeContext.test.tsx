@@ -21,8 +21,17 @@ function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "rea
   const focusIssue = (): void => { activity.focus += 1; };
   const sendToQuench = (): void => { activity.send += 1; };
   const exactRoute = currentPass === "packaging" && route.status === "resolved" ? { ...route, surface: "export" as const } : route;
+  const noop = (): void => undefined;
+  const migratedEditorModel = {
+    voicePolish: { preset_id: null, voice_cleanup_enabled: false, fixes: { remove_harsh_sibilance: false, reduce_room_boxiness: false, enhance_voice_clarity: false, level_volume: false }, advanced: { de_esser_strength: "medium", eq_profile: "voice" } },
+    audioFinalizationCompareMode: "after", editableAudioPolish: { status: "not_started" }, persistedAudioCutCount: 0, effectivePlaybackCutRegions: [], silenceSuggestionCount: 0,
+    editableStudioRack: { is_enabled: false, is_bypassed: false, backend_preference: "native", modules: { gate: { is_enabled: false, is_bypassed: false, threshold_db: -52 }, compressor: { is_enabled: false, is_bypassed: false, ratio: 1.8 }, eq: { is_enabled: false, is_bypassed: false, mid_gain_db: 1.2 }, reverb: { is_enabled: false, is_bypassed: false, mix: 0.06 }, tubeMicCharacter: { is_enabled: false, is_bypassed: false, amount: 0.16 } } },
+    studioRackPlaybackConfig: { backend: "native" }, studioRackPlaybackBackendResolution: { status: "available" }, studioRackRenderConfig: { backend: "native" }, studioRackRenderBackendResolution: { status: "available" }, studioRackRenderStatus: null, studioRackRenderAppliedModules: [], studioRackRenderDeferredModules: [], studioRackEnabledModuleCount: 0, studioRackComparePreviewStatusLabel: null, studioRackOpen: false,
+    podcastMasterLayer: null, podcastMasterUiStatus: { headline: "Not applied", detail: "", action_label: "Apply Podcast Master" }, audioLevelingEnabled: false, audioNoiseReductionEnabled: false,
+    applyPodcastMasterPass: noop, applyStudioRackMutation: noop, setAudioLevelingEnabled: noop, setAudioNoiseReductionEnabled: noop, setStudioRackBackend: noop, setStudioRackBypassed: noop, setStudioRackEnabled: noop, setStudioRackModuleBypassed: noop, setStudioRackModuleEnabled: noop, setStudioRackOpen: noop, setFocusOverride: noop, setAudioFinalizationCompare: noop, applyVoicePolishPreset: noop, setVoicePolishFixEnabled: noop, setVoicePolishDeEsserStrength: noop, setVoicePolishEqProfile: noop, setVoiceCleanupEnabled: noop,
+  };
   const contexts = assembleHammerToolBayRuntimeContexts({
-    route: exactRoute, currentPass, passLabel: "Ready", passStatus: "in_progress",
+    route: exactRoute, passLabel: "Ready", passStatus: "in_progress",
     readinessData: {
       summaryAreas: [{ id: "audio", label: "Audio Finalization", status: "complete" }],
       readinessLabel: "Ready for export", blockerCount: 0, reviewCount: 0,
@@ -40,13 +49,14 @@ function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "rea
       preparedPackage: null, exportTruthState: "current", staleReasons: [], handoffStatus: null,
       savedPackage: null, error: null,
     },
-    markPassComplete, focusIssue, sendToQuench,
+    markPassComplete, focusIssue, sendToQuench, migratedEditorModel,
+    audioCommands: { updateVoicePreset: noop, toggleCompare: noop, applyPodcastMaster: noop }, captionCommands: { buildCaptions: noop, discardEdits: noop, editCaption: noop, splitCaption: noop, mergeCaption: noop }, metadataCommands: { setTags: noop },
   });
   return { contexts, activity, commands: { markPassComplete, focusIssue, sendToQuench } };
 }
 
-test("runtime assembly locks four migrated surfaces and preserves callback identity with zero activity", () => {
-  assert.deepEqual(HAMMER_MIGRATED_TOOL_BAY_SURFACES, ["unsupported", "release_readiness", "export", "pass_completion"]);
+test("runtime assembly locks eight migrated surfaces and preserves callback identity with zero activity", () => {
+  assert.deepEqual(HAMMER_MIGRATED_TOOL_BAY_SURFACES, ["unsupported", "release_readiness", "export", "pass_completion", "audio_finalization", "audio_adjustments", "captions", "metadata"]);
   const { contexts, activity, commands } = fixture();
   assert.equal(contexts.completion?.commands.markPassComplete, commands.markPassComplete);
   assert.equal(contexts.body?.surface, "release_readiness");
@@ -77,9 +87,9 @@ test("readiness, export, and unsupported mount only typed markup and remain stab
 test("missing migrated data fails closed and never produces a legacy body", () => {
   const base = fixture();
   const failed = assembleHammerToolBayRuntimeContexts({
-    route: resolved, currentPass: "ready", passLabel: "Ready", passStatus: "in_progress",
+    route: resolved, passLabel: "Ready", passStatus: "in_progress",
     markPassComplete: base.commands.markPassComplete, readinessData: null, exportData: null,
-    focusIssue: base.commands.focusIssue, sendToQuench: base.commands.sendToQuench,
+    focusIssue: base.commands.focusIssue, sendToQuench: base.commands.sendToQuench, migratedEditorModel: {}, audioCommands: { updateVoicePreset() {}, toggleCompare() {}, applyPodcastMaster() {} }, captionCommands: { buildCaptions() {}, discardEdits() {}, editCaption() {}, splitCaption() {}, mergeCaption() {} }, metadataCommands: { setTags() {} },
   });
   assert.equal(failed.body?.surface, "unsupported");
   if (failed.body?.surface !== "unsupported") assert.fail();
@@ -90,7 +100,7 @@ test("missing migrated data fails closed and never produces a legacy body", () =
 test("migrated and legacy switching is deterministic and mount-safe", () => {
   const legacyRoute: HammerToolBayRouteDecision = { ...resolved, surface: "audio_finalization", activeTool: "audio", representativePass: "audio_finalization", editorMode: "assets" };
   const sequence = [fixture().contexts, fixture(resolved, "packaging").contexts, fixture(legacyRoute).contexts, fixture().contexts, fixture(unsupported).contexts];
-  assert.deepEqual(sequence.map((item) => item.body?.surface ?? "legacy"), ["release_readiness", "export", "legacy", "release_readiness", "unsupported"]);
+  assert.deepEqual(sequence.map((item) => item.body?.surface ?? "legacy"), ["release_readiness", "export", "audio_finalization", "release_readiness", "unsupported"]);
   for (const item of sequence) {
     if (item.completion) renderToStaticMarkup(<HammerTypedPassCompletionHeader context={item.completion} />);
     if (item.body) renderToStaticMarkup(<HammerTypedToolBayBody context={item.body} />);

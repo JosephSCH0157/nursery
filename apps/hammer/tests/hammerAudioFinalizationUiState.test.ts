@@ -19,7 +19,7 @@ async function testVoiceCleanupToggleState() {
 }
 
 async function testAudioFinalizationControlIsControlledAndAccessible() {
-  const toolBayPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/editor/HammerWorkspaceShellToolBay.tsx");
+  const toolBayPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/editor/HammerTypedAudioCaptionMetadataSurface.tsx");
   const source = await readFile(toolBayPath, "utf-8");
   assert.equal(
     source.includes("checked={Boolean(voicePolish?.voice_cleanup_enabled)}"),

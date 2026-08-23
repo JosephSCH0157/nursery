@@ -1,11 +1,13 @@
 import {
   buildHammerToolBayContext,
   type HammerExportToolBayContext,
+  type HammerAudioFinalizationToolBayContext,
+  type HammerCaptionsToolBayContext,
+  type HammerMetadataToolBayContext,
   type HammerPassCompletionToolBayContext,
   type HammerReleaseReadinessToolBayContext,
   type HammerToolBayContext,
 } from "./hammerToolBayContext";
-import type { HammerPassId } from "../persistence/hammerPersistenceContract";
 import type { HammerToolBayRouteDecision } from "./hammerToolBayRouteDecision";
 
 export const HAMMER_MIGRATED_TOOL_BAY_SURFACES = [
@@ -13,18 +15,21 @@ export const HAMMER_MIGRATED_TOOL_BAY_SURFACES = [
   "release_readiness",
   "export",
   "pass_completion",
+  "audio_finalization",
+  "audio_adjustments",
+  "captions",
+  "metadata",
 ] as const;
 
 export const HAMMER_TOOL_BAY_LEGACY_REMOVAL_DEADLINE = "HTB-3B completion" as const;
 
 export type HammerToolBayRuntimeContexts = Readonly<{
   completion: HammerPassCompletionToolBayContext | null;
-  body: Extract<HammerToolBayContext, { surface: "unsupported" | "release_readiness" | "export" }> | null;
+  body: Extract<HammerToolBayContext, { surface: "unsupported" | "release_readiness" | "export" | "audio_finalization" | "audio_adjustments" | "captions" | "metadata" }> | null;
 }>;
 
 export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
   route: HammerToolBayRouteDecision;
-  currentPass: HammerPassId;
   passLabel: string;
   passStatus: string;
   markPassComplete: () => void;
@@ -32,6 +37,10 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
   exportData: HammerExportToolBayContext["data"] | null;
   focusIssue: () => void;
   sendToQuench: () => void;
+  migratedEditorModel: unknown | null;
+  audioCommands: HammerAudioFinalizationToolBayContext["commands"];
+  captionCommands: HammerCaptionsToolBayContext["commands"];
+  metadataCommands: HammerMetadataToolBayContext["commands"];
 }>): HammerToolBayRuntimeContexts {
   if (args.route.status === "unsupported") {
     return {
@@ -54,6 +63,16 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
     commands: { markPassComplete: args.markPassComplete },
   });
   const typedCompletion = completion.surface === "pass_completion" ? completion : null;
+  if (args.route.surface === "audio_finalization" || args.route.surface === "audio_adjustments" || args.route.surface === "captions" || args.route.surface === "metadata") {
+    const body = args.route.surface === "audio_finalization"
+      ? buildHammerToolBayContext({ surface: "audio_finalization", route: args.route, data: args.migratedEditorModel === null ? null : { model: args.migratedEditorModel }, commands: args.audioCommands })
+      : args.route.surface === "audio_adjustments"
+      ? buildHammerToolBayContext({ surface: "audio_adjustments", route: args.route, data: args.migratedEditorModel === null ? null : { model: args.migratedEditorModel }, commands: args.audioCommands })
+      : args.route.surface === "captions"
+      ? buildHammerToolBayContext({ surface: "captions", route: args.route, data: args.migratedEditorModel === null ? null : { model: args.migratedEditorModel }, commands: args.captionCommands })
+      : buildHammerToolBayContext({ surface: "metadata", route: args.route, data: args.migratedEditorModel === null ? null : { model: args.migratedEditorModel }, commands: args.metadataCommands });
+    return { completion: typedCompletion, body: body.surface === args.route.surface || body.surface === "unsupported" ? body : null };
+  }
   if (args.route.surface !== "release_readiness" && args.route.surface !== "export") return { completion: typedCompletion, body: null };
 
   const releaseCommands = { focusIssue: args.focusIssue, sendToQuench: args.sendToQuench };

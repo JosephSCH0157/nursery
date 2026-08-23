@@ -141,7 +141,7 @@ for (const [pattern, message] of [
 const toolBayRuntimeContext = inspect("src/editor/hammerToolBayRuntimeContext.ts").text;
 const migratedSurfaceBlock = toolBayRuntimeContext.match(/HAMMER_MIGRATED_TOOL_BAY_SURFACES\s*=\s*\[([\s\S]*?)\]\s*as const/);
 const migratedSurfaces = migratedSurfaceBlock ? (migratedSurfaceBlock[1].match(/"[a-z_]+"/g) ?? []).map((value) => value.slice(1, -1)) : [];
-const requiredMigratedSurfaces = ["unsupported", "release_readiness", "export", "pass_completion"];
+const requiredMigratedSurfaces = ["unsupported", "release_readiness", "export", "pass_completion", "audio_finalization", "audio_adjustments", "captions", "metadata"];
 if (JSON.stringify(migratedSurfaces) !== JSON.stringify(requiredMigratedSurfaces)) failures.push(`Tool Bay migrated surface inventory is ${JSON.stringify(migratedSurfaces)} (required ${JSON.stringify(requiredMigratedSurfaces)}). The HTB-3B migrated set may only grow.`);
 if (migratedSurfaces.length !== baseline.typedToolBayContext.migratedSurfaceCount) failures.push(`Tool Bay migrated surface count is ${migratedSurfaces.length} (required ${baseline.typedToolBayContext.migratedSurfaceCount}).`);
 if (!toolBayRuntimeContext.includes(`HAMMER_TOOL_BAY_LEGACY_REMOVAL_DEADLINE = "${baseline.typedToolBayContext.legacyRemovalDeadline}"`)) failures.push("Tool Bay transitional seam lost its HTB-3B removal deadline.");
