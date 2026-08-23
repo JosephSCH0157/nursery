@@ -11,10 +11,12 @@ import {
   cloneEditorState,
   createHammerHistoryController,
   createHammerHistoryDocument,
+  hashEditorState,
   type HammerEditorStateSerializable,
   type HammerHistoryDocumentV1,
 } from "../src/editor/hammerWorkspaceHistory";
 import { createDefaultHammerStudioRackState } from "../src/editor/hammerStudioRack";
+import { cloneHammerDerivedTextLayers } from "../src/macros/hammerDerivedTranscriptLayers";
 
 const state = () => ({
   transcriptSegments: [{ segment_id: "s1", speaker: "S1", text: "before", start_sec: 0, end_sec: 1 }],
@@ -86,7 +88,7 @@ function authorityFixture(overrides: Partial<HammerHistoryCommandAuthorityConfig
   const saved: HammerHistoryDocumentV1[] = [];
   const snapshots: Array<{ headEntryId: string | null; text: string }> = [];
   const statuses: Array<string | null> = [];
-  let derivedLayers = { schema_version: 1 as const, active_layer_id: null, output_layer_id: null, layers: [] };
+  let derivedLayers = cloneHammerDerivedTextLayers(undefined)!;
   const config: HammerHistoryCommandAuthorityConfig = {
     workspaceId: "workspace1",
     workpieceId: "w1",
@@ -126,7 +128,16 @@ function authorityFixture(overrides: Partial<HammerHistoryCommandAuthorityConfig
     initialState: currentState,
     maxUndoSteps: 10,
   }));
-  return { authority, config, saved, snapshots, statuses, getState: () => currentState, getDerivedLayers: () => derivedLayers };
+  return {
+    authority,
+    config,
+    saved,
+    snapshots,
+    statuses,
+    getState: () => currentState,
+    setState: (next: HammerEditorStateSerializable) => { currentState = cloneEditorState(next); },
+    getDerivedLayers: () => derivedLayers,
+  };
 }
 
 function cloneHammerDocument(document: HammerHistoryDocumentV1): HammerHistoryDocumentV1 {
@@ -230,6 +241,60 @@ test("authority owns mutation coalescing and undo redo application", () => {
   fixture.authority.redo();
   assert.equal(fixture.getState().transcriptSegments[0]!.text, "two");
   assert.equal(navigations, 2);
+  fixture.authority.clearPersistTimer();
+});
+
+test("command authority excludes pre-command UI drift from durable history", () => {
+  const drifted = authorityFixture();
+  drifted.setState({
+    ...drifted.getState(),
+    selectedSegmentId: "transient-selection",
+    playheadSec: 386.5,
+    transcriptTimingHint: "transient-diagnostic",
+  });
+  const driftedEntry = drifted.authority.applyMutation({
+    label: "Remove unresolved visual",
+    kind: "visual_adjustment",
+    computeAfter: (before) => editText(before, "after"),
+  });
+
+  const settled = authorityFixture();
+  const settledEntry = settled.authority.applyMutation({
+    label: "Remove unresolved visual",
+    kind: "visual_adjustment",
+    computeAfter: (before) => editText(before, "after"),
+  });
+
+  assert.ok(driftedEntry);
+  assert.ok(settledEntry);
+  assert.deepEqual(driftedEntry.forwardPatch, settledEntry.forwardPatch);
+  assert.deepEqual(driftedEntry.inversePatch, settledEntry.inversePatch);
+  assert.equal(driftedEntry.resultStateHash, settledEntry.resultStateHash);
+  assert.equal(hashEditorState(drifted.authority.getController()!.getState()), hashEditorState(settled.authority.getController()!.getState()));
+  assert.equal(drifted.getState().selectedSegmentId, "s1");
+  assert.equal(drifted.getState().playheadSec, 0);
+  assert.equal(drifted.getState().transcriptTimingHint, null);
+  assert.deepEqual(driftedEntry.forwardPatch.map((patch) => patch.path), ["/transcriptSegments/0/text"]);
+  drifted.authority.clearPersistTimer();
+  settled.authority.clearPersistTimer();
+});
+
+test("command authority retains session fields changed by the command itself", () => {
+  const fixture = authorityFixture();
+  fixture.setState({ ...fixture.getState(), selectedSegmentId: "transient-selection", playheadSec: 386.5 });
+  const entry = fixture.authority.applyMutation({
+    label: "Move transcript segment",
+    kind: "timing_adjustment",
+    computeAfter: (before) => ({ ...editText(before, "after"), selectedSegmentId: "s1", playheadSec: 387.5 }),
+  });
+
+  assert.ok(entry);
+  assert.equal(fixture.getState().selectedSegmentId, "s1");
+  assert.equal(fixture.getState().playheadSec, 387.5);
+  assert.deepEqual(entry.forwardPatch.map((patch) => patch.path), [
+    "/transcriptSegments/0/text",
+    "/playheadSec",
+  ]);
   fixture.authority.clearPersistTimer();
 });
 

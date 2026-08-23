@@ -113,6 +113,9 @@ test("identical projected bytes are rejected before staging a meaningless head",
 test("draft fingerprint binds parent byte count and every staged byte", async () => {
   const f = await fixture(); const basis = f.authority.getState()!.basis; const current = await componentBasis();
   const request = await buildHammerHistoryEpochCommitDraft({ document: document(), state: afterState, basis, headId: "99999999-9999-4999-8999-999999999999", idempotencyKey: "hammer-head:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", createdAt: "2026-08-19T14:02:00.123456Z", initiatingUserId: ids.user, components: current, projectedComponents: projected(current, afterState) });
+  const repeated = await buildHammerHistoryEpochCommitDraft({ document: document(), state: afterState, basis, headId: "99999999-9999-4999-8999-999999999999", idempotencyKey: "hammer-head:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", createdAt: "2026-08-19T14:02:00.123456Z", initiatingUserId: ids.user, components: current, projectedComponents: projected(current, afterState) });
+  assert.equal(new TextDecoder().decode(repeated.head.serialized_bytes), new TextDecoder().decode(request.head.serialized_bytes));
+  assert.equal(repeated.head.sha256, request.head.sha256);
   const altered = structuredClone(request) as unknown as { parent: { bytes: number }; operation_fingerprint: string }; altered.parent.bytes += 1;
   assert.notEqual(await fingerprintHammerHistoryAtomicRequest(altered as never), request.operation_fingerprint);
 });

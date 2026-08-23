@@ -33,8 +33,8 @@ import { startAndHydrateHammerHistoryEpoch, type HammerHistoryEpochPersistenceAu
 import type { HammerHistoryEpochStartCandidate } from "./hammerHistoryEpochStartWorkflow";
 import { loadHammerRevisionHistoryHydration, type HammerHistoryEpochTransportRequest, type HammerRevisionHistoryHydration } from "../lib/hammerHistoryEpochApi";
 import { reconstructLegacyEditorStateHashInput, verifyEpochAnchorBaseHash } from "./hammerHistoryHashCompatibility";
-export { captureHammerHistoryPostSaveSnapshotRequest, persistHammerHistorySaveBoundary } from "./hammerHistorySaveBoundary";
-export type { HammerHistoryPostSaveSnapshotRequest } from "./hammerHistorySaveBoundary";
+import { applyHammerHistoryCommandState } from "./hammerHistoryCommandState";
+export { captureHammerHistoryPostSaveSnapshotRequest, persistHammerHistorySaveBoundary, type HammerHistoryPostSaveSnapshotRequest } from "./hammerHistorySaveBoundary";
 import { cloneHammerHistoryDocument, persistHammerHistorySaveBoundary, type HammerHistoryPostSaveSnapshotRequest } from "./hammerHistorySaveBoundary";
 export type HammerHistoryCommandAuthorityConfig = {
   workspaceId: string;
@@ -207,8 +207,8 @@ export function createHammerHistoryCommandAuthority(
     applyMutation(args) {
       if (config.isTransitionPending?.()) return null;
       if (!controller) return null;
-      const before = config.captureState();
-      const after = cloneEditorState(config.normalizeState(args.computeAfter(cloneEditorState(before))));
+      const durableAfter = applyHammerHistoryCommandState({ liveBefore: config.captureState(), computeAfter: args.computeAfter, durableBefore: controller.getState(), normalize: config.normalizeState });
+      if (!durableAfter) return null;
       const entry = controller.applyMutation({
         label: args.label,
         kind: args.kind,
@@ -218,7 +218,7 @@ export function createHammerHistoryCommandAuthority(
         transactionId: args.transactionId ?? null,
         allowCoalesce: args.allowCoalesce,
         coalesceWindowMs,
-        nextState: after,
+        nextState: durableAfter,
       });
       if (!entry) return null;
       config.applyState(controller.getState(), "history:mutation_apply");
