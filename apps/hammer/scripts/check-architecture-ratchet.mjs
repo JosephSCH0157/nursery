@@ -25,12 +25,22 @@ for (const [path, limit] of Object.entries(baseline.principalFiles)) {
   if (current.lines > limit.maxLines) failures.push(`${path}: responsibility concentration grew to ${current.lines} lines (cap ${limit.maxLines}). Extract by authority.`);
   if (current.explicitAny > limit.maxExplicitAny) failures.push(`${path}: explicit any grew to ${current.explicitAny} (cap ${limit.maxExplicitAny}). Add an authority-specific contract.`);
 }
+
+const toolBayInspection = inspect(baseline.toolBay.path);
+const toolBayCtxPropertyReferences = (toolBayInspection.text.match(/\bctx\.[A-Za-z_$][\w$]*/g) ?? []).length;
+const toolBayAsAnyAssertions = (toolBayInspection.text.match(/\bas\s+any\b/g) ?? []).length;
+if (toolBayCtxPropertyReferences > baseline.toolBay.maxCtxPropertyReferences) {
+  failures.push(`${baseline.toolBay.path}: ctx. references grew to ${toolBayCtxPropertyReferences} (cap ${baseline.toolBay.maxCtxPropertyReferences}). Add a panel-specific typed contract.`);
+}
+if (toolBayAsAnyAssertions > baseline.toolBay.maxAsAnyAssertions) {
+  failures.push(`${baseline.toolBay.path}: as any assertions grew to ${toolBayAsAnyAssertions} (cap ${baseline.toolBay.maxAsAnyAssertions}). Narrow the Tool Bay contract instead.`);
+}
 for (const [path, limit] of Object.entries(baseline.extractedControllers)) {
   const current = inspect(path);
   if (current.lines > limit.maxLines) failures.push(`${path}: controller grew to ${current.lines} lines (cap ${limit.maxLines}); split by authority rather than recreating a shell.`);
 }
 
-const toolBay = inspect("src/editor/HammerWorkspaceShellToolBay.tsx").text;
+const toolBay = toolBayInspection.text;
 for (const [pattern, message] of [
   [/from\s+["'][^"']*(?:persistence|hammerWorkspaceHistory)[^"']*["']/, "Tool-bay presentation imported persistence/history ownership."],
   [/\b(?:localStorage|sessionStorage)\b/, "Tool-bay presentation acquired browser-storage ownership."],
@@ -118,9 +128,15 @@ for (const path of productionAndTests) {
 if (!/\b(?:localStorage|sessionStorage)\b/.test("function BadToolBay(){ return localStorage.getItem('truth') }")) {
   failures.push("Architecture ratchet self-test failed to detect representative browser-storage regression.");
 }
+if (("ctx.one; ctx.two".match(/\bctx\.[A-Za-z_$][\w$]*/g) ?? []).length !== 2) {
+  failures.push("Architecture ratchet self-test failed to count Tool Bay ctx. references.");
+}
+if (("value as any; other as  any".match(/\bas\s+any\b/g) ?? []).length !== 2) {
+  failures.push("Architecture ratchet self-test failed to count Tool Bay as any assertions.");
+}
 
 if (failures.length) {
   failures.forEach((failure) => console.error(`[hammer:architecture] ${failure}`));
   process.exit(1);
 }
-console.log("Hammer architecture ratchet passed: principal concentration, controller size, typing, presentation ownership, placement boundary, permanent expansion gate, and ts-nocheck rules are locked.");
+console.log(`Hammer architecture ratchet passed: Tool Bay ctx=${toolBayCtxPropertyReferences}/${baseline.toolBay.maxCtxPropertyReferences}, as any=${toolBayAsAnyAssertions}/${baseline.toolBay.maxAsAnyAssertions}; principal concentration, controller size, typing, presentation ownership, placement boundary, permanent expansion gate, and ts-nocheck rules are locked.`);

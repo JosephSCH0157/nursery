@@ -5,6 +5,11 @@
     "src/editor/HammerWorkspaceEditor.tsx": { "maxLines": 5371, "maxExplicitAny": 4 },
     "src/editor/HammerWorkspaceShellToolBay.tsx": { "maxLines": 4020, "maxExplicitAny": 339 }
   },
+  "toolBay": {
+    "path": "src/editor/HammerWorkspaceShellToolBay.tsx",
+    "maxCtxPropertyReferences": 299,
+    "maxAsAnyAssertions": 229
+  },
   "extractedControllers": {
     "src/editor/hammerAutomaticPlacementController.ts": { "maxLines": 100 },
     "src/editor/hammerWorkspaceEditorLifecycle.ts": { "maxLines": 100 },
