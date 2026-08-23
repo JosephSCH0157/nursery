@@ -112,6 +112,19 @@ export default function HammerStandalone() {
   const [prepAiNoticeResolutionError, setPrepAiNoticeResolutionError] = useState<string | null>(null);
   const location = useLocation();
   const navigate = useNavigate();
+  useEffect(() => {
+    if (!import.meta.env.DEV) return undefined;
+    let cancelled = false;
+    let uninstall: (() => void) | null = null;
+    void import("../lib/hammer/he8NativeTelemetry").then(({ installHe8NativeTelemetry }) => {
+      if (cancelled) return;
+      uninstall = installHe8NativeTelemetry();
+    });
+    return () => {
+      cancelled = true;
+      uninstall?.();
+    };
+  }, []);
   const allowStubScenario = import.meta.env.DEV;
   const hammerSelection = useMemo(
     () => resolveHammerRouteSelection(location.search, location.state, { allowStubScenario }),

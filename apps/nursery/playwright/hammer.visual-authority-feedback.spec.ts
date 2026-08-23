@@ -13,7 +13,55 @@ const moduleUrls = {
   presets: viteFsUrl("apps/hammer/src/dev/hammerLaunchPresets.ts"),
   defaults: viteFsUrl("apps/hammer/src/visuals/model/hammerVisualDefaults.ts"),
   authority: viteFsUrl("apps/hammer/src/persistence/hammerVisualAuthority.ts"),
+  he8Telemetry: viteFsUrl("apps/nursery/src/lib/hammer/he8NativeTelemetry.ts"),
 };
+
+test("HE-8 native telemetry is absent without its exact local staging flag", async ({ page }) => {
+  await page.goto("/?workspace_id=494c2ae5-9037-4208-b898-fab4898ab430");
+  const result = await page.evaluate(async (url) => {
+    const { installHe8NativeTelemetry, HE8_NATIVE_TELEMETRY_TEST_CONTRACT } = await import(url);
+    return {
+      installed: installHe8NativeTelemetry() !== null,
+      evidenceCount: document.querySelectorAll(`#${HE8_NATIVE_TELEMETRY_TEST_CONTRACT.evidenceElementId}`).length,
+    };
+  }, moduleUrls.he8Telemetry);
+  expect(result).toEqual({ installed: false, evidenceCount: 0 });
+});
+
+test("HE-8 native telemetry passively records one trusted authorized placement action", async ({ page }) => {
+  const mutationRequests: string[] = [];
+  page.on("request", (request) => {
+    if (!["GET", "HEAD", "OPTIONS"].includes(request.method())) mutationRequests.push(`${request.method()} ${request.url()}`);
+  });
+  await page.goto("/?workspace_id=494c2ae5-9037-4208-b898-fab4898ab430&hammer_he8_native_telemetry=florida-placement-f89a4ff5-v1");
+  const contract = await page.evaluate(async (url) => {
+    const { installHe8NativeTelemetry, HE8_NATIVE_TELEMETRY_TEST_CONTRACT } = await import(url);
+    document.body.innerHTML = `
+      <div class="hammer-pass-head"><span>Transcript Cleanup</span></div>
+      <button type="button" data-clip-id="${HE8_NATIVE_TELEMETRY_TEST_CONTRACT.placementId}">Authorized placement</button>
+    `;
+    const target = document.querySelector<HTMLElement>(`[data-clip-id="${HE8_NATIVE_TELEMETRY_TEST_CONTRACT.placementId}"]`)!;
+    target.addEventListener("mousedown", () => {
+      target.classList.add("is-selected");
+      document.querySelector(".hammer-pass-head span")!.textContent = "Image Placement";
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.textContent = "Remove Clip";
+      document.body.append(remove);
+    });
+    const search = `?workspace_id=${HE8_NATIVE_TELEMETRY_TEST_CONTRACT.workspaceId}&${HE8_NATIVE_TELEMETRY_TEST_CONTRACT.flag}=${HE8_NATIVE_TELEMETRY_TEST_CONTRACT.flagValue}`;
+    return { ...HE8_NATIVE_TELEMETRY_TEST_CONTRACT, installed: installHe8NativeTelemetry(search) !== null };
+  }, moduleUrls.he8Telemetry);
+  expect(contract.installed).toBe(true);
+  await page.locator(`[data-clip-id="${contract.placementId}"]`).click();
+  await page.waitForTimeout(100);
+  const evidence = JSON.parse(await page.locator(`#${contract.evidenceElementId}`).textContent() ?? "null");
+  expect(evidence.events.map((event: { event: string }) => event.event)).toEqual(["pointerdown", "mousedown", "focus", "pointerup", "click"]);
+  expect(evidence.events.every((event: { isTrusted: boolean; placementId: string }) => event.isTrusted && event.placementId === contract.placementId)).toBe(true);
+  expect(evidence.events.every((event: { composedPath: unknown[] }) => event.composedPath.length > 0)).toBe(true);
+  expect(evidence.shellTransitions.at(-1)?.snapshot).toEqual({ selectedPlacementIds: [contract.placementId], passLabel: "Image Placement", removeClipVisible: true });
+  expect(mutationRequests).toEqual([]);
+});
 
 test("visual clips beyond playback duration retain distinct native pointer targets", async ({ page }) => {
   const mutationRequests: string[] = [];
