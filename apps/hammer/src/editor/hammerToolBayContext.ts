@@ -68,13 +68,12 @@ export type FinishingCommands = Readonly<{ setReviewFlag(flag: "transcript" | "v
 export type ReleaseCommands = Readonly<{ focusIssue(): void; sendToQuench(): void }>;
 export type PassCompletionCommands = Readonly<{ markPassComplete(): void }>;
 
-type CandidateData = { selectedCandidateId: string | null; candidateIds: readonly string[] };
 type VisualData = { selectedVisual: HammerSelectedVisualContext; placementId: string };
 
-export type HammerTranscriptCleanupToolBayContext = SurfaceContext<"transcript_cleanup", CandidateData & { previewId: string | null }, TranscriptCleanupCommands>;
-export type HammerRetakesToolBayContext = SurfaceContext<"retakes", CandidateData, RetakePacingCommands>;
-export type HammerGapPacingToolBayContext = SurfaceContext<"gap_pacing", CandidateData, RetakePacingCommands>;
-export type HammerTranscriptPolishToolBayContext = SurfaceContext<"transcript_polish", { previewId: string | null; selectedSegmentId: string | null }, TranscriptPolishCommands>;
+export type HammerTranscriptCleanupToolBayContext = SurfaceContext<"transcript_cleanup", MigratedEditorSurfaceData, TranscriptCleanupCommands>;
+export type HammerRetakesToolBayContext = SurfaceContext<"retakes", MigratedEditorSurfaceData, RetakePacingCommands>;
+export type HammerGapPacingToolBayContext = SurfaceContext<"gap_pacing", MigratedEditorSurfaceData, RetakePacingCommands>;
+export type HammerTranscriptPolishToolBayContext = SurfaceContext<"transcript_polish", MigratedEditorSurfaceData, TranscriptPolishCommands>;
 export type HammerVisualPolishToolBayContext = SurfaceContext<"visual_polish", { selectedClipId: string | null; diagnosticsEnabled: boolean }, VisualPolishCommands>;
 export type HammerImagePlacementToolBayContext = SurfaceContext<"image_placement", VisualData & { anchorSegmentId: string | null }, ImagePlacementCommands>;
 export type HammerImageTimingToolBayContext = SurfaceContext<"image_timing", VisualData & { startSec: number; endSec: number }, ImageTimingCommands>;
