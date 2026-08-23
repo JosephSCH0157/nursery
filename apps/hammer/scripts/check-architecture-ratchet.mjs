@@ -101,6 +101,18 @@ for (const [pattern, message] of [
   [/\b(?:dispatch|setSelected|applyHistoryMutation|hammerVisualTimelineReducer)\s*\(/, "Selected-visual context projection acquired selection, reducer, or history command ownership."],
 ]) if (pattern.test(selectedVisualContextProjection)) failures.push(`src/editor/hammerSelectedVisualContext.ts: ${message}`);
 if (!/deriveAssetKind\s*\(/.test(selectedVisualContextProjection)) failures.push("Selected-visual context projection must reuse the frozen asset classification helper.");
+const toolBayRouteResolver = inspect("src/editor/hammerToolBayRouteDecision.ts").text;
+const routeImports = [...toolBayRouteResolver.matchAll(/from\s+["']([^"']+)["']/g)].map((match) => match[1]);
+const allowedRouteImports = new Set([
+  "../persistence/hammerPersistenceContract", "./hammerSelectedVisualContext",
+  "./hammerWorkspaceShellCore", "./hammerWorkspaceTimeline",
+]);
+for (const routeImport of routeImports) if (!allowedRouteImports.has(routeImport)) failures.push(`src/editor/hammerToolBayRouteDecision.ts: route resolver acquired non-permitted import ${routeImport}.`);
+for (const [pattern, message] of [
+  [/\buse(?:State|Effect|Memo|Ref|Callback)\s*\(/, "Route resolver acquired React lifecycle ownership."],
+  [/\b(?:saveHammer|loadHammer|fetch|localStorage|sessionStorage|onWorkspaceSnapshotChange)\b/, "Route resolver acquired I/O or persistence ownership."],
+  [/\b(?:dispatch|setSelected|setCurrentPass|setEditorMode|applyHistoryMutation|hammerVisualTimelineReducer)\s*\(/, "Route resolver acquired selection, navigation, reducer, or history command ownership."],
+]) if (pattern.test(toolBayRouteResolver)) failures.push(`src/editor/hammerToolBayRouteDecision.ts: ${message}`);
 
 const expansionGate = inspect("src/composition/hammerExpansionGateV1.ts").text;
 for (const required of [
@@ -136,6 +148,13 @@ for (const path of productionAndTests) {
   if (typeof maxReferences !== "number") failures.push(`${relativePath}: new selectedImagePlacement consumer is prohibited. Use HammerSelectedVisualContext.`);
   else if (selectedImagePlacementReferences > maxReferences) failures.push(`${relativePath}: selectedImagePlacement references grew to ${selectedImagePlacementReferences} (cap ${maxReferences}). Use HammerSelectedVisualContext for new consumers.`);
 }
+let directVisualRoutingPredicates = 0;
+for (const path of productionAndTests.filter((candidate) => candidate.includes(`${join("src", "editor")}`) && !candidate.endsWith("hammerToolBayRouteDecision.ts"))) {
+  const text = readFileSync(path, "utf8");
+  directVisualRoutingPredicates += (text.match(/\.kind\s*===\s*["']image["']\s*\?\s*["']images["']\s*:\s*["']broll["']/g) ?? []).length;
+  directVisualRoutingPredicates += (text.match(/\.kind\s*===\s*["']image["']\s*\?\s*["']image_placement["']\s*:\s*["']image_animation["']/g) ?? []).length;
+}
+if (directVisualRoutingPredicates > baseline.toolBay.maxDirectVisualRoutingPredicatesOutsideResolver) failures.push(`Direct image-versus-B-roll routing predicates grew to ${directVisualRoutingPredicates} (cap ${baseline.toolBay.maxDirectVisualRoutingPredicatesOutsideResolver}). Route through resolveHammerToolBayRoute.`);
 
 // Representative self-proof: the presentation ownership detector must catch a forbidden cache owner.
 if (!/\b(?:localStorage|sessionStorage)\b/.test("function BadToolBay(){ return localStorage.getItem('truth') }")) {
