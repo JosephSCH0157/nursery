@@ -132,9 +132,22 @@ for (const [pattern, message] of [
   [/\bcommands\s*\?\s*:/, "Typed context introduced an optional command dumping ground."],
   [/\bcommands\s*:\s*(?:Partial|Record\s*<\s*string)/, "Typed context weakened surface-specific command groups."],
 ]) if (pattern.test(typedToolBayContext)) failures.push(`${baseline.typedToolBayContext.path}: ${message}`);
-for (const productionPath of ["src/editor/HammerWorkspaceShell.tsx", "src/editor/HammerWorkspaceShellToolBay.tsx", "src/editor/hammerWorkspaceShellViewModels.ts"]) {
-  if (inspect(productionPath).text.includes("hammerToolBayContext")) failures.push(`${productionPath}: HTB-3A context must remain outside production construction and consumption.`);
-}
+const toolBayRuntimeContext = inspect("src/editor/hammerToolBayRuntimeContext.ts").text;
+const migratedSurfaceBlock = toolBayRuntimeContext.match(/HAMMER_MIGRATED_TOOL_BAY_SURFACES\s*=\s*\[([\s\S]*?)\]\s*as const/);
+const migratedSurfaces = migratedSurfaceBlock ? (migratedSurfaceBlock[1].match(/"[a-z_]+"/g) ?? []).map((value) => value.slice(1, -1)) : [];
+const requiredMigratedSurfaces = ["unsupported", "release_readiness", "export", "pass_completion"];
+if (JSON.stringify(migratedSurfaces) !== JSON.stringify(requiredMigratedSurfaces)) failures.push(`Tool Bay migrated surface inventory is ${JSON.stringify(migratedSurfaces)} (required ${JSON.stringify(requiredMigratedSurfaces)}). The HTB-3B migrated set may only grow.`);
+if (migratedSurfaces.length !== baseline.typedToolBayContext.migratedSurfaceCount) failures.push(`Tool Bay migrated surface count is ${migratedSurfaces.length} (required ${baseline.typedToolBayContext.migratedSurfaceCount}).`);
+if (!toolBayRuntimeContext.includes(`HAMMER_TOOL_BAY_LEGACY_REMOVAL_DEADLINE = "${baseline.typedToolBayContext.legacyRemovalDeadline}"`)) failures.push("Tool Bay transitional seam lost its HTB-3B removal deadline.");
+for (const [pattern, message] of [
+  [/\b(?:useState|useEffect|useRef)\s*\(/, "Runtime context assembly acquired lifecycle ownership."],
+  [/\b(?:saveHammer|loadHammer|fetch|localStorage|sessionStorage|dispatch|applyHistoryMutation)\b/, "Runtime context assembly acquired I/O, mutation, history, or persistence ownership."],
+  [/HammerWorkspaceShellToolBayVM|\bctx\./, "Runtime context assembly accessed the legacy Tool Bay VM."],
+]) if (pattern.test(toolBayRuntimeContext)) failures.push(`src/editor/hammerToolBayRuntimeContext.ts: ${message}`);
+const typedToolBaySurfaces = inspect("src/editor/HammerTypedToolBaySurfaces.tsx").text;
+if (/HammerWorkspaceShellToolBayVM|\bctx\.|\bas any\b/.test(typedToolBaySurfaces)) failures.push("Migrated Tool Bay surfaces imported or accessed the legacy Tool Bay VM.");
+if (/activeTool\s*===\s*["']export["']|Ready State|Quench Handoff/.test(toolBay)) failures.push("Legacy Tool Bay retained a migrated readiness or export surface.");
+if (!toolBay.includes("runtimeContexts.body ? <HammerTypedToolBayBody")) failures.push("Tool Bay lost its exclusive typed-versus-legacy body dispatch.");
 
 const expansionGate = inspect("src/composition/hammerExpansionGateV1.ts").text;
 for (const required of [

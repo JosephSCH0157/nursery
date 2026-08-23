@@ -14,6 +14,7 @@ import {
 import type { HammerSelectedVisualContext, HammerSelectedVisualKind } from "../src/editor/hammerSelectedVisualContext";
 import type { HammerPassId } from "../src/persistence/hammerPersistenceContract";
 import type { HammerEditorMode } from "../src/editor/hammerWorkspaceShellCore";
+import { assembleHammerToolBayRuntimeContexts } from "../src/editor/hammerToolBayRuntimeContext";
 
 function selected(kind: HammerSelectedVisualKind, id: string): HammerSelectedVisualContext {
   const image = kind === "image";
@@ -113,11 +114,19 @@ function mountedVm(decision: HammerToolBayRouteDecision, kind: "image" | "broll"
   return values as unknown as HammerWorkspaceShellToolBayVM;
 }
 
+function runtimeContexts(decision: HammerToolBayRouteDecision) {
+  const noop = (): void => undefined;
+  return assembleHammerToolBayRuntimeContexts({
+    route: decision, currentPass: "visual_finishing", passLabel: "Visual", passStatus: "in_progress",
+    markPassComplete: noop, readinessData: null, exportData: null, focusIssue: noop, sendToQuench: noop,
+  });
+}
+
 test("mounted Tool Bay routes exact image and Florida B-roll panels while retaining selected identity", () => {
   for (const kind of ["image", "broll"] as const) {
     const context = selected(kind, kind === "image" ? "placement:image-mounted" : "placement:florida-mounted");
     const decision = resolveHammerToolBayRoute(routeInput(context));
-    const markup = renderToStaticMarkup(<HammerWorkspaceShellToolBay vm={mountedVm(decision, kind)} />);
+    const markup = renderToStaticMarkup(<HammerWorkspaceShellToolBay vm={mountedVm(decision, kind)} runtimeContexts={runtimeContexts(decision)} />);
     assert.match(markup, kind === "image" ? /Image Placement/ : /Florida mounted B-roll/);
     assert.match(markup, new RegExp(context.placementId));
   }
@@ -125,7 +134,7 @@ test("mounted Tool Bay routes exact image and Florida B-roll panels while retain
 
 test("mounted unsupported Tool Bay exposes stable reason markup and no panel commands", () => {
   const decision = resolveHammerToolBayRoute(routeInput({ status: "unsupported", placementId: "placement:invalid", reason: "invalid" }));
-  const markup = renderToStaticMarkup(<HammerWorkspaceShellToolBay vm={mountedVm(decision, "image")} />);
+  const markup = renderToStaticMarkup(<HammerWorkspaceShellToolBay vm={mountedVm(decision, "image")} runtimeContexts={runtimeContexts(decision)} />);
   assert.match(markup, /data-hammer-tool-bay-route-reason="selected_visual_unsupported"/);
   assert.match(markup, /Unsupported Tool Bay State/);
   assert.doesNotMatch(markup, /Mark Complete|Remove Clip|Add Hard Cut/);

@@ -3,12 +3,12 @@
   "principalFiles": {
     "src/editor/HammerWorkspaceShell.tsx": { "maxLines": 4570, "maxExplicitAny": 6 },
     "src/editor/HammerWorkspaceEditor.tsx": { "maxLines": 5371, "maxExplicitAny": 4 },
-    "src/editor/HammerWorkspaceShellToolBay.tsx": { "maxLines": 4020, "maxExplicitAny": 339 }
+    "src/editor/HammerWorkspaceShellToolBay.tsx": { "maxLines": 3831, "maxExplicitAny": 318 }
   },
   "toolBay": {
     "path": "src/editor/HammerWorkspaceShellToolBay.tsx",
-    "maxCtxPropertyReferences": 299,
-    "maxAsAnyAssertions": 229,
+    "maxCtxPropertyReferences": 281,
+    "maxAsAnyAssertions": 211,
     "maxDirectVisualRoutingPredicatesOutsideResolver": 0,
     "selectedImagePlacementConsumers": {
       "src/editor/HammerWorkspaceShell.tsx": 11,
@@ -19,7 +19,10 @@
   },
   "typedToolBayContext": {
     "path": "src/editor/hammerToolBayContext.ts",
-    "surfaceCount": 20
+    "surfaceCount": 20,
+    "migratedSurfaceCount": 4,
+    "remainingLegacySurfaceCount": 17,
+    "legacyRemovalDeadline": "HTB-3B completion"
   },
   "extractedControllers": {
     "src/editor/hammerAutomaticPlacementController.ts": { "maxLines": 100 },

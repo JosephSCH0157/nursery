@@ -210,6 +210,7 @@ import HammerWorkspaceShellPreviewBay from "./HammerWorkspaceShellPreviewBay";
 import HammerWorkspaceShellTimelineDock from "./HammerWorkspaceShellTimelineDock";
 import HammerWorkspaceShellSourceBay from "./HammerWorkspaceShellSourceBay";
 import HammerWorkspaceShellToolBay from "./HammerWorkspaceShellToolBay";
+import { assembleHammerToolBayRuntimeContexts } from "./hammerToolBayRuntimeContext";
 import { useHammerHistoryCommandAuthority, useHammerWorkspaceShellHistoryController, type HammerHistoryCommandAuthorityConfig, type HammerHistoryPostSaveSnapshotRequest } from "./hammerWorkspaceShellHistoryController";
 import { useHammerHistoryEpochPersistenceAuthority } from "./hammerHistoryEpochPersistence";
 import { HammerHistoryEpochStartWorkflow, type HammerHistoryEpochStartCandidate } from "./hammerHistoryEpochStartWorkflow";
@@ -2073,7 +2074,6 @@ function HammerWorkspaceShellWithContext(
     }),
     updateOutputSelection: setEditableOutputSelection,
   });
-
   const persistedTranscriptProjection = useHammerPersistedTranscriptProjection({
     segments: editableTranscriptSegments,
     existingTranscript: workspaceStructuredTranscript ?? props.structuredTranscript ?? null,
@@ -2495,7 +2495,6 @@ function HammerWorkspaceShellWithContext(
     transcriptSelectionAnchorSegmentId,
     transcriptSelectionFocusSegmentId,
   ]);
-
   useEffect(() => {
     setPlayheadSec((current) => (
       current > timelineDurationSec ? roundToTenth(timelineDurationSec) : current
@@ -3877,6 +3876,8 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     createFallbackEditPlan,
   });
 
+  const toolBayRuntimeContexts = useMemo(() => assembleHammerToolBayRuntimeContexts({ route: toolBayRouteDecision, currentPass, passLabel: currentPassMeta.label, passStatus: currentPassSelectorResult.status, markPassComplete: markCurrentPassComplete, readinessData: { summaryAreas: readySummaryAreas, readinessLabel: readinessStatusLabel, blockerCount: readinessVerdict.counts.blocking, reviewCount: readinessVerdict.counts.review, exportStatusLabel, sending: releasePrepSaving, loading: releasePrepLoading, blocked: readinessVerdict.status === "blocked", sendLabel: sendToQuenchButtonLabel, handoffStatus: quenchHandoffStatus }, exportData: { handoffAvailable: Boolean(releasePrepOpenHref), openHref: releasePrepOpenHref, exportStatusLabel, readinessLabel: readinessStatusLabel, readinessStatus: readinessVerdict.status, blockerCount: readinessVerdict.counts.blocking, reviewCount: readinessVerdict.counts.review, outputSelectionSummary, previewTruthPosture, exportTruthPosture, handoffTruthPosture, unresolvedBrollCount: unresolvedBrollSuggestionItems.length, blockingReasons: readinessVerdict.blockingReasons, reviewReasons: readinessVerdict.reviewReasons, captionSafetyState: captionReleasePrepSafetyState, captionSafetyLabel: captionReleasePrepSafetyLabel, captionSummaryLine: captionReleasePrepSummaryLine, captionSourceLabel, captionSafetyDetail: captionReleasePrepSafetyDetail, renderStatus: studioRackRenderStatus ? { message: studioRackRenderStatus.message, requestedBackend: studioRackRenderStatus.requestedBackend, resolvedBackend: studioRackRenderStatus.resolvedBackend, status: studioRackRenderStatus.status, outputWorkpiecePath: studioRackRenderStatus.outputWorkpiecePath ?? null, appliedModules: studioRackRenderAppliedModules, deferredModules: studioRackRenderDeferredModules } : null, loading: releasePrepLoading, sending: releasePrepSaving, sendLabel: sendToQuenchButtonLabel, preparedPackage: loadedPreparedPackage?.preparedAt ? { preparedAt: loadedPreparedPackage.preparedAt, overallStatus: loadedPreparedPackage.overallStatus, subtitleArtifactCount: 0, transcriptFingerprint: loadedPreparedPackage.transcript.fingerprint ?? null } : null, exportTruthState, staleReasons: releasePrepStaleReasons, handoffStatus: quenchHandoffStatus, savedPackage: releasePrepSaved ? { preparedAt: releasePrepSaved.preparedAt, overallStatus: releasePrepSaved.overallStatus, subtitleArtifactCount: releasePrepSaved.subtitleArtifactCount, transcriptFingerprint: null } : null, error: releasePrepError }, focusIssue: focusReadinessIssue, sendToQuench: handleSendToQuench, }), [ captionReleasePrepSafetyDetail, captionReleasePrepSafetyLabel, captionReleasePrepSafetyState, captionReleasePrepSummaryLine, captionSourceLabel, currentPass, currentPassMeta.label, currentPassSelectorResult.status, exportStatusLabel, exportTruthPosture, exportTruthState, focusReadinessIssue, handleSendToQuench, handoffTruthPosture, loadedPreparedPackage, markCurrentPassComplete, outputSelectionSummary, previewTruthPosture, quenchHandoffStatus, readinessStatusLabel, readinessVerdict, readySummaryAreas, releasePrepError, releasePrepLoading, releasePrepOpenHref, releasePrepSaved, releasePrepSaving, releasePrepStaleReasons, sendToQuenchButtonLabel, studioRackRenderAppliedModules, studioRackRenderDeferredModules, studioRackRenderStatus, toolBayRouteDecision, unresolvedBrollSuggestionItems.length, ]);
+
   const toolBayVM = useMemo(() => workspaceViewModelComposition.toolBay({
     passLabel: currentPassMeta.label,
     passStatus: currentPassSelectorResult.status,
@@ -4520,7 +4521,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
           </section>
 
           <section className="hammer-tool-bay">
-            <HammerWorkspaceShellToolBay vm={toolBayVM} />
+            <HammerWorkspaceShellToolBay vm={toolBayVM} runtimeContexts={toolBayRuntimeContexts} />
           </section>
         </div>
 

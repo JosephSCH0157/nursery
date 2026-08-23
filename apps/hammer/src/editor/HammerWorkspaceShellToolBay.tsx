@@ -18,6 +18,8 @@ import type {
 } from "./hammerWorkspaceShellVisualUtils";
 import HammerBrollSelectionControls from "./HammerBrollSelectionControls";
 import type { HammerToolBayRouteDecision } from "./hammerToolBayRouteDecision";
+import { HammerTypedPassCompletionHeader, HammerTypedToolBayBody } from "./HammerTypedToolBaySurfaces";
+import type { HammerToolBayRuntimeContexts } from "./hammerToolBayRuntimeContext";
 export type HammerWorkspaceShellToolBayVM = {
   passLabel: string;
   passStatus: string;
@@ -79,7 +81,7 @@ function isDevBlurControlsEnabled(): boolean {
   return false;
 }
 
-export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShellToolBayVM }): JSX.Element {
+export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShellToolBayVM; runtimeContexts: HammerToolBayRuntimeContexts }): JSX.Element {
   const vm = p.vm;
 
   const ctx = vm as any;
@@ -124,7 +126,6 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const captionReleasePrepSafetyDetail = ctx.captionReleasePrepSafetyDetail as any;
   const captionReleasePrepSafetyLabel = ctx.captionReleasePrepSafetyLabel as any;
   const captionReleasePrepSafetyState = ctx.captionReleasePrepSafetyState as any;
-  const captionReleasePrepSummaryLine = ctx.captionReleasePrepSummaryLine as any;
   const captionReleaseSourceLabel = ctx.captionReleaseSourceLabel as any;
   const captionSourceLabel = ctx.captionSourceLabel as any;
   const clampImagePlacementTransform = ctx.clampImagePlacementTransform as any;
@@ -135,26 +136,19 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const detailTag = ctx.detailTag as any;
   const discardHearthBrollSuggestion = ctx.discardHearthBrollSuggestion as any;
   const editableVisualPlacements = ctx.editableVisualPlacements as any;
-  const exportStatusLabel = ctx.exportStatusLabel as any;
-  const exportTruthPosture = ctx.exportTruthPosture as any;
-  const exportTruthState = ctx.exportTruthState as any;
   const finishingChecklist = ctx.finishingChecklist as any;
   const focusBoundAttentionOperation = ctx.focusBoundAttentionOperation as any;
-  const focusReadinessIssue = ctx.focusReadinessIssue as any;
   const handleDiscardEditedCaptions = ctx.handleDiscardEditedCaptions as any;
   const handleEditCaptionChunkText = ctx.handleEditCaptionChunkText as any;
   const handleEnableCaptionEdits = ctx.handleEnableCaptionEdits as any;
   const handleMergeEditedCaptionChunk = ctx.handleMergeEditedCaptionChunk as any;
   const handleNormalizeEditedCaptionChunkPunctuation = ctx.handleNormalizeEditedCaptionChunkPunctuation as any;
   const handleRebuildCaptionArtifacts = ctx.handleRebuildCaptionArtifacts as any;
-  const handleSendToQuench = ctx.handleSendToQuench as any;
   const handleSplitEditedCaptionChunk = ctx.handleSplitEditedCaptionChunk as any;
   const handleToggleEditedCaptionChunkSpeakerLabel = ctx.handleToggleEditedCaptionChunkSpeakerLabel as any;
-  const handoffTruthPosture = ctx.handoffTruthPosture as any;
   const introOutroSelectedIntroPath = ctx.introOutroSelectedIntroPath as any;
   const introOutroSelectedOutroPath = ctx.introOutroSelectedOutroPath as any;
   const introOutroSelection = ctx.introOutroSelection as any;
-  const loadedPreparedPackage = ctx.loadedPreparedPackage as any;
   const LOGO_POSITION_OPTIONS = ctx.LOGO_POSITION_OPTIONS as any;
   const LOGO_SIZE_OPTIONS = ctx.LOGO_SIZE_OPTIONS as any;
   const MIN_IMAGE_PLACEMENT_DURATION_SEC = ctx.MIN_IMAGE_PLACEMENT_DURATION_SEC as any;
@@ -170,16 +164,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
   const packagingLogoSize = ctx.packagingLogoSize as any;
   const packagingOutroPlacement = ctx.packagingOutroPlacement as any;
   const previewTruthPosture = ctx.previewTruthPosture as any;
-  const quenchHandoffStatus = ctx.quenchHandoffStatus as any;
-  const readinessStatusLabel = ctx.readinessStatusLabel as any;
-  const readinessVerdict = ctx.readinessVerdict as any;
-  const readySummaryAreas = ctx.readySummaryAreas as any;
-  const releasePrepError = ctx.releasePrepError as any;
-  const releasePrepLoading = ctx.releasePrepLoading as any;
   const releasePrepOpenHref = ctx.releasePrepOpenHref as any;
-  const releasePrepSaved = ctx.releasePrepSaved as any;
-  const releasePrepSaving = ctx.releasePrepSaving as any;
-  const releasePrepStaleReasons = ctx.releasePrepStaleReasons as any;
   const removePackagingPlacement = ctx.removePackagingPlacement as any;
   const removeVisualPlacement = ctx.removeVisualPlacement as any;
   const replaceResolvedBrollBinding = ctx.replaceResolvedBrollBinding as any;
@@ -240,7 +225,6 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
     : !resetPreviewAutoPosition
     ? "Reset action unavailable."
     : null;
-  const sendToQuenchButtonLabel = ctx.sendToQuenchButtonLabel as any;
   const setActiveCaptionArtifactMode = ctx.setActiveCaptionArtifactMode as any;
   const setAnchorLabelDraft = ctx.setAnchorLabelDraft as any;
   const setAnchorTextDraft = ctx.setAnchorTextDraft as any;
@@ -456,10 +440,10 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
     if (committedText.trim()) return committedText;
     return selectedTranscriptRange?.text ?? "";
   }
-  const unsupportedRoute = vm.routeDecision?.status === "unsupported" ? vm.routeDecision : null;
+  const unsupportedRoute = p.runtimeContexts.body?.surface === "unsupported";
   return (
     <>
-      <header className="hammer-bay-head">
+      {p.runtimeContexts.completion ? <HammerTypedPassCompletionHeader context={p.runtimeContexts.completion} /> : <header className="hammer-bay-head">
         <strong>Tool Rack</strong>
         <span className="hammer-toolbay-live-marker">TOOLBAY FILE IS LIVE</span>
         <div className="hammer-pass-head">
@@ -471,13 +455,9 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
             Mark Complete
           </button> : null}
         </div>
-      </header>
+      </header>}
       <div className="hammer-bay-body">
-        {unsupportedRoute ? (
-          <section className="hammer-tool-card" data-hammer-tool-bay-route-reason={unsupportedRoute.reason}>
-            <header className="hammer-tool-card__head">Unsupported Tool Bay State</header>
-            <div className="hammer-tool-hint">Route unavailable: {unsupportedRoute.reason}</div></section>
-        ) : <>
+        {p.runtimeContexts.body ? <HammerTypedToolBayBody context={p.runtimeContexts.body} /> : <>
         {activeTool === "video" ? (
           <section className="hammer-tool-card hammer-visual-tool-selector" aria-label="Visual tool selector">
             <header className="hammer-tool-card__head">Visual Tools</header>
@@ -3833,175 +3813,6 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                 )
               ) : null}
 
-              {activeTool === "export" ? (
-                currentPass === "ready" ? (
-                  <section className="hammer-tool-card">
-                    <header className="hammer-tool-card__head">Ready State</header>
-                    <div className="hammer-tool-hint">
-                      Hammer prepares and hands off. Quench publishes and distributes.
-                    </div>
-                    <div className="hammer-source-list">
-                      {readySummaryAreas.map((item: any) => (
-                        <article key={`ready-${item.id}`} className="hammer-source-card">
-                          <header className="hammer-source-card__head">
-                            <strong>{item.label}</strong>
-                            <span>{item.status.replace("_", " ")}</span>
-                          </header>
-                        </article>
-                      ))}
-                    </div>
-                    <div className="hammer-tool-hint">
-                      Readiness: {readinessStatusLabel}
-                      {` · blockers ${readinessVerdict.counts.blocking} · review ${readinessVerdict.counts.review}`}
-                    </div>
-                    <div className="hammer-tool-hint">Export packet: {exportStatusLabel}</div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        void handleSendToQuench();
-                      }}
-                      disabled={releasePrepSaving || releasePrepLoading || readinessVerdict.status === "blocked"}
-                    >
-                      {releasePrepSaving ? "Sending..." : sendToQuenchButtonLabel}
-                    </button>
-                    {quenchHandoffStatus ? (
-                      <div className="hammer-tool-hint">
-                        Handoff status: {quenchHandoffStatus.status} · {quenchHandoffStatus.message}
-                      </div>
-                    ) : null}
-                  </section>
-                ) : (
-                <section className="hammer-tool-card">
-                  <header className="hammer-tool-card__head">Quench Handoff</header>
-                  <div className="hammer-tool-hint">
-                    {releasePrepOpenHref ? "Handoff path available." : "Handoff path unavailable."}
-                  </div>
-                  <div className="hammer-tool-hint">Export status: {exportStatusLabel}</div>
-                  <div className="hammer-tool-hint">
-                    Readiness gate: {readinessStatusLabel}
-                    {` · blockers ${readinessVerdict.counts.blocking} · review ${readinessVerdict.counts.review}`}
-                  </div>
-                  <div className="hammer-tool-hint">Output source: {outputSelectionSummary}</div>
-                  <div className="hammer-tool-hint">Preview truth: {previewTruthPosture}</div>
-                  <div className="hammer-tool-hint">Export truth: {exportTruthPosture}</div>
-                  <div className="hammer-tool-hint">Handoff truth: {handoffTruthPosture}</div>
-                  {previewTruthPosture !== "authoritative" ? (
-                    <div className="hammer-tool-hint">
-                      Preview is {previewTruthPosture}; at least one active operation is not fully previewable in this runtime.
-                    </div>
-                  ) : null}
-                  {unresolvedBrollSuggestionItems.length > 0 ? (
-                    <div className="hammer-tool-hint">
-                      {unresolvedBrollSuggestionItems.length} unresolved B-roll intent(s) need binding before authoritative visual handoff.
-                    </div>
-                  ) : null}
-                  {readinessVerdict.blockingReasons.length > 0 ? (
-                    <div className="hammer-tool-hint">
-                      Blocking reasons: {readinessVerdict.blockingReasons.slice(0, 3).map((reason: any) => reason.label).join(" ")}
-                    </div>
-                  ) : null}
-                  {readinessVerdict.reviewReasons.length > 0 ? (
-                    <div className="hammer-tool-hint">
-                      Review reasons: {readinessVerdict.reviewReasons.slice(0, 3).map((reason: any) => reason.label).join(" ")}
-                    </div>
-                  ) : null}
-                  {(readinessVerdict.blockingReasons.length > 0 || readinessVerdict.reviewReasons.length > 0) ? (
-                    <button type="button" onClick={focusReadinessIssue}>
-                      Review Next Issue
-                    </button>
-                  ) : null}
-                  <div className={`hammer-caption-release-summary hammer-caption-release-summary--${captionReleasePrepSafetyState}`}>
-                    <div className="hammer-caption-release-summary__head">
-                      <strong>Caption release truth</strong>
-                      <span>{captionReleasePrepSafetyLabel}</span>
-                    </div>
-                    <div className="hammer-caption-release-summary__meta">{captionReleasePrepSummaryLine}</div>
-                    <div className="hammer-caption-release-summary__basis">Basis: {captionSourceLabel}</div>
-                    <div className="hammer-caption-release-summary__detail">{captionReleasePrepSafetyDetail}</div>
-                  </div>
-                  {studioRackRenderStatus ? (
-                    <div className="hammer-tool-hint">
-                      Studio Rack render: {studioRackRenderStatus.message}
-                    </div>
-                  ) : null}
-                  {studioRackRenderStatus ? (
-                    <div className="hammer-tool-hint">
-                      Render receipt: requested lane {studioRackRenderStatus.requestedBackend}, resolved lane {studioRackRenderStatus.resolvedBackend}, status {studioRackRenderStatus.status}
-                    </div>
-                  ) : null}
-                  {studioRackRenderStatus?.outputWorkpiecePath ? (
-                    <div className="hammer-tool-hint">
-                      Render artifact path: {studioRackRenderStatus.outputWorkpiecePath}
-                    </div>
-                  ) : null}
-                  {studioRackRenderAppliedModules.length > 0 ? (
-                    <div className="hammer-tool-hint">
-                      Render applied modules: {studioRackRenderAppliedModules.join(", ")}
-                    </div>
-                  ) : null}
-                  {studioRackRenderDeferredModules.length > 0 ? (
-                    <div className="hammer-tool-hint">
-                      Requested but not yet rendered in v1: {studioRackRenderDeferredModules.join(", ")}
-                    </div>
-                  ) : null}
-                  <div className="hammer-tool-hint">Layer selection lives in Source Desk → Advanced.</div>
-                  {releasePrepLoading ? (
-                    <div className="hammer-tool-hint">Checking Quench packet state...</div>
-                  ) : null}
-                  {loadedPreparedPackage?.preparedAt ? (
-                    <div className="hammer-tool-hint">
-                      Last exported {new Date(loadedPreparedPackage.preparedAt).toLocaleString()}.
-                    </div>
-                  ) : null}
-                  {loadedPreparedPackage?.transcript.fingerprint ? (
-                    <div className="hammer-tool-hint">
-                      Basis {loadedPreparedPackage.transcript.fingerprint.slice(0, 18)}...
-                    </div>
-                  ) : null}
-                  {exportTruthState === "stale" && releasePrepStaleReasons.length > 0 ? (
-                    <div className="hammer-tool-hint">
-                      Changes since last prepare: {releasePrepStaleReasons.join("; ")}.
-                    </div>
-                  ) : null}
-                  <button
-                    type="button"
-                    onClick={() => {
-                      void handleSendToQuench();
-                    }}
-                    disabled={releasePrepSaving || releasePrepLoading || readinessVerdict.status === "blocked"}
-                  >
-                    {releasePrepSaving ? "Sending..." : sendToQuenchButtonLabel}
-                  </button>
-                  {quenchHandoffStatus ? (
-                    <div className="hammer-tool-hint">
-                      Handoff status: {quenchHandoffStatus.status} · {quenchHandoffStatus.message}
-                    </div>
-                  ) : null}
-                  {releasePrepSaved ? (
-                    <div className="hammer-tool-hint">
-                      {readinessVerdict.status === "ready" ? "Ready for Quench." : readinessVerdict.status === "blocked" ? "Prepared packet is blocked for handoff." : "Prepared packet needs review before handoff."}
-                      {" "}Exported {new Date(releasePrepSaved.preparedAt).toLocaleString()}.
-                      Status {releasePrepSaved.overallStatus}.
-                      Subtitle artifacts {releasePrepSaved.subtitleArtifactCount}.
-                    </div>
-                  ) : null}
-                  {releasePrepError ? (
-                    <div className="hammer-tool-hint">
-                      {releasePrepError}
-                    </div>
-                  ) : null}
-                  {releasePrepOpenHref && exportTruthState !== "never_prepared" ? (
-                    <a href={releasePrepOpenHref}>
-                      {readinessVerdict.status === "blocked"
-                        ? "Open in Quench (blocked)"
-                        : exportTruthState === "current"
-                        ? "Open in Quench"
-                        : "Open in Quench (stale)"}
-                    </a>
-                  ) : null}
-                </section>
-                )
-              ) : null}
 
               <div className="hammer-tool-state-grid">
                 <div>Workspace mode: {workspaceFocusMode}</div>

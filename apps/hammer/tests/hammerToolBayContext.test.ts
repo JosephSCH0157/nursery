@@ -72,9 +72,9 @@ const fixtures: readonly HammerToolBayContextBuildInput[] = [
   { surface: "metadata", route: metadataRoute, data: { tags: ["interview"] }, commands: { setTags: noop } },
   { surface: "packaging", route: packagingRoute, data: { introAssetId: null, outroAssetId: null, logoAssetId: null }, commands: packagingCommands },
   { surface: "finishing", route: finishingRoute, data: { transcriptReviewed: false, visualReviewed: false, audioReviewed: false }, commands: finishingCommands },
-  { surface: "release_readiness", route: exportRoute, data: { issueIds: ["issue:1"], packageId: null, ready: false }, commands: releaseCommands },
-  { surface: "export", route: exportRoute, data: { packageId: "package:1", outputIds: ["output:1"] }, commands: releaseCommands },
-  { surface: "pass_completion", route: resolved, data: { passLabel: "Cleanup", complete: false }, commands: { markPassComplete: noop } },
+  { surface: "release_readiness", route: exportRoute, data: { summaryAreas: [], readinessLabel: "Blocked", blockerCount: 1, reviewCount: 0, exportStatusLabel: "Not prepared", sending: false, loading: false, blocked: true, sendLabel: "Send to Quench", handoffStatus: null }, commands: releaseCommands },
+  { surface: "export", route: exportRoute, data: { handoffAvailable: false, openHref: null, exportStatusLabel: "Not prepared", readinessLabel: "Blocked", readinessStatus: "blocked", blockerCount: 1, reviewCount: 0, outputSelectionSummary: "Canonical", previewTruthPosture: "authoritative", exportTruthPosture: "not prepared", handoffTruthPosture: "blocked", unresolvedBrollCount: 0, blockingReasons: [], reviewReasons: [], captionSafetyState: "safe", captionSafetyLabel: "Safe", captionSummaryLine: "Ready", captionSourceLabel: "canonical", captionSafetyDetail: "Current", renderStatus: null, loading: false, sending: false, sendLabel: "Send to Quench", preparedPackage: null, exportTruthState: "never_prepared", staleReasons: [], handoffStatus: null, savedPackage: null, error: null }, commands: releaseCommands },
+  { surface: "pass_completion", route: resolved, data: { passLabel: "Cleanup", passStatus: "in_progress", complete: false }, commands: { markPassComplete: noop } },
 ];
 
 test("every HTB-0 surface builds exactly one discriminated context with narrow data and commands", () => {
