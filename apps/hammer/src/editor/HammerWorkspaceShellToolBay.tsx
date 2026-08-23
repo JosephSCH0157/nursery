@@ -16,7 +16,7 @@ import type {
   HammerLogoOverlayPosition,
   HammerLogoOverlaySize,
 } from "./hammerWorkspaceShellVisualUtils";
-
+import HammerBrollSelectionControls from "./HammerBrollSelectionControls";
 export type HammerWorkspaceShellToolBayVM = {
   passLabel: string;
   passStatus: string;
@@ -3097,7 +3097,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                   </section>
                 ) : activeVisualTool === "broll" ? (
                   <section className="hammer-tool-card">
-                    <header className="hammer-tool-card__head">B-roll</header>
+                    <HammerBrollSelectionControls placement={selectedImagePlacement} onRemove={removeVisualPlacement} />
                   <label className="hammer-tool-field">
                     <span>Snap Mode</span>
                     <select

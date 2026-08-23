@@ -433,11 +433,11 @@ test(`mounted Florida-shaped shell retains visual selection while Source Desk is
     const assets = placementIds.map((id, index) => ({
       asset_id: `asset-${index}`,
       asset_ref: `asset-${index}`,
-      kind: "image",
+      kind: id === targetId ? "video" : "image",
       label: id === targetId ? "Entire seasons lost." : `Florida visual ${index + 1}`,
-      path: `visuals/${index}.png`,
+      path: id === targetId ? `visuals/${index}.mp4` : `visuals/${index}.png`,
       storage_key: null,
-      mime_type: "image/png",
+      mime_type: id === targetId ? "video/mp4" : "image/png",
       source_mode: "manual",
       roles: ["timeline_visual"],
       updated_at: updatedAt,
@@ -451,7 +451,7 @@ test(`mounted Florida-shaped shell retains visual selection while Source Desk is
         lane_id: "lane:primary",
         entry_id: `entry-${index}`,
         label: assets[index].label,
-        visual_mode: "image",
+        visual_mode: id === targetId ? "broll" : "image",
         confidence: id === targetId ? 0.3 : 1,
         placement_status: "placed",
         ingest_state: id === targetId ? "suggested" : "approved",
@@ -496,10 +496,10 @@ test(`mounted Florida-shaped shell retains visual selection while Source Desk is
         anchor_text: clip.clip_id === targetId ? "Entire seasons lost." : null,
         asset_ref: clip.asset_id,
         asset_id: clip.asset_id,
-        asset_path: `visuals/${clip.asset_id}.png`,
+        asset_path: clip.clip_id === targetId ? `visuals/${clip.asset_id}.mp4` : `visuals/${clip.asset_id}.png`,
         storage_key: null,
         label: clip.label,
-        visual_mode: "image",
+        visual_mode: clip.clip_id === targetId ? "broll" : "image",
         start_sec: clip.start_sec,
         end_sec: clip.end_sec,
         confidence: clip.confidence,
@@ -568,8 +568,10 @@ test(`mounted Florida-shaped shell retains visual selection while Source Desk is
   await expect(target).toHaveClass(/is-selected/);
   await page.waitForTimeout(sourceDeskCase.settleBeforeSelectionMs);
   await expect(target).toHaveClass(/is-selected/);
-  await expect(page.getByText(`selected placement id: ${"placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2"}`, { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Remove Clip", exact: true })).toBeVisible();
+  await expect(page.getByLabel("Visual tools").getByRole("button", { name: "B-roll", exact: true })).toHaveClass(/is-selected/);
+  const removeTarget = page.getByRole("button", { name: `Remove selected B-roll clip ${"placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2"}`, exact: true });
+  await expect(removeTarget).toBeVisible();
+  await expect(removeTarget).toHaveAttribute("data-placement-id", "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2");
   const evidence = await page.evaluate(() => (window as any).__hammerMountedFloridaSelectionEvidence);
   expect(evidence.events.map((event: any) => event.event)).toEqual(["pointerdown", "mousedown", "focus", "pointerup", "click"]);
   expect(evidence.events.slice(0, 2).every((event: any) => event.target_id === "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2")).toBe(true);
@@ -580,6 +582,18 @@ test(`mounted Florida-shaped shell retains visual selection while Source Desk is
   ]);
   expect(evidence.emissions).toBe(emissionsBefore + 1);
   expect(mutationRequests).toEqual([]);
+  if (sourceDeskCase.mode === "success") {
+    await removeTarget.click();
+    await expect(target).toHaveCount(0);
+    await expect(page.getByText("History: 1 undo / 0 redo", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: /^Undo/ }).click();
+    await expect(target).toHaveCount(1);
+    await expect(page.getByText("History: 0 undo / 1 redo", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: /^Redo/ }).click();
+    await expect(target).toHaveCount(0);
+    await expect(page.getByText("History: 1 undo / 0 redo", { exact: true })).toBeVisible();
+    expect(mutationRequests).toEqual([]);
+  }
 });
 }
 
