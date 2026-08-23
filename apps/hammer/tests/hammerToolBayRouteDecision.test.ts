@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   compareHammerToolBayRouteToLegacy,
+  HAMMER_SUPPORTED_TOOL_BAY_SURFACES,
   resolveHammerToolBayRoute,
   type HammerToolBayLegacyComparison,
   type HammerToolBayRouteDecision,
@@ -10,9 +11,7 @@ import {
 } from "../src/editor/hammerToolBayRouteDecision";
 import type { HammerSelectedVisualContext, HammerSelectedVisualKind } from "../src/editor/hammerSelectedVisualContext";
 
-const ALL_SURFACES: readonly HammerToolBaySurface[] = [
-  "polish", "visual_polish", "images", "broll", "audio", "captions", "details", "finishing", "export",
-];
+const ALL_SURFACES: readonly HammerToolBaySurface[] = HAMMER_SUPPORTED_TOOL_BAY_SURFACES;
 
 function selected(kind: HammerSelectedVisualKind, placementId = `placement:${kind}`): HammerSelectedVisualContext {
   const image = kind === "image";
@@ -56,6 +55,7 @@ test("explicit image, B-roll, and reference selection reveal their frozen prefer
       }));
       assert.deepEqual(decision, {
         status: "resolved",
+        surface: kind === "image" ? "image_placement" : kind === "reference_clip" ? "reference_clip" : "broll",
         activeTool: "video",
         activeVisualTool: kind === "image" ? "images" : "broll",
         representativePass: kind === "image" ? "image_placement" : "image_animation",
@@ -153,6 +153,63 @@ test("current-pass and editor-mode routing resolves every canonical pass without
   }
 });
 
+test("exact manual surface routing covers all routable typed surfaces and documents pass completion as non-body", () => {
+  const activity = { commands: 0, selection: 0, history: 0, mutation: 0, persistence: 0 };
+  for (const surface of ALL_SURFACES) {
+    if (surface === "pass_completion") {
+      const decision = resolveHammerToolBayRoute(input({ intent: "manual_navigation", manualSelection: { activeTool: "audio", activeVisualTool: null, surface } }));
+      assert.equal(decision.status, "unsupported");
+      assert.equal(decision.status === "unsupported" && decision.reason, "surface_tool_disagreement");
+      continue;
+    }
+    const visual = ["visual_polish", "image_placement", "image_timing", "image_transform", "image_animation", "broll", "reference_clip"].includes(surface);
+    const activeVisualTool = surface === "visual_polish" ? "polish" : ["broll", "reference_clip"].includes(surface) ? "broll" : visual ? "images" : null;
+    const activeTool = ["transcript_cleanup", "retakes", "gap_pacing", "transcript_polish"].includes(surface) ? "polish"
+      : visual ? "video" : ["audio_finalization", "audio_adjustments"].includes(surface) ? "audio"
+      : surface === "captions" ? "captions" : surface === "metadata" ? "details"
+      : ["packaging", "finishing"].includes(surface) ? "finishing" : "export";
+    const decision = resolveHammerToolBayRoute(input({
+      intent: "manual_navigation",
+      manualSelection: { activeTool, activeVisualTool, surface },
+    }));
+    assert.equal(decision.status, "resolved", surface);
+    if (decision.status !== "resolved") continue;
+    assert.equal(decision.surface, surface);
+    assert.equal(decision.activeTool, activeTool);
+    assert.equal(decision.activeVisualTool, activeVisualTool);
+  }
+  assert.deepEqual(activity, { commands: 0, selection: 0, history: 0, mutation: 0, persistence: 0 });
+});
+
+test("audio surfaces retain one compatible pass without finalization collapse", () => {
+  for (const surface of ["audio_finalization", "audio_adjustments"] as const) {
+    const decision = resolveHammerToolBayRoute(input({
+      intent: "manual_navigation",
+      manualSelection: { activeTool: "audio", activeVisualTool: null, surface },
+    }));
+    assert.equal(decision.status, "resolved");
+    if (decision.status !== "resolved") continue;
+    assert.equal(decision.surface, surface);
+    assert.equal(decision.representativePass, "audio_finalization");
+  }
+  for (const intent of ["hydration_restoration", "passive_restoration"] as const) {
+    const decision = resolveHammerToolBayRoute(input({ intent, currentPass: "audio_finalization", editorMode: "assets", activeTool: "audio", activeVisualTool: null }));
+    assert.equal(decision.status, "preserve");
+  }
+  const restored = resolveHammerToolBayRoute(input({
+    currentPass: "audio_finalization", editorMode: "assets", activeTool: "audio", activeVisualTool: null,
+    activeSurface: "audio_adjustments", intent: "current_pass",
+  }));
+  assert.equal(restored.status, "resolved");
+  assert.equal(restored.status === "resolved" && restored.surface, "audio_adjustments");
+  const contradiction = resolveHammerToolBayRoute(input({
+    intent: "manual_navigation",
+    manualSelection: { activeTool: "captions", activeVisualTool: null, surface: "audio_adjustments" },
+  }));
+  assert.equal(contradiction.status, "unsupported");
+  assert.equal(contradiction.status === "unsupported" && contradiction.reason, "surface_tool_disagreement");
+});
+
 test("pass disagreement, missing fields, unknown fields, and unsupported surfaces fail closed", () => {
   const cases: Array<[Partial<HammerToolBayRouteInput>, string]> = [
     [{ currentPass: "audio_finalization", editorMode: "images", activeTool: "video" }, "pass_mode_disagreement"],
@@ -162,7 +219,7 @@ test("pass disagreement, missing fields, unknown fields, and unsupported surface
     [{ activeVisualTool: "mystery" }, "active_visual_tool_unknown"],
     [{ currentPass: "future_pass" }, "current_pass_unknown"],
     [{ editorMode: "future_mode" }, "editor_mode_unknown"],
-    [{ supportedSurfaces: ["audio"] }, "surface_not_supported"],
+    [{ supportedSurfaces: ["audio_finalization"] }, "surface_not_supported"],
   ];
   for (const [overrides, reason] of cases) {
     const decision = resolveHammerToolBayRoute(input(overrides));

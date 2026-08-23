@@ -12,21 +12,21 @@ import type { HammerToolBayRouteDecision } from "../src/editor/hammerToolBayRout
 
 const noop = (): void => undefined;
 const resolved: HammerToolBayRouteDecision = {
-  status: "resolved", activeTool: "polish", activeVisualTool: null, representativePass: "transcript_cleanup",
+  status: "resolved", surface: "transcript_cleanup", activeTool: "polish", activeVisualTool: null, representativePass: "transcript_cleanup",
   editorMode: "transcript", source: "current_pass", navigationPermitted: false, selectionPreserved: true,
 };
 const visualRoute: HammerToolBayRouteDecision = {
-  status: "resolved", activeTool: "video", activeVisualTool: "images", representativePass: "image_placement",
+  status: "resolved", surface: "image_placement", activeTool: "video", activeVisualTool: "images", representativePass: "image_placement",
   editorMode: "images", source: "explicit_selection", navigationPermitted: true, selectionPreserved: true,
 };
-const visualPolishRoute: HammerToolBayRouteDecision = { ...visualRoute, activeVisualTool: "polish", representativePass: "visual_finishing" };
-const brollRoute: HammerToolBayRouteDecision = { ...visualRoute, activeVisualTool: "broll", representativePass: "image_animation", editorMode: "broll" };
-const audioRoute: HammerToolBayRouteDecision = { ...resolved, activeTool: "audio", representativePass: "audio_finalization" };
-const captionsRoute: HammerToolBayRouteDecision = { ...resolved, activeTool: "captions" };
-const metadataRoute: HammerToolBayRouteDecision = { ...resolved, activeTool: "details" };
-const packagingRoute: HammerToolBayRouteDecision = { ...resolved, activeTool: "finishing", representativePass: "packaging", editorMode: "intro_outro" };
-const finishingRoute: HammerToolBayRouteDecision = { ...resolved, activeTool: "finishing" };
-const exportRoute: HammerToolBayRouteDecision = { ...resolved, activeTool: "export", representativePass: "ready" };
+const visualPolishRoute: HammerToolBayRouteDecision = { ...visualRoute, surface: "visual_polish", activeVisualTool: "polish", representativePass: "visual_finishing" };
+const brollRoute: HammerToolBayRouteDecision = { ...visualRoute, surface: "broll", activeVisualTool: "broll", representativePass: "image_animation", editorMode: "broll" };
+const audioRoute: HammerToolBayRouteDecision = { ...resolved, surface: "audio_finalization", activeTool: "audio", representativePass: "audio_finalization" };
+const captionsRoute: HammerToolBayRouteDecision = { ...resolved, surface: "captions", activeTool: "captions" };
+const metadataRoute: HammerToolBayRouteDecision = { ...resolved, surface: "metadata", activeTool: "details" };
+const packagingRoute: HammerToolBayRouteDecision = { ...resolved, surface: "packaging", activeTool: "finishing", representativePass: "packaging", editorMode: "intro_outro" };
+const finishingRoute: HammerToolBayRouteDecision = { ...resolved, surface: "finishing", activeTool: "finishing" };
+const exportRoute: HammerToolBayRouteDecision = { ...resolved, surface: "release_readiness", activeTool: "export", representativePass: "ready" };
 function selected(kind: "image" | "broll" | "reference_clip", placementId: string): HammerSelectedVisualContext {
   const image = kind === "image";
   return {
@@ -54,7 +54,7 @@ const releaseCommands = { focusIssue: noop, sendToQuench: noop };
 const image = selected("image", "placement:image");
 const broll = selected("broll", "placement:florida");
 const reference = selected("reference_clip", "placement:reference");
-const fixtures: readonly HammerToolBayContextBuildInput[] = [
+const rawFixtures: readonly HammerToolBayContextBuildInput[] = [
   { surface: "transcript_cleanup", route: resolved, data: { selectedCandidateId: "candidate:1", candidateIds: ["candidate:1"], previewId: "preview:1" }, commands: transcriptCleanupCommands },
   { surface: "retakes", route: resolved, data: { selectedCandidateId: null, candidateIds: [] }, commands: retakeCommands },
   { surface: "gap_pacing", route: resolved, data: { selectedCandidateId: null, candidateIds: [] }, commands: retakeCommands },
@@ -76,6 +76,9 @@ const fixtures: readonly HammerToolBayContextBuildInput[] = [
   { surface: "export", route: exportRoute, data: { handoffAvailable: false, openHref: null, exportStatusLabel: "Not prepared", readinessLabel: "Blocked", readinessStatus: "blocked", blockerCount: 1, reviewCount: 0, outputSelectionSummary: "Canonical", previewTruthPosture: "authoritative", exportTruthPosture: "not prepared", handoffTruthPosture: "blocked", unresolvedBrollCount: 0, blockingReasons: [], reviewReasons: [], captionSafetyState: "safe", captionSafetyLabel: "Safe", captionSummaryLine: "Ready", captionSourceLabel: "canonical", captionSafetyDetail: "Current", renderStatus: null, loading: false, sending: false, sendLabel: "Send to Quench", preparedPackage: null, exportTruthState: "never_prepared", staleReasons: [], handoffStatus: null, savedPackage: null, error: null }, commands: releaseCommands },
   { surface: "pass_completion", route: resolved, data: { passLabel: "Cleanup", passStatus: "in_progress", complete: false }, commands: { markPassComplete: noop } },
 ];
+const fixtures: readonly HammerToolBayContextBuildInput[] = rawFixtures.map((fixture) => fixture.route.status === "resolved"
+  ? { ...fixture, route: { ...fixture.route, surface: fixture.surface } } as HammerToolBayContextBuildInput
+  : fixture);
 
 test("every HTB-0 surface builds exactly one discriminated context with narrow data and commands", () => {
   assert.deepEqual(fixtures.map((fixture) => fixture.surface), HAMMER_TOOL_BAY_CONTEXT_SURFACES);
@@ -124,7 +127,7 @@ test("unresolved routes, missing selection, identity mismatch, kind mismatch, an
     { surface: "image_placement", route: visualRoute, data: { selectedVisual: { status: "none" }, placementId: "placement:image", anchorSegmentId: null }, commands: imagePlacementCommands },
     { surface: "image_placement", route: visualRoute, data: { selectedVisual: image, placementId: "placement:other", anchorSegmentId: null }, commands: imagePlacementCommands },
     { surface: "broll", route: brollRoute, data: { selectedVisual: image, placementId: "placement:image", bindingId: null }, commands: brollCommands },
-    { surface: "image_transform", route: visualRoute, data: { selectedVisual: withoutTransform, placementId: "placement:image", transform: { placementId: "placement:image", leftPct: 0, topPct: 0, widthPct: 10, heightPct: 10 } }, commands: imageTransformCommands },
+    { surface: "image_transform", route: { ...visualRoute, surface: "image_transform" }, data: { selectedVisual: withoutTransform, placementId: "placement:image", transform: { placementId: "placement:image", leftPct: 0, topPct: 0, widthPct: 10, heightPct: 10 } }, commands: imageTransformCommands },
   ];
   assert.deepEqual(cases.map((fixture) => {
     const result = buildHammerToolBayContext(fixture);

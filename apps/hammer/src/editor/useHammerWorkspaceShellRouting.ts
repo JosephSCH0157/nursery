@@ -10,6 +10,7 @@ import {
   resolveHammerToolBayEditorModeForPass,
   resolveHammerToolBayRoute,
   type HammerToolBayRouteDecision,
+  type HammerToolBaySurface,
   type HammerToolBayUnsupportedReason,
 } from "./hammerToolBayRouteDecision";
 import {
@@ -40,6 +41,7 @@ export type UseHammerWorkspaceShellRoutingArgs = {
   videoPanelRoute: HammerVideoPanelRoute;
   selectedVisualContext: HammerSelectedVisualContext;
   unsupportedReason: HammerToolBayUnsupportedReason | null;
+  activeSurface: HammerToolBaySurface | null;
   passSelectorContextRef: MutableRefObject<HammerPassSelectorContext | null>;
   currentPassSelectorResultRef: MutableRefObject<HammerPassSelectorResult | null>;
   setCurrentPass: Dispatch<SetStateAction<HammerPassId>>;
@@ -48,6 +50,7 @@ export type UseHammerWorkspaceShellRoutingArgs = {
   setFocusOverride: Dispatch<SetStateAction<HammerWorkspaceFocusOverride>>;
   setTranscriptTimingHint: Dispatch<SetStateAction<string | null>>;
   setUnsupportedReason: Dispatch<SetStateAction<HammerToolBayUnsupportedReason | null>>;
+  setActiveSurface: Dispatch<SetStateAction<HammerToolBaySurface | null>>;
 };
 
 export type UseHammerWorkspaceShellRoutingResult = {
@@ -73,6 +76,7 @@ export function useHammerWorkspaceShellRouting(
     videoPanelRoute,
     selectedVisualContext,
     unsupportedReason,
+    activeSurface,
     passSelectorContextRef,
     currentPassSelectorResultRef,
     setCurrentPass,
@@ -81,14 +85,16 @@ export function useHammerWorkspaceShellRouting(
     setFocusOverride,
     setTranscriptTimingHint,
     setUnsupportedReason,
+    setActiveSurface,
   } = args;
 
   const applyRouteDecision = useCallback((decision: HammerToolBayRouteDecision): void => {
     applyHammerToolBayRouteDecision({
-      decision, currentPass, editorMode, unsupportedReason,
+      decision, currentPass, editorMode, unsupportedReason, currentSurface: activeSurface,
       setCurrentPass, setEditorMode, setUnsupportedReason,
+      setSurface: setActiveSurface,
     });
-  }, [currentPass, editorMode, setCurrentPass, setEditorMode, setUnsupportedReason, unsupportedReason]);
+  }, [activeSurface, currentPass, editorMode, setActiveSurface, setCurrentPass, setEditorMode, setUnsupportedReason, unsupportedReason]);
 
   useEffect(() => {
     setPassStatus((previous) => normalizePassStatus(previous, currentPass));

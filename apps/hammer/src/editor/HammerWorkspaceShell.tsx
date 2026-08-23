@@ -144,6 +144,7 @@ import {
   resolveHammerToolBayEditorModeForPass,
   resolveHammerToolBayRoute,
   type HammerToolBayRouteDecision,
+  type HammerToolBaySurface,
   type HammerToolBayUnsupportedReason,
 } from "./hammerToolBayRouteDecision";
 import {
@@ -431,12 +432,11 @@ function HammerWorkspaceShellWithContext(
   );
   const transcriptSourceId = props.structuredTranscript?.transcript_id
     ?? (launchContext.transcript.kind === "tongs-stub" ? launchContext.transcript.transcript_id : "runtime-transcript");
-
   const initialCurrentPass = resolveInitialPassId(props.initialCurrentPass);
   const [currentPass, setCurrentPass] = useState<HammerPassId>(initialCurrentPass);
   const [passStatus, setPassStatus] = useState<HammerPassStatusMap>(() => deriveHydratedPassStatus(initialCurrentPass));
   const [editorMode, setEditorMode] = useState<HammerEditorMode>(() => resolveHammerToolBayEditorModeForPass(initialCurrentPass));
-  const [toolBayUnsupportedReason, setToolBayUnsupportedReason] = useState<HammerToolBayUnsupportedReason | null>(null);
+  const [toolBayUnsupportedReason, setToolBayUnsupportedReason] = useState<HammerToolBayUnsupportedReason | null>(null); const [activeToolBaySurface, setActiveToolBaySurface] = useState<HammerToolBaySurface | null>(null);
   const [selectedBoundBrollOperationId, setSelectedBoundBrollOperationId] = useState<string | null>(null);
   const [editableDerivedTextLayers, setEditableDerivedTextLayers] = useState<
     HammerPersistedStructuredTranscript["derived_text_layers"]
@@ -1311,9 +1311,9 @@ function HammerWorkspaceShellWithContext(
     timeline: compositionVisualTimeline, selectedPlacementId: linkedPrimaryVisualId ?? effectiveSelectedClipId,
   }), [compositionVisualTimeline, effectiveSelectedClipId, linkedPrimaryVisualId]);
   const resolvedToolBayRouteDecision = useMemo(() => resolveHammerToolBayRoute({
-    selectedVisualContext, currentPass, editorMode, activeTool, activeVisualTool,
+    selectedVisualContext, currentPass, editorMode, activeTool, activeVisualTool, activeSurface: activeToolBaySurface,
     intent: "current_pass", lifecycleSettled: true, supportedSurfaces: HAMMER_SUPPORTED_TOOL_BAY_SURFACES,
-  }), [activeTool, activeVisualTool, currentPass, editorMode, selectedVisualContext]);
+  }), [activeTool, activeToolBaySurface, activeVisualTool, currentPass, editorMode, selectedVisualContext]);
   const toolBayRouteDecision: HammerToolBayRouteDecision = resolvedToolBayRouteDecision.status === "unsupported"
     ? resolvedToolBayRouteDecision
     : toolBayUnsupportedReason
@@ -1322,11 +1322,11 @@ function HammerWorkspaceShellWithContext(
   const {
     selectEditorMode, selectPass, selectVisualTool, applyRouteDecision: applyToolBayRouteDecision, markCurrentPassComplete,
   } = useHammerWorkspaceShellRouting({
-    currentPass, editorMode, activeTool, activeVisualTool, selectedSourceTab, videoPanelRoute,
+    currentPass, editorMode, activeTool, activeVisualTool, activeSurface: activeToolBaySurface, selectedSourceTab, videoPanelRoute,
     selectedVisualContext, unsupportedReason: toolBayUnsupportedReason,
     passSelectorContextRef, currentPassSelectorResultRef,
     setCurrentPass, setPassStatus, setEditorMode, setFocusOverride, setTranscriptTimingHint,
-    setUnsupportedReason: setToolBayUnsupportedReason,
+    setUnsupportedReason: setToolBayUnsupportedReason, setActiveSurface: setActiveToolBaySurface,
   });
   const selectedImagePlacement = useMemo(
     () => sourceVisualPlacementItems.find((item) => item.id === (linkedPrimaryVisualId ?? effectiveSelectedClipId)) ?? null,

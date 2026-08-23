@@ -54,10 +54,10 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
     commands: { markPassComplete: args.markPassComplete },
   });
   const typedCompletion = completion.surface === "pass_completion" ? completion : null;
-  if (args.route.activeTool !== "export") return { completion: typedCompletion, body: null };
+  if (args.route.surface !== "release_readiness" && args.route.surface !== "export") return { completion: typedCompletion, body: null };
 
   const releaseCommands = { focusIssue: args.focusIssue, sendToQuench: args.sendToQuench };
-  const body = args.currentPass === "ready"
+  const body = args.route.surface === "release_readiness"
     ? buildHammerToolBayContext({ surface: "release_readiness", route: args.route, data: args.readinessData, commands: releaseCommands })
     : buildHammerToolBayContext({ surface: "export", route: args.route, data: args.exportData, commands: releaseCommands });
   return {

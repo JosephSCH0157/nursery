@@ -2,6 +2,8 @@ import type { HammerPassId } from "../persistence/hammerPersistenceContract";
 import type { HammerSelectedVisualContext } from "./hammerSelectedVisualContext";
 import type { HammerEditorMode, HammerVisualToolRackId } from "./hammerWorkspaceShellCore";
 import type { HammerWorkspaceToolId } from "./hammerWorkspaceTimeline";
+import type { HammerToolBayContextSurface } from "./hammerToolBayContext";
+import { HAMMER_TOOL_BAY_CONTEXT_SURFACES } from "./hammerToolBayContext";
 
 export type HammerToolBayRouteIntent =
   | "explicit_visual_selection"
@@ -12,16 +14,7 @@ export type HammerToolBayRouteIntent =
   | "editor_mode"
   | "current_pass";
 
-export type HammerToolBaySurface =
-  | "polish"
-  | "visual_polish"
-  | "images"
-  | "broll"
-  | "audio"
-  | "captions"
-  | "details"
-  | "finishing"
-  | "export";
+export type HammerToolBaySurface = HammerToolBayContextSurface;
 
 export type HammerToolBayRouteReason =
   | "passive_selection_preserved"
@@ -37,6 +30,10 @@ export type HammerToolBayRouteReason =
   | "pass_mode_disagreement"
   | "tool_pass_disagreement"
   | "visual_tool_pass_disagreement"
+  | "surface_tool_disagreement"
+  | "surface_visual_tool_disagreement"
+  | "surface_pass_disagreement"
+  | "surface_unknown"
   | "surface_not_supported"
   | "selected_visual_unsupported";
 
@@ -48,6 +45,7 @@ type RouteInvariants = Readonly<{
 export type HammerToolBayRouteDecision =
   | (RouteInvariants & Readonly<{
       status: "resolved";
+      surface: HammerToolBaySurface;
       activeTool: HammerWorkspaceToolId;
       activeVisualTool: HammerVisualToolRackId | null;
       representativePass: HammerPassId;
@@ -84,11 +82,13 @@ export type HammerToolBayRouteInput = Readonly<{
   editorMode: HammerEditorMode | string | null;
   activeTool: HammerWorkspaceToolId | string | null;
   activeVisualTool: HammerVisualToolRackId | string | null;
+  activeSurface?: HammerToolBaySurface | string | null;
   intent: HammerToolBayRouteIntent;
   lifecycleSettled: boolean;
   manualSelection?: Readonly<{
     activeTool: HammerWorkspaceToolId | string;
     activeVisualTool: HammerVisualToolRackId | string | null;
+    surface?: HammerToolBaySurface | string;
   }>;
   supportedSurfaces: readonly HammerToolBaySurface[];
 }>;
@@ -113,9 +113,7 @@ const PASS_IDS: readonly HammerPassId[] = [
 const EDITOR_MODES: readonly HammerEditorMode[] = ["transcript", "images", "assets", "broll", "intro_outro"];
 const TOOLS: readonly HammerWorkspaceToolId[] = ["polish", "audio", "video", "captions", "details", "finishing", "export"];
 const VISUAL_TOOLS: readonly HammerVisualToolRackId[] = ["polish", "images", "broll"];
-export const HAMMER_SUPPORTED_TOOL_BAY_SURFACES: readonly HammerToolBaySurface[] = [
-  "polish", "visual_polish", "images", "broll", "audio", "captions", "details", "finishing", "export",
-];
+export const HAMMER_SUPPORTED_TOOL_BAY_SURFACES: readonly HammerToolBaySurface[] = HAMMER_TOOL_BAY_CONTEXT_SURFACES;
 
 const isPass = (value: string | null): value is HammerPassId => PASS_IDS.some((candidate) => candidate === value);
 const isEditorMode = (value: string | null): value is HammerEditorMode => EDITOR_MODES.some((candidate) => candidate === value);
@@ -156,21 +154,49 @@ export function deriveHammerToolBayRouteState(pass: HammerPassId, mode: HammerEd
   return route.mode === mode ? { activeTool: route.tool, activeVisualTool: route.visualTool } : null;
 }
 
-function surfaceFor(tool: HammerWorkspaceToolId, visualTool: HammerVisualToolRackId | null): HammerToolBaySurface {
-  if (tool === "video") return visualTool === "polish" ? "visual_polish" : visualTool === "broll" ? "broll" : "images";
-  return tool;
+function surfaceForPass(pass: HammerPassId, selected: HammerSelectedVisualContext): HammerToolBaySurface {
+  if (pass === "transcript_cleanup" || pass === "retakes" || pass === "gap_pacing") return pass;
+  if (pass === "visual_finishing") return "visual_polish";
+  if (pass === "image_placement") return "image_placement";
+  if (pass === "image_animation") return selected.status === "selected" && selected.kind === "reference_clip" ? "reference_clip" : "broll";
+  if (pass === "audio_finalization") return "audio_finalization";
+  if (pass === "packaging") return "packaging";
+  return "release_readiness";
 }
 
-function representativePass(tool: HammerWorkspaceToolId, visualTool: HammerVisualToolRackId | null, currentPass: HammerPassId): HammerPassId {
-  if (tool === "video") return visualTool === "polish" ? "visual_finishing" : visualTool === "broll" ? "image_animation" : "image_placement";
-  if (tool === "polish") return passRoute(currentPass).tool === "polish" ? currentPass : "transcript_cleanup";
-  if (tool === "audio") return "audio_finalization";
-  if (tool === "finishing") return "packaging";
-  if (tool === "export") return "ready";
-  return currentPass;
+function surfaceTool(surface: HammerToolBaySurface): HammerWorkspaceToolId | null {
+  if (["transcript_cleanup", "retakes", "gap_pacing", "transcript_polish"].includes(surface)) return "polish";
+  if (["visual_polish", "image_placement", "image_timing", "image_transform", "image_animation", "broll", "reference_clip"].includes(surface)) return "video";
+  if (surface === "audio_finalization" || surface === "audio_adjustments") return "audio";
+  if (surface === "captions") return "captions";
+  if (surface === "metadata") return "details";
+  if (surface === "packaging" || surface === "finishing") return "finishing";
+  if (surface === "release_readiness" || surface === "export") return "export";
+  return null;
+}
+
+function visualToolForSurface(surface: HammerToolBaySurface): HammerVisualToolRackId | null {
+  if (surface === "visual_polish") return "polish";
+  if (["image_placement", "image_timing", "image_transform", "image_animation"].includes(surface)) return "images";
+  if (surface === "broll" || surface === "reference_clip") return "broll";
+  return null;
+}
+
+function passForSurface(surface: HammerToolBaySurface, currentPass: HammerPassId): HammerPassId | null {
+  if (surface === "transcript_cleanup" || surface === "retakes" || surface === "gap_pacing") return surface;
+  if (surface === "transcript_polish") return "transcript_cleanup";
+  if (surface === "visual_polish") return "visual_finishing";
+  if (["image_placement", "image_timing", "image_transform"].includes(surface)) return "image_placement";
+  if (surface === "image_animation" || surface === "broll" || surface === "reference_clip") return "image_animation";
+  if (surface === "audio_finalization" || surface === "audio_adjustments") return "audio_finalization";
+  if (surface === "packaging") return "packaging";
+  if (surface === "release_readiness" || surface === "export") return "ready";
+  if (surface === "captions" || surface === "metadata" || surface === "finishing") return currentPass;
+  return null;
 }
 
 function resolved(args: {
+  surface: HammerToolBaySurface;
   tool: HammerWorkspaceToolId;
   visualTool: HammerVisualToolRackId | null;
   pass: HammerPassId;
@@ -179,7 +205,7 @@ function resolved(args: {
   navigationPermitted: boolean;
 }): HammerToolBayRouteDecision {
   return {
-    status: "resolved", activeTool: args.tool, activeVisualTool: args.visualTool,
+    status: "resolved", surface: args.surface, activeTool: args.tool, activeVisualTool: args.visualTool,
     representativePass: args.pass, editorMode: args.editorMode, source: args.source,
     navigationPermitted: args.navigationPermitted, selectionPreserved: true,
   };
@@ -196,8 +222,9 @@ export function resolveHammerToolBayRoute(input: HammerToolBayRouteInput): Hamme
     if (input.selectedVisualContext.status === "unsupported") return unsupported(input, "selected_visual_unsupported");
     if (input.selectedVisualContext.status === "none") return preserve("explicit_selection_missing");
     const visualTool = input.selectedVisualContext.preferredTool;
-    if (!input.supportedSurfaces.includes(surfaceFor("video", visualTool))) return unsupported(input, "surface_not_supported");
-    return resolved({ tool: "video", visualTool, pass: input.selectedVisualContext.preferredPass, editorMode: visualTool === "broll" ? "broll" : "images", source: "explicit_selection", navigationPermitted: true });
+    const surface = input.selectedVisualContext.kind === "image" ? "image_placement" : input.selectedVisualContext.kind === "reference_clip" ? "reference_clip" : "broll";
+    if (!input.supportedSurfaces.includes(surface)) return unsupported(input, "surface_not_supported");
+    return resolved({ surface, tool: "video", visualTool, pass: input.selectedVisualContext.preferredPass, editorMode: visualTool === "broll" ? "broll" : "images", source: "explicit_selection", navigationPermitted: true });
   }
 
   if (!isPass(input.currentPass)) return unsupported(input, "current_pass_unknown");
@@ -207,6 +234,12 @@ export function resolveHammerToolBayRoute(input: HammerToolBayRouteInput): Hamme
     const visualValue = input.manualSelection ? input.manualSelection.activeVisualTool : input.activeVisualTool;
     if (toolValue === null) return input.manualSelection ? preserve("manual_destination_unavailable") : unsupported(input, "active_tool_missing");
     if (!isTool(toolValue)) return input.manualSelection ? preserve("manual_destination_unavailable") : unsupported(input, "active_tool_unknown");
+    const requestedSurfaceValue = input.manualSelection?.surface ?? null;
+    const requestedSurface = requestedSurfaceValue !== null && input.supportedSurfaces.some((candidate) => candidate === requestedSurfaceValue)
+      ? requestedSurfaceValue as HammerToolBaySurface
+      : null;
+    if (requestedSurfaceValue !== null && requestedSurface === null) return unsupported(input, "surface_unknown");
+    if (requestedSurface && surfaceTool(requestedSurface) !== toolValue) return unsupported(input, "surface_tool_disagreement");
     if (toolValue === "video") {
       if (visualValue === null) return preserve("manual_visual_tool_missing");
       if (!isVisualTool(visualValue)) return input.manualSelection ? preserve("manual_destination_unavailable") : unsupported(input, "active_visual_tool_unknown");
@@ -215,11 +248,18 @@ export function resolveHammerToolBayRoute(input: HammerToolBayRouteInput): Hamme
       if (selected.status === "selected" && visualValue !== "polish" && visualValue !== selected.preferredTool) {
         return preserve("manual_visual_surface_incompatible");
       }
-      if (!input.supportedSurfaces.includes(surfaceFor(toolValue, visualValue))) return preserve("manual_visual_surface_incompatible");
-      return resolved({ tool: toolValue, visualTool: visualValue, pass: representativePass(toolValue, visualValue, input.currentPass), editorMode: visualValue === "broll" ? "broll" : "images", source: "manual_navigation", navigationPermitted: true });
+      const surface = requestedSurface ?? (visualValue === "polish" ? "visual_polish" : visualValue === "images" ? "image_placement" : selected.status === "selected" && selected.kind === "reference_clip" ? "reference_clip" : "broll");
+      if (visualToolForSurface(surface) !== visualValue) return requestedSurface ? unsupported(input, "surface_visual_tool_disagreement") : preserve("manual_visual_surface_incompatible");
+      const pass = passForSurface(surface, input.currentPass);
+      if (!pass || !input.supportedSurfaces.includes(surface)) return preserve("manual_visual_surface_incompatible");
+      return resolved({ surface, tool: toolValue, visualTool: visualValue, pass, editorMode: visualValue === "broll" ? "broll" : "images", source: "manual_navigation", navigationPermitted: true });
     }
-    if (!input.supportedSurfaces.includes(surfaceFor(toolValue, null))) return preserve("manual_destination_unavailable");
-    return resolved({ tool: toolValue, visualTool: null, pass: representativePass(toolValue, null, input.currentPass), editorMode: toolValue === "audio" ? "assets" : toolValue === "finishing" ? "intro_outro" : "transcript", source: "manual_navigation", navigationPermitted: true });
+    const surface = requestedSurface ?? (toolValue === "polish" ? (["transcript_cleanup", "retakes", "gap_pacing"].includes(input.currentPass) ? input.currentPass as HammerToolBaySurface : "transcript_cleanup")
+      : toolValue === "audio" ? "audio_finalization" : toolValue === "captions" ? "captions" : toolValue === "details" ? "metadata"
+      : toolValue === "finishing" ? "packaging" : "release_readiness");
+    const pass = passForSurface(surface, input.currentPass);
+    if (!pass || !input.supportedSurfaces.includes(surface)) return preserve("manual_destination_unavailable");
+    return resolved({ surface, tool: toolValue, visualTool: null, pass, editorMode: toolValue === "audio" ? "assets" : toolValue === "finishing" ? "intro_outro" : "transcript", source: "manual_navigation", navigationPermitted: true });
   }
 
   if (input.editorMode === null) return unsupported(input, "editor_mode_unknown");
@@ -234,8 +274,18 @@ export function resolveHammerToolBayRoute(input: HammerToolBayRouteInput): Hamme
     if (!isVisualTool(input.activeVisualTool)) return unsupported(input, "active_visual_tool_unknown");
     if (route.visualTool !== input.activeVisualTool) return unsupported(input, "visual_tool_pass_disagreement");
   }
-  if (!input.supportedSurfaces.includes(surfaceFor(route.tool, route.visualTool))) return unsupported(input, "surface_not_supported");
-  return resolved({ tool: route.tool, visualTool: route.visualTool, pass: input.currentPass, editorMode: route.mode, source: input.intent, navigationPermitted: false });
+  const defaultSurface = surfaceForPass(input.currentPass, input.selectedVisualContext);
+  const activeSurfaceValue = input.activeSurface ?? null;
+  const activeSurface = activeSurfaceValue !== null && input.supportedSurfaces.some((candidate) => candidate === activeSurfaceValue)
+    ? activeSurfaceValue as HammerToolBaySurface
+    : null;
+  if (activeSurfaceValue !== null && activeSurface === null) return unsupported(input, "surface_unknown");
+  if (activeSurface && surfaceTool(activeSurface) !== route.tool) return unsupported(input, "surface_tool_disagreement");
+  if (activeSurface && visualToolForSurface(activeSurface) !== route.visualTool) return unsupported(input, "surface_visual_tool_disagreement");
+  if (activeSurface && passForSurface(activeSurface, input.currentPass) !== input.currentPass) return unsupported(input, "surface_pass_disagreement");
+  const surface = activeSurface ?? defaultSurface;
+  if (!input.supportedSurfaces.includes(surface)) return unsupported(input, "surface_not_supported");
+  return resolved({ surface, tool: route.tool, visualTool: route.visualTool, pass: input.currentPass, editorMode: route.mode, source: input.intent, navigationPermitted: false });
 }
 
 export function compareHammerToolBayRouteToLegacy(

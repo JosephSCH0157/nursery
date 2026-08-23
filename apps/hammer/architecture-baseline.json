@@ -24,6 +24,10 @@
     "remainingLegacySurfaceCount": 17,
     "legacyRemovalDeadline": "HTB-3B completion"
   },
+  "exactToolBayRouting": {
+    "surfaceCount": 20,
+    "surfaceAuthority": "HammerToolBayContextSurface"
+  },
   "extractedControllers": {
     "src/editor/hammerAutomaticPlacementController.ts": { "maxLines": 100 },
     "src/editor/hammerWorkspaceEditorLifecycle.ts": { "maxLines": 100 },

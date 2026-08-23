@@ -204,17 +204,7 @@ function visualRequirement(input: HammerToolBayContextBuildInput): HammerUnsuppo
 }
 
 function routeMatchesSurface(surface: HammerToolBayContextSurface, route: HammerResolvedToolBayRoute): boolean {
-  if (["transcript_cleanup", "retakes", "gap_pacing", "transcript_polish"].includes(surface)) return route.activeTool === "polish";
-  if (surface === "visual_polish") return route.activeTool === "video" && route.activeVisualTool === "polish";
-  if (surface.startsWith("image_")) return route.activeTool === "video" && route.activeVisualTool === "images";
-  if (surface === "broll" || surface === "reference_clip") return route.activeTool === "video" && route.activeVisualTool === "broll";
-  if (surface === "audio_finalization" || surface === "audio_adjustments") return route.activeTool === "audio";
-  if (surface === "captions") return route.activeTool === "captions";
-  if (surface === "metadata") return route.activeTool === "details";
-  if (surface === "packaging") return route.activeTool === "finishing" && route.representativePass === "packaging";
-  if (surface === "finishing") return route.activeTool === "finishing";
-  if (surface === "release_readiness" || surface === "export") return route.activeTool === "export";
-  return surface === "pass_completion";
+  return surface === "pass_completion" || surface === route.surface;
 }
 
 export function buildHammerToolBayContext(input: HammerToolBayContextBuildInput): HammerToolBayContext {

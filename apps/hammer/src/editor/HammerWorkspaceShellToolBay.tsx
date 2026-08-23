@@ -440,7 +440,7 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
     if (committedText.trim()) return committedText;
     return selectedTranscriptRange?.text ?? "";
   }
-  const unsupportedRoute = p.runtimeContexts.body?.surface === "unsupported";
+  const unsupportedRoute = p.runtimeContexts.body?.surface === "unsupported"; const activeSurface = vm.routeDecision?.status === "resolved" ? vm.routeDecision.surface : null;
   return (
     <>
       {p.runtimeContexts.completion ? <HammerTypedPassCompletionHeader context={p.runtimeContexts.completion} /> : <header className="hammer-bay-head">
@@ -1587,8 +1587,8 @@ export default function HammerWorkspaceShellToolBay(p: { vm: HammerWorkspaceShel
                 )
               ) : null}
 
-              {activeTool === "audio" ? (
-                currentPass === "audio_finalization" ? (
+              {activeSurface === "audio_finalization" || activeSurface === "audio_adjustments" ? (
+                activeSurface === "audio_finalization" ? (
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">Audio Finalization</header>
 

@@ -6,8 +6,8 @@ import { HammerTypedPassCompletionHeader, HammerTypedToolBayBody } from "../src/
 import { assembleHammerToolBayRuntimeContexts, HAMMER_MIGRATED_TOOL_BAY_SURFACES } from "../src/editor/hammerToolBayRuntimeContext";
 import type { HammerToolBayRouteDecision } from "../src/editor/hammerToolBayRouteDecision";
 
-const resolved: HammerToolBayRouteDecision = {
-  status: "resolved", activeTool: "export", activeVisualTool: null, representativePass: "ready",
+const resolved: Extract<HammerToolBayRouteDecision, { status: "resolved" }> = {
+  status: "resolved", surface: "release_readiness", activeTool: "export", activeVisualTool: null, representativePass: "ready",
   editorMode: "transcript", source: "current_pass", navigationPermitted: false, selectionPreserved: true,
 };
 const unsupported: HammerToolBayRouteDecision = {
@@ -20,8 +20,9 @@ function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "rea
   const markPassComplete = (): void => { activity.completion += 1; };
   const focusIssue = (): void => { activity.focus += 1; };
   const sendToQuench = (): void => { activity.send += 1; };
+  const exactRoute = currentPass === "packaging" && route.status === "resolved" ? { ...route, surface: "export" as const } : route;
   const contexts = assembleHammerToolBayRuntimeContexts({
-    route, currentPass, passLabel: "Ready", passStatus: "in_progress",
+    route: exactRoute, currentPass, passLabel: "Ready", passStatus: "in_progress",
     readinessData: {
       summaryAreas: [{ id: "audio", label: "Audio Finalization", status: "complete" }],
       readinessLabel: "Ready for export", blockerCount: 0, reviewCount: 0,
@@ -87,7 +88,7 @@ test("missing migrated data fails closed and never produces a legacy body", () =
 });
 
 test("migrated and legacy switching is deterministic and mount-safe", () => {
-  const legacyRoute: HammerToolBayRouteDecision = { ...resolved, activeTool: "audio", representativePass: "audio_finalization", editorMode: "assets" };
+  const legacyRoute: HammerToolBayRouteDecision = { ...resolved, surface: "audio_finalization", activeTool: "audio", representativePass: "audio_finalization", editorMode: "assets" };
   const sequence = [fixture().contexts, fixture(resolved, "packaging").contexts, fixture(legacyRoute).contexts, fixture().contexts, fixture(unsupported).contexts];
   assert.deepEqual(sequence.map((item) => item.body?.surface ?? "legacy"), ["release_readiness", "export", "legacy", "release_readiness", "unsupported"]);
   for (const item of sequence) {

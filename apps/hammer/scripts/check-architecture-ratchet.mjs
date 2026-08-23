@@ -105,7 +105,7 @@ const toolBayRouteResolver = inspect("src/editor/hammerToolBayRouteDecision.ts")
 const routeImports = [...toolBayRouteResolver.matchAll(/from\s+["']([^"']+)["']/g)].map((match) => match[1]);
 const allowedRouteImports = new Set([
   "../persistence/hammerPersistenceContract", "./hammerSelectedVisualContext",
-  "./hammerWorkspaceShellCore", "./hammerWorkspaceTimeline",
+  "./hammerWorkspaceShellCore", "./hammerWorkspaceTimeline", "./hammerToolBayContext",
 ]);
 for (const routeImport of routeImports) if (!allowedRouteImports.has(routeImport)) failures.push(`src/editor/hammerToolBayRouteDecision.ts: route resolver acquired non-permitted import ${routeImport}.`);
 for (const [pattern, message] of [
@@ -113,6 +113,12 @@ for (const [pattern, message] of [
   [/\b(?:saveHammer|loadHammer|fetch|localStorage|sessionStorage|onWorkspaceSnapshotChange)\b/, "Route resolver acquired I/O or persistence ownership."],
   [/\b(?:dispatch|setSelected|setCurrentPass|setEditorMode|applyHistoryMutation|hammerVisualTimelineReducer)\s*\(/, "Route resolver acquired selection, navigation, reducer, or history command ownership."],
 ]) if (pattern.test(toolBayRouteResolver)) failures.push(`src/editor/hammerToolBayRouteDecision.ts: ${message}`);
+if (!/status:\s*["']resolved["'],\s*surface:\s*args\.surface/.test(toolBayRouteResolver)) failures.push("Canonical Tool Bay route decisions must carry the exact typed-context surface.");
+if (!/HAMMER_SUPPORTED_TOOL_BAY_SURFACES[^=]*=\s*HAMMER_TOOL_BAY_CONTEXT_SURFACES/.test(toolBayRouteResolver)) failures.push("Canonical routing duplicated the typed Tool Bay surface vocabulary.");
+if (baseline.exactToolBayRouting.surfaceCount !== baseline.typedToolBayContext.surfaceCount) failures.push("Exact Tool Bay routing must cover the complete typed surface inventory.");
+if ((toolBayRouteResolver.match(/"audio_finalization"/g) ?? []).length === 0 || (toolBayRouteResolver.match(/"audio_adjustments"/g) ?? []).length === 0) failures.push("Canonical Tool Bay routing must distinguish both audio surfaces.");
+if (/currentPass\s*!==\s*["']audio_finalization["']|currentPass\s*===\s*["']audio_finalization["']/.test(toolBay)) failures.push("Tool Bay JSX reacquired audio routing through currentPass instead of the canonical surface.");
+if (!/routeDecision\?\.status === ["']resolved["'] \? vm\.routeDecision\.surface/.test(toolBay)) failures.push("Tool Bay must consume the canonical exact surface discriminator.");
 const toolBayRouteApplication = inspect("src/editor/hammerToolBayRouteApplication.ts").text;
 for (const [pattern, message] of [
   [/\buse(?:State|Effect|Memo|Ref|Callback)\s*\(/, "Route application acquired React lifecycle ownership."],

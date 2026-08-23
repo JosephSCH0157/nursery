@@ -88,6 +88,28 @@ test("passive, hydration, manual rejection, and unsupported application preserve
   }
 });
 
+test("audio-adjustments route application preserves exact surface and is idempotent", () => {
+  const decision = resolveHammerToolBayRoute(routeInput({ status: "none" }, {
+    currentPass: "audio_finalization", editorMode: "assets", activeTool: "audio", activeVisualTool: null,
+    intent: "manual_navigation", manualSelection: { activeTool: "audio", activeVisualTool: null, surface: "audio_adjustments" },
+  }));
+  assert.equal(decision.status, "resolved");
+  if (decision.status !== "resolved") return;
+  let surface: import("../src/editor/hammerToolBayRouteDecision").HammerToolBaySurface | null = "audio_finalization";
+  let writes = 0;
+  const apply = () => applyHammerToolBayRouteDecision({
+    decision, currentPass: "audio_finalization", editorMode: "assets", unsupportedReason: null,
+    currentSurface: surface, setCurrentPass: () => { writes += 1; }, setEditorMode: () => { writes += 1; },
+    setUnsupportedReason: () => { writes += 1; }, setSurface: (next) => { writes += 1; surface = next; },
+  });
+  assert.equal(decision.surface, "audio_adjustments");
+  assert.deepEqual(apply(), { passChanged: false, editorModeChanged: false, unsupportedChanged: false });
+  assert.equal(surface, "audio_adjustments");
+  assert.equal(writes, 1);
+  apply();
+  assert.equal(writes, 1);
+});
+
 function mountedVm(decision: HammerToolBayRouteDecision, kind: "image" | "broll"): HammerWorkspaceShellToolBayVM {
   const placementId = kind === "image" ? "placement:image-mounted" : "placement:florida-mounted";
   const noop = (): void => undefined;
