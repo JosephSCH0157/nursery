@@ -1,5 +1,7 @@
 import type { HammerSelectedVisualContext } from "./hammerSelectedVisualContext";
 import type { HammerToolBayRouteDecision, HammerToolBayUnsupportedReason } from "./hammerToolBayRouteDecision";
+import type { HammerCaptionArtifactMode, HammerCaptionBuildState, HammerCaptionEditedState, HammerCaptionFormattingState } from "./hammerWorkspaceShellCaptionUtils";
+import type { HammerLogoOverlayPosition, HammerLogoOverlaySize } from "./hammerWorkspaceShellVisualUtils";
 
 export type HammerResolvedToolBayRoute = Extract<HammerToolBayRouteDecision, { status: "resolved" }>;
 export type HammerToolBayContextUnsupportedReason =
@@ -62,9 +64,18 @@ export type BrollCommands = Readonly<{
   addTransition(placementId: string): void;
 }>;
 export type AudioCommands = Readonly<{ updateVoicePreset(presetId: string): void; toggleCompare(enabled: boolean): void; applyPodcastMaster(): void }>;
-export type CaptionCommands = Readonly<{ buildCaptions(): void; discardEdits(): void; editCaption(captionId: string, text: string): void; splitCaption(captionId: string): void; mergeCaption(captionId: string): void }>;
-export type PackagingCommands = Readonly<{ applyIntro(assetId: string): void; removeIntro(placementId: string): void; applyOutro(assetId: string): void; removeOutro(placementId: string): void; updateLogo(assetId: string | null): void }>;
-export type FinishingCommands = Readonly<{ setReviewFlag(flag: "transcript" | "visual" | "audio", complete: boolean): void }>;
+export type CaptionCommands = Readonly<{
+  focusTool(): void; buildCaptions(): void; enableEdits(): void; selectMode(mode: HammerCaptionArtifactMode): void; discardEdits(): void;
+  updateFormatting(next: HammerCaptionFormattingState | ((current: HammerCaptionFormattingState) => HammerCaptionFormattingState)): void;
+  selectArtifactFormat(format: "srt" | "vtt"): void; editCaption(captionId: string, text: string): void; splitCaption(captionId: string): void;
+  mergeCaption(input: Readonly<{ chunkId: string; direction: "up" | "down" }>): void; normalizePunctuation(captionId: string): void; toggleSpeakerLabel(captionId: string): void;
+}>;
+export type MetadataCommands = Readonly<{ focusTool(): void; setTag(tag: string): void }>;
+export type PackagingCommands = Readonly<{
+  focusTool(): void; applyIntro(): void; applyOutro(): void; removePlacement(id: string, label: string): void;
+  updateLogoStyle(input: Readonly<{ assetPath?: string | null; position?: HammerLogoOverlayPosition; size?: HammerLogoOverlaySize }>): void; toggleLogo(): void;
+}>;
+export type FinishingCommands = Readonly<{ focusTool(): void; setReviewFlag(flag: "transcript" | "visual" | "audio", complete: boolean): void }>;
 export type ReleaseCommands = Readonly<{ focusIssue(): void; sendToQuench(): void }>;
 export type PassCompletionCommands = Readonly<{ markPassComplete(): void }>;
 
@@ -82,12 +93,30 @@ export type HammerImageAnimationToolBayContext = SurfaceContext<"image_animation
 export type HammerBrollToolBayContext = SurfaceContext<"broll", VisualData, BrollCommands>;
 export type HammerReferenceClipToolBayContext = SurfaceContext<"reference_clip", VisualData, BrollCommands>;
 type MigratedEditorSurfaceData = { model: unknown };
+export type HammerCaptionsToolBayData = Readonly<{
+  activeCaptionArtifactText: string; activeCaptionMode: HammerCaptionArtifactMode; activeCaptionState: HammerCaptionBuildState | HammerCaptionEditedState | null;
+  captionActiveModeLabel: string; captionActiveModeSourceLabel: string; captionArtifactStatusLabel: string; captionBuildFeedback: string | null; captionBuildFreshness: string;
+  captionBuildState: HammerCaptionBuildState | null; captionBuiltSummary: string; captionBuiltTone: string; captionDiscardConsequenceLabel: string | null;
+  captionEditedBasisDetail: string; captionEditedChangeSummary: string; captionEditedState: HammerCaptionEditedState | null; captionEditedSummary: string; captionEditedTone: string;
+  captionEditorRefs: { current: Map<string, HTMLTextAreaElement> }; captionFormatting: HammerCaptionFormattingState; captionRebuildConsequenceLabel: string;
+  captionReleasePrepSafetyDetail: string; captionReleasePrepSafetyLabel: string; captionReleasePrepSafetyState: string; captionReleaseSourceLabel: string; captionSourceLabel: string;
+  selectedCaptionArtifactFormat: "srt" | "vtt";
+}>;
+export type HammerMetadataToolBayData = Readonly<{ detailTag: string }>;
+export type HammerPackagingToolBayData = Readonly<{
+  selectedIntroPath: string | null; selectedOutroPath: string | null; selectedIntroAssetId: string | null; selectedOutroAssetId: string | null;
+  introPlaced: boolean; outroPlaced: boolean; logoAssetPath: string | null; logoPlaced: boolean; logoPosition: HammerLogoOverlayPosition; logoSize: HammerLogoOverlaySize;
+  sourceImageLibraryItems: readonly Readonly<{ path: string; name: string }>[]; logoPositionOptions: readonly Readonly<{ id: HammerLogoOverlayPosition; label: string }>[];
+  logoSizeOptions: readonly Readonly<{ id: HammerLogoOverlaySize; label: string }>[]; introEntryId: string; outroEntryId: string;
+}>;
+export type HammerFinishingChecklist = Readonly<{ transcriptReviewed: boolean; visualsReviewed: boolean; audioReviewed: boolean }>;
+export type HammerFinishingToolBayData = Readonly<{ checklist: HammerFinishingChecklist }>;
 export type HammerAudioFinalizationToolBayContext = SurfaceContext<"audio_finalization", MigratedEditorSurfaceData, AudioCommands>;
 export type HammerAudioAdjustmentsToolBayContext = SurfaceContext<"audio_adjustments", MigratedEditorSurfaceData, AudioCommands>;
-export type HammerCaptionsToolBayContext = SurfaceContext<"captions", MigratedEditorSurfaceData, CaptionCommands>;
-export type HammerMetadataToolBayContext = SurfaceContext<"metadata", MigratedEditorSurfaceData, { setTags(tags: readonly string[]): void }>;
-export type HammerPackagingToolBayContext = SurfaceContext<"packaging", MigratedEditorSurfaceData, PackagingCommands>;
-export type HammerFinishingToolBayContext = SurfaceContext<"finishing", MigratedEditorSurfaceData, FinishingCommands>;
+export type HammerCaptionsToolBayContext = SurfaceContext<"captions", HammerCaptionsToolBayData, CaptionCommands>;
+export type HammerMetadataToolBayContext = SurfaceContext<"metadata", HammerMetadataToolBayData, MetadataCommands>;
+export type HammerPackagingToolBayContext = SurfaceContext<"packaging", HammerPackagingToolBayData, PackagingCommands>;
+export type HammerFinishingToolBayContext = SurfaceContext<"finishing", HammerFinishingToolBayData, FinishingCommands>;
 export type HammerReleaseSummaryArea = Readonly<{ id: string; label: string; status: string }>;
 export type HammerReleaseReason = Readonly<{ label: string }>;
 export type HammerQuenchHandoffStatus = Readonly<{ status: string; message: string }>;

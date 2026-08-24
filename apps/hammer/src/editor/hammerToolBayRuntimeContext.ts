@@ -26,6 +26,10 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
   focusIssue: () => void;
   sendToQuench: () => void;
   migratedEditorModel: unknown | null;
+  captionsData: HammerCaptionsToolBayContext["data"] | null;
+  metadataData: HammerMetadataToolBayContext["data"] | null;
+  packagingData: Extract<HammerToolBayContext, { surface: "packaging" }>["data"] | null;
+  finishingData: Extract<HammerToolBayContext, { surface: "finishing" }>["data"] | null;
   audioCommands: HammerAudioFinalizationToolBayContext["commands"];
   captionCommands: HammerCaptionsToolBayContext["commands"];
   metadataCommands: HammerMetadataToolBayContext["commands"];
@@ -88,10 +92,9 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
     return { completion: typedCompletion, body: body.surface === "visual_polish" || body.surface === "image_placement" || body.surface === "image_timing" || body.surface === "image_transform" || body.surface === "image_animation" || body.surface === "unsupported" ? body : null };
   }
   if (args.route.surface === "packaging" || args.route.surface === "finishing") {
-    const data = args.migratedEditorModel === null ? null : { model: args.migratedEditorModel };
     const body = args.route.surface === "packaging"
-      ? buildHammerToolBayContext({ surface: "packaging", route: args.route, data, commands: args.packagingCommands })
-      : buildHammerToolBayContext({ surface: "finishing", route: args.route, data, commands: args.finishingCommands });
+      ? buildHammerToolBayContext({ surface: "packaging", route: args.route, data: args.packagingData, commands: args.packagingCommands })
+      : buildHammerToolBayContext({ surface: "finishing", route: args.route, data: args.finishingData, commands: args.finishingCommands });
     return { completion: typedCompletion, body: body.surface === args.route.surface || body.surface === "unsupported" ? body : null };
   }
   if (args.route.surface === "transcript_cleanup" || args.route.surface === "retakes" || args.route.surface === "gap_pacing" || args.route.surface === "transcript_polish") {
@@ -111,8 +114,8 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
       : args.route.surface === "audio_adjustments"
       ? buildHammerToolBayContext({ surface: "audio_adjustments", route: args.route, data: args.migratedEditorModel === null ? null : { model: args.migratedEditorModel }, commands: args.audioCommands })
       : args.route.surface === "captions"
-      ? buildHammerToolBayContext({ surface: "captions", route: args.route, data: args.migratedEditorModel === null ? null : { model: args.migratedEditorModel }, commands: args.captionCommands })
-      : buildHammerToolBayContext({ surface: "metadata", route: args.route, data: args.migratedEditorModel === null ? null : { model: args.migratedEditorModel }, commands: args.metadataCommands });
+      ? buildHammerToolBayContext({ surface: "captions", route: args.route, data: args.captionsData, commands: args.captionCommands })
+      : buildHammerToolBayContext({ surface: "metadata", route: args.route, data: args.metadataData, commands: args.metadataCommands });
     return { completion: typedCompletion, body: body.surface === args.route.surface || body.surface === "unsupported" ? body : null };
   }
   if (args.route.surface !== "release_readiness" && args.route.surface !== "export") return { completion: typedCompletion, body: null };

@@ -1,59 +1,28 @@
 import type { JSX } from "react";
-import type { HammerCaptionArtifactMode, HammerCaptionBuildState, HammerCaptionEditedState, HammerCaptionFormattingState, HammerCaptionPunctuationMode, HammerCaptionReadingSpeed } from "./hammerWorkspaceShellCaptionUtils";
+import type { HammerCaptionFormattingState, HammerCaptionPunctuationMode, HammerCaptionReadingSpeed } from "./hammerWorkspaceShellCaptionUtils";
 import type { HammerCaptionsToolBayContext, HammerMetadataToolBayContext } from "./hammerToolBayContext";
 
 type CaptionMetadataSurfaceContext = HammerCaptionsToolBayContext | HammerMetadataToolBayContext;
 
 export function HammerTypedCaptionMetadataSurfaces(props: { context: CaptionMetadataSurfaceContext }): JSX.Element {
-  const { surface } = props.context;
-  type Command = (...args: unknown[]) => void;
-  type CaptionState = HammerCaptionBuildState | HammerCaptionEditedState;
-  type SurfaceModel = Readonly<{
-    activeCaptionArtifactText: string; activeCaptionMode: HammerCaptionArtifactMode; activeCaptionState: CaptionState | null;
-    captionActiveModeLabel: string; captionActiveModeSourceLabel: string; captionArtifactStatusLabel: string; captionBuildFeedback: string | null; captionBuildFreshness: string; captionBuildState: HammerCaptionBuildState | null; captionBuiltSummary: string; captionBuiltTone: string; captionDiscardConsequenceLabel: string | null; captionEditedBasisDetail: string; captionEditedChangeSummary: string; captionEditedState: HammerCaptionEditedState | null; captionEditedSummary: string; captionEditedTone: string; captionEditorRefs: { current: Map<string, HTMLTextAreaElement> }; captionFormatting: HammerCaptionFormattingState; captionRebuildConsequenceLabel: string; captionReleasePrepSafetyDetail: string; captionReleasePrepSafetyLabel: string; captionReleasePrepSafetyState: string; captionReleaseSourceLabel: string; captionSourceLabel: string; detailTag: string; selectedCaptionArtifactFormat: "srt" | "vtt";
-    applyPodcastMasterPass: Command; applyStudioRackMutation: Command; setAudioLevelingEnabled: Command; setAudioNoiseReductionEnabled: Command; setStudioRackBackend: Command; setStudioRackBypassed: Command; setStudioRackEnabled: Command; setStudioRackModuleBypassed: Command; setStudioRackModuleEnabled: Command; setStudioRackOpen: Command; setFocusOverride: Command; setAudioFinalizationCompare: Command; applyVoicePolishPreset: Command; setVoicePolishFixEnabled: Command; setVoicePolishDeEsserStrength: Command; setVoicePolishEqProfile: Command; setVoiceCleanupEnabled: Command; handleDiscardEditedCaptions: Command; handleEditCaptionChunkText: Command; handleEnableCaptionEdits: Command; handleMergeEditedCaptionChunk: Command; handleNormalizeEditedCaptionChunkPunctuation: Command; handleRebuildCaptionArtifacts: Command; handleSplitEditedCaptionChunk: Command; handleToggleEditedCaptionChunkSpeakerLabel: Command; setActiveCaptionArtifactMode: Command; setCaptionFormatting: Command; setSelectedCaptionArtifactFormat: Command; setDetailTag: Command;
-  }>;
-  const ctx = props.context.data.model as SurfaceModel;
-  const activeCaptionArtifactText = ctx.activeCaptionArtifactText;
-  const activeCaptionMode = ctx.activeCaptionMode;
-  const activeCaptionState = ctx.activeCaptionState;
-  const captionActiveModeLabel = ctx.captionActiveModeLabel;
-  const captionActiveModeSourceLabel = ctx.captionActiveModeSourceLabel;
-  const captionArtifactStatusLabel = ctx.captionArtifactStatusLabel;
-  const captionBuildFeedback = ctx.captionBuildFeedback;
-  const captionBuildFreshness = ctx.captionBuildFreshness;
-  const captionBuildState = ctx.captionBuildState;
-  const captionBuiltSummary = ctx.captionBuiltSummary;
-  const captionBuiltTone = ctx.captionBuiltTone;
-  const captionDiscardConsequenceLabel = ctx.captionDiscardConsequenceLabel;
-  const captionEditedBasisDetail = ctx.captionEditedBasisDetail;
-  const captionEditedChangeSummary = ctx.captionEditedChangeSummary;
-  const captionEditedState = ctx.captionEditedState;
-  const captionEditedSummary = ctx.captionEditedSummary;
-  const captionEditedTone = ctx.captionEditedTone;
-  const captionEditorRefs = ctx.captionEditorRefs;
-  const captionFormatting = ctx.captionFormatting;
-  const captionRebuildConsequenceLabel = ctx.captionRebuildConsequenceLabel;
-  const captionReleasePrepSafetyDetail = ctx.captionReleasePrepSafetyDetail;
-  const captionReleasePrepSafetyLabel = ctx.captionReleasePrepSafetyLabel;
-  const captionReleasePrepSafetyState = ctx.captionReleasePrepSafetyState;
-  const captionReleaseSourceLabel = ctx.captionReleaseSourceLabel;
-  const captionSourceLabel = ctx.captionSourceLabel;
-  const detailTag = ctx.detailTag;
-  const handleDiscardEditedCaptions = ctx.handleDiscardEditedCaptions;
-  const handleEditCaptionChunkText = ctx.handleEditCaptionChunkText;
-  const handleEnableCaptionEdits = ctx.handleEnableCaptionEdits;
-  const handleMergeEditedCaptionChunk = ctx.handleMergeEditedCaptionChunk;
-  const handleNormalizeEditedCaptionChunkPunctuation = ctx.handleNormalizeEditedCaptionChunkPunctuation;
-  const handleRebuildCaptionArtifacts = ctx.handleRebuildCaptionArtifacts;
-  const handleSplitEditedCaptionChunk = ctx.handleSplitEditedCaptionChunk;
-  const handleToggleEditedCaptionChunkSpeakerLabel = ctx.handleToggleEditedCaptionChunkSpeakerLabel;
-  const selectedCaptionArtifactFormat = ctx.selectedCaptionArtifactFormat;
-  const setActiveCaptionArtifactMode = ctx.setActiveCaptionArtifactMode;
-  const setCaptionFormatting = ctx.setCaptionFormatting;
-  const setSelectedCaptionArtifactFormat = ctx.setSelectedCaptionArtifactFormat;
-  const setDetailTag = ctx.setDetailTag;
-  const { setFocusOverride } = ctx;
+  return props.context.surface === "captions" ? <CaptionSurface context={props.context} /> : <MetadataSurface context={props.context} />;
+}
+
+function CaptionSurface(props: { context: HammerCaptionsToolBayContext }): JSX.Element {
+  const { context } = props;
+  const { data, commands, surface } = context;
+  const { activeCaptionArtifactText, activeCaptionMode, activeCaptionState, captionActiveModeLabel, captionActiveModeSourceLabel, captionArtifactStatusLabel, captionBuildFeedback, captionBuildFreshness, captionBuildState, captionBuiltSummary, captionBuiltTone, captionDiscardConsequenceLabel, captionEditedBasisDetail, captionEditedChangeSummary, captionEditedState, captionEditedSummary, captionEditedTone, captionEditorRefs, captionFormatting, captionRebuildConsequenceLabel, captionReleasePrepSafetyDetail, captionReleasePrepSafetyLabel, captionReleasePrepSafetyState, captionReleaseSourceLabel, captionSourceLabel, selectedCaptionArtifactFormat } = data;
+  const handleDiscardEditedCaptions = commands.discardEdits;
+  const handleEditCaptionChunkText = commands.editCaption;
+  const handleEnableCaptionEdits = commands.enableEdits;
+  const handleMergeEditedCaptionChunk = commands.mergeCaption;
+  const handleNormalizeEditedCaptionChunkPunctuation = commands.normalizePunctuation;
+  const handleRebuildCaptionArtifacts = commands.buildCaptions;
+  const handleSplitEditedCaptionChunk = commands.splitCaption;
+  const handleToggleEditedCaptionChunkSpeakerLabel = commands.toggleSpeakerLabel;
+  const setActiveCaptionArtifactMode = commands.selectMode;
+  const setCaptionFormatting = commands.updateFormatting;
+  const setSelectedCaptionArtifactFormat = commands.selectArtifactFormat;
 
   return <div data-hammer-tool-bay-surface={surface}>
               {surface === "captions" ? (
@@ -104,7 +73,7 @@ export function HammerTypedCaptionMetadataSurfaces(props: { context: CaptionMeta
                     <button
                       type="button"
                       onClick={() => {
-                        setFocusOverride("tool-focus");
+                        commands.focusTool();
                         handleRebuildCaptionArtifacts();
                       }}
                     >
@@ -115,7 +84,7 @@ export function HammerTypedCaptionMetadataSurfaces(props: { context: CaptionMeta
                       <button
                         type="button"
                         onClick={() => {
-                          setFocusOverride("tool-focus");
+                          commands.focusTool();
                           handleEnableCaptionEdits();
                         }}
                       >
@@ -128,7 +97,7 @@ export function HammerTypedCaptionMetadataSurfaces(props: { context: CaptionMeta
                           type="button"
                           className={activeCaptionMode === "built" ? "is-active" : ""}
                           onClick={() => {
-                            setFocusOverride("tool-focus");
+                            commands.focusTool();
                             setActiveCaptionArtifactMode("built");
                           }}
                         >
@@ -138,7 +107,7 @@ export function HammerTypedCaptionMetadataSurfaces(props: { context: CaptionMeta
                           type="button"
                           className={activeCaptionMode === "edited" ? "is-active" : ""}
                           onClick={() => {
-                            setFocusOverride("tool-focus");
+                            commands.focusTool();
                             setActiveCaptionArtifactMode("edited");
                           }}
                         >
@@ -147,7 +116,7 @@ export function HammerTypedCaptionMetadataSurfaces(props: { context: CaptionMeta
                         <button
                           type="button"
                           onClick={() => {
-                            setFocusOverride("tool-focus");
+                            commands.focusTool();
                             handleDiscardEditedCaptions();
                           }}
                         >
@@ -164,7 +133,7 @@ export function HammerTypedCaptionMetadataSurfaces(props: { context: CaptionMeta
                     <select
                       value={captionFormatting.style}
                       onChange={(event) => {
-                        setFocusOverride("tool-focus");
+                        commands.focusTool();
                         setCaptionFormatting((current: HammerCaptionFormattingState) => ({
                           ...current,
                           style: event.target.value as "sentence" | "title" | "upper",
@@ -185,7 +154,7 @@ export function HammerTypedCaptionMetadataSurfaces(props: { context: CaptionMeta
                       step={1}
                       value={captionFormatting.maxCharsPerLine}
                       onChange={(event) => {
-                        setFocusOverride("tool-focus");
+                        commands.focusTool();
                         const nextValue = Math.max(24, Math.min(80, Number(event.target.value) || 42));
                         setCaptionFormatting((current: HammerCaptionFormattingState) => ({ ...current, maxCharsPerLine: nextValue }));
                       }}
@@ -196,7 +165,7 @@ export function HammerTypedCaptionMetadataSurfaces(props: { context: CaptionMeta
                     <select
                       value={captionFormatting.maxLinesPerCaption}
                       onChange={(event) => {
-                        setFocusOverride("tool-focus");
+                        commands.focusTool();
                         setCaptionFormatting((current: HammerCaptionFormattingState) => ({
                           ...current,
                           maxLinesPerCaption: Number(event.target.value) || 2,
@@ -213,7 +182,7 @@ export function HammerTypedCaptionMetadataSurfaces(props: { context: CaptionMeta
                     <select
                       value={captionFormatting.readingSpeed}
                       onChange={(event) => {
-                        setFocusOverride("tool-focus");
+                        commands.focusTool();
                         setCaptionFormatting((current: HammerCaptionFormattingState) => ({
                           ...current,
                           readingSpeed: event.target.value as HammerCaptionReadingSpeed,
@@ -230,7 +199,7 @@ export function HammerTypedCaptionMetadataSurfaces(props: { context: CaptionMeta
                     <select
                       value={captionFormatting.punctuationMode}
                       onChange={(event) => {
-                        setFocusOverride("tool-focus");
+                        commands.focusTool();
                         setCaptionFormatting((current: HammerCaptionFormattingState) => ({
                           ...current,
                           punctuationMode: event.target.value as HammerCaptionPunctuationMode,
@@ -246,7 +215,7 @@ export function HammerTypedCaptionMetadataSurfaces(props: { context: CaptionMeta
                       type="checkbox"
                       checked={captionFormatting.includeSpeakerLabels}
                       onChange={(event) => {
-                        setFocusOverride("tool-focus");
+                        commands.focusTool();
                         setCaptionFormatting((current: HammerCaptionFormattingState) => ({
                           ...current,
                           includeSpeakerLabels: event.target.checked,
@@ -266,7 +235,7 @@ export function HammerTypedCaptionMetadataSurfaces(props: { context: CaptionMeta
                         title="Caption artifact format"
                         value={selectedCaptionArtifactFormat}
                         onChange={(event) => {
-                          setFocusOverride("tool-focus");
+                          commands.focusTool();
                           setSelectedCaptionArtifactFormat(event.target.value as "srt" | "vtt");
                         }}
                       >
@@ -300,7 +269,7 @@ export function HammerTypedCaptionMetadataSurfaces(props: { context: CaptionMeta
                                       }
                                     }}
                                     onChange={(event) => {
-                                      setFocusOverride("tool-focus");
+                                      commands.focusTool();
                                       handleEditCaptionChunkText(chunk.id, event.target.value);
                                     }}
                                   />
@@ -308,7 +277,7 @@ export function HammerTypedCaptionMetadataSurfaces(props: { context: CaptionMeta
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        setFocusOverride("tool-focus");
+                                        commands.focusTool();
                                         handleSplitEditedCaptionChunk(chunk.id);
                                       }}
                                     >
@@ -317,7 +286,7 @@ export function HammerTypedCaptionMetadataSurfaces(props: { context: CaptionMeta
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        setFocusOverride("tool-focus");
+                                        commands.focusTool();
                                         handleMergeEditedCaptionChunk({ chunkId: chunk.id, direction: "up" });
                                       }}
                                     >
@@ -326,7 +295,7 @@ export function HammerTypedCaptionMetadataSurfaces(props: { context: CaptionMeta
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        setFocusOverride("tool-focus");
+                                        commands.focusTool();
                                         handleMergeEditedCaptionChunk({ chunkId: chunk.id, direction: "down" });
                                       }}
                                     >
@@ -335,7 +304,7 @@ export function HammerTypedCaptionMetadataSurfaces(props: { context: CaptionMeta
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        setFocusOverride("tool-focus");
+                                        commands.focusTool();
                                         handleNormalizeEditedCaptionChunkPunctuation(chunk.id);
                                       }}
                                     >
@@ -344,7 +313,7 @@ export function HammerTypedCaptionMetadataSurfaces(props: { context: CaptionMeta
                                     <button
                                       type="button"
                                       onClick={() => {
-                                        setFocusOverride("tool-focus");
+                                        commands.focusTool();
                                         handleToggleEditedCaptionChunkSpeakerLabel(chunk.id);
                                       }}
                                     >
@@ -372,6 +341,13 @@ export function HammerTypedCaptionMetadataSurfaces(props: { context: CaptionMeta
                 </section>
               ) : null}
 
+  </div>;
+}
+
+function MetadataSurface(props: { context: HammerMetadataToolBayContext }): JSX.Element {
+  const { commands, data, surface } = props.context;
+  const { detailTag } = data;
+  return <div data-hammer-tool-bay-surface={surface}>
               {surface === "metadata" ? (
                 <section className="hammer-tool-card">
                   <header className="hammer-tool-card__head">Edit Metadata</header>
@@ -381,8 +357,8 @@ export function HammerTypedCaptionMetadataSurfaces(props: { context: CaptionMeta
                       type="text"
                       value={detailTag}
                       onChange={(event) => {
-                        setFocusOverride("tool-focus");
-                        setDetailTag(event.target.value);
+                        commands.focusTool();
+                        commands.setTag(event.target.value);
                       }}
                     />
                   </label>

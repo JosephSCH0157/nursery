@@ -16,6 +16,10 @@ const unsupported: HammerToolBayRouteDecision = {
   navigationPermitted: false, selectionPreserved: true,
 };
 const visualRuntimeArgs = {
+  captionsData: null,
+  metadataData: null,
+  packagingData: null,
+  finishingData: null,
   selectedVisualContext: { status: "none" as const },
   visualPolishCommands: { updateLook() {}, updateExposure() {}, updateBackground() {}, toggleEyeContact() {} },
   imagePlacementCommands: { removePlacement() {}, updateAnchor() {} },
@@ -26,7 +30,7 @@ const visualRuntimeArgs = {
   referenceClipCommands: { removePlacement() {}, rebindPlacement() {}, replaceBinding() {}, revertBinding() {}, addTransition() {} },
 };
 
-function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "ready" | "packaging" = "ready") {
+function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "ready" | "packaging" = "ready", missingDataSurface: "captions" | "metadata" | "packaging" | "finishing" | null = null) {
   const activity = { completion: 0, focus: 0, send: 0, history: 0, persistence: 0, selection: 0 };
   const markPassComplete = (): void => { activity.completion += 1; };
   const focusIssue = (): void => { activity.focus += 1; };
@@ -52,16 +56,20 @@ function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "rea
     SEGMENTATION_PROVIDER_DESCRIPTORS: [], activeLookPreset: null, activeExposureAdjustment: null, backgroundBlurProviderDescriptor: null,
   };
   const audioCommands = { updateVoicePreset: noop, toggleCompare: noop, applyPodcastMaster: noop };
-  const captionCommands = { buildCaptions: noop, discardEdits: noop, editCaption: noop, splitCaption: noop, mergeCaption: noop };
-  const metadataCommands = { setTags: noop };
+  const captionCommands = { focusTool: noop, buildCaptions: noop, enableEdits: noop, selectMode: noop, discardEdits: noop, updateFormatting: noop, selectArtifactFormat: noop, editCaption: noop, splitCaption: noop, mergeCaption: noop, normalizePunctuation: noop, toggleSpeakerLabel: noop };
+  const metadataCommands = { focusTool: noop, setTag: noop };
   const transcriptCleanupCommands = { refreshCandidates: noop, previewCandidate: noop, acceptCandidate: noop, dismissCandidate: noop, applyCleanup: noop, discardCleanup: noop };
   const retakeCommands = { previewRange: noop, acceptRange: noop, dismissRange: noop };
   const gapCommands = { previewRange: noop, acceptRange: noop, dismissRange: noop };
   const transcriptPolishCommands = { previewCleanup: noop, applyCleanup: noop, discardCleanup: noop };
-  const packagingCommands = { applyIntro: noop, removeIntro: noop, applyOutro: noop, removeOutro: noop, updateLogo: noop };
-  const finishingCommands = { setReviewFlag: noop };
+  const packagingCommands = { focusTool: noop, applyIntro: noop, applyOutro: noop, removePlacement: noop, updateLogoStyle: noop, toggleLogo: noop };
+  const finishingCommands = { focusTool: noop, setReviewFlag: noop };
   const contexts = assembleHammerToolBayRuntimeContexts({
     ...visualRuntimeArgs, route: exactRoute, passLabel: "Ready", passStatus: "in_progress",
+    captionsData: missingDataSurface === "captions" ? null : { activeCaptionArtifactText: migratedEditorModel.activeCaptionArtifactText, activeCaptionMode: migratedEditorModel.activeCaptionMode, activeCaptionState: migratedEditorModel.activeCaptionState, captionActiveModeLabel: migratedEditorModel.captionActiveModeLabel, captionActiveModeSourceLabel: migratedEditorModel.captionActiveModeSourceLabel, captionArtifactStatusLabel: migratedEditorModel.captionArtifactStatusLabel, captionBuildFeedback: migratedEditorModel.captionBuildFeedback, captionBuildFreshness: migratedEditorModel.captionBuildFreshness, captionBuildState: migratedEditorModel.captionBuildState, captionBuiltSummary: migratedEditorModel.captionBuiltSummary, captionBuiltTone: migratedEditorModel.captionBuiltTone, captionDiscardConsequenceLabel: migratedEditorModel.captionDiscardConsequenceLabel, captionEditedBasisDetail: migratedEditorModel.captionEditedBasisDetail, captionEditedChangeSummary: migratedEditorModel.captionEditedChangeSummary, captionEditedState: migratedEditorModel.captionEditedState, captionEditedSummary: migratedEditorModel.captionEditedSummary, captionEditedTone: migratedEditorModel.captionEditedTone, captionEditorRefs: migratedEditorModel.captionEditorRefs, captionFormatting: migratedEditorModel.captionFormatting, captionRebuildConsequenceLabel: migratedEditorModel.captionRebuildConsequenceLabel, captionReleasePrepSafetyDetail: migratedEditorModel.captionReleasePrepSafetyDetail, captionReleasePrepSafetyLabel: migratedEditorModel.captionReleasePrepSafetyLabel, captionReleasePrepSafetyState: migratedEditorModel.captionReleasePrepSafetyState, captionReleaseSourceLabel: migratedEditorModel.captionReleaseSourceLabel, captionSourceLabel: migratedEditorModel.captionSourceLabel, selectedCaptionArtifactFormat: migratedEditorModel.selectedCaptionArtifactFormat },
+    metadataData: missingDataSurface === "metadata" ? null : { detailTag: migratedEditorModel.detailTag },
+    packagingData: missingDataSurface === "packaging" ? null : { selectedIntroPath: null, selectedOutroPath: null, selectedIntroAssetId: null, selectedOutroAssetId: null, introPlaced: false, outroPlaced: false, logoAssetPath: null, logoPlaced: false, logoPosition: "top_right", logoSize: "medium", sourceImageLibraryItems: [], logoPositionOptions: [], logoSizeOptions: [], introEntryId: "packaging:intro", outroEntryId: "packaging:outro" },
+    finishingData: missingDataSurface === "finishing" ? null : { checklist: migratedEditorModel.finishingChecklist },
     readinessData: {
       summaryAreas: [{ id: "audio", label: "Audio Finalization", status: "complete" }],
       readinessLabel: "Ready for export", blockerCount: 0, reviewCount: 0,
@@ -125,6 +133,15 @@ test("missing migrated data fails closed and never produces a legacy body", () =
   if (failed.body?.surface !== "unsupported") assert.fail();
   assert.equal(failed.body.data.reason, "required_data_missing");
   assert.deepEqual(Object.keys(failed.body.commands), []);
+});
+
+test("missing typed caption, metadata, packaging, and finishing data fails closed without legacy fallback", () => {
+  for (const surface of ["captions", "metadata", "packaging", "finishing"] as const) {
+    const item = fixture({ ...resolved, surface }, "ready", surface);
+    assert.equal(item.contexts.body?.surface, "unsupported");
+    if (item.contexts.body?.surface === "unsupported") assert.equal(item.contexts.body.data.reason, "required_data_missing");
+    assert.deepEqual(item.activity, { completion: 0, focus: 0, send: 0, history: 0, persistence: 0, selection: 0 });
+  }
 });
 
 test("all ten extracted surfaces preserve exact dispatch, representative accessibility, command identity, and passive behavior", () => {

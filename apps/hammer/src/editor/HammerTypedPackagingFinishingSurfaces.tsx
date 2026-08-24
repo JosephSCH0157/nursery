@@ -1,22 +1,26 @@
 import type { JSX } from "react";
-import type { HammerLogoOverlayPosition, HammerLogoOverlaySize } from "./hammerWorkspaceShellVisualUtils";
-
-type PackagingIntroStatusView = Readonly<{ selectionStatusLine: string; placementStatusLine: string; applyActionLabel: string; removeActionLabel: string; canApply: boolean; canRemove: boolean }>;
-function derivePackagingIntroStatusView(args: { selectedIntroAssetId: string | null; selectedIntroPath: string | null; introPlaced: boolean }): PackagingIntroStatusView { const selected = Boolean(args.selectedIntroAssetId); const resolved = Boolean(args.selectedIntroAssetId && args.selectedIntroPath); return { selectionStatusLine: selected ? (resolved ? "Selected intro from Source Desk: " + args.selectedIntroPath : "Selected intro from Source Desk is unresolved (" + args.selectedIntroAssetId + ").") : "No intro selected in Source Desk.", placementStatusLine: args.introPlaced ? "Timeline packaging intro: placed." : "Timeline packaging intro: not placed.", applyActionLabel: "Apply Selected Intro to Timeline", removeActionLabel: "Remove Intro from Timeline", canApply: resolved, canRemove: args.introPlaced }; }
-type PackagingFinishingSurfaceModel = Readonly<{ introOutroSelectedIntroPath: string | null; introOutroSelectedOutroPath: string | null; introOutroSelection: { intro_asset_id: string | null; outro_asset_id: string | null }; packagingIntroPlacement: unknown | null; packagingOutroPlacement: unknown | null; packagingLogoAssetPath: string | null; packagingLogoPlacement: unknown | null; packagingLogoPosition: HammerLogoOverlayPosition; packagingLogoSize: HammerLogoOverlaySize; sourceImageLibraryItems: readonly { path: string; name: string }[]; LOGO_POSITION_OPTIONS: readonly { id: HammerLogoOverlayPosition; label: string }[]; LOGO_SIZE_OPTIONS: readonly { id: HammerLogoOverlaySize; label: string }[]; PACKAGING_INTRO_ENTRY_ID: string; PACKAGING_OUTRO_ENTRY_ID: string; applyIntroPlacement(): void; applyOutroPlacement(): void; removePackagingPlacement(id: string, label: string): void; applyLogoOverlayStyle(input: { assetPath?: string | null; position?: HammerLogoOverlayPosition; size?: HammerLogoOverlaySize }): void; toggleLogoOverlay(): void; finishingChecklist: { transcriptReviewed: boolean; visualsReviewed: boolean; audioReviewed: boolean }; setFinishingChecklist(next: { transcriptReviewed: boolean; visualsReviewed: boolean; audioReviewed: boolean } | ((current: { transcriptReviewed: boolean; visualsReviewed: boolean; audioReviewed: boolean }) => { transcriptReviewed: boolean; visualsReviewed: boolean; audioReviewed: boolean })): void; setFocusOverride(mode: "auto" | "source-focus" | "tool-focus" | "time-focus"): void }>;
 import type { HammerFinishingToolBayContext, HammerPackagingToolBayContext } from "./hammerToolBayContext";
+import { derivePackagingIntroStatusView } from "./hammerPackagingIntroStatusView";
+import type { HammerLogoOverlayPosition, HammerLogoOverlaySize } from "./hammerWorkspaceShellVisualUtils";
 
 type PackagingFinishingSurfaceContext = HammerPackagingToolBayContext | HammerFinishingToolBayContext;
 
 export function HammerTypedPackagingFinishingSurfaces(props: { context: PackagingFinishingSurfaceContext }): JSX.Element {
-  const { surface } = props.context;
-  const packaging = props.context.data.model as PackagingFinishingSurfaceModel;
-  const setFocusOverride = packaging.setFocusOverride;
-  const { introOutroSelectedIntroPath, introOutroSelectedOutroPath, introOutroSelection, packagingIntroPlacement, packagingOutroPlacement, packagingLogoAssetPath, packagingLogoPlacement, packagingLogoPosition, packagingLogoSize, sourceImageLibraryItems, LOGO_POSITION_OPTIONS, LOGO_SIZE_OPTIONS, PACKAGING_INTRO_ENTRY_ID, PACKAGING_OUTRO_ENTRY_ID, applyIntroPlacement, applyOutroPlacement, removePackagingPlacement, applyLogoOverlayStyle, toggleLogoOverlay, finishingChecklist, setFinishingChecklist } = packaging;
-  const introStatusView = derivePackagingIntroStatusView({ selectedIntroAssetId: introOutroSelection.intro_asset_id, selectedIntroPath: introOutroSelectedIntroPath, introPlaced: Boolean(packagingIntroPlacement) });
+  return props.context.surface === "packaging" ? <PackagingSurface context={props.context} /> : <FinishingSurface context={props.context} />;
+}
+
+function PackagingSurface(props: { context: HammerPackagingToolBayContext }): JSX.Element {
+  const { commands, data, surface } = props.context;
+  const { selectedIntroPath: introOutroSelectedIntroPath, selectedOutroPath: introOutroSelectedOutroPath, selectedIntroAssetId, selectedOutroAssetId, introPlaced: packagingIntroPlacement, outroPlaced: packagingOutroPlacement, logoAssetPath: packagingLogoAssetPath, logoPlaced: packagingLogoPlacement, logoPosition: packagingLogoPosition, logoSize: packagingLogoSize, sourceImageLibraryItems, logoPositionOptions: LOGO_POSITION_OPTIONS, logoSizeOptions: LOGO_SIZE_OPTIONS, introEntryId: PACKAGING_INTRO_ENTRY_ID, outroEntryId: PACKAGING_OUTRO_ENTRY_ID } = data;
+  const introOutroSelection = { intro_asset_id: selectedIntroAssetId, outro_asset_id: selectedOutroAssetId };
+  const applyIntroPlacement = commands.applyIntro;
+  const applyOutroPlacement = commands.applyOutro;
+  const removePackagingPlacement = commands.removePlacement;
+  const applyLogoOverlayStyle = commands.updateLogoStyle;
+  const toggleLogoOverlay = commands.toggleLogo;
+  const introStatusView = derivePackagingIntroStatusView({ selectedIntroAssetId, selectedIntroPath: introOutroSelectedIntroPath, introPlaced: packagingIntroPlacement });
 
   return <div data-hammer-tool-bay-surface={surface}>
-              {surface === "packaging" || surface === "finishing" ? (
                 surface === "packaging" ? (
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">Packaging</header>
@@ -27,7 +31,7 @@ export function HammerTypedPackagingFinishingSurfaces(props: { context: Packagin
                       <button
                         type="button"
                         onClick={() => {
-                          setFocusOverride("tool-focus");
+                          commands.focusTool();
                           applyIntroPlacement();
                         }}
                         disabled={!introStatusView.canApply}
@@ -37,7 +41,7 @@ export function HammerTypedPackagingFinishingSurfaces(props: { context: Packagin
                       <button
                         type="button"
                         onClick={() => {
-                          setFocusOverride("tool-focus");
+                          commands.focusTool();
                           removePackagingPlacement(PACKAGING_INTRO_ENTRY_ID, "Remove packaging intro");
                         }}
                         disabled={!introStatusView.canRemove}
@@ -47,7 +51,7 @@ export function HammerTypedPackagingFinishingSurfaces(props: { context: Packagin
                       <button
                         type="button"
                         onClick={() => {
-                          setFocusOverride("tool-focus");
+                          commands.focusTool();
                           applyOutroPlacement();
                         }}
                         disabled={!introOutroSelection.outro_asset_id || !introOutroSelectedOutroPath}
@@ -57,7 +61,7 @@ export function HammerTypedPackagingFinishingSurfaces(props: { context: Packagin
                       <button
                         type="button"
                         onClick={() => {
-                          setFocusOverride("tool-focus");
+                          commands.focusTool();
                           removePackagingPlacement(PACKAGING_OUTRO_ENTRY_ID, "Remove packaging outro");
                         }}
                         disabled={!packagingOutroPlacement}
@@ -82,7 +86,7 @@ export function HammerTypedPackagingFinishingSurfaces(props: { context: Packagin
                         value={packagingLogoAssetPath ?? ""}
                         onChange={(event) => {
                           const nextPath = event.target.value || null;
-                          setFocusOverride("tool-focus");
+                          commands.focusTool();
                           applyLogoOverlayStyle({ assetPath: nextPath });
                         }}
                       >
@@ -98,7 +102,7 @@ export function HammerTypedPackagingFinishingSurfaces(props: { context: Packagin
                       <button
                         type="button"
                         onClick={() => {
-                          setFocusOverride("tool-focus");
+                          commands.focusTool();
                           toggleLogoOverlay();
                         }}
                         disabled={!packagingLogoPlacement && !packagingLogoAssetPath}
@@ -112,7 +116,7 @@ export function HammerTypedPackagingFinishingSurfaces(props: { context: Packagin
                         value={packagingLogoPosition}
                         onChange={(event) => {
                           const next = event.target.value as HammerLogoOverlayPosition;
-                          setFocusOverride("tool-focus");
+                          commands.focusTool();
                           applyLogoOverlayStyle({ position: next });
                         }}
                       >
@@ -129,7 +133,7 @@ export function HammerTypedPackagingFinishingSurfaces(props: { context: Packagin
                         value={packagingLogoSize}
                         onChange={(event) => {
                           const next = event.target.value as HammerLogoOverlaySize;
-                          setFocusOverride("tool-focus");
+                          commands.focusTool();
                           applyLogoOverlayStyle({ size: next });
                         }}
                       >
@@ -147,7 +151,13 @@ export function HammerTypedPackagingFinishingSurfaces(props: { context: Packagin
                       Thumbnails and visual prompts are generated in Hearth. Hammer only consumes existing assets from Tongs / workspace.
                     </div>
                   </section>
-                ) : (
+  </div>;
+}
+
+function FinishingSurface(props: { context: HammerFinishingToolBayContext }): JSX.Element {
+  const { commands, data, surface } = props.context;
+  const finishingChecklist = data.checklist;
+  return <div data-hammer-tool-bay-surface={surface}>
                 <section className="hammer-tool-card">
                   <header className="hammer-tool-card__head">Finishing Checklist</header>
                   <label className="hammer-tool-check">
@@ -155,11 +165,8 @@ export function HammerTypedPackagingFinishingSurfaces(props: { context: Packagin
                       type="checkbox"
                       checked={finishingChecklist.transcriptReviewed}
                       onChange={(event) => {
-                        setFocusOverride("tool-focus");
-                        setFinishingChecklist((current) => ({
-                          ...current,
-                          transcriptReviewed: event.target.checked,
-                        }));
+                        commands.focusTool();
+                        commands.setReviewFlag("transcript", event.target.checked);
                       }}
                     />
                     <span>Transcript reviewed</span>
@@ -169,11 +176,8 @@ export function HammerTypedPackagingFinishingSurfaces(props: { context: Packagin
                       type="checkbox"
                       checked={finishingChecklist.visualsReviewed}
                       onChange={(event) => {
-                        setFocusOverride("tool-focus");
-                        setFinishingChecklist((current) => ({
-                          ...current,
-                          visualsReviewed: event.target.checked,
-                        }));
+                        commands.focusTool();
+                        commands.setReviewFlag("visual", event.target.checked);
                       }}
                     />
                     <span>Visuals reviewed</span>
@@ -183,17 +187,12 @@ export function HammerTypedPackagingFinishingSurfaces(props: { context: Packagin
                       type="checkbox"
                       checked={finishingChecklist.audioReviewed}
                       onChange={(event) => {
-                        setFocusOverride("tool-focus");
-                        setFinishingChecklist((current) => ({
-                          ...current,
-                          audioReviewed: event.target.checked,
-                        }));
+                        commands.focusTool();
+                        commands.setReviewFlag("audio", event.target.checked);
                       }}
                     />
                     <span>Audio reviewed</span>
                   </label>
                 </section>
-                )
-              ) : null}
   </div>;
 }
