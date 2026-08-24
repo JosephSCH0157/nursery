@@ -2,6 +2,10 @@ import type { HammerSelectedVisualContext } from "./hammerSelectedVisualContext"
 import type { HammerToolBayRouteDecision, HammerToolBayUnsupportedReason } from "./hammerToolBayRouteDecision";
 import type { HammerCaptionArtifactMode, HammerCaptionBuildState, HammerCaptionEditedState, HammerCaptionFormattingState } from "./hammerWorkspaceShellCaptionUtils";
 import type { HammerLogoOverlayPosition, HammerLogoOverlaySize } from "./hammerWorkspaceShellVisualUtils";
+import type { HammerStudioRackState } from "./hammerStudioRack";
+import type { HammerVoicePolishDeEsserStrength, HammerVoicePolishEqProfile, HammerVoicePolishFixId, HammerVoicePolishPresetId, HammerVoicePolishState } from "./hammerVoicePolish";
+import type { HammerPodcastMasterUiStatus } from "./hammerPodcastMasterStatus";
+import type { HammerExportTimelineAudioLayer } from "./hammerRenderAssembly";
 
 export type HammerResolvedToolBayRoute = Extract<HammerToolBayRouteDecision, { status: "resolved" }>;
 export type HammerToolBayContextUnsupportedReason =
@@ -63,7 +67,18 @@ export type BrollCommands = Readonly<{
   revertBinding(placementId: string): void;
   addTransition(placementId: string): void;
 }>;
-export type AudioCommands = Readonly<{ updateVoicePreset(presetId: string): void; toggleCompare(enabled: boolean): void; applyPodcastMaster(): void }>;
+export type AudioFinalizationCommands = Readonly<{
+  setVoiceCleanupEnabled(enabled: boolean): void; setVoiceFixEnabled(fix: HammerVoicePolishFixId, enabled: boolean): void;
+  applyVoicePreset(preset: HammerVoicePolishPresetId): void; setCompareMode(mode: "before" | "after"): void;
+  setDeEsserStrength(strength: HammerVoicePolishDeEsserStrength): void; setEqProfile(profile: HammerVoicePolishEqProfile): void;
+}>;
+export type AudioAdjustmentCommands = Readonly<{
+  focusTool(): void; applyPodcastMaster(): void; toggleRack(): void; setRackEnabled(enabled: boolean): void; setRackBypassed(bypassed: boolean): void;
+  setRackBackend(backend: "native" | "ffmpeg"): void; setModuleEnabled(module: keyof HammerStudioRackState["modules"], enabled: boolean): void;
+  setModuleBypassed(module: keyof HammerStudioRackState["modules"], bypassed: boolean): void;
+  applyRackMutation(label: string, mutate: (current: HammerStudioRackState) => HammerStudioRackState): void;
+  setLevelingEnabled(enabled: boolean): void; setNoiseReductionEnabled(enabled: boolean): void;
+}>;
 export type CaptionCommands = Readonly<{
   focusTool(): void; buildCaptions(): void; enableEdits(): void; selectMode(mode: HammerCaptionArtifactMode): void; discardEdits(): void;
   updateFormatting(next: HammerCaptionFormattingState | ((current: HammerCaptionFormattingState) => HammerCaptionFormattingState)): void;
@@ -93,6 +108,16 @@ export type HammerImageAnimationToolBayContext = SurfaceContext<"image_animation
 export type HammerBrollToolBayContext = SurfaceContext<"broll", VisualData, BrollCommands>;
 export type HammerReferenceClipToolBayContext = SurfaceContext<"reference_clip", VisualData, BrollCommands>;
 type MigratedEditorSurfaceData = { model: unknown };
+export type HammerAudioFinalizationToolBayData = Readonly<{ compareMode: "before" | "after"; voicePolish: HammerVoicePolishState | null }>;
+export type HammerAudioAdjustmentsToolBayData = Readonly<{
+  editableAudioPolish: Readonly<{ status?: string }> | null; persistedAudioCutCount: number; effectivePlaybackCutRegions: readonly unknown[]; silenceSuggestionCount: number;
+  editableStudioRack: HammerStudioRackState; studioRackPlaybackConfig: Readonly<{ backend: string }>; studioRackPlaybackBackendResolution: Readonly<{ status: string }>;
+  studioRackRenderConfig: Readonly<{ backend: string }>; studioRackRenderBackendResolution: Readonly<{ status: string }>;
+  studioRackRenderStatus: Readonly<{ message: string; requestedBackend: string; resolvedBackend: string; status: string; outputWorkpiecePath?: string | null }> | null;
+  studioRackRenderAppliedModules: readonly string[]; studioRackRenderDeferredModules: readonly string[]; studioRackEnabledModuleCount: number; studioRackComparePreviewStatusLabel: string | null; studioRackOpen: boolean;
+  podcastMasterLayer: HammerExportTimelineAudioLayer | null;
+  podcastMasterUiStatus: HammerPodcastMasterUiStatus; audioLevelingEnabled: boolean; audioNoiseReductionEnabled: boolean;
+}>;
 export type HammerCaptionsToolBayData = Readonly<{
   activeCaptionArtifactText: string; activeCaptionMode: HammerCaptionArtifactMode; activeCaptionState: HammerCaptionBuildState | HammerCaptionEditedState | null;
   captionActiveModeLabel: string; captionActiveModeSourceLabel: string; captionArtifactStatusLabel: string; captionBuildFeedback: string | null; captionBuildFreshness: string;
@@ -111,8 +136,8 @@ export type HammerPackagingToolBayData = Readonly<{
 }>;
 export type HammerFinishingChecklist = Readonly<{ transcriptReviewed: boolean; visualsReviewed: boolean; audioReviewed: boolean }>;
 export type HammerFinishingToolBayData = Readonly<{ checklist: HammerFinishingChecklist }>;
-export type HammerAudioFinalizationToolBayContext = SurfaceContext<"audio_finalization", MigratedEditorSurfaceData, AudioCommands>;
-export type HammerAudioAdjustmentsToolBayContext = SurfaceContext<"audio_adjustments", MigratedEditorSurfaceData, AudioCommands>;
+export type HammerAudioFinalizationToolBayContext = SurfaceContext<"audio_finalization", HammerAudioFinalizationToolBayData, AudioFinalizationCommands>;
+export type HammerAudioAdjustmentsToolBayContext = SurfaceContext<"audio_adjustments", HammerAudioAdjustmentsToolBayData, AudioAdjustmentCommands>;
 export type HammerCaptionsToolBayContext = SurfaceContext<"captions", HammerCaptionsToolBayData, CaptionCommands>;
 export type HammerMetadataToolBayContext = SurfaceContext<"metadata", HammerMetadataToolBayData, MetadataCommands>;
 export type HammerPackagingToolBayContext = SurfaceContext<"packaging", HammerPackagingToolBayData, PackagingCommands>;

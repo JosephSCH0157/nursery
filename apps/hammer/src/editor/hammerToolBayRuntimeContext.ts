@@ -26,11 +26,14 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
   focusIssue: () => void;
   sendToQuench: () => void;
   migratedEditorModel: unknown | null;
+  audioFinalizationData: HammerAudioFinalizationToolBayContext["data"] | null;
+  audioAdjustmentsData: Extract<HammerToolBayContext, { surface: "audio_adjustments" }>["data"] | null;
   captionsData: HammerCaptionsToolBayContext["data"] | null;
   metadataData: HammerMetadataToolBayContext["data"] | null;
   packagingData: Extract<HammerToolBayContext, { surface: "packaging" }>["data"] | null;
   finishingData: Extract<HammerToolBayContext, { surface: "finishing" }>["data"] | null;
-  audioCommands: HammerAudioFinalizationToolBayContext["commands"];
+  audioFinalizationCommands: HammerAudioFinalizationToolBayContext["commands"];
+  audioAdjustmentCommands: Extract<HammerToolBayContext, { surface: "audio_adjustments" }>["commands"];
   captionCommands: HammerCaptionsToolBayContext["commands"];
   metadataCommands: HammerMetadataToolBayContext["commands"];
   transcriptCleanupCommands: Extract<HammerToolBayContext, { surface: "transcript_cleanup" }>["commands"];
@@ -110,9 +113,9 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
   }
   if (args.route.surface === "audio_finalization" || args.route.surface === "audio_adjustments" || args.route.surface === "captions" || args.route.surface === "metadata") {
     const body = args.route.surface === "audio_finalization"
-      ? buildHammerToolBayContext({ surface: "audio_finalization", route: args.route, data: args.migratedEditorModel === null ? null : { model: args.migratedEditorModel }, commands: args.audioCommands })
+      ? buildHammerToolBayContext({ surface: "audio_finalization", route: args.route, data: args.audioFinalizationData, commands: args.audioFinalizationCommands })
       : args.route.surface === "audio_adjustments"
-      ? buildHammerToolBayContext({ surface: "audio_adjustments", route: args.route, data: args.migratedEditorModel === null ? null : { model: args.migratedEditorModel }, commands: args.audioCommands })
+      ? buildHammerToolBayContext({ surface: "audio_adjustments", route: args.route, data: args.audioAdjustmentsData, commands: args.audioAdjustmentCommands })
       : args.route.surface === "captions"
       ? buildHammerToolBayContext({ surface: "captions", route: args.route, data: args.captionsData, commands: args.captionCommands })
       : buildHammerToolBayContext({ surface: "metadata", route: args.route, data: args.metadataData, commands: args.metadataCommands });

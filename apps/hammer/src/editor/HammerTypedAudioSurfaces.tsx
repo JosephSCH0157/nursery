@@ -1,60 +1,23 @@
 import type { JSX } from "react";
 import type { HammerStudioRackState } from "./hammerStudioRack";
-import type { HammerVoicePolishState } from "./hammerVoicePolish";
 import type { HammerAudioAdjustmentsToolBayContext, HammerAudioFinalizationToolBayContext } from "./hammerToolBayContext";
 
 type AudioSurfaceContext = HammerAudioFinalizationToolBayContext | HammerAudioAdjustmentsToolBayContext;
 
 export function HammerTypedAudioSurfaces(props: { context: AudioSurfaceContext }): JSX.Element {
-  const { surface } = props.context;
-  type Command = (...args: unknown[]) => void;
-  type SurfaceModel = Readonly<{
-    audioFinalizationCompareMode: "before" | "after"; voicePolish: HammerVoicePolishState | null; editableAudioPolish: { status?: string } | null; persistedAudioCutCount: number; effectivePlaybackCutRegions: readonly unknown[]; silenceSuggestionCount: number; editableStudioRack: HammerStudioRackState; studioRackPlaybackConfig: { backend: string }; studioRackPlaybackBackendResolution: { status: string }; studioRackRenderConfig: { backend: string }; studioRackRenderBackendResolution: { status: string }; studioRackRenderStatus: { message: string; requestedBackend: string; resolvedBackend: string; status: string; outputWorkpiecePath?: string | null } | null; studioRackRenderAppliedModules: readonly string[]; studioRackRenderDeferredModules: readonly string[]; studioRackEnabledModuleCount: number; studioRackComparePreviewStatusLabel: string | null; studioRackOpen: boolean; podcastMasterLayer: { posture: string; capability: string; meta?: { preset: string; normalization_lufs: number; compression_amount: number; limiter_ceiling_dbtp: number; preview_mode: string; applied_stages?: readonly string[]; skipped_stages?: readonly string[] } } | null; podcastMasterUiStatus: { headline: string; detail: string; action_label: string }; audioLevelingEnabled: boolean; audioNoiseReductionEnabled: boolean;
-    applyPodcastMasterPass: Command; applyStudioRackMutation: Command; setAudioLevelingEnabled: Command; setAudioNoiseReductionEnabled: Command; setStudioRackBackend: Command; setStudioRackBypassed: Command; setStudioRackEnabled: Command; setStudioRackModuleBypassed: Command; setStudioRackModuleEnabled: Command; setStudioRackOpen: Command; setFocusOverride: Command; setAudioFinalizationCompare: Command; applyVoicePolishPreset: Command; setVoicePolishFixEnabled: Command; setVoicePolishDeEsserStrength: Command; setVoicePolishEqProfile: Command; setVoiceCleanupEnabled: Command; handleDiscardEditedCaptions: Command; handleEditCaptionChunkText: Command; handleEnableCaptionEdits: Command; handleMergeEditedCaptionChunk: Command; handleNormalizeEditedCaptionChunkPunctuation: Command; handleRebuildCaptionArtifacts: Command; handleSplitEditedCaptionChunk: Command; handleToggleEditedCaptionChunkSpeakerLabel: Command; setActiveCaptionArtifactMode: Command; setCaptionFormatting: Command; setSelectedCaptionArtifactFormat: Command; setDetailTag: Command;
-  }>;
-  const ctx = props.context.data.model as SurfaceModel;
-  const applyPodcastMasterPass = ctx.applyPodcastMasterPass;
-  const applyStudioRackMutation = ctx.applyStudioRackMutation;
-  const audioLevelingEnabled = ctx.audioLevelingEnabled;
-  const audioNoiseReductionEnabled = ctx.audioNoiseReductionEnabled;
-  const setAudioLevelingEnabled = ctx.setAudioLevelingEnabled;
-  const setAudioNoiseReductionEnabled = ctx.setAudioNoiseReductionEnabled;
-  const setStudioRackBackend = ctx.setStudioRackBackend;
-  const setStudioRackBypassed = ctx.setStudioRackBypassed;
-  const setStudioRackEnabled = ctx.setStudioRackEnabled;
-  const setStudioRackModuleBypassed = ctx.setStudioRackModuleBypassed;
-  const setStudioRackModuleEnabled = ctx.setStudioRackModuleEnabled;
-  const setStudioRackOpen = ctx.setStudioRackOpen;
-  const studioRackOpen = ctx.studioRackOpen;
-  const setFocusOverride = ctx.setFocusOverride;
-  const audioFinalizationCompareMode = ctx.audioFinalizationCompareMode;
-  const setAudioFinalizationCompare = ctx.setAudioFinalizationCompare;
-  const applyVoicePolishPreset = ctx.applyVoicePolishPreset;
-  const voicePolish = ctx.voicePolish;
-  const setVoicePolishFixEnabled = ctx.setVoicePolishFixEnabled;
-  const setVoicePolishDeEsserStrength = ctx.setVoicePolishDeEsserStrength;
-  const setVoicePolishEqProfile = ctx.setVoicePolishEqProfile;
-  const setVoiceCleanupEnabled = ctx.setVoiceCleanupEnabled;
-  const editableAudioPolish = ctx.editableAudioPolish;
-  const persistedAudioCutCount = ctx.persistedAudioCutCount;
-  const effectivePlaybackCutRegions = ctx.effectivePlaybackCutRegions;
-  const silenceSuggestionCount = ctx.silenceSuggestionCount;
-  const editableStudioRack = ctx.editableStudioRack;
-  const studioRackPlaybackConfig = ctx.studioRackPlaybackConfig;
-  const studioRackPlaybackBackendResolution = ctx.studioRackPlaybackBackendResolution;
-  const studioRackRenderConfig = ctx.studioRackRenderConfig;
-  const studioRackRenderBackendResolution = ctx.studioRackRenderBackendResolution;
-  const studioRackRenderStatus = ctx.studioRackRenderStatus;
-  const studioRackRenderAppliedModules = ctx.studioRackRenderAppliedModules;
-  const studioRackRenderDeferredModules = ctx.studioRackRenderDeferredModules;
-  const studioRackEnabledModuleCount = ctx.studioRackEnabledModuleCount;
-  const studioRackComparePreviewStatusLabel = ctx.studioRackComparePreviewStatusLabel;
-  const podcastMasterLayer = ctx.podcastMasterLayer;
-  const podcastMasterUiStatus = ctx.podcastMasterUiStatus;
+  return props.context.surface === "audio_finalization" ? <AudioFinalizationSurface context={props.context} /> : <AudioAdjustmentsSurface context={props.context} />;
+}
 
+function AudioFinalizationSurface(props: { context: HammerAudioFinalizationToolBayContext }): JSX.Element {
+  const { commands, data, surface } = props.context;
+  const { compareMode: audioFinalizationCompareMode, voicePolish } = data;
+  const setVoiceCleanupEnabled = commands.setVoiceCleanupEnabled;
+  const setVoicePolishFixEnabled = commands.setVoiceFixEnabled;
+  const applyVoicePolishPreset = commands.applyVoicePreset;
+  const setAudioFinalizationCompare = commands.setCompareMode;
+  const setVoicePolishDeEsserStrength = commands.setDeEsserStrength;
+  const setVoicePolishEqProfile = commands.setEqProfile;
   return <div data-hammer-tool-bay-surface={surface}>
-{surface === "audio_finalization" || surface === "audio_adjustments" ? (
-                surface === "audio_finalization" ? (
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">Audio Finalization</header>
 
@@ -215,7 +178,7 @@ export function HammerTypedAudioSurfaces(props: { context: AudioSurfaceContext }
                         <span>De-esser strength</span>
                         <select
                           value={voicePolish?.advanced?.de_esser_strength ?? "medium"}
-                          onChange={(event) => setVoicePolishDeEsserStrength(event.target.value)}
+                          onChange={(event) => setVoicePolishDeEsserStrength(event.target.value === "low" || event.target.value === "high" ? event.target.value : "medium")}
                         >
                           <option value="low">Low</option>
                           <option value="medium">Medium</option>
@@ -226,7 +189,7 @@ export function HammerTypedAudioSurfaces(props: { context: AudioSurfaceContext }
                         <span>EQ profile</span>
                         <select
                           value={voicePolish?.advanced?.eq_profile ?? "voice"}
-                          onChange={(event) => setVoicePolishEqProfile(event.target.value)}
+                          onChange={(event) => setVoicePolishEqProfile(event.target.value === "flat" || event.target.value === "bright" ? event.target.value : "voice")}
                         >
                           <option value="flat">Flat</option>
                           <option value="voice">Voice</option>
@@ -236,6 +199,23 @@ export function HammerTypedAudioSurfaces(props: { context: AudioSurfaceContext }
                     </details>
                   </section>
                 ) : (
+  </div>;
+}
+
+function AudioAdjustmentsSurface(props: { context: HammerAudioAdjustmentsToolBayContext }): JSX.Element {
+  const { commands, data, surface } = props.context;
+  const { editableAudioPolish, persistedAudioCutCount, effectivePlaybackCutRegions, silenceSuggestionCount, editableStudioRack, studioRackPlaybackConfig, studioRackPlaybackBackendResolution, studioRackRenderConfig, studioRackRenderBackendResolution, studioRackRenderStatus, studioRackRenderAppliedModules, studioRackRenderDeferredModules, studioRackEnabledModuleCount, studioRackComparePreviewStatusLabel, studioRackOpen, podcastMasterLayer, podcastMasterUiStatus, audioLevelingEnabled, audioNoiseReductionEnabled } = data;
+  const applyPodcastMasterPass = commands.applyPodcastMaster;
+  const applyStudioRackMutation = commands.applyRackMutation;
+  const setAudioLevelingEnabled = commands.setLevelingEnabled;
+  const setAudioNoiseReductionEnabled = commands.setNoiseReductionEnabled;
+  const setStudioRackBackend = commands.setRackBackend;
+  const setStudioRackBypassed = commands.setRackBypassed;
+  const setStudioRackEnabled = commands.setRackEnabled;
+  const setStudioRackModuleBypassed = commands.setModuleBypassed;
+  const setStudioRackModuleEnabled = commands.setModuleEnabled;
+  const setStudioRackOpen = (_next: boolean | ((current: boolean) => boolean)): void => commands.toggleRack();
+  return <div data-hammer-tool-bay-surface={surface}>
                 <section className="hammer-tool-card">
                   <header className="hammer-tool-card__head">Audio Adjustments</header>
                   <div className="hammer-tool-hint">Current prep status: {editableAudioPolish?.status ?? "not_started"}</div>
@@ -318,7 +298,7 @@ export function HammerTypedAudioSurfaces(props: { context: AudioSurfaceContext }
                   <button
                     type="button"
                     onClick={() => {
-                      setFocusOverride("tool-focus");
+                      commands.focusTool();
                       setStudioRackOpen((current: boolean) => !current);
                     }}
                   >
@@ -569,7 +549,7 @@ export function HammerTypedAudioSurfaces(props: { context: AudioSurfaceContext }
                       type="checkbox"
                       checked={audioLevelingEnabled}
                       onChange={(event) => {
-                        setFocusOverride("tool-focus");
+                        commands.focusTool();
                         setAudioLevelingEnabled(event.target.checked);
                       }}
                     />
@@ -580,14 +560,12 @@ export function HammerTypedAudioSurfaces(props: { context: AudioSurfaceContext }
                       type="checkbox"
                       checked={audioNoiseReductionEnabled}
                       onChange={(event) => {
-                        setFocusOverride("tool-focus");
+                        commands.focusTool();
                         setAudioNoiseReductionEnabled(event.target.checked);
                       }}
                     />
                     <span>Reduce background noise (legacy prep)</span>
                   </label>
                 </section>
-                )
-              ) : null}
   </div>;
 }

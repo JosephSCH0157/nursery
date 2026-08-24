@@ -16,6 +16,8 @@ const unsupported: HammerToolBayRouteDecision = {
   navigationPermitted: false, selectionPreserved: true,
 };
 const visualRuntimeArgs = {
+  audioFinalizationData: null,
+  audioAdjustmentsData: null,
   captionsData: null,
   metadataData: null,
   packagingData: null,
@@ -30,7 +32,7 @@ const visualRuntimeArgs = {
   referenceClipCommands: { removePlacement() {}, rebindPlacement() {}, replaceBinding() {}, revertBinding() {}, addTransition() {} },
 };
 
-function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "ready" | "packaging" = "ready", missingDataSurface: "captions" | "metadata" | "packaging" | "finishing" | null = null) {
+function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "ready" | "packaging" = "ready", missingDataSurface: "audio_finalization" | "audio_adjustments" | "captions" | "metadata" | "packaging" | "finishing" | null = null) {
   const activity = { completion: 0, focus: 0, send: 0, history: 0, persistence: 0, selection: 0 };
   const markPassComplete = (): void => { activity.completion += 1; };
   const focusIssue = (): void => { activity.focus += 1; };
@@ -55,7 +57,8 @@ function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "rea
     introOutroSelectedIntroPath: null, introOutroSelectedOutroPath: null, introOutroSelection: { intro_asset_id: null, outro_asset_id: null }, packagingIntroPlacement: null, packagingOutroPlacement: null, packagingLogoAssetPath: null, packagingLogoPlacement: null, packagingLogoPosition: "top_right", packagingLogoSize: "medium", sourceImageLibraryItems: [], LOGO_POSITION_OPTIONS: [], LOGO_SIZE_OPTIONS: [], PACKAGING_INTRO_ENTRY_ID: "packaging:intro", PACKAGING_OUTRO_ENTRY_ID: "packaging:outro", applyIntroPlacement: noop, applyOutroPlacement: noop, removePackagingPlacement: noop, applyLogoOverlayStyle: noop, toggleLogoOverlay: noop, finishingChecklist: { transcriptReviewed: false, visualsReviewed: false, audioReviewed: false }, setFinishingChecklist: noop,
     SEGMENTATION_PROVIDER_DESCRIPTORS: [], activeLookPreset: null, activeExposureAdjustment: null, backgroundBlurProviderDescriptor: null,
   };
-  const audioCommands = { updateVoicePreset: noop, toggleCompare: noop, applyPodcastMaster: noop };
+  const audioFinalizationCommands = { setVoiceCleanupEnabled: noop, setVoiceFixEnabled: noop, applyVoicePreset: noop, setCompareMode: noop, setDeEsserStrength: noop, setEqProfile: noop };
+  const audioAdjustmentCommands = { focusTool: noop, applyPodcastMaster: noop, toggleRack: noop, setRackEnabled: noop, setRackBypassed: noop, setRackBackend: noop, setModuleEnabled: noop, setModuleBypassed: noop, applyRackMutation: noop, setLevelingEnabled: noop, setNoiseReductionEnabled: noop };
   const captionCommands = { focusTool: noop, buildCaptions: noop, enableEdits: noop, selectMode: noop, discardEdits: noop, updateFormatting: noop, selectArtifactFormat: noop, editCaption: noop, splitCaption: noop, mergeCaption: noop, normalizePunctuation: noop, toggleSpeakerLabel: noop };
   const metadataCommands = { focusTool: noop, setTag: noop };
   const transcriptCleanupCommands = { refreshCandidates: noop, previewCandidate: noop, acceptCandidate: noop, dismissCandidate: noop, applyCleanup: noop, discardCleanup: noop };
@@ -66,6 +69,8 @@ function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "rea
   const finishingCommands = { focusTool: noop, setReviewFlag: noop };
   const contexts = assembleHammerToolBayRuntimeContexts({
     ...visualRuntimeArgs, route: exactRoute, passLabel: "Ready", passStatus: "in_progress",
+    audioFinalizationData: missingDataSurface === "audio_finalization" ? null : { compareMode: migratedEditorModel.audioFinalizationCompareMode, voicePolish: migratedEditorModel.voicePolish },
+    audioAdjustmentsData: missingDataSurface === "audio_adjustments" ? null : { editableAudioPolish: migratedEditorModel.editableAudioPolish, persistedAudioCutCount: migratedEditorModel.persistedAudioCutCount, effectivePlaybackCutRegions: migratedEditorModel.effectivePlaybackCutRegions, silenceSuggestionCount: migratedEditorModel.silenceSuggestionCount, editableStudioRack: migratedEditorModel.editableStudioRack, studioRackPlaybackConfig: migratedEditorModel.studioRackPlaybackConfig, studioRackPlaybackBackendResolution: migratedEditorModel.studioRackPlaybackBackendResolution, studioRackRenderConfig: migratedEditorModel.studioRackRenderConfig, studioRackRenderBackendResolution: migratedEditorModel.studioRackRenderBackendResolution, studioRackRenderStatus: migratedEditorModel.studioRackRenderStatus, studioRackRenderAppliedModules: migratedEditorModel.studioRackRenderAppliedModules, studioRackRenderDeferredModules: migratedEditorModel.studioRackRenderDeferredModules, studioRackEnabledModuleCount: migratedEditorModel.studioRackEnabledModuleCount, studioRackComparePreviewStatusLabel: migratedEditorModel.studioRackComparePreviewStatusLabel, studioRackOpen: migratedEditorModel.studioRackOpen, podcastMasterLayer: migratedEditorModel.podcastMasterLayer, podcastMasterUiStatus: migratedEditorModel.podcastMasterUiStatus, audioLevelingEnabled: migratedEditorModel.audioLevelingEnabled, audioNoiseReductionEnabled: migratedEditorModel.audioNoiseReductionEnabled },
     captionsData: missingDataSurface === "captions" ? null : { activeCaptionArtifactText: migratedEditorModel.activeCaptionArtifactText, activeCaptionMode: migratedEditorModel.activeCaptionMode, activeCaptionState: migratedEditorModel.activeCaptionState, captionActiveModeLabel: migratedEditorModel.captionActiveModeLabel, captionActiveModeSourceLabel: migratedEditorModel.captionActiveModeSourceLabel, captionArtifactStatusLabel: migratedEditorModel.captionArtifactStatusLabel, captionBuildFeedback: migratedEditorModel.captionBuildFeedback, captionBuildFreshness: migratedEditorModel.captionBuildFreshness, captionBuildState: migratedEditorModel.captionBuildState, captionBuiltSummary: migratedEditorModel.captionBuiltSummary, captionBuiltTone: migratedEditorModel.captionBuiltTone, captionDiscardConsequenceLabel: migratedEditorModel.captionDiscardConsequenceLabel, captionEditedBasisDetail: migratedEditorModel.captionEditedBasisDetail, captionEditedChangeSummary: migratedEditorModel.captionEditedChangeSummary, captionEditedState: migratedEditorModel.captionEditedState, captionEditedSummary: migratedEditorModel.captionEditedSummary, captionEditedTone: migratedEditorModel.captionEditedTone, captionEditorRefs: migratedEditorModel.captionEditorRefs, captionFormatting: migratedEditorModel.captionFormatting, captionRebuildConsequenceLabel: migratedEditorModel.captionRebuildConsequenceLabel, captionReleasePrepSafetyDetail: migratedEditorModel.captionReleasePrepSafetyDetail, captionReleasePrepSafetyLabel: migratedEditorModel.captionReleasePrepSafetyLabel, captionReleasePrepSafetyState: migratedEditorModel.captionReleasePrepSafetyState, captionReleaseSourceLabel: migratedEditorModel.captionReleaseSourceLabel, captionSourceLabel: migratedEditorModel.captionSourceLabel, selectedCaptionArtifactFormat: migratedEditorModel.selectedCaptionArtifactFormat },
     metadataData: missingDataSurface === "metadata" ? null : { detailTag: migratedEditorModel.detailTag },
     packagingData: missingDataSurface === "packaging" ? null : { selectedIntroPath: null, selectedOutroPath: null, selectedIntroAssetId: null, selectedOutroAssetId: null, introPlaced: false, outroPlaced: false, logoAssetPath: null, logoPlaced: false, logoPosition: "top_right", logoSize: "medium", sourceImageLibraryItems: [], logoPositionOptions: [], logoSizeOptions: [], introEntryId: "packaging:intro", outroEntryId: "packaging:outro" },
@@ -88,9 +93,9 @@ function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "rea
       savedPackage: null, error: null,
     },
     markPassComplete, focusIssue, sendToQuench, migratedEditorModel,
-    audioCommands, captionCommands, metadataCommands, transcriptCleanupCommands, retakeCommands, gapCommands, transcriptPolishCommands, packagingCommands, finishingCommands,
+    audioFinalizationCommands, audioAdjustmentCommands, captionCommands, metadataCommands, transcriptCleanupCommands, retakeCommands, gapCommands, transcriptPolishCommands, packagingCommands, finishingCommands,
   });
-  return { contexts, activity, commands: { markPassComplete, focusIssue, sendToQuench, audioCommands, captionCommands, metadataCommands, transcriptCleanupCommands, retakeCommands, gapCommands, transcriptPolishCommands, packagingCommands, finishingCommands } };
+  return { contexts, activity, commands: { markPassComplete, focusIssue, sendToQuench, audioFinalizationCommands, audioAdjustmentCommands, captionCommands, metadataCommands, transcriptCleanupCommands, retakeCommands, gapCommands, transcriptPolishCommands, packagingCommands, finishingCommands } };
 }
 
 test("runtime assembly covers all twenty-one contexts and preserves callback identity with zero activity", () => {
@@ -135,8 +140,8 @@ test("missing migrated data fails closed and never produces a legacy body", () =
   assert.deepEqual(Object.keys(failed.body.commands), []);
 });
 
-test("missing typed caption, metadata, packaging, and finishing data fails closed without legacy fallback", () => {
-  for (const surface of ["captions", "metadata", "packaging", "finishing"] as const) {
+test("missing typed audio, caption, metadata, packaging, and finishing data fails closed without legacy fallback", () => {
+  for (const surface of ["audio_finalization", "audio_adjustments", "captions", "metadata", "packaging", "finishing"] as const) {
     const item = fixture({ ...resolved, surface }, "ready", surface);
     assert.equal(item.contexts.body?.surface, "unsupported");
     if (item.contexts.body?.surface === "unsupported") assert.equal(item.contexts.body.data.reason, "required_data_missing");
@@ -146,8 +151,8 @@ test("missing typed caption, metadata, packaging, and finishing data fails close
 
 test("all ten extracted surfaces preserve exact dispatch, representative accessibility, command identity, and passive behavior", () => {
   const cases = [
-    ["audio_finalization", "Audio Finalization", "audioCommands"],
-    ["audio_adjustments", "Audio Adjustments", "audioCommands"],
+    ["audio_finalization", "Audio Finalization", "audioFinalizationCommands"],
+    ["audio_adjustments", "Audio Adjustments", "audioAdjustmentCommands"],
     ["captions", "Caption Output", "captionCommands"],
     ["metadata", "Edit Metadata", "metadataCommands"],
     ["transcript_cleanup", "Transcript Cleanup", "transcriptCleanupCommands"],
@@ -168,6 +173,29 @@ test("all ten extracted surfaces preserve exact dispatch, representative accessi
     assert.match(first, new RegExp(`data-hammer-tool-bay-surface="${surface}"`));
     assert.match(first, new RegExp(accessibleText));
     assert.equal(body.commands, item.commands[commandKey]);
+    assert.deepEqual(item.activity, { completion: 0, focus: 0, send: 0, history: 0, persistence: 0, selection: 0 });
+  }
+});
+
+test("typed audio surfaces preserve finalization, measurement, backend, readiness, and cross-family transition markup without activity", () => {
+  const sequence = ["audio_finalization", "audio_adjustments", "captions", "transcript_cleanup", "audio_finalization"] as const;
+  for (const surface of sequence) {
+    const item = fixture({ ...resolved, surface });
+    assert.ok(item.contexts.body);
+    const markup = renderToStaticMarkup(<HammerTypedToolBayBody context={item.contexts.body} />);
+    assert.match(markup, new RegExp(`data-hammer-tool-bay-surface="${surface}"`));
+    if (surface === "audio_finalization") {
+      assert.match(markup, /Voice Cleanup/);
+      assert.match(markup, /Before/);
+      assert.match(markup, /After/);
+    }
+    if (surface === "audio_adjustments") {
+      assert.match(markup, /Current prep status: not_started/);
+      assert.match(markup, /Persisted cut ops: 0 raw · 0 effective playback regions/);
+      assert.match(markup, /Playback lane: native \(available\)/);
+      assert.match(markup, /Render lane: native \(available\)/);
+      assert.match(markup, /Podcast Master: not declared/);
+    }
     assert.deepEqual(item.activity, { completion: 0, focus: 0, send: 0, history: 0, persistence: 0, selection: 0 });
   }
 });
