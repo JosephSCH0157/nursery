@@ -5,6 +5,7 @@ import {
   type PreparedPresentation,
 } from './performance-presentation-boundary';
 import type { PerformancePresentationCandidate } from './performance-presentation-builder';
+import { registerCommittedPresentationMirror } from './performance-presentation-mirror-observer';
 import {
   beginPresentationMutationTransaction,
   commitPresentationMutationTransaction,
@@ -135,7 +136,7 @@ function validateAttached(
 ): void {
   const blocks = Array.from(root.querySelectorAll<HTMLElement>(':scope > .tp-performance-block'));
   const words = Array.from(root.querySelectorAll<HTMLElement>('.tp-performance-word'));
-  if (blocks.length !== candidate.integrity.blockCount || words.length !== candidate.integrity.wordCount
+  if (blocks.length !== candidate.integrity.blockCount || words.length !== candidate.wordElements.length
     || root.dataset.performanceProjectionId !== candidate.projectionId
     || root.dataset.presentationEpoch !== epoch) {
     throw new PerformancePresentationInstallError('ATTACHED_VALIDATION_FAILED', { stage: 'counts_or_root' });
@@ -151,16 +152,8 @@ function validateAttached(
       throw new PerformancePresentationInstallError('ATTACHED_VALIDATION_FAILED', { stage: 'block', index });
     }
   }
-  for (let index = 0; index < candidate.wordMappings.length; index += 1) {
-    const mapping = candidate.wordMappings[index]!;
-    const element = words[index];
-    if (!element || element !== candidate.wordElements[index] || !element.isConnected
-      || element.dataset.performanceWordId !== mapping.wordId
-      || element.dataset.performanceWordOrdinal !== String(mapping.wordOrdinal)
-      || element.closest('.tp-performance-block')?.id !== mapping.screenAnchorId
-      || element.dataset.presentationEpoch !== epoch) {
-      throw new PerformancePresentationInstallError('ATTACHED_VALIDATION_FAILED', { stage: 'word', index });
-    }
+  if (candidate.wordElements.length !== 0 || words.length !== 0) {
+    throw new PerformancePresentationInstallError('ATTACHED_VALIDATION_FAILED', { stage: 'unexpected_word_dom' });
   }
 }
 
@@ -176,6 +169,12 @@ export async function installPerformancePresentation(input: {
     afterActiveCommit: (active: ActivePresentation) => void;
     rollBack: () => void;
   }>;
+  onMetrics?: (metrics: Readonly<{
+    domInsertionMs: number;
+    installedTreeValidationMs: number;
+    mirrorSerializationMs: number;
+    mirrorHtmlBytes: number;
+  }>) => void;
 }): Promise<ActivePresentation> {
   const { authority, preparedPresentation: prepared, candidate, root } = input;
   if (authority.prepared !== prepared) throw new PerformancePresentationInstallError('PREPARED_STATE_NOT_AUTHORIZED');
@@ -191,11 +190,15 @@ export async function installPerformancePresentation(input: {
   const rootIdentity = root.id || root.dataset.role || 'anonymous-script-root';
   let mutationTransaction: PresentationMutationTransaction | null = null;
   let runtimeCommitStarted = false;
+  let domInsertionMs = 0;
+  let installedTreeValidationMs = 0;
   try {
     mutationTransaction = beginPresentationMutationTransaction(root, epoch);
     candidate.blockElements.forEach((element) => { element.dataset.presentationEpoch = epoch; });
     candidate.wordElements.forEach((element) => { element.dataset.presentationEpoch = epoch; });
+    const insertionStartedAt = performance.now();
     root.replaceChildren(candidate.fragment);
+    domInsertionMs = performance.now() - insertionStartedAt;
     root.dataset.performanceProjectionId = candidate.projectionId;
     root.dataset.presentationEpoch = epoch;
     root.dataset.lineCount = String(candidate.integrity.blockCount);
@@ -203,9 +206,11 @@ export async function installPerformancePresentation(input: {
     if (authority.generation !== input.expectedGeneration || !sameCanonical(authority.canonical, canonicalAtCommit)) {
       throw new PerformancePresentationInstallError('PRESENTATION_GENERATION_STALE');
     }
+    const validationStartedAt = performance.now();
     validateAttached(root, candidate, epoch);
     input.fault?.('before-receipt');
     validateAttached(root, candidate, epoch);
+    installedTreeValidationMs = performance.now() - validationStartedAt;
     const active: ActivePresentation = Object.freeze({
       status: 'active', mode: 'performance-projection-v1', source: prepared.source, projection: prepared.projection,
       activation: Object.freeze({
@@ -227,6 +232,8 @@ export async function installPerformancePresentation(input: {
     input.transactionHooks?.beforeActiveCommit();
     authority.commitActive(active, input.expectedGeneration);
     input.transactionHooks?.afterActiveCommit(active);
+    const mirrorMetrics = registerCommittedPresentationMirror(root, candidate);
+    input.onMetrics?.({ domInsertionMs, installedTreeValidationMs, mirrorSerializationMs: mirrorMetrics.serializationMs, mirrorHtmlBytes: mirrorMetrics.htmlBytes });
     commitPresentationMutationTransaction(mutationTransaction);
     await Promise.resolve();
     return active;
@@ -257,21 +264,14 @@ export function assertActivePresentationReceiptLive(input: {
     || !sameCanonical(authority.canonical, active.source)
     || root.dataset.performanceProjectionId !== receipt.projectionId
     || root.dataset.presentationEpoch !== receipt.installationEpoch
-    || blocks.length !== receipt.installedBlockCount || words.length !== receipt.installedWordCount
+    || blocks.length !== receipt.installedBlockCount || words.length !== 0
     || Array.from(blocks).some((element, index) => {
       const block = active.projection.blocks[index];
       const htmlElement = element as HTMLElement;
       return !block || htmlElement.dataset.presentationEpoch !== receipt.installationEpoch
         || htmlElement.dataset.performanceBlockId !== block.blockId
-        || htmlElement.id !== block.screenAnchorId;
-    })
-    || Array.from(words).some((element, index) => {
-      const word = active.projection.words[index];
-      const htmlElement = element as HTMLElement;
-      return !word || htmlElement.dataset.presentationEpoch !== receipt.installationEpoch
-        || htmlElement.dataset.performanceWordId !== word.wordId
-        || htmlElement.dataset.performanceWordOrdinal !== String(word.ordinal)
-        || htmlElement.textContent !== word.text;
+        || htmlElement.id !== block.screenAnchorId
+        || htmlElement.textContent !== block.text;
     })) {
     throw new PerformancePresentationInstallError('ACTIVE_RECEIPT_STALE');
   }

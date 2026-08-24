@@ -6,6 +6,11 @@ import type {
 import type { PreparedPresentation } from './performance-presentation-boundary';
 
 export const PERFORMANCE_PRESENTATION_RENDERER_VERSION = 'performance-projection-renderer-v1' as const;
+export const PERFORMANCE_PRESENTATION_DOM_BUDGET = Object.freeze({
+  maxNodesPerBlock: 2,
+  maxWordSpansAtRest: 0,
+  maxHtmlBytesPerCanonicalCharacter: 2,
+});
 
 export type PerformanceWordAnchorMapping = Readonly<{
   wordId: string;
@@ -45,6 +50,12 @@ export type PerformancePresentationCandidate = Readonly<{
     wordCount: number;
     orderedAnchorIntegrityHash: string;
     orderedWordMappingHash: string;
+  }>;
+  diagnostics: Readonly<{
+    projectionBuildMs: number;
+    nodeCount: number;
+    wordSpanCount: number;
+    generatedHtmlBytes: number;
   }>;
 }>;
 
@@ -118,7 +129,6 @@ function validateProjection(projection: AnvilPerformanceProjectionV1): void {
 function createBlockElement(
   ownerDocument: Document,
   block: PerformanceBlockV1,
-  words: readonly PerformanceSpokenWordV1[],
 ): { blockElement: HTMLElement; wordElements: HTMLElement[] } {
   const blockElement = ownerDocument.createElement('div');
   const ordinal = String(block.ordinal);
@@ -135,23 +145,12 @@ function createBlockElement(
   blockElement.dataset.exitBreak = block.exitBreak;
   if (block.speakerId) blockElement.dataset.speaker = block.speakerId;
 
-  const wordElements: HTMLElement[] = [];
-  words.forEach((word, index) => {
-    if (index > 0) blockElement.appendChild(ownerDocument.createTextNode(' '));
-    const element = ownerDocument.createElement('span');
-    element.className = 'tp-performance-word';
-    element.dataset.performanceWordId = word.wordId;
-    element.dataset.performanceWordOrdinal = String(word.ordinal);
-    element.dataset.sourceLine = String(word.line);
-    element.dataset.sourceStartUtf8Byte = String(word.startUtf8Byte);
-    element.dataset.sourceEndUtf8ByteExclusive = String(word.endUtf8ByteExclusive);
-    element.dataset.sourceStartUtf16 = String(word.startUtf16);
-    element.dataset.sourceEndUtf16Exclusive = String(word.endUtf16Exclusive);
-    element.textContent = word.text;
-    blockElement.appendChild(element);
-    wordElements.push(element);
-  });
-  return { blockElement, wordElements };
+  blockElement.appendChild(ownerDocument.createTextNode(block.text));
+  return { blockElement, wordElements: [] };
+}
+
+export function serializePerformancePresentation(candidate: Pick<PerformancePresentationCandidate, 'blockElements'>): string {
+  return candidate.blockElements.map((element) => element.outerHTML).join('');
 }
 
 export async function buildDetachedPerformancePresentation(input: {
@@ -159,6 +158,7 @@ export async function buildDetachedPerformancePresentation(input: {
   ownerDocument?: Document;
 }): Promise<PerformancePresentationCandidate> {
   const prepared = input.preparedPresentation;
+  const buildStartedAt = performance.now();
   if (prepared.status !== 'prepared' || prepared.mode !== 'performance-projection-v1'
     || prepared.projection.projectionId.length !== 64
     || prepared.projection.source.scriptRevision !== prepared.source.scriptRevision
@@ -176,7 +176,7 @@ export async function buildDetachedPerformancePresentation(input: {
 
   for (const block of prepared.projection.blocks) {
     const words = block.wordOrdinals.map((ordinal) => prepared.projection.words[ordinal]!);
-    const built = createBlockElement(ownerDocument, block, words);
+    const built = createBlockElement(ownerDocument, block);
     fragment.appendChild(built.blockElement);
     blockElements.push(built.blockElement);
     wordElements.push(...built.wordElements);
@@ -235,9 +235,15 @@ export async function buildDetachedPerformancePresentation(input: {
     canonicalLineToBlockOrdinals,
     integrity: Object.freeze({
       blockCount: blockElements.length,
-      wordCount: wordElements.length,
+      wordCount: prepared.projection.words.length,
       orderedAnchorIntegrityHash,
       orderedWordMappingHash,
+    }),
+    diagnostics: Object.freeze({
+      projectionBuildMs: performance.now() - buildStartedAt,
+      nodeCount: blockElements.length * 2,
+      wordSpanCount: 0,
+      generatedHtmlBytes: encoder.encode(blockElements.map((element) => element.outerHTML).join('')).length,
     }),
   });
 }

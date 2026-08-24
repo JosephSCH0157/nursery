@@ -47,7 +47,8 @@ describe('HA-4C transactional performance presentation installer', () => {
 
   test('issues a strong receipt and active state only after attached validation', async () => {
     const state = await setup();
-    const active = await installPerformancePresentation({ ...state, preparedPresentation: state.prepared, expectedGeneration: state.generation });
+    const metrics: Array<{ domInsertionMs: number; installedTreeValidationMs: number; mirrorSerializationMs: number; mirrorHtmlBytes: number }> = [];
+    const active = await installPerformancePresentation({ ...state, preparedPresentation: state.prepared, expectedGeneration: state.generation, onMetrics: (value) => metrics.push(value) });
     expect(state.authority.active).toBe(active);
     expect(active.activation).toMatchObject({
       schema: 'anvil.performance-presentation-installation.v1', projectionId: state.candidate.projectionId,
@@ -57,6 +58,10 @@ describe('HA-4C transactional performance presentation installer', () => {
       orderedWordMappingHash: state.candidate.integrity.orderedWordMappingHash,
     });
     expect(() => assertActivePresentationReceiptLive({ authority: state.authority, active, root: state.root })).not.toThrow();
+    expect(metrics).toHaveLength(1);
+    expect(metrics[0]).toEqual(expect.objectContaining({
+      domInsertionMs: expect.any(Number), installedTreeValidationMs: expect.any(Number), mirrorSerializationMs: expect.any(Number), mirrorHtmlBytes: expect.any(Number),
+    }));
   });
 
   test.each(['after-replace', 'before-receipt'] as const)('rolls back DOM, attributes, state, and scroll on injected %s failure', async (stage) => {
@@ -127,17 +132,17 @@ describe('HA-4C transactional performance presentation installer', () => {
   test('detached or removed installed nodes invalidate the receipt', async () => {
     const state = await setup();
     const active = await installPerformancePresentation({ ...state, preparedPresentation: state.prepared, expectedGeneration: state.generation });
-    state.root.querySelector('.tp-performance-word')?.remove();
+    state.root.querySelector('.tp-performance-block')?.remove();
     expect(() => assertActivePresentationReceiptLive({ authority: state.authority, active, root: state.root })).toThrow(expect.objectContaining({
       code: 'ACTIVE_RECEIPT_STALE',
     }));
   });
 
-  test('changed installed word identity or text invalidates the receipt', async () => {
+  test('changed installed block text invalidates the receipt', async () => {
     const state = await setup();
     const active = await installPerformancePresentation({ ...state, preparedPresentation: state.prepared, expectedGeneration: state.generation });
-    const word = state.root.querySelector<HTMLElement>('.tp-performance-word')!;
-    word.textContent = 'changed';
+    const block = state.root.querySelector<HTMLElement>('.tp-performance-block')!;
+    block.textContent = 'changed';
     expect(() => assertActivePresentationReceiptLive({ authority: state.authority, active, root: state.root })).toThrow(expect.objectContaining({
       code: 'ACTIVE_RECEIPT_STALE',
     }));

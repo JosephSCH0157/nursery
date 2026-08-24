@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import { prepareRequestedPresentation, parseRequestedPresentation } from '../../src/script/performance-presentation-boundary';
 import {
   buildDetachedPerformancePresentation,
+  PERFORMANCE_PRESENTATION_DOM_BUDGET,
   PerformancePresentationBuildError,
 } from '../../src/script/performance-presentation-builder';
 
@@ -52,13 +53,37 @@ describe('HA-4B detached performance presentation builder', () => {
     expect(candidate.fragment.isConnected).toBe(false);
     expect(candidate.blockElements).toHaveLength(2);
     expect(candidate.blockElements.every((element) => element.matches('.line.tp-performance-block'))).toBe(true);
-    expect(candidate.wordElements.map((element) => element.textContent)).toEqual(prepared.projection.words.map((word) => word.text));
+    expect(candidate.wordElements).toHaveLength(0);
+    expect(candidate.blockElements.map((element) => element.textContent)).toEqual(prepared.projection.blocks.map((block) => block.text));
     expect(candidate.wordMappings.map((mapping) => mapping.wordId)).toEqual(prepared.projection.words.map((word) => word.wordId));
     expect(candidate.wordMappings.map((mapping) => mapping.screenAnchorId)).toEqual(
       prepared.projection.words.map((word) => prepared.projection.blocks.find((block) => block.wordOrdinals.includes(word.ordinal))!.screenAnchorId),
     );
     expect(candidate.canonicalLineToBlockOrdinals).toEqual({ '1': [0], '2': [0], '4': [1] });
     expect(candidate.blockElements.map((element) => element.dataset.line)).toEqual(['0', '1']);
+    expect(candidate.diagnostics.wordSpanCount).toBe(PERFORMANCE_PRESENTATION_DOM_BUDGET.maxWordSpansAtRest);
+    expect(candidate.diagnostics.nodeCount).toBe(candidate.blockElements.length * 2);
+  });
+
+  test('Florida-shaped projection stays inside explicit lean-DOM and build-time budgets', async () => {
+    const lines = Array.from({ length: 137 }, (_, segment) =>
+      Array.from({ length: 55 }, (_, word) => `orange${segment}_${word}`).join(' '));
+    const text = `[s1]\n${lines.join('\n\n')}\n[/s1]\n`;
+    const bytes = encoder.encode(text);
+    const source = { ...SOURCE, scriptRevision: 137, scriptHash: createHash('sha256').update(bytes).digest('hex') };
+    const prepared = await prepareRequestedPresentation({
+      requestedPresentation: parseRequestedPresentation('?presentation=performance-projection-v1'),
+      canonicalIdentity: source,
+      canonicalText: text,
+      canonicalUtf8Bytes: bytes,
+    });
+    if (!prepared) throw new Error('expected Florida-shaped preparation');
+    const candidate = await buildDetachedPerformancePresentation({ preparedPresentation: prepared });
+    expect(candidate.wordMappings.length).toBeGreaterThan(7_000);
+    expect(candidate.wordElements).toHaveLength(0);
+    expect(candidate.diagnostics.nodeCount).toBeLessThanOrEqual(prepared.projection.blocks.length * PERFORMANCE_PRESENTATION_DOM_BUDGET.maxNodesPerBlock);
+    expect(candidate.diagnostics.generatedHtmlBytes).toBeLessThan(1_000_000);
+    expect(candidate.diagnostics.projectionBuildMs).toBeLessThan(250);
   });
 
   test('produces deterministic candidate mappings and integrity hashes', async () => {

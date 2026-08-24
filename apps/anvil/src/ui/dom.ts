@@ -371,13 +371,15 @@ export function wireDisplayMirror() {
 
     // Content render mirroring: listen for our renderer's event and also observe #script for any DOM changes
     let renderPending = false;
+    let pendingModelHtml: string | undefined;
     const sendRender = () => {
       try {
-        const html = document.getElementById('script')?.innerHTML || '';
+        const html = pendingModelHtml ?? document.getElementById('script')?.innerHTML ?? '';
         const fontSize = fs && 'value' in fs ? Number(fs.value) : undefined;
         const lineHeight = lh && 'value' in lh ? Number(lh.value) : undefined;
         window.sendToDisplay && window.sendToDisplay({ type: 'render', html, fontSize, lineHeight });
       } finally {
+        pendingModelHtml = undefined;
         renderPending = false;
       }
     };
@@ -386,7 +388,8 @@ export function wireDisplayMirror() {
     });
     try {
       if (scriptEl) {
-        observeCommittedPresentationMutations(scriptEl, () => {
+        observeCommittedPresentationMutations(scriptEl, (modelHtml) => {
+          if (modelHtml !== undefined) pendingModelHtml = modelHtml;
           if (!renderPending) { renderPending = true; requestAnimationFrame(sendRender); }
         });
       }
