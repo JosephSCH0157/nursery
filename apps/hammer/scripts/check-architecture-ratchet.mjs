@@ -68,6 +68,8 @@ for (const path of ["src/editor/HammerTypedAudioSurfaces.tsx", "src/editor/Hamme
 }
 const convertedImageInspector = inspect("src/editor/HammerTypedImageInspectorSurface.tsx").text;
 if (/\bmodel\b|\bctx\.|\bas\s+any\b|\[\s*key\s*:\s*string\s*\]|Record\s*<\s*string\s*,\s*unknown\s*>/.test(convertedImageInspector)) failures.push("src/editor/HammerTypedImageInspectorSurface.tsx: typed Image Inspector reacquired a legacy model, ctx read, cast, or generic record escape.");
+const convertedVisualPolish = inspect("src/editor/HammerTypedVisualPolishSurface.tsx").text;
+if (/\bmodel\b|\bctx\.|\bas\s+any\b|\[\s*key\s*:\s*string\s*\]|Record\s*<\s*string\s*,\s*unknown\s*>/.test(convertedVisualPolish)) failures.push("src/editor/HammerTypedVisualPolishSurface.tsx: typed Visual Polish reacquired a legacy model, ctx read, cast, or generic record escape.");
 
 const toolBayInspection = inspect(baseline.toolBay.path);
 const toolBayCtxPropertyReferences = (toolBayInspection.text.match(/\bctx\.[A-Za-z_$][\w$]*/g) ?? []).length;

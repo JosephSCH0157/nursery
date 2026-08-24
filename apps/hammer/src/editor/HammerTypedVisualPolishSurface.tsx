@@ -20,74 +20,33 @@ function isDevBlurControlsEnabled(): boolean {
 }
 
 export function HammerTypedVisualPolishSurface(props: { context: HammerVisualPolishToolBayContext }): JSX.Element {
-  type Command = (...args: unknown[]) => void;
   const surface = props.context.surface;
-  const model = props.context.data.model;
-  const ctx = model as Record<string, unknown>;
-  const activeExposureAdjustment = ctx.activeExposureAdjustment as any;
-  const activeLookPreset = ctx.activeLookPreset as any;
-  const applyExposureAdjustment = ctx.applyExposureAdjustment as Command;
-  const applyLookPresetSelection = ctx.applyLookPresetSelection as Command;
-  const backgroundBlurProviderDescriptor = ctx.backgroundBlurProviderDescriptor as any;
-  const SEGMENTATION_PROVIDER_DESCRIPTORS = ctx.SEGMENTATION_PROVIDER_DESCRIPTORS as any;
-  const setVisualBackgroundBlur = ctx.setVisualBackgroundBlur as any;
-  const setVisualBackgroundBlurDebugMask = ctx.setVisualBackgroundBlurDebugMask as any;
-  const setVisualBackgroundMaskPreviewMode = ctx.setVisualBackgroundMaskPreviewMode as any;
-  const setVisualBackgroundMaskPreviewStage = ctx.setVisualBackgroundMaskPreviewStage as any;
-  const setVisualBackgroundBlurFallbackMode = ctx.setVisualBackgroundBlurFallbackMode as any;
-  const setVisualBackgroundBlurFeatherPx = ctx.setVisualBackgroundBlurFeatherPx as any;
-  const setVisualBackgroundBlurSubjectExpansionPx = ctx.setVisualBackgroundBlurSubjectExpansionPx as any;
-  const setVisualBackgroundBlurProviderId = ctx.setVisualBackgroundBlurProviderId as any;
-  const setVisualBackgroundBlurPx = ctx.setVisualBackgroundBlurPx as any;
-  const setVisualBackgroundBlurQualityMode = ctx.setVisualBackgroundBlurQualityMode as any;
-  const setVisualBackgroundBlurRuntimeStatus = ctx.setVisualBackgroundBlurRuntimeStatus as any;
-  const setVisualBackgroundBlurTemporalSmoothing = ctx.setVisualBackgroundBlurTemporalSmoothing as any;
-  const setVisualBackgroundReplaceColor = ctx.setVisualBackgroundReplaceColor as any;
-  const setVisualBackgroundReplaceEnabled = ctx.setVisualBackgroundReplaceEnabled as any;
-  const setVisualBackgroundReplaceImageAssetPath = ctx.setVisualBackgroundReplaceImageAssetPath as any;
-  const setVisualBackgroundReplaceImageUrl = ctx.setVisualBackgroundReplaceImageUrl as any;
-  const setVisualBackgroundReplaceMode = ctx.setVisualBackgroundReplaceMode as any;
-  const setVisualBackgroundWashDesaturateAmount = ctx.setVisualBackgroundWashDesaturateAmount as any;
-  const setVisualBackgroundWashDimAmount = ctx.setVisualBackgroundWashDimAmount as any;
-  const setVisualBackgroundWashEnabled = ctx.setVisualBackgroundWashEnabled as any;
-  const setVisualColorAmount = ctx.setVisualColorAmount as any;
-  const setVisualEyeContactAssistDebugOverlay = ctx.setVisualEyeContactAssistDebugOverlay as any;
-  const setVisualEyeContactAssistEnabled = ctx.setVisualEyeContactAssistEnabled as any;
-  const setVisualEyeContactAssistRuntimeStatus = ctx.setVisualEyeContactAssistRuntimeStatus as any;
-  const setVisualEyeContactAssistStrength = ctx.setVisualEyeContactAssistStrength as any;
-  const setVisualWhiteBalance = ctx.setVisualWhiteBalance as any;
-  const sourceImageLibraryItems = ctx.sourceImageLibraryItems as any;
-  const selectedBackgroundReplacementAssetId = ctx.selectedBackgroundReplacementAssetId as string | null;
-  const visualBackgroundReplaceImageAssetPath = ctx.visualBackgroundReplaceImageAssetPath as string | null;
-  const handleSourceDeskUpload = ctx.handleSourceDeskUpload as ((category: "images" | "broll" | "introoutro", fileList: FileList | null) => Promise<void>) | undefined;
-  const uploadingCategory = ctx.uploadingCategory as ("images" | "broll" | "introoutro" | null);
-  const visualBackgroundBlur = ctx.visualBackgroundBlur as any;
-  const visualBackgroundBlurDebugMask = ctx.visualBackgroundBlurDebugMask as any;
-  const visualBackgroundMaskPreviewMode = ctx.visualBackgroundMaskPreviewMode as any;
-  const visualBackgroundMaskPreviewStage = ctx.visualBackgroundMaskPreviewStage as any;
-  const visualBackgroundBlurFallbackMode = ctx.visualBackgroundBlurFallbackMode as any;
-  const visualBackgroundBlurFeatherPx = ctx.visualBackgroundBlurFeatherPx as any;
-  const visualBackgroundBlurSubjectExpansionPx = ctx.visualBackgroundBlurSubjectExpansionPx as any;
-  const visualBackgroundBlurPx = ctx.visualBackgroundBlurPx as any;
-  const visualBackgroundBlurQualityMode = ctx.visualBackgroundBlurQualityMode as any;
-  const visualBackgroundBlurRuntimeStatus = ctx.visualBackgroundBlurRuntimeStatus as any;
-  const visualBackgroundBlurStatusSummary = ctx.visualBackgroundBlurStatusSummary as any;
-  const visualBackgroundBlurTemporalSmoothing = ctx.visualBackgroundBlurTemporalSmoothing as any;
-  const visualBackgroundReplaceColor = ctx.visualBackgroundReplaceColor as any;
-  const visualBackgroundReplaceEnabled = ctx.visualBackgroundReplaceEnabled as any;
-  const visualBackgroundReplaceImageUrl = ctx.visualBackgroundReplaceImageUrl as any;
-  const visualBackgroundReplaceMode = ctx.visualBackgroundReplaceMode as any;
-  const visualBackgroundWashDesaturateAmount = ctx.visualBackgroundWashDesaturateAmount as any;
-  const visualBackgroundWashDimAmount = ctx.visualBackgroundWashDimAmount as any;
-  const visualBackgroundWashEnabled = ctx.visualBackgroundWashEnabled as any;
-  const visualColorAmount = ctx.visualColorAmount as any;
-  const visualEyeContactAssistDebugOverlay = ctx.visualEyeContactAssistDebugOverlay as any;
-  const visualEyeContactAssistEnabled = ctx.visualEyeContactAssistEnabled as any;
-  const visualEyeContactAssistRuntimeStatus = ctx.visualEyeContactAssistRuntimeStatus as any;
-  const visualEyeContactAssistStatusSummary = ctx.visualEyeContactAssistStatusSummary as any;
-  const visualEyeContactAssistStrength = ctx.visualEyeContactAssistStrength as any;
-  const visualWhiteBalance = ctx.visualWhiteBalance as any;
-  const setFocusOverride = ctx.setFocusOverride as (mode: "auto" | "source-focus" | "tool-focus" | "time-focus") => void;
+  const { segmentationProviderDescriptors: SEGMENTATION_PROVIDER_DESCRIPTORS, ...data } = props.context.data;
+  const {
+    activeExposureAdjustment, activeLookPreset, backgroundBlurProviderDescriptor, sourceImageLibraryItems,
+    selectedBackgroundReplacementAssetId, uploadingCategory, visualBackgroundBlur, visualBackgroundBlurDebugMask,
+    visualBackgroundMaskPreviewMode, visualBackgroundMaskPreviewStage, visualBackgroundBlurFallbackMode,
+    visualBackgroundBlurFeatherPx, visualBackgroundBlurSubjectExpansionPx, visualBackgroundBlurPx,
+    visualBackgroundBlurQualityMode, visualBackgroundBlurRuntimeStatus, visualBackgroundBlurStatusSummary,
+    visualBackgroundBlurTemporalSmoothing, visualBackgroundReplaceColor, visualBackgroundReplaceEnabled,
+    visualBackgroundReplaceImageAssetPath, visualBackgroundReplaceImageUrl, visualBackgroundReplaceMode,
+    visualBackgroundWashDesaturateAmount, visualBackgroundWashDimAmount, visualBackgroundWashEnabled,
+    visualColorAmount, visualEyeContactAssistDebugOverlay, visualEyeContactAssistEnabled,
+    visualEyeContactAssistRuntimeStatus, visualEyeContactAssistStatusSummary, visualEyeContactAssistStrength,
+    visualWhiteBalance,
+  } = data;
+  const {
+    applyExposureAdjustment, applyLookPresetSelection, handleSourceDeskUpload, setFocusOverride,
+    setVisualBackgroundBlur, setVisualBackgroundBlurDebugMask, setVisualBackgroundMaskPreviewMode,
+    setVisualBackgroundMaskPreviewStage, setVisualBackgroundBlurFallbackMode, setVisualBackgroundBlurFeatherPx,
+    setVisualBackgroundBlurSubjectExpansionPx, setVisualBackgroundBlurProviderId, setVisualBackgroundBlurPx,
+    setVisualBackgroundBlurQualityMode, setVisualBackgroundBlurRuntimeStatus, setVisualBackgroundBlurTemporalSmoothing,
+    setVisualBackgroundReplaceColor, setVisualBackgroundReplaceEnabled, setVisualBackgroundReplaceImageAssetPath,
+    setVisualBackgroundReplaceImageUrl, setVisualBackgroundReplaceMode, setVisualBackgroundWashDesaturateAmount,
+    setVisualBackgroundWashDimAmount, setVisualBackgroundWashEnabled, setVisualColorAmount,
+    setVisualEyeContactAssistDebugOverlay, setVisualEyeContactAssistEnabled, setVisualEyeContactAssistRuntimeStatus,
+    setVisualEyeContactAssistStrength, setVisualWhiteBalance,
+  } = props.context.commands;
   const devBlurControlsEnabled = isDevBlurControlsEnabled();
   return <div data-hammer-tool-bay-surface={surface}>
                   <section className="hammer-tool-card">
@@ -291,7 +250,7 @@ export function HammerTypedVisualPolishSurface(props: { context: HammerVisualPol
                             }}
                           >
                             <option value="">No background selected</option>
-                            {sourceImageLibraryItems.map((item: any) => (
+                            {sourceImageLibraryItems.map((item) => (
                               <option key={`bg-replace-${item.path}`} value={item.path}>
                                 {item.name}
                               </option>
@@ -396,7 +355,7 @@ export function HammerTypedVisualPolishSurface(props: { context: HammerVisualPol
                               setVisualBackgroundBlurRuntimeStatus(null);
                             }}
                           >
-                            {SEGMENTATION_PROVIDER_DESCRIPTORS.map((descriptor: any) => (
+                            {SEGMENTATION_PROVIDER_DESCRIPTORS.map((descriptor) => (
                               <option key={descriptor.id} value={descriptor.id}>
                                 {descriptor.displayName}
                               </option>
@@ -431,7 +390,7 @@ export function HammerTypedVisualPolishSurface(props: { context: HammerVisualPol
                               setVisualBackgroundBlurRuntimeStatus(null);
                             }}
                           >
-                            {SEGMENTATION_PROVIDER_DESCRIPTORS.map((descriptor: any) => (
+                            {SEGMENTATION_PROVIDER_DESCRIPTORS.map((descriptor) => (
                               <option key={descriptor.id} value={descriptor.id}>
                                 {descriptor.displayName}
                               </option>
@@ -511,7 +470,7 @@ export function HammerTypedVisualPolishSurface(props: { context: HammerVisualPol
                               setVisualBackgroundBlurRuntimeStatus(null);
                             }}
                           >
-                            {SEGMENTATION_PROVIDER_DESCRIPTORS.map((descriptor: any) => (
+                            {SEGMENTATION_PROVIDER_DESCRIPTORS.map((descriptor) => (
                               <option key={descriptor.id} value={descriptor.id}>
                                 {descriptor.displayName}
                               </option>
@@ -652,7 +611,7 @@ export function HammerTypedVisualPolishSurface(props: { context: HammerVisualPol
                                 value={visualBackgroundMaskPreviewStage}
                                 onChange={(event) => {
                                   setFocusOverride("tool-focus");
-                                  setVisualBackgroundMaskPreviewStage(event.target.value);
+                                  setVisualBackgroundMaskPreviewStage(event.target.value as typeof visualBackgroundMaskPreviewStage);
                                 }}
                               >
                                 <option value="raw">Raw</option>

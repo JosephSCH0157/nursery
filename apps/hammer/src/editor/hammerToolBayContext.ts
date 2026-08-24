@@ -12,6 +12,14 @@ import type { useHammerWorkspaceShellSilenceEditing } from "./useHammerWorkspace
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import type { HammerVisualClip } from "../visuals/model/hammerVisualTypes";
 import type { deriveHammerAutoPlacementDiagnostics } from "./useHammerWorkspaceShellAutomaticPlacement";
+import type {
+  createHammerVisualLookExposureCommands,
+  useHammerVisualPreviewRuntimeDerived,
+  useHammerVisualPreviewRuntimeState,
+  useHammerVisualPreviewState,
+} from "./useHammerWorkspaceShellVisualPreview";
+import type { SegmentationProviderDescriptor } from "../features/visual-effects/providers/segmentationProviderRegistry";
+import type { HammerVisualLutPreset } from "./hammerWorkspaceShellCore";
 
 export type HammerResolvedToolBayRoute = Extract<HammerToolBayRouteDecision, { status: "resolved" }>;
 export type HammerToolBayContextUnsupportedReason =
@@ -48,11 +56,41 @@ export type TranscriptPolishCommands = Readonly<{
   applyCleanup(previewId: string): void;
   discardCleanup(previewId: string): void;
 }>;
-export type VisualPolishCommands = Readonly<{
-  updateLook(lookId: string): void;
-  updateExposure(stops: number): void;
-  updateBackground(mode: "none" | "blur" | "replace" | "wash"): void;
-  toggleEyeContact(enabled: boolean): void;
+type VisualPreviewAuthority = ReturnType<typeof useHammerVisualPreviewState>;
+type VisualRuntimeAuthority = ReturnType<typeof useHammerVisualPreviewRuntimeState>;
+type VisualRuntimeDerived = ReturnType<typeof useHammerVisualPreviewRuntimeDerived>;
+type VisualLookExposureAuthority = ReturnType<typeof createHammerVisualLookExposureCommands>;
+export type HammerVisualPolishToolBayData = Readonly<Pick<VisualPreviewAuthority,
+  "visualWhiteBalance" | "visualColorAmount" | "visualEyeContactAssistEnabled" | "visualEyeContactAssistStrength" |
+  "visualBackgroundBlur" | "visualBackgroundBlurPx" | "visualBackgroundBlurFeatherPx" | "visualBackgroundBlurTemporalSmoothing" |
+  "visualBackgroundBlurSubjectExpansionPx" | "visualBackgroundBlurQualityMode" | "visualBackgroundBlurFallbackMode" |
+  "visualBackgroundReplaceEnabled" | "visualBackgroundReplaceMode" | "visualBackgroundReplaceColor" | "visualBackgroundReplaceImageUrl" |
+  "visualBackgroundReplaceImageAssetPath" | "visualBackgroundWashEnabled" | "visualBackgroundWashDimAmount" |
+  "visualBackgroundWashDesaturateAmount" | "visualBackgroundBlurDebugMask" | "visualBackgroundMaskPreviewMode" |
+  "visualBackgroundMaskPreviewStage" | "visualEyeContactAssistDebugOverlay"
+> & Pick<VisualRuntimeAuthority, "visualBackgroundBlurRuntimeStatus" | "visualEyeContactAssistRuntimeStatus"> &
+Pick<VisualRuntimeDerived, "visualBackgroundBlurStatusSummary" | "visualEyeContactAssistStatusSummary"> & {
+  activeExposureAdjustment: number | null;
+  activeLookPreset: HammerVisualLutPreset | null;
+  backgroundBlurProviderDescriptor: SegmentationProviderDescriptor | null;
+  segmentationProviderDescriptors: readonly SegmentationProviderDescriptor[];
+  sourceImageLibraryItems: readonly Readonly<{ path: string; name: string }>[];
+  selectedBackgroundReplacementAssetId: string | null;
+  uploadingCategory: "images" | "broll" | "introoutro" | null;
+}>;
+export type VisualPolishCommands = Readonly<Pick<VisualPreviewAuthority,
+  "setVisualWhiteBalance" | "setVisualColorAmount" | "setVisualEyeContactAssistEnabled" | "setVisualEyeContactAssistStrength" |
+  "setVisualBackgroundBlur" | "setVisualBackgroundBlurPx" | "setVisualBackgroundBlurFeatherPx" | "setVisualBackgroundBlurTemporalSmoothing" |
+  "setVisualBackgroundBlurSubjectExpansionPx" | "setVisualBackgroundBlurQualityMode" | "setVisualBackgroundBlurFallbackMode" |
+  "setVisualBackgroundBlurProviderId" | "setVisualBackgroundReplaceEnabled" | "setVisualBackgroundReplaceMode" |
+  "setVisualBackgroundReplaceColor" | "setVisualBackgroundReplaceImageUrl" | "setVisualBackgroundReplaceImageAssetPath" |
+  "setVisualBackgroundWashEnabled" | "setVisualBackgroundWashDimAmount" | "setVisualBackgroundWashDesaturateAmount" |
+  "setVisualBackgroundBlurDebugMask" | "setVisualBackgroundMaskPreviewMode" | "setVisualBackgroundMaskPreviewStage" |
+  "setVisualEyeContactAssistDebugOverlay"
+> & Pick<VisualRuntimeAuthority, "setVisualBackgroundBlurRuntimeStatus" | "setVisualEyeContactAssistRuntimeStatus"> &
+Pick<VisualLookExposureAuthority, "applyLookPresetSelection" | "applyExposureAdjustment"> & {
+  setFocusOverride(mode: "auto" | "source-focus" | "tool-focus" | "time-focus"): void;
+  handleSourceDeskUpload(category: "images" | "broll" | "introoutro", fileList: FileList | null): Promise<void>;
 }>;
 export type ImagePlacementRetimeInput = Readonly<{ placementId: string; startSec: number; endSec: number }>;
 export type ImageAnchorUpdateInput = Readonly<{ placementId: string; segmentId: string | null; label: string }>;
@@ -166,7 +204,7 @@ export type HammerTranscriptCleanupToolBayContext = SurfaceContext<"transcript_c
 export type HammerRetakesToolBayContext = SurfaceContext<"retakes", HammerTranscriptReviewWorkspaceData, HammerTranscriptReviewWorkspaceCommands>;
 export type HammerGapPacingToolBayContext = SurfaceContext<"gap_pacing", HammerTranscriptReviewWorkspaceData, HammerTranscriptReviewWorkspaceCommands>;
 export type HammerTranscriptPolishToolBayContext = SurfaceContext<"transcript_polish", HammerTranscriptPolishToolBayData, HammerTranscriptPolishToolBayCommands>;
-export type HammerVisualPolishToolBayContext = SurfaceContext<"visual_polish", Readonly<{ model: unknown }>, VisualPolishCommands>;
+export type HammerVisualPolishToolBayContext = SurfaceContext<"visual_polish", HammerVisualPolishToolBayData, VisualPolishCommands>;
 export type HammerImagePlacementToolBayContext = SurfaceContext<"image_placement", HammerImageInspectorToolBayData, HammerImageInspectorCommands>;
 export type HammerImageTimingToolBayContext = SurfaceContext<"image_timing", HammerImageInspectorToolBayData, HammerImageInspectorCommands>;
 export type HammerImageTransformToolBayContext = SurfaceContext<"image_transform", HammerImageInspectorToolBayData, HammerImageInspectorCommands>;

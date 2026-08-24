@@ -22,6 +22,8 @@ type HammerImageInspectorSurface = (HammerImagePlacementToolBayContext | HammerI
 export type HammerToolBayTypedFamilyBoundaryProof = readonly [
   AssertNever<Extract<HammerVisualPolishToolBayContext, HammerImagePlacementToolBayContext | HammerImageTimingToolBayContext | HammerImageTransformToolBayContext | HammerImageAnimationToolBayContext>>,
   AssertNever<Extract<keyof HammerVisualPolishToolBayContext["data"], "selectedVisual" | "placementId">>,
+  AssertNever<Extract<keyof HammerVisualPolishToolBayContext["data"], "model">>,
+  AssertNever<Extract<keyof HammerVisualPolishToolBayContext["commands"], "removePlacement" | "commitTiming" | "commitTransform" | "rebindPlacement" | "handleCandidateDecision" | "setVoiceCleanupEnabled" | "buildCaptions" | "applyIntro" | "sendToQuench">>,
   AssertNever<Exclude<HammerImageInspectorSurface, "image_placement" | "image_timing" | "image_transform" | "image_animation">>,
   AssertNever<Exclude<"image_placement" | "image_timing" | "image_transform" | "image_animation", HammerImageInspectorSurface>>,
   AssertNever<Extract<HammerImagePlacementToolBayContext | HammerImageTimingToolBayContext | HammerImageTransformToolBayContext | HammerImageAnimationToolBayContext, HammerBrollToolBayContext | HammerReferenceClipToolBayContext>>,

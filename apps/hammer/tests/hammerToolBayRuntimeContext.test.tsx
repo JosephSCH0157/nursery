@@ -15,6 +15,32 @@ const unsupported: HammerToolBayRouteDecision = {
   status: "unsupported", reason: "surface_not_supported", selectedPlacementId: "placement:1",
   navigationPermitted: false, selectionPreserved: true,
 };
+const noop = (): void => undefined;
+const visualPolishData = {
+  activeExposureAdjustment: null, activeLookPreset: null, backgroundBlurProviderDescriptor: null, segmentationProviderDescriptors: [],
+  sourceImageLibraryItems: [], selectedBackgroundReplacementAssetId: null, uploadingCategory: null,
+  visualWhiteBalance: 0, visualColorAmount: 0, visualEyeContactAssistEnabled: false, visualEyeContactAssistStrength: 0.25,
+  visualBackgroundBlur: false, visualBackgroundBlurPx: 14, visualBackgroundBlurFeatherPx: 6, visualBackgroundBlurTemporalSmoothing: 0.25,
+  visualBackgroundBlurSubjectExpansionPx: 0, visualBackgroundBlurQualityMode: "medium" as const, visualBackgroundBlurFallbackMode: "disable" as const,
+  visualBackgroundReplaceEnabled: false, visualBackgroundReplaceMode: "solid" as const, visualBackgroundReplaceColor: "#2b2b2b",
+  visualBackgroundReplaceImageUrl: "", visualBackgroundReplaceImageAssetPath: null, visualBackgroundWashEnabled: false,
+  visualBackgroundWashDimAmount: 0.35, visualBackgroundWashDesaturateAmount: 0.25, visualBackgroundBlurDebugMask: false,
+  visualBackgroundMaskPreviewMode: false, visualBackgroundMaskPreviewStage: "raw" as const, visualEyeContactAssistDebugOverlay: false,
+  visualBackgroundBlurRuntimeStatus: null, visualEyeContactAssistRuntimeStatus: null, visualBackgroundBlurStatusSummary: null,
+  visualEyeContactAssistStatusSummary: null,
+};
+const visualPolishCommands = {
+  applyLookPresetSelection: noop, applyExposureAdjustment: noop, setVisualBackgroundBlur: noop, setVisualBackgroundBlurDebugMask: noop,
+  setVisualBackgroundMaskPreviewMode: noop, setVisualBackgroundMaskPreviewStage: noop, setVisualBackgroundBlurFallbackMode: noop,
+  setVisualBackgroundBlurFeatherPx: noop, setVisualBackgroundBlurSubjectExpansionPx: noop, setVisualBackgroundBlurProviderId: noop,
+  setVisualBackgroundBlurPx: noop, setVisualBackgroundBlurQualityMode: noop, setVisualBackgroundBlurRuntimeStatus: noop,
+  setVisualBackgroundBlurTemporalSmoothing: noop, setVisualBackgroundReplaceColor: noop, setVisualBackgroundReplaceEnabled: noop,
+  setVisualBackgroundReplaceImageAssetPath: noop, setVisualBackgroundReplaceImageUrl: noop, setVisualBackgroundReplaceMode: noop,
+  setVisualBackgroundWashDesaturateAmount: noop, setVisualBackgroundWashDimAmount: noop, setVisualBackgroundWashEnabled: noop,
+  setVisualColorAmount: noop, setVisualEyeContactAssistDebugOverlay: noop, setVisualEyeContactAssistEnabled: noop,
+  setVisualEyeContactAssistRuntimeStatus: noop, setVisualEyeContactAssistStrength: noop, setVisualWhiteBalance: noop,
+  setFocusOverride: noop, handleSourceDeskUpload: async (): Promise<void> => undefined,
+};
 const visualRuntimeArgs = {
   audioFinalizationData: null,
   audioAdjustmentsData: null,
@@ -23,8 +49,9 @@ const visualRuntimeArgs = {
   packagingData: null,
   finishingData: null,
   imageInspectorData: null,
+  visualPolishData,
   selectedVisualContext: { status: "none" as const },
-  visualPolishCommands: { updateLook() {}, updateExposure() {}, updateBackground() {}, toggleEyeContact() {} },
+  visualPolishCommands,
   imageInspectorCommands: { focus() {}, previewAutoPosition: null, resetPreviewAutoPosition: null, setAnchorTextDraft() {}, setAnchorLabelDraft() {}, commitAnchor() {}, commitTiming() { return false; }, shiftTiming() {}, removePlacement() {}, updateTransformDraft() {}, commitTransform() { return false; } },
   brollCommands: { removePlacement() {}, rebindPlacement() {}, replaceBinding() {}, revertBinding() {}, addTransition() {} },
   referenceClipCommands: { removePlacement() {}, rebindPlacement() {}, replaceBinding() {}, revertBinding() {}, addTransition() {} },
@@ -42,13 +69,12 @@ function inspectorData(selectedVisual: { placementId: string; clipId: string; as
   };
 }
 
-function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "ready" | "packaging" = "ready", missingDataSurface: "audio_finalization" | "audio_adjustments" | "captions" | "metadata" | "transcript_cleanup" | "retakes" | "gap_pacing" | "transcript_polish" | "packaging" | "finishing" | null = null) {
+function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "ready" | "packaging" = "ready", missingDataSurface: "audio_finalization" | "audio_adjustments" | "captions" | "metadata" | "transcript_cleanup" | "retakes" | "gap_pacing" | "transcript_polish" | "visual_polish" | "packaging" | "finishing" | null = null) {
   const activity = { completion: 0, focus: 0, send: 0, history: 0, persistence: 0, selection: 0 };
   const markPassComplete = (): void => { activity.completion += 1; };
   const focusIssue = (): void => { activity.focus += 1; };
   const sendToQuench = (): void => { activity.send += 1; };
   const exactRoute = currentPass === "packaging" && route.status === "resolved" ? { ...route, surface: "export" as const } : route;
-  const noop = (): void => undefined;
   const migratedEditorModel = {
     activeCaptionArtifactText: "", activeCaptionMode: "built", activeCaptionState: null,
     captionActiveModeLabel: "Built", captionActiveModeSourceLabel: "Canonical transcript", captionArtifactStatusLabel: "Not built", captionBuildFeedback: null, captionBuildFreshness: "Current", captionBuildState: null, captionBuiltSummary: "No built captions", captionBuiltTone: "neutral", captionDiscardConsequenceLabel: null, captionEditedBasisDetail: "", captionEditedChangeSummary: "", captionEditedState: null, captionEditedSummary: "No caption edits", captionEditedTone: "neutral", captionEditorRefs: { current: new Map() }, captionFormatting: { style: "sentence", maxCharsPerLine: 42, maxLinesPerCaption: 2, includeSpeakerLabels: false, punctuationMode: "preserve", readingSpeed: "standard" }, captionRebuildConsequenceLabel: "", captionReleasePrepSafetyDetail: "", captionReleasePrepSafetyLabel: "Safe", captionReleasePrepSafetyState: "safe", captionReleaseSourceLabel: "Canonical transcript", captionSourceLabel: "Canonical transcript", detailTag: "", selectedCaptionArtifactFormat: "srt",
@@ -88,6 +114,7 @@ function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "rea
     transcriptPolishData: missingDataSurface === "transcript_polish" ? null : { gapCleanupOptions: migratedEditorModel.gapCleanupOptions, fillerCleanupOptions: migratedEditorModel.fillerCleanupOptions, retakeCleanupOptions: migratedEditorModel.retakeCleanupOptions, speakerSoloOptions: migratedEditorModel.speakerSoloOptions, speakerInterviewOptions: migratedEditorModel.speakerInterviewOptions, speakerMonologueOptions: migratedEditorModel.speakerMonologueOptions, speakerPanelOptions: migratedEditorModel.speakerPanelOptions, cleanupPreview: migratedEditorModel.cleanupPreview, cleanupPreviewSummary: migratedEditorModel.cleanupPreviewSummary, cleanupReceipt: migratedEditorModel.cleanupReceipt, editableTranscriptSegments: migratedEditorModel.editableTranscriptSegments, speakerOptions: migratedEditorModel.speakerOptions, hasTranscriptSelection: migratedEditorModel.hasTranscriptSelection, transcriptSelectionRange: migratedEditorModel.transcriptSelectionRange, polishStrength: migratedEditorModel.polishStrength },
     packagingData: missingDataSurface === "packaging" ? null : { selectedIntroPath: null, selectedOutroPath: null, selectedIntroAssetId: null, selectedOutroAssetId: null, introPlaced: false, outroPlaced: false, logoAssetPath: null, logoPlaced: false, logoPosition: "top_right", logoSize: "medium", sourceImageLibraryItems: [], logoPositionOptions: [], logoSizeOptions: [], introEntryId: "packaging:intro", outroEntryId: "packaging:outro" },
     finishingData: missingDataSurface === "finishing" ? null : { checklist: migratedEditorModel.finishingChecklist },
+    visualPolishData: missingDataSurface === "visual_polish" ? null : visualPolishData,
     readinessData: {
       summaryAreas: [{ id: "audio", label: "Audio Finalization", status: "complete" }],
       readinessLabel: "Ready for export", blockerCount: 0, reviewCount: 0,
@@ -108,7 +135,7 @@ function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "rea
     markPassComplete, focusIssue, sendToQuench, migratedEditorModel,
     audioFinalizationCommands, audioAdjustmentCommands, captionCommands, metadataCommands, transcriptReviewCommands, transcriptPolishCommands, packagingCommands, finishingCommands,
   });
-  return { contexts, activity, commands: { markPassComplete, focusIssue, sendToQuench, audioFinalizationCommands, audioAdjustmentCommands, captionCommands, metadataCommands, transcriptCleanupCommands, retakeCommands, gapCommands, transcriptPolishCommands, packagingCommands, finishingCommands } };
+  return { contexts, activity, commands: { markPassComplete, focusIssue, sendToQuench, audioFinalizationCommands, audioAdjustmentCommands, captionCommands, metadataCommands, transcriptCleanupCommands, retakeCommands, gapCommands, transcriptPolishCommands, visualPolishCommands, packagingCommands, finishingCommands } };
 }
 
 test("runtime assembly covers all twenty-one contexts and preserves callback identity with zero activity", () => {
@@ -154,7 +181,7 @@ test("missing migrated data fails closed and never produces a legacy body", () =
 });
 
 test("missing typed surface data fails closed without legacy fallback", () => {
-  for (const surface of ["audio_finalization", "audio_adjustments", "captions", "metadata", "transcript_cleanup", "retakes", "gap_pacing", "transcript_polish", "packaging", "finishing"] as const) {
+  for (const surface of ["audio_finalization", "audio_adjustments", "captions", "metadata", "transcript_cleanup", "retakes", "gap_pacing", "transcript_polish", "visual_polish", "packaging", "finishing"] as const) {
     const item = fixture({ ...resolved, surface }, "ready", surface);
     assert.equal(item.contexts.body?.surface, "unsupported");
     if (item.contexts.body?.surface === "unsupported") assert.equal(item.contexts.body.data.reason, "required_data_missing");
@@ -162,7 +189,7 @@ test("missing typed surface data fails closed without legacy fallback", () => {
   }
 });
 
-test("all ten extracted surfaces preserve exact dispatch, representative accessibility, command identity, and passive behavior", () => {
+test("all eleven extracted surfaces preserve exact dispatch, representative accessibility, command identity, and passive behavior", () => {
   const cases = [
     ["audio_finalization", "Audio Finalization", "audioFinalizationCommands"],
     ["audio_adjustments", "Audio Adjustments", "audioAdjustmentCommands"],
@@ -172,6 +199,7 @@ test("all ten extracted surfaces preserve exact dispatch, representative accessi
     ["retakes", "Transcript Cleanup", "retakeCommands"],
     ["gap_pacing", "Transcript Cleanup", "gapCommands"],
     ["transcript_polish", "Transcript Polish", "transcriptPolishCommands"],
+    ["visual_polish", "Visual Polish", "visualPolishCommands"],
     ["packaging", "Packaging", "packagingCommands"],
     ["finishing", "Finishing Checklist", "finishingCommands"],
   ] as const;

@@ -34,12 +34,12 @@
     }
   },
   "visualToolBayRendererFamilies": {
-    "maxAggregateLines": 1083,
-    "maxAggregateExplicitAny": 61,
-    "maxAggregateAsAnyAssertions": 57,
-    "maxAggregateCtxPropertyReferences": 64,
+      "maxAggregateLines": 1042,
+      "maxAggregateExplicitAny": 0,
+      "maxAggregateAsAnyAssertions": 0,
+      "maxAggregateCtxPropertyReferences": 0,
     "files": {
-      "src/editor/HammerTypedVisualPolishSurface.tsx": { "maxLines": 787, "maxExplicitAny": 61, "maxAsAnyAssertions": 57, "maxCtxPropertyReferences": 64 },
+        "src/editor/HammerTypedVisualPolishSurface.tsx": { "maxLines": 746, "maxExplicitAny": 0, "maxAsAnyAssertions": 0, "maxCtxPropertyReferences": 0 },
       "src/editor/HammerTypedImageInspectorSurface.tsx": { "maxLines": 283, "maxExplicitAny": 0, "maxAsAnyAssertions": 0, "maxCtxPropertyReferences": 0 },
       "src/editor/HammerTypedVisualSurface.tsx": { "maxLines": 13, "maxExplicitAny": 0, "maxAsAnyAssertions": 0, "maxCtxPropertyReferences": 0 }
     }

@@ -35,6 +35,7 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
   packagingData: Extract<HammerToolBayContext, { surface: "packaging" }>["data"] | null;
   finishingData: Extract<HammerToolBayContext, { surface: "finishing" }>["data"] | null;
   imageInspectorData: Extract<HammerToolBayContext, { surface: "image_placement" }>["data"] | null;
+  visualPolishData: Extract<HammerToolBayContext, { surface: "visual_polish" }>["data"] | null;
   audioFinalizationCommands: HammerAudioFinalizationToolBayContext["commands"];
   audioAdjustmentCommands: Extract<HammerToolBayContext, { surface: "audio_adjustments" }>["commands"];
   captionCommands: HammerCaptionsToolBayContext["commands"];
@@ -80,7 +81,7 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
   }
   if (args.route.surface === "visual_polish" || args.route.surface === "image_placement" || args.route.surface === "image_timing" || args.route.surface === "image_transform" || args.route.surface === "image_animation") {
     const body = args.route.surface === "visual_polish"
-      ? buildHammerToolBayContext({ surface: "visual_polish", route: args.route, data: args.migratedEditorModel === null ? null : { model: args.migratedEditorModel }, commands: args.visualPolishCommands })
+      ? buildHammerToolBayContext({ surface: "visual_polish", route: args.route, data: args.visualPolishData, commands: args.visualPolishCommands })
       : args.route.surface === "image_placement"
       ? buildHammerToolBayContext({ surface: "image_placement", route: args.route, data: args.imageInspectorData, commands: args.imageInspectorCommands })
       : args.route.surface === "image_timing"
