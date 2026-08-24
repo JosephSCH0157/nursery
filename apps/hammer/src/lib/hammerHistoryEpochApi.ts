@@ -175,8 +175,18 @@ export function validateHammerHistoryEpochHeadEnvelope(value: unknown, identity:
   return { ...value, history: strictHistory(value.history, identity.workpieceId, String(base.editor_state_hash), String(result.editor_state_hash))! } as HammerHistoryEpochHeadEnvelopeV1;
 }
 
-function registry(fileRow: Record<string, unknown> | null, pointer: string, workpieceId: string): HammerHistoryRegistryTuple | null {
-  if (!fileRow || fileRow.path !== pointer || fileRow.hash_algo !== "sha256" || !sha(fileRow.hash_value) || !positive(fileRow.bytes) || !positive(fileRow.revision) || !timestamp(fileRow.updated_at) || fileRow.storage_bucket !== "forge-workpieces" || fileRow.storage_key !== `workpieces/${workpieceId}/${pointer}`) return null;
+function componentStorageKey(workpieceId: string, component: Component, pointer: string, value: unknown): boolean {
+  if (value === `workpieces/${workpieceId}/${pointer}`) return true;
+  if (typeof value !== "string") return false;
+  const match = /^workpieces\/([0-9a-f-]+)\/hammer\/staging\/history-atomic\/([0-9a-f-]+)\/(audio|editorial_authority|transcript|visual_placements|visual_timeline)\.json$/i.exec(value);
+  return Boolean(match && match[1] === workpieceId && uuid(match[2]) && match[3] === component);
+}
+
+function registry(fileRow: Record<string, unknown> | null, pointer: string, workpieceId: string, component?: Component): HammerHistoryRegistryTuple | null {
+  const storageKeyValid = component
+    ? componentStorageKey(workpieceId, component, pointer, fileRow?.storage_key)
+    : fileRow?.storage_key === `workpieces/${workpieceId}/${pointer}`;
+  if (!fileRow || fileRow.path !== pointer || fileRow.hash_algo !== "sha256" || !sha(fileRow.hash_value) || !positive(fileRow.bytes) || !positive(fileRow.revision) || !timestamp(fileRow.updated_at) || fileRow.storage_bucket !== "forge-workpieces" || typeof fileRow.storage_key !== "string" || !storageKeyValid) return null;
   return { path: pointer, sha256: fileRow.hash_value, bytes: fileRow.bytes, revision: fileRow.revision, updated_at: fileRow.updated_at, storage_bucket: fileRow.storage_bucket, storage_key: fileRow.storage_key };
 }
 
@@ -187,7 +197,7 @@ export async function loadHammerHistoryComponentAuthority(args: { workpieceId: s
     const payload = await response.json().catch(() => null);
     const parsed = parseTongsReadFileResponse<unknown>({ status: response.status, responseOk: response.ok, payload });
     if (parsed.kind !== "present") throw new Error(`Canonical ${component} authority is unavailable.`);
-    const tuple = registry(parsed.fileRow, path, args.workpieceId);
+    const tuple = registry(parsed.fileRow, path, args.workpieceId, component);
     if (!tuple) throw new Error(`Canonical ${component} registry authority is invalid.`);
     return [component, { workpiece_id: args.workpieceId, path, sha256: tuple.sha256, bytes: tuple.bytes, registry_revision: tuple.revision, registry_updated_at: tuple.updated_at, content_type: "application/json" as const }] as const;
   }));

@@ -5,6 +5,7 @@ import {
   buildHammerHistoryEpochPath,
   buildHammerHistoryEpochRequest,
   commitHammerHistoryEpochHead,
+  loadHammerHistoryComponentAuthority,
   loadHammerRevisionHistoryHydration,
   readHammerHistoryOperation,
   serializeHammerHistoryEpochEnvelope,
@@ -79,5 +80,28 @@ async function testDivergentLegacyNeverMutates() {
   assert.equal(result.ok && result.hydration.kind, "legacy_history"); assert.deepEqual(calls, ["GET"]); // Replay divergence remains the existing controller verifier's responsibility; hydration never starts an epoch.
 }
 
-async function run() { await testExactPointerLegacyAndZeroWrites(); await testEpochAndHeads(); await testFailClosedMatrix(); await testBuildersAndTransport(); await testDivergentLegacyNeverMutates(); console.log("Hammer history epoch API tests passed."); }
+async function testPromotedComponentAuthority() {
+  const paths = Object.fromEntries(Object.keys(hashes).map((component) => [component, `hammer/revisions/${ids.revision}/${component}.json`])) as Record<keyof typeof hashes, string>;
+  const calls: string[] = [];
+  const promoted = await loadHammerHistoryComponentAuthority({ workpieceId: ids.workpiece, paths, fetcher: (async (url: string, options: { method?: string }) => {
+    calls.push(options.method ?? "GET");
+    const path = decodeURIComponent(new URL(url, "http://localhost").searchParams.get("path")!);
+    const component = Object.entries(paths).find(([, value]) => value === path)![0];
+    const responseValue = await response({ component }, path);
+    const body = await responseValue.json() as { file_row: { storage_key: string } };
+    body.file_row.storage_key = `workpieces/${ids.workpiece}/hammer/staging/history-atomic/${ids.head}/${component}.json`;
+    return new Response(JSON.stringify(body), { status: 200 });
+  }) as never });
+  assert.equal(promoted.visual_timeline.path, paths.visual_timeline);
+  assert.deepEqual(calls, ["GET", "GET", "GET", "GET", "GET"]);
+
+  await assert.rejects(() => loadHammerHistoryComponentAuthority({ workpieceId: ids.workpiece, paths, fetcher: (async (url: string) => {
+    const path = decodeURIComponent(new URL(url, "http://localhost").searchParams.get("path")!);
+    const responseValue = await response({}, path); const body = await responseValue.json() as { file_row: { storage_key: string } };
+    body.file_row.storage_key = `workpieces/${ids.workpiece}/hammer/staging/history-atomic/${ids.head}/visual_timeline.json`;
+    return new Response(JSON.stringify(body));
+  }) as never }), /registry authority is invalid/);
+}
+
+async function run() { await testExactPointerLegacyAndZeroWrites(); await testEpochAndHeads(); await testFailClosedMatrix(); await testBuildersAndTransport(); await testDivergentLegacyNeverMutates(); await testPromotedComponentAuthority(); console.log("Hammer history epoch API tests passed."); }
 run().catch((error) => { console.error("Hammer history epoch API tests failed:", error); process.exit(1); });
