@@ -34,6 +34,7 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
   transcriptPolishData: Extract<HammerToolBayContext, { surface: "transcript_polish" }>["data"] | null;
   packagingData: Extract<HammerToolBayContext, { surface: "packaging" }>["data"] | null;
   finishingData: Extract<HammerToolBayContext, { surface: "finishing" }>["data"] | null;
+  imageInspectorData: Extract<HammerToolBayContext, { surface: "image_placement" }>["data"] | null;
   audioFinalizationCommands: HammerAudioFinalizationToolBayContext["commands"];
   audioAdjustmentCommands: Extract<HammerToolBayContext, { surface: "audio_adjustments" }>["commands"];
   captionCommands: HammerCaptionsToolBayContext["commands"];
@@ -44,10 +45,7 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
   finishingCommands: Extract<HammerToolBayContext, { surface: "finishing" }>["commands"];
   selectedVisualContext: HammerSelectedVisualContext;
   visualPolishCommands: Extract<HammerToolBayContext, { surface: "visual_polish" }>["commands"];
-  imagePlacementCommands: Extract<HammerToolBayContext, { surface: "image_placement" }>["commands"];
-  imageTimingCommands: Extract<HammerToolBayContext, { surface: "image_timing" }>["commands"];
-  imageTransformCommands: Extract<HammerToolBayContext, { surface: "image_transform" }>["commands"];
-  imageAnimationCommands: Extract<HammerToolBayContext, { surface: "image_animation" }>["commands"];
+  imageInspectorCommands: Extract<HammerToolBayContext, { surface: "image_placement" }>["commands"];
   brollCommands: Extract<HammerToolBayContext, { surface: "broll" }>["commands"];
   referenceClipCommands: Extract<HammerToolBayContext, { surface: "reference_clip" }>["commands"];
 }>): HammerToolBayRuntimeContexts {
@@ -81,17 +79,15 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
     return { completion: typedCompletion, body: body.surface === "broll" || body.surface === "reference_clip" || body.surface === "unsupported" ? body : null };
   }
   if (args.route.surface === "visual_polish" || args.route.surface === "image_placement" || args.route.surface === "image_timing" || args.route.surface === "image_transform" || args.route.surface === "image_animation") {
-    const placementId = (args.selectedVisualContext.status === "selected" || args.selectedVisualContext.status === "unsupported" ? args.selectedVisualContext.placementId : null) ?? "";
-    const data = args.migratedEditorModel === null ? null : { model: args.migratedEditorModel, selectedVisual: args.selectedVisualContext, placementId };
     const body = args.route.surface === "visual_polish"
       ? buildHammerToolBayContext({ surface: "visual_polish", route: args.route, data: args.migratedEditorModel === null ? null : { model: args.migratedEditorModel }, commands: args.visualPolishCommands })
       : args.route.surface === "image_placement"
-      ? buildHammerToolBayContext({ surface: "image_placement", route: args.route, data, commands: args.imagePlacementCommands })
+      ? buildHammerToolBayContext({ surface: "image_placement", route: args.route, data: args.imageInspectorData, commands: args.imageInspectorCommands })
       : args.route.surface === "image_timing"
-      ? buildHammerToolBayContext({ surface: "image_timing", route: args.route, data, commands: args.imageTimingCommands })
+      ? buildHammerToolBayContext({ surface: "image_timing", route: args.route, data: args.imageInspectorData, commands: args.imageInspectorCommands })
       : args.route.surface === "image_transform"
-      ? buildHammerToolBayContext({ surface: "image_transform", route: args.route, data, commands: args.imageTransformCommands })
-      : buildHammerToolBayContext({ surface: "image_animation", route: args.route, data, commands: args.imageAnimationCommands });
+      ? buildHammerToolBayContext({ surface: "image_transform", route: args.route, data: args.imageInspectorData, commands: args.imageInspectorCommands })
+      : buildHammerToolBayContext({ surface: "image_animation", route: args.route, data: args.imageInspectorData, commands: args.imageInspectorCommands });
     return { completion: typedCompletion, body: body.surface === "visual_polish" || body.surface === "image_placement" || body.surface === "image_timing" || body.surface === "image_transform" || body.surface === "image_animation" || body.surface === "unsupported" ? body : null };
   }
   if (args.route.surface === "packaging" || args.route.surface === "finishing") {

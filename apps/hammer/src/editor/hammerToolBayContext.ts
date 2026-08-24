@@ -1,7 +1,7 @@
-import type { HammerSelectedVisualContext } from "./hammerSelectedVisualContext";
+import type { HammerSelectedImageContext, HammerSelectedVisualContext } from "./hammerSelectedVisualContext";
 import type { HammerToolBayRouteDecision, HammerToolBayUnsupportedReason } from "./hammerToolBayRouteDecision";
 import type { HammerCaptionArtifactMode, HammerCaptionBuildState, HammerCaptionEditedState, HammerCaptionFormattingState } from "./hammerWorkspaceShellCaptionUtils";
-import type { HammerLogoOverlayPosition, HammerLogoOverlaySize } from "./hammerWorkspaceShellVisualUtils";
+import type { HammerImagePlacementTransform, HammerLogoOverlayPosition, HammerLogoOverlaySize, HammerSourceImageItem } from "./hammerWorkspaceShellVisualUtils";
 import type { HammerStudioRackState } from "./hammerStudioRack";
 import type { HammerVoicePolishDeEsserStrength, HammerVoicePolishEqProfile, HammerVoicePolishFixId, HammerVoicePolishPresetId, HammerVoicePolishState } from "./hammerVoicePolish";
 import type { HammerPodcastMasterUiStatus } from "./hammerPodcastMasterStatus";
@@ -10,6 +10,8 @@ import type { useHammerWorkspaceShellTranscriptCleanup } from "./useHammerWorksp
 import type { useHammerWorkspaceShellCleanupCandidateReview } from "./useHammerWorkspaceShellCleanupCandidateReview";
 import type { useHammerWorkspaceShellSilenceEditing } from "./useHammerWorkspaceShellSilenceEditing";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
+import type { HammerVisualClip } from "../visuals/model/hammerVisualTypes";
+import type { deriveHammerAutoPlacementDiagnostics } from "./useHammerWorkspaceShellAutomaticPlacement";
 
 export type HammerResolvedToolBayRoute = Extract<HammerToolBayRouteDecision, { status: "resolved" }>;
 export type HammerToolBayContextUnsupportedReason =
@@ -99,6 +101,26 @@ export type ReleaseCommands = Readonly<{ focusIssue(): void; sendToQuench(): voi
 export type PassCompletionCommands = Readonly<{ markPassComplete(): void }>;
 
 type VisualData = { selectedVisual: HammerSelectedVisualContext; placementId: string; model: unknown };
+export type HammerImageInspectorToolBayData = Readonly<{
+  selectedVisual: HammerSelectedImageContext; placementId: string; placement: HammerSourceImageItem; transform: HammerImagePlacementTransform;
+  selectedClip: HammerVisualClip; selectedAnchorSegment: HammerTranscriptSegment | null; selectedAnchorSegmentId: string | null;
+  anchorTextDraft: string; anchorLabelDraft: string; autoPlacementDebugEnabled: boolean; selectedAutoPreviewActive: boolean;
+  previewAutoPositionStatus: string | null; previewDiagnostics: ReturnType<typeof deriveHammerAutoPlacementDiagnostics>;
+  episodeHealth: Readonly<{ workspaceId: string | null; workpieceId: string | null; episodeId: string | null; recordingPath: string | null; playbackMediaPath: string | null;
+    playbackMediaReady: boolean; visualPlacementsCount: number; anchorCount: number; selectedPlacementId: string | null; selectedClipId: string | null;
+    selectedAssetId: string | null; selectedOverlayAssetId: string | null; frameInputAvailable: boolean; maskBoundsCount: number; candidateCount: number;
+    selectedScale: number | null; resolvedPlacement: boolean; resolverStatus: string; resolverReason: string; diagnosticsEnabled: boolean; diagnosticsState: string }>;
+}>;
+export type HammerImageInspectorCommands = Readonly<{
+  focus(mode: "auto" | "source-focus" | "tool-focus" | "time-focus"): void;
+  previewAutoPosition: (() => void) | null; resetPreviewAutoPosition: (() => void) | null;
+  setAnchorTextDraft(next: string | ((current: string) => string)): void; setAnchorLabelDraft(next: string | ((current: string) => string)): void;
+  commitAnchor(input: Readonly<{ clipId: string; anchorText: string; anchorLabel: string; detached: boolean; label: string }>): void;
+  commitTiming(placementId: string, input: Readonly<{ startSec: number; endSec: number; label: string }>): boolean;
+  shiftTiming(placementId: string, deltaSec: number): void; removePlacement(placementId: string): void;
+  updateTransformDraft(placementId: string, updater: (current: HammerImagePlacementTransform) => HammerImagePlacementTransform): void;
+  commitTransform(placementId: string, transform: HammerImagePlacementTransform, label: string): boolean;
+}>;
 
 type TranscriptCleanupAuthority = ReturnType<typeof useHammerWorkspaceShellTranscriptCleanup>;
 type TranscriptCandidateAuthority = ReturnType<typeof useHammerWorkspaceShellCleanupCandidateReview>;
@@ -145,10 +167,10 @@ export type HammerRetakesToolBayContext = SurfaceContext<"retakes", HammerTransc
 export type HammerGapPacingToolBayContext = SurfaceContext<"gap_pacing", HammerTranscriptReviewWorkspaceData, HammerTranscriptReviewWorkspaceCommands>;
 export type HammerTranscriptPolishToolBayContext = SurfaceContext<"transcript_polish", HammerTranscriptPolishToolBayData, HammerTranscriptPolishToolBayCommands>;
 export type HammerVisualPolishToolBayContext = SurfaceContext<"visual_polish", Readonly<{ model: unknown }>, VisualPolishCommands>;
-export type HammerImagePlacementToolBayContext = SurfaceContext<"image_placement", VisualData, ImagePlacementCommands>;
-export type HammerImageTimingToolBayContext = SurfaceContext<"image_timing", VisualData, ImageTimingCommands>;
-export type HammerImageTransformToolBayContext = SurfaceContext<"image_transform", VisualData, ImageTransformCommands>;
-export type HammerImageAnimationToolBayContext = SurfaceContext<"image_animation", VisualData, ImageAnimationCommands>;
+export type HammerImagePlacementToolBayContext = SurfaceContext<"image_placement", HammerImageInspectorToolBayData, HammerImageInspectorCommands>;
+export type HammerImageTimingToolBayContext = SurfaceContext<"image_timing", HammerImageInspectorToolBayData, HammerImageInspectorCommands>;
+export type HammerImageTransformToolBayContext = SurfaceContext<"image_transform", HammerImageInspectorToolBayData, HammerImageInspectorCommands>;
+export type HammerImageAnimationToolBayContext = SurfaceContext<"image_animation", HammerImageInspectorToolBayData, HammerImageInspectorCommands>;
 export type HammerBrollToolBayContext = SurfaceContext<"broll", VisualData, BrollCommands>;
 export type HammerReferenceClipToolBayContext = SurfaceContext<"reference_clip", VisualData, BrollCommands>;
 export type HammerAudioFinalizationToolBayData = Readonly<{ compareMode: "before" | "after"; voicePolish: HammerVoicePolishState | null }>;
@@ -290,6 +312,16 @@ function visualRequirement(input: HammerToolBayContextBuildInput): HammerUnsuppo
   const imageSurface = input.surface.startsWith("image_");
   if ((imageSurface && selected.kind !== "image") || (input.surface === "broll" && selected.kind !== "broll") || (input.surface === "reference_clip" && selected.kind !== "reference_clip")) {
     return unsupported(input.route, "selected_visual_kind_mismatch", selected.placementId);
+  }
+  if (imageSurface && "placement" in input.data) {
+    if (input.data.placement.kind !== "image") return unsupported(input.route, "selected_visual_kind_mismatch", selected.placementId);
+    if (input.data.placement.id !== selected.placementId || input.data.selectedClip.clip_id !== selected.clipId
+      || input.data.selectedClip.lane_id !== selected.laneId || input.data.selectedClip.asset_id !== selected.assetId) {
+      return unsupported(input.route, "required_data_missing", selected.placementId);
+    }
+    if (!selected.capabilities.remove || !selected.capabilities.retime || !selected.capabilities.anchor || !selected.capabilities.transform || !selected.capabilities.animate) {
+      return unsupported(input.route, "selected_visual_capability_mismatch", selected.placementId);
+    }
   }
   const requiredCapability = input.surface === "image_placement" ? "remove"
     : input.surface === "image_timing" ? "retime"

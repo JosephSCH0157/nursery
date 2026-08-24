@@ -1,58 +1,14 @@
 import type { JSX } from "react";
 import type { HammerImageAnimationToolBayContext, HammerImagePlacementToolBayContext, HammerImageTimingToolBayContext, HammerImageTransformToolBayContext } from "./hammerToolBayContext";
+import { clampImagePlacementTransform, DEFAULT_IMAGE_PLACEMENT_TRANSFORM, MIN_IMAGE_PLACEMENT_DURATION_SEC } from "./hammerWorkspaceShellVisualUtils";
+import { roundToTenth } from "./hammerWorkspaceTimeline";
 
 export type HammerImageInspectorContext = HammerImagePlacementToolBayContext | HammerImageTimingToolBayContext | HammerImageTransformToolBayContext | HammerImageAnimationToolBayContext;
 
 export function HammerTypedImageInspectorSurface(props: { context: HammerImageInspectorContext }): JSX.Element {
-  type Command = (...args: unknown[]) => void;
   const surface = props.context.surface;
-  const model = props.context.data.model;
-  const ctx = model as Record<string, unknown>;
-  const anchorLabelDraft = ctx.anchorLabelDraft as any;
-  const anchorTextDraft = ctx.anchorTextDraft as any;
-  const clampImagePlacementTransform = ctx.clampImagePlacementTransform as any;
-  const commitImagePlacementTransform = ctx.commitImagePlacementTransform as Command;
-  const commitVisualAnchorRefinement = ctx.commitVisualAnchorRefinement as Command;
-  const commitVisualPlacementWindow = ctx.commitVisualPlacementWindow as Command;
-  const DEFAULT_IMAGE_PLACEMENT_TRANSFORM = ctx.DEFAULT_IMAGE_PLACEMENT_TRANSFORM as any;
-  const MIN_IMAGE_PLACEMENT_DURATION_SEC = ctx.MIN_IMAGE_PLACEMENT_DURATION_SEC as any;
-  const removeVisualPlacement = ctx.removeVisualPlacement as Command;
-  const roundToTenth = ctx.roundToTenth as any;
-  const imagePlacementSnapshot = ctx["selected" + "ImagePlacement"] as any;
-  const imagePlacementSnapshotTransform = ctx.selectedImagePlacementTransform as any;
-  const autoPlacementDebugEnabled = ctx.autoPlacementDebugEnabled as boolean;
-  const selectedAutoPreviewActive = ctx.selectedAutoPreviewActive as boolean;
-  const previewAutoPositionStatus = ctx.previewAutoPositionStatus as string | null;
-  const previewAutoPosition = ctx.previewAutoPosition as (() => void) | undefined;
-  const resetPreviewAutoPosition = ctx.resetPreviewAutoPosition as (() => void) | undefined;
-  const previewDiagnosticsSummary = ctx.previewDiagnosticsSummary as {
-    diagnosticsEnabled: boolean;
-    resolvedPlacementExists: boolean;
-    diagnosticsResolvedPlacement: boolean;
-    candidateCount: number;
-    maskBoundsCount: number;
-    currentFrameAvailable: boolean;
-    segmentationMaskAvailable: boolean;
-    resolverStatus: string;
-    resolverReason: string;
-    selectedScale: number | null;
-    scaleAttempts: Array<{
-      scale: number;
-      candidateCount: number;
-      rejectedCount: number;
-      bestRejectionReason: string | null;
-      resolved: boolean;
-    }>;
-  } | undefined;
-  const episodeHealthSnapshot = ctx.episodeHealthSnapshot as Record<string, unknown> | undefined;
-  const selectedVisualAnchorSegment = ctx.selectedVisualAnchorSegment as any;
-  const selectedVisualAnchorSegmentId = ctx.selectedVisualAnchorSegmentId as any;
-  const selectedVisualClip = ctx.selectedVisualClip as any;
-  const setAnchorLabelDraft = ctx.setAnchorLabelDraft as any;
-  const setAnchorTextDraft = ctx.setAnchorTextDraft as any;
-  const updateImagePlacementTransform = ctx.updateImagePlacementTransform as any;
-  const updateVisualPlacementTiming = ctx.updateVisualPlacementTiming as any;
-  const setFocusOverride = ctx.setFocusOverride as (mode: "auto" | "source-focus" | "tool-focus" | "time-focus") => void;
+  const { placement: imagePlacementSnapshot, transform: imagePlacementSnapshotTransform, autoPlacementDebugEnabled, selectedAutoPreviewActive, previewAutoPositionStatus, previewDiagnostics: previewDiagnosticsSummary, episodeHealth: episodeHealthSnapshot, selectedAnchorSegment: selectedVisualAnchorSegment, selectedAnchorSegmentId: selectedVisualAnchorSegmentId, selectedClip: selectedVisualClip, anchorLabelDraft, anchorTextDraft } = props.context.data;
+  const { previewAutoPosition, resetPreviewAutoPosition, setAnchorLabelDraft, setAnchorTextDraft, updateTransformDraft: updateImagePlacementTransform, shiftTiming: updateVisualPlacementTiming, commitTransform: commitImagePlacementTransform, commitAnchor: commitVisualAnchorRefinement, commitTiming: commitVisualPlacementWindow, removePlacement: removeVisualPlacement, focus: setFocusOverride } = props.context.commands;
   const selectedPlacementId = imagePlacementSnapshot?.id ?? null;
   const selectedOverlayAssetPresent = Boolean(imagePlacementSnapshot?.assetPath);
   const selectedVisualAssetPresent = Boolean(selectedVisualClip?.asset_id);

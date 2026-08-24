@@ -27,6 +27,14 @@ export type HammerImagePlacementTransform = {
   heightPct: number;
 };
 
+export type HammerSourceImageItem = Readonly<{
+  id: string; label: string; kind: "image" | "broll" | "reference_clip"; anchorSegmentId: string;
+  anchorText: string | null; anchorLabel: string | null; startSec: number; endSec: number;
+  status: "placed" | "uncertain"; confidence: number | null; visualMode: string | null; assetPath: string | null;
+  firstVisibleEditableSec: number | null;
+  anchorStatus: "anchored" | "anchor_supplied_resolution_failed" | "ambiguous_match" | "detached" | "no_placement_intent";
+}>;
+
 export type HammerTimelineImageDragState = {
   placementId: string;
   mode: "move" | "resize_start" | "resize_end";

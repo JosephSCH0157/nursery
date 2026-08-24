@@ -22,15 +22,25 @@ const visualRuntimeArgs = {
   metadataData: null,
   packagingData: null,
   finishingData: null,
+  imageInspectorData: null,
   selectedVisualContext: { status: "none" as const },
   visualPolishCommands: { updateLook() {}, updateExposure() {}, updateBackground() {}, toggleEyeContact() {} },
-  imagePlacementCommands: { removePlacement() {}, updateAnchor() {} },
-  imageTimingCommands: { retimePlacement() {} },
-  imageTransformCommands: { updateTransform() {}, resetTransform() {} },
-  imageAnimationCommands: { updateAnimation() {} },
+  imageInspectorCommands: { focus() {}, previewAutoPosition: null, resetPreviewAutoPosition: null, setAnchorTextDraft() {}, setAnchorLabelDraft() {}, commitAnchor() {}, commitTiming() { return false; }, shiftTiming() {}, removePlacement() {}, updateTransformDraft() {}, commitTransform() { return false; } },
   brollCommands: { removePlacement() {}, rebindPlacement() {}, replaceBinding() {}, revertBinding() {}, addTransition() {} },
   referenceClipCommands: { removePlacement() {}, rebindPlacement() {}, replaceBinding() {}, revertBinding() {}, addTransition() {} },
 };
+
+function inspectorData(selectedVisual: { placementId: string; clipId: string; assetId: string | null; laneId: string; kind: "image" | "broll"; capabilities: object }) {
+  return {
+    selectedVisual, placementId: selectedVisual.placementId,
+    placement: { id: selectedVisual.placementId, label: "Florida", kind: selectedVisual.kind, anchorSegmentId: "segment:1", anchorText: null, anchorLabel: null, startSec: 1, endSec: 3, status: "placed", confidence: 1, visualMode: selectedVisual.kind, assetPath: "/florida.png", firstVisibleEditableSec: 1, anchorStatus: "anchored" },
+    transform: { leftPct: 10, topPct: 10, widthPct: 22, heightPct: 16 },
+    selectedClip: { clip_id: selectedVisual.clipId, asset_id: selectedVisual.assetId, lane_id: selectedVisual.laneId, anchor_hint: { matched_segment_ids: [], detached: false } },
+    selectedAnchorSegment: null, selectedAnchorSegmentId: null, anchorTextDraft: "", anchorLabelDraft: "", autoPlacementDebugEnabled: false, selectedAutoPreviewActive: false, previewAutoPositionStatus: null,
+    previewDiagnostics: { diagnosticsEnabled: false, resolvedPlacementExists: false, diagnosticsResolvedPlacement: false, candidateCount: 0, maskBoundsCount: 0, currentFrameAvailable: false, segmentationMaskAvailable: false, resolverStatus: "disabled", resolverReason: "diagnostics disabled", selectedScale: null, scaleAttempts: [] },
+    episodeHealth: { workspaceId: null, workpieceId: null, episodeId: null, recordingPath: null, playbackMediaPath: null, playbackMediaReady: false, visualPlacementsCount: 1, anchorCount: 0, selectedPlacementId: selectedVisual.placementId, selectedClipId: selectedVisual.clipId, selectedAssetId: selectedVisual.assetId, selectedOverlayAssetId: "/florida.png", frameInputAvailable: false, maskBoundsCount: 0, candidateCount: 0, selectedScale: null, resolvedPlacement: false, resolverStatus: "disabled", resolverReason: "diagnostics disabled", diagnosticsEnabled: false, diagnosticsState: "disabled" },
+  };
+}
 
 function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "ready" | "packaging" = "ready", missingDataSurface: "audio_finalization" | "audio_adjustments" | "captions" | "metadata" | "transcript_cleanup" | "retakes" | "gap_pacing" | "transcript_polish" | "packaging" | "finishing" | null = null) {
   const activity = { completion: 0, focus: 0, send: 0, history: 0, persistence: 0, selection: 0 };
@@ -263,14 +273,19 @@ test("exact visual routes assemble typed contexts and reject the Florida B-roll 
   assert.equal(polish.contexts.body?.surface, "visual_polish");
   assert.ok(polish.contexts.body);
   assert.match(renderToStaticMarkup(<HammerTypedToolBayBody context={polish.contexts.body} />), /data-hammer-tool-bay-surface="visual_polish"/);
-  const selectedImage = { status: "selected" as const, placementId: "image:florida", kind: "image" as const, capabilities: { remove: true, retime: true, transform: true, animate: true, rebind: false } };
+  const selectedImage = { status: "selected" as const, placementId: "image:florida", clipId: "image:florida", assetId: "asset:florida", laneId: "lane:overlay", kind: "image" as const, preferredTool: "images" as const, preferredPass: "image_placement" as const, capabilities: { remove: true, retime: true, anchor: true, transform: true, animate: true, rebind: false, replace: false, revert: false, transition: false } };
   const inspectorMarkup: string[] = [];
   for (const surface of ["image_placement", "image_timing", "image_transform", "image_animation"] as const) {
     const route: HammerToolBayRouteDecision = { ...resolved, surface, activeTool: "video", activeVisualTool: "images", representativePass: "visual_polish", editorMode: "visual" };
     const item = fixture(route);
-    const contexts = assembleHammerToolBayRuntimeContexts({ ...visualRuntimeArgs, selectedVisualContext: selectedImage, route, passLabel: "Visual", passStatus: "in_progress", markPassComplete: item.commands.markPassComplete, readinessData: null, exportData: null, focusIssue: item.commands.focusIssue, sendToQuench: item.commands.sendToQuench, migratedEditorModel: {}, audioCommands: { updateVoicePreset() {}, toggleCompare() {}, applyPodcastMaster() {} }, captionCommands: { buildCaptions() {}, discardEdits() {}, editCaption() {}, splitCaption() {}, mergeCaption() {} }, metadataCommands: { setTags() {} }, transcriptCleanupCommands: { refreshCandidates() {}, previewCandidate() {}, acceptCandidate() {}, dismissCandidate() {}, applyCleanup() {}, discardCleanup() {} }, retakeCommands: { previewRange() {}, acceptRange() {}, dismissRange() {} }, gapCommands: { previewRange() {}, acceptRange() {}, dismissRange() {} }, transcriptPolishCommands: { previewCleanup() {}, applyCleanup() {}, discardCleanup() {} }, packagingCommands: { applyIntro() {}, removeIntro() {}, applyOutro() {}, removeOutro() {}, updateLogo() {} }, finishingCommands: { setReviewFlag() {} } });
+    const contexts = assembleHammerToolBayRuntimeContexts({ ...visualRuntimeArgs, imageInspectorData: inspectorData(selectedImage), selectedVisualContext: selectedImage, route, passLabel: "Visual", passStatus: "in_progress", markPassComplete: item.commands.markPassComplete, readinessData: null, exportData: null, focusIssue: item.commands.focusIssue, sendToQuench: item.commands.sendToQuench, migratedEditorModel: {}, audioCommands: { updateVoicePreset() {}, toggleCompare() {}, applyPodcastMaster() {} }, captionCommands: { buildCaptions() {}, discardEdits() {}, editCaption() {}, splitCaption() {}, mergeCaption() {} }, metadataCommands: { setTags() {} }, transcriptCleanupCommands: { refreshCandidates() {}, previewCandidate() {}, acceptCandidate() {}, dismissCandidate() {}, applyCleanup() {}, discardCleanup() {} }, retakeCommands: { previewRange() {}, acceptRange() {}, dismissRange() {} }, gapCommands: { previewRange() {}, acceptRange() {}, dismissRange() {} }, transcriptPolishCommands: { previewCleanup() {}, applyCleanup() {}, discardCleanup() {} }, packagingCommands: { applyIntro() {}, removeIntro() {}, applyOutro() {}, removeOutro() {}, updateLogo() {} }, finishingCommands: { setReviewFlag() {} } });
     assert.equal(contexts.body?.surface, surface);
     assert.ok(contexts.body);
+    if (contexts.body.surface !== "unsupported") {
+      assert.equal(contexts.body.commands, visualRuntimeArgs.imageInspectorCommands);
+      assert.equal(contexts.body.data.selectedVisual, selectedImage);
+      assert.equal(contexts.body.data.placementId, selectedImage.placementId);
+    }
     const markup = renderToStaticMarkup(<HammerTypedToolBayBody context={contexts.body} />);
     assert.match(markup, new RegExp(`data-hammer-tool-bay-surface="${surface}"`));
     inspectorMarkup.push(markup.replace(`data-hammer-tool-bay-surface="${surface}"`, "data-hammer-tool-bay-surface=\"image_inspector\""));
@@ -278,15 +293,25 @@ test("exact visual routes assemble typed contexts and reject the Florida B-roll 
   assert.equal(inspectorMarkup[0], inspectorMarkup[1]);
   assert.equal(inspectorMarkup[1], inspectorMarkup[2]);
   assert.equal(inspectorMarkup[2], inspectorMarkup[3]);
-  const broll = { status: "selected" as const, placementId: "he8:florida-broll", kind: "broll" as const, capabilities: { remove: true, retime: true, transform: false, animate: false, rebind: true } };
-  const imageRoute: HammerToolBayRouteDecision = { ...resolved, surface: "image_transform", activeTool: "video", activeVisualTool: "images", representativePass: "visual_polish", editorMode: "visual" };
+  const missingImageData = assembleHammerToolBayRuntimeContexts({ ...visualRuntimeArgs, selectedVisualContext: selectedImage, route: { ...resolved, surface: "image_placement" }, passLabel: "Visual", passStatus: "in_progress", markPassComplete: polish.commands.markPassComplete, readinessData: null, exportData: null, focusIssue: polish.commands.focusIssue, sendToQuench: polish.commands.sendToQuench, migratedEditorModel: {} });
+  assert.equal(missingImageData.body?.surface, "unsupported");
+  if (missingImageData.body?.surface === "unsupported") assert.equal(missingImageData.body.data.reason, "required_data_missing");
+  const incapableImage = { ...selectedImage, capabilities: { ...selectedImage.capabilities, anchor: false } };
+  const incapable = assembleHammerToolBayRuntimeContexts({ ...visualRuntimeArgs, imageInspectorData: inspectorData(incapableImage), selectedVisualContext: incapableImage, route: { ...resolved, surface: "image_timing" }, passLabel: "Visual", passStatus: "in_progress", markPassComplete: polish.commands.markPassComplete, readinessData: null, exportData: null, focusIssue: polish.commands.focusIssue, sendToQuench: polish.commands.sendToQuench, migratedEditorModel: {} });
+  assert.equal(incapable.body?.surface, "unsupported");
+  if (incapable.body?.surface === "unsupported") assert.equal(incapable.body.data.reason, "selected_visual_capability_mismatch");
+  const broll = { status: "selected" as const, placementId: "he8:florida-broll", clipId: "he8:florida-broll", assetId: "asset:florida-broll", laneId: "lane:broll", kind: "broll" as const, preferredTool: "broll" as const, preferredPass: "image_animation" as const, capabilities: { remove: true, retime: true, anchor: false, transform: false, animate: false, rebind: true, replace: true, revert: true, transition: true } };
   const base = fixture();
-  const rejected = assembleHammerToolBayRuntimeContexts({ ...visualRuntimeArgs, selectedVisualContext: broll, route: imageRoute, passLabel: "Visual", passStatus: "in_progress", markPassComplete: base.commands.markPassComplete, readinessData: null, exportData: null, focusIssue: base.commands.focusIssue, sendToQuench: base.commands.sendToQuench, migratedEditorModel: {}, audioCommands: { updateVoicePreset() {}, toggleCompare() {}, applyPodcastMaster() {} }, captionCommands: { buildCaptions() {}, discardEdits() {}, editCaption() {}, splitCaption() {}, mergeCaption() {} }, metadataCommands: { setTags() {} }, transcriptCleanupCommands: { refreshCandidates() {}, previewCandidate() {}, acceptCandidate() {}, dismissCandidate() {}, applyCleanup() {}, discardCleanup() {} }, retakeCommands: { previewRange() {}, acceptRange() {}, dismissRange() {} }, gapCommands: { previewRange() {}, acceptRange() {}, dismissRange() {} }, transcriptPolishCommands: { previewCleanup() {}, applyCleanup() {}, discardCleanup() {} }, packagingCommands: { applyIntro() {}, removeIntro() {}, applyOutro() {}, removeOutro() {}, updateLogo() {} }, finishingCommands: { setReviewFlag() {} } });
-  assert.equal(rejected.body?.surface, "unsupported");
-  if (rejected.body?.surface === "unsupported") assert.equal(rejected.body.data.reason, "selected_visual_kind_mismatch");
+  let rejectedMarkup = "";
+  for (const surface of ["image_placement", "image_timing", "image_transform", "image_animation"] as const) {
+    const imageRoute: HammerToolBayRouteDecision = { ...resolved, surface, activeTool: "video", activeVisualTool: "images", representativePass: "visual_polish", editorMode: "visual" };
+    const rejected = assembleHammerToolBayRuntimeContexts({ ...visualRuntimeArgs, imageInspectorData: inspectorData(broll), selectedVisualContext: broll, route: imageRoute, passLabel: "Visual", passStatus: "in_progress", markPassComplete: base.commands.markPassComplete, readinessData: null, exportData: null, focusIssue: base.commands.focusIssue, sendToQuench: base.commands.sendToQuench, migratedEditorModel: {} });
+    assert.equal(rejected.body?.surface, "unsupported");
+    if (rejected.body?.surface === "unsupported") assert.equal(rejected.body.data.reason, "selected_visual_kind_mismatch");
+    rejectedMarkup += rejected.body ? renderToStaticMarkup(<HammerTypedToolBayBody context={rejected.body} />) : "";
+  }
   assert.equal(broll.kind, "broll");
   assert.equal(broll.placementId, "he8:florida-broll");
-  const rejectedMarkup = rejected.body ? renderToStaticMarkup(<HammerTypedToolBayBody context={rejected.body} />) : "";
   assert.doesNotMatch(rejectedMarkup, /Image Placement|Timing|Transform|Animation|Center visual overlay/);
   assert.deepEqual(base.activity, { completion: 0, focus: 0, send: 0, history: 0, persistence: 0, selection: 0 });
 });

@@ -34,6 +34,12 @@ export type HammerSelectedVisualContext =
       reason: string;
     }>;
 
+export type HammerSelectedImageContext = Extract<HammerSelectedVisualContext, { status: "selected" }> & Readonly<{ kind: "image" }>;
+
+export function isHammerSelectedImageContext(context: HammerSelectedVisualContext): context is HammerSelectedImageContext {
+  return context.status === "selected" && context.kind === "image";
+}
+
 type SelectedVisualAssetInput = Readonly<{
   asset_id: string;
   kind: HammerVisualAssetKind;
