@@ -14,6 +14,14 @@ const unsupported: HammerToolBayRouteDecision = {
   status: "unsupported", reason: "surface_not_supported", selectedPlacementId: "placement:1",
   navigationPermitted: false, selectionPreserved: true,
 };
+const visualRuntimeArgs = {
+  selectedVisualContext: { status: "none" as const },
+  visualPolishCommands: { updateLook() {}, updateExposure() {}, updateBackground() {}, toggleEyeContact() {} },
+  imagePlacementCommands: { removePlacement() {}, updateAnchor() {} },
+  imageTimingCommands: { retimePlacement() {} },
+  imageTransformCommands: { updateTransform() {}, resetTransform() {} },
+  imageAnimationCommands: { updateAnimation() {} },
+};
 
 function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "ready" | "packaging" = "ready") {
   const activity = { completion: 0, focus: 0, send: 0, history: 0, persistence: 0, selection: 0 };
@@ -35,9 +43,10 @@ function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "rea
     deadAirThresholdSec: 1, setDeadAirThresholdSec: noop, analyzeDeadAirClosure: noop, deadAirApplyInFlight: false, deadAirAnalysis: null, applyDeadAirClosureBatch: noop, polishStrength: 50, setPolishStrength: noop, gapCleanupOptions: { maxGapSec: 0.4, minPauseSec: 0.2, preserveDramaticPauses: true }, setGapCleanupOptions: noop, setCleanupPreview: noop, previewShortenGaps: noop, previewRemoveFillers: noop, previewRemoveRetakes: noop, previewQuickClean: noop, editableTranscriptSegments: [],
     speakerSoloOptions: { targetSpeaker: "", collapseInterruptions: false, compressGaps: false, maxInterruptionSec: 0.8 }, setSpeakerSoloOptions: noop, speakerOptions: [], previewSpeakerSolo: noop, hasTranscriptSelection: false, transcriptSelectionRange: { segmentIds: [] }, speakerInterviewOptions: { hostSpeaker: "", respondentSpeaker: "", tightness: "medium", removeBackchannels: false, collapseInterruptions: false, maxInterruptionSec: 0.8 }, setSpeakerInterviewOptions: noop, previewSpeakerInterview: noop, speakerMonologueOptions: { targetSpeaker: "", removeBackchannels: false, suppressInterruptions: false, maxInterruptionSec: 0.8, tightenTargetRuns: false, compressGaps: false }, setSpeakerMonologueOptions: noop, previewSpeakerMonologue: noop, speakerPanelOptions: { hostSpeaker: "", primarySpeakerBias: "none", removeShortBackchannels: false, suppressShortCrossTalk: false, maxInterruptionSec: 0.8 }, setSpeakerPanelOptions: noop, previewSpeakerPanel: noop, cleanupPreview: null, cleanupPreviewSummary: null, applyCleanup: noop, cleanupReceipt: null,
     introOutroSelectedIntroPath: null, introOutroSelectedOutroPath: null, introOutroSelection: { intro_asset_id: null, outro_asset_id: null }, packagingIntroPlacement: null, packagingOutroPlacement: null, packagingLogoAssetPath: null, packagingLogoPlacement: null, packagingLogoPosition: "top_right", packagingLogoSize: "medium", sourceImageLibraryItems: [], LOGO_POSITION_OPTIONS: [], LOGO_SIZE_OPTIONS: [], PACKAGING_INTRO_ENTRY_ID: "packaging:intro", PACKAGING_OUTRO_ENTRY_ID: "packaging:outro", applyIntroPlacement: noop, applyOutroPlacement: noop, removePackagingPlacement: noop, applyLogoOverlayStyle: noop, toggleLogoOverlay: noop, finishingChecklist: { transcriptReviewed: false, visualsReviewed: false, audioReviewed: false }, setFinishingChecklist: noop,
+    SEGMENTATION_PROVIDER_DESCRIPTORS: [], activeLookPreset: null, activeExposureAdjustment: null, backgroundBlurProviderDescriptor: null,
   };
   const contexts = assembleHammerToolBayRuntimeContexts({
-    route: exactRoute, passLabel: "Ready", passStatus: "in_progress",
+    ...visualRuntimeArgs, route: exactRoute, passLabel: "Ready", passStatus: "in_progress",
     readinessData: {
       summaryAreas: [{ id: "audio", label: "Audio Finalization", status: "complete" }],
       readinessLabel: "Ready for export", blockerCount: 0, reviewCount: 0,
@@ -61,8 +70,8 @@ function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "rea
   return { contexts, activity, commands: { markPassComplete, focusIssue, sendToQuench } };
 }
 
-test("runtime assembly locks fourteen migrated surfaces and preserves callback identity with zero activity", () => {
-  assert.deepEqual(HAMMER_MIGRATED_TOOL_BAY_SURFACES, ["unsupported", "release_readiness", "export", "pass_completion", "audio_finalization", "audio_adjustments", "captions", "metadata", "transcript_cleanup", "retakes", "gap_pacing", "transcript_polish", "packaging", "finishing"]);
+test("runtime assembly locks nineteen migrated surfaces and preserves callback identity with zero activity", () => {
+  assert.deepEqual(HAMMER_MIGRATED_TOOL_BAY_SURFACES, ["unsupported", "release_readiness", "export", "pass_completion", "audio_finalization", "audio_adjustments", "captions", "metadata", "transcript_cleanup", "retakes", "gap_pacing", "transcript_polish", "packaging", "finishing", "visual_polish", "image_placement", "image_timing", "image_transform", "image_animation"]);
   const { contexts, activity, commands } = fixture();
   assert.equal(contexts.completion?.commands.markPassComplete, commands.markPassComplete);
   assert.equal(contexts.body?.surface, "release_readiness");
@@ -93,7 +102,7 @@ test("readiness, export, and unsupported mount only typed markup and remain stab
 test("missing migrated data fails closed and never produces a legacy body", () => {
   const base = fixture();
   const failed = assembleHammerToolBayRuntimeContexts({
-    route: resolved, passLabel: "Ready", passStatus: "in_progress",
+    ...visualRuntimeArgs, route: resolved, passLabel: "Ready", passStatus: "in_progress",
     markPassComplete: base.commands.markPassComplete, readinessData: null, exportData: null,
     focusIssue: base.commands.focusIssue, sendToQuench: base.commands.sendToQuench, migratedEditorModel: {}, audioCommands: { updateVoicePreset() {}, toggleCompare() {}, applyPodcastMaster() {} }, captionCommands: { buildCaptions() {}, discardEdits() {}, editCaption() {}, splitCaption() {}, mergeCaption() {} }, metadataCommands: { setTags() {} }, transcriptCleanupCommands: { refreshCandidates() {}, previewCandidate() {}, acceptCandidate() {}, dismissCandidate() {}, applyCleanup() {}, discardCleanup() {} }, retakeCommands: { previewRange() {}, acceptRange() {}, dismissRange() {} }, gapCommands: { previewRange() {}, acceptRange() {}, dismissRange() {} }, transcriptPolishCommands: { previewCleanup() {}, applyCleanup() {}, discardCleanup() {} }, packagingCommands: { applyIntro() {}, removeIntro() {}, applyOutro() {}, removeOutro() {}, updateLogo() {} }, finishingCommands: { setReviewFlag() {} },
   });
@@ -136,4 +145,27 @@ test("packaging and finishing mount exact typed surfaces with zero passive activ
     assert.match(markup, new RegExp(`data-hammer-tool-bay-surface="${surface}"`));
     assert.deepEqual(item.activity, { completion: 0, focus: 0, send: 0, history: 0, persistence: 0, selection: 0 });
   }
+});
+
+test("exact visual routes assemble typed contexts and reject the Florida B-roll fixture from image surfaces", () => {
+  const polishRoute: HammerToolBayRouteDecision = { ...resolved, surface: "visual_polish", activeTool: "video", activeVisualTool: "polish", representativePass: "visual_polish", editorMode: "visual" };
+  const polish = fixture(polishRoute);
+  assert.equal(polish.contexts.body?.surface, "visual_polish");
+  assert.ok(polish.contexts.body);
+  assert.match(renderToStaticMarkup(<HammerTypedToolBayBody context={polish.contexts.body} />), /data-hammer-tool-bay-surface="visual_polish"/);
+  const selectedImage = { status: "selected" as const, placementId: "image:florida", kind: "image" as const, capabilities: { remove: true, retime: true, transform: true, animate: true, rebind: false } };
+  for (const surface of ["image_placement", "image_timing", "image_transform", "image_animation"] as const) {
+    const route: HammerToolBayRouteDecision = { ...resolved, surface, activeTool: "video", activeVisualTool: "images", representativePass: "visual_polish", editorMode: "visual" };
+    const item = fixture(route);
+    const contexts = assembleHammerToolBayRuntimeContexts({ ...visualRuntimeArgs, selectedVisualContext: selectedImage, route, passLabel: "Visual", passStatus: "in_progress", markPassComplete: item.commands.markPassComplete, readinessData: null, exportData: null, focusIssue: item.commands.focusIssue, sendToQuench: item.commands.sendToQuench, migratedEditorModel: {}, audioCommands: { updateVoicePreset() {}, toggleCompare() {}, applyPodcastMaster() {} }, captionCommands: { buildCaptions() {}, discardEdits() {}, editCaption() {}, splitCaption() {}, mergeCaption() {} }, metadataCommands: { setTags() {} }, transcriptCleanupCommands: { refreshCandidates() {}, previewCandidate() {}, acceptCandidate() {}, dismissCandidate() {}, applyCleanup() {}, discardCleanup() {} }, retakeCommands: { previewRange() {}, acceptRange() {}, dismissRange() {} }, gapCommands: { previewRange() {}, acceptRange() {}, dismissRange() {} }, transcriptPolishCommands: { previewCleanup() {}, applyCleanup() {}, discardCleanup() {} }, packagingCommands: { applyIntro() {}, removeIntro() {}, applyOutro() {}, removeOutro() {}, updateLogo() {} }, finishingCommands: { setReviewFlag() {} } });
+    assert.equal(contexts.body?.surface, surface);
+    assert.ok(contexts.body);
+    assert.match(renderToStaticMarkup(<HammerTypedToolBayBody context={contexts.body} />), new RegExp(`data-hammer-tool-bay-surface="${surface}"`));
+  }
+  const broll = { status: "selected" as const, placementId: "he8:florida-broll", kind: "broll" as const, capabilities: { remove: true, retime: true, transform: false, animate: false, rebind: true } };
+  const imageRoute: HammerToolBayRouteDecision = { ...resolved, surface: "image_transform", activeTool: "video", activeVisualTool: "images", representativePass: "visual_polish", editorMode: "visual" };
+  const base = fixture();
+  const rejected = assembleHammerToolBayRuntimeContexts({ ...visualRuntimeArgs, selectedVisualContext: broll, route: imageRoute, passLabel: "Visual", passStatus: "in_progress", markPassComplete: base.commands.markPassComplete, readinessData: null, exportData: null, focusIssue: base.commands.focusIssue, sendToQuench: base.commands.sendToQuench, migratedEditorModel: {}, audioCommands: { updateVoicePreset() {}, toggleCompare() {}, applyPodcastMaster() {} }, captionCommands: { buildCaptions() {}, discardEdits() {}, editCaption() {}, splitCaption() {}, mergeCaption() {} }, metadataCommands: { setTags() {} }, transcriptCleanupCommands: { refreshCandidates() {}, previewCandidate() {}, acceptCandidate() {}, dismissCandidate() {}, applyCleanup() {}, discardCleanup() {} }, retakeCommands: { previewRange() {}, acceptRange() {}, dismissRange() {} }, gapCommands: { previewRange() {}, acceptRange() {}, dismissRange() {} }, transcriptPolishCommands: { previewCleanup() {}, applyCleanup() {}, discardCleanup() {} }, packagingCommands: { applyIntro() {}, removeIntro() {}, applyOutro() {}, removeOutro() {}, updateLogo() {} }, finishingCommands: { setReviewFlag() {} } });
+  assert.equal(rejected.body?.surface, "unsupported");
+  if (rejected.body?.surface === "unsupported") assert.equal(rejected.body.data.reason, "selected_visual_kind_mismatch");
 });

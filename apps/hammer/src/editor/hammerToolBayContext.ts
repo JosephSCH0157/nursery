@@ -68,17 +68,17 @@ export type FinishingCommands = Readonly<{ setReviewFlag(flag: "transcript" | "v
 export type ReleaseCommands = Readonly<{ focusIssue(): void; sendToQuench(): void }>;
 export type PassCompletionCommands = Readonly<{ markPassComplete(): void }>;
 
-type VisualData = { selectedVisual: HammerSelectedVisualContext; placementId: string };
+type VisualData = { selectedVisual: HammerSelectedVisualContext; placementId: string; model: unknown };
 
 export type HammerTranscriptCleanupToolBayContext = SurfaceContext<"transcript_cleanup", MigratedEditorSurfaceData, TranscriptCleanupCommands>;
 export type HammerRetakesToolBayContext = SurfaceContext<"retakes", MigratedEditorSurfaceData, RetakePacingCommands>;
 export type HammerGapPacingToolBayContext = SurfaceContext<"gap_pacing", MigratedEditorSurfaceData, RetakePacingCommands>;
 export type HammerTranscriptPolishToolBayContext = SurfaceContext<"transcript_polish", MigratedEditorSurfaceData, TranscriptPolishCommands>;
-export type HammerVisualPolishToolBayContext = SurfaceContext<"visual_polish", { selectedClipId: string | null; diagnosticsEnabled: boolean }, VisualPolishCommands>;
-export type HammerImagePlacementToolBayContext = SurfaceContext<"image_placement", VisualData & { anchorSegmentId: string | null }, ImagePlacementCommands>;
-export type HammerImageTimingToolBayContext = SurfaceContext<"image_timing", VisualData & { startSec: number; endSec: number }, ImageTimingCommands>;
-export type HammerImageTransformToolBayContext = SurfaceContext<"image_transform", VisualData & { transform: ImageTransformInput }, ImageTransformCommands>;
-export type HammerImageAnimationToolBayContext = SurfaceContext<"image_animation", VisualData & { animation: string }, ImageAnimationCommands>;
+export type HammerVisualPolishToolBayContext = SurfaceContext<"visual_polish", MigratedEditorSurfaceData, VisualPolishCommands>;
+export type HammerImagePlacementToolBayContext = SurfaceContext<"image_placement", VisualData, ImagePlacementCommands>;
+export type HammerImageTimingToolBayContext = SurfaceContext<"image_timing", VisualData, ImageTimingCommands>;
+export type HammerImageTransformToolBayContext = SurfaceContext<"image_transform", VisualData, ImageTransformCommands>;
+export type HammerImageAnimationToolBayContext = SurfaceContext<"image_animation", VisualData, ImageAnimationCommands>;
 export type HammerBrollToolBayContext = SurfaceContext<"broll", VisualData & { bindingId: string | null }, BrollCommands>;
 export type HammerReferenceClipToolBayContext = SurfaceContext<"reference_clip", VisualData & { bindingId: string | null }, BrollCommands>;
 type MigratedEditorSurfaceData = { model: unknown };
