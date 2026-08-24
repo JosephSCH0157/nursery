@@ -17,6 +17,7 @@ export function projectHammerMountedCompositionClips(args: {
   const assetsById = new Map((args.assets ?? args.timeline?.assets ?? []).map((asset) => [asset.asset_id, asset]));
   const draftWindows = args.draftWindows ?? {};
   return (args.timeline?.clips ?? []).map((clip) => {
+    if (clip.source_mode === "packaging") return null;
     const asset = clip.asset_id ? (assetsById.get(clip.asset_id) ?? null) : null;
     const kind = deriveAssetKind({ visualMode: clip.visual_mode, assetPath: asset?.path ?? null });
     if (kind !== "image" && kind !== "broll" && kind !== "reference_clip") return null;

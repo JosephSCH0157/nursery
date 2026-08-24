@@ -10,7 +10,7 @@ function clip(index: number): HammerVisualClip {
   const packaging = index === 28;
   return {
     clip_id: packaging ? "packaging:intro" : `placement:committed:${index}`,
-    asset_id: packaging ? null : `asset:${index}`,
+    asset_id: packaging ? "asset:packaging" : `asset:${index}`,
     lane_id: "lane:primary",
     entry_id: packaging ? "packaging:intro" : `entry:${index}`,
     label: packaging ? "Intro" : `Committed visual ${index}`,
@@ -37,11 +37,15 @@ function clip(index: number): HammerVisualClip {
 export const he9CommittedTimeline = createEmptyVisualTimelineState({
   revision: 151,
   updated_at: timestamp,
-  assets: Array.from({ length: 28 }, (_, index) => ({
+  assets: [...Array.from({ length: 28 }, (_, index) => ({
     asset_id: `asset:${index}`, asset_ref: `visuals/${index}.png`, kind: "image" as const,
     label: `Committed visual ${index}`, path: `visuals/${index}.png`, storage_key: null,
     mime_type: "image/png", source_mode: "ai_initial" as const, updated_at: timestamp,
-  })),
+  })), {
+    asset_id: "asset:packaging", asset_ref: "visuals/packaging-intro.png", kind: "image" as const,
+    label: "Intro", path: "visuals/packaging-intro.png", storage_key: null,
+    mime_type: "image/png", source_mode: "packaging" as const, updated_at: timestamp,
+  }],
   clips: Array.from({ length: 29 }, (_, index) => clip(index)),
   lanes: [{ lane_id: "lane:primary", label: "Visuals", clip_ids: Array.from({ length: 29 }, (_, index) => clip(index).clip_id) }],
 });
