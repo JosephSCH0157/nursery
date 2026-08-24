@@ -34,6 +34,9 @@ function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "rea
   const exactRoute = currentPass === "packaging" && route.status === "resolved" ? { ...route, surface: "export" as const } : route;
   const noop = (): void => undefined;
   const migratedEditorModel = {
+    activeCaptionArtifactText: "", activeCaptionMode: "built", activeCaptionState: null,
+    captionActiveModeLabel: "Built", captionActiveModeSourceLabel: "Canonical transcript", captionArtifactStatusLabel: "Not built", captionBuildFeedback: null, captionBuildFreshness: "Current", captionBuildState: null, captionBuiltSummary: "No built captions", captionBuiltTone: "neutral", captionDiscardConsequenceLabel: null, captionEditedBasisDetail: "", captionEditedChangeSummary: "", captionEditedState: null, captionEditedSummary: "No caption edits", captionEditedTone: "neutral", captionEditorRefs: { current: new Map() }, captionFormatting: { style: "sentence", maxCharsPerLine: 42, maxLinesPerCaption: 2, includeSpeakerLabels: false, punctuationMode: "preserve", readingSpeed: "standard" }, captionRebuildConsequenceLabel: "", captionReleasePrepSafetyDetail: "", captionReleasePrepSafetyLabel: "Safe", captionReleasePrepSafetyState: "safe", captionReleaseSourceLabel: "Canonical transcript", captionSourceLabel: "Canonical transcript", detailTag: "", selectedCaptionArtifactFormat: "srt",
+    handleDiscardEditedCaptions: noop, handleEditCaptionChunkText: noop, handleEnableCaptionEdits: noop, handleMergeEditedCaptionChunk: noop, handleNormalizeEditedCaptionChunkPunctuation: noop, handleRebuildCaptionArtifacts: noop, handleSplitEditedCaptionChunk: noop, handleToggleEditedCaptionChunkSpeakerLabel: noop, setActiveCaptionArtifactMode: noop, setCaptionFormatting: noop, setSelectedCaptionArtifactFormat: noop, setDetailTag: noop,
     voicePolish: { preset_id: null, voice_cleanup_enabled: false, fixes: { remove_harsh_sibilance: false, reduce_room_boxiness: false, enhance_voice_clarity: false, level_volume: false }, advanced: { de_esser_strength: "medium", eq_profile: "voice" } },
     audioFinalizationCompareMode: "after", editableAudioPolish: { status: "not_started" }, persistedAudioCutCount: 0, effectivePlaybackCutRegions: [], silenceSuggestionCount: 0,
     editableStudioRack: { is_enabled: false, is_bypassed: false, backend_preference: "native", modules: { gate: { is_enabled: false, is_bypassed: false, threshold_db: -52 }, compressor: { is_enabled: false, is_bypassed: false, ratio: 1.8 }, eq: { is_enabled: false, is_bypassed: false, mid_gain_db: 1.2 }, reverb: { is_enabled: false, is_bypassed: false, mix: 0.06 }, tubeMicCharacter: { is_enabled: false, is_bypassed: false, amount: 0.16 } } },
@@ -48,6 +51,15 @@ function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "rea
     introOutroSelectedIntroPath: null, introOutroSelectedOutroPath: null, introOutroSelection: { intro_asset_id: null, outro_asset_id: null }, packagingIntroPlacement: null, packagingOutroPlacement: null, packagingLogoAssetPath: null, packagingLogoPlacement: null, packagingLogoPosition: "top_right", packagingLogoSize: "medium", sourceImageLibraryItems: [], LOGO_POSITION_OPTIONS: [], LOGO_SIZE_OPTIONS: [], PACKAGING_INTRO_ENTRY_ID: "packaging:intro", PACKAGING_OUTRO_ENTRY_ID: "packaging:outro", applyIntroPlacement: noop, applyOutroPlacement: noop, removePackagingPlacement: noop, applyLogoOverlayStyle: noop, toggleLogoOverlay: noop, finishingChecklist: { transcriptReviewed: false, visualsReviewed: false, audioReviewed: false }, setFinishingChecklist: noop,
     SEGMENTATION_PROVIDER_DESCRIPTORS: [], activeLookPreset: null, activeExposureAdjustment: null, backgroundBlurProviderDescriptor: null,
   };
+  const audioCommands = { updateVoicePreset: noop, toggleCompare: noop, applyPodcastMaster: noop };
+  const captionCommands = { buildCaptions: noop, discardEdits: noop, editCaption: noop, splitCaption: noop, mergeCaption: noop };
+  const metadataCommands = { setTags: noop };
+  const transcriptCleanupCommands = { refreshCandidates: noop, previewCandidate: noop, acceptCandidate: noop, dismissCandidate: noop, applyCleanup: noop, discardCleanup: noop };
+  const retakeCommands = { previewRange: noop, acceptRange: noop, dismissRange: noop };
+  const gapCommands = { previewRange: noop, acceptRange: noop, dismissRange: noop };
+  const transcriptPolishCommands = { previewCleanup: noop, applyCleanup: noop, discardCleanup: noop };
+  const packagingCommands = { applyIntro: noop, removeIntro: noop, applyOutro: noop, removeOutro: noop, updateLogo: noop };
+  const finishingCommands = { setReviewFlag: noop };
   const contexts = assembleHammerToolBayRuntimeContexts({
     ...visualRuntimeArgs, route: exactRoute, passLabel: "Ready", passStatus: "in_progress",
     readinessData: {
@@ -68,9 +80,9 @@ function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "rea
       savedPackage: null, error: null,
     },
     markPassComplete, focusIssue, sendToQuench, migratedEditorModel,
-    audioCommands: { updateVoicePreset: noop, toggleCompare: noop, applyPodcastMaster: noop }, captionCommands: { buildCaptions: noop, discardEdits: noop, editCaption: noop, splitCaption: noop, mergeCaption: noop }, metadataCommands: { setTags: noop }, transcriptCleanupCommands: { refreshCandidates: noop, previewCandidate: noop, acceptCandidate: noop, dismissCandidate: noop, applyCleanup: noop, discardCleanup: noop }, retakeCommands: { previewRange: noop, acceptRange: noop, dismissRange: noop }, gapCommands: { previewRange: noop, acceptRange: noop, dismissRange: noop }, transcriptPolishCommands: { previewCleanup: noop, applyCleanup: noop, discardCleanup: noop }, packagingCommands: { applyIntro: noop, removeIntro: noop, applyOutro: noop, removeOutro: noop, updateLogo: noop }, finishingCommands: { setReviewFlag: noop },
+    audioCommands, captionCommands, metadataCommands, transcriptCleanupCommands, retakeCommands, gapCommands, transcriptPolishCommands, packagingCommands, finishingCommands,
   });
-  return { contexts, activity, commands: { markPassComplete, focusIssue, sendToQuench } };
+  return { contexts, activity, commands: { markPassComplete, focusIssue, sendToQuench, audioCommands, captionCommands, metadataCommands, transcriptCleanupCommands, retakeCommands, gapCommands, transcriptPolishCommands, packagingCommands, finishingCommands } };
 }
 
 test("runtime assembly covers all twenty-one contexts and preserves callback identity with zero activity", () => {
@@ -113,6 +125,34 @@ test("missing migrated data fails closed and never produces a legacy body", () =
   if (failed.body?.surface !== "unsupported") assert.fail();
   assert.equal(failed.body.data.reason, "required_data_missing");
   assert.deepEqual(Object.keys(failed.body.commands), []);
+});
+
+test("all ten extracted surfaces preserve exact dispatch, representative accessibility, command identity, and passive behavior", () => {
+  const cases = [
+    ["audio_finalization", "Audio Finalization", "audioCommands"],
+    ["audio_adjustments", "Audio Adjustments", "audioCommands"],
+    ["captions", "Caption Output", "captionCommands"],
+    ["metadata", "Edit Metadata", "metadataCommands"],
+    ["transcript_cleanup", "Transcript Cleanup", "transcriptCleanupCommands"],
+    ["retakes", "Transcript Cleanup", "retakeCommands"],
+    ["gap_pacing", "Transcript Cleanup", "gapCommands"],
+    ["transcript_polish", "Transcript Polish", "transcriptPolishCommands"],
+    ["packaging", "Packaging", "packagingCommands"],
+    ["finishing", "Finishing Checklist", "finishingCommands"],
+  ] as const;
+  for (const [surface, accessibleText, commandKey] of cases) {
+    const item = fixture({ ...resolved, surface });
+    const body = item.contexts.body;
+    assert.ok(body);
+    assert.equal(body.surface, surface);
+    const first = renderToStaticMarkup(<HammerTypedToolBayBody context={body} />);
+    const second = renderToStaticMarkup(<HammerTypedToolBayBody context={body} />);
+    assert.equal(first, second);
+    assert.match(first, new RegExp(`data-hammer-tool-bay-surface="${surface}"`));
+    assert.match(first, new RegExp(accessibleText));
+    assert.equal(body.commands, item.commands[commandKey]);
+    assert.deepEqual(item.activity, { completion: 0, focus: 0, send: 0, history: 0, persistence: 0, selection: 0 });
+  }
 });
 
 test("migrated and legacy switching is deterministic and mount-safe", () => {

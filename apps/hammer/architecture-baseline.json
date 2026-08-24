@@ -22,6 +22,17 @@
     "migratedSurfaceCount": 21,
     "remainingLegacySurfaceCount": 0
   },
+  "toolBayRendererFamilies": {
+    "maxAggregateLines": 2348,
+    "maxAggregateCtxPropertyReferences": 77,
+    "files": {
+      "src/editor/HammerTypedAudioSurfaces.tsx": { "maxLines": 594, "maxExplicitAny": 0, "maxAsAnyAssertions": 0, "maxCtxPropertyReferences": 38 },
+      "src/editor/HammerTypedCaptionMetadataSurfaces.tsx": { "maxLines": 393, "maxExplicitAny": 0, "maxAsAnyAssertions": 0, "maxCtxPropertyReferences": 39 },
+      "src/editor/HammerTypedTranscriptSurfaces.tsx": { "maxLines": 1129, "maxExplicitAny": 0, "maxAsAnyAssertions": 0, "maxCtxPropertyReferences": 0 },
+      "src/editor/HammerTypedPackagingFinishingSurfaces.tsx": { "maxLines": 200, "maxExplicitAny": 0, "maxAsAnyAssertions": 0, "maxCtxPropertyReferences": 0 },
+      "src/editor/HammerTypedAudioCaptionMetadataSurface.tsx": { "maxLines": 32, "maxExplicitAny": 0, "maxAsAnyAssertions": 0, "maxCtxPropertyReferences": 0 }
+    }
+  },
   "exactToolBayRouting": {
     "surfaceCount": 20,
     "surfaceAuthority": "HammerToolBayContextSurface"

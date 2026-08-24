@@ -26,6 +26,22 @@ for (const [path, limit] of Object.entries(baseline.principalFiles)) {
   if (current.explicitAny > limit.maxExplicitAny) failures.push(`${path}: explicit any grew to ${current.explicitAny} (cap ${limit.maxExplicitAny}). Add an authority-specific contract.`);
 }
 
+let toolBayRendererFamilyAggregateLines = 0;
+let toolBayRendererFamilyAggregateCtxPropertyReferences = 0;
+for (const [path, limit] of Object.entries(baseline.toolBayRendererFamilies.files)) {
+  const current = inspect(path);
+  const asAnyAssertions = (current.text.match(/\bas\s+any\b/g) ?? []).length;
+  const ctxPropertyReferences = (current.text.match(/\bctx\.[A-Za-z_$][\w$]*/g) ?? []).length;
+  toolBayRendererFamilyAggregateLines += current.lines;
+  toolBayRendererFamilyAggregateCtxPropertyReferences += ctxPropertyReferences;
+  if (current.lines > limit.maxLines) failures.push(`${path}: Tool Bay renderer family grew to ${current.lines} lines (cap ${limit.maxLines}). Extract a bounded presentation component.`);
+  if (current.explicitAny > limit.maxExplicitAny) failures.push(`${path}: Tool Bay renderer family explicit any grew to ${current.explicitAny} (cap ${limit.maxExplicitAny}).`);
+  if (asAnyAssertions > limit.maxAsAnyAssertions) failures.push(`${path}: Tool Bay renderer family as any assertions grew to ${asAnyAssertions} (cap ${limit.maxAsAnyAssertions}).`);
+  if (ctxPropertyReferences > limit.maxCtxPropertyReferences) failures.push(`${path}: Tool Bay renderer family ctx. references grew to ${ctxPropertyReferences} (cap ${limit.maxCtxPropertyReferences}).`);
+}
+if (toolBayRendererFamilyAggregateLines > baseline.toolBayRendererFamilies.maxAggregateLines) failures.push(`Tool Bay audio/text/transcript/completion renderers grew to ${toolBayRendererFamilyAggregateLines} aggregate lines (cap ${baseline.toolBayRendererFamilies.maxAggregateLines}).`);
+if (toolBayRendererFamilyAggregateCtxPropertyReferences > baseline.toolBayRendererFamilies.maxAggregateCtxPropertyReferences) failures.push(`Tool Bay audio/text/transcript/completion ctx. references grew to ${toolBayRendererFamilyAggregateCtxPropertyReferences} (cap ${baseline.toolBayRendererFamilies.maxAggregateCtxPropertyReferences}).`);
+
 const toolBayInspection = inspect(baseline.toolBay.path);
 const toolBayCtxPropertyReferences = (toolBayInspection.text.match(/\bctx\.[A-Za-z_$][\w$]*/g) ?? []).length;
 const toolBayAsAnyAssertions = (toolBayInspection.text.match(/\bas\s+any\b/g) ?? []).length;
