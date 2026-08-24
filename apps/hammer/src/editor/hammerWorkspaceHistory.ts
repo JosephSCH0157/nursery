@@ -451,6 +451,29 @@ export class HammerHistoryVerificationError extends Error {
   }
 }
 
+/** Projects only interaction-session fields explicitly owned by active history. */
+export function projectHammerHistoryOwnedSessionHead(args: {
+  document: HammerHistoryDocumentV1;
+  canonicalHead: HammerEditorStateSerializable;
+}): HammerEditorStateSerializable {
+  const projected = cloneEditorState(args.canonicalHead);
+  const entriesById = new Map(args.document.entries.map((entry) => [entry.id, entry]));
+  for (const entryId of args.document.undoStack) {
+    const entry = entriesById.get(entryId);
+    if (!entry) continue;
+    for (const patch of entry.forwardPatch) {
+      if (patch.op !== "replace") continue;
+      if (patch.path === "/selectedSegmentId" && (typeof patch.value === "string" || patch.value === null)) {
+        projected.selectedSegmentId = patch.value;
+      }
+      if (patch.path === "/playheadSec" && typeof patch.value === "number" && Number.isFinite(patch.value) && patch.value >= 0) {
+        projected.playheadSec = patch.value;
+      }
+    }
+  }
+  return projected;
+}
+
 /**
  * Verifies a persisted active ledger against the exact canonical head. This is
  * deliberately not a recovery heuristic: every active entry must participate,

@@ -75,6 +75,12 @@ export const he9SequenceOneFixture = Object.freeze({
     result_editor_state_hash: "hammer-state:8387e7e6",
   }),
   history: Object.freeze({ sequence: 1, undo_stack: Object.freeze(["entry:53cc332f-11a3-4c38-883b-6483b2e31ac2"]), redo_stack: Object.freeze([]) }),
+  runtime_projection: Object.freeze({
+    durable_selected_segment_id: "turn_137",
+    durable_playhead_sec: 0,
+    head_selected_segment_id: "turn_102",
+    head_playhead_sec: 386.5,
+  }),
   registry: Object.freeze({
     history: Object.freeze({ bytes: 298829, sha256: "6508e868a8e324e8a8307b237a4f1b5ef5626d2ca9394be1d68c2d82f44ff247", revision: 1 }),
     visual_placements: Object.freeze({ bytes: 64059, sha256: "1aaf4483de5e5783ce66d9353b98aa641f9047bd488fba3a8a96d9c82334c998", revision: 193 }),

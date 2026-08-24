@@ -10,7 +10,7 @@ import {
   createHammerHistoryDocument,
   hashEditorState,
   normalizeHammerHistoryDocument,
-  verifyHammerHistoryAgainstCanonicalHead,
+  verifyHammerHistoryAgainstCanonicalHead, projectHammerHistoryOwnedSessionHead,
   HammerHistoryVerificationError,
   cloneEditorState,
   type HammerEditorStateSerializable,
@@ -608,7 +608,7 @@ export function useHammerWorkspaceShellHistoryController(args: UseHammerWorkspac
       }
       if (hydration?.kind !== "epoch_anchor" && loaded.baseRevisionId !== baseRevisionId) {
         try {
-          replayBaselineState = verifyHammerHistoryAgainstCanonicalHead({ document: loaded, canonicalHead: baselineState,
+          replayBaselineState = verifyHammerHistoryAgainstCanonicalHead({ document: loaded, canonicalHead: projectHammerHistoryOwnedSessionHead({ document: loaded, canonicalHead: baselineState }),
             legacyCanonicalHeadReconstruction: legacyBaselineState,
             canonicalBaseHash: hydration?.kind === "epoch_head" ? hydration.base.canonical_editor_state_hash ?? null : null }).baseline;
           args.historyAuthority.updateBaselineState(replayBaselineState);
