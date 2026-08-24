@@ -1,10 +1,11 @@
 {
   "schemaVersion": 1,
-  "totalExplicitAny": 213,
+  "totalExplicitAny": 204,
   "totalSuppressions": 1,
   "criticalExplicitAny": 0,
   "criticalSuppressions": 0,
   "files": {
+    "src/editor/HammerTypedBrollReferenceSurface.tsx": { "explicitAny": 24, "suppressions": 0 },
     "src/editor/HammerTypedVisualSurface.tsx": { "explicitAny": 76, "suppressions": 0 },
     "src/editor/HammerWorkspaceEditor.tsx": { "explicitAny": 2, "suppressions": 0 },
     "src/editor/HammerWorkspaceShell.tsx": { "explicitAny": 5, "suppressions": 0 },
@@ -13,7 +14,6 @@
     "src/editor/HammerWorkspaceShellSourceBay.tsx": { "explicitAny": 34, "suppressions": 0 },
     "src/editor/hammerWorkspaceShellSourceDeskPreviews.ts": { "explicitAny": 1, "suppressions": 0 },
     "src/editor/HammerWorkspaceShellTimelineDock.tsx": { "explicitAny": 18, "suppressions": 0 },
-    "src/editor/HammerWorkspaceShellToolBay.tsx": { "explicitAny": 33, "suppressions": 0 },
     "src/editor/hammerWorkspaceShellViewModels.ts": { "explicitAny": 28, "suppressions": 1 }
   }
 }

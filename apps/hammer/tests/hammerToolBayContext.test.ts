@@ -105,6 +105,23 @@ test("builders preserve callback and canonical target identity with zero activit
   assert.deepEqual(activity, { commands: 0, history: 0, persistence: 0 });
 });
 
+test("Florida B-roll removal remains identity-bound and exposes no image-only command", () => {
+  const calls: string[] = [];
+  const removePlacement = (placementId: string): void => { calls.push(placementId); };
+  const commands: BrollCommands = { ...brollCommands, removePlacement };
+  const route = { ...brollRoute, surface: "broll" as const };
+  const context = buildHammerToolBayContext({ surface: "broll", route, data: { selectedVisual: broll, placementId: "placement:florida", model: {} }, commands });
+  assert.equal(context.surface, "broll");
+  if (context.surface !== "broll") assert.fail();
+  assert.equal(context.data.selectedVisual.kind, "broll");
+  assert.equal(context.data.placementId, "placement:florida");
+  assert.equal(context.commands.removePlacement, removePlacement);
+  assert.equal("updateTransform" in context.commands, false);
+  assert.deepEqual(calls, []);
+  context.commands.removePlacement(context.data.placementId);
+  assert.deepEqual(calls, ["placement:florida"]);
+});
+
 test("surface command groups contain no unrelated callbacks", () => {
   const imageContext = buildHammerToolBayContext(fixtures[5]);
   const brollContext = buildHammerToolBayContext(fixtures[9]);
@@ -120,6 +137,7 @@ test("surface command groups contain no unrelated callbacks", () => {
 test("unresolved routes, missing selection, identity mismatch, kind mismatch, and capability mismatch fail closed", () => {
   const preserve: HammerToolBayRouteDecision = { status: "preserve", reason: "passive_selection_preserved", navigationPermitted: false, selectionPreserved: true };
   const withoutTransform: HammerSelectedVisualContext = image.status === "selected" ? { ...image, capabilities: { ...image.capabilities, transform: false } } : image;
+  const withoutBrollRemoval: HammerSelectedVisualContext = broll.status === "selected" ? { ...broll, capabilities: { ...broll.capabilities, remove: false } } : broll;
   const cases: HammerToolBayContextBuildInput[] = [
     { surface: "audio_finalization", route: audioRoute, data: null, commands: audioCommands },
     { surface: "audio_finalization", route: resolved, data: { presetId: "voice", compareEnabled: false, masterApplied: false }, commands: audioCommands },
@@ -127,12 +145,15 @@ test("unresolved routes, missing selection, identity mismatch, kind mismatch, an
     { surface: "image_placement", route: visualRoute, data: { selectedVisual: { status: "none" }, placementId: "placement:image", anchorSegmentId: null }, commands: imagePlacementCommands },
     { surface: "image_placement", route: visualRoute, data: { selectedVisual: image, placementId: "placement:other", anchorSegmentId: null }, commands: imagePlacementCommands },
     { surface: "broll", route: brollRoute, data: { selectedVisual: image, placementId: "placement:image", bindingId: null }, commands: brollCommands },
+    { surface: "broll", route: { ...brollRoute, surface: "broll" }, data: { selectedVisual: { status: "none" }, placementId: "", model: {} }, commands: brollCommands },
+    { surface: "reference_clip", route: { ...brollRoute, surface: "reference_clip" }, data: { selectedVisual: broll, placementId: "placement:florida", model: {} }, commands: brollCommands },
+    { surface: "broll", route: { ...brollRoute, surface: "broll" }, data: { selectedVisual: withoutBrollRemoval, placementId: "placement:florida", model: {} }, commands: brollCommands },
     { surface: "image_transform", route: { ...visualRoute, surface: "image_transform" }, data: { selectedVisual: withoutTransform, placementId: "placement:image", transform: { placementId: "placement:image", leftPct: 0, topPct: 0, widthPct: 10, heightPct: 10 } }, commands: imageTransformCommands },
   ];
   assert.deepEqual(cases.map((fixture) => {
     const result = buildHammerToolBayContext(fixture);
     return result.surface === "unsupported" ? result.data.reason : "resolved";
-  }), ["required_data_missing", "route_surface_mismatch", "route_not_resolved", "selected_visual_missing", "required_data_missing", "selected_visual_kind_mismatch", "selected_visual_capability_mismatch"]);
+  }), ["required_data_missing", "route_surface_mismatch", "route_not_resolved", "selected_visual_missing", "required_data_missing", "selected_visual_kind_mismatch", "selected_visual_missing", "selected_visual_kind_mismatch", "selected_visual_capability_mismatch", "selected_visual_capability_mismatch"]);
   for (const fixture of cases) {
     const result = buildHammerToolBayContext(fixture);
     assert.equal(result.surface, "unsupported");

@@ -79,8 +79,8 @@ export type HammerImagePlacementToolBayContext = SurfaceContext<"image_placement
 export type HammerImageTimingToolBayContext = SurfaceContext<"image_timing", VisualData, ImageTimingCommands>;
 export type HammerImageTransformToolBayContext = SurfaceContext<"image_transform", VisualData, ImageTransformCommands>;
 export type HammerImageAnimationToolBayContext = SurfaceContext<"image_animation", VisualData, ImageAnimationCommands>;
-export type HammerBrollToolBayContext = SurfaceContext<"broll", VisualData & { bindingId: string | null }, BrollCommands>;
-export type HammerReferenceClipToolBayContext = SurfaceContext<"reference_clip", VisualData & { bindingId: string | null }, BrollCommands>;
+export type HammerBrollToolBayContext = SurfaceContext<"broll", VisualData, BrollCommands>;
+export type HammerReferenceClipToolBayContext = SurfaceContext<"reference_clip", VisualData, BrollCommands>;
 type MigratedEditorSurfaceData = { model: unknown };
 export type HammerAudioFinalizationToolBayContext = SurfaceContext<"audio_finalization", MigratedEditorSurfaceData, AudioCommands>;
 export type HammerAudioAdjustmentsToolBayContext = SurfaceContext<"audio_adjustments", MigratedEditorSurfaceData, AudioCommands>;
@@ -200,6 +200,10 @@ function visualRequirement(input: HammerToolBayContextBuildInput): HammerUnsuppo
     : input.surface === "image_animation" ? "animate"
     : "rebind";
   if (!selected.capabilities[requiredCapability]) return unsupported(input.route, "selected_visual_capability_mismatch", selected.placementId);
+  if ((input.surface === "broll" || input.surface === "reference_clip")
+    && (!selected.capabilities.remove || !selected.capabilities.retime || !selected.capabilities.replace || !selected.capabilities.revert || !selected.capabilities.transition)) {
+    return unsupported(input.route, "selected_visual_capability_mismatch", selected.placementId);
+  }
   return null;
 }
 

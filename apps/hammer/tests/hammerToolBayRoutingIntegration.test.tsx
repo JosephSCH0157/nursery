@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import HammerWorkspaceShellToolBay, { type HammerWorkspaceShellToolBayVM } from "../src/editor/HammerWorkspaceShellToolBay";
+import HammerWorkspaceShellToolBay from "../src/editor/HammerWorkspaceShellToolBay";
 import { applyHammerToolBayRouteDecision } from "../src/editor/hammerToolBayRouteApplication";
 import {
   HAMMER_SUPPORTED_TOOL_BAY_SURFACES,
@@ -110,8 +110,8 @@ test("audio-adjustments route application preserves exact surface and is idempot
   assert.equal(writes, 1);
 });
 
-function mountedVm(decision: HammerToolBayRouteDecision, kind: "image" | "broll"): HammerWorkspaceShellToolBayVM {
-  const placementId = kind === "image" ? "placement:image-mounted" : "placement:florida-mounted";
+function mountedVm(decision: HammerToolBayRouteDecision, kind: "image" | "broll" | "reference_clip"): Record<string, unknown> {
+  const placementId = kind === "image" ? "placement:image-mounted" : kind === "broll" ? "placement:florida-mounted" : "placement:reference-mounted";
   const noop = (): void => undefined;
   const values: Record<string, unknown> = {
     passLabel: "Visual", passStatus: "in_progress", onMarkComplete: noop, routeDecision: decision,
@@ -133,36 +133,36 @@ function mountedVm(decision: HammerToolBayRouteDecision, kind: "image" | "broll"
     clampImagePlacementTransform: (value: unknown) => value, updateImagePlacementTransform: noop,
     commitImagePlacementTransform: noop, workspaceFocusMode: "balanced", viewingModeSummary: "current",
   };
-  return values as unknown as HammerWorkspaceShellToolBayVM;
+  return values;
 }
 
-function runtimeContexts(decision: HammerToolBayRouteDecision, kind: "image" | "broll") {
+function runtimeContexts(decision: HammerToolBayRouteDecision, kind: "image" | "broll" | "reference_clip") {
   const noop = (): void => undefined;
-  const placementId = kind === "image" ? "placement:image-mounted" : "placement:florida-mounted";
+  const placementId = kind === "image" ? "placement:image-mounted" : kind === "broll" ? "placement:florida-mounted" : "placement:reference-mounted";
   const selectedVisualContext = decision.status === "unsupported"
     ? { status: "unsupported" as const, placementId, reason: "invalid" }
-    : { status: "selected" as const, placementId, kind, capabilities: { remove: true, retime: true, transform: kind === "image", animate: kind === "image", rebind: kind === "broll" } };
+    : { status: "selected" as const, placementId, clipId: placementId, assetId: `asset:${placementId}`, laneId: "lane:visual", kind, preferredTool: kind === "image" ? "images" as const : "broll" as const, preferredPass: kind === "image" ? "image_placement" as const : "image_animation" as const, capabilities: { remove: true, retime: true, anchor: kind === "image", transform: kind === "image", animate: kind === "image", rebind: kind !== "image", replace: kind !== "image", revert: kind !== "image", transition: kind !== "image" } };
   return assembleHammerToolBayRuntimeContexts({
     route: decision, passLabel: "Visual", passStatus: "in_progress", selectedVisualContext, migratedEditorModel: mountedVm(decision, kind),
     markPassComplete: noop, readinessData: null, exportData: null, focusIssue: noop, sendToQuench: noop,
-    visualPolishCommands: { updateLook: noop, updateExposure: noop, updateBackground: noop, toggleEyeContact: noop }, imagePlacementCommands: { removePlacement: noop, updateAnchor: noop }, imageTimingCommands: { retimePlacement: noop }, imageTransformCommands: { updateTransform: noop, resetTransform: noop }, imageAnimationCommands: { updateAnimation: noop },
+    visualPolishCommands: { updateLook: noop, updateExposure: noop, updateBackground: noop, toggleEyeContact: noop }, imagePlacementCommands: { removePlacement: noop, updateAnchor: noop }, imageTimingCommands: { retimePlacement: noop }, imageTransformCommands: { updateTransform: noop, resetTransform: noop }, imageAnimationCommands: { updateAnimation: noop }, brollCommands: { removePlacement: noop, rebindPlacement: noop, replaceBinding: noop, revertBinding: noop, addTransition: noop }, referenceClipCommands: { removePlacement: noop, rebindPlacement: noop, replaceBinding: noop, revertBinding: noop, addTransition: noop },
     audioCommands: { updateVoicePreset: noop, toggleCompare: noop, applyPodcastMaster: noop }, captionCommands: { buildCaptions: noop, discardEdits: noop, editCaption: noop, splitCaption: noop, mergeCaption: noop }, metadataCommands: { setTags: noop }, transcriptCleanupCommands: { refreshCandidates: noop, previewCandidate: noop, acceptCandidate: noop, dismissCandidate: noop, applyCleanup: noop, discardCleanup: noop }, retakeCommands: { previewRange: noop, acceptRange: noop, dismissRange: noop }, gapCommands: { previewRange: noop, acceptRange: noop, dismissRange: noop }, transcriptPolishCommands: { previewCleanup: noop, applyCleanup: noop, discardCleanup: noop }, packagingCommands: { applyIntro: noop, removeIntro: noop, applyOutro: noop, removeOutro: noop, updateLogo: noop }, finishingCommands: { setReviewFlag: noop },
   });
 }
 
-test("mounted Tool Bay routes exact image and Florida B-roll panels while retaining selected identity", () => {
-  for (const kind of ["image", "broll"] as const) {
-    const context = selected(kind, kind === "image" ? "placement:image-mounted" : "placement:florida-mounted");
+test("mounted Tool Bay routes exact image, Florida B-roll, and reference panels while retaining selected identity", () => {
+  for (const kind of ["image", "broll", "reference_clip"] as const) {
+    const context = selected(kind, kind === "image" ? "placement:image-mounted" : kind === "broll" ? "placement:florida-mounted" : "placement:reference-mounted");
     const decision = resolveHammerToolBayRoute(routeInput(context));
-    const markup = renderToStaticMarkup(<HammerWorkspaceShellToolBay vm={mountedVm(decision, kind)} runtimeContexts={runtimeContexts(decision, kind)} />);
-    assert.match(markup, kind === "image" ? /Image Placement/ : /Florida mounted B-roll/);
+    const markup = renderToStaticMarkup(<HammerWorkspaceShellToolBay contexts={runtimeContexts(decision, kind)} />);
+    assert.match(markup, kind === "image" ? /Image Placement/ : kind === "broll" ? /Florida mounted B-roll/ : /placement:reference-mounted/);
     assert.match(markup, new RegExp(context.placementId));
   }
 });
 
 test("mounted unsupported Tool Bay exposes stable reason markup and no panel commands", () => {
   const decision = resolveHammerToolBayRoute(routeInput({ status: "unsupported", placementId: "placement:invalid", reason: "invalid" }));
-  const markup = renderToStaticMarkup(<HammerWorkspaceShellToolBay vm={mountedVm(decision, "image")} runtimeContexts={runtimeContexts(decision, "image")} />);
+  const markup = renderToStaticMarkup(<HammerWorkspaceShellToolBay contexts={runtimeContexts(decision, "image")} />);
   assert.match(markup, /data-hammer-tool-bay-route-reason="selected_visual_unsupported"/);
   assert.match(markup, /Unsupported Tool Bay State/);
   assert.doesNotMatch(markup, /Mark Complete|Remove Clip|Add Hard Cut/);

@@ -11,33 +11,9 @@ import {
 import type { HammerSelectedVisualContext } from "./hammerSelectedVisualContext";
 import type { HammerToolBayRouteDecision } from "./hammerToolBayRouteDecision";
 
-export const HAMMER_MIGRATED_TOOL_BAY_SURFACES = [
-  "unsupported",
-  "release_readiness",
-  "export",
-  "pass_completion",
-  "audio_finalization",
-  "audio_adjustments",
-  "captions",
-  "metadata",
-  "transcript_cleanup",
-  "retakes",
-  "gap_pacing",
-  "transcript_polish",
-  "packaging",
-  "finishing",
-  "visual_polish",
-  "image_placement",
-  "image_timing",
-  "image_transform",
-  "image_animation",
-] as const;
-
-export const HAMMER_TOOL_BAY_LEGACY_REMOVAL_DEADLINE = "HTB-3B completion" as const;
-
 export type HammerToolBayRuntimeContexts = Readonly<{
   completion: HammerPassCompletionToolBayContext | null;
-  body: Extract<HammerToolBayContext, { surface: "unsupported" | "release_readiness" | "export" | "audio_finalization" | "audio_adjustments" | "captions" | "metadata" | "transcript_cleanup" | "retakes" | "gap_pacing" | "transcript_polish" | "packaging" | "finishing" | "visual_polish" | "image_placement" | "image_timing" | "image_transform" | "image_animation" }> | null;
+  body: Exclude<HammerToolBayContext, HammerPassCompletionToolBayContext> | null;
 }>;
 
 export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
@@ -65,6 +41,8 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
   imageTimingCommands: Extract<HammerToolBayContext, { surface: "image_timing" }>["commands"];
   imageTransformCommands: Extract<HammerToolBayContext, { surface: "image_transform" }>["commands"];
   imageAnimationCommands: Extract<HammerToolBayContext, { surface: "image_animation" }>["commands"];
+  brollCommands: Extract<HammerToolBayContext, { surface: "broll" }>["commands"];
+  referenceClipCommands: Extract<HammerToolBayContext, { surface: "reference_clip" }>["commands"];
 }>): HammerToolBayRuntimeContexts {
   if (args.route.status === "unsupported") {
     return {
@@ -87,6 +65,14 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
     commands: { markPassComplete: args.markPassComplete },
   });
   const typedCompletion = completion.surface === "pass_completion" ? completion : null;
+  if (args.route.surface === "broll" || args.route.surface === "reference_clip") {
+    const placementId = (args.selectedVisualContext.status === "selected" || args.selectedVisualContext.status === "unsupported" ? args.selectedVisualContext.placementId : null) ?? "";
+    const data = args.migratedEditorModel === null ? null : { model: args.migratedEditorModel, selectedVisual: args.selectedVisualContext, placementId };
+    const body = args.route.surface === "broll"
+      ? buildHammerToolBayContext({ surface: "broll", route: args.route, data, commands: args.brollCommands })
+      : buildHammerToolBayContext({ surface: "reference_clip", route: args.route, data, commands: args.referenceClipCommands });
+    return { completion: typedCompletion, body: body.surface === "broll" || body.surface === "reference_clip" || body.surface === "unsupported" ? body : null };
+  }
   if (args.route.surface === "visual_polish" || args.route.surface === "image_placement" || args.route.surface === "image_timing" || args.route.surface === "image_transform" || args.route.surface === "image_animation") {
     const placementId = (args.selectedVisualContext.status === "selected" || args.selectedVisualContext.status === "unsupported" ? args.selectedVisualContext.placementId : null) ?? "";
     const data = args.migratedEditorModel === null ? null : { model: args.migratedEditorModel, selectedVisual: args.selectedVisualContext, placementId };

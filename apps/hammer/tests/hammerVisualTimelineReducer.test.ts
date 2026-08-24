@@ -74,6 +74,19 @@ test("reducer increments revision on every mutating action", () => {
   assert.equal(next.updated_at, "2026-04-02T12:05:00.000Z");
 });
 
+test("Florida B-roll DELETE_CLIP removes only the exact placement and lane membership", () => {
+  const state = buildState();
+  const florida = buildClip({ clip_id: "placement:florida-broll", asset_id: "asset_001", lane_id: "lane:primary", label: "Florida B-roll", visual_mode: "broll" });
+  const retained = buildClip({ clip_id: "placement:retained", asset_id: "asset_001", lane_id: "lane:primary", label: "Retained visual" });
+  state.clips = [florida, retained];
+  state.lanes[0] = { ...state.lanes[0]!, clip_ids: [florida.clip_id, retained.clip_id] };
+  state.selected_clip_id = florida.clip_id;
+  const next = hammerVisualTimelineReducer(state, { type: "DELETE_CLIP", clip_id: florida.clip_id, updated_at: "2026-08-23T12:00:00.000Z" });
+  assert.deepEqual(next.clips.map((clip) => clip.clip_id), [retained.clip_id]);
+  assert.deepEqual(next.lanes[0]?.clip_ids, [retained.clip_id]);
+  assert.equal(next.selected_clip_id, null);
+});
+
 test("LOAD_TIMELINE replaces state cleanly", () => {
   const replacement = createEmptyVisualTimelineState({
     revision: 4,

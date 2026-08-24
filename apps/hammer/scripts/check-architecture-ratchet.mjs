@@ -118,7 +118,7 @@ if (!/HAMMER_SUPPORTED_TOOL_BAY_SURFACES[^=]*=\s*HAMMER_TOOL_BAY_CONTEXT_SURFACE
 if (baseline.exactToolBayRouting.surfaceCount !== baseline.typedToolBayContext.surfaceCount) failures.push("Exact Tool Bay routing must cover the complete typed surface inventory.");
 if ((toolBayRouteResolver.match(/"audio_finalization"/g) ?? []).length === 0 || (toolBayRouteResolver.match(/"audio_adjustments"/g) ?? []).length === 0) failures.push("Canonical Tool Bay routing must distinguish both audio surfaces.");
 if (/currentPass\s*!==\s*["']audio_finalization["']|currentPass\s*===\s*["']audio_finalization["']/.test(toolBay)) failures.push("Tool Bay JSX reacquired audio routing through currentPass instead of the canonical surface.");
-if (!/routeDecision\?\.status === ["']resolved["'] \? vm\.routeDecision\.surface/.test(toolBay)) failures.push("Tool Bay must consume the canonical exact surface discriminator.");
+if (!/contexts\.body\?\.route\.status === ["']resolved["'] \? props\.contexts\.body\.route\.surface/.test(toolBay)) failures.push("Tool Bay must consume the canonical exact surface discriminator.");
 const toolBayRouteApplication = inspect("src/editor/hammerToolBayRouteApplication.ts").text;
 for (const [pattern, message] of [
   [/\buse(?:State|Effect|Memo|Ref|Callback)\s*\(/, "Route application acquired React lifecycle ownership."],
@@ -139,12 +139,8 @@ for (const [pattern, message] of [
   [/\bcommands\s*:\s*(?:Partial|Record\s*<\s*string)/, "Typed context weakened surface-specific command groups."],
 ]) if (pattern.test(typedToolBayContext)) failures.push(`${baseline.typedToolBayContext.path}: ${message}`);
 const toolBayRuntimeContext = inspect("src/editor/hammerToolBayRuntimeContext.ts").text;
-const migratedSurfaceBlock = toolBayRuntimeContext.match(/HAMMER_MIGRATED_TOOL_BAY_SURFACES\s*=\s*\[([\s\S]*?)\]\s*as const/);
-const migratedSurfaces = migratedSurfaceBlock ? (migratedSurfaceBlock[1].match(/"[a-z_]+"/g) ?? []).map((value) => value.slice(1, -1)) : [];
-const requiredMigratedSurfaces = ["unsupported", "release_readiness", "export", "pass_completion", "audio_finalization", "audio_adjustments", "captions", "metadata", "transcript_cleanup", "retakes", "gap_pacing", "transcript_polish", "packaging", "finishing", "visual_polish", "image_placement", "image_timing", "image_transform", "image_animation"];
-if (JSON.stringify(migratedSurfaces) !== JSON.stringify(requiredMigratedSurfaces)) failures.push(`Tool Bay migrated surface inventory is ${JSON.stringify(migratedSurfaces)} (required ${JSON.stringify(requiredMigratedSurfaces)}). The HTB-3B migrated set may only grow.`);
-if (migratedSurfaces.length !== baseline.typedToolBayContext.migratedSurfaceCount) failures.push(`Tool Bay migrated surface count is ${migratedSurfaces.length} (required ${baseline.typedToolBayContext.migratedSurfaceCount}).`);
-if (!toolBayRuntimeContext.includes(`HAMMER_TOOL_BAY_LEGACY_REMOVAL_DEADLINE = "${baseline.typedToolBayContext.legacyRemovalDeadline}"`)) failures.push("Tool Bay transitional seam lost its HTB-3B removal deadline.");
+if (/HAMMER_MIGRATED_TOOL_BAY_SURFACES|HAMMER_TOOL_BAY_LEGACY_REMOVAL_DEADLINE/.test(toolBayRuntimeContext)) failures.push("Completed Tool Bay retained the transitional migrated-surface seam.");
+if (baseline.typedToolBayContext.migratedSurfaceCount !== baseline.typedToolBayContext.surfaceCount + 1 || baseline.typedToolBayContext.remainingLegacySurfaceCount !== 0) failures.push("Completed Tool Bay inventory must cover all resolved contexts plus unsupported with zero legacy surfaces.");
 for (const [pattern, message] of [
   [/\b(?:useState|useEffect|useRef)\s*\(/, "Runtime context assembly acquired lifecycle ownership."],
   [/\b(?:saveHammer|loadHammer|fetch|localStorage|sessionStorage|dispatch|applyHistoryMutation)\b/, "Runtime context assembly acquired I/O, mutation, history, or persistence ownership."],
@@ -153,7 +149,7 @@ for (const [pattern, message] of [
 const typedToolBaySurfaces = inspect("src/editor/HammerTypedToolBaySurfaces.tsx").text;
 if (/HammerWorkspaceShellToolBayVM|\bctx\.|\bas any\b/.test(typedToolBaySurfaces)) failures.push("Migrated Tool Bay surfaces imported or accessed the legacy Tool Bay VM.");
 if (/activeTool\s*===\s*["']export["']|Ready State|Quench Handoff/.test(toolBay)) failures.push("Legacy Tool Bay retained a migrated readiness or export surface.");
-if (!toolBay.includes("runtimeContexts.body ? <HammerTypedToolBayBody")) failures.push("Tool Bay lost its exclusive typed-versus-legacy body dispatch.");
+if (!toolBay.includes("props.contexts.body ? <HammerTypedToolBayBody") || /\b(?:vm|ctx)\b|\bas any\b|HammerWorkspaceShellToolBayVM|activeVisualTool|activeTool\s*===/.test(toolBay)) failures.push("Root Tool Bay must remain a typed exhaustive context host without a legacy VM or JSX routing seam.");
 
 const expansionGate = inspect("src/composition/hammerExpansionGateV1.ts").text;
 for (const required of [
