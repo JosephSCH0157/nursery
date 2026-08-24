@@ -41,6 +41,27 @@ for (const [path, limit] of Object.entries(baseline.toolBayRendererFamilies.file
 }
 if (toolBayRendererFamilyAggregateLines > baseline.toolBayRendererFamilies.maxAggregateLines) failures.push(`Tool Bay audio/text/transcript/completion renderers grew to ${toolBayRendererFamilyAggregateLines} aggregate lines (cap ${baseline.toolBayRendererFamilies.maxAggregateLines}).`);
 if (toolBayRendererFamilyAggregateCtxPropertyReferences > baseline.toolBayRendererFamilies.maxAggregateCtxPropertyReferences) failures.push(`Tool Bay audio/text/transcript/completion ctx. references grew to ${toolBayRendererFamilyAggregateCtxPropertyReferences} (cap ${baseline.toolBayRendererFamilies.maxAggregateCtxPropertyReferences}).`);
+let visualFamilyLines = 0;
+let visualFamilyExplicitAny = 0;
+let visualFamilyAsAny = 0;
+let visualFamilyCtx = 0;
+for (const [path, limit] of Object.entries(baseline.visualToolBayRendererFamilies.files)) {
+  const current = inspect(path);
+  const asAnyAssertions = (current.text.match(/\bas\s+any\b/g) ?? []).length;
+  const ctxPropertyReferences = (current.text.match(/\bctx\.[A-Za-z_$][\w$]*/g) ?? []).length;
+  visualFamilyLines += current.lines;
+  visualFamilyExplicitAny += current.explicitAny;
+  visualFamilyAsAny += asAnyAssertions;
+  visualFamilyCtx += ctxPropertyReferences;
+  if (current.lines > limit.maxLines) failures.push(`${path}: visual Tool Bay renderer grew to ${current.lines} lines (cap ${limit.maxLines}).`);
+  if (current.explicitAny > limit.maxExplicitAny) failures.push(`${path}: visual Tool Bay explicit any grew to ${current.explicitAny} (cap ${limit.maxExplicitAny}).`);
+  if (asAnyAssertions > limit.maxAsAnyAssertions) failures.push(`${path}: visual Tool Bay as any assertions grew to ${asAnyAssertions} (cap ${limit.maxAsAnyAssertions}).`);
+  if (ctxPropertyReferences > limit.maxCtxPropertyReferences) failures.push(`${path}: visual Tool Bay ctx. references grew to ${ctxPropertyReferences} (cap ${limit.maxCtxPropertyReferences}).`);
+}
+if (visualFamilyLines > baseline.visualToolBayRendererFamilies.maxAggregateLines) failures.push(`Visual Tool Bay renderer aggregate grew to ${visualFamilyLines} lines (cap ${baseline.visualToolBayRendererFamilies.maxAggregateLines}).`);
+if (visualFamilyExplicitAny > baseline.visualToolBayRendererFamilies.maxAggregateExplicitAny) failures.push(`Visual Tool Bay explicit any grew to ${visualFamilyExplicitAny} (cap ${baseline.visualToolBayRendererFamilies.maxAggregateExplicitAny}).`);
+if (visualFamilyAsAny > baseline.visualToolBayRendererFamilies.maxAggregateAsAnyAssertions) failures.push(`Visual Tool Bay as any assertions grew to ${visualFamilyAsAny} (cap ${baseline.visualToolBayRendererFamilies.maxAggregateAsAnyAssertions}).`);
+if (visualFamilyCtx > baseline.visualToolBayRendererFamilies.maxAggregateCtxPropertyReferences) failures.push(`Visual Tool Bay ctx. references grew to ${visualFamilyCtx} (cap ${baseline.visualToolBayRendererFamilies.maxAggregateCtxPropertyReferences}).`);
 for (const path of ["src/editor/HammerTypedAudioSurfaces.tsx", "src/editor/HammerTypedCaptionMetadataSurfaces.tsx", "src/editor/HammerTypedTranscriptSurfaces.tsx", "src/editor/HammerTypedPackagingFinishingSurfaces.tsx"]) {
   const convertedFamily = inspect(path).text;
   if (/\bmodel\b|\bctx\.|\bas\s+any\b|\[\s*key\s*:\s*string\s*\]|commands\s*\?\s*:/.test(convertedFamily)) failures.push(`${path}: converted Tool Bay family reacquired a legacy model, ctx read, cast, generic index signature, or optional command bag.`);

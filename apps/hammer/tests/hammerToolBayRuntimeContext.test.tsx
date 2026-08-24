@@ -264,18 +264,29 @@ test("exact visual routes assemble typed contexts and reject the Florida B-roll 
   assert.ok(polish.contexts.body);
   assert.match(renderToStaticMarkup(<HammerTypedToolBayBody context={polish.contexts.body} />), /data-hammer-tool-bay-surface="visual_polish"/);
   const selectedImage = { status: "selected" as const, placementId: "image:florida", kind: "image" as const, capabilities: { remove: true, retime: true, transform: true, animate: true, rebind: false } };
+  const inspectorMarkup: string[] = [];
   for (const surface of ["image_placement", "image_timing", "image_transform", "image_animation"] as const) {
     const route: HammerToolBayRouteDecision = { ...resolved, surface, activeTool: "video", activeVisualTool: "images", representativePass: "visual_polish", editorMode: "visual" };
     const item = fixture(route);
     const contexts = assembleHammerToolBayRuntimeContexts({ ...visualRuntimeArgs, selectedVisualContext: selectedImage, route, passLabel: "Visual", passStatus: "in_progress", markPassComplete: item.commands.markPassComplete, readinessData: null, exportData: null, focusIssue: item.commands.focusIssue, sendToQuench: item.commands.sendToQuench, migratedEditorModel: {}, audioCommands: { updateVoicePreset() {}, toggleCompare() {}, applyPodcastMaster() {} }, captionCommands: { buildCaptions() {}, discardEdits() {}, editCaption() {}, splitCaption() {}, mergeCaption() {} }, metadataCommands: { setTags() {} }, transcriptCleanupCommands: { refreshCandidates() {}, previewCandidate() {}, acceptCandidate() {}, dismissCandidate() {}, applyCleanup() {}, discardCleanup() {} }, retakeCommands: { previewRange() {}, acceptRange() {}, dismissRange() {} }, gapCommands: { previewRange() {}, acceptRange() {}, dismissRange() {} }, transcriptPolishCommands: { previewCleanup() {}, applyCleanup() {}, discardCleanup() {} }, packagingCommands: { applyIntro() {}, removeIntro() {}, applyOutro() {}, removeOutro() {}, updateLogo() {} }, finishingCommands: { setReviewFlag() {} } });
     assert.equal(contexts.body?.surface, surface);
     assert.ok(contexts.body);
-    assert.match(renderToStaticMarkup(<HammerTypedToolBayBody context={contexts.body} />), new RegExp(`data-hammer-tool-bay-surface="${surface}"`));
+    const markup = renderToStaticMarkup(<HammerTypedToolBayBody context={contexts.body} />);
+    assert.match(markup, new RegExp(`data-hammer-tool-bay-surface="${surface}"`));
+    inspectorMarkup.push(markup.replace(`data-hammer-tool-bay-surface="${surface}"`, "data-hammer-tool-bay-surface=\"image_inspector\""));
   }
+  assert.equal(inspectorMarkup[0], inspectorMarkup[1]);
+  assert.equal(inspectorMarkup[1], inspectorMarkup[2]);
+  assert.equal(inspectorMarkup[2], inspectorMarkup[3]);
   const broll = { status: "selected" as const, placementId: "he8:florida-broll", kind: "broll" as const, capabilities: { remove: true, retime: true, transform: false, animate: false, rebind: true } };
   const imageRoute: HammerToolBayRouteDecision = { ...resolved, surface: "image_transform", activeTool: "video", activeVisualTool: "images", representativePass: "visual_polish", editorMode: "visual" };
   const base = fixture();
   const rejected = assembleHammerToolBayRuntimeContexts({ ...visualRuntimeArgs, selectedVisualContext: broll, route: imageRoute, passLabel: "Visual", passStatus: "in_progress", markPassComplete: base.commands.markPassComplete, readinessData: null, exportData: null, focusIssue: base.commands.focusIssue, sendToQuench: base.commands.sendToQuench, migratedEditorModel: {}, audioCommands: { updateVoicePreset() {}, toggleCompare() {}, applyPodcastMaster() {} }, captionCommands: { buildCaptions() {}, discardEdits() {}, editCaption() {}, splitCaption() {}, mergeCaption() {} }, metadataCommands: { setTags() {} }, transcriptCleanupCommands: { refreshCandidates() {}, previewCandidate() {}, acceptCandidate() {}, dismissCandidate() {}, applyCleanup() {}, discardCleanup() {} }, retakeCommands: { previewRange() {}, acceptRange() {}, dismissRange() {} }, gapCommands: { previewRange() {}, acceptRange() {}, dismissRange() {} }, transcriptPolishCommands: { previewCleanup() {}, applyCleanup() {}, discardCleanup() {} }, packagingCommands: { applyIntro() {}, removeIntro() {}, applyOutro() {}, removeOutro() {}, updateLogo() {} }, finishingCommands: { setReviewFlag() {} } });
   assert.equal(rejected.body?.surface, "unsupported");
   if (rejected.body?.surface === "unsupported") assert.equal(rejected.body.data.reason, "selected_visual_kind_mismatch");
+  assert.equal(broll.kind, "broll");
+  assert.equal(broll.placementId, "he8:florida-broll");
+  const rejectedMarkup = rejected.body ? renderToStaticMarkup(<HammerTypedToolBayBody context={rejected.body} />) : "";
+  assert.doesNotMatch(rejectedMarkup, /Image Placement|Timing|Transform|Animation|Center visual overlay/);
+  assert.deepEqual(base.activity, { completion: 0, focus: 0, send: 0, history: 0, persistence: 0, selection: 0 });
 });

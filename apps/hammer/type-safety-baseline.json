@@ -6,7 +6,8 @@
   "criticalSuppressions": 0,
   "files": {
     "src/editor/HammerTypedBrollReferenceSurface.tsx": { "explicitAny": 24, "suppressions": 0 },
-    "src/editor/HammerTypedVisualSurface.tsx": { "explicitAny": 76, "suppressions": 0 },
+    "src/editor/HammerTypedImageInspectorSurface.tsx": { "explicitAny": 15, "suppressions": 0 },
+    "src/editor/HammerTypedVisualPolishSurface.tsx": { "explicitAny": 61, "suppressions": 0 },
     "src/editor/HammerWorkspaceEditor.tsx": { "explicitAny": 2, "suppressions": 0 },
     "src/editor/HammerWorkspaceShell.tsx": { "explicitAny": 5, "suppressions": 0 },
     "src/editor/hammerWorkspaceShellHistoryController.ts": { "explicitAny": 12, "suppressions": 0 },

@@ -7,11 +7,26 @@ import type {
   HammerPackagingToolBayContext,
   HammerTranscriptCleanupToolBayContext,
   HammerTranscriptPolishToolBayContext,
+  HammerVisualPolishToolBayContext,
+  HammerImagePlacementToolBayContext,
+  HammerImageTimingToolBayContext,
+  HammerImageTransformToolBayContext,
+  HammerImageAnimationToolBayContext,
+  HammerBrollToolBayContext,
+  HammerReferenceClipToolBayContext,
 } from "./hammerToolBayContext";
 
 type AssertNever<Value extends never> = Value;
+type HammerImageInspectorSurface = (HammerImagePlacementToolBayContext | HammerImageTimingToolBayContext | HammerImageTransformToolBayContext | HammerImageAnimationToolBayContext)["surface"];
 
 export type HammerToolBayTypedFamilyBoundaryProof = readonly [
+  AssertNever<Extract<HammerVisualPolishToolBayContext, HammerImagePlacementToolBayContext | HammerImageTimingToolBayContext | HammerImageTransformToolBayContext | HammerImageAnimationToolBayContext>>,
+  AssertNever<Extract<keyof HammerVisualPolishToolBayContext["data"], "selectedVisual" | "placementId">>,
+  AssertNever<Exclude<HammerImageInspectorSurface, "image_placement" | "image_timing" | "image_transform" | "image_animation">>,
+  AssertNever<Exclude<"image_placement" | "image_timing" | "image_transform" | "image_animation", HammerImageInspectorSurface>>,
+  AssertNever<Extract<HammerImagePlacementToolBayContext | HammerImageTimingToolBayContext | HammerImageTransformToolBayContext | HammerImageAnimationToolBayContext, HammerBrollToolBayContext | HammerReferenceClipToolBayContext>>,
+  AssertNever<Extract<keyof HammerVisualPolishToolBayContext["commands"], keyof HammerImagePlacementToolBayContext["commands"] | keyof HammerImageTimingToolBayContext["commands"] | keyof HammerImageTransformToolBayContext["commands"] | keyof HammerImageAnimationToolBayContext["commands"]>>,
+  AssertNever<Extract<keyof HammerImagePlacementToolBayContext["commands"] | keyof HammerImageTimingToolBayContext["commands"] | keyof HammerImageTransformToolBayContext["commands"] | keyof HammerImageAnimationToolBayContext["commands"], keyof HammerVisualPolishToolBayContext["commands"]>>,
   AssertNever<Extract<keyof HammerTranscriptCleanupToolBayContext["data"] | keyof HammerTranscriptPolishToolBayContext["data"], "model">>,
   AssertNever<Extract<keyof HammerTranscriptCleanupToolBayContext["commands"], keyof HammerTranscriptPolishToolBayContext["commands"] & ("previewQuickClean" | "previewSpeakerSolo" | "previewSpeakerInterview" | "previewSpeakerMonologue" | "previewSpeakerPanel")>>,
   AssertNever<Extract<keyof HammerTranscriptPolishToolBayContext["commands"], "handleCandidateDecision" | "updateCandidateProposedRemoval" | "analyzeDeadAirClosure" | "applyDeadAirClosureBatch">>,

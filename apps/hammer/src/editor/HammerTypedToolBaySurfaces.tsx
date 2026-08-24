@@ -149,7 +149,7 @@ export function HammerTypedToolBayBody(props: { context: HammerMigratedToolBayBo
   if (props.context.surface === "unsupported") return <UnsupportedSurface context={props.context} />;
   if (props.context.surface === "release_readiness") return <ReadinessSurface context={props.context} />;
   if (props.context.surface === "audio_finalization" || props.context.surface === "audio_adjustments" || props.context.surface === "captions" || props.context.surface === "metadata" || props.context.surface === "transcript_cleanup" || props.context.surface === "retakes" || props.context.surface === "gap_pacing" || props.context.surface === "transcript_polish" || props.context.surface === "packaging" || props.context.surface === "finishing") return <HammerTypedAudioCaptionMetadataSurface context={props.context} />;
-  if (props.context.surface === "visual_polish" || props.context.surface === "image_placement" || props.context.surface === "image_timing" || props.context.surface === "image_transform" || props.context.surface === "image_animation") return <HammerTypedVisualSurface surface={props.context.surface} model={props.context.data.model} />;
+  if (props.context.surface === "visual_polish" || props.context.surface === "image_placement" || props.context.surface === "image_timing" || props.context.surface === "image_transform" || props.context.surface === "image_animation") return <HammerTypedVisualSurface context={props.context} />;
   if (props.context.surface === "broll" || props.context.surface === "reference_clip") return <HammerTypedBrollReferenceSurface context={props.context} />;
   return <ExportSurface context={props.context} />;
 }
