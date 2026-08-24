@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-    "totalExplicitAny": 104,
+  "totalExplicitAny": 103,
   "totalSuppressions": 1,
   "criticalExplicitAny": 0,
   "criticalSuppressions": 0,
@@ -12,6 +12,6 @@
     "src/editor/HammerWorkspaceShellSourceBay.tsx": { "explicitAny": 34, "suppressions": 0 },
     "src/editor/hammerWorkspaceShellSourceDeskPreviews.ts": { "explicitAny": 1, "suppressions": 0 },
     "src/editor/HammerWorkspaceShellTimelineDock.tsx": { "explicitAny": 18, "suppressions": 0 },
-    "src/editor/hammerWorkspaceShellViewModels.ts": { "explicitAny": 28, "suppressions": 1 }
+    "src/editor/hammerWorkspaceShellViewModels.ts": { "explicitAny": 27, "suppressions": 1 }
   }
 }

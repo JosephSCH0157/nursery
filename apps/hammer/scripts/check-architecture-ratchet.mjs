@@ -133,7 +133,7 @@ for (const legacyComposer of [
   "composeHammerTimelineDockViewModel", "composeHammerSourceBayViewModel", "composeHammerPreviewBayViewModel",
   "composeHammerToolbarViewModel", "composeHammerToolBayViewModel",
 ]) if (shell.includes(legacyComposer)) failures.push(`HammerWorkspaceShell bypassed the single view-model composition authority via ${legacyComposer}.`);
-if ((shell.match(/createHammerWorkspaceShellViewModelComposition\s*\(\)/g) ?? []).length !== 1) failures.push("HammerWorkspaceShell must install exactly one coordinated five-view-model composition authority.");
+if ((shell.match(/createHammerWorkspaceShellViewModelComposition\s*\(\)/g) ?? []).length !== 1) failures.push("HammerWorkspaceShell must install exactly one coordinated four-view-model composition authority.");
 if (/\b(?:compareHammerPreparedReleasePackageToCurrent|evaluateHammerReadinessGate|deriveHammerReleaseHandoffPosture|resolvePodcastMasterUiStatus)\s*\(/.test(shell)) failures.push("HammerWorkspaceShell reacquired release comparison, readiness, handoff, or podcast-master status projection.");
 if (!/useHammerWorkspaceShellReleaseComparison\s*\(/.test(shell) || !/useHammerWorkspaceShellReleaseReadiness\s*\(/.test(shell)) failures.push("HammerWorkspaceShell must use the coordinated release-prep status authority.");
 if (/setEditableVisualTimeline\s*\(/.test(shell)) failures.push("HammerWorkspaceShell bypassed the canonical visual-selection command with a direct timeline setter call.");
@@ -186,16 +186,22 @@ for (const [pattern, message] of [
   [/\bcommands\s*:\s*(?:Partial|Record\s*<\s*string)/, "Typed context weakened surface-specific command groups."],
 ]) if (pattern.test(typedToolBayContext)) failures.push(`${baseline.typedToolBayContext.path}: ${message}`);
 const toolBayRuntimeContext = inspect("src/editor/hammerToolBayRuntimeContext.ts").text;
-if (/HAMMER_MIGRATED_TOOL_BAY_SURFACES|HAMMER_TOOL_BAY_LEGACY_REMOVAL_DEADLINE/.test(toolBayRuntimeContext)) failures.push("Completed Tool Bay retained the transitional migrated-surface seam.");
-if (baseline.typedToolBayContext.migratedSurfaceCount !== baseline.typedToolBayContext.surfaceCount + 1 || baseline.typedToolBayContext.remainingLegacySurfaceCount !== 0) failures.push("Completed Tool Bay inventory must cover all resolved contexts plus unsupported with zero legacy surfaces.");
+const shellViewModels = inspect("src/editor/hammerWorkspaceShellViewModels.ts").text;
+const shellViewModelComposer = inspect("src/editor/useHammerWorkspaceShellViewModels.ts").text;
+const removedToolBayBuilder = ["build", "ToolBay", "VM"].join("");
+const removedToolBayModel = ["toolBay", "SurfaceModel"].join("");
+if ([shell, shellViewModels, shellViewModelComposer, toolBayRuntimeContext].some((text) => text.includes(removedToolBayBuilder) || text.includes(removedToolBayModel))) failures.push("Completed Tool Bay reacquired its removed shell view-model builder or assembly model.");
+if (/\bmigratedEditorModel\b|HAMMER_MIGRATED_TOOL_BAY_SURFACES|HAMMER_TOOL_BAY_LEGACY_REMOVAL_DEADLINE/.test(shell + shellViewModels + shellViewModelComposer + toolBayRuntimeContext)) failures.push("Completed Tool Bay retained transitional migration terminology or compatibility machinery.");
+if (baseline.typedToolBayContext.contextMemberCount !== baseline.typedToolBayContext.surfaceCount + 1 || baseline.typedToolBayContext.legacySurfaceCount !== 0) failures.push("Completed Tool Bay inventory must cover exactly 21 typed context members, including unsupported, with zero legacy surfaces.");
 for (const [pattern, message] of [
   [/\b(?:useState|useEffect|useRef)\s*\(/, "Runtime context assembly acquired lifecycle ownership."],
   [/\b(?:saveHammer|loadHammer|fetch|localStorage|sessionStorage|dispatch|applyHistoryMutation)\b/, "Runtime context assembly acquired I/O, mutation, history, or persistence ownership."],
   [/HammerWorkspaceShellToolBayVM|\bctx\./, "Runtime context assembly accessed the legacy Tool Bay VM."],
 ]) if (pattern.test(toolBayRuntimeContext)) failures.push(`src/editor/hammerToolBayRuntimeContext.ts: ${message}`);
 const typedToolBaySurfaces = inspect("src/editor/HammerTypedToolBaySurfaces.tsx").text;
-if (/HammerWorkspaceShellToolBayVM|\bctx\.|\bas any\b/.test(typedToolBaySurfaces)) failures.push("Migrated Tool Bay surfaces imported or accessed the legacy Tool Bay VM.");
-if (/activeTool\s*===\s*["']export["']|Ready State|Quench Handoff/.test(toolBay)) failures.push("Legacy Tool Bay retained a migrated readiness or export surface.");
+if (/\bmodel\s*:\s*unknown\b/.test(typedToolBayContext + toolBayRuntimeContext + typedToolBaySurfaces + toolBay)) failures.push("Completed Tool Bay reacquired a model: unknown contract.");
+if (/HammerWorkspaceShellToolBayVM|\bctx\.|\bas any\b/.test(typedToolBaySurfaces)) failures.push("Typed Tool Bay surfaces imported or accessed the removed Tool Bay VM.");
+if (/activeTool\s*===\s*["']export["']|Ready State|Quench Handoff/.test(toolBay)) failures.push("Root Tool Bay retained an alternate readiness or export rendering path.");
 if (!toolBay.includes("props.contexts.body ? <HammerTypedToolBayBody") || /\b(?:vm|ctx)\b|\bas any\b|HammerWorkspaceShellToolBayVM|activeVisualTool|activeTool\s*===/.test(toolBay)) failures.push("Root Tool Bay must remain a typed exhaustive context host without a legacy VM or JSX routing seam.");
 
 const expansionGate = inspect("src/composition/hammerExpansionGateV1.ts").text;

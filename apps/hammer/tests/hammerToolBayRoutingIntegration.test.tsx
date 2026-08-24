@@ -110,32 +110,6 @@ test("audio-adjustments route application preserves exact surface and is idempot
   assert.equal(writes, 1);
 });
 
-function mountedVm(decision: HammerToolBayRouteDecision, kind: "image" | "broll" | "reference_clip"): Record<string, unknown> {
-  const placementId = kind === "image" ? "placement:image-mounted" : kind === "broll" ? "placement:florida-mounted" : "placement:reference-mounted";
-  const noop = (): void => undefined;
-  const values: Record<string, unknown> = {
-    passLabel: "Visual", passStatus: "in_progress", onMarkComplete: noop, routeDecision: decision,
-    shellProps: {}, activeTool: "video", activeVisualTool: kind === "image" ? "images" : "broll",
-    currentPass: kind === "image" ? "image_placement" : "image_animation", onSelectVisualTool: noop,
-    ["selectedImage" + "Placement"]: { id: placementId, kind, label: kind === "image" ? "Mounted image" : "Florida mounted B-roll", startSec: 4, endSec: 7, assetPath: "assets/florida.mp4" },
-    selectedImagePlacementTransform: { leftPct: 10, topPct: 10, widthPct: 30, heightPct: 30 },
-    DEFAULT_IMAGE_PLACEMENT_TRANSFORM: { leftPct: 10, topPct: 10, widthPct: 30, heightPct: 30 },
-    selectedVisualClip: { clip_id: placementId, asset_id: `asset:${placementId}`, anchor_hint: { matched_segment_ids: [], detached: false } },
-    selectedVisualAnchorSegmentId: null, selectedVisualAnchorSegment: null, anchorTextDraft: "", anchorLabelDraft: "",
-    autoPlacementDebugEnabled: false, selectedAutoPreviewActive: false, previewDiagnosticsSummary: undefined,
-    MIN_IMAGE_PLACEMENT_DURATION_SEC: 0.25, roundToTenth: (value: number) => value,
-    resolvedBrollBindingItems: [], unresolvedBrollSuggestionItems: [], boundAttentionQueue: [],
-    boundAttentionSummary: { total: 0, unresolvedCount: 0, degradedCount: 0, supersededCount: 0, transitionCount: 0 },
-    selectedBoundBrollInspectorState: null, selectedTransitionBoundObject: null, videoSnapMode: "timeline",
-    removeVisualPlacement: noop, setFocusOverride: noop, setVideoSnapMode: noop, addMinimalTransition: noop,
-    navigateBoundAttention: noop, updateVisualPlacementTiming: noop, commitVisualPlacementWindow: noop,
-    setAnchorTextDraft: noop, setAnchorLabelDraft: noop, commitVisualAnchorRefinement: noop,
-    clampImagePlacementTransform: (value: unknown) => value, updateImagePlacementTransform: noop,
-    commitImagePlacementTransform: noop, workspaceFocusMode: "balanced", viewingModeSummary: "current",
-  };
-  return values;
-}
-
 function runtimeContexts(decision: HammerToolBayRouteDecision, kind: "image" | "broll" | "reference_clip") {
   const noop = (): void => undefined;
   const placementId = kind === "image" ? "placement:image-mounted" : kind === "broll" ? "placement:florida-mounted" : "placement:reference-mounted";
@@ -158,7 +132,7 @@ function runtimeContexts(decision: HammerToolBayRouteDecision, kind: "image" | "
     sourceBrollItems: [], videoSnapMode: "timeline" as const,
   } : null;
   return assembleHammerToolBayRuntimeContexts({
-    route: decision, passLabel: "Visual", passStatus: "in_progress", selectedVisualContext, migratedEditorModel: mountedVm(decision, kind), imageInspectorData, brollReferenceData, visualPolishData: null,
+    route: decision, passLabel: "Visual", passStatus: "in_progress", selectedVisualContext, imageInspectorData, brollReferenceData, visualPolishData: null,
     markPassComplete: noop, readinessData: null, exportData: null, focusIssue: noop, sendToQuench: noop,
     visualPolishCommands: { updateLook: noop, updateExposure: noop, updateBackground: noop, toggleEyeContact: noop }, imageInspectorCommands: { focus: noop, previewAutoPosition: null, resetPreviewAutoPosition: null, setAnchorTextDraft: noop, setAnchorLabelDraft: noop, commitAnchor: noop, commitTiming: () => false, shiftTiming: noop, removePlacement: noop, updateTransformDraft: noop, commitTransform: () => false }, brollCommands: { removePlacement: noop, addMinimalTransition: noop, navigateBoundAttention: noop, focusBoundAttentionOperation: noop, moveResolvedBrollBinding: noop, trimResolvedBrollBinding: noop, replaceResolvedBrollBinding: noop, revertResolvedBrollBinding: noop, resolveHearthBrollSuggestion: noop, discardHearthBrollSuggestion: noop, setTranscriptTimingHint: noop, setVideoSnapMode: noop, setFocusOverride: noop }, referenceClipCommands: { removePlacement: noop, addMinimalTransition: noop, navigateBoundAttention: noop, focusBoundAttentionOperation: noop, moveResolvedBrollBinding: noop, trimResolvedBrollBinding: noop, replaceResolvedBrollBinding: noop, revertResolvedBrollBinding: noop, resolveHearthBrollSuggestion: noop, discardHearthBrollSuggestion: noop, setTranscriptTimingHint: noop, setVideoSnapMode: noop, setFocusOverride: noop },
     audioCommands: { updateVoicePreset: noop, toggleCompare: noop, applyPodcastMaster: noop }, captionCommands: { buildCaptions: noop, discardEdits: noop, editCaption: noop, splitCaption: noop, mergeCaption: noop }, metadataCommands: { setTags: noop }, transcriptCleanupCommands: { refreshCandidates: noop, previewCandidate: noop, acceptCandidate: noop, dismissCandidate: noop, applyCleanup: noop, discardCleanup: noop }, retakeCommands: { previewRange: noop, acceptRange: noop, dismissRange: noop }, gapCommands: { previewRange: noop, acceptRange: noop, dismissRange: noop }, transcriptPolishCommands: { previewCleanup: noop, applyCleanup: noop, discardCleanup: noop }, packagingCommands: { applyIntro: noop, removeIntro: noop, applyOutro: noop, removeOutro: noop, updateLogo: noop }, finishingCommands: { setReviewFlag: noop },

@@ -25,7 +25,6 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
   exportData: HammerExportToolBayContext["data"] | null;
   focusIssue: () => void;
   sendToQuench: () => void;
-  migratedEditorModel: unknown | null;
   audioFinalizationData: HammerAudioFinalizationToolBayContext["data"] | null;
   audioAdjustmentsData: Extract<HammerToolBayContext, { surface: "audio_adjustments" }>["data"] | null;
   captionsData: HammerCaptionsToolBayContext["data"] | null;

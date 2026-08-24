@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "principalFiles": {
-    "src/editor/HammerWorkspaceShell.tsx": { "maxLines": 4570, "maxExplicitAny": 6 },
+    "src/editor/HammerWorkspaceShell.tsx": { "maxLines": 3936, "maxExplicitAny": 5 },
     "src/editor/HammerWorkspaceEditor.tsx": { "maxLines": 5371, "maxExplicitAny": 4 },
     "src/editor/HammerWorkspaceShellToolBay.tsx": { "maxLines": 45, "maxExplicitAny": 0 }
   },
@@ -19,8 +19,8 @@
   "typedToolBayContext": {
     "path": "src/editor/hammerToolBayContext.ts",
     "surfaceCount": 20,
-    "migratedSurfaceCount": 21,
-    "remainingLegacySurfaceCount": 0
+    "contextMemberCount": 21,
+    "legacySurfaceCount": 0
   },
   "toolBayRendererFamilies": {
     "maxAggregateLines": 2297,
@@ -66,7 +66,7 @@
     "src/editor/hammerWorkspaceShellSnapshotEmitter.ts": { "maxLines": 521 },
     "src/editor/hammerWorkspaceShellReleasePackage.ts": { "maxLines": 343 },
     "src/editor/useHammerWorkspaceShellReleasePrep.ts": { "maxLines": 399 },
-    "src/editor/useHammerWorkspaceShellViewModels.ts": { "maxLines": 38 },
+    "src/editor/useHammerWorkspaceShellViewModels.ts": { "maxLines": 34 },
     "src/editor/hammerWorkspaceShellReleaseStatus.ts": { "maxLines": 84 },
     "src/editor/hammerWorkspaceVisualSelectionCommand.ts": { "maxLines": 35 }
   }
