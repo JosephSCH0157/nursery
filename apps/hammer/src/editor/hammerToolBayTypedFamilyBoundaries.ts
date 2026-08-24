@@ -5,11 +5,17 @@ import type {
   HammerFinishingToolBayContext,
   HammerMetadataToolBayContext,
   HammerPackagingToolBayContext,
+  HammerTranscriptCleanupToolBayContext,
+  HammerTranscriptPolishToolBayContext,
 } from "./hammerToolBayContext";
 
 type AssertNever<Value extends never> = Value;
 
 export type HammerToolBayTypedFamilyBoundaryProof = readonly [
+  AssertNever<Extract<keyof HammerTranscriptCleanupToolBayContext["data"] | keyof HammerTranscriptPolishToolBayContext["data"], "model">>,
+  AssertNever<Extract<keyof HammerTranscriptCleanupToolBayContext["commands"], keyof HammerTranscriptPolishToolBayContext["commands"] & ("previewQuickClean" | "previewSpeakerSolo" | "previewSpeakerInterview" | "previewSpeakerMonologue" | "previewSpeakerPanel")>>,
+  AssertNever<Extract<keyof HammerTranscriptPolishToolBayContext["commands"], "handleCandidateDecision" | "updateCandidateProposedRemoval" | "analyzeDeadAirClosure" | "applyDeadAirClosureBatch">>,
+  AssertNever<Extract<keyof HammerTranscriptCleanupToolBayContext["commands"] | keyof HammerTranscriptPolishToolBayContext["commands"], "setTag" | "buildCaptions" | "applyIntro" | "setReviewFlag" | "updateLook" | "sendToQuench" | "setVoiceCleanupEnabled">>,
   AssertNever<Extract<keyof HammerAudioFinalizationToolBayContext["commands"], keyof HammerAudioAdjustmentsToolBayContext["commands"]>>,
   AssertNever<Extract<keyof HammerAudioAdjustmentsToolBayContext["commands"], keyof HammerAudioFinalizationToolBayContext["commands"]>>,
   AssertNever<Extract<keyof HammerAudioFinalizationToolBayContext["data"] | keyof HammerAudioAdjustmentsToolBayContext["data"], "model">>,

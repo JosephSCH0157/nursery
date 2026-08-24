@@ -1,31 +1,22 @@
 import type { JSX } from "react";
 import PolishResultSummary from "./PolishResultSummary";
 import type { HammerCleanupCandidateCard } from "./hammerCleanupCandidateQueue";
-import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import type { FillerCleanupOptions, RetakeCleanupOptions, SpeakerInterviewOptions, SpeakerPanelOptions } from "./hammerCleanupTools";
-import type { useHammerWorkspaceShellTranscriptCleanup } from "./useHammerWorkspaceShellTranscriptCleanup";
-import type { useHammerWorkspaceShellCleanupCandidateReview } from "./useHammerWorkspaceShellCleanupCandidateReview";
-import type { useHammerWorkspaceShellSilenceEditing } from "./useHammerWorkspaceShellSilenceEditing";
-
-type TranscriptSurfaceModel = ReturnType<typeof useHammerWorkspaceShellTranscriptCleanup> & ReturnType<typeof useHammerWorkspaceShellCleanupCandidateReview> & ReturnType<typeof useHammerWorkspaceShellSilenceEditing> & Readonly<{
-  silenceSuggestionCount: number; seekPlayheadToTime: ((time: number, origin: "timeline" | "playhead", options?: { snapToBoundary?: boolean }) => void) | null; setFocusOverride(mode: "auto" | "source-focus" | "tool-focus" | "time-focus"): void; setActiveTranscriptToolSection(section: "fillers" | "retakes" | "silence_gaps"): void; refreshCleanupCandidateQueue(kind: "fillers" | "retakes"): void; activeFillerCandidateDiffOps: readonly { type: "insert" | "delete" | "equal"; words: readonly string[] }[] | null; selectedTranscriptRange: { start: number; end: number; text: string } | null; editableTranscriptSegments: HammerTranscriptSegment[]; speakerOptions: string[]; hasTranscriptSelection: boolean; transcriptSelectionRange: { segmentIds: string[] }; polishStrength: number; setPolishStrength(next: number | ((current: number) => number)): void;
-}>;
 import type { HammerGapPacingToolBayContext, HammerRetakesToolBayContext, HammerTranscriptCleanupToolBayContext, HammerTranscriptPolishToolBayContext } from "./hammerToolBayContext";
 
 type TranscriptSurfaceContext = HammerTranscriptCleanupToolBayContext | HammerRetakesToolBayContext | HammerGapPacingToolBayContext | HammerTranscriptPolishToolBayContext;
 
 export function HammerTypedTranscriptSurfaces(props: { context: TranscriptSurfaceContext }): JSX.Element {
   const { surface } = props.context;
-  const transcript = props.context.data.model as TranscriptSurfaceModel;
-  const setFocusOverride = transcript.setFocusOverride;
-  const { hasSilenceSuggestionAnalysis, silenceCutSuggestions, visibleSilenceCutSuggestions, acceptSilenceCutSuggestion, dismissSilenceCutSuggestion, seekPlayheadToTime, activeReviewKind, setActiveReviewKind, setActiveTranscriptToolSection, refreshCleanupCandidateQueue, fillerCleanupOptions, setFillerCleanupOptions, activeFillerCandidateCard, fillerActiveCandidateIndex, fillerCandidateCards, activeFillerCandidateDiffOps, candidateReceiptByKind, candidateProposedRemovalById, selectedTranscriptRange, updateCandidateProposedRemoval, fillerDecisionInFlight, handleCandidateDecision, retakeCleanupOptions, setRetakeCleanupOptions, activeRetakeCandidateCard, retakeActiveCandidateIndex, retakeCandidateCards, retakeDecisionInFlight, deadAirThresholdSec, setDeadAirThresholdSec, analyzeDeadAirClosure, deadAirApplyInFlight, deadAirAnalysis, applyDeadAirClosureBatch, polishStrength, setPolishStrength, gapCleanupOptions, setGapCleanupOptions, setCleanupPreview, previewShortenGaps, previewRemoveFillers, previewRemoveRetakes, previewQuickClean, editableTranscriptSegments, speakerSoloOptions, setSpeakerSoloOptions, speakerOptions, previewSpeakerSolo, hasTranscriptSelection, transcriptSelectionRange, speakerInterviewOptions, setSpeakerInterviewOptions, previewSpeakerInterview, speakerMonologueOptions, setSpeakerMonologueOptions, previewSpeakerMonologue, speakerPanelOptions, setSpeakerPanelOptions, previewSpeakerPanel, cleanupPreview, cleanupPreviewSummary, applyCleanup, cleanupReceipt } = transcript;
-  const silenceSuggestionCountForGaps = transcript.silenceSuggestionCount;
-  function getCommittedProposedRemovalText(card: HammerCleanupCandidateCard | null): string { if (!card) return ""; return candidateProposedRemovalById[card.id]?.text ?? card.suggestedRemovalText ?? ""; }
-  function getDisplayedProposedRemovalText(card: HammerCleanupCandidateCard | null): string { const committedText = getCommittedProposedRemovalText(card); if (committedText.trim()) return committedText; return selectedTranscriptRange?.text ?? ""; }
 
   return <div data-hammer-tool-bay-surface={surface}>
                   {surface === "transcript_cleanup" || surface === "retakes" || surface === "gap_pacing" || surface === "transcript_polish" ? (
-                    surface !== "transcript_polish" ? (
+                    surface !== "transcript_polish" ? (() => {
+                      const { hasSilenceSuggestionAnalysis, silenceCutSuggestions, visibleSilenceCutSuggestions, activeReviewKind, fillerCleanupOptions, activeFillerCandidateCard, fillerActiveCandidateIndex, fillerCandidateCards, activeFillerCandidateDiffOps, candidateReceiptByKind, candidateProposedRemovalById, selectedTranscriptRange, fillerDecisionInFlight, retakeCleanupOptions, activeRetakeCandidateCard, retakeActiveCandidateIndex, retakeCandidateCards, retakeDecisionInFlight, deadAirThresholdSec, deadAirApplyInFlight, deadAirAnalysis, silenceSuggestionCount: silenceSuggestionCountForGaps } = props.context.data;
+                      const { acceptSilenceCutSuggestion, dismissSilenceCutSuggestion, seekPlayheadToTime, setActiveReviewKind, setActiveTranscriptToolSection, refreshCleanupCandidateQueue, setFillerCleanupOptions, updateCandidateProposedRemoval, handleCandidateDecision, setRetakeCleanupOptions, setDeadAirThresholdSec, analyzeDeadAirClosure, applyDeadAirClosureBatch, setFocusOverride } = props.context.commands;
+                      function getCommittedProposedRemovalText(card: HammerCleanupCandidateCard | null): string { if (!card) return ""; return candidateProposedRemovalById[card.id]?.text ?? card.suggestedRemovalText ?? ""; }
+                      function getDisplayedProposedRemovalText(card: HammerCleanupCandidateCard | null): string { const committedText = getCommittedProposedRemovalText(card); if (committedText.trim()) return committedText; return selectedTranscriptRange?.text ?? ""; }
+                      return (
                       <section className="hammer-tool-card">
                         <header className="hammer-tool-card__head">
                           Transcript Cleanup
@@ -385,7 +376,11 @@ export function HammerTypedTranscriptSurfaces(props: { context: TranscriptSurfac
                       ) : null}
                     </div>
                   </section>
-                ) : (
+                      );
+                    })() : (() => {
+                  const { polishStrength, gapCleanupOptions, fillerCleanupOptions, retakeCleanupOptions, editableTranscriptSegments, speakerSoloOptions, speakerOptions, hasTranscriptSelection, transcriptSelectionRange, speakerInterviewOptions, speakerMonologueOptions, speakerPanelOptions, cleanupPreview, cleanupPreviewSummary, cleanupReceipt } = props.context.data;
+                  const { setPolishStrength, setGapCleanupOptions, setCleanupPreview, previewShortenGaps, setFillerCleanupOptions, previewRemoveFillers, setRetakeCleanupOptions, previewRemoveRetakes, previewQuickClean, setSpeakerSoloOptions, previewSpeakerSolo, setSpeakerInterviewOptions, previewSpeakerInterview, setSpeakerMonologueOptions, previewSpeakerMonologue, setSpeakerPanelOptions, previewSpeakerPanel, applyCleanup, setFocusOverride } = props.context.commands;
+                  return (
                 <section className="hammer-tool-card">
                   <header className="hammer-tool-card__head">
                     Transcript Polish
@@ -1122,7 +1117,8 @@ export function HammerTypedTranscriptSurfaces(props: { context: TranscriptSurfac
                   ) : null}
                   <div className="hammer-tool-hint">Deterministic cleanup only. No AI inference path.</div>
                 </section>
-                )
+                  );
+                })()
               ) : null}
   </div>;
 }

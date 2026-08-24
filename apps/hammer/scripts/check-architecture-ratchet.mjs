@@ -41,7 +41,7 @@ for (const [path, limit] of Object.entries(baseline.toolBayRendererFamilies.file
 }
 if (toolBayRendererFamilyAggregateLines > baseline.toolBayRendererFamilies.maxAggregateLines) failures.push(`Tool Bay audio/text/transcript/completion renderers grew to ${toolBayRendererFamilyAggregateLines} aggregate lines (cap ${baseline.toolBayRendererFamilies.maxAggregateLines}).`);
 if (toolBayRendererFamilyAggregateCtxPropertyReferences > baseline.toolBayRendererFamilies.maxAggregateCtxPropertyReferences) failures.push(`Tool Bay audio/text/transcript/completion ctx. references grew to ${toolBayRendererFamilyAggregateCtxPropertyReferences} (cap ${baseline.toolBayRendererFamilies.maxAggregateCtxPropertyReferences}).`);
-for (const path of ["src/editor/HammerTypedAudioSurfaces.tsx", "src/editor/HammerTypedCaptionMetadataSurfaces.tsx", "src/editor/HammerTypedPackagingFinishingSurfaces.tsx"]) {
+for (const path of ["src/editor/HammerTypedAudioSurfaces.tsx", "src/editor/HammerTypedCaptionMetadataSurfaces.tsx", "src/editor/HammerTypedTranscriptSurfaces.tsx", "src/editor/HammerTypedPackagingFinishingSurfaces.tsx"]) {
   const convertedFamily = inspect(path).text;
   if (/\bmodel\b|\bctx\.|\bas\s+any\b|\[\s*key\s*:\s*string\s*\]|commands\s*\?\s*:/.test(convertedFamily)) failures.push(`${path}: converted Tool Bay family reacquired a legacy model, ctx read, cast, generic index signature, or optional command bag.`);
 }

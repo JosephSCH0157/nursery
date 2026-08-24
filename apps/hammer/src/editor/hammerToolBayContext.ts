@@ -6,6 +6,10 @@ import type { HammerStudioRackState } from "./hammerStudioRack";
 import type { HammerVoicePolishDeEsserStrength, HammerVoicePolishEqProfile, HammerVoicePolishFixId, HammerVoicePolishPresetId, HammerVoicePolishState } from "./hammerVoicePolish";
 import type { HammerPodcastMasterUiStatus } from "./hammerPodcastMasterStatus";
 import type { HammerExportTimelineAudioLayer } from "./hammerRenderAssembly";
+import type { useHammerWorkspaceShellTranscriptCleanup } from "./useHammerWorkspaceShellTranscriptCleanup";
+import type { useHammerWorkspaceShellCleanupCandidateReview } from "./useHammerWorkspaceShellCleanupCandidateReview";
+import type { useHammerWorkspaceShellSilenceEditing } from "./useHammerWorkspaceShellSilenceEditing";
+import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 
 export type HammerResolvedToolBayRoute = Extract<HammerToolBayRouteDecision, { status: "resolved" }>;
 export type HammerToolBayContextUnsupportedReason =
@@ -96,18 +100,57 @@ export type PassCompletionCommands = Readonly<{ markPassComplete(): void }>;
 
 type VisualData = { selectedVisual: HammerSelectedVisualContext; placementId: string; model: unknown };
 
-export type HammerTranscriptCleanupToolBayContext = SurfaceContext<"transcript_cleanup", MigratedEditorSurfaceData, TranscriptCleanupCommands>;
-export type HammerRetakesToolBayContext = SurfaceContext<"retakes", MigratedEditorSurfaceData, RetakePacingCommands>;
-export type HammerGapPacingToolBayContext = SurfaceContext<"gap_pacing", MigratedEditorSurfaceData, RetakePacingCommands>;
-export type HammerTranscriptPolishToolBayContext = SurfaceContext<"transcript_polish", MigratedEditorSurfaceData, TranscriptPolishCommands>;
-export type HammerVisualPolishToolBayContext = SurfaceContext<"visual_polish", MigratedEditorSurfaceData, VisualPolishCommands>;
+type TranscriptCleanupAuthority = ReturnType<typeof useHammerWorkspaceShellTranscriptCleanup>;
+type TranscriptCandidateAuthority = ReturnType<typeof useHammerWorkspaceShellCleanupCandidateReview>;
+type TranscriptSilenceAuthority = ReturnType<typeof useHammerWorkspaceShellSilenceEditing>;
+export type HammerTranscriptReviewWorkspaceData = Readonly<Pick<TranscriptCandidateAuthority,
+  "activeReviewKind" | "fillerCandidateCards" | "fillerActiveCandidateIndex" | "fillerDecisionInFlight" | "retakeCandidateCards" | "retakeActiveCandidateIndex" | "retakeDecisionInFlight" |
+  "candidateReceiptByKind" | "candidateProposedRemovalById" | "activeFillerCandidateCard" | "activeRetakeCandidateCard"
+> & Pick<TranscriptSilenceAuthority,
+  "hasSilenceSuggestionAnalysis" | "silenceCutSuggestions" | "visibleSilenceCutSuggestions" | "deadAirThresholdSec" | "deadAirAnalysis" | "deadAirApplyInFlight"
+> & Pick<TranscriptCleanupAuthority, "fillerCleanupOptions" | "retakeCleanupOptions"> & {
+  silenceSuggestionCount: number;
+  activeFillerCandidateDiffOps: readonly Readonly<{ type: "insert" | "delete" | "equal"; words: readonly string[] }>[] | null;
+  selectedTranscriptRange: Readonly<{ start: number; end: number; text: string }> | null;
+}>;
+export type HammerTranscriptReviewWorkspaceCommands = Readonly<Pick<TranscriptCandidateAuthority,
+  "setActiveReviewKind" | "updateCandidateProposedRemoval" | "handleCandidateDecision"
+> & Pick<TranscriptSilenceAuthority,
+  "acceptSilenceCutSuggestion" | "dismissSilenceCutSuggestion" | "setDeadAirThresholdSec" | "analyzeDeadAirClosure" | "applyDeadAirClosureBatch"
+> & Pick<TranscriptCleanupAuthority, "setFillerCleanupOptions" | "setRetakeCleanupOptions"> & {
+  setFocusOverride(mode: "auto" | "source-focus" | "tool-focus" | "time-focus"): void;
+  setActiveTranscriptToolSection(section: "fillers" | "retakes" | "silence_gaps"): void;
+  refreshCleanupCandidateQueue(kind: "fillers" | "retakes"): void;
+  seekPlayheadToTime: ((time: number, origin: "timeline" | "playhead", options?: { snapToBoundary?: boolean }) => void) | null;
+}>;
+export type HammerTranscriptPolishToolBayData = Readonly<Pick<TranscriptCleanupAuthority,
+  "gapCleanupOptions" | "fillerCleanupOptions" | "retakeCleanupOptions" | "speakerSoloOptions" | "speakerInterviewOptions" | "speakerMonologueOptions" | "speakerPanelOptions" |
+  "cleanupPreview" | "cleanupPreviewSummary" | "cleanupReceipt"
+> & {
+  editableTranscriptSegments: HammerTranscriptSegment[];
+  speakerOptions: string[];
+  hasTranscriptSelection: boolean;
+  transcriptSelectionRange: Readonly<{ segmentIds: string[] }>;
+  polishStrength: number;
+}>;
+export type HammerTranscriptPolishToolBayCommands = Readonly<Pick<TranscriptCleanupAuthority,
+  "setGapCleanupOptions" | "setFillerCleanupOptions" | "setRetakeCleanupOptions" | "setSpeakerSoloOptions" | "setSpeakerInterviewOptions" | "setSpeakerMonologueOptions" | "setSpeakerPanelOptions" |
+  "setCleanupPreview" | "applyCleanup" | "previewQuickClean" | "previewRemoveFillers" | "previewRemoveRetakes" | "previewShortenGaps" | "previewSpeakerInterview" | "previewSpeakerMonologue" | "previewSpeakerPanel" | "previewSpeakerSolo"
+> & {
+  setFocusOverride(mode: "auto" | "source-focus" | "tool-focus" | "time-focus"): void;
+  setPolishStrength(next: number | ((current: number) => number)): void;
+}>;
+export type HammerTranscriptCleanupToolBayContext = SurfaceContext<"transcript_cleanup", HammerTranscriptReviewWorkspaceData, HammerTranscriptReviewWorkspaceCommands>;
+export type HammerRetakesToolBayContext = SurfaceContext<"retakes", HammerTranscriptReviewWorkspaceData, HammerTranscriptReviewWorkspaceCommands>;
+export type HammerGapPacingToolBayContext = SurfaceContext<"gap_pacing", HammerTranscriptReviewWorkspaceData, HammerTranscriptReviewWorkspaceCommands>;
+export type HammerTranscriptPolishToolBayContext = SurfaceContext<"transcript_polish", HammerTranscriptPolishToolBayData, HammerTranscriptPolishToolBayCommands>;
+export type HammerVisualPolishToolBayContext = SurfaceContext<"visual_polish", Readonly<{ model: unknown }>, VisualPolishCommands>;
 export type HammerImagePlacementToolBayContext = SurfaceContext<"image_placement", VisualData, ImagePlacementCommands>;
 export type HammerImageTimingToolBayContext = SurfaceContext<"image_timing", VisualData, ImageTimingCommands>;
 export type HammerImageTransformToolBayContext = SurfaceContext<"image_transform", VisualData, ImageTransformCommands>;
 export type HammerImageAnimationToolBayContext = SurfaceContext<"image_animation", VisualData, ImageAnimationCommands>;
 export type HammerBrollToolBayContext = SurfaceContext<"broll", VisualData, BrollCommands>;
 export type HammerReferenceClipToolBayContext = SurfaceContext<"reference_clip", VisualData, BrollCommands>;
-type MigratedEditorSurfaceData = { model: unknown };
 export type HammerAudioFinalizationToolBayData = Readonly<{ compareMode: "before" | "after"; voicePolish: HammerVoicePolishState | null }>;
 export type HammerAudioAdjustmentsToolBayData = Readonly<{
   editableAudioPolish: Readonly<{ status?: string }> | null; persistedAudioCutCount: number; effectivePlaybackCutRegions: readonly unknown[]; silenceSuggestionCount: number;

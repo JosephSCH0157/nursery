@@ -30,15 +30,15 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
   audioAdjustmentsData: Extract<HammerToolBayContext, { surface: "audio_adjustments" }>["data"] | null;
   captionsData: HammerCaptionsToolBayContext["data"] | null;
   metadataData: HammerMetadataToolBayContext["data"] | null;
+  transcriptReviewData: Extract<HammerToolBayContext, { surface: "transcript_cleanup" }>["data"] | null;
+  transcriptPolishData: Extract<HammerToolBayContext, { surface: "transcript_polish" }>["data"] | null;
   packagingData: Extract<HammerToolBayContext, { surface: "packaging" }>["data"] | null;
   finishingData: Extract<HammerToolBayContext, { surface: "finishing" }>["data"] | null;
   audioFinalizationCommands: HammerAudioFinalizationToolBayContext["commands"];
   audioAdjustmentCommands: Extract<HammerToolBayContext, { surface: "audio_adjustments" }>["commands"];
   captionCommands: HammerCaptionsToolBayContext["commands"];
   metadataCommands: HammerMetadataToolBayContext["commands"];
-  transcriptCleanupCommands: Extract<HammerToolBayContext, { surface: "transcript_cleanup" }>["commands"];
-  retakeCommands: Extract<HammerToolBayContext, { surface: "retakes" }>["commands"];
-  gapCommands: Extract<HammerToolBayContext, { surface: "gap_pacing" }>["commands"];
+  transcriptReviewCommands: Extract<HammerToolBayContext, { surface: "transcript_cleanup" }>["commands"];
   transcriptPolishCommands: Extract<HammerToolBayContext, { surface: "transcript_polish" }>["commands"];
   packagingCommands: Extract<HammerToolBayContext, { surface: "packaging" }>["commands"];
   finishingCommands: Extract<HammerToolBayContext, { surface: "finishing" }>["commands"];
@@ -101,14 +101,13 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
     return { completion: typedCompletion, body: body.surface === args.route.surface || body.surface === "unsupported" ? body : null };
   }
   if (args.route.surface === "transcript_cleanup" || args.route.surface === "retakes" || args.route.surface === "gap_pacing" || args.route.surface === "transcript_polish") {
-    const data = args.migratedEditorModel === null ? null : { model: args.migratedEditorModel };
     const body = args.route.surface === "transcript_cleanup"
-      ? buildHammerToolBayContext({ surface: "transcript_cleanup", route: args.route, data, commands: args.transcriptCleanupCommands })
+      ? buildHammerToolBayContext({ surface: "transcript_cleanup", route: args.route, data: args.transcriptReviewData, commands: args.transcriptReviewCommands })
       : args.route.surface === "retakes"
-      ? buildHammerToolBayContext({ surface: "retakes", route: args.route, data, commands: args.retakeCommands })
+      ? buildHammerToolBayContext({ surface: "retakes", route: args.route, data: args.transcriptReviewData, commands: args.transcriptReviewCommands })
       : args.route.surface === "gap_pacing"
-      ? buildHammerToolBayContext({ surface: "gap_pacing", route: args.route, data, commands: args.gapCommands })
-      : buildHammerToolBayContext({ surface: "transcript_polish", route: args.route, data, commands: args.transcriptPolishCommands });
+      ? buildHammerToolBayContext({ surface: "gap_pacing", route: args.route, data: args.transcriptReviewData, commands: args.transcriptReviewCommands })
+      : buildHammerToolBayContext({ surface: "transcript_polish", route: args.route, data: args.transcriptPolishData, commands: args.transcriptPolishCommands });
     return { completion: typedCompletion, body: body.surface === args.route.surface || body.surface === "unsupported" ? body : null };
   }
   if (args.route.surface === "audio_finalization" || args.route.surface === "audio_adjustments" || args.route.surface === "captions" || args.route.surface === "metadata") {
