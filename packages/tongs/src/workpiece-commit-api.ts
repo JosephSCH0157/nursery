@@ -3049,6 +3049,38 @@ function buildStorageKey(workpieceId: string, path: string): string {
   return `workpieces/${workpieceId}/${path}`;
 }
 
+const HAMMER_HISTORY_ATOMIC_COMPONENT_FILE_NAMES = {
+  "audio-polish.v1.json": "audio",
+  "editorial-authority.v1.json": "editorial_authority",
+  "transcript.revision.v1.json": "transcript",
+  "visual-placements.v1.json": "visual_placements",
+  "visual-timeline.v1.json": "visual_timeline",
+} as const;
+
+function isRegistryAuthorizedWorkpieceJsonStorageKey(
+  workpieceId: string,
+  logicalPath: string,
+  storageKey: string,
+): boolean {
+  if (storageKey === buildStorageKey(workpieceId, logicalPath)) return true;
+  if (logicalPath.includes("\\") || logicalPath.includes("?") || logicalPath.includes("#")) return false;
+
+  const logicalMatch = /^hammer\/revisions\/([0-9a-f-]+)\/([^/]+)$/i.exec(logicalPath);
+  if (!logicalMatch || !UUID_RE.test(logicalMatch[1] ?? "")) return false;
+  const component = HAMMER_HISTORY_ATOMIC_COMPONENT_FILE_NAMES[
+    logicalMatch[2] as keyof typeof HAMMER_HISTORY_ATOMIC_COMPONENT_FILE_NAMES
+  ];
+  if (!component) return false;
+
+  const promotedMatch = /^workpieces\/([0-9a-f-]+)\/hammer\/staging\/history-atomic\/([0-9a-f-]+)\/(audio|editorial_authority|transcript|visual_placements|visual_timeline)\.json$/i.exec(storageKey);
+  return Boolean(
+    promotedMatch
+    && promotedMatch[1] === workpieceId
+    && UUID_RE.test(promotedMatch[2] ?? "")
+    && promotedMatch[3] === component,
+  );
+}
+
 function buildRecordingUploadSessionStorageKey(workpieceId: string, uploadId: string): string {
   return `workpieces/${workpieceId}/_uploads/${uploadId}/session.v1.json`;
 }
@@ -12822,12 +12854,43 @@ export class TongsCommitService {
   }
 
   async readWorkpieceJson(workpieceId: string, path: string): Promise<ReadJsonFileResult> {
+    const normalizedPath = normalizeRelativePath(path);
     await this.getCradleOrThrow(workpieceId);
-    const storageKey = buildStorageKey(workpieceId, path);
-    const bytes = await downloadStorageObject(this.supabase, this.bucket, storageKey);
-    if (!bytes) return { found: false };
-    const fileRow = await this.readWorkpieceFileMetadata(workpieceId, path);
-    const parsed = parseJsonText(textDecoder.decode(bytes), path);
+    const fileRow = await this.readWorkpieceFileMetadata(workpieceId, normalizedPath);
+    if (!fileRow) return { found: false };
+    if (fileRow.storage_bucket !== this.bucket
+      || fileRow.hash_algo !== SHA256_ALGO
+      || !/^[0-9a-f]{64}$/i.test(fileRow.hash_value)
+      || !Number.isSafeInteger(fileRow.bytes)
+      || fileRow.bytes < 0
+      || !isRegistryAuthorizedWorkpieceJsonStorageKey(workpieceId, normalizedPath, fileRow.storage_key)) {
+      throw new HttpError(409, "workpiece_json_registry_authority_invalid", "The workpiece JSON registry authority is invalid.", {
+        path: normalizedPath,
+      });
+    }
+
+    const bytes = await downloadStorageObject(this.supabase, fileRow.storage_bucket, fileRow.storage_key);
+    if (!bytes) {
+      throw new HttpError(409, "workpiece_json_registry_object_missing", "The registry-selected workpiece JSON object is missing.", {
+        path: normalizedPath,
+      });
+    }
+    if (bytes.length !== fileRow.bytes) {
+      throw new HttpError(409, "workpiece_json_registry_size_mismatch", "The registry-selected workpiece JSON object has an unexpected byte length.", {
+        path: normalizedPath,
+        expected_bytes: fileRow.bytes,
+        actual_bytes: bytes.length,
+      });
+    }
+    const actualHash = await sha256Hex(bytes);
+    if (actualHash !== fileRow.hash_value.toLowerCase()) {
+      throw new HttpError(409, "workpiece_json_registry_hash_mismatch", "The registry-selected workpiece JSON object failed integrity verification.", {
+        path: normalizedPath,
+        expected_sha256: fileRow.hash_value.toLowerCase(),
+        actual_sha256: actualHash,
+      });
+    }
+    const parsed = parseJsonText(textDecoder.decode(bytes), normalizedPath);
     return { found: true, data: parsed, file_row: fileRow };
   }
 

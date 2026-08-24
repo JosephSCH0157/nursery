@@ -3,9 +3,75 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { TextEncoder } from "node:util";
+import { createHash } from "node:crypto";
 import { TongsCommitService, buildImageMapPromptSourceContext, createTongsCommitApiHandlerWithService, extractPdfTextParserA, extractPdfTextParserB, extractPdfTextFallbackChain, imageMapPromptAuthorityBasis } from "../dist/workpiece-commit-api.js";
 import { ImageProviderRequestError } from "../dist/providers/image-provider.js";
 import { deflateSync } from "node:zlib";
+
+const registryJsonSha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+
+function registryAuthoritativeJsonFixture({
+  workpieceId = "22222222-2222-4222-8222-222222222222",
+  path = "hammer/revisions/33333333-3333-4333-8333-333333333333/visual-placements.v1.json",
+  storageKey,
+  bytes = Buffer.from('{"placements":["current"]}'),
+  row = {},
+  objectBytes = bytes,
+} = {}) {
+  const downloads = [];
+  const mutations = [];
+  const registryRow = row === null ? null : {
+    path,
+    hash_algo: "sha256",
+    hash_value: registryJsonSha256(bytes),
+    bytes: bytes.length,
+    revision: 2,
+    updated_at: "2026-08-23T08:00:33.854Z",
+    storage_bucket: "forge-workpieces",
+    storage_key: storageKey ?? `workpieces/${workpieceId}/${path}`,
+    ...row,
+  };
+  const supabase = {
+    schema() {
+      return {
+        from(table) {
+          const query = {
+            select() { return this; },
+            eq() { return this; },
+            async single() {
+              assert.equal(table, "episodes");
+              return { data: { id: workpieceId, workspace_id: "11111111-1111-4111-8111-111111111111" }, error: null };
+            },
+            async maybeSingle() {
+              assert.equal(table, "workpiece_files");
+              return { data: registryRow, error: null };
+            },
+            insert() { mutations.push({ table, kind: "insert" }); return this; },
+            update() { mutations.push({ table, kind: "update" }); return this; },
+            upsert() { mutations.push({ table, kind: "upsert" }); return this; },
+            delete() { mutations.push({ table, kind: "delete" }); return this; },
+          };
+          return query;
+        },
+      };
+    },
+    storage: {
+      from(bucket) {
+        return {
+          async download(key) {
+            downloads.push({ bucket, key });
+            return objectBytes === null
+              ? { data: null, error: { message: "Object not found", statusCode: 404 } }
+              : { data: new Blob([objectBytes]), error: null };
+          },
+          async upload() { mutations.push({ kind: "upload" }); throw new Error("unexpected upload"); },
+          async remove() { mutations.push({ kind: "remove" }); throw new Error("unexpected remove"); },
+        };
+      },
+    },
+  };
+  return { service: new TongsCommitService(supabase, "forge-workpieces", null), downloads, mutations, registryRow, workpieceId, path };
+}
 
 function thumbnailAssetFixture(workpieceId, workspaceId, operationId, status) {
   return {
@@ -4267,6 +4333,85 @@ test("GET /tongs/workpieces/:id/image-map requires x-forge-user-authorization he
   assert.equal(body.ok, false);
   assert.equal(body.error?.code, "missing_user_token_header");
   assert.equal(calls.getWorkpieceImageMap.length, 0);
+});
+
+test("readWorkpieceJson reads canonical bytes selected by the registry and returns matching metadata", async () => {
+  const fixture = registryAuthoritativeJsonFixture();
+  const result = await fixture.service.readWorkpieceJson(fixture.workpieceId, fixture.path);
+  assert.equal(result.found, true);
+  assert.deepEqual(result.data, { placements: ["current"] });
+  assert.deepEqual(result.file_row, fixture.registryRow);
+  assert.deepEqual(fixture.downloads, [{ bucket: "forge-workpieces", key: fixture.registryRow.storage_key }]);
+  assert.deepEqual(fixture.mutations, []);
+});
+
+test("readWorkpieceJson follows promoted atomic component authority and never probes stale canonical bytes", async () => {
+  const headId = "44444444-4444-4444-8444-444444444444";
+  const fixture = registryAuthoritativeJsonFixture({
+    storageKey: `workpieces/22222222-2222-4222-8222-222222222222/hammer/staging/history-atomic/${headId}/visual_placements.json`,
+  });
+  const result = await fixture.service.readWorkpieceJson(fixture.workpieceId, fixture.path);
+  assert.equal(result.found, true);
+  assert.deepEqual(result.data, { placements: ["current"] });
+  assert.deepEqual(fixture.downloads.map(({ key }) => key), [fixture.registryRow.storage_key]);
+  assert.notEqual(fixture.downloads[0].key, `workpieces/${fixture.workpieceId}/${fixture.path}`);
+  assert.deepEqual(fixture.mutations, []);
+});
+
+test("readWorkpieceJson treats a missing registry row as not found without Storage access", async () => {
+  const fixture = registryAuthoritativeJsonFixture({ row: null });
+  assert.deepEqual(await fixture.service.readWorkpieceJson(fixture.workpieceId, fixture.path), { found: false });
+  assert.deepEqual(fixture.downloads, []);
+  assert.deepEqual(fixture.mutations, []);
+});
+
+test("readWorkpieceJson rejects foreign, malformed, unpromoted, and lane-mismatched registry keys before Storage", async () => {
+  const keys = [
+    "workpieces/99999999-9999-4999-8999-999999999999/hammer/staging/history-atomic/44444444-4444-4444-8444-444444444444/visual_placements.json",
+    "workpieces/22222222-2222-4222-8222-222222222222/hammer/staging/history-atomic/not-a-uuid/visual_placements.json",
+    "workpieces/22222222-2222-4222-8222-222222222222/hammer/staging/history-atomic/44444444-4444-4444-8444-444444444444/../visual_placements.json",
+    "workpieces/22222222-2222-4222-8222-222222222222/hammer/staging/editorial-authority/44444444-4444-4444-8444-444444444444/visual_placements.json",
+    "workpieces/22222222-2222-4222-8222-222222222222/hammer/staging/history-atomic/44444444-4444-4444-8444-444444444444/visual_timeline.json",
+  ];
+  for (const storageKey of keys) {
+    const fixture = registryAuthoritativeJsonFixture({ storageKey });
+    await assert.rejects(
+      fixture.service.readWorkpieceJson(fixture.workpieceId, fixture.path),
+      (error) => error?.code === "workpiece_json_registry_authority_invalid",
+    );
+    assert.deepEqual(fixture.downloads, []);
+    assert.deepEqual(fixture.mutations, []);
+  }
+});
+
+test("readWorkpieceJson fails closed for unsupported buckets and registry-selected object integrity failures", async () => {
+  const validBytes = Buffer.from('{"placements":["current"]}');
+  const cases = [
+    { row: { storage_bucket: "foreign-bucket" }, objectBytes: validBytes, code: "workpiece_json_registry_authority_invalid", downloads: 0 },
+    { objectBytes: null, code: "workpiece_json_registry_object_missing", downloads: 1 },
+    { objectBytes: Buffer.from("{}"), code: "workpiece_json_registry_size_mismatch", downloads: 1 },
+    { row: { hash_value: "f".repeat(64) }, objectBytes: validBytes, code: "workpiece_json_registry_hash_mismatch", downloads: 1 },
+  ];
+  for (const testCase of cases) {
+    const fixture = registryAuthoritativeJsonFixture(testCase);
+    await assert.rejects(
+      fixture.service.readWorkpieceJson(fixture.workpieceId, fixture.path),
+      (error) => error?.code === testCase.code,
+    );
+    assert.equal(fixture.downloads.length, testCase.downloads);
+    assert.deepEqual(fixture.mutations, []);
+  }
+});
+
+test("readWorkpieceJson verifies bytes before rejecting invalid JSON", async () => {
+  const invalidJson = Buffer.from("{not-json");
+  const fixture = registryAuthoritativeJsonFixture({ bytes: invalidJson, objectBytes: invalidJson });
+  await assert.rejects(
+    fixture.service.readWorkpieceJson(fixture.workpieceId, fixture.path),
+    (error) => error?.code === "invalid_json",
+  );
+  assert.equal(fixture.downloads.length, 1);
+  assert.deepEqual(fixture.mutations, []);
 });
 
 test("GET /tongs/workpieces/:id/read-file?encoding=base64 dispatches readWorkpieceBinary", async () => {
