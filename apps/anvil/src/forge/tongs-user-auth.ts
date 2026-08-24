@@ -1,7 +1,18 @@
 import { hasSupabaseConfig, supabase } from './supabaseClient';
 
-const SUPABASE_AUTH_STORAGE_KEY = 'forge-auth';
-const SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9-]+-auth-token$/i;
+const USER_AUTH_HEADER = 'x-forge-user-authorization';
+const TONGS_PATH_PREFIX = '/tongs/';
+const TOKEN_EXPIRY_SKEW_SECONDS = 5;
+
+export class ForgeUserAuthorizationError extends Error {
+  readonly code: 'AUTHENTICATED_SESSION_REQUIRED' | 'INVALID_TONGS_REQUEST_TARGET';
+
+  constructor(code: ForgeUserAuthorizationError['code'], message: string) {
+    super(message);
+    this.name = 'ForgeUserAuthorizationError';
+    this.code = code;
+  }
+}
 
 function readString(value: unknown): string | null {
   if (typeof value !== 'string') return null;
@@ -9,89 +20,41 @@ function readString(value: unknown): string | null {
   return trimmed.length ? trimmed : null;
 }
 
-function extractAccessTokenFromAuthPayload(value: unknown): string | null {
-  if (!value || typeof value !== 'object') return null;
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      const token = extractAccessTokenFromAuthPayload(entry);
-      if (token) return token;
-    }
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  const parts = token.split('.');
+  if (parts.length !== 3 || parts.some((part) => !part)) return null;
+  try {
+    const normalized = parts[1]!.replace(/-/g, '+').replace(/_/g, '/');
+    const padded = normalized + '='.repeat((4 - (normalized.length % 4)) % 4);
+    const parsed = JSON.parse(atob(padded)) as unknown;
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
     return null;
   }
-
-  const row = value as Record<string, unknown>;
-  const direct = readString(row.access_token);
-  if (direct) return direct;
-
-  const currentSession = row.currentSession;
-  if (currentSession && typeof currentSession === 'object') {
-    const token = readString((currentSession as Record<string, unknown>).access_token);
-    if (token) return token;
-  }
-
-  const session = row.session;
-  if (session && typeof session === 'object') {
-    const token = readString((session as Record<string, unknown>).access_token);
-    if (token) return token;
-  }
-
-  const nested = row.data;
-  if (nested && typeof nested === 'object') {
-    const token = extractAccessTokenFromAuthPayload(nested);
-    if (token) return token;
-  }
-
-  return null;
 }
 
-function readAccessTokenFromStorageKey(key: string): string | null {
-  if (typeof window === 'undefined') return null;
-
-  let raw: string | null = null;
-  try {
-    raw = window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-  if (!raw) return null;
-
-  const direct = readString(raw);
-  if (direct && direct !== 'null' && direct !== 'undefined' && !direct.startsWith('{') && !direct.startsWith('[')) {
-    return direct;
-  }
-
-  try {
-    const parsed = JSON.parse(raw) as unknown;
-    return extractAccessTokenFromAuthPayload(parsed);
-  } catch {
-    return null;
-  }
+export function isUsableForgeUserAccessToken(token: unknown, nowMs = Date.now()): token is string {
+  const value = readString(token);
+  if (!value) return false;
+  const payload = decodeJwtPayload(value);
+  if (!payload) return false;
+  const subject = readString(payload.sub);
+  const expiresAt = payload.exp;
+  return Boolean(subject)
+    && typeof expiresAt === 'number'
+    && Number.isFinite(expiresAt)
+    && expiresAt > Math.floor(nowMs / 1000) + TOKEN_EXPIRY_SKEW_SECONDS;
 }
 
 export async function resolveForgeUserAccessToken(): Promise<string | null> {
-  if (typeof window !== 'undefined') {
-    const primary = readAccessTokenFromStorageKey(SUPABASE_AUTH_STORAGE_KEY);
-    if (primary) return primary;
-
-    try {
-      for (let index = 0; index < window.localStorage.length; index += 1) {
-        const key = window.localStorage.key(index);
-        if (!key || key === SUPABASE_AUTH_STORAGE_KEY) continue;
-        if (!SUPABASE_AUTH_KEY_RE.test(key)) continue;
-        const token = readAccessTokenFromStorageKey(key);
-        if (token) return token;
-      }
-    } catch {
-      // ignore storage errors
-    }
-  }
-
   if (!hasSupabaseConfig) return null;
-
   try {
     const { data, error } = await supabase.auth.getSession();
     if (error) return null;
-    return readString(data.session?.access_token ?? null);
+    const token = data.session?.access_token ?? null;
+    return isUsableForgeUserAccessToken(token) ? token : null;
   } catch {
     return null;
   }
@@ -100,8 +63,53 @@ export async function resolveForgeUserAccessToken(): Promise<string | null> {
 export async function appendForgeUserAuthorization(headersInit?: HeadersInit): Promise<Headers> {
   const headers = new Headers(headersInit ?? {});
   const userAccessToken = await resolveForgeUserAccessToken();
-  if (userAccessToken && !headers.has('x-forge-user-authorization')) {
-    headers.set('x-forge-user-authorization', `Bearer ${userAccessToken}`);
+  if (!userAccessToken) {
+    throw new ForgeUserAuthorizationError(
+      'AUTHENTICATED_SESSION_REQUIRED',
+      'A valid authenticated Forge session is required to access canonical Tongs data.',
+    );
   }
+  headers.set(USER_AUTH_HEADER, `Bearer ${userAccessToken}`);
   return headers;
+}
+
+function resolveSameOriginTongsUrl(input: string | URL): URL {
+  if (typeof window === 'undefined') {
+    throw new ForgeUserAuthorizationError('INVALID_TONGS_REQUEST_TARGET', 'Tongs requests require a browser origin.');
+  }
+  let url: URL;
+  try {
+    url = new URL(String(input), window.location.origin);
+  } catch {
+    throw new ForgeUserAuthorizationError('INVALID_TONGS_REQUEST_TARGET', 'Tongs request URL is invalid.');
+  }
+  if (url.origin !== window.location.origin || !url.pathname.startsWith(TONGS_PATH_PREFIX)
+    || url.username || url.password) {
+    throw new ForgeUserAuthorizationError(
+      'INVALID_TONGS_REQUEST_TARGET',
+      'Authenticated Tongs requests are restricted to the current origin and /tongs/ path.',
+    );
+  }
+  return url;
+}
+
+export async function fetchAuthenticatedTongs(
+  input: string | URL,
+  init: RequestInit = {},
+  fetchImpl: typeof fetch = fetch,
+): Promise<Response> {
+  const url = resolveSameOriginTongsUrl(input);
+  if (init.redirect && init.redirect !== 'error') {
+    throw new ForgeUserAuthorizationError(
+      'INVALID_TONGS_REQUEST_TARGET',
+      'Authenticated Tongs requests may not follow redirects.',
+    );
+  }
+  const headers = await appendForgeUserAuthorization(init.headers);
+  return fetchImpl(url.href, {
+    ...init,
+    headers,
+    credentials: 'same-origin',
+    redirect: 'error',
+  });
 }

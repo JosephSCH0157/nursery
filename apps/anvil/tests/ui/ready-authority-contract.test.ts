@@ -1,11 +1,14 @@
 import { listWorkspaceReadyScripts } from "../../src/forge/ready-scripts";
 
+jest.mock('../../src/forge/tongs-user-auth', () => ({
+  fetchAuthenticatedTongs: (url: string | URL, init?: RequestInit) => fetch(url, init),
+}));
+
 const WORKSPACE_ID = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
 const WORKPIECE_ID = "11111111-1111-4111-8111-111111111111";
 
 function installWindow(): void {
   window.history.replaceState({}, "", `/?workspace_id=${WORKSPACE_ID}`);
-  window.localStorage.setItem("forge-auth", JSON.stringify({ access_token: "user-token" }));
 }
 
 function jsonResponse(body: unknown, status = 200): Response {

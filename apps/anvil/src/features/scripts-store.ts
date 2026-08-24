@@ -24,6 +24,7 @@ export type MappedHandle = {
 
 import { debugLog, hudLog } from '../env/logging';
 import { readReadyScriptText, type ReadyScriptReference } from '../forge/ready-scripts';
+import { ForgeUserAuthorizationError } from '../forge/tongs-user-auth';
 import {
   hasUsableReadyScriptContent,
   readReadyScriptRecordContent,
@@ -178,6 +179,11 @@ export const ScriptStore = {
         return rec;
       } catch (err) {
         try { console.warn('[scripts-store] failed to load ready script', err); } catch {}
+        if (err instanceof ForgeUserAuthorizationError) {
+          const detail = Object.freeze({ code: err.code, message: err.message, source: 'ready-script' });
+          try { window.dispatchEvent(new CustomEvent('tp:ready-script-auth-error', { detail })); } catch {}
+          try { (window as any).toast?.(err.message, { type: 'error' }); } catch {}
+        }
         return hasUsableReadyScriptContent(existing?.content) ? existing : null;
       }
     }

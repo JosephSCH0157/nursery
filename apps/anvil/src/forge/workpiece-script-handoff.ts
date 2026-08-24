@@ -1,6 +1,7 @@
 import { applyScript } from "../features/apply-script";
 import { appStore } from "../state/app-store";
 import { dispatchAuthenticatedWorkpieceScript } from "./workpiece-performance-entrypoint";
+import { readCanonicalScriptFile } from "./canonical-script-read";
 
 type ForgeWindow = Window & typeof globalThis & {
   __tpWorkpieceScriptBootLoaded?: boolean;
@@ -229,47 +230,7 @@ async function readWorkpieceScript(workpieceId: string, path: string): Promise<S
     headers.set("authorization", `Bearer ${token}`);
   }
 
-  const response = await fetch(
-    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(path)}`,
-    {
-      method: "GET",
-      headers,
-    },
-  );
-
-  if (response.status === 404) return { ok: false, reason: "not_found", status: 404 };
-  if (response.status === 401 || response.status === 403) {
-    return { ok: false, reason: "unauthorized", status: response.status };
-  }
-  if (!response.ok) return { ok: false, reason: "request_failed", status: response.status };
-
-  let body: unknown = null;
-  try {
-    body = await response.json();
-  } catch {
-    return { ok: false, reason: "invalid_response", status: response.status };
-  }
-
-  if (!body || typeof body !== "object" || (body as { ok?: unknown }).ok !== true) {
-    return { ok: false, reason: "invalid_response", status: response.status };
-  }
-
-  const root = body as { data?: unknown; file_row?: unknown };
-  const data = root.data;
-  if (typeof data !== "string") {
-    return { ok: false, reason: "invalid_response", status: response.status };
-  }
-  const fileRow = root.file_row && typeof root.file_row === "object"
-    ? root.file_row as Record<string, unknown>
-    : null;
-  const revision = typeof fileRow?.revision === "number" && Number.isInteger(fileRow.revision)
-    ? fileRow.revision
-    : 0;
-  const hash = readString(fileRow?.hash_value)?.toLowerCase() ?? "";
-  if (revision < 1 || !/^[0-9a-f]{64}$/.test(hash)) {
-    return { ok: false, reason: "invalid_response", status: response.status };
-  }
-  return { ok: true, text: data, revision, hash };
+  return readCanonicalScriptFile(workpieceId, path, headers);
 }
 
 async function loadWorkpieceScriptOnBoot(): Promise<void> {

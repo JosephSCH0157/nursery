@@ -1,4 +1,4 @@
-import { appendForgeUserAuthorization } from './tongs-user-auth';
+import { fetchAuthenticatedTongs } from './tongs-user-auth';
 
 type ForgeWindow = Window & typeof globalThis & {
   __forgeTongsApiToken?: unknown;
@@ -142,13 +142,13 @@ function resolveTongsApiToken(): string | undefined {
   return readLocalStorage("forge_tongs_api_token_v1") ?? undefined;
 }
 
-async function withAuthHeaders(): Promise<Headers> {
+function withApiHeaders(): Headers {
   const headers = new Headers();
   const token = resolveTongsApiToken();
   if (token) {
     headers.set("authorization", `Bearer ${token}`);
   }
-  return appendForgeUserAuthorization(headers);
+  return headers;
 }
 
 function normalizeScriptPath(value: unknown): string | null {
@@ -326,9 +326,9 @@ export async function listWorkspaceReadyScripts(): Promise<ReadyScriptReference[
   const workspaceId = resolveWorkspaceId();
   if (!workspaceId) return [];
 
-  const response = await fetch(`/tongs/workspaces/${encodeURIComponent(workspaceId)}/ready-scripts?unrecorded=1`, {
+  const response = await fetchAuthenticatedTongs(`/tongs/workspaces/${encodeURIComponent(workspaceId)}/ready-scripts?unrecorded=1`, {
     method: "GET",
-    headers: await withAuthHeaders(),
+    headers: withApiHeaders(),
   });
   if (!response.ok) {
     if (response.status === 503) {
@@ -350,11 +350,11 @@ export async function listRecordingSessionsForWorkspace(): Promise<RecordingSess
   const workspaceId = resolveWorkspaceId();
   if (!workspaceId) return [];
 
-  const response = await fetch(
+  const response = await fetchAuthenticatedTongs(
     `/tongs/recording-sessions?workspace_id=${encodeURIComponent(workspaceId)}&limit=100`,
     {
       method: "GET",
-      headers: await withAuthHeaders(),
+      headers: withApiHeaders(),
     },
   );
   if (!response.ok) return [];
@@ -372,9 +372,9 @@ export async function readRecordingSessionScripts(sessionId: string): Promise<Re
   const safeSessionId = normalizeUuid(sessionId);
   if (!safeSessionId) return null;
 
-  const response = await fetch(`/tongs/recording-sessions/${encodeURIComponent(safeSessionId)}`, {
+  const response = await fetchAuthenticatedTongs(`/tongs/recording-sessions/${encodeURIComponent(safeSessionId)}`, {
     method: "GET",
-    headers: await withAuthHeaders(),
+    headers: withApiHeaders(),
   });
   if (!response.ok) return null;
 
@@ -460,11 +460,11 @@ export async function readReadyScriptText(workpieceId: string, path: string): Pr
   const safePath = normalizeScriptPath(path);
   if (!safeWorkpieceId || !safePath) return null;
 
-  const response = await fetch(
+  const response = await fetchAuthenticatedTongs(
     `/tongs/workpieces/${encodeURIComponent(safeWorkpieceId)}/read-file?path=${encodeURIComponent(safePath)}`,
     {
       method: "GET",
-      headers: await withAuthHeaders(),
+      headers: withApiHeaders(),
     },
   );
 
