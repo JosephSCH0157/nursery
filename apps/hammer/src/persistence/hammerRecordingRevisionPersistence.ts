@@ -281,6 +281,29 @@ export type HammerRevisionArtifacts = {
   editorial_authority: HammerEditorialAuthorityGraph | null;
 };
 
+export async function readHammerRecordingRevision(
+  target: HammerPersistenceTarget,
+  revisionId: string,
+): Promise<PersistenceResult<OpenHammerRecordingSessionResult>> {
+  let response: Response;
+  try {
+    response = await tongsFetch(
+      `/tongs/workspaces/${encodeURIComponent(target.workspaceId)}/workpieces/${encodeURIComponent(target.workpieceId)}/hammer/revisions/${encodeURIComponent(revisionId)}`,
+      { method: "GET", timeoutMs: 30_000 },
+    );
+  } catch (error) {
+    return { ok: false, status: 504, error: toErrorMessage(error, "Failed to read Hammer revision.") };
+  }
+  const payload = await readJsonBody(response);
+  if (!response.ok) return { ok: false, status: response.status, error: readErrorMessage(payload, "Failed to read Hammer revision.") };
+  const root = readJsonObject(payload);
+  const data = readJsonObject(root?.data);
+  const canonical = (data?.canonical_recording ?? null) as HammerCanonicalRecordingRecord | null;
+  const revision = (data?.revision ?? null) as HammerRecordingRevisionRecord | null;
+  if (!canonical?.id || !revision?.id) return { ok: false, status: response.status, error: "Hammer revision response was invalid." };
+  return { ok: true, status: response.status, data: { canonical_recording: canonical, revision } };
+}
+
 type HammerRevisionEditorialAuthorityArtifactV1 = {
   schema_version: 1;
   workspace_id: string;

@@ -20,7 +20,7 @@ import ForgeNoticeProvider from "./shell/notices/ForgeNoticeProvider";
 import RouteFallback from "./components/RouteFallback";
 import { EpisodeWorkspaceProvider } from "./workspace/EpisodeWorkspaceContext";
 import EpisodeWorkspaceShell from "./shell/EpisodeWorkspaceShell";
-import { HenryProvider } from "./henry/HenryProvider";
+import { HenryRouteBoundary } from "./henry/HenryRouteBoundary";
 
 const TongsRoute = lazy(() => import("./routes/Tongs"));
 const BarstockRoute = lazy(() => import("./routes/Barstock"));
@@ -44,6 +44,7 @@ const HammerEditorHarnessRoute = lazy(() => import("./routes/HammerEditorHarness
 const HammerLaunchStubRoute = lazy(() => import("./routes/HammerLaunchStub"));
 const HammerRelinkRoute = lazy(() => import("./routes/HammerRelink"));
 const HammerStandalone = lazy(() => import("./routes/HammerStandalone"));
+const HammerAcceptanceRoute = lazy(() => import("./routes/HammerAcceptance"));
 
 seedTongsRequestTokenBridge();
 
@@ -60,12 +61,13 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
     <BrowserRouter>
       <EpisodeWorkspaceProvider>
       <ForgeNoticeProvider>
-      <HenryProvider>
+      <HenryRouteBoundary>
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/app/hammer/acceptance" element={withRouteFallback(<HammerAcceptanceRoute />, "Loading Hammer acceptance...")} />
 
           <Route
             path="/app"
@@ -133,7 +135,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="/" element={<Navigate to="/app" replace />} />
           <Route path="*" element={<Navigate to="/app" replace />} />
         </Routes>
-      </HenryProvider>
+      </HenryRouteBoundary>
       </ForgeNoticeProvider>
       </EpisodeWorkspaceProvider>
     </BrowserRouter>

@@ -178,7 +178,6 @@ import {
   PACKAGING_INTRO_ENTRY_ID,
   PACKAGING_LOGO_ENTRY_ID,
   PACKAGING_OUTRO_ENTRY_ID,
-  resolveImageFirstEditablePreviewMoment,
   resolveImageAnimationClass,
   resolvePlacementAnimationPreset,
   resolvePlacementGeometry,
@@ -210,6 +209,7 @@ import HammerWorkspaceShellTimelineDock from "./HammerWorkspaceShellTimelineDock
 import HammerWorkspaceShellSourceBay from "./HammerWorkspaceShellSourceBay";
 import HammerWorkspaceShellToolBay from "./HammerWorkspaceShellToolBay";
 import HammerAcceptanceDiagnosticOutput from "./HammerAcceptanceDiagnosticOutput";
+import { projectHammerMountedCompositionClips } from "./hammerMountedCompositionProjection";
 import { assembleHammerToolBayRuntimeContexts } from "./hammerToolBayRuntimeContext";
 import { useHammerHistoryCommandAuthority, useHammerWorkspaceShellHistoryController, type HammerHistoryCommandAuthorityConfig, type HammerHistoryPostSaveSnapshotRequest } from "./hammerWorkspaceShellHistoryController";
 import { useHammerHistoryEpochPersistenceAuthority } from "./hammerHistoryEpochPersistence";
@@ -1173,48 +1173,13 @@ function HammerWorkspaceShellWithContext(
     };
     removePackagingPlacement(entryId, label);
   }, [removePackagingPlacement]);
-  const sourceVisualPlacementItems = useMemo<HammerSourceImageItem[]>(() => (
-    (compositionVisualTimeline?.clips ?? [])
-      .map((clip) => {
-        const asset = clip.asset_id ? (visualAssetsById.get(clip.asset_id) ?? null) : null;
-        const kind = deriveAssetKind({
-          visualMode: clip.visual_mode,
-          assetPath: asset?.path ?? null,
-        });
-        if (kind !== "image" && kind !== "broll" && kind !== "reference_clip") return null;
-        const startSec = imagePlacementDraftWindows[clip.clip_id]?.startSec ?? clip.start_sec;
-        const endSec = imagePlacementDraftWindows[clip.clip_id]?.endSec ?? clip.end_sec;
-        const firstVisibleEditableSec = kind === "image"
-          ? resolveImageFirstEditablePreviewMoment({
-            startSec,
-            endSec,
-            animationPreset: clip.animation?.preset ?? null,
-          })
-          : null;
-        const fallbackAnchorSegmentId = clip.anchor_hint.anchor_segment_id
-          ?? clip.anchor_hint.matched_segment_ids[0]
-          ?? selectedSegmentId
-          ?? editableTranscriptSegments[0]?.segment_id
-          ?? "segment:unknown";
-        return {
-          id: clip.clip_id,
-          label: clip.label ?? asset?.label ?? asset?.asset_ref ?? clip.entry_id ?? clip.clip_id,
-          kind,
-          anchorSegmentId: fallbackAnchorSegmentId,
-          anchorText: clip.anchor_hint.anchor_text ?? null,
-          anchorLabel: clip.anchor_hint.anchor_label ?? null,
-          startSec,
-          endSec,
-          status: clip.placement_status,
-          confidence: clip.confidence,
-          visualMode: clip.visual_mode,
-          assetPath: asset?.path ?? null,
-          firstVisibleEditableSec,
-          anchorStatus: clip.semantic_anchor.status,
-        };
-      })
-      .filter((item): item is HammerSourceImageItem => Boolean(item))
-  ), [compositionVisualTimeline?.clips, editableTranscriptSegments, imagePlacementDraftWindows, selectedSegmentId, visualAssetsById]);
+  const sourceVisualPlacementItems = useMemo<HammerSourceImageItem[]>(() => projectHammerMountedCompositionClips({
+    timeline: compositionVisualTimeline,
+    assets: editableVisualTimeline?.assets,
+    transcriptSegments: editableTranscriptSegments,
+    selectedSegmentId,
+    draftWindows: imagePlacementDraftWindows,
+  }), [compositionVisualTimeline, editableTranscriptSegments, editableVisualTimeline?.assets, imagePlacementDraftWindows, selectedSegmentId]);
   const linkedSelectionVisualItems = useMemo(
     () => toHammerLinkedSelectionVisualItems(sourceVisualPlacementItems),
     [sourceVisualPlacementItems],
