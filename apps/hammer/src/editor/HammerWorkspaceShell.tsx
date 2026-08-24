@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { JSX, WheelEvent as ReactWheelEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX, type WheelEvent as ReactWheelEvent } from "react";
 import { createPortal } from "react-dom";
 import type { HammerPreviewMode } from "../../../../packages/contracts/hammer/edit-plan.contract";
 import type { HammerEditInstruction } from "../../../../packages/contracts/hammer/edit-instruction.contract";
@@ -210,6 +209,7 @@ import HammerWorkspaceShellPreviewBay from "./HammerWorkspaceShellPreviewBay";
 import HammerWorkspaceShellTimelineDock from "./HammerWorkspaceShellTimelineDock";
 import HammerWorkspaceShellSourceBay from "./HammerWorkspaceShellSourceBay";
 import HammerWorkspaceShellToolBay from "./HammerWorkspaceShellToolBay";
+import HammerAcceptanceDiagnosticOutput from "./HammerAcceptanceDiagnosticOutput";
 import { assembleHammerToolBayRuntimeContexts } from "./hammerToolBayRuntimeContext";
 import { useHammerHistoryCommandAuthority, useHammerWorkspaceShellHistoryController, type HammerHistoryCommandAuthorityConfig, type HammerHistoryPostSaveSnapshotRequest } from "./hammerWorkspaceShellHistoryController";
 import { useHammerHistoryEpochPersistenceAuthority } from "./hammerHistoryEpochPersistence";
@@ -357,7 +357,6 @@ type HammerTimelineLaneBlock = {
   tone: "dialogue" | "image" | "broll";
   onSelect: () => void;
 };
-
 
 type HammerTimelineLaneView = {
   id: string;
@@ -3867,6 +3866,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
         currentPass === "visual_finishing" ? "is-visual-finishing" : "",
       ].filter(Boolean).join(" ")}
     >
+      <HammerAcceptanceDiagnosticOutput transcriptSegments={editableTranscriptSegments.length} canonicalPlacements={editableVisualPlacements?.placements.length ?? 0} mountedCompositionClips={sourceVisualPlacementItems.length} uncertainCompositionClips={sourceVisualPlacementItems.filter((item) => item.status === "uncertain").length} undoDepth={undoDepth} redoDepth={redoDepth} historyStatus={historyStatus} historyHeadEntryId={historyHeadEntryId} />
       <div className="hammer-workspace-shell__notices">
         {historyEpochArchivedNotice ? <aside className="hammer-history-epoch-notice">Archived history is preserved. New undo history begins with the next user edit and cannot cross the epoch boundary.</aside> : null}
         <HammerHistoryEpochStartWorkflow candidate={historyEpochStartCandidate} workspaceRole={props.workspaceRole ?? null}
