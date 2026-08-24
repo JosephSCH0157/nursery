@@ -47,6 +47,7 @@ type HydrateOptions = {
   loadRemote?: boolean;
   enablePersistence?: boolean;
   skipLogLabel?: string;
+  ephemeralAppOverrides?: Partial<Record<PersistedAppKey, unknown>>;
 };
 
 const SETTINGS_SAVE_DEBOUNCE_MS = 900;
@@ -100,6 +101,7 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
   let pendingSave: UserSettings | null = null;
   let retryScheduled = false;
   let persistenceDisabled = false;
+  let ephemeralAppOverrides: Partial<Record<PersistedAppKey, unknown>> = {};
 
   function log(...args: any[]) {
     try { devLog?.(...args); } catch {}
@@ -196,7 +198,11 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
           let raw = '';
           let current = '';
           try {
-            raw = normalizeUiScrollMode(String((app as any)[k] ?? '').trim().toLowerCase());
+            raw = normalizeUiScrollMode(String(
+              Object.prototype.hasOwnProperty.call(ephemeralAppOverrides, k)
+                ? ephemeralAppOverrides[k]
+                : (app as any)[k] ?? '',
+            ).trim().toLowerCase());
             current = normalizeUiScrollMode(store.get?.('scrollMode') as string | undefined);
             const engaged = isAsrOverlayActive();
             if (raw === 'asr' && current !== 'asr' && !engaged) {
@@ -281,7 +287,11 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
   function snapshotAppSettings(): UserSettings {
     const app: Record<string, any> = {};
     settingsKeys.forEach((k) => {
-      try { app[k] = store.get?.(k as any); } catch {}
+      try {
+        app[k] = Object.prototype.hasOwnProperty.call(ephemeralAppOverrides, k)
+          ? currentSettings.app?.[k]
+          : store.get?.(k as any);
+      } catch {}
     });
     const asrSettings = {
       engine: store.get?.('asr.engine'),
@@ -303,6 +313,19 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
       activeSlot: speakerState.activeSlot,
     };
     return { app, asrSettings, asrProfiles, speakerProfiles, speakerBindings };
+  }
+
+  function applyEphemeralOverridesToStore(): void {
+    if (!Object.prototype.hasOwnProperty.call(ephemeralAppOverrides, 'scrollMode')) return;
+    suppressSave = true;
+    try {
+      const mode = normalizeUiScrollMode(String(ephemeralAppOverrides.scrollMode ?? ''));
+      withScrollModeWriter('state/app-store', () => {
+        store.set?.('scrollMode' as any, mode as any);
+      }, { source: 'hydrate', via: 'presentation-request' });
+    } finally {
+      suppressSave = false;
+    }
   }
 
   let speakerPersistenceHydrating = false;
@@ -397,6 +420,10 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
             seenInit.add(k);
             return;
           }
+          if (Object.prototype.hasOwnProperty.call(ephemeralAppOverrides, k)) {
+            if (_v === ephemeralAppOverrides[k]) return;
+            delete ephemeralAppOverrides[k];
+          }
           lastUserChange = Date.now();
           currentSettings.app = currentSettings.app || {};
           (currentSettings.app as any)[k] = _v;
@@ -434,7 +461,13 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
   async function hydrateForUser(userId: string, opts: HydrateOptions = {}): Promise<void> {
     persistenceUserId = userId;
     persistenceDisabled = false;
-    const { loadRemote = true, enablePersistence = true, skipLogLabel = 'hydrate:ci-skip' } = opts;
+    const {
+      loadRemote = true,
+      enablePersistence = true,
+      skipLogLabel = 'hydrate:ci-skip',
+      ephemeralAppOverrides: requestedOverrides = {},
+    } = opts;
+    ephemeralAppOverrides = { ...requestedOverrides };
     if (loadRemote) {
       try {
         const { settings, rev } = await loadProfileSettings(userId);
@@ -454,6 +487,11 @@ export function createProfileSettingsSync(options: ProfileSettingsSyncOptions) {
       profileHydrated = true;
       log(skipLogLabel);
     }
+
+    // Apply the request authority after every profile outcome, including an
+    // absent/failed profile. snapshotAppSettings keeps the profile value as the
+    // persistence authority while this ephemeral override is active.
+    applyEphemeralOverridesToStore();
 
     if (enablePersistence) {
       installSettingsPersistence(userId);

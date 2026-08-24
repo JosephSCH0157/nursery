@@ -102,6 +102,7 @@ import { ensureUserAndProfile, type PersistedAppKey } from './forge/authProfile'
 import { initForgeNavMenu } from './forge/forge-nav';
 import { createProfileSettingsSync } from './forge/profile-settings-sync';
 import { appScrollModeReadiness } from './script/scroll-mode-readiness';
+import { resolvePresentationScrollModeAuthority } from './script/presentation-scroll-mode-authority';
 import './forge/workpiece-script-handoff';
 import { hasSupabaseConfig, supabase } from './forge/supabaseClient';
 import { bindLoadSample } from './ui/load-sample';
@@ -1862,10 +1863,14 @@ export async function boot() {
 			}
 
 				if (profileUserId) {
+					const presentationModeAuthority = resolvePresentationScrollModeAuthority(window.location.search || '');
 					await settingsSync.hydrateForUser(profileUserId, {
 						loadRemote: !IS_CI_MODE,
 						enablePersistence: !IS_CI_MODE,
 						skipLogLabel: 'hydrate:ci-skip',
+						ephemeralAppOverrides: presentationModeAuthority
+							? { scrollMode: presentationModeAuthority.mode }
+							: {},
 					});
 				}
 				bootTrace('boot():auth-hydrate:done', { profileUserId: profileUserId || null });

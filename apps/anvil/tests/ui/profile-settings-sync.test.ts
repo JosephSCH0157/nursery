@@ -112,4 +112,53 @@ describe('profile settings sync', () => {
       }),
     );
   });
+
+  test('keeps explicit presentation Step ephemeral over a hydrated Hybrid profile', async () => {
+    const { appStore } = require('../../src/state/app-store') as { appStore: any };
+    const authProfile = require('../../src/forge/authProfile') as {
+      loadProfileSettings: jest.Mock;
+      saveProfileSettings: jest.Mock;
+    };
+    authProfile.loadProfileSettings.mockResolvedValue({
+      settings: { app: { scrollMode: 'hybrid' } },
+      rev: 17,
+    });
+    const { createProfileSettingsSync } = require('../../src/forge/profile-settings-sync');
+    const sync = createProfileSettingsSync({
+      store: appStore,
+      settingsKeys: ['scrollMode'],
+      normalizeUiScrollMode: (mode: string | null | undefined) => String(mode || 'hybrid'),
+      isAsrOverlayActive: () => false,
+    });
+
+    await sync.hydrateForUser('user-1', {
+      enablePersistence: true,
+      ephemeralAppOverrides: { scrollMode: 'step' },
+    });
+    await flushTimers();
+
+    expect(appStore.get('scrollMode')).toBe('step');
+    expect(sync.snapshotAppSettings().app?.scrollMode).toBe('hybrid');
+    expect(authProfile.saveProfileSettings).not.toHaveBeenCalled();
+  });
+
+  test('restores profile Hybrid normally when no presentation mode authority exists', async () => {
+    const { appStore } = require('../../src/state/app-store') as { appStore: any };
+    const authProfile = require('../../src/forge/authProfile') as { loadProfileSettings: jest.Mock };
+    authProfile.loadProfileSettings.mockResolvedValue({
+      settings: { app: { scrollMode: 'hybrid' } },
+      rev: 18,
+    });
+    const { createProfileSettingsSync } = require('../../src/forge/profile-settings-sync');
+    const sync = createProfileSettingsSync({
+      store: appStore,
+      settingsKeys: ['scrollMode'],
+      normalizeUiScrollMode: (mode: string | null | undefined) => String(mode || 'hybrid'),
+      isAsrOverlayActive: () => false,
+    });
+
+    await sync.hydrateForUser('user-1', { enablePersistence: false });
+
+    expect(appStore.get('scrollMode')).toBe('hybrid');
+  });
 });
