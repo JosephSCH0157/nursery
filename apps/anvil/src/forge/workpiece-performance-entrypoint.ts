@@ -1,5 +1,6 @@
 import { dispatchAuthenticatedCanonicalScript } from '../script/authenticated-performance-dispatcher';
 import type { CanonicalScriptIdentity } from '../script/performance-presentation-boundary';
+import { appScrollModeReadiness } from '../script/scroll-mode-readiness';
 
 export function dispatchAuthenticatedWorkpieceScript(input: {
   canonicalIdentity: CanonicalScriptIdentity;
@@ -14,6 +15,7 @@ export function dispatchAuthenticatedWorkpieceScript(input: {
     canonicalText: input.canonicalText,
     canonicalUtf8Bytes: new TextEncoder().encode(input.canonicalText),
     scrollMode: input.scrollMode,
+    scrollModeReadiness: appScrollModeReadiness,
     legacyApply: input.legacyApply,
   });
 }

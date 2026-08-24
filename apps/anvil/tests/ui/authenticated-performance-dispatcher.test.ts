@@ -4,6 +4,7 @@ import {
   dispatchAuthenticatedCanonicalScript,
   resetAuthenticatedPerformanceDispatcherForTests,
 } from '../../src/script/authenticated-performance-dispatcher';
+import { ScrollModeReadinessBoundary } from '../../src/script/scroll-mode-readiness';
 
 Object.defineProperty(globalThis, 'crypto', {
   configurable: true,
@@ -118,5 +119,136 @@ describe('HA-4D2 authenticated performance dispatcher', () => {
     expect(root.outerHTML).toBe(before);
     expect((window as any).__tpRawScript).toBe('legacy raw');
     expect(mirrors).toEqual([]);
+  });
+
+  test('waits for delayed Step restoration without preparing, rejecting, or falling back', async () => {
+    const readiness = new ScrollModeReadinessBoundary();
+    const legacyApply = jest.fn();
+    const before = document.getElementById('script')!.outerHTML;
+    let settled = false;
+    const pending = dispatchAuthenticatedCanonicalScript({
+      source: 'workpiece-handoff', authenticated: true, canonicalIdentity: SOURCE,
+      canonicalText: TEXT, canonicalUtf8Bytes: BYTES,
+      search: '?presentation=performance-projection-v1', scrollMode: 'hybrid',
+      scrollModeReadiness: readiness, legacyApply,
+    }).then((result) => { settled = true; return result; });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    expect(document.getElementById('script')!.outerHTML).toBe(before);
+    expect(legacyApply).not.toHaveBeenCalled();
+    expect((window as any).toast).not.toHaveBeenCalled();
+
+    readiness.markRestored('step');
+    await expect(pending).resolves.toMatchObject({ outcome: 'projection-committed' });
+  });
+
+  test('waits for delayed Hybrid restoration and then rejects visibly', async () => {
+    const readiness = new ScrollModeReadinessBoundary();
+    const before = document.getElementById('script')!.outerHTML;
+    const pending = dispatchAuthenticatedCanonicalScript({
+      source: 'ready-script', authenticated: true, canonicalIdentity: SOURCE,
+      canonicalText: TEXT, canonicalUtf8Bytes: BYTES,
+      search: '?presentation=performance-projection-v1', scrollMode: 'hybrid',
+      scrollModeReadiness: readiness,
+    });
+    await Promise.resolve();
+    expect((window as any).toast).not.toHaveBeenCalled();
+    readiness.markRestored('hybrid');
+    await expect(pending).resolves.toMatchObject({ outcome: 'rejected', code: 'ASR_SCROLL_MODE_UNSUPPORTED' });
+    expect(document.getElementById('script')!.outerHTML).toBe(before);
+    expect((window as any).toast).toHaveBeenCalledTimes(1);
+  });
+
+  test('discards a stale presentation generation while readiness is unresolved', async () => {
+    const readiness = new ScrollModeReadinessBoundary();
+    const first = dispatchAuthenticatedCanonicalScript({
+      source: 'ready-script', authenticated: true, canonicalIdentity: SOURCE,
+      canonicalText: TEXT, canonicalUtf8Bytes: BYTES,
+      search: '?presentation=performance-projection-v1', scrollMode: 'hybrid',
+      scrollModeReadiness: readiness,
+    });
+    const replacement = dispatchAuthenticatedCanonicalScript({
+      source: 'ready-script', authenticated: true, canonicalIdentity: SOURCE,
+      canonicalText: TEXT, canonicalUtf8Bytes: BYTES,
+      search: '?presentation=performance-projection-v1', scrollMode: 'hybrid',
+      scrollModeReadiness: readiness,
+    });
+    readiness.markRestored('step');
+    await expect(first).resolves.toEqual({ outcome: 'discarded', code: 'STALE_PRESENTATION_ACTIVATION' });
+    await expect(replacement).resolves.toMatchObject({ outcome: 'projection-committed' });
+    expect((window as any).toast).not.toHaveBeenCalled();
+  });
+
+  test('discards a pending activation when the canonical script switches', async () => {
+    const readiness = new ScrollModeReadinessBoundary();
+    const switchedText = '[s2]\nReplacement script.\n[/s2]\n';
+    const switchedBytes = encoder.encode(switchedText);
+    const switchedSource = {
+      ...SOURCE,
+      workpieceId: '44444444-4444-4444-8444-444444444444',
+      scriptRevision: 8,
+      scriptHash: createHash('sha256').update(switchedBytes).digest('hex'),
+    };
+    const first = dispatchAuthenticatedCanonicalScript({
+      source: 'ready-script', authenticated: true, canonicalIdentity: SOURCE,
+      canonicalText: TEXT, canonicalUtf8Bytes: BYTES,
+      search: '?presentation=performance-projection-v1', scrollMode: 'hybrid',
+      scrollModeReadiness: readiness,
+    });
+    const second = dispatchAuthenticatedCanonicalScript({
+      source: 'ready-script', authenticated: true, canonicalIdentity: switchedSource,
+      canonicalText: switchedText, canonicalUtf8Bytes: switchedBytes,
+      search: '?presentation=performance-projection-v1', scrollMode: 'hybrid',
+      scrollModeReadiness: readiness,
+    });
+    readiness.markRestored('step');
+    await expect(first).resolves.toEqual({ outcome: 'discarded', code: 'STALE_PRESENTATION_ACTIVATION' });
+    await expect(second).resolves.toMatchObject({ outcome: 'projection-committed' });
+    expect((window as any).__forgeCanonicalScriptIdentity).toEqual(switchedSource);
+  });
+
+  test('duplicate readiness notification does not duplicate activation', async () => {
+    const readiness = new ScrollModeReadinessBoundary();
+    const committed: unknown[] = [];
+    window.addEventListener('tp:performance-presentation-committed', (event) => committed.push((event as CustomEvent).detail));
+    const pending = dispatchAuthenticatedCanonicalScript({
+      source: 'workpiece-handoff', authenticated: true, canonicalIdentity: SOURCE,
+      canonicalText: TEXT, canonicalUtf8Bytes: BYTES,
+      search: '?presentation=performance-projection-v1', scrollMode: 'hybrid',
+      scrollModeReadiness: readiness,
+    });
+    readiness.markRestored('step');
+    readiness.markRestored('step');
+    await expect(pending).resolves.toMatchObject({ outcome: 'projection-committed' });
+    expect(committed).toHaveLength(1);
+  });
+
+  test('discards activation when restored mode changes before pending work resumes', async () => {
+    const readiness = new ScrollModeReadinessBoundary();
+    const before = document.getElementById('script')!.outerHTML;
+    const pending = dispatchAuthenticatedCanonicalScript({
+      source: 'workpiece-handoff', authenticated: true, canonicalIdentity: SOURCE,
+      canonicalText: TEXT, canonicalUtf8Bytes: BYTES,
+      search: '?presentation=performance-projection-v1', scrollMode: 'hybrid',
+      scrollModeReadiness: readiness,
+    });
+    readiness.markRestored('step');
+    readiness.markModeChanged('hybrid');
+    await expect(pending).resolves.toEqual({ outcome: 'discarded', code: 'STALE_PRESENTATION_ACTIVATION' });
+    expect(document.getElementById('script')!.outerHTML).toBe(before);
+    expect((window as any).toast).not.toHaveBeenCalled();
+  });
+
+  test('missing presentation selection does not wait for scroll-mode readiness', async () => {
+    const readiness = new ScrollModeReadinessBoundary();
+    const legacyApply = jest.fn();
+    const result = await dispatchAuthenticatedCanonicalScript({
+      source: 'workpiece-handoff', authenticated: true, canonicalIdentity: SOURCE,
+      canonicalText: TEXT, canonicalUtf8Bytes: BYTES,
+      search: '?open=script', scrollMode: 'hybrid', scrollModeReadiness: readiness, legacyApply,
+    });
+    expect(result).toEqual({ outcome: 'legacy-applied' });
+    expect(readiness.snapshot().ready).toBe(false);
+    expect(legacyApply).toHaveBeenCalledTimes(1);
   });
 });

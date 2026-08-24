@@ -10,12 +10,18 @@ import {
   type CanonicalScriptIdentity,
 } from './performance-presentation-boundary';
 import { PerformancePresentationAuthority } from './performance-presentation-installer';
+import {
+  createResolvedScrollModeReadiness,
+  type ScrollModeReadiness,
+  type ScrollModeReadinessSnapshot,
+} from './scroll-mode-readiness';
 
 export type AuthenticatedDispatchSource = 'workpiece-handoff' | 'ready-script' | 'non-authoritative';
 
 export type AuthenticatedPerformanceDispatchResult =
   | Readonly<{ outcome: 'legacy-applied' }>
   | Readonly<{ outcome: 'projection-committed'; activePresentation: ActivePresentation }>
+  | Readonly<{ outcome: 'discarded'; code: 'STALE_PRESENTATION_ACTIVATION' }>
   | Readonly<{ outcome: 'rejected'; code: string; message: string }>;
 
 type RuntimeSnapshot = {
@@ -35,6 +41,25 @@ const RUNTIME_KEYS = [
 ] as const;
 
 let currentAuthority: PerformancePresentationAuthority | null = null;
+let dispatchGeneration = 0;
+
+function isSameReadinessSnapshot(
+  left: ScrollModeReadinessSnapshot,
+  right: ScrollModeReadinessSnapshot,
+): boolean {
+  return left.ready === right.ready && left.mode === right.mode && left.revision === right.revision;
+}
+
+function discardStaleActivation(): AuthenticatedPerformanceDispatchResult {
+  return Object.freeze({ outcome: 'discarded', code: 'STALE_PRESENTATION_ACTIVATION' });
+}
+
+function hasExplicitPresentationSelection(search: string | URLSearchParams | undefined): boolean {
+  const params = search instanceof URLSearchParams
+    ? search
+    : new URLSearchParams(search ?? window.location.search);
+  return params.has('presentation');
+}
 
 function appliedTextHash(text: string): string {
   let hash = 2166136261;
@@ -111,13 +136,22 @@ export async function dispatchAuthenticatedCanonicalScript(input: {
   canonicalReadyScript?: unknown;
   search?: string | URLSearchParams;
   scrollMode: string;
+  scrollModeReadiness?: ScrollModeReadiness;
   root?: HTMLElement | null;
   legacyApply?: (text: string) => void;
 }): Promise<AuthenticatedPerformanceDispatchResult> {
+  const requestGeneration = ++dispatchGeneration;
+  const readiness = input.scrollModeReadiness ?? createResolvedScrollModeReadiness(input.scrollMode);
   let requested;
   try {
     requested = parseRequestedPresentation(input.search ?? window.location.search);
   } catch (error) {
+    if (hasExplicitPresentationSelection(input.search)) {
+      const restoredMode = await readiness.waitUntilReady();
+      if (requestGeneration !== dispatchGeneration || !isSameReadinessSnapshot(restoredMode, readiness.snapshot())) {
+        return discardStaleActivation();
+      }
+    }
     const code = error instanceof PresentationBoundaryError ? error.diagnostic.code : 'UNKNOWN_PRESENTATION';
     return publishVisibleRejection(code, error instanceof Error ? error.message : 'Invalid presentation selection.', input.source);
   }
@@ -135,6 +169,11 @@ export async function dispatchAuthenticatedCanonicalScript(input: {
     return Object.freeze({ outcome: 'legacy-applied' });
   }
 
+  const restoredMode = await readiness.waitUntilReady();
+  if (requestGeneration !== dispatchGeneration || !isSameReadinessSnapshot(restoredMode, readiness.snapshot())) {
+    return discardStaleActivation();
+  }
+
   const identity = input.canonicalIdentity ?? null;
   const bytes = input.canonicalUtf8Bytes ?? null;
   if (!input.authenticated || input.source === 'non-authoritative' || !identity || !bytes) {
@@ -144,10 +183,10 @@ export async function dispatchAuthenticatedCanonicalScript(input: {
       input.source,
     );
   }
-  if (input.scrollMode === 'asr' || input.scrollMode === 'hybrid') {
+  if (restoredMode.mode === 'asr' || restoredMode.mode === 'hybrid') {
     return publishVisibleRejection(
       'ASR_SCROLL_MODE_UNSUPPORTED',
-      `Performance projection is unavailable while ${input.scrollMode} scrolling is selected.`,
+      `Performance projection is unavailable while ${restoredMode.mode} scrolling is selected.`,
       input.source,
     );
   }
@@ -166,10 +205,13 @@ export async function dispatchAuthenticatedCanonicalScript(input: {
     canonicalIdentity: identity,
     canonicalText: input.canonicalText,
     canonicalUtf8Bytes: bytes,
-    scrollMode: input.scrollMode,
+    scrollMode: restoredMode.mode,
     presentationGeneration: authority.generation,
   });
   try {
+    if (requestGeneration !== dispatchGeneration || !isSameReadinessSnapshot(restoredMode, readiness.snapshot())) {
+      return discardStaleActivation();
+    }
     const result = await coordinateStagedPerformanceApply({
       stage,
       authority,
@@ -203,4 +245,5 @@ export function getCurrentPerformancePresentationAuthority(): PerformancePresent
 
 export function resetAuthenticatedPerformanceDispatcherForTests(): void {
   currentAuthority = null;
+  dispatchGeneration = 0;
 }

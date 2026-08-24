@@ -101,6 +101,7 @@ import { setRecorderEnabled } from './state/recorder-settings';
 import { ensureUserAndProfile, type PersistedAppKey } from './forge/authProfile';
 import { initForgeNavMenu } from './forge/forge-nav';
 import { createProfileSettingsSync } from './forge/profile-settings-sync';
+import { appScrollModeReadiness } from './script/scroll-mode-readiness';
 import './forge/workpiece-script-handoff';
 import { hasSupabaseConfig, supabase } from './forge/supabaseClient';
 import { bindLoadSample } from './ui/load-sample';
@@ -1868,6 +1869,10 @@ export async function boot() {
 					});
 				}
 				bootTrace('boot():auth-hydrate:done', { profileUserId: profileUserId || null });
+				appScrollModeReadiness.markRestored(String(appStore.get?.('scrollMode') || ''));
+				appStore.subscribe?.('scrollMode', (mode) => {
+					appScrollModeReadiness.markModeChanged(String(mode || ''));
+				});
 				try {
 					if (hasSupabaseConfig) {
 						void refreshEntitlements(supabase);

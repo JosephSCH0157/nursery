@@ -3,6 +3,7 @@ import { ScriptStore } from './scripts-store';
 import { persistActiveWorkpieceFromScriptId } from '../forge/workpiece-context';
 import { appStore } from '../state/app-store';
 import { dispatchAuthenticatedCanonicalScript } from '../script/authenticated-performance-dispatcher';
+import { appScrollModeReadiness } from '../script/scroll-mode-readiness';
 
 const LAST_SCRIPT_KEY = 'tp:last_script_id';
 let restoreAttempted = false;
@@ -102,9 +103,10 @@ export async function loadScriptById(id: string): Promise<boolean> {
       canonicalUtf8Bytes: ready ? new TextEncoder().encode(text) : null,
       canonicalReadyScript: ready,
       scrollMode: String(appStore.get('scrollMode') || ''),
+      scrollModeReadiness: appScrollModeReadiness,
       legacyApply: (legacyText) => applyScript(legacyText, 'load', { updateEditor: true }),
     });
-    if (dispatchResult.outcome === 'rejected') {
+    if (dispatchResult.outcome === 'rejected' || dispatchResult.outcome === 'discarded') {
       if (authorityBeforeLoad.identityPresent) (window as any).__forgeCanonicalScriptIdentity = authorityBeforeLoad.identity;
       else delete (window as any).__forgeCanonicalScriptIdentity;
       if (authorityBeforeLoad.readyPresent) (window as any).__forgeCanonicalReadyScript = authorityBeforeLoad.ready;

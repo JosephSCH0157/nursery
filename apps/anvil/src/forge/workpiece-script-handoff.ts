@@ -284,7 +284,7 @@ async function loadWorkpieceScriptOnBoot(): Promise<void> {
     scrollMode: String(appStore.get("scrollMode") || ""),
     legacyApply: (legacyText) => applyScript(legacyText, "load", { updateEditor: true }),
   });
-  if (dispatchResult.outcome === "rejected") return;
+  if (dispatchResult.outcome === "rejected" || dispatchResult.outcome === "discarded") return;
   try { (window as any).__tpCurrentName = fileNameFromPath(path); } catch {}
   try {
     window.dispatchEvent(
