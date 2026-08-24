@@ -992,7 +992,7 @@ export function HammerTypedAudioCaptionMetadataSurface(props: { surface: Extract
               ) : null}
 
               
-+                  {surface === "transcript_cleanup" || surface === "retakes" || surface === "gap_pacing" || surface === "transcript_polish" ? (
+                  {surface === "transcript_cleanup" || surface === "retakes" || surface === "gap_pacing" || surface === "transcript_polish" ? (
                     surface !== "transcript_polish" ? (
                       <section className="hammer-tool-card">
                         <header className="hammer-tool-card__head">
@@ -2094,7 +2094,7 @@ export function HammerTypedAudioCaptionMetadataSurface(props: { surface: Extract
               ) : null}
 
 
-+              {surface === "packaging" || surface === "finishing" ? (
+              {surface === "packaging" || surface === "finishing" ? (
                 surface === "packaging" ? (
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">Packaging</header>

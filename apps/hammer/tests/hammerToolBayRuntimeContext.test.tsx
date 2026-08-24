@@ -134,6 +134,7 @@ test("all exact transcript surfaces mount typed markup without construction or r
     assert.ok(item.contexts.body);
     const markup = renderToStaticMarkup(<HammerTypedToolBayBody context={item.contexts.body} />);
     assert.match(markup, new RegExp(`data-hammer-tool-bay-surface="${surface}"`));
+    assert.doesNotMatch(markup, />\s*\+\s*</);
     assert.deepEqual(item.activity, { completion: 0, focus: 0, send: 0, history: 0, persistence: 0, selection: 0 });
   }
 });
@@ -146,6 +147,7 @@ test("packaging and finishing mount exact typed surfaces with zero passive activ
     assert.ok(item.contexts.body);
     const markup = renderToStaticMarkup(<HammerTypedToolBayBody context={item.contexts.body} />);
     assert.match(markup, new RegExp(`data-hammer-tool-bay-surface="${surface}"`));
+    assert.doesNotMatch(markup, />\s*\+\s*</);
     assert.deepEqual(item.activity, { completion: 0, focus: 0, send: 0, history: 0, persistence: 0, selection: 0 });
   }
 });
