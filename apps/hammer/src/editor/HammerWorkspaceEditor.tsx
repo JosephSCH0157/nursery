@@ -38,7 +38,7 @@ import { HammerWorkspaceDiagnosticsBanner } from "./HammerWorkspaceDiagnosticsBa
 import { HammerIngestDiagnosticsPanel } from "./HammerIngestDiagnosticsPanel";
 import { deriveRegenProgressLabel, resolveIngestSelectedSource } from "./hammerRegenTranscriptUiState";
 import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
-import { deriveLegacyVisualPlacementsFromTimeline } from "../visuals/persistence/hammerVisualTimelineLegacyAdapter";
+import { projectHammerCanonicalVisualHydration } from "./hammerCanonicalVisualHydration";
 
 type HammerAiTranscriptRegenerationResult = {
   finished_at: string;
@@ -4088,11 +4088,15 @@ export default function HammerWorkspaceEditor(
     authState: authBootGateState,
   });
   const shouldRenderEditor = persistenceMode !== "canonical" || prepState.status === "prepared";
-  const visualPlacementData = useMemo(() => (
-    props.visualTimelineOverride
-      ? deriveLegacyVisualPlacementsFromTimeline(props.visualTimelineOverride)
-      : loadedPersistenceSnapshot?.visual_placements.data ?? null
-  ), [loadedPersistenceSnapshot?.visual_placements.data, props.visualTimelineOverride]);
+  const canonicalVisualHydration = useMemo(
+    () => projectHammerCanonicalVisualHydration({
+      canonicalTimeline: props.visualTimelineOverride ?? loadHammerVisualTimelineStateFromSnapshot(loadedPersistenceSnapshot),
+      compatibilityPlacements: loadedPersistenceSnapshot?.visual_placements.data ?? null,
+    }),
+    [loadedPersistenceSnapshot, props.visualTimelineOverride],
+  );
+  const visualPlacementData = canonicalVisualHydration.visualPlacements;
+  const visualTimelineData = canonicalVisualHydration.visualTimeline;
   const visualPlacementCounts = useMemo(() => {
     if (!visualPlacementData) {
       return { total: null as number | null, uncertain: null as number | null };
@@ -4104,10 +4108,6 @@ export default function HammerWorkspaceEditor(
     );
     return { total, uncertain };
   }, [visualPlacementData]);
-  const visualTimelineData = useMemo(
-    () => props.visualTimelineOverride ?? loadHammerVisualTimelineStateFromSnapshot(loadedPersistenceSnapshot),
-    [loadedPersistenceSnapshot, props.visualTimelineOverride],
-  );
   const audioPolishData = loadedPersistenceSnapshot?.audio_polish.data ?? null;
   const handoffMediaPrepOutputs = useMemo(
     () => buildHammerMediaPrepOutputsPackage({
