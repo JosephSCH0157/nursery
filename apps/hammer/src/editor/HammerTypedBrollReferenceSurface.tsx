@@ -6,36 +6,18 @@ type Context = HammerBrollToolBayContext | HammerReferenceClipToolBayContext;
 
 export function HammerTypedBrollReferenceSurface(props: { context: Context }): JSX.Element {
   const { context } = props;
-  const model = context.data.model as Record<string, unknown>;
-  const addMinimalTransition = model.addMinimalTransition as any;
-  const boundAttentionQueue = model.boundAttentionQueue as any;
-  const boundAttentionSummary = model.boundAttentionSummary as any;
-  const discardHearthBrollSuggestion = model.discardHearthBrollSuggestion as any;
-  const editableVisualPlacements = model.editableVisualPlacements as any;
-  const focusBoundAttentionOperation = model.focusBoundAttentionOperation as any;
-  const moveResolvedBrollBinding = model.moveResolvedBrollBinding as any;
-  const navigateBoundAttention = model.navigateBoundAttention as any;
-  const removeVisualPlacement = context.commands.removePlacement;
-  const replaceResolvedBrollBinding = model.replaceResolvedBrollBinding as any;
-  const resolvedBrollBindingItems = model.resolvedBrollBindingItems as any;
-  const resolveHearthBrollSuggestion = model.resolveHearthBrollSuggestion as any;
-  const revertResolvedBrollBinding = model.revertResolvedBrollBinding as any;
-  const selectedBoundBrollInspectorState = model.selectedBoundBrollInspectorState as any;
-  const selectedBoundBrollOperationId = model.selectedBoundBrollOperationId as any;
-  const placementPresentation = model["selected" + "ImagePlacement"] as { label: string; startSec: number; endSec: number } | null;
-  const selectedTransitionBoundObject = model.selectedTransitionBoundObject as any;
-  const setTranscriptTimingHint = model.setTranscriptTimingHint as any;
-  const setVideoSnapMode = model.setVideoSnapMode as any;
-  const sourceBrollItems = model.sourceBrollItems as any;
-  const trimResolvedBrollBinding = model.trimResolvedBrollBinding as any;
-  const unresolvedBrollSuggestionItems = model.unresolvedBrollSuggestionItems as any;
-  const videoSnapMode = model.videoSnapMode as any;
-  const setFocusOverride = model.setFocusOverride as (mode: "auto" | "source-focus" | "tool-focus" | "time-focus") => void;
-  const selectedPlacement = placementPresentation ? {
-    ...placementPresentation,
-    id: context.data.placementId,
-    kind: context.data.selectedVisual.status === "selected" ? context.data.selectedVisual.kind : context.surface,
-  } : null;
+  const {
+    boundAttentionQueue, boundAttentionSummary, placedVisualCount, resolvedBrollBindingItems,
+    selectedBoundBrollInspectorState, selectedBoundBrollOperationId, selectedTransitionBoundObject,
+    sourceBrollItems, unresolvedBrollSuggestionItems, videoSnapMode,
+  } = context.data;
+  const {
+    addMinimalTransition, discardHearthBrollSuggestion, focusBoundAttentionOperation,
+    moveResolvedBrollBinding, navigateBoundAttention, removePlacement: removeVisualPlacement,
+    replaceResolvedBrollBinding, resolveHearthBrollSuggestion, revertResolvedBrollBinding,
+    setFocusOverride, setTranscriptTimingHint, setVideoSnapMode, trimResolvedBrollBinding,
+  } = context.commands;
+  const selectedPlacement = context.data.placement;
   return <div data-hammer-tool-bay-surface={context.surface} data-hammer-selected-placement-id={context.data.placementId}>
 
                   <section className="hammer-tool-card">
@@ -53,7 +35,7 @@ export function HammerTypedBrollReferenceSurface(props: { context: Context }): J
                       <option value="segment">Segment boundaries</option>
                     </select>
                   </label>
-                  <div className="hammer-tool-hint">Placed visuals: {editableVisualPlacements?.placements.length ?? 0}</div>
+                  <div className="hammer-tool-hint">Placed visuals: {placedVisualCount}</div>
                   <div className="hammer-tool-hint">
                     Resolved bindings: {resolvedBrollBindingItems.length} · unresolved suggestions: {unresolvedBrollSuggestionItems.length}
                   </div>
@@ -85,7 +67,7 @@ export function HammerTypedBrollReferenceSurface(props: { context: Context }): J
                   </div>
                   {boundAttentionQueue.length > 0 ? (
                     <div className="hammer-source-list">
-                      {boundAttentionQueue.slice(0, 5).map((item: any) => (
+                      {boundAttentionQueue.slice(0, 5).map((item) => (
                         <article key={`attention:${item.operationId}`} className={selectedBoundBrollOperationId === item.operationId ? "hammer-source-card is-selected" : "hammer-source-card"}>
                           <header className="hammer-source-card__head">
                             <strong>{item.label}</strong>
@@ -177,7 +159,7 @@ export function HammerTypedBrollReferenceSurface(props: { context: Context }): J
                             type="button"
                             onClick={() => {
                               const replacement = sourceBrollItems.find(
-                                (item: any) => item.assetPath && item.assetPath !== selectedBoundBrollInspectorState.assetRef,
+                                (item) => item.assetPath && item.assetPath !== selectedBoundBrollInspectorState.assetRef,
                               )?.assetPath ?? null;
                               if (!replacement) {
                                 setTranscriptTimingHint("Upload another b-roll asset before replacing this binding.");
@@ -202,7 +184,7 @@ export function HammerTypedBrollReferenceSurface(props: { context: Context }): J
                           <button
                             type="button"
                             onClick={() => {
-                              const candidate = sourceBrollItems.find((item: any) => item.assetPath)?.assetPath ?? null;
+                              const candidate = sourceBrollItems.find((item) => item.assetPath)?.assetPath ?? null;
                               if (!candidate) {
                                 setTranscriptTimingHint("Upload B-roll before resolving this suggestion.");
                                 return;

@@ -50,11 +50,12 @@ const visualRuntimeArgs = {
   finishingData: null,
   imageInspectorData: null,
   visualPolishData,
+  brollReferenceData: null,
   selectedVisualContext: { status: "none" as const },
   visualPolishCommands,
   imageInspectorCommands: { focus() {}, previewAutoPosition: null, resetPreviewAutoPosition: null, setAnchorTextDraft() {}, setAnchorLabelDraft() {}, commitAnchor() {}, commitTiming() { return false; }, shiftTiming() {}, removePlacement() {}, updateTransformDraft() {}, commitTransform() { return false; } },
-  brollCommands: { removePlacement() {}, rebindPlacement() {}, replaceBinding() {}, revertBinding() {}, addTransition() {} },
-  referenceClipCommands: { removePlacement() {}, rebindPlacement() {}, replaceBinding() {}, revertBinding() {}, addTransition() {} },
+  brollCommands: { removePlacement: noop, addMinimalTransition: noop, navigateBoundAttention: noop, focusBoundAttentionOperation: noop, moveResolvedBrollBinding: noop, trimResolvedBrollBinding: noop, replaceResolvedBrollBinding: noop, revertResolvedBrollBinding: noop, resolveHearthBrollSuggestion: noop, discardHearthBrollSuggestion: noop, setTranscriptTimingHint: noop, setVideoSnapMode: noop, setFocusOverride: noop },
+  referenceClipCommands: { removePlacement: noop, addMinimalTransition: noop, navigateBoundAttention: noop, focusBoundAttentionOperation: noop, moveResolvedBrollBinding: noop, trimResolvedBrollBinding: noop, replaceResolvedBrollBinding: noop, revertResolvedBrollBinding: noop, resolveHearthBrollSuggestion: noop, discardHearthBrollSuggestion: noop, setTranscriptTimingHint: noop, setVideoSnapMode: noop, setFocusOverride: noop },
 };
 
 function inspectorData(selectedVisual: { placementId: string; clipId: string; assetId: string | null; laneId: string; kind: "image" | "broll"; capabilities: object }) {
@@ -66,6 +67,18 @@ function inspectorData(selectedVisual: { placementId: string; clipId: string; as
     selectedAnchorSegment: null, selectedAnchorSegmentId: null, anchorTextDraft: "", anchorLabelDraft: "", autoPlacementDebugEnabled: false, selectedAutoPreviewActive: false, previewAutoPositionStatus: null,
     previewDiagnostics: { diagnosticsEnabled: false, resolvedPlacementExists: false, diagnosticsResolvedPlacement: false, candidateCount: 0, maskBoundsCount: 0, currentFrameAvailable: false, segmentationMaskAvailable: false, resolverStatus: "disabled", resolverReason: "diagnostics disabled", selectedScale: null, scaleAttempts: [] },
     episodeHealth: { workspaceId: null, workpieceId: null, episodeId: null, recordingPath: null, playbackMediaPath: null, playbackMediaReady: false, visualPlacementsCount: 1, anchorCount: 0, selectedPlacementId: selectedVisual.placementId, selectedClipId: selectedVisual.clipId, selectedAssetId: selectedVisual.assetId, selectedOverlayAssetId: "/florida.png", frameInputAvailable: false, maskBoundsCount: 0, candidateCount: 0, selectedScale: null, resolvedPlacement: false, resolverStatus: "disabled", resolverReason: "diagnostics disabled", diagnosticsEnabled: false, diagnosticsState: "disabled" },
+  };
+}
+
+function brollReferenceData(selectedVisual: { placementId: string; clipId: string; assetId: string | null; laneId: string; kind: "broll" | "reference_clip"; capabilities: object }) {
+  return {
+    selectedVisual, placementId: selectedVisual.placementId,
+    placement: { id: selectedVisual.placementId, kind: selectedVisual.kind, label: "Florida mounted B-roll", startSec: 1, endSec: 3 },
+    selectedClip: { clip_id: selectedVisual.clipId, asset_id: selectedVisual.assetId, lane_id: selectedVisual.laneId },
+    placedVisualCount: 1, resolvedBrollBindingItems: [], unresolvedBrollSuggestionItems: [], boundAttentionQueue: [],
+    boundAttentionSummary: { total: 0, unresolvedCount: 0, degradedCount: 0, supersededCount: 0, transitionCount: 0 },
+    selectedBoundBrollInspectorState: null, selectedBoundBrollOperationId: null, selectedTransitionBoundObject: null,
+    sourceBrollItems: [], videoSnapMode: "timeline" as const,
   };
 }
 
@@ -342,4 +355,31 @@ test("exact visual routes assemble typed contexts and reject the Florida B-roll 
   assert.equal(broll.placementId, "he8:florida-broll");
   assert.doesNotMatch(rejectedMarkup, /Image Placement|Timing|Transform|Animation|Center visual overlay/);
   assert.deepEqual(base.activity, { completion: 0, focus: 0, send: 0, history: 0, persistence: 0, selection: 0 });
+
+  for (const selected of [broll, { ...broll, placementId: "reference:florida", clipId: "reference:florida", assetId: "asset:reference", kind: "reference_clip" as const }] as const) {
+    const surface = selected.kind === "broll" ? "broll" as const : "reference_clip" as const;
+    const route: HammerToolBayRouteDecision = { ...resolved, surface, activeTool: "video", activeVisualTool: "broll", representativePass: "image_animation", editorMode: "visual" };
+    const removals: string[] = [];
+    const commands = { ...visualRuntimeArgs.brollCommands, removePlacement: (placementId: string) => removals.push(placementId) };
+    const contexts = assembleHammerToolBayRuntimeContexts({ ...visualRuntimeArgs, route, selectedVisualContext: selected, brollReferenceData: brollReferenceData(selected), brollCommands: commands, referenceClipCommands: commands, passLabel: "Visual", passStatus: "in_progress", markPassComplete: noop, readinessData: null, exportData: null, focusIssue: noop, sendToQuench: noop, migratedEditorModel: {} });
+    assert.equal(contexts.body?.surface, surface);
+    if (contexts.body?.surface !== surface) assert.fail();
+    assert.equal(contexts.body.commands, commands);
+    const markup = renderToStaticMarkup(<HammerTypedToolBayBody context={contexts.body} />);
+    assert.equal((markup.match(/>Remove Clip<\/button>/g) ?? []).length, 1);
+    assert.match(markup, new RegExp(`data-placement-id="${selected.placementId}"`));
+    assert.doesNotMatch(markup, /Transform|Center visual overlay/);
+    assert.deepEqual(removals, []);
+    contexts.body.commands.removePlacement(selected.placementId);
+    assert.deepEqual(removals, [selected.placementId]);
+  }
+  const brollRoute: HammerToolBayRouteDecision = { ...resolved, surface: "broll", activeTool: "video", activeVisualTool: "broll", representativePass: "image_animation", editorMode: "visual" };
+  const contradictory = brollReferenceData(broll);
+  const contradictoryContexts = assembleHammerToolBayRuntimeContexts({ ...visualRuntimeArgs, route: brollRoute, selectedVisualContext: broll, brollReferenceData: { ...contradictory, selectedClip: { ...contradictory.selectedClip, lane_id: "lane:wrong" } }, passLabel: "Visual", passStatus: "in_progress", markPassComplete: noop, readinessData: null, exportData: null, focusIssue: noop, sendToQuench: noop, migratedEditorModel: {} });
+  assert.equal(contradictoryContexts.body?.surface, "unsupported");
+  if (contradictoryContexts.body?.surface === "unsupported") assert.equal(contradictoryContexts.body.data.reason, "required_data_missing");
+  const incapableBroll = { ...broll, capabilities: { ...broll.capabilities, transition: false } };
+  const incapableBrollContexts = assembleHammerToolBayRuntimeContexts({ ...visualRuntimeArgs, route: brollRoute, selectedVisualContext: incapableBroll, brollReferenceData: brollReferenceData(incapableBroll), passLabel: "Visual", passStatus: "in_progress", markPassComplete: noop, readinessData: null, exportData: null, focusIssue: noop, sendToQuench: noop, migratedEditorModel: {} });
+  assert.equal(incapableBrollContexts.body?.surface, "unsupported");
+  if (incapableBrollContexts.body?.surface === "unsupported") assert.equal(incapableBrollContexts.body.data.reason, "selected_visual_capability_mismatch");
 });

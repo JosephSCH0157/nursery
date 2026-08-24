@@ -36,6 +36,7 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
   finishingData: Extract<HammerToolBayContext, { surface: "finishing" }>["data"] | null;
   imageInspectorData: Extract<HammerToolBayContext, { surface: "image_placement" }>["data"] | null;
   visualPolishData: Extract<HammerToolBayContext, { surface: "visual_polish" }>["data"] | null;
+  brollReferenceData: Extract<HammerToolBayContext, { surface: "broll" }>["data"] | null;
   audioFinalizationCommands: HammerAudioFinalizationToolBayContext["commands"];
   audioAdjustmentCommands: Extract<HammerToolBayContext, { surface: "audio_adjustments" }>["commands"];
   captionCommands: HammerCaptionsToolBayContext["commands"];
@@ -72,11 +73,9 @@ export function assembleHammerToolBayRuntimeContexts(args: Readonly<{
   });
   const typedCompletion = completion.surface === "pass_completion" ? completion : null;
   if (args.route.surface === "broll" || args.route.surface === "reference_clip") {
-    const placementId = (args.selectedVisualContext.status === "selected" || args.selectedVisualContext.status === "unsupported" ? args.selectedVisualContext.placementId : null) ?? "";
-    const data = args.migratedEditorModel === null ? null : { model: args.migratedEditorModel, selectedVisual: args.selectedVisualContext, placementId };
     const body = args.route.surface === "broll"
-      ? buildHammerToolBayContext({ surface: "broll", route: args.route, data, commands: args.brollCommands })
-      : buildHammerToolBayContext({ surface: "reference_clip", route: args.route, data, commands: args.referenceClipCommands });
+      ? buildHammerToolBayContext({ surface: "broll", route: args.route, data: args.brollReferenceData, commands: args.brollCommands })
+      : buildHammerToolBayContext({ surface: "reference_clip", route: args.route, data: args.brollReferenceData, commands: args.referenceClipCommands });
     return { completion: typedCompletion, body: body.surface === "broll" || body.surface === "reference_clip" || body.surface === "unsupported" ? body : null };
   }
   if (args.route.surface === "visual_polish" || args.route.surface === "image_placement" || args.route.surface === "image_timing" || args.route.surface === "image_transform" || args.route.surface === "image_animation") {

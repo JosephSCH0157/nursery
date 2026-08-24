@@ -35,9 +35,14 @@ export type HammerSelectedVisualContext =
     }>;
 
 export type HammerSelectedImageContext = Extract<HammerSelectedVisualContext, { status: "selected" }> & Readonly<{ kind: "image" }>;
+export type HammerSelectedBrollReferenceContext = Extract<HammerSelectedVisualContext, { status: "selected" }> & Readonly<{ kind: "broll" | "reference_clip" }>;
 
 export function isHammerSelectedImageContext(context: HammerSelectedVisualContext): context is HammerSelectedImageContext {
   return context.status === "selected" && context.kind === "image";
+}
+
+export function isHammerSelectedBrollReferenceContext(context: HammerSelectedVisualContext): context is HammerSelectedBrollReferenceContext {
+  return context.status === "selected" && (context.kind === "broll" || context.kind === "reference_clip");
 }
 
 type SelectedVisualAssetInput = Readonly<{

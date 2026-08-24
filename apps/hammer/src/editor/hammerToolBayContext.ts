@@ -1,4 +1,4 @@
-import type { HammerSelectedImageContext, HammerSelectedVisualContext } from "./hammerSelectedVisualContext";
+import type { HammerSelectedBrollReferenceContext, HammerSelectedImageContext } from "./hammerSelectedVisualContext";
 import type { HammerToolBayRouteDecision, HammerToolBayUnsupportedReason } from "./hammerToolBayRouteDecision";
 import type { HammerCaptionArtifactMode, HammerCaptionBuildState, HammerCaptionEditedState, HammerCaptionFormattingState } from "./hammerWorkspaceShellCaptionUtils";
 import type { HammerImagePlacementTransform, HammerLogoOverlayPosition, HammerLogoOverlaySize, HammerSourceImageItem } from "./hammerWorkspaceShellVisualUtils";
@@ -20,6 +20,13 @@ import type {
 } from "./useHammerWorkspaceShellVisualPreview";
 import type { SegmentationProviderDescriptor } from "../features/visual-effects/providers/segmentationProviderRegistry";
 import type { HammerVisualLutPreset } from "./hammerWorkspaceShellCore";
+import type {
+  HammerBoundAttentionItem,
+  HammerBoundBrollInspectorState,
+  HammerBrollSuggestionItem,
+  HammerResolvedBrollBindingItem,
+} from "./useHammerWorkspaceShellMediaMap";
+import type { HammerBoundObject } from "./hammerBoundObjects";
 
 export type HammerResolvedToolBayRoute = Extract<HammerToolBayRouteDecision, { status: "resolved" }>;
 export type HammerToolBayContextUnsupportedReason =
@@ -102,14 +109,20 @@ export type ImagePlacementCommands = Readonly<{
 export type ImageTimingCommands = Readonly<{ retimePlacement(input: ImagePlacementRetimeInput): void }>;
 export type ImageTransformCommands = Readonly<{ updateTransform(input: ImageTransformInput): void; resetTransform(placementId: string): void }>;
 export type ImageAnimationCommands = Readonly<{ updateAnimation(placementId: string, animation: string): void }>;
-export type BrollRebindInput = Readonly<{ placementId: string; targetSegmentId: string }>;
-export type BrollReplaceInput = Readonly<{ placementId: string; assetId: string }>;
 export type BrollCommands = Readonly<{
   removePlacement(placementId: string): void;
-  rebindPlacement(input: BrollRebindInput): void;
-  replaceBinding(input: BrollReplaceInput): void;
-  revertBinding(placementId: string): void;
-  addTransition(placementId: string): void;
+  addMinimalTransition(type: "hard_cut" | "crossfade" | "dip_to_black" | "fade_audio"): void;
+  navigateBoundAttention(direction: "next" | "previous"): void;
+  focusBoundAttentionOperation(operationId: string): void;
+  moveResolvedBrollBinding(operationId: string, deltaSec: number): void;
+  trimResolvedBrollBinding(operationId: string, edge: "start" | "end", deltaSec: number): void;
+  replaceResolvedBrollBinding(operationId: string, assetPath: string): void;
+  revertResolvedBrollBinding(operationId: string): void;
+  resolveHearthBrollSuggestion(input: Readonly<{ operationId: string; assetPath: string; label: string }>): void;
+  discardHearthBrollSuggestion(operationId: string): void;
+  setTranscriptTimingHint(message: string): void;
+  setVideoSnapMode(mode: "timeline" | "segment"): void;
+  setFocusOverride(mode: "auto" | "source-focus" | "tool-focus" | "time-focus"): void;
 }>;
 export type AudioFinalizationCommands = Readonly<{
   setVoiceCleanupEnabled(enabled: boolean): void; setVoiceFixEnabled(fix: HammerVoicePolishFixId, enabled: boolean): void;
@@ -138,7 +151,22 @@ export type FinishingCommands = Readonly<{ focusTool(): void; setReviewFlag(flag
 export type ReleaseCommands = Readonly<{ focusIssue(): void; sendToQuench(): void }>;
 export type PassCompletionCommands = Readonly<{ markPassComplete(): void }>;
 
-type VisualData = { selectedVisual: HammerSelectedVisualContext; placementId: string; model: unknown };
+export type HammerBrollReferenceToolBayData = Readonly<{
+  selectedVisual: HammerSelectedBrollReferenceContext;
+  placementId: string;
+  placement: Readonly<{ id: string; kind: "broll" | "reference_clip"; label: string; startSec: number; endSec: number }>;
+  selectedClip: HammerVisualClip;
+  placedVisualCount: number;
+  resolvedBrollBindingItems: readonly HammerResolvedBrollBindingItem[];
+  unresolvedBrollSuggestionItems: readonly HammerBrollSuggestionItem[];
+  boundAttentionQueue: readonly HammerBoundAttentionItem[];
+  boundAttentionSummary: Readonly<{ total: number; unresolvedCount: number; degradedCount: number; supersededCount: number; transitionCount: number }>;
+  selectedBoundBrollInspectorState: HammerBoundBrollInspectorState | null;
+  selectedBoundBrollOperationId: string | null;
+  selectedTransitionBoundObject: Extract<HammerBoundObject, { type: "transition" }> | null;
+  sourceBrollItems: readonly Readonly<{ assetPath?: string | null }>[];
+  videoSnapMode: "timeline" | "segment";
+}>;
 export type HammerImageInspectorToolBayData = Readonly<{
   selectedVisual: HammerSelectedImageContext; placementId: string; placement: HammerSourceImageItem; transform: HammerImagePlacementTransform;
   selectedClip: HammerVisualClip; selectedAnchorSegment: HammerTranscriptSegment | null; selectedAnchorSegmentId: string | null;
@@ -209,8 +237,8 @@ export type HammerImagePlacementToolBayContext = SurfaceContext<"image_placement
 export type HammerImageTimingToolBayContext = SurfaceContext<"image_timing", HammerImageInspectorToolBayData, HammerImageInspectorCommands>;
 export type HammerImageTransformToolBayContext = SurfaceContext<"image_transform", HammerImageInspectorToolBayData, HammerImageInspectorCommands>;
 export type HammerImageAnimationToolBayContext = SurfaceContext<"image_animation", HammerImageInspectorToolBayData, HammerImageInspectorCommands>;
-export type HammerBrollToolBayContext = SurfaceContext<"broll", VisualData, BrollCommands>;
-export type HammerReferenceClipToolBayContext = SurfaceContext<"reference_clip", VisualData, BrollCommands>;
+export type HammerBrollToolBayContext = SurfaceContext<"broll", HammerBrollReferenceToolBayData, BrollCommands>;
+export type HammerReferenceClipToolBayContext = SurfaceContext<"reference_clip", HammerBrollReferenceToolBayData, BrollCommands>;
 export type HammerAudioFinalizationToolBayData = Readonly<{ compareMode: "before" | "after"; voicePolish: HammerVoicePolishState | null }>;
 export type HammerAudioAdjustmentsToolBayData = Readonly<{
   editableAudioPolish: Readonly<{ status?: string }> | null; persistedAudioCutCount: number; effectivePlaybackCutRegions: readonly unknown[]; silenceSuggestionCount: number;
@@ -359,6 +387,13 @@ function visualRequirement(input: HammerToolBayContextBuildInput): HammerUnsuppo
     }
     if (!selected.capabilities.remove || !selected.capabilities.retime || !selected.capabilities.anchor || !selected.capabilities.transform || !selected.capabilities.animate) {
       return unsupported(input.route, "selected_visual_capability_mismatch", selected.placementId);
+    }
+  }
+  if ((input.surface === "broll" || input.surface === "reference_clip") && "placement" in input.data) {
+    if (input.data.placement.kind !== input.surface || input.data.placement.id !== selected.placementId
+      || input.data.selectedClip.clip_id !== selected.clipId || input.data.selectedClip.asset_id !== selected.assetId
+      || input.data.selectedClip.lane_id !== selected.laneId) {
+      return unsupported(input.route, "required_data_missing", selected.placementId);
     }
   }
   const requiredCapability = input.surface === "image_placement" ? "remove"

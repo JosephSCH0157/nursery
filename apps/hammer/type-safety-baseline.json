@@ -1,11 +1,10 @@
 {
   "schemaVersion": 1,
-    "totalExplicitAny": 128,
+    "totalExplicitAny": 104,
   "totalSuppressions": 1,
   "criticalExplicitAny": 0,
   "criticalSuppressions": 0,
   "files": {
-    "src/editor/HammerTypedBrollReferenceSurface.tsx": { "explicitAny": 24, "suppressions": 0 },
     "src/editor/HammerWorkspaceEditor.tsx": { "explicitAny": 2, "suppressions": 0 },
     "src/editor/HammerWorkspaceShell.tsx": { "explicitAny": 5, "suppressions": 0 },
     "src/editor/hammerWorkspaceShellHistoryController.ts": { "explicitAny": 12, "suppressions": 0 },
