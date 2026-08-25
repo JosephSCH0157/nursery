@@ -62,8 +62,10 @@ test("Generate Visual Plan uses one unified durable operation and does not write
  assert.match(unified,/visual-plan-v2\/generate/);
  assert.match(unified,/unified_visual_plan_operations/);
  assert.match(unified,/normalized_inputs_json/);
+ assert.match(unified,/generation_scope: generationScope/);
+ assert.match(unified,/generation_scope: string\(inputs\.generation_scope\)/);
  assert.match(unified,/forge:unified-visual-plan:/);
- assert.match(generation,/generateUnifiedVisualPlan/);
+ assert.match(generation,/generateUnifiedVisualPlan\(conversationScope, creatorDirection\)/);
  assert.match(generation,/notifyCanonicalReferenceClipsChanged/);
  assert.doesNotMatch(generation,/hearth\.cdc_plan\.bootstrapped_from_image_map/);
  assert.doesNotMatch(generation,/hearth\.media_map\.generated_from_plans/);

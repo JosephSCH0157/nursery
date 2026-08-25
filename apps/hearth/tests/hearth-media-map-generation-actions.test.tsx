@@ -50,6 +50,7 @@ test("Visual Plan apply verifies canonical image-map authority before reporting 
   const busyStates: boolean[] = [];
   const operationStages: string[] = [];
   const selectedEntries: Array<string | null> = [];
+  const generationScopes: string[] = [];
   const authority = createHearthOperationAuthority({
     workspaceId: WORKSPACE_ID,
     workpieceId: WORKPIECE_ID,
@@ -90,7 +91,8 @@ test("Visual Plan apply verifies canonical image-map authority before reporting 
         order.push("verify");
         return { ok: true };
       },
-      generateUnifiedVisualPlan: async () => {
+      generateUnifiedVisualPlan: async (generationScope) => {
+        generationScopes.push(generationScope);
         order.push("unified");
         return { ok: true, data: { imageMapRevision: 1, brollPlanRevision: 1, referenceClipPlanRevision: 1, referenceVisualPlanRevision: 1 } };
       },
@@ -114,6 +116,7 @@ test("Visual Plan apply verifies canonical image-map authority before reporting 
   assert.deepEqual(busyStates, [true, false]);
   assert.deepEqual(operationStages, ["generating", "validating", "refreshing", "complete"]);
   assert.deepEqual(selectedEntries, []);
+  assert.deepEqual(generationScopes, ["images_only"]);
 });
 
 test("Visual Plan apply remains failed when canonical image-map verification fails", async () => {

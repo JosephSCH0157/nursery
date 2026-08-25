@@ -1,4 +1,5 @@
 import { resolveTongsUserAccessToken, tongsFetch } from "./tongs-fetch";
+import type { MediaMapGenerationScope } from "./hearth-media-map-conversation";
 
 type JsonRecord = Record<string, unknown>;
 type Result<T> = { ok: true; data: T } | { ok: false; status: number; code: string; error: string; stage: string | null };
@@ -58,7 +59,7 @@ async function postgrest(path: string): Promise<Result<unknown>> {
   return response.ok ? { ok: true, data: value } : failure(response, value, "Tongs canonical Visual Plan readback failed.");
 }
 
-async function currentInputs(workspaceId: string, workpieceId: string): Promise<Result<JsonRecord>> {
+async function currentInputs(workspaceId: string, workpieceId: string, generationScope: MediaMapGenerationScope): Promise<Result<JsonRecord>> {
   const approvalResponse = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/script-approval`, { method: "GET" });
   const approvalBody = await json(approvalResponse);
   const approval = record(approvalBody) && record(approvalBody.data) && record(approvalBody.data.current_approval) ? approvalBody.data.current_approval : null;
@@ -87,7 +88,7 @@ async function currentInputs(workspaceId: string, workpieceId: string): Promise<
     expected_broll_revision_id: string(brollRow?.current_plan_revision_id), expected_broll_revision: integer(brollRow?.current_plan_revision),
     expected_reference_revision_id: string(referenceRow?.current_plan_revision_id), expected_reference_revision: integer(referenceRow?.current_plan_revision),
     expected_reference_visual_revision_id: string(referenceVisualRow?.current_plan_revision_id), expected_reference_visual_revision: integer(referenceVisualRow?.current_plan_revision),
-    creator_direction: null, contract_version: "forge.unified-visual-plan.v2",
+    creator_direction: null, generation_scope: generationScope, contract_version: "forge.unified-visual-plan.v2",
     provider_contract_version: "forge.unified-visual-plan-provider.v2",
     model_configuration: { model: "gpt-5-mini" },
   } };
@@ -113,7 +114,7 @@ function receipt(value: unknown): Result<UnifiedVisualPlanReceipt> {
   return Object.values(mapped).some((entry) => entry === "") ? { ok: false, status: 502, code: "unified_visual_plan_receipt_incomplete", error: "The verified Visual Plan receipt omitted canonical child identities.", stage: "verification" } : { ok: true, data: mapped };
 }
 
-export async function generateOrResumeUnifiedVisualPlan(args: { workspaceId: string; workpieceId: string; creatorDirection?: string | null }): Promise<Result<UnifiedVisualPlanReceipt>> {
+export async function generateOrResumeUnifiedVisualPlan(args: { workspaceId: string; workpieceId: string; generationScope: MediaMapGenerationScope; creatorDirection?: string | null }): Promise<Result<UnifiedVisualPlanReceipt>> {
   const latest = await readLatestUnifiedVisualPlanOperation(args.workspaceId, args.workpieceId);
   if (!latest.ok) return latest;
   let inputs: JsonRecord;
@@ -125,7 +126,7 @@ export async function generateOrResumeUnifiedVisualPlan(args: { workspaceId: str
     operationId = string(latest.data.operation_id) ?? "";
     operationFingerprint = string(latest.data.operation_fingerprint) ?? "";
   } else {
-    const current = await currentInputs(args.workspaceId, args.workpieceId);
+    const current = await currentInputs(args.workspaceId, args.workpieceId, args.generationScope);
     if (!current.ok) return current;
     inputs = { ...current.data, creator_direction: args.creatorDirection?.trim() || null };
     operationFingerprint = await hash(inputs);
@@ -137,7 +138,7 @@ export async function generateOrResumeUnifiedVisualPlan(args: { workspaceId: str
     expected_broll_revision_id: inputs.expected_broll_revision_id, expected_broll_revision: inputs.expected_broll_revision,
     expected_reference_revision_id: inputs.expected_reference_revision_id, expected_reference_revision: inputs.expected_reference_revision,
     expected_reference_visual_revision_id: inputs.expected_reference_visual_revision_id, expected_reference_visual_revision: inputs.expected_reference_visual_revision,
-    creator_direction: inputs.creator_direction, operation_id: operationId, operation_fingerprint: operationFingerprint,
+    creator_direction: inputs.creator_direction, generation_scope: string(inputs.generation_scope) ?? "full_media_plan", operation_id: operationId, operation_fingerprint: operationFingerprint,
   } });
   const value = await json(response);
   return response.ok ? receipt(value) : failure(response, value, "Tongs could not generate the canonical Visual Plan.");

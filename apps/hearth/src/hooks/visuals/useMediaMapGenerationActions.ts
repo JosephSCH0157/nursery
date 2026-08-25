@@ -51,7 +51,7 @@ type UseMediaMapGenerationActionsArgs = {
     baseEpisodePackage?: EpisodePackageV2;
   }) => Promise<PersistMediaMapResult>;
   repairImageMapAuthority: () => Promise<{ ok: true } | { ok: false; error: string }>;
-  generateUnifiedVisualPlan: (creatorDirection?: string | null) => Promise<
+  generateUnifiedVisualPlan: (generationScope: MediaMapGenerationScope, creatorDirection?: string | null) => Promise<
     | { ok: true; data: { imageMapRevision: number; brollPlanRevision: number; referenceClipPlanRevision: number; referenceVisualPlanRevision: number } }
     | { ok: false; error: string; stage: string | null }
   >;
@@ -73,7 +73,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
     args.setMediaMapSaveState("saving");
     args.setMediaMapSaveError(null);
     try {
-      const generated = await args.generateUnifiedVisualPlan(null);
+      const generated = await args.generateUnifiedVisualPlan(args.mediaMapGenerationScope, null);
       if (!args.operationAuthority.isCurrent(operation)) return;
       if (!generated.ok) {
         args.setVisualPlanOperationStage("failed");
@@ -129,7 +129,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
     args.setMediaMapSaveError(null);
     try {
       const creatorDirection = [conversationArgs.directionId.replaceAll("_", " "), conversationArgs.constraintsText.trim()].filter(Boolean).join(". ");
-      const generated = await args.generateUnifiedVisualPlan(creatorDirection);
+      const generated = await args.generateUnifiedVisualPlan(conversationScope, creatorDirection);
       if (!args.operationAuthority.isCurrent(operation)) return false;
       if (!generated.ok) {
         args.setVisualPlanOperationStage("failed");

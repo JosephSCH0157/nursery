@@ -6,12 +6,12 @@ import {
 
 type RecoveryDependencies = {
   readLatest: typeof readLatestUnifiedVisualPlanOperation;
-  resume: typeof generateOrResumeUnifiedVisualPlan;
+  resume: (args: { workspaceId: string; workpieceId: string }) => ReturnType<typeof generateOrResumeUnifiedVisualPlan>;
 };
 
 const defaultDependencies: RecoveryDependencies = {
   readLatest: readLatestUnifiedVisualPlanOperation,
-  resume: generateOrResumeUnifiedVisualPlan,
+  resume: (args) => generateOrResumeUnifiedVisualPlan({ ...args, generationScope: "full_media_plan" }),
 };
 
 const attemptedRecoveryOperations = new Set<string>();

@@ -59,7 +59,25 @@ test("hearthMediaMapConversation: conversation scope reacts to lightweight const
       constraintsText: "Heavier on B-roll than graphics.",
       fallbackScope: "images_only",
     }),
-    "full_media_plan",
+    "images_only",
+  );
+
+  assert.equal(
+    resolveMediaMapConversationScope({
+      directionId: "contrast",
+      constraintsText: "Heavier on B-roll than graphics.",
+      fallbackScope: "images_broll",
+    }),
+    "images_broll",
+  );
+
+  assert.equal(
+    resolveMediaMapConversationScope({
+      directionId: "comparison",
+      constraintsText: "Heavier on reference clips.",
+      fallbackScope: "images_broll",
+    }),
+    "images_broll",
   );
 });
 

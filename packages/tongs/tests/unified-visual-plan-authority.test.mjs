@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { normalizeUnifiedVisualPlanContextAnchors, OpenAiUnifiedVisualPlanProvider, validateUnifiedVisualPlan } from "../dist/providers/unified-visual-plan-provider.js";
+import { normalizeUnifiedVisualPlanContextAnchors, OpenAiUnifiedVisualPlanProvider, validateUnifiedVisualPlan, validateUnifiedVisualPlanScope } from "../dist/providers/unified-visual-plan-provider.js";
 
 const migration=await readFile(new URL("../../../supabase/migrations/20260804200000_tongs_unresolved_reference_and_unified_visual_plan.sql",import.meta.url),"utf8");
 const fourChildMigration=await readFile(new URL("../../../supabase/migrations/20260805130000_tongs_unified_visual_plan_reference_visual_child.sql",import.meta.url),"utf8");
@@ -55,9 +55,19 @@ test("v2 unified planning requires four canonical children while preserving v1 r
 });
 
 test("Unified provider submits once and validates exact script-relative mixed output",async()=>{
-  const originalFetch=globalThis.fetch;let calls=0;const script="The growers moved south through Florida.";const plan={images:[{context_before:"",context_focus:script,context_after:"",description:"Florida citrus growers relocating",visual_intent:"Explain geographic change",creator_direction:"Show a Florida map",style:"documentary",placement_hint:"on phrase"}],broll:[{context_before:"",context_focus:script,context_after:"",narrative_purpose:"Show movement",placement_hint:"on phrase",duration_target_ms:5000,shot_type:"tracking",motion_intent:"Vehicles move south",mood_pacing:"steady",asset_category:"location"}],reference_clips:[{context_before:"",context_focus:script,context_after:"",editorial_reason:"Authentic archive establishes the historical scale",desired_material:"Archival Florida citrus packing footage",search_terms:["Florida citrus archive","orange packing house"],narrative_purpose:"Ground the history",placement_hint:"on phrase",duration_target_ms:6000}],reference_visuals:[]};
-  globalThis.fetch=async()=>{calls+=1;return new Response(JSON.stringify({id:"response-1",output:[{content:[{text:JSON.stringify(plan)}]}],usage:{input_tokens:10,output_tokens:20}}),{status:200,headers:{"x-request-id":"request-1"}});};
-  try{const result=await new OpenAiUnifiedVisualPlanProvider("test-key").generate({scriptText:script,creatorDirection:null});assert.equal(calls,1);assert.deepEqual(result.plan,plan);assert.deepEqual(validateUnifiedVisualPlan(result.plan,script),[]);}finally{globalThis.fetch=originalFetch;}
+  const originalFetch=globalThis.fetch;let calls=0;let providerInput=null;const script="The growers moved south through Florida.";const plan={images:[{context_before:"",context_focus:script,context_after:"",description:"Florida citrus growers relocating",visual_intent:"Explain geographic change",creator_direction:"Show a Florida map",style:"documentary",placement_hint:"on phrase"}],broll:[{context_before:"",context_focus:script,context_after:"",narrative_purpose:"Show movement",placement_hint:"on phrase",duration_target_ms:5000,shot_type:"tracking",motion_intent:"Vehicles move south",mood_pacing:"steady",asset_category:"location"}],reference_clips:[{context_before:"",context_focus:script,context_after:"",editorial_reason:"Authentic archive establishes the historical scale",desired_material:"Archival Florida citrus packing footage",search_terms:["Florida citrus archive","orange packing house"],narrative_purpose:"Ground the history",placement_hint:"on phrase",duration_target_ms:6000}],reference_visuals:[]};
+  globalThis.fetch=async(_url,init)=>{calls+=1;providerInput=JSON.parse(JSON.parse(String(init.body)).input);return new Response(JSON.stringify({id:"response-1",output:[{content:[{text:JSON.stringify(plan)}]}],usage:{input_tokens:10,output_tokens:20}}),{status:200,headers:{"x-request-id":"request-1"}});};
+  try{const result=await new OpenAiUnifiedVisualPlanProvider("test-key").generate({scriptText:script,creatorDirection:null,generationScope:"full_media_plan"});assert.equal(calls,1);assert.equal(providerInput.generation_scope,"full_media_plan");assert.deepEqual(result.plan,plan);assert.deepEqual(validateUnifiedVisualPlan(result.plan,script),[]);}finally{globalThis.fetch=originalFetch;}
+});
+
+test("generation scope fails closed when provider output widens the selected media family",()=>{
+  const item={context_before:"",context_focus:"Approved script.",context_after:"",description:"Image",visual_intent:"Explain",creator_direction:"Clear",style:"documentary",placement_hint:"on phrase"};
+  const plan={images:[item],broll:[],reference_clips:[{context_before:"",context_focus:"Approved script.",context_after:"",editorial_reason:"Archive",desired_material:"Footage",search_terms:["archive"],narrative_purpose:"Ground",placement_hint:"on phrase",duration_target_ms:4000}],reference_visuals:[]};
+  assert.deepEqual(validateUnifiedVisualPlanScope(plan,"images_broll"),["reference_clips:disallowed_by_generation_scope"]);
+  assert.deepEqual(validateUnifiedVisualPlanScope(plan,"full_media_plan"),[]);
+  assert.match(service,/generation_scope:input\.generation_scope/);
+  assert.match(service,/validateUnifiedVisualPlanScope\(plan,generationScope\)[\s\S]*visual_plan_scope_violation[\s\S]*state==="provider_completed"/);
+  assert.match(service,/generation_scope:normalizeUnifiedVisualPlanGenerationScope\(body\.generation_scope\)/);
 });
 
 test("individual visual categories may be empty but the complete plan may not",()=>{

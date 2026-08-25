@@ -197,10 +197,10 @@ export function resolveMediaMapConversationScope(args: {
   fallbackScope?: MediaMapGenerationScope;
 }): MediaMapGenerationScope {
   const flags = parseConstraintFlags(args.constraintsText);
-  if (flags.referenceClipHeavy) return "images_reference_clips";
-  if (flags.brollHeavy) return "full_media_plan";
+  if (flags.referenceClipHeavy) return args.fallbackScope ?? "images_reference_clips";
+  if (flags.brollHeavy) return args.fallbackScope ?? "images_broll";
   if (flags.simple || flags.limit) return "images_only";
-  if (args.directionId === "escalation") return "images_broll";
+  if (args.directionId === "escalation") return args.fallbackScope ?? "images_broll";
   return args.fallbackScope ?? "full_media_plan";
 }
 

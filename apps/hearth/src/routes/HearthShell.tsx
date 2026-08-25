@@ -2385,9 +2385,9 @@ export default function HearthShell({
       });
       return { ok: true as const };
     },
-    generateUnifiedVisualPlan: async (creatorDirection) => {
+    generateUnifiedVisualPlan: async (generationScope, creatorDirection) => {
       if (!workspaceId || !workpieceId) return { ok: false as const, error: "Select an episode before generating its Visual Plan.", stage: "context" };
-      return generateOrResumeUnifiedVisualPlan({ workspaceId, workpieceId, creatorDirection });
+      return generateOrResumeUnifiedVisualPlan({ workspaceId, workpieceId, generationScope, creatorDirection });
     },
     refreshCanonicalBroll: canonicalBrollV2.refresh,
     notifyCanonicalReferenceClipsChanged: () => { void refreshCanonicalReferenceClips(); window.dispatchEvent(new CustomEvent("forge:canonical-reference-clips-changed", { detail: { workspaceId, workpieceId } })); },
