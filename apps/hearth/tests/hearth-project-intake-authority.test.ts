@@ -15,5 +15,7 @@ assert.doesNotMatch(hook, /upsertBarstockProjectEpisodeLink/);
 assert.match(hook, /projectIntakeHandledRef\.current = projectIntakeKey;[\s\S]*createProjectWorkpiece/);
 assert.match(client, /hearth-project-intake:\$\{args\.workspaceId\}:\$\{projectId\}/);
 assert.match(client, /resolveProjectWorkpieceIdentity[\s\S]*commitMetadata[\s\S]*commitScriptSeed/);
+assert.match(client, /bootstrapFileExists[\s\S]*if \(!await bootstrapFileExists\(resolved\.workpieceId, "metadata\.json"\)\)/);
+assert.match(client, /if \(!await bootstrapFileExists\(resolved\.workpieceId, PRIMARY_SCRIPT_PATH\)\)/);
 
 console.log("Hearth project intake authority contract passed.");

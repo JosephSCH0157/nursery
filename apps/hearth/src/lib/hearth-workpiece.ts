@@ -287,6 +287,16 @@ async function commitMetadata(args: {
   return { ok: response.ok && isCommitAck(body), status: response.status, details: body };
 }
 
+async function bootstrapFileExists(workpieceId: string, path: string): Promise<boolean> {
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(path)}`, { method: "GET" });
+  if (response.status === 404) {
+    const body = await readBodyAsJson(response);
+    if (body && typeof body === "object" && !Array.isArray(body) && (body as Record<string, unknown>).exists === false) return false;
+  }
+  if (!response.ok) throw new Error(`bootstrap_read_failed:${path}:${response.status}`);
+  return true;
+}
+
 function normalizeScriptSeed(seed: string | null | undefined): string {
   if (typeof seed !== "string") return DEFAULT_SCRIPT_SEED;
   const normalized = seed.replace(/\r\n?/g, "\n");
@@ -396,10 +406,18 @@ export async function getOrCreateHearthProjectWorkpiece(args: {
   const resolved = await resolveProjectWorkpieceIdentity({ workspaceId, projectId: args.projectId, title: args.title });
   if (!resolved.ok) return resolved;
 
-  const metadata = await commitMetadata({ workpieceId: resolved.workpieceId, workspaceId, writtenBy, origin: args.origin });
-  if (!metadata.ok) return { ok: false, reason: "metadata_commit_failed", status: metadata.status, details: metadata.details, workpieceId: resolved.workpieceId };
-  const script = await commitScriptSeed({ workpieceId: resolved.workpieceId, writtenBy, origin: args.origin, scriptSeed: args.scriptSeed });
-  if (!script.ok) return { ok: false, reason: "script_seed_failed", status: script.status, details: script.details, workpieceId: resolved.workpieceId };
+  try {
+    if (!await bootstrapFileExists(resolved.workpieceId, "metadata.json")) {
+      const metadata = await commitMetadata({ workpieceId: resolved.workpieceId, workspaceId, writtenBy, origin: args.origin });
+      if (!metadata.ok) return { ok: false, reason: "metadata_commit_failed", status: metadata.status, details: metadata.details, workpieceId: resolved.workpieceId };
+    }
+    if (!await bootstrapFileExists(resolved.workpieceId, PRIMARY_SCRIPT_PATH)) {
+      const script = await commitScriptSeed({ workpieceId: resolved.workpieceId, writtenBy, origin: args.origin, scriptSeed: args.scriptSeed });
+      if (!script.ok) return { ok: false, reason: "script_seed_failed", status: script.status, details: script.details, workpieceId: resolved.workpieceId };
+    }
+  } catch (error) {
+    return { ok: false, reason: "project_bootstrap_verification_failed", details: error, workpieceId: resolved.workpieceId };
+  }
   persistWorkpiece(workspaceId, resolved.workpieceId);
   return { ok: true, workpieceId: resolved.workpieceId };
 }
