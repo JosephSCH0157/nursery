@@ -56,6 +56,13 @@ function keepRpc(completionId, { user = ids.editor, key = "keep-valid-0001", evi
   return JSON.parse(psql(sql, { role: "authenticated", user }).stdout.split(/\r?\n/).at(-1));
 }
 
+function discardRpc(completionId, { user = ids.editor, key = "discard-valid-01", evidence } = {}) {
+  const body = evidence ?? { schema: "anvil.take-decision.v1", decision: "discard", completion_id: completionId, capture_session_id: ids.capture };
+  const sql = `select tongs.anvil_transition_take_discarded('${ids.workspaceA}','${ids.workpieceA}','${ids.capture}',
+    '${completionId}','${key}','${asJson(body)}'::jsonb)::text;`;
+  return JSON.parse(psql(sql, { role: "authenticated", user }).stdout.split(/\r?\n/).at(-1));
+}
+
 try {
   psql(`
     delete from tongs.workspaces where id in ('${ids.workspaceA}','${ids.workspaceB}');
@@ -123,6 +130,13 @@ try {
     artifact_validation: { ok: true, sha256: mediaHash, bytes: 4096, content_type: "audio/wav" }, note: "conflicting reuse",
   } });
   check(conflict.outcome === "conflict" && conflict.reason === "idempotency_key_reused", "conflicting completion idempotency reuse fails");
+
+  const kept = keepRpc(completionId);
+  check(kept.outcome === "saved" && kept.keep?.completion_id === completionId, "Keep records one exact canonical decision");
+  const keptAgain = keepRpc(completionId);
+  check(keptAgain.outcome === "duplicate" && keptAgain.keep?.id === kept.keep?.id, "duplicate Keep returns the same receipt");
+  const discardAfterKeep = discardRpc(completionId);
+  check(discardAfterKeep.outcome === "conflict" && discardAfterKeep.reason === "take_already_kept", "Discard cannot contradict an accepted Keep");
   check(Number(psql(`select count(*) from tongs.current_workpiece_recorded_takes where workpiece_id='${ids.workpieceA}';`).stdout) >= 1,
     "completion alone exposes recorded truth without a keep gate");
   check(psql(`select count(*) from tongs.workpiece_events where workpiece_id='${ids.workpieceA}' and event_name='take_completed';`).stdout === "1",

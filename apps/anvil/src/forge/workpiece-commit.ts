@@ -1349,11 +1349,12 @@ export type RecordingAuthorityOutcome = {
   outcome: "saved" | "duplicate" | "stale" | "conflict" | "denied" | "not_found" | "unavailable" | "malformed";
   completionId?: string;
   keepId?: string;
+  discardId?: string;
   reason?: string;
   details?: unknown;
 };
 
-function readAuthorityRowId(value: unknown, key: "completion" | "keep"): string | null {
+function readAuthorityRowId(value: unknown, key: "completion" | "keep" | "discard"): string | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const row = (value as Record<string, unknown>)[key];
   if (!row || typeof row !== "object" || Array.isArray(row)) return null;
@@ -1444,7 +1445,7 @@ export async function transitionRecordingCompleted(input: {
 }
 
 export async function transitionRecordingKept(input: {
-  commit: Extract<RecordingCommitResult, { ok: true }>;
+  commit: Pick<Extract<RecordingCommitResult, { ok: true }>, "workpieceId" | "captureSessionId">;
   completionId: string;
 }): Promise<RecordingAuthorityOutcome> {
   const ready = (window as any).__forgeCanonicalReadyScript as Record<string, unknown> | undefined;
@@ -1467,6 +1468,59 @@ export async function transitionRecordingKept(input: {
     return { ok: accepted, outcome: outcome as RecordingAuthorityOutcome["outcome"], ...(keepId ? { keepId } : {}), reason: readString(data?.reason) ?? undefined, details: data };
   } catch (error) {
     return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_keep_unavailable" };
+  }
+}
+
+export async function transitionRecordingDiscarded(input: {
+  commit: Pick<Extract<RecordingCommitResult, { ok: true }>, "workpieceId" | "captureSessionId">;
+  completionId: string;
+}): Promise<RecordingAuthorityOutcome> {
+  const ready = (window as any).__forgeCanonicalReadyScript as Record<string, unknown> | undefined;
+  const workspaceId = normalizeUuid(ready?.workspaceId);
+  if (!workspaceId) return { ok: false, outcome: "malformed", reason: "ready_workspace_missing" };
+  const evidence = { schema: "anvil.take-decision.v1", decision: "discard", completion_id: input.completionId, capture_session_id: input.commit.captureSessionId };
+  try {
+    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-discard`, {
+      method: "POST", headers: await buildHeaders(getApiToken()),
+      body: JSON.stringify({ workspace_id: workspaceId, capture_session_id: input.commit.captureSessionId,
+        completion_id: input.completionId, idempotency_key: `anvil-discard:${input.completionId}`, decision_evidence: evidence }),
+    });
+    const body = await readBodyAsJson(response);
+    const data = body && typeof body === "object" && !Array.isArray(body) ? (body as any).data : null;
+    if (!response.ok) return { ok: false, outcome: "unavailable", reason: extractApiError(body).code ?? "recording_discard_unavailable", details: body };
+    const outcome = readString(data?.outcome);
+    const discardId = readAuthorityRowId(data, "discard");
+    const accepted = (outcome === "saved" || outcome === "duplicate") && !!discardId;
+    if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) return { ok: false, outcome: "malformed", reason: "recording_discard_response_malformed", details: body };
+    return { ok: accepted, outcome: outcome as RecordingAuthorityOutcome["outcome"], ...(discardId ? { discardId } : {}), reason: readString(data?.reason) ?? undefined, details: data };
+  } catch (error) {
+    return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_discard_unavailable" };
+  }
+}
+
+export type PendingRecordingDecision = { completionId: string; workpieceId: string; captureSessionId: string; mediaPath: string };
+
+export async function readPendingRecordingDecisions(): Promise<PendingRecordingDecision[]> {
+  const ready = (window as any).__forgeCanonicalReadyScript as Record<string, unknown> | undefined;
+  const workspaceId = normalizeUuid(ready?.workspaceId);
+  const workpieceId = normalizeUuid(ready?.workpieceId);
+  if (!workspaceId || !workpieceId) return [];
+  try {
+    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/pending-recording-decisions?workspace_id=${encodeURIComponent(workspaceId)}`, { headers: await buildHeaders(getApiToken()) });
+    const body = await readBodyAsJson(response);
+    const data = body && typeof body === "object" && !Array.isArray(body) ? (body as any).data : null;
+    if (!response.ok || data?.outcome !== "ok" || !Array.isArray(data.pending)) return [];
+    return data.pending.flatMap((row: unknown) => {
+      if (!row || typeof row !== "object" || Array.isArray(row)) return [];
+      const value = row as Record<string, unknown>;
+      const completionId = normalizeUuid(value.completion_id);
+      const captureSessionId = normalizeUuid(value.capture_session_id);
+      const rowWorkpieceId = normalizeUuid(value.workpiece_id);
+      const mediaPath = readString(value.media_path);
+      return completionId && captureSessionId && rowWorkpieceId === workpieceId && mediaPath ? [{ completionId, captureSessionId, workpieceId, mediaPath }] : [];
+    });
+  } catch {
+    return [];
   }
 }
 

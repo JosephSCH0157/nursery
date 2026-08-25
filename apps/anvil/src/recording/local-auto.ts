@@ -7,13 +7,18 @@ import {
   commitRecordingBytesToTongs,
   ensureRecordingCaptureTarget,
   hasCanonicalRecordingScriptIdentity,
+  readPendingRecordingDecisions,
   transitionRecordingCompleted,
+  transitionRecordingDiscarded,
+  transitionRecordingKept,
   type RecordingCommitResult,
 } from '../forge/workpiece-commit';
 import { startSpeechBackendForSession, stopSpeechBackendForSession } from '../features/speech-loader';
 import { ScriptStore } from '../features/scripts-store';
 import {
   hideRecordingFinalizeIndicator,
+  isRecordingDecisionPending,
+  showRecordingDecisionDialog,
   showRecordingFinalizeIndicator,
 } from './recording-decision-dialog';
 import { buildRecordingFilename, pickRecordingBaseTitle } from './recording-name';
@@ -69,6 +74,27 @@ import {
     if (separator <= 0) return null;
     const candidate = rest.slice(0, separator).trim().toLowerCase();
     return UUID_RE.test(candidate) ? candidate : null;
+  }
+
+  async function recoverPendingTakeDecision(): Promise<void> {
+    if (isRecordingDecisionPending()) return;
+    const pending = await readPendingRecordingDecisions();
+    const decision = pending[0];
+    if (!decision || isRecordingDecisionPending()) return;
+    await showRecordingDecisionDialog({
+      takeName: decision.mediaPath.split("/").pop() || decision.mediaPath,
+      isRecovery: true,
+      onKeep: async () => {
+        const result = await transitionRecordingKept({ commit: decision, completionId: decision.completionId });
+        if (!result.ok) throw new Error(result.reason ?? `Keep failed (${result.outcome}).`);
+        showRecorderToast('Take kept and ready for Hammer.', 'info');
+      },
+      onDiscard: async () => {
+        const result = await transitionRecordingDiscarded({ commit: decision, completionId: decision.completionId });
+        if (!result.ok) throw new Error(result.reason ?? `Discard failed (${result.outcome}).`);
+        showRecorderToast('Take discarded.', 'info');
+      },
+    });
   }
 
   function buildWorkpieceFallbackTitle(workpieceId: string): string {
@@ -932,6 +958,24 @@ import {
     let downloadFallbackAttempted = false;
     let downloadFallbackSucceeded = false;
     let downloadFallbackSkippedReason: string | null = null;
+    const presentCanonicalTakeDecision = async (): Promise<void> => {
+      if (!commitResultOk || !acceptedCompletionId) return;
+      hideRecordingFinalizeIndicator();
+      showRecorderToast('Recording saved · Keep or discard this take.', 'info');
+      await showRecordingDecisionDialog({
+        takeName: name,
+        onKeep: async () => {
+          const result = await transitionRecordingKept({ commit: commitResultOk!, completionId: acceptedCompletionId! });
+          if (!result.ok) throw new Error(result.reason ?? `Keep failed (${result.outcome}).`);
+          showRecorderToast('Take kept and ready for Hammer.', 'info');
+        },
+        onDiscard: async () => {
+          const result = await transitionRecordingDiscarded({ commit: commitResultOk!, completionId: acceptedCompletionId! });
+          if (!result.ok) throw new Error(result.reason ?? `Discard failed (${result.outcome}).`);
+          showRecorderToast('Take discarded.', 'info');
+        },
+      });
+    };
     try {
       const recordingValidity = await verifyFinalizedRecordingArtifact(blob);
       try {
@@ -1141,8 +1185,7 @@ import {
                 console.log('[core-recorder] saved file mirror', name);
               } catch {}
               if (commitResultOk && acceptedCompletionId) {
-                hideRecordingFinalizeIndicator();
-                showRecorderToast('Recording verified and ready for Hammer.', 'info');
+                await presentCanonicalTakeDecision();
               }
               if (!committed) {
                 emitUploadFallbackAudit({
@@ -1274,8 +1317,7 @@ import {
             });
           }
           if (commitResultOk && acceptedCompletionId) {
-            hideRecordingFinalizeIndicator();
-            showRecorderToast('Recording verified and ready for Hammer.', 'info');
+            await presentCanonicalTakeDecision();
           }
           return true;
         }
@@ -1338,6 +1380,7 @@ import {
     document.addEventListener(
       'tp:session:start',
       () => {
+        void recoverPendingTakeDecision();
         try {
           start();
         } catch {}

@@ -13759,6 +13759,17 @@ export type Database = {
         }
         Returns: Json
       }
+      anvil_transition_take_discarded: {
+        Args: {
+          p_capture_session_id: string
+          p_completion_id: string
+          p_decision_evidence: Json
+          p_idempotency_key: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       get_or_create_hearth_project_workpiece: {
         Args: {
           p_operation_key: string
@@ -13766,6 +13777,10 @@ export type Database = {
           p_title: string
           p_workspace_id: string
         }
+        Returns: Json
+      }
+      read_anvil_pending_take_decisions: {
+        Args: { p_workpiece_id: string; p_workspace_id: string }
         Returns: Json
       }
       commit_hammer_history_epoch_head: {

@@ -1617,11 +1617,14 @@ export type AnvilTakeKeepRequest = {
   user_access_token?: string | null;
 };
 
+export type AnvilTakeDiscardRequest = AnvilTakeKeepRequest;
+
 export type AnvilTakeTransitionResult = {
   outcome: "saved" | "duplicate" | "stale" | "conflict" | "denied" | "not_found";
   reason?: string | null;
   completion?: Record<string, unknown> | null;
   keep?: Record<string, unknown> | null;
+  discard?: Record<string, unknown> | null;
 };
 
 export type HearthReadyTransitionRequest = {
@@ -2011,6 +2014,11 @@ export type TongsCommitApiService = {
     workpieceId: string,
     input: AnvilTakeKeepRequest,
   ): Promise<AnvilTakeTransitionResult>;
+  transitionAnvilTakeDiscarded(
+    workpieceId: string,
+    input: AnvilTakeDiscardRequest,
+  ): Promise<AnvilTakeTransitionResult>;
+  readAnvilPendingTakeDecisions(workpieceId: string, workspaceId: string, userAccessToken: string): Promise<Record<string, unknown>>;
   beginRecordingUploadSession(
     workpieceId: string,
     input: BeginRecordingUploadSessionRequest,
@@ -10477,7 +10485,7 @@ export class TongsCommitService {
   }
 
   private async callAnvilRecordingAuthority(
-    rpcName: "anvil_transition_take_completed" | "anvil_transition_take_kept",
+    rpcName: "anvil_transition_take_completed" | "anvil_transition_take_kept" | "anvil_transition_take_discarded",
     args: Record<string, unknown>,
     accessToken: string | null | undefined,
   ): Promise<AnvilTakeTransitionResult> {
@@ -12897,6 +12905,29 @@ export class TongsCommitService {
     }
     const parsed = parseJsonText(textDecoder.decode(bytes), normalizedPath);
     return { found: true, data: parsed, file_row: fileRow };
+  }
+
+  async transitionAnvilTakeDiscarded(
+    workpieceId: string,
+    input: AnvilTakeDiscardRequest,
+  ): Promise<AnvilTakeTransitionResult> {
+    return this.callAnvilRecordingAuthority("anvil_transition_take_discarded", {
+      p_workspace_id: input.workspace_id,
+      p_workpiece_id: workpieceId,
+      p_capture_session_id: input.capture_session_id,
+      p_completion_id: input.completion_id,
+      p_idempotency_key: input.idempotency_key,
+      p_decision_evidence: input.decision_evidence,
+    }, input.user_access_token);
+  }
+
+  async readAnvilPendingTakeDecisions(workpieceId: string, workspaceId: string, userAccessToken: string): Promise<Record<string, unknown>> {
+    if (!this.userClientFactory) throw new HttpError(503, "anvil_recording_authority_migration_required", "Anvil recording decision authority is unavailable.");
+    const client = this.userClientFactory(normalizeNonEmptyString(userAccessToken, "user_access_token")).schema("tongs") as unknown as { rpc: (name: string,args:Record<string,unknown>)=>Promise<{data:unknown;error:{message:string}|null}> };
+    const { data, error } = await client.rpc("read_anvil_pending_take_decisions", { p_workspace_id: workspaceId, p_workpiece_id: workpieceId });
+    if (error) throw new HttpError(502, "anvil_pending_decisions_read_failed", "Pending recording decisions could not be read.", { reason: error.message });
+    if (!isRecord(data)) throw new HttpError(502, "anvil_pending_decisions_malformed", "Pending recording decisions were malformed.");
+    return data;
   }
 
   async readWorkspaceJson(workspaceId: string, path: string): Promise<ReadJsonFileResult> {
@@ -17533,6 +17564,30 @@ export function createTongsCommitApiHandlerWithService(
         if (fingerprint !== null && !/^[0-9a-f]{64}$/.test(fingerprint)) throw new HttpError(400, "history_epoch_atomic_fingerprint_invalid", "operation_fingerprint must be a lowercase SHA-256 hash.");
         if (headId !== null) normalizeUuid(headId, "head_id");
         const result = await service.readHammerHistoryAtomicOperation(workspaceId, workpieceId, revisionId, idempotencyKey, { userAccessToken, operationFingerprint: fingerprint, headId });
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "pending-recording-decisions") {
+        requireMethod(request, "GET");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const workspaceId = normalizeUuid(new URL(request.url).searchParams.get("workspace_id"), "workspace_id");
+        const result = await service.readAnvilPendingTakeDecisions(workpieceId, workspaceId, requireUserAccessTokenHeader(request));
+        return jsonResponse(200, { ok: true, data: result });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "recording-discard") {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        const result = await service.transitionAnvilTakeDiscarded(workpieceId, {
+          workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+          capture_session_id: normalizeUuid(body.capture_session_id, "capture_session_id"),
+          completion_id: normalizeUuid(body.completion_id, "completion_id"),
+          idempotency_key: normalizeNonEmptyString(body.idempotency_key, "idempotency_key"),
+          decision_evidence: normalizeJsonValue(body.decision_evidence),
+          user_access_token: userAccessToken,
+        });
         return jsonResponse(200, { ok: true, data: result });
       }
 
