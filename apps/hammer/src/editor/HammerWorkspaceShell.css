@@ -3269,7 +3269,7 @@ Guardrails:
 .hammer-history-epoch-notice {
   margin: 0.75rem;
   padding: 0.85rem 1rem;
-  border: 1px solid color-mix(in srgb, var(--forge-accent, #f59e0b) 45%, transparent);
+  border: 1px solid rgba(245, 158, 11, 0.45);
   border-radius: 0.6rem;
   background: color-mix(in srgb, var(--forge-accent, #f59e0b) 9%, var(--forge-surface, #171717));
 }
