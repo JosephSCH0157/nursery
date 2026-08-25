@@ -42,6 +42,7 @@ type BuildMediaMapPanelArgs = {
   onRecoverLastGeneration: () => void;
   message: string | null;
   disabled: boolean;
+  operationStage: MediaMapPanelProps["operationStage"];
   generationScope: MediaMapGenerationScope;
   budgetPolicy: FullMediaBudgetPolicy;
   draft: MediaMapPanelProps["draft"];
@@ -315,6 +316,7 @@ export function buildMediaMapPanelProps(args: BuildMediaMapPanelArgs): MediaMapP
     onRecoverLastGeneration: args.onRecoverLastGeneration,
     message: args.message,
     disabled: args.disabled,
+    operationStage: args.operationStage,
     generationScope: args.generationScope,
     budgetPolicy: args.budgetPolicy,
     draft: args.draft,

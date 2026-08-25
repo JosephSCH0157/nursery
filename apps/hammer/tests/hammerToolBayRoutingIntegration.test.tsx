@@ -145,7 +145,8 @@ test("mounted Tool Bay routes exact image, Florida B-roll, and reference panels 
     const decision = resolveHammerToolBayRoute(routeInput(context));
     const markup = renderToStaticMarkup(<HammerWorkspaceShellToolBay contexts={runtimeContexts(decision, kind)} />);
     assert.match(markup, kind === "image" ? /Image Placement/ : kind === "broll" ? /Florida mounted B-roll/ : /placement:reference-mounted/);
-    assert.match(markup, new RegExp(context.placementId));
+    assert.match(markup, kind === "image" ? /Mounted image/ : new RegExp(context.placementId));
+    if (kind === "image") assert.doesNotMatch(markup, /DEV AUTO PREVIEW CONTROLS|Episode health snapshot|diagnostics resolvedPlacement/);
   }
 });
 

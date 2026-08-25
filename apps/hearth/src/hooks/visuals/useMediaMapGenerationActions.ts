@@ -7,6 +7,7 @@ import {
 import type { EpisodeMediaMap, EpisodePackageV2 } from "../../lib/episode-package-v2";
 import type { FullMediaBudgetPolicy } from "../../lib/hearth-media-map-builder";
 import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
+import type { HearthVisualPlanOperationStage } from "../../lib/hearth-visual-plan-operation";
 
 type PersistMediaMapResult =
   | { ok: true; episodePackage: EpisodePackageV2 }
@@ -31,6 +32,7 @@ type UseMediaMapGenerationActionsArgs = {
   mediaMapGenerationScope: MediaMapGenerationScope;
   setMediaMapGenerationScope: (scope: MediaMapGenerationScope) => void;
   setIsMediaMapBusy: (next: boolean) => void;
+  setVisualPlanOperationStage: (next: HearthVisualPlanOperationStage) => void;
   setMediaMapSaveState: (next: "saved" | "editing" | "saving" | "error") => void;
   setMediaMapSaveError: (next: string | null) => void;
   setMediaMapMessage: (next: string | null) => void;
@@ -67,32 +69,39 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
     if (args.isMediaMapBusy) return;
     const operation = args.operationAuthority.begin("media-map.generate");
     args.setIsMediaMapBusy(true);
+    args.setVisualPlanOperationStage("generating");
     args.setMediaMapSaveState("saving");
     args.setMediaMapSaveError(null);
     try {
       const generated = await args.generateUnifiedVisualPlan(null);
       if (!args.operationAuthority.isCurrent(operation)) return;
       if (!generated.ok) {
+        args.setVisualPlanOperationStage("failed");
         args.setMediaMapSaveError(`${generated.stage ? `${generated.stage}: ` : ""}${generated.error}`);
         args.setMediaMapSaveState("error");
         return;
       }
+      args.setVisualPlanOperationStage("validating");
       const repaired = await args.repairImageMapAuthority();
       if (!args.operationAuthority.isCurrent(operation)) return;
       if (!repaired.ok) {
+        args.setVisualPlanOperationStage("failed");
         args.setMediaMapSaveError(repaired.error);
         args.setMediaMapSaveState("error");
         return;
       }
+      args.setVisualPlanOperationStage("refreshing");
       await args.refreshCanonicalBroll();
       args.notifyCanonicalReferenceClipsChanged();
       if(typeof window!=="undefined")window.dispatchEvent(new CustomEvent("forge:canonical-reference-visuals-changed"));
       args.setMediaMapSaveState("saved");
+      args.setVisualPlanOperationStage("complete");
       args.setMediaMapMessage(
         `Canonical Visual Plan verified: Image v${generated.data.imageMapRevision}, B-roll v${generated.data.brollPlanRevision}, Source Clips v${generated.data.referenceClipPlanRevision}, and Reference Visuals v${generated.data.referenceVisualPlanRevision}.`,
       );
     } catch (error) {
       if (!args.operationAuthority.isCurrent(operation)) return;
+      args.setVisualPlanOperationStage("failed");
       args.setMediaMapSaveError(error instanceof Error ? error.message : "Unable to create the canonical Episode Visual Plan.");
       args.setMediaMapSaveState("error");
     } finally {
@@ -115,6 +124,7 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
     });
     args.setMediaMapGenerationScope(conversationScope);
     args.setIsMediaMapBusy(true);
+    args.setVisualPlanOperationStage("generating");
     args.setMediaMapSaveState("saving");
     args.setMediaMapSaveError(null);
     try {
@@ -122,27 +132,33 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
       const generated = await args.generateUnifiedVisualPlan(creatorDirection);
       if (!args.operationAuthority.isCurrent(operation)) return false;
       if (!generated.ok) {
+        args.setVisualPlanOperationStage("failed");
         args.setMediaMapSaveError(`${generated.stage ? `${generated.stage}: ` : ""}${generated.error}`);
         args.setMediaMapSaveState("error");
         return false;
       }
+      args.setVisualPlanOperationStage("validating");
       const repaired = await args.repairImageMapAuthority();
       if (!args.operationAuthority.isCurrent(operation)) return false;
       if (!repaired.ok) {
+        args.setVisualPlanOperationStage("failed");
         args.setMediaMapSaveError(repaired.error);
         args.setMediaMapSaveState("error");
         return false;
       }
+      args.setVisualPlanOperationStage("refreshing");
       await args.refreshCanonicalBroll();
       args.notifyCanonicalReferenceClipsChanged();
       if(typeof window!=="undefined")window.dispatchEvent(new CustomEvent("forge:canonical-reference-visuals-changed"));
       args.setMediaMapSaveState("saved");
+      args.setVisualPlanOperationStage("complete");
       args.setMediaMapMessage(
         `Canonical Visual Plan verified from the approved script with producer direction. Image v${generated.data.imageMapRevision}, B-roll v${generated.data.brollPlanRevision}, Source Clips v${generated.data.referenceClipPlanRevision}, Reference Visuals v${generated.data.referenceVisualPlanRevision}.`,
       );
       return true;
     } catch {
       if (!args.operationAuthority.isCurrent(operation)) return false;
+      args.setVisualPlanOperationStage("failed");
       args.setMediaMapSaveError("Unable to build and apply the Episode Visual Plan.");
       args.setMediaMapSaveState("error");
       return false;

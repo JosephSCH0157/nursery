@@ -6,7 +6,7 @@ import { commitAudioCutSelection, normalizeAudioCutSelection } from "./hammerAud
 import { isTimeRangeFullyCoveredByCuts, type HammerEffectiveCutRegion } from "./hammerAudioEditPlayback";
 import { applyDeadAirClosure, analyzeDeadAirGaps, type HammerDeadAirAnalysis } from "./hammerDeadAirClosure";
 import { deriveAudioCutsForDeadAirClosure } from "./hammerCleanupExecution";
-import { buildSilenceCutSuggestions, filterDismissedSilenceCutSuggestions } from "./hammerSilenceCutSuggestions";
+import { buildSilenceCutSuggestions, filterDismissedSilenceCutSuggestions, filterSilenceCutSuggestionsAboveThreshold } from "./hammerSilenceCutSuggestions";
 import { syncEditableTranscriptSegments } from "./hammerWorkspaceTranscript";
 import type { HammerEditorStateSerializable, HammerHistoryEntry, HammerHistoryKind } from "./hammerWorkspaceHistory";
 
@@ -66,11 +66,14 @@ export function useHammerWorkspaceShellSilenceEditing(args: UseHammerWorkspaceSh
     if (audioCutSelectionEndSec != null) return `Out point marked at ${audioCutSelectionEndSec.toFixed(1)}s. Move the playhead and mark in.`;
     return "Use the current playhead to mark in, mark out, and create one persisted cut.";
   }, [args.durationSec, audioCutSelection, audioCutSelectionEndSec, audioCutSelectionStartSec, isAudioCutSelectionCovered]);
-  const silenceCutSuggestions = useMemo(() => buildSilenceCutSuggestions({
-    segmentation: args.segmentation,
-    durationSec: args.durationSec,
-    effectiveCutRegions: args.effectiveCutRegions,
-  }), [args.durationSec, args.effectiveCutRegions, args.segmentation]);
+  const silenceCutSuggestions = useMemo(() => filterSilenceCutSuggestionsAboveThreshold({
+    suggestions: buildSilenceCutSuggestions({
+      segmentation: args.segmentation,
+      durationSec: args.durationSec,
+      effectiveCutRegions: args.effectiveCutRegions,
+    }),
+    thresholdSec: deadAirThresholdSec,
+  }), [args.durationSec, args.effectiveCutRegions, args.segmentation, deadAirThresholdSec]);
   const visibleSilenceCutSuggestions = useMemo(() => filterDismissedSilenceCutSuggestions({
     suggestions: silenceCutSuggestions,
     dismissedSuggestionIds: dismissedSilenceSuggestionIds,

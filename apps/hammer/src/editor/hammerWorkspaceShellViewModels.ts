@@ -1204,7 +1204,9 @@ export function buildPreviewBayVM(args: any) {
         }
         : null,
       selectionSeed: Math.round((Number(args.playheadSec) || 0) * 1000),
-      sourcePresentationTimeSec: Math.max(0, Number(args.playheadSec) || 0),
+      compositionPresentationTimeSec: Math.max(0, Number(args.compositionPlayheadSec) || 0),
+      previewApplied: Boolean(args.automaticPlacementPreviewApplied),
+      previewStatus: typeof args.automaticPlacementPreviewStatus === "string" ? args.automaticPlacementPreviewStatus : null,
       onResult: args.onCanonicalAutoPlacementResult,
     },
     visualPreview: {
@@ -1242,20 +1244,20 @@ export function buildToolbarVM(args: any) {
     stats: [
       {
         id: "transcript",
-        label: "Tx",
-        value: String(args.editableTranscriptSegments.length),
+        label: "Transcript",
+        value: `${args.editableTranscriptSegments.length} segments`,
         title: `Transcript: ${args.editableTranscriptSegments.length} segments`,
       },
       {
         id: "visuals",
-        label: "Vis",
+        label: "Visuals",
         value: (() => {
           const total = args.editableVisualPlacements?.placements.length ?? args.editableVisualTimeline?.clips.length ?? 0;
           const uncertain = (args.editableVisualPlacements?.placements ?? []).reduce(
             (count: number, placement: any) => count + (placement.status === "uncertain" ? 1 : 0),
             0,
           );
-          return uncertain > 0 ? `${total}/${uncertain}?` : String(total);
+          return uncertain > 0 ? `${total} · ${uncertain} review` : `${total} placed`;
         })(),
         title: (() => {
           const total = args.editableVisualPlacements?.placements.length ?? args.editableVisualTimeline?.clips.length ?? 0;

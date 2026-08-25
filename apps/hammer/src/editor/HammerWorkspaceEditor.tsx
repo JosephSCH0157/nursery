@@ -34,7 +34,7 @@ import { applyHammerSessionAction } from "./hammerSessionActions";
 import { resolveHammerReloadFailure, resolveHammerReloadSuccess, resolveHammerSaveFailure, resolveHammerSaveSuccess } from "./hammerSessionHostLoop";
 import { deriveHammerSessionState } from "./hammerSessionState";
 import { deriveHammerIssueDiagnostics, type HammerIssueFixActionId } from "./hammerIssueDiagnostics";
-import { HammerWorkspaceDiagnosticsBanner } from "./HammerWorkspaceDiagnosticsBanner";
+import { HammerWorkspaceDiagnosticsBanner, useHammerDiagnosticsPresentation } from "./HammerWorkspaceDiagnosticsBanner";
 import { HammerIngestDiagnosticsPanel } from "./HammerIngestDiagnosticsPanel";
 import { deriveRegenProgressLabel, resolveIngestSelectedSource } from "./hammerRegenTranscriptUiState";
 import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
@@ -4179,18 +4179,12 @@ export default function HammerWorkspaceEditor(
     mediaPrepOutputs: handoffMediaPrepOutputs,
     mediaLabelMismatchWarning: workspaceSnapshot?.diagnostics?.mediaLabelMismatchWarning ?? null,
     actualRecordingMismatchWarning: workspaceSnapshot?.diagnostics?.actualRecordingMismatchWarning ?? null,
-    jobsStatusUnavailable,
-    reopenPersistenceSource,
-    brollGraph: workspaceSnapshot ? workspaceSnapshot.editorialAuthorityGraph ?? null : loadedPersistenceSnapshot?.editorial_authority.data ?? null,
-    brollVisualTimeline: workspaceSnapshot ? workspaceSnapshot.visualTimeline ?? null : visualTimelineData,
+    jobsStatusUnavailable, reopenPersistenceSource,
+    brollGraph: workspaceSnapshot ? workspaceSnapshot.editorialAuthorityGraph ?? null : loadedPersistenceSnapshot?.editorial_authority.data ?? null, brollVisualTimeline: workspaceSnapshot ? workspaceSnapshot.visualTimeline ?? null : visualTimelineData,
   }), [
-    handoffMediaPrepOutputs,
-    jobsStatusUnavailable,
-    reopenPersistenceSource,
-    sessionState,
-    loadedPersistenceSnapshot?.editorial_authority.data,
-    visualTimelineData,
-    workspaceSnapshot,
+    handoffMediaPrepOutputs, jobsStatusUnavailable,
+    reopenPersistenceSource, sessionState,
+    loadedPersistenceSnapshot?.editorial_authority.data, visualTimelineData, workspaceSnapshot,
     workspaceSnapshot?.diagnostics?.actualRecordingMismatchWarning,
     workspaceSnapshot?.diagnostics?.mediaLabelMismatchWarning,
   ]);
@@ -4224,7 +4218,7 @@ export default function HammerWorkspaceEditor(
       setDiagnosticsBannerVisibleIssueSetHash(diagnosticsIssueSetHash);
     }
   }, [diagnosticsIssueSetHash, diagnosticsIssues.length, dismissedDiagnosticsIssueSetHash]);
-  const diagnosticsBannerExpanded = diagnosticsBannerVisibleIssueSetHash === diagnosticsIssueSetHash;
+  const diagnosticsBannerExpanded = diagnosticsBannerVisibleIssueSetHash === diagnosticsIssueSetHash; const diagnosticsPresentation = useHammerDiagnosticsPresentation({ currentPass, issueSetHash: diagnosticsIssueSetHash, issues: diagnosticsIssues, showIssueSet: setDiagnosticsBannerVisibleIssueSetHash }); const { compactVisualIssues, prominentIssues: prominentDiagnosticsIssues } = diagnosticsPresentation;
   const rawSaveIndicatorStatus = useMemo<HammerSaveIndicatorStatus>(() => {
     if (saveFailureMessage) return "failed";
     if (saveInFlight) return "saving";
@@ -4263,7 +4257,7 @@ export default function HammerWorkspaceEditor(
     : displaySaveIndicatorStatus === "failed"
     ? (saveFailureMessage ?? null)
     : null;
-  const shouldShowCompactIssuesPill = diagnosticsIssues.length > 0 && (isPreviewFirstMode || !diagnosticsBannerExpanded);
+  const shouldShowCompactIssuesPill = prominentDiagnosticsIssues.length > 0 && (isPreviewFirstMode || !diagnosticsBannerExpanded);
   const progressFillClassName = useMemo(
     () => `${dynamicStyleScopeIdRef.current}__progress-fill`,
     [],
@@ -4835,13 +4829,13 @@ export default function HammerWorkspaceEditor(
               "hammer-prep-shell__session-state",
               sessionState.isBlocking ? "is-blocking" : "",
               sessionState.isDegraded ? "is-degraded" : "",
-              isPreviewFirstMode ? "is-compact" : "",
+              isPreviewFirstMode ? "is-compact" : "", prominentDiagnosticsIssues.length === 0 ? "is-quiet" : "",
             ].filter(Boolean).join(" ")}
           >
             <div className="hammer-prep-shell__session-primary">
-              {!isPreviewFirstMode && diagnosticsIssues.length > 0 && diagnosticsBannerExpanded ? (
+              {!isPreviewFirstMode && prominentDiagnosticsIssues.length > 0 && diagnosticsBannerExpanded ? (
               <HammerWorkspaceDiagnosticsBanner
-                issues={diagnosticsIssues}
+                issues={prominentDiagnosticsIssues}
                 fallbackTitle={sessionState.humanLabel}
                 fallbackSummary={sessionState.detail}
                 inFlightFixActionId={historyEpochPending ? "reload_latest" : diagnosticsFixInFlight}
@@ -4849,7 +4843,7 @@ export default function HammerWorkspaceEditor(
                 onRunFixAction={runDiagnosticsFixAction}
                 onRunFixAll={runDiagnosticsFixAll}
                 onDismiss={() => {
-                  setDismissedDiagnosticsIssueSetHash(diagnosticsIssueSetHash);
+                  diagnosticsPresentation.collapseVisualDetails(); setDismissedDiagnosticsIssueSetHash(diagnosticsIssueSetHash);
                   setDiagnosticsBannerVisibleIssueSetHash(null);
                 }}
               />
@@ -4861,7 +4855,7 @@ export default function HammerWorkspaceEditor(
                   onClick={() => setDiagnosticsBannerVisibleIssueSetHash(diagnosticsIssueSetHash)}
                   title="Show issues"
                 >
-                  Issues ({diagnosticsIssues.length})
+                  Issues ({prominentDiagnosticsIssues.length})
                 </button>
               ) : null}
             </div>
@@ -5252,7 +5246,7 @@ export default function HammerWorkspaceEditor(
             onRequestResetToRaw={canPersistCanonicalState ? handleResetToRaw : undefined}
             onRequestRegenerateAiTranscript={openRegenAiTranscriptModal}
             regenerateAiTranscriptDisabled={!canPersistCanonicalState || regenAiTranscriptInFlight}
-            transcriptVersionRegistry={loadedPersistenceSnapshot?.transcript_version_registry?.data ?? null}
+            transcriptVersionRegistry={loadedPersistenceSnapshot?.transcript_version_registry?.data ?? null} onShowVisualIssues={compactVisualIssues.length > 0 ? diagnosticsPresentation.showVisualDetails : undefined}
             onHistoryRecoveryStatusChange={setHistoryRecoveryStatus}
             workspaceRole={props.workspaceRole ?? null} onHistoryEpochPendingChange={setHistoryEpochPending}
             onWorkspaceSnapshotChange={canPersistCanonicalState ? handleWorkspaceSnapshotChange : undefined}

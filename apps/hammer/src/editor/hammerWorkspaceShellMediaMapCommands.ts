@@ -26,6 +26,7 @@ import type { HammerHistoryMutationArgs } from "./hammerWorkspaceShellHistoryCon
 import { deriveHammerMediaMapBeats, type HammerMediaMapBeat } from "./useHammerWorkspaceShellMediaMap";
 import type { HammerMediaMapSuggestionType } from "./hammerWorkspaceShellMediaUtils";
 import { roundToTenth } from "./hammerWorkspaceTimeline";
+import { removeGovernedBrollPlacement, updateGovernedBrollTiming } from "./hammerGovernedBrollMutation";
 
 /** Media-map and manual B-roll mutation commands. This authority owns no Source Desk loading,
  * automatic-placement lifecycle, preview effects, persistence, view models, JSX, or shorts. */
@@ -89,6 +90,9 @@ export function createHammerMediaMapMutationCommands(args: {
       immediatePersist: true,
       computeAfter: (before) => replaceWorkspaceVisualTimelineState(before, (timeline) => ({
         ...timeline,
+        assets: timeline.assets.map((asset) => timeline.clips.some((clip) => clip.clip_id === placementId && clip.asset_id === asset.asset_id)
+          ? { ...asset, kind: nextType === "reference_clip" ? "reference_clip" : "broll" }
+          : asset),
         clips: timeline.clips.map((clip) => (
           clip.clip_id === placementId
             ? {
@@ -247,22 +251,8 @@ export function createHammerMediaMapMutationCommands(args: {
         const maxStart = Math.max(0, roundToTenth(args.transcriptDurationSec - duration));
         const nextStart = Math.min(candidateStart, maxStart);
         const nextEnd = Math.min(args.transcriptDurationSec, roundToTenth(nextStart + duration));
-        const nextGraph = updateResolvedInsertBrollOperationInGraph({
-          graph,
-          operationId,
-          changes: { start_sec: nextStart, end_sec: nextEnd },
-        });
-        if (!nextGraph) return before;
-        const synchronizedGraph = synchronizeLinkedAudioDuckForBrollOperation({
-          graph: nextGraph,
-          brollOperationId: operationId,
-        }) ?? nextGraph;
-        return replaceWorkspaceVisualTimelineState({ ...before, editorialAuthorityGraph: synchronizedGraph }, (timeline) => ({
-          ...timeline,
-          clips: timeline.clips.map((clip) => clip.authority_operation_id === operationId
-            ? { ...clip, start_sec: nextStart, end_sec: nextEnd }
-            : clip),
-        }));
+        const clip = resolveCanonicalWorkspaceVisualTimeline(before).clips.find((item) => item.authority_operation_id === operationId) ?? null;
+        return clip ? updateGovernedBrollTiming({ before, clipId: clip.clip_id, operationId, startSec: nextStart, endSec: nextEnd, nowIso: new Date().toISOString() }) : before;
       },
     });
   };
@@ -293,22 +283,8 @@ export function createHammerMediaMapMutationCommands(args: {
           nextEnd = Math.max(nextEnd, roundToTenth(nextStart + 0.5));
         }
         if (nextEnd <= nextStart) return before;
-        const nextGraph = updateResolvedInsertBrollOperationInGraph({
-          graph,
-          operationId,
-          changes: { start_sec: nextStart, end_sec: nextEnd },
-        });
-        if (!nextGraph) return before;
-        const synchronizedGraph = synchronizeLinkedAudioDuckForBrollOperation({
-          graph: nextGraph,
-          brollOperationId: operationId,
-        }) ?? nextGraph;
-        return replaceWorkspaceVisualTimelineState({ ...before, editorialAuthorityGraph: synchronizedGraph }, (timeline) => ({
-          ...timeline,
-          clips: timeline.clips.map((clip) => clip.authority_operation_id === operationId
-            ? { ...clip, start_sec: nextStart, end_sec: nextEnd }
-            : clip),
-        }));
+        const clip = resolveCanonicalWorkspaceVisualTimeline(before).clips.find((item) => item.authority_operation_id === operationId) ?? null;
+        return clip ? updateGovernedBrollTiming({ before, clipId: clip.clip_id, operationId, startSec: nextStart, endSec: nextEnd, nowIso: new Date().toISOString() }) : before;
       },
     });
   };
@@ -394,29 +370,8 @@ export function createHammerMediaMapMutationCommands(args: {
         if (!graph) return before;
         const brollOperation = graph.operations.find((item) => item.operation_id === operationId) ?? null;
         if (!brollOperation || brollOperation.instruction.type !== "insert_broll") return before;
-        let nextGraph = setAuthorityOperationLifecycle({ graph, operationId, lifecycle: "reverted" }) ?? graph;
-        const companionDuckId = brollOperation.instruction.companion_audio_duck_operation_id ?? null;
-        if (companionDuckId) {
-          nextGraph = setAuthorityOperationLifecycle({
-            graph: nextGraph,
-            operationId: companionDuckId,
-            lifecycle: "reverted",
-          }) ?? nextGraph;
-        }
-        return replaceWorkspaceVisualTimelineState({ ...before, editorialAuthorityGraph: nextGraph }, (timeline) => ({
-          ...timeline,
-          clips: timeline.clips.filter((clip) => clip.authority_operation_id !== operationId),
-          lanes: timeline.lanes.map((lane) => ({
-            ...lane,
-            clip_ids: lane.clip_ids.filter((clipId) => (
-              timeline.clips.find((clip) => clip.clip_id === clipId)?.authority_operation_id !== operationId
-            )),
-          })),
-          selected_clip_id: timeline.selected_clip_id
-            && timeline.clips.find((clip) => clip.clip_id === timeline.selected_clip_id)?.authority_operation_id === operationId
-            ? null
-            : timeline.selected_clip_id,
-        }));
+        const clip = resolveCanonicalWorkspaceVisualTimeline(before).clips.find((item) => item.authority_operation_id === operationId) ?? null;
+        return clip ? removeGovernedBrollPlacement({ before, clipId: clip.clip_id, operationId, nowIso: new Date().toISOString() }) : before;
       },
     });
   };

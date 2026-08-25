@@ -9,6 +9,7 @@ import {
   type PlacementDisplaySnapshot,
 } from "../src/features/auto-placement";
 import { LatestOwnedAnalysisFrameQueue } from "../src/features/eye-contact-assist/analysis/ownedAnalysisFrameQueue";
+import { doesPlacementOverlapSubject } from "../src/editor/useHammerWorkspaceShellAutomaticPlacement";
 import type {
   FaceAnalysisFrame,
   FaceAnalysisFrameRef,
@@ -44,6 +45,26 @@ const allBackgroundMatte: ForegroundMatte = {
     warnings: [],
   },
 };
+
+test("automatic placement treats speaker mask bounds as subject overlap evidence", () => {
+  const placement = { x: 100, y: 80, width: 300, height: 220 };
+  assert.equal(doesPlacementOverlapSubject({
+    placement,
+    subjectBounds: [{ x: 250, y: 120, width: 160, height: 280 }],
+  }), true);
+  assert.equal(doesPlacementOverlapSubject({
+    placement,
+    subjectBounds: [{ x: 500, y: 120, width: 100, height: 100 }],
+  }), false);
+});
+
+test("automatic placement lifecycle retains a mounted-session mask-following preview path", async () => {
+  const source = await import("node:fs/promises").then(({ readFile }) => readFile(new URL("../src/editor/useHammerWorkspaceShellAutomaticPlacement.ts", import.meta.url), "utf8"));
+  assert.match(source, /applyPreviewOverride\(current, command\.placementId, command\.transform\)/);
+  assert.match(source, /Apply Auto Position to save/);
+  assert.doesNotMatch(source, /Apply initial mask-safe visual placement/);
+  assert.doesNotMatch(source, /Apply conservative visual placement fallback/);
+});
 
 function matte(ref: FaceAnalysisFrameRef): FrameBoundPlacementMatteResult {
   return { kind: "success", frameRef: ref, matte: allBackgroundMatte, speakerMaskBounds: [] };

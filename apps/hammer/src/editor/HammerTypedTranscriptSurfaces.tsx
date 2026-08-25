@@ -317,7 +317,7 @@ export function HammerTypedTranscriptSurfaces(props: { context: TranscriptSurfac
                           <summary className="hammer-timeline-suggestion-list__meta">
                             <span>
                               Suggested silence cuts: {silenceSuggestionCountForGaps} visible
-                              {` · ${(silenceCutSuggestions?.length ?? 0)} total from segmentation`}
+                              {` · ${(silenceCutSuggestions?.length ?? 0)} total above ${deadAirThresholdSec.toFixed(1)}s`}
                             </span>
                             <span>Accept creates a real cut. Dismiss hides it for this session.</span>
                           </summary>

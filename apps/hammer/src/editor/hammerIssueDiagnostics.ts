@@ -30,6 +30,32 @@ export interface HammerIssueDiagnostic {
   canAutoFix: boolean;
   fixActionId: HammerIssueFixActionId | null;
 }
+
+const TRANSCRIPT_PASS_IDS = new Set(["transcript_cleanup", "retakes", "gap_pacing"]);
+const VISUAL_ADVISORY_AREAS = new Set<HammerAffectedArea>(["visuals", "preview_fidelity", "export"]);
+
+export function isHammerVisualOnlyAdvisory(issue: HammerIssueDiagnostic): boolean {
+  return issue.severity !== "error"
+    && issue.affectedAreas.includes("visuals")
+    && issue.affectedAreas.every((area) => VISUAL_ADVISORY_AREAS.has(area));
+}
+
+export function deriveHammerDiagnosticsPresentation(args: {
+  currentPass: string | null;
+  issues: HammerIssueDiagnostic[];
+  visualDetailsExpanded: boolean;
+}): { compactVisualIssues: HammerIssueDiagnostic[]; prominentIssues: HammerIssueDiagnostic[] } {
+  const transcriptPassActive = args.currentPass == null || TRANSCRIPT_PASS_IDS.has(args.currentPass);
+  if (!transcriptPassActive) return { compactVisualIssues: [], prominentIssues: args.issues };
+  const compactVisualIssues = args.issues.filter(isHammerVisualOnlyAdvisory);
+  return {
+    compactVisualIssues,
+    prominentIssues: args.visualDetailsExpanded
+      ? args.issues
+      : args.issues.filter((issue) => !isHammerVisualOnlyAdvisory(issue)),
+  };
+}
+
 const brollConsistencyTitle: Record<HammerBrollConsistencyFindingCode, string> = {
   timeline_clip_without_operation: "B-roll projection has no canonical operation",
   operation_without_timeline_clip: "B-roll operation has no visual projection",
@@ -58,7 +84,6 @@ export function deriveHammerBrollConsistencyIssueDiagnostics(
     fixActionId: null,
   }));
 }
-
 
 const uniq = <T,>(values: T[]): T[] => [...new Set(values)];
 

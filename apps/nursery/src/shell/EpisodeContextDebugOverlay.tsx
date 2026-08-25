@@ -13,6 +13,7 @@ import "./EpisodeWorkspacePrimitives.css";
 
 export default function EpisodeContextDebugOverlay() {
   if (!import.meta.env.DEV) return null;
+  if (typeof window === "undefined" || new URLSearchParams(window.location.search).get("debug_episode_context") !== "1") return null;
 
   return <EpisodeContextDebugOverlayDev />;
 }

@@ -23086,6 +23086,44 @@ function shouldLogVerboseDiagnostic() {
   return isVerboseDiagnosticMode();
 }
 
+// src/features/scroll/speed-keyboard-shortcuts.ts
+var AUTO_SPEED_ADJUST_EVENT = "tp:autoSpeed:adjust";
+var installedTargets = /* @__PURE__ */ new WeakMap();
+function isEditableTarget(target) {
+  const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
+  if (!element) return false;
+  if (element.closest("input, textarea, select, button")) return true;
+  const editable = element.closest("[contenteditable]");
+  return !!editable && editable.getAttribute("contenteditable")?.toLowerCase() !== "false";
+}
+function installSpeedKeyboardShortcuts(options) {
+  const target = options.target ?? (typeof document !== "undefined" ? document : null);
+  if (!target) return;
+  if (installedTargets.has(target)) {
+    installedTargets.set(target, options);
+    return;
+  }
+  installedTargets.set(target, options);
+  target.addEventListener("keydown", (event) => {
+    const activeOptions = installedTargets.get(target);
+    if (!activeOptions) return;
+    const keyboardEvent = event;
+    if (keyboardEvent.defaultPrevented || keyboardEvent.isComposing) return;
+    if (keyboardEvent.ctrlKey || keyboardEvent.altKey || keyboardEvent.metaKey) return;
+    if (isEditableTarget(keyboardEvent.target)) return;
+    const direction = keyboardEvent.key === "ArrowUp" ? 1 : keyboardEvent.key === "ArrowDown" ? -1 : null;
+    if (!direction) return;
+    const mode = String(activeOptions.getMode() || "").toLowerCase();
+    if (mode !== "timed" && mode !== "wpm" && mode !== "hybrid") return;
+    keyboardEvent.preventDefault();
+    if (mode === "timed") {
+      activeOptions.adjustTimed(direction, keyboardEvent.shiftKey);
+      return;
+    }
+    activeOptions.adjustWpm(direction, keyboardEvent.shiftKey);
+  }, { capture: true });
+}
+
 // src/features/scroll/scroll-router/router-impl.ts
 var isDevMode2 = /* @__PURE__ */ (() => {
   let cache = null;
@@ -29364,23 +29402,35 @@ function installScrollRouter(opts) {
     } catch {
     }
   }
-  function handleSidebarWpmChange(val, label) {
+  function applyUserWpmValue(val, label, emitIntent) {
     if (suppressWpmUiEcho) return;
     if (!Number.isFinite(val) || val <= 0) return;
+    const slider = document.getElementById("wpmTarget");
+    const min = Number(slider?.min);
+    const max = Number(slider?.max);
+    const bounded = Math.min(
+      Number.isFinite(max) ? max : Number.POSITIVE_INFINITY,
+      Math.max(Number.isFinite(min) ? min : 1, val)
+    );
+    if (slider) setSliderValueSilently(slider, String(bounded));
     try {
-      localStorage.setItem("tp_baseline_wpm", String(val));
+      appStoreSingleton.set?.("wpmTarget", bounded);
+    } catch {
+    }
+    try {
+      localStorage.setItem("tp_baseline_wpm", String(bounded));
     } catch {
     }
     userWpmLocked = true;
-    const pxs = convertWpmToPxPerSec(val);
+    const pxs = convertWpmToPxPerSec(bounded);
     if (!Number.isFinite(pxs) || pxs <= 0) return;
     markSliderInteraction();
-    emitWpmIntent(val, "sidebar", pxs);
-    applyWpmBaselinePx(pxs, label, val);
+    if (emitIntent) emitWpmIntent(bounded, "sidebar", pxs);
+    applyWpmBaselinePx(pxs, label, bounded);
     persistProfilePatch({
       scroll: {
-        mode: "wpm",
-        wpm: { value: val }
+        mode: state22.mode === "hybrid" ? "hybrid" : "wpm",
+        wpm: { value: bounded }
       }
     });
     if (state22.mode === "wpm") {
@@ -29389,7 +29439,7 @@ function installScrollRouter(opts) {
           const status = orch.getStatus();
           const detectedWpm = status.wpm;
           if (detectedWpm && isFinite(detectedWpm) && detectedWpm > 0) {
-            const sensitivity = val / detectedWpm;
+            const sensitivity = bounded / detectedWpm;
             orch.setSensitivity(sensitivity);
           } else {
             orch.setSensitivity(1);
@@ -29398,6 +29448,9 @@ function installScrollRouter(opts) {
       } catch {
       }
     }
+  }
+  function handleSidebarWpmChange(val, label) {
+    applyUserWpmValue(val, label, true);
   }
   function resolveWpmDetail(detail) {
     const pxRaw = Number(detail.pxPerSec);
@@ -29481,6 +29534,10 @@ function installScrollRouter(opts) {
         try {
           console.info("[WPM_INTENT] recv", { wpm: wpmValue, source });
         } catch {
+        }
+        if (source === "hotkey") {
+          applyUserWpmValue(wpmValue, "hotkey", false);
+          return;
         }
         handleWpmEvent(detail, "tp:wpm:intent");
       } catch {
@@ -29678,6 +29735,33 @@ function installScrollRouter(opts) {
     applyGate();
   }
   if (state22.mode === "wpm" || state22.mode === "asr") ensureOrchestratorForMode();
+  installSpeedKeyboardShortcuts({
+    getMode: () => String(appStoreSingleton.get?.("scrollMode") || ""),
+    adjustTimed: (direction, coarse) => {
+      window.dispatchEvent(new CustomEvent(AUTO_SPEED_ADJUST_EVENT, {
+        detail: { direction, coarse, source: "hotkey" }
+      }));
+    },
+    adjustWpm: (direction, coarse) => {
+      const slider = document.getElementById("wpmTarget");
+      const storeValue = Number(appStoreSingleton.get?.("wpmTarget"));
+      const sliderValue = Number(slider?.value);
+      const storedValue = (() => {
+        try {
+          return Number(localStorage.getItem("tp_baseline_wpm"));
+        } catch {
+          return Number.NaN;
+        }
+      })();
+      const current = Number.isFinite(storeValue) && storeValue > 0 ? storeValue : Number.isFinite(sliderValue) && sliderValue > 0 ? sliderValue : Number.isFinite(storedValue) && storedValue > 0 ? storedValue : 150;
+      const fineStep = Number(slider?.step);
+      const step = Number.isFinite(fineStep) && fineStep > 0 ? fineStep : 5;
+      const requestedWpm = current + direction * step * (coarse ? AUTO_STEP_COARSE : 1);
+      window.dispatchEvent(new CustomEvent(WPM_INTENT_EVENT, {
+        detail: { wpm: requestedWpm, source: "hotkey" }
+      }));
+    }
+  });
   try {
     document.addEventListener("keydown", (e) => {
       try {
@@ -29686,8 +29770,8 @@ function installScrollRouter(opts) {
         const tag = (target.tagName || "").toUpperCase();
         if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON" || target.isContentEditable) return;
         if (e.ctrlKey || e.metaKey || e.altKey) return;
-        const wantUp = e.key === "+" || e.code === "NumpadAdd" || e.key === "ArrowUp";
-        const wantDown = e.key === "-" || e.code === "NumpadSubtract" || e.key === "ArrowDown";
+        const wantUp = e.key === "+" || e.code === "NumpadAdd";
+        const wantDown = e.key === "-" || e.code === "NumpadSubtract";
         if (!wantUp && !wantDown) return;
         e.preventDefault();
         const step = wantUp ? AUTO_STEP_FINE : -AUTO_STEP_FINE;

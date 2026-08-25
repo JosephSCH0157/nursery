@@ -65,6 +65,12 @@
   padding: 6px 12px;
 }
 
+.hammer-prep-shell__session-state.is-quiet {
+  min-height: 32px;
+  padding: 4px 12px;
+  background: rgba(15, 23, 42, 0.72);
+}
+
 .hammer-prep-shell__session-primary {
   min-width: 0;
   flex: 1 1 auto;

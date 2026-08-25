@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { RefObject } from "react";
+import type { Dispatch, RefObject, SetStateAction } from "react";
 import type { CanonicalAutomaticPlacementResult } from "../features/auto-placement/canonicalPlacementAuthority";
 import { resolveHammerAutomaticPlacementCommand } from "./hammerAutomaticPlacementController";
 import { readPlacementDisplaySnapshot } from "../features/auto-placement/placementFrameDisplayAuthority";
 import { DEFAULT_IMAGE_PLACEMENT_TRANSFORM, clampImagePlacementTransform } from "./hammerWorkspaceShellVisualUtils";
-import { clearPreviewOverride, type PreviewPlacementTransform } from "./hammerAutoPreviewPosition";
+import { applyPreviewOverride, clearPreviewOverride, previewTransformsEqual, type PreviewPlacementTransform } from "./hammerAutoPreviewPosition";
 import type { HammerAutoPlacementDiagnosticsState } from "./hammerWorkspaceShellViewModels";
 
 /**
@@ -37,15 +37,46 @@ export function createHammerAutomaticPlacementEvidenceLifecycle(identity: string
 }
 
 type Placement = { id: string } | null;
+type PlacementEvidence = { placementId: string; result: CanonicalAutomaticPlacementResult };
+
+function samePlacementEvidence(current: PlacementEvidence | null, next: PlacementEvidence): boolean {
+  if (!current || current.placementId !== next.placementId) return false;
+  const currentFrame = current.result.requestedFrameRef;
+  const nextFrame = next.result.requestedFrameRef;
+  return currentFrame.sourceIdentity === nextFrame.sourceIdentity
+    && currentFrame.captureEpoch === nextFrame.captureEpoch
+    && currentFrame.captureRevision === nextFrame.captureRevision
+    && currentFrame.sourcePresentationTimeSec === nextFrame.sourcePresentationTimeSec
+    && currentFrame.width === nextFrame.width
+    && currentFrame.height === nextFrame.height;
+}
+
+export function doesPlacementOverlapSubject(args: {
+  placement: { x: number; y: number; width: number; height: number };
+  subjectBounds: ReadonlyArray<{ x: number; y: number; width: number; height: number }>;
+}): boolean {
+  const placement = args.placement;
+  return args.subjectBounds.some((subject) => (
+    placement.x < subject.x + subject.width
+    && placement.x + placement.width > subject.x
+    && placement.y < subject.y + subject.height
+    && placement.y + placement.height > subject.y
+  ));
+}
 
 export function useHammerAutomaticPlacementEvidenceHandler(args: {
   selectedPlacement: Placement;
-  setEvidence: (value: { placementId: string; result: CanonicalAutomaticPlacementResult } | null) => void;
+  setEvidence: Dispatch<SetStateAction<PlacementEvidence | null>>;
 }) {
   const { selectedPlacement, setEvidence } = args;
   return useCallback((result: CanonicalAutomaticPlacementResult | null): void => {
     const placementId = selectedPlacement?.id ?? null;
-    setEvidence(result && placementId ? { placementId, result } : null);
+    if (!result || !placementId) {
+      setEvidence(null);
+      return;
+    }
+    const next = { placementId, result };
+    setEvidence((current) => samePlacementEvidence(current, next) ? current : next);
   }, [selectedPlacement?.id, setEvidence]);
 }
 
@@ -66,6 +97,19 @@ export function useHammerAutomaticPlacementLifecycle(args: {
   const { selectedPlacement, selectedTransform, evidence, setEvidence, automaticPlacementEnabled,
     isPlaybackActive, previewVideoRef, automaticallyPlacedIds, fallbackPlacedIds, setOverrides,
     setStatus, commitTransform } = args;
+  const previousPlacementIdRef = useRef<string | null>(null);
+  const selectedTransformRef = useRef(selectedTransform);
+  selectedTransformRef.current = selectedTransform;
+
+  useEffect(() => {
+    const placementId = selectedPlacement?.id ?? null;
+    const previousPlacementId = previousPlacementIdRef.current;
+    if (previousPlacementId === placementId) return;
+    previousPlacementIdRef.current = placementId;
+    setEvidence(null);
+    setStatus(null);
+  }, [automaticallyPlacedIds, fallbackPlacedIds, selectedPlacement?.id, setEvidence, setOverrides, setStatus]);
+
   const previewAutoPosition = useCallback((): void => {
     const command = resolveHammerAutomaticPlacementCommand({
       selectedPlacementId: selectedPlacement?.id ?? null,
@@ -86,15 +130,17 @@ export function useHammerAutomaticPlacementLifecycle(args: {
     const placementId = selectedPlacement?.id ?? null;
     if (!placementId || automaticallyPlacedIds.current.has(placementId)) return;
     if (evidence?.placementId !== placementId) return;
-    const t = selectedTransform;
+    const t = selectedTransformRef.current;
     const stillAtDefaultGeometry = Math.abs(t.leftPct - DEFAULT_IMAGE_PLACEMENT_TRANSFORM.leftPct) < 0.01
       && Math.abs(t.topPct - DEFAULT_IMAGE_PLACEMENT_TRANSFORM.topPct) < 0.01
       && Math.abs(t.widthPct - DEFAULT_IMAGE_PLACEMENT_TRANSFORM.widthPct) < 0.01
       && Math.abs(t.heightPct - DEFAULT_IMAGE_PLACEMENT_TRANSFORM.heightPct) < 0.01;
     const frame = evidence.result.requestedFrameRef;
     const currentRect = { x: frame.width * (t.leftPct / 100), y: frame.height * (t.topPct / 100), width: frame.width * (t.widthPct / 100), height: frame.height * (t.heightPct / 100) };
-    const currentlyCoversAHead = evidence.result.headSafeBounds.some((head) => currentRect.x < head.x + head.width && currentRect.x + currentRect.width > head.x && currentRect.y < head.y + head.height && currentRect.y + currentRect.height > head.y);
-    if (!stillAtDefaultGeometry && !currentlyCoversAHead && !fallbackPlacedIds.current.has(placementId)) {
+    const subjectBounds = [...evidence.result.headSafeBounds, ...evidence.result.speakerMaskBounds];
+    const currentlyCoversSubject = doesPlacementOverlapSubject({ placement: currentRect, subjectBounds });
+    if (!stillAtDefaultGeometry && subjectBounds.length === 0 && !fallbackPlacedIds.current.has(placementId)) return;
+    if (!stillAtDefaultGeometry && !currentlyCoversSubject && !fallbackPlacedIds.current.has(placementId)) {
       automaticallyPlacedIds.current.add(placementId);
       return;
     }
@@ -103,16 +149,32 @@ export function useHammerAutomaticPlacementLifecycle(args: {
     if (command.kind === "refused") { if (command.invalidateEvidence) setEvidence(null); return; }
     automaticallyPlacedIds.current.add(placementId);
     fallbackPlacedIds.current.delete(placementId);
-    const committed = commitTransform(command.placementId, command.transform, "Apply initial mask-safe visual placement");
-    setOverrides((current) => clearPreviewOverride(current, command.placementId));
-    setStatus(committed ? `Mask-safe placement applied automatically (${command.zone}).` : "Mask-safe placement already matches the saved geometry.");
-  }, [automaticallyPlacedIds, commitTransform, evidence, fallbackPlacedIds, isPlaybackActive, previewVideoRef, selectedPlacement?.id, selectedTransform, setEvidence, setOverrides, setStatus]);
+    setOverrides((current) => applyPreviewOverride(current, command.placementId, command.transform));
+    setStatus(`Mask-safe preview active (${command.zone}) · Apply Auto Position to save.`);
+  }, [automaticallyPlacedIds, evidence, fallbackPlacedIds, isPlaybackActive, previewVideoRef, selectedPlacement?.id, setEvidence, setOverrides, setStatus]);
+
+  useEffect(() => {
+    const placementId = selectedPlacement?.id ?? null;
+    if (!placementId || !automaticallyPlacedIds.current.has(placementId) || evidence?.placementId !== placementId) return;
+    const frame = evidence.result.requestedFrameRef;
+    const t = selectedTransformRef.current;
+    const currentRect = { x: frame.width * (t.leftPct / 100), y: frame.height * (t.topPct / 100), width: frame.width * (t.widthPct / 100), height: frame.height * (t.heightPct / 100) };
+    const subjectBounds = [...evidence.result.headSafeBounds, ...evidence.result.speakerMaskBounds];
+    if (!doesPlacementOverlapSubject({ placement: currentRect, subjectBounds })) return;
+    const command = resolveHammerAutomaticPlacementCommand({ selectedPlacementId: placementId, authorityResult: evidence.result,
+      displayedFrame: readPlacementDisplaySnapshot({ video: previewVideoRef.current, playbackActive: isPlaybackActive }) });
+    if (command.kind === "refused") { if (command.invalidateEvidence) setEvidence(null); return; }
+    const alreadyShowingResolvedPlacement = previewTransformsEqual(t, command.transform);
+    if (alreadyShowingResolvedPlacement) return;
+    setOverrides((current) => applyPreviewOverride(current, command.placementId, command.transform));
+    setStatus(`Mask-following preview active (${command.zone}) · Apply Auto Position to save.`);
+  }, [automaticallyPlacedIds, evidence, isPlaybackActive, previewVideoRef, selectedPlacement?.id, setEvidence, setOverrides, setStatus]);
 
   useEffect(() => {
     const placementId = selectedPlacement?.id ?? null;
     if (!placementId || automaticallyPlacedIds.current.has(placementId) || !automaticPlacementEnabled) return;
     if (evidence?.placementId === placementId && evidence.result.placement) return;
-    const t = selectedTransform;
+    const t = selectedTransformRef.current;
     const stillAtDefaultGeometry = Math.abs(t.leftPct - DEFAULT_IMAGE_PLACEMENT_TRANSFORM.leftPct) < 0.01
       && Math.abs(t.topPct - DEFAULT_IMAGE_PLACEMENT_TRANSFORM.topPct) < 0.01
       && Math.abs(t.widthPct - DEFAULT_IMAGE_PLACEMENT_TRANSFORM.widthPct) < 0.01
@@ -125,11 +187,11 @@ export function useHammerAutomaticPlacementLifecycle(args: {
         fallback: { transform: fallbackTransform, zone: "conservative_corner" } });
       if (command.kind === "refused") return;
       fallbackPlacedIds.current.add(placementId);
-      commitTransform(command.placementId, command.transform, "Apply conservative visual placement fallback");
-      setStatus("Face-aware analysis unavailable; conservative corner placement applied.");
+      setOverrides((current) => applyPreviewOverride(current, command.placementId, command.transform));
+      setStatus("Face-aware analysis unavailable; conservative corner preview active · Apply Auto Position to save.");
     }, 1500);
     return () => window.clearTimeout(timer);
-  }, [automaticPlacementEnabled, automaticallyPlacedIds, commitTransform, evidence, fallbackPlacedIds, selectedPlacement?.id, selectedTransform, setStatus]);
+  }, [automaticPlacementEnabled, automaticallyPlacedIds, evidence, fallbackPlacedIds, selectedPlacement?.id, setOverrides, setStatus]);
 
   const resetPreviewAutoPosition = useCallback((): void => {
     if (!selectedPlacement) return;

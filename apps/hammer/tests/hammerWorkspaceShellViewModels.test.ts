@@ -30,3 +30,14 @@ test("view-model composition owns no authority, effects, persistence, mutation, 
   assert.doesNotMatch(composer, /useState|useReducer|useEffect|useLayoutEffect|useRef|setTimeout|fetch\(|createPortal|return\s*\(/);
   assert.doesNotMatch(composer, /Persistence|Artifact|Snapshot|HistoryController|AutomaticPlacementCommand|SourceDeskController/);
 });
+
+test("initial-page polish does not restore Tool Bay composition or production scaffolding", () => {
+  const root = path.resolve(import.meta.dirname, "..");
+  const files = [
+    "src/editor/HammerWorkspaceShell.tsx",
+    "src/editor/HammerTypedToolBaySurfaces.tsx",
+    "src/editor/HammerTypedImageInspectorSurface.tsx",
+    "src/editor/useHammerWorkspaceShellViewModels.ts",
+  ].map((file) => fs.readFileSync(path.join(root, file), "utf8")).join("\n");
+  assert.doesNotMatch(files, /TOOLBAY FILE IS LIVE|buildToolBayVM|toolBaySurfaceModel|workspaceViewModelComposition\.toolBay/);
+});

@@ -16,6 +16,7 @@ export type HammerWorkspaceShellToolbarVM = {
     label: string;
     value: string;
     title?: string;
+    onClick?: () => void;
   }>;
   passes: HammerWorkspaceShellToolbarPassVM[];
   onSelectPass: (passId: HammerPassId) => void;
@@ -29,10 +30,17 @@ export default function HammerWorkspaceShellToolbar(props: { vm: HammerWorkspace
       {vm.stats.length > 0 ? (
         <div className="hammer-toolbar__stats" aria-label="Workspace stats">
           {vm.stats.map((stat) => (
-            <div key={stat.id} className="hammer-toolbar__stat" title={stat.title ?? `${stat.label}: ${stat.value}`}>
+            <button
+              key={stat.id}
+              type="button"
+              className="hammer-toolbar__stat"
+              title={stat.title ?? `${stat.label}: ${stat.value}`}
+              onClick={stat.onClick}
+              disabled={!stat.onClick}
+            >
               <span>{stat.label}</span>
               <strong>{stat.value}</strong>
-            </div>
+            </button>
           ))}
         </div>
       ) : null}
@@ -44,7 +52,6 @@ export default function HammerWorkspaceShellToolbar(props: { vm: HammerWorkspace
           onClick={() => vm.onSelectPass(pass.id)}
           title={`${pass.label} (${pass.toolId}) - ${pass.statusLabel}`}
         >
-          <strong>{pass.shortLabel}</strong>
           <span>{pass.label}</span>
         </button>
       ))}

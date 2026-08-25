@@ -3724,6 +3724,57 @@
   background: rgba(176, 0, 32, 0.08);
 }
 
+.hs-imap-operation-status {
+  align-items: flex-start;
+  background: rgba(37, 99, 235, 0.1);
+  border: 1px solid rgba(96, 165, 250, 0.42);
+  border-radius: 10px;
+  color: #dbeafe;
+  display: flex;
+  gap: 10px;
+  margin: 0 0 12px;
+  padding: 10px 12px;
+}
+
+.hs-imap-operation-status > span:last-child {
+  display: grid;
+  gap: 3px;
+}
+
+.hs-imap-operation-status small {
+  color: #bfdbfe;
+}
+
+.hs-imap-operation-status.is-complete {
+  background: rgba(5, 150, 105, 0.1);
+  border-color: rgba(52, 211, 153, 0.42);
+  color: #d1fae5;
+}
+
+.hs-imap-operation-status.is-failed {
+  background: rgba(220, 38, 38, 0.1);
+  border-color: rgba(248, 113, 113, 0.45);
+  color: #fee2e2;
+}
+
+.hs-imap-operation-indicator {
+  background: currentColor;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  height: 9px;
+  margin-top: 5px;
+  width: 9px;
+}
+
+.hs-imap-operation-status:not(.is-complete):not(.is-failed) .hs-imap-operation-indicator {
+  animation: hs-imap-operation-pulse 1.1s ease-in-out infinite alternate;
+}
+
+@keyframes hs-imap-operation-pulse {
+  from { opacity: 0.35; transform: scale(0.82); }
+  to { opacity: 1; transform: scale(1); }
+}
+
 .hs-imap-toolbar {
   display: flex;
   flex-wrap: wrap;

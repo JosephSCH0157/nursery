@@ -5,6 +5,7 @@ import type {
 } from "../../lib/hearth-media-map-conversation";
 import { normalizeMediaMapGenerationScope } from "../../lib/hearth-media-map-conversation";
 import type { EpisodeMediaMapEntry } from "../../lib/episode-package-v2";
+import type { HearthVisualPlanOperationStage } from "../../lib/hearth-visual-plan-operation";
 
 export function useMediaMapWorkspace() {
   const [selectedMediaMapEntryId, setSelectedMediaMapEntryId] = useState<string | null>(null);
@@ -25,6 +26,7 @@ export function useMediaMapWorkspace() {
   const [mediaMapMessage, setMediaMapMessage] = useState<string | null>(null);
   const [mediaMapGenerationScope, setMediaMapGenerationScope] = useState<MediaMapGenerationScope>("full_media_plan");
   const [isMediaMapBusy, setIsMediaMapBusy] = useState(false);
+  const [visualPlanOperationStage, setVisualPlanOperationStage] = useState<HearthVisualPlanOperationStage>("idle");
   const [mediaMapConversationSeed, setMediaMapConversationSeed] = useState<MediaMapConversationSeed | null>(null);
   const [mediaMapConversationState, setMediaMapConversationState] = useState<"idle" | "loading" | "ready" | "error">("idle");
   const [mediaMapConversationError, setMediaMapConversationError] = useState<string | null>(null);
@@ -162,6 +164,7 @@ export function useMediaMapWorkspace() {
     setMediaMapConversationSeed(null);
     setMediaMapConversationState("idle");
     setMediaMapConversationError(null);
+    setVisualPlanOperationStage("idle");
   }, []);
 
   return {
@@ -201,6 +204,8 @@ export function useMediaMapWorkspace() {
     setMediaMapGenerationScope,
     isMediaMapBusy,
     setIsMediaMapBusy,
+    visualPlanOperationStage,
+    setVisualPlanOperationStage,
     mediaMapConversationSeed,
     setMediaMapConversationSeed,
     mediaMapConversationState,

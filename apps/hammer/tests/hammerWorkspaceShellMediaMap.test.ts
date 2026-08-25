@@ -8,6 +8,7 @@ import type { HammerEditorStateSerializable, HammerHistoryEntry } from "../src/e
 import type { HammerHistoryMutationArgs } from "../src/editor/hammerWorkspaceShellHistoryController";
 import { createHammerMediaMapMutationCommands } from "../src/editor/hammerWorkspaceShellMediaMapCommands";
 import { deriveHammerBrollSuggestionItems, deriveHammerMediaMapBeats, deriveHammerResolvedBrollBindings } from "../src/editor/useHammerWorkspaceShellMediaMap";
+import { evaluateHammerBrollConsistency } from "../src/editor/hammerBrollConsistency";
 
 function commandFixture() {
   let state: HammerEditorStateSerializable = {
@@ -118,10 +119,14 @@ test("resolved binding move, replace, and revert preserve operation identity and
   { id: "op:b1", asset: "assets/replacement.mp4", start: 2, end: 4 });
   assert.deepEqual(state.visualTimeline?.clips.map((clip) => [clip.clip_id, clip.start_sec, clip.end_sec]),
     [["placement1", 2, 4]]);
+  assert.deepEqual(evaluateHammerBrollConsistency({ graph: state.editorialAuthorityGraph, visualTimeline: state.visualTimeline }),
+    { status: "aligned", findings: [] });
   fixture.commands.revertResolvedBrollBinding("op:b1");
   state = fixture.getState();
   assert.equal(state.editorialAuthorityGraph?.operations.find((item) => item.operation_id === "op:b1")?.lifecycle, "reverted");
   assert.deepEqual(state.visualTimeline?.clips, []);
+  assert.deepEqual(evaluateHammerBrollConsistency({ graph: state.editorialAuthorityGraph, visualTimeline: state.visualTimeline }),
+    { status: "aligned", findings: [] });
   assert.deepEqual(fixture.mutations.slice(1).map((mutation) => mutation.label), [
     "Move resolved b-roll binding", "Replace resolved b-roll asset", "Revert resolved b-roll binding",
   ]);
@@ -157,6 +162,18 @@ test("visual anchor refinement preserves canonical timeline and history intent",
     affected: ["placement1"],
     immediate: true,
   });
+});
+
+test("governed B-roll/reference conversion preserves authority identity and aligned provenance", () => {
+  const fixture = commandFixture();
+  fixture.commands.resolveHearthBrollSuggestion({ operationId: "op:b1", assetPath: "assets/product.mp4", label: "Product" });
+  fixture.commands.updatePlacementKindFromMediaMap("placement1", "reference_clip");
+  const state = fixture.getState();
+  assert.equal(state.visualTimeline?.clips[0]?.visual_mode, "reference_clip");
+  assert.equal(state.visualTimeline?.clips[0]?.authority_operation_id, "op:b1");
+  assert.equal(state.visualTimeline?.assets[0]?.kind, "reference_clip");
+  assert.deepEqual(evaluateHammerBrollConsistency({ graph: state.editorialAuthorityGraph, visualTimeline: state.visualTimeline }),
+    { status: "aligned", findings: [] });
 });
 
 test("media-map authority excludes loading, placement mutation, view models, persistence, and shorts", () => {

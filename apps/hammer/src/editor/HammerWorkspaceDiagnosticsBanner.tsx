@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import type { JSX } from "react";
 import type { HammerIssueDiagnostic, HammerIssueFixActionId } from "./hammerIssueDiagnostics";
 import { formatAffectedAreas } from "./hammerIssueDiagnostics";
+export { useHammerDiagnosticsPresentation } from "./useHammerDiagnosticsPresentation";
 
 const actionLabel: Record<HammerIssueFixActionId, string> = {
   reload_latest: "Reload latest",

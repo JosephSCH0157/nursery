@@ -9,6 +9,7 @@ import type { HammerEditorStateSerializable, HammerHistoryKind } from "./hammerW
 import type { HammerVisualClip, HammerVisualGeometry, HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
 import { selectClipById } from "../visuals/state/hammerVisualSelectors";
 import type { HammerVisualTimelineAction } from "../visuals/state/hammerVisualActions";
+import { createGovernedBrollPlacement, removeGovernedBrollPlacement, resolveGovernedBrollOperationId, updateGovernedBrollTiming } from "./hammerGovernedBrollMutation";
 import { deriveLegacyVisualPlacementsFromTimeline } from "../visuals/persistence/hammerVisualTimelineLegacyAdapter";
 import {
   deriveStableHammerVisualAssetId,
@@ -76,6 +77,8 @@ type HammerApplyHistoryMutationFn = (args: {
 export type UseHammerWorkspaceShellVisualEditingArgs = {
   workpieceId: string;
   workspaceId: string;
+  sessionId: string;
+  transcriptSourceId: string;
   currentPass: HammerPassId;
   transcriptDurationSec: number;
   timelineDurationSec: number;
@@ -255,19 +258,18 @@ export function useHammerWorkspaceShellVisualEditing(
       toolId: "video",
       affectedPlacementIds: [placementId],
       immediatePersist: true,
-      computeAfter: (before) => args.applyVisualTimelineAction(before, {
-        type: "UPDATE_CLIP_TIMING",
-        clip_id: placementId,
-        start_sec: clampedStart,
-        end_sec: clampedEnd,
-        updated_at: new Date().toISOString(),
-      }),
+      computeAfter: (before) => {
+        const nowIso = new Date().toISOString();
+        const operationId = resolveGovernedBrollOperationId(before, placementId);
+        return operationId
+          ? updateGovernedBrollTiming({ before, clipId: placementId, operationId, startSec: clampedStart, endSec: clampedEnd, nowIso })
+          : args.applyVisualTimelineAction(before, { type: "UPDATE_CLIP_TIMING", clip_id: placementId, start_sec: clampedStart, end_sec: clampedEnd, updated_at: nowIso });
+      },
     });
-    if (applied) {
+    if (applied && !currentClip?.authority_operation_id) {
       args.requestDurablePersistBoundary();
-      return true;
     }
-    return false;
+    return Boolean(applied);
   }, [args]);
 
   const commitImagePlacementTransform = useCallback((
@@ -426,11 +428,13 @@ export function useHammerWorkspaceShellVisualEditing(
       affectedSegments: placement ? [placement.anchor_segment_id] : undefined,
       affectedPlacementIds: [placementId],
       immediatePersist: true,
-      computeAfter: (before) => args.applyVisualTimelineAction(before, {
-        type: "DELETE_CLIP",
-        clip_id: placementId,
-        updated_at: new Date().toISOString(),
-      }),
+      computeAfter: (before) => {
+        const nowIso = new Date().toISOString();
+        const operationId = resolveGovernedBrollOperationId(before, placementId);
+        return operationId
+          ? removeGovernedBrollPlacement({ before, clipId: placementId, operationId, nowIso })
+          : args.applyVisualTimelineAction(before, { type: "DELETE_CLIP", clip_id: placementId, updated_at: nowIso });
+      },
     });
   }, [args]);
 
@@ -555,54 +559,12 @@ export function useHammerWorkspaceShellVisualEditing(
         if (!anchorSegment) return before;
         const nextStart = Math.max(0, roundToTenth(before.playheadSec));
         const nextEnd = Math.max(nextStart + 0.5, Math.min(args.transcriptDurationSec, roundToTenth(nextStart + 3)));
-        const visualTimeline = args.resolveCanonicalVisualTimeline(before);
         const updatedAt = new Date().toISOString();
-        const nextPlacement: HammerVisualPlacementRecord = {
-          placement_id: placementId,
-          entry_id: `manual:${placementId}`,
-          anchor_segment_id: anchorSegment.segment_id,
-          matched_segment_ids: [anchorSegment.segment_id],
-          anchor_text: anchorSegment.text,
-          asset_ref: placementArgs.assetPath,
-          asset_id: null,
-          asset_path: placementArgs.assetPath,
-          storage_key: placementArgs.assetPath,
-          label: placementArgs.label,
-          visual_mode: placementArgs.kind,
-          start_sec: nextStart,
-          end_sec: nextEnd,
-          confidence: null,
-          timing_source: "ordered_fallback",
-          status: "placed",
-          ingest_state: "approved",
-          uncertainty_flags: [],
-          overlay_geometry: {
-            ...DEFAULT_VISUAL_PLACEMENT_GEOMETRY,
-            x: 0.08,
-            y: 0.08,
-            width: 0.84,
-            height: 0.84,
-          },
-          animation_preset: "none",
-          overlay_opacity: 1,
-          overlay_z_index: visualTimeline.clips.length + 1,
-        };
-        const assetId = deriveStableHammerVisualAssetId(nextPlacement);
-        return args.applyVisualTimelineActions({
-          ...before,
-          selectedSegmentId: anchorSegment.segment_id,
-        }, [
-          {
-            type: "UPSERT_ASSETS",
-            assets: [migrateLegacyPlacementRecordToAsset({ record: nextPlacement, asset_id: assetId, updated_at: updatedAt })],
-            updated_at: updatedAt,
-          },
-          {
-            type: "CREATE_CLIP",
-            clip: migrateLegacyPlacementRecordToClip({ record: nextPlacement, asset_id: assetId, updated_at: updatedAt }),
-            updated_at: updatedAt,
-          },
-        ]);
+        return createGovernedBrollPlacement({ before, placementId, assetPath: placementArgs.assetPath,
+          label: placementArgs.label, kind: placementArgs.kind, segmentId: anchorSegment.segment_id,
+          segmentText: anchorSegment.text, startSec: nextStart, endSec: nextEnd, nowIso: updatedAt,
+          identity: { graphId: `${args.workpieceId}:authority`, workspaceId: args.workspaceId,
+            workpieceId: args.workpieceId, sessionId: args.sessionId, sourceTranscriptId: args.transcriptSourceId } });
       },
     });
   }, [args]);

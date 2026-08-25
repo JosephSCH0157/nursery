@@ -1,4 +1,4 @@
-import type { JSX, KeyboardEvent as ReactKeyboardEvent, RefObject, WheelEvent as ReactWheelEvent } from "react";
+import { useEffect, useState, type JSX, type KeyboardEvent as ReactKeyboardEvent, type RefObject, type WheelEvent as ReactWheelEvent } from "react";
 import VisualTimelineDock from "../visuals/components/VisualTimelineDock";
 import { HammerWaveformLane } from "./HammerWaveformLane";
 
@@ -156,6 +156,11 @@ export default function HammerWorkspaceShellTimelineDock(props: { vm: HammerWork
     beginTimelineImagePlacementDrag,
     openImageAnimationContextMenu,
   } = vm;
+  const transcriptPassActive = ["transcript_cleanup", "retakes", "gap_pacing"].includes(currentPass);
+  const [expanded, setExpanded] = useState(() => !transcriptPassActive);
+  useEffect(() => {
+    setExpanded(!transcriptPassActive);
+  }, [transcriptPassActive]);
 
   const handleTimelineSliderKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
     let nextTimeSec: number | null = null;
@@ -179,9 +184,12 @@ export default function HammerWorkspaceShellTimelineDock(props: { vm: HammerWork
           <button type="button" onClick={() => setFocusOverride("source-focus")}>Source</button>
           <button type="button" onClick={() => setFocusOverride("tool-focus")}>Tool</button>
           <button type="button" onClick={() => setFocusOverride("time-focus")}>Time</button>
+          <button type="button" onClick={() => setExpanded((current) => !current)} aria-expanded={expanded}>
+            {expanded ? "Collapse" : "Expand"}
+          </button>
         </div>
       </header>
-      <div className={`hammer-bay-body hammer-timeline-dock__body${isScrubbing ? " is-scrubbing" : ""}`}>
+      <div className={`hammer-bay-body hammer-timeline-dock__body${isScrubbing ? " is-scrubbing" : ""}${expanded ? "" : " is-collapsed"}`}>
         <HammerWaveformLane
           waveformProxy={waveformProxy}
           durationSec={playbackTransportDurationSec}
@@ -191,8 +199,10 @@ export default function HammerWorkspaceShellTimelineDock(props: { vm: HammerWork
             seekPlayheadToTime(targetSec, "timeline", { snapToBoundary: false });
           }}
         />
-        <div className="hammer-timeline-tools">
-          <button type="button" onClick={togglePlayback}>
+        <div className="hammer-timeline-control-groups">
+          <section className="hammer-timeline-control-group" aria-label="Playback controls">
+            <span>Playback</span>
+            <div className="hammer-timeline-tools"><button type="button" onClick={togglePlayback}>
             {isPlaybackActive ? "Pause" : "Play"}
           </button>
           <button type="button" onClick={toggleSelectionLoopPlayback}>
@@ -201,6 +211,11 @@ export default function HammerWorkspaceShellTimelineDock(props: { vm: HammerWork
           <button type="button" onClick={playSelectionWithRoll}>
             Audition Roll (P)
           </button>
+            </div>
+          </section>
+          <section className="hammer-timeline-control-group" aria-label="Selection controls">
+            <span>Selection</span>
+            <div className="hammer-timeline-tools">
           <button type="button" onClick={() => selectAdjacentSegment("previous")} disabled={!selectedSegment}>
             Prev (↑)
           </button>
@@ -213,12 +228,25 @@ export default function HammerWorkspaceShellTimelineDock(props: { vm: HammerWork
           <button type="button" onClick={() => jumpToSelectionBoundary("end")}>
             Sel Out (End)
           </button>
+          <button type="button" onClick={splitSelectedSegmentAtPlayhead} disabled={!selectedSegment}>Split (S)</button>
+          <button type="button" onClick={deleteSelectedSegmentAndRipple} disabled={!selectedSegment}>Delete (Del)</button>
+          <button type="button" onClick={toggleSelectedSegmentDisabled} disabled={!selectedSegment}>{selectedSegment?.is_disabled ? "Enable (M)" : "Disable (M)"}</button>
+            </div>
+          </section>
+          <section className="hammer-timeline-control-group" aria-label="Edit navigation controls">
+            <span>Navigate</span>
+            <div className="hammer-timeline-tools">
           <button type="button" onClick={() => jumpToEditPoint("previous")}>
             Prev Edit (,)
           </button>
           <button type="button" onClick={() => jumpToEditPoint("next")}>
             Next Edit (.)
           </button>
+            </div>
+          </section>
+          <details className="hammer-timeline-more">
+            <summary>More</summary>
+            <div className="hammer-timeline-tools">
           <button type="button" onClick={() => jumpToMarker("previous")} disabled={sortedTimelineMarkers.length === 0}>
             Prev Marker (PgUp)
           </button>
@@ -260,15 +288,8 @@ export default function HammerWorkspaceShellTimelineDock(props: { vm: HammerWork
           <button type="button" onClick={() => nudgePlayhead(smallPlayheadNudgeSec)}>
             +0.1s (→)
           </button>
-          <button type="button" onClick={splitSelectedSegmentAtPlayhead} disabled={!selectedSegment}>
-            Split (S)
-          </button>
-          <button type="button" onClick={deleteSelectedSegmentAndRipple} disabled={!selectedSegment}>
-            Delete (Del)
-          </button>
-          <button type="button" onClick={toggleSelectedSegmentDisabled} disabled={!selectedSegment}>
-            {selectedSegment?.is_disabled ? "Enable (M)" : "Disable (M)"}
-          </button>
+            </div>
+          </details>
         </div>
         <section className="hammer-timeline-cut-actions" aria-label="Audio cut selection">
           <div className="hammer-timeline-cut-actions__meta">

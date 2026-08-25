@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { analyzeDeadAirGaps, applyDeadAirClosure } from "../src/editor/hammerDeadAirClosure";
-import { buildSilenceCutSuggestions, filterDismissedSilenceCutSuggestions } from "../src/editor/hammerSilenceCutSuggestions";
+import { buildSilenceCutSuggestions, filterDismissedSilenceCutSuggestions, filterSilenceCutSuggestionsAboveThreshold } from "../src/editor/hammerSilenceCutSuggestions";
 
 test("silence suggestions remain advisory and dismissal does not mutate analysis", () => {
   const segmentation = {
@@ -16,6 +16,20 @@ test("silence suggestions remain advisory and dismissal does not mutate analysis
     dismissedSuggestionIds: new Set([suggestions[0].id]),
   }).length, 0);
   assert.deepEqual(segmentation, before);
+});
+
+test("silence suggestion eligibility uses the same strict threshold boundary as dead-air analysis", () => {
+  const suggestions = buildSilenceCutSuggestions({
+    segmentation: {
+      regions: [
+        { id: "at-threshold", kind: "silence", start_sec: 1, end_sec: 2.5 },
+        { id: "above-threshold", kind: "silence", start_sec: 3, end_sec: 4.6 },
+      ],
+    },
+    durationSec: 10,
+  });
+  const eligible = filterSilenceCutSuggestionsAboveThreshold({ suggestions, thresholdSec: 1.5 });
+  assert.deepEqual(eligible.map((suggestion) => suggestion.sourceRegionId), ["above-threshold"]);
 });
 
 test("dead-air analysis is advisory and closure preserves the established timing result", () => {

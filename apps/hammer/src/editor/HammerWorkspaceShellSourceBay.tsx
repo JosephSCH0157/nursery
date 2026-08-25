@@ -89,6 +89,7 @@ export type HammerWorkspaceShellSourceBayVM = {
     };
     entries: HammerWorkspaceShellHistoryEntryVM[];
   };
+  historyEpochArchivedNotice?: boolean;
 };
 
 export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspaceShellSourceBayVM }): JSX.Element {
@@ -689,7 +690,8 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
             AI in use now. Live processing is active.
           </div>
         ) : null}
-        <div className="hammer-bay-tabs">
+        <div className="hammer-source-control-group" aria-label="History controls">
+          <span className="hammer-source-control-group__label">History</span>
           <button
             type="button"
             onClick={vm.undo.onUndo}
@@ -707,8 +709,8 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
             {vm.redo.canRedo && vm.redo.compactLabel ? `Redo ${vm.redo.compactLabel}` : "Redo"}
           </button>
         </div>
-        <div className="hammer-bay-tabs">
-          {vm.tabs.map((tab) => (
+        <div className="hammer-source-control-group hammer-source-control-group--primary">
+          {vm.tabs.filter((tab) => tab.id === "transcript").map((tab) => (
             <button
               key={tab.id}
               type="button"
@@ -719,17 +721,26 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
             </button>
           ))}
         </div>
+        <details className="hammer-source-menu">
+          <summary>Sources</summary>
+          <div className="hammer-source-menu__items">
+            {vm.tabs.filter((tab) => tab.id !== "transcript").map((tab) => (
+              <button key={tab.id} type="button" className={tab.isActive ? "is-active" : ""} onClick={tab.onSelect}>{tab.label}</button>
+            ))}
+          </div>
+        </details>
         {selectedSourceTab === "transcript" && vm.onRequestRegenerateAiTranscript ? (
-          <div className="hammer-bay-tabs">
-            <button
+          <details className="hammer-source-menu">
+            <summary>More</summary>
+            <div className="hammer-source-menu__items"><button
               type="button"
               onClick={vm.onRequestRegenerateAiTranscript}
               disabled={Boolean(vm.regenerateAiTranscriptDisabled)}
               title="Regenerate AI transcript and optionally refresh visual placements"
             >
               Regenerate AI Transcript
-            </button>
-          </div>
+            </button></div>
+          </details>
         ) : null}
       </header>
       <div className="hammer-bay-body">
@@ -863,6 +874,11 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
               <span>{vm.historyPanel.shownCountLabel}</span>
             </div>
           </header>
+          {vm.historyEpochArchivedNotice ? (
+            <div className="hammer-history-panel__epoch" role="status">
+              Earlier history archived · Undo begins here
+            </div>
+          ) : null}
           {vm.historyPanel.resetToRaw?.error ? (
             <div className="hammer-history-panel__empty" role="status">
               {vm.historyPanel.resetToRaw.error}

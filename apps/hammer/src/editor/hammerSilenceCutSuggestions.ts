@@ -35,6 +35,14 @@ export function filterDismissedSilenceCutSuggestions(args: {
   return args.suggestions.filter((suggestion) => !args.dismissedSuggestionIds?.has(suggestion.id));
 }
 
+export function filterSilenceCutSuggestionsAboveThreshold(args: {
+  suggestions: HammerSilenceCutSuggestion[] | null | undefined;
+  thresholdSec: number;
+}): HammerSilenceCutSuggestion[] {
+  const thresholdSec = Number.isFinite(args.thresholdSec) ? Math.max(0, args.thresholdSec) : 0;
+  return (args.suggestions ?? []).filter((suggestion) => suggestion.durationSec > thresholdSec);
+}
+
 export function buildSilenceCutSuggestions(args: {
   segmentation: HammerAudioPolishAnalysisSegmentation | null | undefined;
   durationSec: number;

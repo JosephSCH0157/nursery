@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { deriveHammerIssueDiagnostics } from "../src/editor/hammerIssueDiagnostics";
+import { deriveHammerDiagnosticsPresentation, deriveHammerIssueDiagnostics } from "../src/editor/hammerIssueDiagnostics";
 import type { HammerSessionStateResult } from "../src/editor/hammerSessionState";
 import type { HammerMediaPrepOutputsPackage } from "../src/lib/hammerMediaPrepOutputsPackage";
 
@@ -154,12 +154,30 @@ async function testTransitionalReopenShowsFirstClassWarning() {
   assert.ok(transitional.summary.includes("degraded recovery"));
 }
 
+async function testTranscriptPresentationCompactsOnlyVisualAdvisories() {
+  const issues = deriveHammerIssueDiagnostics({
+    sessionState: sessionState({ status: "degraded_mode", reasonCodes: ["visuals_uncertain", "audio_polish_stale"], isDegraded: true }),
+    mediaPrepOutputs: mediaPrep({ visuals: { ...mediaPrep({}).visuals, uncertain_placement_count: 2 } }),
+    mediaLabelMismatchWarning: null,
+    actualRecordingMismatchWarning: null,
+  });
+  const transcript = deriveHammerDiagnosticsPresentation({ currentPass: "transcript_cleanup", issues, visualDetailsExpanded: false });
+  assert.deepEqual(transcript.compactVisualIssues.map((issue) => issue.id), ["visuals_uncertain"]);
+  assert.deepEqual(transcript.prominentIssues.map((issue) => issue.id), ["audio_polish_stale"]);
+  const expanded = deriveHammerDiagnosticsPresentation({ currentPass: "transcript_cleanup", issues, visualDetailsExpanded: true });
+  assert.equal(expanded.prominentIssues.length, 2);
+  const visuals = deriveHammerDiagnosticsPresentation({ currentPass: "image_placement", issues, visualDetailsExpanded: false });
+  assert.equal(visuals.compactVisualIssues.length, 0);
+  assert.equal(visuals.prominentIssues.length, 2);
+}
+
 async function run() {
   await testAudioPolishStaleMapsToAction();
   await testVisualsUncertainIncludesCounts();
   await testActualRecordingMismatchProducesBlockingIssue();
   await testCanonicalReopenDoesNotShowTransitionalIssue();
   await testTransitionalReopenShowsFirstClassWarning();
+  await testTranscriptPresentationCompactsOnlyVisualAdvisories();
   // eslint-disable-next-line no-console
   console.log("Hammer issue diagnostics tests passed.");
 }

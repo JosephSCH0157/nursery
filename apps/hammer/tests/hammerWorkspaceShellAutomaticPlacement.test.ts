@@ -42,7 +42,8 @@ test("authority owns lifecycle while forbidding direct timeline and persistence 
   const authority = fs.readFileSync(path.join(root, "src/editor/useHammerWorkspaceShellAutomaticPlacement.ts"), "utf8");
   const shell = fs.readFileSync(path.join(root, "src/editor/HammerWorkspaceShell.tsx"), "utf8");
   assert.match(authority, /Every canonical placement mutation must be resolved through[\s\S]*resolveHammerAutomaticPlacementCommand/);
-  assert.equal((authority.match(/resolveHammerAutomaticPlacementCommand\(/g) ?? []).length, 3);
+  assert.equal((authority.match(/resolveHammerAutomaticPlacementCommand\(/g) ?? []).length, 4);
+  assert.equal((authority.match(/commitTransform\(/g) ?? []).length, 1, "only explicit Apply may commit canonical geometry");
   assert.doesNotMatch(authority, /setEditableVisualTimeline|applyVisualTimelineAction|onWorkspaceSnapshotChange|saveHammer/);
   assert.doesNotMatch(shell, /resolveHammerAutomaticPlacementCommand\(/);
   assert.match(shell, /useHammerAutomaticPlacementLifecycle\(/);

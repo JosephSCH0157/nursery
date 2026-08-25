@@ -47,6 +47,7 @@ export type UseHammerWorkspaceShellSelectionArgs = {
   seekPlayheadToTime: HammerSelectionSeekFn;
   revealBottomTimelineAtTime: (timeSec: number) => void;
   revealVisualSelectionUI: (placement: HammerWorkspaceShellSelectionPlacementItem) => void;
+  onVisualSelectionRequested?: (placementId: string) => void;
 };
 
 export type UseHammerWorkspaceShellSelectionResult = {
@@ -302,8 +303,9 @@ export function useHammerWorkspaceShellSelection(
     allowSurfaceSwitch?: boolean;
     snapTarget?: HammerVisualSelectionSnapTarget;
   }) => {
+    args.onVisualSelectionRequested?.(nextArgs.clipId);
     selectLinkedVisualTarget(nextArgs);
-  }, [selectLinkedVisualTarget]);
+  }, [args.onVisualSelectionRequested, selectLinkedVisualTarget]);
 
   return {
     applyLinkedSelectionState,

@@ -53,7 +53,6 @@ export function HammerTypedPassCompletionHeader(props: { context: HammerPassComp
   return (
     <header className="hammer-bay-head" data-hammer-tool-bay-surface="pass_completion">
       <strong>Tool Rack</strong>
-      <span className="hammer-toolbay-live-marker">TOOLBAY FILE IS LIVE</span>
       <div className="hammer-pass-head">
         <span>{data.passLabel}</span>
         <span className={`hammer-pass-badge hammer-pass-badge--${data.passStatus}`}>{data.passStatus}</span>

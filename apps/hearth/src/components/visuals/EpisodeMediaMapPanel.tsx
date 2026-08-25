@@ -9,6 +9,10 @@ import {
 import { formatHearthVisualPurposeLabel } from "../../lib/hearth-visual-purpose";
 import { summarizeMediaMapModalities } from "../../lib/hearth-media-map-builder";
 import type { FullMediaBudgetPolicy } from "../../lib/hearth-media-map-builder";
+import {
+  describeHearthVisualPlanOperation,
+  type HearthVisualPlanOperationStage,
+} from "../../lib/hearth-visual-plan-operation";
 
 type EpisodeMediaMapPanelProps = {
   canonicalItems?: Array<{ id: string; kind: "image" | "broll" | "reference_clip"; focus: string; description: string; status: string }>;
@@ -27,6 +31,7 @@ type EpisodeMediaMapPanelProps = {
   onRecoverLastGeneration: () => void;
   message: string | null;
   disabled?: boolean;
+  operationStage: HearthVisualPlanOperationStage;
   generationScope: string;
   budgetPolicy: FullMediaBudgetPolicy;
   draft: {
@@ -263,6 +268,7 @@ function MediaMapAdvancedEditor(props: EpisodeMediaMapPanelProps & {
 
 export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
   const conversation = props.conversation ?? FALLBACK_CONVERSATION;
+  const operationStatus = describeHearthVisualPlanOperation(props.operationStage);
   const mediaMapNeedsReapply = props.mapStatus === "needs_attention";
   const mediaMapActivated = props.mapStatus === "activated"
     || props.mapStatus === "fulfilling"
@@ -354,6 +360,24 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
           <div className={`hs-imap-save-state is-${props.saveState}`}>{props.saveState}</div>
         ) : null}
       </div>
+
+      {props.operationStage !== "idle" ? (
+        <div
+          className={`hs-imap-operation-status is-${props.operationStage}`}
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          data-operation-stage={props.operationStage}
+        >
+          <span className="hs-imap-operation-indicator" aria-hidden="true" />
+          <span>
+            <strong>{operationStatus.message}</strong>
+            {props.operationStage === "generating" ? (
+              <small>Keep this page open. Duplicate generation is disabled until this operation finishes.</small>
+            ) : null}
+          </span>
+        </div>
+      ) : null}
 
       <div className="hs-imap-toolbar">
         <button
@@ -488,14 +512,17 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
                   onClick={async () => {
                     if (!selectedDirectionId) return;
                     setIsConversationApplying(true);
-                    const applied = await conversation.onBuildAndApply({
-                      directionId: selectedDirectionId,
-                      constraintsText,
-                      derivedFromScript: Boolean(conversation.seed?.derivedFromScript),
-                    });
-                    setIsConversationApplying(false);
-                    if (applied) {
-                      setShowPlanningConversation(false);
+                    try {
+                      const applied = await conversation.onBuildAndApply({
+                        directionId: selectedDirectionId,
+                        constraintsText,
+                        derivedFromScript: Boolean(conversation.seed?.derivedFromScript),
+                      });
+                      if (applied) {
+                        setShowPlanningConversation(false);
+                      }
+                    } finally {
+                      setIsConversationApplying(false);
                     }
                   }}
                 >

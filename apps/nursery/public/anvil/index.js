@@ -5347,8 +5347,8 @@ var init_serializer = __esm({
       _encodeJsonUserBroadcastPush(message) {
         var _a, _b;
         const userPayload = (_b = (_a = message.payload) === null || _a === void 0 ? void 0 : _a.payload) !== null && _b !== void 0 ? _b : {};
-        const encoder = new TextEncoder();
-        const encodedUserPayload = encoder.encode(JSON.stringify(userPayload)).buffer;
+        const encoder3 = new TextEncoder();
+        const encodedUserPayload = encoder3.encode(JSON.stringify(userPayload)).buffer;
         return this._encodeUserBroadcastPush(message, this.JSON_ENCODING, encodedUserPayload);
       }
       _encodeUserBroadcastPush(message, encodingType, encodedPayload) {
@@ -12487,8 +12487,8 @@ function generatePKCEVerifier() {
   return Array.from(array, dec2hex).join("");
 }
 async function sha256(randomString) {
-  const encoder = new TextEncoder();
-  const encodedData = encoder.encode(randomString);
+  const encoder3 = new TextEncoder();
+  const encodedData = encoder3.encode(randomString);
   const hash = await crypto.subtle.digest("SHA-256", encodedData);
   const bytes = new Uint8Array(hash);
   return Array.from(bytes).map((c) => String.fromCharCode(c)).join("");
@@ -23834,6 +23834,50 @@ var init_diag_verbosity = __esm({
   }
 });
 
+// src/features/scroll/speed-keyboard-shortcuts.ts
+function isEditableTarget(target) {
+  const element = target instanceof Element ? target : target instanceof Node ? target.parentElement : null;
+  if (!element) return false;
+  if (element.closest("input, textarea, select, button")) return true;
+  const editable = element.closest("[contenteditable]");
+  return !!editable && editable.getAttribute("contenteditable")?.toLowerCase() !== "false";
+}
+function installSpeedKeyboardShortcuts(options) {
+  const target = options.target ?? (typeof document !== "undefined" ? document : null);
+  if (!target) return;
+  if (installedTargets.has(target)) {
+    installedTargets.set(target, options);
+    return;
+  }
+  installedTargets.set(target, options);
+  target.addEventListener("keydown", (event) => {
+    const activeOptions = installedTargets.get(target);
+    if (!activeOptions) return;
+    const keyboardEvent = event;
+    if (keyboardEvent.defaultPrevented || keyboardEvent.isComposing) return;
+    if (keyboardEvent.ctrlKey || keyboardEvent.altKey || keyboardEvent.metaKey) return;
+    if (isEditableTarget(keyboardEvent.target)) return;
+    const direction = keyboardEvent.key === "ArrowUp" ? 1 : keyboardEvent.key === "ArrowDown" ? -1 : null;
+    if (!direction) return;
+    const mode = String(activeOptions.getMode() || "").toLowerCase();
+    if (mode !== "timed" && mode !== "wpm" && mode !== "hybrid") return;
+    keyboardEvent.preventDefault();
+    if (mode === "timed") {
+      activeOptions.adjustTimed(direction, keyboardEvent.shiftKey);
+      return;
+    }
+    activeOptions.adjustWpm(direction, keyboardEvent.shiftKey);
+  }, { capture: true });
+}
+var AUTO_SPEED_ADJUST_EVENT, installedTargets;
+var init_speed_keyboard_shortcuts = __esm({
+  "src/features/scroll/speed-keyboard-shortcuts.ts"() {
+    "use strict";
+    AUTO_SPEED_ADJUST_EVENT = "tp:autoSpeed:adjust";
+    installedTargets = /* @__PURE__ */ new WeakMap();
+  }
+});
+
 // src/features/scroll/scroll-router/router-impl.ts
 function shouldLogVerboseRouterDiagnostic() {
   return isDevMode2() && shouldLogVerboseDiagnostic();
@@ -28901,7 +28945,7 @@ function installScrollRouter(opts) {
   const AUTO_MIN = 1;
   const AUTO_MAX = 60;
   const AUTO_STEP_FINE2 = 1;
-  const AUTO_STEP_COARSE = 5;
+  const AUTO_STEP_COARSE2 = 5;
   const getStoredSpeed = () => {
     try {
       const raw = localStorage.getItem("tp_auto_speed");
@@ -29732,23 +29776,35 @@ function installScrollRouter(opts) {
     } catch {
     }
   }
-  function handleSidebarWpmChange(val, label) {
+  function applyUserWpmValue(val, label, emitIntent) {
     if (suppressWpmUiEcho) return;
     if (!Number.isFinite(val) || val <= 0) return;
+    const slider = document.getElementById("wpmTarget");
+    const min = Number(slider?.min);
+    const max = Number(slider?.max);
+    const bounded = Math.min(
+      Number.isFinite(max) ? max : Number.POSITIVE_INFINITY,
+      Math.max(Number.isFinite(min) ? min : 1, val)
+    );
+    if (slider) setSliderValueSilently(slider, String(bounded));
     try {
-      localStorage.setItem("tp_baseline_wpm", String(val));
+      appStoreSingleton.set?.("wpmTarget", bounded);
+    } catch {
+    }
+    try {
+      localStorage.setItem("tp_baseline_wpm", String(bounded));
     } catch {
     }
     userWpmLocked = true;
-    const pxs = convertWpmToPxPerSec(val);
+    const pxs = convertWpmToPxPerSec(bounded);
     if (!Number.isFinite(pxs) || pxs <= 0) return;
     markSliderInteraction();
-    emitWpmIntent(val, "sidebar", pxs);
-    applyWpmBaselinePx(pxs, label, val);
+    if (emitIntent) emitWpmIntent(bounded, "sidebar", pxs);
+    applyWpmBaselinePx(pxs, label, bounded);
     persistProfilePatch({
       scroll: {
-        mode: "wpm",
-        wpm: { value: val }
+        mode: state22.mode === "hybrid" ? "hybrid" : "wpm",
+        wpm: { value: bounded }
       }
     });
     if (state22.mode === "wpm") {
@@ -29757,7 +29813,7 @@ function installScrollRouter(opts) {
           const status2 = orch.getStatus();
           const detectedWpm = status2.wpm;
           if (detectedWpm && isFinite(detectedWpm) && detectedWpm > 0) {
-            const sensitivity = val / detectedWpm;
+            const sensitivity = bounded / detectedWpm;
             orch.setSensitivity(sensitivity);
           } else {
             orch.setSensitivity(1);
@@ -29766,6 +29822,9 @@ function installScrollRouter(opts) {
       } catch {
       }
     }
+  }
+  function handleSidebarWpmChange(val, label) {
+    applyUserWpmValue(val, label, true);
   }
   function resolveWpmDetail(detail) {
     const pxRaw = Number(detail.pxPerSec);
@@ -29849,6 +29908,10 @@ function installScrollRouter(opts) {
         try {
           console.info("[WPM_INTENT] recv", { wpm: wpmValue, source });
         } catch {
+        }
+        if (source === "hotkey") {
+          applyUserWpmValue(wpmValue, "hotkey", false);
+          return;
         }
         handleWpmEvent(detail, "tp:wpm:intent");
       } catch {
@@ -30046,6 +30109,33 @@ function installScrollRouter(opts) {
     applyGate();
   }
   if (state22.mode === "wpm" || state22.mode === "asr") ensureOrchestratorForMode();
+  installSpeedKeyboardShortcuts({
+    getMode: () => String(appStoreSingleton.get?.("scrollMode") || ""),
+    adjustTimed: (direction, coarse) => {
+      window.dispatchEvent(new CustomEvent(AUTO_SPEED_ADJUST_EVENT, {
+        detail: { direction, coarse, source: "hotkey" }
+      }));
+    },
+    adjustWpm: (direction, coarse) => {
+      const slider = document.getElementById("wpmTarget");
+      const storeValue = Number(appStoreSingleton.get?.("wpmTarget"));
+      const sliderValue = Number(slider?.value);
+      const storedValue = (() => {
+        try {
+          return Number(localStorage.getItem("tp_baseline_wpm"));
+        } catch {
+          return Number.NaN;
+        }
+      })();
+      const current2 = Number.isFinite(storeValue) && storeValue > 0 ? storeValue : Number.isFinite(sliderValue) && sliderValue > 0 ? sliderValue : Number.isFinite(storedValue) && storedValue > 0 ? storedValue : 150;
+      const fineStep = Number(slider?.step);
+      const step = Number.isFinite(fineStep) && fineStep > 0 ? fineStep : 5;
+      const requestedWpm = current2 + direction * step * (coarse ? AUTO_STEP_COARSE2 : 1);
+      window.dispatchEvent(new CustomEvent(WPM_INTENT_EVENT, {
+        detail: { wpm: requestedWpm, source: "hotkey" }
+      }));
+    }
+  });
   try {
     document.addEventListener("keydown", (e) => {
       try {
@@ -30054,12 +30144,12 @@ function installScrollRouter(opts) {
         const tag = (target.tagName || "").toUpperCase();
         if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || tag === "BUTTON" || target.isContentEditable) return;
         if (e.ctrlKey || e.metaKey || e.altKey) return;
-        const wantUp = e.key === "+" || e.code === "NumpadAdd" || e.key === "ArrowUp";
-        const wantDown = e.key === "-" || e.code === "NumpadSubtract" || e.key === "ArrowDown";
+        const wantUp = e.key === "+" || e.code === "NumpadAdd";
+        const wantDown = e.key === "-" || e.code === "NumpadSubtract";
         if (!wantUp && !wantDown) return;
         e.preventDefault();
         const step = wantUp ? AUTO_STEP_FINE2 : -AUTO_STEP_FINE2;
-        const delta = e.shiftKey ? step * AUTO_STEP_COARSE : step;
+        const delta = e.shiftKey ? step * AUTO_STEP_COARSE2 : step;
         const next = nudgeSpeed(delta);
         try {
           window.__scrollCtl?.setSpeed?.(next);
@@ -30099,6 +30189,7 @@ var init_router_impl = __esm({
     init_toasts();
     init_typography_ssot();
     init_diag_verbosity();
+    init_speed_keyboard_shortcuts();
     isDevMode2 = /* @__PURE__ */ (() => {
       let cache = null;
       return () => {
@@ -31360,7 +31451,7 @@ function isTsPrimaryBoot() {
     return false;
   }
 }
-function createUnavailableResult(diagnostic) {
+function createUnavailableResult(diagnostic2) {
   return {
     noMatch: true,
     bestIdx: -1,
@@ -31368,7 +31459,7 @@ function createUnavailableResult(diagnostic) {
     topScores: [],
     reason: "matcher_unavailable",
     provider: PROVIDER_ID,
-    diagnostic
+    diagnostic: diagnostic2
   };
 }
 function normalizeTextInput(input) {
@@ -75449,75 +75540,34 @@ function readString2(value) {
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
-function extractAccessTokenFromAuthPayload(value) {
-  if (!value || typeof value !== "object") return null;
-  if (Array.isArray(value)) {
-    for (const entry of value) {
-      const token = extractAccessTokenFromAuthPayload(entry);
-      if (token) return token;
-    }
+function decodeJwtPayload(token) {
+  const parts = token.split(".");
+  if (parts.length !== 3 || parts.some((part) => !part)) return null;
+  try {
+    const normalized = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - normalized.length % 4) % 4);
+    const parsed = JSON.parse(atob(padded));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
     return null;
   }
-  const row = value;
-  const direct = readString2(row.access_token);
-  if (direct) return direct;
-  const currentSession3 = row.currentSession;
-  if (currentSession3 && typeof currentSession3 === "object") {
-    const token = readString2(currentSession3.access_token);
-    if (token) return token;
-  }
-  const session = row.session;
-  if (session && typeof session === "object") {
-    const token = readString2(session.access_token);
-    if (token) return token;
-  }
-  const nested = row.data;
-  if (nested && typeof nested === "object") {
-    const token = extractAccessTokenFromAuthPayload(nested);
-    if (token) return token;
-  }
-  return null;
 }
-function readAccessTokenFromStorageKey(key) {
-  if (typeof window === "undefined") return null;
-  let raw = null;
-  try {
-    raw = window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-  if (!raw) return null;
-  const direct = readString2(raw);
-  if (direct && direct !== "null" && direct !== "undefined" && !direct.startsWith("{") && !direct.startsWith("[")) {
-    return direct;
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    return extractAccessTokenFromAuthPayload(parsed);
-  } catch {
-    return null;
-  }
+function isUsableForgeUserAccessToken(token, nowMs3 = Date.now()) {
+  const value = readString2(token);
+  if (!value) return false;
+  const payload = decodeJwtPayload(value);
+  if (!payload) return false;
+  const subject = readString2(payload.sub);
+  const expiresAt2 = payload.exp;
+  return Boolean(subject) && typeof expiresAt2 === "number" && Number.isFinite(expiresAt2) && expiresAt2 > Math.floor(nowMs3 / 1e3) + TOKEN_EXPIRY_SKEW_SECONDS;
 }
 async function resolveForgeUserAccessToken() {
-  if (typeof window !== "undefined") {
-    const primary = readAccessTokenFromStorageKey(SUPABASE_AUTH_STORAGE_KEY);
-    if (primary) return primary;
-    try {
-      for (let index = 0; index < window.localStorage.length; index += 1) {
-        const key = window.localStorage.key(index);
-        if (!key || key === SUPABASE_AUTH_STORAGE_KEY) continue;
-        if (!SUPABASE_AUTH_KEY_RE.test(key)) continue;
-        const token = readAccessTokenFromStorageKey(key);
-        if (token) return token;
-      }
-    } catch {
-    }
-  }
   if (!hasSupabaseConfig) return null;
   try {
     const { data, error } = await supabase.auth.getSession();
     if (error) return null;
-    return readString2(data.session?.access_token ?? null);
+    const token = data.session?.access_token ?? null;
+    return isUsableForgeUserAccessToken(token) ? token : null;
   } catch {
     return null;
   }
@@ -75525,18 +75575,65 @@ async function resolveForgeUserAccessToken() {
 async function appendForgeUserAuthorization(headersInit) {
   const headers = new Headers(headersInit ?? {});
   const userAccessToken = await resolveForgeUserAccessToken();
-  if (userAccessToken && !headers.has("x-forge-user-authorization")) {
-    headers.set("x-forge-user-authorization", `Bearer ${userAccessToken}`);
+  if (!userAccessToken) {
+    throw new ForgeUserAuthorizationError(
+      "AUTHENTICATED_SESSION_REQUIRED",
+      "A valid authenticated Forge session is required to access canonical Tongs data."
+    );
   }
+  headers.set(USER_AUTH_HEADER, `Bearer ${userAccessToken}`);
   return headers;
 }
-var SUPABASE_AUTH_STORAGE_KEY, SUPABASE_AUTH_KEY_RE;
+function resolveSameOriginTongsUrl(input) {
+  if (typeof window === "undefined") {
+    throw new ForgeUserAuthorizationError("INVALID_TONGS_REQUEST_TARGET", "Tongs requests require a browser origin.");
+  }
+  let url;
+  try {
+    url = new URL(String(input), window.location.origin);
+  } catch {
+    throw new ForgeUserAuthorizationError("INVALID_TONGS_REQUEST_TARGET", "Tongs request URL is invalid.");
+  }
+  if (url.origin !== window.location.origin || !url.pathname.startsWith(TONGS_PATH_PREFIX) || url.username || url.password) {
+    throw new ForgeUserAuthorizationError(
+      "INVALID_TONGS_REQUEST_TARGET",
+      "Authenticated Tongs requests are restricted to the current origin and /tongs/ path."
+    );
+  }
+  return url;
+}
+async function fetchAuthenticatedTongs(input, init3 = {}, fetchImpl = fetch) {
+  const url = resolveSameOriginTongsUrl(input);
+  if (init3.redirect && init3.redirect !== "error") {
+    throw new ForgeUserAuthorizationError(
+      "INVALID_TONGS_REQUEST_TARGET",
+      "Authenticated Tongs requests may not follow redirects."
+    );
+  }
+  const headers = await appendForgeUserAuthorization(init3.headers);
+  return fetchImpl(url.href, {
+    ...init3,
+    headers,
+    credentials: "same-origin",
+    redirect: "error"
+  });
+}
+var USER_AUTH_HEADER, TONGS_PATH_PREFIX, TOKEN_EXPIRY_SKEW_SECONDS, ForgeUserAuthorizationError;
 var init_tongs_user_auth = __esm({
   "src/forge/tongs-user-auth.ts"() {
     "use strict";
     init_supabaseClient();
-    SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
-    SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9-]+-auth-token$/i;
+    USER_AUTH_HEADER = "x-forge-user-authorization";
+    TONGS_PATH_PREFIX = "/tongs/";
+    TOKEN_EXPIRY_SKEW_SECONDS = 5;
+    ForgeUserAuthorizationError = class extends Error {
+      code;
+      constructor(code, message) {
+        super(message);
+        this.name = "ForgeUserAuthorizationError";
+        this.code = code;
+      }
+    };
   }
 });
 
@@ -87630,6 +87727,7 @@ function createProfileSettingsSync(options) {
   let pendingSave = null;
   let retryScheduled = false;
   let persistenceDisabled = false;
+  let ephemeralAppOverrides = {};
   function log(...args) {
     try {
       devLog2?.(...args);
@@ -87731,7 +87829,9 @@ function createProfileSettingsSync(options) {
           let raw = "";
           let current2 = "";
           try {
-            raw = normalizeUiScrollMode2(String(app[k] ?? "").trim().toLowerCase());
+            raw = normalizeUiScrollMode2(String(
+              Object.prototype.hasOwnProperty.call(ephemeralAppOverrides, k) ? ephemeralAppOverrides[k] : app[k] ?? ""
+            ).trim().toLowerCase());
             current2 = normalizeUiScrollMode2(store3.get?.("scrollMode"));
             const engaged = isAsrOverlayActive2();
             if (raw === "asr" && current2 !== "asr" && !engaged) {
@@ -87825,7 +87925,7 @@ function createProfileSettingsSync(options) {
     const app = {};
     settingsKeys.forEach((k) => {
       try {
-        app[k] = store3.get?.(k);
+        app[k] = Object.prototype.hasOwnProperty.call(ephemeralAppOverrides, k) ? currentSettings.app?.[k] : store3.get?.(k);
       } catch {
       }
     });
@@ -87849,6 +87949,18 @@ function createProfileSettingsSync(options) {
       activeSlot: speakerState.activeSlot
     };
     return { app, asrSettings, asrProfiles, speakerProfiles, speakerBindings };
+  }
+  function applyEphemeralOverridesToStore() {
+    if (!Object.prototype.hasOwnProperty.call(ephemeralAppOverrides, "scrollMode")) return;
+    suppressSave = true;
+    try {
+      const mode = normalizeUiScrollMode2(String(ephemeralAppOverrides.scrollMode ?? ""));
+      withScrollModeWriter("state/app-store", () => {
+        store3.set?.("scrollMode", mode);
+      }, { source: "hydrate", via: "presentation-request" });
+    } finally {
+      suppressSave = false;
+    }
   }
   let speakerPersistenceHydrating = false;
   function queueProfileSave() {
@@ -87944,6 +88056,10 @@ function createProfileSettingsSync(options) {
             seenInit.add(k);
             return;
           }
+          if (Object.prototype.hasOwnProperty.call(ephemeralAppOverrides, k)) {
+            if (_v === ephemeralAppOverrides[k]) return;
+            delete ephemeralAppOverrides[k];
+          }
           lastUserChange = Date.now();
           currentSettings.app = currentSettings.app || {};
           currentSettings.app[k] = _v;
@@ -87984,7 +88100,13 @@ function createProfileSettingsSync(options) {
   async function hydrateForUser(userId, opts = {}) {
     persistenceUserId = userId;
     persistenceDisabled = false;
-    const { loadRemote = true, enablePersistence = true, skipLogLabel = "hydrate:ci-skip" } = opts;
+    const {
+      loadRemote = true,
+      enablePersistence = true,
+      skipLogLabel = "hydrate:ci-skip",
+      ephemeralAppOverrides: requestedOverrides = {}
+    } = opts;
+    ephemeralAppOverrides = { ...requestedOverrides };
     if (loadRemote) {
       try {
         const { settings: settings2, rev: rev2 } = await loadProfileSettings(userId);
@@ -88007,6 +88129,7 @@ function createProfileSettingsSync(options) {
       profileHydrated = true;
       log(skipLogLabel);
     }
+    applyEphemeralOverridesToStore();
     if (enablePersistence) {
       installSettingsPersistence(userId);
       installSpeakerPersistence(userId);
@@ -88035,6 +88158,617 @@ var init_profile_settings_sync = __esm({
     init_authProfile();
     SETTINGS_SAVE_DEBOUNCE_MS = 900;
     RECENT_CHANGE_WINDOW_MS = 1e4;
+  }
+});
+
+// src/script/scroll-mode-readiness.ts
+function normalizeMode2(mode) {
+  const normalized = String(mode || "").trim().toLowerCase();
+  return normalized === "manual" ? "step" : normalized;
+}
+function createResolvedScrollModeReadiness(mode) {
+  const boundary = new ScrollModeReadinessBoundary();
+  boundary.markRestored(mode);
+  return boundary;
+}
+var ScrollModeReadinessBoundary, appScrollModeReadiness;
+var init_scroll_mode_readiness = __esm({
+  "src/script/scroll-mode-readiness.ts"() {
+    "use strict";
+    ScrollModeReadinessBoundary = class {
+      current = Object.freeze({ ready: false, mode: "", revision: 0 });
+      waiters = /* @__PURE__ */ new Set();
+      snapshot() {
+        return this.current;
+      }
+      waitUntilReady() {
+        if (this.current.ready) return Promise.resolve(this.current);
+        return new Promise((resolve) => {
+          this.waiters.add(resolve);
+        });
+      }
+      markRestored(mode) {
+        const normalized = normalizeMode2(mode);
+        if (this.current.ready && this.current.mode === normalized) return this.current;
+        this.current = Object.freeze({ ready: true, mode: normalized, revision: this.current.revision + 1 });
+        const waiters = Array.from(this.waiters);
+        this.waiters.clear();
+        for (const resolve of waiters) resolve(this.current);
+        return this.current;
+      }
+      markModeChanged(mode) {
+        if (!this.current.ready) return this.current;
+        return this.markRestored(mode);
+      }
+      resetForTests() {
+        this.current = Object.freeze({ ready: false, mode: "", revision: 0 });
+        this.waiters.clear();
+      }
+    };
+    appScrollModeReadiness = new ScrollModeReadinessBoundary();
+  }
+});
+
+// src/script/performance-projection.ts
+function validateProjectionTags(text) {
+  const issues = [];
+  let speaker = null;
+  let inNote = false;
+  for (const [lineIndex, line] of lineParts(text).entries()) {
+    const raw = text.slice(line.start, line.end);
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const tokens = raw.match(/\[[^\]]+\]/g) ?? [];
+    const bracketResidue = tokens.reduce((value, token) => value.replace(token, ""), raw);
+    if (bracketResidue.includes("[") || bracketResidue.includes("]")) {
+      issues.push(`ambiguous_tag_delimiter:${lineIndex}`);
+    }
+    for (const tokenRaw of tokens) {
+      const token = tokenRaw.trim().toLowerCase().replace(/\s+/g, " ");
+      if (!SPEAKER_OPEN[token] && !SPEAKER_CLOSE.has(token) && token !== "[note]" && token !== "[/note]" && !PACING.has(token)) {
+        issues.push(`unsupported_tag:${lineIndex}:${tokenRaw}`);
+      }
+    }
+    const canonical = trimmed.toLowerCase().replace(/\s+/g, " ");
+    if (SPEAKER_OPEN[canonical]) {
+      if (tokens.length !== 1 || trimmed !== tokens[0]) issues.push(`speaker_tag_not_own_line:${lineIndex}`);
+      if (speaker || inNote) issues.push(`crossed_speaker_open:${lineIndex}`);
+      speaker = canonical;
+      continue;
+    }
+    if (SPEAKER_CLOSE.has(canonical)) {
+      if (tokens.length !== 1 || trimmed !== tokens[0]) issues.push(`speaker_tag_not_own_line:${lineIndex}`);
+      const expected = speaker ? `[/${speaker.slice(1)}` : null;
+      if (!expected || canonical !== expected) issues.push(`unopened_or_crossed_speaker_close:${lineIndex}`);
+      speaker = null;
+      continue;
+    }
+    if (canonical === "[note]") {
+      if (tokens.length !== 1 || trimmed !== tokens[0] || inNote) issues.push(`invalid_note_open:${lineIndex}`);
+      inNote = true;
+      continue;
+    }
+    if (canonical === "[/note]") {
+      if (tokens.length !== 1 || trimmed !== tokens[0] || !inNote) issues.push(`invalid_note_close:${lineIndex}`);
+      inNote = false;
+      continue;
+    }
+    if (!speaker && !inNote) issues.push(`text_outside_speaker:${lineIndex}`);
+    if (tokens.some((token) => PACING.has(token.trim().toLowerCase().replace(/\s+/g, " "))) && !speaker) {
+      issues.push(`pacing_outside_speaker:${lineIndex}`);
+    }
+  }
+  if (speaker) issues.push("unclosed_speaker");
+  if (inNote) issues.push("unclosed_note");
+  return issues;
+}
+function canonicalJson(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  const row = value;
+  return `{${Object.keys(row).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(row[key])}`).join(",")}}`;
+}
+async function sha256Hex(value) {
+  const bytes = typeof value === "string" ? encoder.encode(value) : value;
+  const digestInput = new Uint8Array(bytes).buffer;
+  const digest = await crypto.subtle.digest("SHA-256", digestInput);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+function buildUtf8BoundaryMap(text) {
+  const offsets = new Array(text.length + 1).fill(-1);
+  let utf16 = 0;
+  let utf8 = 0;
+  offsets[0] = 0;
+  while (utf16 < text.length) {
+    const codePoint = text.codePointAt(utf16);
+    if (codePoint == null) break;
+    const chunk = String.fromCodePoint(codePoint);
+    const width16 = chunk.length;
+    const width8 = encoder.encode(chunk).length;
+    offsets[utf16] = utf8;
+    utf16 += width16;
+    utf8 += width8;
+    offsets[utf16] = utf8;
+  }
+  return offsets;
+}
+function lineParts(text) {
+  const result = [];
+  let start2 = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] !== "\r" && text[i] !== "\n") continue;
+    const breakEnd = text[i] === "\r" && text[i + 1] === "\n" ? i + 2 : i + 1;
+    result.push({ start: start2, end: i, breakEnd });
+    i = breakEnd - 1;
+    start2 = breakEnd;
+  }
+  result.push({ start: start2, end: text.length, breakEnd: text.length });
+  return result;
+}
+function isWhitespace(char) {
+  return /\s/u.test(char);
+}
+function assertBoundary(map, offset) {
+  const byte = map[offset];
+  if (!Number.isInteger(byte) || byte < 0) {
+    throw new PerformanceProjectionError("INVALID_SOURCE_OFFSETS", { offset });
+  }
+  return byte;
+}
+function classifyAndTokenize(text, byteMap) {
+  const ranges = [];
+  const words = [];
+  const atomicLines = [];
+  let speakerId = null;
+  let inNote = false;
+  let pendingBreak = "section_boundary";
+  let logicalLine = 0;
+  const addRange = (kind, start2, end) => {
+    if (end <= start2) return;
+    ranges.push({ kind, startUtf16: start2, endUtf16Exclusive: end, text: text.slice(start2, end) });
+  };
+  for (const line of lineParts(text)) {
+    const raw = text.slice(line.start, line.end);
+    const trimmed = raw.trim();
+    const leftTrim = raw.length - raw.trimStart().length;
+    const tagStart = line.start + leftTrim;
+    const lower = trimmed.toLowerCase().replace(/\s+/g, " ");
+    if (!trimmed) {
+      addRange("whitespace", line.start, line.end);
+      pendingBreak = "hard_break";
+    } else if (SPEAKER_OPEN[lower]) {
+      addRange("whitespace", line.start, tagStart);
+      addRange("speaker_transition", tagStart, tagStart + trimmed.length);
+      addRange("whitespace", tagStart + trimmed.length, line.end);
+      speakerId = SPEAKER_OPEN[lower];
+      pendingBreak = "speaker_transition";
+    } else if (SPEAKER_CLOSE.has(lower)) {
+      addRange("whitespace", line.start, tagStart);
+      addRange("speaker_transition", tagStart, tagStart + trimmed.length);
+      addRange("whitespace", tagStart + trimmed.length, line.end);
+      speakerId = null;
+      pendingBreak = "speaker_transition";
+    } else if (lower === "[note]") {
+      addRange("note_direction", line.start, line.end);
+      inNote = true;
+      pendingBreak = "hard_break";
+    } else if (lower === "[/note]") {
+      addRange("note_direction", line.start, line.end);
+      inNote = false;
+      pendingBreak = "hard_break";
+    } else if (inNote) {
+      addRange("note_direction", line.start, line.end);
+    } else {
+      const lineWords = [];
+      let cursor = line.start;
+      while (cursor < line.end) {
+        if (isWhitespace(text[cursor])) {
+          const start3 = cursor;
+          while (cursor < line.end && isWhitespace(text[cursor])) cursor += 1;
+          addRange("whitespace", start3, cursor);
+          continue;
+        }
+        if (text[cursor] === "[") {
+          const close = text.indexOf("]", cursor + 1);
+          if (close >= 0 && close < line.end) {
+            const end2 = close + 1;
+            const tag = text.slice(cursor, end2).trim().toLowerCase().replace(/\s+/g, " ");
+            addRange(PACING.has(tag) ? "deliberate_pacing" : "control_tag", cursor, end2);
+            if (PACING.has(tag)) pendingBreak = "deliberate_pause";
+            cursor = end2;
+            continue;
+          }
+        }
+        const start2 = cursor;
+        while (cursor < line.end && !isWhitespace(text[cursor]) && text[cursor] !== "[") {
+          const cp = text.codePointAt(cursor);
+          cursor += cp > 65535 ? 2 : 1;
+        }
+        const end = cursor;
+        const word = {
+          wordId: "",
+          ordinal: words.length,
+          text: text.slice(start2, end),
+          startUtf8Byte: assertBoundary(byteMap, start2),
+          endUtf8ByteExclusive: assertBoundary(byteMap, end),
+          startUtf16: start2,
+          endUtf16Exclusive: end,
+          line: logicalLine,
+          column: start2 - line.start,
+          speakerId
+        };
+        words.push(word);
+        lineWords.push(word);
+        addRange("spoken_word", start2, end);
+      }
+      if (lineWords.length) {
+        const finalText = lineWords[lineWords.length - 1].text;
+        atomicLines.push({
+          words: lineWords,
+          speakerId,
+          entryBreak: pendingBreak,
+          endSentence: /[.!?]["'’”)}\]]*$/.test(finalText)
+        });
+        pendingBreak = "soft_continuation";
+      }
+    }
+    if (line.breakEnd > line.end) addRange("line_break", line.end, line.breakEnd);
+    logicalLine += 1;
+  }
+  ranges.sort((a, b) => a.startUtf16 - b.startUtf16);
+  return { ranges, words, atomicLines };
+}
+function shouldForceBoundary(kind) {
+  return kind === "deliberate_pause" || kind === "hard_break" || kind === "section_boundary" || kind === "speaker_transition";
+}
+async function buildBlocks(lines, sourceHash) {
+  const groups = [];
+  let current2 = [];
+  const close = () => {
+    if (!current2.length) return;
+    groups.push({ lines: current2, entryBreak: current2[0].entryBreak });
+    current2 = [];
+  };
+  for (const line of lines) {
+    if (current2.length && (shouldForceBoundary(line.entryBreak) || line.speakerId !== current2[0].speakerId)) close();
+    current2.push(line);
+    const words = current2.flatMap((entry) => entry.words);
+    const chars = words.reduce((sum, word) => sum + word.text.length, 0) + Math.max(0, words.length - 1);
+    if (words.length >= TARGET_MAX_WORDS || chars >= TARGET_MAX_CHARS || words.length >= TARGET_MIN_WORDS && line.endSentence) close();
+  }
+  close();
+  return Promise.all(groups.map(async (group, ordinal) => {
+    const words = group.lines.flatMap((line) => line.words);
+    const nextEntry = groups[ordinal + 1]?.entryBreak;
+    const exitBreak = nextEntry ?? (group.lines[group.lines.length - 1].endSentence ? "sentence_break" : "section_boundary");
+    const identity = {
+      sourceHash,
+      algorithmVersion: PERFORMANCE_PROJECTION_ALGORITHM_VERSION,
+      tokenizerVersion: PERFORMANCE_TOKENIZER_VERSION,
+      ordinal,
+      ranges: words.map((word) => [word.startUtf8Byte, word.endUtf8ByteExclusive, word.startUtf16, word.endUtf16Exclusive]),
+      entryBreak: group.entryBreak,
+      exitBreak
+    };
+    const blockId = await sha256Hex(canonicalJson(identity));
+    return {
+      blockId,
+      screenAnchorId: `performance-block-${blockId.slice(0, 24)}`,
+      ordinal,
+      text: words.map((word) => word.text).join(" "),
+      wordOrdinals: words.map((word) => word.ordinal),
+      sourceRanges: words.map((word) => ({
+        startUtf8Byte: word.startUtf8Byte,
+        endUtf8ByteExclusive: word.endUtf8ByteExclusive,
+        startUtf16: word.startUtf16,
+        endUtf16Exclusive: word.endUtf16Exclusive
+      })),
+      speakerId: group.lines[0].speakerId,
+      entryBreak: group.entryBreak,
+      exitBreak,
+      displayHints: { preferredMaxLines: 4, keepTogether: true, continuation: group.entryBreak === "soft_continuation" }
+    };
+  }));
+}
+function fail(code, details = {}) {
+  throw new PerformanceProjectionError(code, details);
+}
+async function validateProjectionSpans(text, bytes, words) {
+  let priorEnd16 = -1;
+  let priorEnd8 = -1;
+  let priorStart16 = -1;
+  let priorStart8 = -1;
+  const seen = /* @__PURE__ */ new Set();
+  for (let ordinal = 0; ordinal < words.length; ordinal += 1) {
+    const word = words[ordinal];
+    if (word.ordinal !== ordinal) fail("REORDERED_SPOKEN_COVERAGE", { ordinal });
+    if (word.startUtf16 < 0 || word.endUtf16Exclusive > text.length || word.startUtf16 >= word.endUtf16Exclusive || word.startUtf8Byte < 0 || word.endUtf8ByteExclusive > bytes.length || word.startUtf8Byte >= word.endUtf8ByteExclusive) {
+      fail("INVALID_SOURCE_OFFSETS", { ordinal });
+    }
+    const key = `${word.startUtf16}:${word.endUtf16Exclusive}`;
+    if (seen.has(key)) fail("DUPLICATE_SPOKEN_COVERAGE", { ordinal });
+    seen.add(key);
+    if (word.startUtf16 < priorStart16 || word.startUtf8Byte < priorStart8) fail("REORDERED_SPOKEN_COVERAGE", { ordinal });
+    if (word.startUtf16 < priorEnd16 || word.startUtf8Byte < priorEnd8) fail("OVERLAPPING_SPOKEN_COVERAGE", { ordinal });
+    const fromText = text.slice(word.startUtf16, word.endUtf16Exclusive);
+    let fromBytes;
+    try {
+      fromBytes = strictDecoder.decode(bytes.slice(word.startUtf8Byte, word.endUtf8ByteExclusive));
+    } catch {
+      fail("UTF8_UTF16_SPAN_MISMATCH", { ordinal });
+    }
+    if (fromText !== word.text || fromBytes !== word.text) fail("UTF8_UTF16_SPAN_MISMATCH", { ordinal });
+    const reencoded = encoder.encode(fromText);
+    const byteSlice = bytes.slice(word.startUtf8Byte, word.endUtf8ByteExclusive);
+    if (reencoded.length !== byteSlice.length || reencoded.some((value, index) => value !== byteSlice[index])) {
+      fail("UTF8_UTF16_SPAN_MISMATCH", { ordinal });
+    }
+    priorEnd16 = word.endUtf16Exclusive;
+    priorEnd8 = word.endUtf8ByteExclusive;
+    priorStart16 = word.startUtf16;
+    priorStart8 = word.startUtf8Byte;
+  }
+}
+async function assertPerformanceProjectionInvariants(projection, canonicalText, canonicalUtf8Bytes) {
+  let decoded;
+  try {
+    decoded = strictDecoder.decode(canonicalUtf8Bytes);
+  } catch {
+    fail("INVALID_UTF8");
+  }
+  if (decoded !== canonicalText) fail("CANONICAL_BYTES_TEXT_MISMATCH");
+  const actualHash = await sha256Hex(canonicalUtf8Bytes);
+  if (projection.source.scriptHash.toLowerCase() !== actualHash) {
+    fail("CANONICAL_HASH_MISMATCH", { expected: projection.source.scriptHash, actual: actualHash });
+  }
+  await validateProjectionSpans(canonicalText, canonicalUtf8Bytes, projection.words);
+  const eligible = projection.ranges.filter((range) => range.kind === "spoken_word");
+  if (projection.words.length < eligible.length) fail("MISSING_SPOKEN_COVERAGE");
+  if (projection.words.length > eligible.length) fail("DUPLICATE_SPOKEN_COVERAGE");
+  for (let ordinal = 0; ordinal < eligible.length; ordinal += 1) {
+    const range = eligible[ordinal];
+    const word = projection.words[ordinal];
+    if (range.startUtf16 !== word.startUtf16 || range.endUtf16Exclusive !== word.endUtf16Exclusive || range.text !== word.text) {
+      fail("MISSING_SPOKEN_COVERAGE", { ordinal });
+    }
+  }
+  const flattened = projection.blocks.flatMap((block) => block.wordOrdinals);
+  if (flattened.length !== projection.words.length || flattened.some((ordinal, index) => ordinal !== index)) {
+    fail("REORDERED_SPOKEN_COVERAGE");
+  }
+}
+async function createPerformanceProjection(input) {
+  let decoded;
+  try {
+    decoded = strictDecoder.decode(input.canonicalUtf8Bytes);
+  } catch {
+    fail("INVALID_UTF8");
+  }
+  if (decoded !== input.canonicalText) fail("CANONICAL_BYTES_TEXT_MISMATCH");
+  const scriptHash = await sha256Hex(input.canonicalUtf8Bytes);
+  if (input.sourceIdentity.scriptHash && input.sourceIdentity.scriptHash.toLowerCase() !== scriptHash) {
+    fail("CANONICAL_HASH_MISMATCH", { expected: input.sourceIdentity.scriptHash, actual: scriptHash });
+  }
+  const tagIssues = validateProjectionTags(input.canonicalText);
+  if (tagIssues.length) fail("INVALID_SCRIPT_TAGS", { issues: tagIssues });
+  const byteMap = buildUtf8BoundaryMap(input.canonicalText);
+  if (assertBoundary(byteMap, input.canonicalText.length) !== input.canonicalUtf8Bytes.length) fail("INVALID_SOURCE_OFFSETS");
+  const parsed = classifyAndTokenize(input.canonicalText, byteMap);
+  await validateProjectionSpans(input.canonicalText, input.canonicalUtf8Bytes, parsed.words);
+  const eligibleRanges = parsed.ranges.filter((range) => range.kind === "spoken_word");
+  if (eligibleRanges.length !== parsed.words.length) fail("MISSING_SPOKEN_COVERAGE");
+  for (let i = 0; i < eligibleRanges.length; i += 1) {
+    const range = eligibleRanges[i];
+    const word = parsed.words[i];
+    if (range.startUtf16 !== word.startUtf16 || range.endUtf16Exclusive !== word.endUtf16Exclusive || range.text !== word.text) {
+      fail("MISSING_SPOKEN_COVERAGE", { ordinal: i });
+    }
+  }
+  for (const word of parsed.words) {
+    word.wordId = await sha256Hex(canonicalJson({
+      sourceHash: scriptHash,
+      tokenizerVersion: PERFORMANCE_TOKENIZER_VERSION,
+      startUtf8Byte: word.startUtf8Byte,
+      endUtf8ByteExclusive: word.endUtf8ByteExclusive,
+      startUtf16: word.startUtf16,
+      endUtf16Exclusive: word.endUtf16Exclusive
+    }));
+  }
+  const blocks = await buildBlocks(parsed.atomicLines, scriptHash);
+  const flattened = blocks.flatMap((block) => block.wordOrdinals);
+  if (flattened.length !== parsed.words.length || flattened.some((ordinal, index) => ordinal !== index)) {
+    fail("REORDERED_SPOKEN_COVERAGE");
+  }
+  const canonicalSpokenSequenceHash = await sha256Hex(canonicalJson(parsed.words.map((word) => word.text)));
+  const projectionBasis = {
+    source: { ...input.sourceIdentity, scriptHash },
+    tokenizerVersion: PERFORMANCE_TOKENIZER_VERSION,
+    algorithmVersion: PERFORMANCE_PROJECTION_ALGORITHM_VERSION,
+    blockIds: blocks.map((block) => block.blockId),
+    wordIds: parsed.words.map((word) => word.wordId)
+  };
+  const projectionId = await sha256Hex(canonicalJson(projectionBasis));
+  const projection = {
+    schema: PERFORMANCE_PROJECTION_SCHEMA,
+    projectionId,
+    algorithmVersion: PERFORMANCE_PROJECTION_ALGORITHM_VERSION,
+    tokenizerVersion: PERFORMANCE_TOKENIZER_VERSION,
+    source: {
+      ...input.sourceIdentity,
+      scriptHash,
+      canonicalUtf8ByteLength: input.canonicalUtf8Bytes.length,
+      canonicalUtf16Length: input.canonicalText.length
+    },
+    ranges: parsed.ranges,
+    words: parsed.words,
+    blocks,
+    spokenWordCount: parsed.words.length,
+    canonicalSpokenSequenceHash,
+    validation: {
+      exactWordSequencePreserved: true,
+      completeSpokenSpanCoverage: true,
+      nonOverlappingSourceRanges: true,
+      utf8Utf16Agreement: true,
+      deterministicIdentityVerified: true
+    }
+  };
+  await assertPerformanceProjectionInvariants(projection, input.canonicalText, input.canonicalUtf8Bytes);
+  return projection;
+}
+var PERFORMANCE_PROJECTION_SCHEMA, PERFORMANCE_PROJECTION_ALGORITHM_VERSION, PERFORMANCE_TOKENIZER_VERSION, PerformanceProjectionError, encoder, strictDecoder, SPEAKER_OPEN, SPEAKER_CLOSE, PACING, TARGET_MIN_WORDS, TARGET_MAX_WORDS, TARGET_MAX_CHARS;
+var init_performance_projection = __esm({
+  "src/script/performance-projection.ts"() {
+    "use strict";
+    PERFORMANCE_PROJECTION_SCHEMA = "anvil.performance-script-projection.v1";
+    PERFORMANCE_PROJECTION_ALGORITHM_VERSION = "performance-projection-v1";
+    PERFORMANCE_TOKENIZER_VERSION = "forge-performance-tokenizer-v1";
+    PerformanceProjectionError = class extends Error {
+      code;
+      details;
+      constructor(code, details = {}) {
+        super(`Performance projection rejected: ${code}`);
+        this.name = "PerformanceProjectionError";
+        this.code = code;
+        this.details = Object.freeze({ ...details });
+      }
+    };
+    encoder = new TextEncoder();
+    strictDecoder = new TextDecoder("utf-8", { fatal: true });
+    SPEAKER_OPEN = {
+      "[s1]": "s1",
+      "[s2]": "s2",
+      "[g1]": "guest1",
+      "[g2]": "guest2"
+    };
+    SPEAKER_CLOSE = /* @__PURE__ */ new Set(["[/s1]", "[/s2]", "[/g1]", "[/g2]"]);
+    PACING = /* @__PURE__ */ new Set(["[pause]", "[beat]", "[reflective pause]"]);
+    TARGET_MIN_WORDS = 20;
+    TARGET_MAX_WORDS = 60;
+    TARGET_MAX_CHARS = 320;
+  }
+});
+
+// src/script/performance-presentation-boundary.ts
+function diagnostic(code, message, requestedValue, source, causeCode) {
+  return Object.freeze({ code, message, requestedValue, source, ...causeCode ? { causeCode } : {} });
+}
+function parseRequestedPresentation(search) {
+  const params = typeof search === "string" ? new URLSearchParams(search.startsWith("?") ? search.slice(1) : search) : search;
+  const values = params.getAll("presentation");
+  if (values.length === 0) {
+    return Object.freeze({ status: "current", mode: LEGACY_PRESENTATION_MODE, explicit: false });
+  }
+  const raw = values[0] ?? "";
+  if (values.length !== 1) {
+    throw new PresentationBoundaryError(diagnostic(
+      "UNKNOWN_PRESENTATION",
+      "Presentation selection must occur exactly once.",
+      raw,
+      null
+    ));
+  }
+  if (raw !== PERFORMANCE_PRESENTATION_MODE) {
+    throw new PresentationBoundaryError(diagnostic(
+      "UNKNOWN_PRESENTATION",
+      `Unsupported explicit presentation selection: ${raw}`,
+      raw,
+      null
+    ));
+  }
+  return Object.freeze({ status: "requested", mode: PERFORMANCE_PRESENTATION_MODE, explicit: true });
+}
+function requireCanonicalIdentity(value) {
+  if (!value || !value.workspaceId?.trim() || !value.workpieceId?.trim() || !value.path?.trim()) {
+    throw new PresentationBoundaryError(diagnostic(
+      "MISSING_CANONICAL_IDENTITY",
+      "Authenticated canonical script identity is required.",
+      PERFORMANCE_PRESENTATION_MODE,
+      null
+    ));
+  }
+  if (!Number.isInteger(value.scriptRevision) || value.scriptRevision <= 0) {
+    throw new PresentationBoundaryError(diagnostic(
+      "INVALID_CANONICAL_REVISION",
+      "Canonical script revision must be a positive integer.",
+      PERFORMANCE_PRESENTATION_MODE,
+      value
+    ));
+  }
+  const hash = value.scriptHash.toLowerCase();
+  if (!SHA256_RE.test(hash)) {
+    throw new PresentationBoundaryError(diagnostic(
+      "INVALID_CANONICAL_HASH",
+      "Canonical script hash must be a SHA-256 hex digest.",
+      PERFORMANCE_PRESENTATION_MODE,
+      value
+    ));
+  }
+  return Object.freeze({ ...value, scriptHash: hash });
+}
+async function prepareRequestedPresentation(input) {
+  if (input.requestedPresentation.status === "current") return null;
+  const source = requireCanonicalIdentity(input.canonicalIdentity);
+  try {
+    const projection = await createPerformanceProjection({
+      canonicalText: input.canonicalText,
+      canonicalUtf8Bytes: input.canonicalUtf8Bytes,
+      sourceIdentity: source
+    });
+    return Object.freeze({ status: "prepared", mode: PERFORMANCE_PRESENTATION_MODE, source, projection });
+  } catch (error) {
+    if (error instanceof PresentationBoundaryError) throw error;
+    const causeCode = typeof error === "object" && error && "code" in error ? String(error.code) : void 0;
+    throw new PresentationBoundaryError(diagnostic(
+      "PREPARATION_FAILED",
+      "Performance presentation preparation failed; no projection state was produced.",
+      PERFORMANCE_PRESENTATION_MODE,
+      source,
+      causeCode
+    ));
+  }
+}
+function assertPreparedPresentationFresh(prepared, canonicalIdentity) {
+  const current2 = requireCanonicalIdentity(canonicalIdentity);
+  const source = prepared.source;
+  if (source.workspaceId !== current2.workspaceId || source.workpieceId !== current2.workpieceId || source.path !== current2.path || source.scriptRevision !== current2.scriptRevision || source.scriptHash !== current2.scriptHash) {
+    throw new PresentationBoundaryError(diagnostic(
+      "PREPARED_SOURCE_STALE",
+      "Prepared presentation no longer matches the canonical script identity.",
+      PERFORMANCE_PRESENTATION_MODE,
+      current2
+    ));
+  }
+}
+var PERFORMANCE_PRESENTATION_MODE, LEGACY_PRESENTATION_MODE, PresentationBoundaryError, SHA256_RE;
+var init_performance_presentation_boundary = __esm({
+  "src/script/performance-presentation-boundary.ts"() {
+    "use strict";
+    init_performance_projection();
+    PERFORMANCE_PRESENTATION_MODE = "performance-projection-v1";
+    LEGACY_PRESENTATION_MODE = "legacy";
+    PresentationBoundaryError = class extends Error {
+      diagnostic;
+      constructor(diagnostic2) {
+        super(diagnostic2.message);
+        this.name = "PresentationBoundaryError";
+        this.diagnostic = diagnostic2;
+      }
+    };
+    SHA256_RE = /^[0-9a-f]{64}$/;
+  }
+});
+
+// src/script/presentation-scroll-mode-authority.ts
+function resolvePresentationScrollModeAuthority(search) {
+  const params = typeof search === "string" ? new URLSearchParams(search.startsWith("?") ? search.slice(1) : search) : search;
+  const values = params.getAll("presentation");
+  if (values.length !== 1 || values[0] !== PERFORMANCE_PRESENTATION_MODE) return null;
+  return Object.freeze({ source: "revision-bound-presentation-request", mode: "step" });
+}
+var init_presentation_scroll_mode_authority = __esm({
+  "src/script/presentation-scroll-mode-authority.ts"() {
+    "use strict";
+    init_performance_presentation_boundary();
   }
 });
 
@@ -88669,20 +89403,866 @@ var init_apply_script = __esm({
   }
 });
 
-// src/forge/workpiece-script-handoff.ts
+// src/script/performance-presentation-builder.ts
+function canonicalJson2(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson2).join(",")}]`;
+  const record = value;
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson2(record[key])}`).join(",")}}`;
+}
+async function sha256Hex2(value) {
+  const digest = await crypto.subtle.digest("SHA-256", encoder2.encode(canonicalJson2(value)));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+function fail2(code, details = {}) {
+  throw new PerformancePresentationBuildError(code, details);
+}
+function validateProjection(projection) {
+  const blockIds = /* @__PURE__ */ new Set();
+  const anchorIds = /* @__PURE__ */ new Set();
+  const wordIds = /* @__PURE__ */ new Set();
+  projection.words.forEach((word, ordinal) => {
+    if (word.ordinal !== ordinal) fail2("INVALID_WORD_ORDER", { ordinal, actual: word.ordinal });
+    if (wordIds.has(word.wordId)) fail2("DUPLICATE_WORD_ID", { wordId: word.wordId });
+    wordIds.add(word.wordId);
+  });
+  const flattened = [];
+  projection.blocks.forEach((block, ordinal) => {
+    if (block.ordinal !== ordinal) fail2("INVALID_BLOCK_ORDER", { ordinal, actual: block.ordinal });
+    if (blockIds.has(block.blockId)) fail2("DUPLICATE_BLOCK_ID", { blockId: block.blockId });
+    if (anchorIds.has(block.screenAnchorId)) fail2("DUPLICATE_ANCHOR_ID", { screenAnchorId: block.screenAnchorId });
+    blockIds.add(block.blockId);
+    anchorIds.add(block.screenAnchorId);
+    const words = block.wordOrdinals.map((wordOrdinal) => projection.words[wordOrdinal]);
+    if (words.some((word) => !word)) fail2("INVALID_BLOCK_WORD_MAPPING", { blockOrdinal: ordinal });
+    const expectedText = words.map((word) => word.text).join(" ");
+    if (block.text !== expectedText) fail2("INVALID_BLOCK_TEXT", { blockOrdinal: ordinal });
+    flattened.push(...block.wordOrdinals);
+  });
+  if (flattened.length !== projection.words.length || flattened.some((ordinal, index) => ordinal !== index)) {
+    fail2("INVALID_BLOCK_WORD_MAPPING");
+  }
+}
+function createBlockElement(ownerDocument, block) {
+  const blockElement = ownerDocument.createElement("div");
+  const ordinal = String(block.ordinal);
+  blockElement.className = "line tp-performance-block";
+  blockElement.id = block.screenAnchorId;
+  blockElement.dataset.i = ordinal;
+  blockElement.dataset.index = ordinal;
+  blockElement.dataset.line = ordinal;
+  blockElement.dataset.lineIdx = ordinal;
+  blockElement.dataset.performanceBlockId = block.blockId;
+  blockElement.dataset.performanceBlockOrdinal = ordinal;
+  blockElement.dataset.screenAnchorId = block.screenAnchorId;
+  blockElement.dataset.entryBreak = block.entryBreak;
+  blockElement.dataset.exitBreak = block.exitBreak;
+  if (block.speakerId) blockElement.dataset.speaker = block.speakerId;
+  blockElement.appendChild(ownerDocument.createTextNode(block.text));
+  return { blockElement, wordElements: [] };
+}
+function serializePerformancePresentation(candidate) {
+  return candidate.blockElements.map((element) => element.outerHTML).join("");
+}
+async function buildDetachedPerformancePresentation(input) {
+  const prepared = input.preparedPresentation;
+  const buildStartedAt = performance.now();
+  if (prepared.status !== "prepared" || prepared.mode !== "performance-projection-v1" || prepared.projection.projectionId.length !== 64 || prepared.projection.source.scriptRevision !== prepared.source.scriptRevision || prepared.projection.source.scriptHash !== prepared.source.scriptHash) {
+    fail2("INVALID_PREPARED_PRESENTATION");
+  }
+  validateProjection(prepared.projection);
+  const ownerDocument = input.ownerDocument ?? document;
+  const fragment = ownerDocument.createDocumentFragment();
+  const blockElements = [];
+  const wordElements = [];
+  const blockMappings = [];
+  const wordMappings = [];
+  const lineMap = /* @__PURE__ */ new Map();
+  for (const block of prepared.projection.blocks) {
+    const words = block.wordOrdinals.map((ordinal) => prepared.projection.words[ordinal]);
+    const built = createBlockElement(ownerDocument, block);
+    fragment.appendChild(built.blockElement);
+    blockElements.push(built.blockElement);
+    wordElements.push(...built.wordElements);
+    const canonicalLines = [...new Set(words.map((word) => word.line))];
+    blockMappings.push(Object.freeze({
+      blockId: block.blockId,
+      blockOrdinal: block.ordinal,
+      screenAnchorId: block.screenAnchorId,
+      wordOrdinals: Object.freeze([...block.wordOrdinals]),
+      canonicalLines: Object.freeze(canonicalLines)
+    }));
+    words.forEach((word) => {
+      const existing = lineMap.get(word.line) ?? [];
+      if (!existing.includes(block.ordinal)) existing.push(block.ordinal);
+      lineMap.set(word.line, existing);
+      wordMappings.push(Object.freeze({
+        wordId: word.wordId,
+        wordOrdinal: word.ordinal,
+        blockId: block.blockId,
+        blockOrdinal: block.ordinal,
+        screenAnchorId: block.screenAnchorId,
+        canonicalLine: word.line,
+        startUtf8Byte: word.startUtf8Byte,
+        endUtf8ByteExclusive: word.endUtf8ByteExclusive,
+        startUtf16: word.startUtf16,
+        endUtf16Exclusive: word.endUtf16Exclusive
+      }));
+    });
+  }
+  const canonicalLineToBlockOrdinals = Object.freeze(Object.fromEntries(
+    [...lineMap.entries()].sort(([a], [b]) => a - b).map(([line, ordinals]) => [String(line), Object.freeze([...ordinals])])
+  ));
+  const anchorBasis = blockMappings.map((mapping) => ({
+    blockId: mapping.blockId,
+    blockOrdinal: mapping.blockOrdinal,
+    screenAnchorId: mapping.screenAnchorId
+  }));
+  const wordBasis = wordMappings.map((mapping) => ({ ...mapping }));
+  const [orderedAnchorIntegrityHash, orderedWordMappingHash] = await Promise.all([
+    sha256Hex2(anchorBasis),
+    sha256Hex2(wordBasis)
+  ]);
+  return Object.freeze({
+    schema: "anvil.performance-presentation-candidate.v1",
+    rendererVersion: PERFORMANCE_PRESENTATION_RENDERER_VERSION,
+    projectionId: prepared.projection.projectionId,
+    sourceScriptRevision: prepared.source.scriptRevision,
+    sourceScriptHash: prepared.source.scriptHash,
+    fragment,
+    blockElements: Object.freeze(blockElements),
+    wordElements: Object.freeze(wordElements),
+    blockMappings: Object.freeze(blockMappings),
+    wordMappings: Object.freeze(wordMappings),
+    canonicalLineToBlockOrdinals,
+    integrity: Object.freeze({
+      blockCount: blockElements.length,
+      wordCount: prepared.projection.words.length,
+      orderedAnchorIntegrityHash,
+      orderedWordMappingHash
+    }),
+    diagnostics: Object.freeze({
+      projectionBuildMs: performance.now() - buildStartedAt,
+      nodeCount: blockElements.length * 2,
+      wordSpanCount: 0,
+      generatedHtmlBytes: encoder2.encode(blockElements.map((element) => element.outerHTML).join("")).length
+    })
+  });
+}
+var PERFORMANCE_PRESENTATION_RENDERER_VERSION, PERFORMANCE_PRESENTATION_DOM_BUDGET, PerformancePresentationBuildError, encoder2;
+var init_performance_presentation_builder = __esm({
+  "src/script/performance-presentation-builder.ts"() {
+    "use strict";
+    PERFORMANCE_PRESENTATION_RENDERER_VERSION = "performance-projection-renderer-v1";
+    PERFORMANCE_PRESENTATION_DOM_BUDGET = Object.freeze({
+      maxNodesPerBlock: 2,
+      maxWordSpansAtRest: 0,
+      maxHtmlBytesPerCanonicalCharacter: 2
+    });
+    PerformancePresentationBuildError = class extends Error {
+      code;
+      details;
+      constructor(code, details = {}) {
+        super(`Performance presentation candidate rejected: ${code}`);
+        this.name = "PerformancePresentationBuildError";
+        this.code = code;
+        this.details = Object.freeze({ ...details });
+      }
+    };
+    encoder2 = new TextEncoder();
+  }
+});
+
+// src/script/performance-presentation-mutation-transaction.ts
+function beginPresentationMutationTransaction(root, epoch) {
+  if (transactions.has(root)) throw new Error("performance presentation mutation transaction already active");
+  const token = Symbol(epoch);
+  transactions.set(root, { epoch, token, outcome: "pending", committedMirrorConsumed: false });
+  return Object.freeze({ root, epoch, token });
+}
+function requireOwned(handle) {
+  const state8 = transactions.get(handle.root);
+  if (!state8 || state8.token !== handle.token || state8.epoch !== handle.epoch) {
+    throw new Error("performance presentation mutation transaction is not installer-owned");
+  }
+  return state8;
+}
+function commitPresentationMutationTransaction(handle) {
+  requireOwned(handle).outcome = "committed";
+}
+function rollBackPresentationMutationTransaction(handle) {
+  requireOwned(handle).outcome = "rolled-back";
+}
+function classifyPresentationMutation(root) {
+  const state8 = transactions.get(root);
+  if (!state8) return "ordinary";
+  if (state8.outcome !== "committed" || state8.committedMirrorConsumed) return "suppress";
+  state8.committedMirrorConsumed = true;
+  return "committed-mirror";
+}
+function finishPresentationMutationTransaction(handle) {
+  requireOwned(handle);
+  transactions.delete(handle.root);
+}
+var transactions;
+var init_performance_presentation_mutation_transaction = __esm({
+  "src/script/performance-presentation-mutation-transaction.ts"() {
+    "use strict";
+    transactions = /* @__PURE__ */ new WeakMap();
+  }
+});
+
+// src/script/performance-presentation-mirror-observer.ts
+function registerCommittedPresentationMirror(root, candidate) {
+  const startedAt = performance.now();
+  const html = serializePerformancePresentation(candidate);
+  const result = Object.freeze({ htmlBytes: new TextEncoder().encode(html).length, serializationMs: performance.now() - startedAt });
+  committedMirrors.set(root, html);
+  return result;
+}
+function observeCommittedPresentationMutations(root, onCommittedMutation, onProcessing) {
+  const observer = new MutationObserver(() => {
+    const startedAt = performance.now();
+    const decision = classifyPresentationMutation(root);
+    if (decision !== "suppress") onCommittedMutation(decision === "committed-mirror" ? committedMirrors.get(root) : void 0);
+    onProcessing?.(performance.now() - startedAt);
+  });
+  observer.observe(root, { childList: true, subtree: true });
+  return observer;
+}
+var committedMirrors;
+var init_performance_presentation_mirror_observer = __esm({
+  "src/script/performance-presentation-mirror-observer.ts"() {
+    "use strict";
+    init_performance_presentation_mutation_transaction();
+    init_performance_presentation_builder();
+    committedMirrors = /* @__PURE__ */ new WeakMap();
+  }
+});
+
+// src/script/performance-presentation-installer.ts
+function snapshotRoot(root) {
+  return {
+    children: Array.from(root.childNodes),
+    attributes: Array.from(root.attributes).map((attribute) => [attribute.name, attribute.value]),
+    scrollTop: root.scrollTop,
+    scrollLeft: root.scrollLeft
+  };
+}
+function restoreRoot(root, snapshot) {
+  root.replaceChildren(...snapshot.children);
+  for (const attribute of Array.from(root.attributes)) root.removeAttribute(attribute.name);
+  for (const [name, value] of snapshot.attributes) root.setAttribute(name, value);
+  root.scrollTop = snapshot.scrollTop;
+  root.scrollLeft = snapshot.scrollLeft;
+}
+function sameCanonical(left, right) {
+  return left.workspaceId === right.workspaceId && left.workpieceId === right.workpieceId && left.path === right.path && left.scriptRevision === right.scriptRevision && left.scriptHash === right.scriptHash;
+}
+function validateCandidate(prepared, candidate) {
+  if (candidate.projectionId !== prepared.projection.projectionId || candidate.sourceScriptRevision !== prepared.source.scriptRevision || candidate.sourceScriptHash !== prepared.source.scriptHash || candidate.integrity.blockCount !== prepared.projection.blocks.length || candidate.integrity.wordCount !== prepared.projection.words.length || candidate.fragment.childNodes.length !== candidate.integrity.blockCount || candidate.blockElements.some((element) => element.isConnected || element.parentNode !== candidate.fragment) || candidate.wordElements.some((element) => element.isConnected)) {
+    throw new PerformancePresentationInstallError("CANDIDATE_MISMATCH");
+  }
+}
+function createEpoch() {
+  installationCounter += 1;
+  let nonce = "";
+  try {
+    nonce = crypto.randomUUID?.() ?? "";
+  } catch {
+  }
+  if (!nonce) nonce = `${Date.now().toString(36)}-${installationCounter.toString(36)}`;
+  return `performance-install-${installationCounter}-${nonce}`;
+}
+function validateAttached(root, candidate, epoch) {
+  const blocks = Array.from(root.querySelectorAll(":scope > .tp-performance-block"));
+  const words = Array.from(root.querySelectorAll(".tp-performance-word"));
+  if (blocks.length !== candidate.integrity.blockCount || words.length !== candidate.wordElements.length || root.dataset.performanceProjectionId !== candidate.projectionId || root.dataset.presentationEpoch !== epoch) {
+    throw new PerformancePresentationInstallError("ATTACHED_VALIDATION_FAILED", { stage: "counts_or_root" });
+  }
+  for (let index = 0; index < candidate.blockMappings.length; index += 1) {
+    const mapping = candidate.blockMappings[index];
+    const element = blocks[index];
+    if (!element || element !== candidate.blockElements[index] || !element.isConnected || element.parentElement !== root || element.id !== mapping.screenAnchorId || element.dataset.performanceBlockId !== mapping.blockId || element.dataset.performanceBlockOrdinal !== String(mapping.blockOrdinal) || element.dataset.presentationEpoch !== epoch) {
+      throw new PerformancePresentationInstallError("ATTACHED_VALIDATION_FAILED", { stage: "block", index });
+    }
+  }
+  if (candidate.wordElements.length !== 0 || words.length !== 0) {
+    throw new PerformancePresentationInstallError("ATTACHED_VALIDATION_FAILED", { stage: "unexpected_word_dom" });
+  }
+}
+async function installPerformancePresentation(input) {
+  const { authority, preparedPresentation: prepared, candidate, root } = input;
+  if (authority.prepared !== prepared) throw new PerformancePresentationInstallError("PREPARED_STATE_NOT_AUTHORIZED");
+  if (authority.generation !== input.expectedGeneration) throw new PerformancePresentationInstallError("PRESENTATION_GENERATION_STALE");
+  try {
+    assertPreparedPresentationFresh(prepared, authority.canonical);
+  } catch {
+    throw new PerformancePresentationInstallError("CANONICAL_SOURCE_STALE");
+  }
+  validateCandidate(prepared, candidate);
+  const canonicalAtCommit = authority.canonical;
+  const snapshot = snapshotRoot(root);
+  const previousActive = authority.active;
+  const epoch = createEpoch();
+  const rootIdentity = root.id || root.dataset.role || "anonymous-script-root";
+  let mutationTransaction = null;
+  let runtimeCommitStarted = false;
+  let domInsertionMs = 0;
+  let installedTreeValidationMs = 0;
+  try {
+    mutationTransaction = beginPresentationMutationTransaction(root, epoch);
+    candidate.blockElements.forEach((element) => {
+      element.dataset.presentationEpoch = epoch;
+    });
+    candidate.wordElements.forEach((element) => {
+      element.dataset.presentationEpoch = epoch;
+    });
+    const insertionStartedAt = performance.now();
+    root.replaceChildren(candidate.fragment);
+    domInsertionMs = performance.now() - insertionStartedAt;
+    root.dataset.performanceProjectionId = candidate.projectionId;
+    root.dataset.presentationEpoch = epoch;
+    root.dataset.lineCount = String(candidate.integrity.blockCount);
+    input.fault?.("after-replace");
+    if (authority.generation !== input.expectedGeneration || !sameCanonical(authority.canonical, canonicalAtCommit)) {
+      throw new PerformancePresentationInstallError("PRESENTATION_GENERATION_STALE");
+    }
+    const validationStartedAt = performance.now();
+    validateAttached(root, candidate, epoch);
+    input.fault?.("before-receipt");
+    validateAttached(root, candidate, epoch);
+    installedTreeValidationMs = performance.now() - validationStartedAt;
+    const active = Object.freeze({
+      status: "active",
+      mode: "performance-projection-v1",
+      source: prepared.source,
+      projection: prepared.projection,
+      activation: Object.freeze({
+        schema: "anvil.performance-presentation-installation.v1",
+        rendererVersion: candidate.rendererVersion,
+        projectionId: candidate.projectionId,
+        installationEpoch: epoch,
+        presentationGeneration: input.expectedGeneration,
+        installedBlockCount: candidate.integrity.blockCount,
+        installedWordCount: candidate.integrity.wordCount,
+        orderedAnchorIntegrityHash: candidate.integrity.orderedAnchorIntegrityHash,
+        orderedWordMappingHash: candidate.integrity.orderedWordMappingHash,
+        rootIdentity,
+        sourceScriptRevision: prepared.source.scriptRevision,
+        sourceScriptHash: prepared.source.scriptHash
+      })
+    });
+    runtimeCommitStarted = true;
+    input.transactionHooks?.beforeActiveCommit();
+    authority.commitActive(active, input.expectedGeneration);
+    input.transactionHooks?.afterActiveCommit(active);
+    const mirrorMetrics = registerCommittedPresentationMirror(root, candidate);
+    input.onMetrics?.({ domInsertionMs, installedTreeValidationMs, mirrorSerializationMs: mirrorMetrics.serializationMs, mirrorHtmlBytes: mirrorMetrics.htmlBytes });
+    commitPresentationMutationTransaction(mutationTransaction);
+    await Promise.resolve();
+    return active;
+  } catch (error) {
+    if (mutationTransaction) rollBackPresentationMutationTransaction(mutationTransaction);
+    restoreRoot(root, snapshot);
+    if (authority.generation === input.expectedGeneration) authority.restoreActive(previousActive);
+    if (runtimeCommitStarted) input.transactionHooks?.rollBack();
+    for (const element of candidate.blockElements) candidate.fragment.appendChild(element);
+    await Promise.resolve();
+    if (error instanceof PerformancePresentationInstallError) throw error;
+    throw new PerformancePresentationInstallError("INSTALLATION_FAILED", { reason: String(error) });
+  } finally {
+    if (mutationTransaction) finishPresentationMutationTransaction(mutationTransaction);
+  }
+}
+var PerformancePresentationInstallError, PerformancePresentationAuthority, installationCounter;
+var init_performance_presentation_installer = __esm({
+  "src/script/performance-presentation-installer.ts"() {
+    "use strict";
+    init_performance_presentation_boundary();
+    init_performance_presentation_mirror_observer();
+    init_performance_presentation_mutation_transaction();
+    PerformancePresentationInstallError = class extends Error {
+      code;
+      details;
+      constructor(code, details = {}) {
+        super(`Performance presentation installation rejected: ${code}`);
+        this.name = "PerformancePresentationInstallError";
+        this.code = code;
+        this.details = Object.freeze({ ...details });
+      }
+    };
+    PerformancePresentationAuthority = class {
+      canonicalIdentity;
+      generationValue = 1;
+      preparedValue = null;
+      activeValue = null;
+      constructor(canonicalIdentity) {
+        this.canonicalIdentity = Object.freeze({ ...canonicalIdentity, scriptHash: canonicalIdentity.scriptHash.toLowerCase() });
+      }
+      get generation() {
+        return this.generationValue;
+      }
+      get canonical() {
+        return this.canonicalIdentity;
+      }
+      get prepared() {
+        return this.preparedValue;
+      }
+      get active() {
+        return this.activeValue;
+      }
+      authorizePrepared(prepared) {
+        assertPreparedPresentationFresh(prepared, this.canonicalIdentity);
+        this.preparedValue = prepared;
+        return this.generationValue;
+      }
+      invalidateForScriptGeneration(canonicalIdentity) {
+        this.generationValue += 1;
+        this.canonicalIdentity = Object.freeze({ ...canonicalIdentity, scriptHash: canonicalIdentity.scriptHash.toLowerCase() });
+        this.preparedValue = null;
+        this.activeValue = null;
+        return this.generationValue;
+      }
+      commitActive(active, expectedGeneration) {
+        if (this.generationValue !== expectedGeneration || this.preparedValue?.projection.projectionId !== active.projection.projectionId) {
+          throw new PerformancePresentationInstallError("PRESENTATION_GENERATION_STALE");
+        }
+        this.activeValue = active;
+      }
+      restoreActive(active) {
+        this.activeValue = active;
+      }
+    };
+    installationCounter = 0;
+  }
+});
+
+// src/script/performance-apply-coordinator.ts
+function createStagedPerformanceApply(input) {
+  return Object.freeze({
+    schema: "anvil.performance-apply-stage.v1",
+    requestedPresentation: Object.freeze({ ...input.requestedPresentation }),
+    authenticated: input.authenticated,
+    source: input.source,
+    canonicalIdentity: Object.freeze({ ...input.canonicalIdentity, scriptHash: input.canonicalIdentity.scriptHash.toLowerCase() }),
+    canonicalText: input.canonicalText,
+    canonicalUtf8Bytes: Object.freeze(Array.from(input.canonicalUtf8Bytes)),
+    scrollMode: String(input.scrollMode || "").toLowerCase(),
+    presentationGeneration: input.presentationGeneration
+  });
+}
+function injectedFault(fault, stage) {
+  fault?.(stage);
+}
+async function coordinateStagedPerformanceApply(input) {
+  const { stage, authority, adapters } = input;
+  if (stage.requestedPresentation.status === "current") {
+    return Object.freeze({ outcome: "legacy-bypass", displayPolicy: "legacy-unchanged" });
+  }
+  if (!stage.authenticated || stage.source !== "workpiece-handoff" && stage.source !== "ready-script") {
+    throw new PerformanceApplyCoordinatorError("AUTHENTICATED_SOURCE_REQUIRED", "eligibility");
+  }
+  if (stage.scrollMode === "asr" || stage.scrollMode === "hybrid") {
+    throw new PerformanceApplyCoordinatorError("ASR_SCROLL_MODE_UNSUPPORTED", "eligibility");
+  }
+  if (authority.generation !== stage.presentationGeneration) {
+    throw new PerformanceApplyCoordinatorError("PRESENTATION_GENERATION_STALE", "initial-generation");
+  }
+  let currentStage = "before-prepare";
+  try {
+    injectedFault(input.fault, "before-prepare");
+    const prepared = await prepareRequestedPresentation({
+      requestedPresentation: stage.requestedPresentation,
+      canonicalIdentity: stage.canonicalIdentity,
+      canonicalText: stage.canonicalText,
+      canonicalUtf8Bytes: Uint8Array.from(stage.canonicalUtf8Bytes)
+    });
+    if (!prepared) throw new Error("explicit performance presentation did not prepare");
+    currentStage = "after-prepare";
+    injectedFault(input.fault, "after-prepare");
+    if (authority.generation !== stage.presentationGeneration) {
+      throw new PerformanceApplyCoordinatorError("PRESENTATION_GENERATION_STALE", "after-prepare");
+    }
+    const candidate = await buildDetachedPerformancePresentation({ preparedPresentation: prepared });
+    currentStage = "after-build";
+    injectedFault(input.fault, "after-build");
+    if (authority.generation !== stage.presentationGeneration) {
+      throw new PerformanceApplyCoordinatorError("PRESENTATION_GENERATION_STALE", "after-build");
+    }
+    const authorizedGeneration = authority.authorizePrepared(prepared);
+    if (authorizedGeneration !== stage.presentationGeneration) {
+      throw new PerformanceApplyCoordinatorError("PRESENTATION_GENERATION_STALE", "authorization");
+    }
+    currentStage = "before-runtime-snapshot";
+    injectedFault(input.fault, "before-runtime-snapshot");
+    const runtimeSnapshot = adapters.runtime.snapshot();
+    let committedActive = null;
+    const active = await installPerformancePresentation({
+      authority,
+      preparedPresentation: prepared,
+      candidate,
+      root: input.root,
+      expectedGeneration: stage.presentationGeneration,
+      fault: (installerStage) => {
+        const coordinatorStage = installerStage === "after-replace" ? "installer-after-replace" : "installer-before-receipt";
+        currentStage = coordinatorStage;
+        injectedFault(input.fault, coordinatorStage);
+      },
+      transactionHooks: {
+        beforeActiveCommit: () => {
+          adapters.runtime.commit({
+            canonicalText: stage.canonicalText,
+            canonicalIdentity: stage.canonicalIdentity,
+            activePresentation: null,
+            displayPolicy: PERFORMANCE_DISPLAY_POLICY
+          });
+          currentStage = "after-runtime-commit";
+          injectedFault(input.fault, "after-runtime-commit");
+        },
+        afterActiveCommit: (nextActive) => {
+          committedActive = nextActive;
+          adapters.runtime.commit({
+            canonicalText: stage.canonicalText,
+            canonicalIdentity: stage.canonicalIdentity,
+            activePresentation: nextActive,
+            displayPolicy: PERFORMANCE_DISPLAY_POLICY
+          });
+          currentStage = "before-committed-event";
+          injectedFault(input.fault, "before-committed-event");
+          adapters.events.publishProjectionCommitted(Object.freeze({
+            schema: "anvil.performance-presentation-committed.v1",
+            projectionId: nextActive.projection.projectionId,
+            installationEpoch: nextActive.activation.installationEpoch,
+            sourceScriptRevision: nextActive.source.scriptRevision,
+            sourceScriptHash: nextActive.source.scriptHash,
+            displayPolicy: PERFORMANCE_DISPLAY_POLICY
+          }));
+        },
+        rollBack: () => {
+          committedActive = null;
+          adapters.runtime.restore(runtimeSnapshot);
+        }
+      }
+    });
+    if (committedActive !== active) throw new Error("coordinator active commit mismatch");
+    return Object.freeze({ outcome: "projection-committed", activePresentation: active, displayPolicy: PERFORMANCE_DISPLAY_POLICY });
+  } catch (error) {
+    if (error instanceof PerformanceApplyCoordinatorError) throw error;
+    const causeCode = typeof error === "object" && error && "code" in error ? String(error.code) : void 0;
+    throw new PerformanceApplyCoordinatorError("COORDINATED_APPLY_FAILED", currentStage, causeCode);
+  }
+}
+var PERFORMANCE_DISPLAY_POLICY, PerformanceApplyCoordinatorError;
+var init_performance_apply_coordinator = __esm({
+  "src/script/performance-apply-coordinator.ts"() {
+    "use strict";
+    init_performance_presentation_boundary();
+    init_performance_presentation_builder();
+    init_performance_presentation_installer();
+    PERFORMANCE_DISPLAY_POLICY = Object.freeze({
+      canonicalRawPublication: "suppressed",
+      renderedMirrorPublication: "committed-only"
+    });
+    PerformanceApplyCoordinatorError = class extends Error {
+      code;
+      stage;
+      causeCode;
+      constructor(code, stage, causeCode) {
+        super(`Performance apply coordinator rejected: ${code} at ${stage}`);
+        this.name = "PerformanceApplyCoordinatorError";
+        this.code = code;
+        this.stage = stage;
+        this.causeCode = causeCode;
+      }
+    };
+  }
+});
+
+// src/script/authenticated-performance-dispatcher.ts
+function isSameReadinessSnapshot(left, right) {
+  return left.ready === right.ready && left.mode === right.mode && left.revision === right.revision;
+}
+function discardStaleActivation() {
+  return Object.freeze({ outcome: "discarded", code: "STALE_PRESENTATION_ACTIVATION" });
+}
+function hasExplicitPresentationSelection(search) {
+  const params = search instanceof URLSearchParams ? search : new URLSearchParams(search ?? window.location.search);
+  return params.has("presentation");
+}
+function appliedTextHash(text) {
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(16);
+}
+function snapshotRuntime() {
+  const runtime = window;
+  const values = {};
+  for (const key of RUNTIME_KEYS) {
+    values[key] = { present: Object.prototype.hasOwnProperty.call(runtime, key), value: runtime[key] };
+  }
+  const editor = document.getElementById("editor");
+  return { values, editorValue: editor?.value ?? null };
+}
+function restoreRuntime(snapshot) {
+  const runtime = window;
+  for (const key of RUNTIME_KEYS) {
+    const entry = snapshot.values[key];
+    if (entry.present) runtime[key] = entry.value;
+    else delete runtime[key];
+  }
+  const editor = document.getElementById("editor");
+  if (editor && snapshot.editorValue != null) editor.value = snapshot.editorValue;
+}
+function commitProjectionRuntime(value, canonicalReadyScript) {
+  const runtime = window;
+  runtime.__tpRawScript = value.canonicalText;
+  runtime.__TP_LAST_APPLIED_HASH = appliedTextHash(value.canonicalText);
+  runtime.__forgeCanonicalScriptIdentity = { ...value.canonicalIdentity };
+  if (canonicalReadyScript != null) runtime.__forgeCanonicalReadyScript = canonicalReadyScript;
+  else delete runtime.__forgeCanonicalReadyScript;
+  runtime.__forgeActivePerformancePresentation = value.activePresentation;
+  runtime.scriptWords = [];
+  runtime.paraIndex = [];
+  runtime.currentIndex = 0;
+  const editor = document.getElementById("editor");
+  if (editor) editor.value = value.canonicalText;
+}
+function publishVisibleRejection(code, message, source) {
+  const detail = Object.freeze({ code, message, source, at: Date.now() });
+  try {
+    window.__tpPerformancePresentationError = detail;
+  } catch {
+  }
+  try {
+    window.dispatchEvent(new CustomEvent("tp:performance-presentation-error", { detail }));
+  } catch {
+  }
+  try {
+    window.toast?.(message, { type: "error" });
+  } catch {
+  }
+  try {
+    console.warn("[performance-presentation]", message, detail);
+  } catch {
+  }
+  return Object.freeze({ outcome: "rejected", code, message });
+}
+function publishCanonicalIdentity(identity, canonicalReadyScript) {
+  if (!identity) return;
+  window.__forgeCanonicalScriptIdentity = { ...identity };
+  if (canonicalReadyScript != null) window.__forgeCanonicalReadyScript = canonicalReadyScript;
+  else delete window.__forgeCanonicalReadyScript;
+}
+async function dispatchAuthenticatedCanonicalScript(input) {
+  const requestGeneration = ++dispatchGeneration;
+  const readiness = input.scrollModeReadiness ?? createResolvedScrollModeReadiness(input.scrollMode);
+  let requested;
+  try {
+    requested = parseRequestedPresentation(input.search ?? window.location.search);
+  } catch (error) {
+    if (hasExplicitPresentationSelection(input.search)) {
+      const restoredMode2 = await readiness.waitUntilReady();
+      if (requestGeneration !== dispatchGeneration || !isSameReadinessSnapshot(restoredMode2, readiness.snapshot())) {
+        return discardStaleActivation();
+      }
+    }
+    const code = error instanceof PresentationBoundaryError ? error.diagnostic.code : "UNKNOWN_PRESENTATION";
+    return publishVisibleRejection(code, error instanceof Error ? error.message : "Invalid presentation selection.", input.source);
+  }
+  if (requested.status === "current") {
+    if (!input.legacyApply) {
+      return publishVisibleRejection("LEGACY_APPLY_REQUIRED", "Legacy script application callback is unavailable.", input.source);
+    }
+    if (input.canonicalIdentity) {
+      currentAuthority?.invalidateForScriptGeneration(input.canonicalIdentity);
+      currentAuthority = new PerformancePresentationAuthority(input.canonicalIdentity);
+      publishCanonicalIdentity(input.canonicalIdentity, input.canonicalReadyScript);
+    }
+    input.legacyApply(input.canonicalText);
+    return Object.freeze({ outcome: "legacy-applied" });
+  }
+  const restoredMode = await readiness.waitUntilReady();
+  if (requestGeneration !== dispatchGeneration || !isSameReadinessSnapshot(restoredMode, readiness.snapshot())) {
+    return discardStaleActivation();
+  }
+  const identity = input.canonicalIdentity ?? null;
+  const bytes = input.canonicalUtf8Bytes ?? null;
+  if (!input.authenticated || input.source === "non-authoritative" || !identity || !bytes) {
+    return publishVisibleRejection(
+      "AUTHENTICATED_SOURCE_REQUIRED",
+      "Performance projection requires an authenticated canonical Hearth/Tongs script revision.",
+      input.source
+    );
+  }
+  if (restoredMode.mode === "asr" || restoredMode.mode === "hybrid") {
+    return publishVisibleRejection(
+      "ASR_SCROLL_MODE_UNSUPPORTED",
+      `Performance projection is unavailable while ${restoredMode.mode} scrolling is selected.`,
+      input.source
+    );
+  }
+  const root = input.root ?? document.getElementById("script") ?? document.querySelector(".script");
+  if (!root) {
+    return publishVisibleRejection("SCRIPT_ROOT_REQUIRED", "Performance presentation root is unavailable.", input.source);
+  }
+  const authority = new PerformancePresentationAuthority(identity);
+  const stage = createStagedPerformanceApply({
+    requestedPresentation: requested,
+    authenticated: true,
+    source: input.source,
+    canonicalIdentity: identity,
+    canonicalText: input.canonicalText,
+    canonicalUtf8Bytes: bytes,
+    scrollMode: restoredMode.mode,
+    presentationGeneration: authority.generation
+  });
+  try {
+    if (requestGeneration !== dispatchGeneration || !isSameReadinessSnapshot(restoredMode, readiness.snapshot())) {
+      return discardStaleActivation();
+    }
+    const result = await coordinateStagedPerformanceApply({
+      stage,
+      authority,
+      root,
+      adapters: {
+        runtime: {
+          snapshot: snapshotRuntime,
+          commit: (value) => commitProjectionRuntime(value, input.canonicalReadyScript),
+          restore: restoreRuntime
+        },
+        events: {
+          publishProjectionCommitted: (detail) => {
+            window.dispatchEvent(new CustomEvent("tp:performance-presentation-committed", { detail }));
+          }
+        }
+      }
+    });
+    if (result.outcome !== "projection-committed") throw new Error("projection coordinator did not commit");
+    currentAuthority = authority;
+    try {
+      delete window.__tpPerformancePresentationError;
+    } catch {
+    }
+    return Object.freeze({ outcome: "projection-committed", activePresentation: result.activePresentation });
+  } catch (error) {
+    const code = typeof error === "object" && error && "code" in error ? String(error.code) : "PROJECTION_ACTIVATION_FAILED";
+    return publishVisibleRejection(code, error instanceof Error ? error.message : "Performance projection activation failed.", input.source);
+  }
+}
+var RUNTIME_KEYS, currentAuthority, dispatchGeneration;
+var init_authenticated_performance_dispatcher = __esm({
+  "src/script/authenticated-performance-dispatcher.ts"() {
+    "use strict";
+    init_performance_apply_coordinator();
+    init_performance_presentation_boundary();
+    init_performance_presentation_installer();
+    init_scroll_mode_readiness();
+    RUNTIME_KEYS = [
+      "__tpRawScript",
+      "__TP_LAST_APPLIED_HASH",
+      "__forgeCanonicalScriptIdentity",
+      "__forgeCanonicalReadyScript",
+      "__forgeActivePerformancePresentation",
+      "scriptWords",
+      "paraIndex",
+      "currentIndex"
+    ];
+    currentAuthority = null;
+    dispatchGeneration = 0;
+  }
+});
+
+// src/forge/workpiece-performance-entrypoint.ts
+function dispatchAuthenticatedWorkpieceScript(input) {
+  return dispatchAuthenticatedCanonicalScript({
+    source: "workpiece-handoff",
+    authenticated: true,
+    canonicalIdentity: input.canonicalIdentity,
+    canonicalText: input.canonicalText,
+    canonicalUtf8Bytes: new TextEncoder().encode(input.canonicalText),
+    scrollMode: input.scrollMode,
+    scrollModeReadiness: appScrollModeReadiness,
+    legacyApply: input.legacyApply
+  });
+}
+var init_workpiece_performance_entrypoint = __esm({
+  "src/forge/workpiece-performance-entrypoint.ts"() {
+    "use strict";
+    init_authenticated_performance_dispatcher();
+    init_scroll_mode_readiness();
+  }
+});
+
+// src/forge/canonical-script-read.ts
 function readString5(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
+async function readCanonicalScriptFile(workpieceId, path, headersInit) {
+  let response;
+  try {
+    response = await fetchAuthenticatedTongs(
+      `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(path)}`,
+      { method: "GET", headers: headersInit }
+    );
+  } catch (error) {
+    if (error instanceof ForgeUserAuthorizationError) {
+      return { ok: false, reason: "unauthorized", status: 401 };
+    }
+    return { ok: false, reason: "request_failed" };
+  }
+  if (response.status === 404) return { ok: false, reason: "not_found", status: 404 };
+  if (response.status === 401 || response.status === 403) {
+    return { ok: false, reason: "unauthorized", status: response.status };
+  }
+  if (!response.ok) return { ok: false, reason: "request_failed", status: response.status };
+  let body = null;
+  try {
+    body = await response.json();
+  } catch {
+    return { ok: false, reason: "invalid_response", status: response.status };
+  }
+  if (!body || typeof body !== "object" || body.ok !== true) {
+    return { ok: false, reason: "invalid_response", status: response.status };
+  }
+  const root = body;
+  if (typeof root.data !== "string") {
+    return { ok: false, reason: "invalid_response", status: response.status };
+  }
+  const fileRow = root.file_row && typeof root.file_row === "object" ? root.file_row : null;
+  const revision = typeof fileRow?.revision === "number" && Number.isInteger(fileRow.revision) ? fileRow.revision : 0;
+  const hash = readString5(fileRow?.hash_value)?.toLowerCase() ?? "";
+  if (revision < 1 || !/^[0-9a-f]{64}$/.test(hash)) {
+    return { ok: false, reason: "invalid_response", status: response.status };
+  }
+  return { ok: true, text: root.data, revision, hash };
+}
+var init_canonical_script_read = __esm({
+  "src/forge/canonical-script-read.ts"() {
+    "use strict";
+    init_tongs_user_auth();
+  }
+});
+
+// src/forge/workpiece-script-handoff.ts
+function readString6(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length ? trimmed : null;
+}
 function normalizeUuid(value) {
-  const str = readString5(value);
+  const str = readString6(value);
   if (!str) return null;
   return UUID_RE.test(str) ? str.toLowerCase() : null;
 }
 function readLocalStorage(key) {
   try {
-    return readString5(window.localStorage.getItem(key));
+    return readString6(window.localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -88697,7 +90277,7 @@ function getQueryParam(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString5(q3.get(key));
+      const value = readString6(q3.get(key));
       if (value) return value;
     }
   } catch {
@@ -88741,25 +90321,25 @@ function persistWorkpiece(workspaceId, workpieceId) {
   }
 }
 function shouldAutoloadWorkpieceScript() {
-  const open = readString5(getQueryParam("open", "intent", "action"))?.toLowerCase();
+  const open = readString6(getQueryParam("open", "intent", "action"))?.toLowerCase();
   if (open === "script" || open === "script_primary") return true;
-  return Boolean(readString5(getQueryParam("script_path", "path")));
+  return Boolean(readString6(getQueryParam("script_path", "path")));
 }
 function resolveScriptPath() {
-  const fromQuery = readString5(getQueryParam("script_path", "path"));
+  const fromQuery = readString6(getQueryParam("script_path", "path"));
   if (!fromQuery) return DEFAULT_SCRIPT_PATH;
   if (fromQuery.startsWith("/") || fromQuery.includes("..")) return DEFAULT_SCRIPT_PATH;
   return fromQuery;
 }
 function resolveTongsApiToken() {
-  const fromQuery = readString5(getQueryParam("tongs_api_token", "tongsApiToken"));
+  const fromQuery = readString6(getQueryParam("tongs_api_token", "tongsApiToken"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = readString5(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
+  const fromWindow = readString6(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
   try {
     const meta2 = import.meta;
-    const fromEnv = readString5(meta2.env?.VITE_TONGS_API_TOKEN);
+    const fromEnv = readString6(meta2.env?.VITE_TONGS_API_TOKEN);
     if (fromEnv) return fromEnv;
   } catch {
   }
@@ -88812,39 +90392,7 @@ async function readWorkpieceScript(workpieceId, path) {
   if (token) {
     headers.set("authorization", `Bearer ${token}`);
   }
-  const response = await fetch(
-    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(path)}`,
-    {
-      method: "GET",
-      headers
-    }
-  );
-  if (response.status === 404) return { ok: false, reason: "not_found", status: 404 };
-  if (response.status === 401 || response.status === 403) {
-    return { ok: false, reason: "unauthorized", status: response.status };
-  }
-  if (!response.ok) return { ok: false, reason: "request_failed", status: response.status };
-  let body = null;
-  try {
-    body = await response.json();
-  } catch {
-    return { ok: false, reason: "invalid_response", status: response.status };
-  }
-  if (!body || typeof body !== "object" || body.ok !== true) {
-    return { ok: false, reason: "invalid_response", status: response.status };
-  }
-  const root = body;
-  const data = root.data;
-  if (typeof data !== "string") {
-    return { ok: false, reason: "invalid_response", status: response.status };
-  }
-  const fileRow = root.file_row && typeof root.file_row === "object" ? root.file_row : null;
-  const revision = typeof fileRow?.revision === "number" && Number.isInteger(fileRow.revision) ? fileRow.revision : 0;
-  const hash = readString5(fileRow?.hash_value)?.toLowerCase() ?? "";
-  if (revision < 1 || !/^[0-9a-f]{64}$/.test(hash)) {
-    return { ok: false, reason: "invalid_response", status: response.status };
-  }
-  return { ok: true, text: data, revision, hash };
+  return readCanonicalScriptFile(workpieceId, path, headers);
 }
 async function loadWorkpieceScriptOnBoot() {
   if (booted) return;
@@ -88878,14 +90426,20 @@ async function loadWorkpieceScriptOnBoot() {
     reportScriptHandoffError({ workpieceId, path, reason: "invalid_response" });
     return;
   }
-  window.__forgeCanonicalScriptIdentity = {
+  const canonicalIdentity = {
     workspaceId,
     workpieceId,
     path,
     scriptRevision: readResult.revision,
     scriptHash: readResult.hash
   };
-  applyScript(text, "load", { updateEditor: true });
+  const dispatchResult = await dispatchAuthenticatedWorkpieceScript({
+    canonicalIdentity,
+    canonicalText: text,
+    scrollMode: String(appStoreSingleton.get("scrollMode") || ""),
+    legacyApply: (legacyText) => applyScript(legacyText, "load", { updateEditor: true })
+  });
+  if (dispatchResult.outcome === "rejected" || dispatchResult.outcome === "discarded") return;
   try {
     window.__tpCurrentName = fileNameFromPath(path);
   } catch {
@@ -88921,6 +90475,9 @@ var init_workpiece_script_handoff = __esm({
   "src/forge/workpiece-script-handoff.ts"() {
     "use strict";
     init_apply_script();
+    init_app_store();
+    init_workpiece_performance_entrypoint();
+    init_canonical_script_read();
     UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     DEFAULT_SCRIPT_PATH = "script/script.md";
     WORKSPACE_STORAGE_KEYS = ["forge_workspace_id_v1", "barstock_workspace_id"];
@@ -89305,7 +90862,7 @@ function readNumber(value, fallback) {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
-function readString6(value, fallback) {
+function readString7(value, fallback) {
   if (typeof value !== "string") return fallback;
   const v = value.trim();
   if (!v || v === "undefined" || v === "null") return fallback;
@@ -89314,14 +90871,14 @@ function readString6(value, fallback) {
 function normalizeTypography(input, fallback) {
   const src = input && typeof input === "object" ? input : {};
   return clampTypography({
-    fontFamily: readString6(src.fontFamily, fallback.fontFamily),
+    fontFamily: readString7(src.fontFamily, fallback.fontFamily),
     fontSizePx: readNumber(src.fontSizePx, fallback.fontSizePx),
     lineHeight: readNumber(src.lineHeight, fallback.lineHeight),
     weight: readNumber(src.weight, fallback.weight),
     letterSpacingEm: readNumber(src.letterSpacingEm, fallback.letterSpacingEm),
     wordSpacingEm: readNumber(src.wordSpacingEm, fallback.wordSpacingEm),
-    color: readString6(src.color, fallback.color),
-    background: readString6(src.background, fallback.background),
+    color: readString7(src.color, fallback.color),
+    background: readString7(src.background, fallback.background),
     maxLineWidthCh: readNumber(src.maxLineWidthCh, fallback.maxLineWidthCh),
     dimOthers: readNumber(src.dimOthers, fallback.dimOthers)
   });
@@ -91001,19 +92558,19 @@ var init_rec_pills = __esm({
 });
 
 // src/forge/workpiece-commit.ts
-function readString7(value) {
+function readString8(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
 function normalizeUuid2(value) {
-  const str = readString7(value);
+  const str = readString8(value);
   if (!str) return null;
   return UUID_RE2.test(str) ? str.toLowerCase() : null;
 }
 function readLocalStorage2(key) {
   try {
-    return readString7(localStorage.getItem(key));
+    return readString8(localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -91026,7 +92583,7 @@ function writeLocalStorage2(key, value) {
 }
 function readSessionStorage(key) {
   try {
-    return readString7(sessionStorage.getItem(key));
+    return readString8(sessionStorage.getItem(key));
   } catch {
     return null;
   }
@@ -91041,7 +92598,7 @@ function getQueryParam2(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString7(q3.get(key));
+      const value = readString8(q3.get(key));
       if (value) return value;
     }
   } catch {
@@ -91114,16 +92671,16 @@ function deriveRecordingTitleFromName(name) {
 }
 function resolveLane() {
   const w3 = window;
-  const fromQuery = readString7(getQueryParam2("forge_lane", "lane"));
+  const fromQuery = readString8(getQueryParam2("forge_lane", "lane"));
   if (fromQuery) return fromQuery;
-  const fromWindow = readString7(w3.__forgeLane ?? w3.__tpLane);
+  const fromWindow = readString8(w3.__forgeLane ?? w3.__tpLane);
   if (fromWindow) return fromWindow;
-  const fromStorage = readString7(readLocalStorage2("forge_lane_v1"));
+  const fromStorage = readString8(readLocalStorage2("forge_lane_v1"));
   if (fromStorage) return fromStorage;
   return DEFAULT_LANE;
 }
 function getWrittenBy() {
-  const version5 = readString7(window.APP_VERSION) || DEFAULT_TOOL_VERSION;
+  const version5 = readString8(window.APP_VERSION) || DEFAULT_TOOL_VERSION;
   return {
     tool: "anvil",
     tool_version: version5,
@@ -91131,9 +92688,9 @@ function getWrittenBy() {
   };
 }
 function getApiToken() {
-  const fromQuery = readString7(getQueryParam2("tongs_api_token", "tongsApiToken"));
+  const fromQuery = readString8(getQueryParam2("tongs_api_token", "tongsApiToken"));
   if (fromQuery) return fromQuery;
-  const fromWindow = readString7(window.__forgeTongsApiToken ?? window.__tpTongsApiToken);
+  const fromWindow = readString8(window.__forgeTongsApiToken ?? window.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
   return readLocalStorage2("forge_tongs_api_token_v1") ?? void 0;
 }
@@ -91146,7 +92703,7 @@ function getOrCreateCaptureSessionId() {
   let next = "";
   try {
     const randomUuid = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "";
-    next = readString7(randomUuid) || "";
+    next = readString8(randomUuid) || "";
   } catch {
   }
   if (!next) {
@@ -91160,7 +92717,7 @@ function beginRecordingCaptureSession() {
   let next = "";
   try {
     const randomUuid = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "";
-    next = readString7(randomUuid) || "";
+    next = readString8(randomUuid) || "";
   } catch {
   }
   if (!next) {
@@ -91230,7 +92787,7 @@ function persistWorkpiece2(workspaceId, workpieceId) {
   }
 }
 function inferContentType(contentType, name) {
-  const fromInput = readString7(contentType);
+  const fromInput = readString8(contentType);
   if (fromInput) return fromInput;
   const lower = name.toLowerCase();
   if (lower.endsWith(".wav")) return "audio/wav";
@@ -91257,7 +92814,7 @@ async function buildHeaders(apiToken) {
 }
 async function readBodyAsJson(response) {
   const text = await response.text();
-  const raw = readString7(text);
+  const raw = readString8(text);
   if (!raw) return null;
   try {
     return JSON.parse(raw);
@@ -91279,8 +92836,8 @@ function isCommitAck(body) {
 function extractApiError(body) {
   if (!body || typeof body !== "object") return {};
   const root = body;
-  const code = readString7(root.error?.code);
-  const message = readString7(root.error?.message);
+  const code = readString8(root.error?.code);
+  const message = readString8(root.error?.message);
   return {
     ...code ? { code } : {},
     ...message ? { message } : {}
@@ -91374,14 +92931,14 @@ async function finalizeChunkedRecordingUpload(workpieceId, uploadId, payload, ap
 function readScriptHash2() {
   try {
     const raw = window.__TP_LAST_APPLIED_HASH;
-    return readString7(raw);
+    return readString8(raw);
   } catch {
     return null;
   }
 }
 function readSessionRunKey(captureSessionId) {
   try {
-    return readString7(window.__tpAsrRunKey) || captureSessionId;
+    return readString8(window.__tpAsrRunKey) || captureSessionId;
   } catch {
     return captureSessionId;
   }
@@ -91917,9 +93474,9 @@ async function transitionRecordingCompleted(input) {
   const asr = window.__tpCanonicalAsrAuthority;
   const scriptWorkspace = normalizeUuid2(scriptIdentity?.workspaceId);
   const scriptWorkpiece = normalizeUuid2(scriptIdentity?.workpieceId);
-  const scriptPath = readString7(scriptIdentity?.path);
+  const scriptPath = readString8(scriptIdentity?.path);
   const scriptRevision = typeof scriptIdentity?.scriptRevision === "number" && Number.isInteger(scriptIdentity.scriptRevision) ? scriptIdentity.scriptRevision : null;
-  const scriptHash = readString7(scriptIdentity?.scriptHash)?.toLowerCase() ?? null;
+  const scriptHash = readString8(scriptIdentity?.scriptHash)?.toLowerCase() ?? null;
   if (!scriptWorkspace || scriptWorkpiece !== input.commit.workpieceId || !scriptPath || !scriptRevision || !scriptHash || !/^[0-9a-f]{64}$/.test(scriptHash) || input.commit.mediaBytes <= 0) {
     return { ok: false, outcome: "malformed", reason: "recording_completion_evidence_incomplete" };
   }
@@ -91981,13 +93538,13 @@ async function transitionRecordingCompleted(input) {
       const apiError = extractApiError(body);
       return { ok: false, outcome: "unavailable", reason: apiError.code ?? "recording_completion_unavailable", details: body };
     }
-    const outcome = readString7(data?.outcome);
+    const outcome = readString8(data?.outcome);
     if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) {
       return { ok: false, outcome: "malformed", reason: "recording_completion_response_malformed", details: body };
     }
     const completionId = readAuthorityRowId(data, "completion");
     const accepted = (outcome === "saved" || outcome === "duplicate") && !!completionId;
-    return { ok: accepted, outcome, ...completionId ? { completionId } : {}, reason: readString7(data?.reason) ?? void 0, details: data };
+    return { ok: accepted, outcome, ...completionId ? { completionId } : {}, reason: readString8(data?.reason) ?? void 0, details: data };
   } catch (error) {
     return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_completion_unavailable" };
   }
@@ -92023,19 +93580,19 @@ var init_workpiece_commit = __esm({
 });
 
 // src/forge/ready-scripts.ts
-function readString8(value) {
+function readString9(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
 function normalizeUuid3(value) {
-  const str = readString8(value);
+  const str = readString9(value);
   if (!str) return null;
   return UUID_RE3.test(str) ? str.toLowerCase() : null;
 }
 function readLocalStorage3(key) {
   try {
-    return readString8(window.localStorage.getItem(key));
+    return readString9(window.localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -92044,7 +93601,7 @@ function getQueryParam3(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString8(q3.get(key));
+      const value = readString9(q3.get(key));
       if (value) return value;
     }
   } catch {
@@ -92066,29 +93623,29 @@ function resolveWorkspaceId3() {
   return null;
 }
 function resolveTongsApiToken2() {
-  const fromQuery = readString8(getQueryParam3("tongs_api_token", "tongsApiToken"));
+  const fromQuery = readString9(getQueryParam3("tongs_api_token", "tongsApiToken"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = readString8(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
+  const fromWindow = readString9(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
   return readLocalStorage3("forge_tongs_api_token_v1") ?? void 0;
 }
-async function withAuthHeaders() {
+function withApiHeaders() {
   const headers = new Headers();
   const token = resolveTongsApiToken2();
   if (token) {
     headers.set("authorization", `Bearer ${token}`);
   }
-  return appendForgeUserAuthorization(headers);
+  return headers;
 }
 function normalizeScriptPath(value) {
-  const path = readString8(value);
+  const path = readString9(value);
   if (!path) return null;
   if (path.startsWith("/") || path.includes("..")) return null;
   return path;
 }
 function normalizeIso(value) {
-  const iso = readString8(value);
+  const iso = readString9(value);
   if (!iso) return void 0;
   const timestamp = Date.parse(iso);
   if (!Number.isFinite(timestamp)) return void 0;
@@ -92124,11 +93681,11 @@ function parseReadyScriptsPayload(payload, workspaceId) {
     const scriptPaths = normalizeScriptPaths(item.script_paths);
     const path = primaryPath ?? scriptPaths[0] ?? null;
     const scriptRevision = typeof item.script_revision === "number" && Number.isInteger(item.script_revision) && item.script_revision > 0 ? item.script_revision : null;
-    const scriptHash = readString8(item.script_hash)?.toLowerCase() ?? null;
+    const scriptHash = readString9(item.script_hash)?.toLowerCase() ?? null;
     const transitionId = normalizeUuid3(item.transition_id);
     if (!rowWorkspace || !workpieceId || !path || !scriptRevision || !scriptHash || !/^[0-9a-f]{64}$/.test(scriptHash) || !transitionId) continue;
     const normalizedScriptPaths = scriptPaths.length ? scriptPaths.includes(path) ? scriptPaths : [path, ...scriptPaths] : [path];
-    const title = readString8(item.title) ?? `Episode ${workpieceId.slice(0, 8)}`;
+    const title = readString9(item.title) ?? `Episode ${workpieceId.slice(0, 8)}`;
     scripts.push({
       id: toReadyScriptId(workpieceId, path),
       workspaceId: rowWorkspace,
@@ -92167,7 +93724,7 @@ function parseRecordingSessionsPayload(payload, workspaceId) {
     const id = normalizeUuid3(item.id);
     const rowWorkspace = normalizeUuid3(item.workspace_id) ?? workspaceId;
     if (!id || !rowWorkspace) continue;
-    const title = readString8(item.title) ?? "Recording Session";
+    const title = readString9(item.title) ?? "Recording Session";
     out.push({
       id,
       workspaceId: rowWorkspace,
@@ -92221,9 +93778,9 @@ function toScriptReferenceFromSessionItem(args) {
 async function listWorkspaceReadyScripts() {
   const workspaceId = resolveWorkspaceId3();
   if (!workspaceId) return [];
-  const response = await fetch(`/tongs/workspaces/${encodeURIComponent(workspaceId)}/ready-scripts?unrecorded=1`, {
+  const response = await fetchAuthenticatedTongs(`/tongs/workspaces/${encodeURIComponent(workspaceId)}/ready-scripts?unrecorded=1`, {
     method: "GET",
-    headers: await withAuthHeaders()
+    headers: withApiHeaders()
   });
   if (!response.ok) {
     if (response.status === 503) {
@@ -92242,11 +93799,11 @@ async function listWorkspaceReadyScripts() {
 async function listRecordingSessionsForWorkspace() {
   const workspaceId = resolveWorkspaceId3();
   if (!workspaceId) return [];
-  const response = await fetch(
+  const response = await fetchAuthenticatedTongs(
     `/tongs/recording-sessions?workspace_id=${encodeURIComponent(workspaceId)}&limit=100`,
     {
       method: "GET",
-      headers: await withAuthHeaders()
+      headers: withApiHeaders()
     }
   );
   if (!response.ok) return [];
@@ -92261,9 +93818,9 @@ async function listRecordingSessionsForWorkspace() {
 async function readRecordingSessionScripts(sessionId) {
   const safeSessionId = normalizeUuid3(sessionId);
   if (!safeSessionId) return null;
-  const response = await fetch(`/tongs/recording-sessions/${encodeURIComponent(safeSessionId)}`, {
+  const response = await fetchAuthenticatedTongs(`/tongs/recording-sessions/${encodeURIComponent(safeSessionId)}`, {
     method: "GET",
-    headers: await withAuthHeaders()
+    headers: withApiHeaders()
   });
   if (!response.ok) return null;
   let body = null;
@@ -92277,7 +93834,7 @@ async function readRecordingSessionScripts(sessionId) {
   const workspaceId = normalizeUuid3(detail.workspace_id);
   const parsedSessionId = normalizeUuid3(detail.id);
   if (!workspaceId || !parsedSessionId) return null;
-  const sessionTitle = readString8(detail.title) ?? "Recording Session";
+  const sessionTitle = readString9(detail.title) ?? "Recording Session";
   const workspaceReady = await listWorkspaceReadyScripts().catch(() => []);
   const titleByKey = /* @__PURE__ */ new Map();
   const readyByKey = /* @__PURE__ */ new Map();
@@ -92338,11 +93895,11 @@ async function readReadyScriptText(workpieceId, path) {
   const safeWorkpieceId = normalizeUuid3(workpieceId);
   const safePath = normalizeScriptPath(path);
   if (!safeWorkpieceId || !safePath) return null;
-  const response = await fetch(
+  const response = await fetchAuthenticatedTongs(
     `/tongs/workpieces/${encodeURIComponent(safeWorkpieceId)}/read-file?path=${encodeURIComponent(safePath)}`,
     {
       method: "GET",
-      headers: await withAuthHeaders()
+      headers: withApiHeaders()
     }
   );
   if (response.status === 404) return null;
@@ -92518,6 +94075,7 @@ var init_scripts_store = __esm({
     "use strict";
     init_logging();
     init_ready_scripts();
+    init_tongs_user_auth();
     init_ready_script_loading();
     scriptsById = /* @__PURE__ */ new Map();
     mappedHandles = /* @__PURE__ */ new Map();
@@ -92572,6 +94130,17 @@ var init_scripts_store = __esm({
               console.warn("[scripts-store] failed to load ready script", err);
             } catch {
             }
+            if (err instanceof ForgeUserAuthorizationError) {
+              const detail = Object.freeze({ code: err.code, message: err.message, source: "ready-script" });
+              try {
+                window.dispatchEvent(new CustomEvent("tp:ready-script-auth-error", { detail }));
+              } catch {
+              }
+              try {
+                window.toast?.(err.message, { type: "error" });
+              } catch {
+              }
+            }
             return hasUsableReadyScriptContent(existing?.content) ? existing : null;
           }
         }
@@ -92604,6 +94173,10 @@ var init_scripts_store = __esm({
           }
           return hasUsableReadyScriptContent(existing?.content) ? existing : null;
         }
+      },
+      getReadyReference(id) {
+        const ready = readyRefsById.get(id);
+        return ready ? { ...ready } : null;
       },
       save(data) {
         const fallbackId = data.title?.trim() || `script-${Date.now()}`;
@@ -92941,7 +94514,7 @@ var init_recording_decision_dialog = __esm({
 });
 
 // src/recording/recording-name.ts
-function readString9(value) {
+function readString10(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -92953,7 +94526,7 @@ function sanitizeRecordingTitle(title) {
   return sliced || "Script";
 }
 function pickRecordingBaseTitle(args) {
-  return readString9(args.inputTitle) ?? readString9(args.routeEpisodeTitle) ?? readString9(args.storedTitle) ?? "Script";
+  return readString10(args.inputTitle) ?? readString10(args.routeEpisodeTitle) ?? readString10(args.storedTitle) ?? "Script";
 }
 function pad2(n) {
   return String(n).padStart(2, "0");
@@ -92981,19 +94554,19 @@ var init_recording_name = __esm({
 });
 
 // src/forge/workpiece-context.ts
-function readString10(value) {
+function readString11(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
 function normalizeUuid4(value) {
-  const str = readString10(value);
+  const str = readString11(value);
   if (!str) return null;
   return UUID_RE4.test(str) ? str.toLowerCase() : null;
 }
 function readLocalStorage4(key) {
   try {
-    return readString10(window.localStorage.getItem(key));
+    return readString11(window.localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -93008,7 +94581,7 @@ function getQueryParam4(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString10(q3.get(key));
+      const value = readString11(q3.get(key));
       if (value) return value;
     }
   } catch {
@@ -93050,7 +94623,7 @@ function loadCachedWorkpiece2(workspaceId) {
   return normalizeUuid4(readLocalStorage4(`${WORKSPACE_WORKPIECE_PREFIX3}${workspaceId}`));
 }
 function parseReadyScriptWorkpieceId(scriptId) {
-  const id = readString10(scriptId);
+  const id = readString11(scriptId);
   if (!id) return null;
   if (!id.toLowerCase().startsWith("ready:")) return null;
   const rest = id.slice("ready:".length);
@@ -97076,7 +98649,7 @@ function initScrollStripHud(opts) {
   function handleAdvance() {
     clearStall();
   }
-  const isEditableTarget = (target) => {
+  const isEditableTarget2 = (target) => {
     const el = target;
     if (!el) return false;
     const tag = el.tagName?.toLowerCase();
@@ -97090,7 +98663,7 @@ function initScrollStripHud(opts) {
     lastMode2 = detail.mode;
     updateFromStatus(detail);
   }
-  function normalizeMode2(raw) {
+  function normalizeMode3(raw) {
     const mode = String(raw || "").toLowerCase();
     switch (mode) {
       case "timed":
@@ -97105,7 +98678,7 @@ function initScrollStripHud(opts) {
     }
   }
   function deriveRunningFromMode(detail) {
-    const mode = normalizeMode2(detail.mode);
+    const mode = normalizeMode3(detail.mode);
     if (mode === "asr") {
       return String(detail.phase || "").toLowerCase() === "live";
     }
@@ -97117,7 +98690,7 @@ function initScrollStripHud(opts) {
   function handleModeSnapshot(ev) {
     const detail = ev.detail;
     if (!detail) return;
-    const mode = normalizeMode2(detail.mode);
+    const mode = normalizeMode3(detail.mode);
     const status2 = {
       mode,
       strategy: mode,
@@ -97170,7 +98743,7 @@ function initScrollStripHud(opts) {
     if (ev.defaultPrevented) return;
     if (ev.key !== "r" && ev.key !== "R") return;
     if (ev.ctrlKey || ev.metaKey || ev.altKey) return;
-    if (isEditableTarget(ev.target)) return;
+    if (isEditableTarget2(ev.target)) return;
     if (getScrollMode7() !== "asr") return;
     triggerResync("hotkey");
   };
@@ -98181,14 +99754,14 @@ var init_mic_gate = __esm({
 });
 
 // src/forge/script-source.ts
-function readString11(value) {
+function readString12(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
 function readLocalStorage5(key) {
   try {
-    return readString11(window.localStorage.getItem(key));
+    return readString12(window.localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -102554,6 +104127,12 @@ function restoreStillPossible() {
 }
 async function loadScriptById(id) {
   if (!id) return false;
+  const authorityBeforeLoad = {
+    identityPresent: Object.prototype.hasOwnProperty.call(window, "__forgeCanonicalScriptIdentity"),
+    identity: window.__forgeCanonicalScriptIdentity,
+    readyPresent: Object.prototype.hasOwnProperty.call(window, "__forgeCanonicalReadyScript"),
+    ready: window.__forgeCanonicalReadyScript
+  };
   try {
     const rec2 = await ScriptStore.get(id);
     if (!rec2 || typeof rec2.content !== "string" || rec2.content.trim().length === 0) {
@@ -102566,7 +104145,32 @@ async function loadScriptById(id) {
       return false;
     }
     const text = rec2.content;
-    applyScript(text, "load", { updateEditor: true });
+    const ready = ScriptStore.getReadyReference(id);
+    const dispatchResult = await dispatchAuthenticatedCanonicalScript({
+      source: ready ? "ready-script" : "non-authoritative",
+      authenticated: Boolean(ready),
+      canonicalIdentity: ready ? {
+        workspaceId: ready.workspaceId,
+        workpieceId: ready.workpieceId,
+        path: ready.path,
+        scriptRevision: ready.scriptRevision,
+        scriptHash: ready.scriptHash,
+        readyTransitionId: ready.transitionId
+      } : null,
+      canonicalText: text,
+      canonicalUtf8Bytes: ready ? new TextEncoder().encode(text) : null,
+      canonicalReadyScript: ready,
+      scrollMode: String(appStoreSingleton.get("scrollMode") || ""),
+      scrollModeReadiness: appScrollModeReadiness,
+      legacyApply: (legacyText) => applyScript(legacyText, "load", { updateEditor: true })
+    });
+    if (dispatchResult.outcome === "rejected" || dispatchResult.outcome === "discarded") {
+      if (authorityBeforeLoad.identityPresent) window.__forgeCanonicalScriptIdentity = authorityBeforeLoad.identity;
+      else delete window.__forgeCanonicalScriptIdentity;
+      if (authorityBeforeLoad.readyPresent) window.__forgeCanonicalReadyScript = authorityBeforeLoad.ready;
+      else delete window.__forgeCanonicalReadyScript;
+      return false;
+    }
     try {
       window.dispatchEvent(
         new CustomEvent("tp:script-load", {
@@ -102597,6 +104201,9 @@ var init_script_selection = __esm({
     init_apply_script();
     init_scripts_store();
     init_workpiece_context();
+    init_app_store();
+    init_authenticated_performance_dispatcher();
+    init_scroll_mode_readiness();
     LAST_SCRIPT_KEY = "tp:last_script_id";
     restoreAttempted = false;
     restoreDeadlineAt = 0;
@@ -103272,13 +104879,19 @@ function initAutoControls() {
   const adjustSpeed = (delta) => {
     handleSpeedChange(currentSpeed + delta);
   };
+  window.addEventListener(AUTO_SPEED_ADJUST_EVENT, (ev) => {
+    const detail = ev?.detail || {};
+    const direction = Number(detail.direction);
+    if (direction !== 1 && direction !== -1) return;
+    adjustSpeed(direction * (detail.coarse ? AUTO_STEP_COARSE : AUTO_STEP_FINE));
+  });
   if (decBtn) {
     decBtn.addEventListener("click", (ev) => {
       try {
         ev.preventDefault();
       } catch {
       }
-      adjustSpeed(-AUTO_STEP_FINE);
+      adjustSpeed(-AUTO_STEP_FINE * (ev.shiftKey ? AUTO_STEP_COARSE : 1));
     }, { capture: true });
   }
   if (incBtn) {
@@ -103287,7 +104900,7 @@ function initAutoControls() {
         ev.preventDefault();
       } catch {
       }
-      adjustSpeed(AUTO_STEP_FINE);
+      adjustSpeed(AUTO_STEP_FINE * (ev.shiftKey ? AUTO_STEP_COARSE : 1));
     }, { capture: true });
   }
   toggleEl?.addEventListener("click", (ev) => {
@@ -103305,15 +104918,17 @@ function initAutoControls() {
   });
   updateToggleLabel();
 }
-var AUTO_SPEED_KEY, AUTO_DEFAULT_SPEED, AUTO_MIN_SPEED, AUTO_MAX_SPEED, AUTO_STEP_FINE;
+var AUTO_SPEED_KEY, AUTO_DEFAULT_SPEED, AUTO_MIN_SPEED, AUTO_MAX_SPEED, AUTO_STEP_FINE, AUTO_STEP_COARSE;
 var init_autoscroll_ui = __esm({
   "src/features/autoscroll-ui.ts"() {
     "use strict";
+    init_speed_keyboard_shortcuts();
     AUTO_SPEED_KEY = "tp_auto_speed";
     AUTO_DEFAULT_SPEED = 21;
     AUTO_MIN_SPEED = 1;
     AUTO_MAX_SPEED = 60;
     AUTO_STEP_FINE = 1;
+    AUTO_STEP_COARSE = 5;
     onDomReady(initAutoControls);
   }
 });
@@ -108989,13 +110604,15 @@ function wireDisplayMirror() {
     on2(lh, "input", sendTypography);
     setTimeout(sendTypography, 0);
     let renderPending = false;
+    let pendingModelHtml;
     const sendRender = () => {
       try {
-        const html = document.getElementById("script")?.innerHTML || "";
+        const html = pendingModelHtml ?? document.getElementById("script")?.innerHTML ?? "";
         const fontSize = fs && "value" in fs ? Number(fs.value) : void 0;
         const lineHeight = lh && "value" in lh ? Number(lh.value) : void 0;
         window.sendToDisplay && window.sendToDisplay({ type: "render", html, fontSize, lineHeight });
       } finally {
+        pendingModelHtml = void 0;
         renderPending = false;
       }
     };
@@ -109007,13 +110624,13 @@ function wireDisplayMirror() {
     });
     try {
       if (scriptEl) {
-        const mo = new MutationObserver(() => {
+        observeCommittedPresentationMutations(scriptEl, (modelHtml) => {
+          if (modelHtml !== void 0) pendingModelHtml = modelHtml;
           if (!renderPending) {
             renderPending = true;
             requestAnimationFrame(sendRender);
           }
         });
-        mo.observe(scriptEl, { childList: true, subtree: true });
       }
     } catch {
     }
@@ -110467,6 +112084,7 @@ var __bc, scrollWriter3, DISPLAY_TOGGLE_SELECTOR, UI_WIRED, $id2, IS_HYDRATING, 
 var init_dom = __esm({
   "src/ui/dom.ts"() {
     "use strict";
+    init_performance_presentation_mirror_observer();
     init_scroll_helpers();
     init_scroll_writer();
     init_manual_anchor();
@@ -110576,7 +112194,7 @@ var init_dom = __esm({
 });
 
 // src/pairing/pairing-api.ts
-function readString12(value) {
+function readString13(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -110651,9 +112269,9 @@ var init_pairing_api = __esm({
     w2 = typeof window !== "undefined" ? window : {};
     metaEnv2 = typeof import.meta !== "undefined" ? import.meta.env || {} : {};
     DEFAULT_PAIR_QR_URL = "https://wtvdjndyxegudufrompx.functions.supabase.co/pair-qr";
-    PAIR_QR_URL = readString12(w2.__TP_PAIR_QR_URL) || readString12(metaEnv2.VITE_PAIR_QR_URL) || DEFAULT_PAIR_QR_URL;
-    SUPABASE_ANON_KEY2 = readString12(w2.__forgeSupabaseAnonKey) || readString12(metaEnv2.VITE_SUPABASE_ANON_KEY) || "";
-    PAIR_BASE_URL_OVERRIDE = readString12(w2.__TP_PAIR_BASE_URL) || readString12(metaEnv2.VITE_PAIR_BASE_URL) || null;
+    PAIR_QR_URL = readString13(w2.__TP_PAIR_QR_URL) || readString13(metaEnv2.VITE_PAIR_QR_URL) || DEFAULT_PAIR_QR_URL;
+    SUPABASE_ANON_KEY2 = readString13(w2.__forgeSupabaseAnonKey) || readString13(metaEnv2.VITE_SUPABASE_ANON_KEY) || "";
+    PAIR_BASE_URL_OVERRIDE = readString13(w2.__TP_PAIR_BASE_URL) || readString13(metaEnv2.VITE_PAIR_BASE_URL) || null;
     DEFAULT_PAIR_PATH = "/display.html";
     DEFAULT_TTL_MINUTES = Number(w2.__TP_PAIR_QR_TTL_MINUTES ?? metaEnv2.VITE_PAIR_QR_TTL_MINUTES ?? 10);
     DEFAULT_METADATA = typeof w2.__TP_PAIR_QR_METADATA === "object" && w2.__TP_PAIR_QR_METADATA !== null ? { ...w2.__TP_PAIR_QR_METADATA } : { role: "display", app: "anvil" };
@@ -117366,13 +118984,19 @@ async function boot() {
       }
     }
     if (profileUserId) {
+      const presentationModeAuthority = resolvePresentationScrollModeAuthority(window.location.search || "");
       await settingsSync.hydrateForUser(profileUserId, {
         loadRemote: !IS_CI_MODE,
         enablePersistence: !IS_CI_MODE,
-        skipLogLabel: "hydrate:ci-skip"
+        skipLogLabel: "hydrate:ci-skip",
+        ephemeralAppOverrides: presentationModeAuthority ? { scrollMode: presentationModeAuthority.mode } : {}
       });
     }
     bootTrace("boot():auth-hydrate:done", { profileUserId: profileUserId || null });
+    appScrollModeReadiness.markRestored(String(appStoreSingleton.get?.("scrollMode") || ""));
+    appStoreSingleton.subscribe?.("scrollMode", (mode) => {
+      appScrollModeReadiness.markModeChanged(String(mode || ""));
+    });
     try {
       if (hasSupabaseConfig) {
         void refreshEntitlements(supabase);
@@ -118130,6 +119754,8 @@ var init_index_app = __esm({
     init_authProfile();
     init_forge_nav();
     init_profile_settings_sync();
+    init_scroll_mode_readiness();
+    init_presentation_scroll_mode_authority();
     init_workpiece_script_handoff();
     init_supabaseClient();
     init_load_sample();

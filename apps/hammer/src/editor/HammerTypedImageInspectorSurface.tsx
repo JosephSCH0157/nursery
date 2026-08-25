@@ -18,8 +18,7 @@ export function HammerTypedImageInspectorSurface(props: { context: HammerImageIn
   return <div data-hammer-tool-bay-surface={surface}>
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">Image Placement</header>
-                    <div className="hammer-toolbay-live-marker hammer-toolbay-live-marker--inline">TOOLBAY FILE IS LIVE</div>
-                    <div className="hammer-dev-auto-preview-controls">
+                    {autoPlacementDebugEnabled ? <div className="hammer-dev-auto-preview-controls">
                       <div className="hammer-dev-auto-preview-controls__title">DEV AUTO PREVIEW CONTROLS</div>
                       <div>debug flag enabled: {autoPlacementDebugEnabled ? "yes" : "no"}</div>
                       <div>selected placement id: {selectedPlacementId ?? "none"}</div>
@@ -77,7 +76,7 @@ export function HammerTypedImageInspectorSurface(props: { context: HammerImageIn
                         {selectedAutoPreviewActive ? "AUTO PREVIEW ACTIVE (unsaved)" : "Auto preview inactive"}
                         {previewAutoPositionStatus ? ` · ${previewAutoPositionStatus}` : ""}
                       </div>
-                    </div>
+                    </div> : null}
                     <div className="hammer-tool-hint">
                       Direct manipulation mode. Drag and resize image clips in timeline or preview. Hold Shift while dragging to snap to 0.1s steps.
                     </div>
@@ -196,6 +195,7 @@ export function HammerTypedImageInspectorSurface(props: { context: HammerImageIn
                             Reset to Segment
                           </button>
                         </div>
+                        {previewAutoPositionStatus ? <div className="hammer-tool-hint" role="status">{previewAutoPositionStatus}</div> : null}
                         <label className="hammer-tool-field">
                           <span>Position X ({Math.round(imagePlacementSnapshotTransform.leftPct)}%)</span>
                           <input

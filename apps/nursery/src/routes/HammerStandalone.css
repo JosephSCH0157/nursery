@@ -216,6 +216,12 @@
   flex-wrap: wrap;
 }
 
+.hammer-standalone__more-menu { position: relative; }
+.hammer-standalone__more-menu > summary { list-style: none; cursor: pointer; padding: 4px 10px; border: 1px solid rgba(148, 163, 184, 0.35); border-radius: 999px; color: #dbe8ff; background: rgba(15, 23, 42, 0.72); font-size: 12px; }
+.hammer-standalone__more-menu > summary::-webkit-details-marker { display: none; }
+.hammer-standalone__more-menu-body { position: absolute; top: calc(100% + 8px); right: 0; z-index: 20; width: min(360px, 80vw); display: grid; gap: 8px; padding: 10px; border: 1px solid rgba(148, 163, 184, 0.28); border-radius: 12px; background: rgba(2, 6, 23, 0.98); box-shadow: 0 16px 30px rgba(0, 0, 0, 0.4); }
+.hammer-standalone__more-menu-body .hammer-standalone__pill { overflow-wrap: anywhere; }
+
 .hammer-standalone__workspace-field {
   display: grid;
   gap: 4px;

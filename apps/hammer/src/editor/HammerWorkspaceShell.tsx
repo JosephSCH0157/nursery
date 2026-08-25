@@ -95,6 +95,7 @@ import {
 import { useHammerWorkspaceShellPlayback } from "./useHammerWorkspaceShellPlayback";
 import { useHammerWorkspaceShellShortcuts } from "./useHammerWorkspaceShellShortcuts";
 import { useHammerWorkspaceShellSelection } from "./useHammerWorkspaceShellSelection";
+import { useHammerImagePlacementListScroll } from "./hammerImagePlacementListScroll";
 import {
   useHammerSourceDeskRuntimeState,
   useHammerSourceDeskStoredMediaState,
@@ -661,6 +662,7 @@ function HammerWorkspaceShellWithContext(
   const captionEditorRefs = useHammerCaptionEditorRefs();
   const transcriptLineRefs = useRef(new Map<string, HTMLElement>());
   const visualPlacementCardRefs = useRef(new Map<string, HTMLElement>());
+  const [visualPlacementRevealRequest, setVisualPlacementRevealRequest] = useState<{ placementId: string; nonce: number } | null>(null);
   const timelineTrackScrollRef = useRef<HTMLDivElement | null>(null);
   const selectionOriginRef = useRef<"system" | "transcript" | "timeline" | "playhead">("system");
   const selectionRevealFrameRef = useRef<number | null>(null);
@@ -1156,6 +1158,8 @@ function HammerWorkspaceShellWithContext(
   } = useHammerWorkspaceShellVisualEditing({
     workpieceId: launchContext.workpiece_id,
     workspaceId: launchContext.workspace_id,
+    sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:session`,
+    transcriptSourceId,
     currentPass,
     transcriptDurationSec,
     timelineDurationSec,
@@ -1526,14 +1530,7 @@ function HammerWorkspaceShellWithContext(
     visualAssetsById,
   ]);
 
-  useEffect(() => {
-    if (isPlaybackActive || isScrubbing) return;
-    if (!linkedPrimaryVisualId) return;
-    if (editorMode !== "images") return;
-    const node = visualPlacementCardRefs.current.get(linkedPrimaryVisualId) ?? null;
-    if (!node) return;
-    node.scrollIntoView({ block: "nearest" });
-  }, [editorMode, isPlaybackActive, isScrubbing, linkedPrimaryVisualId]);
+  useHammerImagePlacementListScroll({ active: editorMode === "images", cardRefs: visualPlacementCardRefs, revealRequest: visualPlacementRevealRequest });
 
   useEffect(() => {
     if (!selectedClipId) return;
@@ -1743,6 +1740,7 @@ function HammerWorkspaceShellWithContext(
     const target = Math.max(0, Math.min(maxScrollLeft, (container.scrollWidth * ratio) - (container.clientWidth / 2)));
     container.scrollTo({ left: target, behavior: "smooth" });
   }, [compositionOffsetSec, timelineDurationSec]);
+  const requestVisualPlacementReveal = useCallback((placementId: string) => setVisualPlacementRevealRequest((current) => ({ placementId, nonce: (current?.nonce ?? 0) + 1 })), []);
 
   const selection = useHammerWorkspaceShellSelection({
     transcriptSegments: editableTranscriptSegments,
@@ -1768,6 +1766,7 @@ function HammerWorkspaceShellWithContext(
         intent: "explicit_visual_selection", lifecycleSettled: true, supportedSurfaces: HAMMER_SUPPORTED_TOOL_BAY_SURFACES,
       }));
     },
+    onVisualSelectionRequested: requestVisualPlacementReveal,
   });
   const {
     applyLinkedSelectionState,

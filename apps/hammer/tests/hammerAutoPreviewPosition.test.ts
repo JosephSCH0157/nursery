@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import {
   applyPreviewOverride,
   clearPreviewOverride,
+  isAnalysisFrameAtCompositionTime,
+  previewTransformsEqual,
   toPreviewTransformFromAutoPlacementOverlay,
 } from "../src/editor/hammerAutoPreviewPosition";
 
@@ -48,11 +50,28 @@ function testPreviewOverrideAppliesResolvedRectAndScaledSize() {
   assert.deepEqual(persisted, { leftPct: 10, topPct: 12, widthPct: 34, heightPct: 34 });
 }
 
+function testAnalysisEvidenceUsesCompositionTime() {
+  const displayedCompositionTimeSec = 67.7;
+  const editedTransportTimeSec = 73.7;
+  assert.equal(isAnalysisFrameAtCompositionTime(67.7, displayedCompositionTimeSec), true);
+  assert.equal(isAnalysisFrameAtCompositionTime(67.7, editedTransportTimeSec), false);
+  assert.equal(isAnalysisFrameAtCompositionTime(67.7, 67.702), false);
+}
+
+function testUnchangedPreviewTransformRetainsStateIdentity() {
+  const transform = { leftPct: 12, topPct: 18, widthPct: 30, heightPct: 24 };
+  const current = { "clip-1": transform };
+  assert.equal(applyPreviewOverride(current, "clip-1", { ...transform }), current);
+  assert.equal(previewTransformsEqual(transform, { ...transform }), true);
+}
+
 try {
   testPreviewOverrideDoesNotMutatePersistedPlacementObject();
   testResetPreviewPositionClearsOverride();
   testPreviewOverrideStateIsLocalAndSnapshotAgnostic();
   testPreviewOverrideAppliesResolvedRectAndScaledSize();
+  testAnalysisEvidenceUsesCompositionTime();
+  testUnchangedPreviewTransformRetainsStateIdentity();
   console.log("Hammer auto preview position tests passed.");
 } catch (error) {
   console.error("Hammer auto preview position tests failed:", error);

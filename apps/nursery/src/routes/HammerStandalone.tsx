@@ -721,30 +721,24 @@ export default function HammerStandalone() {
               ))}
             </select>
           </div>
-          {isEditorRoute ? <span className="hammer-standalone__pill">{routeStatusLabel}</span> : null}
-          {isEditorRoute ? <span className="hammer-standalone__pill">{workspaceSummaryLabel}</span> : null}
-          {isEditorRoute && workspaceId ? (
-            <span className="hammer-standalone__pill hammer-standalone__pill--mono">{workspaceId}</span>
-          ) : null}
-          <button
-            type="button"
-            className="hammer-standalone__meta-button"
-            onClick={() => {
-              void refreshWorkspaces();
-            }}
-            disabled={loadingWorkspaces}
-          >
-            {loadingWorkspaces ? "Refreshing..." : "Refresh"}
-          </button>
           {isEditorRoute ? (
-            <button
-              type="button"
-              className="hammer-standalone__meta-button"
-              onClick={() => setAiControlsOpen(true)}
-            >
-              AI Controls
+            <details className="hammer-standalone__more-menu">
+              <summary>More</summary>
+              <div className="hammer-standalone__more-menu-body">
+                <span className="hammer-standalone__pill">{routeStatusLabel}</span>
+                <span className="hammer-standalone__pill">{workspaceSummaryLabel}</span>
+                {workspaceId ? <span className="hammer-standalone__pill hammer-standalone__pill--mono">{workspaceId}</span> : null}
+                <button type="button" className="hammer-standalone__meta-button" onClick={() => { void refreshWorkspaces(); }} disabled={loadingWorkspaces}>
+                  {loadingWorkspaces ? "Refreshing..." : "Refresh"}
+                </button>
+                <button type="button" className="hammer-standalone__meta-button" onClick={() => setAiControlsOpen(true)}>AI Controls</button>
+              </div>
+            </details>
+          ) : (
+            <button type="button" className="hammer-standalone__meta-button" onClick={() => { void refreshWorkspaces(); }} disabled={loadingWorkspaces}>
+              {loadingWorkspaces ? "Refreshing..." : "Refresh"}
             </button>
-          ) : null}
+          )}
           <span className="hammer-standalone__pill">{viewerLabel}</span>
           <button
             type="button"
