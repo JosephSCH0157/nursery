@@ -13759,6 +13759,15 @@ export type Database = {
         }
         Returns: Json
       }
+      get_or_create_hearth_project_workpiece: {
+        Args: {
+          p_operation_key: string
+          p_project_id: string
+          p_title: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       commit_hammer_history_epoch_head: {
         Args: {
           p_canonical_recording_id: string

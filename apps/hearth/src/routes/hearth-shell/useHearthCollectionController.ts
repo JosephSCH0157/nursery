@@ -58,6 +58,7 @@ export {
   type BarStockSpark,
 } from "../../lib/barstock-sparks";
 export { createHearthWorkpiece as createHearthCollectionWorkpiece } from "../../lib/hearth-workpiece";
+export { getOrCreateHearthProjectWorkpiece } from "../../lib/hearth-workpiece";
 
 export function useHearthSparkCollectionState(
   initialWorkspaceId: string | null,

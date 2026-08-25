@@ -3,7 +3,7 @@ import type { Draft } from "../domain/draft";
 import type { BarStockSpark } from "../lib/barstock-sparks";
 import { isCanonicalSparkDiscoveryResolved, resolveCanonicalSparkIntakeError } from "../lib/hearth-barstock-sparks";
 import { resolveBarStockSparkHearthWorkpieceId } from "../lib/barstock-sparks";
-import { readBarstockProjectContext, upsertBarstockProjectEpisodeLink } from "../lib/barstock-project-links";
+import { readBarstockProjectContext } from "../lib/barstock-project-links";
 import type { WorkpieceWorkspaceTab } from "../lib/hearth-workpiece-tab-shell";
 
 type HearthMode = "sparks" | "episodes" | "ready" | "series" | "focus";
@@ -21,7 +21,7 @@ type UseHearthIntakeLifecycleArgs = {
   resolveWorkspaceId: () => string | null;
   readPendingProjectWorkpieceId: (workspaceId: string, projectId: string) => string | null;
   writePendingProjectWorkpieceId: (workspaceId: string, projectId: string, workpieceId: string | null) => void;
-  createProjectWorkpiece: (title: string) => Promise<{ ok: boolean; workpieceId?: string }>;
+  createProjectWorkpiece: (title: string, projectId: string) => Promise<{ ok: boolean; workpieceId?: string }>;
   openWorkpieceInFocus: (
     targetWorkpieceId: string,
     options?: {
@@ -46,9 +46,12 @@ function isSparkForged(spark: BarStockSpark): boolean {
 }
 
 export function useHearthIntakeLifecycle(args: UseHearthIntakeLifecycleArgs) {
+  const projectIntakeKey = args.routeProjectId && args.workspaceId
+    ? `${args.workspaceId}:${args.routeProjectId}`
+    : args.routeProjectId;
   useEffect(() => {
     if (!args.routeProjectId) return;
-    if (args.projectIntakeHandledRef.current === args.routeProjectId) return;
+    if (args.projectIntakeHandledRef.current === projectIntakeKey) return;
 
     const workspace = args.workspaceId ?? args.resolveWorkspaceId();
     if (!workspace) {
@@ -57,6 +60,7 @@ export function useHearthIntakeLifecycle(args: UseHearthIntakeLifecycleArgs) {
     }
 
     let cancelled = false;
+    args.projectIntakeHandledRef.current = projectIntakeKey;
     args.setIsForging(true);
     args.setForgeError(null);
 
@@ -68,6 +72,7 @@ export function useHearthIntakeLifecycle(args: UseHearthIntakeLifecycleArgs) {
       if (cancelled) return;
 
       if (context.error) {
+        if (args.projectIntakeHandledRef.current === projectIntakeKey) args.projectIntakeHandledRef.current = null;
         console.warn("[hearth-project-intake] context lookup issue", context.error);
         args.setForgeError("Unable to resolve this Project in Tongs. Sync Bar Stock, then retry.");
         return;
@@ -76,14 +81,16 @@ export function useHearthIntakeLifecycle(args: UseHearthIntakeLifecycleArgs) {
       const projectTitle = context.projectTitle?.trim() || null;
       args.setRouteProjectTitle(projectTitle);
       if (!context.projectExists) {
+        if (args.projectIntakeHandledRef.current === projectIntakeKey) args.projectIntakeHandledRef.current = null;
         args.setForgeError("Project not found in Tongs yet. Sync Bar Stock, then retry.");
         return;
       }
 
-      let resolvedWorkpieceId = context.workpieceId ?? args.readPendingProjectWorkpieceId(workspace, args.routeProjectId!);
+      let resolvedWorkpieceId = context.workpieceId;
       if (!resolvedWorkpieceId) {
-        const created = await args.createProjectWorkpiece(projectTitle ?? `Project ${args.routeProjectId!.slice(0, 8)}`);
+        const created = await args.createProjectWorkpiece(projectTitle ?? `Project ${args.routeProjectId!.slice(0, 8)}`, args.routeProjectId!);
         if (!created.ok || !created.workpieceId) {
+          if (!cancelled && args.projectIntakeHandledRef.current === projectIntakeKey) args.projectIntakeHandledRef.current = null;
           args.setForgeError("Failed to open this Project in Hearth.");
           return;
         }
@@ -91,21 +98,9 @@ export function useHearthIntakeLifecycle(args: UseHearthIntakeLifecycleArgs) {
         args.writePendingProjectWorkpieceId(workspace, args.routeProjectId!, resolvedWorkpieceId);
       }
 
-      const linked = await upsertBarstockProjectEpisodeLink({
-        workspaceId: workspace,
-        projectId: args.routeProjectId!,
-        workpieceId: resolvedWorkpieceId,
-      });
-      if (!linked.ok) {
-        console.warn("[hearth-project-intake] link upsert failed", linked.error);
-        args.writePendingProjectWorkpieceId(workspace, args.routeProjectId!, resolvedWorkpieceId);
-        args.setForgeError("Failed to link this Project to an Episode. Sync and retry.");
-        return;
-      }
       args.writePendingProjectWorkpieceId(workspace, args.routeProjectId!, null);
 
       if (cancelled) return;
-      args.projectIntakeHandledRef.current = args.routeProjectId;
       args.setWorkspaceId(workspace);
       args.setWorkpieceId(resolvedWorkpieceId);
     })().catch((err) => {
@@ -121,7 +116,12 @@ export function useHearthIntakeLifecycle(args: UseHearthIntakeLifecycleArgs) {
     return () => {
       cancelled = true;
     };
-  }, [args]);
+  }, [
+    projectIntakeKey, args.routeProjectId, args.workspaceId, args.projectIntakeHandledRef,
+    args.resolveWorkspaceId, args.readPendingProjectWorkpieceId, args.writePendingProjectWorkpieceId,
+    args.createProjectWorkpiece, args.setIsForging, args.setForgeError, args.setRouteProjectTitle,
+    args.setWorkspaceId, args.setWorkpieceId,
+  ]);
 
   useEffect(() => {
     if (args.routeProjectId || !args.routeSparkId) return;

@@ -1,6 +1,15 @@
 import { tongsFetch } from "./tongs-fetch";
 import { buildDefaultMetadataDocument } from "./episode-package-v2";
 
+type RuntimeSupabaseScope = { rpc?: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: unknown }> };
+type RuntimeSupabaseClient = RuntimeSupabaseScope & { schema?: (name: string) => RuntimeSupabaseScope };
+
+function getRuntimeSupabaseClient(): RuntimeSupabaseClient | null {
+  if (typeof window === "undefined") return null;
+  const client = (window as typeof window & { __forge_supabase_client__?: unknown }).__forge_supabase_client__;
+  return client && typeof client === "object" ? client as RuntimeSupabaseClient : null;
+}
+
 type WrittenBy = {
   tool: string;
   tool_version: string;
@@ -214,6 +223,34 @@ async function createCradle(args: {
   return { ok: true, workpieceId: createdId };
 }
 
+async function resolveProjectWorkpieceIdentity(args: {
+  workspaceId: string;
+  projectId: string;
+  title?: string | null;
+}): Promise<CreateWorkpieceResult> {
+  const runtimeClient = getRuntimeSupabaseClient();
+  const projectId = normalizeUuid(args.projectId);
+  if (!runtimeClient || !projectId) return { ok: false, reason: "project_intake_identity_unavailable" };
+  const scope = typeof runtimeClient.schema === "function" ? runtimeClient.schema("tongs") : runtimeClient;
+  if (typeof scope.rpc !== "function") return { ok: false, reason: "project_intake_rpc_unavailable" };
+  const { data, error } = await scope.rpc("get_or_create_hearth_project_workpiece", {
+    p_workspace_id: args.workspaceId,
+    p_project_id: projectId,
+    p_title: readString(args.title) ?? "Untitled Project",
+    p_operation_key: `hearth-project-intake:${args.workspaceId}:${projectId}`,
+  });
+  if (error || !data || typeof data !== "object" || Array.isArray(data)) {
+    return { ok: false, reason: "project_intake_identity_failed", details: error ?? data };
+  }
+  const row = data as Record<string, unknown>;
+  const workpieceId = normalizeUuid(row.workpiece_id);
+  const outcome = readString(row.outcome);
+  if (!workpieceId || (outcome !== "created" && outcome !== "existing")) {
+    return { ok: false, reason: `project_intake_${outcome ?? "malformed"}`, details: data };
+  }
+  return { ok: true, workpieceId };
+}
+
 async function commitMetadata(args: {
   workpieceId: string;
   workspaceId: string;
@@ -344,4 +381,25 @@ export async function createHearthWorkpiece(
   // Persist only after cloud commit acks are complete.
   persistWorkpiece(workspaceId, created.workpieceId);
   return { ok: true, workpieceId: created.workpieceId };
+}
+
+export async function getOrCreateHearthProjectWorkpiece(args: {
+  projectId: string;
+  title?: string | null;
+  origin?: ForgeOrigin;
+  scriptSeed?: string | null;
+}): Promise<CreateWorkpieceResult> {
+  if (typeof window === "undefined") return { ok: false, reason: "no_window" };
+  const workspaceId = resolveWorkspaceId();
+  if (!workspaceId) return { ok: false, reason: "missing_workspace" };
+  const writtenBy = getWrittenBy();
+  const resolved = await resolveProjectWorkpieceIdentity({ workspaceId, projectId: args.projectId, title: args.title });
+  if (!resolved.ok) return resolved;
+
+  const metadata = await commitMetadata({ workpieceId: resolved.workpieceId, workspaceId, writtenBy, origin: args.origin });
+  if (!metadata.ok) return { ok: false, reason: "metadata_commit_failed", status: metadata.status, details: metadata.details, workpieceId: resolved.workpieceId };
+  const script = await commitScriptSeed({ workpieceId: resolved.workpieceId, writtenBy, origin: args.origin, scriptSeed: args.scriptSeed });
+  if (!script.ok) return { ok: false, reason: "script_seed_failed", status: script.status, details: script.details, workpieceId: resolved.workpieceId };
+  persistWorkpiece(workspaceId, resolved.workpieceId);
+  return { ok: true, workpieceId: resolved.workpieceId };
 }

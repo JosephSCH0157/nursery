@@ -337,6 +337,7 @@ import {
   useHearthSparkCollectionState,
   useHearthWorkpieceCollectionLoader,
   createHearthCollectionWorkpiece,
+  getOrCreateHearthProjectWorkpiece,
   renameHearthCollectionWorkpiece,
   enqueueBarStockSpark,
   resolveBarStockSparkHearthWorkpieceId,
@@ -4882,13 +4883,12 @@ export default function HearthShell({
     resolveWorkspaceId,
     readPendingProjectWorkpieceId,
     writePendingProjectWorkpieceId,
-    createProjectWorkpiece: async (title) => (
-      await createHearthCollectionWorkpiece(
-        { created_from: "bar-stock" },
-        SAFE_SCRIPT_STARTER,
-        { title },
-      )
-    ),
+    createProjectWorkpiece: async (title, projectId) => await getOrCreateHearthProjectWorkpiece({
+      projectId,
+      title,
+      origin: { created_from: "bar-stock" },
+      scriptSeed: SAFE_SCRIPT_STARTER,
+    }),
     openWorkpieceInFocus,
     forgeSpark,
     setIsForging,
