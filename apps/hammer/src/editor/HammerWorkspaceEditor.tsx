@@ -4181,11 +4181,16 @@ export default function HammerWorkspaceEditor(
     actualRecordingMismatchWarning: workspaceSnapshot?.diagnostics?.actualRecordingMismatchWarning ?? null,
     jobsStatusUnavailable,
     reopenPersistenceSource,
+    brollGraph: workspaceSnapshot ? workspaceSnapshot.editorialAuthorityGraph ?? null : loadedPersistenceSnapshot?.editorial_authority.data ?? null,
+    brollVisualTimeline: workspaceSnapshot ? workspaceSnapshot.visualTimeline ?? null : visualTimelineData,
   }), [
     handoffMediaPrepOutputs,
     jobsStatusUnavailable,
     reopenPersistenceSource,
     sessionState,
+    loadedPersistenceSnapshot?.editorial_authority.data,
+    visualTimelineData,
+    workspaceSnapshot,
     workspaceSnapshot?.diagnostics?.actualRecordingMismatchWarning,
     workspaceSnapshot?.diagnostics?.mediaLabelMismatchWarning,
   ]);

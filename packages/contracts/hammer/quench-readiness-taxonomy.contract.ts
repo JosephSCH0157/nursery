@@ -13,6 +13,16 @@ export const HAMMER_QUENCH_CANONICAL_READINESS_REASON_CODES = [
   "operation_unavailable",
   "operation_degraded",
   "unresolved_broll_intent",
+  "broll_timeline_clip_without_operation",
+  "broll_operation_without_timeline_clip",
+  "broll_duplicate_operation_projection",
+  "broll_wrong_operation_type",
+  "broll_unresolved_operation_has_clip",
+  "broll_asset_binding_mismatch",
+  "broll_timing_mismatch",
+  "broll_anchor_mismatch",
+  "broll_stale_projection",
+  "broll_linked_duck_divergence",
   "bound_attention_video",
   "bound_attention_audio",
   "podcast_master_unavailable",
@@ -52,6 +62,8 @@ export interface HammerQuenchReadinessReasonLike {
   source: string;
   operationId?: string | null;
   operation_id?: string | null;
+  clipId?: string | null;
+  clip_id?: string | null;
 }
 
 export interface HammerQuenchReadinessEvidence<T extends HammerQuenchReadinessReasonLike = HammerQuenchReadinessReasonLike> {
@@ -93,7 +105,8 @@ export function mergeReadinessReasons<T extends HammerQuenchReadinessReasonLike>
   const byIdentity = new Map<string, T>();
   for (const reason of [...upstream, ...downstream]) {
     const operationId = reason.operationId ?? reason.operation_id ?? "";
-    const identity = `${reason.source}\u0000${reason.code}\u0000${operationId}`;
+    const clipId = reason.clipId ?? reason.clip_id ?? "";
+    const identity = `${reason.source}\u0000${reason.code}\u0000${operationId}\u0000${clipId}`;
     const existing = byIdentity.get(identity);
     if (!existing || (existing.severity === "review" && reason.severity === "blocking")) {
       byIdentity.set(identity, reason);

@@ -1,4 +1,10 @@
 import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
+import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
+import {
+  evaluateHammerBrollConsistency,
+  type HammerBrollConsistencyFinding,
+  type HammerBrollConsistencyFindingCode,
+} from "./hammerBrollConsistency";
 import type { HammerRenderAssemblyResult } from "./hammerRenderAssembly";
 import type { HammerBoundAttentionQueueItem } from "./hammerBoundObjects";
 import {
@@ -19,12 +25,55 @@ function dedupeReasons(reasons: HammerReadinessReason[]): HammerReadinessReason[
   const seen = new Set<string>();
   const rows: HammerReadinessReason[] = [];
   for (const reason of reasons) {
-    const key = `${reason.severity}:${reason.code}:${reason.operationId ?? "-"}`;
+    const key = `${reason.severity}:${reason.code}:${reason.operationId ?? "-"}:${reason.clipId ?? "-"}`;
     if (seen.has(key)) continue;
     seen.add(key);
     rows.push(reason);
   }
   return rows;
+}
+
+const brollReadinessCode: Record<HammerBrollConsistencyFindingCode, HammerReadinessReasonCode> = {
+  timeline_clip_without_operation: "broll_timeline_clip_without_operation",
+  operation_without_timeline_clip: "broll_operation_without_timeline_clip",
+  duplicate_operation_projection: "broll_duplicate_operation_projection",
+  wrong_operation_type: "broll_wrong_operation_type",
+  unresolved_operation_has_clip: "broll_unresolved_operation_has_clip",
+  asset_binding_mismatch: "broll_asset_binding_mismatch",
+  timing_mismatch: "broll_timing_mismatch",
+  anchor_mismatch: "broll_anchor_mismatch",
+  stale_projection: "broll_stale_projection",
+  linked_duck_divergence: "broll_linked_duck_divergence",
+};
+
+function brollReadinessReason(finding: HammerBrollConsistencyFinding): HammerReadinessReason {
+  const label = finding.code === "timeline_clip_without_operation"
+    ? "B-roll cannot be handed off because this visual has no canonical editorial operation."
+    : finding.code === "operation_without_timeline_clip"
+      ? "B-roll cannot be handed off because canonical intent has no editable visual projection."
+      : finding.code === "duplicate_operation_projection"
+        ? "B-roll cannot be handed off because one canonical operation has multiple visual projections."
+        : finding.code === "wrong_operation_type"
+          ? "B-roll cannot be handed off because its visual references the wrong editorial operation."
+          : finding.code === "unresolved_operation_has_clip"
+            ? "B-roll cannot be handed off because unresolved intent has a premature visual projection."
+            : finding.code === "asset_binding_mismatch"
+              ? "B-roll cannot be handed off because its canonical and visual assets differ."
+              : finding.code === "timing_mismatch"
+                ? "B-roll cannot be handed off because canonical and visual timing differ."
+                : finding.code === "anchor_mismatch"
+                  ? "B-roll cannot be handed off because canonical and visual transcript anchors differ."
+                  : finding.code === "stale_projection"
+                    ? "B-roll cannot be handed off because an inactive operation still has a visual projection."
+                    : "B-roll cannot be handed off because its linked audio duck diverged.";
+  return createHammerReadinessReason({
+    code: brollReadinessCode[finding.code],
+    label,
+    severity: finding.severity,
+    source: "gate",
+    operationId: finding.operationId,
+    clipId: finding.clipId,
+  });
 }
 
 function resolveBoundAttentionCode(objectType: HammerBoundAttentionQueueItem["object_type"]): HammerReadinessReasonCode {
@@ -48,11 +97,19 @@ function resolvePodcastMasterOperationId(graph: HammerEditorialAuthorityGraph | 
 export function evaluateHammerReadinessGate(args: {
   renderAssembly: HammerRenderAssemblyResult;
   canonicalGraph: HammerEditorialAuthorityGraph | null;
+  visualTimeline: HammerVisualTimelineState | null;
   boundAttentionQueue: HammerBoundAttentionQueueItem[];
   unresolvedBrollSuggestionOperationIds: string[];
 }): HammerReadinessGateResult {
   const blocking: HammerReadinessReason[] = [];
   const review: HammerReadinessReason[] = [];
+  const brollConsistency = evaluateHammerBrollConsistency({
+    graph: args.canonicalGraph,
+    visualTimeline: args.visualTimeline,
+  });
+  for (const finding of brollConsistency.findings) {
+    (finding.severity === "blocking" ? blocking : review).push(brollReadinessReason(finding));
+  }
 
   if (args.renderAssembly.export_timeline.export_posture === "unavailable") {
     blocking.push(createHammerReadinessReason({

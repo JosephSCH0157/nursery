@@ -34,6 +34,7 @@ async function testReadyState() {
   const gate = evaluateHammerReadinessGate({
     renderAssembly: assembly,
     canonicalGraph: graph,
+    visualTimeline: null,
     boundAttentionQueue: [],
     unresolvedBrollSuggestionOperationIds: [],
   });
@@ -75,6 +76,7 @@ async function testNeedsReviewState() {
   const gate = evaluateHammerReadinessGate({
     renderAssembly: assembly,
     canonicalGraph: graph,
+    visualTimeline: null,
     boundAttentionQueue: [{
       object_id: "op:ins_suggestion_01",
       object_type: "broll",
@@ -130,6 +132,7 @@ async function testBlockedState() {
   const gate = evaluateHammerReadinessGate({
     renderAssembly: assembly,
     canonicalGraph: graph,
+    visualTimeline: null,
     boundAttentionQueue: [],
     unresolvedBrollSuggestionOperationIds: [],
   });

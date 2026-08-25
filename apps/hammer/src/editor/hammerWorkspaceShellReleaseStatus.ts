@@ -7,9 +7,8 @@ import { deriveHammerReleaseHandoffPosture } from "../lib/hammerReleaseHandoffPo
 import { resolvePodcastMasterUiStatus } from "./hammerPodcastMasterStatus";
 import { evaluateHammerReadinessGate } from "./hammerReadinessGate";
 import type { HammerRenderAssemblyResult } from "./hammerRenderAssembly";
-
+import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
 export type HammerExportTruthState = "never_prepared" | "current" | "stale";
-
 export function useHammerWorkspaceShellReleaseComparison(args: {
   loadedPreparedPackage: HammerPreparedReleasePackage | null;
   currentReleasePackage: HammerReleasePrepPackage;
@@ -66,16 +65,17 @@ export function useHammerWorkspaceShellReleaseComparison(args: {
 
 export function useHammerWorkspaceShellReleaseReadiness(args: {
   renderAssembly: HammerRenderAssemblyResult;
-  canonicalGraph: HammerEditorialAuthorityGraph | null;
+  canonicalGraph: HammerEditorialAuthorityGraph | null; visualTimeline: HammerVisualTimelineState | null;
   boundAttentionQueue: Parameters<typeof evaluateHammerReadinessGate>[0]["boundAttentionQueue"];
   unresolvedBrollSuggestions: ReadonlyArray<{ operationId: string }>;
   currentReleasePackage: HammerReleasePrepPackage;
 }) {
   const readinessGate = useMemo(() => evaluateHammerReadinessGate({
     renderAssembly: args.renderAssembly, canonicalGraph: args.canonicalGraph,
+    visualTimeline: args.visualTimeline,
     boundAttentionQueue: args.boundAttentionQueue,
     unresolvedBrollSuggestionOperationIds: args.unresolvedBrollSuggestions.map((item) => item.operationId),
-  }), [args.renderAssembly, args.canonicalGraph, args.boundAttentionQueue, args.unresolvedBrollSuggestions]);
+  }), [args.renderAssembly, args.canonicalGraph, args.visualTimeline, args.boundAttentionQueue, args.unresolvedBrollSuggestions]);
   const handoffPosture = useMemo(() => deriveHammerReleaseHandoffPosture({
     releasePrepPackage: args.currentReleasePackage, readinessGate,
   }), [args.currentReleasePackage, readinessGate]);

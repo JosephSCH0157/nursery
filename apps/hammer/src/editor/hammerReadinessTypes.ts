@@ -17,8 +17,10 @@ export interface HammerReadinessReason {
   severity: HammerReadinessReasonSeverity;
   source: HammerReadinessReasonSource;
   operationId: string | null;
+  clipId: string | null;
   // Transitional compatibility field for pre-Phase-6 consumers.
   operation_id: string | null;
+  clip_id: string | null;
 }
 
 export interface HammerReadinessVerdict {
@@ -49,15 +51,19 @@ export function createHammerReadinessReason(args: {
   severity: HammerReadinessReasonSeverity;
   source: HammerReadinessReasonSource;
   operationId?: string | null;
+  clipId?: string | null;
 }): HammerReadinessReason {
   const operationId = args.operationId ?? null;
+  const clipId = args.clipId ?? null;
   return {
     code: args.code,
     label: args.label,
     severity: args.severity,
     source: args.source,
     operationId,
+    clipId,
     operation_id: operationId,
+    clip_id: clipId,
   };
 }
 

@@ -1,4 +1,5 @@
 import type { HammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
+import { evaluateHammerBrollConsistency, type HammerBrollConsistencyFinding, type HammerBrollConsistencyFindingCode } from "./hammerBrollConsistency";
 import type { HammerSessionStateResult } from "./hammerSessionState";
 
 export type HammerIssueSeverity = "info" | "warning" | "error";
@@ -29,6 +30,35 @@ export interface HammerIssueDiagnostic {
   canAutoFix: boolean;
   fixActionId: HammerIssueFixActionId | null;
 }
+const brollConsistencyTitle: Record<HammerBrollConsistencyFindingCode, string> = {
+  timeline_clip_without_operation: "B-roll projection has no canonical operation",
+  operation_without_timeline_clip: "B-roll operation has no visual projection",
+  duplicate_operation_projection: "B-roll operation has duplicate projections",
+  wrong_operation_type: "B-roll projection references the wrong operation type",
+  unresolved_operation_has_clip: "Unresolved B-roll has a visual projection",
+  asset_binding_mismatch: "B-roll asset binding diverged",
+  timing_mismatch: "B-roll timing diverged",
+  anchor_mismatch: "B-roll transcript anchor diverged",
+  stale_projection: "Inactive B-roll operation has a stale projection",
+  linked_duck_divergence: "B-roll audio duck diverged",
+};
+
+export function deriveHammerBrollConsistencyIssueDiagnostics(
+  findings: readonly HammerBrollConsistencyFinding[],
+): HammerIssueDiagnostic[] {
+  return findings.map((finding, index) => ({
+    id: `broll_consistency:${finding.code}:${finding.operationId ?? "none"}:${finding.clipId ?? "none"}:${index}`,
+    severity: "warning",
+    title: brollConsistencyTitle[finding.code],
+    summary: finding.detail,
+    affectedAreas: ["visuals", "preview_fidelity", "export"],
+    safeActions: ["Inspection is safe. Hammer will not reconcile B-roll authority automatically."],
+    recommendedAction: "Do not export this B-roll state until its canonical operation and visual projection agree.",
+    canAutoFix: false,
+    fixActionId: null,
+  }));
+}
+
 
 const uniq = <T,>(values: T[]): T[] => [...new Set(values)];
 
@@ -48,14 +78,18 @@ export function formatAffectedAreas(areas: HammerAffectedArea[]): string {
   return unique.map((area) => areaLabel[area] ?? area).join(" · ");
 }
 
-export function deriveHammerIssueDiagnostics(args: {
+export interface HammerIssueDiagnosticsArgs {
   sessionState: HammerSessionStateResult;
   mediaPrepOutputs: HammerMediaPrepOutputsPackage | null;
   mediaLabelMismatchWarning: string | null;
   actualRecordingMismatchWarning: string | null;
   jobsStatusUnavailable?: { status: number; message: string } | null;
   reopenPersistenceSource?: "persistence" | "launch" | "bootstrap" | "transitional" | "none" | null;
-}): HammerIssueDiagnostic[] {
+  brollGraph?: Parameters<typeof evaluateHammerBrollConsistency>[0]["graph"];
+  brollVisualTimeline?: Parameters<typeof evaluateHammerBrollConsistency>[0]["visualTimeline"];
+}
+
+function deriveHammerSessionIssueDiagnostics(args: HammerIssueDiagnosticsArgs): HammerIssueDiagnostic[] {
   const issues: HammerIssueDiagnostic[] = [];
   const {
     sessionState,
@@ -290,5 +324,14 @@ export function deriveHammerIssueDiagnostics(args: {
   }
 
   return issues;
+}
+
+export function deriveHammerIssueDiagnostics(args: HammerIssueDiagnosticsArgs): HammerIssueDiagnostic[] {
+  const ordinaryIssues = deriveHammerSessionIssueDiagnostics(args);
+  const consistency = evaluateHammerBrollConsistency({
+    graph: args.brollGraph ?? null,
+    visualTimeline: args.brollVisualTimeline ?? null,
+  });
+  return [...ordinaryIssues, ...deriveHammerBrollConsistencyIssueDiagnostics(consistency.findings)];
 }
 

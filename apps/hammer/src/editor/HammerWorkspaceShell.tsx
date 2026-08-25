@@ -2942,6 +2942,7 @@ function HammerWorkspaceShellWithContext(
   const { readinessGate, readinessVerdict } = useHammerWorkspaceShellReleaseReadiness({
     renderAssembly: exportBasis.renderAssembly,
     canonicalGraph: editableEditorialAuthorityGraph,
+    visualTimeline: editableVisualTimeline,
     boundAttentionQueue: boundAttentionQueueForGate,
     unresolvedBrollSuggestions: unresolvedBrollSuggestionItems,
     currentReleasePackage: exportBasis.currentReleasePackage,
