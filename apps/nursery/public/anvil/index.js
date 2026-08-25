@@ -93549,6 +93549,87 @@ async function transitionRecordingCompleted(input) {
     return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_completion_unavailable" };
   }
 }
+async function transitionRecordingKept(input) {
+  const ready = window.__forgeCanonicalReadyScript;
+  const workspaceId = normalizeUuid2(ready?.workspaceId);
+  if (!workspaceId) return { ok: false, outcome: "malformed", reason: "ready_workspace_missing" };
+  const evidence = { schema: "anvil.take-decision.v1", decision: "keep", completion_id: input.completionId, capture_session_id: input.commit.captureSessionId };
+  try {
+    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-keep`, {
+      method: "POST",
+      headers: await buildHeaders(getApiToken()),
+      body: JSON.stringify({
+        workspace_id: workspaceId,
+        capture_session_id: input.commit.captureSessionId,
+        completion_id: input.completionId,
+        idempotency_key: `anvil-keep:${input.completionId}`,
+        decision_evidence: evidence
+      })
+    });
+    const body = await readBodyAsJson(response);
+    const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
+    if (!response.ok) return { ok: false, outcome: "unavailable", reason: extractApiError(body).code ?? "recording_keep_unavailable", details: body };
+    const outcome = readString8(data?.outcome);
+    const keepId = readAuthorityRowId(data, "keep");
+    const accepted = (outcome === "saved" || outcome === "duplicate") && !!keepId;
+    if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) return { ok: false, outcome: "malformed", reason: "recording_keep_response_malformed", details: body };
+    return { ok: accepted, outcome, ...keepId ? { keepId } : {}, reason: readString8(data?.reason) ?? void 0, details: data };
+  } catch (error) {
+    return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_keep_unavailable" };
+  }
+}
+async function transitionRecordingDiscarded(input) {
+  const ready = window.__forgeCanonicalReadyScript;
+  const workspaceId = normalizeUuid2(ready?.workspaceId);
+  if (!workspaceId) return { ok: false, outcome: "malformed", reason: "ready_workspace_missing" };
+  const evidence = { schema: "anvil.take-decision.v1", decision: "discard", completion_id: input.completionId, capture_session_id: input.commit.captureSessionId };
+  try {
+    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-discard`, {
+      method: "POST",
+      headers: await buildHeaders(getApiToken()),
+      body: JSON.stringify({
+        workspace_id: workspaceId,
+        capture_session_id: input.commit.captureSessionId,
+        completion_id: input.completionId,
+        idempotency_key: `anvil-discard:${input.completionId}`,
+        decision_evidence: evidence
+      })
+    });
+    const body = await readBodyAsJson(response);
+    const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
+    if (!response.ok) return { ok: false, outcome: "unavailable", reason: extractApiError(body).code ?? "recording_discard_unavailable", details: body };
+    const outcome = readString8(data?.outcome);
+    const discardId = readAuthorityRowId(data, "discard");
+    const accepted = (outcome === "saved" || outcome === "duplicate") && !!discardId;
+    if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) return { ok: false, outcome: "malformed", reason: "recording_discard_response_malformed", details: body };
+    return { ok: accepted, outcome, ...discardId ? { discardId } : {}, reason: readString8(data?.reason) ?? void 0, details: data };
+  } catch (error) {
+    return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_discard_unavailable" };
+  }
+}
+async function readPendingRecordingDecisions() {
+  const ready = window.__forgeCanonicalReadyScript;
+  const workspaceId = normalizeUuid2(ready?.workspaceId);
+  const workpieceId = normalizeUuid2(ready?.workpieceId);
+  if (!workspaceId || !workpieceId) return [];
+  try {
+    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/pending-recording-decisions?workspace_id=${encodeURIComponent(workspaceId)}`, { headers: await buildHeaders(getApiToken()) });
+    const body = await readBodyAsJson(response);
+    const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
+    if (!response.ok || data?.outcome !== "ok" || !Array.isArray(data.pending)) return [];
+    return data.pending.flatMap((row) => {
+      if (!row || typeof row !== "object" || Array.isArray(row)) return [];
+      const value = row;
+      const completionId = normalizeUuid2(value.completion_id);
+      const captureSessionId = normalizeUuid2(value.capture_session_id);
+      const rowWorkpieceId = normalizeUuid2(value.workpiece_id);
+      const mediaPath = readString8(value.media_path);
+      return completionId && captureSessionId && rowWorkpieceId === workpieceId && mediaPath ? [{ completionId, captureSessionId, workpieceId, mediaPath }] : [];
+    });
+  } catch {
+    return [];
+  }
+}
 var UUID_RE2, DEFAULT_TOOL_VERSION, DEFAULT_LANE, WORKSPACE_STORAGE_KEYS2, WORKPIECE_STORAGE_KEYS2, ACTIVE_WORKPIECE_KEY2, WORKSPACE_WORKPIECE_PREFIX2, CAPTURE_SESSION_KEY, PLANNER_RECORDING_SESSION_KEY, LARGE_UPLOAD_WARN_MB_KEY, CHUNK_UPLOAD_THRESHOLD_MB_KEY, CHUNK_SIZE_MB_KEY, DEFAULT_LARGE_UPLOAD_WARN_MB, DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB, DEFAULT_CHUNK_SIZE_MB, CHUNK_UPLOAD_RETRY_ATTEMPTS, CHUNK_UPLOAD_RETRY_BACKOFF_MS, correlationSeq;
 var init_workpiece_commit = __esm({
   "src/forge/workpiece-commit.ts"() {
@@ -94302,6 +94383,9 @@ var init_scripts_store = __esm({
 });
 
 // src/recording/recording-decision-dialog.ts
+function isRecordingDecisionPending() {
+  return typeof document !== "undefined" && document.getElementById(MODAL_ID2) !== null;
+}
 function escapeHtml3(value) {
   return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
@@ -94488,6 +94572,22 @@ function buildWorkingMarkup(options) {
     </div>
   `;
 }
+function buildMarkup(takeName, isRecovery) {
+  const title = isRecovery ? "Recording awaiting review" : "Recording complete";
+  const copy = isRecovery ? "This recording was saved but not reviewed. Keep or discard it?" : "Keep this take for editing?";
+  return `
+    <div class="tp-recording-decision-panel" role="dialog" aria-modal="true" aria-labelledby="${MODAL_ID2}-title">
+      <h2 id="${MODAL_ID2}-title">${title}</h2>
+      <p class="tp-recording-decision-copy">${copy}</p>
+      <div class="tp-recording-decision-file">${escapeHtml3(takeName)}</div>
+      <div class="tp-recording-decision-error" data-role="error" aria-live="polite"></div>
+      <div class="tp-recording-decision-actions">
+        <button type="button" class="tp-recording-decision-btn tp-recording-decision-btn--discard" data-action="discard">Discard Take</button>
+        <button type="button" class="tp-recording-decision-btn tp-recording-decision-btn--keep" data-action="keep">Keep Take</button>
+      </div>
+    </div>
+  `;
+}
 function showRecordingFinalizeIndicator(options = {}) {
   if (typeof document === "undefined") return;
   closeAllRecordingOverlays();
@@ -94501,6 +94601,117 @@ function showRecordingFinalizeIndicator(options = {}) {
 function hideRecordingFinalizeIndicator() {
   if (typeof document === "undefined") return;
   closeWorkingModal();
+}
+async function showRecordingDecisionDialog(options) {
+  if (typeof document === "undefined") return;
+  closeAllRecordingOverlays();
+  applyStyles2();
+  return new Promise((resolve, reject) => {
+    const overlay = document.createElement("div");
+    overlay.id = MODAL_ID2;
+    overlay.className = "tp-recording-decision-overlay";
+    overlay.innerHTML = buildMarkup(options.takeName, options.isRecovery);
+    const discardButton = overlay.querySelector('[data-action="discard"]');
+    const keepButton = overlay.querySelector('[data-action="keep"]');
+    const errorNode = overlay.querySelector('[data-role="error"]');
+    let finished = false;
+    const setBusy = (busy, action) => {
+      if (discardButton) {
+        discardButton.disabled = busy;
+        discardButton.textContent = busy && action === "discard" ? "Discarding..." : "Discard Take";
+      }
+      if (keepButton) {
+        keepButton.disabled = busy;
+        keepButton.textContent = busy && action === "keep" ? "Saving..." : "Keep Take";
+      }
+    };
+    const visibilityGuard = () => {
+      try {
+        if (document.visibilityState !== "visible") return;
+        if (!finished && !document.body.contains(overlay)) {
+          document.body.appendChild(overlay);
+          keepButton?.focus();
+        }
+      } catch {
+      }
+    };
+    const beforeUnloadGuard = (event) => {
+      if (!finished) {
+        event.preventDefault();
+        event.returnValue = "";
+      }
+    };
+    const cleanupGuards = () => {
+      _activeDecisionCleanup = null;
+      try {
+        document.removeEventListener("visibilitychange", visibilityGuard);
+      } catch {
+      }
+      try {
+        window.removeEventListener("beforeunload", beforeUnloadGuard);
+      } catch {
+      }
+    };
+    const finish = () => {
+      if (finished) return;
+      finished = true;
+      cleanupGuards();
+      closeModal2();
+      resolve();
+    };
+    const fail3 = (error) => {
+      if (finished) return;
+      finished = true;
+      cleanupGuards();
+      closeModal2();
+      reject(error);
+    };
+    const runAction = async (action) => {
+      setBusy(true, action);
+      if (errorNode) errorNode.textContent = "";
+      try {
+        if (action === "keep") {
+          await options.onKeep();
+        } else {
+          await options.onDiscard();
+        }
+        finish();
+      } catch (error) {
+        setBusy(false);
+        if (errorNode) {
+          errorNode.textContent = error instanceof Error && error.message.trim() ? error.message : "Could not save your take decision. Try again.";
+        }
+      }
+    };
+    discardButton?.addEventListener("click", () => {
+      void runAction("discard");
+    });
+    keepButton?.addEventListener("click", () => {
+      void runAction("keep");
+    });
+    overlay.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        void runAction("keep");
+      }
+    });
+    try {
+      document.body.appendChild(overlay);
+      _activeDecisionCleanup = cleanupGuards;
+      try {
+        document.addEventListener("visibilitychange", visibilityGuard);
+      } catch {
+      }
+      try {
+        window.addEventListener("beforeunload", beforeUnloadGuard);
+      } catch {
+      }
+      keepButton?.focus();
+    } catch (error) {
+      cleanupGuards();
+      fail3(error);
+    }
+  });
 }
 var MODAL_ID2, WORKING_MODAL_ID, STYLE_ID, _activeDecisionCleanup;
 var init_recording_decision_dialog = __esm({
@@ -95529,6 +95740,26 @@ var init_local_auto = __esm({
         const candidate = rest.slice(0, separator).trim().toLowerCase();
         return UUID_RE5.test(candidate) ? candidate : null;
       }
+      async function recoverPendingTakeDecision() {
+        if (isRecordingDecisionPending()) return;
+        const pending = await readPendingRecordingDecisions();
+        const decision = pending[0];
+        if (!decision || isRecordingDecisionPending()) return;
+        await showRecordingDecisionDialog({
+          takeName: decision.mediaPath.split("/").pop() || decision.mediaPath,
+          isRecovery: true,
+          onKeep: async () => {
+            const result = await transitionRecordingKept({ commit: decision, completionId: decision.completionId });
+            if (!result.ok) throw new Error(result.reason ?? `Keep failed (${result.outcome}).`);
+            showRecorderToast("Take kept and ready for Hammer.", "info");
+          },
+          onDiscard: async () => {
+            const result = await transitionRecordingDiscarded({ commit: decision, completionId: decision.completionId });
+            if (!result.ok) throw new Error(result.reason ?? `Discard failed (${result.outcome}).`);
+            showRecorderToast("Take discarded.", "info");
+          }
+        });
+      }
       function buildWorkpieceFallbackTitle(workpieceId) {
         return `Episode_${workpieceId.slice(0, 8)}`;
       }
@@ -96269,6 +96500,24 @@ var init_local_auto = __esm({
         let downloadFallbackAttempted = false;
         let downloadFallbackSucceeded = false;
         let downloadFallbackSkippedReason = null;
+        const presentCanonicalTakeDecision = async () => {
+          if (!commitResultOk || !acceptedCompletionId) return;
+          hideRecordingFinalizeIndicator();
+          showRecorderToast("Recording saved \xB7 Keep or discard this take.", "info");
+          await showRecordingDecisionDialog({
+            takeName: name,
+            onKeep: async () => {
+              const result = await transitionRecordingKept({ commit: commitResultOk, completionId: acceptedCompletionId });
+              if (!result.ok) throw new Error(result.reason ?? `Keep failed (${result.outcome}).`);
+              showRecorderToast("Take kept and ready for Hammer.", "info");
+            },
+            onDiscard: async () => {
+              const result = await transitionRecordingDiscarded({ commit: commitResultOk, completionId: acceptedCompletionId });
+              if (!result.ok) throw new Error(result.reason ?? `Discard failed (${result.outcome}).`);
+              showRecorderToast("Take discarded.", "info");
+            }
+          });
+        };
         try {
           const recordingValidity = await verifyFinalizedRecordingArtifact(blob);
           try {
@@ -96486,8 +96735,7 @@ var init_local_auto = __esm({
                   } catch {
                   }
                   if (commitResultOk && acceptedCompletionId) {
-                    hideRecordingFinalizeIndicator();
-                    showRecorderToast("Recording verified and ready for Hammer.", "info");
+                    await presentCanonicalTakeDecision();
                   }
                   if (!committed) {
                     emitUploadFallbackAudit({
@@ -96625,8 +96873,7 @@ var init_local_auto = __esm({
                 });
               }
               if (commitResultOk && acceptedCompletionId) {
-                hideRecordingFinalizeIndicator();
-                showRecorderToast("Recording verified and ready for Hammer.", "info");
+                await presentCanonicalTakeDecision();
               }
               return true;
             }
@@ -96690,6 +96937,7 @@ var init_local_auto = __esm({
         document.addEventListener(
           "tp:session:start",
           () => {
+            void recoverPendingTakeDecision();
             try {
               start2();
             } catch {
