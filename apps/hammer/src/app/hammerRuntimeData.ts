@@ -29,6 +29,7 @@ type HammerWorkspaceEpisodeRow = {
   recorded: boolean;
   latest_kept_take: unknown | null;
   canonical_recording: unknown | null;
+  recording_decision_status: "none" | "completed_pending" | "kept" | "discarded";
 };
 
 const workspaceProjectsInFlight = new Map<string, Promise<HammerRuntimeProjectCard[]>>();
@@ -294,6 +295,9 @@ async function listHammerWorkspaceEpisodes(workspaceId: string): Promise<HammerW
         recorded: row?.recorded === true,
         latest_kept_take: (row?.latest_kept_take as unknown) ?? null,
         canonical_recording: (row?.canonical_recording as unknown) ?? null,
+        recording_decision_status: row?.recording_decision_status === "completed_pending" || row?.recording_decision_status === "kept" || row?.recording_decision_status === "discarded"
+          ? row.recording_decision_status
+          : "none",
       };
     })
     .filter((row): row is HammerWorkspaceEpisodeRow => Boolean(row));
@@ -312,11 +316,14 @@ function buildRuntimeReadiness(args: {
   prepStatus: string | null;
   editInstructionCount: number;
   stateUnavailable: boolean;
+  recordingDecisionStatus: HammerWorkspaceEpisodeRow["recording_decision_status"];
 }): HammerRuntimeReadiness {
   const indicators = [...args.editReadyReasons];
   if (args.editInstructionCount > 0) {
     indicators.push(`${args.editInstructionCount} staged edit${args.editInstructionCount === 1 ? "" : "s"}`);
   }
+  if (indicators.length === 0 && args.recordingDecisionStatus === "completed_pending") indicators.push("Recording saved · Keep decision missing");
+  if (indicators.length === 0 && args.recordingDecisionStatus === "discarded") indicators.push("Take discarded in Anvil");
   if (args.stateUnavailable && indicators.length === 0) {
     indicators.push("Hammer state unavailable");
   }
@@ -423,6 +430,12 @@ function inferRecordingKindFromTruth(truth: HammerWorkpieceRecordingTruth): "rec
   if (kind === "recording_audio") return "recording_audio";
   if (kind === "recording_video") return "recording_video";
   return "unknown";
+}
+
+export function describeHammerRecordingDecisionStatus(status: HammerWorkspaceEpisodeRow["recording_decision_status"]): string | null {
+  if (status === "completed_pending") return "Recording saved; Keep decision missing";
+  if (status === "discarded") return "Take discarded in Anvil";
+  return null;
 }
 
 export function projectHammerRecordingTruth(
@@ -676,6 +689,7 @@ export async function loadHammerWorkspaceProjects(
           prepStatus,
           editInstructionCount,
           stateUnavailable,
+          recordingDecisionStatus: episode.recording_decision_status,
         }),
         recording: projectHammerRecordingTruth(recordingTruth),
       };

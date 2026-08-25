@@ -3,10 +3,18 @@ import test from "node:test";
 import {
   buildHammerLaunchContextFromRecordingTruth,
   classifyHammerRuntimeProject,
+  describeHammerRecordingDecisionStatus,
   extractHammerWorkpieceRecordingTruth,
   projectHammerRecordingTruth,
   readHammerStoredActiveWorkspaceId,
 } from "../src/app/hammerRuntimeData";
+
+test("recording decision diagnostics distinguish pending and discarded Anvil takes", () => {
+  assert.equal(describeHammerRecordingDecisionStatus("completed_pending"), "Recording saved; Keep decision missing");
+  assert.equal(describeHammerRecordingDecisionStatus("discarded"), "Take discarded in Anvil");
+  assert.equal(describeHammerRecordingDecisionStatus("kept"), null);
+  assert.equal(describeHammerRecordingDecisionStatus("none"), null);
+});
 
 const FLORIDA_CANONICAL = {
   id: "6c5b0d00-f775-4611-ac67-284dd9ae7d39",

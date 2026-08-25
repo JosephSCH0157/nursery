@@ -1665,6 +1665,7 @@ export type WorkspaceEpisodeSummary = Pick<
   recorded: boolean;
   latest_kept_take: WorkpieceTakeReceipt | null;
   canonical_recording: WorkpieceCanonicalRecordingProjection | null;
+  recording_decision_status: "none" | "completed_pending" | "kept" | "discarded";
 };
 
 export type ListWorkspaceSparksOptions = {
@@ -5760,6 +5761,7 @@ function toWorkspaceEpisodeSummary(
     recorded: boolean;
     latest_kept_take: WorkpieceTakeReceipt | null;
     canonical_recording: WorkpieceCanonicalRecordingProjection | null;
+    recording_decision_status?: "none" | "completed_pending" | "kept" | "discarded";
   },
 ): WorkspaceEpisodeSummary {
   return {
@@ -5774,6 +5776,7 @@ function toWorkspaceEpisodeSummary(
     recorded: recordingTruth?.recorded ?? false,
     latest_kept_take: recordingTruth?.latest_kept_take ?? null,
     canonical_recording: recordingTruth?.canonical_recording ?? null,
+    recording_decision_status: recordingTruth?.recording_decision_status ?? "none",
   };
 }
 
@@ -13238,11 +13241,26 @@ export class TongsCommitService {
     const rows = data ?? [];
     const keptTakeByWorkpiece = await this.listLatestKeptTakeByWorkpieceIds(rows.map((row) => row.id));
     const canonicalByWorkpiece = await this.listCanonicalRecordingProjectionsByWorkpieceIds(rows.map((row) => row.id));
+    const decisionByWorkpiece = new Map<string, "completed_pending" | "kept" | "discarded">();
+    if (rows.length > 0) {
+      const events = await this.supabase.schema("tongs").from("workpiece_events")
+        .select("workpiece_id,event_name,created_at")
+        .in("workpiece_id", rows.map((row) => row.id))
+        .in("event_name", ["take_completed", "take_kept", "take_discarded"])
+        .order("created_at", { ascending: true });
+      if (events.error) throw new HttpError(502, "db_read_failed", "Failed to read recording decision state", { reason: events.error.message });
+      for (const event of events.data ?? []) {
+        if (event.event_name === "take_completed") decisionByWorkpiece.set(event.workpiece_id, "completed_pending");
+        else if (event.event_name === "take_kept") decisionByWorkpiece.set(event.workpiece_id, "kept");
+        else if (event.event_name === "take_discarded") decisionByWorkpiece.set(event.workpiece_id, "discarded");
+      }
+    }
 
     return rows.map((row) => toWorkspaceEpisodeSummary(row as EpisodeRow, {
       recorded: canonicalByWorkpiece.has(row.id) || keptTakeByWorkpiece.has(row.id),
       latest_kept_take: keptTakeByWorkpiece.get(row.id) ?? null,
       canonical_recording: canonicalByWorkpiece.get(row.id) ?? null,
+      recording_decision_status: decisionByWorkpiece.get(row.id) ?? "none",
     }));
   }
 
