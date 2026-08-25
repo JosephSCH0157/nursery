@@ -119,6 +119,18 @@ if (/\b(?:useState|useEffect|useLayoutEffect|useRef|fetch|saveHammer|upload|reso
 const outputSelectionAuthority = inspect("src/editor/hammerWorkspaceShellOutputSelectionCommands.ts").text;
 if (/\b(?:saveHammer|upload|onWorkspaceSnapshotChange|buildHammer(?:Release|WorkspaceShellReleasePackage)|renderBuilt(?:Srt|Vtt))\s*\(/.test(outputSelectionAuthority)) failures.push("Output-selection authority acquired artifact I/O, persistence, caption rendering, or release construction.");
 if (/setEditableVisualTimeline|applyVisualTimelineAction/.test(automaticPlacementAuthority)) failures.push("Automatic-placement authority bypassed the canonical placement commit callback.");
+const placementFrameAnalysisAuthority = inspect("src/features/auto-placement/placementFrameAnalysisAuthority.ts").text;
+const placementFaceAdapter = inspect("src/features/eye-contact-assist/render/faceAnalysisPreviewLayer.tsx").text;
+const placementBlurAdapter = inspect("src/features/visual-effects/render/backgroundBlurPreviewLayer.tsx").text;
+const placementPreviewConsumer = inspect("src/editor/HammerWorkspaceShellPreviewBay.tsx").text;
+const placementAnalysisImports = placementFrameAnalysisAuthority.split("\n").filter((line) => line.startsWith("import ")).join("\n");
+if (/history|persist|supabase|commitTransform|previewAutoPositionOverrides/i.test(placementAnalysisImports)) failures.push("Shared placement-frame analysis authority imported geometry, history, persistence, or database ownership.");
+if (!/new PlacementFrameAnalysisAuthority\(\)/.test(shell)) failures.push("Hammer editor must mount one session-scoped placement-frame analysis authority.");
+if (/createFaceLandmarkProvider|MediapipeFaceLandmarkerProvider/.test(placementFaceAdapter)) failures.push("Face Preview adapter reacquired placement face-provider construction.");
+if (/createSegmentationProvider|MediapipeSelfieSegmentationProvider|new PlacementAnalysisLifecycle/.test(placementBlurAdapter)) failures.push("Background Blur presentation reacquired placement segmentation-provider or evidence-pairing ownership.");
+if (!/analysisAuthority\.analyzeFace/.test(placementFaceAdapter) || !/analysisAuthority\.segmentDisplayedFrame/.test(placementBlurAdapter)) failures.push("Preview presentation adapters must consume the shared placement-frame analysis authority.");
+if (!/analysisAuthority\.requestDisplayedFrame/.test(placementPreviewConsumer) || !/analysisAuthority\.acceptFace/.test(placementPreviewConsumer) || !/analysisAuthority\.acceptMatte/.test(placementPreviewConsumer)) failures.push("Preview Bay must pair displayed-frame face and matte evidence through the shared authority.");
+if (/applyHistoryMutation|commitTransform|previewAutoPositionOverrides|resolveMaskAwarePlacement/.test(placementFrameAnalysisAuthority)) failures.push("Shared placement-frame analysis authority acquired resolution, geometry, or canonical mutation behavior.");
 
 const releasePackageAuthority = inspect("src/editor/hammerWorkspaceShellReleasePackage.ts").text;
 if (/buildHammerWorkspaceShellReleasePackage\s*\(/.test(shell) || /const\s+exportBasis\s*=\s*useMemo/.test(shell) || !/useHammerWorkspaceShellReleaseBasis\s*\(/.test(shell)) failures.push("HammerWorkspaceShell reacquired release-basis projection or low-level package construction.");

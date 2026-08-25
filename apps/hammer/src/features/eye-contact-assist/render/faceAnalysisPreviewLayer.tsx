@@ -1,32 +1,26 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { FaceAnalysisFrame, FaceAnalysisFrameRef, FaceAnalysisResult } from "../types";
 import { FaceAnalysisFrameCapture, acceptFaceAnalysisForFrame, cloneFaceAnalysisFrame } from "../analysis/faceAnalysisAuthority";
-import { createFaceLandmarkProvider, isFaceLandmarkProviderId, type FaceLandmarkProviderId } from "../providers/faceLandmarkProviderRegistry";
+import type { PlacementFrameAnalysisAuthority } from "../../auto-placement/placementFrameAnalysisAuthority";
 
 export default function FaceAnalysisPreviewLayer(props: {
   demand: boolean;
   videoRef: React.RefObject<HTMLVideoElement | null>;
-  providerId?: string | null;
+  analysisAuthority: PlacementFrameAnalysisAuthority;
   onResult(result: FaceAnalysisResult | null): void;
   onCapturedFrame?(frame: FaceAnalysisFrame): void;
 }) {
-  const providerId: FaceLandmarkProviderId = isFaceLandmarkProviderId(props.providerId)
-    ? props.providerId
-    : "mediapipe_face_landmarker";
-  const provider = useMemo(() => createFaceLandmarkProvider(providerId), [providerId]);
   const capture = useMemo(() => new FaceAnalysisFrameCapture(), []);
   const lastRunMs = useRef(0);
   const lastSharedCaptureMs = useRef(Number.NEGATIVE_INFINITY);
   const latestFrameRef = useRef<FaceAnalysisFrameRef | null>(null);
-
-  useEffect(() => () => { void provider.dispose(); }, [provider]);
 
   useEffect(() => {
     if (!props.demand) return;
     let cancelled = false;
     let animationFrame = 0;
     let inFlight = false;
-    void provider.initialize();
+    void props.analysisAuthority.initialize();
 
     const tick = (nowMs: number) => {
       animationFrame = requestAnimationFrame(tick);
@@ -51,7 +45,7 @@ export default function FaceAnalysisPreviewLayer(props: {
         props.onCapturedFrame(cloneFaceAnalysisFrame(frame));
       }
       props.onResult(null);
-      void provider.analyzeFrame(frame)
+      void props.analysisAuthority.analyzeFace(frame)
         .then((result) => {
           if (cancelled || !latestFrameRef.current) return;
           const current = acceptFaceAnalysisForFrame(result, latestFrameRef.current);
@@ -67,7 +61,7 @@ export default function FaceAnalysisPreviewLayer(props: {
       cancelled = true;
       cancelAnimationFrame(animationFrame);
     };
-  }, [capture, props.demand, props.onCapturedFrame, props.onResult, props.videoRef, provider]);
+  }, [capture, props.analysisAuthority, props.demand, props.onCapturedFrame, props.onResult, props.videoRef]);
 
   return null;
 }

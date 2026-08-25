@@ -2,12 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   BackgroundBlurSettings,
   ForegroundMatte,
-  SegmentationProvider,
   SegmentationProviderReadiness,
 } from "../types";
-import type { SegmentationProviderId } from "../providers/segmentationProviderRegistry";
-import { createSegmentationProvider, isSegmentationProviderId } from "../providers/segmentationProviderRegistry";
-import { MediapipeSelfieSegmentationProvider } from "../providers/mediapipeSelfieSegmentationProvider";
 import { SimpleMatteRefiner } from "../matte/simpleMatteRefiner";
 import { BackgroundBlurRenderer } from "../effects/backgroundBlurRenderer";
 import { BackgroundReplacementRenderer } from "../effects/backgroundReplacementRenderer";
@@ -19,6 +15,7 @@ import { extractSpeakerMaskBoundsFromMatte } from "../../auto-placement/speakerM
 import type { FrameBoundPlacementMatteResult } from "../../auto-placement/canonicalPlacementAuthority";
 import type { FaceAnalysisFrame } from "../../eye-contact-assist/types";
 import { LatestOwnedAnalysisFrameQueue } from "../../eye-contact-assist/analysis/ownedAnalysisFrameQueue";
+import type { PlacementFrameAnalysisAuthority } from "../../auto-placement/placementFrameAnalysisAuthority";
 
 export type HammerBackgroundBlurRuntimeStatus = {
   provider: {
@@ -251,33 +248,11 @@ function isMaskReusable(args: {
   return sourceDelta <= MASK_REUSE_MAX_DELTA_SEC;
 }
 
-function useDefaultSegmentationProvider(enabled: boolean, providerId: SegmentationProviderId): SegmentationProvider {
-  const providerRef = useRef<SegmentationProvider | null>(null);
-  const lastProviderIdRef = useRef<SegmentationProviderId | null>(null);
-
-  if (!providerRef.current || lastProviderIdRef.current !== providerId) {
-    void providerRef.current?.dispose();
-    providerRef.current = createSegmentationProvider(providerId);
-    lastProviderIdRef.current = providerId;
-  }
-  useEffect(() => {
-    if (!enabled) return;
-    void providerRef.current?.initialize();
-    return () => {
-      // Keep provider alive while the editor is open. Dispose on unmount only.
-    };
-  }, [enabled]);
-  return providerRef.current;
-}
-
-function createSecondaryProvider(): SegmentationProvider {
-  return new MediapipeSelfieSegmentationProvider({ modelSelection: 0 });
-}
-
 export default function BackgroundBlurPreviewLayer(props: {
   enabled: boolean;
   settings: BackgroundBlurSettings;
   providerId: string | null;
+  analysisAuthority: PlacementFrameAnalysisAuthority;
   debugMasks?: boolean;
   maskPreviewMode?: boolean;
   maskPreviewStage?: "raw" | "expanded" | "feathered" | "refined" | "final_composite";
@@ -288,22 +263,27 @@ export default function BackgroundBlurPreviewLayer(props: {
   onPlacementMatte?: (result: FrameBoundPlacementMatteResult) => void;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const resolvedProviderId: SegmentationProviderId = isSegmentationProviderId(props.providerId)
-    ? props.providerId
-    : "mediapipe_selfie_segmentation";
   const qualityPolicy = resolveVisualPreviewQualityPolicy(props.settings.qualityMode);
-  const provider = useDefaultSegmentationProvider(props.enabled, resolvedProviderId);
+  const provider = useMemo(() => ({
+    name: props.analysisAuthority.primarySegmentationName(),
+    initialize: () => props.analysisAuthority.initialize(),
+    getReadiness: () => props.analysisAuthority.primarySegmentationReadiness(),
+  }), [props.analysisAuthority]);
   const matteRefiner = useMemo(() => new SimpleMatteRefiner(), []);
   const blurRenderer = useMemo(() => new BackgroundBlurRenderer(), []);
   const replacementRenderer = useMemo(() => new BackgroundReplacementRenderer(), []);
   const washRenderer = useMemo(() => new BackgroundWashRenderer(), []);
-  const secondaryProviderRef = useRef<SegmentationProvider | null>(null);
   const analysisFrameQueue = useMemo(() => new LatestOwnedAnalysisFrameQueue(), []);
   const onPlacementMatteRef = useRef(props.onPlacementMatte);
+  const onCanvasRef = useRef(props.onCanvas);
 
   useEffect(() => {
     onPlacementMatteRef.current = props.onPlacementMatte;
   }, [props.onPlacementMatte]);
+
+  useEffect(() => {
+    onCanvasRef.current = props.onCanvas;
+  }, [props.onCanvas]);
 
   useEffect(() => {
     if (!props.analysisFrame) return;
@@ -398,11 +378,11 @@ export default function BackgroundBlurPreviewLayer(props: {
   }, [runtimeStatus]);
 
   useEffect(() => {
-    props.onCanvas?.(canvasRef.current);
+    onCanvasRef.current?.(canvasRef.current);
     return () => {
-      props.onCanvas?.(null);
+      onCanvasRef.current?.(null);
     };
-  }, [props.onCanvas]);
+  }, []);
 
   async function encodePlaneToObjectUrl(args: {
     plane: CachedAlphaPlane;
@@ -585,7 +565,7 @@ export default function BackgroundBlurPreviewLayer(props: {
       return;
     }
     // Keep the last matte for temporal smoothing while enabled.
-  }, [matteRefiner, props.enabled, resolvedProviderId]);
+  }, [matteRefiner, props.enabled, props.providerId]);
 
   useEffect(() => {
     if (!props.enabled) return;
@@ -623,7 +603,7 @@ export default function BackgroundBlurPreviewLayer(props: {
   }, [
     matteRefiner,
     props.enabled,
-    resolvedProviderId,
+    props.providerId,
     props.settings.edgeFeatherPx,
     props.settings.temporalSmoothing,
     props.settings.subjectExpansionPx,
@@ -634,16 +614,6 @@ export default function BackgroundBlurPreviewLayer(props: {
     if (!props.enabled) return;
     void provider.initialize();
   }, [props.enabled, provider]);
-
-  useEffect(() => {
-    if (!props.enabled) return;
-    if (!secondaryProviderRef.current) {
-      secondaryProviderRef.current = createSecondaryProvider();
-    }
-    return () => {
-      // Keep fallback provider warm while preview shell is mounted.
-    };
-  }, [props.enabled]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -718,32 +688,16 @@ export default function BackgroundBlurPreviewLayer(props: {
           await provider.initialize();
         }
 
-        let segProvider: SegmentationProvider | null = provider;
-        let segProviderSource: "primary" | "secondary" = "primary";
-        let seg = await provider.segmentFrame({ source: args.source, timestampSec: args.sourceTimeSec });
-
-        const confidence = Number(seg.confidenceSummary.score);
-        const primaryMaskValid = isSegmentationMaskValid(seg.personMask, seg.width, seg.height);
-        const primaryAllBackground = primaryMaskValid && !seg.personMask.some((alpha) => alpha > 0);
-        const lowConfidence = !primaryAllBackground && Number.isFinite(confidence) && confidence < 0.05;
-        if (!primaryMaskValid || lowConfidence) {
-          const secondary = secondaryProviderRef.current;
-          if (secondary) {
-            const secondaryReadiness = secondary.getReadiness();
-            if (secondaryReadiness.status !== "ready") {
-              await secondary.initialize();
-            }
-            if (secondary.getReadiness().status === "ready") {
-              seg = await secondary.segmentFrame({ source: args.source, timestampSec: args.sourceTimeSec });
-              segProvider = secondary;
-              segProviderSource = "secondary";
-            }
-          }
-        }
+        const segmentation = await props.analysisAuthority.segmentDisplayedFrame({
+          source: args.source,
+          sourcePresentationTimeSec: args.sourceTimeSec,
+        });
+        const seg = segmentation.result;
+        const segProviderSource = segmentation.providerSource;
 
         if (cancelled || args.frameToken !== frameTokenRef.current) return;
 
-        const effectiveProviderStatus = resolveProviderStatus(segProvider?.getReadiness() ?? provider.getReadiness());
+        const effectiveProviderStatus = resolveProviderStatus(segmentation.providerReadiness);
         const segConfidence = Number(seg.confidenceSummary.score);
         const maskValid = isSegmentationMaskValid(seg.personMask, seg.width, seg.height);
         const allBackground = maskValid && !seg.personMask.some((alpha) => alpha > 0);
@@ -755,7 +709,7 @@ export default function BackgroundBlurPreviewLayer(props: {
           consecutiveMaskFailuresRef.current += 1;
           const missingReason = !maskValid ? "mask_unavailable" : maskRejectedReason;
           logSegmentationDiagnostics({
-            providerName: segProvider?.name ?? provider.name,
+            providerName: segmentation.providerName,
             providerStatus: effectiveProviderStatus,
             providerSource: segProviderSource,
             maskStatus: !maskValid ? "missing" : "rejected",

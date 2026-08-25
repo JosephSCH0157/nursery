@@ -7,6 +7,8 @@ export type {
 } from "./canonicalPlacementAuthority";
 export { PlacementAnalysisLifecycle } from "./placementAnalysisLifecycle";
 export type { FrameBoundPlacementEvidencePair } from "./placementAnalysisLifecycle";
+export { PlacementFrameAnalysisAuthority } from "./placementFrameAnalysisAuthority";
+export type { PlacementSegmentationBundleResult } from "./placementFrameAnalysisAuthority";
 export {
   evaluatePlacementFrameAgainstDisplay,
   readPlacementDisplaySnapshot,

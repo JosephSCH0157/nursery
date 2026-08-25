@@ -174,13 +174,13 @@ test("eye contact selects the first eligible face without truncating canonical g
   assert.equal(faces[0]!.eyeContactEvidence, null);
 });
 
-test("neutral preview owner owns provider and demand independently of eye contact", () => {
+test("neutral preview adapter captures frames while the shared authority owns provider analysis", () => {
   const neutral = readFileSync(resolve(hammerRoot, "src/features/eye-contact-assist/render/faceAnalysisPreviewLayer.tsx"), "utf8");
   const eye = readFileSync(resolve(hammerRoot, "src/features/eye-contact-assist/render/eyeContactAssistPreviewLayer.tsx"), "utf8");
   const preview = readFileSync(resolve(hammerRoot, "src/editor/HammerWorkspaceShellPreviewBay.tsx"), "utf8");
-  assert.match(neutral, /createFaceLandmarkProvider/);
+  assert.doesNotMatch(neutral, /createFaceLandmarkProvider/);
   assert.match(neutral, /demand: boolean/);
-  assert.match(neutral, /provider\.analyzeFrame\(frame\)/);
+  assert.match(neutral, /analysisAuthority\.analyzeFace\(frame\)/);
   assert.doesNotMatch(eye, /createFaceLandmarkProvider|provider\.analyzeFrame|FaceAnalysisFrameCapture/);
   assert.match(preview, /faceAnalysisDemand \?\? vm\.eyeContactAssist\.enabled/);
   assert.match(preview, /faceAnalysisResult=\{faceAnalysisResult\}/);

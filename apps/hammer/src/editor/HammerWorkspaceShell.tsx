@@ -20,6 +20,7 @@ import { selectClipById, selectPrimaryActiveClipAtTime, selectPreviewClips } fro
 import type { VisualClipBlockModel } from "../visuals/components/VisualClipBlock";
 import type { VisualPreviewOverlayModel } from "../visuals/components/VisualPreviewComposer";
 import { SEGMENTATION_PROVIDER_DESCRIPTORS, resolveSegmentationProviderDescriptor } from "../features/visual-effects/providers/segmentationProviderRegistry";
+import { PlacementFrameAnalysisAuthority } from "../features/auto-placement/placementFrameAnalysisAuthority";
 import type { HammerPreparedNextStepActionId } from "./hammerPreparedHandoff";
 import {
   DEFAULT_PLAYHEAD_SNAP_TOLERANCE_SEC,
@@ -309,6 +310,7 @@ type HammerWorkspaceShellProps = {
   regenerateAiTranscriptDisabled?: boolean;
   transcriptVersionRegistry?: import("../../../../packages/contracts/hammer/transcript-versions.contract").HammerPersistedTranscriptVersionRegistry | null;
   onHistoryRecoveryStatusChange?: (status: string | null) => void;
+  onShowVisualIssues?: () => void;
   workspaceRole?: string | null; onHistoryEpochPendingChange?: (pending: boolean) => void;
   onWorkspaceSnapshotChange?: (
     snapshot: HammerWorkspaceSnapshot,
@@ -399,6 +401,27 @@ function HammerWorkspaceShellWithContext(
   props: HammerWorkspaceShellProps & { launchContext: HammerLaunchContext },
 ): JSX.Element {
   const launchContext = props.launchContext;
+  const placementFrameAnalysisAuthority = useMemo(() => new PlacementFrameAnalysisAuthority(), []);
+  const placementAnalysisDisposalTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (placementAnalysisDisposalTimerRef.current !== null) {
+      window.clearTimeout(placementAnalysisDisposalTimerRef.current);
+      placementAnalysisDisposalTimerRef.current = null;
+    }
+    if (import.meta.env.DEV) console.debug("[hammer][placement-analysis-authority] mounted", JSON.stringify(placementFrameAnalysisAuthority.diagnostics()));
+    return () => {
+      // React development Strict Mode immediately replays effects. Delay disposal
+      // one task so that replay can cancel it while a real unmount still disposes.
+      placementAnalysisDisposalTimerRef.current = window.setTimeout(() => {
+        placementAnalysisDisposalTimerRef.current = null;
+        if (import.meta.env.DEV) console.debug("[hammer][placement-analysis-authority] disposing", JSON.stringify(placementFrameAnalysisAuthority.diagnostics()));
+        void placementFrameAnalysisAuthority.dispose();
+      }, 0);
+    };
+  }, [placementFrameAnalysisAuthority]);
+  useEffect(() => {
+    placementFrameAnalysisAuthority.reset();
+  }, [launchContext.workpiece_id, placementFrameAnalysisAuthority]);
   const structuredTranscriptResetKey = useMemo(
     () => buildStructuredTranscriptResetKey(props.structuredTranscript),
     [props.structuredTranscript],
@@ -3352,6 +3375,9 @@ function HammerWorkspaceShellWithContext(
     setPlaybackWindow,
     togglePlayback,
     playheadSec,
+    compositionPlayheadSec,
+    automaticPlacementPreviewApplied: selectedAutoPreviewActive,
+    automaticPlacementPreviewStatus: previewAutoPositionStatus,
     playbackModeLabel,
     playbackTransportDurationSec,
     playbackSourceLabel,
@@ -3427,6 +3453,9 @@ function HammerWorkspaceShellWithContext(
     playbackSourceLabel,
     playbackWindow,
     playheadSec,
+    compositionPlayheadSec,
+    selectedAutoPreviewActive,
+    previewAutoPositionStatus,
     previewAudioRef,
     previewBrollVideoRefs,
     previewVideoRef,
@@ -3563,6 +3592,12 @@ function HammerWorkspaceShellWithContext(
     passSelectorResults,
     selectPass,
   ]);
+  const toolbarPresentation = useMemo(() => ({
+    ...toolbarVM,
+    stats: toolbarVM.stats.map((stat) => stat.id === "visuals" && props.onShowVisualIssues
+      ? { ...stat, onClick: props.onShowVisualIssues }
+      : stat),
+  }), [props.onShowVisualIssues, toolbarVM]);
   const currentPassSelectorResult = passSelectorResults.get(currentPass) ?? getPassStatus(currentPass, passSelectorContext);
   currentPassSelectorResultRef.current = currentPassSelectorResult;
 const readinessStatusLabel = readinessVerdict.status === "ready"
@@ -3829,11 +3864,11 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
         workspaceFocusMode === "time-focus" ? "is-time-focus" : "",
         workspaceFocusMode === "balanced" ? "is-balanced" : "",
         currentPass === "visual_finishing" ? "is-visual-finishing" : "",
+        ["transcript_cleanup", "retakes", "gap_pacing"].includes(currentPass) ? "is-transcript-pass" : "",
       ].filter(Boolean).join(" ")}
     >
       <HammerAcceptanceDiagnosticOutput transcriptSegments={editableTranscriptSegments.length} canonicalPlacements={editableVisualPlacements?.placements.length ?? 0} mountedCompositionClips={sourceVisualPlacementItems.length} uncertainCompositionClips={sourceVisualPlacementItems.filter((item) => item.status === "uncertain").length} undoDepth={undoDepth} redoDepth={redoDepth} historyStatus={historyStatus} historyHeadEntryId={historyHeadEntryId} />
       <div className="hammer-workspace-shell__notices">
-        {historyEpochArchivedNotice ? <aside className="hammer-history-epoch-notice">Archived history is preserved. New undo history begins with the next user edit and cannot cross the epoch boundary.</aside> : null}
         <HammerHistoryEpochStartWorkflow candidate={historyEpochStartCandidate} workspaceRole={props.workspaceRole ?? null}
           commandAvailable={Boolean(defaultHistoryEpochPersistence)} getCurrentCandidate={() => historyEpochStartCandidateRef.current}
           start={(request, frozenState) => historyAuthority.startHistoryEpoch(request, frozenState)}
@@ -3844,11 +3879,11 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
       <div className="hammer-workspace-shell__main">
         <div className="hammer-workspace-shell__top">
           <section className="hammer-source-bay">
-            <HammerWorkspaceShellSourceBay vm={sourceBayVM} />
+            <HammerWorkspaceShellSourceBay vm={{ ...sourceBayVM, historyEpochArchivedNotice }} />
           </section>
 
           <section className="hammer-preview-bay">
-            <HammerWorkspaceShellPreviewBay vm={previewBayVM} />
+            <HammerWorkspaceShellPreviewBay vm={previewBayVM} analysisAuthority={placementFrameAnalysisAuthority} />
           </section>
 
           <section className="hammer-tool-bay">
@@ -3893,7 +3928,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
         : null}
 
       <nav className="hammer-toolbar" aria-label="Hammer pass toolbar">
-        <HammerWorkspaceShellToolbar vm={toolbarVM} />
+        <HammerWorkspaceShellToolbar vm={toolbarPresentation} />
       </nav>
     </section>
   );
