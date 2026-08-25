@@ -418,6 +418,7 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
             <h4 className="hs-imap-title">B-roll</h4>
             <p className="hs-imap-subtitle">{readyCount} fulfilled · {skippedCount} skipped · {unresolvedCount} unresolved</p>
           </div>
+          {skippedCount?<button type="button" onClick={()=>{const first=props.beats.find(beat=>skippedIds.has(beat.id));if(first)props.onSelectBeat(first.id);}} disabled={props.disabled}>Review skipped ({skippedCount})</button>:null}
           {!props.beats.length ? <button type="button" className="hs-primary-btn" onClick={props.onGeneratePlan} disabled={props.disabled || props.saveState === "saving"}>Create B-roll plan</button> : null}
         </div>
         {props.saveError ? <div className="hs-error-text" role="alert">{creatorBrollError(props.saveError)}</div> : null}

@@ -417,7 +417,7 @@ export default function ImageMapPanel({
       <section className="hs-episode-images" aria-label="Episode Images">
         <header className="hs-episode-images-header">
           <div><h3>Episode Images</h3><p>These images support moments in your episode. Hammer handles final placement.</p></div>
-          <div className="hs-episode-images-progress" role="status" aria-live="polite"><strong>{imageAuthorityUnavailable ? "Episode Images unavailable" : `${fulfilledImageCount} fulfilled · ${skippedImageCount} skipped · ${unresolvedImageCount} unresolved`}</strong><progress value={fulfilledImageCount+skippedImageCount} max={Math.max(1, workspace.progress.total)} /><button type="button" className="is-primary" onClick={onCreateEntry} disabled={disabled}>Add image</button></div>
+          <div className="hs-episode-images-progress" role="status" aria-live="polite"><strong>{imageAuthorityUnavailable ? "Episode Images unavailable" : `${fulfilledImageCount} fulfilled · ${skippedImageCount} skipped · ${unresolvedImageCount} unresolved`}</strong><progress value={fulfilledImageCount+skippedImageCount} max={Math.max(1, workspace.progress.total)} />{skippedImageCount?<button type="button" onClick={()=>{const first=entries.find(entry=>skippedImageIds.has(entry.id));if(first)onSelectEntry(first.id);}} disabled={disabled}>Review skipped ({skippedImageCount})</button>:null}<button type="button" className="is-primary" onClick={onCreateEntry} disabled={disabled}>Add image</button></div>
         </header>
 
         {imageAuthorityUnavailable ? (
@@ -430,7 +430,7 @@ export default function ImageMapPanel({
         ) : entries.length === 0 ? <section className="hs-episode-images-empty"><h4>No image moments planned yet</h4><p>Add a creator-authored image, then bind it to the exact approved-script sentence or passage. Automatic suggestions remain optional.</p><button type="button" className="is-primary" onClick={onCreateEntry} disabled={disabled}>Add image</button><button type="button" onClick={onSeedFromScript} disabled={disabled}>Refresh automatic image plan</button></section> : <div className="hs-episode-images-layout">
           <nav className="hs-episode-images-queue" aria-label="Planned episode images">
             {workspace.items.map((item) => <button key={item.id} type="button" className={item.id === workspace.activeItem?.id ? "is-current" : ""} aria-current={item.id === workspace.activeItem?.id ? "step" : undefined} onClick={() => onSelectEntry(item.id)} disabled={disabled}>
-              <span className="hs-episode-images-number">{item.number}</span><span><strong>{item.scriptMoment}</strong><small>{item.suggestedImage}</small><em>{episodeImageStatusLabel(item.status)}</em></span>
+              <span className="hs-episode-images-number">{item.number}</span><span><strong>{item.scriptMoment}</strong><small>{item.suggestedImage}</small><em>{skippedImageIds.has(item.id)?"Skipped":episodeImageStatusLabel(item.status)}</em></span>
             </button>)}
           </nav>
 
