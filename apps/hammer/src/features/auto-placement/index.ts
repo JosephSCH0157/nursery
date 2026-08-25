@@ -8,7 +8,9 @@ export type {
 export { PlacementAnalysisLifecycle } from "./placementAnalysisLifecycle";
 export type { FrameBoundPlacementEvidencePair } from "./placementAnalysisLifecycle";
 export { PlacementFrameAnalysisAuthority } from "./placementFrameAnalysisAuthority";
-export type { PlacementSegmentationBundleResult } from "./placementFrameAnalysisAuthority";
+export type { PlacementFrameAnalysisRequest, PlacementFrameEvidence, PlacementSegmentationBundleResult } from "./placementFrameAnalysisAuthority";
+export { TimelinePlacementAnalysisQueue, timelinePlacementWorkKey } from "./timelinePlacementAnalysisQueue";
+export type { TimelinePlacementAnalysisEntry, TimelinePlacementAnalysisResult, TimelinePlacementAnalysisStatus, TimelinePlacementAnalysisWorkItem } from "./timelinePlacementAnalysisQueue";
 export {
   evaluatePlacementFrameAgainstDisplay,
   readPlacementDisplaySnapshot,

@@ -108,6 +108,7 @@ import {
   useHammerAutomaticPlacementLifecycle,
   useHammerAutomaticPlacementState,
 } from "./useHammerWorkspaceShellAutomaticPlacement";
+import { useHammerTimelineAutomaticPlacementFromTimeline } from "./useHammerTimelineAutomaticPlacement";
 import {
   useHammerMediaMapBoundObjects,
   useHammerMediaMapDerived,
@@ -208,6 +209,7 @@ import HammerWorkspaceShellToolbar from "./HammerWorkspaceShellToolbar";
 import HammerWorkspaceShellPreviewBay from "./HammerWorkspaceShellPreviewBay";
 import HammerWorkspaceShellTimelineDock from "./HammerWorkspaceShellTimelineDock";
 import HammerWorkspaceShellSourceBay from "./HammerWorkspaceShellSourceBay";
+import { HammerTimelineAutomaticPlacementStatus } from "./HammerTimelineAutomaticPlacementStatus";
 import HammerWorkspaceShellToolBay from "./HammerWorkspaceShellToolBay";
 import HammerAcceptanceDiagnosticOutput from "./HammerAcceptanceDiagnosticOutput";
 import { projectHammerMountedCompositionClips } from "./hammerMountedCompositionProjection";
@@ -3521,6 +3523,8 @@ function HammerWorkspaceShellWithContext(
     () => deriveHammerAutoPlacementDiagnostics(previewBayVM.autoPlacementDiagnostics),
     [previewBayVM.autoPlacementDiagnostics],
   );
+
+  const timelineAutomaticPlacement = useHammerTimelineAutomaticPlacementFromTimeline({ authority: placementFrameAnalysisAuthority, timeline: compositionVisualTimeline, assetsById: visualAssetsById, sourceUrl: effectivePreviewVideoSrc, workpieceId: launchContext.workpiece_id, isPlaybackActive, isScrubbing, setOverrides: setPreviewAutoPositionOverrides });
   const episodeHealthSnapshot = useMemo(() => {
     const diagnostics = previewBayVM.autoPlacementDiagnostics;
     const selectedOverlayAssetId = selectedImagePlacement?.assetPath ?? null;
@@ -3875,27 +3879,23 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
           onPendingChange={(pending) => { setHistoryEpochPending(pending); props.onHistoryEpochPendingChange?.(pending); }}
           onRequireFreshReadback={() => setHistoryEpochStartCandidate(null)}
           onSuccess={() => { setHistoryEpochStartCandidate(null); setHistoryEpochArchivedNotice(true); setHistoryStatus("Archived history is preserved. New undo history begins with the next user edit."); }} />
-      </div>
-      <div className="hammer-workspace-shell__main">
+      </div><div className="hammer-workspace-shell__main">
         <div className="hammer-workspace-shell__top">
           <section className="hammer-source-bay">
             <HammerWorkspaceShellSourceBay vm={{ ...sourceBayVM, historyEpochArchivedNotice }} />
           </section>
-
           <section className="hammer-preview-bay">
             <HammerWorkspaceShellPreviewBay vm={previewBayVM} analysisAuthority={placementFrameAnalysisAuthority} />
           </section>
-
           <section className="hammer-tool-bay">
+            {editorMode === "images" ? <HammerTimelineAutomaticPlacementStatus progress={timelineAutomaticPlacement.progress} entries={timelineAutomaticPlacement.entries} /> : null}
             <HammerWorkspaceShellToolBay contexts={toolBayRuntimeContexts} />
           </section>
         </div>
-
         <section className="hammer-timeline-dock">
           <HammerWorkspaceShellTimelineDock vm={timelineDockVM} />
         </section>
-      </div>
-      {imageAnimationContextMenu && typeof document !== "undefined"
+      </div>{imageAnimationContextMenu && typeof document !== "undefined"
         ? createPortal(
           <div
             ref={imageAnimationContextMenuRef}

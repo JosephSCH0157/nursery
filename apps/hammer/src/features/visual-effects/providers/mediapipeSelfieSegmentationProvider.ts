@@ -118,9 +118,9 @@ export class MediapipeSelfieSegmentationProvider implements SegmentationProvider
 
     const started = nowMs();
     const engine = this.engine;
-    const results = await new Promise<{ segmentationMask: HTMLCanvasElement | HTMLImageElement | ImageBitmap }>((resolve) => {
+    const results = await new Promise<{ segmentationMask: HTMLCanvasElement | HTMLImageElement | ImageBitmap }>((resolve, reject) => {
       engine.onResults((value) => resolve(value));
-      void engine.send({ image: args.source });
+      void engine.send({ image: args.source }).catch(reject);
     });
     const finished = nowMs();
 

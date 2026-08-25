@@ -1,11 +1,14 @@
 import type { FaceAnalysisFrame, FaceAnalysisFrameRef, FaceAnalysisResult, FaceLandmarkProvider } from "../eye-contact-assist/types";
 import { createFaceLandmarkProvider, type FaceLandmarkProviderId } from "../eye-contact-assist/providers/faceLandmarkProviderRegistry";
-import type { SegmentationProvider, SegmentationProviderReadiness, SegmentationResult } from "../visual-effects/types";
+import type { MatteBuildOptions, SegmentationProvider, SegmentationProviderReadiness, SegmentationResult } from "../visual-effects/types";
 import { createSegmentationProvider, type SegmentationProviderId } from "../visual-effects/providers/segmentationProviderRegistry";
 import { MediapipeSelfieSegmentationProvider } from "../visual-effects/providers/mediapipeSelfieSegmentationProvider";
+import { SimpleMatteRefiner } from "../visual-effects/matte/simpleMatteRefiner";
 import type { FrameBoundPlacementMatteResult } from "./canonicalPlacementAuthority";
 import { PlacementAnalysisLifecycle, type FrameBoundPlacementEvidencePair } from "./placementAnalysisLifecycle";
 import { sameFaceAnalysisFrame } from "../eye-contact-assist/analysis/faceAnalysisAuthority";
+import { extractSpeakerMaskBoundsFromMatte } from "./speakerMaskAnalysis";
+import { BrowserPlacementRandomAccessDecoder, type PlacementRandomAccessDecoder } from "./placementRandomAccessDecoder";
 
 export type PlacementSegmentationBundleResult = Readonly<{
   result: SegmentationResult;
@@ -18,11 +21,37 @@ type ProviderFactories = Readonly<{
   face?: (id: FaceLandmarkProviderId) => FaceLandmarkProvider;
   primarySegmentation?: (id: SegmentationProviderId) => SegmentationProvider;
   fallbackSegmentation?: () => SegmentationProvider;
+  randomAccessDecoder?: () => PlacementRandomAccessDecoder;
+}>;
+
+export type PlacementFrameAnalysisRequest = Readonly<{
+  requestId: string;
+  placementId: string;
+  sourceIdentity: string;
+  sourceUrl: string;
+  compositionPresentationTimeSec: number;
+  expectedMediaRevision: string;
+  geometricRevision: string;
+  matteOptions: MatteBuildOptions;
+  abortSignal: AbortSignal;
+}>;
+
+export type PlacementFrameEvidence = Readonly<{
+  requestId: string;
+  placementId: string;
+  expectedMediaRevision: string;
+  frameRef: FaceAnalysisFrameRef;
+  faceResult: FaceAnalysisResult;
+  matteResult: FrameBoundPlacementMatteResult;
 }>;
 
 function validMask(result: SegmentationResult): boolean {
   return result.width > 0 && result.height > 0
     && result.personMask.length === result.width * result.height;
+}
+
+function abortError(): DOMException {
+  return new DOMException("Placement frame analysis aborted.", "AbortError");
 }
 
 /** Owns exact-frame analysis only; never placement geometry, history, or persistence. */
@@ -32,6 +61,9 @@ export class PlacementFrameAnalysisAuthority {
   private readonly faceProvider: FaceLandmarkProvider;
   private readonly primarySegmentationProvider: SegmentationProvider;
   private readonly fallbackSegmentationProvider: SegmentationProvider;
+  private readonly randomAccessDecoderFactory: () => PlacementRandomAccessDecoder;
+  private randomAccessDecoder: PlacementRandomAccessDecoder | null = null;
+  private randomAccessDecoderConstructionCount = 0;
   private readonly pairing = new PlacementAnalysisLifecycle();
   private disposed = false;
   private faceAnalysisCount = 0;
@@ -48,6 +80,7 @@ export class PlacementFrameAnalysisAuthority {
     this.faceProvider = (args.factories?.face ?? createFaceLandmarkProvider)(faceProviderId);
     this.primarySegmentationProvider = (args.factories?.primarySegmentation ?? createSegmentationProvider)(segmentationProviderId);
     this.fallbackSegmentationProvider = (args.factories?.fallbackSegmentation ?? (() => new MediapipeSelfieSegmentationProvider({ modelSelection: 0 })))();
+    this.randomAccessDecoderFactory = args.factories?.randomAccessDecoder ?? (() => new BrowserPlacementRandomAccessDecoder());
   }
 
   public async initialize(): Promise<void> {
@@ -85,6 +118,44 @@ export class PlacementFrameAnalysisAuthority {
     return Object.freeze({ result, providerSource, providerName: provider.name, providerReadiness: provider.getReadiness() });
   }
 
+  public async analyze(request: PlacementFrameAnalysisRequest): Promise<PlacementFrameEvidence> {
+    this.assertActive();
+    const frame = await this.getRandomAccessDecoder().capture({
+      sourceIdentity: request.sourceIdentity,
+      sourceUrl: request.sourceUrl,
+      compositionPresentationTimeSec: request.compositionPresentationTimeSec,
+      geometricRevision: request.geometricRevision,
+      abortSignal: request.abortSignal,
+    });
+    try {
+      if (Math.abs(frame.frameRef.sourcePresentationTimeSec - request.compositionPresentationTimeSec) > 0.001) {
+        throw new Error("Random-access placement frame failed exact composition-time validation.");
+      }
+      const face = this.analyzeFace(frame);
+      const segment = this.segmentDisplayedFrame({ source: frame.pixels, sourcePresentationTimeSec: frame.frameRef.sourcePresentationTimeSec });
+      const [faceResult, segmentation] = await Promise.all([face, segment]);
+      if (request.abortSignal.aborted) throw abortError();
+      const matteResult: FrameBoundPlacementMatteResult = (() => {
+        if (!validMask(segmentation.result)) {
+          return Object.freeze({ kind: "failed", frameRef: frame.frameRef, reason: "segmentation_unavailable" });
+        }
+        const refiner = new SimpleMatteRefiner();
+        const matte = refiner.buildMatte(segmentation.result, request.matteOptions);
+        refiner.reset();
+        return Object.freeze({
+          kind: "success",
+          frameRef: frame.frameRef,
+          matte,
+          speakerMaskBounds: Object.freeze(extractSpeakerMaskBoundsFromMatte({ matte })),
+        });
+      })();
+      return Object.freeze({ requestId: request.requestId, placementId: request.placementId,
+        expectedMediaRevision: request.expectedMediaRevision, frameRef: frame.frameRef, faceResult, matteResult });
+    } finally {
+      frame.release();
+    }
+  }
+
   public requestDisplayedFrame(frameRef: FaceAnalysisFrameRef): FrameBoundPlacementEvidencePair | null {
     this.assertActive();
     this.requestedFrameRef = frameRef;
@@ -111,6 +182,7 @@ export class PlacementFrameAnalysisAuthority {
     if (!this.disposed) {
       this.requestedFrameRef = null;
       this.pairing.reset();
+      this.randomAccessDecoder?.reset();
     }
   }
 
@@ -119,7 +191,7 @@ export class PlacementFrameAnalysisAuthority {
     this.disposed = true;
     this.requestedFrameRef = null;
     this.pairing.reset();
-    await Promise.all([this.faceProvider.dispose(), this.primarySegmentationProvider.dispose(), this.fallbackSegmentationProvider.dispose()]);
+    await Promise.all([this.faceProvider.dispose(), this.primarySegmentationProvider.dispose(), this.fallbackSegmentationProvider.dispose(), this.randomAccessDecoder?.dispose()]);
   }
 
   public diagnostics() {
@@ -127,6 +199,7 @@ export class PlacementFrameAnalysisAuthority {
       faceProviderName: this.faceProvider.name, primarySegmentationProviderName: this.primarySegmentationProvider.name,
       fallbackSegmentationProviderName: this.fallbackSegmentationProvider.name, faceAnalysisCount: this.faceAnalysisCount,
       segmentationAnalysisCount: this.segmentationAnalysisCount, fallbackSelectionCount: this.fallbackSelectionCount,
+      randomAccessDecoderConstructionCount: this.randomAccessDecoderConstructionCount,
       ...this.pairing.diagnostics() });
   }
 
@@ -147,5 +220,13 @@ export class PlacementFrameAnalysisAuthority {
   private initializeFallbackSegmentationProvider(): Promise<void> {
     this.fallbackSegmentationInitialization ??= this.fallbackSegmentationProvider.initialize();
     return this.fallbackSegmentationInitialization;
+  }
+
+  private getRandomAccessDecoder(): PlacementRandomAccessDecoder {
+    if (!this.randomAccessDecoder) {
+      this.randomAccessDecoder = this.randomAccessDecoderFactory();
+      this.randomAccessDecoderConstructionCount += 1;
+    }
+    return this.randomAccessDecoder;
   }
 }

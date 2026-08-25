@@ -123,6 +123,9 @@ const placementFrameAnalysisAuthority = inspect("src/features/auto-placement/pla
 const placementFaceAdapter = inspect("src/features/eye-contact-assist/render/faceAnalysisPreviewLayer.tsx").text;
 const placementBlurAdapter = inspect("src/features/visual-effects/render/backgroundBlurPreviewLayer.tsx").text;
 const placementPreviewConsumer = inspect("src/editor/HammerWorkspaceShellPreviewBay.tsx").text;
+const placementTimelineQueue = inspect("src/features/auto-placement/timelinePlacementAnalysisQueue.ts").text;
+const placementTimelineCoordinator = inspect("src/editor/useHammerTimelineAutomaticPlacement.ts").text;
+const placementRandomAccessDecoder = inspect("src/features/auto-placement/placementRandomAccessDecoder.ts").text;
 const placementAnalysisImports = placementFrameAnalysisAuthority.split("\n").filter((line) => line.startsWith("import ")).join("\n");
 if (/history|persist|supabase|commitTransform|previewAutoPositionOverrides/i.test(placementAnalysisImports)) failures.push("Shared placement-frame analysis authority imported geometry, history, persistence, or database ownership.");
 if (!/new PlacementFrameAnalysisAuthority\(\)/.test(shell)) failures.push("Hammer editor must mount one session-scoped placement-frame analysis authority.");
@@ -131,6 +134,12 @@ if (/createSegmentationProvider|MediapipeSelfieSegmentationProvider|new Placemen
 if (!/analysisAuthority\.analyzeFace/.test(placementFaceAdapter) || !/analysisAuthority\.segmentDisplayedFrame/.test(placementBlurAdapter)) failures.push("Preview presentation adapters must consume the shared placement-frame analysis authority.");
 if (!/analysisAuthority\.requestDisplayedFrame/.test(placementPreviewConsumer) || !/analysisAuthority\.acceptFace/.test(placementPreviewConsumer) || !/analysisAuthority\.acceptMatte/.test(placementPreviewConsumer)) failures.push("Preview Bay must pair displayed-frame face and matte evidence through the shared authority.");
 if (/applyHistoryMutation|commitTransform|previewAutoPositionOverrides|resolveMaskAwarePlacement/.test(placementFrameAnalysisAuthority)) failures.push("Shared placement-frame analysis authority acquired resolution, geometry, or canonical mutation behavior.");
+const placementTimelineImports = (placementTimelineQueue + placementTimelineCoordinator).split("\n").filter((line) => line.startsWith("import ")).join("\n");
+if (/history|persist|supabase|commitTransform|applyHistoryMutation/i.test(placementTimelineImports) || /\b(?:commitTransform|applyHistoryMutation|saveHammer|onWorkspaceSnapshotChange)\s*\(/.test(placementTimelineQueue + placementTimelineCoordinator)) failures.push("Timeline automatic-placement coordination acquired history, persistence, database, or canonical mutation ownership.");
+if (!/private activeKey: string \| null/.test(placementTimelineQueue) || !/if \(this\.activeKey\) return null/.test(placementTimelineQueue)) failures.push("Timeline automatic-placement queue lost its concurrency-one gate.");
+if (/previewVideoRef|\.currentTime\s*=|setSelectedClipId|setLinkedSelection/.test(placementTimelineCoordinator)) failures.push("Timeline automatic-placement coordinator may not seek visible Preview or programmatically change selection.");
+if (!/new BrowserPlacementRandomAccessDecoder\(\)/.test(placementFrameAnalysisAuthority) || /new BrowserPlacementRandomAccessDecoder\(\)/.test(placementTimelineCoordinator + placementPreviewConsumer + placementBlurAdapter + placementFaceAdapter)) failures.push("Random-access placement decoder must be constructed only by the shared analysis authority.");
+if (/createFaceLandmarkProvider|createSegmentationProvider|MediapipeSelfieSegmentationProvider/.test(placementTimelineQueue + placementTimelineCoordinator + placementRandomAccessDecoder)) failures.push("Timeline queue, coordinator, or decoder acquired an independent analysis provider.");
 
 const releasePackageAuthority = inspect("src/editor/hammerWorkspaceShellReleasePackage.ts").text;
 if (/buildHammerWorkspaceShellReleasePackage\s*\(/.test(shell) || /const\s+exportBasis\s*=\s*useMemo/.test(shell) || !/useHammerWorkspaceShellReleaseBasis\s*\(/.test(shell)) failures.push("HammerWorkspaceShell reacquired release-basis projection or low-level package construction.");

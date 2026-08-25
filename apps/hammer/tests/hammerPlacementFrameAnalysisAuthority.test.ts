@@ -5,6 +5,7 @@ import test from "node:test";
 import { PlacementFrameAnalysisAuthority } from "../src/features/auto-placement/placementFrameAnalysisAuthority";
 import type { FaceAnalysisFrame, FaceAnalysisResult, FaceLandmarkProvider } from "../src/features/eye-contact-assist/types";
 import type { SegmentationProvider, SegmentationResult } from "../src/features/visual-effects/types";
+import type { PlacementRandomAccessDecoder } from "../src/features/auto-placement/placementRandomAccessDecoder";
 
 const frameRef = Object.freeze({ captureEpoch: "epoch", captureRevision: 7, sourceIdentity: "media:rev-1",
   sourcePresentationTimeSec: 67.7, inferenceTimestampMs: 67_700, width: 2, height: 2,
@@ -69,6 +70,55 @@ test("invalid or low-confidence primary evidence preserves the existing fallback
     assert.equal(fallbackCounters.segment, 1);
     await authority.dispose();
   }
+});
+
+test("random-access requests reuse one decoder and retain strict composition time", async () => {
+  let decoderConstructions = 0; let captures = 0; let releases = 0; let decoderDisposals = 0;
+  const decoder: PlacementRandomAccessDecoder = {
+    capture: async (request) => {
+      captures += 1;
+      return { frameRef: { ...frameRef, captureRevision: captures,
+        sourceIdentity: request.sourceIdentity, sourcePresentationTimeSec: request.compositionPresentationTimeSec,
+        geometricRevision: request.geometricRevision }, pixels: {} as CanvasImageSource, release: () => { releases += 1; } };
+    }, reset() {}, dispose: async () => { decoderDisposals += 1; },
+  };
+  const counters = { initialize: 0, segment: 0, dispose: 0 };
+  const authority = new PlacementFrameAnalysisAuthority({ factories: {
+    face: () => ({ name: "face", initialize: async () => {}, isReady: () => true, getReadiness: () => ({ status: "ready" }),
+      analyzeFrame: async (frame) => ({ kind: "success", frameRef: frame.frameRef, faces: [], warnings: [] }), dispose: async () => {} }),
+    primarySegmentation: () => fakeSegmentationProvider("primary", segmentation([0, 0, 0, 0]), counters),
+    fallbackSegmentation: () => fakeSegmentationProvider("fallback", segmentation([0, 0, 0, 0]), counters),
+    randomAccessDecoder: () => { decoderConstructions += 1; return decoder; },
+  } });
+  const request = { requestId: "placement-1:r1", placementId: "placement-1", sourceIdentity: "media:rev-1",
+    sourceUrl: "blob:test", compositionPresentationTimeSec: 67.7, expectedMediaRevision: "rev-1",
+    geometricRevision: "2x2", matteOptions: { featherPx: 0, subjectExpansionPx: 0, temporalSmoothing: 0, quality: "medium" as const },
+    abortSignal: new AbortController().signal };
+  const first = await authority.analyze(request);
+  const second = await authority.analyze({ ...request, requestId: "placement-2:r1", placementId: "placement-2", compositionPresentationTimeSec: 75.9 });
+  assert.deepEqual([first.frameRef.sourcePresentationTimeSec, second.frameRef.sourcePresentationTimeSec], [67.7, 75.9]);
+  assert.deepEqual([decoderConstructions, captures, releases], [1, 2, 2]);
+  assert.equal(authority.diagnostics().randomAccessDecoderConstructionCount, 1);
+  await authority.dispose();
+  assert.equal(decoderDisposals, 1);
+});
+
+test("random-access analysis rejects a captured frame outside the unchanged 0.001 second guard", async () => {
+  let released = 0;
+  const authority = new PlacementFrameAnalysisAuthority({ factories: {
+    face: () => ({ name: "face", initialize: async () => {}, isReady: () => true, getReadiness: () => ({ status: "ready" }),
+      analyzeFrame: async () => ({ kind: "unavailable", reason: "must not run" }), dispose: async () => {} }),
+    primarySegmentation: () => fakeSegmentationProvider("primary", segmentation([0, 0, 0, 0]), { initialize: 0, segment: 0, dispose: 0 }),
+    fallbackSegmentation: () => fakeSegmentationProvider("fallback", segmentation([0, 0, 0, 0]), { initialize: 0, segment: 0, dispose: 0 }),
+    randomAccessDecoder: () => ({ capture: async (request) => ({ pixels: {} as CanvasImageSource,
+      frameRef: { ...frameRef, sourceIdentity: request.sourceIdentity, sourcePresentationTimeSec: request.compositionPresentationTimeSec + 0.002 },
+      release: () => { released += 1; } }), reset() {}, dispose: async () => {} }),
+  } });
+  await assert.rejects(authority.analyze({ requestId: "wrong", placementId: "p", sourceIdentity: "media", sourceUrl: "blob:test",
+    compositionPresentationTimeSec: 10, expectedMediaRevision: "m1", geometricRevision: "g1", abortSignal: new AbortController().signal,
+    matteOptions: { featherPx: 0, subjectExpansionPx: 0, temporalSmoothing: 0, quality: "medium" } }), /exact composition-time/);
+  assert.equal(released, 1);
+  await authority.dispose();
 });
 
 test("shared authority stays analysis-only and presentation consumers construct no providers", () => {
