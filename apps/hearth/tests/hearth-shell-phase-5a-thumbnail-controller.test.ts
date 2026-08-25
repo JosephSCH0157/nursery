@@ -82,6 +82,18 @@ test("an older asynchronous candidate-set read cannot replace newly approved thu
   assert.equal(isThumbnailProgressAtLeastAsCurrent({...progress,candidateSetRevision:4},{workpieceId:"workpiece-2",candidateSetRevision:1}),true);
 });
 
+test("candidate-set mutations request one targeted shell-owned canonical reconciliation",async()=>{
+  const controller=await readFile(new URL("../src/routes/hearth-shell/useHearthThumbnailController.ts",import.meta.url),"utf8");
+  const shell=await readFile(new URL("../src/routes/HearthShell.tsx",import.meta.url),"utf8");
+  const surface=await readFile(new URL("../src/views/surfaces/VisualsSurface.tsx",import.meta.url),"utf8");
+  const panel=await readFile(new URL("../src/components/visuals/ThumbnailV3Panel.tsx",import.meta.url),"utf8");
+  assert.match(controller,/refreshCanonical/);
+  assert.match(shell,/onCanonicalThumbnailRefresh: canonicalThumbnailProjection\.refreshCanonical/);
+  assert.match(surface,/onCanonicalRefresh=\{props\.onCanonicalThumbnailRefresh\}/);
+  assert.equal(panel.match(/await reconcileCanonicalThumbnailProgress\(\)/g)?.length,4);
+  assert.match(panel,/changes were saved, but Hearth could not refresh their canonical status/);
+});
+
 test("three generated thumbnails expose an explicit acceptance action beside the previews",async()=>{
   const panel=await readFile(new URL("../src/components/visuals/ThumbnailV3Panel.tsx",import.meta.url),"utf8");
   assert.match(panel,/aria-label="Accept generated thumbnails"/);

@@ -30,6 +30,13 @@ test("thumbnail completion requires three recoverable canonical preview paths",(
   assert.equal(workflow.stages[1]?.status,"in_progress");assert.equal(workflow.activeStage,"thumbnails");
 });
 
+test("thumbnail refresh failure cannot preserve a stale complete workflow projection",()=>{
+  const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:2,images:2,broll:0,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"],authorityState:"error"}}));
+  assert.equal(workflow.stages[1]?.status,"needs_attention");
+  assert.equal(workflow.stages[1]?.summary,"Canonical thumbnail status could not be refreshed");
+  assert.equal(workflow.activeStage,"thumbnails");
+});
+
 test("cold recovery opens Images with canonical thumbnail preview identities",()=>{
   const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:2,images:2,broll:0,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:2,completed:0,canonicalCount:2,projectionLoaded:true}}));
   assert.equal(workflow.stages[1]?.status,"complete");

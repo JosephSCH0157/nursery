@@ -2188,6 +2188,7 @@ export default function HearthShell({
       eligible: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "") ? canonicalThumbnailProgress.eligibleCandidateCount : 0,
       pending: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "") ? canonicalThumbnailProgress.pendingCandidateCount : 0,
       previewAssetPaths: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "") ? canonicalThumbnailProgress.previewAssetPaths : [],
+      authorityState: canonicalThumbnailProjection.loadError?"error" as const:canonicalThumbnailProjection.loading?"loading" as const:"available" as const,
     },
     images: {
       planned: plannedImageCount,
@@ -2452,7 +2453,7 @@ export default function HearthShell({
     mediaMapStatus: canonicalMediaPlanStatus,
     metadataAuthorityAvailable: episodePackageState !== "error",
     metadataComplete: metadataComplete || framingPackReady,
-    thumbnailAuthorityAvailable: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? ""),
+    thumbnailAuthorityAvailable: canonicalThumbnailProgress.workpieceId === (workpieceId?.trim() ?? "")&&!canonicalThumbnailProjection.loadError,
     thumbnailsSelected,
     workspace: releasePreparationWorkspace,
   });
@@ -6520,6 +6521,7 @@ export default function HearthShell({
         onRecoverThumbnailConcepts,
         onOpenThumbnailFraming: () => requestWorkpieceTabChange("metadata"),
         onCanonicalThumbnailProgress: canonicalThumbnailProjection.onCanonicalProgress,
+        onCanonicalThumbnailRefresh: canonicalThumbnailProjection.refreshCanonical,
       },
     });
     const tabSummaryById: Record<WorkpieceWorkspaceTab, string> = {

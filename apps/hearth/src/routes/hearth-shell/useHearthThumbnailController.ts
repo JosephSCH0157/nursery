@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useThumbnailWorkspace } from "../../hooks/visuals/useThumbnailWorkspace";
 import { useThumbnailPreviewLoader } from "../../hooks/visuals/useThumbnailPreviewLoader";
 import { useThumbnailConceptActions } from "../../hooks/visuals/useThumbnailConceptActions";
@@ -30,6 +30,11 @@ export const useHearthThumbnailWorkspaceState = useThumbnailWorkspace;
 export const useHearthThumbnailPreviewLifecycle = useThumbnailPreviewLoader;
 export const useHearthThumbnailConceptCommands = useThumbnailConceptActions;
 export const useHearthThumbnailGenerationCommands = useThumbnailGenerationActions;
+
+const CANONICAL_THUMBNAIL_PROJECTION_DEPENDENCIES={
+  readWorkspace:readCanonicalThumbnailWorkspaceV3,
+  readAuthority:readThumbnailCandidateAuthorityProjection,
+};
 
 export function useHearthThumbnailLifecycle(args: {
   workspaceId: string | null;
@@ -212,7 +217,13 @@ export function useHearthThumbnailLifecycle(args: {
 export function useHearthCanonicalThumbnailProjection(args: {
   workspaceId: string | null;
   workpieceId: string | null;
+  dependencies?: {
+    readWorkspace: typeof readCanonicalThumbnailWorkspaceV3;
+    readAuthority: typeof readThumbnailCandidateAuthorityProjection;
+  };
 }) {
+  const dependencies=args.dependencies??CANONICAL_THUMBNAIL_PROJECTION_DEPENDENCIES;
+  const requestRevisionRef = useRef(0);
   const [projection, setProjection] = useState({
     canonical: EMPTY_CANONICAL_THUMBNAIL_PROGRESS,
     loading: false,
@@ -242,7 +253,7 @@ export function useHearthCanonicalThumbnailProjection(args: {
     }));
   }, [args.workpieceId]);
 
-  useEffect(() => {
+  const refreshCanonical = useCallback(async ():Promise<{ok:true}|{ok:false;error:string}> => {
     const workpieceId = args.workpieceId?.trim() ?? "";
     const workspaceId = args.workspaceId?.trim() ?? "";
     if (!workpieceId || !workspaceId) {
@@ -251,19 +262,16 @@ export function useHearthCanonicalThumbnailProjection(args: {
         loading: false,
         loadError: null,
       });
-      return;
+      return {ok:false,error:"Select an episode before refreshing thumbnail authority."};
     }
-    let cancelled = false;
-    setProjection({
-      canonical: { ...EMPTY_CANONICAL_THUMBNAIL_PROGRESS, workpieceId },
-      loading: true,
-      loadError: null,
-    });
-    void Promise.all([
-      readCanonicalThumbnailWorkspaceV3({ workpieceId, workspaceId }),
-      readThumbnailCandidateAuthorityProjection({ workpieceId, workspaceId }),
-    ]).then(([workspace, authority]) => {
-      if (cancelled || args.workpieceId?.trim() !== workpieceId || args.workspaceId?.trim() !== workspaceId) return;
+    const requestRevision=++requestRevisionRef.current;
+    setProjection((current)=>({...current,loading:true,loadError:null}));
+    try {
+      const [workspace,authority]=await Promise.all([
+        dependencies.readWorkspace({ workpieceId, workspaceId }),
+        dependencies.readAuthority({ workpieceId, workspaceId }),
+      ]);
+      if(requestRevision!==requestRevisionRef.current||args.workpieceId?.trim()!==workpieceId||args.workspaceId?.trim()!==workspaceId)return{ok:false,error:"Thumbnail authority refresh was superseded by another episode."};
       const versions = workspace.episodePackage.thumbnail.launch_variant_revisions.map((entry) => ({
         asset_id: entry.snapshot.asset_id,
         asset_path: entry.snapshot.asset_path,
@@ -298,20 +306,27 @@ export function useHearthCanonicalThumbnailProjection(args: {
         loading: false,
         loadError: null,
       }));
-    }).catch((error: unknown) => {
-      if (cancelled) return;
-      setProjection((current) => current.canonical.workpieceId===workpieceId&&current.canonical.candidateSetRevision>0
-        ? {...current,loading:false,loadError:null}
-        : ({canonical:{...EMPTY_CANONICAL_THUMBNAIL_PROGRESS,workpieceId},loading:false,loadError:error instanceof Error?error.message:"Thumbnail authority is unavailable."}));
-    });
+      return{ok:true};
+    }catch(error){
+      const message=error instanceof Error?error.message:"Thumbnail authority is unavailable.";
+      if(requestRevision===requestRevisionRef.current)setProjection((current)=>({...current,loading:false,loadError:message}));
+      return{ok:false,error:message};
+    }
+  },[args.workpieceId,args.workspaceId,dependencies]);
+
+  useEffect(() => {
+    const workpieceId=args.workpieceId?.trim()??"";
+    setProjection({canonical:workpieceId?{...EMPTY_CANONICAL_THUMBNAIL_PROGRESS,workpieceId}:EMPTY_CANONICAL_THUMBNAIL_PROGRESS,loading:Boolean(workpieceId&&args.workspaceId?.trim()),loadError:null});
+    void refreshCanonical();
     return () => {
-      cancelled = true;
+      requestRevisionRef.current+=1;
     };
-  }, [args.workpieceId, args.workspaceId]);
+  }, [args.workpieceId, args.workspaceId,refreshCanonical]);
 
   return {
     ...projection,
     onCanonicalProgress,
+    refreshCanonical,
   };
 }
 

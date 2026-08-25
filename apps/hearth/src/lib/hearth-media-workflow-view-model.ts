@@ -5,7 +5,7 @@ export type HearthMediaStageStatus = "unavailable" | "blocked" | "ready" | "in_p
 export type HearthMediaWorkflowInput = {
   hasApprovedScript: boolean;
   visualPlan: { status: string | null; total: number; images: number; broll: number; referenceClips?: number; referenceVisuals?: number; version: number };
-  thumbnails: { eligible: number; total: number; pending?: number; previewAssetPaths?: string[] };
+  thumbnails: { eligible: number; total: number; pending?: number; previewAssetPaths?: string[]; authorityState?: "available"|"loading"|"error" };
   images: { planned: number; completed: number; canonicalCount: number; projectionLoaded: boolean };
   referenceClips?: { planned: number; completed: number; exists?: boolean };
   referenceVisuals?: { planned: number; completed: number; exists?: boolean };
@@ -31,7 +31,8 @@ export function deriveHearthMediaWorkflow(input: HearthMediaWorkflowInput) {
     && (input.visualPlan.status === "activated"
       || input.visualPlan.status === "fulfilling"
       || input.visualPlan.status === "fulfilled");
-  const thumbnailsComplete = input.thumbnails.eligible >= 3
+  const thumbnailAuthorityReady=(input.thumbnails.authorityState??"available")==="available";
+  const thumbnailsComplete = thumbnailAuthorityReady&&input.thumbnails.eligible >= 3
     && (input.thumbnails.previewAssetPaths?.length ?? 0) >= 3;
   const imagePlanExpected = Math.max(0, input.images.planned);
   const imageCanonicalCount = Math.max(0, input.images.canonicalCount);
@@ -58,7 +59,7 @@ export function deriveHearthMediaWorkflow(input: HearthMediaWorkflowInput) {
     : `${input.images.completed} of ${imagePlanExpected} images ready`;
   const stages: HearthMediaWorkflowStage[] = [
     { id: "visual_plan", label: "Visual Plan", status: !input.hasApprovedScript ? "blocked" : visualNeedsAttention ? "needs_attention" : visualComplete ? "complete" : "ready", summary: visualExists ? `${input.visualPlan.total} planned visuals · ${input.visualPlan.images} images · ${input.visualPlan.referenceClips ?? 0} Source Clips · ${input.visualPlan.referenceVisuals ?? 0} Reference Visuals · ${input.visualPlan.broll} B-roll moments` : "Create the episode’s visual direction", reviewAvailable: visualExists },
-    { id: "thumbnails", label: "Thumbnails", status: !input.hasApprovedScript ? "blocked" : thumbnailsComplete ? "complete" : input.thumbnails.total > 0 || (input.thumbnails.pending ?? 0) > 0 ? "in_progress" : "ready", summary: thumbnailsComplete ? "Three thumbnail candidates are ready" : (input.thumbnails.pending ?? 0) > 0 ? `${input.thumbnails.pending} generated · awaiting thumbnail-set finalization` : `${input.thumbnails.eligible} of 3 thumbnails ready`, reviewAvailable: input.hasApprovedScript },
+    { id: "thumbnails", label: "Thumbnails", status: !input.hasApprovedScript ? "blocked" : !thumbnailAuthorityReady ? "needs_attention" : thumbnailsComplete ? "complete" : input.thumbnails.total > 0 || (input.thumbnails.pending ?? 0) > 0 ? "in_progress" : "ready", summary: !thumbnailAuthorityReady ? input.thumbnails.authorityState==="loading"?"Refreshing canonical thumbnail status…":"Canonical thumbnail status could not be refreshed" : thumbnailsComplete ? "Three thumbnail candidates are ready" : (input.thumbnails.pending ?? 0) > 0 ? `${input.thumbnails.pending} generated · awaiting thumbnail-set finalization` : `${input.thumbnails.eligible} of 3 thumbnails ready`, reviewAvailable: input.hasApprovedScript },
     { id: "images", label: "Images", status: !visualComplete || !thumbnailsComplete ? "blocked" : imagesComplete ? "complete" : imagesUnavailable ? "needs_attention" : input.images.completed > 0 ? "in_progress" : "ready", summary: imageSummary, reviewAvailable: imagePlanExpected > 0 },
     { id: "reference_clips", label: "Reference Material", status: !referenceMaterialAccessible ? "blocked" : referenceClipsComplete ? "complete" : referenceClipsCompleted + referenceVisualsCompleted > 0 ? "in_progress" : "ready", summary: `${referenceClipsCompleted} of ${referenceClipsPlanned} Source Clips · ${referenceVisualsCompleted} of ${referenceVisualsPlanned} Reference Visuals`, reviewAvailable: referenceMaterialExists },
     { id: "broll", label: "B-roll", status: !imagesComplete ? "blocked" : brollComplete ? "complete" : input.broll.completed > 0 ? "in_progress" : "ready", summary: `${input.broll.completed} of ${input.broll.planned} B-roll moments ready`, reviewAvailable: input.broll.planned > 0 },
