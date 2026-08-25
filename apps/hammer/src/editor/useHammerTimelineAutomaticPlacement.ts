@@ -6,6 +6,7 @@ import { TimelinePlacementAnalysisQueue, type TimelinePlacementAnalysisEntry, ty
 import { applyPreviewOverride, clearPreviewOverride, type PreviewPlacementTransform } from "./hammerAutoPreviewPosition";
 import type { HammerVisualAsset, HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
 import { geometryToTransform } from "./hammerWorkspaceShellVisualUtils";
+import { automaticPlacementCanonicalRevision } from "./hammerAutomaticPlacementBatch";
 
 export type HammerTimelinePlacementWorkItem = TimelinePlacementAnalysisWorkItem & Readonly<{
   sourceUrl: string;
@@ -175,7 +176,7 @@ export function useHammerTimelineAutomaticPlacementFromTimeline(args: {
       const geometryRevision = [transform.leftPct, transform.topPct, transform.widthPct, transform.heightPct].map((value) => value.toFixed(3)).join(":");
       return [{ placementId: clip.clip_id, sessionIdentity: args.workpieceId!, sourceIdentity: `${args.workpieceId}:${args.sourceUrl}`,
         sourceUrl: args.sourceUrl!, compositionPresentationTimeSec: Math.max(0, clip.start_sec),
-        canonicalRevision: `${args.timeline!.revision}:${clip.updated_at}:${clip.start_sec}:${clip.end_sec}:${clip.asset_id ?? ""}`,
+        canonicalRevision: automaticPlacementCanonicalRevision(args.timeline!, clip),
         mediaRevision: args.sourceUrl!, geometryRevision, canonicalTransform: transform }];
     });
   }, [args.assetsById, args.sourceUrl, args.timeline, args.workpieceId]);

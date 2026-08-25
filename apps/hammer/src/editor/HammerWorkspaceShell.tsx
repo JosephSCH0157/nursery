@@ -109,6 +109,7 @@ import {
   useHammerAutomaticPlacementState,
 } from "./useHammerWorkspaceShellAutomaticPlacement";
 import { useHammerTimelineAutomaticPlacementFromTimeline } from "./useHammerTimelineAutomaticPlacement";
+import { useHammerAutomaticPlacementBatchAcceptance } from "./useHammerAutomaticPlacementBatchAcceptance";
 import {
   useHammerMediaMapBoundObjects,
   useHammerMediaMapDerived,
@@ -3519,12 +3520,10 @@ function HammerWorkspaceShellWithContext(
     commitTransform: commitImagePlacementTransform,
   });
   passSelectorContextRef.current = passSelectorContext;
-  const previewDiagnosticsSummary = useMemo(
-    () => deriveHammerAutoPlacementDiagnostics(previewBayVM.autoPlacementDiagnostics),
-    [previewBayVM.autoPlacementDiagnostics],
-  );
-
+  const previewDiagnosticsSummary = useMemo(() => deriveHammerAutoPlacementDiagnostics(previewBayVM.autoPlacementDiagnostics),
+    [previewBayVM.autoPlacementDiagnostics]);
   const timelineAutomaticPlacement = useHammerTimelineAutomaticPlacementFromTimeline({ authority: placementFrameAnalysisAuthority, timeline: compositionVisualTimeline, assetsById: visualAssetsById, sourceUrl: effectivePreviewVideoSrc, workpieceId: launchContext.workpiece_id, isPlaybackActive, isScrubbing, setOverrides: setPreviewAutoPositionOverrides });
+  const automaticPlacementBatch = useHammerAutomaticPlacementBatchAcceptance({ timeline: compositionVisualTimeline, mediaRevision: effectivePreviewVideoSrc, entries: timelineAutomaticPlacement.entries, applyHistoryMutation, resolveCanonicalTimeline: resolveCanonicalVisualTimeline, applyTimelineActions: applyVisualTimelineActions, requestDurablePersistBoundary: requestImmediatePersist, setOverrides: setPreviewAutoPositionOverrides });
   const episodeHealthSnapshot = useMemo(() => {
     const diagnostics = previewBayVM.autoPlacementDiagnostics;
     const selectedOverlayAssetId = selectedImagePlacement?.assetPath ?? null;
@@ -3888,7 +3887,8 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
             <HammerWorkspaceShellPreviewBay vm={previewBayVM} analysisAuthority={placementFrameAnalysisAuthority} />
           </section>
           <section className="hammer-tool-bay">
-            {editorMode === "images" ? <HammerTimelineAutomaticPlacementStatus progress={timelineAutomaticPlacement.progress} entries={timelineAutomaticPlacement.entries} /> : null}
+            {editorMode === "images" ? <HammerTimelineAutomaticPlacementStatus progress={timelineAutomaticPlacement.progress} entries={timelineAutomaticPlacement.entries}
+              eligibleBatchCount={automaticPlacementBatch.eligibleCount} onApplyAll={automaticPlacementBatch.applyAll} resultSummary={automaticPlacementBatch.resultSummary} /> : null}
             <HammerWorkspaceShellToolBay contexts={toolBayRuntimeContexts} />
           </section>
         </div>

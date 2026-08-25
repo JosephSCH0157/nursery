@@ -126,6 +126,9 @@ const placementPreviewConsumer = inspect("src/editor/HammerWorkspaceShellPreview
 const placementTimelineQueue = inspect("src/features/auto-placement/timelinePlacementAnalysisQueue.ts").text;
 const placementTimelineCoordinator = inspect("src/editor/useHammerTimelineAutomaticPlacement.ts").text;
 const placementRandomAccessDecoder = inspect("src/features/auto-placement/placementRandomAccessDecoder.ts").text;
+const placementBatchEligibility = inspect("src/editor/hammerAutomaticPlacementBatch.ts").text;
+const placementBatchCommand = inspect("src/editor/hammerAutomaticPlacementBatchCommand.ts").text;
+const placementBatchSurface = inspect("src/editor/HammerTimelineAutomaticPlacementStatus.tsx").text;
 const placementAnalysisImports = placementFrameAnalysisAuthority.split("\n").filter((line) => line.startsWith("import ")).join("\n");
 if (/history|persist|supabase|commitTransform|previewAutoPositionOverrides/i.test(placementAnalysisImports)) failures.push("Shared placement-frame analysis authority imported geometry, history, persistence, or database ownership.");
 if (!/new PlacementFrameAnalysisAuthority\(\)/.test(shell)) failures.push("Hammer editor must mount one session-scoped placement-frame analysis authority.");
@@ -140,6 +143,10 @@ if (!/private activeKey: string \| null/.test(placementTimelineQueue) || !/if \(
 if (/previewVideoRef|\.currentTime\s*=|setSelectedClipId|setLinkedSelection/.test(placementTimelineCoordinator)) failures.push("Timeline automatic-placement coordinator may not seek visible Preview or programmatically change selection.");
 if (!/new BrowserPlacementRandomAccessDecoder\(\)/.test(placementFrameAnalysisAuthority) || /new BrowserPlacementRandomAccessDecoder\(\)/.test(placementTimelineCoordinator + placementPreviewConsumer + placementBlurAdapter + placementFaceAdapter)) failures.push("Random-access placement decoder must be constructed only by the shared analysis authority.");
 if (/createFaceLandmarkProvider|createSegmentationProvider|MediapipeSelfieSegmentationProvider/.test(placementTimelineQueue + placementTimelineCoordinator + placementRandomAccessDecoder)) failures.push("Timeline queue, coordinator, or decoder acquired an independent analysis provider.");
+const placementBatchEligibilityImports = placementBatchEligibility.split("\n").filter((line) => line.startsWith("import ")).join("\n");
+if (/persist|supabase|history|commitTransform|applyHistoryMutation/i.test(placementBatchEligibilityImports)) failures.push("Automatic-placement batch eligibility acquired mutation or persistence authority.");
+if ((placementBatchCommand.match(/const entry = args\.applyHistoryMutation\s*\(/g) ?? []).length !== 1 || (placementBatchCommand.match(/computeAfter:\s*\(before\)\s*=>/g) ?? []).length !== 1) failures.push("Automatic-placement batch acceptance must use exactly one history mutation and one computeAfter.");
+if (/commitTransform\s*\(/.test(placementBatchCommand) || !/Apply All Safe Placements/.test(placementBatchSurface) || !/executeAutomaticPlacementBatch/.test(placementBatchCommand)) failures.push("Apply All Safe Placements lost its compound existing-history command path.");
 
 const releasePackageAuthority = inspect("src/editor/hammerWorkspaceShellReleasePackage.ts").text;
 if (/buildHammerWorkspaceShellReleasePackage\s*\(/.test(shell) || /const\s+exportBasis\s*=\s*useMemo/.test(shell) || !/useHammerWorkspaceShellReleaseBasis\s*\(/.test(shell)) failures.push("HammerWorkspaceShell reacquired release-basis projection or low-level package construction.");
