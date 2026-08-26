@@ -8,6 +8,7 @@ import {
   resolveBarstockSparkIdFromQuery,
 } from "../lib/barstock-sparks";
 import {
+  readBarstockProjectContext,
   resolveBarstockProjectIdFromQuery,
 } from "../lib/barstock-project-links";
 import "./HearthShell.css";
@@ -4801,6 +4802,15 @@ export default function HearthShell({
     workpieceId,
   ]);
 
+  const createProjectWorkpiece = useCallback(async (title: string, projectId: string) => (
+    await getOrCreateHearthProjectWorkpiece({
+      projectId,
+      title,
+      origin: { created_from: "bar-stock" },
+      scriptSeed: SAFE_SCRIPT_STARTER,
+    })
+  ), []);
+
   useHearthInitialLoader({
     initialLoadKey,
     incomingBarStockIntakeRoute,
@@ -4883,12 +4893,8 @@ export default function HearthShell({
     resolveWorkspaceId,
     readPendingProjectWorkpieceId,
     writePendingProjectWorkpieceId,
-    createProjectWorkpiece: async (title, projectId) => await getOrCreateHearthProjectWorkpiece({
-      projectId,
-      title,
-      origin: { created_from: "bar-stock" },
-      scriptSeed: SAFE_SCRIPT_STARTER,
-    }),
+    readProjectContext: readBarstockProjectContext,
+    createProjectWorkpiece,
     openWorkpieceInFocus,
     forgeSpark,
     setIsForging,

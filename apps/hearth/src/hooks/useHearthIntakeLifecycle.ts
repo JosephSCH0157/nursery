@@ -21,6 +21,7 @@ type UseHearthIntakeLifecycleArgs = {
   resolveWorkspaceId: () => string | null;
   readPendingProjectWorkpieceId: (workspaceId: string, projectId: string) => string | null;
   writePendingProjectWorkpieceId: (workspaceId: string, projectId: string, workpieceId: string | null) => void;
+  readProjectContext: typeof readBarstockProjectContext;
   createProjectWorkpiece: (title: string, projectId: string) => Promise<{ ok: boolean; workpieceId?: string }>;
   openWorkpieceInFocus: (
     targetWorkpieceId: string,
@@ -65,7 +66,7 @@ export function useHearthIntakeLifecycle(args: UseHearthIntakeLifecycleArgs) {
     args.setForgeError(null);
 
     void (async () => {
-      const context = await readBarstockProjectContext({
+      const context = await args.readProjectContext({
         workspaceId: workspace,
         projectId: args.routeProjectId!,
       });
@@ -115,10 +116,15 @@ export function useHearthIntakeLifecycle(args: UseHearthIntakeLifecycleArgs) {
 
     return () => {
       cancelled = true;
+      if (args.projectIntakeHandledRef.current === projectIntakeKey) {
+        args.projectIntakeHandledRef.current = null;
+      }
+      args.setIsForging(false);
     };
   }, [
     projectIntakeKey, args.routeProjectId, args.workspaceId, args.projectIntakeHandledRef,
     args.resolveWorkspaceId, args.readPendingProjectWorkpieceId, args.writePendingProjectWorkpieceId,
+    args.readProjectContext,
     args.createProjectWorkpiece, args.setIsForging, args.setForgeError, args.setRouteProjectTitle,
     args.setWorkspaceId, args.setWorkpieceId,
   ]);
