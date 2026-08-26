@@ -1523,6 +1523,9 @@ export type Database = {
       barstock_project_episode_links: {
         Row: {
           created_at: string
+          created_by: string | null
+          creation_operation_key: string | null
+          id: string
           project_id: string
           workpiece_id: string
           workspace_id: string
@@ -3887,6 +3890,9 @@ export type Database = {
         }
         Insert: {
           created_at?: string
+          created_by?: string | null
+          creation_operation_key?: string | null
+          id?: string
           idempotency_key: string
           parent_bytes: number
           recording_revision_id: string
@@ -3896,6 +3902,9 @@ export type Database = {
         }
         Update: {
           created_at?: string
+          created_by?: string | null
+          creation_operation_key?: string | null
+          id?: string
           idempotency_key?: string
           parent_bytes?: number
           recording_revision_id?: string
@@ -13770,13 +13779,21 @@ export type Database = {
         }
         Returns: Json
       }
-      get_or_create_hearth_project_workpiece: {
+      create_hearth_project_episode: {
         Args: {
           p_operation_key: string
           p_project_id: string
           p_title: string
           p_workspace_id: string
         }
+        Returns: Json
+      }
+      list_hearth_project_episodes: {
+        Args: { p_project_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      validate_hearth_project_episode: {
+        Args: { p_project_id: string; p_workpiece_id: string; p_workspace_id: string }
         Returns: Json
       }
       read_anvil_pending_take_decisions: {

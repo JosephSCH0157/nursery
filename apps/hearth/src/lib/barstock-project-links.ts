@@ -4,6 +4,7 @@ const PROJECT_PARAM_KEYS = ["project_id", "projectId", "barstock_project_id"] as
 
 type RuntimeSupabaseScope = {
   from?: (table: string) => any;
+  rpc?: (name: string, args: Record<string, unknown>) => Promise<any>;
 };
 
 type RuntimeSupabaseClient = RuntimeSupabaseScope & {
@@ -66,7 +67,7 @@ export async function readBarstockProjectContext(args: {
 }): Promise<{
   projectExists: boolean;
   projectTitle: string | null;
-  workpieceId: string | null;
+  episodes: Array<{ workpieceId: string; label: string; status: string; createdAt: string; updatedAt: string }>;
   error?: string;
 }> {
   const workspaceId = normalizeUuid(args.workspaceId);
@@ -75,7 +76,7 @@ export async function readBarstockProjectContext(args: {
     return {
       projectExists: false,
       projectTitle: null,
-      workpieceId: null,
+      episodes: [],
       error: "invalid_project_context",
     };
   }
@@ -85,7 +86,7 @@ export async function readBarstockProjectContext(args: {
     return {
       projectExists: false,
       projectTitle: null,
-      workpieceId: null,
+      episodes: [],
       error: "missing_runtime_supabase_client",
     };
   }
@@ -95,53 +96,57 @@ export async function readBarstockProjectContext(args: {
     return {
       projectExists: false,
       projectTitle: null,
-      workpieceId: null,
+      episodes: [],
       error: "invalid_runtime_supabase_client",
     };
   }
 
-  const [projectResult, linkResult] = await Promise.all([
+  const [projectResult, episodeResult] = await Promise.all([
     scope
       .from("barstock_assignments")
       .select("id,title")
       .eq("workspace_id", workspaceId)
       .eq("id", projectId)
       .maybeSingle(),
-    scope
-      .from("barstock_project_episode_links")
-      .select("workpiece_id,created_at")
-      .eq("workspace_id", workspaceId)
-      .eq("project_id", projectId)
-      .order("created_at", { ascending: true })
-      .limit(1),
+    typeof scope.rpc === "function"
+      ? scope.rpc("list_hearth_project_episodes", { p_workspace_id: workspaceId, p_project_id: projectId })
+      : Promise.resolve({ data: null, error: { message: "project_episode_list_rpc_unavailable" } }),
   ]);
 
   if (projectResult?.error) {
     return {
       projectExists: false,
       projectTitle: null,
-      workpieceId: null,
+      episodes: [],
       error: `project_lookup_failed:${String(projectResult.error.message ?? "unknown")}`,
     };
   }
 
-  if (linkResult?.error) {
+  if (episodeResult?.error) {
     const projectTitle = readString(projectResult?.data?.title);
     return {
       projectExists: Boolean(projectResult?.data),
       projectTitle,
-      workpieceId: null,
-      error: `project_link_lookup_failed:${String(linkResult.error.message ?? "unknown")}`,
+      episodes: [],
+      error: `project_episode_list_failed:${String(episodeResult.error.message ?? "unknown")}`,
     };
   }
 
-  const linkRow = Array.isArray(linkResult?.data) ? linkResult.data[0] : null;
   const projectTitle = readString(projectResult?.data?.title);
+  const episodeEnvelope = episodeResult?.data && typeof episodeResult.data === "object" && !Array.isArray(episodeResult.data)
+    ? episodeResult.data as Record<string, unknown> : null;
+  const episodes = Array.isArray(episodeEnvelope?.episodes) ? episodeEnvelope.episodes.flatMap((value) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+    const row = value as Record<string, unknown>;
+    const workpieceId = normalizeUuid(row.workpiece_id);
+    if (!workpieceId) return [];
+    return [{ workpieceId, label: readString(row.label) ?? "Untitled Episode", status: readString(row.status) ?? "draft", createdAt: readString(row.created_at) ?? "", updatedAt: readString(row.updated_at) ?? "" }];
+  }) : [];
 
   return {
     projectExists: Boolean(projectResult?.data),
     projectTitle,
-    workpieceId: normalizeUuid(linkRow?.workpiece_id),
+    episodes,
   };
 }
 
@@ -216,4 +221,26 @@ export async function upsertBarstockProjectEpisodeLink(args: {
   }
 
   return { ok: true };
+}
+
+export async function validateBarstockProjectEpisode(args: {
+  workspaceId: string;
+  projectId: string;
+  workpieceId: string;
+}): Promise<boolean> {
+  const workspaceId = normalizeUuid(args.workspaceId);
+  const projectId = normalizeUuid(args.projectId);
+  const workpieceId = normalizeUuid(args.workpieceId);
+  if (!workspaceId || !projectId || !workpieceId) return false;
+  const runtimeClient = getRuntimeSupabaseClient();
+  if (!runtimeClient) return false;
+  const scope = resolveTongsScope(runtimeClient);
+  if (typeof scope.rpc !== "function") return false;
+  const { data, error } = await scope.rpc("validate_hearth_project_episode", {
+    p_workspace_id: workspaceId,
+    p_project_id: projectId,
+    p_workpiece_id: workpieceId,
+  });
+  if (error || !data || typeof data !== "object" || Array.isArray(data)) return false;
+  return (data as Record<string, unknown>).valid === true;
 }

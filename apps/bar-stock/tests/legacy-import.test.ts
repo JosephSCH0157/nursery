@@ -23,7 +23,7 @@ function acknowledgingRepository(seen: string[]): BarStockRepository {
     createSpark: async (_scope, row, key) => { seen.push(key); return { outcome: "saved", row: { ...row, revision: 1 } }; },
     updateSpark: async () => ({ outcome: "failed", row: null, error: "unused" }),
     archiveSpark: async () => ({ outcome: "failed", row: null, error: "unused" }),
-    getAssignmentWorkpieceLink: async () => null,
+    hasAssignmentEpisodeLinks: async () => false,
   };
 }
 

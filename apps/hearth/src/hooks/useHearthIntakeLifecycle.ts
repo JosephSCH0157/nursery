@@ -87,23 +87,14 @@ export function useHearthIntakeLifecycle(args: UseHearthIntakeLifecycleArgs) {
         return;
       }
 
-      let resolvedWorkpieceId = context.workpieceId;
-      if (!resolvedWorkpieceId) {
-        const created = await args.createProjectWorkpiece(projectTitle ?? `Project ${args.routeProjectId!.slice(0, 8)}`, args.routeProjectId!);
-        if (!created.ok || !created.workpieceId) {
-          if (!cancelled && args.projectIntakeHandledRef.current === projectIntakeKey) args.projectIntakeHandledRef.current = null;
-          args.setForgeError("Failed to open this Project in Hearth.");
-          return;
-        }
-        resolvedWorkpieceId = created.workpieceId;
-        args.writePendingProjectWorkpieceId(workspace, args.routeProjectId!, resolvedWorkpieceId);
-      }
-
+      // A project-only route is a collection context. It must never select,
+      // create, or hydrate an episode without a separate explicit action.
       args.writePendingProjectWorkpieceId(workspace, args.routeProjectId!, null);
 
       if (cancelled) return;
       args.setWorkspaceId(workspace);
-      args.setWorkpieceId(resolvedWorkpieceId);
+      args.setWorkpieceId(null);
+      args.setMode("sparks");
     })().catch((err) => {
       if (cancelled) return;
       const message = err instanceof Error ? err.message : "Failed to resolve project intake.";

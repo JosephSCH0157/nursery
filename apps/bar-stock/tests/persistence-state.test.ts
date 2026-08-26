@@ -23,7 +23,7 @@ function repository(result: any): BarStockRepository {
     createSpark: async () => result,
     updateSpark: async () => result,
     archiveSpark: async () => result,
-    getAssignmentWorkpieceLink: async () => null,
+    hasAssignmentEpisodeLinks: async () => false,
   };
 }
 

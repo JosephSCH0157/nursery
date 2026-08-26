@@ -102,15 +102,15 @@ export default function HearthSparksMode({
         <div className="hs-resume-context hs-project-intake">
           <div>
             Project: <b>{routeProjectLabel ?? "Untitled Project"}</b>
-            {workpieceId ? ` · Episode ${workpieceId.slice(0, 8)}` : " · Resolving episode..."}
+            {workpieceId ? ` · Episode ${workpieceId.slice(0, 8)}` : " · No episode selected"}
           </div>
           <div className="hs-project-intake-actions">
             <button
               type="button"
               onClick={() => void forgeProjectIntoEpisode()}
-              disabled={isForging || routeProjectSparks.length === 0 || !workpieceId}
+              disabled={isForging || routeProjectSparks.length === 0}
             >
-              Forge this Project into an Episode
+              Create New Episode
             </button>
             <span className="hs-project-intake-meta">
               Spark Stack: {routeProjectSparks.length}

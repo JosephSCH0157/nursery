@@ -223,21 +223,22 @@ async function createCradle(args: {
   return { ok: true, workpieceId: createdId };
 }
 
-async function resolveProjectWorkpieceIdentity(args: {
+async function createProjectEpisodeIdentity(args: {
   workspaceId: string;
   projectId: string;
   title?: string | null;
+  operationKey: string;
 }): Promise<CreateWorkpieceResult> {
   const runtimeClient = getRuntimeSupabaseClient();
   const projectId = normalizeUuid(args.projectId);
   if (!runtimeClient || !projectId) return { ok: false, reason: "project_intake_identity_unavailable" };
   const scope = typeof runtimeClient.schema === "function" ? runtimeClient.schema("tongs") : runtimeClient;
   if (typeof scope.rpc !== "function") return { ok: false, reason: "project_intake_rpc_unavailable" };
-  const { data, error } = await scope.rpc("get_or_create_hearth_project_workpiece", {
+  const { data, error } = await scope.rpc("create_hearth_project_episode", {
     p_workspace_id: args.workspaceId,
     p_project_id: projectId,
     p_title: readString(args.title) ?? "Untitled Project",
-    p_operation_key: `hearth-project-intake:${args.workspaceId}:${projectId}`,
+    p_operation_key: args.operationKey,
   });
   if (error || !data || typeof data !== "object" || Array.isArray(data)) {
     return { ok: false, reason: "project_intake_identity_failed", details: error ?? data };
@@ -398,12 +399,14 @@ export async function getOrCreateHearthProjectWorkpiece(args: {
   title?: string | null;
   origin?: ForgeOrigin;
   scriptSeed?: string | null;
+  operationKey?: string;
 }): Promise<CreateWorkpieceResult> {
   if (typeof window === "undefined") return { ok: false, reason: "no_window" };
   const workspaceId = resolveWorkspaceId();
   if (!workspaceId) return { ok: false, reason: "missing_workspace" };
   const writtenBy = getWrittenBy();
-  const resolved = await resolveProjectWorkpieceIdentity({ workspaceId, projectId: args.projectId, title: args.title });
+  const operationKey = readString(args.operationKey) ?? `hearth-project-episode:${crypto.randomUUID()}`;
+  const resolved = await createProjectEpisodeIdentity({ workspaceId, projectId: args.projectId, title: args.title, operationKey });
   if (!resolved.ok) return resolved;
 
   try {

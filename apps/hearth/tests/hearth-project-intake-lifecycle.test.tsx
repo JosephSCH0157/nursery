@@ -11,7 +11,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-test("existing linked project survives the forging rerender and leaves resolving state", async () => {
+test("project-only intake survives Strict Mode and never hydrates a linked episode", async () => {
   const dom = new JSDOM("<!doctype html><html><body><div id=\"root\"></div></body></html>");
   const previousWindow = Object.getOwnPropertyDescriptor(globalThis, "window");
   const previousDocument = Object.getOwnPropertyDescriptor(globalThis, "document");
@@ -22,7 +22,7 @@ test("existing linked project survives the forging rerender and leaves resolving
   const projectId = "95ac3ae5-dbd6-4ddc-882d-4097c5bd306b";
   const workspaceId = "494c2ae5-9037-4208-b898-fab4898ab430";
   const linkedWorkpieceId = "661a1d04-2ff1-46c0-b5f5-1e762d68f712";
-  const lookup = deferred<{ projectExists: boolean; projectTitle: string; workpieceId: string }>();
+  const lookup = deferred<{ projectExists: boolean; projectTitle: string; episodes: Array<{ workpieceId: string; label: string; status: string; createdAt: string; updatedAt: string }> }>();
   let lookupCount = 0;
   let creationCount = 0;
   let observed: { isForging: boolean; title: string | null; workpieceId: string | null; error: string | null } | null = null;
@@ -75,16 +75,16 @@ test("existing linked project survives the forging rerender and leaves resolving
     await act(async () => lookup.resolve({
       projectExists: true,
       projectTitle: "In the Forge",
-      workpieceId: linkedWorkpieceId,
+      episodes: [{ workpieceId: linkedWorkpieceId, label: "Original", status: "draft", createdAt: "", updatedAt: "" }],
     }));
 
     assert.deepEqual(observed, {
       isForging: false,
       title: "In the Forge",
-      workpieceId: linkedWorkpieceId,
+      workpieceId: null,
       error: null,
     });
-    assert.equal(creationCount, 0, "an existing canonical link must never create a workpiece");
+    assert.equal(creationCount, 0, "project-only intake must never create or hydrate a workpiece");
   } finally {
     await act(async () => root?.unmount());
     dom.window.close();

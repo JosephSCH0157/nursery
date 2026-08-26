@@ -978,6 +978,7 @@ export default function HearthShell({
   const [routeProjectId] = useState<string | null>(() => resolveBarstockProjectIdFromQuery());
   const [routeSparkId] = useState<string | null>(() => resolveBarstockSparkIdFromQuery());
   const [routeProjectTitle, setRouteProjectTitle] = useState<string | null>(null);
+  const projectEpisodeCreationKeyRef = useRef<string | null>(null);
 
   const [planningSession, setPlanningSession] = useState<HearthPlanningSession | null>(() => (
     incomingBarStockIntakeRoute
@@ -4735,12 +4736,6 @@ export default function HearthShell({
     if (isForging) return;
     if (!routeProjectId) return;
 
-    const episodeId = workpieceId?.trim() ?? "";
-    if (!episodeId) {
-      setForgeError("Project episode is still resolving.");
-      return;
-    }
-
     if (routeProjectSparks.length === 0) {
       setForgeError("No sparks are attached to this Project yet.");
       return;
@@ -4750,6 +4745,21 @@ export default function HearthShell({
     setForgeError(null);
     try {
       const title = routeProjectLabel ?? `Project ${routeProjectId.slice(0, 8)}`;
+      const operationKey = projectEpisodeCreationKeyRef.current
+        ?? `hearth-project-episode:${crypto.randomUUID()}`;
+      projectEpisodeCreationKeyRef.current = operationKey;
+      const created = await getOrCreateHearthProjectWorkpiece({
+        projectId: routeProjectId,
+        title,
+        origin: { created_from: "bar-stock" },
+        scriptSeed: SAFE_SCRIPT_STARTER,
+        operationKey,
+      });
+      if (!created.ok || !created.workpieceId) {
+        setForgeError("Hearth could not create a new episode for this Project.");
+        return;
+      }
+      const episodeId = created.workpieceId;
       const draft = await createDraftAndOpen(episodeId, {
         title,
         body: buildProjectDraftSeed(title, routeProjectSparks),
@@ -4784,6 +4794,7 @@ export default function HearthShell({
       for (const spark of changedSparks) {
         enqueueBarStockSpark(spark, workspaceId);
       }
+      projectEpisodeCreationKeyRef.current = null;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to forge this Project.";
       setForgeError(message);

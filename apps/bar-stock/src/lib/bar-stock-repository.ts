@@ -9,7 +9,7 @@ export type BarStockScope = {
 export type BarStockSnapshot = {
   assignments: Assignment[];
   sparks: Spark[];
-  links: Record<string, string>;
+  links: Record<string, string[]>;
 };
 
 export type BarStockRpcOutcome =
@@ -36,7 +36,7 @@ export interface BarStockRepository {
   createSpark(scope: BarStockScope, spark: Spark, importKey: string): Promise<BarStockMutationResult<Spark>>;
   updateSpark(scope: BarStockScope, spark: Spark, expectedRevision: number): Promise<BarStockMutationResult<Spark>>;
   archiveSpark(scope: BarStockScope, sparkId: string, expectedRevision: number): Promise<BarStockMutationResult<Spark>>;
-  getAssignmentWorkpieceLink(scope: BarStockScope, assignmentId: string): Promise<string | null>;
+  hasAssignmentEpisodeLinks(scope: BarStockScope, assignmentId: string): Promise<boolean>;
 }
 
 export class BarStockAuthorityUnavailableError extends Error {
@@ -169,12 +169,14 @@ export function createSupabaseBarStockRepository(client: Client): BarStockReposi
       ]);
       const error = assignmentResult.error ?? sparkResult.error ?? linkResult.error;
       if (error) throw new BarStockAuthorityUnavailableError(errorText(error));
-      const links: Record<string, string> = {};
+      const links: Record<string, string[]> = {};
       for (const row of linkResult.data ?? []) {
-        if (typeof row.project_id === "string" && typeof row.workpiece_id === "string") links[row.project_id] = row.workpiece_id;
+        if (typeof row.project_id === "string" && typeof row.workpiece_id === "string") {
+          links[row.project_id] = [...(links[row.project_id] ?? []), row.workpiece_id];
+        }
       }
       return {
-        assignments: (assignmentResult.data ?? []).map((row: Record<string, unknown>) => mapAssignment(row, links[String(row.id)] ?? null)).filter((row: Assignment) => row.id && row.name && row.revision > 0),
+        assignments: (assignmentResult.data ?? []).map((row: Record<string, unknown>) => mapAssignment(row)).filter((row: Assignment) => row.id && row.name && row.revision > 0),
         sparks: (sparkResult.data ?? []).map(mapSpark).filter((row: Spark) => row.id && row.body.trim() && row.revision > 0 && row.status !== "archived"),
         links,
       };
@@ -194,7 +196,7 @@ export function createSupabaseBarStockRepository(client: Client): BarStockReposi
     },
     async deleteAssignment(scope, assignmentId, expectedRevision) {
       assertScope(scope);
-      if (await this.getAssignmentWorkpieceLink(scope, assignmentId)) return { outcome: "linked", row: null };
+      if (await this.hasAssignmentEpisodeLinks(scope, assignmentId)) return { outcome: "linked", row: null };
       return rpc("barstock_delete_assignment", { p_workspace_id: scope.workspaceId, p_id: assignmentId, p_expected_revision: expectedRevision }, mapAssignment);
     },
     async createSpark(scope, spark, importKey) {
@@ -209,12 +211,12 @@ export function createSupabaseBarStockRepository(client: Client): BarStockReposi
       assertScope(scope);
       return rpc("barstock_archive_spark", { p_workspace_id: scope.workspaceId, p_id: sparkId, p_expected_revision: expectedRevision }, mapSpark);
     },
-    async getAssignmentWorkpieceLink(scope, assignmentId) {
+    async hasAssignmentEpisodeLinks(scope, assignmentId) {
       assertScope(scope);
       const { data, error } = await (client.schema("tongs") as any).from("barstock_project_episode_links")
-        .select("workpiece_id").eq("workspace_id", scope.workspaceId).eq("project_id", assignmentId).maybeSingle();
+        .select("workpiece_id").eq("workspace_id", scope.workspaceId).eq("project_id", assignmentId).limit(1);
       if (error) throw new BarStockAuthorityUnavailableError(errorText(error));
-      return typeof data?.workpiece_id === "string" ? data.workpiece_id : null;
+      return Array.isArray(data) && data.length > 0;
     },
   };
   return repository;

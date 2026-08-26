@@ -5,6 +5,7 @@ import type { HearthSession } from "../domain/session";
 import { listHearthWorkpieces, type HearthWorkpieceSummary } from "../lib/hearth-workpieces";
 import type { LocalSessionStore } from "../storage/local-session-store";
 import { describeHearthDependencyFailure } from "../lib/hearth-dependency-state";
+import { validateBarstockProjectEpisode } from "../lib/barstock-project-links";
 
 type UseHearthInitialLoaderArgs = {
   initialLoadKey: string;
@@ -119,6 +120,11 @@ export function useHearthInitialLoader(args: UseHearthInitialLoaderArgs) {
       pushCandidateDraftId(args.activeDraftRef.current?.id ?? null);
 
       const explicitWorkpieceId = args.normalizeUuid(args.workpieceIdRef.current);
+      if (explicitWorkpieceId && args.routeProjectId) {
+        if (!workspace || !await validateBarstockProjectEpisode({ workspaceId: workspace, projectId: args.routeProjectId, workpieceId: explicitWorkpieceId })) {
+          throw new Error("This Episode does not belong to the requested Project.");
+        }
+      }
       const resolvedWorkpieceId = explicitWorkpieceId
         ?? args.normalizeUuid(storedSession?.activeWorkpieceId ?? null)
         ?? candidateDraftIds

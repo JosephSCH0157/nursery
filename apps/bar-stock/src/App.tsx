@@ -239,7 +239,7 @@ export default function App(props: BarstockAppProps = {}) {
   const snapshot = useMemo<BarStockSnapshot>(() => ({
     assignments,
     sparks,
-    links: Object.fromEntries(assignments.filter((item) => item.workpieceId).map((item) => [item.id, item.workpieceId!])),
+    links: Object.fromEntries(assignments.filter((item) => item.workpieceId).map((item) => [item.id, [item.workpieceId!]])),
   }), [assignments, sparks]);
 
   const applyExecution = useCallback((execution: OperationExecution) => {
