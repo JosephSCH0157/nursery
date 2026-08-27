@@ -3090,8 +3090,8 @@ export default function HammerWorkspaceEditor(
       let audioPolishFailureCode: string | null = null;
       let finalSnapshot: HammerPersistenceSnapshot | null = currentSnapshot;
       let usedAiPrep = false;
-      const currentCanonicalRecording = activeCanonicalRecordingRef.current;
-      const currentRevision = activeRevisionRef.current;
+      let currentCanonicalRecording = activeCanonicalRecordingRef.current;
+      let currentRevision = activeRevisionRef.current;
 
       const hasUserToken = await hasTongsUserAccessToken();
       if (!hasUserToken) {
@@ -3106,6 +3106,38 @@ export default function HammerWorkspaceEditor(
       }
 
       try {
+        // A session-open retry can advance the prep effect before React has committed
+        // the hydrated recording identities. Re-resolve them from Tongs at the job
+        // boundary instead of treating a stale client ref as missing canonical truth.
+        if (persistenceTarget && (!currentCanonicalRecording || !currentRevision)) {
+          logTranscriptStage("canonical_identity:refresh:start", {
+            has_canonical_recording: Boolean(currentCanonicalRecording),
+            has_active_revision: Boolean(currentRevision),
+          });
+          const refreshedSession = await openHammerRecordingSession(persistenceTarget);
+          if (!refreshedSession.ok) {
+            logTranscriptStage("canonical_identity:refresh:failed", {
+              status: refreshedSession.status,
+              error_code: refreshedSession.error_code ?? null,
+            }, "warn");
+            throw new Error(mapHammerSessionOpenErrorToUserMessage({
+              code: refreshedSession.error_code ?? null,
+              message: refreshedSession.error,
+            }));
+          }
+
+          currentCanonicalRecording = refreshedSession.data.canonical_recording;
+          currentRevision = refreshedSession.data.revision;
+          activeCanonicalRecordingRef.current = currentCanonicalRecording;
+          activeRevisionRef.current = currentRevision;
+          setActiveCanonicalRecording(currentCanonicalRecording);
+          setActiveRevision(currentRevision);
+          logTranscriptStage("canonical_identity:refresh:ok", {
+            canonical_recording_id: currentCanonicalRecording.id,
+            revision_id: currentRevision.id,
+          });
+        }
+
         // Non-AI attempt first: reuse any existing transcript artifacts before starting AI transcription.
         if (!prepAiFallbackRequested && persistenceTarget && currentCanonicalRecording && !currentCanonicalRecording.sealed_at) {
           const workpieceId = currentCanonicalRecording.workpiece_id;

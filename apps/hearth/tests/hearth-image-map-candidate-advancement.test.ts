@@ -7,6 +7,7 @@ import {
   type EpisodeImagesWorkspaceViewModel,
   nextUnresolvedEpisodeImageId,
 } from "../src/lib/hearth-episode-images-view-model";
+import { describeImageCandidateGenerationFailure } from "../src/hooks/visuals/useImageMapCandidateActions";
 import type { EpisodeImageMapEntry } from "../src/lib/episode-package-v2";
 
 function entry(id: string, selected = false): EpisodeImageMapEntry {
@@ -45,9 +46,18 @@ test("guided candidate-selection transitions are preserved in the focused hook",
   const source = readFileSync(resolve(process.cwd(), "src/hooks/visuals/useImageMapCandidateActions.ts"), "utf8");
 
   assert.match(source, /setImageMapExportMessage\(`Image \$\{completedNumber\} complete\. Image \$\{nextNumber\} is ready\.`\)/);
+  assert.match(source, /setSelectedImageMapEntryId\(nextEntryId\);\s*args\.resetImageWorkspaceScroll\(\)/);
   assert.match(source, /setImageMapExportMessage\("Episode images complete\. B-roll is ready\."\)/);
   assert.match(source, /if \(!selected\.ok\)[\s\S]*setSelectedImageMapEntryId\(currentEntryId\)/);
   assert.match(source, /if \(!selected\.ok\)[\s\S]*selected\.reason === "conflict"/);
+});
+
+test("provider transport failures explain the safe recovery path", () => {
+  const message = describeImageCandidateGenerationFailure("terminated", 500);
+  assert.match(message, /prompt and image plan are saved/i);
+  assert.match(message, /do not generate again yet/i);
+  assert.match(message, /Refresh this episode/i);
+  assert.match(message, /API \/ Ledger/i);
 });
 
 test("progress model advances from image 1 to image 2 and then to stage completion", () => {

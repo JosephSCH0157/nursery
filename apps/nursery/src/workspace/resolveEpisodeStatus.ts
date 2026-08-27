@@ -20,7 +20,7 @@ export type EpisodeDisplayStatus =
 
 export const EPISODE_STATUS_LABELS: Record<EpisodeDisplayStatus, string> = {
   draft: "Draft",
-  scripted: "Ready to Record",
+  scripted: "Script Approved",
   scheduled: "Scheduled",
   recording: "Recording",
   recorded: "Recorded",

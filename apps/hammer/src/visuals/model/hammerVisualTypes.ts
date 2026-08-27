@@ -153,12 +153,23 @@ export interface HammerVisualLane {
   clip_ids: string[];
 }
 
+export type HammerPackagingIntentSource = "profile" | "episode" | "manual" | "legacy";
+
+export interface HammerPackagingIntentV1 {
+  version: 1;
+  intro_asset_id: string | null;
+  outro_asset_id: string | null;
+  intro_source: HammerPackagingIntentSource | null;
+  outro_source: HammerPackagingIntentSource | null;
+}
+
 export interface HammerVisualTimelineState {
   version: typeof HAMMER_VISUAL_TIMELINE_VERSION;
   revision: number;
   updated_at: string;
   source_mode: typeof HAMMER_VISUAL_TIMELINE_SOURCE_MODE;
   selected_clip_id: string | null;
+  packaging: HammerPackagingIntentV1;
   assets: HammerVisualAsset[];
   lanes: HammerVisualLane[];
   clips: HammerVisualClip[];

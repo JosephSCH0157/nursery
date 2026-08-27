@@ -7,6 +7,7 @@ type WrittenBy = {
 };
 
 type RecordingCommitInput = {
+  captureAuthority: AnvilCaptureAuthority;
   bytes: Uint8Array;
   originalName: string;
   contentType?: string;
@@ -62,6 +63,7 @@ export type RecordingCommitResult =
       createdCradle: boolean;
       plannerRecordingSessionId: string | null;
       captureSessionId: string;
+      captureAuthorityId: string;
       mediaRevision: number;
       mediaHash: string;
       mediaBytes: number;
@@ -105,6 +107,7 @@ export type RecordingCaptureTargetResult =
       createdCradle: boolean;
       plannerRecordingSessionId: string | null;
       captureSessionId: string;
+      captureAuthority: AnvilCaptureAuthority;
     }
   | {
       ok: false;
@@ -147,10 +150,6 @@ export type AppendRecordingDecisionResult =
       details?: unknown;
     };
 
-type CreateCradleResult =
-  | { ok: true; workpieceId: string }
-  | { ok: false; status: number; details: unknown };
-
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const DEFAULT_TOOL_VERSION = "1.8.5";
 const DEFAULT_LANE = "forge-managed";
@@ -161,9 +160,8 @@ const WORKPIECE_STORAGE_KEYS = [
   "tp_workpiece_id",
 ] as const;
 
-const ACTIVE_WORKPIECE_KEY = "forge_active_workpiece_id_v1";
-const WORKSPACE_WORKPIECE_PREFIX = "forge_anvil_recording_workpiece_v1:";
 const CAPTURE_SESSION_KEY = "forge_anvil_capture_session_v1";
+const CAPTURE_AUTHORITY_KEY = "forge_anvil_capture_authority_id_v1";
 const PLANNER_RECORDING_SESSION_KEY = "forge_anvil_recording_session_v1";
 const LARGE_UPLOAD_WARN_MB_KEY = "ANVIL_LARGE_UPLOAD_WARN_MB";
 const CHUNK_UPLOAD_THRESHOLD_MB_KEY = "ANVIL_CHUNK_UPLOAD_THRESHOLD_MB";
@@ -177,6 +175,21 @@ const CHUNK_UPLOAD_RETRY_BACKOFF_MS = 250;
 export const HAMMER_STRUCTURED_TRANSCRIPT_PATH = "hammer/transcript/structured.v1.json";
 
 let correlationSeq = 0;
+let activeCaptureAuthority: AnvilCaptureAuthority | null = null;
+
+export type AnvilCaptureAuthority = Readonly<{
+  id: string;
+  captureSessionId: string;
+  workspaceId: string;
+  workpieceId: string;
+  recordingSessionId: string | null;
+  readyTransitionId: string | null;
+  scriptPath: string;
+  scriptRevision: number;
+  scriptHash: string;
+  operationKey: string;
+  provenance: "live_established" | "completion_backfill";
+}>;
 
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -376,6 +389,7 @@ function getOrCreateCaptureSessionId(): string {
 }
 
 export function beginRecordingCaptureSession(): string {
+  activeCaptureAuthority = null;
   let next = "";
   try {
     const randomUuid =
@@ -390,6 +404,7 @@ export function beginRecordingCaptureSession(): string {
     next = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   }
   writeSessionStorage(CAPTURE_SESSION_KEY, next);
+  writeSessionStorage(CAPTURE_AUTHORITY_KEY, "");
   (window as any).__tpAnvilCaptureSessionId = next;
   const identity = (window as any).__forgeCanonicalScriptIdentity;
   if (identity && typeof identity === "object") {
@@ -462,18 +477,6 @@ function resolveDirectWorkpieceId(): string | null {
   return null;
 }
 
-function loadCachedWorkpiece(workspaceId: string | null): string | null {
-  if (!workspaceId) return null;
-  return normalizeUuid(readLocalStorage(`${WORKSPACE_WORKPIECE_PREFIX}${workspaceId}`));
-}
-
-function persistWorkpiece(workspaceId: string | null, workpieceId: string): void {
-  writeLocalStorage(ACTIVE_WORKPIECE_KEY, workpieceId);
-  if (workspaceId) {
-    writeLocalStorage(`${WORKSPACE_WORKPIECE_PREFIX}${workspaceId}`, workpieceId);
-  }
-}
-
 function inferContentType(contentType: string | undefined, name: string): string {
   const fromInput = readString(contentType);
   if (fromInput) return fromInput;
@@ -513,32 +516,6 @@ async function readBodyAsJson(response: Response): Promise<unknown> {
   } catch {
     return { raw };
   }
-}
-
-function resolveCreatedWorkpieceId(body: unknown): string | null {
-  const row = body as {
-    data?: {
-      cradle?: { id?: unknown };
-      episode?: { id?: unknown };
-      workpiece?: { id?: unknown };
-      id?: unknown;
-    };
-    cradle?: { id?: unknown };
-    episode?: { id?: unknown };
-    workpiece?: { id?: unknown };
-    id?: unknown;
-  };
-
-  return normalizeUuid(
-    row?.data?.cradle?.id
-      ?? row?.data?.episode?.id
-      ?? row?.data?.workpiece?.id
-      ?? row?.data?.id
-      ?? row?.cradle?.id
-      ?? row?.episode?.id
-      ?? row?.workpiece?.id
-      ?? row?.id,
-  );
 }
 
 function isCommitAck(body: unknown): boolean {
@@ -595,36 +572,6 @@ function encodeBase64(bytes: Uint8Array): string {
     binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
   }
   return btoa(binary);
-}
-
-async function createCradle(
-  workspaceId: string,
-  writtenBy: WrittenBy,
-  apiToken?: string,
-): Promise<CreateCradleResult> {
-  const response = await fetch("/tongs/cradles", {
-    method: "POST",
-    headers: await buildHeaders(apiToken),
-    body: JSON.stringify({
-      workspace_id: workspaceId,
-      written_by: writtenBy,
-      origin_tool: {
-        name: "anvil",
-        version: writtenBy.tool_version,
-      },
-      correlation_id: nextCorrelationId("anvil-create-cradle"),
-    }),
-  });
-  const body = await readBodyAsJson(response);
-  const createdId = resolveCreatedWorkpieceId(body);
-  if (!response.ok || !createdId) {
-    return {
-      ok: false,
-      status: response.status,
-      details: body,
-    };
-  }
-  return { ok: true, workpieceId: createdId };
 }
 
 async function commitFileToWorkpiece(
@@ -776,45 +723,57 @@ function sleep(ms: number): Promise<void> {
 }
 
 async function resolveRecordingCaptureTarget(): Promise<RecordingCaptureTargetResult> {
-  const writtenBy = getWrittenBy();
   const apiToken = getApiToken();
-  const workspaceId = resolveWorkspaceId();
+  const workspaceId = normalizeUuid(getQueryParam("workspace_id", "workspaceId"));
+  const workpieceId = normalizeUuid(getQueryParam("workpiece_id", "workpieceId"));
   const plannerRecordingSessionId = resolvePlannerRecordingSessionId();
-  let workpieceId = resolveDirectWorkpieceId() || loadCachedWorkpiece(workspaceId);
-  let createdCradle = false;
-
-  if (!workpieceId) {
-    if (!workspaceId) {
-      return {
-        ok: false,
-        reason: "missing_workpiece_context",
-        workspaceId: null,
-        workpieceId: null,
-      };
-    }
-    const created = await createCradle(workspaceId, writtenBy, apiToken);
-    if (!created.ok) {
-      return {
-        ok: false,
-        reason: "create_cradle_failed",
-        status: created.status,
-        details: created.details,
-        workspaceId,
-        workpieceId: null,
-      };
-    }
-    workpieceId = created.workpieceId;
-    createdCradle = true;
+  if (!workspaceId || !workpieceId) {
+    return { ok: false, reason: "explicit_episode_context_required", workspaceId, workpieceId };
   }
-
-  persistWorkpiece(workspaceId, workpieceId);
+  const identity = (window as any).__forgeCanonicalScriptIdentity as Record<string, unknown> | undefined;
+  if (normalizeUuid(identity?.workspaceId) !== workspaceId || normalizeUuid(identity?.workpieceId) !== workpieceId) {
+    return { ok: false, reason: "displayed_script_episode_mismatch", workspaceId, workpieceId };
+  }
+  const captureSessionId = getOrCreateCaptureSessionId();
+  if (activeCaptureAuthority?.captureSessionId === captureSessionId) {
+    return { ok: true, workspaceId, workpieceId, createdCradle: false, plannerRecordingSessionId, captureSessionId, captureAuthority: activeCaptureAuthority };
+  }
+  const operationKey = `anvil-capture:${captureSessionId}`;
+  const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-capture-authority`, {
+    method: "POST", headers: await buildHeaders(apiToken), body: JSON.stringify({
+      workspace_id: workspaceId, capture_session_id: captureSessionId, operation_key: operationKey,
+      recording_session_id: plannerRecordingSessionId,
+    }),
+  });
+  const body = await readBodyAsJson(response);
+  const data = body && typeof body === "object" && !Array.isArray(body) ? (body as any).data : null;
+  const row = data?.capture_authority as Record<string, unknown> | undefined;
+  const authorityId = normalizeUuid(row?.id);
+  if (!response.ok || !authorityId || !["established", "duplicate"].includes(readString(data?.outcome) ?? "")) {
+    const apiError = extractApiError(body);
+    return { ok: false, reason: readString(data?.reason) ?? apiError.code ?? "capture_authority_establishment_failed", status: response.status, details: body, workspaceId, workpieceId };
+  }
+  const authority: AnvilCaptureAuthority = Object.freeze({
+    id: authorityId, captureSessionId: normalizeUuid(row?.capture_session_id)!, workspaceId: normalizeUuid(row?.workspace_id)!,
+    workpieceId: normalizeUuid(row?.workpiece_id)!, recordingSessionId: normalizeUuid(row?.recording_session_id),
+    readyTransitionId: normalizeUuid(row?.ready_transition_id), scriptPath: readString(row?.script_path)!,
+    scriptRevision: Number(row?.script_revision), scriptHash: readString(row?.script_hash)!.toLowerCase(),
+    operationKey: readString(row?.operation_key)!, provenance: row?.provenance === "completion_backfill" ? "completion_backfill" : "live_established",
+  });
+  if (authority.workspaceId !== workspaceId || authority.workpieceId !== workpieceId || authority.captureSessionId !== captureSessionId
+    || !authority.scriptPath || !Number.isInteger(authority.scriptRevision) || authority.scriptRevision <= 0 || !/^[0-9a-f]{64}$/.test(authority.scriptHash)) {
+    return { ok: false, reason: "capture_authority_contract_malformed", status: 502, details: body, workspaceId, workpieceId };
+  }
+  activeCaptureAuthority = authority;
+  writeSessionStorage(CAPTURE_AUTHORITY_KEY, authority.id);
   return {
     ok: true,
     workspaceId,
     workpieceId,
-    createdCradle,
+    createdCradle: false,
     plannerRecordingSessionId,
-    captureSessionId: getOrCreateCaptureSessionId(),
+    captureSessionId,
+    captureAuthority: authority,
   };
 }
 
@@ -1110,26 +1069,16 @@ async function uploadRecordingWithStrategy(args: {
 export async function commitRecordingBytesToTongs(input: RecordingCommitInput): Promise<RecordingCommitResult> {
   const apiToken = getApiToken();
   const writtenBy = getWrittenBy();
-  const target = await resolveRecordingCaptureTarget();
-  if (!target.ok) {
-    return {
-      ok: false,
-      reason: target.reason,
-      status: target.status,
-      details: target.details,
-      workspaceId: target.workspaceId,
-      workpieceId: target.workpieceId,
-    };
-  }
-  const workspaceId = target.workspaceId;
-  let workpieceId = target.workpieceId;
-  let createdCradle = target.createdCradle;
-  const plannerRecordingSessionId = target.plannerRecordingSessionId;
+  const authority = input.captureAuthority;
+  const workspaceId = authority.workspaceId;
+  const workpieceId = authority.workpieceId;
+  const createdCradle = false;
+  const plannerRecordingSessionId = authority.recordingSessionId;
 
   const name = sanitizeFilename(input.originalName);
   const path = `recordings/${name}`;
   const contentType = inferContentType(input.contentType, name);
-  const captureSessionId = target.captureSessionId;
+  const captureSessionId = authority.captureSessionId;
   const uploadConfig = resolveUploadStrategyConfig();
   const strategy = selectUploadStrategyForBytes(input.bytes.byteLength, uploadConfig);
   const bytesMb = Number((input.bytes.byteLength / (1024 * 1024)).toFixed(2));
@@ -1195,6 +1144,7 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
   });
 
   const commitPayloadBase = {
+    capture_authority_id: authority.id,
     path,
     content_type: contentType,
     written_by: writtenBy,
@@ -1217,8 +1167,7 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
     correlation_id: nextCorrelationId("anvil-recording"),
   };
 
-  let didRetry404 = false;
-  let commit = await uploadRecordingWithStrategy({
+  const commit = await uploadRecordingWithStrategy({
       strategy,
       workpieceId,
       bytes: input.bytes,
@@ -1238,37 +1187,6 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
       },
     });
 
-  // Single defensive retry: stale cached workpiece IDs can happen after cradle resets.
-  if (!commit.ok && commit.status === 404 && workspaceId) {
-    didRetry404 = true;
-    const replacement = await createCradle(workspaceId, writtenBy, apiToken);
-    if (replacement.ok) {
-      workpieceId = replacement.workpieceId;
-      createdCradle = true;
-      persistWorkpiece(workspaceId, workpieceId);
-      (commitPayloadBase.event_payload as Record<string, unknown>).created_cradle = true;
-      commit = await uploadRecordingWithStrategy({
-        strategy,
-        workpieceId,
-        bytes: input.bytes,
-        chunkSizeMb: uploadConfig.chunkSizeMb,
-        commitPayloadBase,
-        apiToken,
-        onStatus: (status) => {
-          emitUploadStatus(status.phase, {
-            chunkIndex: status.chunkIndex ?? null,
-            totalChunks: status.totalChunks ?? null,
-            chunkBytes: status.chunkBytes ?? null,
-            progressPct: status.progressPct ?? null,
-            safeToLeave: false,
-            errorCode: status.errorCode ?? null,
-            errorMessage: status.errorMessage ?? null,
-          });
-        },
-      });
-    }
-  }
-
   if (!commit.ok) {
     const apiError = extractApiError(commit.body);
     emitUploadStatus("failed", {
@@ -1279,7 +1197,7 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
     });
     return {
       ok: false,
-      reason: didRetry404 ? "commit_failed_after_retry" : "commit_failed",
+      reason: "commit_failed_same_episode_recoverable",
       status: commit.status,
       ...(apiError.code ? { errorCode: apiError.code } : {}),
       ...(apiError.message ? { errorMessage: apiError.message } : {}),
@@ -1336,6 +1254,7 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
     createdCradle,
     plannerRecordingSessionId,
     captureSessionId,
+    captureAuthorityId: authority.id,
     mediaRevision,
     mediaHash,
     mediaBytes: input.bytes.byteLength,
@@ -1365,24 +1284,14 @@ export async function transitionRecordingCompleted(input: {
   commit: Extract<RecordingCommitResult, { ok: true }>;
   durationMs?: number | null;
 }): Promise<RecordingAuthorityOutcome> {
-  const identities = (window as any).__forgeRecordingScriptIdentityByCapture as Record<string, Record<string, unknown>> | undefined;
-  const currentIdentity = (window as any).__forgeCanonicalScriptIdentity as Record<string, unknown> | undefined;
-  const legacyReady = (window as any).__forgeCanonicalReadyScript as Record<string, unknown> | undefined;
-  const scriptIdentity = identities?.[input.commit.captureSessionId] ?? currentIdentity ?? legacyReady;
   const asr = (window as any).__tpCanonicalAsrAuthority as Record<string, unknown> | undefined;
-  const scriptWorkspace = normalizeUuid(scriptIdentity?.workspaceId);
-  const scriptWorkpiece = normalizeUuid(scriptIdentity?.workpieceId);
-  const scriptPath = readString(scriptIdentity?.path);
-  const scriptRevision = typeof scriptIdentity?.scriptRevision === "number" && Number.isInteger(scriptIdentity.scriptRevision) ? scriptIdentity.scriptRevision : null;
-  const scriptHash = readString(scriptIdentity?.scriptHash)?.toLowerCase() ?? null;
-  if (!scriptWorkspace || scriptWorkpiece !== input.commit.workpieceId || !scriptPath
-      || !scriptRevision || !scriptHash || !/^[0-9a-f]{64}$/.test(scriptHash)
-      || input.commit.mediaBytes <= 0) {
+  if (!input.commit.captureAuthorityId || input.commit.mediaBytes <= 0) {
     return { ok: false, outcome: "malformed", reason: "recording_completion_evidence_incomplete" };
   }
   const evidence = {
-    schema: "anvil.recording-completion.v2",
+    schema: "anvil.recording-completion.v3",
     completed: true,
+    capture_authority_id: input.commit.captureAuthorityId,
     capture_session_id: input.commit.captureSessionId,
     anvil_version: getWrittenBy().tool_version,
     asr_diagnostics: {
@@ -1401,9 +1310,7 @@ export async function transitionRecordingCompleted(input: {
   };
   const idempotencyKey = `anvil-complete:${input.commit.captureSessionId}:${input.commit.mediaRevision}`;
   const requestBody = JSON.stringify({
-    workspace_id: scriptWorkspace, capture_session_id: input.commit.captureSessionId,
-    recording_session_id: input.commit.plannerRecordingSessionId, script_path: scriptPath,
-    expected_script_revision: scriptRevision, expected_script_hash: scriptHash,
+    capture_authority_id: input.commit.captureAuthorityId,
     media_path: input.commit.path, expected_media_revision: input.commit.mediaRevision,
     expected_media_hash: input.commit.mediaHash, expected_media_bytes: input.commit.mediaBytes,
     expected_media_content_type: input.commit.mediaContentType, idempotency_key: idempotencyKey,
@@ -1414,7 +1321,7 @@ export async function transitionRecordingCompleted(input: {
     let lastNetworkError: unknown = null;
     for (let attempt = 0; attempt < 2; attempt += 1) {
       try {
-        response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-completion-v2`, {
+        response = await fetch(`/tongs/workpieces/${encodeURIComponent(input.commit.workpieceId)}/recording-completion-v3`, {
           method: "POST",
           headers: await buildHeaders(getApiToken()),
           body: requestBody,
@@ -1445,11 +1352,18 @@ export async function transitionRecordingCompleted(input: {
 }
 
 export async function transitionRecordingKept(input: {
-  commit: Pick<Extract<RecordingCommitResult, { ok: true }>, "workpieceId" | "captureSessionId">;
+  commit: Pick<Extract<RecordingCommitResult, { ok: true }>, "workpieceId" | "captureSessionId"> & { captureAuthorityId?: string };
   completionId: string;
 }): Promise<RecordingAuthorityOutcome> {
+  if (input.commit.captureAuthorityId) return transitionRecordingDecisionV2(input.commit, input.completionId, "keep");
+  const identities = (window as any).__forgeRecordingScriptIdentityByCapture as Record<string, Record<string, unknown>> | undefined;
+  const currentIdentity = (window as any).__forgeCanonicalScriptIdentity as Record<string, unknown> | undefined;
   const ready = (window as any).__forgeCanonicalReadyScript as Record<string, unknown> | undefined;
-  const workspaceId = normalizeUuid(ready?.workspaceId);
+  const decisionIdentity = identities?.[input.commit.captureSessionId] ?? currentIdentity ?? ready;
+  const identityWorkpieceId = normalizeUuid(decisionIdentity?.workpieceId);
+  const workspaceId = identityWorkpieceId === input.commit.workpieceId
+    ? normalizeUuid(decisionIdentity?.workspaceId) ?? resolveWorkspaceId()
+    : resolveWorkspaceId();
   if (!workspaceId) return { ok: false, outcome: "malformed", reason: "ready_workspace_missing" };
   const evidence = { schema: "anvil.take-decision.v1", decision: "keep", completion_id: input.completionId, capture_session_id: input.commit.captureSessionId };
   try {
@@ -1471,12 +1385,50 @@ export async function transitionRecordingKept(input: {
   }
 }
 
+async function transitionRecordingDecisionV2(
+  commit: { workpieceId: string; captureSessionId: string; captureAuthorityId?: string },
+  completionId: string,
+  decision: "keep" | "discard",
+): Promise<RecordingAuthorityOutcome> {
+  if (!commit.captureAuthorityId) return { ok: false, outcome: "malformed", reason: "capture_authority_missing" };
+  const evidence = { schema: "anvil.take-decision.v2", decision, completion_id: completionId,
+    capture_authority_id: commit.captureAuthorityId, capture_session_id: commit.captureSessionId };
+  try {
+    const response = await fetch(`/tongs/workpieces/${encodeURIComponent(commit.workpieceId)}/recording-decision-v2`, {
+      method: "POST", headers: await buildHeaders(getApiToken()), body: JSON.stringify({
+        capture_authority_id: commit.captureAuthorityId, completion_id: completionId, decision,
+        idempotency_key: `anvil-${decision}:${completionId}`, decision_evidence: evidence,
+      }),
+    });
+    const body = await readBodyAsJson(response);
+    const data = body && typeof body === "object" && !Array.isArray(body) ? (body as any).data : null;
+    if (!response.ok) return { ok: false, outcome: "unavailable", reason: extractApiError(body).code ?? `recording_${decision}_unavailable`, details: body };
+    const outcome = readString(data?.outcome);
+    const rowKey = decision === "keep" ? "keep" : "discard";
+    const rowId = readAuthorityRowId(data, rowKey);
+    const accepted = (outcome === "saved" || outcome === "duplicate") && !!rowId;
+    if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) return { ok: false, outcome: "malformed", reason: `recording_${decision}_response_malformed`, details: body };
+    return { ok: accepted, outcome: outcome as RecordingAuthorityOutcome["outcome"],
+      ...(decision === "keep" && rowId ? { keepId: rowId } : {}), ...(decision === "discard" && rowId ? { discardId: rowId } : {}),
+      reason: readString(data?.reason) ?? undefined, details: data };
+  } catch (error) {
+    return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : `recording_${decision}_unavailable` };
+  }
+}
+
 export async function transitionRecordingDiscarded(input: {
-  commit: Pick<Extract<RecordingCommitResult, { ok: true }>, "workpieceId" | "captureSessionId">;
+  commit: Pick<Extract<RecordingCommitResult, { ok: true }>, "workpieceId" | "captureSessionId"> & { captureAuthorityId?: string };
   completionId: string;
 }): Promise<RecordingAuthorityOutcome> {
+  if (input.commit.captureAuthorityId) return transitionRecordingDecisionV2(input.commit, input.completionId, "discard");
+  const identities = (window as any).__forgeRecordingScriptIdentityByCapture as Record<string, Record<string, unknown>> | undefined;
+  const currentIdentity = (window as any).__forgeCanonicalScriptIdentity as Record<string, unknown> | undefined;
   const ready = (window as any).__forgeCanonicalReadyScript as Record<string, unknown> | undefined;
-  const workspaceId = normalizeUuid(ready?.workspaceId);
+  const decisionIdentity = identities?.[input.commit.captureSessionId] ?? currentIdentity ?? ready;
+  const identityWorkpieceId = normalizeUuid(decisionIdentity?.workpieceId);
+  const workspaceId = identityWorkpieceId === input.commit.workpieceId
+    ? normalizeUuid(decisionIdentity?.workspaceId) ?? resolveWorkspaceId()
+    : resolveWorkspaceId();
   if (!workspaceId) return { ok: false, outcome: "malformed", reason: "ready_workspace_missing" };
   const evidence = { schema: "anvil.take-decision.v1", decision: "discard", completion_id: input.completionId, capture_session_id: input.commit.captureSessionId };
   try {
@@ -1578,5 +1530,7 @@ export async function appendRecordingDecisionToTongs(
 export async function commitRecordingBlobToTongs(blob: Blob, originalName: string): Promise<RecordingCommitResult> {
   const bytes = new Uint8Array(await blob.arrayBuffer());
   const contentType = readString(blob.type) || undefined;
-  return commitRecordingBytesToTongs({ bytes, originalName, contentType });
+  const target = await ensureRecordingCaptureTarget();
+  if (!target.ok) return target;
+  return commitRecordingBytesToTongs({ bytes, originalName, contentType, captureAuthority: target.captureAuthority });
 }

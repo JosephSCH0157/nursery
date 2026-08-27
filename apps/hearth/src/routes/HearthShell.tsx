@@ -3443,11 +3443,11 @@ export default function HearthShell({
     }
     if (hasApprovedScript && approvedScriptVersion) {
       return {
-        tone: "ready" as const,
-        label: "Ready",
+        tone: "pending" as const,
+        label: "Script Approved",
         detail: scriptApprovalState.approvedAt
-          ? `Script v${approvedScriptVersion} approved ${formatRelativeUpdatedAt(scriptApprovalState.approvedAt)}`
-          : `Script v${approvedScriptVersion} approved`,
+          ? `Script v${approvedScriptVersion} approved ${formatRelativeUpdatedAt(scriptApprovalState.approvedAt)}, but it has not entered the canonical Ready queue.`
+          : `Script v${approvedScriptVersion} approved, but it has not entered the canonical Ready queue.`,
       };
     }
     return {
@@ -3474,7 +3474,9 @@ export default function HearthShell({
       phase: "script",
       displayStatus: activeWorkpieceIsArchived
         ? "draft"
-        : activeReadyScript || hasApprovedScript
+        : activeReadyScript
+        ? "ready"
+        : hasApprovedScript
         ? "scripted"
         : "draft",
     } satisfies EpisodeWorkspaceReadModel;
@@ -4113,6 +4115,14 @@ export default function HearthShell({
     setImageMapExportMessage,
   });
   const missingImageMapContextError = "Select an episode in an active workspace.";
+  const resetImageWorkspaceScroll = useCallback(() => {
+    window.requestAnimationFrame(() => {
+      document.querySelector<HTMLElement>("[data-hearth-image-workspace]")?.scrollIntoView({
+        block: "start",
+        behavior: "smooth",
+      });
+    });
+  }, []);
   const applyCanonicalImageMap = (next: {
     entries: EpisodePackageV2["image_map"]["entries"];
     spokenBeats: EpisodePackageV2["spoken_beats"];
@@ -4159,6 +4169,7 @@ export default function HearthShell({
     setImageMapCandidateSelectionError,
     setImageMapExportMessage,
     setSelectedImageMapEntryId,
+    resetImageWorkspaceScroll,
     publishForgeNotice,
   });
   const {

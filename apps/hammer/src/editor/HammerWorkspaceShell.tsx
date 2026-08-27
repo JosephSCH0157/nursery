@@ -921,7 +921,7 @@ function HammerWorkspaceShellWithContext(
   );
   const activePackagingMediaPath = packagingTransport.phase === "intro"
     ? packagingIntroAssetPath
-    : packagingTransport.phase === "outro"
+    : packagingTransport.phase === "outro" || packagingTransport.phase === "complete"
     ? packagingOutroAssetPath
     : null;
   const activePackagingMediaSrc = activePackagingMediaPath
@@ -2954,8 +2954,8 @@ function HammerWorkspaceShellWithContext(
     structuredTranscript: exportBasis.transcriptForRelease,
     visualPlacements: editableVisualPlacements,
     audioPolish: editableAudioPolish,
-    introPath: introOutroSelectedIntroPath,
-    outroPath: introOutroSelectedOutroPath,
+    introPath: packagingIntroAssetPath, introAppliedAssetId: editableVisualTimeline?.packaging.intro_asset_id ?? null,
+    outroPath: packagingOutroAssetPath, outroAppliedAssetId: editableVisualTimeline?.packaging.outro_asset_id ?? null,
     packagingLogoEnabled: Boolean(packagingLogoPlacement),
     readinessVerdict,
     readinessGate,

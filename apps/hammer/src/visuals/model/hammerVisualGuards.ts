@@ -218,6 +218,10 @@ export function assertValidTimelineState(
   assertCondition(Array.isArray(state.assets), "Visual timeline assets must be an array.");
   assertCondition(Array.isArray(state.lanes), "Visual timeline lanes must be an array.");
   assertCondition(Array.isArray(state.clips), "Visual timeline clips must be an array.");
+  assertCondition(state.packaging?.version === 1, "Visual timeline packaging intent version must be 1.");
+  for (const assetId of [state.packaging.intro_asset_id, state.packaging.outro_asset_id]) {
+    assertCondition(assetId == null || Boolean(readTrimmedString(assetId)), "Packaging asset identities must be null or non-empty.");
+  }
   if (state.debug_origin != null) {
     assertCondition(
       state.debug_origin === "canonical_load"

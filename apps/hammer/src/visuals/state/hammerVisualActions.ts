@@ -7,6 +7,7 @@ import type {
   HammerVisualGeometry,
   HammerVisualSemanticAnchor,
   HammerVisualTimelineState,
+  HammerPackagingIntentV1,
 } from "../model/hammerVisualTypes";
 
 interface HammerVisualMutationMeta {
@@ -18,6 +19,10 @@ export type HammerVisualTimelineAction =
     type: "LOAD_TIMELINE";
     timeline: HammerVisualTimelineState;
   }
+  | ({
+    type: "SET_PACKAGING_INTENT";
+    packaging: HammerPackagingIntentV1;
+  } & HammerVisualMutationMeta)
   | ({
     type: "UPSERT_ASSETS";
     assets: HammerVisualAsset[];

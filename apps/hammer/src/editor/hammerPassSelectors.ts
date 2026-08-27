@@ -58,6 +58,8 @@ export interface HammerPassSelectorContext {
   audioPolish?: HammerPersistedAudioPolish | null;
   introPath?: string | null;
   outroPath?: string | null;
+  introAppliedAssetId?: string | null;
+  outroAppliedAssetId?: string | null;
   packagingLogoEnabled?: boolean;
   readinessVerdict?: Pick<
     HammerReadinessGateResult,
@@ -159,9 +161,9 @@ function packagingReasonCodes(
     return ["packaging_basis_missing"];
   }
 
-  const introEnabled = Boolean(context.introPath)
+  const introEnabled = Boolean(context.introAppliedAssetId || context.introPath)
     || (context.visualPlacements?.placements ?? []).some((placement) => placement.entry_id === "packaging:intro");
-  const outroEnabled = Boolean(context.outroPath)
+  const outroEnabled = Boolean(context.outroAppliedAssetId || context.outroPath)
     || (context.visualPlacements?.placements ?? []).some((placement) => placement.entry_id === "packaging:outro");
   const logoEnabled = Boolean(context.packagingLogoEnabled)
     || (context.visualPlacements?.placements ?? []).some((placement) => placement.entry_id === "packaging:logo");
@@ -170,11 +172,13 @@ function packagingReasonCodes(
     return ["packaging_selection_missing"];
   }
 
-  const unresolvedPackagingPlacement = (context.visualPlacements?.placements ?? []).some((placement) => (
-    placement.entry_id.startsWith("packaging:")
-    && !placement.asset_path
-    && !placement.storage_key
-  ));
+  const unresolvedPackagingPlacement = Boolean(context.introAppliedAssetId && !context.introPath)
+    || Boolean(context.outroAppliedAssetId && !context.outroPath)
+    || (context.visualPlacements?.placements ?? []).some((placement) => (
+      placement.entry_id.startsWith("packaging:")
+      && !placement.asset_path
+      && !placement.storage_key
+    ));
   return unresolvedPackagingPlacement ? ["packaging_asset_unresolved"] : [];
 }
 

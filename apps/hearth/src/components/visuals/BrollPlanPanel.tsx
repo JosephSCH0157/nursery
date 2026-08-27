@@ -179,6 +179,9 @@ function creatorBrollError(message: string): string {
   if (/vite module runner has been closed/i.test(message)) {
     return "Video generation could not start because the server was unavailable. Restart Forge and try again.";
   }
+  if (/not have enough credits|insufficient credits?/i.test(message)) {
+    return "Runway could not accept this request because the configured Runway provider account has insufficient credits. This is separate from the Forge AI Credits balance shown in the header. Fund or replace the configured Runway account, or upload an existing B-roll clip.";
+  }
   return message;
 }
 

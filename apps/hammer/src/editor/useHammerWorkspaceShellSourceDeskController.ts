@@ -363,8 +363,6 @@ export function useHammerWorkspaceShellSourceDeskController(
 
       let nextMediaFiles = mediaFiles;
       let nextSelection = selection;
-      let introSelectionSource: "profile" | "episode" = "episode";
-      let outroSelectionSource: "profile" | "episode" = "episode";
 
       const repairPlan = buildWorkspaceIntroOutroDefaultsRepairPlan({
         selection: nextSelection,
@@ -383,8 +381,12 @@ export function useHammerWorkspaceShellSourceDeskController(
             : null;
           if (applied) {
             nextSelection = applied.selection;
-            if (applied.appliedIntro) introSelectionSource = "profile";
-            if (applied.appliedOutro) outroSelectionSource = "profile";
+            latestArgs.reconcileIntroOutroSelectionWithPackaging({
+              selection: applied.selection,
+              mediaFiles: await listWorkpieceStoredMedia(workpieceId),
+              introSource: applied.appliedIntro ? "profile" : "episode",
+              outroSource: applied.appliedOutro ? "profile" : "episode",
+            });
             nextMediaFiles = await listWorkpieceStoredMedia(workpieceId);
           }
         } catch (error) {
@@ -400,12 +402,6 @@ export function useHammerWorkspaceShellSourceDeskController(
         updated_at: new Date().toISOString(),
       };
       latestArgs.setIntroOutroSelection(resolvedSelection);
-      latestArgs.reconcileIntroOutroSelectionWithPackaging({
-        selection: resolvedSelection,
-        mediaFiles: nextMediaFiles,
-        introSource: introSelectionSource,
-        outroSource: outroSelectionSource,
-      });
     } catch (error) {
       if (refreshRunId === refreshRunIdRef.current) {
         latestArgs.setSourceDeskError(error instanceof Error ? error.message : "Hammer could not load Source Desk media.");

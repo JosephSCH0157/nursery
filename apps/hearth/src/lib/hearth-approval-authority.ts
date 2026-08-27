@@ -13,6 +13,28 @@ export const NO_CANONICAL_SCRIPT_APPROVAL: ScriptApprovalState = Object.freeze({
   approvedAt: null,
 });
 
+export type CanonicalApprovedScript = Readonly<{
+  approvalId: string;
+  approvalRevision: number;
+  contentHash: string;
+  text: string;
+}>;
+
+export async function readTongsCanonicalApprovedScript(workpieceId: string): Promise<CanonicalApprovedScript | null> {
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/script-approval`, { method: "GET" });
+  if (!response.ok) return null;
+  const body = await response.json().catch(() => null) as {
+    data?: { current_approval?: { id?: unknown; approval_revision?: unknown; script_content_hash?: unknown; script_text?: unknown } };
+  } | null;
+  const approval = body?.data?.current_approval;
+  const approvalId = typeof approval?.id === "string" ? approval.id.trim() : "";
+  const approvalRevision = Number(approval?.approval_revision ?? 0);
+  const contentHash = typeof approval?.script_content_hash === "string" ? approval.script_content_hash.trim() : "";
+  const text = typeof approval?.script_text === "string" ? approval.script_text : "";
+  if (!approvalId || !Number.isInteger(approvalRevision) || approvalRevision < 1 || !contentHash || !text.trim()) return null;
+  return { approvalId, approvalRevision, contentHash, text };
+}
+
 export async function readTongsCanonicalScriptApproval(workpieceId:string):Promise<ScriptApprovalState>{
   const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/script-approval`,{method:"GET"});
   if(!response.ok)return NO_CANONICAL_SCRIPT_APPROVAL;

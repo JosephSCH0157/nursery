@@ -33,6 +33,17 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+function describeDecisionError(error: unknown): string {
+  const message = error instanceof Error ? error.message.trim() : "";
+  if (message === "ready_workspace_missing") {
+    return "Anvil lost the episode workspace context before saving this decision. The recording is still saved. Reopen this episode from Hearth, then choose Keep Take again.";
+  }
+  if (message === "recording_keep_unavailable" || message === "recording_discard_unavailable") {
+    return "Anvil could not save this take decision to Tongs. The recording is still saved; check the Forge connection and try again.";
+  }
+  return message || "Could not save your take decision. Try again.";
+}
+
 function closeModal(): void {
   const existing = document.getElementById(MODAL_ID);
   if (existing?.parentElement) {
@@ -346,9 +357,7 @@ export async function showRecordingDecisionDialog(
       } catch (error) {
         setBusy(false);
         if (errorNode) {
-          errorNode.textContent = error instanceof Error && error.message.trim()
-            ? error.message
-            : "Could not save your take decision. Try again.";
+          errorNode.textContent = describeDecisionError(error);
         }
       }
     };

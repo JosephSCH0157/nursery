@@ -89,6 +89,13 @@ export function createEmptyVisualTimelineState(
     updated_at: overrides?.updated_at ?? HAMMER_VISUAL_DEFAULT_UPDATED_AT,
     source_mode: HAMMER_VISUAL_TIMELINE_SOURCE_MODE,
     selected_clip_id: overrides?.selected_clip_id ?? null,
+    packaging: overrides?.packaging ? { ...overrides.packaging } : {
+      version: 1,
+      intro_asset_id: null,
+      outro_asset_id: null,
+      intro_source: null,
+      outro_source: null,
+    },
     assets: (overrides?.assets ?? []).map((asset) => ({
       ...asset,
       roles: asset.roles?.length ? [...asset.roles] : ["timeline_visual"],

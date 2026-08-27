@@ -11,7 +11,6 @@ import {
   loadWorkspaceIntroOutroDefaults,
   loadWorkpieceMediaPreviewUrl,
   readHammerMediaPreviewErrorDiagnostics,
-  saveIntroOutroSelection,
   saveWorkspaceIntroOutroDefaults,
   uploadWorkpieceMediaFile,
 } from "../src/lib/hammerSourceDeskMediaApi";
@@ -129,33 +128,7 @@ async function testInvalidUploadRejectedBeforeFetch() {
   );
 }
 
-async function testIntroOutroSelectionSerializationRoundTrip() {
-  const saveCalls: FetchCall[] = [];
-  const saveFetch = async (url: string, options: Record<string, unknown>) => {
-    saveCalls.push({ url, options });
-    return createOkJsonResponse({ ok: true });
-  };
-  await saveIntroOutroSelection({
-    workpieceId: "workpiece-abc",
-    selection: {
-      schema_version: 1,
-      intro_asset_id: "asset_intro",
-      outro_asset_id: "asset_outro",
-      updated_at: "2026-03-21T12:00:00.000Z",
-    },
-    fetcher: saveFetch as never,
-  });
-
-  const savePayload = saveCalls[0]?.options.json as Record<string, unknown>;
-  assert.equal(saveCalls[0]?.url, "/tongs/workpieces/workpiece-abc/commit-file");
-  assert.equal(savePayload.path, "hammer/session/intro-outro.v1.json");
-  assert.deepEqual(savePayload.json, {
-    schema_version: 1,
-    intro_asset_id: "asset_intro",
-    outro_asset_id: "asset_outro",
-    updated_at: "2026-03-21T12:00:00.000Z",
-  });
-
+async function testLegacyIntroOutroSelectionImport() {
   const readFetch = async () => createOkJsonResponse({
     exists: true,
     data: {
@@ -224,8 +197,8 @@ async function testWorkspaceIntroOutroDefaultsSerializationRoundTrip() {
     workspaceId: "workspace-abc",
     defaults: {
       schema_version: 1,
-      intro: { workpiece_id: "template-1", path: "assets/uploads/introoutro/default-intro.mp3" },
-      outro: { workpiece_id: "template-1", path: "assets/uploads/introoutro/default-outro.mp3" },
+      intro: { asset_id: null, workpiece_id: "template-1", path: "assets/uploads/introoutro/default-intro.mp3" },
+      outro: { asset_id: null, workpiece_id: "template-1", path: "assets/uploads/introoutro/default-outro.mp3" },
       updated_at: "2026-04-18T10:00:00.000Z",
     },
     fetcher: saveFetch as never,
@@ -236,8 +209,8 @@ async function testWorkspaceIntroOutroDefaultsSerializationRoundTrip() {
   assert.equal(savePayload.path, "hammer/settings/intro-outro-defaults.v1.json");
   assert.deepEqual(savePayload.json, {
     schema_version: 1,
-    intro: { workpiece_id: "template-1", path: "assets/uploads/introoutro/default-intro.mp3" },
-    outro: { workpiece_id: "template-1", path: "assets/uploads/introoutro/default-outro.mp3" },
+    intro: { asset_id: null, workpiece_id: "template-1", path: "assets/uploads/introoutro/default-intro.mp3" },
+    outro: { asset_id: null, workpiece_id: "template-1", path: "assets/uploads/introoutro/default-outro.mp3" },
     updated_at: "2026-04-18T10:00:00.000Z",
   });
 
@@ -245,8 +218,8 @@ async function testWorkspaceIntroOutroDefaultsSerializationRoundTrip() {
     exists: true,
     data: {
       schema_version: 1,
-      intro: { workpiece_id: "template-1", path: "assets/uploads/introoutro/default-intro.mp3" },
-      outro: { workpiece_id: "template-1", path: "assets/uploads/introoutro/default-outro.mp3" },
+      intro: { asset_id: null, workpiece_id: "template-1", path: "assets/uploads/introoutro/default-intro.mp3" },
+      outro: { asset_id: null, workpiece_id: "template-1", path: "assets/uploads/introoutro/default-outro.mp3" },
       updated_at: "2026-04-18T10:00:00.000Z",
     },
   });
@@ -254,8 +227,8 @@ async function testWorkspaceIntroOutroDefaultsSerializationRoundTrip() {
   const loaded = await loadWorkspaceIntroOutroDefaults("workspace-abc", readFetch as never);
   assert.deepEqual(loaded, {
     schema_version: 1,
-    intro: { workpiece_id: "template-1", path: "assets/uploads/introoutro/default-intro.mp3" },
-    outro: { workpiece_id: "template-1", path: "assets/uploads/introoutro/default-outro.mp3" },
+    intro: { asset_id: null, workpiece_id: "template-1", path: "assets/uploads/introoutro/default-intro.mp3" },
+    outro: { asset_id: null, workpiece_id: "template-1", path: "assets/uploads/introoutro/default-outro.mp3" },
     updated_at: "2026-04-18T10:00:00.000Z",
   });
 }
@@ -279,6 +252,10 @@ async function testListWorkpieceStoredMediaParsesTongsEnvelopeAndNormalizesPaths
                     path: "workpieces/abc123/assets/uploads/introoutro/123-intro.mp3",
                     bytes: 100,
                     updated_at: "2026-04-14T12:00:00.000Z",
+                    asset_id: "11111111-1111-4111-8111-111111111111",
+                    content_hash: "a".repeat(64),
+                    mime_type: "audio/mpeg",
+                    duration_ms: 1250,
                   },
                 ],
               },
@@ -292,12 +269,16 @@ async function testListWorkpieceStoredMediaParsesTongsEnvelopeAndNormalizesPaths
   const files = await listWorkpieceStoredMedia("abc123", storageFetch as never);
   assert.equal(files.length, 1);
   assert.deepEqual(files[0], {
+    assetId: "11111111-1111-4111-8111-111111111111",
     path: "assets/uploads/introoutro/123-intro.mp3",
     name: "123-intro.mp3",
     kind: "audio",
     bytes: 100,
     roles: [],
     updatedAt: "2026-04-14T12:00:00.000Z",
+    contentHash: "a".repeat(64),
+    mimeType: "audio/mpeg",
+    durationMs: 1250,
   });
 }
 
@@ -512,7 +493,7 @@ async function run() {
   await testMediaTypeAcceptance();
   await testUploadDestinationAndPayloadShape();
   await testInvalidUploadRejectedBeforeFetch();
-  await testIntroOutroSelectionSerializationRoundTrip();
+  await testLegacyIntroOutroSelectionImport();
   await testIntroOutroSelectionParsesTongsEnvelope();
   await testIntroOutroSelectionLegacyPathMigration();
   await testWorkspaceIntroOutroDefaultsSerializationRoundTrip();

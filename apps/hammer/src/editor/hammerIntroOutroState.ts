@@ -39,10 +39,14 @@ export function buildIntroOutroCandidateItems(
   storedMediaFiles: HammerStoredMediaFile[],
 ): HammerIntroOutroCandidateItem[] {
   return storedMediaFiles
-    .filter((file) => isIntroOutroCandidateKind(file.kind))
+    .filter((file) => isIntroOutroCandidateKind(file.kind)
+      && Boolean(file.assetId)
+      && typeof file.durationMs === "number"
+      && Number.isFinite(file.durationMs)
+      && file.durationMs > 0)
     .map((file) => ({
       ...file,
-      assetId: deriveStableHammerAssetIdFromPath(file.path),
+      assetId: file.assetId ?? deriveStableHammerAssetIdFromPath(file.path),
     }))
     .sort((left, right) => left.name.localeCompare(right.name));
 }

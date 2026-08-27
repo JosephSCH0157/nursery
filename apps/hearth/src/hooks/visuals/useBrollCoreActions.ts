@@ -38,7 +38,7 @@ type UseBrollCoreActionsArgs = {
   setBrollMessage: (next: string | null) => void;
   setSelectedBrollBeatId: (next: string | null) => void;
   readCanonicalScriptForImageMapGeneration: () => Promise<
-    | { ok: true; text: string; source: "primary_script" | "saved_draft"; includesUnsavedLocalEdits: boolean }
+    | { ok: true; text: string; source: "approved_script"; includesUnsavedLocalEdits: boolean }
     | { ok: false; message: string }
   >;
   resolveBrollDataVisualSpecFromDraft: (nextMotionIntent: EpisodeBrollPlanBeat["motion_intent"]) => EpisodeBrollPlanBeat["data_visual_spec"];

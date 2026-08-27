@@ -25,6 +25,23 @@ async function testAnvilLiveAsrCannotBecomeCanonicalTranscript() {
   );
 }
 
+async function testTranscriptPrepRepairsStaleSessionIdentityBeforeJobCreation() {
+  const editorPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/editor/HammerWorkspaceEditor.tsx");
+  const source = await fs.readFile(editorPath, "utf-8");
+  const refreshStart = source.indexOf('logTranscriptStage("canonical_identity:refresh:start"');
+  const sessionRefresh = source.indexOf("const refreshedSession = await openHammerRecordingSession(persistenceTarget);", refreshStart);
+  const jobCreate = source.indexOf('logTranscriptStage("job:create:start")', sessionRefresh);
+
+  assert.ok(refreshStart >= 0, "Transcript prep should detect stale canonical session identity.");
+  assert.ok(sessionRefresh > refreshStart, "Transcript prep should reopen the canonical session when either identity is absent.");
+  assert.ok(jobCreate > sessionRefresh, "Canonical identity repair must run before transcript job creation.");
+  assert.match(
+    source.slice(sessionRefresh, jobCreate),
+    /activeCanonicalRecordingRef\.current = currentCanonicalRecording;[\s\S]*activeRevisionRef\.current = currentRevision;/,
+    "The repaired canonical identities must update the synchronous refs used by the active prep run.",
+  );
+}
+
 function testScriptCueAlignmentDoesNotMutateTranscriptAndAnchorsToHammerTimeline() {
   const transcript: HammerTranscriptSegment[] = [
     { segment_id: "seg_001", speaker: "S1", text: "Intro.", start_sec: 0, end_sec: 1 },
@@ -94,6 +111,7 @@ function testScriptCueAlignmentDoesNotMutateTranscriptAndAnchorsToHammerTimeline
 
 async function run() {
   await testAnvilLiveAsrCannotBecomeCanonicalTranscript();
+  await testTranscriptPrepRepairsStaleSessionIdentityBeforeJobCreation();
   testScriptCueAlignmentDoesNotMutateTranscriptAndAnchorsToHammerTimeline();
   console.log("Hammer transcript authority enforcement tests passed.");
 }

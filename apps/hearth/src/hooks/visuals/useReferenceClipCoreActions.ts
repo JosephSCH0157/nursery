@@ -82,7 +82,7 @@ type UseReferenceClipCoreActionsArgs = {
     | { ok: false; error: string }
   >;
   readCanonicalScriptForImageMapGeneration: () => Promise<
-    | { ok: true; text: string; source: "primary_script" | "saved_draft"; includesUnsavedLocalEdits: boolean }
+    | { ok: true; text: string; source: "approved_script"; includesUnsavedLocalEdits: boolean }
     | { ok: false; message: string }
   >;
 };

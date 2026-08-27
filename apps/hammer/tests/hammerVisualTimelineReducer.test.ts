@@ -74,6 +74,23 @@ test("reducer increments revision on every mutating action", () => {
   assert.equal(next.updated_at, "2026-04-02T12:05:00.000Z");
 });
 
+test("packaging intent is an ordinary undoable timeline mutation", () => {
+  const state = buildState();
+  const next = hammerVisualTimelineReducer(state, {
+    type: "SET_PACKAGING_INTENT",
+    packaging: {
+      version: 1,
+      intro_asset_id: "11111111-1111-4111-8111-111111111111",
+      outro_asset_id: null,
+      intro_source: "manual",
+      outro_source: null,
+    },
+    updated_at: "2026-08-26T12:00:00.000Z",
+  });
+  assert.equal(next.packaging.intro_asset_id, "11111111-1111-4111-8111-111111111111");
+  assert.equal(next.revision, state.revision + 1);
+});
+
 test("Florida B-roll DELETE_CLIP removes only the exact placement and lane membership", () => {
   const state = buildState();
   const florida = buildClip({ clip_id: "placement:florida-broll", asset_id: "asset_001", lane_id: "lane:primary", label: "Florida B-roll", visual_mode: "broll" });

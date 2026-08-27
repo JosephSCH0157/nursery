@@ -434,7 +434,7 @@ export default function ImageMapPanel({
             </button>)}
           </nav>
 
-          <main className="hs-episode-images-workspace">
+          <main className="hs-episode-images-workspace" data-hearth-image-workspace>
             {workspace.activeItem && selectedEntry ? <>
               <header className="hs-episode-image-cue"><span>Image {activeNumber} of {workspace.progress.total}</span><h4>Moment in the script</h4><blockquote>{workspace.activeItem.scriptMoment}</blockquote><h4>Suggested image</h4><p>{workspace.activeItem.suggestedImage}</p>{draftSectionIntentNote.trim() ? <><h4>Editorial purpose</h4><p>{draftSectionIntentNote}</p></> : null}{canonicalWorkspaceId&&canonicalWorkpieceId&&canonicalPlan?<VisualOpportunityDispositionControl workspaceId={canonicalWorkspaceId} workpieceId={canonicalWorkpieceId} kind="image" opportunityId={selectedEntry.id} opportunityRevisionIdentity={selectedEntry.id} childPlanRevisionId={canonicalPlan.revisionId} childPlanRevision={canonicalPlan.revision} current={currentDisposition} onChanged={setDispositions}/>:null}</header>
 

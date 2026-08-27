@@ -11,7 +11,7 @@ import { DEFAULT_HEARTH_VISUAL_STYLE, normalizeHearthVisualStyle } from "../../l
 type CanonicalImageMapScriptState = {
   status: "idle" | "loading" | "ready" | "error";
   text: string | null;
-  source: "primary_script" | "saved_draft" | null;
+  source: "approved_script" | null;
   includesUnsavedLocalEdits: boolean;
   error: string | null;
 };

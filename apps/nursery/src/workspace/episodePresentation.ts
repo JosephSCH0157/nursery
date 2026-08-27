@@ -7,7 +7,7 @@ export type EpisodeUiTone = "muted" | "ready" | "active" | "done";
 export const EPISODE_UI_STATUS_LABELS: Record<EpisodeUiStatus, string> = {
   draft: "Draft",
   ready: "Ready to Record",
-  scripted: "Ready to Record",
+  scripted: "Script Approved",
   scheduled: "Scheduled",
   recording: "Recording",
   recorded: "Recorded",

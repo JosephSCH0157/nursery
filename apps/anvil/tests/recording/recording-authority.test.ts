@@ -9,11 +9,12 @@ jest.mock('../../src/forge/tongs-user-auth', () => ({
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 const WORKPIECE_ID = '22222222-2222-4222-8222-222222222222';
 const CAPTURE_ID = '33333333-3333-4333-8333-333333333333';
+const CAPTURE_AUTHORITY_ID = '77777777-7777-4777-8777-777777777777';
 const COMPLETION_ID = '55555555-5555-4555-8555-555555555555';
 
 const commit = {
   ok: true as const, workpieceId: WORKPIECE_ID, path: 'recordings/take.webm', createdCradle: false,
-  plannerRecordingSessionId: null, captureSessionId: CAPTURE_ID, mediaRevision: 3,
+  plannerRecordingSessionId: null, captureSessionId: CAPTURE_ID, captureAuthorityId: CAPTURE_AUTHORITY_ID, mediaRevision: 3,
   mediaHash: 'a'.repeat(64), mediaBytes: 4096, mediaContentType: 'video/webm', status: 200,
 };
 
@@ -60,12 +61,41 @@ describe('Anvil canonical recording authority', () => {
     (global as any).fetch = jest.fn(async () => response(200, { ok: true, data: { outcome: 'saved', completion: { id: COMPLETION_ID } } }));
     const { transitionRecordingCompleted } = await import('../../src/forge/workpiece-commit');
     await expect(transitionRecordingCompleted({ commit })).resolves.toEqual(expect.objectContaining({ ok: true, outcome: 'saved' }));
-    expect((global as any).fetch).toHaveBeenCalledWith(expect.stringContaining('/recording-completion-v2'), expect.any(Object));
+    expect((global as any).fetch).toHaveBeenCalledWith(expect.stringContaining('/recording-completion-v3'), expect.any(Object));
     (global as any).fetch = jest.fn(async () => response(503, { error: { code: 'anvil_recording_authority_migration_required' } }));
     await expect(transitionRecordingCompleted({ commit })).resolves.toEqual(expect.objectContaining({ ok: false, outcome: 'unavailable' }));
   });
 
-  test('completes from canonical script-file identity without Ready state or transition', async () => {
+  test('capture establishment requires explicit route identity and returns the server binding', async () => {
+    window.history.replaceState({}, '', `/?workspace_id=${WORKSPACE_ID}&workpiece_id=${WORKPIECE_ID}`);
+    (window as any).__forgeCanonicalScriptIdentity = { workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID, path: 'script/script.md', scriptRevision: 7, scriptHash: 'b'.repeat(64) };
+    (global as any).fetch = jest.fn(async (_url: string, init: RequestInit) => {
+      const request = JSON.parse(String(init.body));
+      return response(200, { ok: true, data: { outcome: 'established', capture_authority: {
+        id: CAPTURE_AUTHORITY_ID, capture_session_id: request.capture_session_id, workspace_id: WORKSPACE_ID, workpiece_id: WORKPIECE_ID,
+        recording_session_id: null, ready_transition_id: '44444444-4444-4444-8444-444444444444', script_path: 'script/script.md',
+        script_revision: 7, script_hash: 'b'.repeat(64), operation_key: request.operation_key, provenance: 'live_established',
+      } } });
+    });
+    const authority = await import('../../src/forge/workpiece-commit');
+    authority.beginRecordingCaptureSession();
+    const result = await authority.ensureRecordingCaptureTarget();
+    expect(result).toEqual(expect.objectContaining({ ok: true, workpieceId: WORKPIECE_ID }));
+    if (result.ok) expect(result.captureAuthority.id).toBe(CAPTURE_AUTHORITY_ID);
+    expect((global as any).fetch).toHaveBeenCalledWith(expect.stringContaining('/recording-capture-authority'), expect.any(Object));
+  });
+
+  test('project or cached browser context cannot substitute for an explicit episode route', async () => {
+    window.history.replaceState({}, '', `/?workspace_id=${WORKSPACE_ID}`);
+    localStorage.setItem('forge_active_workpiece_id_v1', WORKPIECE_ID);
+    (global as any).fetch = jest.fn();
+    const authority = await import('../../src/forge/workpiece-commit');
+    authority.beginRecordingCaptureSession();
+    await expect(authority.ensureRecordingCaptureTarget()).resolves.toEqual(expect.objectContaining({ ok: false, reason: 'explicit_episode_context_required' }));
+    expect((global as any).fetch).not.toHaveBeenCalled();
+  });
+
+  test('completion uses capture authority without re-reading browser script identity', async () => {
     delete (window as any).__forgeCanonicalReadyScript;
     (window as any).__forgeCanonicalScriptIdentity = {
       workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID, path: 'script/script.md',
@@ -75,11 +105,11 @@ describe('Anvil canonical recording authority', () => {
     const { transitionRecordingCompleted } = await import('../../src/forge/workpiece-commit');
     await expect(transitionRecordingCompleted({ commit })).resolves.toEqual(expect.objectContaining({ ok: true, completionId: COMPLETION_ID }));
     const request = JSON.parse((global as any).fetch.mock.calls[0][1].body);
-    expect(request).toEqual(expect.objectContaining({ expected_script_revision: 7, expected_script_hash: 'b'.repeat(64) }));
-    expect(request).not.toHaveProperty('ready_transition_id');
+    expect(request).toEqual(expect.objectContaining({ capture_authority_id: CAPTURE_AUTHORITY_ID }));
+    expect(request).not.toHaveProperty('expected_script_revision');
   });
 
-  test('capture-bound script identity wins over later navigation state', async () => {
+  test('later navigation state cannot alter the completion request', async () => {
     (window as any).__forgeRecordingScriptIdentityByCapture = {
       [CAPTURE_ID]: { workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID, path: 'script/original.md', scriptRevision: 4, scriptHash: 'c'.repeat(64) },
     };
@@ -88,8 +118,29 @@ describe('Anvil canonical recording authority', () => {
     const { transitionRecordingCompleted } = await import('../../src/forge/workpiece-commit');
     await transitionRecordingCompleted({ commit });
     const request = JSON.parse((global as any).fetch.mock.calls[0][1].body);
-    expect(request.script_path).toBe('script/original.md');
-    expect(request.expected_script_revision).toBe(4);
+    expect(request.capture_authority_id).toBe(CAPTURE_AUTHORITY_ID);
+    expect(request).not.toHaveProperty('script_path');
+  });
+
+  test.each([
+    ['keep', 'transitionRecordingKept', '/recording-decision-v2', 'keep'],
+    ['discard', 'transitionRecordingDiscarded', '/recording-decision-v2', 'discard'],
+  ] as const)('%s uses capture-bound workspace identity without legacy Ready state', async (_decision, exportName, endpoint, receiptKey) => {
+    delete (window as any).__forgeCanonicalReadyScript;
+    (window as any).__forgeRecordingScriptIdentityByCapture = {
+      [CAPTURE_ID]: { workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID, path: 'script/script.md', scriptRevision: 7, scriptHash: 'b'.repeat(64) },
+    };
+    (global as any).fetch = jest.fn(async () => response(200, {
+      ok: true,
+      data: { outcome: 'saved', [receiptKey]: { id: '66666666-6666-4666-8666-666666666666' } },
+    }));
+    const authority = await import('../../src/forge/workpiece-commit');
+    const result = await authority[exportName]({ commit, completionId: COMPLETION_ID });
+    expect(result).toEqual(expect.objectContaining({ ok: true, outcome: 'saved' }));
+    expect((global as any).fetch).toHaveBeenCalledWith(expect.stringContaining(endpoint), expect.any(Object));
+    const request = JSON.parse((global as any).fetch.mock.calls[0][1].body);
+    expect(request.capture_authority_id).toBe(CAPTURE_AUTHORITY_ID);
+    expect(request.decision).toBe(_decision);
   });
 
   test('transient completion retry reuses the same logical idempotency identity', async () => {
@@ -102,7 +153,7 @@ describe('Anvil canonical recording authority', () => {
     const first = JSON.parse((global as any).fetch.mock.calls[0][1].body);
     const second = JSON.parse((global as any).fetch.mock.calls[1][1].body);
     expect(first.idempotency_key).toBe(second.idempotency_key);
-    expect(first.capture_session_id).toBe(second.capture_session_id);
+    expect(first.capture_authority_id).toBe(second.capture_authority_id);
     expect(first.media_path).toBe(second.media_path);
   });
 });

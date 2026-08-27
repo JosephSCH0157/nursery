@@ -20,13 +20,28 @@ type CanonicalScriptResult =
   | {
       ok: true;
       text: string;
-      source: "primary_script" | "saved_draft";
+      source: "approved_script";
       includesUnsavedLocalEdits: boolean;
     }
   | {
       ok: false;
       message: string;
     };
+
+export function describeImageCandidateGenerationFailure(error: string | undefined, status: number): string {
+  const raw = error?.trim() ?? "";
+  const normalized = raw.toLowerCase();
+  if (normalized === "terminated" || normalized.includes("connection ended") || normalized.includes("submission_unknown")) {
+    return "The image provider connection ended before Forge received a result. Your prompt and image plan are saved. The provider may still have accepted the request, so do not generate again yet. Refresh this episode to check for a completed image; if none appears, use Upload an image or check API / Ledger before retrying.";
+  }
+  if (status === 429 || normalized.includes("rate limit")) {
+    return "The image provider is temporarily rate-limiting requests. Your prompt and image plan are saved. Wait about a minute, then choose Generate image again.";
+  }
+  if (status >= 500 || !raw) {
+    return "The image service failed before it could return usable options. Your prompt and image plan are saved. Wait a moment and try Generate image again. If it repeats, use Upload an image or check Forge Cloud status.";
+  }
+  return `${raw} Your prompt and image plan are saved. Correct the issue above, then choose Generate image again.`;
+}
 
 type UseImageMapCandidateActionsArgs = {
   operationAuthority: HearthOperationAuthority;
@@ -71,6 +86,7 @@ type UseImageMapCandidateActionsArgs = {
   setImageMapCandidateSelectionError: (next: string | null) => void;
   setImageMapExportMessage: (next: string | null) => void;
   setSelectedImageMapEntryId: (next: string | null) => void;
+  resetImageWorkspaceScroll: () => void;
   publishForgeNotice: (notice: {
     job: "image-generated" | "job-failed";
     title: string;
@@ -202,10 +218,14 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
       if (!args.operationAuthority.isCurrent(operation)) return;
 
       if (!generated.ok) {
-        const failureMessage = generated.error
-          ?? (generated.reason === "conflict"
+        const failureMessage = generated.reason === "conflict"
             ? "Image map changed since last load. Reloaded the latest canonical state."
-            : "Still-candidate generation failed.");
+            : describeImageCandidateGenerationFailure(generated.error, generated.status);
+        console.error("[hearth][image-generation-failed]", {
+          status: generated.status,
+          reason: generated.reason,
+          providerMessage: generated.error ?? null,
+        });
         if (generated.reason === "conflict" && generated.latest) {
           const latest = generated.latest;
           args.setEpisodePackage((prev) => (
@@ -341,6 +361,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
         const nextNumber = nextIndex + 1;
         args.setImageMapExportMessage(`Image ${completedNumber} complete. Image ${nextNumber} is ready.`);
         args.setSelectedImageMapEntryId(nextEntryId);
+        args.resetImageWorkspaceScroll();
       }
     } catch (error) {
       if (!args.operationAuthority.isCurrent(operation)) return;

@@ -103,6 +103,25 @@ describe('recording decision dialog', () => {
     expect(document.getElementById('tp-recording-decision-modal')).toBeNull();
   });
 
+  test('explains missing workspace context without exposing an internal error code', async () => {
+    const dialogPromise = showRecordingDecisionDialog({
+      takeName: 'Episode_context.webm',
+      onKeep: async () => { throw new Error('ready_workspace_missing'); },
+      onDiscard: async () => {},
+    });
+
+    document.querySelector<HTMLButtonElement>('[data-action="keep"]')?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const errorText = document.querySelector<HTMLElement>('[data-role="error"]')?.textContent ?? '';
+    expect(errorText).toContain('recording is still saved');
+    expect(errorText).toContain('Reopen this episode from Hearth');
+    expect(errorText).not.toContain('ready_workspace_missing');
+
+    document.querySelector<HTMLButtonElement>('[data-action="discard"]')?.click();
+    await dialogPromise;
+  });
+
   test('isRecordingDecisionPending returns false when no dialog is shown', () => {
     expect(isRecordingDecisionPending()).toBe(false);
   });

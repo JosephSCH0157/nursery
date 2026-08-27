@@ -6,6 +6,7 @@ import { commitCanonicalScriptApproval } from "../src/lib/hearth-approval-commit
 import {
   NO_CANONICAL_SCRIPT_APPROVAL,
   nextApprovedScriptVersion,
+  readTongsCanonicalApprovedScript,
   resolveCanonicalScriptApproval,
 } from "../src/lib/hearth-approval-authority";
 import { LocalHearthStore } from "../src/storage/local-store";
@@ -72,6 +73,28 @@ function approvalRevision(version: number, createdAt: number, draftId = DRAFT_ID
 
 test("approval authority: canonical reload with zero approvals defeats any recovery claim", () => {
   assert.deepEqual(resolveCanonicalScriptApproval([], DRAFT_ID), NO_CANONICAL_SCRIPT_APPROVAL);
+});
+
+test("visual script reads use immutable current approval text instead of a mutable primary file", async () => {
+  const restore = installStoreRuntime(async (input) => {
+    assert.match(String(input), /\/script-approval$/);
+    return jsonResponse({ ok: true, data: { current_approval: {
+      id: "44444444-4444-4444-8444-444444444444",
+      approval_revision: 2,
+      script_content_hash: "a".repeat(64),
+      script_text: "The immutable approved script.",
+    } } });
+  });
+  try {
+    assert.deepEqual(await readTongsCanonicalApprovedScript(WORKPIECE_ID), {
+      approvalId: "44444444-4444-4444-8444-444444444444",
+      approvalRevision: 2,
+      contentHash: "a".repeat(64),
+      text: "The immutable approved script.",
+    });
+  } finally {
+    restore();
+  }
 });
 
 test("approval authority: local revision storage is explicitly recovery-only", async () => {

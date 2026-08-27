@@ -711,8 +711,18 @@ export default function ThumbnailV3Panel(props: Props) {
       requestedStyleSource: styleSource,
     });
     if (!composite.ok) { setSaveState("error"); setLoadError(`Base artwork was created, but the finished thumbnail could not be composed: ${composite.error}`); return; }
-    setPkg(composite.episodePackage); setToken(composite.metadataUpdatedAt);
-    const completedLaunch = composite.episodePackage.thumbnail.launch_variant_revisions.at(-1);
+    // The composite commit is authoritative for the write, but the acceptance
+    // workspace is derived from a canonical package read plus candidate
+    // authority. Read both back before declaring generation complete so the
+    // third thumbnail can reveal the Finish action without a page reload.
+    const [canonicalAfterComposite, candidateAuthorityAfterComposite] = await Promise.all([
+      readCanonicalThumbnailWorkspaceV3({ workpieceId: props.workpieceId, workspaceId: props.workspaceId }),
+      readThumbnailCandidateAuthorityProjection({ workspaceId: props.workspaceId, workpieceId: props.workpieceId }),
+    ]);
+    setPkg(canonicalAfterComposite.episodePackage);
+    setToken(canonicalAfterComposite.metadataUpdatedAt);
+    setCandidateAuthority(candidateAuthorityAfterComposite);
+    const completedLaunch = canonicalAfterComposite.episodePackage.thumbnail.launch_variant_revisions.at(-1);
     if (styleSource === "brand_profile" && completedLaunch?.snapshot.style_source !== "brand_profile") {
       setSaveState("error");
       setLoadError("The thumbnail was created, but Tongs did not verify the episode's canonical brand style. It has not been represented as a My Brand result.");
@@ -720,7 +730,7 @@ export default function ThumbnailV3Panel(props: Props) {
     }
     setSaveState("saved");
     void (async () => { try {
-      await projectThumbnailLaunchFacts({ workspaceId: props.workspaceId, workpieceId: props.workpieceId, episodePackage: composite.episodePackage });
+      await projectThumbnailLaunchFacts({ workspaceId: props.workspaceId, workpieceId: props.workpieceId, episodePackage: canonicalAfterComposite.episodePackage });
       setMemoryProjection(await loadThumbnailMemoryProjection(props.workspaceId)); setMemoryState("loaded"); setMemoryError(null);
     } catch (error) { setMemoryState("unavailable"); setMemoryError(error instanceof Error ? error.message : "Workspace thumbnail memory is unavailable."); } })();
   };

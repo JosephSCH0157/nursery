@@ -45,6 +45,9 @@ function detectMime(bytes: Uint8Array): string | null {
   if (bytes.length >= 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) return "video/webm";
   if (bytes.length >= 8 && bytes[0] === 0x89 && String.fromCharCode(...bytes.slice(1, 4)) === "PNG") return "image/png";
   if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return "image/jpeg";
+  if (bytes.length >= 12 && String.fromCharCode(...bytes.slice(0, 4)) === "RIFF" && String.fromCharCode(...bytes.slice(8, 12)) === "WAVE") return "audio/wav";
+  if (bytes.length >= 3 && String.fromCharCode(...bytes.slice(0, 3)) === "ID3") return "audio/mpeg";
+  if (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1]! & 0xe0) === 0xe0) return "audio/mpeg";
   return null;
 }
 
@@ -70,21 +73,24 @@ async function withTempMedia<T>(bytes: Uint8Array, extension: string, work: (pat
   }
 }
 
-export async function inspectBrollMedia(bytes: Uint8Array, expected: "video" | "poster"): Promise<VerifiedBrollMedia> {
+export async function inspectBrollMedia(bytes: Uint8Array, expected: "video" | "poster" | "audio"): Promise<VerifiedBrollMedia> {
   if (!bytes.length || bytes.length > MAX_BROLL_BYTES) throw new Error("broll_media_size_invalid");
   const mimeType = detectMime(bytes);
-  if (!mimeType || (expected === "video" ? !mimeType.startsWith("video/") : !mimeType.startsWith("image/"))) throw new Error("broll_media_signature_invalid");
+  const effectiveMime = expected === "audio" && mimeType === "video/mp4" ? "audio/mp4" : mimeType;
+  if (!effectiveMime || (expected === "video" ? !effectiveMime.startsWith("video/") : expected === "audio" ? !effectiveMime.startsWith("audio/") : !effectiveMime.startsWith("image/"))) throw new Error("broll_media_signature_invalid");
   if (expected === "poster") {
     const metadata = await sharp(bytes).metadata();
     if (!metadata.width || !metadata.height) throw new Error("broll_poster_metadata_invalid");
-    return { bytes, mimeType, width: metadata.width, height: metadata.height, durationMs: null };
+    return { bytes, mimeType: effectiveMime, width: metadata.width, height: metadata.height, durationMs: null };
   }
-  return await withTempMedia(bytes, mimeType === "video/mp4" ? "mp4" : "webm", async (path) => {
-    const output = await run("ffprobe", ["-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width,height:format=duration", "-of", "json", path]);
+  const extension = effectiveMime === "video/mp4" || effectiveMime === "audio/mp4" ? "mp4"
+    : effectiveMime === "audio/wav" ? "wav" : effectiveMime === "audio/mpeg" ? "mp3" : "webm";
+  return await withTempMedia(bytes, extension, async (path) => {
+    const output = await run("ffprobe", ["-v", "error", "-show_entries", "stream=width,height:format=duration", "-of", "json", path]);
     const parsed = JSON.parse(output) as { streams?: Array<{ width?: number; height?: number }>; format?: { duration?: string } };
     const stream = parsed.streams?.[0]; const duration = Number(parsed.format?.duration ?? 0);
-    if (!stream?.width || !stream.height || !Number.isFinite(duration) || duration <= 0) throw new Error("broll_video_metadata_invalid");
-    return { bytes, mimeType, width: stream.width, height: stream.height, durationMs: Math.round(duration * 1000) };
+    if (!Number.isFinite(duration) || duration <= 0 || (expected === "video" && (!stream?.width || !stream.height))) throw new Error("broll_timed_media_metadata_invalid");
+    return { bytes, mimeType: effectiveMime, width: stream?.width ?? 0, height: stream?.height ?? 0, durationMs: Math.round(duration * 1000) };
   });
 }
 

@@ -117,7 +117,7 @@ export function resolveCanonicalImageMapScriptSourceLabel(
   state: CanonicalImageMapScriptState,
 ): string | null {
   if (state.status !== "ready" || !state.source) return null;
-  return state.source === "primary_script" ? "Source: published script" : "Source: saved draft";
+  return "Source: approved script";
 }
 
 export function resolveCanonicalImageMapScriptHint(
@@ -126,7 +126,7 @@ export function resolveCanonicalImageMapScriptHint(
   if (state.status === "error") return state.error;
   if (state.status !== "ready") return null;
   if (state.includesUnsavedLocalEdits) {
-    return "Unsaved local script edits are not included here. Re-anchoring uses the current canonical saved script.";
+    return "Unsaved local script edits are not included here. Re-anchoring uses the current immutable approved script.";
   }
   return "Pick the exact sentence or paragraph that should drive still generation for this beat.";
 }

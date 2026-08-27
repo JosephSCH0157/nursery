@@ -11,6 +11,7 @@ import {
   transitionRecordingCompleted,
   transitionRecordingDiscarded,
   transitionRecordingKept,
+  type AnvilCaptureAuthority,
   type RecordingCommitResult,
 } from '../forge/workpiece-commit';
 import { startSpeechBackendForSession, stopSpeechBackendForSession } from '../features/speech-loader';
@@ -50,6 +51,7 @@ import {
   type RecordingSaveIdentity = {
     workpieceId: string | null;
     baseTitle: string;
+    captureAuthority: AnvilCaptureAuthority | null;
   };
   let activeSaveIdentity: RecordingSaveIdentity | null = null;
   const transcriptController = new RecordingTranscriptController({
@@ -506,6 +508,7 @@ import {
     return {
       workpieceId,
       baseTitle,
+      captureAuthority: null,
     };
   }
 
@@ -824,7 +827,12 @@ import {
 
       const strategy = selectBestRecordingStrategy({ mode: recordingMode });
       const captureSessionId = beginRecordingCaptureSession();
-      activeSaveIdentity = captureRecordingSaveIdentity();
+      const captureTarget = await ensureRecordingCaptureTarget();
+      if (!captureTarget.ok) {
+        showRecorderToast('Recording cannot start because this page is not explicitly bound to a Ready episode. Return to Hearth and open this episode in Anvil again.', 'error');
+        throw new Error(captureTarget.reason);
+      }
+      activeSaveIdentity = { ...captureRecordingSaveIdentity(), captureAuthority: captureTarget.captureAuthority };
       activeStrategy = strategy;
 
       if (recordingMode === 'audio' && strategy.mechanism === 'pcm-wav-fallback') {
@@ -1047,6 +1055,7 @@ import {
         canonicalAttempted = true;
         try {
           const commitResult = await commitRecordingBytesToTongs({
+            captureAuthority: opts.saveIdentity?.captureAuthority ?? (() => { throw new Error('capture_authority_unavailable'); })(),
             bytes,
             originalName: name,
             contentType,

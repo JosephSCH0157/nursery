@@ -1,12 +1,14 @@
 import type { HammerVisualClip } from "../visuals/model/hammerVisualTypes";
 
-export type HammerPackagingPhase = "intro" | "composition" | "outro";
+export type HammerPackagingPhase = "intro" | "composition" | "outro" | "complete";
 
 export type HammerPackagingTransport = {
   introDurationSec: number;
   outroDurationSec: number;
   compositionOffsetSec: number;
   compositionDurationSec: number;
+  programEndTransportSec: number;
+  outroStartTransportSec: number;
   totalDurationSec: number;
   phase: HammerPackagingPhase;
   compositionPlayheadSec: number;
@@ -39,7 +41,22 @@ export function resolvePackagingTransport(args: {
   const totalDurationSec = clampTimeSec(introDurationSec + compositionDurationSec + outroDurationSec);
   const clampedPlayheadSec = Math.max(0, Math.min(totalDurationSec, args.playheadSec));
   const compositionOffsetSec = introDurationSec;
-  const compositionEndSec = compositionOffsetSec + compositionDurationSec;
+  const programEndTransportSec = compositionOffsetSec + compositionDurationSec;
+
+  if (clampedPlayheadSec >= totalDurationSec) {
+    return {
+      introDurationSec,
+      outroDurationSec,
+      compositionOffsetSec,
+      compositionDurationSec,
+      programEndTransportSec,
+      outroStartTransportSec: programEndTransportSec,
+      totalDurationSec,
+      phase: "complete",
+      compositionPlayheadSec: compositionDurationSec,
+      phasePlayheadSec: outroDurationSec,
+    };
+  }
 
   if (introDurationSec > 0 && clampedPlayheadSec < compositionOffsetSec) {
     return {
@@ -47,6 +64,8 @@ export function resolvePackagingTransport(args: {
       outroDurationSec,
       compositionOffsetSec,
       compositionDurationSec,
+      programEndTransportSec,
+      outroStartTransportSec: programEndTransportSec,
       totalDurationSec,
       phase: "intro",
       compositionPlayheadSec: 0,
@@ -54,16 +73,18 @@ export function resolvePackagingTransport(args: {
     };
   }
 
-  if (outroDurationSec > 0 && clampedPlayheadSec > compositionEndSec) {
+  if (outroDurationSec > 0 && clampedPlayheadSec >= programEndTransportSec) {
     return {
       introDurationSec,
       outroDurationSec,
       compositionOffsetSec,
       compositionDurationSec,
+      programEndTransportSec,
+      outroStartTransportSec: programEndTransportSec,
       totalDurationSec,
       phase: "outro",
       compositionPlayheadSec: compositionDurationSec,
-      phasePlayheadSec: clampedPlayheadSec - compositionEndSec,
+      phasePlayheadSec: clampedPlayheadSec - programEndTransportSec,
     };
   }
 
@@ -72,6 +93,8 @@ export function resolvePackagingTransport(args: {
     outroDurationSec,
     compositionOffsetSec,
     compositionDurationSec,
+    programEndTransportSec,
+    outroStartTransportSec: programEndTransportSec,
     totalDurationSec,
     phase: "composition",
     compositionPlayheadSec: Math.max(0, Math.min(compositionDurationSec, clampedPlayheadSec - compositionOffsetSec)),
@@ -111,9 +134,9 @@ export function transportTimeToActiveMediaTime(args: {
     return Math.max(0, Math.min(args.transport.introDurationSec, timeSec));
   }
   if (args.transport.phase === "outro") {
-    const outroStartSec = args.transport.compositionOffsetSec + args.transport.compositionDurationSec;
-    return Math.max(0, Math.min(args.transport.outroDurationSec, timeSec - outroStartSec));
+    return Math.max(0, Math.min(args.transport.outroDurationSec, timeSec - args.transport.outroStartTransportSec));
   }
+  if (args.transport.phase === "complete") return args.transport.outroDurationSec;
   return transportTimeToCompositionTime({
     timeSec,
     compositionOffsetSec: args.transport.compositionOffsetSec,
@@ -131,8 +154,9 @@ export function activeMediaTimeToTransportTime(args: {
   }
   if (args.transport.phase === "outro") {
     return clampTimeSec(
-      args.transport.compositionOffsetSec + args.transport.compositionDurationSec + Math.max(0, Math.min(args.transport.outroDurationSec, timeSec)),
+      args.transport.outroStartTransportSec + Math.max(0, Math.min(args.transport.outroDurationSec, timeSec)),
     );
   }
+  if (args.transport.phase === "complete") return args.transport.totalDurationSec;
   return compositionTimeToTransportTime(timeSec, args.transport.compositionOffsetSec);
 }

@@ -24,13 +24,11 @@ import {
 } from "./hammerIntroOutroState";
 import {
   copyWorkpieceMediaFile,
-  saveIntroOutroSelection,
   saveWorkspaceIntroOutroDefaults,
   type HammerIntroOutroSelection,
   type HammerStoredMediaFile,
   type HammerWorkspaceIntroOutroDefaults,
 } from "../lib/hammerSourceDeskMediaApi";
-import { deriveStableHammerAssetIdFromPath } from "../lib/hammerAssetIdentity";
 import type { HammerWorkspaceFocusOverride } from "./hammerWorkspaceTimeline";
 import { roundToTenth } from "./hammerWorkspaceTimeline";
 import { normalizeWorkpieceRelativePath } from "../../../../packages/contracts/workpiece-paths";
@@ -217,6 +215,7 @@ export function useHammerWorkspaceShellVisualEditing(
 
   const imagePlacementDraftWindowsRef = useRef<Record<string, HammerImagePlacementDraftWindow>>({});
   const imagePlacementTransformsRef = useRef<Record<string, HammerImagePlacementTransform>>({});
+  const pickerInitializedFromPackagingRef = useRef<string | null>(null);
 
   const visualPlacementsById = useRef<Map<string, HammerVisualPlacementRecord>>(new Map());
   visualPlacementsById.current = new Map((args.editableVisualPlacements?.placements ?? []).map((placement) => [placement.placement_id, placement]));
@@ -236,6 +235,18 @@ export function useHammerWorkspaceShellVisualEditing(
   useEffect(() => {
     imagePlacementTransformsRef.current = imagePlacementTransforms;
   }, [imagePlacementTransforms]);
+
+  useEffect(() => {
+    const packaging = args.editableVisualTimeline?.packaging;
+    if (!packaging || pickerInitializedFromPackagingRef.current === args.workpieceId) return;
+    pickerInitializedFromPackagingRef.current = args.workpieceId;
+    setIntroOutroSelection({
+      schema_version: 1,
+      intro_asset_id: packaging.intro_asset_id,
+      outro_asset_id: packaging.outro_asset_id,
+      updated_at: new Date().toISOString(),
+    });
+  }, [args.editableVisualTimeline?.packaging, args.workpieceId]);
 
   const commitVisualPlacementWindow = useCallback((
     placementId: string,
@@ -656,6 +667,12 @@ export function useHammerWorkspaceShellVisualEditing(
             updated_at: updatedAt,
           });
           const nextTimeline = args.resolveCanonicalVisualTimeline(nextState);
+          const nextPackaging = placementArgs.systemMeta ? {
+            ...nextTimeline.packaging,
+            ...(placementArgs.systemMeta.system_type === "intro"
+              ? { intro_asset_id: assetId, intro_source: placementArgs.systemMeta.system_source }
+              : { outro_asset_id: assetId, outro_source: placementArgs.systemMeta.system_source }),
+          } : nextTimeline.packaging;
           const nextAssets = nextTimeline.assets.some((asset) => asset.asset_id === assetId)
             ? nextTimeline.assets.map((asset) => (asset.asset_id === assetId
               ? migrateLegacyPlacementRecordToAsset({ record: nextPlacement, asset_id: assetId, updated_at: updatedAt })
@@ -692,17 +709,29 @@ export function useHammerWorkspaceShellVisualEditing(
             ...nextState,
             visualTimeline: {
               ...nextTimeline,
+              packaging: nextPackaging,
               assets: nextAssets,
               clips: nextClips,
             },
             visualPlacements: deriveLegacyVisualPlacementsFromTimeline({
               ...nextTimeline,
+              packaging: nextPackaging,
               assets: nextAssets,
               clips: nextClips,
             }),
           };
         }
         return args.applyVisualTimelineActions(before, [
+          ...(placementArgs.systemMeta ? [{
+            type: "SET_PACKAGING_INTENT" as const,
+            packaging: {
+              ...visualTimeline.packaging,
+              ...(placementArgs.systemMeta.system_type === "intro"
+                ? { intro_asset_id: assetId, intro_source: placementArgs.systemMeta.system_source }
+                : { outro_asset_id: assetId, outro_source: placementArgs.systemMeta.system_source }),
+            },
+            updated_at: updatedAt,
+          }] : []),
           {
             type: "UPSERT_ASSETS",
             assets: [migrateLegacyPlacementRecordToAsset({ record: nextPlacement, asset_id: assetId, updated_at: updatedAt })],
@@ -725,9 +754,20 @@ export function useHammerWorkspaceShellVisualEditing(
       toolId: "finishing",
       immediatePersist: true,
       computeAfter: (before) => {
-        const clip = args.resolveCanonicalVisualTimeline(before).clips.find((candidate) => candidate.entry_id === entryId) ?? null;
-        if (!clip) return before;
-        return args.applyVisualTimelineAction(before, {
+        const timeline = args.resolveCanonicalVisualTimeline(before);
+        const clip = timeline.clips.find((candidate) => candidate.entry_id === entryId) ?? null;
+        let next = before;
+        if (entryId === PACKAGING_INTRO_ENTRY_ID || entryId === PACKAGING_OUTRO_ENTRY_ID) {
+          next = args.applyVisualTimelineAction(next, {
+            type: "SET_PACKAGING_INTENT",
+            packaging: entryId === PACKAGING_INTRO_ENTRY_ID
+              ? { ...timeline.packaging, intro_asset_id: null, intro_source: null }
+              : { ...timeline.packaging, outro_asset_id: null, outro_source: null },
+            updated_at: new Date().toISOString(),
+          });
+        }
+        if (!clip) return next;
+        return args.applyVisualTimelineAction(next, {
           type: "DELETE_CLIP",
           clip_id: clip.clip_id,
           updated_at: new Date().toISOString(),
@@ -736,8 +776,12 @@ export function useHammerWorkspaceShellVisualEditing(
     });
   }, [args]);
 
-  const upsertResolvedIntroPlacement = useCallback((assetId: string, assetPath: string, source: "profile" | "episode" | "manual"): void => {
-    const introDurationSec = Math.min(6, Math.max(2, roundToTenth(Math.max(2, args.transcriptDurationSec * 0.1))));
+  const upsertResolvedIntroPlacement = useCallback((assetId: string, assetPath: string, source: "profile" | "episode" | "manual", durationMs?: number | null): void => {
+    const introDurationSec = Math.round(Math.max(0, durationMs ?? 0)) / 1000;
+    if (introDurationSec <= 0) {
+      args.setTranscriptTimingHint("Intro duration is unavailable. Re-upload the asset so Tongs can inspect it.");
+      return;
+    }
     upsertPackagingPlacement({
       entryId: PACKAGING_INTRO_ENTRY_ID,
       assetPath,
@@ -749,10 +793,14 @@ export function useHammerWorkspaceShellVisualEditing(
       uncertaintyFlags: ["packaging:intro"],
       systemMeta: { system_managed: true, system_type: "intro", system_source: source, system_asset_id: assetId },
     });
-  }, [args.transcriptDurationSec, upsertPackagingPlacement]);
+  }, [args.setTranscriptTimingHint, upsertPackagingPlacement]);
 
-  const upsertResolvedOutroPlacement = useCallback((assetId: string, assetPath: string, source: "profile" | "episode" | "manual"): void => {
-    const outroDurationSec = Math.min(6, Math.max(2, roundToTenth(Math.max(2, args.transcriptDurationSec * 0.1))));
+  const upsertResolvedOutroPlacement = useCallback((assetId: string, assetPath: string, source: "profile" | "episode" | "manual", durationMs?: number | null): void => {
+    const outroDurationSec = Math.round(Math.max(0, durationMs ?? 0)) / 1000;
+    if (outroDurationSec <= 0) {
+      args.setTranscriptTimingHint("Outro duration is unavailable. Re-upload the asset so Tongs can inspect it.");
+      return;
+    }
     const startSec = Math.max(0, roundToTenth(args.transcriptDurationSec - outroDurationSec));
     upsertPackagingPlacement({
       entryId: PACKAGING_OUTRO_ENTRY_ID,
@@ -765,7 +813,7 @@ export function useHammerWorkspaceShellVisualEditing(
       uncertaintyFlags: ["packaging:outro"],
       systemMeta: { system_managed: true, system_type: "outro", system_source: source, system_asset_id: assetId },
     });
-  }, [args.transcriptDurationSec, upsertPackagingPlacement]);
+  }, [args.setTranscriptTimingHint, args.transcriptDurationSec, upsertPackagingPlacement]);
 
   const buildWorkspaceDefaultIntroOutroDestPath = useCallback((kind: "intro" | "outro", sourcePath: string): string => {
     const normalized = normalizeWorkpieceRelativePath(args.workpieceId, sourcePath);
@@ -803,13 +851,14 @@ export function useHammerWorkspaceShellVisualEditing(
     if (repairPlan.copyIntro && defaults.intro) {
       try {
         const destPath = buildWorkspaceDefaultIntroOutroDestPath("intro", defaults.intro.path);
-        await copyWorkpieceMediaFile({
+        const copied = await copyWorkpieceMediaFile({
           sourceWorkpieceId: defaults.intro.workpiece_id,
           sourcePath: defaults.intro.path,
           destWorkpieceId: args.workpieceId,
           destPath,
+          sourceAssetId: defaults.intro.asset_id,
         });
-        next.intro_asset_id = deriveStableHammerAssetIdFromPath(destPath);
+        next.intro_asset_id = copied.assetId;
         appliedIntro = true;
       } catch (error) {
         console.warn("[Hammer][IntroOutroDefaults] Failed to apply intro default:", error);
@@ -818,20 +867,20 @@ export function useHammerWorkspaceShellVisualEditing(
     if (repairPlan.copyOutro && defaults.outro) {
       try {
         const destPath = buildWorkspaceDefaultIntroOutroDestPath("outro", defaults.outro.path);
-        await copyWorkpieceMediaFile({
+        const copied = await copyWorkpieceMediaFile({
           sourceWorkpieceId: defaults.outro.workpiece_id,
           sourcePath: defaults.outro.path,
           destWorkpieceId: args.workpieceId,
           destPath,
+          sourceAssetId: defaults.outro.asset_id,
         });
-        next.outro_asset_id = deriveStableHammerAssetIdFromPath(destPath);
+        next.outro_asset_id = copied.assetId;
         appliedOutro = true;
       } catch (error) {
         console.warn("[Hammer][IntroOutroDefaults] Failed to apply outro default:", error);
       }
     }
     if (!appliedIntro && !appliedOutro) return null;
-    await saveIntroOutroSelection({ workpieceId: args.workpieceId, selection: next });
     return { selection: next, appliedIntro, appliedOutro };
   }, [args.storedMediaFiles, args.workpieceId, buildWorkspaceDefaultIntroOutroDestPath]);
 
@@ -851,34 +900,26 @@ export function useHammerWorkspaceShellVisualEditing(
     if (syncPlan.removeIntro) {
       removePackagingPlacement(PACKAGING_INTRO_ENTRY_ID, "Remove packaging intro");
     } else if (syncPlan.applyIntro) {
-      upsertResolvedIntroPlacement(syncPlan.applyIntro.assetId, syncPlan.applyIntro.path, syncArgs.introSource);
+      upsertResolvedIntroPlacement(syncPlan.applyIntro.assetId, syncPlan.applyIntro.path, syncArgs.introSource, candidateItemsById.get(syncPlan.applyIntro.assetId)?.durationMs);
     }
     if (syncPlan.removeOutro) {
       removePackagingPlacement(PACKAGING_OUTRO_ENTRY_ID, "Remove packaging outro");
     } else if (syncPlan.applyOutro) {
-      upsertResolvedOutroPlacement(syncPlan.applyOutro.assetId, syncPlan.applyOutro.path, syncArgs.outroSource);
+      upsertResolvedOutroPlacement(syncPlan.applyOutro.assetId, syncPlan.applyOutro.path, syncArgs.outroSource, candidateItemsById.get(syncPlan.applyOutro.assetId)?.durationMs);
     }
   }, [packagingIntroPlacement?.asset_path, packagingOutroPlacement?.asset_path, removePackagingPlacement, upsertResolvedIntroPlacement, upsertResolvedOutroPlacement]);
 
   const persistIntroOutroSelection = useCallback(async (next: HammerIntroOutroSelection): Promise<void> => {
-    setSavingIntroOutro(true);
+    setIntroOutroSelection(next);
     args.setSourceDeskError(null);
     try {
-      await saveIntroOutroSelection({ workpieceId: args.workpieceId, selection: next });
-      setIntroOutroSelection(next);
-      reconcileIntroOutroSelectionWithPackaging({
-        selection: next,
-        mediaFiles: args.storedMediaFiles,
-        introSource: "episode",
-        outroSource: "episode",
-      });
       if (applyIntroOutroSelectionToFutureEpisodes) {
         const introSourcePath = next.intro_asset_id ? introOutroCandidateItemsById.get(next.intro_asset_id)?.path ?? null : null;
         const outroSourcePath = next.outro_asset_id ? introOutroCandidateItemsById.get(next.outro_asset_id)?.path ?? null : null;
         const defaults: HammerWorkspaceIntroOutroDefaults = {
           schema_version: 1,
-          intro: introSourcePath ? { workpiece_id: args.workpieceId, path: introSourcePath } : null,
-          outro: outroSourcePath ? { workpiece_id: args.workpieceId, path: outroSourcePath } : null,
+          intro: introSourcePath ? { asset_id: next.intro_asset_id, workpiece_id: args.workpieceId, path: introSourcePath } : null,
+          outro: outroSourcePath ? { asset_id: next.outro_asset_id, workpiece_id: args.workpieceId, path: outroSourcePath } : null,
           updated_at: new Date().toISOString(),
         };
         setSavingWorkspaceIntroOutroDefaults(true);
@@ -894,7 +935,7 @@ export function useHammerWorkspaceShellVisualEditing(
     } finally {
       setSavingIntroOutro(false);
     }
-  }, [applyIntroOutroSelectionToFutureEpisodes, args, reconcileIntroOutroSelectionWithPackaging]);
+  }, [applyIntroOutroSelectionToFutureEpisodes, args, introOutroCandidateItemsById]);
 
   const persistWorkspaceIntroOutroDefaultsNow = useCallback(async (): Promise<void> => {
     args.setSourceDeskError(null);
@@ -902,8 +943,8 @@ export function useHammerWorkspaceShellVisualEditing(
     const outroSourcePath = introOutroSelection.outro_asset_id ? introOutroCandidateItemsById.get(introOutroSelection.outro_asset_id)?.path ?? null : null;
     const defaults: HammerWorkspaceIntroOutroDefaults = {
       schema_version: 1,
-      intro: introSourcePath ? { workpiece_id: args.workpieceId, path: introSourcePath } : null,
-      outro: outroSourcePath ? { workpiece_id: args.workpieceId, path: outroSourcePath } : null,
+      intro: introSourcePath ? { asset_id: introOutroSelection.intro_asset_id, workpiece_id: args.workpieceId, path: introSourcePath } : null,
+      outro: outroSourcePath ? { asset_id: introOutroSelection.outro_asset_id, workpiece_id: args.workpieceId, path: outroSourcePath } : null,
       updated_at: new Date().toISOString(),
     };
     setSavingWorkspaceIntroOutroDefaults(true);
@@ -923,7 +964,7 @@ export function useHammerWorkspaceShellVisualEditing(
       args.setTranscriptTimingHint("Intro asset is unavailable. Re-upload or re-select it in Intro/Outro Source Desk.");
       return;
     }
-    upsertResolvedIntroPlacement(assetId, resolved.path, source);
+    upsertResolvedIntroPlacement(assetId, resolved.path, source, resolved.durationMs);
   }, [args.setTranscriptTimingHint, upsertResolvedIntroPlacement]);
 
   const applyOutroToTimeline = useCallback((assetId: string, source: "profile" | "episode" | "manual"): void => {
@@ -932,7 +973,7 @@ export function useHammerWorkspaceShellVisualEditing(
       args.setTranscriptTimingHint("Outro asset is unavailable. Re-upload or re-select it in Intro/Outro Source Desk.");
       return;
     }
-    upsertResolvedOutroPlacement(assetId, resolved.path, source);
+    upsertResolvedOutroPlacement(assetId, resolved.path, source, resolved.durationMs);
   }, [args.setTranscriptTimingHint, upsertResolvedOutroPlacement]);
 
   const applyIntroPlacement = useCallback((): void => {
@@ -952,6 +993,30 @@ export function useHammerWorkspaceShellVisualEditing(
     }
     applyOutroToTimeline(assetId, "manual");
   }, [applyOutroToTimeline, args.setTranscriptTimingHint, introOutroSelection.outro_asset_id]);
+
+  useEffect(() => {
+    const packaging = args.editableVisualTimeline?.packaging;
+    if (!packaging) return;
+    if (packaging.intro_asset_id && !packagingIntroPlacement) {
+      const asset = introOutroCandidateItemsById.get(packaging.intro_asset_id);
+      if (asset?.path && asset.durationMs && asset.durationMs > 0) {
+        upsertResolvedIntroPlacement(packaging.intro_asset_id, asset.path, packaging.intro_source === "profile" ? "profile" : packaging.intro_source === "manual" ? "manual" : "episode", asset.durationMs);
+      }
+    }
+    if (packaging.outro_asset_id && !packagingOutroPlacement) {
+      const asset = introOutroCandidateItemsById.get(packaging.outro_asset_id);
+      if (asset?.path && asset.durationMs && asset.durationMs > 0) {
+        upsertResolvedOutroPlacement(packaging.outro_asset_id, asset.path, packaging.outro_source === "profile" ? "profile" : packaging.outro_source === "manual" ? "manual" : "episode", asset.durationMs);
+      }
+    }
+  }, [
+    args.editableVisualTimeline?.packaging,
+    introOutroCandidateItemsById,
+    packagingIntroPlacement,
+    packagingOutroPlacement,
+    upsertResolvedIntroPlacement,
+    upsertResolvedOutroPlacement,
+  ]);
 
   const toggleLogoOverlay = useCallback((): void => {
     if (packagingLogoPlacement) {

@@ -4,7 +4,7 @@ import type { EpisodeImageMapEntry } from "../../lib/episode-package-v2";
 type CanonicalImageMapScriptState = {
   status: "idle" | "loading" | "ready" | "error";
   text: string | null;
-  source: "primary_script" | "saved_draft" | null;
+  source: "approved_script" | null;
   includesUnsavedLocalEdits: boolean;
   error: string | null;
 };
@@ -17,7 +17,7 @@ type UseCanonicalImageMapScriptStateLoaderArgs = {
     | {
         ok: true;
         text: string;
-        source: "primary_script" | "saved_draft";
+        source: "approved_script";
         includesUnsavedLocalEdits: boolean;
       }
     | {

@@ -17,7 +17,7 @@ type CanonicalScriptResult =
   | {
       ok: true;
       text: string;
-      source: "primary_script" | "saved_draft";
+      source: "approved_script";
       includesUnsavedLocalEdits: boolean;
     }
   | {

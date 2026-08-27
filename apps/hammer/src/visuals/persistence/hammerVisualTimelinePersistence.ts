@@ -23,6 +23,7 @@ import type {
   HammerVisualClip,
   HammerVisualSourceMode,
   HammerVisualTimelineState,
+  HammerPackagingIntentSource,
 } from "../model/hammerVisualTypes";
 import { isHammerDevConsoleEnabled } from "../../lib/hammerDevConsole";
 
@@ -59,6 +60,24 @@ function normalizeAssetKind(value: unknown): HammerVisualAssetKind {
 
 function normalizeSourceMode(value: unknown): HammerVisualSourceMode {
   return value === "manual" || value === "seeded" ? value : "packaging";
+}
+
+function normalizePackagingIntent(value: unknown, clips: HammerVisualClip[]) {
+  const row = readRecord(value);
+  const legacyIntro = clips.find((clip) => clip.system_type === "intro") ?? null;
+  const legacyOutro = clips.find((clip) => clip.system_type === "outro") ?? null;
+  const source = (candidate: unknown, fallback: HammerVisualClip | null): HammerPackagingIntentSource | null => {
+    if (candidate === "profile" || candidate === "episode" || candidate === "manual" || candidate === "legacy") return candidate;
+    if (fallback?.system_source === "profile" || fallback?.system_source === "episode" || fallback?.system_source === "manual") return fallback.system_source;
+    return fallback ? "legacy" : null;
+  };
+  return {
+    version: 1 as const,
+    intro_asset_id: readString(row?.intro_asset_id) ?? legacyIntro?.system_asset_id ?? legacyIntro?.asset_id ?? null,
+    outro_asset_id: readString(row?.outro_asset_id) ?? legacyOutro?.system_asset_id ?? legacyOutro?.asset_id ?? null,
+    intro_source: source(row?.intro_source, legacyIntro),
+    outro_source: source(row?.outro_source, legacyOutro),
+  };
 }
 
 function normalizeCanonicalTimeline(value: unknown): HammerVisualTimelineState | null {
@@ -188,6 +207,7 @@ function normalizeCanonicalTimeline(value: unknown): HammerVisualTimelineState |
       revision: typeof row.revision === "number" && Number.isInteger(row.revision) && row.revision > 0 ? row.revision : 1,
       updated_at: readString(row.updated_at) ?? "1970-01-01T00:00:00.000Z",
       selected_clip_id: readString(row.selected_clip_id),
+      packaging: normalizePackagingIntent(row.packaging, clips),
       assets,
       clips,
       lanes,
@@ -241,6 +261,8 @@ export function buildHammerVisualTimelineSaveRequest(args: {
   active_session_id?: string | null;
   last_opened_at?: string;
 }): Pick<HammerPersistenceSaveRequest, "written_by" | "active_session_id" | "last_opened_at" | "visual_timeline"> {
+  const persistedClips = args.timeline.clips.filter((clip) => clip.system_type !== "intro" && clip.system_type !== "outro");
+  const persistedClipIds = new Set(persistedClips.map((clip) => clip.clip_id));
   return {
     written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
     active_session_id: args.active_session_id ?? null,
@@ -248,6 +270,9 @@ export function buildHammerVisualTimelineSaveRequest(args: {
     visual_timeline: {
       data: assertValidTimelineState(createEmptyVisualTimelineState({
         ...args.timeline,
+        clips: persistedClips,
+        lanes: args.timeline.lanes.map((lane) => ({ ...lane, clip_ids: lane.clip_ids.filter((clipId) => persistedClipIds.has(clipId)) })),
+        selected_clip_id: args.timeline.selected_clip_id && persistedClipIds.has(args.timeline.selected_clip_id) ? args.timeline.selected_clip_id : null,
         debug_origin: "canonical_load",
       })),
     },

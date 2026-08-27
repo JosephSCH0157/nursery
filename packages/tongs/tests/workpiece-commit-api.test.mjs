@@ -102,6 +102,9 @@ function mockService() {
     commitFile: [],
     transitionHearthScriptReady: [],
     transitionAnvilTakeCompletedV2: [],
+    establishAnvilCaptureAuthority: [],
+    transitionAnvilTakeCompletedV3: [],
+    transitionAnvilTakeDecisionV2: [],
     importHammerRecording: [],
     createHearthAttachment: [],
     listHearthAttachments: [],
@@ -263,6 +266,18 @@ function mockService() {
     async transitionAnvilTakeCompletedV2(workpieceId, input) {
       calls.transitionAnvilTakeCompletedV2.push({ workpieceId, input });
       return { outcome: "saved", completion: { id: "33333333-3333-4333-8333-333333333333" } };
+    },
+    async establishAnvilCaptureAuthority(workpieceId, input) {
+      calls.establishAnvilCaptureAuthority.push({ workpieceId, input });
+      return { outcome: "established", capture_authority: { id: "77777777-7777-4777-8777-777777777777" } };
+    },
+    async transitionAnvilTakeCompletedV3(workpieceId, input) {
+      calls.transitionAnvilTakeCompletedV3.push({ workpieceId, input });
+      return { outcome: "saved", completion: { id: "33333333-3333-4333-8333-333333333333" } };
+    },
+    async transitionAnvilTakeDecisionV2(workpieceId, input) {
+      calls.transitionAnvilTakeDecisionV2.push({ workpieceId, input });
+      return { outcome: "saved", [input.decision]: { id: "66666666-6666-4666-8666-666666666666" } };
     },
     async importHammerRecording(workpieceId, input) {
       calls.importHammerRecording.push({ workpieceId, input });
@@ -3392,7 +3407,12 @@ test("ambiguous paid image submission is recorded once and never converted into 
     providerCalls += 1;
     throw new ImageProviderRequestError("response lost", { delivery: "ambiguous_transport", evidence: { transmitted: true } });
   } });
-  await assert.rejects(() => service.executePaidImageGeneration(paidImageExecutionArgs()), /response lost/);
+  await assert.rejects(() => service.executePaidImageGeneration(paidImageExecutionArgs()), (error) => {
+    assert.equal(error?.status, 409);
+    assert.equal(error?.code, "paid_image_submission_unknown");
+    assert.match(error?.message ?? "", /do not generate again yet/i);
+    return true;
+  });
   assert.equal(providerCalls, 1);
   assert.equal(calls.filter((call) => call.name === "begin_paid_media_provider_attempt").length, 1);
   assert.equal(calls.filter((call) => call.name === "mark_paid_media_submission_unknown").length, 1);
@@ -3873,6 +3893,45 @@ test("POST recording-completion-v2 forwards media verification and does not requ
   assert.equal(calls.transitionAnvilTakeCompletedV2.length, 1);
   assert.equal(calls.transitionAnvilTakeCompletedV2[0].input.expected_media_bytes, 4096);
   assert.equal(calls.transitionAnvilTakeCompletedV2[0].input.user_access_token, "user-token");
+});
+
+test("POST capture authority freezes explicit episode identity before recording", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const response = await handler(new Request("http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/recording-capture-authority", {
+    method: "POST", headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer user-token" },
+    body: JSON.stringify({ workspace_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", capture_session_id: "22222222-2222-4222-8222-222222222222", operation_key: "anvil-capture:22222222-2222-4222-8222-222222222222" }),
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(calls.establishAnvilCaptureAuthority.length, 1);
+  assert.equal(calls.establishAnvilCaptureAuthority[0].input.user_access_token, "user-token");
+});
+
+test("POST recording-completion-v3 forwards capture authority without browser script identity", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const response = await handler(new Request("http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/recording-completion-v3", {
+    method: "POST", headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer user-token" },
+    body: JSON.stringify({ capture_authority_id: "77777777-7777-4777-8777-777777777777", media_path: "recordings/take.webm", expected_media_revision: 1,
+      expected_media_hash: "b".repeat(64), expected_media_bytes: 4096, expected_media_content_type: "video/webm", idempotency_key: "anvil-complete:test:1",
+      completion_evidence: { schema: "anvil.recording-completion.v3", capture_authority_id: "77777777-7777-4777-8777-777777777777" } }),
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(calls.transitionAnvilTakeCompletedV3[0].input.capture_authority_id, "77777777-7777-4777-8777-777777777777");
+  assert.equal(calls.transitionAnvilTakeCompletedV3[0].input.user_access_token, "user-token");
+});
+
+test("POST recording-decision-v2 forwards only capture/completion decision authority", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service);
+  const response = await handler(new Request("http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/recording-decision-v2", {
+    method: "POST", headers: { "content-type": "application/json", "x-forge-user-authorization": "Bearer user-token" },
+    body: JSON.stringify({ capture_authority_id: "77777777-7777-4777-8777-777777777777", completion_id: "33333333-3333-4333-8333-333333333333",
+      decision: "keep", idempotency_key: "anvil-keep:test:1", decision_evidence: { schema: "anvil.take-decision.v2" } }),
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(calls.transitionAnvilTakeDecisionV2[0].input.decision, "keep");
+  assert.equal(calls.transitionAnvilTakeDecisionV2[0].input.user_access_token, "user-token");
 });
 
 test("POST Hammer recording-import forwards explicit import provenance", async () => {

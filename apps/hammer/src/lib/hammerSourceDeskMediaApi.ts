@@ -14,12 +14,16 @@ export type HammerStoredMediaRole = "thumbnail" | "timeline_visual";
 export type HammerSourceDeskUploadCategory = "images" | "broll" | "introoutro";
 
 export type HammerStoredMediaFile = {
+  assetId: string | null;
   path: string;
   name: string;
   kind: HammerStoredMediaKind;
   bytes: number | null;
   updatedAt: string | null;
   roles: HammerStoredMediaRole[];
+  contentHash: string | null;
+  mimeType: string | null;
+  durationMs: number | null;
 };
 
 export type HammerIntroOutroSelection = {
@@ -30,6 +34,7 @@ export type HammerIntroOutroSelection = {
 };
 
 export type HammerIntroOutroDefaultsSource = {
+  asset_id: string | null;
   workpiece_id: string;
   path: string;
 };
@@ -48,6 +53,10 @@ type StorageNode = {
   updated_at?: string | null;
   children?: StorageNode[];
   roles?: HammerStoredMediaRole[];
+  asset_id?: string | null;
+  content_hash?: string | null;
+  mime_type?: string | null;
+  duration_ms?: number | null;
 };
 
 type TongsFetcher = typeof tongsFetch;
@@ -200,12 +209,16 @@ function flattenStorageFiles(nodes: StorageNode[], workpieceId: string): HammerS
     if (node.kind === "file") {
       const workpieceRelativePath = normalizeWorkpieceRelativePath(workpieceId, node.path);
       files.push({
+        assetId: readString(node.asset_id),
         path: workpieceRelativePath,
         name: basename(workpieceRelativePath),
         kind: classifyHammerStoredMediaKind(workpieceRelativePath),
         bytes: readNullableNumber(node.bytes),
         updatedAt: readString(node.updated_at),
         roles: classifyHammerStoredMediaRoles(workpieceRelativePath, node.roles),
+        contentHash: readString(node.content_hash),
+        mimeType: readString(node.mime_type),
+        durationMs: readNullableNumber(node.duration_ms),
       });
       return;
     }
@@ -319,7 +332,9 @@ export async function uploadWorkpieceMediaFile(args: {
   });
   const bytes = new Uint8Array(await args.file.arrayBuffer());
   const response = await (args.fetcher ?? tongsFetch)(
-    `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`,
+    args.category === "introoutro"
+      ? `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/source-desk-assets`
+      : `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`,
     {
       method: "POST",
       json: {
@@ -372,32 +387,6 @@ export async function loadIntroOutroSelection(
   };
 }
 
-export async function saveIntroOutroSelection(args: {
-  workpieceId: string;
-  selection: HammerIntroOutroSelection;
-  fetcher?: TongsFetcher;
-}): Promise<void> {
-  const response = await (args.fetcher ?? tongsFetch)(
-    `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/commit-file`,
-    {
-      method: "POST",
-      json: {
-        path: INTRO_OUTRO_SELECTION_PATH,
-        content_type: "application/json",
-        written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
-        json: args.selection,
-      },
-      timeoutMs: 30_000,
-    },
-  );
-  if (!response.ok) {
-    const payload = await response.json().catch(() => null);
-    const root = readJsonObject(payload);
-    const message = readString(readJsonObject(root?.error)?.message) ?? "Hammer could not save intro/outro selection.";
-    throw new Error(message);
-  }
-}
-
 export async function loadWorkspaceIntroOutroDefaults(
   workspaceId: string,
   fetcher: TongsFetcher = tongsFetch,
@@ -419,14 +408,16 @@ export async function loadWorkspaceIntroOutroDefaults(
   const intro = readJsonObject(data.intro);
   const outro = readJsonObject(data.outro);
   const introWorkpieceId = readString(intro?.workpiece_id);
+  const introAssetId = readString(intro?.asset_id);
   const introPath = readString(intro?.path);
   const outroWorkpieceId = readString(outro?.workpiece_id);
+  const outroAssetId = readString(outro?.asset_id);
   const outroPath = readString(outro?.path);
 
   return {
     schema_version: 1,
-    intro: introWorkpieceId && introPath ? { workpiece_id: introWorkpieceId, path: introPath } : null,
-    outro: outroWorkpieceId && outroPath ? { workpiece_id: outroWorkpieceId, path: outroPath } : null,
+    intro: introWorkpieceId && introPath ? { asset_id: introAssetId, workpiece_id: introWorkpieceId, path: introPath } : null,
+    outro: outroWorkpieceId && outroPath ? { asset_id: outroAssetId, workpiece_id: outroWorkpieceId, path: outroPath } : null,
     updated_at: readString(data.updated_at) ?? new Date().toISOString(),
   };
 }
@@ -462,8 +453,9 @@ export async function copyWorkpieceMediaFile(args: {
   sourcePath: string;
   destWorkpieceId: string;
   destPath: string;
+  sourceAssetId?: string | null;
   fetcher?: TongsFetcher;
-}): Promise<void> {
+}): Promise<{ assetId: string }> {
   const fetcher = args.fetcher ?? tongsFetch;
   const sourcePath = normalizeWorkpieceRelativePath(args.sourceWorkpieceId, args.sourcePath);
   const destPath = normalizeWorkpieceRelativePath(args.destWorkpieceId, args.destPath);
@@ -491,7 +483,7 @@ export async function copyWorkpieceMediaFile(args: {
   }
 
   const commitResponse = await fetcher(
-    `/tongs/workpieces/${encodeURIComponent(args.destWorkpieceId)}/commit-file`,
+    `/tongs/workpieces/${encodeURIComponent(args.destWorkpieceId)}/source-desk-assets`,
     {
       method: "POST",
       json: {
@@ -499,6 +491,7 @@ export async function copyWorkpieceMediaFile(args: {
         content_type: contentType,
         written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
         bytes_base64: bytesBase64,
+        source_asset_id: args.sourceAssetId ?? null,
       },
       timeoutMs: 60_000,
     },
@@ -509,6 +502,11 @@ export async function copyWorkpieceMediaFile(args: {
     const message = readString(readJsonObject(root?.error)?.message) ?? "Hammer could not copy intro/outro defaults media into this episode.";
     throw new Error(message);
   }
+  const commitRoot = readJsonObject(commitPayload);
+  const asset = readJsonObject(readJsonObject(commitRoot?.data)?.asset);
+  const assetId = readString(asset?.asset_id);
+  if (!assetId) throw new Error("Hammer could not resolve the copied canonical intro/outro asset.");
+  return { assetId };
 }
 
 export async function loadWorkpieceMediaPreviewUrl(args: {

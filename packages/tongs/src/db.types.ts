@@ -1192,9 +1192,16 @@ export type Database = {
           },
         ]
       }
+      anvil_capture_authorities: {
+        Row: { capture_session_id: string; established_at: string; established_by: string; id: string; operation_key: string; provenance: string; ready_transition_id: string | null; recording_session_id: string | null; script_hash: string; script_path: string; script_revision: number; workpiece_id: string; workspace_id: string }
+        Insert: { capture_session_id: string; established_at?: string; established_by: string; id?: string; operation_key: string; provenance: string; ready_transition_id?: string | null; recording_session_id?: string | null; script_hash: string; script_path: string; script_revision: number; workpiece_id: string; workspace_id: string }
+        Update: { capture_session_id?: string; established_at?: string; established_by?: string; id?: string; operation_key?: string; provenance?: string; ready_transition_id?: string | null; recording_session_id?: string | null; script_hash?: string; script_path?: string; script_revision?: number; workpiece_id?: string; workspace_id?: string }
+        Relationships: []
+      }
       anvil_recording_completion_requests: {
         Row: {
           capture_session_id: string
+          capture_authority_id: string | null
           completed_by: string
           completion_evidence: Json
           created_at: string
@@ -1212,6 +1219,7 @@ export type Database = {
         }
         Insert: {
           capture_session_id: string
+          capture_authority_id?: string | null
           completed_by: string
           completion_evidence: Json
           created_at?: string
@@ -1229,6 +1237,7 @@ export type Database = {
         }
         Update: {
           capture_session_id?: string
+          capture_authority_id?: string | null
           completed_by?: string
           completion_evidence?: Json
           created_at?: string
@@ -12797,6 +12806,9 @@ export type Database = {
       }
     }
     Functions: {
+      establish_anvil_capture_authority: { Args: { p_capture_session_id: string; p_operation_key: string; p_recording_session_id?: string | null; p_workpiece_id: string; p_workspace_id: string }; Returns: Json }
+      anvil_transition_take_completed_v3: { Args: { p_capture_authority_id: string; p_completion_evidence: Json; p_expected_media_bytes: number; p_expected_media_content_type: string; p_expected_media_hash: string; p_expected_media_revision: number; p_idempotency_key: string; p_media_path: string; p_storage_bucket: string; p_storage_key: string }; Returns: Json }
+      anvil_transition_take_decision_v2: { Args: { p_capture_authority_id: string; p_completion_id: string; p_decision: string; p_decision_evidence: Json; p_idempotency_key: string }; Returns: Json }
       acknowledge_hammer_editorial_authority: {
         Args: {
           p_canonical_recording_id: string

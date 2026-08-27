@@ -15,7 +15,7 @@ type CanonicalScriptResult =
   | {
       ok: true;
       text: string;
-      source: "primary_script" | "saved_draft";
+      source: "approved_script";
       includesUnsavedLocalEdits: boolean;
     }
   | {
@@ -135,7 +135,7 @@ export function useImageMapSeedExportActions(args: UseImageMapSeedExportActionsA
     }
     args.setSelectedImageMapEntryId(saved.episodePackage.image_map.entries[0]?.id ?? null);
     args.setImageMapSaveState("saved");
-    const sourceLabel = canonicalScript.source === "primary_script" ? "published script" : "saved draft";
+    const sourceLabel = "approved script";
     const note = canonicalScript.includesUnsavedLocalEdits ? " Save the draft first to include unsaved local edits." : "";
     args.setImageMapExportMessage(`${generatedPlan.anchorMode === "bullet_beat" ? `Generated ${generatedPlan.entries.length} beat-anchored visual plans` : `Generated ${generatedPlan.entries.length} visual beats`} from the canonical ${sourceLabel}.${note}`);
   }, [args]);

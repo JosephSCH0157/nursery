@@ -15,11 +15,16 @@ import type {
 
 function createCandidateMap(paths: string[]) {
   const files: HammerStoredMediaFile[] = paths.map((path, index) => ({
+    assetId: deriveStableHammerAssetIdFromPath(path),
     path,
     name: `asset-${index + 1}`,
     kind: path.endsWith(".mp3") ? "audio" : "broll",
     bytes: null,
     updatedAt: null,
+    contentHash: "a".repeat(64),
+    mimeType: path.endsWith(".mp3") ? "audio/mpeg" : "video/mp4",
+    durationMs: 5000,
+    roles: [],
   }));
   return buildIntroOutroCandidateItemsById(buildIntroOutroCandidateItems(files));
 }
@@ -45,8 +50,8 @@ async function testResolveIntroOutroSelectionUsesStoredMediaPaths() {
 async function testWorkspaceDefaultsRepairPlanBootstrapsWhenSelectionMissing() {
   const defaults: HammerWorkspaceIntroOutroDefaults = {
     schema_version: 1,
-    intro: { workpiece_id: "template-1", path: "assets/uploads/introoutro/default-intro.mp3" },
-    outro: { workpiece_id: "template-1", path: "assets/uploads/introoutro/default-outro.mp3" },
+    intro: { asset_id: null, workpiece_id: "template-1", path: "assets/uploads/introoutro/default-intro.mp3" },
+    outro: { asset_id: null, workpiece_id: "template-1", path: "assets/uploads/introoutro/default-outro.mp3" },
     updated_at: "2026-04-18T10:00:00.000Z",
   };
 
@@ -75,8 +80,8 @@ async function testWorkspaceDefaultsRepairPlanRepairsOnlyUnresolvedSides() {
   };
   const defaults: HammerWorkspaceIntroOutroDefaults = {
     schema_version: 1,
-    intro: { workpiece_id: "template-1", path: "assets/uploads/introoutro/default-intro.mp3" },
-    outro: { workpiece_id: "template-1", path: "assets/uploads/introoutro/default-outro.mp3" },
+    intro: { asset_id: null, workpiece_id: "template-1", path: "assets/uploads/introoutro/default-intro.mp3" },
+    outro: { asset_id: null, workpiece_id: "template-1", path: "assets/uploads/introoutro/default-outro.mp3" },
     updated_at: "2026-04-18T10:00:00.000Z",
   };
 

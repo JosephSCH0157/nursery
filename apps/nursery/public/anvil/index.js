@@ -93550,8 +93550,12 @@ async function transitionRecordingCompleted(input) {
   }
 }
 async function transitionRecordingKept(input) {
+  const identities = window.__forgeRecordingScriptIdentityByCapture;
+  const currentIdentity = window.__forgeCanonicalScriptIdentity;
   const ready = window.__forgeCanonicalReadyScript;
-  const workspaceId = normalizeUuid2(ready?.workspaceId);
+  const decisionIdentity = identities?.[input.commit.captureSessionId] ?? currentIdentity ?? ready;
+  const identityWorkpieceId = normalizeUuid2(decisionIdentity?.workpieceId);
+  const workspaceId = identityWorkpieceId === input.commit.workpieceId ? normalizeUuid2(decisionIdentity?.workspaceId) ?? resolveWorkspaceId2() : resolveWorkspaceId2();
   if (!workspaceId) return { ok: false, outcome: "malformed", reason: "ready_workspace_missing" };
   const evidence = { schema: "anvil.take-decision.v1", decision: "keep", completion_id: input.completionId, capture_session_id: input.commit.captureSessionId };
   try {
@@ -93579,8 +93583,12 @@ async function transitionRecordingKept(input) {
   }
 }
 async function transitionRecordingDiscarded(input) {
+  const identities = window.__forgeRecordingScriptIdentityByCapture;
+  const currentIdentity = window.__forgeCanonicalScriptIdentity;
   const ready = window.__forgeCanonicalReadyScript;
-  const workspaceId = normalizeUuid2(ready?.workspaceId);
+  const decisionIdentity = identities?.[input.commit.captureSessionId] ?? currentIdentity ?? ready;
+  const identityWorkpieceId = normalizeUuid2(decisionIdentity?.workpieceId);
+  const workspaceId = identityWorkpieceId === input.commit.workpieceId ? normalizeUuid2(decisionIdentity?.workspaceId) ?? resolveWorkspaceId2() : resolveWorkspaceId2();
   if (!workspaceId) return { ok: false, outcome: "malformed", reason: "ready_workspace_missing" };
   const evidence = { schema: "anvil.take-decision.v1", decision: "discard", completion_id: input.completionId, capture_session_id: input.commit.captureSessionId };
   try {
@@ -94389,6 +94397,16 @@ function isRecordingDecisionPending() {
 function escapeHtml3(value) {
   return String(value || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
+function describeDecisionError(error) {
+  const message = error instanceof Error ? error.message.trim() : "";
+  if (message === "ready_workspace_missing") {
+    return "Anvil lost the episode workspace context before saving this decision. The recording is still saved. Reopen this episode from Hearth, then choose Keep Take again.";
+  }
+  if (message === "recording_keep_unavailable" || message === "recording_discard_unavailable") {
+    return "Anvil could not save this take decision to Tongs. The recording is still saved; check the Forge connection and try again.";
+  }
+  return message || "Could not save your take decision. Try again.";
+}
 function closeModal2() {
   const existing = document.getElementById(MODAL_ID2);
   if (existing?.parentElement) {
@@ -94679,7 +94697,7 @@ async function showRecordingDecisionDialog(options) {
       } catch (error) {
         setBusy(false);
         if (errorNode) {
-          errorNode.textContent = error instanceof Error && error.message.trim() ? error.message : "Could not save your take decision. Try again.";
+          errorNode.textContent = describeDecisionError(error);
         }
       }
     };

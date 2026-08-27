@@ -202,6 +202,13 @@ export function hammerVisualTimelineReducer(
         ...state,
         selected_clip_id: action.clip_id,
       };
+    case "SET_PACKAGING_INTENT": {
+      const updatedAt = readTimestamp(action.updated_at);
+      return nextState(state, updatedAt, (draft) => ({
+        ...draft,
+        packaging: { ...action.packaging },
+      }));
+    }
     case "UPSERT_ASSETS": {
       const updatedAt = readTimestamp(action.updated_at);
       return nextState(state, updatedAt, (draft) => {
