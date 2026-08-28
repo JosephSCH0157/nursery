@@ -10,6 +10,7 @@ import type { HammerReadinessGateResult } from "../editor/hammerReadinessGate";
 import type { HammerReadinessReason, HammerReadinessReasonCode, HammerReadinessVerdictStatus } from "../editor/hammerReadinessTypes";
 import { deriveHammerReleaseHandoffPosture } from "./hammerReleaseHandoffPosture";
 import type { HammerPackageMediaReference, PackagingMediaReadiness } from "./hammerPackageMediaAuthority";
+import type { HammerFinalAudioMasterAuthority } from "../composition/hammerFinalAudioAuthority";
 
 export const HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH = "hammer/release-packet/manifest.v1.json";
 export const HAMMER_QUENCH_RELEASE_PACKET_TRANSCRIPT_PATH = "hammer/release-packet/transcript/transcript.txt";
@@ -18,8 +19,10 @@ export const HAMMER_QUENCH_RELEASE_PACKET_VTT_PATH = "hammer/release-packet/capt
 export const HAMMER_QUENCH_RELEASE_PACKET_VISUALS_PATH = "hammer/release-packet/visuals/placements.json";
 
 export interface HammerQuenchReleasePacketAudioRef {
-  kind: "polished" | "raw" | "none";
+  kind: "final_master" | "polished" | "raw" | "none";
   media_id: string | null;
+  canonical_asset_id: string | null;
+  canonical_content_hash: string | null;
   local_relpath: string | null;
   workpiece_path: string | null;
   mime_type: string | null;
@@ -287,6 +290,7 @@ export function buildHammerQuenchReleasePacket(args: {
   preparedAt?: string;
   canonicalGraph?: HammerEditorialAuthorityGraph | null;
   renderAssembly?: HammerRenderAssemblyResult | null;
+  finalAudioMaster?: HammerFinalAudioMasterAuthority | null;
 }): HammerQuenchReleasePacketArtifacts {
   const pkg = args.releasePrepPackage;
   const transcriptText = normalizeText(pkg.text_outputs?.resolved_output.full_text ?? null);
@@ -323,12 +327,14 @@ export function buildHammerQuenchReleasePacket(args: {
     episode_title: null,
     duration_seconds: resolveDurationSeconds(pkg, args.renderAssembly),
     audio: {
-      kind: pkg.media_prep_outputs.audio.preferred_playback.kind,
-      media_id: pkg.media_prep_outputs.audio.preferred_playback.media_id,
-      local_relpath: pkg.media_prep_outputs.audio.preferred_playback.local_relpath,
-      workpiece_path: pkg.media_prep_outputs.audio.preferred_playback.workpiece_path,
-      mime_type: pkg.media_prep_outputs.audio.preferred_playback.mime_type,
-      source_label: pkg.media_prep_outputs.audio.preferred_playback.source_label,
+      kind: args.finalAudioMaster ? "final_master" : pkg.media_prep_outputs.audio.preferred_playback.kind,
+      media_id: args.finalAudioMaster?.canonical_asset_id ?? pkg.media_prep_outputs.audio.preferred_playback.media_id,
+      canonical_asset_id: args.finalAudioMaster?.canonical_asset_id ?? null,
+      canonical_content_hash: args.finalAudioMaster?.canonical_content_hash ?? null,
+      local_relpath: null,
+      workpiece_path: null,
+      mime_type: args.finalAudioMaster?.mime_type ?? pkg.media_prep_outputs.audio.preferred_playback.mime_type,
+      source_label: args.finalAudioMaster ? "canonical Hammer final-audio master" : pkg.media_prep_outputs.audio.preferred_playback.source_label,
     },
     captions: {
       srt_path: srtText ? HAMMER_QUENCH_RELEASE_PACKET_SRT_PATH : null,

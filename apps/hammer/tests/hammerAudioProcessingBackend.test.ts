@@ -157,6 +157,7 @@ async function testRenderExecutionProcessesWhenFfmpegAvailable() {
         output_duration_ms: 1234,
         failure_reason: null,
         settings_summary: {},
+        canonical_audio_master: null,
       };
     },
   });

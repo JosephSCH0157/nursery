@@ -30,6 +30,7 @@ export type PlacementFrameAnalysisRequest = Readonly<{
   sourceIdentity: string;
   sourceUrl: string;
   compositionPresentationTimeSec: number;
+  sourceMediaTimeSec: number;
   expectedMediaRevision: string;
   geometricRevision: string;
   matteOptions: MatteBuildOptions;
@@ -124,12 +125,13 @@ export class PlacementFrameAnalysisAuthority {
       sourceIdentity: request.sourceIdentity,
       sourceUrl: request.sourceUrl,
       compositionPresentationTimeSec: request.compositionPresentationTimeSec,
+      sourceMediaTimeSec: request.sourceMediaTimeSec,
       geometricRevision: request.geometricRevision,
       abortSignal: request.abortSignal,
     });
     try {
-      if (Math.abs(frame.frameRef.sourcePresentationTimeSec - request.compositionPresentationTimeSec) > 0.001) {
-        throw new Error("Random-access placement frame failed exact composition-time validation.");
+      if (Math.abs(frame.frameRef.sourcePresentationTimeSec - request.sourceMediaTimeSec) > 0.001) {
+        throw new Error("Random-access placement frame failed exact source-media-time validation.");
       }
       const face = this.analyzeFace(frame);
       const segment = this.segmentDisplayedFrame({ source: frame.pixels, sourcePresentationTimeSec: frame.frameRef.sourcePresentationTimeSec });

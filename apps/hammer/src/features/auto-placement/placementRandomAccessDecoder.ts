@@ -5,6 +5,7 @@ export type PlacementRandomAccessFrameRequest = Readonly<{
   sourceIdentity: string;
   sourceUrl: string;
   compositionPresentationTimeSec: number;
+  sourceMediaTimeSec: number;
   geometricRevision: string;
   abortSignal: AbortSignal;
 }>;
@@ -69,7 +70,7 @@ export class BrowserPlacementRandomAccessDecoder implements PlacementRandomAcces
       this.sourceIdentity = request.sourceIdentity; this.sourceUrl = request.sourceUrl;
       if (this.video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) await waitForEvent(this.video, "loadeddata", request.abortSignal);
     }
-    const requestedTime = Math.max(0, Math.min(Number.isFinite(this.video.duration) ? this.video.duration : Number.POSITIVE_INFINITY, request.compositionPresentationTimeSec));
+    const requestedTime = Math.max(0, Math.min(Number.isFinite(this.video.duration) ? this.video.duration : Number.POSITIVE_INFINITY, request.sourceMediaTimeSec));
     if (Math.abs(this.video.currentTime - requestedTime) > 0.001 || this.video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
       const seeked = waitForEvent(this.video, "seeked", request.abortSignal);
       this.video.currentTime = requestedTime;

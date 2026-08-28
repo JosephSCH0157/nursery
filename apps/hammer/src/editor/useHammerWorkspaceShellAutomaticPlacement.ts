@@ -122,8 +122,9 @@ export function useHammerAutomaticPlacementLifecycle(args: {
       return;
     }
     const committed = commitTransform(command.placementId, command.transform, "Apply automatic visual placement");
+    if (committed) setEvidence(null);
     setOverrides((current) => clearPreviewOverride(current, command.placementId));
-    setStatus(committed ? `Automatic placement saved (${command.zone}).` : "Automatic placement already matches the canonical saved geometry.");
+    setStatus(committed ? `Automatic placement applied (${command.zone}); saving canonical edit…` : "Automatic placement already matches the canonical geometry.");
   }, [commitTransform, evidence, isPlaybackActive, previewVideoRef, selectedPlacement?.id, setEvidence, setOverrides, setStatus]);
 
   useEffect(() => {

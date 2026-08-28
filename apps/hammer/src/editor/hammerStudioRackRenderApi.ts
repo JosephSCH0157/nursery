@@ -1,6 +1,7 @@
 import type { MediaKind } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import type { HammerStudioRackState } from "./hammerStudioRack";
 import type { HammerAudioTimelineSegmentInput } from "./hammerAudioTimelineRenderPlan";
+import type { HammerFinalAudioMasterAuthority, HammerFinalAudioRenderIdentity } from "../composition/hammerFinalAudioAuthority";
 
 export const HAMMER_STUDIO_RACK_RENDER_ROUTE = "/api/hammer/render/studio-rack";
 
@@ -14,6 +15,14 @@ export interface HammerStudioRackRenderRequest {
   requested_backend: HammerStudioRackRenderRequestBackend;
   timeline_segments: HammerAudioTimelineSegmentInput[];
   rack_state: HammerStudioRackState;
+  render_purpose?: "preview" | "final";
+  final_audio_identity?: HammerFinalAudioRenderIdentity | null;
+  podcast_master?: {
+    noise_cleanup: "off" | "light";
+    normalization_lufs: number;
+    compression_amount: "light" | "medium";
+    limiter_ceiling_dbtp: number;
+  } | null;
   local_root_abs?: string | null;
   local_relpath?: string | null;
   canonical_workpiece_path?: string | null;
@@ -31,6 +40,7 @@ export interface HammerStudioRackRenderResponse {
   output_duration_ms: number | null;
   failure_reason: string | null;
   settings_summary: Record<string, string | number | boolean | null>;
+  canonical_audio_master: HammerFinalAudioMasterAuthority | null;
 }
 
 function readString(value: unknown): string | null {
@@ -104,6 +114,7 @@ function normalizeResponse(payload: unknown): HammerStudioRackRenderResponse | n
     output_duration_ms: readNumber(data.output_duration_ms),
     failure_reason: readString(data.failure_reason),
     settings_summary,
+    canonical_audio_master: readObject(data.canonical_audio_master) as unknown as HammerFinalAudioMasterAuthority | null,
   };
 }
 

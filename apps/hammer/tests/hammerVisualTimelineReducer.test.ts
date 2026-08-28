@@ -9,6 +9,8 @@ function buildClip(overrides?: Partial<HammerVisualClip>): HammerVisualClip {
   return {
     clip_id: overrides?.clip_id ?? "clip_001",
     asset_id: overrides?.asset_id ?? "asset_001",
+    canonical_asset_id: overrides?.canonical_asset_id ?? overrides?.asset_id ?? "asset_001",
+    canonical_asset_state: overrides?.canonical_asset_state ?? "canonical_proven",
     lane_id: overrides?.lane_id ?? "lane:primary",
     entry_id: overrides?.entry_id ?? "packaging:intro",
     label: overrides?.label ?? "Card A",
@@ -254,6 +256,7 @@ test("selectPrimaryActiveClipAtTime returns the topmost active clip", () => {
 
 test("selectPreviewClips follows playhead time during playback regardless of selected clip", () => {
   const state = createEmptyVisualTimelineState({
+    assets: [{ asset_id: "asset_001", canonical_asset_id: "asset_001", authority_state: "canonical_proven", asset_ref: "asset_001", kind: "image", label: "Asset", path: "asset.png", storage_key: null, mime_type: "image/png", source_mode: "packaging", roles: ["timeline_visual"], updated_at: "2026-04-02T12:00:00.000Z" }],
     clips: [
       buildClip({ clip_id: "clip_a", start_sec: 0, end_sec: 2 }),
       buildClip({ clip_id: "clip_b", start_sec: 4, end_sec: 6 }),
@@ -278,6 +281,7 @@ test("selectPreviewClips follows playhead time during playback regardless of sel
 
 test("selectPreviewClips stays playhead-driven when paused", () => {
   const state = createEmptyVisualTimelineState({
+    assets: [{ asset_id: "asset_001", canonical_asset_id: "asset_001", authority_state: "canonical_proven", asset_ref: "asset_001", kind: "image", label: "Asset", path: "asset.png", storage_key: null, mime_type: "image/png", source_mode: "packaging", roles: ["timeline_visual"], updated_at: "2026-04-02T12:00:00.000Z" }],
     clips: [
       buildClip({ clip_id: "clip_a", start_sec: 0, end_sec: 2 }),
       buildClip({ clip_id: "clip_b", start_sec: 4, end_sec: 6 }),

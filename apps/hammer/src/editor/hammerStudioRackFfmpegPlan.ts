@@ -132,29 +132,6 @@ export function buildHammerStudioRackFfmpegPlan(rackState: HammerStudioRackState
       reason: "applied_in_v1",
     });
 
-    const summary: Record<string, string | number | boolean | null> = {
-      rack_enabled: rackState.is_enabled,
-      rack_bypassed: rackState.is_bypassed,
-      filter_count: filters.length,
-      filter_chain: filters.join(","),
-      applied_modules: appliedModules.join(","),
-      voice_polish_preset: rackState.voice_polish?.preset_id ?? null,
-      voice_polish_fix_remove_harsh_sibilance: rackState.voice_polish?.fixes.remove_harsh_sibilance ?? null,
-      voice_polish_fix_reduce_room_boxiness: rackState.voice_polish?.fixes.reduce_room_boxiness ?? null,
-      voice_polish_fix_enhance_voice_clarity: rackState.voice_polish?.fixes.enhance_voice_clarity ?? null,
-      voice_polish_fix_level_volume: rackState.voice_polish?.fixes.level_volume ?? null,
-      voice_polish_de_esser_strength: rackState.voice_polish?.advanced.de_esser_strength ?? null,
-      voice_polish_eq_profile: rackState.voice_polish?.advanced.eq_profile ?? null,
-      voice_cleanup_enabled: rackState.voice_polish?.voice_cleanup_enabled ?? false,
-    };
-
-    return {
-      filters,
-      filterChain: filters.join(","),
-      appliedModules,
-      decisions,
-      summary,
-    };
   }
 
   const gateRequest = moduleRequested(rackState.modules.gate);
@@ -206,6 +183,9 @@ export function buildHammerStudioRackFfmpegPlan(rackState: HammerStudioRackState
     filter_chain: filters.join(","),
     applied_modules: appliedModules.join(","),
     voice_cleanup_enabled: rackState.voice_polish?.voice_cleanup_enabled ?? false,
+    voice_polish_preset: rackState.voice_polish?.preset_id ?? null,
+    voice_polish_de_esser_strength: rackState.voice_polish?.advanced.de_esser_strength ?? null,
+    voice_polish_eq_profile: rackState.voice_polish?.advanced.eq_profile ?? null,
   };
   for (const decision of decisions) {
     summary[`${decision.moduleId}_requested`] = decision.requested;

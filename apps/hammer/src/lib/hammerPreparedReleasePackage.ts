@@ -1,5 +1,6 @@
 import type { HammerReleasePrepPackage } from "./hammerReleasePrepPackage";
 import type { HammerPackagingIntent } from "./hammerPackageMediaAuthority";
+import type { HammerFinalAudioMasterAuthority } from "../composition/hammerFinalAudioAuthority";
 
 export const HAMMER_PREPARED_RELEASE_PACKAGE_PATH = "hammer/release-prep/package.v1.json";
 export const HAMMER_PREPARED_RELEASE_SRT_PATH = "hammer/release-prep/subtitles/current.srt";
@@ -48,6 +49,7 @@ export interface HammerPreparedReleasePackage {
     timelineRevision: string | null;
     activeAudioFocus: string | null;
   };
+  finalAudioMaster: HammerFinalAudioMasterAuthority | null;
   packagingMedia?: HammerPackagingIntent;
   brandProvenance?: HammerBrandApplicationProvenance | null;
   overallStatus: HammerPreparedReleaseOverallStatus;
@@ -143,6 +145,7 @@ export function buildHammerPreparedReleasePackage(args: {
   preparedAt?: string;
   preparedBy?: string | null;
   timelineRevision?: string | null;
+  finalAudioMaster?: HammerFinalAudioMasterAuthority | null;
 }): HammerPreparedReleasePackage {
   const preparedAt = args.preparedAt ?? new Date().toISOString();
   const transcriptText = normalizeText(args.current.text_outputs?.resolved_output.full_text ?? null);
@@ -219,6 +222,7 @@ export function buildHammerPreparedReleasePackage(args: {
       timelineRevision: args.timelineRevision ?? null,
       activeAudioFocus: args.current.media_prep_outputs.audio.preferred_playback.reason,
     },
+    finalAudioMaster: args.finalAudioMaster ?? null,
     packagingMedia: structuredClone(args.current.packaging_media),
     overallStatus: resolveOverallStatus({
       transcript: transcriptStatus,

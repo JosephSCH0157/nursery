@@ -13,6 +13,7 @@ export type TimelinePlacementAnalysisWorkItem = Readonly<{
   sessionIdentity: string;
   sourceIdentity: string;
   compositionPresentationTimeSec: number;
+  sourceMediaTimeSec: number;
   canonicalRevision: string;
   mediaRevision: string;
   geometryRevision: string;
@@ -38,7 +39,7 @@ function compareWorkItems(a: TimelinePlacementAnalysisWorkItem, b: TimelinePlace
 }
 
 export function timelinePlacementWorkKey(item: TimelinePlacementAnalysisWorkItem): string {
-  return [item.sessionIdentity, item.placementId, item.sourceIdentity, item.compositionPresentationTimeSec.toFixed(3),
+  return [item.sessionIdentity, item.placementId, item.sourceIdentity, item.compositionPresentationTimeSec.toFixed(3), item.sourceMediaTimeSec.toFixed(3),
     item.canonicalRevision, item.mediaRevision, item.geometryRevision].join("|");
 }
 

@@ -101,6 +101,18 @@ export function validateHammerQuenchPacketForHandoff(args: {
       source: "packet",
     }));
   }
+  if (
+    args.packet.manifest.audio.kind !== "final_master"
+    || !args.packet.manifest.audio.canonical_asset_id
+    || !args.packet.manifest.audio.canonical_content_hash
+  ) {
+    reasonDetails.push(createHammerReadinessReason({
+      code: "packet_final_audio_master_missing",
+      label: "The release packet does not contain a validated canonical final-audio master.",
+      severity: "blocking",
+      source: "packet",
+    }));
+  }
   if (args.renderAssembly.export_timeline.export_posture === "unavailable") {
     reasonDetails.push(createHammerReadinessReason({
       code: "packet_timeline_snapshot_missing",

@@ -33,7 +33,7 @@ import { startAndHydrateHammerHistoryEpoch, type HammerHistoryEpochPersistenceAu
 import type { HammerHistoryEpochStartCandidate } from "./hammerHistoryEpochStartWorkflow";
 import { loadHammerRevisionHistoryHydration, type HammerHistoryEpochTransportRequest, type HammerRevisionHistoryHydration } from "../lib/hammerHistoryEpochApi";
 import { reconstructLegacyEditorStateHashInput, verifyEpochAnchorBaseHash } from "./hammerHistoryHashCompatibility";
-import { applyHammerHistoryCommandState } from "./hammerHistoryCommandState";
+import { applyHammerHistoryCommandState } from "./hammerHistoryCommandState"; import { attachHammerMutationPersistenceReceipt, createHammerMutationPersistenceReceipt, type HammerAppliedHistoryMutation, type HammerMutationPersistenceResult } from "./hammerMutationPersistenceReceipt";
 export { captureHammerHistoryPostSaveSnapshotRequest, persistHammerHistorySaveBoundary, type HammerHistoryPostSaveSnapshotRequest } from "./hammerHistorySaveBoundary";
 import { cloneHammerHistoryDocument, persistHammerHistorySaveBoundary, type HammerHistoryPostSaveSnapshotRequest } from "./hammerHistorySaveBoundary";
 export type HammerHistoryCommandAuthorityConfig = {
@@ -77,7 +77,7 @@ export interface HammerHistoryCommandAuthority {
   installController(controller: HammerHistoryController | null): void;
   installHydration(hydration: HammerRevisionHistoryHydration, controller: HammerHistoryController | null, identity: { workspaceId: string; workpieceId: string; canonicalRecordingId: string; revisionId: string }, baseMatch?: { canonicalHash: string; algorithm: import("./hammerWorkspaceHistory").HammerEditorStateHashAlgorithm }): void;
   getEpochPersistenceState(): HammerHistoryEpochPersistenceState | null; startHistoryEpoch(request: HammerHistoryEpochTransportRequest, frozenState?: HammerEditorStateSerializable): Promise<import("../lib/hammerHistoryEpochApi").HammerHistoryTransitionResult>;
-  applyMutation(args: HammerHistoryMutationArgs): HammerHistoryEntry | null;
+  applyMutation(args: HammerHistoryMutationArgs): HammerAppliedHistoryMutation | null;
   undo(): void;
   redo(): void;
   createCheckpoint(label: string): void;
@@ -92,12 +92,7 @@ export interface HammerHistoryCommandAuthority {
   clearPersistTimer(): void;
   invalidate(): void;
 }
-
-export function createHammerHistoryCommandAuthority(
-  initialConfig: HammerHistoryCommandAuthorityConfig,
-  debounceMs: number,
-  coalesceWindowMs: number,
-): HammerHistoryCommandAuthority {
+export function createHammerHistoryCommandAuthority(initialConfig: HammerHistoryCommandAuthorityConfig, debounceMs: number, coalesceWindowMs: number): HammerHistoryCommandAuthority {
   let config = initialConfig;
   let controller: HammerHistoryController | null = null;
   let persistTimer: ReturnType<typeof setTimeout> | null = null;
@@ -105,7 +100,7 @@ export function createHammerHistoryCommandAuthority(
   let baselineState: HammerEditorStateSerializable | null = null;
   let baselineDerivedLayers: DerivedLayersState = cloneHammerDerivedTextLayers(undefined);
   const derivedLayerTransitions = new Map<string, DerivedLayerHistoryTransition>();
-
+  const pendingPersistenceReceipts: Array<{ settle: (result: HammerMutationPersistenceResult) => void }> = [];
   const resolveDerivedLayers = (undoStack: readonly string[]): DerivedLayersState => (
     resolveHammerDerivedLayersForUndoStack({
       undoStack,
@@ -123,7 +118,7 @@ export function createHammerHistoryCommandAuthority(
 
   const persist = async (): Promise<void> => {
     if (!controller) return;
-    const saveGeneration = generation;
+    const receiptBatch = pendingPersistenceReceipts.splice(0); const saveGeneration = generation;
     const saveConfig = config;
     const document = cloneHammerHistoryDocument(controller.document);
     document.metadata = {
@@ -151,7 +146,8 @@ export function createHammerHistoryCommandAuthority(
         : await saveHammerHistoryDocument({ workpieceId: saveConfig.workpieceId, document });
       return result.ok ? { ok: true } : { ok: false, error: result.error };
     };
-    const result = await persistHammerHistorySaveBoundary({
+    if (saveGeneration !== generation) { receiptBatch.forEach((receipt) => receipt.settle({ state: "failed", error: "history_persistence_generation_changed" })); return; }
+    const resultPromise = persistHammerHistorySaveBoundary({
       saveHistory,
       snapshotRequest,
       onHistorySaved: async (request) => {
@@ -159,8 +155,11 @@ export function createHammerHistoryCommandAuthority(
         await saveConfig.onHistorySaved(request);
       },
     });
-    if (saveGeneration !== generation) return;
-    config.setHistoryStatus(result.ok ? null : result.error);
+    await Promise.resolve(); if (saveGeneration === generation) config.setHistoryStatus("Saving canonical edit…");
+    const result = await resultPromise;
+    if (saveGeneration !== generation) { receiptBatch.forEach((receipt) => receipt.settle({ state: "failed", error: "history_persistence_generation_changed" })); return; }
+    const persistenceResult: HammerMutationPersistenceResult = result.ok ? { state: "acknowledged" } : { state: "failed", error: result.error }; receiptBatch.forEach((receipt) => receipt.settle(persistenceResult));
+    config.setHistoryStatus(result.ok ? null : `Unsaved canonical edit: ${result.error}`);
   };
 
   const schedulePersist = (immediate = false): void => {
@@ -182,8 +181,8 @@ export function createHammerHistoryCommandAuthority(
     getController: () => controller,
     installController(nextController) {
       if (controller !== nextController) {
-        clearPersistTimer();
-        generation += 1;
+        clearPersistTimer(); generation += 1;
+        pendingPersistenceReceipts.splice(0).forEach((receipt) => receipt.settle({ state: "failed", error: "history_controller_replaced" }));
       }
       controller = nextController;
     },
@@ -221,9 +220,10 @@ export function createHammerHistoryCommandAuthority(
         nextState: durableAfter,
       });
       if (!entry) return null;
+      const persistenceReceipt = createHammerMutationPersistenceReceipt(); pendingPersistenceReceipts.push(persistenceReceipt);
       config.applyState(controller.getState(), "history:mutation_apply");
       schedulePersist(args.immediatePersist === true);
-      return entry;
+      return attachHammerMutationPersistenceReceipt(entry, persistenceReceipt.promise);
     },
     undo() {
       if (config.isTransitionPending?.()) return;

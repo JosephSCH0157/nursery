@@ -26,6 +26,8 @@ import { deriveHammerMediaMapBeats, type HammerMediaMapBeat } from "./useHammerW
 import type { HammerMediaMapSuggestionType } from "./hammerWorkspaceShellMediaUtils";
 import { roundToTenth } from "./hammerWorkspaceTimeline";
 import { removeGovernedBrollPlacement, updateGovernedBrollTiming } from "./hammerGovernedBrollMutation";
+import { requireReadyHammerCanonicalAssetAuthority } from "../lib/hammerCanonicalAssetAuthority";
+import type { CanonicalAssetId } from "../../../../packages/tongs/src/canonical-asset-authority";
 
 /** Media-map and manual B-roll mutation commands. This authority owns no Source Desk loading,
  * automatic-placement lifecycle, preview effects, persistence, view models, JSX, or shorts. */
@@ -42,7 +44,9 @@ export function createHammerMediaMapMutationCommands(args: {
   setMediaMapBeats: (beats: HammerMediaMapBeat[]) => void;
   setRemovedMediaMapSegmentIds: (ids: string[]) => void;
   setTimingHint: (hint: string | null) => void;
+  resolveCanonicalAssetAuthority?: typeof requireReadyHammerCanonicalAssetAuthority;
 }) {
+  const resolveCanonicalAssetAuthority = args.resolveCanonicalAssetAuthority ?? requireReadyHammerCanonicalAssetAuthority;
   const commitVisualAnchorRefinement = (input: {
     clipId: string;
     anchorText: string;
@@ -116,11 +120,19 @@ export function createHammerMediaMapMutationCommands(args: {
     args.setTimingHint("Media Map regenerated from current transcript.");
   };
 
-  const resolveHearthBrollSuggestion = (input: {
+  const resolveHearthBrollSuggestion = async (input: {
     operationId: string;
+    canonicalAssetId: string;
     assetPath: string;
     label: string;
-  }): void => {
+  }): Promise<void> => {
+    const authority = await resolveCanonicalAssetAuthority({
+      workspaceId: args.identity.workspaceId,
+      workpieceId: args.identity.workpieceId,
+      canonicalAssetId: input.canonicalAssetId as CanonicalAssetId,
+      expectedPath: input.assetPath,
+      requiredAssetKind: "broll",
+    });
     const placementId = args.createPlacementId();
     args.applyHistoryMutation({
       label: "Resolve Hearth B-roll suggestion",
@@ -141,7 +153,7 @@ export function createHammerMediaMapMutationCommands(args: {
         const resolvedGraph = resolveInsertBrollSuggestionInGraph({
           graph,
           operationId: input.operationId,
-          assetRef: input.assetPath,
+          assetRef: authority.canonicalAssetId,
           startSec,
           endSec,
         });
@@ -185,10 +197,15 @@ export function createHammerMediaMapMutationCommands(args: {
           anchor_segment_id: anchorSegment.segment_id,
           matched_segment_ids: [anchorSegment.segment_id],
           anchor_text: anchorSegment.text,
-          asset_ref: input.assetPath,
-          asset_id: null,
-          asset_path: input.assetPath,
-          storage_key: input.assetPath,
+          asset_ref: authority.canonicalAssetId,
+          asset_id: authority.canonicalAssetId,
+          canonical_asset_id: authority.canonicalAssetId,
+          canonical_asset_state: "canonical_proven",
+          canonical_asset_workspace_id: authority.workspaceId ?? args.identity.workspaceId,
+          canonical_asset_workpiece_id: authority.scope?.kind === "workpiece" ? authority.scope.workpieceId : null,
+          canonical_asset_content_hash: authority.contentHash ?? null,
+          asset_path: authority.path ?? input.assetPath,
+          storage_key: authority.storageObjectKey ?? null,
           label: input.label,
           visual_mode: "broll",
           start_sec: startSec,
@@ -204,7 +221,7 @@ export function createHammerMediaMapMutationCommands(args: {
           overlay_z_index: resolveCanonicalWorkspaceVisualTimeline(before).clips.length + 1,
         };
         const updatedAt = new Date().toISOString();
-        const assetId = brollPlacement.canonical_asset_state === "canonical_proven" ? brollPlacement.canonical_asset_id : null;
+        const assetId = brollPlacement.canonical_asset_id;
         if (!assetId) return before;
         const nextClip = migrateLegacyPlacementRecordToClip({ record: brollPlacement, asset_id: assetId, updated_at: updatedAt });
         const asset = migrateLegacyPlacementRecordToAsset({ record: brollPlacement, asset_id: assetId, updated_at: updatedAt });
@@ -289,7 +306,19 @@ export function createHammerMediaMapMutationCommands(args: {
     });
   };
 
-  const replaceResolvedBrollBinding = (operationId: string, assetPath: string): void => {
+  const replaceResolvedBrollBinding = async (input: {
+    operationId: string;
+    canonicalAssetId: string;
+    assetPath: string;
+    label: string;
+  }): Promise<void> => {
+    const authority = await resolveCanonicalAssetAuthority({
+      workspaceId: args.identity.workspaceId,
+      workpieceId: args.identity.workpieceId,
+      canonicalAssetId: input.canonicalAssetId as CanonicalAssetId,
+      expectedPath: input.assetPath,
+      requiredAssetKind: "broll",
+    });
     args.applyHistoryMutation({
       label: "Replace resolved b-roll asset",
       kind: "visual_adjustment",
@@ -298,21 +327,21 @@ export function createHammerMediaMapMutationCommands(args: {
       computeAfter: (before) => {
         const graph = before.editorialAuthorityGraph;
         if (!graph) return before;
-        const operation = graph.operations.find((item) => item.operation_id === operationId) ?? null;
+        const operation = graph.operations.find((item) => item.operation_id === input.operationId) ?? null;
         if (!operation || operation.instruction.type !== "insert_broll"
           || operation.instruction.asset_binding_state === "unresolved") return before;
         const nextGraph = updateResolvedInsertBrollOperationInGraph({
           graph,
-          operationId,
-          changes: { asset_ref: assetPath },
+          operationId: input.operationId,
+          changes: { asset_ref: authority.canonicalAssetId },
         });
         if (!nextGraph) return before;
         const synchronizedGraph = synchronizeLinkedAudioDuckForBrollOperation({
           graph: nextGraph,
-          brollOperationId: operationId,
+          brollOperationId: input.operationId,
         }) ?? nextGraph;
         return replaceWorkspaceVisualTimelineState({ ...before, editorialAuthorityGraph: synchronizedGraph }, (timeline) => {
-          const clip = timeline.clips.find((candidate) => candidate.authority_operation_id === operationId) ?? null;
+          const clip = timeline.clips.find((candidate) => candidate.authority_operation_id === input.operationId) ?? null;
           if (!clip) return timeline;
           const nextRecord: HammerVisualPlacementRecord = {
             placement_id: clip.clip_id,
@@ -321,11 +350,16 @@ export function createHammerMediaMapMutationCommands(args: {
             anchor_segment_id: clip.anchor_hint.anchor_segment_id ?? "",
             matched_segment_ids: [...clip.anchor_hint.matched_segment_ids],
             anchor_text: clip.anchor_hint.anchor_text ?? null,
-            asset_ref: assetPath,
-            asset_id: null,
-            asset_path: assetPath,
-            storage_key: assetPath,
-            label: clip.label,
+            asset_ref: authority.canonicalAssetId,
+            asset_id: authority.canonicalAssetId,
+            canonical_asset_id: authority.canonicalAssetId,
+            canonical_asset_state: "canonical_proven",
+            canonical_asset_workspace_id: authority.workspaceId ?? args.identity.workspaceId,
+            canonical_asset_workpiece_id: authority.scope?.kind === "workpiece" ? authority.scope.workpieceId : null,
+            canonical_asset_content_hash: authority.contentHash ?? null,
+            asset_path: authority.path ?? input.assetPath,
+            storage_key: authority.storageObjectKey ?? null,
+            label: input.label || clip.label,
             visual_mode: clip.visual_mode,
             start_sec: clip.start_sec,
             end_sec: clip.end_sec,
@@ -339,8 +373,7 @@ export function createHammerMediaMapMutationCommands(args: {
             overlay_opacity: clip.opacity,
             overlay_z_index: clip.z_index,
           };
-          const assetId = clip.canonical_asset_state === "canonical_proven" ? clip.canonical_asset_id : null;
-          if (!assetId) return timeline;
+          const assetId = authority.canonicalAssetId;
           const asset = migrateLegacyPlacementRecordToAsset({
             record: nextRecord,
             asset_id: assetId,
@@ -351,8 +384,8 @@ export function createHammerMediaMapMutationCommands(args: {
             assets: timeline.assets.some((item) => item.asset_id === assetId)
               ? timeline.assets.map((item) => item.asset_id === assetId ? asset : item)
               : [...timeline.assets, asset],
-            clips: timeline.clips.map((candidate) => candidate.authority_operation_id === operationId
-              ? { ...candidate, asset_id: assetId, updated_at: asset.updated_at }
+            clips: timeline.clips.map((candidate) => candidate.authority_operation_id === input.operationId
+              ? { ...candidate, asset_id: assetId, canonical_asset_id: assetId, canonical_asset_state: "canonical_proven", updated_at: asset.updated_at }
               : candidate),
           };
         });

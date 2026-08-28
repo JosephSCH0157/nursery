@@ -72,6 +72,9 @@ const convertedVisualPolish = inspect("src/editor/HammerTypedVisualPolishSurface
 if (/\bmodel\b|\bctx\.|\bas\s+any\b|\[\s*key\s*:\s*string\s*\]|Record\s*<\s*string\s*,\s*unknown\s*>/.test(convertedVisualPolish)) failures.push("src/editor/HammerTypedVisualPolishSurface.tsx: typed Visual Polish reacquired a legacy model, ctx read, cast, or generic record escape.");
 const convertedBrollReference = inspect("src/editor/HammerTypedBrollReferenceSurface.tsx").text;
 if (/\bmodel\b|\bctx\.|\bas\s+any\b|\[\s*key\s*:\s*string\s*\]|Record\s*<\s*string\s*,\s*unknown\s*>/.test(convertedBrollReference)) failures.push("src/editor/HammerTypedBrollReferenceSurface.tsx: typed B-roll/reference renderer reacquired a legacy model, ctx read, cast, or generic record escape.");
+if (/Resolve With First Asset|candidate_assets\s*\[\s*0\s*\]|sourceBrollItems\.find\s*\(/.test(convertedBrollReference)) failures.push("B-roll authority may not promote a positional/default candidate.");
+const mediaMapCommands = inspect("src/editor/hammerWorkspaceShellMediaMapCommands.ts").text;
+if (/replaceResolvedBrollBinding\s*=\s*\([^)]*assetPath\s*:\s*string/.test(mediaMapCommands)) failures.push("B-roll replacement must accept canonical asset authority, not a path-only identity.");
 
 const toolBayInspection = inspect(baseline.toolBay.path);
 const toolBayCtxPropertyReferences = (toolBayInspection.text.match(/\bctx\.[A-Za-z_$][\w$]*/g) ?? []).length;
@@ -143,6 +146,9 @@ if (!/private activeKey: string \| null/.test(placementTimelineQueue) || !/if \(
 if (/previewVideoRef|\.currentTime\s*=|setSelectedClipId|setLinkedSelection/.test(placementTimelineCoordinator)) failures.push("Timeline automatic-placement coordinator may not seek visible Preview or programmatically change selection.");
 if (!/new BrowserPlacementRandomAccessDecoder\(\)/.test(placementFrameAnalysisAuthority) || /new BrowserPlacementRandomAccessDecoder\(\)/.test(placementTimelineCoordinator + placementPreviewConsumer + placementBlurAdapter + placementFaceAdapter)) failures.push("Random-access placement decoder must be constructed only by the shared analysis authority.");
 if (/createFaceLandmarkProvider|createSegmentationProvider|MediapipeSelfieSegmentationProvider/.test(placementTimelineQueue + placementTimelineCoordinator + placementRandomAccessDecoder)) failures.push("Timeline queue, coordinator, or decoder acquired an independent analysis provider.");
+if (!/request\.sourceMediaTimeSec/.test(placementRandomAccessDecoder) || /request\.compositionPresentationTimeSec\s*\)\s*;/.test(placementRandomAccessDecoder)) failures.push("Random-access placement decoding must seek the mapped source-media clock.");
+const visualSelectors = inspect("src/visuals/state/hammerVisualSelectors.ts").text;
+if (!/canonical_asset_state\s*!==\s*["']canonical_proven["']/.test(visualSelectors)) failures.push("Preview selection must fail closed for unresolved canonical media.");
 const placementBatchEligibilityImports = placementBatchEligibility.split("\n").filter((line) => line.startsWith("import ")).join("\n");
 if (/persist|supabase|history|commitTransform|applyHistoryMutation/i.test(placementBatchEligibilityImports)) failures.push("Automatic-placement batch eligibility acquired mutation or persistence authority.");
 if ((placementBatchCommand.match(/const entry = args\.applyHistoryMutation\s*\(/g) ?? []).length !== 1 || (placementBatchCommand.match(/computeAfter:\s*\(before\)\s*=>/g) ?? []).length !== 1) failures.push("Automatic-placement batch acceptance must use exactly one history mutation and one computeAfter.");
@@ -312,6 +318,20 @@ if (!/media_reference:\s*pkg\.packaging_media\.media\.find/.test(quenchPacketPro
 if (!/packagingMedia\.readiness\.state\s*!==\s*["']ready["']/.test(preparedPackagePersistence)
   || !/media_reference\.state\s*!==\s*["']validated["']/.test(packetPersistence)) {
   failures.push("Hammer package persistence must reject unresolved or unvalidated production media before writing artifacts.");
+}
+
+// Hammer final audio is materialized once; packages and Quench consume its canonical identity.
+const finalAudioAuthority = inspect("src/composition/hammerFinalAudioAuthority.ts").text;
+const releasePrepAuthority = inspect("src/editor/hammerFinalAudioRenderExecution.ts").text + inspect("src/editor/useHammerWorkspaceShellReleasePrep.ts").text;
+const quenchHandoffAuthority = inspect("src/editor/hammerQuenchHandoff.ts").text;
+if (!/canonical_asset_id:\s*CanonicalAssetId/.test(finalAudioAuthority) || !/render_plan_fingerprint:\s*string/.test(finalAudioAuthority)) {
+  failures.push("Hammer final-audio authority must bind canonical identity to exact render-plan evidence.");
+}
+if (!/renderPurpose:\s*["']final["']/.test(releasePrepAuthority) || !/canonical_audio_master/.test(releasePrepAuthority)) {
+  failures.push("Hammer release preparation must execute and consume an operation-bound canonical final-audio render.");
+}
+if (!/packet_final_audio_master_missing/.test(quenchHandoffAuthority)) {
+  failures.push("Quench handoff must reject packets without canonical final-audio master authority.");
 }
 for (const path of productionAndTests.filter((candidate) => candidate.includes(`${join("src", "lib")}`) || candidate.includes(`${join("src", "editor")}`))) {
   const relativePath = relative(root, path).replaceAll("\\", "/");

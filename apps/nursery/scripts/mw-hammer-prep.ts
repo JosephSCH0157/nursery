@@ -1932,7 +1932,70 @@ export function createHammerPrepMiddleware() {
       }
 
       if (url.pathname === HAMMER_STUDIO_RACK_RENDER_ROUTE) {
-        const result = await handleHammerStudioRackRenderRequest(body, createHammerStudioRackRenderRequestContext(req));
+        const result = await handleHammerStudioRackRenderRequest(body, createHammerStudioRackRenderRequestContext(req, supabaseService ? async (commitArgs) => {
+          const rawAuthorization = String(req.headers["x-forge-user-authorization"] ?? req.headers.authorization ?? "");
+          const accessToken = rawAuthorization.replace(/^Bearer\s+/i, "").trim();
+          if (!accessToken) throw new Error("Final audio master commit requires authenticated user authority.");
+          const userResult = await supabaseService.auth.getUser(accessToken);
+          const actorId = userResult.data.user?.id ?? null;
+          if (userResult.error || !actorId) throw new Error("Final audio master actor could not be verified.");
+          const rpc = supabaseService.schema("tongs") as unknown as { rpc(name: string, args: Record<string, unknown>): Promise<{ data: unknown; error: { message?: string } | null }> };
+          const identity = commitArgs.identity;
+          const begun = await rpc.rpc("begin_hammer_audio_render", {
+            p_operation_id: identity.render_job_id,
+            p_operation_fingerprint: identity.operation_fingerprint,
+            p_workspace_id: commitArgs.request.workspace_id,
+            p_workpiece_id: commitArgs.request.workpiece_id,
+            p_recording_revision_id: identity.recording_revision_id,
+            p_composition_revision: identity.composition_revision,
+            p_composition_fingerprint: identity.composition_fingerprint,
+            p_render_plan_fingerprint: identity.render_plan_fingerprint,
+            p_renderer_version: identity.renderer_version,
+            p_output_profile_id: identity.output_profile_id,
+            p_actor_id: actorId,
+          });
+          if (begun.error) throw new Error(begun.error.message ?? "Final audio render reservation failed.");
+          const contentHash = crypto.createHash("sha256").update(commitArgs.bytes).digest("hex");
+          const storageBucket = "forge-workpieces";
+          const storageKey = `workpieces/${commitArgs.request.workpiece_id}/${commitArgs.outputWorkpiecePath}`;
+          const committed = await rpc.rpc("commit_hammer_audio_master", {
+            p_operation_id: identity.render_job_id,
+            p_operation_fingerprint: identity.operation_fingerprint,
+            p_path: commitArgs.outputWorkpiecePath,
+            p_mime_type: commitArgs.mimeType,
+            p_byte_size: commitArgs.bytes.byteLength,
+            p_content_hash: contentHash,
+            p_storage_bucket: storageBucket,
+            p_storage_key: storageKey,
+            p_duration_ms: commitArgs.durationMs,
+            p_render_evidence: commitArgs.renderEvidence,
+          });
+          if (committed.error) throw new Error(committed.error.message ?? "Final audio master commit failed.");
+          const receipt = committed.data as { asset?: Record<string, unknown> } | null;
+          const asset = receipt?.asset;
+          const canonicalAssetId = typeof asset?.id === "string" ? asset.id : null;
+          if (!canonicalAssetId) throw new Error("Final audio master commit returned no canonical asset.");
+          const acknowledgedResultFingerprint = crypto.createHash("sha256").update(JSON.stringify({ render_job_id: identity.render_job_id, asset_id: canonicalAssetId, content_hash: contentHash })).digest("hex");
+          return {
+            workspace_id: commitArgs.request.workspace_id,
+            workpiece_id: commitArgs.request.workpiece_id,
+            recording_revision_id: identity.recording_revision_id,
+            composition_revision: identity.composition_revision,
+            composition_fingerprint: identity.composition_fingerprint,
+            render_job_id: identity.render_job_id,
+            render_plan_fingerprint: identity.render_plan_fingerprint,
+            renderer_version: identity.renderer_version,
+            output_profile_id: identity.output_profile_id,
+            acknowledged_result_fingerprint: acknowledgedResultFingerprint,
+            canonical_asset_id: canonicalAssetId,
+            canonical_content_hash: contentHash,
+            storage_bucket: storageBucket,
+            storage_key: storageKey,
+            mime_type: commitArgs.mimeType,
+            duration_ms: commitArgs.durationMs,
+            readiness: "ready" as const,
+          };
+        } : undefined));
         sendJson(res, result.status, result.payload);
         return;
       }

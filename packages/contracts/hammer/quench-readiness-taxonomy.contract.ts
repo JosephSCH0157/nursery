@@ -46,6 +46,7 @@ export const HAMMER_QUENCH_CANONICAL_READINESS_REASON_CODES = [
   "packet_kind_invalid",
   "packet_editorial_truth_missing",
   "packet_timeline_snapshot_missing",
+  "packet_final_audio_master_missing",
   "handoff_blocked",
   "handoff_needs_review",
   "quench_audio_reference_unresolved",

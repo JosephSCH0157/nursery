@@ -10,6 +10,7 @@ import {
 } from "./hammerStudioRackRenderApi";
 import type { HammerStudioRackState } from "./hammerStudioRack";
 import type { HammerAudioTimelineSegmentInput } from "./hammerAudioTimelineRenderPlan";
+import type { HammerFinalAudioRenderIdentity } from "../composition/hammerFinalAudioAuthority";
 
 export type HammerAudioProcessingBackendId = "native" | "ffmpeg";
 export type HammerAudioProcessingMode = "playback" | "render";
@@ -129,6 +130,9 @@ export async function executeDialogueAudioRenderWithBackend(args: {
   canonicalWorkpiecePath?: string | null;
   mimeType?: string | null;
   runtimeSummary?: HammerMediaBackboneRuntimeSummary | null;
+  renderPurpose?: "preview" | "final";
+  finalAudioIdentity?: HammerFinalAudioRenderIdentity | null;
+  podcastMaster?: HammerStudioRackRenderRequest["podcast_master"];
   executor?: (request: HammerStudioRackRenderRequest) => Promise<HammerStudioRackRenderResponse>;
 }): Promise<HammerDialogueRenderExecutionResult> {
   const mode: HammerAudioProcessingMode = "render";
@@ -175,6 +179,9 @@ export async function executeDialogueAudioRenderWithBackend(args: {
       requested_backend: resolution.requestedBackend,
       timeline_segments: args.timelineSegments,
       rack_state: args.rackState,
+      render_purpose: args.renderPurpose ?? "preview",
+      final_audio_identity: args.finalAudioIdentity ?? null,
+      podcast_master: args.podcastMaster ?? null,
       local_root_abs: args.localRootAbs ?? null,
       local_relpath: args.localRelpath ?? null,
       canonical_workpiece_path: args.canonicalWorkpiecePath ?? null,

@@ -108,7 +108,7 @@ import {
   useHammerAutomaticPlacementLifecycle,
   useHammerAutomaticPlacementState,
 } from "./useHammerWorkspaceShellAutomaticPlacement";
-import { useHammerTimelineAutomaticPlacementFromTimeline } from "./useHammerTimelineAutomaticPlacement";
+import { useHammerTimelineAutomaticPlacementFromTimeline } from "./useHammerTimelineAutomaticPlacement"; import { resolveSourceMediaTimeForCompositionTime } from "./hammerCompositionMediaTimeAuthority";
 import { useHammerAutomaticPlacementBatchAcceptance } from "./useHammerAutomaticPlacementBatchAcceptance";
 import {
   useHammerMediaMapBoundObjects,
@@ -1101,8 +1101,7 @@ function HammerWorkspaceShellWithContext(
       options,
     );
   }, [compositionOffsetSec, seekTransportPlayheadToTime]);
-  const visualAssetsById = useMemo(() => {
-    const byId = new Map<string, NonNullable<HammerVisualTimelineState["assets"]>[number]>();
+  const visualAssetsById = useMemo(() => { const byId = new Map<string, NonNullable<HammerVisualTimelineState["assets"]>[number]>();
     for (const asset of editableVisualTimeline?.assets ?? []) {
       byId.set(asset.asset_id, asset);
     }
@@ -1177,6 +1176,7 @@ function HammerWorkspaceShellWithContext(
     applyVisualTimelineAction,
     applyVisualTimelineActions,
     resolveCanonicalVisualTimeline,
+    onGeometryCommitted: (placementId) => { setCanonicalAutoPlacementEvidence(null); setPreviewAutoPositionOverrides((current) => { if (!current[placementId]) return current; const next = { ...current }; delete next[placementId]; return next; }); },
   });
   const removeVisualPlacementWithDiagnostics = useCallback((placementId: string): void => {
     const current = editableVisualTimelineRef.current;
@@ -1617,7 +1617,9 @@ function HammerWorkspaceShellWithContext(
       // Library cards are path-addressed, while canonical clips usually carry a
       // derived asset id. Group by the durable path when available so a placed
       // clip and its stored-library row project as one item with a real use count.
-      const assetKey = placement.asset_path ?? placement.storage_key ?? assetId;
+      const assetKey = placement.canonical_asset_state === "canonical_proven" && placement.canonical_asset_id
+        ? `canonical:${placement.canonical_asset_id}`
+        : `unresolved:${placement.placement_id}`;
       const existing = byId.get(assetKey);
       const nextKind = deriveAssetKind({
         visualMode: placement.visual_mode,
@@ -1664,8 +1666,9 @@ function HammerWorkspaceShellWithContext(
     }
 
     for (const file of storedMediaFiles) {
-      if (byId.has(file.path)) continue;
-      byId.set(file.path, {
+      const fileKey = file.assetId ? `canonical:${file.assetId}` : `unresolved-file:${file.path}`;
+      if (byId.has(fileKey)) continue;
+      byId.set(fileKey, {
         id: file.assetId ?? file.path,
         canonicalAssetId: file.assetId,
         label: file.name,
@@ -1684,14 +1687,8 @@ function HammerWorkspaceShellWithContext(
     () => sourceAssetItems.filter((item) => item.kind === "broll" || item.kind === "reference_clip"),
     [sourceAssetItems],
   );
-  const sourceReferenceClipItems = useMemo(
-    () => sourceBrollItems.filter((item) => item.kind === "reference_clip"),
-    [sourceBrollItems],
-  );
-  const sourceBrollOnlyItems = useMemo(
-    () => sourceBrollItems.filter((item) => item.kind === "broll"),
-    [sourceBrollItems],
-  );
+  const sourceReferenceClipItems = useMemo(() => sourceBrollItems.filter((item) => item.kind === "reference_clip"), [sourceBrollItems]);
+  const sourceBrollOnlyItems = useMemo(() => sourceBrollItems.filter((item) => item.kind === "broll"), [sourceBrollItems]);
   const { referenceClipPlannedBeats, unresolvedBrollSuggestionItems, resolvedBrollBindingItems } = useHammerMediaMapDerived({
     mediaMapBeats, setMediaMapBeats, removedSegmentIds: removedMediaMapSegmentIds,
     segments: editableTranscriptSegments, placementsBySegmentId: sourceVisualPlacementBySegmentId,
@@ -2594,6 +2591,7 @@ function HammerWorkspaceShellWithContext(
   } = useHammerWorkspaceShellReleasePrep({
     workpieceId: launchContext.workpiece_id,
     workspaceId: launchContext.workspace_id,
+    recordingRevisionId: props.recordingRevisionId ?? null,
     prepHandoffAction: props.prepHandoffAction,
     setStudioRackRenderStatus,
     selectPass,
@@ -3522,7 +3520,9 @@ function HammerWorkspaceShellWithContext(
   passSelectorContextRef.current = passSelectorContext;
   const previewDiagnosticsSummary = useMemo(() => deriveHammerAutoPlacementDiagnostics(previewBayVM.autoPlacementDiagnostics),
     [previewBayVM.autoPlacementDiagnostics]);
-  const timelineAutomaticPlacement = useHammerTimelineAutomaticPlacementFromTimeline({ authority: placementFrameAnalysisAuthority, timeline: compositionVisualTimeline, assetsById: visualAssetsById, sourceUrl: effectivePreviewVideoSrc, workpieceId: launchContext.workpiece_id, isPlaybackActive, isScrubbing, setOverrides: setPreviewAutoPositionOverrides });
+  const automaticPlacementRemovedRanges = useMemo(() => getEffectiveCutRegions(editableAudioPolish?.audio_edit ?? null, transcriptDurationSec), [editableAudioPolish?.audio_edit, transcriptDurationSec]);
+  const resolveAutomaticPlacementSourceMediaTime = useCallback((compositionTimeSec: number) => resolveSourceMediaTimeForCompositionTime({ compositionTimeSec, removedSourceRanges: automaticPlacementRemovedRanges }), [automaticPlacementRemovedRanges]);
+  const timelineAutomaticPlacement = useHammerTimelineAutomaticPlacementFromTimeline({ authority: placementFrameAnalysisAuthority, timeline: compositionVisualTimeline, assetsById: visualAssetsById, sourceUrl: effectivePreviewVideoSrc, workpieceId: launchContext.workpiece_id, isPlaybackActive, isScrubbing, setOverrides: setPreviewAutoPositionOverrides, resolveSourceMediaTime: resolveAutomaticPlacementSourceMediaTime });
   const automaticPlacementBatch = useHammerAutomaticPlacementBatchAcceptance({ timeline: compositionVisualTimeline, mediaRevision: effectivePreviewVideoSrc, entries: timelineAutomaticPlacement.entries, applyHistoryMutation, resolveCanonicalTimeline: resolveCanonicalVisualTimeline, applyTimelineActions: applyVisualTimelineActions, requestDurablePersistBoundary: requestImmediatePersist, setOverrides: setPreviewAutoPositionOverrides });
   const episodeHealthSnapshot = useMemo(() => {
     const diagnostics = previewBayVM.autoPlacementDiagnostics;

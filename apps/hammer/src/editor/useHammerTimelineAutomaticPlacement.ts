@@ -59,6 +59,7 @@ export function timelinePlacementEntriesEqual(a: readonly TimelinePlacementAnaly
     return next?.status === entry.status && next?.item.placementId === entry.item.placementId
       && next.item.canonicalRevision === entry.item.canonicalRevision && next.item.mediaRevision === entry.item.mediaRevision
       && next.item.geometryRevision === entry.item.geometryRevision && next.item.compositionPresentationTimeSec === entry.item.compositionPresentationTimeSec
+      && next.item.sourceMediaTimeSec === entry.item.sourceMediaTimeSec
       && next.reason === entry.reason && transformsEqual(next.resolvedTransform, entry.resolvedTransform);
   });
 }
@@ -73,7 +74,7 @@ export function useHammerTimelineAutomaticPlacement(args: {
   const [entries, setEntries] = useState<readonly TimelinePlacementAnalysisEntry<PreviewPlacementTransform>[]>([]);
   const activeAbortRef = useRef<AbortController | null>(null);
   const itemsKey = useMemo(() => args.items.map((item) => [item.placementId, item.canonicalRevision,
-    item.mediaRevision, item.geometryRevision, item.compositionPresentationTimeSec].join(":" )).join("|"), [args.items]);
+    item.mediaRevision, item.geometryRevision, item.compositionPresentationTimeSec, item.sourceMediaTimeSec].join(":" )).join("|"), [args.items]);
 
   useEffect(() => {
     queue.reconcile(args.items);
@@ -103,6 +104,7 @@ export function useHammerTimelineAutomaticPlacement(args: {
           const analysis = args.authority.analyze({ requestId: `${item.placementId}:${item.canonicalRevision}:${item.mediaRevision}`,
             placementId: item.placementId, sourceIdentity: item.sourceIdentity, sourceUrl: detail.sourceUrl,
             compositionPresentationTimeSec: item.compositionPresentationTimeSec, expectedMediaRevision: item.mediaRevision,
+            sourceMediaTimeSec: item.sourceMediaTimeSec,
             geometricRevision: item.geometryRevision, abortSignal: abort.signal,
             matteOptions: { featherPx: 4, subjectExpansionPx: 6, temporalSmoothing: 0, quality: "medium" } });
           const evidence = await Promise.race([analysis, new Promise<never>((_, reject) => {
@@ -166,6 +168,7 @@ export function useHammerTimelineAutomaticPlacementFromTimeline(args: {
   isPlaybackActive: boolean;
   isScrubbing: boolean;
   setOverrides: React.Dispatch<React.SetStateAction<Record<string, PreviewPlacementTransform>>>;
+  resolveSourceMediaTime: (compositionTimeSec: number) => number;
 }) {
   const items = useMemo(() => {
     if (!args.timeline || !args.sourceUrl || !args.workpieceId) return [];
@@ -174,12 +177,14 @@ export function useHammerTimelineAutomaticPlacementFromTimeline(args: {
       if (!clip.enabled || clip.placement_status !== "placed" || asset?.kind !== "image") return [];
       const transform = geometryToTransform(clip.geometry);
       const geometryRevision = [transform.leftPct, transform.topPct, transform.widthPct, transform.heightPct].map((value) => value.toFixed(3)).join(":");
+      const compositionPresentationTimeSec = Math.max(0, clip.start_sec);
       return [{ placementId: clip.clip_id, sessionIdentity: args.workpieceId!, sourceIdentity: `${args.workpieceId}:${args.sourceUrl}`,
-        sourceUrl: args.sourceUrl!, compositionPresentationTimeSec: Math.max(0, clip.start_sec),
+        sourceUrl: args.sourceUrl!, compositionPresentationTimeSec,
+        sourceMediaTimeSec: args.resolveSourceMediaTime(compositionPresentationTimeSec),
         canonicalRevision: automaticPlacementCanonicalRevision(args.timeline!, clip),
         mediaRevision: args.sourceUrl!, geometryRevision, canonicalTransform: transform }];
     });
-  }, [args.assetsById, args.sourceUrl, args.timeline, args.workpieceId]);
+  }, [args.assetsById, args.resolveSourceMediaTime, args.sourceUrl, args.timeline, args.workpieceId]);
   const [paused, setPaused] = useState(true);
   useEffect(() => {
     if (args.isPlaybackActive || args.isScrubbing) { setPaused(true); return; }

@@ -106,6 +106,7 @@ export type UseHammerWorkspaceShellVisualEditingArgs = {
     actions: HammerVisualTimelineAction[],
   ) => HammerEditorStateSerializable;
   resolveCanonicalVisualTimeline: (before: HammerEditorStateSerializable) => HammerVisualTimelineState;
+  onGeometryCommitted?: (placementId: string) => void;
 };
 
 export type UseHammerWorkspaceShellVisualEditingResult = {
@@ -316,6 +317,7 @@ export function useHammerWorkspaceShellVisualEditing(
       }),
     });
     if (applied) {
+      args.onGeometryCommitted?.(placementId);
       args.requestDurablePersistBoundary();
       return true;
     }
@@ -1294,7 +1296,7 @@ export function useHammerWorkspaceShellVisualEditing(
       }));
     };
     const handleMouseUp = (): void => {
-      const draft = imagePlacementTransforms[previewCanvasDragState.placementId] ?? null;
+      const draft = imagePlacementTransformsRef.current[previewCanvasDragState.placementId] ?? null;
       if (draft) {
         commitImagePlacementTransform(previewCanvasDragState.placementId, draft, "Adjust visual overlay geometry");
       }
@@ -1312,7 +1314,7 @@ export function useHammerWorkspaceShellVisualEditing(
       window.removeEventListener("mousemove", handleMouseMove);
       window.removeEventListener("mouseup", handleMouseUp);
     };
-  }, [args.previewSurfaceRef, commitImagePlacementTransform, imagePlacementTransforms, previewCanvasDragState, updateImagePlacementTransform]);
+  }, [args.previewSurfaceRef, commitImagePlacementTransform, previewCanvasDragState, updateImagePlacementTransform]);
 
   return {
     selectedVisualFlowStep,

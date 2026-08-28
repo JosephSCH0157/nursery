@@ -205,12 +205,22 @@ async function testPacketValidation() {
     captionChunks: [{ chunk_id: "cap_01", start_sec: 0, end_sec: 1, segment_ids: ["seg_01"] }],
   });
   const prep = buildReadyPrep();
+  const finalAudioMaster = {
+    workspace_id: "ws_handoff", workpiece_id: "wp_handoff", recording_revision_id: "recording-revision-handoff",
+    composition_revision: 1, composition_fingerprint: "composition-handoff", render_job_id: "render-handoff",
+    render_plan_fingerprint: "render-plan-handoff", renderer_version: "hammer-audio-master.v1",
+    output_profile_id: "podcast-master-v1", acknowledged_result_fingerprint: "ack-handoff",
+    canonical_asset_id: "audio-master-handoff", canonical_content_hash: "a".repeat(64),
+    storage_bucket: "forge-workpieces", storage_key: "workpieces/wp_handoff/hammer/audio-master.wav",
+    mime_type: "audio/wav", duration_ms: 5000, readiness: "ready" as const,
+  };
   const packet = buildHammerQuenchReleasePacket({
     releasePrepPackage: prep,
     readinessGate: buildReadiness("ready"),
     preparedAt: "2026-03-24T14:01:00.000Z",
     canonicalGraph: graph,
     renderAssembly,
+    finalAudioMaster,
   });
   assert.equal(validateHammerQuenchPacketForHandoff({
     releasePrepPackage: prep,

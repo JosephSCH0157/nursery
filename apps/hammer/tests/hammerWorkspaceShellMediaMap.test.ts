@@ -51,6 +51,14 @@ function commandFixture() {
     setMediaMapBeats: () => undefined,
     setRemovedMediaMapSegmentIds: () => undefined,
     setTimingHint: () => undefined,
+    resolveCanonicalAssetAuthority: async (request) => ({
+      state: "ready", code: null, canonicalAssetId: request.canonicalAssetId,
+      workspaceId: request.workspaceId,
+      scope: { kind: "workpiece", workpieceId: "wp1", workspaceReusePolicy: "not_applicable" },
+      assetKind: "broll", path: request.expectedPath ?? undefined,
+      storageObjectKey: request.expectedPath as never,
+      contentHash: "hash-authority" as never,
+    }),
   });
   return { commands, mutations, getState: () => state };
 }
@@ -84,16 +92,16 @@ test("B-roll suggestions remain distinct by resolved state and preserve binding 
   assert.equal(bindings[0]?.linkedPlacementId, "p1");
 });
 
-test("manual B-roll acceptance preserves canonical binding, timing, identity, and history intent", () => {
+test("manual B-roll acceptance preserves canonical binding, timing, identity, and history intent", async () => {
   const fixture = commandFixture();
-  fixture.commands.resolveHearthBrollSuggestion({ operationId: "op:b1", assetPath: "assets/product.mp4", label: "Product" });
+  await fixture.commands.resolveHearthBrollSuggestion({ operationId: "op:b1", canonicalAssetId: "asset-product", assetPath: "assets/product.mp4", label: "Product" });
   const state = fixture.getState();
   const operation = state.editorialAuthorityGraph?.operations.find((item) => item.operation_id === "op:b1");
   assert.equal(operation?.instruction.type, "insert_broll");
   if (operation?.instruction.type === "insert_broll") {
     assert.deepEqual({ asset: operation.instruction.asset_ref, binding: operation.instruction.asset_binding_state,
       start: operation.instruction.start_sec, end: operation.instruction.end_sec },
-    { asset: "assets/product.mp4", binding: "resolved", start: 1, end: 3 });
+    { asset: "asset-product", binding: "resolved", start: 1, end: 3 });
   }
   assert.deepEqual(state.visualTimeline?.clips.map((clip) => ({ id: clip.clip_id, operation: clip.authority_operation_id,
     start: clip.start_sec, end: clip.end_sec, mode: clip.visual_mode })),
@@ -106,17 +114,17 @@ test("manual B-roll acceptance preserves canonical binding, timing, identity, an
   assert.equal(deriveHammerBrollSuggestionItems(state.editorialAuthorityGraph).filter((item) => item.bindingState === "unresolved").length, 0);
 });
 
-test("resolved binding move, replace, and revert preserve operation identity and selection rules", () => {
+test("resolved binding move, replace, and revert preserve operation identity and selection rules", async () => {
   const fixture = commandFixture();
-  fixture.commands.resolveHearthBrollSuggestion({ operationId: "op:b1", assetPath: "assets/product.mp4", label: "Product" });
+  await fixture.commands.resolveHearthBrollSuggestion({ operationId: "op:b1", canonicalAssetId: "asset-product", assetPath: "assets/product.mp4", label: "Product" });
   fixture.commands.moveResolvedBrollBinding("op:b1", 1);
-  fixture.commands.replaceResolvedBrollBinding("op:b1", "assets/replacement.mp4");
+  await fixture.commands.replaceResolvedBrollBinding({ operationId: "op:b1", canonicalAssetId: "asset-replacement", assetPath: "assets/replacement.mp4", label: "Replacement" });
   let state = fixture.getState();
   const operation = state.editorialAuthorityGraph?.operations.find((item) => item.operation_id === "op:b1");
   if (operation?.instruction.type !== "insert_broll") assert.fail("expected resolved B-roll operation");
   assert.deepEqual({ id: operation.operation_id, asset: operation.instruction.asset_ref,
     start: operation.instruction.start_sec, end: operation.instruction.end_sec },
-  { id: "op:b1", asset: "assets/replacement.mp4", start: 2, end: 4 });
+  { id: "op:b1", asset: "asset-replacement", start: 2, end: 4 });
   assert.deepEqual(state.visualTimeline?.clips.map((clip) => [clip.clip_id, clip.start_sec, clip.end_sec]),
     [["placement1", 2, 4]]);
   assert.deepEqual(evaluateHammerBrollConsistency({ graph: state.editorialAuthorityGraph, visualTimeline: state.visualTimeline }),
@@ -132,9 +140,9 @@ test("resolved binding move, replace, and revert preserve operation identity and
   ]);
 });
 
-test("visual anchor refinement preserves canonical timeline and history intent", () => {
+test("visual anchor refinement preserves canonical timeline and history intent", async () => {
   const fixture = commandFixture();
-  fixture.commands.resolveHearthBrollSuggestion({ operationId: "op:b1", assetPath: "assets/product.mp4", label: "Product" });
+  await fixture.commands.resolveHearthBrollSuggestion({ operationId: "op:b1", canonicalAssetId: "asset-product", assetPath: "assets/product.mp4", label: "Product" });
   fixture.commands.commitVisualAnchorRefinement({
     clipId: "placement1",
     anchorText: "  refined anchor  ",
@@ -164,9 +172,9 @@ test("visual anchor refinement preserves canonical timeline and history intent",
   });
 });
 
-test("governed B-roll/reference conversion preserves authority identity and aligned provenance", () => {
+test("governed B-roll/reference conversion preserves authority identity and aligned provenance", async () => {
   const fixture = commandFixture();
-  fixture.commands.resolveHearthBrollSuggestion({ operationId: "op:b1", assetPath: "assets/product.mp4", label: "Product" });
+  await fixture.commands.resolveHearthBrollSuggestion({ operationId: "op:b1", canonicalAssetId: "asset-product", assetPath: "assets/product.mp4", label: "Product" });
   fixture.commands.updatePlacementKindFromMediaMap("placement1", "reference_clip");
   const state = fixture.getState();
   assert.equal(state.visualTimeline?.clips[0]?.visual_mode, "reference_clip");

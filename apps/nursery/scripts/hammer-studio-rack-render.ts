@@ -16,6 +16,7 @@ import {
   type HammerAudioTimelineSegmentInput,
 } from "../../hammer/src/editor/hammerAudioTimelineRenderPlan";
 import { buildHammerStudioRackFfmpegPlan } from "../../hammer/src/editor/hammerStudioRackFfmpegPlan";
+import type { HammerFinalAudioMasterAuthority, HammerFinalAudioRenderIdentity } from "../../hammer/src/composition/hammerFinalAudioAuthority";
 
 type HammerStudioRackRenderRouteResult = {
   status: number;
@@ -30,6 +31,15 @@ type HammerRenderRequestContext = {
   origin: string;
   authorization: string | null;
   userAuthorization: string | null;
+  commitFinalAudioMaster?: (args: {
+    request: NormalizedStudioRackRenderRequest;
+    identity: HammerFinalAudioRenderIdentity;
+    outputWorkpiecePath: string;
+    bytes: Buffer;
+    durationMs: number;
+    mimeType: string;
+    renderEvidence: Record<string, unknown>;
+  }) => Promise<HammerFinalAudioMasterAuthority>;
 };
 
 type NormalizedStudioRackRenderRequest = Omit<
@@ -252,6 +262,7 @@ function createFailedResponse(args: {
     settings_summary: {
       ...args.summary,
     },
+    canonical_audio_master: null,
   };
 }
 
@@ -274,6 +285,7 @@ function createSkippedResponse(args: {
     settings_summary: {
       ...args.summary,
     },
+    canonical_audio_master: null,
   };
 }
 
@@ -302,6 +314,25 @@ function normalizeStudioRackRenderRequest(body: unknown): NormalizedStudioRackRe
     }, [])
     : [];
   const rackState = row.rack_state;
+  const renderPurpose = readTrimmed(row.render_purpose);
+  const identityRow = readObject(row.final_audio_identity);
+  const podcastMasterRow = readObject(row.podcast_master);
+  const finalAudioIdentity = identityRow ? {
+    recording_revision_id: readTrimmed(identityRow.recording_revision_id) ?? "",
+    composition_revision: readNumber(identityRow.composition_revision) ?? 0,
+    composition_fingerprint: readTrimmed(identityRow.composition_fingerprint) ?? "",
+    render_job_id: readTrimmed(identityRow.render_job_id) ?? "",
+    render_plan_fingerprint: readTrimmed(identityRow.render_plan_fingerprint) ?? "",
+    operation_fingerprint: readTrimmed(identityRow.operation_fingerprint) ?? "",
+    renderer_version: readTrimmed(identityRow.renderer_version) ?? "",
+    output_profile_id: readTrimmed(identityRow.output_profile_id) ?? "",
+  } satisfies HammerFinalAudioRenderIdentity : null;
+  const podcastMaster = podcastMasterRow ? {
+    noise_cleanup: readTrimmed(podcastMasterRow.noise_cleanup) === "light" ? "light" as const : "off" as const,
+    normalization_lufs: readNumber(podcastMasterRow.normalization_lufs) ?? -16,
+    compression_amount: readTrimmed(podcastMasterRow.compression_amount) === "light" ? "light" as const : "medium" as const,
+    limiter_ceiling_dbtp: readNumber(podcastMasterRow.limiter_ceiling_dbtp) ?? -1,
+  } : null;
   if (
     !workspaceId
     || !workpieceId
@@ -309,6 +340,7 @@ function normalizeStudioRackRenderRequest(body: unknown): NormalizedStudioRackRe
     || (requestedBackend !== "native" && requestedBackend !== "ffmpeg")
     || timelineSegments.length === 0
     || !rackState
+    || (renderPurpose === "final" && (!finalAudioIdentity || !finalAudioIdentity.recording_revision_id || finalAudioIdentity.composition_revision <= 0 || !/^[0-9a-f]{64}$/.test(finalAudioIdentity.operation_fingerprint)))
   ) {
     return null;
   }
@@ -320,6 +352,9 @@ function normalizeStudioRackRenderRequest(body: unknown): NormalizedStudioRackRe
     requested_backend: requestedBackend,
     timeline_segments: timelineSegments,
     rack_state: rackState as HammerStudioRackState,
+    render_purpose: renderPurpose === "final" ? "final" : "preview",
+    final_audio_identity: finalAudioIdentity,
+    podcast_master: podcastMaster,
     local_root_abs: readTrimmed(row.local_root_abs),
     local_relpath: readTrimmed(row.local_relpath),
     canonical_workpiece_path: readTrimmed(row.canonical_workpiece_path),
@@ -620,13 +655,17 @@ async function loadSourceMedia(
   };
 }
 
-export function createHammerStudioRackRenderRequestContext(req: IncomingMessage): HammerRenderRequestContext {
+export function createHammerStudioRackRenderRequestContext(
+  req: IncomingMessage,
+  commitFinalAudioMaster?: HammerRenderRequestContext["commitFinalAudioMaster"],
+): HammerRenderRequestContext {
   const forwardedProto = readHeaderString(req.headers["x-forwarded-proto"]);
   const host = readHeaderString(req.headers.host) ?? "localhost";
   return {
     origin: `${forwardedProto ?? "http"}://${host}`,
     authorization: readHeaderString(req.headers.authorization),
     userAuthorization: readHeaderString(req.headers["x-forge-user-authorization"]),
+    commitFinalAudioMaster,
   };
 }
 
@@ -668,7 +707,8 @@ export async function handleHammerStudioRackRenderRequest(
     };
   }
 
-  if (!request.rack_state.is_enabled || request.rack_state.is_bypassed || isHammerStudioRackIdentity(request.rack_state)) {
+  if (request.render_purpose !== "final"
+    && (!request.rack_state.is_enabled || request.rack_state.is_bypassed || isHammerStudioRackIdentity(request.rack_state))) {
     return {
       status: 200,
       payload: {
@@ -726,13 +766,35 @@ export async function handleHammerStudioRackRenderRequest(
     }
 
     const chain = buildHammerStudioRackFfmpegPlan(request.rack_state);
+    const unsupportedRequestedModules = chain.decisions.filter((decision) => decision.requested && !decision.applied);
+    if (request.render_purpose === "final" && unsupportedRequestedModules.length > 0) {
+      return {
+        status: 200,
+        payload: {
+          ok: true,
+          data: createFailedResponse({
+            request,
+            resolvedBackend: "ffmpeg",
+            reason: `Final audio render cannot silently omit active modules: ${unsupportedRequestedModules.map((decision) => decision.moduleId).join(", ")}.`,
+            summary: chain.summary,
+          }),
+        },
+      };
+    }
     const shouldApplyRack = request.requested_backend === "ffmpeg"
       && request.rack_state.is_enabled
       && !request.rack_state.is_bypassed
       && !isHammerStudioRackIdentity(request.rack_state);
+    const podcastMasterFilters = request.podcast_master ? [
+      ...(request.podcast_master.noise_cleanup === "light" ? ["afftdn=nf=-25"] : []),
+      `acompressor=threshold=${request.podcast_master.compression_amount === "medium" ? "0.089125" : "0.125893"}:ratio=${request.podcast_master.compression_amount === "medium" ? "3" : "2"}:attack=20:release=250`,
+      `loudnorm=I=${request.podcast_master.normalization_lufs}:TP=${request.podcast_master.limiter_ceiling_dbtp}:LRA=11`,
+      `alimiter=limit=${Math.pow(10, request.podcast_master.limiter_ceiling_dbtp / 20).toFixed(6)}`,
+    ] : [];
+    const postFilterChain = [shouldApplyRack ? chain.filterChain : "", ...podcastMasterFilters].filter(Boolean).join(",");
     const timelinePlan = buildHammerTimelineAudioRenderPlan({
       segments: request.timeline_segments,
-      postFilterChain: shouldApplyRack ? chain.filterChain : null,
+      postFilterChain: postFilterChain || null,
       seamFadeSec: CUT_SEAM_FADE_SEC,
     });
     if (!timelinePlan) {
@@ -765,6 +827,7 @@ export async function handleHammerStudioRackRenderRequest(
     const outputDurationMs = readWavDurationMs(renderedWaveBytes);
 
     let commitError: string | null = null;
+    let canonicalAudioMaster: HammerFinalAudioMasterAuthority | null = null;
     if (canUseCanonicalTongsContext(context)) {
       try {
         await commitCanonicalWorkpieceFile({
@@ -780,6 +843,25 @@ export async function handleHammerStudioRackRenderRequest(
             filter_count: timelinePlan.filterComplex.split(";").length,
           },
         });
+        if (request.render_purpose === "final") {
+          if (!request.final_audio_identity || !context?.commitFinalAudioMaster) {
+            throw new Error("Final audio render authority is unavailable.");
+          }
+          canonicalAudioMaster = await context.commitFinalAudioMaster({
+            request,
+            identity: request.final_audio_identity,
+            outputWorkpiecePath,
+            bytes: renderedWaveBytes,
+            durationMs: outputDurationMs ?? 0,
+            mimeType: OUTPUT_MIME_TYPE,
+            renderEvidence: {
+              timeline_summary: timelinePlan.summary,
+              rack_summary: chain.summary,
+              output_sample_rate: 48000,
+              output_channels: 2,
+            },
+          });
+        }
       } catch (error) {
         commitError = error instanceof Error && error.message.trim()
           ? error.message
@@ -843,6 +925,7 @@ export async function handleHammerStudioRackRenderRequest(
             ...timelinePlan.summary,
             ...chain.summary,
           },
+          canonical_audio_master: canonicalAudioMaster,
         },
       },
     };

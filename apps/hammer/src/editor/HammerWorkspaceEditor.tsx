@@ -40,7 +40,6 @@ import { deriveRegenProgressLabel, resolveIngestSelectedSource } from "./hammerR
 import type { HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
 import { projectHammerCanonicalVisualHydration, resolveHammerCanonicalVisualHydration } from "./hammerCanonicalVisualHydration";
 import { deriveLegacyVisualPlacementsFromTimeline } from "../visuals/persistence/hammerVisualTimelineLegacyAdapter";
-
 import { inferHammerPrepSourceMimeType, mapIngestFinalStatusLabel, mapTranscriptSourceLabel,
   type HammerAiTranscriptRegenerationResult, type HammerRegenJobTelemetry } from "./hammerWorkspaceEditorPresentation";
 import { buildHammerMediaPrepOutputsPackage } from "../lib/hammerMediaPrepOutputsPackage";
@@ -902,6 +901,7 @@ export default function HammerWorkspaceEditor(
         transcriptSourceId: args.transcriptSourceId,
         transcriptSegments: args.transcriptSegments,
         visualPackage: visualPackageResult.data,
+        authorityContext: { workspaceId: args.launchContext.workspace_id, workpieceId: args.launchContext.workpiece_id },
       })
       : buildUnavailableHammerVisualPlacements(
         args.transcriptSourceId,

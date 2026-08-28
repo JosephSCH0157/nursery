@@ -9,7 +9,7 @@ import {
   validateHammerQuenchPacketForHandoff,
 } from "./hammerQuenchHandoff";
 import type { HammerDialogueRenderExecutionResult } from "./hammerAudioProcessingBackend";
-import { executeDialogueAudioRenderWithBackend } from "./hammerAudioProcessingBackend";
+import { executeHammerFinalAudioRender } from "./hammerFinalAudioRenderExecution";
 import type { HammerReadinessGateResult } from "./hammerReadinessGate";
 import type { HammerRenderAssemblyResult } from "./hammerRenderAssembly";
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
@@ -112,6 +112,7 @@ export type HammerReleasePrepSaveState = {
 export type UseHammerWorkspaceShellReleasePrepArgs = {
   workpieceId: string;
   workspaceId: string;
+  recordingRevisionId: string | null;
   prepHandoffAction?: {
     id: Exclude<HammerPreparedNextStepActionId, "export_later">;
     token: number;
@@ -256,39 +257,26 @@ export function useHammerWorkspaceShellReleasePrep(
           rawResponse: null,
         };
       } else {
-        const renderLocalRelpath = sendArgs.preferredPlayback.kind === "polished"
-          ? (sendArgs.preferredPlayback.local_relpath ?? sendArgs.mediaRef.local_relpath ?? null)
-          : (sendArgs.mediaRef.local_relpath ?? null);
-        const renderCanonicalWorkpiecePath = sendArgs.preferredPlayback.kind === "polished"
-          ? (sendArgs.preferredPlayback.workpiece_path ?? null)
-          : (sendArgs.mediaRef.local_relpath ?? null);
-        const renderMimeType = sendArgs.preferredPlayback.kind === "polished"
-          ? (sendArgs.preferredPlayback.mime_type ?? null)
-          : null;
-        renderExecution = await executeDialogueAudioRenderWithBackend({
-          workspaceId: args.workspaceId,
-          workpieceId: args.workpieceId,
-          mediaKind: sendArgs.mediaRef.kind,
-          timelineSegments: sendArgs.editableTranscriptSegments.map((segment) => ({
-            segment_id: segment.segment_id,
-            start_sec: segment.start_sec,
-            end_sec: segment.end_sec,
-            is_disabled: segment.is_disabled,
-            gain_db: segment.gain_db,
-          })),
-          rackState: sendArgs.editableStudioRack,
-          localRootAbs: sendArgs.playbackLocalRootAbs,
-          localRelpath: renderLocalRelpath,
-          canonicalWorkpiecePath: renderCanonicalWorkpiecePath,
-          mimeType: renderMimeType,
-          runtimeSummary: sendArgs.mediaBackboneRuntime,
-        });
+        if (!args.recordingRevisionId) {
+          throw new Error("Final audio rendering requires the canonical recording revision.");
+        }
+        renderExecution = await executeHammerFinalAudioRender({ workspaceId: args.workspaceId, workpieceId: args.workpieceId,
+          recordingRevisionId: args.recordingRevisionId, timelineRevision: sendArgs.timelineRevision, mediaRef: sendArgs.mediaRef,
+          preferredPlayback: sendArgs.preferredPlayback, playbackLocalRootAbs: sendArgs.playbackLocalRootAbs,
+          transcriptSegments: sendArgs.editableTranscriptSegments, studioRack: sendArgs.editableStudioRack,
+          canonicalGraph: sendArgs.canonicalGraph, renderAssembly: sendArgs.renderAssembly, runtimeSummary: sendArgs.mediaBackboneRuntime });
       }
       args.setStudioRackRenderStatus(renderExecution);
+
+      const finalAudioMaster = renderExecution.rawResponse?.canonical_audio_master ?? null;
+      if (!finalAudioMaster) {
+        throw new Error(renderExecution.message || "Hammer did not produce a canonical final-audio master.");
+      }
 
       const preparedPackage = buildHammerPreparedReleasePackage({
         current: releasePrepPackageSnapshot,
         timelineRevision: timelineRevisionSnapshot,
+        finalAudioMaster,
       });
 
       const result = await saveHammerPreparedReleasePackage({
@@ -306,6 +294,7 @@ export function useHammerWorkspaceShellReleasePrep(
         preparedAt: preparedPackage.preparedAt,
         canonicalGraph: canonicalGraphSnapshot,
         renderAssembly: renderAssemblySnapshot,
+        finalAudioMaster,
       });
       const packetValidation = validateHammerQuenchPacketForHandoff({
         releasePrepPackage: releasePrepPackageSnapshot,

@@ -204,11 +204,9 @@ function AudioFinalizationSurface(props: { context: HammerAudioFinalizationToolB
 
 function AudioAdjustmentsSurface(props: { context: HammerAudioAdjustmentsToolBayContext }): JSX.Element {
   const { commands, data, surface } = props.context;
-  const { editableAudioPolish, persistedAudioCutCount, effectivePlaybackCutRegions, silenceSuggestionCount, editableStudioRack, studioRackPlaybackConfig, studioRackPlaybackBackendResolution, studioRackRenderConfig, studioRackRenderBackendResolution, studioRackRenderStatus, studioRackRenderAppliedModules, studioRackRenderDeferredModules, studioRackEnabledModuleCount, studioRackComparePreviewStatusLabel, studioRackOpen, podcastMasterLayer, podcastMasterUiStatus, audioLevelingEnabled, audioNoiseReductionEnabled } = data;
+  const { editableAudioPolish, persistedAudioCutCount, effectivePlaybackCutRegions, silenceSuggestionCount, editableStudioRack, studioRackPlaybackConfig, studioRackPlaybackBackendResolution, studioRackRenderConfig, studioRackRenderBackendResolution, studioRackRenderStatus, studioRackRenderAppliedModules, studioRackRenderDeferredModules, studioRackEnabledModuleCount, studioRackComparePreviewStatusLabel, studioRackOpen, podcastMasterLayer, podcastMasterUiStatus } = data;
   const applyPodcastMasterPass = commands.applyPodcastMaster;
   const applyStudioRackMutation = commands.applyRackMutation;
-  const setAudioLevelingEnabled = commands.setLevelingEnabled;
-  const setAudioNoiseReductionEnabled = commands.setNoiseReductionEnabled;
   const setStudioRackBackend = commands.setRackBackend;
   const setStudioRackBypassed = commands.setRackBypassed;
   const setStudioRackEnabled = commands.setRackEnabled;
@@ -547,24 +545,20 @@ function AudioAdjustmentsSurface(props: { context: HammerAudioAdjustmentsToolBay
                   <label className="hammer-tool-check">
                     <input
                       type="checkbox"
-                      checked={audioLevelingEnabled}
-                      onChange={(event) => {
-                        commands.focusTool();
-                        setAudioLevelingEnabled(event.target.checked);
-                      }}
+                      checked={editableAudioPolish?.prepared_passes?.includes("level_consistency") === true}
+                      disabled
+                      readOnly
                     />
-                    <span>Level dialogue track (legacy prep)</span>
+                    <span>Baseline level consistency applied during preparation</span>
                   </label>
                   <label className="hammer-tool-check">
                     <input
                       type="checkbox"
-                      checked={audioNoiseReductionEnabled}
-                      onChange={(event) => {
-                        commands.focusTool();
-                        setAudioNoiseReductionEnabled(event.target.checked);
-                      }}
+                      checked={editableAudioPolish?.prepared_passes?.includes("noise_cleanup") === true}
+                      disabled
+                      readOnly
                     />
-                    <span>Reduce background noise (legacy prep)</span>
+                    <span>Baseline noise cleanup applied during preparation</span>
                   </label>
                 </section>
   </div>;

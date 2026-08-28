@@ -116,9 +116,9 @@ export type BrollCommands = Readonly<{
   focusBoundAttentionOperation(operationId: string): void;
   moveResolvedBrollBinding(operationId: string, deltaSec: number): void;
   trimResolvedBrollBinding(operationId: string, edge: "start" | "end", deltaSec: number): void;
-  replaceResolvedBrollBinding(operationId: string, assetPath: string): void;
+  replaceResolvedBrollBinding(input: Readonly<{ operationId: string; canonicalAssetId: string; assetPath: string; label: string }>): Promise<void>;
   revertResolvedBrollBinding(operationId: string): void;
-  resolveHearthBrollSuggestion(input: Readonly<{ operationId: string; assetPath: string; label: string }>): void;
+  resolveHearthBrollSuggestion(input: Readonly<{ operationId: string; canonicalAssetId: string; assetPath: string; label: string }>): Promise<void>;
   discardHearthBrollSuggestion(operationId: string): void;
   setTranscriptTimingHint(message: string): void;
   setVideoSnapMode(mode: "timeline" | "segment"): void;
@@ -164,7 +164,7 @@ export type HammerBrollReferenceToolBayData = Readonly<{
   selectedBoundBrollInspectorState: HammerBoundBrollInspectorState | null;
   selectedBoundBrollOperationId: string | null;
   selectedTransitionBoundObject: Extract<HammerBoundObject, { type: "transition" }> | null;
-  sourceBrollItems: readonly Readonly<{ assetPath?: string | null }>[];
+  sourceBrollItems: readonly Readonly<{ canonicalAssetId?: string | null; assetPath?: string | null; label?: string | null }>[];
   videoSnapMode: "timeline" | "segment";
 }>;
 export type HammerImageInspectorToolBayData = Readonly<{
@@ -241,7 +241,7 @@ export type HammerBrollToolBayContext = SurfaceContext<"broll", HammerBrollRefer
 export type HammerReferenceClipToolBayContext = SurfaceContext<"reference_clip", HammerBrollReferenceToolBayData, BrollCommands>;
 export type HammerAudioFinalizationToolBayData = Readonly<{ compareMode: "before" | "after"; voicePolish: HammerVoicePolishState | null }>;
 export type HammerAudioAdjustmentsToolBayData = Readonly<{
-  editableAudioPolish: Readonly<{ status?: string }> | null; persistedAudioCutCount: number; effectivePlaybackCutRegions: readonly unknown[]; silenceSuggestionCount: number;
+  editableAudioPolish: Readonly<{ status?: string; prepared_passes?: readonly string[] }> | null; persistedAudioCutCount: number; effectivePlaybackCutRegions: readonly unknown[]; silenceSuggestionCount: number;
   editableStudioRack: HammerStudioRackState; studioRackPlaybackConfig: Readonly<{ backend: string }>; studioRackPlaybackBackendResolution: Readonly<{ status: string }>;
   studioRackRenderConfig: Readonly<{ backend: string }>; studioRackRenderBackendResolution: Readonly<{ status: string }>;
   studioRackRenderStatus: Readonly<{ message: string; requestedBackend: string; resolvedBackend: string; status: string; outputWorkpiecePath?: string | null }> | null;

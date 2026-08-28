@@ -4496,6 +4496,17 @@ export type Database = {
           },
         ]
       }
+      hammer_audio_render_operations: {
+        Row: { composition_fingerprint: string; composition_revision: number; created_at: string; created_by: string; failure_code: string | null; failure_message: string | null; operation_fingerprint: string; operation_id: string; output_asset_id: string | null; output_profile_id: string; receipt_json: Json | null; recording_revision_id: string; render_evidence_json: Json | null; render_plan_fingerprint: string; renderer_version: string; state: string; updated_at: string; workpiece_id: string; workspace_id: string }
+        Insert: { composition_fingerprint: string; composition_revision: number; created_at?: string; created_by: string; failure_code?: string | null; failure_message?: string | null; operation_fingerprint: string; operation_id: string; output_asset_id?: string | null; output_profile_id: string; receipt_json?: Json | null; recording_revision_id: string; render_evidence_json?: Json | null; render_plan_fingerprint: string; renderer_version: string; state?: string; updated_at?: string; workpiece_id: string; workspace_id: string }
+        Update: { composition_fingerprint?: string; composition_revision?: number; created_at?: string; created_by?: string; failure_code?: string | null; failure_message?: string | null; operation_fingerprint?: string; operation_id?: string; output_asset_id?: string | null; output_profile_id?: string; receipt_json?: Json | null; recording_revision_id?: string; render_evidence_json?: Json | null; render_plan_fingerprint?: string; renderer_version?: string; state?: string; updated_at?: string; workpiece_id?: string; workspace_id?: string }
+        Relationships: [
+          { foreignKeyName: "hammer_audio_render_operations_output_asset_id_fkey"; columns: ["output_asset_id"]; isOneToOne: false; referencedRelation: "assets"; referencedColumns: ["id"] },
+          { foreignKeyName: "hammer_audio_render_operations_recording_revision_id_fkey"; columns: ["recording_revision_id"]; isOneToOne: false; referencedRelation: "recording_revisions"; referencedColumns: ["id"] },
+          { foreignKeyName: "hammer_audio_render_operations_workpiece_id_fkey"; columns: ["workpiece_id"]; isOneToOne: false; referencedRelation: "episodes"; referencedColumns: ["id"] },
+          { foreignKeyName: "hammer_audio_render_operations_workspace_id_fkey"; columns: ["workspace_id"]; isOneToOne: false; referencedRelation: "workspaces"; referencedColumns: ["id"] },
+        ]
+      }
       hammer_open_operation_receipts: {
         Row: { id: string; opened_at: string; opened_by: string; operation_key: string; preparation_attempt_id: string; request_fingerprint: string; workpiece_id: string; workspace_id: string }
         Insert: { id?: string; opened_at?: string; opened_by: string; operation_key: string; preparation_attempt_id: string; request_fingerprint: string; workpiece_id: string; workspace_id: string }
@@ -13197,6 +13208,22 @@ export type Database = {
       }
     }
     Functions: {
+      begin_hammer_audio_render: {
+        Args: { p_actor_id: string; p_composition_fingerprint: string; p_composition_revision: number; p_operation_fingerprint: string; p_operation_id: string; p_output_profile_id: string; p_recording_revision_id: string; p_render_plan_fingerprint: string; p_renderer_version: string; p_workpiece_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      commit_hammer_audio_master: {
+        Args: { p_byte_size: number; p_content_hash: string; p_duration_ms: number; p_mime_type: string; p_operation_fingerprint: string; p_operation_id: string; p_path: string; p_render_evidence?: Json; p_storage_bucket: string; p_storage_key: string }
+        Returns: Json
+      }
+      fail_hammer_audio_render: {
+        Args: { p_failure_code: string; p_failure_message: string; p_operation_fingerprint: string; p_operation_id: string; p_outcome_unknown?: boolean }
+        Returns: Json
+      }
+      resolve_hammer_audio_master: {
+        Args: { p_operation_fingerprint: string; p_operation_id: string }
+        Returns: Json
+      }
       adopt_latest_kept_take_for_hammer: {
         Args: { p_operation_key: string; p_workpiece_id: string; p_workspace_id: string }
         Returns: Json

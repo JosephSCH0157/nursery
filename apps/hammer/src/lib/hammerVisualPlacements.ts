@@ -1204,6 +1204,7 @@ export function deriveHammerVisualPlacements(args: {
   transcriptSourceId: string;
   transcriptSegments: HammerTranscriptSegment[];
   visualPackage: WorkpieceVisualPackageResponseData;
+  authorityContext?: { workspaceId: string; workpieceId: string };
   transcriptIdentity?: {
     transcript_id?: string | null;
     media_id?: string | null;
@@ -1449,6 +1450,10 @@ export function deriveHammerVisualPlacements(args: {
       anchor_text: anchorText,
       asset_ref: selectedAsset.asset_id,
       asset_id: selectedAsset.asset_id,
+      canonical_asset_id: selectedAsset.asset_id,
+      canonical_asset_state: "canonical_proven",
+      canonical_asset_workspace_id: args.authorityContext?.workspaceId ?? null,
+      canonical_asset_workpiece_id: args.authorityContext?.workpieceId ?? null,
       asset_path: selectedAsset.path,
       storage_key: selectedAsset.storage_key || selectedAsset.path,
       label: selectedAsset.variant_label ?? visual.visual_mode ?? visual.entry_id,

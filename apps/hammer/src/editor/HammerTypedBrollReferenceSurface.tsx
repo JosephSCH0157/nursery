@@ -155,21 +155,22 @@ export function HammerTypedBrollReferenceSurface(props: { context: Context }): J
                           >
                             Trim Out -0.25s
                           </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const replacement = sourceBrollItems.find(
-                                (item) => item.assetPath && item.assetPath !== selectedBoundBrollInspectorState.assetRef,
-                              )?.assetPath ?? null;
-                              if (!replacement) {
-                                setTranscriptTimingHint("Upload another b-roll asset before replacing this binding.");
-                                return;
-                              }
-                              replaceResolvedBrollBinding(selectedBoundBrollInspectorState.operationId, replacement);
-                            }}
-                          >
-                            Replace Asset
-                          </button>
+                          {sourceBrollItems.filter((item) => item.canonicalAssetId && item.assetPath
+                            && item.canonicalAssetId !== selectedBoundBrollInspectorState.assetRef).map((item) => (
+                            <button
+                              key={`replace:${item.canonicalAssetId}`}
+                              type="button" onClick={() => void replaceResolvedBrollBinding({
+                                operationId: selectedBoundBrollInspectorState.operationId,
+                                canonicalAssetId: item.canonicalAssetId!,
+                                assetPath: item.assetPath!,
+                                label: item.label ?? "Selected B-roll asset",
+                              }).catch((error: unknown) => {
+                                setTranscriptTimingHint(error instanceof Error ? error.message : "The selected B-roll asset could not be validated.");
+                              })}
+                            >
+                              Replace with {item.label ?? item.canonicalAssetId}
+                            </button>
+                          ))}
                           <button
                             type="button"
                             onClick={() => revertResolvedBrollBinding(selectedBoundBrollInspectorState.operationId)}
@@ -181,23 +182,22 @@ export function HammerTypedBrollReferenceSurface(props: { context: Context }): J
                       {selectedBoundBrollInspectorState.bindingState === "unresolved"
                         && selectedBoundBrollInspectorState.lifecycle === "active" ? (
                         <div className="hammer-source-card__actions">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const candidate = sourceBrollItems.find((item) => item.assetPath)?.assetPath ?? null;
-                              if (!candidate) {
-                                setTranscriptTimingHint("Upload B-roll before resolving this suggestion.");
-                                return;
-                              }
-                              resolveHearthBrollSuggestion({
+                          {sourceBrollItems.filter((item) => item.canonicalAssetId && item.assetPath).map((item) => (
+                            <button
+                              key={`resolve:${item.canonicalAssetId}`}
+                              type="button"
+                              onClick={() => void resolveHearthBrollSuggestion({
                                 operationId: selectedBoundBrollInspectorState.operationId,
-                                assetPath: candidate,
-                                label: "Resolved from inspector",
-                              });
-                            }}
-                          >
-                            Resolve With First Asset
-                          </button>
+                                canonicalAssetId: item.canonicalAssetId!,
+                                assetPath: item.assetPath!,
+                                label: item.label ?? "Selected B-roll asset",
+                              }).catch((error: unknown) => {
+                                setTranscriptTimingHint(error instanceof Error ? error.message : "The selected B-roll asset could not be validated.");
+                              })}
+                            >
+                              Use {item.label ?? item.canonicalAssetId}
+                            </button>
+                          ))}
                           <button
                             type="button"
                             onClick={() => discardHearthBrollSuggestion(selectedBoundBrollInspectorState.operationId)}

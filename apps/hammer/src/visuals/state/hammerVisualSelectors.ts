@@ -80,7 +80,13 @@ export function selectPreviewClips(args: {
   isPlaybackActive: boolean;
   isScrubbing: boolean;
 }): HammerVisualClip[] {
-  return selectEnabledClipsAtTimeSorted(args.state, args.playheadSec);
+  const assetsById = new Map(args.state.assets.map((asset) => [asset.asset_id, asset]));
+  return selectEnabledClipsAtTimeSorted(args.state, args.playheadSec).filter((clip) => {
+    if (clip.canonical_asset_state !== "canonical_proven" || !clip.canonical_asset_id || !clip.asset_id) return false;
+    const asset = assetsById.get(clip.asset_id);
+    return asset?.authority_state === "canonical_proven"
+      && asset.canonical_asset_id === clip.canonical_asset_id;
+  });
 }
 
 export function selectRenderModelAtPlayhead(
