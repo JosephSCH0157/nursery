@@ -1,7 +1,18 @@
 export type HammerBackgroundEffectKind =
   | "blur"
   | "wash"
-  | "replacement_solid";
+  | "replacement_solid"
+  | "replacement_image";
+
+export type HammerCanonicalBackgroundAssetAuthority = Readonly<{
+  canonical_asset_id: string;
+  canonical_content_hash: string;
+  workspace_id: string;
+  workpiece_id: string;
+  asset_kind: string;
+  readiness: "ready";
+  asset_path?: string | null;
+}>;
 
 export type HammerBackgroundEffectQualityMode =
   | "low"
@@ -33,10 +44,37 @@ export type HammerBackgroundReplacementSolidEffectSettingsV1 = HammerBackgroundE
   replacement_color: string;
 };
 
+export type HammerBackgroundReplacementImageEffectSettingsV1 = HammerBackgroundEffectCommonSettingsV1 & {
+  replacement_asset: HammerCanonicalBackgroundAssetAuthority;
+  fit: "cover" | "contain";
+};
+
 export type HammerBackgroundEffectSettingsV1 =
   | HammerBackgroundBlurEffectSettingsV1
   | HammerBackgroundWashEffectSettingsV1
-  | HammerBackgroundReplacementSolidEffectSettingsV1;
+  | HammerBackgroundReplacementSolidEffectSettingsV1
+  | HammerBackgroundReplacementImageEffectSettingsV1;
+
+export type HammerExportSegmentationAuthority = Readonly<{
+  provider_id: "mediapipe_tasks_image_segmenter";
+  provider_version: string;
+  model_id: "mediapipe_selfie_segmentation_landscape" | "mediapipe_selfie_segmentation_general";
+  model_sha256: string;
+  model_license: "Apache-2.0";
+  runtime_image: string;
+  runtime_version: string;
+  ffmpeg_version: string;
+  refinement_version: string;
+  confidence_threshold: number;
+  failure_policy: "fail_closed";
+  frame_policy: Readonly<{
+    fps: number;
+    timestamp_mode: "monotonic_milliseconds";
+    reset_on_cut: true;
+    reset_on_source_change: true;
+    reset_on_dimension_change: true;
+  }>;
+}>;
 
 export type HammerSegmentationProviderCapabilities = {
   preview_safe: boolean;
@@ -150,6 +188,29 @@ export function normalizeHammerBackgroundEffectSettingsV1(args: {
     case "replacement_solid": {
       const color = readString(row.replacement_color) ?? "#d0d0d0";
       return { ...common, replacement_color: color };
+    }
+    case "replacement_image": {
+      const asset = readObject(row.replacement_asset);
+      const id = readString(asset?.canonical_asset_id);
+      const hash = readString(asset?.canonical_content_hash);
+      const workspaceId = readString(asset?.workspace_id);
+      const workpieceId = readString(asset?.workpiece_id);
+      const assetKind = readString(asset?.asset_kind);
+      const readiness = readString(asset?.readiness);
+      if (!id || !hash || !/^[0-9a-f]{64}$/.test(hash) || !workspaceId || !workpieceId || readiness !== "ready" || !assetKind) return null;
+      return {
+        ...common,
+        replacement_asset: {
+          canonical_asset_id: id,
+          canonical_content_hash: hash,
+          workspace_id: workspaceId,
+          workpiece_id: workpieceId,
+          asset_kind: assetKind as HammerCanonicalBackgroundAssetAuthority["asset_kind"],
+          readiness: "ready",
+          asset_path: readString(asset?.asset_path),
+        },
+        fit: readString(row.fit) === "contain" ? "contain" : "cover",
+      };
     }
     default: {
       const exhaustive: never = args.effect_kind;

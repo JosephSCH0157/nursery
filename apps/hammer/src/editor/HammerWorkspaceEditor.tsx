@@ -1289,8 +1289,7 @@ export default function HammerWorkspaceEditor(
     const transcript = args.revisionTranscript ?? args.canonicalTranscript ?? null;
     const hasTranscript = Boolean(transcript?.segments?.length);
     const nowIso = new Date().toISOString();
-    const persistedState = args.persistenceSnapshot?.state ?? null;
-    const persistedEditorialAuthority = args.persistenceSnapshot?.editorial_authority ?? null, revisionEditorialAuthority = args.revisionEditorialAuthority ?? null;
+    const revisionEditorialAuthority = args.revisionEditorialAuthority ?? null;
     const orchestration = normalizeHammerOrchestrationState({
       prep_status: hasTranscript ? "prepared" : "idle",
       alignment_status: hasTranscript ? "aligned" : "not_started",
@@ -1319,7 +1318,7 @@ export default function HammerWorkspaceEditor(
         audio_polish_artifact_path: args.revision.audio_polish_path,
         edit_plan_artifact_path: null,
         transcript_versions_artifact_path: null,
-        editorial_authority_artifact_path: args.revision.editorial_authority_path ?? persistedState?.editorial_authority_artifact_path ?? persistedEditorialAuthority?.path ?? null,
+        editorial_authority_artifact_path: args.revision.editorial_authority_path,
         edit_plan_signature: orchestration.edit_plan_signature,
         prep_status: orchestration.prep_status,
         alignment_status: orchestration.alignment_status,
@@ -1370,9 +1369,9 @@ export default function HammerWorkspaceEditor(
         data: null,
       },
       editorial_authority: {
-        path: hasTranscript ? args.revision.editorial_authority_path ?? persistedEditorialAuthority?.path ?? null : null,
-        updated_at: hasTranscript && !revisionEditorialAuthority ? persistedEditorialAuthority?.updated_at ?? null : null,
-        data: hasTranscript ? revisionEditorialAuthority ?? persistedEditorialAuthority?.data ?? null : null,
+        path: hasTranscript ? args.revision.editorial_authority_path : null,
+        updated_at: null,
+        data: hasTranscript ? revisionEditorialAuthority : null,
       },
       macro_hooks: {
         recipe_ref: null,
@@ -1576,10 +1575,7 @@ export default function HammerWorkspaceEditor(
           const revisionAudioPolish = revisionArtifactsResult.ok ? revisionArtifactsResult.data.audio_polish : null;
           const revisionVisualTimeline = revisionArtifactsResult.ok ? revisionArtifactsResult.data.visual_timeline : null;
           const revisionVisualPlacements = revisionArtifactsResult.ok
-            ? revisionArtifactsResult.data.visual_timeline_authority === "absent"
-              ? revisionArtifactsResult.data.visual_placements
-                ?? (persistenceSnapshotResult.ok ? persistenceSnapshotResult.data.visual_placements.data : null)
-              : revisionArtifactsResult.data.visual_placements
+            ? revisionArtifactsResult.data.visual_placements
             : null;
 
           // --- Registered transcript artifact ---

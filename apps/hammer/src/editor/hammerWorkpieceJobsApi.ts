@@ -1,7 +1,7 @@
 import { tongsFetch } from "../lib/tongsFetch";
 import { readJsonBody } from "../lib/json";
 
-export type HammerWorkpieceJobType = "hammer_transcript_prep" | "hammer_transcript_regeneration";
+export type HammerWorkpieceJobType = "hammer_transcript_prep" | "hammer_transcript_regeneration" | "hammer_final_video_render";
 export type HammerWorkpieceJobStatus = "queued" | "running" | "completed" | "failed" | "canceled";
 
 export type HammerWorkpieceJob = {

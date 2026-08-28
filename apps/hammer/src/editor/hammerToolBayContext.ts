@@ -72,7 +72,7 @@ export type HammerVisualPolishToolBayData = Readonly<Pick<VisualPreviewAuthority
   "visualBackgroundBlur" | "visualBackgroundBlurPx" | "visualBackgroundBlurFeatherPx" | "visualBackgroundBlurTemporalSmoothing" |
   "visualBackgroundBlurSubjectExpansionPx" | "visualBackgroundBlurQualityMode" | "visualBackgroundBlurFallbackMode" |
   "visualBackgroundReplaceEnabled" | "visualBackgroundReplaceMode" | "visualBackgroundReplaceColor" | "visualBackgroundReplaceImageUrl" |
-  "visualBackgroundReplaceImageAssetPath" | "visualBackgroundWashEnabled" | "visualBackgroundWashDimAmount" |
+  "visualBackgroundReplaceImageAssetPath" | "visualBackgroundReplaceImageAssetId" | "visualBackgroundWashEnabled" | "visualBackgroundWashDimAmount" |
   "visualBackgroundWashDesaturateAmount" | "visualBackgroundBlurDebugMask" | "visualBackgroundMaskPreviewMode" |
   "visualBackgroundMaskPreviewStage" | "visualEyeContactAssistDebugOverlay"
 > & Pick<VisualRuntimeAuthority, "visualBackgroundBlurRuntimeStatus" | "visualEyeContactAssistRuntimeStatus"> &
@@ -81,7 +81,7 @@ Pick<VisualRuntimeDerived, "visualBackgroundBlurStatusSummary" | "visualEyeConta
   activeLookPreset: HammerVisualLutPreset | null;
   backgroundBlurProviderDescriptor: SegmentationProviderDescriptor | null;
   segmentationProviderDescriptors: readonly SegmentationProviderDescriptor[];
-  sourceImageLibraryItems: readonly Readonly<{ path: string; name: string }>[];
+  sourceImageLibraryItems: readonly Readonly<{ assetId: string | null; path: string; name: string }>[];
   selectedBackgroundReplacementAssetId: string | null;
   uploadingCategory: "images" | "broll" | "introoutro" | null;
 }>;
@@ -90,12 +90,13 @@ export type VisualPolishCommands = Readonly<Pick<VisualPreviewAuthority,
   "setVisualBackgroundBlur" | "setVisualBackgroundBlurPx" | "setVisualBackgroundBlurFeatherPx" | "setVisualBackgroundBlurTemporalSmoothing" |
   "setVisualBackgroundBlurSubjectExpansionPx" | "setVisualBackgroundBlurQualityMode" | "setVisualBackgroundBlurFallbackMode" |
   "setVisualBackgroundBlurProviderId" | "setVisualBackgroundReplaceEnabled" | "setVisualBackgroundReplaceMode" |
-  "setVisualBackgroundReplaceColor" | "setVisualBackgroundReplaceImageUrl" | "setVisualBackgroundReplaceImageAssetPath" |
+  "setVisualBackgroundReplaceColor" | "setVisualBackgroundReplaceImageUrl" | "setVisualBackgroundReplaceImageAssetPath" | "setVisualBackgroundReplaceImageAssetId" |
   "setVisualBackgroundWashEnabled" | "setVisualBackgroundWashDimAmount" | "setVisualBackgroundWashDesaturateAmount" |
   "setVisualBackgroundBlurDebugMask" | "setVisualBackgroundMaskPreviewMode" | "setVisualBackgroundMaskPreviewStage" |
   "setVisualEyeContactAssistDebugOverlay"
 > & Pick<VisualRuntimeAuthority, "setVisualBackgroundBlurRuntimeStatus" | "setVisualEyeContactAssistRuntimeStatus"> &
 Pick<VisualLookExposureAuthority, "applyLookPresetSelection" | "applyExposureAdjustment"> & {
+  commitBackgroundEffect(): void;
   setFocusOverride(mode: "auto" | "source-focus" | "tool-focus" | "time-focus"): void;
   handleSourceDeskUpload(category: "images" | "broll" | "introoutro", fileList: FileList | null): Promise<void>;
 }>;

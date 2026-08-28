@@ -1,6 +1,7 @@
 import { hammerStableFingerprint } from "./hammerCompositionV2";
 import {
   resolveHammerPreviewSource,
+  hammerRenderPlanFingerprint,
   selectHammerPreviewOperations,
   type HammerRenderOperationV1,
   type HammerRenderPlanV1,
@@ -23,7 +24,7 @@ export type HammerInteractivePreviewFrameV1 = Readonly<{
 
 function verifyPlanFingerprint(plan: HammerRenderPlanV1): void {
   const { fingerprint, ...draft } = plan;
-  if (hammerStableFingerprint(draft) !== fingerprint) throw new Error("render_plan_fingerprint_mismatch");
+  if (hammerRenderPlanFingerprint(draft) !== fingerprint) throw new Error("render_plan_fingerprint_mismatch");
 }
 
 export function buildHammerInteractivePreviewFrameV1(args: {
@@ -49,7 +50,7 @@ export function buildHammerInteractivePreviewFrameV1(args: {
     schema_version: 1 as const,
     plan_fingerprint: args.plan.fingerprint,
     at_sec: args.atSec,
-    visual_layers: active.filter((operation) => operation.kind === "video" || operation.kind === "graphic"),
+    visual_layers: active.filter((operation) => operation.kind === "video" || operation.kind === "graphic" || operation.kind === "background_effect"),
     audio_layers: active.filter((operation) => operation.kind === "audio"),
     captions: active.filter((operation) => operation.kind === "caption"),
     transitions: active.filter((operation) => operation.kind === "transition"),

@@ -1,6 +1,7 @@
 import type { HammerReleasePrepPackage } from "./hammerReleasePrepPackage";
 import type { HammerPackagingIntent } from "./hammerPackageMediaAuthority";
 import type { HammerFinalAudioMasterAuthority } from "../composition/hammerFinalAudioAuthority";
+import type { HammerFinalVideoMasterAuthority } from "../../../../packages/contracts/hammer/final-video-master.contract";
 
 export const HAMMER_PREPARED_RELEASE_PACKAGE_PATH = "hammer/release-prep/package.v1.json";
 export const HAMMER_PREPARED_RELEASE_SRT_PATH = "hammer/release-prep/subtitles/current.srt";
@@ -16,6 +17,7 @@ export interface HammerPreparedReleasePackage {
   version: 1;
   workpieceId: string;
   workspaceId: string | null;
+  recordingRevisionId: string | null;
   preparedAt: string;
   preparedBy: string | null;
   transcript: {
@@ -50,6 +52,7 @@ export interface HammerPreparedReleasePackage {
     activeAudioFocus: string | null;
   };
   finalAudioMaster: HammerFinalAudioMasterAuthority | null;
+  finalVideoMaster: HammerFinalVideoMasterAuthority | null;
   packagingMedia?: HammerPackagingIntent;
   brandProvenance?: HammerBrandApplicationProvenance | null;
   overallStatus: HammerPreparedReleaseOverallStatus;
@@ -145,7 +148,9 @@ export function buildHammerPreparedReleasePackage(args: {
   preparedAt?: string;
   preparedBy?: string | null;
   timelineRevision?: string | null;
+  recordingRevisionId?: string | null;
   finalAudioMaster?: HammerFinalAudioMasterAuthority | null;
+  finalVideoMaster?: HammerFinalVideoMasterAuthority | null;
 }): HammerPreparedReleasePackage {
   const preparedAt = args.preparedAt ?? new Date().toISOString();
   const transcriptText = normalizeText(args.current.text_outputs?.resolved_output.full_text ?? null);
@@ -179,6 +184,7 @@ export function buildHammerPreparedReleasePackage(args: {
     version: 1,
     workpieceId: args.current.identity.workpiece_id ?? "",
     workspaceId: args.current.identity.workspace_id,
+    recordingRevisionId: args.recordingRevisionId ?? null,
     preparedAt,
     preparedBy: args.preparedBy ?? null,
     transcript: {
@@ -223,6 +229,7 @@ export function buildHammerPreparedReleasePackage(args: {
       activeAudioFocus: args.current.media_prep_outputs.audio.preferred_playback.reason,
     },
     finalAudioMaster: args.finalAudioMaster ?? null,
+    finalVideoMaster: args.finalVideoMaster ?? null,
     packagingMedia: structuredClone(args.current.packaging_media),
     overallStatus: resolveOverallStatus({
       transcript: transcriptStatus,
@@ -289,4 +296,12 @@ export function compareHammerPreparedReleasePackageToCurrent(
       media: mediaChanged,
     },
   };
+}
+
+export function resolveHammerPreparedPackageForRecording(
+  prepared: HammerPreparedReleasePackage | null | undefined,
+  recordingRevisionId: string | null | undefined,
+): HammerPreparedReleasePackage | null {
+  if (!prepared || !recordingRevisionId) return null;
+  return prepared.recordingRevisionId === recordingRevisionId ? prepared : null;
 }

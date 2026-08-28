@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 import { useNewTakeThenOpen } from "../src/app/hammerTakeAdoption";
+import { buildHammerPreparedReleasePackage, resolveHammerPreparedPackageForRecording } from "../src/lib/hammerPreparedReleasePackage";
+import { buildHammerReleasePrepPackage } from "../src/lib/hammerReleasePrepPackage";
 
 const target = {
   workspaceId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -40,4 +42,30 @@ test("Landing Pad cards are informational and expose independent commands", asyn
   assert.doesNotMatch(articleOpening, /onClick|onKeyDown|tabIndex/);
   assert.match(source, />\s*Open Current Edit\s*</);
   assert.match(source, /"Use New Take"/);
+});
+
+test("a prepared package from Take A cannot become stale authority in Take B", () => {
+  const current = buildHammerReleasePrepPackage({
+    workspaceId: target.workspaceId, workpieceId: target.workpieceId,
+    prepStatus: "idle", alignmentStatus: "not_started", structuredTranscript: null,
+    visualPlacements: null, audioPolish: null, editorSession: null,
+  });
+  const takeA = buildHammerPreparedReleasePackage({ current, recordingRevisionId: "aaaaaaaa-0000-4000-8000-000000000001" });
+  assert.equal(resolveHammerPreparedPackageForRecording(takeA, "aaaaaaaa-0000-4000-8000-000000000001"), takeA);
+  assert.equal(resolveHammerPreparedPackageForRecording(takeA, "bbbbbbbb-0000-4000-8000-000000000002"), null);
+  assert.equal(resolveHammerPreparedPackageForRecording({ ...takeA, recordingRevisionId: null }, "bbbbbbbb-0000-4000-8000-000000000002"), null);
+});
+
+test("canonical recording change establishes an empty revision lineage and preserves prior rows", async () => {
+  const migration = await readFile(new URL("../../../supabase/migrations/20260828150000_tongs_hammer_take_lineage_reset.sql", import.meta.url), "utf8");
+  assert.match(migration, /adopt_latest_kept_take_for_hammer_pre_lineage/);
+  assert.match(migration, /insert into tongs\.recording_revisions/);
+  assert.match(migration, /active_revision_id=v_revision\.id/);
+  assert.match(migration, /audio_polish_artifact_path=null/);
+  assert.match(migration, /editorial_authority_path=null/);
+  assert.doesNotMatch(migration, /delete from tongs\.recording_revisions/);
+
+  const editor = await readFile(new URL("../src/editor/HammerWorkspaceEditor.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(editor, /revisionVisualPlacements[\s\S]{0,300}persistenceSnapshotResult\.data\.visual_placements/);
+  assert.doesNotMatch(editor, /revisionEditorialAuthority \?\? persistedEditorialAuthority/);
 });

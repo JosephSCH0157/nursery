@@ -335,7 +335,7 @@ export function projectEditorialAuthorityGraphFromEditPlan(args: {
         preview_reasons = Array.from(new Set([...preview_reasons, "operation_input_invalid"]));
         export_reasons = Array.from(new Set([...export_reasons, "operation_input_invalid"]));
         handoff_reasons = Array.from(new Set([...handoff_reasons, "operation_input_invalid"]));
-      } else if (!descriptor.capabilities.export_safe) {
+      } else if (!descriptor.capabilities.export_safe && !instruction.export_authority) {
         capability_state = "degraded";
         capability_state_reasons = Array.from(new Set([...capability_state_reasons, "export_not_supported", "handoff_deferred"]));
         export_posture = "degraded";
@@ -348,6 +348,19 @@ export function projectEditorialAuthorityGraphFromEditPlan(args: {
         preview_posture = "authoritative";
         preview_capability = baseCapability;
         preview_reasons = [...baseReasons];
+      } else if (instruction.export_authority) {
+        if (instruction.export_authority.provider_id !== "mediapipe_tasks_image_segmenter"
+          || instruction.export_authority.failure_policy !== "fail_closed"
+          || !/^[0-9a-f]{64}$/.test(instruction.export_authority.model_sha256)) {
+          capability_state = "unavailable";
+          capability_state_reasons = Array.from(new Set([...capability_state_reasons, "operation_input_invalid"]));
+          export_posture = "unavailable";
+          export_capability = "unavailable";
+          export_reasons = Array.from(new Set([...export_reasons, "operation_input_invalid"]));
+          handoff_posture = "unavailable";
+          handoff_capability = "unavailable";
+          handoff_reasons = Array.from(new Set([...handoff_reasons, "operation_input_invalid"]));
+        }
       }
     }
     return {

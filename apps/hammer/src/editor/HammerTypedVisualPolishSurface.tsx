@@ -29,19 +29,19 @@ export function HammerTypedVisualPolishSurface(props: { context: HammerVisualPol
     visualBackgroundBlurFeatherPx, visualBackgroundBlurSubjectExpansionPx, visualBackgroundBlurPx,
     visualBackgroundBlurQualityMode, visualBackgroundBlurRuntimeStatus, visualBackgroundBlurStatusSummary,
     visualBackgroundBlurTemporalSmoothing, visualBackgroundReplaceColor, visualBackgroundReplaceEnabled,
-    visualBackgroundReplaceImageAssetPath, visualBackgroundReplaceImageUrl, visualBackgroundReplaceMode,
+    visualBackgroundReplaceImageAssetPath, visualBackgroundReplaceImageAssetId, visualBackgroundReplaceImageUrl, visualBackgroundReplaceMode,
     visualBackgroundWashDesaturateAmount, visualBackgroundWashDimAmount, visualBackgroundWashEnabled,
     visualColorAmount, visualEyeContactAssistDebugOverlay, visualEyeContactAssistEnabled,
     visualEyeContactAssistRuntimeStatus, visualEyeContactAssistStatusSummary, visualEyeContactAssistStrength,
     visualWhiteBalance,
   } = data;
   const {
-    applyExposureAdjustment, applyLookPresetSelection, handleSourceDeskUpload, setFocusOverride,
+    applyExposureAdjustment, applyLookPresetSelection, commitBackgroundEffect, handleSourceDeskUpload, setFocusOverride,
     setVisualBackgroundBlur, setVisualBackgroundBlurDebugMask, setVisualBackgroundMaskPreviewMode,
     setVisualBackgroundMaskPreviewStage, setVisualBackgroundBlurFallbackMode, setVisualBackgroundBlurFeatherPx,
     setVisualBackgroundBlurSubjectExpansionPx, setVisualBackgroundBlurProviderId, setVisualBackgroundBlurPx,
     setVisualBackgroundBlurQualityMode, setVisualBackgroundBlurRuntimeStatus, setVisualBackgroundBlurTemporalSmoothing,
-    setVisualBackgroundReplaceColor, setVisualBackgroundReplaceEnabled, setVisualBackgroundReplaceImageAssetPath,
+    setVisualBackgroundReplaceColor, setVisualBackgroundReplaceEnabled, setVisualBackgroundReplaceImageAssetPath, setVisualBackgroundReplaceImageAssetId,
     setVisualBackgroundReplaceImageUrl, setVisualBackgroundReplaceMode, setVisualBackgroundWashDesaturateAmount,
     setVisualBackgroundWashDimAmount, setVisualBackgroundWashEnabled, setVisualColorAmount,
     setVisualEyeContactAssistDebugOverlay, setVisualEyeContactAssistEnabled, setVisualEyeContactAssistRuntimeStatus,
@@ -51,9 +51,7 @@ export function HammerTypedVisualPolishSurface(props: { context: HammerVisualPol
   return <div data-hammer-tool-bay-surface={surface}>
                   <section className="hammer-tool-card">
                     <header className="hammer-tool-card__head">Visual Polish</header>
-                    <div className="hammer-tool-hint">
-                      Look Preset and Exposure affect preview and export. White balance, color, and blur stay preview-only in this phase.
-                    </div>
+                    <div className="hammer-tool-hint">Look Preset, Exposure, and accepted background effects affect final export. White balance and color remain preview-only.</div>
                     <label className="hammer-tool-field">
                       <span>Look Preset</span>
                       <select
@@ -238,20 +236,20 @@ export function HammerTypedVisualPolishSurface(props: { context: HammerVisualPol
                         <label className="hammer-tool-field">
                           <span>Selected Background</span>
                           <select
-                            value={visualBackgroundReplaceImageAssetPath ?? ""}
+                            value={visualBackgroundReplaceImageAssetId ?? ""}
                             onChange={(event) => {
                               setFocusOverride("tool-focus");
-                              const nextPath = event.target.value.trim();
-                              setVisualBackgroundReplaceImageAssetPath(nextPath || null);
-                              if (nextPath) {
+                              const nextAssetId = event.target.value.trim(); const selected = sourceImageLibraryItems.find((item) => item.assetId === nextAssetId) ?? null;
+                              setVisualBackgroundReplaceImageAssetId(selected?.assetId ?? null); setVisualBackgroundReplaceImageAssetPath(selected?.path ?? null);
+                              if (selected) {
                                 setVisualBackgroundReplaceMode("image");
                                 setVisualBackgroundReplaceImageUrl("");
                               }
                             }}
                           >
                             <option value="">No background selected</option>
-                            {sourceImageLibraryItems.map((item) => (
-                              <option key={`bg-replace-${item.path}`} value={item.path}>
+                            {sourceImageLibraryItems.filter((item) => Boolean(item.assetId)).map((item) => (
+                              <option key={`bg-replace-${item.assetId}`} value={item.assetId ?? ""}>
                                 {item.name}
                               </option>
                             ))}
@@ -278,7 +276,7 @@ export function HammerTypedVisualPolishSurface(props: { context: HammerVisualPol
                             type="button"
                             onClick={() => {
                               setFocusOverride("tool-focus");
-                              setVisualBackgroundReplaceImageAssetPath(null);
+                              setVisualBackgroundReplaceImageAssetPath(null); setVisualBackgroundReplaceImageAssetId(null);
                               setVisualBackgroundReplaceImageUrl("");
                             }}
                             disabled={!visualBackgroundReplaceImageAssetPath && !visualBackgroundReplaceImageUrl.trim()}
@@ -378,6 +376,7 @@ export function HammerTypedVisualPolishSurface(props: { context: HammerVisualPol
                         </label>
                       </>
                     ) : null}
+                    <button type="button" onClick={() => { setFocusOverride("tool-focus"); commitBackgroundEffect(); }}>Accept Background Effect</button>
                     {visualBackgroundReplaceEnabled ? (
                       <>
                         <label className="hammer-tool-field">

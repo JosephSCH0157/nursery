@@ -23,6 +23,8 @@ export type HammerRenderJobV1 = Readonly<{
   source_fingerprints: Readonly<Record<string, string>>;
   render_plan_version: HammerRenderPlanV1["compiler_version"];
   render_plan_fingerprint: string;
+  background_effect_fingerprint: string | null;
+  segmentation_authority: HammerRenderPlanV1["segmentation_authority"];
   renderer_version: string;
   output_profile: HammerRenderOutputProfile;
   status: "queued" | "running" | "completed" | "failed" | "cancelled" | "stale" | "acknowledged";
@@ -83,6 +85,8 @@ export function createHammerRenderJob(args: {
     source_fingerprints: args.plan.source_fingerprints,
     render_plan_version: args.plan.compiler_version,
     render_plan_fingerprint: args.plan.fingerprint,
+    background_effect_fingerprint: args.plan.background_effect_fingerprint,
+    segmentation_authority: args.plan.segmentation_authority,
     renderer_version: args.rendererVersion,
     output_profile: args.outputProfile,
     status: "queued",

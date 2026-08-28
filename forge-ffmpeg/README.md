@@ -108,3 +108,6 @@ node server.mjs
 ```
 
 Service listens on port `8080` by default.
+## Final background-effect render
+
+`POST /render/background-effect` accepts a bounded JSON body containing `source_base64`, an immutable `plan`, and optional `audio_master_base64` / `replacement_asset_base64`. The plan must carry the pinned fail-closed segmentation authority. The response is the rendered MP4; `x-forge-render-evidence` contains base64url-encoded deterministic evidence. The service never downloads models during a render and deletes request scratch data before responding.

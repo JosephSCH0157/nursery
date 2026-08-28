@@ -1,6 +1,7 @@
 import type {
   HammerApplyLookInstruction,
   HammerApplyExposureInstruction,
+  HammerApplyBackgroundEffectInstruction,
   HammerAudioDuckInstruction,
   HammerDipToBlackInstruction,
   HammerEditInstruction,
@@ -15,6 +16,7 @@ import type {
   HammerTrimInstruction,
   HammerCrossfadeInstruction,
 } from "../../../../packages/contracts/hammer/edit-instruction.contract";
+import type { HammerBackgroundEffectKind, HammerBackgroundEffectSettingsV1, HammerExportSegmentationAuthority } from "../../../../packages/contracts/hammer/visual-effects-export.contract";
 import type {
   HammerEditorialAuthorityGraph,
   HammerEditorialAuthorityOperation,
@@ -1059,6 +1061,37 @@ export function createApplyExposureInstruction(args: {
     segment_id: args.segmentId,
     type: "apply_exposure",
     exposure: args.exposure,
+    created_at: nowIso,
+    execution: {
+      operation_family: "video_enhancement",
+      capability: "executable",
+      status: "declared",
+      target: "export",
+    },
+  };
+}
+
+export function createApplyBackgroundEffectInstruction(args: {
+  segmentId: string;
+  effectKind: HammerBackgroundEffectKind;
+  settings: HammerBackgroundEffectSettingsV1;
+  previewProviderId: string;
+  exportAuthority: HammerExportSegmentationAuthority;
+  nowIso?: string;
+  instructionId?: string;
+}): HammerApplyBackgroundEffectInstruction {
+  const nowIso = args.nowIso ?? new Date().toISOString();
+  return {
+    instruction_id: args.instructionId ?? createInstructionId("apply_background_effect"),
+    segment_id: args.segmentId,
+    type: "apply_background_effect",
+    effect_kind: args.effectKind,
+    settings_v1: args.settings,
+    provider_id: args.previewProviderId,
+    applies_to: "primary_video",
+    window: null,
+    export_authority: args.exportAuthority,
+    production_mode: "production",
     created_at: nowIso,
     execution: {
       operation_family: "video_enhancement",

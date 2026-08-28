@@ -177,6 +177,8 @@ export interface HammerApplyBackgroundEffectInstruction extends HammerEditInstru
   provider_id: string;
   applies_to: "primary_video";
   window?: null;
+  export_authority?: import("./visual-effects-export.contract").HammerExportSegmentationAuthority;
+  production_mode?: "production" | "diagnostic";
 }
 
 export interface HammerPodcastMasterPassInstruction extends HammerEditInstructionBase {

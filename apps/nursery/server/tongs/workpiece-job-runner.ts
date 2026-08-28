@@ -45,6 +45,100 @@ const FFMPEG_TRANSCRIPT_AUDIO_TIMEOUT_MS = 3 * 60 * 1000;
 const NEAR_SILENT_RMS_DBFS_THRESHOLD = -52;
 const MIN_USABLE_AUDIO_DURATION_SEC = 0.35;
 
+async function runFinalVideoRenderJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise<Record<string, unknown>> {
+  const payload = readJsonObject(job.payload_json);
+  if (!payload) throw new Error("Final video render payload is missing.");
+  const required = (key: string): string => {
+    const value = readTrimmed(payload[key]);
+    if (!value) throw new Error(`Final video render payload is missing ${key}.`);
+    return value;
+  };
+  const operationId = required("operation_id");
+  const operationFingerprint = required("operation_fingerprint");
+  const recordingRevisionId = required("recording_revision_id");
+  const compositionFingerprint = required("composition_fingerprint");
+  const renderPlanFingerprint = required("render_plan_fingerprint");
+  const audioMasterAssetId = required("audio_master_asset_id");
+  const rendererVersion = required("renderer_version");
+  const outputProfileId = required("output_profile_id");
+  const compositionRevision = Number(payload.composition_revision);
+  const backgroundEffectFingerprint = readTrimmed(payload.background_effect_fingerprint);
+  const replacementAssetId = readTrimmed(payload.replacement_asset_id);
+  const segmentationAuthority = readJsonObject(payload.segmentation_authority);
+  const effectPlan = readJsonObject(payload.background_effect_plan);
+  if (!Number.isInteger(compositionRevision) || compositionRevision <= 0 || !effectPlan || !segmentationAuthority) throw new Error("Final video render authority is invalid.");
+  const rpc = deps.service.supabase.schema("tongs") as unknown as { rpc(name: string, args: Record<string, unknown>): Promise<{ data: unknown; error: { message?: string } | null }> };
+  const begun = await rpc.rpc("begin_hammer_video_render", { p_operation_id: operationId, p_operation_fingerprint: operationFingerprint, p_workspace_id: job.workspace_id, p_workpiece_id: job.workpiece_id, p_recording_revision_id: recordingRevisionId, p_composition_revision: compositionRevision, p_composition_fingerprint: compositionFingerprint, p_render_plan_fingerprint: renderPlanFingerprint, p_background_effect_fingerprint: backgroundEffectFingerprint, p_audio_master_asset_id: audioMasterAssetId, p_replacement_asset_id: replacementAssetId, p_renderer_version: rendererVersion, p_output_profile_id: outputProfileId, p_segmentation_authority: segmentationAuthority, p_actor_id: job.requested_by });
+  if (begun.error) throw new Error(begun.error.message ?? "Final video render reservation failed.");
+  const reserved = await rpc.rpc("reserve_hammer_video_render_attempt", { p_operation_id: operationId, p_operation_fingerprint: operationFingerprint, p_lease_owner: job.runner_id ?? "workpiece-job-runner", p_lease_seconds: 1800 });
+  if (reserved.error) throw new Error(reserved.error.message ?? "Final video render attempt reservation failed.");
+  const reservedRow = readJsonObject(reserved.data); const attempt = readJsonObject(reservedRow?.attempt); const attemptId = readTrimmed(attempt?.attempt_id);
+  if (!attemptId) throw new Error("Final video render attempt returned no identity.");
+  let possibleExternalCommit = false;
+  const heartbeat = setInterval(() => {
+    void updateJobProgressPercent(deps.service, job.id, 45).catch(() => undefined);
+  }, 60_000);
+  try {
+    const revisionResult = await deps.service.supabase.schema("tongs").from("recording_revisions")
+      .select("canonical_recording_id").eq("id", recordingRevisionId).eq("workspace_id", job.workspace_id).eq("workpiece_id", job.workpiece_id).maybeSingle();
+    if (revisionResult.error || !revisionResult.data) throw new Error("Canonical recording revision could not be resolved.");
+    const recordingResult = await deps.service.supabase.schema("tongs").from("canonical_recordings")
+      .select("media_path").eq("id", revisionResult.data.canonical_recording_id).eq("workspace_id", job.workspace_id).eq("workpiece_id", job.workpiece_id).maybeSingle();
+    if (recordingResult.error || !recordingResult.data?.media_path) throw new Error("Canonical recording source could not be resolved.");
+    const audioAsset = await resolveReadyWorkpieceAssetStorage(deps.service.supabase, job.workspace_id, job.workpiece_id, audioMasterAssetId, "hammer_audio_master");
+    const replacementAsset = replacementAssetId
+      ? await resolveReadyWorkpieceAssetStorage(deps.service.supabase, job.workspace_id, job.workpiece_id, replacementAssetId, null, "image/")
+      : null;
+    const [source, audio, replacement] = await Promise.all([
+      downloadWorkpieceBytes(deps.service.supabase, "forge-workpieces", job.workpiece_id, recordingResult.data.media_path),
+      downloadAssetStorageBytes(deps.service.supabase, audioAsset.storage_bucket, audioAsset.storage_key),
+      replacementAsset ? downloadAssetStorageBytes(deps.service.supabase, replacementAsset.storage_bucket, replacementAsset.storage_key) : Promise.resolve(null),
+    ]);
+    const client = readHammerForgeFfmpegClientConfig();
+    if (!client) throw new Error("Forge media runtime is not configured for final video rendering.");
+    const response = await fetch(`${client.baseUrl}/render/background-effect`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ source_base64: Buffer.from(source.bytes).toString("base64"), audio_master_base64: Buffer.from(audio).toString("base64"), replacement_asset_base64: replacement ? Buffer.from(replacement).toString("base64") : undefined, plan: effectPlan }), signal: AbortSignal.timeout(Math.max(client.timeoutMs, 30 * 60_000)) });
+    if (!response.ok) throw new Error(`Forge final video render failed (${response.status}).`);
+    const output = Buffer.from(await response.arrayBuffer());
+    const encodedEvidence = response.headers.get("x-forge-render-evidence");
+    const evidence = encodedEvidence ? readJsonObject(JSON.parse(Buffer.from(encodedEvidence, "base64url").toString("utf8"))) : null;
+    if (!evidence) throw new Error("Forge final video render returned no verified evidence.");
+    const fps = Number(evidence.fps); const frameCount = Number(evidence.frame_count); const width = Number(evidence.width); const height = Number(evidence.height);
+    if (!(fps > 0 && frameCount > 0 && width > 0 && height > 0)) throw new Error("Forge final video render evidence is invalid.");
+    const contentHash = crypto.createHash("sha256").update(output).digest("hex");
+    const outputPath = `hammer/renders/video/${operationId}.mp4`; const storageKey = `workpieces/${job.workpiece_id}/${outputPath}`;
+    const uploaded = await deps.service.supabase.storage.from("forge-workpieces").upload(storageKey, output, { contentType: "video/mp4", upsert: false });
+    if (uploaded.error && !/already exists/i.test(uploaded.error.message)) throw new Error(uploaded.error.message);
+    possibleExternalCommit = true;
+    const acknowledged = crypto.createHash("sha256").update(JSON.stringify({ operation_id: operationId, asset_hash: contentHash, render_plan_fingerprint: renderPlanFingerprint })).digest("hex");
+    const committed = await rpc.rpc("commit_hammer_video_master", { p_operation_id: operationId, p_operation_fingerprint: operationFingerprint, p_attempt_id: attemptId, p_path: outputPath, p_mime_type: "video/mp4", p_byte_size: output.byteLength, p_content_hash: contentHash, p_storage_bucket: "forge-workpieces", p_storage_key: storageKey, p_duration_ms: Math.round(frameCount * 1000 / fps), p_width: width, p_height: height, p_fps: fps, p_render_evidence: { ...evidence, recording_revision_id: recordingRevisionId, audio_master_asset_id: audioMasterAssetId, replacement_asset_id: replacementAssetId }, p_acknowledged_result_fingerprint: acknowledged });
+    if (committed.error) throw new Error(committed.error.message ?? "Final video master commit failed.");
+    return { operation_id: operationId, attempt_id: attemptId, content_hash: contentHash, receipt: committed.data };
+  } catch (error) {
+    await rpc.rpc("fail_hammer_video_render", { p_operation_id: operationId, p_operation_fingerprint: operationFingerprint, p_attempt_id: attemptId, p_failure_code: "final_video_render_failed", p_failure_message: error instanceof Error ? error.message : "Final video render failed.", p_outcome_unknown: possibleExternalCommit });
+    throw error;
+  } finally {
+    clearInterval(heartbeat);
+  }
+}
+
+async function resolveReadyWorkpieceAssetStorage(
+  supabase: SupabaseClient<Database>, workspaceId: string, workpieceId: string, assetId: string,
+  assetKind: string | null, mimePrefix?: string,
+): Promise<{ storage_bucket: string; storage_key: string }> {
+  let query = supabase.schema("tongs").from("assets").select("storage_bucket,storage_key,mime_type,asset_kind,status")
+    .eq("id", assetId).eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId).eq("status", "ready");
+  if (assetKind) query = query.eq("asset_kind", assetKind);
+  const result = await query.maybeSingle();
+  if (result.error || !result.data || (mimePrefix && !result.data.mime_type.startsWith(mimePrefix))) throw new Error("Canonical render asset relationship mismatch.");
+  return { storage_bucket: result.data.storage_bucket, storage_key: result.data.storage_key };
+}
+
+async function downloadAssetStorageBytes(supabase: SupabaseClient<Database>, bucket: string, storageKey: string): Promise<Uint8Array> {
+  const result = await supabase.storage.from(bucket).download(storageKey);
+  if (result.error || !result.data) throw new Error("Canonical render asset bytes could not be downloaded.");
+  return new Uint8Array(await result.data.arrayBuffer());
+}
+
 function readTrimmed(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -1155,6 +1249,8 @@ async function tickRunner(deps: RunnerDeps, state: RunnerState): Promise<void> {
     try {
       const result = job.job_type === "hammer_transcript_prep" || job.job_type === "hammer_transcript_regeneration"
         ? await runTranscriptJob(deps, job)
+        : job.job_type === "hammer_final_video_render"
+        ? await runFinalVideoRenderJob(deps, job)
         : (() => {
           throw new Error(`Unsupported job_type: ${job.job_type}`);
         })();

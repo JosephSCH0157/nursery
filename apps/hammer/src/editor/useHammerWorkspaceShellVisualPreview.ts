@@ -154,7 +154,7 @@ export function useHammerVisualPreviewState(initialSettings: HammerPersistedVisu
   const [visualBackgroundReplaceMode, setVisualBackgroundReplaceMode] = useState<"solid" | "image" | "checkerboard">(initial.background_replace_mode === "image" ? "image" : initial.background_replace_mode === "checkerboard" ? "checkerboard" : "solid");
   const [visualBackgroundReplaceColor, setVisualBackgroundReplaceColor] = useState(String(initial.background_replace_color ?? "#2b2b2b"));
   const [visualBackgroundReplaceImageUrl, setVisualBackgroundReplaceImageUrl] = useState(String(initial.background_replace_image_url ?? ""));
-  const [visualBackgroundReplaceImageAssetPath, setVisualBackgroundReplaceImageAssetPath] = useState<string | null>(typeof initial.background_replace_image_asset_path === "string" ? initial.background_replace_image_asset_path : null);
+  const [visualBackgroundReplaceImageAssetPath, setVisualBackgroundReplaceImageAssetPath] = useState<string | null>(typeof initial.background_replace_image_asset_path === "string" ? initial.background_replace_image_asset_path : null); const [visualBackgroundReplaceImageAssetId, setVisualBackgroundReplaceImageAssetId] = useState<string | null>(typeof initial.background_replace_image_asset_id === "string" ? initial.background_replace_image_asset_id : null);
   const [visualBackgroundWashEnabled, setVisualBackgroundWashEnabled] = useState(Boolean(initial.background_wash_enabled ?? false));
   const [visualBackgroundWashDimAmount, setVisualBackgroundWashDimAmount] = useState(Number(initial.background_wash_dim_amount ?? 0.35));
   const [visualBackgroundWashDesaturateAmount, setVisualBackgroundWashDesaturateAmount] = useState(Number(initial.background_wash_desaturate_amount ?? 0.25));
@@ -180,7 +180,7 @@ export function useHammerVisualPreviewState(initialSettings: HammerPersistedVisu
     setVisualBackgroundReplaceMode(next.background_replace_mode === "image" ? "image" : next.background_replace_mode === "checkerboard" ? "checkerboard" : "solid");
     setVisualBackgroundReplaceColor(String(next.background_replace_color ?? "#2b2b2b"));
     setVisualBackgroundReplaceImageUrl(String(next.background_replace_image_url ?? ""));
-    setVisualBackgroundReplaceImageAssetPath(typeof next.background_replace_image_asset_path === "string" ? next.background_replace_image_asset_path : null);
+    setVisualBackgroundReplaceImageAssetPath(typeof next.background_replace_image_asset_path === "string" ? next.background_replace_image_asset_path : null); setVisualBackgroundReplaceImageAssetId(typeof next.background_replace_image_asset_id === "string" ? next.background_replace_image_asset_id : null);
     setVisualBackgroundWashEnabled(Boolean(next.background_wash_enabled ?? false));
     setVisualBackgroundWashDimAmount(Number(next.background_wash_dim_amount ?? 0.35));
     setVisualBackgroundWashDesaturateAmount(Number(next.background_wash_desaturate_amount ?? 0.25));
@@ -194,7 +194,7 @@ export function useHammerVisualPreviewState(initialSettings: HammerPersistedVisu
     visualBackgroundBlurFallbackMode, setVisualBackgroundBlurFallbackMode, visualBackgroundBlurProviderId, setVisualBackgroundBlurProviderId,
     visualBackgroundReplaceEnabled, setVisualBackgroundReplaceEnabled, visualBackgroundReplaceMode, setVisualBackgroundReplaceMode,
     visualBackgroundReplaceColor, setVisualBackgroundReplaceColor, visualBackgroundReplaceImageUrl, setVisualBackgroundReplaceImageUrl,
-    visualBackgroundReplaceImageAssetPath, setVisualBackgroundReplaceImageAssetPath, visualBackgroundWashEnabled, setVisualBackgroundWashEnabled,
+    visualBackgroundReplaceImageAssetPath, setVisualBackgroundReplaceImageAssetPath, visualBackgroundReplaceImageAssetId, setVisualBackgroundReplaceImageAssetId, visualBackgroundWashEnabled, setVisualBackgroundWashEnabled,
     visualBackgroundWashDimAmount, setVisualBackgroundWashDimAmount, visualBackgroundWashDesaturateAmount, setVisualBackgroundWashDesaturateAmount,
     visualBackgroundBlurDebugMask, setVisualBackgroundBlurDebugMask, visualBackgroundMaskPreviewMode, setVisualBackgroundMaskPreviewMode,
     visualBackgroundMaskPreviewStage, setVisualBackgroundMaskPreviewStage, visualEyeContactAssistDebugOverlay, setVisualEyeContactAssistDebugOverlay,

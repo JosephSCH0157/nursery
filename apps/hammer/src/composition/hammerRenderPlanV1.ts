@@ -3,8 +3,10 @@ import { assertHammerCompositionV2 } from "./hammerCompositionTransactionV2";
 import { resolveHammerMediaSource, type HammerDerivedArtifact, type HammerMediaProvenance, type HammerResolvedMediaSource } from "./hammerMediaProvenance";
 import { compileHammerAudioGraphV1, type HammerAudioGraphV1 } from "./hammerAudioGraphV1";
 import { validateHammerCaptionArtifactV1, validateHammerGraphicTemplateV1, type HammerGraphicTemplateV1 } from "./hammerCaptionGraphicsTemplatesV1";
+import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
+import { normalizeHammerBackgroundEffectSettingsV1, type HammerExportSegmentationAuthority } from "../../../../packages/contracts/hammer/visual-effects-export.contract";
 
-export type HammerRenderOperationKind = "video" | "audio" | "caption" | "graphic" | "transition" | "audio_treatment" | "placement";
+export type HammerRenderOperationKind = "video" | "audio" | "caption" | "graphic" | "transition" | "audio_treatment" | "placement" | "background_effect";
 
 export type HammerRenderOperationV1 = Readonly<{
   operation_id: string;
@@ -35,8 +37,15 @@ export type HammerRenderPlanV1 = Readonly<{
   duration_sec: number;
   operations: readonly HammerRenderOperationV1[];
   audio_graph: HammerAudioGraphV1;
+  background_effect_fingerprint: string | null;
+  segmentation_authority: HammerExportSegmentationAuthority | null;
   fingerprint: string;
 }>;
+
+export function hammerRenderPlanFingerprint(plan: Omit<HammerRenderPlanV1, "fingerprint">): string {
+  const { background_effect_fingerprint, segmentation_authority, ...legacySeed } = plan;
+  return hammerStableFingerprint(background_effect_fingerprint ? { ...legacySeed, background_effect_fingerprint, segmentation_authority } : legacySeed);
+}
 
 function operationKind(trackKind: HammerCompositionTrackKind, clipKind: string): HammerRenderOperationKind {
   if (clipKind === "caption" || clipKind === "graphic" || clipKind === "transition") return clipKind;
@@ -149,7 +158,42 @@ export function compileHammerRenderPlan(composition: HammerCompositionV2): Hamme
     package_role: "program",
     payload: placement.payload,
   }));
-  const operations = [...clipOperations, ...captionArtifactOperations, ...audioOperations, ...placementOperations].sort(sortOperations);
+  const graph = composition.editorial_authority as unknown as HammerEditorialAuthorityGraph;
+  const activeBackground = Array.isArray(graph?.operations)
+    ? graph.operations.filter((operation) => operation.lifecycle === "active" && operation.instruction.type === "apply_background_effect")
+    : [];
+  if (activeBackground.length > 1) throw new Error("background_effect_conflict");
+  const backgroundOperation: HammerRenderOperationV1 | null = activeBackground[0] ? (() => {
+    const instruction = activeBackground[0].instruction;
+    if (instruction.type !== "apply_background_effect") return null;
+    if ((instruction.production_mode ?? "production") !== "production") throw new Error("background_effect_diagnostic_only");
+    const settings = normalizeHammerBackgroundEffectSettingsV1({ effect_kind: instruction.effect_kind, value: instruction.settings_v1 });
+    if (!settings) throw new Error("background_effect_settings_invalid");
+    const authority = instruction.export_authority;
+    if (!authority || authority.provider_id !== "mediapipe_tasks_image_segmenter" || authority.failure_policy !== "fail_closed" || !/^[0-9a-f]{64}$/.test(authority.model_sha256)) throw new Error("background_effect_export_provider_unresolved");
+    if (instruction.effect_kind === "replacement_image") {
+      const replacement = "replacement_asset" in settings ? settings.replacement_asset : null;
+      if (!replacement || replacement.workspace_id !== composition.workspace_id || replacement.workpiece_id !== composition.workpiece_id || replacement.readiness !== "ready") throw new Error("background_effect_replacement_relationship_mismatch");
+    }
+    return Object.freeze({
+      operation_id: `background-effect:${activeBackground[0].operation_id}`,
+      kind: "background_effect" as const,
+      track_id: null,
+      track_role: "program_background_effect",
+      layer_index: composition.tracks.length + captionArtifactOperations.length + audioOperations.length + placementOperations.length,
+      start_sec: 0,
+      end_sec: duration,
+      source_start_sec: null,
+      source_end_sec: null,
+      source_media_id: null,
+      source_fingerprint: null,
+      source_group_id: null,
+      source_sync_offset_sec: 0,
+      package_role: "program" as const,
+      payload: Object.freeze({ effect_kind: instruction.effect_kind, settings_v1: settings, export_authority: authority }),
+    });
+  })() : null;
+  const operations = [...clipOperations, ...captionArtifactOperations, ...audioOperations, ...placementOperations, ...(backgroundOperation ? [backgroundOperation] : [])].sort(sortOperations);
   const findPackageOperation = (clipId: string | null) => clipId ? operations.find((operation) => operation.operation_id === `clip:${clipId}`)?.operation_id ?? null : null;
   if (composition.packaging.intro_clip_id && !findPackageOperation(composition.packaging.intro_clip_id)) throw new Error("package_intro_unresolved");
   if (composition.packaging.outro_clip_id && !findPackageOperation(composition.packaging.outro_clip_id)) throw new Error("package_outro_unresolved");
@@ -165,7 +209,9 @@ export function compileHammerRenderPlan(composition: HammerCompositionV2): Hamme
     operations,
     audio_graph: audioGraph,
   };
-  return Object.freeze({ ...draft, fingerprint: hammerStableFingerprint(draft) });
+  const backgroundEffectFingerprint = backgroundOperation ? hammerStableFingerprint(backgroundOperation.payload) : null;
+  const planDraft = { ...draft, background_effect_fingerprint: backgroundEffectFingerprint, segmentation_authority: backgroundOperation ? (backgroundOperation.payload.export_authority as HammerExportSegmentationAuthority) : null };
+  return Object.freeze({ ...planDraft, fingerprint: hammerRenderPlanFingerprint(planDraft) });
 }
 
 export function selectHammerPreviewOperations(plan: HammerRenderPlanV1, atSec: number): readonly HammerRenderOperationV1[] {

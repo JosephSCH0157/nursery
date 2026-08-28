@@ -75,6 +75,9 @@ if (/\bmodel\b|\bctx\.|\bas\s+any\b|\[\s*key\s*:\s*string\s*\]|Record\s*<\s*stri
 if (/Resolve With First Asset|candidate_assets\s*\[\s*0\s*\]|sourceBrollItems\.find\s*\(/.test(convertedBrollReference)) failures.push("B-roll authority may not promote a positional/default candidate.");
 const mediaMapCommands = inspect("src/editor/hammerWorkspaceShellMediaMapCommands.ts").text;
 if (/replaceResolvedBrollBinding\s*=\s*\([^)]*assetPath\s*:\s*string/.test(mediaMapCommands)) failures.push("B-roll replacement must accept canonical asset authority, not a path-only identity.");
+const backgroundEffectContract = inspect("../../packages/contracts/hammer/visual-effects-export.contract.ts").text;
+if (/replacement_image[\s\S]{0,500}(?:replacement_url|replacement_path)\s*:/.test(backgroundEffectContract)) failures.push("Production background-image replacement may not carry path or URL identity.");
+if (!/replacement_asset:\s*HammerCanonicalBackgroundAssetAuthority/.test(backgroundEffectContract)) failures.push("Production background-image replacement lost canonical asset authority.");
 
 const toolBayInspection = inspect(baseline.toolBay.path);
 const toolBayCtxPropertyReferences = (toolBayInspection.text.match(/\bctx\.[A-Za-z_$][\w$]*/g) ?? []).length;

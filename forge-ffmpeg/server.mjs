@@ -10,6 +10,7 @@ const PORT = readPositiveInteger(process.env.PORT) ?? 8080;
 const HOST = process.env.HOST?.trim() || "0.0.0.0";
 const MAX_INPUT_BYTES = readPositiveInteger(process.env.MAX_INPUT_BYTES) ?? 64 * 1024 * 1024;
 const FFMPEG_TIMEOUT_MS = readPositiveInteger(process.env.FFMPEG_TIMEOUT_MS) ?? 120_000;
+const BACKGROUND_EFFECT_TIMEOUT_MS = readPositiveInteger(process.env.BACKGROUND_EFFECT_TIMEOUT_MS) ?? 30 * 60_000;
 
 function readPositiveInteger(value) {
   if (!value) return null;
@@ -128,8 +129,59 @@ async function handleHealth(_req, res) {
       health: "/health",
       ffmpeg_version: "/ffmpeg/version",
       transcode_wav: "/transcode/wav",
+      render_background_effect: "/render/background-effect",
     },
   });
+}
+
+function decodeBase64Field(payload, field, required = true) {
+  const value = payload?.[field];
+  if (typeof value !== "string" || value.length === 0) {
+    if (!required) return null;
+    throw Object.assign(new Error(`${field} is required.`), { statusCode: 400 });
+  }
+  const bytes = Buffer.from(value, "base64");
+  if (bytes.byteLength === 0) throw Object.assign(new Error(`${field} is empty.`), { statusCode: 400 });
+  return bytes;
+}
+
+async function handleBackgroundEffectRender(req, res) {
+  try {
+    const body = await readRequestBuffer(req, MAX_INPUT_BYTES);
+    const payload = JSON.parse(body.toString("utf8"));
+    if (!payload?.plan || typeof payload.plan !== "object") throw Object.assign(new Error("plan is required."), { statusCode: 400 });
+    const source = decodeBase64Field(payload, "source_base64");
+    const audio = decodeBase64Field(payload, "audio_master_base64", false);
+    const replacement = decodeBase64Field(payload, "replacement_asset_base64", false);
+    const output = await withTempDir(async (tempDir) => {
+      const sourcePath = path.join(tempDir, "source.mp4");
+      const audioPath = audio ? path.join(tempDir, "audio-master.wav") : null;
+      const replacementPath = replacement ? path.join(tempDir, "replacement-image") : null;
+      const planPath = path.join(tempDir, "background-effect-plan.json");
+      const outputPath = path.join(tempDir, "video-master.mp4");
+      await fsPromises.writeFile(sourcePath, source);
+      await fsPromises.writeFile(planPath, JSON.stringify(payload.plan));
+      if (audioPath) await fsPromises.writeFile(audioPath, audio);
+      if (replacementPath) await fsPromises.writeFile(replacementPath, replacement);
+      const args = ["background-effects-render.py", "--input", sourcePath, "--output", outputPath, "--plan", planPath];
+      if (audioPath) args.push("--audio", audioPath);
+      if (replacementPath) args.push("--replacement", replacementPath);
+      const executed = await runCommand("python", args, BACKGROUND_EFFECT_TIMEOUT_MS);
+      const report = JSON.parse(executed.stdout.trim());
+      if (!report?.ok || !report.evidence) throw new Error("Background-effect renderer returned invalid evidence.");
+      return { bytes: await fsPromises.readFile(outputPath), evidence: report.evidence };
+    });
+    res.writeHead(200, {
+      "content-type": "video/mp4",
+      "content-length": output.bytes.byteLength,
+      "cache-control": "no-store",
+      "x-forge-request-id": buildRequestId(),
+      "x-forge-render-evidence": Buffer.from(JSON.stringify(output.evidence)).toString("base64url"),
+    });
+    res.end(output.bytes);
+  } catch (error) {
+    sendJson(res, error.statusCode ?? 500, { ok: false, error: { message: error.message, stderr: error.stderr ?? null } });
+  }
 }
 
 async function handleFfmpegVersion(_req, res) {
@@ -254,6 +306,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (method === "POST" && url.pathname === "/probe/media") {
       await handleProbeMedia(req, res);
+      return;
+    }
+    if (method === "POST" && url.pathname === "/render/background-effect") {
+      await handleBackgroundEffectRender(req, res);
       return;
     }
 

@@ -21,6 +21,7 @@ import {
   type HammerPreparedReleaseOverallStatus,
   type HammerPreparedReleasePackage,
   buildHammerPreparedReleasePackage,
+  resolveHammerPreparedPackageForRecording,
 } from "../lib/hammerPreparedReleasePackage";
 import { loadHammerPreparedReleasePackage, saveHammerPreparedReleasePackage } from "../lib/hammerPreparedReleasePackageApi";
 import type { HammerReleasePrepPackage } from "../lib/hammerReleasePrepPackage";
@@ -191,7 +192,9 @@ export function useHammerWorkspaceShellReleasePrep(
           setReleasePrepLoading(false);
           return;
         }
-        setLoadedPreparedPackage(result.exists ? (result.data ?? null) : null);
+        setLoadedPreparedPackage(result.exists
+          ? resolveHammerPreparedPackageForRecording(result.data, args.recordingRevisionId)
+          : null);
         setReleasePrepLoading(false);
       })
       .catch((error) => {
@@ -203,7 +206,7 @@ export function useHammerWorkspaceShellReleasePrep(
     return () => {
       active = false;
     };
-  }, [args.setStudioRackRenderStatus, args.toErrorMessage, args.workpieceId]);
+  }, [args.recordingRevisionId, args.setStudioRackRenderStatus, args.toErrorMessage, args.workpieceId]);
 
   const sendToQuench = useCallback(async (sendArgs: SendToQuenchArgs): Promise<void> => {
     if (releasePrepSaving) return;
@@ -277,6 +280,7 @@ export function useHammerWorkspaceShellReleasePrep(
       const preparedPackage = buildHammerPreparedReleasePackage({
         current: releasePrepPackageSnapshot,
         timelineRevision: timelineRevisionSnapshot,
+        recordingRevisionId: args.recordingRevisionId,
         finalAudioMaster,
       });
 

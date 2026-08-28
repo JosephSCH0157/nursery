@@ -4507,6 +4507,25 @@ export type Database = {
           { foreignKeyName: "hammer_audio_render_operations_workspace_id_fkey"; columns: ["workspace_id"]; isOneToOne: false; referencedRelation: "workspaces"; referencedColumns: ["id"] },
         ]
       }
+      hammer_video_render_operations: {
+        Row: { acknowledged_result_fingerprint: string | null; audio_master_asset_id: string; background_effect_fingerprint: string | null; composition_fingerprint: string; composition_revision: number; created_at: string; created_by: string; failure_code: string | null; failure_message: string | null; operation_fingerprint: string; operation_id: string; output_asset_id: string | null; output_profile_id: string; receipt_json: Json | null; recording_revision_id: string; render_evidence_json: Json | null; render_plan_fingerprint: string; renderer_version: string; replacement_asset_id: string | null; segmentation_authority_json: Json | null; state: string; updated_at: string; workpiece_id: string; workspace_id: string }
+        Insert: { acknowledged_result_fingerprint?: string | null; audio_master_asset_id: string; background_effect_fingerprint?: string | null; composition_fingerprint: string; composition_revision: number; created_at?: string; created_by: string; failure_code?: string | null; failure_message?: string | null; operation_fingerprint: string; operation_id: string; output_asset_id?: string | null; output_profile_id: string; receipt_json?: Json | null; recording_revision_id: string; render_evidence_json?: Json | null; render_plan_fingerprint: string; renderer_version: string; replacement_asset_id?: string | null; segmentation_authority_json?: Json | null; state?: string; updated_at?: string; workpiece_id: string; workspace_id: string }
+        Update: { acknowledged_result_fingerprint?: string | null; audio_master_asset_id?: string; background_effect_fingerprint?: string | null; composition_fingerprint?: string; composition_revision?: number; created_at?: string; created_by?: string; failure_code?: string | null; failure_message?: string | null; operation_fingerprint?: string; operation_id?: string; output_asset_id?: string | null; output_profile_id?: string; receipt_json?: Json | null; recording_revision_id?: string; render_evidence_json?: Json | null; render_plan_fingerprint?: string; renderer_version?: string; replacement_asset_id?: string | null; segmentation_authority_json?: Json | null; state?: string; updated_at?: string; workpiece_id?: string; workspace_id?: string }
+        Relationships: [
+          { foreignKeyName: "hammer_video_render_operations_audio_master_asset_id_fkey"; columns: ["audio_master_asset_id"]; isOneToOne: false; referencedRelation: "assets"; referencedColumns: ["id"] },
+          { foreignKeyName: "hammer_video_render_operations_output_asset_id_fkey"; columns: ["output_asset_id"]; isOneToOne: false; referencedRelation: "assets"; referencedColumns: ["id"] },
+          { foreignKeyName: "hammer_video_render_operations_recording_revision_id_fkey"; columns: ["recording_revision_id"]; isOneToOne: false; referencedRelation: "recording_revisions"; referencedColumns: ["id"] },
+          { foreignKeyName: "hammer_video_render_operations_replacement_asset_id_fkey"; columns: ["replacement_asset_id"]; isOneToOne: false; referencedRelation: "assets"; referencedColumns: ["id"] },
+          { foreignKeyName: "hammer_video_render_operations_workpiece_id_fkey"; columns: ["workpiece_id"]; isOneToOne: false; referencedRelation: "episodes"; referencedColumns: ["id"] },
+          { foreignKeyName: "hammer_video_render_operations_workspace_id_fkey"; columns: ["workspace_id"]; isOneToOne: false; referencedRelation: "workspaces"; referencedColumns: ["id"] },
+        ]
+      }
+      hammer_video_render_attempts: {
+        Row: { attempt_id: string; attempt_number: number; created_at: string; failure_code: string | null; failure_message: string | null; lease_expires_at: string | null; lease_owner: string | null; operation_id: string; progress: number; provider_evidence_json: Json | null; state: string; updated_at: string }
+        Insert: { attempt_id?: string; attempt_number: number; created_at?: string; failure_code?: string | null; failure_message?: string | null; lease_expires_at?: string | null; lease_owner?: string | null; operation_id: string; progress?: number; provider_evidence_json?: Json | null; state: string; updated_at?: string }
+        Update: { attempt_id?: string; attempt_number?: number; created_at?: string; failure_code?: string | null; failure_message?: string | null; lease_expires_at?: string | null; lease_owner?: string | null; operation_id?: string; progress?: number; provider_evidence_json?: Json | null; state?: string; updated_at?: string }
+        Relationships: [{ foreignKeyName: "hammer_video_render_attempts_operation_id_fkey"; columns: ["operation_id"]; isOneToOne: false; referencedRelation: "hammer_video_render_operations"; referencedColumns: ["operation_id"] }]
+      }
       hammer_open_operation_receipts: {
         Row: { id: string; opened_at: string; opened_by: string; operation_key: string; preparation_attempt_id: string; request_fingerprint: string; workpiece_id: string; workspace_id: string }
         Insert: { id?: string; opened_at?: string; opened_by: string; operation_key: string; preparation_attempt_id: string; request_fingerprint: string; workpiece_id: string; workspace_id: string }
@@ -13212,6 +13231,14 @@ export type Database = {
         Args: { p_actor_id: string; p_composition_fingerprint: string; p_composition_revision: number; p_operation_fingerprint: string; p_operation_id: string; p_output_profile_id: string; p_recording_revision_id: string; p_render_plan_fingerprint: string; p_renderer_version: string; p_workpiece_id: string; p_workspace_id: string }
         Returns: Json
       }
+      begin_hammer_video_render: {
+        Args: { p_actor_id: string; p_audio_master_asset_id: string; p_background_effect_fingerprint: string | null; p_composition_fingerprint: string; p_composition_revision: number; p_operation_fingerprint: string; p_operation_id: string; p_output_profile_id: string; p_recording_revision_id: string; p_render_plan_fingerprint: string; p_renderer_version: string; p_replacement_asset_id: string | null; p_segmentation_authority: Json; p_workpiece_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      reserve_hammer_video_render_attempt: { Args: { p_lease_owner: string; p_lease_seconds?: number; p_operation_fingerprint: string; p_operation_id: string }; Returns: Json }
+      commit_hammer_video_master: { Args: { p_acknowledged_result_fingerprint: string; p_attempt_id: string; p_byte_size: number; p_content_hash: string; p_duration_ms: number; p_fps: number; p_height: number; p_mime_type: string; p_operation_fingerprint: string; p_operation_id: string; p_path: string; p_render_evidence: Json; p_storage_bucket: string; p_storage_key: string; p_width: number }; Returns: Json }
+      fail_hammer_video_render: { Args: { p_attempt_id: string; p_failure_code: string; p_failure_message: string; p_operation_fingerprint: string; p_operation_id: string; p_outcome_unknown?: boolean }; Returns: Json }
+      resolve_hammer_video_master: { Args: { p_operation_fingerprint: string; p_operation_id: string }; Returns: Json }
       commit_hammer_audio_master: {
         Args: { p_byte_size: number; p_content_hash: string; p_duration_ms: number; p_mime_type: string; p_operation_fingerprint: string; p_operation_id: string; p_path: string; p_render_evidence?: Json; p_storage_bucket: string; p_storage_key: string }
         Returns: Json

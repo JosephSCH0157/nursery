@@ -216,8 +216,8 @@ const WORKSPACE_ROLE_RANK: Record<WorkspaceRole, number> = {
   owner: 40,
 };
 
-export type WorkpieceJobType = "hammer_transcript_prep" | "hammer_transcript_regeneration";
-const WORKPIECE_JOB_TYPE_SET = new Set<WorkpieceJobType>(["hammer_transcript_prep", "hammer_transcript_regeneration"]);
+export type WorkpieceJobType = "hammer_transcript_prep" | "hammer_transcript_regeneration" | "hammer_final_video_render";
+const WORKPIECE_JOB_TYPE_SET = new Set<WorkpieceJobType>(["hammer_transcript_prep", "hammer_transcript_regeneration", "hammer_final_video_render"]);
 
 export type WorkpieceJobStatus = "queued" | "running" | "completed" | "failed" | "canceled";
 const WORKPIECE_JOB_STATUS_SET = new Set<WorkpieceJobStatus>(["queued", "running", "completed", "failed", "canceled"]);
@@ -9829,33 +9829,27 @@ export class TongsCommitService {
     }
     const provider = typeof payloadJson.provider === "string" ? payloadJson.provider.trim() : null;
     const model = typeof payloadJson.model === "string" ? payloadJson.model.trim() : null;
-    let policy: AiPolicyResolveResult;
-    try {
-      policy = await resolveAiPolicy(this.supabase as unknown as SupabaseClient, {
-        orgId: null,
-        workspaceId,
-        userId: auth.userId,
-        tool: "hammer",
-        feature: "heavy_tasks",
-        action: input.job_type === "hammer_transcript_regeneration" || input.job_type === "hammer_transcript_prep"
-          ? "stt"
-          : null,
-        provider: provider || "openai",
-        model,
-      });
-    } catch (error) {
-      const reason = describeUnknownError(error);
-      throw new HttpError(503, "ai_policy_unavailable", "Unable to resolve AI policy for workpiece job creation", {
-        reason,
-      });
-    }
-    if (!isAiAllowDecision(policy)) {
-      throw new HttpError(403, "ai_policy_denied", getAiReasonMessage(policy.reasonCode ?? "NO_VALID_FUNDING_SOURCE"), {
-        decision_type: policy.decisionType,
-        reason_code: policy.reasonCode,
-        selected_funding_source: policy.selectedFundingSource,
-        key_resolution_status: policy.keyResolutionStatus,
-      });
+    let policy: AiPolicyResolveResult | null = null;
+    if (input.job_type !== "hammer_final_video_render") {
+      try {
+        policy = await resolveAiPolicy(this.supabase as unknown as SupabaseClient, {
+          orgId: null, workspaceId, userId: auth.userId, tool: "hammer", feature: "heavy_tasks", action: "stt",
+          provider: provider || "openai", model,
+        });
+      } catch (error) {
+        const reason = describeUnknownError(error);
+        throw new HttpError(503, "ai_policy_unavailable", "Unable to resolve AI policy for workpiece job creation", { reason });
+      }
+      if (!isAiAllowDecision(policy)) {
+        throw new HttpError(403, "ai_policy_denied", getAiReasonMessage(policy.reasonCode ?? "NO_VALID_FUNDING_SOURCE"), {
+          decision_type: policy.decisionType, reason_code: policy.reasonCode,
+          selected_funding_source: policy.selectedFundingSource, key_resolution_status: policy.keyResolutionStatus,
+        });
+      }
+    } else {
+      const required = ["operation_id", "operation_fingerprint", "recording_revision_id", "composition_fingerprint", "render_job_id", "render_plan_fingerprint", "audio_master_asset_id", "background_effect_plan"];
+      const missing = required.filter((field) => !(field in payloadJson) || payloadJson[field] == null || payloadJson[field] === "");
+      if (missing.length > 0) throw new HttpError(400, "hammer_final_video_render_payload_invalid", "Final-video rendering requires an immutable authority payload.", { missing });
     }
 
     const nowIso = new Date().toISOString();
@@ -9870,7 +9864,7 @@ export class TongsCommitService {
         requested_by: auth.userId,
         payload_json: {
           ...payloadJson,
-          policy: {
+          ...(policy ? { policy: {
             decision_type: policy.decisionType,
             reason_code: policy.reasonCode,
             selected_funding_source: policy.selectedFundingSource,
@@ -9878,7 +9872,7 @@ export class TongsCommitService {
             fallback_used: policy.fallbackUsed,
             key_resolution_status: policy.keyResolutionStatus,
             effective_provider: policy.effectiveProvider,
-          },
+          } } : {}),
         } as Json,
         attempt_count: 0,
         progress_percent: null,

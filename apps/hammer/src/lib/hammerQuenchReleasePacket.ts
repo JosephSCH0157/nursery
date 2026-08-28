@@ -11,6 +11,7 @@ import type { HammerReadinessReason, HammerReadinessReasonCode, HammerReadinessV
 import { deriveHammerReleaseHandoffPosture } from "./hammerReleaseHandoffPosture";
 import type { HammerPackageMediaReference, PackagingMediaReadiness } from "./hammerPackageMediaAuthority";
 import type { HammerFinalAudioMasterAuthority } from "../composition/hammerFinalAudioAuthority";
+import type { HammerFinalVideoMasterAuthority } from "../../../../packages/contracts/hammer/final-video-master.contract";
 
 export const HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH = "hammer/release-packet/manifest.v1.json";
 export const HAMMER_QUENCH_RELEASE_PACKET_TRANSCRIPT_PATH = "hammer/release-packet/transcript/transcript.txt";
@@ -27,6 +28,14 @@ export interface HammerQuenchReleasePacketAudioRef {
   workpiece_path: string | null;
   mime_type: string | null;
   source_label: string | null;
+}
+
+export interface HammerQuenchReleasePacketVideoRef {
+  kind: "final_master" | "source" | "none";
+  canonical_asset_id: string | null;
+  canonical_content_hash: string | null;
+  mime_type: string | null;
+  duration_ms: number | null;
 }
 
 export interface HammerQuenchReleasePacketVisualPlacement {
@@ -49,6 +58,7 @@ export interface HammerQuenchReleasePacketManifest {
   episode_title: string | null;
   duration_seconds: number | null;
   audio: HammerQuenchReleasePacketAudioRef;
+  video: HammerQuenchReleasePacketVideoRef;
   captions: {
     srt_path: string | null;
     vtt_path: string | null;
@@ -291,8 +301,12 @@ export function buildHammerQuenchReleasePacket(args: {
   canonicalGraph?: HammerEditorialAuthorityGraph | null;
   renderAssembly?: HammerRenderAssemblyResult | null;
   finalAudioMaster?: HammerFinalAudioMasterAuthority | null;
+  finalVideoMaster?: HammerFinalVideoMasterAuthority | null;
 }): HammerQuenchReleasePacketArtifacts {
   const pkg = args.releasePrepPackage;
+  const activeBackgroundEffect = args.renderAssembly?.export_timeline.visual_layers
+    .some((layer) => layer.kind === "background_effect") ?? false;
+  if (activeBackgroundEffect && !args.finalVideoMaster) throw new Error("final_video_master_stale");
   const transcriptText = normalizeText(pkg.text_outputs?.resolved_output.full_text ?? null);
   const srtText = normalizeText(pkg.text_outputs?.subtitles.srt.artifact?.content ?? null);
   const vttText = normalizeText(pkg.text_outputs?.subtitles.vtt.artifact?.content ?? null);
@@ -349,6 +363,19 @@ export function buildHammerQuenchReleasePacket(args: {
     visuals: {
       placements_path: HAMMER_QUENCH_RELEASE_PACKET_VISUALS_PATH,
       count: visuals.length,
+    },
+    video: args.finalVideoMaster ? {
+      kind: "final_master",
+      canonical_asset_id: args.finalVideoMaster.canonical_asset_id,
+      canonical_content_hash: args.finalVideoMaster.canonical_content_hash,
+      mime_type: args.finalVideoMaster.mime_type,
+      duration_ms: args.finalVideoMaster.duration_ms,
+    } : {
+      kind: "source",
+      canonical_asset_id: null,
+      canonical_content_hash: null,
+      mime_type: null,
+      duration_ms: null,
     },
     packaging_media_readiness: pkg.packaging_media.readiness,
     look: {

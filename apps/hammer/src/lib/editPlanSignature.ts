@@ -73,6 +73,8 @@ type SemanticEditInstruction =
     provider_id: string;
     applies_to: "primary_video";
     settings_v1: unknown;
+    export_authority?: unknown;
+    production_mode?: "production" | "diagnostic";
   }
   | {
     type: "podcast_master_pass";
@@ -182,6 +184,8 @@ function toSemanticEditInstruction(
         provider_id: instruction.provider_id,
         applies_to: instruction.applies_to,
         settings_v1: instruction.settings_v1,
+        export_authority: instruction.export_authority,
+        production_mode: instruction.production_mode ?? "production",
       };
     case "podcast_master_pass":
       return {
