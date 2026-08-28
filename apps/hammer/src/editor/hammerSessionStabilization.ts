@@ -27,22 +27,6 @@ export function canRetryHammerTranscript(args: {
     && args.failureKind === "non_ai_missing";
 }
 
-export function shouldTerminateIdleHammerLoadingContext(args: {
-  prepStatus: string;
-  prepStep: string | null;
-  hydrationInFlight: boolean;
-  prepExecutionInFlight: boolean;
-  transcriptJobId: string | null;
-  readyTransitionPending: boolean;
-}): boolean {
-  return args.prepStatus === "preparing"
-    && args.prepStep === "loading_context"
-    && !args.hydrationInFlight
-    && !args.prepExecutionInFlight
-    && !args.transcriptJobId
-    && !args.readyTransitionPending;
-}
-
 export function createHammerSessionRetryTransition(reloadNonce: number): {
   reloadNonce: number;
   transcriptDiscoveryStatus: "pending";

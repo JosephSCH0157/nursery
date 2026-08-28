@@ -55,6 +55,15 @@ export interface PublishContext {
   readiness: QuenchPublishAuthorityVerdict;
 }
 
+export interface PublicationExecutionContext extends PublishContext {
+  publication_operation_id: string;
+  publication_attempt_id: string;
+  manifest_snapshot_id: string;
+  release_decision_id: string;
+  executable_destination_id: string;
+  destination_capability_revision_id: string;
+}
+
 export interface AdapterPublishResult {
   ok: boolean;
   state: AdapterPublishState;
@@ -73,18 +82,18 @@ export interface QuenchPlatformAdapter {
   publish(
     packet: ReleasePacket,
     options: PlatformPublishOptions,
-    context: PublishContext,
+    context: PublicationExecutionContext,
   ): Promise<AdapterPublishResult>;
   retry(
     receipt: PlatformReceipt,
-    context: PublishContext,
+    context: PublicationExecutionContext,
   ): Promise<AdapterPublishResult>;
 }
 
 export function createStubReceipt(
   platform: QuenchPlatform,
   options: PlatformPublishOptions,
-  context: PublishContext,
+  context: PublicationExecutionContext,
   summary: Record<string, unknown>,
   status: AdapterPublishState = "stubbed",
 ): PlatformReceipt {
@@ -99,6 +108,8 @@ export function createStubReceipt(
     adapter_metadata: {
       run_mode: context.run_mode,
       request_id: context.request_id ?? null,
+      publication_operation_id: context.publication_operation_id,
+      publication_attempt_id: context.publication_attempt_id,
     },
     retry_count: 0,
   };
@@ -107,7 +118,7 @@ export function createStubReceipt(
 export function createNotImplementedResult(
   platform: QuenchPlatform,
   options: PlatformPublishOptions,
-  context: PublishContext,
+  context: PublicationExecutionContext,
   summary: Record<string, unknown>,
 ): AdapterPublishResult {
   return {
@@ -121,7 +132,7 @@ export function createNotImplementedResult(
 export function createPublishAuthorityDeniedResult(
   platform: QuenchPlatform,
   options: PlatformPublishOptions,
-  context: PublishContext,
+  context: PublicationExecutionContext,
   summary: Record<string, unknown>,
 ): AdapterPublishResult {
   return {

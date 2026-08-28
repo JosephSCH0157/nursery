@@ -14,6 +14,7 @@ import {
   type PlatformCapabilities,
   type PlatformReceipt,
   type PublishContext,
+  type PublicationExecutionContext,
   type QuenchPlatformAdapter,
 } from "../adapter.contract";
 
@@ -90,7 +91,7 @@ export class RssAdapter implements QuenchPlatformAdapter {
   async publish(
     packet: ReleasePacket,
     options: PlatformPublishOptions,
-    context: PublishContext,
+    context: PublicationExecutionContext,
   ): Promise<AdapterPublishResult> {
     const validation = await this.validate(packet, options, context);
     const summary = {
@@ -127,7 +128,7 @@ export class RssAdapter implements QuenchPlatformAdapter {
 
   retry(
     receipt: PlatformReceipt,
-    context: PublishContext,
+    context: PublicationExecutionContext,
   ): Promise<AdapterPublishResult> {
     const options: PlatformPublishOptions = {
       enabled: true,

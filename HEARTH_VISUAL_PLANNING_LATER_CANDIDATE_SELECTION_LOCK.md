@@ -1,14 +1,17 @@
-# Hearth Visual Planning v1 Slice 4 Selection Lock
+# Hearth Visual Planning Later Candidate Selection Lock
 
 > Implementation lock only. Constitutional lifecycle semantics are defined in `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`. Phase 5 production-prep direction is defined in `HEARTH_TONGS_PHASE_5_PLAN.md`. Existing canonical image-map persistence is defined by the shipped Tongs `/image-map` seam and `forge.episode.package.v2`.
 
 Date: March 11, 2026  
-Theme: `Hearth Visual Planning v1`  
-Slice: `Slice 4 - candidate selection truth`
+Reclassified: August 27, 2026  
+Theme: `Hearth Visual Planning - later candidate planning`  
+Status: preserved future-work lock; not canonical Authority Slice 4
+
+> This document was originally numbered Slice 4. S4-0 established that canonical asset identity must be locked first. The candidate-selection behavior remains useful, but it may execute only after Canonical Asset and Visual Derivative Authority is established.
 
 ## Decision
 
-Slice 4 is locked to the following rule:
+Later candidate-selection work is locked to the following rule:
 
 Canonical image-map entries may designate one selected still-image candidate as the authoritative visual attachment for that beat, but selection truth exists only after canonical image-map persistence and canonical candidate attachment validation.
 
@@ -22,14 +25,14 @@ In practical terms:
 
 ## Scope
 
-Slice 4 covers only:
+This later work covers only:
 
 - selecting one canonically attached still-image candidate for an existing canonical image-map entry
 - persisting that selection through the canonical image-map write seam
 - validating that the selected candidate belongs to the correct entry, workpiece, and workspace
 - preventing stale, mismatched, or locally remembered selection state from appearing authoritative
 
-Slice 4 does not cover:
+This later work does not cover:
 
 - generating candidates
 - Hammer-facing reads
@@ -48,7 +51,7 @@ Slice 3 already established:
 - variant metadata sufficient for editorial review
 - canonical reread of those candidate refs after persistence
 
-Slice 4 must build on that seam. It must not invent:
+This later work must build on that seam. It must not invent:
 
 - a second selected-candidate store
 - a client-only "chosen image" authority object
@@ -73,7 +76,7 @@ Local UI state may indicate "currently focused card" or "pending choice," but th
 
 Selection becomes real only after canonical image-map persistence.
 
-Slice 4 must therefore:
+Candidate-selection work must therefore:
 
 - read the current canonical image-map entry set
 - validate the chosen candidate id against the current entry's `candidate_assets`
@@ -98,7 +101,7 @@ The system must prefer "selection rejected" over "best effort keep the old click
 
 ### 4. Rejection / Residue
 
-Slice 4 must reject or ignore:
+Candidate-selection work must reject or ignore:
 
 - stale local remembered selection after canonical reread changed the candidate set
 - late async save responses after the active workpiece or selected entry changed
@@ -109,7 +112,7 @@ If canonical save fails or canonical reread disagrees, the UI must fall back to 
 
 ## Explicit Demotions
 
-The following are non-authoritative in Slice 4:
+The following are non-authoritative in candidate-selection work:
 
 - highlighted candidate card UI state
 - remembered "last selected" client memory
@@ -122,7 +125,7 @@ These may improve responsiveness, but they must not determine which candidate is
 
 ## Guardrails
 
-Slice 4 must not:
+Candidate-selection work must not:
 
 - regenerate candidates as part of selection
 - allow selection of free-floating preview images
@@ -138,7 +141,7 @@ Selection truth for v1 must remain:
 
 ## Proof Obligations
 
-Slice 4 implementation must prove all of the following:
+Candidate-selection implementation must prove all of the following:
 
 - a canonically attached candidate can be selected for its own entry
 - canonical reread returns the same `selected_asset_id`
@@ -149,7 +152,7 @@ Slice 4 implementation must prove all of the following:
 
 ## Done Means
 
-Slice 4 is complete only when all of these are true:
+This later candidate-selection unit is complete only when all of these are true:
 
 - a user can choose one canonically attached candidate for an image-map entry
 - the chosen candidate is persisted as canonical `selected_asset_id`
@@ -171,6 +174,6 @@ Prefer:
 
 Only introduce a new API or DB seam if code audit proves that lawful selection validation cannot be expressed cleanly through the existing canonical image-map save path.
 
-Implementation plan:
+Later implementation plan:
 
-- `HEARTH_VISUAL_PLANNING_V1_SLICE_4_IMPLEMENTATION_PLAN.md`
+- `HEARTH_VISUAL_PLANNING_LATER_CANDIDATE_SELECTION_PLAN.md`

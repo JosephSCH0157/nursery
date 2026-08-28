@@ -153,6 +153,11 @@ import {
   type ForgeAssetVariantPurpose,
   type ForgeAssetVariantRow,
 } from "./asset-variant-resolver.js";
+import {
+  normalizeCanonicalAssetAuthority,
+  type CanonicalAssetAuthority,
+  type ResolveCanonicalAssetAuthorityRequest,
+} from "./canonical-asset-authority.js";
 
 export const TONGS_WORKPIECE_BUCKET = "forge-workpieces";
 
@@ -792,6 +797,16 @@ export type EnsureHammerCanonicalRecordingRequest = {
   written_by: WrittenBy;
 };
 
+export type AdoptLatestKeptTakeForHammerRequest = {
+  operation_key: string;
+};
+
+export type AdoptLatestKeptTakeForHammerResult = {
+  outcome: "adopted" | "duplicate" | "already_current";
+  canonical_recording: CanonicalRecordingRecord;
+  receipt?: Record<string, Json>;
+};
+
 export type CanonicalRecordingStatus = "draft" | "sealed" | "failed";
 
 export type CanonicalRecordingRecord = {
@@ -916,6 +931,40 @@ export type OpenHammerRecordingSessionRequest = {
 export type OpenHammerRecordingSessionResult = {
   canonical_recording: CanonicalRecordingRecord;
   revision: RecordingRevisionRecord;
+};
+
+export type HammerPreparationState =
+  | "reserved" | "resolving_recording" | "resolving_transcript" | "awaiting_transcript_choice"
+  | "transcribing" | "hydrating" | "ready" | "recoverable_failure" | "blocked" | "superseded";
+
+export type HammerPreparationAttemptRecord = {
+  id: string; workspace_id: string; workpiece_id: string; canonical_recording_id: string;
+  recording_revision_id: string; source_kind: "anvil_capture" | "hammer_import" | "legacy_unresolved";
+  source_authority_id: string | null; source_capture_authority_id: string | null;
+  media_path: string; media_id: string; media_hash: string | null;
+  transcript_policy: "reuse_only" | "allow_ai_fallback"; state: HammerPreparationState;
+  state_version: number; transcript_job_id: string | null; transcript_artifact_path: string | null;
+  failure_code: string | null; failure_detail: string | null; operation_key: string;
+  request_fingerprint: string; retry_count: number; created_at: string; updated_at: string;
+  completed_at: string | null; failed_at: string | null;
+};
+
+export type OpenHammerAuthorityRequest = {
+  operation_key: string;
+  transcript_policy?: "reuse_only" | "allow_ai_fallback";
+  revision_label?: string | null;
+};
+
+export type OpenHammerAuthorityResult = OpenHammerRecordingSessionResult & {
+  outcome: "opened" | "duplicate" | "attached";
+  preparation_attempt: HammerPreparationAttemptRecord;
+};
+
+export type AdvanceHammerPreparationRequest = {
+  expected_state_version: number;
+  action: "await_transcript_choice" | "authorize_ai" | "begin_hydration" | "mark_ready" | "retry" | "fail_recoverable" | "block";
+  transcript_job_id?: string | null; transcript_artifact_path?: string | null;
+  failure_code?: string | null; failure_detail?: string | null;
 };
 
 export type ClearHammerTranscriptPointerRequest = {
@@ -1471,9 +1520,24 @@ export type QuenchCanonicalReleaseProjection = {
   current_decisions: Record<string, Json>[];
   projected_at: string;
 };
-export type CommitQuenchSingleCandidateRequest = { workspace_id:string; destination_scope_id:string; candidate_revision_id:string; expected_decision_id?:string|null; expected_revision:number; operation_id:string };
+export type QuenchOpenAuthority = {
+  contract_version: "forge.quench-open-authority.v1";
+  open_authority_id: string;
+  open_operation_id: string;
+  workspace_id: string;
+  workpiece_id: string;
+  manifest_snapshot_id: string;
+  manifest_content_hash: string;
+  state_version: number;
+  opened_at: string;
+  newer_manifest_available: boolean;
+  review_projection: QuenchCanonicalReleaseProjection;
+};
+export type OpenQuenchAuthorityRequest = { workspace_id:string; open_operation_id:string; manifest_snapshot_id?:string|null };
+export type EstablishPublicationOperationInput = { workspace_id:string; operation_key:string; manifest_snapshot_id:string; manifest_content_hash:string; release_decision_id:string; release_decision_revision:number; executable_destination_id:string; destination_capability_revision_id:string; publication_intent_contract_version:string; publication_intent_snapshot:Record<string,Json> };
+export type CommitQuenchSingleCandidateRequest = { workspace_id:string; destination_scope_id:string; candidate_revision_id:string; manifest_snapshot_id:string; expected_decision_id?:string|null; expected_revision:number; operation_id:string };
 export type QuenchDecisionAssignmentInput={candidate_revision_id:string;assignment_role:"selected"|"control"|"variant";assignment_ordinal:number;allocation_basis_points?:number|null};
-export type CommitQuenchDecisionRequest={workspace_id:string;destination_scope_id:string;expected_decision_id?:string|null;expected_revision:number;operation_id:string;decision_kind:"single_candidate"|"experiment_intent";intent_state:"selected"|"experiment_planned"|"cancelled";assignments:QuenchDecisionAssignmentInput[]};
+export type CommitQuenchDecisionRequest={workspace_id:string;destination_scope_id:string;manifest_snapshot_id:string;expected_decision_id?:string|null;expected_revision:number;operation_id:string;decision_kind:"single_candidate"|"experiment_intent";intent_state:"selected"|"experiment_planned"|"cancelled";assignments:QuenchDecisionAssignmentInput[]};
 export type CommitQuenchExperimentRequest=Omit<CommitQuenchDecisionRequest,"decision_kind"|"intent_state">;
 export type DecideThumbnailCandidateBrandRequest = { workspace_id: string; candidate_revision_id: string; candidate_set_id?: string | null; active_binding_id: string; decision: "approved" | "revoked"; reason: string; expected_current_decision_id?: string | null; expected_current_decision_revision: number; operation_id: string; operation_fingerprint: string };
 
@@ -1608,6 +1672,9 @@ export type AnvilCaptureAuthority = Readonly<{
   script_path: string;
   script_revision: number;
   script_hash: string;
+  script_approval_id: string | null;
+  script_approval_revision: number | null;
+  script_approval_hash: string | null;
   operation_key: string;
   provenance: "live_established" | "completion_backfill";
   established_by: string;
@@ -1683,9 +1750,7 @@ export type AnvilTakeTransitionResult = {
 
 export type HearthReadyTransitionRequest = {
   workspace_id: string;
-  script_path: string;
-  expected_script_revision: number;
-  expected_script_hash: string;
+  script_approval_id: string;
   idempotency_key: string;
   publish_evidence: Json;
   user_access_token?: string | null;
@@ -1721,6 +1786,12 @@ export type WorkspaceEpisodeSummary = Pick<
   canonical_recording: WorkpieceCanonicalRecordingProjection | null;
   recording_decision_status: "none" | "completed_pending" | "kept" | "discarded";
 };
+
+export type ReadyProductionScript = Readonly<{
+  workspace_id: string; workpiece_id: string; ready_transition_id: string;
+  script_approval_id: string; script_approval_revision: number; script_content_hash: string;
+  source_file_path: string; source_file_revision: number; script_text: string;
+}>;
 
 export type ListWorkspaceSparksOptions = {
   userAccessToken?: string | null;
@@ -2080,6 +2151,7 @@ export type TongsCommitApiService = {
     workpieceId: string,
     input: HearthReadyTransitionRequest,
   ): Promise<HearthReadyTransitionResult>;
+  getReadyProductionScript(workpieceId: string, options?: { userAccessToken?: string | null }): Promise<ReadyProductionScript>;
   transitionAnvilTakeCompleted(
     workpieceId: string,
     input: AnvilTakeCompletionRequest,
@@ -2123,6 +2195,10 @@ export type TongsCommitApiService = {
     input: ResolveWorkpieceAssetVariantRequest,
     options?: { userAccessToken?: string | null },
   ): Promise<ReturnType<typeof resolveForgeAssetVariant>>;
+  resolveCanonicalAssetAuthority(
+    input: ResolveCanonicalAssetAuthorityRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<CanonicalAssetAuthority>;
   generateEpisodeThumbnail(workpieceId: string, input: GenerateEpisodeThumbnailRequest): Promise<GenerateEpisodeThumbnailResponse>;
   stageThumbnailAsset(
     workpieceId: string,
@@ -2232,6 +2308,12 @@ export type TongsCommitApiService = {
     input: EnsureHammerCanonicalRecordingRequest,
     options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<CanonicalRecordingRecord>;
+  adoptLatestKeptTakeForHammer(
+    workspaceId: string,
+    workpieceId: string,
+    input: AdoptLatestKeptTakeForHammerRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<AdoptLatestKeptTakeForHammerResult>;
   sealHammerCanonicalBaseline(
     workspaceId: string,
     workpieceId: string,
@@ -2319,6 +2401,14 @@ export type TongsCommitApiService = {
     input: OpenHammerRecordingSessionRequest,
     options?: { userAccessToken?: string | null; userId?: string | null },
   ): Promise<OpenHammerRecordingSessionResult>;
+  openHammerAuthority(
+    workspaceId: string, workpieceId: string, input: OpenHammerAuthorityRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<OpenHammerAuthorityResult>;
+  advanceHammerPreparation(
+    workspaceId: string, workpieceId: string, preparationAttemptId: string,
+    input: AdvanceHammerPreparationRequest, options?: { userAccessToken?: string | null },
+  ): Promise<HammerPreparationAttemptRecord>;
   resetHammerWorkpieceToRaw(
     workspaceId: string,
     workpieceId: string,
@@ -2420,7 +2510,7 @@ export type TongsCommitApiService = {
   ): Promise<WorkpieceImageMapResponseData>;
   commitCanonicalScriptApproval(
     workpieceId: string,
-    input: { workspace_id: string; expected_current_revision: number; creator_version_label: string; operation_id: string },
+    input: { workspace_id: string; expected_current_revision: number; expected_source_file_revision: number; expected_source_content_hash: string; creator_version_label: string; operation_id: string },
     options?: { userAccessToken?: string | null },
   ): Promise<Record<string, unknown>>;
   getCanonicalScriptApproval(workpieceId: string, options?: { userAccessToken?: string | null }): Promise<Record<string, unknown>>;
@@ -2473,6 +2563,13 @@ export type TongsCommitApiService = {
   extractReferenceVisualEvidence(workpieceId:string,input:ExtractReferenceVisualEvidenceRequest,options?:{userAccessToken?:string|null}):Promise<{opportunityId:string;sources:ExtractedReferenceVisualEvidence[]}>;
   appendReferenceVisualOpportunity(workpieceId:string,input:AppendReferenceVisualOpportunityRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
   getQuenchCanonicalReleaseProjection(workpieceId: string, workspaceId: string, options?: { userAccessToken?: string | null }): Promise<QuenchCanonicalReleaseProjection>;
+  openQuenchAuthority(workpieceId:string,input:OpenQuenchAuthorityRequest,options?:{userAccessToken?:string|null}):Promise<QuenchOpenAuthority>;
+  listPublicationDestinations(workpieceId:string,workspaceId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>[]>;
+  establishPublicationOperation(workpieceId:string,input:EstablishPublicationOperationInput,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  claimPublicationAttempt(workpieceId:string,workspaceId:string,operationId:string,retry:boolean,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  completePublicationStub(workpieceId:string,workspaceId:string,operationId:string,attemptId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  readPublicationOperation(workpieceId:string,workspaceId:string,operationId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
+  readPublicationOperationsForManifest(workpieceId:string,workspaceId:string,manifestSnapshotId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>[]>;
   commitQuenchSingleCandidate(workpieceId:string,input:CommitQuenchSingleCandidateRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
   commitQuenchExperiment(workpieceId:string,input:CommitQuenchExperimentRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
   cancelQuenchExperiment(workpieceId:string,input:Omit<CommitQuenchExperimentRequest,"assignments">,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
@@ -4550,6 +4647,36 @@ function normalizeOpenHammerRecordingSessionRequest(
   };
 }
 
+function normalizeOpenHammerAuthorityRequest(body: Record<string, unknown>): OpenHammerAuthorityRequest {
+  const operationKey = normalizeNonEmptyString(body.operation_key, "operation_key");
+  if (operationKey.length < 8 || operationKey.length > 200) {
+    throw new HttpError(400, "invalid_payload", "operation_key must contain 8 to 200 characters");
+  }
+  const transcriptPolicy = typeof body.transcript_policy === "undefined"
+    ? "reuse_only"
+    : normalizeNonEmptyString(body.transcript_policy, "transcript_policy");
+  if (transcriptPolicy !== "reuse_only" && transcriptPolicy !== "allow_ai_fallback") {
+    throw new HttpError(400, "invalid_payload", "transcript_policy must be reuse_only or allow_ai_fallback");
+  }
+  const revisionLabel = typeof body.revision_label === "undefined" ? undefined
+    : body.revision_label === null ? null : normalizeNonEmptyString(body.revision_label, "revision_label");
+  return { operation_key: operationKey, transcript_policy: transcriptPolicy, ...(typeof revisionLabel === "undefined" ? {} : { revision_label: revisionLabel }) };
+}
+
+function normalizeAdvanceHammerPreparationRequest(body: Record<string, unknown>): AdvanceHammerPreparationRequest {
+  const expected = body.expected_state_version;
+  if (!Number.isSafeInteger(expected) || (expected as number) < 1) throw new HttpError(400, "invalid_payload", "expected_state_version must be positive");
+  const action = normalizeNonEmptyString(body.action, "action") as AdvanceHammerPreparationRequest["action"];
+  const allowed = new Set<AdvanceHammerPreparationRequest["action"]>(["await_transcript_choice","authorize_ai","begin_hydration","mark_ready","retry","fail_recoverable","block"]);
+  if (!allowed.has(action)) throw new HttpError(400, "invalid_payload", "Unknown preparation action");
+  const nullableUuid = (value: unknown, field: string): string | null | undefined => typeof value === "undefined" ? undefined : value === null ? null : normalizeUuid(value, field);
+  const nullableText = (value: unknown, field: string): string | null | undefined => typeof value === "undefined" ? undefined : value === null ? null : normalizeNonEmptyString(value, field);
+  return { expected_state_version: expected as number, action,
+    transcript_job_id: nullableUuid(body.transcript_job_id,"transcript_job_id"),
+    transcript_artifact_path: nullableText(body.transcript_artifact_path,"transcript_artifact_path"),
+    failure_code: nullableText(body.failure_code,"failure_code"), failure_detail: nullableText(body.failure_detail,"failure_detail") };
+}
+
 function normalizeClearHammerTranscriptPointerRequest(
   body: Record<string, unknown>,
 ): ClearHammerTranscriptPointerRequest {
@@ -5413,7 +5540,7 @@ function buildThumbnailAssetMetadata(args: {
 }
 
 function normalizeImageMapCandidateAssetSummary(row: AssetRow): ImageMapCandidateAssetSummary | null {
-  if (row.asset_kind !== IMAGE_MAP_CANDIDATE_ASSET_KIND || row.status !== "ready") return null;
+  if (row.asset_kind !== IMAGE_MAP_CANDIDATE_ASSET_KIND || row.status !== "ready" || !row.workpiece_id) return null;
   const metadata = isRecord(row.metadata_json) ? row.metadata_json as Record<string, unknown> : null;
   const schema = metadata ? readStringField(metadata, "schema") : null;
   const imageMapEntryId = metadata ? readStringField(metadata, "image_map_entry_id") : null;
@@ -8073,6 +8200,45 @@ export class TongsCommitService {
     }
   }
 
+  async adoptLatestKeptTakeForHammer(
+    workspaceId: string,
+    workpieceId: string,
+    input: AdoptLatestKeptTakeForHammerRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<AdoptLatestKeptTakeForHammerResult> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+    if (!options?.userAccessToken || !this.userClientFactory) {
+      throw new HttpError(401, "auth_required", "Sign in is required to use a new take in Hammer.");
+    }
+    const authority = this.userClientFactory(options.userAccessToken).schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const result = await authority.rpc("adopt_latest_kept_take_for_hammer", {
+      p_workspace_id: workspaceId,
+      p_workpiece_id: workpieceId,
+      p_operation_key: normalizeNonEmptyString(input.operation_key, "operation_key"),
+    });
+    if (result.error || !isRecord(result.data)) {
+      throw new HttpError(502, "hammer_take_adoption_failed", result.error?.message ?? "Tongs returned an invalid take-adoption receipt.");
+    }
+    const outcome = readStringField(result.data, "outcome");
+    if (outcome === "conflict" || outcome === "blocked" || outcome === "denied" || outcome === "not_found") {
+      const reason = readStringField(result.data, "reason") ?? "hammer_take_adoption_rejected";
+      throw new HttpError(outcome === "denied" ? 403 : outcome === "not_found" ? 404 : 409, reason,
+        reason === "canonical_recording_missing_take" ? "No kept take is available to use. Refresh the Landing Pad after keeping a take in Anvil."
+          : reason === "hammer_take_adoption_idempotency_conflict" ? "This take-adoption operation was already used for a different request."
+          : "Hammer could not safely make the newer take canonical.", result.data);
+    }
+    if (!["adopted", "duplicate", "already_current"].includes(String(outcome)) || !isRecord(result.data.canonical_recording)) {
+      throw new HttpError(502, "hammer_take_adoption_receipt_invalid", "Tongs returned an incomplete take-adoption receipt.");
+    }
+    return {
+      outcome: outcome as AdoptLatestKeptTakeForHammerResult["outcome"],
+      canonical_recording: result.data.canonical_recording as unknown as CanonicalRecordingRecord,
+      ...(isRecord(result.data.receipt) ? { receipt: result.data.receipt as Record<string, Json> } : {}),
+    };
+  }
+
   async ensureHammerCanonicalRecording(
     workspaceId: string,
     workpieceId: string,
@@ -8595,6 +8761,62 @@ export class TongsCommitService {
       options,
     );
     return { canonical_recording: canonical, revision };
+  }
+
+  async openHammerAuthority(
+    workspaceId: string,
+    workpieceId: string,
+    input: OpenHammerAuthorityRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<OpenHammerAuthorityResult> {
+    await this.getWorkspaceOrThrow(workspaceId);
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+    if (!options?.userAccessToken || !this.userClientFactory) throw new HttpError(401, "auth_required", "Sign in is required to open Hammer.");
+    const authority = this.userClientFactory(options.userAccessToken).schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const result = await authority.rpc("open_hammer_authority", {
+      p_workspace_id: workspaceId, p_workpiece_id: workpieceId, p_operation_key: input.operation_key,
+      p_transcript_policy: input.transcript_policy ?? "reuse_only", p_revision_label: input.revision_label ?? null,
+    });
+    if (result.error || !isRecord(result.data)) throw new HttpError(502, "hammer_open_authority_failed", result.error?.message ?? "Tongs returned an invalid Hammer-open receipt.");
+    const outcome = readStringField(result.data, "outcome");
+    if (outcome === "conflict" || outcome === "blocked" || outcome === "denied" || outcome === "not_found") {
+      const reason = readStringField(result.data, "reason") ?? "hammer_open_rejected";
+      throw new HttpError(outcome === "denied" ? 403 : outcome === "not_found" ? 404 : 409, reason,
+        reason === "hammer_open_idempotency_conflict" ? "This Hammer-open operation key was already used for a different episode or policy."
+          : reason === "canonical_recording_missing_take" ? "No kept Anvil recording is available for this episode."
+          : "Hammer could not establish a safe recording authority.", result.data);
+    }
+    if (!["opened","duplicate","attached"].includes(String(outcome)) || !isRecord(result.data.canonical_recording)
+      || !isRecord(result.data.revision) || !isRecord(result.data.preparation_attempt)) {
+      throw new HttpError(502, "hammer_open_authority_receipt_invalid", "Tongs returned an incomplete Hammer-open receipt.");
+    }
+    return { outcome: outcome as OpenHammerAuthorityResult["outcome"],
+      canonical_recording: result.data.canonical_recording as unknown as CanonicalRecordingRecord,
+      revision: result.data.revision as unknown as RecordingRevisionRecord,
+      preparation_attempt: result.data.preparation_attempt as unknown as HammerPreparationAttemptRecord };
+  }
+
+  async advanceHammerPreparation(
+    workspaceId: string, workpieceId: string, preparationAttemptId: string,
+    input: AdvanceHammerPreparationRequest, options?: { userAccessToken?: string | null },
+  ): Promise<HammerPreparationAttemptRecord> {
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+    if (!options?.userAccessToken || !this.userClientFactory) throw new HttpError(401, "auth_required", "Sign in is required to update Hammer preparation.");
+    const authority = this.userClientFactory(options.userAccessToken).schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const result = await authority.rpc("advance_hammer_preparation", {
+      p_preparation_attempt_id: preparationAttemptId, p_expected_state_version: input.expected_state_version,
+      p_action: input.action, p_transcript_job_id: input.transcript_job_id ?? null,
+      p_transcript_artifact_path: input.transcript_artifact_path ?? null,
+      p_failure_code: input.failure_code ?? null, p_failure_detail: input.failure_detail ?? null,
+    });
+    if (result.error || !isRecord(result.data)) throw new HttpError(502, "hammer_preparation_advance_failed", result.error?.message ?? "Preparation update failed.");
+    const outcome = readStringField(result.data,"outcome");
+    if (outcome !== "advanced" || !isRecord(result.data.preparation_attempt)) {
+      throw new HttpError(outcome === "conflict" ? 409 : 404, readStringField(result.data,"reason") ?? "hammer_preparation_rejected", "Hammer preparation changed or could not be resumed safely.", result.data);
+    }
+    return result.data.preparation_attempt as unknown as HammerPreparationAttemptRecord;
   }
 
   async readHammerRecordingRevision(
@@ -9585,6 +9807,26 @@ export class TongsCommitService {
     const auth = await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
 
     const payloadJson = isRecord(input.payload_json) ? input.payload_json : {};
+    let hammerPreparationAttempt: HammerPreparationAttemptRecord | null = null;
+    if (input.job_type === "hammer_transcript_prep") {
+      const preparationAttemptId = readStringField(payloadJson, "preparation_attempt_id");
+      const canonicalRecordingId = readStringField(payloadJson, "canonical_recording_id");
+      const revisionId = readStringField(payloadJson, "revision_id");
+      if (!preparationAttemptId || !canonicalRecordingId || !revisionId) {
+        throw new HttpError(409, "hammer_preparation_authority_required", "Transcript preparation requires the durable Hammer preparation authority.");
+      }
+      const attemptResult = await (this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient)
+        .from("hammer_preparation_attempts").select("*").eq("id",preparationAttemptId)
+        .eq("workspace_id",workspaceId).eq("workpiece_id",workpieceId).maybeSingle();
+      if (attemptResult.error || !attemptResult.data) throw new HttpError(409,"hammer_preparation_authority_mismatch","The preparation attempt does not belong to this episode.");
+      hammerPreparationAttempt = attemptResult.data as unknown as HammerPreparationAttemptRecord;
+      if (hammerPreparationAttempt.canonical_recording_id !== canonicalRecordingId || hammerPreparationAttempt.recording_revision_id !== revisionId) {
+        throw new HttpError(409,"hammer_preparation_authority_mismatch","The transcript request does not match its canonical recording and revision.");
+      }
+      if (!["awaiting_transcript_choice","resolving_transcript"].includes(hammerPreparationAttempt.state)) {
+        throw new HttpError(409,"hammer_preparation_state_invalid","This preparation attempt cannot start a transcript job in its current state.");
+      }
+    }
     const provider = typeof payloadJson.provider === "string" ? payloadJson.provider.trim() : null;
     const model = typeof payloadJson.model === "string" ? payloadJson.model.trim() : null;
     let policy: AiPolicyResolveResult;
@@ -9656,6 +9898,19 @@ export class TongsCommitService {
     }
     if (!data) {
       throw new HttpError(502, "db_write_failed", "workpiece_jobs insert returned no row");
+    }
+
+    if (hammerPreparationAttempt) {
+      try {
+        await this.advanceHammerPreparation(workspaceId,workpieceId,hammerPreparationAttempt.id,{
+          expected_state_version: hammerPreparationAttempt.state_version, action:"authorize_ai", transcript_job_id:data.id,
+        },options);
+      } catch (error) {
+        await (this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient).from("workpiece_jobs")
+          .update({ status:"canceled", error_code:"preparation_binding_failed", error_message:"Transcript job could not bind to its preparation authority.", updated_at:new Date().toISOString() })
+          .eq("id",data.id).eq("status","queued");
+        throw error;
+      }
     }
 
     return toWorkpieceJobDTO(data as WorkpieceJobRow);
@@ -10552,17 +10807,15 @@ export class TongsCommitService {
         error: { code?: string; message: string } | null;
       }>;
     };
-    const { data, error } = await rpcClient.rpc("hearth_transition_script_ready", {
+    const { data, error } = await rpcClient.rpc("hearth_transition_approved_script_ready", {
       p_workspace_id: input.workspace_id,
       p_workpiece_id: workpieceId,
-      p_script_path: input.script_path,
-      p_expected_script_revision: input.expected_script_revision,
-      p_expected_script_hash: input.expected_script_hash,
+      p_script_approval_id: input.script_approval_id,
       p_idempotency_key: input.idempotency_key,
       p_publish_evidence: input.publish_evidence,
     });
     if (error) {
-      const missing = error.code === "PGRST202" || /hearth_transition_script_ready/i.test(error.message);
+      const missing = error.code === "PGRST202" || /hearth_transition_approved_script_ready/i.test(error.message);
       throw new HttpError(
         missing ? 503 : 502,
         missing ? "hearth_ready_migration_required" : "hearth_ready_transition_failed",
@@ -10580,6 +10833,34 @@ export class TongsCommitService {
       throw new HttpError(502, "hearth_ready_transition_ambiguous", "Hearth Ready transition returned an ambiguous result.");
     }
     return data as HearthReadyTransitionResult;
+  }
+
+  async getReadyProductionScript(workpieceId: string, options?: { userAccessToken?: string | null }): Promise<ReadyProductionScript> {
+    const cradle = await this.getCradleOrThrow(workpieceId);
+    await this.assertWorkspaceRole(cradle.workspace_id, "viewer", options);
+    const tongs = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const readyResult = await tongs.from("current_workpiece_ready_scripts")
+      .select("workspace_id,workpiece_id,transition_id,script_approval_id,script_approval_revision,script_approval_hash")
+      .eq("workspace_id", cradle.workspace_id).eq("workpiece_id", workpieceId).eq("script_path", "script/script.md").maybeSingle();
+    if (readyResult.error) throw new HttpError(502, "ready_production_script_read_failed", "The approved production script could not be read.", { reason: readyResult.error.message });
+    if (!isRecord(readyResult.data)) throw new HttpError(409, "approved_ready_script_required", "Approve and publish this script to Ready before opening it in Anvil.");
+    const approvalId = readStringField(readyResult.data, "script_approval_id");
+    const transitionId = readStringField(readyResult.data, "transition_id");
+    if (!approvalId || !transitionId) throw new HttpError(409, "approved_ready_script_required", "This legacy Ready entry has no verified script approval. Approve and publish it again.");
+    const approvalResult = await tongs.from("script_approval_revisions")
+      .select("id,workspace_id,workpiece_id,approval_revision,source_file_path,source_file_revision,script_content_hash,script_text")
+      .eq("id", approvalId).eq("workspace_id", cradle.workspace_id).eq("workpiece_id", workpieceId).maybeSingle();
+    if (approvalResult.error || !isRecord(approvalResult.data)) throw new HttpError(409, "ready_approval_unresolved", "The Ready script approval could not be resolved safely.", { reason: approvalResult.error?.message });
+    const approvalRevision = Number(approvalResult.data.approval_revision);
+    const readyRevision = Number(readyResult.data.script_approval_revision);
+    const contentHash = readStringField(approvalResult.data, "script_content_hash")?.toLowerCase() ?? "";
+    if (approvalRevision !== readyRevision || contentHash !== readStringField(readyResult.data, "script_approval_hash")?.toLowerCase()) throw new HttpError(409, "ready_approval_mismatch", "The Ready script does not match its immutable approval evidence.");
+    return {
+      workspace_id: cradle.workspace_id, workpiece_id: workpieceId, ready_transition_id: transitionId,
+      script_approval_id: approvalId, script_approval_revision: approvalRevision, script_content_hash: contentHash,
+      source_file_path: readStringField(approvalResult.data, "source_file_path") ?? "script/script.md",
+      source_file_revision: Number(approvalResult.data.source_file_revision), script_text: String(approvalResult.data.script_text ?? ""),
+    };
   }
 
   private async callAnvilRecordingAuthority(
@@ -12022,8 +12303,96 @@ export class TongsCommitService {
     return {contract_version:"forge.quench-release-projection.v2",workspace_id:workspaceId,workpiece_id:workpieceId,hammer:{manifest_snapshot_id:String(snap.data.manifest_snapshot_id),manifest_path:manifestPath,manifest_version:1,manifest_content_hash:hash,manifest:parsed,readiness},metadata:{revision:Number(metadataFile.revision),content_hash:String(metadataFile.hash_value).toLowerCase(),episode:metadata.data.episode as Record<string,Json>},thumbnails,destination_capabilities:scopes,current_decisions:currentDecisions,projected_at:new Date().toISOString()};
   }
 
+  async openQuenchAuthority(workpieceId:string,input:OpenQuenchAuthorityRequest,options?:{userAccessToken?:string|null}):Promise<QuenchOpenAuthority>{
+    await this.assertWorkpieceInWorkspace(workpieceId,input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"viewer",options?.userAccessToken);
+    const client=this.thumbnailAuthorityClient(options?.userAccessToken);
+    const openArgs={p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_open_operation_id:input.open_operation_id,p_manifest_snapshot_id:input.manifest_snapshot_id??null};
+    let opened=await client.rpc("open_quench_authority",openArgs);
+    if(opened.error)throw new HttpError(502,"quench_open_failed","Tongs could not open the Quench review authority.",{reason:opened.error.message});
+    if(isRecord(opened.data)&&opened.data.disposition==="manifest_missing"&&!input.manifest_snapshot_id){
+      await this.getQuenchCanonicalReleaseProjection(workpieceId,input.workspace_id,options);
+      opened=await client.rpc("open_quench_authority",openArgs);
+      if(opened.error)throw new HttpError(502,"quench_open_failed","Tongs could not open the Quench review authority.",{reason:opened.error.message});
+    }
+    if(!isRecord(opened.data))throw new HttpError(502,"quench_open_invalid","Tongs returned an invalid Quench open authority.");
+    const disposition=readStringField(opened.data,"disposition");
+    if(disposition==="quench_open_idempotency_conflict")throw new HttpError(409,"quench_open_idempotency_conflict","This Quench open operation was already used for different release authority.");
+    if(disposition==="identity_mismatch")throw new HttpError(409,"quench_open_identity_mismatch","The route workspace and workpiece do not agree.");
+    if(disposition==="manifest_missing")throw new HttpError(409,"quench_manifest_missing","The requested immutable release manifest is unavailable.");
+    if(disposition!=="opened"&&disposition!=="replayed")throw new HttpError(409,"quench_open_blocked","Quench could not establish an immutable review authority.",{disposition});
+
+    const manifestSnapshotId=readStringField(opened.data,"manifest_snapshot_id");
+    const manifestContentHash=readStringField(opened.data,"manifest_content_hash");
+    if(!manifestSnapshotId||!manifestContentHash)throw new HttpError(502,"quench_open_invalid","The Quench open authority omitted manifest identity.");
+
+    const current=await this.getQuenchCanonicalReleaseProjection(workpieceId,input.workspace_id,options);
+    const raw=this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const exactResult=await raw.from("quench_release_manifest_snapshots").select("id,source_file_path,manifest_version,manifest_content_hash,parsed_manifest_json,canonical_readiness_status,ready_for_quench").eq("id",manifestSnapshotId).eq("workspace_id",input.workspace_id).eq("workpiece_id",workpieceId).maybeSingle();
+    if(exactResult.error||!isRecord(exactResult.data))throw new HttpError(409,"quench_manifest_missing","The immutable release manifest can no longer be retrieved.");
+    const exactManifest=isRecord(exactResult.data.parsed_manifest_json)?exactResult.data.parsed_manifest_json as Record<string,Json>:null;
+    if(!exactManifest)throw new HttpError(409,"quench_manifest_invalid","The immutable release manifest is invalid.");
+    const exactReadiness=isRecord(exactManifest.readiness)?exactManifest.readiness as Record<string,Json>:{status:String(exactResult.data.canonical_readiness_status),ready_for_quench:exactResult.data.ready_for_quench===true};
+
+    const reviewDecisions:Record<string,Json>[]=[];
+    let reviewMetadata=current.metadata;
+    for(const scope of current.destination_capabilities){
+      const scopeId=readStringField(scope,"id");if(!scopeId)continue;
+      const decisionResult=await raw.from("quench_release_decision_revisions").select("*").eq("workspace_id",input.workspace_id).eq("workpiece_id",workpieceId).eq("destination_scope_id",scopeId).eq("manifest_snapshot_id",manifestSnapshotId).order("revision",{ascending:false}).limit(1);
+      const decision=Array.isArray(decisionResult.data)&&isRecord(decisionResult.data[0])?decisionResult.data[0] as Record<string,Json>:null;
+      if(!decision){reviewDecisions.push({workspace_id:input.workspace_id,workpiece_id:workpieceId,destination_scope_id:scopeId,current_decision_id:null,current_revision:0,decision:null,assignments:[],recent_history:[],applicability:{state:"blocked",record_posture:"review_manifest",reason_codes:["decision_not_found"]}});continue;}
+      const decisionId=readStringField(decision,"id")!;
+      const assignmentsResult=await raw.from("quench_release_candidate_assignments").select("*").eq("decision_id",decisionId).order("assignment_ordinal",{ascending:true});
+      const applicabilityResult=await client.rpc("quench_release_decision_applicability",{p_decision_id:decisionId});
+      const assignments=(Array.isArray(assignmentsResult.data)?assignmentsResult.data.filter(isRecord):[]) as Record<string,Json>[];
+      const applicability=(isRecord(applicabilityResult.data)?applicabilityResult.data:{state:"blocked",record_posture:"review_manifest",reason_codes:["applicability_unavailable"]}) as Record<string,Json>;
+      reviewDecisions.push({workspace_id:input.workspace_id,workpiece_id:workpieceId,destination_scope_id:scopeId,current_decision_id:decisionId,current_revision:Number(decision.revision),decision,assignments,recent_history:[],applicability});
+      if(isRecord(decision.metadata_snapshot_json))reviewMetadata={revision:Number(decision.metadata_revision),content_hash:String(decision.metadata_content_hash),episode:decision.metadata_snapshot_json as Record<string,Json>};
+    }
+
+    const reviewProjection:QuenchCanonicalReleaseProjection={...current,hammer:{manifest_snapshot_id:manifestSnapshotId,manifest_path:String(exactResult.data.source_file_path),manifest_version:Number(exactResult.data.manifest_version),manifest_content_hash:manifestContentHash,manifest:exactManifest,readiness:exactReadiness},metadata:reviewMetadata,current_decisions:reviewDecisions,projected_at:new Date().toISOString()};
+    return {contract_version:"forge.quench-open-authority.v1",open_authority_id:String(opened.data.open_authority_id),open_operation_id:String(opened.data.open_operation_id),workspace_id:input.workspace_id,workpiece_id:workpieceId,manifest_snapshot_id:manifestSnapshotId,manifest_content_hash:manifestContentHash,state_version:Number(opened.data.state_version),opened_at:String(opened.data.opened_at),newer_manifest_available:current.hammer.manifest_snapshot_id!==manifestSnapshotId,review_projection:reviewProjection};
+  }
+
+  async listPublicationDestinations(workpieceId:string,workspaceId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>[]>{
+    await this.assertWorkpieceInWorkspace(workpieceId,workspaceId);await this.assertWorkspaceRoleFromAccessToken(workspaceId,"viewer",options?.userAccessToken);
+    const result=await this.thumbnailAuthorityClient(options?.userAccessToken).rpc("get_workspace_publishing_destination_authorities",{p_workspace_id:workspaceId});
+    if(result.error||!Array.isArray(result.data))throw new HttpError(502,"publication_destinations_unavailable","Executable publishing destinations are unavailable.",{reason:result.error?.message});
+    return result.data.filter(isRecord) as Record<string,Json>[];
+  }
+
+  async establishPublicationOperation(workpieceId:string,input:EstablishPublicationOperationInput,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    await this.assertWorkpieceInWorkspace(workpieceId,input.workspace_id);await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"editor",options?.userAccessToken);
+    const result=await this.thumbnailAuthorityClient(options?.userAccessToken).rpc("establish_publication_operation",{p_operation_key:input.operation_key,p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_manifest_snapshot_id:input.manifest_snapshot_id,p_manifest_content_hash:input.manifest_content_hash,p_release_decision_id:input.release_decision_id,p_release_decision_revision:input.release_decision_revision,p_executable_destination_id:input.executable_destination_id,p_destination_capability_revision_id:input.destination_capability_revision_id,p_publication_intent_contract_version:input.publication_intent_contract_version,p_publication_intent_snapshot:input.publication_intent_snapshot});
+    if(result.error||!isRecord(result.data))throw new HttpError(502,"publication_operation_failed","Tongs could not establish publication authority.",{reason:result.error?.message});
+    return result.data as Record<string,Json>;
+  }
+
+  async claimPublicationAttempt(workpieceId:string,workspaceId:string,operationId:string,retry:boolean,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    await this.assertWorkpieceInWorkspace(workpieceId,workspaceId);await this.assertWorkspaceRoleFromAccessToken(workspaceId,"editor",options?.userAccessToken);
+    const result=await this.thumbnailAuthorityClient(options?.userAccessToken).rpc("claim_publication_attempt",{p_publication_operation_id:operationId,p_retry:retry});
+    if(result.error||!isRecord(result.data))throw new HttpError(502,"publication_attempt_failed","Tongs could not claim the publication attempt.",{reason:result.error?.message});return result.data as Record<string,Json>;
+  }
+
+  async readPublicationOperation(workpieceId:string,workspaceId:string,operationId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    await this.assertWorkpieceInWorkspace(workpieceId,workspaceId);await this.assertWorkspaceRoleFromAccessToken(workspaceId,"viewer",options?.userAccessToken);
+    const result=await this.thumbnailAuthorityClient(options?.userAccessToken).rpc("read_publication_operation",{p_publication_operation_id:operationId});
+    if(result.error||!isRecord(result.data))throw new HttpError(502,"publication_operation_read_failed","Tongs could not read publication authority.",{reason:result.error?.message});return result.data as Record<string,Json>;
+  }
+
+  async readPublicationOperationsForManifest(workpieceId:string,workspaceId:string,manifestSnapshotId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>[]>{
+    await this.assertWorkpieceInWorkspace(workpieceId,workspaceId);await this.assertWorkspaceRoleFromAccessToken(workspaceId,"viewer",options?.userAccessToken);const result=await this.thumbnailAuthorityClient(options?.userAccessToken).rpc("read_publication_operations_for_manifest",{p_workspace_id:workspaceId,p_workpiece_id:workpieceId,p_manifest_snapshot_id:manifestSnapshotId});if(result.error||!Array.isArray(result.data))throw new HttpError(502,"publication_operations_read_failed","Tongs could not recover publication operations.",{reason:result.error?.message});return result.data.filter(isRecord) as Record<string,Json>[];
+  }
+
+  async completePublicationStub(workpieceId:string,workspaceId:string,operationId:string,attemptId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    const current=await this.readPublicationOperation(workpieceId,workspaceId,operationId,options);const attempts=(Array.isArray(current.attempts)?current.attempts.filter(isRecord):[]) as Record<string,Json>[];const attempt=attempts.find((row)=>row.id===attemptId&&row.publication_operation_id===operationId);if(!attempt||attempt.state!=="reserved")throw new HttpError(409,"publication_attempt_conflict","The reserved publication attempt is unavailable.");
+    const authority=this.supabase.schema("tongs") as unknown as {rpc:(name:string,args:Record<string,unknown>)=>Promise<UntypedPostgrestResult>};
+    const preparing=await authority.rpc("record_publication_attempt_transition",{p_attempt_id:attemptId,p_expected_state:"reserved",p_new_state:"preparing_execution",p_side_effect_possible:false,p_adapter_id:"forge.stub",p_adapter_version:"s5-3b",p_failure_detail_json:null,p_normalized_provider_evidence:{}});if(preparing.error)throw new HttpError(502,"publication_stub_failed","Tongs could not prepare the stub attempt.");
+    const completed=await authority.rpc("record_publication_attempt_transition",{p_attempt_id:attemptId,p_expected_state:"preparing_execution",p_new_state:"blocked",p_side_effect_possible:false,p_adapter_id:"forge.stub",p_adapter_version:"s5-3b",p_failure_code:"provider_execution_not_implemented",p_failure_detail_json:{external_side_effect_possible:false},p_normalized_provider_evidence:{stub:true,external_side_effect:false}});if(completed.error||!isRecord(completed.data))throw new HttpError(502,"publication_stub_failed","Tongs could not persist the stub receipt.");return completed.data as Record<string,Json>;
+  }
+
   private async commitCanonicalQuenchDecision(workpieceId:string,input:CommitQuenchDecisionRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
-    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"editor",options?.userAccessToken);const projection=await this.getQuenchCanonicalReleaseProjection(workpieceId,input.workspace_id,options);const set=projection.thumbnails.candidate_set;const scope=projection.destination_capabilities.find((row)=>row.id===input.destination_scope_id);if(!set||!scope)throw new HttpError(409,"release_authority_unavailable","The canonical candidate set or destination is unavailable.");const capability=isRecord(scope.current_capability)?scope.current_capability:{};const capabilityFlags=isRecord(capability.capabilities_json)?capability.capabilities_json:{};
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"editor",options?.userAccessToken);const projection=await this.getQuenchCanonicalReleaseProjection(workpieceId,input.workspace_id,options);if(projection.hammer.manifest_snapshot_id!==input.manifest_snapshot_id)throw new HttpError(409,"quench_review_manifest_advanced","A newer Hammer package exists. Review it explicitly before changing release decisions.");const set=projection.thumbnails.candidate_set;const scope=projection.destination_capabilities.find((row)=>row.id===input.destination_scope_id);if(!set||!scope)throw new HttpError(409,"release_authority_unavailable","The canonical candidate set or destination is unavailable.");const capability=isRecord(scope.current_capability)?scope.current_capability:{};const capabilityFlags=isRecord(capability.capabilities_json)?capability.capabilities_json:{};
     if(input.intent_state==="experiment_planned"&&(capabilityFlags.supports_experiment_intent!==true||capabilityFlags.supports_thumbnail_selection!==true))throw new HttpError(409,"experiment_unsupported","This destination does not support candidate experiment intent.");if(input.intent_state==="selected"&&capabilityFlags.supports_thumbnail_selection!==true)throw new HttpError(409,"thumbnail_selection_unsupported","This destination does not support thumbnail selection.");
     for(const assignment of input.assignments){const candidate=projection.thumbnails.candidates.find((row)=>row.id===assignment.candidate_revision_id);if(!candidate||candidate.authority_verified!==true||!(["current","approved_historical_brand"] as unknown[]).includes(candidate.eligibility_state))throw new HttpError(409,"candidate_ineligible","An assigned candidate is not currently selectable through Tongs.");}
     const params={p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_destination_scope_id:input.destination_scope_id,p_expected_decision_id:input.expected_decision_id??null,p_expected_revision:input.expected_revision,p_decision_kind:input.decision_kind,p_intent_state:input.intent_state,p_manifest_snapshot_id:projection.hammer.manifest_snapshot_id,p_metadata_revision:projection.metadata.revision,p_metadata_hash:projection.metadata.content_hash,p_candidate_set_id:String(set.id),p_active_binding_id:projection.thumbnails.active_binding_id,p_capability_revision_id:String(scope.current_capability_revision_id),p_assignments:input.assignments,p_operation_id:input.operation_id,p_operation_fingerprint:"0".repeat(64)};
@@ -14235,6 +14604,37 @@ export class TongsCommitService {
     });
   }
 
+  async resolveCanonicalAssetAuthority(
+    input: ResolveCanonicalAssetAuthorityRequest,
+    options?: { userAccessToken?: string | null },
+  ): Promise<CanonicalAssetAuthority> {
+    await this.getWorkspaceOrThrow(input.workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspaceId, "viewer", options?.userAccessToken);
+    if (!this.userClientFactory) {
+      throw new HttpError(503, "canonical_asset_authority_unavailable", "Canonical asset resolution requires authenticated Tongs authority.");
+    }
+    const accessToken = normalizeNonEmptyString(options?.userAccessToken, "user_access_token");
+    const client = this.userClientFactory(accessToken).schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const result = await client.rpc("resolve_canonical_asset_authority", {
+      p_workspace_id: input.workspaceId,
+      p_canonical_asset_id: input.canonicalAssetId,
+      p_expected_workpiece_id: input.expectedWorkpieceId ?? null,
+      p_required_asset_kind: input.requiredAssetKind ?? null,
+      p_expected_content_hash: input.expectedContentHash ?? null,
+      p_expected_storage_bucket: input.expectedStorageBucket ?? null,
+      p_expected_storage_key: input.expectedStorageObjectKey ?? null,
+      p_expected_path: input.expectedPath ?? null,
+    });
+    if (result.error) {
+      throw new HttpError(502, "canonical_asset_resolution_failed", "Tongs could not resolve canonical asset authority.", { reason: result.error.message });
+    }
+    const authority = normalizeCanonicalAssetAuthority(result.data);
+    if (!authority) {
+      throw new HttpError(502, "canonical_asset_resolution_invalid", "Tongs returned malformed canonical asset authority.");
+    }
+    return authority;
+  }
+
   async getWorkpieceImageMap(
     workpieceId: string,
     options?: { userAccessToken?: string | null; userId?: string | null },
@@ -14260,25 +14660,36 @@ export class TongsCommitService {
 
   async commitCanonicalScriptApproval(
     workpieceId: string,
-    input: { workspace_id: string; expected_current_revision: number; creator_version_label: string; operation_id: string },
+    input: { workspace_id: string; expected_current_revision: number; expected_source_file_revision: number; expected_source_content_hash: string; creator_version_label: string; operation_id: string },
     options?: { userAccessToken?: string | null },
   ): Promise<Record<string, unknown>> {
     await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
-    const auth = await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
     const { data: file, error } = await this.supabase.schema("tongs").from("workpiece_files")
       .select("revision,storage_bucket,storage_key").eq("workpiece_id", workpieceId).eq("path", "script/script.md").maybeSingle();
     if (error || !file) throw new HttpError(409, "approved_script_unavailable", "The published approved script is unavailable.", { reason: error?.message });
     const bytes = await downloadStorageObject(this.supabase, file.storage_bucket, file.storage_key);
     if (!bytes) throw new HttpError(409, "approved_script_unavailable", "The exact published approved script bytes are unavailable.");
-    const scriptText = normalizeLf(stripBom(textDecoder.decode(bytes)));
-    const rpc = this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient;
-    const result = await rpc.rpc("commit_script_approval_snapshot", {
+    const scriptText = normalizeLf(stripBom(textDecoder.decode(bytes))).normalize("NFC");
+    const sourceHash = await sha256Hex(textEncoder.encode(scriptText));
+    if (file.revision !== input.expected_source_file_revision || sourceHash !== input.expected_source_content_hash) {
+      throw new HttpError(409, "stale_script_draft", "The script changed before approval. Reload the current draft and approve it deliberately.", {
+        expected_revision: input.expected_source_file_revision,
+        current_revision: file.revision,
+        expected_hash: input.expected_source_content_hash,
+        current_hash: sourceHash,
+      });
+    }
+    if (!this.userClientFactory) throw new HttpError(503, "script_approval_authority_unavailable", "Canonical script approval requires authenticated Tongs authority.");
+    const rpc = this.userClientFactory(normalizeNonEmptyString(options?.userAccessToken, "user_access_token")).schema("tongs") as unknown as UntypedTongsSchemaClient;
+    const result = await rpc.rpc("approve_canonical_script_v2", {
       p_workspace_id: input.workspace_id, p_workpiece_id: workpieceId,
-      p_expected_current_revision: input.expected_current_revision,
-      p_source_file_path: "script/script.md", p_source_file_revision: file.revision,
-      p_script_text: scriptText, p_approval_contract_version: "forge.script-approval.v1",
+      p_expected_current_approval_revision: input.expected_current_revision,
+      p_expected_source_file_revision: input.expected_source_file_revision,
+      p_expected_source_content_hash: input.expected_source_content_hash,
+      p_script_text: scriptText,
       p_creator_version_label: input.creator_version_label,
-      p_operation_id: input.operation_id, p_actor_id: auth.userId,
+      p_operation_id: input.operation_id,
     });
     if (result.error || !isRecord(result.data)) throw new HttpError(502, "script_approval_commit_failed", "Tongs could not commit canonical script approval.", { reason: result.error?.message });
     return result.data;
@@ -15712,10 +16123,12 @@ export class TongsCommitService {
     if (canonicalBeforeSave) {
       const priorAssetIds = new Set(canonicalBeforeSave.entries.flatMap((entry) => entry.candidate_assets.map((asset) => asset.asset_id)));
       const attachedEntryIds = new Set<string>();
+      const canonicalAssetIdsByClientRequestId = new Map<string, string>();
       for (const entry of input.entries) {
         for (const candidate of entry.candidate_assets) {
           if (candidate.source !== "upload" || priorAssetIds.has(candidate.asset_id)) continue;
-          const assetId = normalizeUuid(candidate.asset_id, "candidate_asset_id");
+          normalizeUuid(candidate.asset_id, "candidate_request_id");
+          const assetId = randomUuid();
           const path = normalizeRelativePath(candidate.path ?? "");
           if (!path.startsWith("assets/image-map/uploads/")) {
             throw new HttpError(400, "invalid_uploaded_candidate_path", "Uploaded image candidate path is invalid.");
@@ -15747,6 +16160,7 @@ export class TongsCommitService {
               image_map_entry_id: entry.id,
               variant_label: candidate.variant_label ?? "Uploaded image",
               source: "upload",
+              client_request_id: candidate.asset_id,
             },
             operation_id: `forge:image-map:upload:${assetId}`,
             operation_fingerprint: readStringField(committedFile.data, "hash_value") ?? assetId,
@@ -15754,15 +16168,26 @@ export class TongsCommitService {
             ready_at: readStringField(committedFile.data, "updated_at") ?? new Date().toISOString(),
             supersedes_asset_id: null,
           }, "Failed to register uploaded image-map candidate asset");
+          canonicalAssetIdsByClientRequestId.set(candidate.asset_id, assetId);
           attachedEntryIds.add(entry.id);
         }
       }
       if (attachedEntryIds.size > 0) {
+        authoritativeEntries = input.entries.map((entry) => ({
+          ...entry,
+          candidate_assets: entry.candidate_assets.map((candidate) => {
+            const canonicalAssetId = canonicalAssetIdsByClientRequestId.get(candidate.asset_id);
+            return canonicalAssetId ? { ...candidate, asset_id: canonicalAssetId } : candidate;
+          }),
+          selected_asset_id: entry.selected_asset_id
+            ? canonicalAssetIdsByClientRequestId.get(entry.selected_asset_id) ?? entry.selected_asset_id
+            : null,
+        }));
         const committed = await this.commitCanonicalImageMap({
           workspaceId: input.workspace_id,
           workpieceId,
           actorId: auth.userId,
-          entries: input.entries,
+          entries: authoritativeEntries,
           mutationKind: "reapply_visual_plan",
           operationId: `forge:image-map:upload-${randomUuid()}`,
           targetApprovalId: canonicalBeforeSave.authority.scriptApprovalId,
@@ -15856,7 +16281,7 @@ export class TongsCommitService {
       path: IMAGE_MAP_ASSET_PATH,
       content_type: "application/json",
       file_type: "json",
-      json: buildImageMapAssetDocument(workpieceId, input.entries, nextEpisodePackage.spoken_beats),
+      json: buildImageMapAssetDocument(workpieceId, authoritativeEntries, nextEpisodePackage.spoken_beats),
       written_by: writtenBy,
       event_name: "hearth.image_map.asset.saved.v1",
       event_payload: {
@@ -16056,11 +16481,25 @@ export class TongsCommitService {
   ): Promise<Map<string, WorkpieceCanonicalRecordingProjection>> {
     const next = new Map<string, WorkpieceCanonicalRecordingProjection>();
     if (!workpieceIds.length) return next;
+    const episodePointers = await this.supabase
+      .schema("tongs")
+      .from("episodes")
+      .select("id,canonical_recording_id")
+      .in("id", [...workpieceIds]);
+    if (episodePointers.error) {
+      throw new HttpError(502, "db_read_failed", "Failed to resolve current canonical recording pointers", {
+        reason: episodePointers.error.message,
+      });
+    }
+    const canonicalIdByWorkpiece = new Map((episodePointers.data ?? []).flatMap((row) =>
+      row.canonical_recording_id ? [[row.id, row.canonical_recording_id] as const] : []));
+    const canonicalIds = [...new Set(canonicalIdByWorkpiece.values())];
+    if (!canonicalIds.length) return next;
     const { data, error } = await this.supabase
       .schema("tongs")
       .from("canonical_recordings")
       .select("id,workpiece_id,status,media_id,media_path,media_content_type,media_bytes,media_duration_ms,sealed_at")
-      .in("workpiece_id", [...workpieceIds]);
+      .in("id", canonicalIds);
     if (error) {
       throw new HttpError(502, "db_read_failed", "Failed to list canonical recording authority", {
         reason: error.message,
@@ -16069,6 +16508,7 @@ export class TongsCommitService {
     for (const row of data ?? []) {
       const mediaPath = row.media_path?.trim() ?? "";
       if (!row.workpiece_id || !mediaPath || !row.media_id) continue;
+      if (canonicalIdByWorkpiece.get(row.workpiece_id) !== row.id) continue;
       next.set(row.workpiece_id, {
         id: row.id,
         status: row.status,
@@ -16691,7 +17131,7 @@ function jsonPointerValue(document: unknown, pointer: string): unknown {
 function thumbnailAssetSummary(row: AssetRow): ThumbnailAssetSummary {
   const operationId = typeof row.operation_id === "string" ? row.operation_id : "";
   const contentHash = typeof row.content_hash === "string" ? row.content_hash : "";
-  if (!operationId || !contentHash) {
+  if (!operationId || !contentHash || !row.workpiece_id) {
     throw new HttpError(502, "invalid_thumbnail_asset", "Canonical thumbnail asset is missing operation identity or content hash");
   }
   return {
@@ -16988,6 +17428,13 @@ export function createTongsCommitApiHandlerWithService(
         }
       }
 
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "production-script") {
+        requireMethod(request, "GET");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        return jsonResponse(200, { ok: true, data: await service.getReadyProductionScript(workpieceId, { userAccessToken }) });
+      }
+
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "ready-transition") {
         requireMethod(request, "POST");
         const workpieceId = normalizeUuid(decodeURIComponent(parts[2]), "workpiece_id");
@@ -16995,9 +17442,7 @@ export function createTongsCommitApiHandlerWithService(
         const body = await parseJsonBody(request);
         const input: HearthReadyTransitionRequest = {
           workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
-          script_path: normalizeRelativePath(normalizeNonEmptyString(body.script_path, "script_path")),
-          expected_script_revision: normalizePositiveInteger(body.expected_script_revision, "expected_script_revision"),
-          expected_script_hash: normalizeNonEmptyString(body.expected_script_hash, "expected_script_hash").toLowerCase(),
+          script_approval_id: normalizeUuid(body.script_approval_id, "script_approval_id"),
           idempotency_key: normalizeNonEmptyString(body.idempotency_key, "idempotency_key"),
           publish_evidence: normalizeJsonValue(body.publish_evidence),
           user_access_token: userAccessToken,
@@ -17523,18 +17968,47 @@ export function createTongsCommitApiHandlerWithService(
         const result=await service.getQuenchCanonicalReleaseProjection(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),{userAccessToken});return jsonResponse(200,{ok:true,data:result});
       }
 
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="quench"&&parts[4]==="open-authority"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);
+        const result=await service.openQuenchAuthority(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),open_operation_id:normalizeUuid(body.open_operation_id,"open_operation_id"),manifest_snapshot_id:body.manifest_snapshot_id==null?null:normalizeUuid(body.manifest_snapshot_id,"manifest_snapshot_id")},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="quench"&&parts[4]==="publication-destinations"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const result=await service.listPublicationDestinations(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="quench"&&parts[4]==="establish-publication"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);if(!isRecord(body.publication_intent_snapshot))throw new HttpError(400,"invalid_publication_intent","publication_intent_snapshot must be an object");const revision=Number(body.release_decision_revision);if(!Number.isInteger(revision)||revision<1)throw new HttpError(400,"invalid_release_decision_revision","release_decision_revision must be positive");const result=await service.establishPublicationOperation(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),operation_key:normalizeUuid(body.operation_key,"operation_key"),manifest_snapshot_id:normalizeUuid(body.manifest_snapshot_id,"manifest_snapshot_id"),manifest_content_hash:normalizeSha256(body.manifest_content_hash,"manifest_content_hash"),release_decision_id:normalizeUuid(body.release_decision_id,"release_decision_id"),release_decision_revision:revision,executable_destination_id:normalizeUuid(body.executable_destination_id,"executable_destination_id"),destination_capability_revision_id:normalizeUuid(body.destination_capability_revision_id,"destination_capability_revision_id"),publication_intent_contract_version:normalizeNonEmptyString(body.publication_intent_contract_version,"publication_intent_contract_version"),publication_intent_snapshot:body.publication_intent_snapshot as Record<string,Json>},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="quench"&&parts[4]==="claim-publication-attempt"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const result=await service.claimPublicationAttempt(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),normalizeUuid(body.publication_operation_id,"publication_operation_id"),body.retry===true,{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="quench"&&parts[4]==="complete-publication-stub"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const result=await service.completePublicationStub(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),normalizeUuid(body.publication_operation_id,"publication_operation_id"),normalizeUuid(body.publication_attempt_id,"publication_attempt_id"),{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="quench"&&parts[4]==="read-publication"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const result=await service.readPublicationOperation(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),normalizeUuid(body.publication_operation_id,"publication_operation_id"),{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="quench"&&parts[4]==="publication-operations"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const result=await service.readPublicationOperationsForManifest(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),normalizeUuid(body.manifest_snapshot_id,"manifest_snapshot_id"),{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+
       if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="quench"&&parts[4]==="select-candidate"){
         requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const expected=Number(body.expected_revision);if(!Number.isInteger(expected)||expected<0)throw new HttpError(400,"invalid_decision_revision","expected_revision must be non-negative");
-        const result=await service.commitQuenchSingleCandidate(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),destination_scope_id:normalizeUuid(body.destination_scope_id,"destination_scope_id"),candidate_revision_id:normalizeUuid(body.candidate_revision_id,"candidate_revision_id"),expected_decision_id:body.expected_decision_id==null?null:normalizeUuid(body.expected_decision_id,"expected_decision_id"),expected_revision:expected,operation_id:normalizeThumbnailOperationId(body.operation_id)},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+        const result=await service.commitQuenchSingleCandidate(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),destination_scope_id:normalizeUuid(body.destination_scope_id,"destination_scope_id"),candidate_revision_id:normalizeUuid(body.candidate_revision_id,"candidate_revision_id"),manifest_snapshot_id:normalizeUuid(body.manifest_snapshot_id,"manifest_snapshot_id"),expected_decision_id:body.expected_decision_id==null?null:normalizeUuid(body.expected_decision_id,"expected_decision_id"),expected_revision:expected,operation_id:normalizeThumbnailOperationId(body.operation_id)},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
       }
 
       if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="quench"&&parts[4]==="plan-thumbnail-experiment"){
         requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const expected=Number(body.expected_revision);if(!Number.isInteger(expected)||expected<0)throw new HttpError(400,"invalid_decision_revision","expected_revision must be non-negative");if(!Array.isArray(body.assignments))throw new HttpError(400,"invalid_assignment_set","assignments must be an array");const assignments:QuenchDecisionAssignmentInput[]=body.assignments.map((value,index)=>{if(!isRecord(value))throw new HttpError(400,"invalid_assignment","Each assignment must be an object");const role=value.assignment_role;if(role!=="control"&&role!=="variant")throw new HttpError(400,"invalid_assignment_role","Experiment roles must be control or variant");const ordinal=Number(value.assignment_ordinal);const allocation=value.allocation_basis_points==null?null:Number(value.allocation_basis_points);if(!Number.isInteger(ordinal)||ordinal<1||allocation!==null&&(!Number.isInteger(allocation)||allocation<1||allocation>10000))throw new HttpError(400,"invalid_assignment","Assignment ordinal or allocation is invalid",{index});return{candidate_revision_id:normalizeUuid(value.candidate_revision_id,"candidate_revision_id"),assignment_role:role,assignment_ordinal:ordinal,allocation_basis_points:allocation};});
-        const result=await service.commitQuenchExperiment(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),destination_scope_id:normalizeUuid(body.destination_scope_id,"destination_scope_id"),expected_decision_id:body.expected_decision_id==null?null:normalizeUuid(body.expected_decision_id,"expected_decision_id"),expected_revision:expected,operation_id:normalizeThumbnailOperationId(body.operation_id),assignments},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+        const result=await service.commitQuenchExperiment(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),destination_scope_id:normalizeUuid(body.destination_scope_id,"destination_scope_id"),manifest_snapshot_id:normalizeUuid(body.manifest_snapshot_id,"manifest_snapshot_id"),expected_decision_id:body.expected_decision_id==null?null:normalizeUuid(body.expected_decision_id,"expected_decision_id"),expected_revision:expected,operation_id:normalizeThumbnailOperationId(body.operation_id),assignments},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
       }
 
       if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="quench"&&parts[4]==="cancel-thumbnail-experiment"){
-        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const expected=Number(body.expected_revision);if(!Number.isInteger(expected)||expected<1)throw new HttpError(400,"invalid_decision_revision","Cancellation requires a current positive revision");const result=await service.cancelQuenchExperiment(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),destination_scope_id:normalizeUuid(body.destination_scope_id,"destination_scope_id"),expected_decision_id:normalizeUuid(body.expected_decision_id,"expected_decision_id"),expected_revision:expected,operation_id:normalizeThumbnailOperationId(body.operation_id)},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);const expected=Number(body.expected_revision);if(!Number.isInteger(expected)||expected<1)throw new HttpError(400,"invalid_decision_revision","Cancellation requires a current positive revision");const result=await service.cancelQuenchExperiment(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),destination_scope_id:normalizeUuid(body.destination_scope_id,"destination_scope_id"),manifest_snapshot_id:normalizeUuid(body.manifest_snapshot_id,"manifest_snapshot_id"),expected_decision_id:normalizeUuid(body.expected_decision_id,"expected_decision_id"),expected_revision:expected,operation_id:normalizeThumbnailOperationId(body.operation_id)},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
       }
 
       if (parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="thumbnail-candidates"&&parts[4]==="brand-decision") {
@@ -17673,7 +18147,7 @@ export function createTongsCommitApiHandlerWithService(
         if (!/^forge:script-approval:[a-zA-Z0-9._:-]{8,180}$/.test(operationId)) throw new HttpError(400, "invalid_operation_id", "operation_id must use the Forge script-approval namespace");
         const expected = Number(body.expected_current_revision);
         if (!Number.isInteger(expected) || expected < 0) throw new HttpError(400, "invalid_expected_revision", "expected_current_revision must be non-negative");
-        const result = await service.commitCanonicalScriptApproval(workpieceId, { workspace_id: normalizeUuid(body.workspace_id, "workspace_id"), expected_current_revision: expected, creator_version_label: normalizeNonEmptyString(body.creator_version_label, "creator_version_label"), operation_id: operationId }, { userAccessToken });
+        const result = await service.commitCanonicalScriptApproval(workpieceId, { workspace_id: normalizeUuid(body.workspace_id, "workspace_id"), expected_current_revision: expected, expected_source_file_revision: normalizePositiveInteger(body.expected_source_file_revision, "expected_source_file_revision"), expected_source_content_hash: normalizeSha256(body.expected_source_content_hash, "expected_source_content_hash"), creator_version_label: normalizeNonEmptyString(body.creator_version_label, "creator_version_label"), operation_id: operationId }, { userAccessToken });
         return jsonResponse(200, { ok: true, data: result });
       }
 
@@ -17750,6 +18224,31 @@ export function createTongsCommitApiHandlerWithService(
           userAccessToken,
         });
         return jsonResponse(200, { ok: true, data: { listing } });
+      }
+
+      if (
+        parts.length === 6
+        && parts[0] === "tongs"
+        && parts[1] === "workspaces"
+        && parts[3] === "assets"
+        && parts[5] === "resolve-authority"
+      ) {
+        requireMethod(request, "POST");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const canonicalAssetId = normalizeUuid(decodeURIComponent(parts[4]), "canonical_asset_id");
+        const body = await parseJsonBody(request);
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const authority = await service.resolveCanonicalAssetAuthority({
+          workspaceId,
+          canonicalAssetId: canonicalAssetId as ResolveCanonicalAssetAuthorityRequest["canonicalAssetId"],
+          expectedWorkpieceId: body.expected_workpiece_id == null ? null : normalizeUuid(body.expected_workpiece_id, "expected_workpiece_id"),
+          requiredAssetKind: body.required_asset_kind == null ? null : normalizeNonEmptyString(body.required_asset_kind, "required_asset_kind"),
+          expectedContentHash: body.expected_content_hash == null ? null : normalizeSha256(body.expected_content_hash, "expected_content_hash") as ResolveCanonicalAssetAuthorityRequest["expectedContentHash"],
+          expectedStorageBucket: body.expected_storage_bucket == null ? null : normalizeNonEmptyString(body.expected_storage_bucket, "expected_storage_bucket"),
+          expectedStorageObjectKey: body.expected_storage_key == null ? null : normalizeNonEmptyString(body.expected_storage_key, "expected_storage_key") as ResolveCanonicalAssetAuthorityRequest["expectedStorageObjectKey"],
+          expectedPath: body.expected_path == null ? null : normalizeRelativePath(normalizeNonEmptyString(body.expected_path, "expected_path")),
+        }, { userAccessToken });
+        return jsonResponse(200, { ok: true, data: { authority } });
       }
 
       if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "storage") {
@@ -18073,6 +18572,36 @@ export function createTongsCommitApiHandlerWithService(
 
       if (
         parts.length === 7
+        && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "workpieces"
+        && parts[5] === "hammer" && parts[6] === "open-authority"
+      ) {
+        requireMethod(request, "POST");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const authority = await service.openHammerAuthority(workspaceId, workpieceId,
+          normalizeOpenHammerAuthorityRequest(await parseJsonBody(request)), { userAccessToken });
+        return jsonResponse(200, { ok: true, data: authority });
+      }
+
+      if (
+        parts.length === 9
+        && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "workpieces"
+        && parts[5] === "hammer" && parts[6] === "preparations"
+      ) {
+        requireMethod(request, "POST");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
+        const preparationAttemptId = normalizeUuid(decodeURIComponent(parts[7]), "preparation_attempt_id");
+        if (parts[8] !== "advance") throw new HttpError(404,"not_found","Unknown Hammer preparation action.");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const attempt = await service.advanceHammerPreparation(workspaceId, workpieceId, preparationAttemptId,
+          normalizeAdvanceHammerPreparationRequest(await parseJsonBody(request)), { userAccessToken });
+        return jsonResponse(200, { ok: true, data: { preparation_attempt: attempt } });
+      }
+
+      if (
+        parts.length === 7
         && parts[0] === "tongs"
         && parts[1] === "workspaces"
         && parts[3] === "workpieces"
@@ -18128,6 +18657,29 @@ export function createTongsCommitApiHandlerWithService(
           { userAccessToken },
         );
         return jsonResponse(200, { ok: true, data: { result } });
+      }
+
+      if (
+        parts.length === 8
+        && parts[0] === "tongs"
+        && parts[1] === "workspaces"
+        && parts[3] === "workpieces"
+        && parts[5] === "hammer"
+        && parts[6] === "canonical-recording"
+        && parts[7] === "adopt-latest-take"
+      ) {
+        requireMethod(request, "POST");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const workpieceId = normalizeUuid(decodeURIComponent(parts[4]), "workpiece_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        const result = await service.adoptLatestKeptTakeForHammer(
+          workspaceId,
+          workpieceId,
+          { operation_key: normalizeNonEmptyString(body.operation_key, "operation_key") },
+          { userAccessToken },
+        );
+        return jsonResponse(200, { ok: true, data: result });
       }
 
       if (

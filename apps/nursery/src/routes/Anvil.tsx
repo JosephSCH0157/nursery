@@ -12,7 +12,6 @@ import {
   validateAnvilHandoffTarget,
   type HandoffEpisodeSummary,
 } from "../lib/forge-handoff-validation";
-import anvilDevSourceUrl from "../../../anvil/teleprompter_pro.html?url";
 import "./Anvil.css";
 import { useWorkspaceBootstrap } from "../hooks/useWorkspaceBootstrap";
 import EpisodeContinuityStrip from "../shell/EpisodeContinuityStrip";
@@ -21,9 +20,7 @@ import {
   useEpisodeWorkspaceReadModel,
 } from "../workspace/useEpisodeWorkspaceReadModel";
 
-const ANVIL_FULL_PAGE_URL = import.meta.env.DEV
-  ? anvilDevSourceUrl
-  : "/anvil/teleprompter_pro.html";
+const ANVIL_FULL_PAGE_URL = "/anvil/teleprompter_pro.html";
 const TONGS_TOKEN_STORAGE_KEY = "forge_tongs_api_token_v1";
 
 function appendEpisodeTitleParam(href: string, episodeTitle: string | null): string {

@@ -163,8 +163,9 @@ export async function commitHearthPrimaryScript(
     validatorVersion?: string;
   },
 ): Promise<CommitResult> {
+  const canonicalScriptText = scriptText.replace(/^\uFEFF/, "").replace(/\r\n?/g, "\n").normalize("NFC");
   const validatorVersion = readString(options?.validatorVersion) ?? "shared-script-tags-v1";
-  const validation = validateScriptTags(scriptText);
+  const validation = validateScriptTags(canonicalScriptText);
   if (!validation.ok) {
     return { ok: false, status: 400, reason: "invalid_script_tags", outcome: "conflict" };
   }
@@ -173,12 +174,12 @@ export async function commitHearthPrimaryScript(
     json: {
       path: PRIMARY_SCRIPT_PATH,
       content_type: "text/markdown; charset=utf-8",
-      text: scriptText,
+      text: canonicalScriptText,
       written_by: buildWrittenBy(),
       event_name: "hearth.script.published.v1",
       event_payload: {
         path: PRIMARY_SCRIPT_PATH,
-        chars: scriptText.length,
+        chars: canonicalScriptText.length,
         validator_version: validatorVersion,
       },
       correlation_id: nextCorrelationId("hearth-script"),
@@ -206,57 +207,8 @@ export async function commitHearthPrimaryScript(
     return { ok: false, status: response.status, reason: "malformed_canonical_commit" };
   }
 
-  const idempotencyKey = `hearth-publish:${workpieceId}:${revision}:${hash}`;
-  const transitionResponse = await tongsFetch(
-    `/tongs/workpieces/${encodeURIComponent(workpieceId)}/ready-transition`,
-    {
-      method: "POST",
-      json: {
-        workspace_id: workspaceId,
-        script_path: PRIMARY_SCRIPT_PATH,
-        expected_script_revision: revision,
-        expected_script_hash: hash,
-        idempotency_key: idempotencyKey,
-        publish_evidence: {
-          transition: "hearth.script.published.v1",
-          script_path: PRIMARY_SCRIPT_PATH,
-          script_revision: revision,
-          script_hash: hash,
-          validation: {
-            validator_version: validatorVersion,
-            ok: true,
-            issue_count: validation.issues.length,
-          },
-        },
-      },
-    },
-  );
-  const transitionBody = await readBodyAsJson(transitionResponse) as {
-    ok?: unknown;
-    data?: { outcome?: unknown; reason?: unknown; ready?: { transition_id?: unknown } };
-    error?: { code?: unknown };
-  } | null;
-  if (!transitionResponse.ok) {
-    const code = readString(transitionBody?.error?.code);
-    return {
-      ok: false,
-      status: transitionResponse.status,
-      reason: code === "hearth_ready_migration_required" ? code : "ready_transition_failed",
-    };
-  }
-  const outcome = readString(transitionBody?.data?.outcome);
-  const transitionId = readString(transitionBody?.data?.ready?.transition_id);
-  if ((outcome === "saved" || outcome === "duplicate") && transitionId) {
-    return { ok: true, outcome, revision: Number(revision), hash: hash.toLowerCase(), transitionId };
-  }
-  if (outcome === "stale") {
-    await readHearthPrimaryScript(workpieceId);
-    return { ok: false, status: 409, reason: "stale", outcome, rehydrate: true };
-  }
-  return {
-    ok: false,
-    status: transitionResponse.status,
-    reason: readString(transitionBody?.data?.reason) ?? "ready_transition_rejected",
-    outcome: outcome ?? "ambiguous",
-  };
+  // Writing the working document does not publish production truth. The
+  // explicit approval operation freezes these exact bytes; Ready is then
+  // published from that immutable approval identity.
+  return { ok: true, outcome: "saved", revision: Number(revision), hash: hash.toLowerCase(), transitionId: "" };
 }

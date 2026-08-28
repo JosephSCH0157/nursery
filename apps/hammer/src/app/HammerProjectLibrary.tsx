@@ -10,6 +10,7 @@ import {
 import { loadWorkpieceRecordingCardThumbnailState } from "./hammerRecordingCardThumbnail";
 import { loadWorkpieceMediaPreviewUrl } from "../lib/hammerSourceDeskMediaApi";
 import { intake, pickMediaFile } from "../lib/hammerIntakeRecordingApi";
+import { useNewTakeThenOpen } from "./hammerTakeAdoption";
 import HammerWorkspaceSelection from "./HammerWorkspaceSelection";
 import type { HammerShellWorkspaceOption, HammerWorkspaceResolutionState } from "./hammerShellContext";
 import "./HammerProjectLibrary.css";
@@ -121,6 +122,8 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
   const [intakeBusy, setIntakeBusy] = useState(false);
   const [intakeBusyWorkpieceId, setIntakeBusyWorkpieceId] = useState<string | null>(null);
   const [intakeError, setIntakeError] = useState<string | null>(null);
+  const [takeAdoptionBusyWorkpieceId, setTakeAdoptionBusyWorkpieceId] = useState<string | null>(null);
+  const [takeAdoptionError, setTakeAdoptionError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!routeWorkpieceId) return;
@@ -235,10 +238,6 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
     };
   }, [projects]);
 
-  const selectedProject = useMemo(
-    () => projects.find((project) => project.workpieceId === selectedWorkpieceId) ?? null,
-    [projects, selectedWorkpieceId],
-  );
   const readyProjects = useMemo(
     () => sortProjects(projects.filter((project) => project.isEditReady), sortMode),
     [projects, sortMode],
@@ -263,6 +262,28 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
       workspaceId: project.workspaceId,
       workpieceId: project.workpieceId,
     }));
+  }
+
+  async function useNewTake(project: HammerRuntimeProjectCard): Promise<void> {
+    if (takeAdoptionBusyWorkpieceId) return;
+    setTakeAdoptionError(null);
+    setTakeAdoptionBusyWorkpieceId(project.workpieceId);
+    try {
+      await useNewTakeThenOpen({
+        target: { workspaceId: project.workspaceId, workpieceId: project.workpieceId },
+        open: (target, authority) => {
+          const href = new URL(buildHammerCanonicalEditorHref(location.search, target), window.location.origin);
+          href.searchParams.set("canonical_recording_id", authority.canonicalRecordingId);
+          navigate(`${href.pathname}${href.search}`);
+        },
+      });
+    } catch (adoptionError) {
+      setTakeAdoptionError(adoptionError instanceof Error && adoptionError.message.trim()
+        ? adoptionError.message
+        : "Hammer could not safely use the newer take. The current edit was not changed.");
+    } finally {
+      setTakeAdoptionBusyWorkpieceId(null);
+    }
   }
 
   async function attachMediaToEpisode(workspaceId: string, workpieceId: string): Promise<void> {
@@ -345,17 +366,6 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
             <article
               key={project.workpieceId}
               className={`hammer-project-library__card${isSelected ? " is-selected" : ""}`}
-              tabIndex={0}
-              onClick={() => {
-                setSelectedWorkpieceId(project.workpieceId);
-                openProject(project);
-              }}
-              onKeyDown={(event) => {
-                if (event.key !== "Enter" && event.key !== " ") return;
-                event.preventDefault();
-                setSelectedWorkpieceId(project.workpieceId);
-                openProject(project);
-              }}
             >
               <div className="hammer-project-library__card-body">
                 <div className="hammer-project-library__card-media-inline">
@@ -429,12 +439,45 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
                   ) : null}
                 </div>
                 <div className="hammer-project-library__card-actions">
+                  {project.recording.hasCanonicalRecording ? (
+                    <button
+                      type="button"
+                      className="hammer-project-library__button hammer-project-library__button--primary hammer-project-library__button--card"
+                      onClick={() => {
+                        setSelectedWorkpieceId(project.workpieceId);
+                        openProject(project);
+                      }}
+                      disabled={takeAdoptionBusyWorkpieceId === project.workpieceId}
+                    >
+                      Open Current Edit
+                    </button>
+                  ) : project.isEditReady ? (
+                    <button
+                      type="button"
+                      className="hammer-project-library__button hammer-project-library__button--primary hammer-project-library__button--card"
+                      onClick={() => {
+                        setSelectedWorkpieceId(project.workpieceId);
+                        openProject(project);
+                      }}
+                      disabled={takeAdoptionBusyWorkpieceId === project.workpieceId}
+                    >
+                      Open Episode
+                    </button>
+                  ) : null}
+                  {project.recording.hasNewerKeptTake ? (
+                    <button
+                      type="button"
+                      className="hammer-project-library__button hammer-project-library__button--secondary hammer-project-library__button--card"
+                      onClick={() => void useNewTake(project)}
+                      disabled={takeAdoptionBusyWorkpieceId !== null}
+                    >
+                      {takeAdoptionBusyWorkpieceId === project.workpieceId ? "Using New Take..." : "Use New Take"}
+                    </button>
+                  ) : null}
                   <button
                     type="button"
                     className="hammer-project-library__button hammer-project-library__button--secondary hammer-project-library__button--card"
-                    onClick={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
+                    onClick={() => {
                       void attachMediaToEpisode(project.workspaceId, project.workpieceId);
                     }}
                     disabled={intakeBusy}
@@ -505,14 +548,6 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
           >
             {intakeBusy && !intakeBusyWorkpieceId ? "Importing..." : "Standalone Import"}
           </button>
-          <button
-            type="button"
-            className="hammer-project-library__button hammer-project-library__button--primary"
-            onClick={() => openProject(selectedProject)}
-            disabled={!selectedProject}
-          >
-            Open Project
-          </button>
           <label className="hammer-project-library__sort-field">
             <span>Sort</span>
             <select
@@ -535,6 +570,12 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
       {intakeError ? (
         <div className="hammer-project-library__intake-error" role="alert">
           {intakeError}
+        </div>
+      ) : null}
+
+      {takeAdoptionError ? (
+        <div className="hammer-project-library__intake-error" role="alert">
+          {takeAdoptionError} The current canonical edit remains unchanged.
         </div>
       ) : null}
 

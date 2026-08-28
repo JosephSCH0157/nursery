@@ -37,6 +37,11 @@ export type HammerVisualAnimationPreset =
 
 export interface HammerVisualAsset {
   asset_id: string;
+  canonical_asset_id?: string | null;
+  authority_state?: "canonical_proven" | "legacy_resolved" | "legacy_unresolved" | "conflicting_evidence";
+  authority_workspace_id?: string | null;
+  authority_workpiece_id?: string | null;
+  authority_content_hash?: string | null;
   asset_ref: string;
   kind: HammerVisualAssetKind;
   label: string | null;
@@ -118,6 +123,8 @@ export interface HammerVisualDivergence {
 export interface HammerVisualClip {
   clip_id: string;
   asset_id: string | null;
+  canonical_asset_id?: string | null;
+  canonical_asset_state?: "canonical_proven" | "legacy_resolved" | "legacy_unresolved" | "conflicting_evidence";
   lane_id: string;
   entry_id: string | null;
   system_managed?: boolean;

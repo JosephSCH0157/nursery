@@ -3,7 +3,6 @@ import type {
   HammerStoredMediaFile,
   HammerWorkspaceIntroOutroDefaults,
 } from "../lib/hammerSourceDeskMediaApi";
-import { deriveStableHammerAssetIdFromPath } from "../lib/hammerAssetIdentity";
 
 export interface HammerIntroOutroCandidateItem extends HammerStoredMediaFile {
   assetId: string;
@@ -46,7 +45,7 @@ export function buildIntroOutroCandidateItems(
       && file.durationMs > 0)
     .map((file) => ({
       ...file,
-      assetId: file.assetId ?? deriveStableHammerAssetIdFromPath(file.path),
+      assetId: file.assetId!,
     }))
     .sort((left, right) => left.name.localeCompare(right.name));
 }
@@ -127,7 +126,6 @@ export function buildIntroOutroPackagingSyncPlan(args: {
       && resolved.introPath
       && (
         args.currentIntroPlacementAssetId === resolved.introAssetId
-        || args.currentIntroPlacementPath === resolved.introPath
       ),
   );
   const currentOutroMatches = Boolean(
@@ -135,7 +133,6 @@ export function buildIntroOutroPackagingSyncPlan(args: {
       && resolved.outroPath
       && (
         args.currentOutroPlacementAssetId === resolved.outroAssetId
-        || args.currentOutroPlacementPath === resolved.outroPath
       ),
   );
 

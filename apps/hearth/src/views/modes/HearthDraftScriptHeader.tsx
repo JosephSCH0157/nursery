@@ -66,6 +66,7 @@ type HearthDraftScriptHeaderProps = {
   onToggleShowScriptPanel: () => void;
   hasApprovedScript: boolean;
   approvedScriptVersion: string | number | null;
+  productionScriptStatus: "Working Draft" | "Approved for Production" | "Draft Changed Since Approval";
   isVisualScriptMode: boolean;
   onToggleVisualScriptMode: () => void;
 };
@@ -126,6 +127,7 @@ export default function HearthDraftScriptHeader({
   onToggleShowScriptPanel,
   hasApprovedScript,
   approvedScriptVersion,
+  productionScriptStatus,
   isVisualScriptMode,
   onToggleVisualScriptMode,
 }: HearthDraftScriptHeaderProps) {
@@ -193,6 +195,7 @@ export default function HearthDraftScriptHeader({
           </select>
         </label>
         <span className="hs-status-text">{statusText}</span>
+        <span className="hs-status-text" data-script-authority-status>{productionScriptStatus}</span>
         <span className="hs-count-text">{wordCount} words · {charCount} chars</span>
         {aiAutosaveWarning ? (
           <span className="hs-autosave-warning" role="status" aria-live="polite">

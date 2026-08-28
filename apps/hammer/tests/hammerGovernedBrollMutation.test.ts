@@ -7,9 +7,18 @@ import type { HammerEditorStateSerializable } from "../src/editor/hammerWorkspac
 import { createGovernedBrollPlacement, removeGovernedBrollPlacement, resolveGovernedBrollOperationId, updateGovernedBrollTiming } from "../src/editor/hammerGovernedBrollMutation";
 import { evaluateHammerBrollConsistency } from "../src/editor/hammerBrollConsistency";
 import { buildHammerRenderAssembly } from "../src/editor/hammerRenderAssembly";
+import type { CanonicalAssetAuthority, CanonicalAssetId, MediaContentHash, StorageObjectKey } from "@forge/tongs/canonical-asset-authority";
 
 const NOW = "2026-08-25T12:00:00.000Z";
 const identity = { graphId: "wp:authority", workspaceId: "ws", workpieceId: "wp", sessionId: "session", sourceTranscriptId: "tx" };
+const canonicalAssetId = "asset:grove" as CanonicalAssetId;
+const canonicalAuthority: CanonicalAssetAuthority = {
+  state: "ready", code: null, canonicalAssetId, workspaceId: "ws",
+  scope: { kind: "workpiece", workpieceId: "wp", workspaceReusePolicy: "not_applicable" },
+  contentHash: "sha256:grove" as MediaContentHash,
+  storageObjectKey: "workpieces/wp/assets/grove.mp4" as StorageObjectKey,
+  path: "assets/grove.mp4", assetKind: "broll",
+};
 
 function emptyState(): HammerEditorStateSerializable {
   return { transcriptSegments: [{ segment_id: "segment:1", speaker: "Host", text: "Orange groves", start_sec: 0, end_sec: 8 }],
@@ -19,7 +28,7 @@ function emptyState(): HammerEditorStateSerializable {
 }
 
 function add(kind: "broll" | "reference_clip" = "broll"): HammerEditorStateSerializable {
-  return createGovernedBrollPlacement({ before: emptyState(), placementId: "clip:1", assetPath: "assets/grove.mp4",
+  return createGovernedBrollPlacement({ before: emptyState(), placementId: "clip:1", canonicalAssetId, canonicalAuthority, assetPath: "assets/grove.mp4",
     label: "Grove", kind, segmentId: "segment:1", segmentText: "Orange groves", startSec: 1, endSec: 4,
     identity, nowIso: NOW });
 }
@@ -37,6 +46,7 @@ test("manual B-roll add creates one exact graph/clip/duck compound state", () =>
   assert.ok(broll && broll.instruction.type === "insert_broll");
   assert.ok(duck && duck.instruction.type === "audio_duck");
   assert.equal(clip?.authority_operation_id, broll.operation_id);
+  assert.equal(clip?.canonical_asset_id, canonicalAssetId);
   assert.equal(broll.instruction.companion_audio_duck_operation_id, duck.operation_id);
   assert.equal(duck.instruction.linked_broll_operation_id, broll.operation_id);
   assert.equal(state.visualPlacements?.placements[0]?.authority_operation_id, broll.operation_id);
@@ -62,6 +72,7 @@ test("governed move and trim synchronize graph, clip, duck, and compatibility pr
   assert.ok(nextBroll?.instruction.type === "insert_broll" && duck?.instruction.type === "audio_duck");
   assert.deepEqual([nextBroll.instruction.start_sec, nextBroll.instruction.end_sec], [2, 3.5]);
   assert.deepEqual([after.visualTimeline?.clips[0]?.start_sec, after.visualTimeline?.clips[0]?.end_sec], [2, 3.5]);
+  assert.equal(after.visualTimeline?.clips[0]?.canonical_asset_id, canonicalAssetId);
   assert.deepEqual([duck.instruction.start_sec, duck.instruction.end_sec], [2, 3.5]);
   assert.deepEqual([after.visualPlacements?.placements[0]?.start_sec, after.visualPlacements?.placements[0]?.end_sec], [2, 3.5]);
   assertAligned(after);

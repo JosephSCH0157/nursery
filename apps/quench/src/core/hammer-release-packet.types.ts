@@ -78,6 +78,7 @@ export interface HammerQuenchReleasePacketManifest {
     review_reasons?: string[];
     reasons: string[];
   };
+  packaging_media_readiness?: Record<string, unknown>;
   editorial_truth?: {
     schema_version: 1;
     authority_graph_id: string | null;
@@ -144,6 +145,7 @@ export interface HammerQuenchVisualPlacement {
   start_sec: number;
   end_sec: number;
   asset_path: string | null;
+  media_reference?: Record<string, unknown> | null;
   status: string;
 }
 

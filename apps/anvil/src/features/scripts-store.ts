@@ -166,6 +166,11 @@ export const ScriptStore = {
           created: existing?.created || ready.updatedAt || new Date().toISOString(),
           updated: ready.updatedAt || new Date().toISOString(),
         };
+        const productionAuthority = (window as any).__forgeLastProductionScriptAuthority as Record<string, unknown> | undefined;
+        const approvalId = typeof productionAuthority?.script_approval_id === "string" ? productionAuthority.script_approval_id : "";
+        const approvalRevision = Number(productionAuthority?.script_approval_revision);
+        const approvalHash = typeof productionAuthority?.script_content_hash === "string" ? productionAuthority.script_content_hash : "";
+        if (productionAuthority?.workpiece_id !== ready.workpieceId || !approvalId || !Number.isInteger(approvalRevision) || approvalRevision < 1 || approvalHash !== ready.scriptHash) return null;
         (window as Window & { __forgeCanonicalReadyScript?: ReadyScriptReference }).__forgeCanonicalReadyScript = { ...ready };
         (window as Window & { __forgeCanonicalScriptIdentity?: unknown }).__forgeCanonicalScriptIdentity = {
           workspaceId: ready.workspaceId,
@@ -174,6 +179,9 @@ export const ScriptStore = {
           scriptRevision: ready.scriptRevision,
           scriptHash: ready.scriptHash,
           readyTransitionId: ready.transitionId,
+          scriptApprovalId: approvalId,
+          scriptApprovalRevision: approvalRevision,
+          scriptApprovalHash: approvalHash,
         };
         scriptsById.set(id, rec);
         return rec;

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { projectHammerCanonicalVisualHydration } from "../src/editor/hammerCanonicalVisualHydration";
+import { projectHammerCanonicalVisualHydration, resolveHammerCanonicalVisualHydration } from "../src/editor/hammerCanonicalVisualHydration";
+import type { CanonicalAssetAuthority, CanonicalAssetId, MediaContentHash, StorageObjectKey } from "@forge/tongs/canonical-asset-authority";
 import { projectHammerMountedCompositionClips } from "../src/editor/hammerMountedCompositionProjection";
 import { createDefaultHammerStudioRackState } from "../src/editor/hammerStudioRack";
 import { createHammerHistoryController, createHammerHistoryDocument, hashEditorState, projectHammerHistoryOwnedSessionHead, verifyHammerHistoryAgainstCanonicalHead, type HammerEditorStateSerializable } from "../src/editor/hammerWorkspaceHistory";
@@ -102,6 +103,62 @@ test("placements artifact remains the compatibility fallback when no canonical t
   const projected = projectHammerCanonicalVisualHydration({ canonicalTimeline: null, compatibilityPlacements: he9StaleCompatibilityPlacements });
   assert.equal(projected.placementAuthority, "compatibility_artifact");
   assert.equal(projected.visualPlacements?.placements.length, 30);
+});
+
+test("canonical hydration preserves asset A when a later asset B reuses its path", async () => {
+  const assetA = "asset-A" as CanonicalAssetId;
+  const timeline = createEmptyVisualTimelineState({
+    assets: [{
+      ...he9CommittedTimeline.assets[0]!,
+      asset_id: assetA,
+      canonical_asset_id: assetA,
+      authority_state: "canonical_proven",
+      path: "/foo/image.png",
+      authority_content_hash: "AAA",
+    }],
+    clips: [{
+      ...he9CommittedTimeline.clips[0]!,
+      asset_id: assetA,
+      canonical_asset_id: assetA,
+      canonical_asset_state: "canonical_proven",
+    }],
+  });
+  const requested: string[] = [];
+  const resolved = await resolveHammerCanonicalVisualHydration({
+    workspaceId: "workspace-A",
+    workpieceId: "episode-A",
+    timeline,
+    resolveAuthority: async (request): Promise<CanonicalAssetAuthority> => {
+      requested.push(request.canonicalAssetId);
+      return {
+        state: "ready", code: null, canonicalAssetId: assetA, workspaceId: "workspace-A",
+        scope: { kind: "workpiece", workpieceId: "episode-A", workspaceReusePolicy: "not_applicable" },
+        contentHash: "AAA" as MediaContentHash, storageObjectKey: "objects/A" as StorageObjectKey,
+        path: "/foo/image.png", mimeType: "image/png",
+      };
+    },
+  });
+  assert.deepEqual(requested, [assetA]);
+  assert.equal(resolved.assets[0]?.canonical_asset_id, assetA);
+  assert.equal(resolved.clips[0]?.canonical_asset_id, assetA);
+  assert.notEqual(resolved.clips[0]?.canonical_asset_id, "asset-B");
+});
+
+test("cross-workpiece canonical hydration preserves intent as unresolved", async () => {
+  const assetA = "asset-A" as CanonicalAssetId;
+  const timeline = createEmptyVisualTimelineState({
+    assets: [{ ...he9CommittedTimeline.assets[0]!, asset_id: assetA, canonical_asset_id: assetA, authority_state: "canonical_proven" }],
+    clips: [{ ...he9CommittedTimeline.clips[0]!, asset_id: assetA, canonical_asset_id: assetA, canonical_asset_state: "canonical_proven" }],
+  });
+  const resolved = await resolveHammerCanonicalVisualHydration({
+    workspaceId: "workspace-A", workpieceId: "episode-B", timeline,
+    resolveAuthority: async (): Promise<CanonicalAssetAuthority> => ({
+      state: "relationship_mismatch", code: "canonical_asset_workpiece_mismatch", canonicalAssetId: assetA,
+    }),
+  });
+  assert.equal(resolved.clips[0]?.canonical_asset_id, assetA);
+  assert.equal(resolved.clips[0]?.canonical_asset_state, "legacy_unresolved");
+  assert.equal(resolved.assets[0]?.authority_state, "legacy_unresolved");
 });
 
 console.log("Hammer canonical visual hydration tests passed.");

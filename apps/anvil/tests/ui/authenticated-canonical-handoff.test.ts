@@ -59,7 +59,12 @@ describe('authenticated canonical script entry points', () => {
   });
 
   it('routes ready-script content through the same authenticated Tongs boundary', async () => {
-    fetchAuthenticatedTongs.mockResolvedValue(jsonResponse({ ok: true, data: 'Ready canonical words.' }));
+    fetchAuthenticatedTongs.mockResolvedValue(jsonResponse({ ok: true, data: {
+      workpiece_id: '11111111-1111-4111-8111-111111111111',
+      source_file_path: 'script/script.md',
+      script_text: 'Ready canonical words.',
+      script_approval_id: '22222222-2222-4222-8222-222222222222',
+    } }));
     const { readReadyScriptText } = await import('../../src/forge/ready-scripts');
 
     await expect(readReadyScriptText(
@@ -67,7 +72,7 @@ describe('authenticated canonical script entry points', () => {
       'script/script.md',
     )).resolves.toBe('Ready canonical words.');
     expect(fetchAuthenticatedTongs).toHaveBeenCalledWith(
-      '/tongs/workpieces/11111111-1111-4111-8111-111111111111/read-file?path=script%2Fscript.md',
+      '/tongs/workpieces/11111111-1111-4111-8111-111111111111/production-script',
       expect.objectContaining({ method: 'GET', headers: expect.any(Headers) }),
     );
   });

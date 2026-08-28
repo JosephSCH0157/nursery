@@ -461,7 +461,7 @@ export async function readReadyScriptText(workpieceId: string, path: string): Pr
   if (!safeWorkpieceId || !safePath) return null;
 
   const response = await fetchAuthenticatedTongs(
-    `/tongs/workpieces/${encodeURIComponent(safeWorkpieceId)}/read-file?path=${encodeURIComponent(safePath)}`,
+    `/tongs/workpieces/${encodeURIComponent(safeWorkpieceId)}/production-script`,
     {
       method: "GET",
       headers: withApiHeaders(),
@@ -483,5 +483,9 @@ export async function readReadyScriptText(workpieceId: string, path: string): Pr
   }
 
   const data = (body as { data?: unknown }).data;
-  return typeof data === "string" ? data : null;
+  if (!data || typeof data !== "object") return null;
+  const row = data as Record<string, unknown>;
+  if (row.source_file_path !== safePath || typeof row.script_text !== "string") return null;
+  try { (window as any).__forgeLastProductionScriptAuthority = { ...row }; } catch {}
+  return row.script_text;
 }

@@ -13,8 +13,9 @@ import {
   replaceWorkspaceVisualTimelineState,
   resolveCanonicalWorkspaceVisualTimeline,
 } from "./hammerWorkspaceMutationGateway";
-import { deriveStableHammerVisualAssetId, migrateLegacyPlacementRecordToAsset, migrateLegacyPlacementRecordToClip } from "../visuals/model/hammerVisualMigrations";
+import { migrateLegacyPlacementRecordToAsset, migrateLegacyPlacementRecordToClip } from "../visuals/model/hammerVisualMigrations";
 import { DEFAULT_VISUAL_PLACEMENT_GEOMETRY } from "./hammerWorkspaceShellVisualUtils";
+import type { CanonicalAssetAuthority, CanonicalAssetId } from "@forge/tongs/canonical-asset-authority";
 
 export type HammerGovernedBrollIdentity = {
   graphId: string;
@@ -35,6 +36,8 @@ export function resolveGovernedBrollOperationId(before: HammerEditorStateSeriali
 export function createGovernedBrollPlacement(args: {
   before: HammerEditorStateSerializable;
   placementId: string;
+  canonicalAssetId: CanonicalAssetId;
+  canonicalAuthority: CanonicalAssetAuthority;
   assetPath: string;
   label: string;
   kind: "broll" | "reference_clip";
@@ -49,7 +52,7 @@ export function createGovernedBrollPlacement(args: {
     graph: args.before.editorialAuthorityGraph,
     instruction: createInsertBrollInstruction({
       segmentId: args.segmentId,
-      assetRef: args.assetPath,
+      assetRef: args.canonicalAssetId,
       startSec: args.startSec,
       endSec: args.endSec,
       intentSource: "manual",
@@ -91,10 +94,15 @@ export function createGovernedBrollPlacement(args: {
     anchor_segment_id: args.segmentId,
     matched_segment_ids: [args.segmentId],
     anchor_text: args.segmentText,
-    asset_ref: args.assetPath,
-    asset_id: null,
+    asset_ref: args.canonicalAssetId,
+    asset_id: args.canonicalAssetId,
+    canonical_asset_id: args.canonicalAssetId,
+    canonical_asset_state: "canonical_proven",
+    canonical_asset_workspace_id: args.canonicalAuthority.workspaceId,
+    canonical_asset_workpiece_id: args.canonicalAuthority.scope?.kind === "workpiece" ? args.canonicalAuthority.scope.workpieceId : null,
+    canonical_asset_content_hash: args.canonicalAuthority.contentHash ?? null,
     asset_path: args.assetPath,
-    storage_key: args.assetPath,
+    storage_key: args.canonicalAuthority.storageObjectKey ?? null,
     label: args.label,
     visual_mode: args.kind,
     start_sec: args.startSec,
@@ -109,7 +117,7 @@ export function createGovernedBrollPlacement(args: {
     overlay_opacity: 1,
     overlay_z_index: timeline.clips.length + 1,
   };
-  const assetId = deriveStableHammerVisualAssetId(placement);
+  const assetId = args.canonicalAssetId;
   return applyWorkspaceVisualTimelineActions({ ...args.before, editorialAuthorityGraph: graph, selectedSegmentId: args.segmentId }, [
     { type: "UPSERT_ASSETS", assets: [migrateLegacyPlacementRecordToAsset({ record: placement, asset_id: assetId, updated_at: args.nowIso })], updated_at: args.nowIso },
     { type: "CREATE_CLIP", clip: migrateLegacyPlacementRecordToClip({ record: placement, asset_id: assetId, updated_at: args.nowIso }), updated_at: args.nowIso },

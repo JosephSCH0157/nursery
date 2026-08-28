@@ -7,12 +7,13 @@ import type {
 } from "../persistence/hammerPersistenceContract";
 import type { HammerEditorStateSerializable, HammerHistoryKind } from "./hammerWorkspaceHistory";
 import type { HammerVisualClip, HammerVisualGeometry, HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
+import type { CanonicalAssetId } from "@forge/tongs/canonical-asset-authority";
+import { requireReadyHammerCanonicalAssetAuthority } from "../lib/hammerCanonicalAssetAuthority";
 import { selectClipById } from "../visuals/state/hammerVisualSelectors";
 import type { HammerVisualTimelineAction } from "../visuals/state/hammerVisualActions";
 import { createGovernedBrollPlacement, removeGovernedBrollPlacement, resolveGovernedBrollOperationId, updateGovernedBrollTiming } from "./hammerGovernedBrollMutation";
 import { deriveLegacyVisualPlacementsFromTimeline } from "../visuals/persistence/hammerVisualTimelineLegacyAdapter";
 import {
-  deriveStableHammerVisualAssetId,
   migrateLegacyPlacementRecordToAsset,
   migrateLegacyPlacementRecordToClip,
 } from "../visuals/model/hammerVisualMigrations";
@@ -173,9 +174,10 @@ export type UseHammerWorkspaceShellVisualEditingResult = {
   applyImageAnimationPreset: (placementId: string, preset: HammerImageAnimationPreset) => void;
   removeVisualPlacement: (placementId: string) => void;
   removePackagingPlacement: (entryId: string, label: string) => void;
-  addImagePlacementFromLibrary: (args: { assetPath: string; label: string; mode?: "transcript" | "timeline" }) => void;
+  addImagePlacementFromLibrary: (args: { canonicalAssetId: string | null; assetPath: string; label: string; mode?: "transcript" | "timeline" }) => Promise<void>;
   addVisualAssetPlacementFromLibrary: (args: {
     assetPath: string;
+    canonicalAssetId: string | null;
     label: string;
     kind: "broll" | "reference_clip";
   }) => void;
@@ -449,7 +451,22 @@ export function useHammerWorkspaceShellVisualEditing(
     });
   }, [args]);
 
-  const addImagePlacementFromLibrary = useCallback((placementArgs: { assetPath: string; label: string; mode?: "transcript" | "timeline" }): void => {
+  const addImagePlacementFromLibrary = useCallback(async (placementArgs: { canonicalAssetId: string | null; assetPath: string; label: string; mode?: "transcript" | "timeline" }): Promise<void> => {
+    if (!placementArgs.canonicalAssetId) {
+      args.setTranscriptTimingHint("This image has no canonical Tongs asset identity and cannot be placed.");
+      return;
+    }
+    let authority;
+    try {
+      authority = await requireReadyHammerCanonicalAssetAuthority({
+        workspaceId: args.workspaceId, workpieceId: args.workpieceId,
+        canonicalAssetId: placementArgs.canonicalAssetId as CanonicalAssetId,
+        expectedPath: placementArgs.assetPath,
+      });
+    } catch (error) {
+      args.setTranscriptTimingHint(error instanceof Error ? error.message : "Canonical asset validation failed.");
+      return;
+    }
     const placementId = createVisualPlacementId();
     args.applyHistoryMutation({
       label: "Add image placement",
@@ -477,10 +494,15 @@ export function useHammerWorkspaceShellVisualEditing(
           anchor_segment_id: anchorSegment.segment_id,
           matched_segment_ids: [anchorSegment.segment_id],
           anchor_text: anchorSegment.text,
-          asset_ref: placementArgs.assetPath,
-          asset_id: null,
+          asset_ref: authority.canonicalAssetId,
+          asset_id: authority.canonicalAssetId,
+          canonical_asset_id: authority.canonicalAssetId,
+          canonical_asset_state: "canonical_proven",
+          canonical_asset_workspace_id: authority.workspaceId,
+          canonical_asset_workpiece_id: authority.scope?.kind === "workpiece" ? authority.scope.workpieceId : null,
+          canonical_asset_content_hash: authority.contentHash ?? null,
           asset_path: placementArgs.assetPath,
-          storage_key: placementArgs.assetPath,
+          storage_key: authority.storageObjectKey ?? null,
           label: placementArgs.label,
           visual_mode: "still_image",
           start_sec: nextStart,
@@ -498,7 +520,7 @@ export function useHammerWorkspaceShellVisualEditing(
           overlay_opacity: 1,
           overlay_z_index: visualTimeline.clips.length + 1,
         };
-        const assetId = deriveStableHammerVisualAssetId(nextPlacement);
+        const assetId = authority.canonicalAssetId;
         const migratedClip = migrateLegacyPlacementRecordToClip({ record: nextPlacement, asset_id: assetId, updated_at: updatedAt });
         migratedClip.semantic_anchor = {
           ...migratedClip.semantic_anchor,
@@ -547,15 +569,21 @@ export function useHammerWorkspaceShellVisualEditing(
     });
   }, [args]);
 
-  const addVisualAssetPlacementFromLibrary = useCallback((placementArgs: {
+  const addVisualAssetPlacementFromLibrary = useCallback(async (placementArgs: {
     assetPath: string;
+    canonicalAssetId: string | null;
     label: string;
     kind: "broll" | "reference_clip";
-  }): void => {
-    if (!placementArgs.assetPath.trim()) {
-      args.setTranscriptTimingHint("Stored asset path is unavailable. Reload workspace media state before placing it.");
-      return;
+  }): Promise<void> => {
+    if (!placementArgs.canonicalAssetId) {
+      args.setTranscriptTimingHint("This media has no canonical Tongs asset identity and cannot be placed.");
+      return Promise.resolve();
     }
+    return requireReadyHammerCanonicalAssetAuthority({
+      workspaceId: args.workspaceId, workpieceId: args.workpieceId,
+      canonicalAssetId: placementArgs.canonicalAssetId as CanonicalAssetId,
+      expectedPath: placementArgs.assetPath,
+    }).then((authority) => {
     const placementId = createVisualPlacementId();
     args.applyHistoryMutation({
       label: placementArgs.kind === "reference_clip" ? "Add reference clip placement" : "Add b-roll placement",
@@ -571,19 +599,22 @@ export function useHammerWorkspaceShellVisualEditing(
         const nextStart = Math.max(0, roundToTenth(before.playheadSec));
         const nextEnd = Math.max(nextStart + 0.5, Math.min(args.transcriptDurationSec, roundToTenth(nextStart + 3)));
         const updatedAt = new Date().toISOString();
-        return createGovernedBrollPlacement({ before, placementId, assetPath: placementArgs.assetPath,
+        return createGovernedBrollPlacement({ before, placementId, canonicalAssetId: authority.canonicalAssetId, canonicalAuthority: authority, assetPath: placementArgs.assetPath,
           label: placementArgs.label, kind: placementArgs.kind, segmentId: anchorSegment.segment_id,
           segmentText: anchorSegment.text, startSec: nextStart, endSec: nextEnd, nowIso: updatedAt,
           identity: { graphId: `${args.workpieceId}:authority`, workspaceId: args.workspaceId,
             workpieceId: args.workpieceId, sessionId: args.sessionId, sourceTranscriptId: args.transcriptSourceId } });
       },
     });
+    }).catch((error) => {
+      args.setTranscriptTimingHint(error instanceof Error ? error.message : "Canonical asset validation failed.");
+    });
   }, [args]);
 
   const upsertPackagingPlacement = useCallback((placementArgs: {
     entryId: string;
     assetPath: string;
-    assetId?: string;
+    assetId: string;
     label: string;
     startSec: number;
     endSec: number;
@@ -615,10 +646,14 @@ export function useHammerWorkspaceShellVisualEditing(
           anchor_segment_id: anchorSegment.segment_id,
           matched_segment_ids: [anchorSegment.segment_id],
           anchor_text: anchorSegment.text,
-          asset_ref: placementArgs.assetPath,
-          asset_id: null,
+          asset_ref: placementArgs.assetId,
+          asset_id: placementArgs.assetId,
+          canonical_asset_id: placementArgs.assetId,
+          canonical_asset_state: "canonical_proven",
+          canonical_asset_workspace_id: args.workspaceId,
+          canonical_asset_workpiece_id: args.workpieceId,
           asset_path: placementArgs.assetPath,
-          storage_key: placementArgs.assetPath,
+          storage_key: null,
           label: placementArgs.label,
           visual_mode: placementArgs.visualMode,
           start_sec: Math.max(0, roundToTenth(placementArgs.startSec)),
@@ -635,7 +670,7 @@ export function useHammerWorkspaceShellVisualEditing(
           overlay_opacity: 1,
           overlay_z_index: existingClip?.z_index ?? (visualTimeline.clips.length + 1),
         };
-        const assetId = placementArgs.assetId ?? deriveStableHammerVisualAssetId(nextPlacement);
+        const assetId = placementArgs.assetId;
         const nextClipBase = migrateLegacyPlacementRecordToClip({ record: nextPlacement, asset_id: assetId, updated_at: updatedAt });
         const nextClip: HammerVisualClip = placementArgs.systemMeta
           ? {
@@ -776,12 +811,14 @@ export function useHammerWorkspaceShellVisualEditing(
     });
   }, [args]);
 
-  const upsertResolvedIntroPlacement = useCallback((assetId: string, assetPath: string, source: "profile" | "episode" | "manual", durationMs?: number | null): void => {
+  const upsertResolvedIntroPlacement = useCallback(async (assetId: string, assetPath: string, source: "profile" | "episode" | "manual", durationMs?: number | null): Promise<void> => {
     const introDurationSec = Math.round(Math.max(0, durationMs ?? 0)) / 1000;
     if (introDurationSec <= 0) {
       args.setTranscriptTimingHint("Intro duration is unavailable. Re-upload the asset so Tongs can inspect it.");
       return;
     }
+    try { await requireReadyHammerCanonicalAssetAuthority({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, canonicalAssetId: assetId as CanonicalAssetId, expectedPath: assetPath }); }
+    catch (error) { args.setTranscriptTimingHint(error instanceof Error ? error.message : "Intro canonical asset validation failed."); return; }
     upsertPackagingPlacement({
       entryId: PACKAGING_INTRO_ENTRY_ID,
       assetPath,
@@ -793,14 +830,16 @@ export function useHammerWorkspaceShellVisualEditing(
       uncertaintyFlags: ["packaging:intro"],
       systemMeta: { system_managed: true, system_type: "intro", system_source: source, system_asset_id: assetId },
     });
-  }, [args.setTranscriptTimingHint, upsertPackagingPlacement]);
+  }, [args.setTranscriptTimingHint, args.workspaceId, args.workpieceId, upsertPackagingPlacement]);
 
-  const upsertResolvedOutroPlacement = useCallback((assetId: string, assetPath: string, source: "profile" | "episode" | "manual", durationMs?: number | null): void => {
+  const upsertResolvedOutroPlacement = useCallback(async (assetId: string, assetPath: string, source: "profile" | "episode" | "manual", durationMs?: number | null): Promise<void> => {
     const outroDurationSec = Math.round(Math.max(0, durationMs ?? 0)) / 1000;
     if (outroDurationSec <= 0) {
       args.setTranscriptTimingHint("Outro duration is unavailable. Re-upload the asset so Tongs can inspect it.");
       return;
     }
+    try { await requireReadyHammerCanonicalAssetAuthority({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, canonicalAssetId: assetId as CanonicalAssetId, expectedPath: assetPath }); }
+    catch (error) { args.setTranscriptTimingHint(error instanceof Error ? error.message : "Outro canonical asset validation failed."); return; }
     const startSec = Math.max(0, roundToTenth(args.transcriptDurationSec - outroDurationSec));
     upsertPackagingPlacement({
       entryId: PACKAGING_OUTRO_ENTRY_ID,
@@ -813,7 +852,7 @@ export function useHammerWorkspaceShellVisualEditing(
       uncertaintyFlags: ["packaging:outro"],
       systemMeta: { system_managed: true, system_type: "outro", system_source: source, system_asset_id: assetId },
     });
-  }, [args.setTranscriptTimingHint, args.transcriptDurationSec, upsertPackagingPlacement]);
+  }, [args.setTranscriptTimingHint, args.transcriptDurationSec, args.workspaceId, args.workpieceId, upsertPackagingPlacement]);
 
   const buildWorkspaceDefaultIntroOutroDestPath = useCallback((kind: "intro" | "outro", sourcePath: string): string => {
     const normalized = normalizeWorkpieceRelativePath(args.workpieceId, sourcePath);
@@ -900,12 +939,12 @@ export function useHammerWorkspaceShellVisualEditing(
     if (syncPlan.removeIntro) {
       removePackagingPlacement(PACKAGING_INTRO_ENTRY_ID, "Remove packaging intro");
     } else if (syncPlan.applyIntro) {
-      upsertResolvedIntroPlacement(syncPlan.applyIntro.assetId, syncPlan.applyIntro.path, syncArgs.introSource, candidateItemsById.get(syncPlan.applyIntro.assetId)?.durationMs);
+      void upsertResolvedIntroPlacement(syncPlan.applyIntro.assetId, syncPlan.applyIntro.path, syncArgs.introSource, candidateItemsById.get(syncPlan.applyIntro.assetId)?.durationMs);
     }
     if (syncPlan.removeOutro) {
       removePackagingPlacement(PACKAGING_OUTRO_ENTRY_ID, "Remove packaging outro");
     } else if (syncPlan.applyOutro) {
-      upsertResolvedOutroPlacement(syncPlan.applyOutro.assetId, syncPlan.applyOutro.path, syncArgs.outroSource, candidateItemsById.get(syncPlan.applyOutro.assetId)?.durationMs);
+      void upsertResolvedOutroPlacement(syncPlan.applyOutro.assetId, syncPlan.applyOutro.path, syncArgs.outroSource, candidateItemsById.get(syncPlan.applyOutro.assetId)?.durationMs);
     }
   }, [packagingIntroPlacement?.asset_path, packagingOutroPlacement?.asset_path, removePackagingPlacement, upsertResolvedIntroPlacement, upsertResolvedOutroPlacement]);
 
@@ -964,7 +1003,7 @@ export function useHammerWorkspaceShellVisualEditing(
       args.setTranscriptTimingHint("Intro asset is unavailable. Re-upload or re-select it in Intro/Outro Source Desk.");
       return;
     }
-    upsertResolvedIntroPlacement(assetId, resolved.path, source, resolved.durationMs);
+    void upsertResolvedIntroPlacement(assetId, resolved.path, source, resolved.durationMs);
   }, [args.setTranscriptTimingHint, upsertResolvedIntroPlacement]);
 
   const applyOutroToTimeline = useCallback((assetId: string, source: "profile" | "episode" | "manual"): void => {
@@ -973,7 +1012,7 @@ export function useHammerWorkspaceShellVisualEditing(
       args.setTranscriptTimingHint("Outro asset is unavailable. Re-upload or re-select it in Intro/Outro Source Desk.");
       return;
     }
-    upsertResolvedOutroPlacement(assetId, resolved.path, source, resolved.durationMs);
+    void upsertResolvedOutroPlacement(assetId, resolved.path, source, resolved.durationMs);
   }, [args.setTranscriptTimingHint, upsertResolvedOutroPlacement]);
 
   const applyIntroPlacement = useCallback((): void => {
@@ -1000,13 +1039,13 @@ export function useHammerWorkspaceShellVisualEditing(
     if (packaging.intro_asset_id && !packagingIntroPlacement) {
       const asset = introOutroCandidateItemsById.get(packaging.intro_asset_id);
       if (asset?.path && asset.durationMs && asset.durationMs > 0) {
-        upsertResolvedIntroPlacement(packaging.intro_asset_id, asset.path, packaging.intro_source === "profile" ? "profile" : packaging.intro_source === "manual" ? "manual" : "episode", asset.durationMs);
+        void upsertResolvedIntroPlacement(packaging.intro_asset_id, asset.path, packaging.intro_source === "profile" ? "profile" : packaging.intro_source === "manual" ? "manual" : "episode", asset.durationMs);
       }
     }
     if (packaging.outro_asset_id && !packagingOutroPlacement) {
       const asset = introOutroCandidateItemsById.get(packaging.outro_asset_id);
       if (asset?.path && asset.durationMs && asset.durationMs > 0) {
-        upsertResolvedOutroPlacement(packaging.outro_asset_id, asset.path, packaging.outro_source === "profile" ? "profile" : packaging.outro_source === "manual" ? "manual" : "episode", asset.durationMs);
+        void upsertResolvedOutroPlacement(packaging.outro_asset_id, asset.path, packaging.outro_source === "profile" ? "profile" : packaging.outro_source === "manual" ? "manual" : "episode", asset.durationMs);
       }
     }
   }, [
@@ -1027,16 +1066,7 @@ export function useHammerWorkspaceShellVisualEditing(
       args.setTranscriptTimingHint("Select a logo asset before enabling overlay.");
       return;
     }
-    upsertPackagingPlacement({
-      entryId: PACKAGING_LOGO_ENTRY_ID,
-      assetPath: packagingLogoAssetPath,
-      label: `Logo Overlay (${packagingLogoPosition.replace("_", " ")}, ${packagingLogoSize})`,
-      startSec: 0,
-      endSec: args.transcriptDurationSec,
-      visualMode: "overlay_graphic",
-      overlayGeometry: positionFromLogoOption(packagingLogoPosition, packagingLogoSize),
-      uncertaintyFlags: ["packaging:logo", `logo_position:${packagingLogoPosition}`, `logo_size:${packagingLogoSize}`],
-    });
+    args.setTranscriptTimingHint("This logo selection has only path metadata. Choose a canonically registered Tongs asset before enabling it.");
   }, [args.setTranscriptTimingHint, args.transcriptDurationSec, packagingLogoAssetPath, packagingLogoPlacement, packagingLogoPosition, packagingLogoSize, removePackagingPlacement, upsertPackagingPlacement]);
 
   const applyLogoOverlayStyle = useCallback((next: {
@@ -1048,6 +1078,12 @@ export function useHammerWorkspaceShellVisualEditing(
     if (next.size) setPackagingLogoSize(next.size);
     if (typeof next.assetPath !== "undefined") setPackagingLogoAssetPath(next.assetPath);
     if (!packagingLogoPlacement) return;
+    const canonicalLogoAssetId = packagingLogoPlacement.canonical_asset_state === "canonical_proven"
+      ? packagingLogoPlacement.canonical_asset_id ?? null : null;
+    if (!canonicalLogoAssetId) {
+      args.setTranscriptTimingHint("The current logo placement has no validated canonical asset identity.");
+      return;
+    }
     const position = next.position ?? packagingLogoPosition;
     const size = next.size ?? packagingLogoSize;
     const assetPath = next.assetPath ?? packagingLogoAssetPath ?? packagingLogoPlacement.asset_path ?? "";
@@ -1055,6 +1091,7 @@ export function useHammerWorkspaceShellVisualEditing(
     upsertPackagingPlacement({
       entryId: PACKAGING_LOGO_ENTRY_ID,
       assetPath,
+      assetId: canonicalLogoAssetId,
       label: `Logo Overlay (${position.replace("_", " ")}, ${size})`,
       startSec: 0,
       endSec: args.transcriptDurationSec,

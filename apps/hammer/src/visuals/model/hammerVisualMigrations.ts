@@ -21,7 +21,7 @@ import type {
   HammerPersistedVisualPlacements,
   HammerVisualPlacementRecord,
 } from "../../persistence/hammerPersistenceContract";
-import { deriveStableHammerAssetIdFromPath, normalizeHammerAssetIdentitySource } from "../../lib/hammerAssetIdentity";
+import { classifyLegacyHammerVisualReference } from "../../lib/hammerCanonicalAssetAuthority";
 
 function inferMimeType(path: string | null): string | null {
   const normalized = path?.toLowerCase() ?? "";
@@ -46,14 +46,6 @@ function normalizeAnchorOrigin(value: unknown): "hearth" | "hammer_transcript" |
     : "legacy";
 }
 
-function resolveLegacyAssetIdentitySource(record: HammerVisualPlacementRecord): string {
-  return normalizeHammerAssetIdentitySource(record.asset_path)
-    ?? normalizeHammerAssetIdentitySource(record.storage_key)
-    ?? readTrimmedString(record.asset_id)
-    ?? normalizeHammerAssetIdentitySource(record.asset_ref)
-    ?? `placement:${record.placement_id}`;
-}
-
 function resolveLegacySourceMode(record: HammerVisualPlacementRecord): HammerVisualSourceMode {
   const entryId = (record.entry_id ?? "").toLowerCase();
   const visualMode = (record.visual_mode ?? "").toLowerCase();
@@ -75,8 +67,9 @@ function resolveLegacyAssetKind(record: HammerVisualPlacementRecord): HammerVisu
 }
 
 export function deriveStableHammerVisualAssetId(record: HammerVisualPlacementRecord): string {
-  // Stable id contract: derived from a normalized identity source (primarily path-like fields).
-  return deriveStableHammerAssetIdFromPath(resolveLegacyAssetIdentitySource(record));
+  // Compatibility-local key only. It is explicitly not canonical media identity.
+  const legacyId = readTrimmedString(record.asset_id);
+  return legacyId ?? `legacy_unresolved:${readTrimmedString(record.placement_id) ?? "missing-placement"}`;
 }
 
 export function migrateLegacyPlacementRecordToClip(args: {
@@ -106,6 +99,8 @@ export function migrateLegacyPlacementRecordToClip(args: {
   return {
     clip_id: readTrimmedString(args.record.placement_id) ?? `clip_${args.asset_id}`,
     asset_id: args.asset_id,
+    canonical_asset_id: readTrimmedString(args.record.canonical_asset_id),
+    canonical_asset_state: args.record.canonical_asset_state ?? "legacy_unresolved",
     lane_id: args.lane_id ?? "lane:primary",
     entry_id: readTrimmedString(args.record.entry_id),
     label: readTrimmedString(args.record.label) ?? readTrimmedString(args.record.entry_id),
@@ -196,8 +191,23 @@ export function migrateLegacyPlacementRecordToAsset(args: {
   const updatedAt = args.updated_at ?? HAMMER_VISUAL_DEFAULT_UPDATED_AT;
   const path = readTrimmedString(args.record.asset_path);
   const storageKey = readTrimmedString(args.record.storage_key);
+  const classification = classifyLegacyHammerVisualReference({
+    canonicalAssetId: args.record.canonical_asset_id,
+    assetId: args.record.asset_id,
+    assetRef: args.record.asset_ref,
+    path,
+    storageKey,
+    placementId: args.record.placement_id,
+  });
   return {
     asset_id: args.asset_id,
+    canonical_asset_id: classification.state === "legacy_unresolved" ? null : classification.canonicalAssetId,
+    authority_state: args.record.canonical_asset_state === "canonical_proven"
+      ? "canonical_proven"
+      : classification.state === "conflicting_evidence" ? "conflicting_evidence" : "legacy_unresolved",
+    authority_workspace_id: readTrimmedString(args.record.canonical_asset_workspace_id),
+    authority_workpiece_id: readTrimmedString(args.record.canonical_asset_workpiece_id),
+    authority_content_hash: readTrimmedString(args.record.canonical_asset_content_hash),
     asset_ref: readTrimmedString(args.record.asset_ref) ?? path ?? storageKey ?? args.asset_id,
     kind: resolveLegacyAssetKind(args.record),
     label: readTrimmedString(args.record.label) ?? readTrimmedString(args.record.entry_id),
@@ -212,16 +222,15 @@ export function migrateLegacyPlacementRecordToAsset(args: {
 
 function buildMigrationHash(records: HammerVisualPlacementRecord[]): string {
   const seed = records.map((record) => {
-    const pathIdentity = resolveLegacyAssetIdentitySource(record);
     return [
       record.placement_id,
-      pathIdentity,
+      record.canonical_asset_id ?? "unresolved",
       record.start_sec,
       record.end_sec,
       record.overlay_z_index ?? "",
     ].join("|");
   }).join("::");
-  return records.length > 0 ? deriveStableHammerAssetIdFromPath(seed) : "empty";
+  return records.length > 0 ? `legacy-migration:${seed.length}:${records.length}` : "empty";
 }
 
 export function migrateLegacyPlacementRecordsToTimelineState(args: {

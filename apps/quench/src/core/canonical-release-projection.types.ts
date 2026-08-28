@@ -1,6 +1,7 @@
 import type { HammerQuenchReleasePacketManifest } from "./hammer-release-packet.types";
 
 export const QUENCH_CANONICAL_RELEASE_PROJECTION_VERSION = "forge.quench-release-projection.v2" as const;
+export const QUENCH_OPEN_AUTHORITY_VERSION = "forge.quench-open-authority.v1" as const;
 
 export type QuenchCanonicalCandidate = {
   id: string; candidate_ordinal: number; recipe_id: string; recipe_revision: number; recipe_hash: string;
@@ -21,10 +22,21 @@ export type QuenchCanonicalReleaseProjection = {
   destination_capabilities:QuenchDestinationCapability[]; current_decisions:QuenchReleaseDecisionProjection[]; projected_at:string;
 };
 
+export type QuenchOpenAuthority = {
+  contract_version: typeof QUENCH_OPEN_AUTHORITY_VERSION;
+  open_authority_id:string;open_operation_id:string;workspace_id:string;workpiece_id:string;
+  manifest_snapshot_id:string;manifest_content_hash:string;state_version:number;opened_at:string;
+  newer_manifest_available:boolean;review_projection:QuenchCanonicalReleaseProjection;
+};
+
 export function getQuenchExperimentCapability(scope:QuenchDestinationCapability|null|undefined){const flags=scope?.current_capability?.capabilities_json;const planning=flags?.supports_experiment_intent===true&&flags?.supports_thumbnail_selection===true;return{planning_supported:planning,rotation_supported:planning&&flags?.supports_thumbnail_rotation===true,reason:flags?.supports_experiment_intent!==true?"experiment_intent_unsupported":flags?.supports_thumbnail_selection!==true?"thumbnail_selection_unsupported":null};}
 
 export function isQuenchCanonicalReleaseProjection(value:unknown):value is QuenchCanonicalReleaseProjection{
   if(!value||typeof value!=="object"||Array.isArray(value))return false;const row=value as Record<string,unknown>;
   return row.contract_version===QUENCH_CANONICAL_RELEASE_PROJECTION_VERSION&&typeof row.workspace_id==="string"&&typeof row.workpiece_id==="string"&&!!row.hammer&&typeof row.hammer==="object"&&!!row.metadata&&typeof row.metadata==="object"&&!!row.thumbnails&&typeof row.thumbnails==="object";
+}
+export function isQuenchOpenAuthority(value:unknown):value is QuenchOpenAuthority{
+  if(!value||typeof value!=="object"||Array.isArray(value))return false;const row=value as Record<string,unknown>;
+  return row.contract_version===QUENCH_OPEN_AUTHORITY_VERSION&&typeof row.open_authority_id==="string"&&typeof row.open_operation_id==="string"&&typeof row.workspace_id==="string"&&typeof row.workpiece_id==="string"&&typeof row.manifest_snapshot_id==="string"&&typeof row.manifest_content_hash==="string"&&typeof row.state_version==="number"&&typeof row.newer_manifest_available==="boolean"&&isQuenchCanonicalReleaseProjection(row.review_projection);
 }
 export function isQuenchCandidateSelectable(candidate:QuenchCanonicalCandidate):boolean{return candidate.authority_verified===true&&(candidate.eligibility_state==="current"||candidate.eligibility_state==="approved_historical_brand");}

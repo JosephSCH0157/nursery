@@ -7,7 +7,6 @@ import {
   createHammerSessionRetryTransition,
   isActiveHammerTranscriptPrepJob,
   shouldPollHammerTranscriptPrepJob,
-  shouldTerminateIdleHammerLoadingContext,
 } from "../src/editor/hammerSessionStabilization";
 
 test("every canonical session conflict remains a coded terminal session failure", () => {
@@ -50,21 +49,6 @@ test("session retry advances canonical hydration reload and resets discovery to 
     reloadNonce: 8,
     transcriptDiscoveryStatus: "pending",
   });
-});
-
-test("idle loading-context preparation terminates only when no tracked work remains", () => {
-  const idle = {
-    prepStatus: "preparing",
-    prepStep: "loading_context",
-    hydrationInFlight: false,
-    prepExecutionInFlight: false,
-    transcriptJobId: null,
-    readyTransitionPending: false,
-  };
-  assert.equal(shouldTerminateIdleHammerLoadingContext(idle), true);
-  assert.equal(shouldTerminateIdleHammerLoadingContext({ ...idle, hydrationInFlight: true }), false);
-  assert.equal(shouldTerminateIdleHammerLoadingContext({ ...idle, prepExecutionInFlight: true }), false);
-  assert.equal(shouldTerminateIdleHammerLoadingContext({ ...idle, transcriptJobId: "job_fixture" }), false);
 });
 
 test("polling starts only after job-ID installation", () => {

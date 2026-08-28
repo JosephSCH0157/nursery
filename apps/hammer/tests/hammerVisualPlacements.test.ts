@@ -289,6 +289,30 @@ function testReportsNoSelectedVisualsWhenNoCandidateAssetExists() {
   assert.equal(placements.uncertainty_flags.includes("no_selected_visuals"), true);
 }
 
+function testCandidatePresenceNeverCreatesSelectionAuthority() {
+  for (const candidateCount of [1, 10]) {
+    const visualPackage = buildVisualPackage();
+    const selected = visualPackage.visuals[0]!.selected_asset!;
+    visualPackage.visuals[0] = {
+      ...visualPackage.visuals[0]!,
+      status: "mapped",
+      selected_asset_id: null,
+      selected_asset: null,
+      candidate_assets: Array.from({ length: candidateCount }, (_, index) => ({
+        ...selected,
+        asset_id: `candidate_${index + 1}`,
+      })),
+    } as unknown as typeof visualPackage.visuals[0];
+    const placements = deriveHammerVisualPlacements({
+      transcriptSourceId,
+      transcriptSegments: buildTranscriptSegments(),
+      visualPackage,
+    });
+    assert.equal(placements.status, "not_started");
+    assert.equal(placements.placements.length, 0);
+  }
+}
+
 function testReusesPlacementArtifactWhenVisualSourcesHaveNotChanged() {
   const visualPackage = buildVisualPackage();
   const placements = deriveHammerVisualPlacements({
@@ -319,6 +343,7 @@ try {
   testReportsNoSelectedVisualsWithoutFakePlacements();
   testResolvesAnchorAcrossLongTranscriptWindow();
   testReportsNoSelectedVisualsWhenNoCandidateAssetExists();
+  testCandidatePresenceNeverCreatesSelectionAuthority();
   testReusesPlacementArtifactWhenVisualSourcesHaveNotChanged();
   testPreservesReferenceClipClassWithoutInference();
   testPreservesReferenceVisualClassAndTreatment();

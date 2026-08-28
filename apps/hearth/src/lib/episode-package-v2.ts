@@ -12,6 +12,8 @@ import {
   deriveHearthThumbnailOverlayText,
   resolveHearthThumbnailOverlayText,
 } from "./hearth-thumbnail-title-contract";
+import type { ScriptDerivativeBasis } from "@forge/tongs/canonical-asset-authority";
+import type { MediaContentHash } from "@forge/tongs/canonical-asset-authority";
 import {
   deriveBrollPurpose,
   deriveImageMapPurpose,
@@ -329,6 +331,7 @@ export const EPISODE_EXTERNAL_REQUEST_STATE_VALUES = [
   "brief_exported",
   "sent_external",
   "awaiting_result",
+  "result_unregistered",
   "asset_attached",
   "resolved",
 ] as const;
@@ -427,6 +430,7 @@ export type EpisodeBrollPlan = {
   beats: EpisodeBrollPlanBeat[];
   coverage_strength?: EpisodeBrollCoverageStrength;
   generated_at: string;
+  script_derivative_basis?: ScriptDerivativeBasis | null;
 };
 
 export const EPISODE_CDC_FORMAT_VALUES = ["still", "animated", "hybrid"] as const;
@@ -498,6 +502,7 @@ export type EpisodeCdcPlan = {
   version: number;
   entries: EpisodeContextualDataCompositePlan[];
   generated_at: string;
+  script_derivative_basis?: ScriptDerivativeBasis | null;
 };
 export type EpisodeReferenceClipPlan = EpisodeCdcPlan;
 
@@ -2056,7 +2061,20 @@ function normalizeBrollPlan(value: unknown): EpisodeBrollPlan {
     beats,
     coverage_strength: normalizeBrollCoverageStrength(root?.coverage_strength),
     generated_at: normalizeIso(root?.generated_at, nowIso),
+    script_derivative_basis: normalizeScriptDerivativeBasis(root?.script_derivative_basis),
   };
+}
+
+function normalizeScriptDerivativeBasis(value: unknown): ScriptDerivativeBasis | null {
+  if (!isRecord(value)) return null;
+  const workspaceId = readString(value.workspaceId);
+  const workpieceId = readString(value.workpieceId);
+  const scriptApprovalId = readString(value.scriptApprovalId);
+  const scriptApprovalRevision = readInteger(value.scriptApprovalRevision);
+  const scriptContentHash = readString(value.scriptContentHash)?.toLowerCase() ?? null;
+  if (!workspaceId || !workpieceId || !scriptApprovalId || !scriptApprovalRevision
+    || !scriptContentHash || !/^[a-f0-9]{64}$/.test(scriptContentHash)) return null;
+  return { workspaceId, workpieceId, scriptApprovalId, scriptApprovalRevision, scriptContentHash: scriptContentHash as MediaContentHash };
 }
 
 function normalizeCdcFormat(value: unknown): EpisodeCdcFormat {
@@ -2191,6 +2209,7 @@ function normalizeCdcPlan(value: unknown): EpisodeCdcPlan {
     version: Math.max(1, readInteger(root?.version) ?? 1),
     entries,
     generated_at: normalizeIso(root?.generated_at, nowIso),
+    script_derivative_basis: normalizeScriptDerivativeBasis(root?.script_derivative_basis),
   };
 }
 

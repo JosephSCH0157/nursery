@@ -691,8 +691,7 @@ function mergeVisualPackageWithImageMap(
     const preferredCandidate = entry.selected_asset_id
       ? (entry.candidate_assets.find((asset) => asset.asset_id === entry.selected_asset_id) ?? null)
       : null;
-    const fallbackCandidate = preferredCandidate ?? entry.candidate_assets[0] ?? null;
-    const fallbackSelectedAsset = fallbackCandidate ? buildFallbackSelectedAsset(fallbackCandidate) : null;
+    const fallbackSelectedAsset = preferredCandidate ? buildFallbackSelectedAsset(preferredCandidate) : null;
     if (!fallbackSelectedAsset) {
       return enriched;
     }
@@ -711,8 +710,7 @@ function mergeVisualPackageWithImageMap(
     const preferredCandidate = entry.selected_asset_id
       ? (entry.candidate_assets.find((asset) => asset.asset_id === entry.selected_asset_id) ?? null)
       : null;
-    const fallbackCandidate = preferredCandidate ?? entry.candidate_assets[0] ?? null;
-    const fallbackSelectedAsset = fallbackCandidate ? buildFallbackSelectedAsset(fallbackCandidate) : null;
+    const fallbackSelectedAsset = preferredCandidate ? buildFallbackSelectedAsset(preferredCandidate) : null;
     if (!fallbackSelectedAsset) continue;
     mergedVisuals.push({
       asset_class: resolveFinalMediaKind({
@@ -736,7 +734,7 @@ function mergeVisualPackageWithImageMap(
       placement_intent: entry.placement_hint ?? entry.visual_intent ?? null,
       canonical_anchor_assessment: entry.canonical_anchor_assessment ?? null,
       visual_mode: fallbackSelectedAsset.visual_mode ?? null,
-      selected_asset_id: entry.selected_asset_id ?? fallbackSelectedAsset.asset_id,
+      selected_asset_id: entry.selected_asset_id,
       selected_asset: fallbackSelectedAsset,
     });
   }

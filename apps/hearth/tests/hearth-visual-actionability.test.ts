@@ -3,7 +3,6 @@ import test from "node:test";
 import {
   buildBrollBeatBrief,
   buildReferenceClipBrief,
-  createManualResultCandidate,
   formatVisualBriefAsText,
   listExternalGenerationProviders,
 } from "../src/lib/hearth-visual-actionability";
@@ -106,21 +105,6 @@ test("openart is excluded from stock-source-only broll provider filtering", () =
   assert.ok(stockSourceProviders.some((provider) => provider.id === "pexels-stock"));
   assert.ok(stockSourceProviders.some((provider) => provider.id === "pixabay-stock"));
   assert.equal(stockSourceProviders.some((provider) => provider.id === "openart"), false);
-});
-
-test("manual returned asset candidate preserves beat linkage and class identity", () => {
-  const candidate = createManualResultCandidate({
-    assetClass: "reference_clip",
-    beatId: "ref-1",
-    sourceLabel: "Archive desk",
-    sourceUrl: "https://example.com/archive/clip-1",
-    providerNote: "Sourced from newsroom archive",
-    usageNote: "Editorial use cleared",
-  });
-  assert.equal(candidate.asset_class, "reference_clip");
-  assert.equal(candidate.source_beat_id, "ref-1");
-  assert.equal(candidate.source, "external");
-  assert.equal(candidate.source_url, "https://example.com/archive/clip-1");
 });
 
 test("ensure plan normalizers keep class explicit for downstream consumers", () => {

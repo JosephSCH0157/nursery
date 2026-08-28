@@ -274,6 +274,53 @@ for (const path of productionAndTests.filter((candidate) => candidate.includes(`
 }
 if (directVisualRoutingPredicates > baseline.toolBay.maxDirectVisualRoutingPredicatesOutsideResolver) failures.push(`Direct image-versus-B-roll routing predicates grew to ${directVisualRoutingPredicates} (cap ${baseline.toolBay.maxDirectVisualRoutingPredicatesOutsideResolver}). Route through resolveHammerToolBayRoute.`);
 
+// S4-3: Hammer consumes canonical visual identity; locators and candidate order never create it.
+const legacyIdentityAllowlist = new Set([
+  "src/lib/hammerAssetIdentity.ts",
+  "src/visuals/model/hammerVisualMigrations.ts",
+]);
+for (const path of productionAndTests.filter((candidate) => candidate.includes(`${join("src")}`))) {
+  const relativePath = relative(root, path).replaceAll("\\", "/");
+  const source = readFileSync(path, "utf8");
+  if (/candidate_assets\s*\[\s*0\s*\]/.test(source)) failures.push(`${relativePath}: positional candidate promotion is prohibited; absence of selection must remain absence of selection.`);
+  if (!legacyIdentityAllowlist.has(relativePath) && /\b(?:deriveStableHammerAssetIdFromPath|deriveStableHammerVisualAssetId)\b/.test(source)) {
+    failures.push(`${relativePath}: production Hammer code may not derive asset identity from path or legacy placement evidence.`);
+  }
+}
+const hammerPlacementWriter = inspect("src/editor/useHammerWorkspaceShellVisualEditing.ts").text;
+if (!/requireReadyHammerCanonicalAssetAuthority\s*\(/.test(hammerPlacementWriter) || !/canonical_asset_state:\s*["']canonical_proven["']/.test(hammerPlacementWriter)) {
+  failures.push("Hammer visual placement writers must resolve ready Tongs authority and persist canonical proof.");
+}
+const canonicalHydration = inspect("src/editor/hammerCanonicalVisualHydration.ts").text;
+if (!/resolveAuthority\s*\(\s*\{[\s\S]*?canonicalAssetId:/.test(canonicalHydration) || /find\s*\([^)]*(?:path|storage_key|storageKey)/.test(canonicalHydration)) {
+  failures.push("Hammer visual hydration must resolve canonicalAssetId through Tongs and may not rediscover identity from path or storage metadata.");
+}
+// S4-4: package projection retains canonical source identity and blocks unresolved media.
+const packageMediaAuthority = inspect("src/lib/hammerPackageMediaAuthority.ts").text;
+const quenchPacketProjection = inspect("src/lib/hammerQuenchReleasePacket.ts").text;
+const preparedPackagePersistence = inspect("src/lib/hammerPreparedReleasePackageApi.ts").text;
+const packetPersistence = inspect("src/lib/hammerQuenchReleasePacketApi.ts").text;
+if (!/canonicalAssetId:\s*CanonicalAssetId/.test(packageMediaAuthority) || !/canonicalContentHash:\s*MediaContentHash/.test(packageMediaAuthority)) {
+  failures.push("Hammer package asset references must carry canonical asset identity and content evidence.");
+}
+if (!/validateHammerPackagingIntent/.test(packageMediaAuthority) || !/resolveAuthority\s*\(\s*\{[\s\S]*?canonicalAssetId:/.test(packageMediaAuthority)) {
+  failures.push("Hammer package emission must defensively revalidate the same canonical identity through Tongs.");
+}
+if (!/media_reference:\s*pkg\.packaging_media\.media\.find/.test(quenchPacketProjection)) {
+  failures.push("Hammer release packet visuals may not downgrade production media to asset_path-only references.");
+}
+if (!/packagingMedia\.readiness\.state\s*!==\s*["']ready["']/.test(preparedPackagePersistence)
+  || !/media_reference\.state\s*!==\s*["']validated["']/.test(packetPersistence)) {
+  failures.push("Hammer package persistence must reject unresolved or unvalidated production media before writing artifacts.");
+}
+for (const path of productionAndTests.filter((candidate) => candidate.includes(`${join("src", "lib")}`) || candidate.includes(`${join("src", "editor")}`))) {
+  const relativePath = relative(root, path).replaceAll("\\", "/");
+  const source = readFileSync(path, "utf8");
+  if (/buildHammer(?:QuenchReleasePacket|PreparedReleasePackage|ReleasePrepPackage)[\s\S]{0,1200}(?:deriveStableHammerAssetIdFromPath|deriveStableHammerVisualAssetId)/.test(source)) {
+    failures.push(`${relativePath}: packaging code may not derive canonical media identity from path or legacy placement evidence.`);
+  }
+}
+
 // Representative self-proof: the presentation ownership detector must catch a forbidden cache owner.
 if (!/\b(?:localStorage|sessionStorage)\b/.test("function BadToolBay(){ return localStorage.getItem('truth') }")) {
   failures.push("Architecture ratchet self-test failed to detect representative browser-storage regression.");

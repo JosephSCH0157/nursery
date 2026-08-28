@@ -81,6 +81,10 @@ export async function saveHammerPreparedReleasePackage(args: {
     vtt?: string | null;
   };
 }): Promise<PreparedReleasePackageResult<HammerPreparedReleasePackage>> {
+  if (!args.pkg.packagingMedia || args.pkg.packagingMedia.readiness.state !== "ready"
+    || args.pkg.packagingMedia.media.some((reference) => reference.state !== "validated")) {
+    return { ok: false, status: 422, error: "Prepared release media is unresolved or has not passed canonical Tongs validation." };
+  }
   const commitSubtitle = async (
     path: string | null,
     content: string | null | undefined,

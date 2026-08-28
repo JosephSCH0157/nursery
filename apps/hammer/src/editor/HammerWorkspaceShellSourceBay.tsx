@@ -94,7 +94,7 @@ export type HammerWorkspaceShellSourceBayVM = {
 
 export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspaceShellSourceBayVM }): JSX.Element {
   const vm = props.vm;
-  const [pendingTranscriptPlacement, setPendingTranscriptPlacement] = useState<{ assetPath: string; label: string } | null>(null);
+  const [pendingTranscriptPlacement, setPendingTranscriptPlacement] = useState<{ canonicalAssetId: string | null; assetPath: string; label: string } | null>(null);
 
   const ctx = vm as any;
   const selectedSourceTab = ctx.selectedSourceTab as string;
@@ -1351,7 +1351,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                               if (!sourceDeskPreviewUrls[file.path] && !sourceDeskPreviewFailures[file.path]) {
                                 requestSourceDeskPreviews([file.path]);
                               }
-                              setPendingTranscriptPlacement({ assetPath: file.path, label: file.name });
+                              setPendingTranscriptPlacement({ canonicalAssetId: file.assetId, assetPath: file.path, label: file.name });
                               setFocusOverride("source-focus");
                               vm.tabs.find((tab) => tab.id === "transcript")?.onSelect();
                             }}
@@ -1362,7 +1362,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                             type="button"
                             onClick={() => {
                               setFocusOverride("time-focus");
-                              addImagePlacementFromLibrary({ assetPath: file.path, label: file.name, mode: "timeline" });
+                              void addImagePlacementFromLibrary({ canonicalAssetId: file.assetId, assetPath: file.path, label: file.name, mode: "timeline" });
                             }}
                           >
                             Send to Timeline
@@ -1583,10 +1583,11 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                               type="button"
                               onClick={() => addVisualAssetPlacementFromLibrary({
                                 assetPath: item.assetPath,
+                                canonicalAssetId: item.canonicalAssetId,
                                 label: item.label,
                                 kind: "broll",
                               })}
-                              disabled={!item.assetPath}
+                              disabled={!item.assetPath || !item.canonicalAssetId}
                             >
                               {item.usageCount > 0 ? "Place another instance" : "Place in timeline"}
                             </button>
@@ -1629,10 +1630,11 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                               type="button"
                               onClick={() => addVisualAssetPlacementFromLibrary({
                                 assetPath: item.assetPath,
+                                canonicalAssetId: item.canonicalAssetId,
                                 label: item.label,
                                 kind: "reference_clip",
                               })}
-                              disabled={!item.assetPath}
+                              disabled={!item.assetPath || !item.canonicalAssetId}
                             >
                               {item.usageCount > 0 ? "Place another instance" : "Place in timeline"}
                             </button>

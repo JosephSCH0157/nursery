@@ -367,34 +367,9 @@ export async function uploadBrollBeatAsset(args: {
     };
   }
 
-  const baseCandidate: EpisodeBrollAssetCandidate = {
-    asset_id: candidateId,
-    source: args.source,
-    asset_class: args.assetClass ?? "broll",
-    source_beat_id: args.beatId,
-    source_label: readString(args.sourceLabel),
-    source_url: readString(args.sourceUrl),
-    provider_note: readString(args.providerNote),
-    usage_note: readString(args.usageNote),
-    ingest_status: mimeType.startsWith("video/") ? "processing" : "ready",
-    ingest_error: null,
-    asset_category: mimeType.startsWith("video/") ? "uploaded_video" : "animated_graphic",
-    label: args.file.name,
-    path: uploadPath,
-    mime_type: mimeType,
-    attached_at: new Date().toISOString(),
-    created_at: new Date().toISOString(),
-  };
-
-  const ingestedCandidate = await ingestBrollBeatAssetCandidate({
-    workpieceId: args.workpieceId,
-    beatId: args.beatId,
-    candidateAsset: baseCandidate,
-    file: args.file,
-  });
-
   return {
-    ok: true,
-    candidateAsset: ingestedCandidate,
+    ok: false,
+    status: 409,
+    error: "The media bytes were staged, but Tongs did not issue canonical asset authority. Nothing was attached to production.",
   };
 }

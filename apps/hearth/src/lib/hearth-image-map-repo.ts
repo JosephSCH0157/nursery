@@ -726,6 +726,28 @@ export async function selectWorkpieceImageMapCandidate(args: {
       error: "Selected image is no longer attached to this visual beat.",
     };
   }
+  const authorityResponse = await tongsFetch(
+    `/tongs/workspaces/${encodeURIComponent(args.workspaceId)}/assets/${encodeURIComponent(args.candidateAssetId)}/resolve-authority`,
+    {
+      method: "POST",
+      json: {
+        expected_workpiece_id: args.workpieceId,
+        required_asset_kind: "image_map_candidate_image",
+      },
+    },
+  );
+  const authorityBody = await readBodyAsJson(authorityResponse);
+  const authority = isRecord(authorityBody) && isRecord(authorityBody.data) && isRecord(authorityBody.data.authority)
+    ? authorityBody.data.authority
+    : null;
+  if (!authorityResponse.ok || authority?.state !== "ready") {
+    return {
+      ok: false,
+      status: authorityResponse.ok ? 409 : authorityResponse.status,
+      reason: "request_failed",
+      error: readApiErrorMessage(authorityBody) ?? "Tongs has not validated this media as a ready canonical asset for this episode.",
+    };
+  }
   if (entry.selected_asset_id === args.candidateAssetId) {
     return {
       ok: true,

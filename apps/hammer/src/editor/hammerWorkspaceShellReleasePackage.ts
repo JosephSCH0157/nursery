@@ -35,7 +35,7 @@ import type {
   HammerCaptionFormattingState,
 } from "./hammerWorkspaceShellCaptionUtils";
 import { createFallbackEditPlan } from "./hammerWorkspaceShellMediaUtils";
-
+import { projectHammerPackagingIntent } from "../lib/hammerPackageMediaAuthority";
 export const HAMMER_RELEASE_RENDER_RUNTIME_CAPABILITIES: HammerRenderRuntimeCapabilities = {
   preview_supported_operation_types: ["delete", "mute", "trim", "split", "merge", "hard_cut", "apply_look", "apply_exposure", "apply_background_effect"],
   export_supported_operation_types: [
@@ -89,7 +89,6 @@ export interface HammerWorkspaceShellReleasePackageProjection {
   renderAssembly: HammerRenderAssemblyResult;
   subtitles: { srt: string | null; vtt: string | null };
 }
-
 export interface HammerWorkspaceShellReleaseBasisInput {
   launchContext: HammerLaunchContext;
   previewMode: HammerPreviewMode;
@@ -311,6 +310,7 @@ export function buildHammerWorkspaceShellReleasePackage(
     alignmentStatus: transcriptForRelease.segments.length > 0 ? "aligned" : "not_started",
     structuredTranscript: transcriptForRelease,
     visualPlacements,
+    packagingMedia: projectHammerPackagingIntent({ workspaceId: input.workspaceId, workpieceId: input.workpieceId, timeline: input.visualTimeline }),
     audioPolish: input.audioPolish,
     editorSession: {
       schema_version: 1,

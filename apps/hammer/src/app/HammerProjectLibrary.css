@@ -96,7 +96,7 @@
 }
 
 .hammer-project-library__button {
-  cursor: pointer;
+  cursor: default;
 }
 
 .hammer-project-library__button:disabled {
@@ -348,6 +348,7 @@
   align-items: center;
   justify-content: flex-start;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
 .hammer-project-library__intake-error {

@@ -1,4 +1,5 @@
 import type { HammerReleasePrepPackage } from "./hammerReleasePrepPackage";
+import type { HammerPackagingIntent } from "./hammerPackageMediaAuthority";
 
 export const HAMMER_PREPARED_RELEASE_PACKAGE_PATH = "hammer/release-prep/package.v1.json";
 export const HAMMER_PREPARED_RELEASE_SRT_PATH = "hammer/release-prep/subtitles/current.srt";
@@ -47,6 +48,7 @@ export interface HammerPreparedReleasePackage {
     timelineRevision: string | null;
     activeAudioFocus: string | null;
   };
+  packagingMedia?: HammerPackagingIntent;
   brandProvenance?: HammerBrandApplicationProvenance | null;
   overallStatus: HammerPreparedReleaseOverallStatus;
 }
@@ -217,6 +219,7 @@ export function buildHammerPreparedReleasePackage(args: {
       timelineRevision: args.timelineRevision ?? null,
       activeAudioFocus: args.current.media_prep_outputs.audio.preferred_playback.reason,
     },
+    packagingMedia: structuredClone(args.current.packaging_media),
     overallStatus: resolveOverallStatus({
       transcript: transcriptStatus,
       srt: srtStatus,

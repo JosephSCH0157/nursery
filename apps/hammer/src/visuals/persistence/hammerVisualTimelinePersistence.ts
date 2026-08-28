@@ -98,6 +98,12 @@ function normalizeCanonicalTimeline(value: unknown): HammerVisualTimelineState |
       if (!assetId || !assetRef) return null;
       return {
         asset_id: assetId,
+        canonical_asset_id: readString(asset.canonical_asset_id),
+        authority_state: asset.authority_state === "canonical_proven" || asset.authority_state === "legacy_resolved"
+          || asset.authority_state === "conflicting_evidence" ? asset.authority_state : "legacy_unresolved",
+        authority_workspace_id: readString(asset.authority_workspace_id),
+        authority_workpiece_id: readString(asset.authority_workpiece_id),
+        authority_content_hash: readString(asset.authority_content_hash),
         asset_ref: assetRef,
         kind: normalizeAssetKind(asset.kind),
         label: readString(asset.label),
@@ -141,6 +147,9 @@ function normalizeCanonicalTimeline(value: unknown): HammerVisualTimelineState |
       return {
         clip_id: clipId,
         asset_id: readString(clip.asset_id),
+        canonical_asset_id: readString(clip.canonical_asset_id),
+        canonical_asset_state: clip.canonical_asset_state === "canonical_proven" || clip.canonical_asset_state === "legacy_resolved"
+          || clip.canonical_asset_state === "conflicting_evidence" ? clip.canonical_asset_state : "legacy_unresolved",
         lane_id: laneId,
         entry_id: readString(clip.entry_id),
         ...(clip.system_managed === true ? { system_managed: true } : {}),

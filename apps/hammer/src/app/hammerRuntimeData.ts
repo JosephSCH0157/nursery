@@ -55,6 +55,7 @@ export type HammerRuntimeProjectCard = {
     hasRecording: boolean;
     hasCanonicalRecording: boolean;
     hasKeptTake: boolean;
+    hasNewerKeptTake: boolean;
     mediaPath: string | null;
     mediaKind: "recording_video" | "recording_audio" | "unknown";
     mediaDurationMs: number | null;
@@ -91,6 +92,7 @@ export type HammerWorkpieceRecordingTruth = {
   } | null;
   latestKeptTakePath: string | null;
   latestKeptTake: {
+    completionId: string | null;
     eventId: number | null;
     createdAt: string | null;
     filePath: string | null;
@@ -384,6 +386,7 @@ export function extractHammerWorkpieceRecordingTruth(
   const latestKeptTake = readJsonRecord(truth?.latest_kept_take);
   const keptTake = latestKeptTake
     ? {
+      completionId: readString(latestKeptTake.completion_id),
       eventId: readFiniteNumber(latestKeptTake.event_id),
       createdAt: readString(latestKeptTake.created_at),
       filePath: readString(latestKeptTake.file_path),
@@ -441,10 +444,16 @@ export function describeHammerRecordingDecisionStatus(status: HammerWorkspaceEpi
 export function projectHammerRecordingTruth(
   truth: HammerWorkpieceRecordingTruth,
 ): HammerRuntimeProjectCard["recording"] {
+  const latestAuthorityId = truth.latestKeptTake?.completionId;
+  const canonicalMatchesLatest = Boolean(truth.canonicalRecording && latestAuthorityId) && (
+    truth.canonicalRecording?.mediaId === `anvil-completion:${latestAuthorityId}`
+    || truth.canonicalRecording?.mediaId === `hammer-import:${latestAuthorityId}`
+  );
   return {
     hasRecording: truth.hasRecording,
     hasCanonicalRecording: truth.hasCanonicalRecording,
     hasKeptTake: truth.hasKeptTake,
+    hasNewerKeptTake: Boolean(truth.canonicalRecording && truth.latestKeptTake) && !canonicalMatchesLatest,
     mediaPath: truth.canonicalRecording?.mediaPath ?? truth.latestKeptTakePath,
     mediaKind: inferRecordingKindFromTruth(truth),
     mediaDurationMs: truth.canonicalRecording?.durationMs ?? truth.latestKeptTake?.durationMs ?? null,

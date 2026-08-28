@@ -1,7 +1,7 @@
 import { applyScript } from "../features/apply-script";
 import { appStore } from "../state/app-store";
 import { dispatchAuthenticatedWorkpieceScript } from "./workpiece-performance-entrypoint";
-import { readCanonicalScriptFile } from "./canonical-script-read";
+import { fetchAuthenticatedTongs, ForgeUserAuthorizationError } from "./tongs-user-auth";
 
 type ForgeWindow = Window & typeof globalThis & {
   __tpWorkpieceScriptBootLoaded?: boolean;
@@ -17,6 +17,9 @@ type CanonicalScriptIdentity = {
   scriptRevision: number;
   scriptHash: string;
   readyTransitionId?: string | null;
+  scriptApprovalId: string;
+  scriptApprovalRevision: number;
+  scriptApprovalHash: string;
 };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -40,7 +43,7 @@ type ScriptReadErrorReason =
   | "empty";
 
 type ScriptReadResult =
-  | { ok: true; text: string; revision: number; hash: string }
+  | { ok: true; text: string; revision: number; hash: string; readyTransitionId: string; scriptApprovalId: string; scriptApprovalRevision: number }
   | { ok: false; reason: ScriptReadErrorReason; status?: number };
 
 function readString(value: unknown): string | null {
@@ -230,7 +233,25 @@ async function readWorkpieceScript(workpieceId: string, path: string): Promise<S
     headers.set("authorization", `Bearer ${token}`);
   }
 
-  return readCanonicalScriptFile(workpieceId, path, headers);
+  let response: Response;
+  try {
+    response = await fetchAuthenticatedTongs(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/production-script`, { method: "GET", headers });
+  } catch (error) {
+    return error instanceof ForgeUserAuthorizationError ? { ok: false, reason: "unauthorized", status: 401 } : { ok: false, reason: "request_failed" };
+  }
+  if (response.status === 404) return { ok: false, reason: "not_found", status: 404 };
+  if (response.status === 401 || response.status === 403) return { ok: false, reason: "unauthorized", status: response.status };
+  if (!response.ok) return { ok: false, reason: "request_failed", status: response.status };
+  let body: unknown;
+  try { body = await response.json(); } catch { return { ok: false, reason: "invalid_response", status: response.status }; }
+  const data = body && typeof body === "object" && (body as { ok?: unknown }).ok === true && (body as { data?: unknown }).data && typeof (body as { data?: unknown }).data === "object"
+    ? (body as { data: Record<string, unknown> }).data : null;
+  const text = typeof data?.script_text === "string" ? data.script_text : "";
+  const revision = Number(data?.source_file_revision); const hash = readString(data?.script_content_hash)?.toLowerCase() ?? "";
+  const readyTransitionId = normalizeUuid(data?.ready_transition_id); const scriptApprovalId = normalizeUuid(data?.script_approval_id);
+  const scriptApprovalRevision = Number(data?.script_approval_revision);
+  if (!text || !Number.isInteger(revision) || revision < 1 || !/^[0-9a-f]{64}$/.test(hash) || !readyTransitionId || !scriptApprovalId || !Number.isInteger(scriptApprovalRevision) || scriptApprovalRevision < 1) return { ok: false, reason: "invalid_response", status: response.status };
+  return { ok: true, text, revision, hash, readyTransitionId, scriptApprovalId, scriptApprovalRevision };
 }
 
 async function loadWorkpieceScriptOnBoot(): Promise<void> {
@@ -277,6 +298,10 @@ async function loadWorkpieceScriptOnBoot(): Promise<void> {
     path,
     scriptRevision: readResult.revision,
     scriptHash: readResult.hash,
+    readyTransitionId: readResult.readyTransitionId,
+    scriptApprovalId: readResult.scriptApprovalId,
+    scriptApprovalRevision: readResult.scriptApprovalRevision,
+    scriptApprovalHash: readResult.hash,
   };
   const dispatchResult = await dispatchAuthenticatedWorkpieceScript({
     canonicalIdentity,

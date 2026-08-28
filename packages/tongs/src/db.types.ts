@@ -1193,9 +1193,9 @@ export type Database = {
         ]
       }
       anvil_capture_authorities: {
-        Row: { capture_session_id: string; established_at: string; established_by: string; id: string; operation_key: string; provenance: string; ready_transition_id: string | null; recording_session_id: string | null; script_hash: string; script_path: string; script_revision: number; workpiece_id: string; workspace_id: string }
-        Insert: { capture_session_id: string; established_at?: string; established_by: string; id?: string; operation_key: string; provenance: string; ready_transition_id?: string | null; recording_session_id?: string | null; script_hash: string; script_path: string; script_revision: number; workpiece_id: string; workspace_id: string }
-        Update: { capture_session_id?: string; established_at?: string; established_by?: string; id?: string; operation_key?: string; provenance?: string; ready_transition_id?: string | null; recording_session_id?: string | null; script_hash?: string; script_path?: string; script_revision?: number; workpiece_id?: string; workspace_id?: string }
+        Row: { capture_session_id: string; established_at: string; established_by: string; id: string; operation_key: string; provenance: string; ready_transition_id: string | null; recording_session_id: string | null; script_hash: string; script_path: string; script_revision: number; script_approval_id: string | null; script_approval_revision: number | null; script_approval_hash: string | null; workpiece_id: string; workspace_id: string }
+        Insert: { capture_session_id: string; established_at?: string; established_by: string; id?: string; operation_key: string; provenance: string; ready_transition_id?: string | null; recording_session_id?: string | null; script_hash: string; script_path: string; script_revision: number; script_approval_id?: string | null; script_approval_revision?: number | null; script_approval_hash?: string | null; workpiece_id: string; workspace_id: string }
+        Update: { capture_session_id?: string; established_at?: string; established_by?: string; id?: string; operation_key?: string; provenance?: string; ready_transition_id?: string | null; recording_session_id?: string | null; script_hash?: string; script_path?: string; script_revision?: number; script_approval_id?: string | null; script_approval_revision?: number | null; script_approval_hash?: string | null; workpiece_id?: string; workspace_id?: string }
         Relationships: []
       }
       anvil_recording_completion_requests: {
@@ -1345,9 +1345,101 @@ export type Database = {
           },
         ]
       }
+      asset_legacy_reference_evidence: {
+        Row: {
+          classification: string
+          content_hash_assertion: string | null
+          created_at: string
+          created_by: string
+          duration_ms_assertion: number | null
+          expected_workpiece_id: string | null
+          height_assertion: number | null
+          id: string
+          legacy_identifier: string | null
+          mime_type_assertion: string | null
+          path_assertion: string | null
+          resolution_evidence_json: Json
+          resolved_asset_id: string | null
+          resolved_at: string | null
+          source_record_key: string
+          source_surface: string
+          storage_bucket_assertion: string | null
+          storage_key_assertion: string | null
+          width_assertion: number | null
+          workspace_id: string
+        }
+        Insert: {
+          classification?: string
+          content_hash_assertion?: string | null
+          created_at?: string
+          created_by: string
+          duration_ms_assertion?: number | null
+          expected_workpiece_id?: string | null
+          height_assertion?: number | null
+          id?: string
+          legacy_identifier?: string | null
+          mime_type_assertion?: string | null
+          path_assertion?: string | null
+          resolution_evidence_json?: Json
+          resolved_asset_id?: string | null
+          resolved_at?: string | null
+          source_record_key: string
+          source_surface: string
+          storage_bucket_assertion?: string | null
+          storage_key_assertion?: string | null
+          width_assertion?: number | null
+          workspace_id: string
+        }
+        Update: {
+          classification?: string
+          content_hash_assertion?: string | null
+          created_at?: string
+          created_by?: string
+          duration_ms_assertion?: number | null
+          expected_workpiece_id?: string | null
+          height_assertion?: number | null
+          id?: string
+          legacy_identifier?: string | null
+          mime_type_assertion?: string | null
+          path_assertion?: string | null
+          resolution_evidence_json?: Json
+          resolved_asset_id?: string | null
+          resolved_at?: string | null
+          source_record_key?: string
+          source_surface?: string
+          storage_bucket_assertion?: string | null
+          storage_key_assertion?: string | null
+          width_assertion?: number | null
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "asset_legacy_expected_workpiece_fkey"
+            columns: ["expected_workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "asset_legacy_resolved_asset_fkey"
+            columns: ["resolved_asset_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "assets"
+            referencedColumns: ["id", "workspace_id"]
+          },
+          {
+            foreignKeyName: "asset_legacy_reference_evidence_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       assets: {
         Row: {
           asset_kind: string
+          asset_scope: string
           bytes: number
           cache_control: string | null
           content_hash: string | null
@@ -1366,6 +1458,8 @@ export type Database = {
           prompt: string | null
           provider: string
           provider_request_id: string | null
+          provenance_classification: string
+          provenance_json: Json
           ready_at: string | null
           reference_committed_at: string | null
           request_id: string | null
@@ -1379,11 +1473,13 @@ export type Database = {
           variant_kind: string
           variant_version: number
           width: number | null
-          workpiece_id: string
+          workpiece_id: string | null
+          workspace_reuse_policy: string
           workspace_id: string
         }
         Insert: {
           asset_kind?: string
+          asset_scope?: string
           bytes: number
           cache_control?: string | null
           content_hash?: string | null
@@ -1402,6 +1498,8 @@ export type Database = {
           prompt?: string | null
           provider: string
           provider_request_id?: string | null
+          provenance_classification?: string
+          provenance_json?: Json
           ready_at?: string | null
           reference_committed_at?: string | null
           request_id?: string | null
@@ -1415,11 +1513,13 @@ export type Database = {
           variant_kind?: string
           variant_version?: number
           width?: number | null
-          workpiece_id: string
+          workpiece_id?: string | null
+          workspace_reuse_policy?: string
           workspace_id: string
         }
         Update: {
           asset_kind?: string
+          asset_scope?: string
           bytes?: number
           cache_control?: string | null
           content_hash?: string | null
@@ -1438,6 +1538,8 @@ export type Database = {
           prompt?: string | null
           provider?: string
           provider_request_id?: string | null
+          provenance_classification?: string
+          provenance_json?: Json
           ready_at?: string | null
           reference_committed_at?: string | null
           request_id?: string | null
@@ -1451,7 +1553,8 @@ export type Database = {
           variant_kind?: string
           variant_version?: number
           width?: number | null
-          workpiece_id?: string
+          workpiece_id?: string | null
+          workspace_reuse_policy?: string
           workspace_id?: string
         }
         Relationships: [
@@ -1475,6 +1578,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "episodes"
             referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "assets_workpiece_workspace_authority_fkey"
+            columns: ["workpiece_id", "workspace_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id", "workspace_id"]
           },
           {
             foreignKeyName: "assets_workspace_id_fkey"
@@ -3608,6 +3718,9 @@ export type Database = {
           media_signature: string | null
           recording_session_id: string | null
           sealed_at: string | null
+          source_authority_id: string | null
+          source_capture_authority_id: string | null
+          source_kind: string | null
           status: string
           updated_at: string
           updated_by: string
@@ -3631,6 +3744,9 @@ export type Database = {
           media_signature?: string | null
           recording_session_id?: string | null
           sealed_at?: string | null
+          source_authority_id?: string | null
+          source_capture_authority_id?: string | null
+          source_kind?: string | null
           status?: string
           updated_at?: string
           updated_by: string
@@ -3654,6 +3770,9 @@ export type Database = {
           media_signature?: string | null
           recording_session_id?: string | null
           sealed_at?: string | null
+          source_authority_id?: string | null
+          source_capture_authority_id?: string | null
+          source_kind?: string | null
           status?: string
           updated_at?: string
           updated_by?: string
@@ -3661,6 +3780,13 @@ export type Database = {
           workspace_id?: string
         }
         Relationships: [
+          {
+            foreignKeyName: "canonical_recordings_source_capture_authority_id_fkey"
+            columns: ["source_capture_authority_id"]
+            isOneToOne: false
+            referencedRelation: "anvil_capture_authorities"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "canonical_recordings_workpiece_id_fkey"
             columns: ["workpiece_id"]
@@ -4368,6 +4494,88 @@ export type Database = {
             referencedRelation: "workspaces"
             referencedColumns: ["id"]
           },
+        ]
+      }
+      hammer_open_operation_receipts: {
+        Row: { id: string; opened_at: string; opened_by: string; operation_key: string; preparation_attempt_id: string; request_fingerprint: string; workpiece_id: string; workspace_id: string }
+        Insert: { id?: string; opened_at?: string; opened_by: string; operation_key: string; preparation_attempt_id: string; request_fingerprint: string; workpiece_id: string; workspace_id: string }
+        Update: { id?: string; opened_at?: string; opened_by?: string; operation_key?: string; preparation_attempt_id?: string; request_fingerprint?: string; workpiece_id?: string; workspace_id?: string }
+        Relationships: [
+          { foreignKeyName: "hammer_open_operation_receipts_preparation_attempt_id_fkey"; columns: ["preparation_attempt_id"]; isOneToOne: false; referencedRelation: "hammer_preparation_attempts"; referencedColumns: ["id"] },
+          { foreignKeyName: "hammer_open_operation_receipts_workpiece_id_fkey"; columns: ["workpiece_id"]; isOneToOne: false; referencedRelation: "episodes"; referencedColumns: ["id"] },
+          { foreignKeyName: "hammer_open_operation_receipts_workspace_id_fkey"; columns: ["workspace_id"]; isOneToOne: false; referencedRelation: "workspaces"; referencedColumns: ["id"] },
+        ]
+      }
+      hammer_take_adoption_receipts: {
+        Row: { adopted_at: string; adopted_by: string; adopted_canonical_recording_id: string; id: string; operation_key: string; prior_canonical_recording_id: string | null; request_fingerprint: string; source_authority_id: string; source_kind: string; workpiece_id: string; workspace_id: string }
+        Insert: { adopted_at?: string; adopted_by: string; adopted_canonical_recording_id: string; id?: string; operation_key: string; prior_canonical_recording_id?: string | null; request_fingerprint: string; source_authority_id: string; source_kind: string; workpiece_id: string; workspace_id: string }
+        Update: { adopted_at?: string; adopted_by?: string; adopted_canonical_recording_id?: string; id?: string; operation_key?: string; prior_canonical_recording_id?: string | null; request_fingerprint?: string; source_authority_id?: string; source_kind?: string; workpiece_id?: string; workspace_id?: string }
+        Relationships: [
+          { foreignKeyName: "hammer_take_adoption_receipts_adopted_canonical_recording_id_fkey"; columns: ["adopted_canonical_recording_id"]; isOneToOne: false; referencedRelation: "canonical_recordings"; referencedColumns: ["id"] },
+          { foreignKeyName: "hammer_take_adoption_receipts_prior_canonical_recording_id_fkey"; columns: ["prior_canonical_recording_id"]; isOneToOne: false; referencedRelation: "canonical_recordings"; referencedColumns: ["id"] },
+          { foreignKeyName: "hammer_take_adoption_receipts_workpiece_id_fkey"; columns: ["workpiece_id"]; isOneToOne: false; referencedRelation: "episodes"; referencedColumns: ["id"] },
+          { foreignKeyName: "hammer_take_adoption_receipts_workspace_id_fkey"; columns: ["workspace_id"]; isOneToOne: false; referencedRelation: "workspaces"; referencedColumns: ["id"] },
+        ]
+      }
+      hammer_preparation_attempts: {
+        Row: {
+          canonical_recording_id: string
+          completed_at: string | null
+          created_at: string
+          created_by: string
+          failed_at: string | null
+          failure_code: string | null
+          failure_detail: string | null
+          heartbeat_at: string | null
+          id: string
+          lease_expires_at: string | null
+          lease_owner: string | null
+          media_hash: string | null
+          media_id: string
+          media_path: string
+          operation_key: string
+          recording_revision_id: string
+          request_fingerprint: string
+          retry_count: number
+          source_authority_id: string | null
+          source_capture_authority_id: string | null
+          source_kind: string
+          state: string
+          state_version: number
+          transcript_artifact_path: string | null
+          transcript_job_id: string | null
+          transcript_policy: string
+          updated_at: string
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          canonical_recording_id: string; completed_at?: string | null; created_at?: string; created_by: string
+          failed_at?: string | null; failure_code?: string | null; failure_detail?: string | null
+          heartbeat_at?: string | null; id?: string; lease_expires_at?: string | null; lease_owner?: string | null
+          media_hash?: string | null; media_id: string; media_path: string; operation_key: string
+          recording_revision_id: string; request_fingerprint: string; retry_count?: number
+          source_authority_id?: string | null; source_capture_authority_id?: string | null; source_kind: string
+          state?: string; state_version?: number; transcript_artifact_path?: string | null
+          transcript_job_id?: string | null; transcript_policy?: string; updated_at?: string
+          workpiece_id: string; workspace_id: string
+        }
+        Update: {
+          canonical_recording_id?: string; completed_at?: string | null; created_at?: string; created_by?: string
+          failed_at?: string | null; failure_code?: string | null; failure_detail?: string | null
+          heartbeat_at?: string | null; id?: string; lease_expires_at?: string | null; lease_owner?: string | null
+          media_hash?: string | null; media_id?: string; media_path?: string; operation_key?: string
+          recording_revision_id?: string; request_fingerprint?: string; retry_count?: number
+          source_authority_id?: string | null; source_capture_authority_id?: string | null; source_kind?: string
+          state?: string; state_version?: number; transcript_artifact_path?: string | null
+          transcript_job_id?: string | null; transcript_policy?: string; updated_at?: string
+          workpiece_id?: string; workspace_id?: string
+        }
+        Relationships: [
+          { foreignKeyName: "hammer_preparation_attempts_canonical_recording_id_fkey"; columns: ["canonical_recording_id"]; isOneToOne: false; referencedRelation: "canonical_recordings"; referencedColumns: ["id"] },
+          { foreignKeyName: "hammer_preparation_attempts_recording_revision_id_fkey"; columns: ["recording_revision_id"]; isOneToOne: false; referencedRelation: "recording_revisions"; referencedColumns: ["id"] },
+          { foreignKeyName: "hammer_preparation_attempts_workpiece_id_fkey"; columns: ["workpiece_id"]; isOneToOne: false; referencedRelation: "episodes"; referencedColumns: ["id"] },
+          { foreignKeyName: "hammer_preparation_attempts_workspace_id_fkey"; columns: ["workspace_id"]; isOneToOne: false; referencedRelation: "workspaces"; referencedColumns: ["id"] },
         ]
       }
       hammer_workpiece_presence: {
@@ -6166,6 +6374,155 @@ export type Database = {
           },
           {
             foreignKeyName: "quench_destination_scopes_workspace_id_fkey"
+            columns: ["workspace_id"]
+            isOneToOne: false
+            referencedRelation: "workspaces"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      publishing_oauth_connection_attempts: {
+        Row: { id: string; connection_id: string; owner_user_id: string; provider: string; state_hash: string; encrypted_pkce_verifier: string; encryption_key_version: string; ciphertext_version: string; expected_redirect_uri: string; expires_at: string; consumed_at: string | null; state: string; failure_code: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; connection_id: string; owner_user_id: string; provider: string; state_hash: string; encrypted_pkce_verifier: string; encryption_key_version: string; ciphertext_version: string; expected_redirect_uri: string; expires_at: string; consumed_at?: string | null; state?: string; failure_code?: string | null; created_at?: string; updated_at?: string }
+        Update: { id?: string; connection_id?: string; owner_user_id?: string; provider?: string; state_hash?: string; encrypted_pkce_verifier?: string; encryption_key_version?: string; ciphertext_version?: string; expected_redirect_uri?: string; expires_at?: string; consumed_at?: string | null; state?: string; failure_code?: string | null; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      publishing_provider_connections: {
+        Row: { id: string; owner_user_id: string; provider: string; state: string; authorization_revision: number; provider_grant_subject_hash: string | null; granted_scopes: string[]; credential_authority_id: string | null; connected_at: string | null; revoked_at: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; owner_user_id: string; provider: string; state: string; authorization_revision?: number; provider_grant_subject_hash?: string | null; granted_scopes?: string[]; credential_authority_id?: string | null; connected_at?: string | null; revoked_at?: string | null; created_at?: string; updated_at?: string }
+        Update: { id?: string; owner_user_id?: string; provider?: string; state?: string; authorization_revision?: number; provider_grant_subject_hash?: string | null; granted_scopes?: string[]; credential_authority_id?: string | null; connected_at?: string | null; revoked_at?: string | null; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      publishing_provider_credential_authorities: {
+        Row: { id: string; connection_id: string; owner_user_id: string; state: string; current_generation_id: string | null; current_generation: number; created_at: string; updated_at: string }
+        Insert: { id?: string; connection_id: string; owner_user_id: string; state: string; current_generation_id?: string | null; current_generation?: number; created_at?: string; updated_at?: string }
+        Update: { id?: string; connection_id?: string; owner_user_id?: string; state?: string; current_generation_id?: string | null; current_generation?: number; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      publishing_provider_credential_generations: {
+        Row: { id: string; credential_authority_id: string; connection_id: string; generation: number; encryption_key_version: string; ciphertext_version: string; encrypted_refresh_token: string; encrypted_access_token: string | null; access_token_expires_at: string | null; granted_scopes: string[]; provider_grant_identity_hash: string; supersedes_generation_id: string | null; refreshed_at: string | null; rotated_at: string | null; validated_at: string; created_at: string }
+        Insert: { id?: string; credential_authority_id: string; connection_id: string; generation: number; encryption_key_version: string; ciphertext_version: string; encrypted_refresh_token: string; encrypted_access_token?: string | null; access_token_expires_at?: string | null; granted_scopes: string[]; provider_grant_identity_hash: string; supersedes_generation_id?: string | null; refreshed_at?: string | null; rotated_at?: string | null; validated_at: string; created_at?: string }
+        Update: { id?: string; credential_authority_id?: string; connection_id?: string; generation?: number; encryption_key_version?: string; ciphertext_version?: string; encrypted_refresh_token?: string; encrypted_access_token?: string | null; access_token_expires_at?: string | null; granted_scopes?: string[]; provider_grant_identity_hash?: string; supersedes_generation_id?: string | null; refreshed_at?: string | null; rotated_at?: string | null; validated_at?: string; created_at?: string }
+        Relationships: []
+      }
+      publishing_provider_accounts: {
+        Row: { id: string; connection_id: string; owner_user_id: string; provider: string; external_account_id: string; display_label: string; state: string; observation_revision: number; observed_at: string; removed_at: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; connection_id: string; owner_user_id: string; provider: string; external_account_id: string; display_label: string; state: string; observation_revision: number; observed_at: string; removed_at?: string | null; created_at?: string; updated_at?: string }
+        Update: { id?: string; connection_id?: string; owner_user_id?: string; provider?: string; external_account_id?: string; display_label?: string; state?: string; observation_revision?: number; observed_at?: string; removed_at?: string | null; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      publishing_executable_destinations: {
+        Row: { id: string; provider_account_id: string; connection_id: string; owner_user_id: string; provider: string; destination_kind: string; external_destination_id: string; display_label: string; state: string; observation_revision: number; observed_at: string; removed_at: string | null; current_capability_revision_id: string | null; created_at: string; updated_at: string }
+        Insert: { id?: string; provider_account_id: string; connection_id: string; owner_user_id: string; provider: string; destination_kind: string; external_destination_id: string; display_label: string; state: string; observation_revision: number; observed_at: string; removed_at?: string | null; current_capability_revision_id?: string | null; created_at?: string; updated_at?: string }
+        Update: { id?: string; provider_account_id?: string; connection_id?: string; owner_user_id?: string; provider?: string; destination_kind?: string; external_destination_id?: string; display_label?: string; state?: string; observation_revision?: number; observed_at?: string; removed_at?: string | null; current_capability_revision_id?: string | null; created_at?: string; updated_at?: string }
+        Relationships: []
+      }
+      publishing_destination_capability_revisions: {
+        Row: { id: string; executable_destination_id: string; revision: number; previous_revision_id: string | null; contract_version: string; observation_source: string; capabilities_json: Json; content_hash: string; adapter_id: string; adapter_version: string; observed_at: string; created_at: string }
+        Insert: { id?: string; executable_destination_id: string; revision: number; previous_revision_id?: string | null; contract_version: string; observation_source: string; capabilities_json: Json; content_hash: string; adapter_id: string; adapter_version: string; observed_at: string; created_at?: string }
+        Update: { id?: string; executable_destination_id?: string; revision?: number; previous_revision_id?: string | null; contract_version?: string; observation_source?: string; capabilities_json?: Json; content_hash?: string; adapter_id?: string; adapter_version?: string; observed_at?: string; created_at?: string }
+        Relationships: []
+      }
+      publishing_workspace_destination_grant_revisions: {
+        Row: { id: string; workspace_id: string; executable_destination_id: string; connection_id: string; revision: number; previous_grant_revision_id: string | null; state: string; granted_by_user_id: string; reason: string | null; created_at: string }
+        Insert: { id?: string; workspace_id: string; executable_destination_id: string; connection_id: string; revision: number; previous_grant_revision_id?: string | null; state: string; granted_by_user_id: string; reason?: string | null; created_at?: string }
+        Update: { id?: string; workspace_id?: string; executable_destination_id?: string; connection_id?: string; revision?: number; previous_grant_revision_id?: string | null; state?: string; granted_by_user_id?: string; reason?: string | null; created_at?: string }
+        Relationships: []
+      }
+      publishing_workspace_destination_grant_heads: {
+        Row: { workspace_id: string; executable_destination_id: string; current_grant_revision_id: string; current_revision: number; updated_at: string }
+        Insert: { workspace_id: string; executable_destination_id: string; current_grant_revision_id: string; current_revision: number; updated_at?: string }
+        Update: { workspace_id?: string; executable_destination_id?: string; current_grant_revision_id?: string; current_revision?: number; updated_at?: string }
+        Relationships: []
+      }
+      publication_operations: {
+        Row: { id:string;operation_key:string;authority_fingerprint:string;workspace_id:string;workpiece_id:string;manifest_snapshot_id:string;manifest_content_hash:string;release_decision_id:string;release_decision_scope_id:string;release_decision_revision:number;release_decision_content_hash:string;executable_destination_id:string;destination_capability_revision_id:string;destination_capability_revision:number;destination_capability_content_hash:string;publication_intent_contract_version:string;publication_intent_snapshot:Json;publication_intent_content_hash:string;established_by:string;established_at:string }
+        Insert: { id?:string;operation_key:string;authority_fingerprint:string;workspace_id:string;workpiece_id:string;manifest_snapshot_id:string;manifest_content_hash:string;release_decision_id:string;release_decision_scope_id:string;release_decision_revision:number;release_decision_content_hash:string;executable_destination_id:string;destination_capability_revision_id:string;destination_capability_revision:number;destination_capability_content_hash:string;publication_intent_contract_version:string;publication_intent_snapshot:Json;publication_intent_content_hash:string;established_by:string;established_at?:string }
+        Update: Partial<Database["tongs"]["Tables"]["publication_operations"]["Insert"]>
+        Relationships: []
+      }
+      publication_attempts: {
+        Row: { id:string;publication_operation_id:string;attempt_number:number;state:string;side_effect_possible:boolean;credential_generation_id:string|null;adapter_id:string|null;adapter_version:string|null;provider_request_id:string|null;provider_upload_session_id:string|null;external_object_id:string|null;external_url:string|null;failure_code:string|null;failure_detail_json:Json|null;started_at:string|null;finished_at:string|null;created_at:string;updated_at:string }
+        Insert: { id?:string;publication_operation_id:string;attempt_number:number;state:string;side_effect_possible?:boolean;credential_generation_id?:string|null;adapter_id?:string|null;adapter_version?:string|null;provider_request_id?:string|null;provider_upload_session_id?:string|null;external_object_id?:string|null;external_url?:string|null;failure_code?:string|null;failure_detail_json?:Json|null;started_at?:string|null;finished_at?:string|null;created_at?:string;updated_at?:string }
+        Update: Partial<Database["tongs"]["Tables"]["publication_attempts"]["Insert"]>
+        Relationships: []
+      }
+      publication_receipts: {
+        Row: { id:string;publication_operation_id:string;publication_attempt_id:string;outcome:string;workspace_id:string;workpiece_id:string;manifest_snapshot_id:string;manifest_content_hash:string;release_decision_id:string;release_decision_revision:number;executable_destination_id:string;destination_capability_revision_id:string;credential_generation_id:string|null;provider:string;adapter_id:string|null;adapter_version:string|null;provider_request_id:string|null;provider_upload_session_id:string|null;external_object_id:string|null;external_url:string|null;normalized_provider_evidence:Json;observed_at:string }
+        Insert: { id?:string;publication_operation_id:string;publication_attempt_id:string;outcome:string;workspace_id:string;workpiece_id:string;manifest_snapshot_id:string;manifest_content_hash:string;release_decision_id:string;release_decision_revision:number;executable_destination_id:string;destination_capability_revision_id:string;credential_generation_id?:string|null;provider:string;adapter_id?:string|null;adapter_version?:string|null;provider_request_id?:string|null;provider_upload_session_id?:string|null;external_object_id?:string|null;external_url?:string|null;normalized_provider_evidence?:Json;observed_at?:string }
+        Update: Partial<Database["tongs"]["Tables"]["publication_receipts"]["Insert"]>
+        Relationships: []
+      }
+      publication_reconciliation_events: {
+        Row: { id:string;publication_operation_id:string;publication_attempt_id:string;event_kind:string;evidence_json:Json;recorded_by:string|null;recorded_at:string }
+        Insert: { id?:string;publication_operation_id:string;publication_attempt_id:string;event_kind:string;evidence_json:Json;recorded_by?:string|null;recorded_at?:string }
+        Update: Partial<Database["tongs"]["Tables"]["publication_reconciliation_events"]["Insert"]>
+        Relationships: []
+      }
+      quench_open_authority_receipts: {
+        Row: {
+          created_at: string
+          created_by: string
+          id: string
+          manifest_content_hash: string
+          manifest_snapshot_id: string
+          open_operation_id: string
+          operation_fingerprint: string
+          requested_manifest_snapshot_id: string | null
+          state_version: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by: string
+          id?: string
+          manifest_content_hash: string
+          manifest_snapshot_id: string
+          open_operation_id: string
+          operation_fingerprint: string
+          requested_manifest_snapshot_id?: string | null
+          state_version?: number
+          workpiece_id: string
+          workspace_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string
+          id?: string
+          manifest_content_hash?: string
+          manifest_snapshot_id?: string
+          open_operation_id?: string
+          operation_fingerprint?: string
+          requested_manifest_snapshot_id?: string | null
+          state_version?: number
+          workpiece_id?: string
+          workspace_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "quench_open_authority_receipts_manifest_snapshot_id_workspace_fkey"
+            columns: ["manifest_snapshot_id", "workspace_id", "workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "quench_release_manifest_snapshots"
+            referencedColumns: ["id", "workspace_id", "workpiece_id"]
+          },
+          {
+            foreignKeyName: "quench_open_authority_receipts_requested_manifest_snapshot_fkey"
+            columns: ["requested_manifest_snapshot_id", "workspace_id", "workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "quench_release_manifest_snapshots"
+            referencedColumns: ["id", "workspace_id", "workpiece_id"]
+          },
+          {
+            foreignKeyName: "quench_open_authority_receipts_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "quench_open_authority_receipts_workspace_id_fkey"
             columns: ["workspace_id"]
             isOneToOne: false
             referencedRelation: "workspaces"
@@ -11926,6 +12283,9 @@ export type Database = {
           marked_ready_by: string
           publish_evidence: Json | null
           script_hash: string | null
+          script_approval_hash: string | null
+          script_approval_id: string | null
+          script_approval_revision: number | null
           script_path: string
           script_revision: number | null
           transition_id: string | null
@@ -11939,6 +12299,9 @@ export type Database = {
           marked_ready_by: string
           publish_evidence?: Json | null
           script_hash?: string | null
+          script_approval_hash?: string | null
+          script_approval_id?: string | null
+          script_approval_revision?: number | null
           script_path: string
           script_revision?: number | null
           transition_id?: string | null
@@ -11952,6 +12315,9 @@ export type Database = {
           marked_ready_by?: string
           publish_evidence?: Json | null
           script_hash?: string | null
+          script_approval_hash?: string | null
+          script_approval_id?: string | null
+          script_approval_revision?: number | null
           script_path?: string
           script_revision?: number | null
           transition_id?: string | null
@@ -11992,6 +12358,9 @@ export type Database = {
           publish_evidence: Json
           request_fingerprint: string
           script_hash: string
+          script_approval_hash: string | null
+          script_approval_id: string | null
+          script_approval_revision: number | null
           script_path: string
           script_revision: number
           transitioned_by: string
@@ -12005,6 +12374,9 @@ export type Database = {
           publish_evidence: Json
           request_fingerprint: string
           script_hash: string
+          script_approval_hash?: string | null
+          script_approval_id?: string | null
+          script_approval_revision?: number | null
           script_path: string
           script_revision: number
           transitioned_by: string
@@ -12018,6 +12390,9 @@ export type Database = {
           publish_evidence?: Json
           request_fingerprint?: string
           script_hash?: string
+          script_approval_hash?: string | null
+          script_approval_id?: string | null
+          script_approval_revision?: number | null
           script_path?: string
           script_revision?: number
           transitioned_by?: string
@@ -12678,12 +13053,28 @@ export type Database = {
       }
     }
     Views: {
+      canonical_asset_ambiguous_evidence_report: {
+        Row: {
+          ambiguity_kind: string | null
+          candidate_asset_ids: string[] | null
+          content_hashes: string[] | null
+          evidence_key: string | null
+          reference_count: number | null
+          source_surface: string | null
+          workspace_id: string | null
+        }
+        Relationships: []
+      }
       current_workpiece_ready_scripts: {
         Row: {
           marked_ready_at: string | null
           marked_ready_by: string | null
           publish_evidence: Json | null
           script_hash: string | null
+          script_approval_hash: string | null
+          script_approval_id: string | null
+          script_approval_revision: number | null
+          script_approved_at: string | null
           script_path: string | null
           script_revision: number | null
           script_updated_at: string | null
@@ -12806,6 +13197,32 @@ export type Database = {
       }
     }
     Functions: {
+      adopt_latest_kept_take_for_hammer: {
+        Args: { p_operation_key: string; p_workpiece_id: string; p_workspace_id: string }
+        Returns: Json
+      }
+      advance_hammer_preparation: {
+        Args: {
+          p_action: string
+          p_expected_state_version: number
+          p_failure_code?: string | null
+          p_failure_detail?: string | null
+          p_preparation_attempt_id: string
+          p_transcript_artifact_path?: string | null
+          p_transcript_job_id?: string | null
+        }
+        Returns: Json
+      }
+      open_hammer_authority: {
+        Args: {
+          p_operation_key: string
+          p_revision_label?: string | null
+          p_transcript_policy?: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       establish_anvil_capture_authority: { Args: { p_capture_session_id: string; p_operation_key: string; p_recording_session_id?: string | null; p_workpiece_id: string; p_workspace_id: string }; Returns: Json }
       anvil_transition_take_completed_v3: { Args: { p_capture_authority_id: string; p_completion_evidence: Json; p_expected_media_bytes: number; p_expected_media_content_type: string; p_expected_media_hash: string; p_expected_media_revision: number; p_idempotency_key: string; p_media_path: string; p_storage_bucket: string; p_storage_key: string }; Returns: Json }
       anvil_transition_take_decision_v2: { Args: { p_capture_authority_id: string; p_completion_id: string; p_decision: string; p_decision_evidence: Json; p_idempotency_key: string }; Returns: Json }
@@ -15293,6 +15710,29 @@ export type Database = {
         }
         Returns: Json
       }
+      hearth_transition_approved_script_ready: {
+        Args: {
+          p_idempotency_key: string
+          p_publish_evidence: Json
+          p_script_approval_id: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      approve_canonical_script_v2: {
+        Args: {
+          p_creator_version_label: string
+          p_expected_current_approval_revision: number
+          p_expected_source_content_hash: string
+          p_expected_source_file_revision: number
+          p_operation_id: string
+          p_script_text: string
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
       read_hammer_history_epoch_head_with_components_operation: {
         Args: {
           p_head_id?: string
@@ -15770,6 +16210,27 @@ export type Database = {
           workspace_id: string
         }[]
       }
+      resolve_canonical_asset_authority: {
+        Args: {
+          p_canonical_asset_id: string
+          p_expected_content_hash?: string | null
+          p_expected_path?: string | null
+          p_expected_storage_bucket?: string | null
+          p_expected_storage_key?: string | null
+          p_expected_workpiece_id?: string | null
+          p_required_asset_kind?: string | null
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      resolve_legacy_asset_reference_exact: {
+        Args: {
+          p_actor_id: string
+          p_canonical_asset_id: string
+          p_reference_id: string
+        }
+        Returns: Json
+      }
       resolve_active_compound_ai_pricing_policy: {
         Args: {
           p_effective_at?: string
@@ -16096,6 +16557,60 @@ export type Database = {
           p_source_revision: number
           p_status: string
           p_validation: Json
+          p_workpiece_id: string
+          p_workspace_id: string
+        }
+        Returns: Json
+      }
+      create_publishing_provider_connection_authority: {
+        Args: { p_owner_user_id: string; p_provider: string }
+        Returns: Json
+      }
+      create_publishing_oauth_connection_attempt: {
+        Args: { p_owner_user_id: string; p_connection_id: string; p_state_hash: string; p_encrypted_pkce_verifier: string; p_encryption_key_version: string; p_ciphertext_version: string; p_expected_redirect_uri: string; p_expires_at: string }
+        Returns: Json
+      }
+      prepare_publishing_connection_reauthorization: { Args: { p_owner_user_id: string; p_connection_id: string }; Returns: Json }
+      consume_publishing_oauth_connection_attempt: { Args: { p_provider: string; p_state_hash: string; p_expected_redirect_uri: string }; Returns: Json }
+      complete_publishing_oauth_connection_attempt: { Args: { p_attempt_id: string; p_success: boolean; p_failure_code?: string | null }; Returns: Json }
+      get_publishing_credential_execution_authority: { Args: { p_connection_id: string }; Returns: Json }
+      get_publishing_destination_capability_head: { Args: { p_destination_id: string }; Returns: Json }
+      set_publishing_provider_connection_state: { Args: { p_actor_user_id: string; p_connection_id: string; p_connection_state: string; p_credential_state: string; p_reason?: string | null }; Returns: Json }
+      commit_publishing_credential_generation: {
+        Args: { p_credential_authority_id: string; p_expected_generation: number; p_encryption_key_version: string; p_ciphertext_version: string; p_encrypted_refresh_token: string; p_encrypted_access_token: string; p_access_token_expires_at: string; p_granted_scopes: string[]; p_provider_grant_identity_hash: string; p_validated_at: string }
+        Returns: Json
+      }
+      record_publishing_provider_account: {
+        Args: { p_connection_id: string; p_external_account_id: string; p_display_label: string; p_state: string; p_observed_at: string }
+        Returns: Json
+      }
+      record_publishing_executable_destination: {
+        Args: { p_provider_account_id: string; p_destination_kind: string; p_external_destination_id: string; p_display_label: string; p_state: string; p_observed_at: string }
+        Returns: Json
+      }
+      commit_publishing_destination_capability_revision: {
+        Args: { p_destination_id: string; p_expected_revision: number; p_contract_version: string; p_observation_source: string; p_capabilities: Json; p_adapter_id: string; p_adapter_version: string; p_observed_at: string }
+        Returns: Json
+      }
+      publishing_destination_grant_is_active: {
+        Args: { p_workspace_id: string; p_destination_id: string }
+        Returns: boolean
+      }
+      set_publishing_workspace_destination_grant: {
+        Args: { p_workspace_id: string; p_destination_id: string; p_expected_revision: number; p_state: string; p_reason?: string | null }
+        Returns: Json
+      }
+      get_my_publishing_connection_authorities: { Args: never; Returns: Json }
+      get_workspace_publishing_destination_authorities: { Args: { p_workspace_id: string }; Returns: Json }
+      establish_publication_operation: { Args: { p_operation_key:string;p_workspace_id:string;p_workpiece_id:string;p_manifest_snapshot_id:string;p_manifest_content_hash:string;p_release_decision_id:string;p_release_decision_revision:number;p_executable_destination_id:string;p_destination_capability_revision_id:string;p_publication_intent_contract_version:string;p_publication_intent_snapshot:Json }; Returns:Json }
+      claim_publication_attempt: { Args:{ p_publication_operation_id:string;p_retry?:boolean };Returns:Json }
+      record_publication_attempt_transition: { Args:{ p_attempt_id:string;p_expected_state:string;p_new_state:string;p_side_effect_possible:boolean;p_credential_generation_id?:string|null;p_adapter_id?:string|null;p_adapter_version?:string|null;p_provider_request_id?:string|null;p_provider_upload_session_id?:string|null;p_external_object_id?:string|null;p_external_url?:string|null;p_failure_code?:string|null;p_failure_detail_json?:Json|null;p_normalized_provider_evidence?:Json };Returns:Json }
+      read_publication_operation: { Args:{ p_publication_operation_id:string };Returns:Json }
+      read_publication_operations_for_manifest: { Args:{ p_workspace_id:string;p_workpiece_id:string;p_manifest_snapshot_id:string };Returns:Json }
+      open_quench_authority: {
+        Args: {
+          p_manifest_snapshot_id?: string | null
+          p_open_operation_id: string
           p_workpiece_id: string
           p_workspace_id: string
         }

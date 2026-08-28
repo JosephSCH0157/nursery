@@ -1,22 +1,23 @@
-# Hearth Visual Planning v1 Slice 4 Implementation Plan
+# Hearth Visual Planning Later Candidate Selection Plan
 
-> Implementation plan only. Constitutional lifecycle semantics are defined in `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`. Phase 5 production-prep direction is defined in `HEARTH_TONGS_PHASE_5_PLAN.md`. Slice 4 selection rules are locked in `HEARTH_VISUAL_PLANNING_V1_SLICE_4_SELECTION_LOCK.md`.
+> Future implementation plan only. Constitutional lifecycle semantics are defined in `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`. Phase 5 production-prep direction is defined in `HEARTH_TONGS_PHASE_5_PLAN.md`. Candidate selection rules are preserved in `HEARTH_VISUAL_PLANNING_LATER_CANDIDATE_SELECTION_LOCK.md`. Canonical Authority Slice 4 is defined by the S4-0 asset-authority artifacts.
 
 Date: March 11, 2026  
-Theme: `Hearth Visual Planning v1`  
-Slice: `Slice 4 - candidate selection truth`
+Reclassified: August 27, 2026  
+Theme: `Hearth Visual Planning - later candidate planning`  
+Status: preserved future work; not canonical Authority Slice 4
 
 ## Purpose
 
-Implement Slice 4 so a user can choose one canonically attached still-image candidate for an image-map entry and persist that choice as the entry's authoritative `selected_asset_id`.
+Implement this later candidate-selection work so a user can choose one canonically attached still-image candidate for an image-map entry and persist that choice as the entry's authoritative `selected_asset_id`.
 
-The core Slice 4 sentence is:
+The core candidate-selection sentence is:
 
 **A selected still is real only when the canonical image map names one canonically attached candidate asset id for that exact entry.**
 
 ## Scope
 
-Slice 4 covers only:
+This later work covers only:
 
 - selecting one canonically attached candidate for an existing canonical image-map entry
 - persisting that selection through the current canonical image-map write seam
@@ -24,7 +25,7 @@ Slice 4 covers only:
 - replacing local selection display state from canonical save/reread
 - rejecting stale, mismatched, or superseded selection attempts
 
-Slice 4 does not cover:
+This later work does not cover:
 
 - generating new candidates
 - Hammer-facing reads
@@ -110,7 +111,7 @@ The lawful response is rejection plus canonical reread, not best-effort attachme
 
 ### 3. Supersession / Reselection Behavior
 
-Slice 4 must define what happens when candidate truth changes after generation.
+Candidate-selection work must define what happens when candidate truth changes after generation.
 
 Preferred rules:
 
@@ -127,7 +128,7 @@ This keeps selection downstream-safe:
 
 ### 4. Rejection / Residue
 
-Slice 4 must not let stale client residue look like selected truth.
+Candidate-selection work must not let stale client residue look like selected truth.
 
 The implementation should explicitly reject or ignore:
 
@@ -144,7 +145,7 @@ UI rule:
 
 ## Preferred First-Class Seam
 
-The narrowest lawful seam for Slice 4 is likely:
+The narrowest lawful candidate-selection seam is likely:
 
 - one focused Hearth repo method for "select this candidate for this image-map entry"
 - reuse of the existing canonical image-map save path rather than a new endpoint
@@ -178,7 +179,7 @@ If code audit proves repeated whole-image-map saves are too blunt or cannot expr
 
 ## Hearth UI / Shell Scope
 
-Hearth UI work in Slice 4 should stay minimal.
+Hearth UI work in this later unit should stay minimal.
 
 Allowed:
 
@@ -198,7 +199,7 @@ The shell should always replace local selected state from canonical response or 
 
 ## Proof Plan
 
-Slice 4 proof should stay narrow and direct.
+Candidate-selection proof should stay narrow and direct.
 
 ### Hearth confidence proof
 
@@ -211,7 +212,7 @@ Slice 4 proof should stay narrow and direct.
 
 ### Tongs / API proof
 
-No new Tongs route proof is required if Slice 4 stays on the existing image-map save seam.
+No new Tongs route proof is required if this work stays on the existing image-map save seam.
 
 If a new narrow selection route becomes necessary, add:
 
@@ -221,7 +222,7 @@ If a new narrow selection route becomes necessary, add:
 
 ### Optional browser proof
 
-Not required for initial Slice 4 closeout unless the UI path becomes materially more complex.
+Not required for initial candidate-selection closeout unless the UI path becomes materially more complex.
 
 If browser proof is later added, it should prove only:
 
@@ -237,11 +238,11 @@ If browser proof is later added, it should prove only:
 4. Clear or reject stale selected ids when candidate lists regenerate or diverge canonically
 5. Add targeted Hearth confidence proofs
 6. Verify package build/typecheck/smoke
-7. Write a Slice 4 completion note only after proofs are green
+7. Write a candidate-selection completion note only after proofs are green
 
 ## Exit Criteria
 
-Slice 4 is complete only when all of these are true:
+This later candidate-selection unit is complete only when all of these are true:
 
 - a user can select one canonically attached candidate for an image-map entry
 - the chosen candidate persists as canonical `selected_asset_id`

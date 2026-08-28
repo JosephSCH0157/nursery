@@ -9,6 +9,7 @@ import type { HammerRenderAssemblyResult } from "../editor/hammerRenderAssembly"
 import type { HammerReadinessGateResult } from "../editor/hammerReadinessGate";
 import type { HammerReadinessReason, HammerReadinessReasonCode, HammerReadinessVerdictStatus } from "../editor/hammerReadinessTypes";
 import { deriveHammerReleaseHandoffPosture } from "./hammerReleaseHandoffPosture";
+import type { HammerPackageMediaReference, PackagingMediaReadiness } from "./hammerPackageMediaAuthority";
 
 export const HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH = "hammer/release-packet/manifest.v1.json";
 export const HAMMER_QUENCH_RELEASE_PACKET_TRANSCRIPT_PATH = "hammer/release-packet/transcript/transcript.txt";
@@ -31,6 +32,7 @@ export interface HammerQuenchReleasePacketVisualPlacement {
   start_sec: number;
   end_sec: number;
   asset_path: string | null;
+  media_reference: HammerPackageMediaReference;
   status: string;
 }
 
@@ -58,6 +60,7 @@ export interface HammerQuenchReleasePacketManifest {
     placements_path: string;
     count: number;
   };
+  packaging_media_readiness: PackagingMediaReadiness;
   look: {
     preset: HammerLookPreset | null;
     operation_id: string | null;
@@ -258,10 +261,11 @@ function resolveReadiness(args: {
     releasePrepPackage: args.releasePrepPackage,
     readinessGate: args.readinessGate,
   });
+  const packagingReady = args.releasePrepPackage.packaging_media.readiness.state === "ready";
   return {
-    status: posture.verdict.status,
-    ready_for_quench: posture.ready_for_quench,
-    overall_status: posture.artifact_status,
+    status: packagingReady ? posture.verdict.status : "blocked",
+    ready_for_quench: packagingReady && posture.ready_for_quench,
+    overall_status: packagingReady ? posture.artifact_status : "failed",
     handoff_status: posture.handoff_status,
     reason_codes: posture.reason_codes,
     reasons_detail: posture.reason_details,
@@ -294,6 +298,9 @@ export function buildHammerQuenchReleasePacket(args: {
     start_sec: placement.start_sec,
     end_sec: placement.end_sec,
     asset_path: placement.asset_path,
+    media_reference: pkg.packaging_media.media.find((reference) => reference.placementId === placement.placement_id)
+      ?? { state: "unresolved", workspaceId: pkg.identity.workspace_id ?? "", workpieceId: pkg.identity.workpiece_id ?? "",
+        placementId: placement.placement_id, expectedCanonicalAssetId: null, reason: "legacy_asset_unresolved" },
     status: placement.status,
   }));
   const activeBrollOperationIds = new Set((args.canonicalGraph?.operations ?? []).flatMap((operation) => {
@@ -337,6 +344,7 @@ export function buildHammerQuenchReleasePacket(args: {
       placements_path: HAMMER_QUENCH_RELEASE_PACKET_VISUALS_PATH,
       count: visuals.length,
     },
+    packaging_media_readiness: pkg.packaging_media.readiness,
     look: {
       preset: lookLayer?.meta?.preset ?? null,
       operation_id: lookLayer?.operation_id ?? null,

@@ -6624,6 +6624,11 @@ export default function HearthShell({
             onToggleShowScriptPanel={() => setShowScriptPanel((prev) => !prev)}
             hasApprovedScript={hasApprovedScript}
             approvedScriptVersion={approvedScriptVersion}
+            productionScriptStatus={!hasApprovedScript
+              ? "Working Draft"
+              : activeDraft && scriptApprovalState.approvedAt && activeDraft.updatedAt > scriptApprovalState.approvedAt
+                ? "Draft Changed Since Approval"
+                : "Approved for Production"}
             isVisualScriptMode={isVisualScriptMode}
             onToggleVisualScriptMode={onToggleVisualScriptMode}
           />

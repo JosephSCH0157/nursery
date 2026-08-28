@@ -4,7 +4,6 @@ import { ingestBrollBeatAssetCandidate, uploadBrollBeatAsset } from "../../lib/h
 import {
   advanceExternalRequestTracker,
   buildBrollBeatBrief,
-  createManualResultCandidate,
   formatVisualBriefAsText,
   type ExternalGenerationProvider,
 } from "../../lib/hearth-visual-actionability";
@@ -286,32 +285,18 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
       args.setBrollSaveState("error");
       return;
     }
-    const candidate = createManualResultCandidate({
-      assetClass: "broll",
-      beatId: args.selectedBrollBeat.id,
-      sourceLabel: args.brollSourceLabelDraft || "External provider",
-      sourceUrl,
-      title: args.brollDescriptionDraft || args.selectedBrollBeat.description,
-      providerNote: args.brollProviderNoteDraft,
-      usageNote: args.brollUsageNoteDraft,
-    });
     const nextBeat: EpisodeBrollPlanBeat = {
       ...args.selectedBrollBeat,
       source_type: "external",
-      candidate_assets: [
-        ...(args.selectedBrollBeat.candidate_assets ?? []).filter((asset) => asset.asset_id !== candidate.asset_id),
-        candidate,
-      ],
-      selected_asset_id: candidate.asset_id,
-      external_request: advanceExternalRequestTracker(args.selectedBrollBeat.external_request, "asset_attached", {
+      external_request: advanceExternalRequestTracker(args.selectedBrollBeat.external_request, "result_unregistered", {
         providerId: args.brollProviderIdDraft,
         sourceUrl: args.brollSourceUrlDraft,
         providerNote: args.brollProviderNoteDraft,
         usageNote: args.brollUsageNoteDraft,
         resultMetadata: args.brollResultMetadataDraft,
-        attachedAssetId: candidate.asset_id,
+        attachedAssetId: null,
       }),
-      fulfillment_state: "resolved",
+      fulfillment_state: resolveFulfillmentState(args.selectedBrollBeat, args.selectedBrollBeat.selected_asset_id ?? null),
       updated_at: new Date().toISOString(),
     };
     const nextPlan: EpisodeBrollPlan = {
@@ -332,7 +317,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
       return;
     }
     args.setBrollSaveState("saved");
-    args.setBrollMessage("Result URL attached as a classed B-roll candidate.");
+    args.setBrollMessage("Result URL recorded as external provenance. Import the media through Tongs before attaching it as production B-roll.");
   }, [args]);
 
   const onFindStockForBrollBeat = useCallback(async () => {
@@ -356,9 +341,14 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
     const nextBeat: EpisodeBrollPlanBeat = {
       ...baseBeat,
       source_type: "stock",
-      candidate_assets: stockCandidates,
-      selected_asset_id: stockCandidates[0]?.asset_id ?? null,
-      fulfillment_state: stockCandidates.length > 0 ? "resolved" : "unresolved",
+      candidate_assets: args.selectedBrollBeat.candidate_assets ?? [],
+      selected_asset_id: args.selectedBrollBeat.selected_asset_id ?? null,
+      external_request: advanceExternalRequestTracker(args.selectedBrollBeat.external_request, "result_unregistered", {
+        providerId: "stock-discovery",
+        resultMetadata: JSON.stringify(stockCandidates.map((candidate) => ({ label: candidate.label, source_url: candidate.source_url, uri: candidate.uri }))),
+        attachedAssetId: null,
+      }),
+      fulfillment_state: resolveFulfillmentState(args.selectedBrollBeat, args.selectedBrollBeat.selected_asset_id ?? null),
       updated_at: new Date().toISOString(),
     };
     const nextPlan: EpisodeBrollPlan = {
@@ -383,7 +373,7 @@ export function useBrollBridgeActions(args: UseBrollBridgeActionsArgs) {
         return;
       }
       args.setBrollSaveState("saved");
-      args.setBrollMessage(`Attached ${stockCandidates.length} stock candidate links.`);
+      args.setBrollMessage(`Recorded ${stockCandidates.length} stock result links. Select and import media through Tongs before production attachment.`);
     } catch {
       if (!args.operationAuthority.isCurrent(operation)) return;
       args.setBrollSaveError("Unable to attach stock candidates for this B-roll beat.");

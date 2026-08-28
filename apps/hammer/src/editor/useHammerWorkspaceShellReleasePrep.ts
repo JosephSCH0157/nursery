@@ -26,6 +26,7 @@ import type { HammerReleasePrepPackage } from "../lib/hammerReleasePrepPackage";
 import { buildHammerQuenchReleasePacket } from "../lib/hammerQuenchReleasePacket";
 import { saveHammerQuenchReleasePacket } from "../lib/hammerQuenchReleasePacketApi";
 import type { HammerEditorialAuthorityGraph } from "../../../../packages/contracts/hammer/editorial-authority.contract";
+import { validateHammerReleasePrepPackageMedia } from "../lib/hammerPackageMediaAuthority";
 import {
   buildHammerWorkspaceShellReleaseBasis,
   type HammerWorkspaceShellReleaseBasisInput,
@@ -211,7 +212,7 @@ export function useHammerWorkspaceShellReleasePrep(
     setQuenchHandoffStatus(null);
 
     try {
-      const releasePrepPackageSnapshot = sendArgs.releasePrepPackage;
+      const releasePrepPackageSnapshot = await validateHammerReleasePrepPackageMedia(sendArgs.releasePrepPackage);
       const renderAssemblySnapshot = sendArgs.renderAssembly;
       const canonicalGraphSnapshot = sendArgs.canonicalGraph;
       const subtitlesSnapshot = sendArgs.subtitles;

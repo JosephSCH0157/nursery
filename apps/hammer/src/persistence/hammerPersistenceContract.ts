@@ -230,6 +230,11 @@ export interface HammerVisualPlacementRecord {
   transcript_media_signature?: string | null;
   asset_ref: string;
   asset_id: string | null;
+  canonical_asset_id?: string | null;
+  canonical_asset_state?: "canonical_proven" | "legacy_resolved" | "legacy_unresolved" | "conflicting_evidence";
+  canonical_asset_workspace_id?: string | null;
+  canonical_asset_workpiece_id?: string | null;
+  canonical_asset_content_hash?: string | null;
   asset_path: string | null;
   storage_key: string | null;
   label: string | null;

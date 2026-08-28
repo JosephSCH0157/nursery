@@ -249,14 +249,23 @@ Suggested mission name:
 
 ## Active Visual Planning Lock
 
+Canonical Authority Slice 4 is now **Canonical Asset and Visual Derivative Authority**. Its inventory-and-contract work unit is defined by:
+
+- `S4_0_ASSET_AUTHORITY_FIELD_INVENTORY.md`
+- `S4_0_ASSET_AUTHORITY_FLOW_MAP.md`
+- `S4_0_ASSET_AUTHORITY_CONFLICT_REGISTER.md`
+- `S4_0_ASSET_AUTHORITY_CONTRACT_LOCK.md`
+
+No Slice 4 schema redesign may begin until S4-0 is accepted. The older candidate-selection work is preserved below as later visual-planning work and is gated on canonical asset authority.
+
 Current Hearth visual-planning execution is additionally constrained by:
 
 - `HEARTH_VISUAL_PLANNING_V1_SLICE_3_CANDIDATE_LOCK.md`
 - `HEARTH_VISUAL_PLANNING_V1_SLICE_3_IMPLEMENTATION_PLAN.md`
-- `HEARTH_VISUAL_PLANNING_V1_SLICE_4_SELECTION_LOCK.md`
-- `HEARTH_VISUAL_PLANNING_V1_SLICE_4_IMPLEMENTATION_PLAN.md`
+- `HEARTH_VISUAL_PLANNING_LATER_CANDIDATE_SELECTION_LOCK.md`
+- `HEARTH_VISUAL_PLANNING_LATER_CANDIDATE_SELECTION_PLAN.md`
 
 Those locks govern the active narrow visual-planning slices after shipped image-map domain + beat extraction work:
 
 - Slice 3: still-image candidate generation and canonical candidate attachment
-- Slice 4: canonical candidate selection truth on existing image-map entries
+- Later candidate-planning work: canonical candidate selection on existing image-map entries, gated on completion of Canonical Asset and Visual Derivative Authority

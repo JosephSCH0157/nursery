@@ -101,6 +101,7 @@ function mockService() {
     createCradle: [],
     commitFile: [],
     transitionHearthScriptReady: [],
+    getReadyProductionScript: [],
     transitionAnvilTakeCompletedV2: [],
     establishAnvilCaptureAuthority: [],
     transitionAnvilTakeCompletedV3: [],
@@ -262,6 +263,10 @@ function mockService() {
         reason: null,
         ready: { transition_id: "22222222-2222-4222-8222-222222222222" },
       };
+    },
+    async getReadyProductionScript(workpieceId, options) {
+      calls.getReadyProductionScript.push({ workpieceId, options });
+      return { workspace_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", workpiece_id: workpieceId, ready_transition_id: "22222222-2222-4222-8222-222222222222", script_approval_id: "77777777-7777-4777-8777-777777777777", script_approval_revision: 7, script_content_hash: "a".repeat(64), source_file_path: "script/script.md", source_file_revision: 9, script_text: "Approved words" };
     },
     async transitionAnvilTakeCompletedV2(workpieceId, input) {
       calls.transitionAnvilTakeCompletedV2.push({ workpieceId, input });
@@ -3844,7 +3849,7 @@ test("POST /tongs/workpieces/:id/commit-file dispatches commitFile", async () =>
   assert.equal(body.ok, true);
 });
 
-test("POST /tongs/workpieces/:id/ready-transition forwards exact revision/hash authority", async () => {
+test("POST /tongs/workpieces/:id/ready-transition forwards explicit approval authority", async () => {
   const { service, calls } = mockService();
   const handler = createTongsCommitApiHandlerWithService(service, "test-token");
   const response = await handler(new Request(
@@ -3858,25 +3863,35 @@ test("POST /tongs/workpieces/:id/ready-transition forwards exact revision/hash a
       },
       body: JSON.stringify({
         workspace_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
-        script_path: "script/script.md",
-        expected_script_revision: 7,
-        expected_script_hash: "a".repeat(64),
-        idempotency_key: "hearth-publish:workpiece:7:hash",
+        script_approval_id: "77777777-7777-4777-8777-777777777777",
+        idempotency_key: "hearth-approved-ready:workpiece:approval",
         publish_evidence: {
-          transition: "hearth.script.published.v1",
-          script_path: "script/script.md",
-          script_revision: 7,
-          script_hash: "a".repeat(64),
-          validation: { validator_version: "shared-script-tags-v1", ok: true, issue_count: 0 },
+          transition: "hearth.approved-script.ready.v2",
+          script_approval_id: "77777777-7777-4777-8777-777777777777",
+          script_approval_revision: 7,
+          script_approval_hash: "a".repeat(64),
         },
       }),
     },
   ));
   assert.equal(response.status, 200);
   assert.equal(calls.transitionHearthScriptReady.length, 1);
-  assert.equal(calls.transitionHearthScriptReady[0].input.expected_script_revision, 7);
-  assert.equal(calls.transitionHearthScriptReady[0].input.expected_script_hash, "a".repeat(64));
+  assert.equal(calls.transitionHearthScriptReady[0].input.script_approval_id, "77777777-7777-4777-8777-777777777777");
   assert.equal(calls.transitionHearthScriptReady[0].input.user_access_token, "user-token");
+});
+
+test("GET /tongs/workpieces/:id/production-script returns Ready approval content", async () => {
+  const { service, calls } = mockService();
+  const handler = createTongsCommitApiHandlerWithService(service, "test-token");
+  const response = await handler(new Request("http://localhost/tongs/workpieces/11111111-1111-4111-8111-111111111111/production-script", {
+    headers: { authorization: "Bearer test-token", "x-forge-user-authorization": "Bearer user-token" },
+  }));
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(calls.getReadyProductionScript.length, 1);
+  assert.equal(calls.getReadyProductionScript[0].options.userAccessToken, "user-token");
+  assert.equal(body.data.script_approval_id, "77777777-7777-4777-8777-777777777777");
+  assert.equal(body.data.script_text, "Approved words");
 });
 
 test("POST recording-completion-v2 forwards media verification and does not require ASR evidence", async () => {

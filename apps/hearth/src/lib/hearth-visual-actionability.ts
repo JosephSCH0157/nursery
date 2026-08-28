@@ -1,5 +1,4 @@
 import type {
-  EpisodeBrollAssetCandidate,
   EpisodeBrollPlanBeat,
   EpisodeContextualDataCompositePlan,
   EpisodeExternalRequestState,
@@ -145,23 +144,15 @@ export const DEFAULT_EXTERNAL_GENERATION_PROVIDERS: ExternalGenerationProvider[]
   },
 ];
 
-function createClientId(prefix: string): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return `${prefix}:${crypto.randomUUID()}`;
-  }
-  return `${prefix}:${Date.now().toString(36)}:${Math.random().toString(36).slice(2, 10)}`;
-}
-
 function clean(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
   return trimmed ? trimmed : null;
 }
-
 function cleanArray(values: readonly string[] | null | undefined): string[] {
   if (!values) return [];
   return values.map((value) => value.trim()).filter(Boolean);
 }
-
+// End of Hearth visual actionability contracts.
 function resolveResultMode(format: string): "still" | "video" | "graphic_composite" {
   if (format === "still") return "still";
   if (format === "animated") return "video";
@@ -211,7 +202,6 @@ export function buildBrollBeatBrief(args: {
     licensing_editorial_notes: "Return source and usage rights note with each candidate.",
   };
 }
-
 export function buildReferenceClipBrief(args: {
   entry: EpisodeContextualDataCompositePlan;
   workpieceId: string;
@@ -354,33 +344,4 @@ export function advanceExternalRequestTracker(
     updated_at: new Date().toISOString(),
   };
 }
-
-export function createManualResultCandidate(args: {
-  assetClass: EpisodeVisualAssetClass;
-  beatId: string;
-  sourceLabel?: string | null;
-  sourceUrl: string;
-  title?: string | null;
-  durationMs?: number | null;
-  thumbnailPath?: string | null;
-  providerNote?: string | null;
-  usageNote?: string | null;
-}): EpisodeBrollAssetCandidate {
-  const now = new Date().toISOString();
-  return {
-    asset_id: createClientId(args.assetClass === "broll" ? "broll-manual-result" : "reference-manual-result"),
-    source: "external",
-    asset_class: args.assetClass,
-    source_beat_id: args.beatId,
-    source_label: clean(args.sourceLabel),
-    source_url: clean(args.sourceUrl),
-    provider_note: clean(args.providerNote),
-    usage_note: clean(args.usageNote),
-    label: clean(args.title) ?? clean(args.sourceLabel) ?? "Manual Result",
-    uri: clean(args.sourceUrl),
-    duration_ms: args.durationMs ?? null,
-    thumbnail_path: clean(args.thumbnailPath),
-    attached_at: now,
-    created_at: now,
-  };
-}
+// End of Hearth visual actionability contracts.

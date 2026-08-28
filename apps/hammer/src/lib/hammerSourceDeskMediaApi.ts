@@ -2,7 +2,6 @@ import { HAMMER_RUNTIME_WRITTEN_BY } from "../prep/hammerPrep";
 import { tongsFetch } from "./tongsFetch";
 import { normalizeWorkpieceRelativePath } from "../../../../packages/contracts/workpiece-paths";
 import { recordHammerBandwidthFetch } from "./hammerBandwidthTelemetry";
-import { deriveStableHammerAssetIdFromPath } from "./hammerAssetIdentity";
 export { normalizeWorkpieceRelativePath } from "../../../../packages/contracts/workpiece-paths";
 
 const INTRO_OUTRO_SELECTION_PATH = "hammer/session/intro-outro.v1.json";
@@ -377,12 +376,10 @@ export async function loadIntroOutroSelection(
   const schemaVersion = data.schema_version === 1 ? 1 : 1;
   const introAssetId = readString(data.intro_asset_id);
   const outroAssetId = readString(data.outro_asset_id);
-  const legacyIntroPath = readString(data.intro_path);
-  const legacyOutroPath = readString(data.outro_path);
   return {
     schema_version: schemaVersion,
-    intro_asset_id: introAssetId ?? (legacyIntroPath ? deriveStableHammerAssetIdFromPath(legacyIntroPath) : null),
-    outro_asset_id: outroAssetId ?? (legacyOutroPath ? deriveStableHammerAssetIdFromPath(legacyOutroPath) : null),
+    intro_asset_id: introAssetId,
+    outro_asset_id: outroAssetId,
     updated_at: readString(data.updated_at) ?? new Date().toISOString(),
   };
 }

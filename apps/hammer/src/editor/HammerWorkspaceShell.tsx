@@ -64,7 +64,6 @@ import {
 import { diffWords, isSubtractiveTranscriptWordEdit } from "../lib/hammerWordDiff";
 import { useHammerWorkspaceShellMediaPrepPackage } from "./hammerWorkspaceShellMediaPrepPackage";
 import { deriveLegacyVisualPlacementsFromTimeline } from "../visuals/persistence/hammerVisualTimelineLegacyAdapter";
-import { deriveStableHammerAssetIdFromPath } from "../lib/hammerAssetIdentity";
 import {
   buildIntroOutroCandidateItems,
   buildIntroOutroCandidateItemsById,
@@ -341,7 +340,7 @@ function resolveActiveExposureAdjustment(
 }
 
 type HammerSourceAssetItem = {
-  id: string;
+  id: string; canonicalAssetId: string | null;
   label: string;
   kind: HammerSourceAssetKind;
   assetPath: string | null;
@@ -1357,7 +1356,7 @@ function HammerWorkspaceShellWithContext(
     [sourceImageLibraryItems, visualBackgroundReplaceImageAssetPath],
   );
   const selectedBackgroundReplacementAssetId = useMemo(
-    () => selectedBackgroundReplacementAsset ? deriveStableHammerAssetIdFromPath(selectedBackgroundReplacementAsset.path) : null,
+    () => selectedBackgroundReplacementAsset?.assetId ?? null,
     [selectedBackgroundReplacementAsset],
   );
   const introOutroCandidateItems = useMemo(
@@ -1626,7 +1625,7 @@ function HammerWorkspaceShellWithContext(
       });
       if (!existing) {
         byId.set(assetKey, {
-          id: assetId,
+          id: assetId, canonicalAssetId: placement.canonical_asset_state === "canonical_proven" ? placement.canonical_asset_id ?? null : null,
           label: placement.label ?? placement.asset_ref ?? placement.asset_path ?? assetId,
           kind: nextKind,
           assetPath: placement.asset_path,
@@ -1652,7 +1651,7 @@ function HammerWorkspaceShellWithContext(
       const existing = byId.get(mediaRef.media_id);
       if (!existing) {
         byId.set(mediaRef.media_id, {
-          id: mediaRef.media_id,
+          id: mediaRef.media_id, canonicalAssetId: null,
           label: mediaPath ?? mediaRef.media_id,
           kind: mediaKind,
           assetPath: mediaPath,
@@ -1667,7 +1666,8 @@ function HammerWorkspaceShellWithContext(
     for (const file of storedMediaFiles) {
       if (byId.has(file.path)) continue;
       byId.set(file.path, {
-        id: file.path,
+        id: file.assetId ?? file.path,
+        canonicalAssetId: file.assetId,
         label: file.name,
         kind: file.kind,
         assetPath: file.path,

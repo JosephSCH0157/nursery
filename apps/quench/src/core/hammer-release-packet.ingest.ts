@@ -197,6 +197,7 @@ function parseVisualPlacements(value: unknown): HammerQuenchVisualPlacement[] | 
       start_sec: typeof row.start_sec === "number" ? row.start_sec : 0,
       end_sec: typeof row.end_sec === "number" ? row.end_sec : 0,
       asset_path: asString(row.asset_path),
+      media_reference: asObject(row.media_reference),
       status: asString(row.status) ?? "unknown",
     });
   }

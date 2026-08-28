@@ -19,6 +19,7 @@ import type {
   HammerPersistedVisualPlacements,
   HammerPrepStatus,
 } from "../persistence/hammerPersistenceContract";
+import type { HammerPackagingIntent } from "./hammerPackageMediaAuthority";
 
 export type HammerReleasePrepStatus =
   | "ready"
@@ -48,6 +49,7 @@ export interface HammerReleasePrepPackage {
   };
   text_outputs: HammerTextOutputPackage | null;
   media_prep_outputs: HammerMediaPrepOutputsPackage;
+  packaging_media: HammerPackagingIntent;
   media_backbone: {
     runtime: HammerMediaBackboneRuntimeSummary;
     audio_polish_plan: HammerAudioPolishExecutionPlan | null;
@@ -86,6 +88,7 @@ export interface BuildHammerReleasePrepPackageArgs {
   visualPlacementsPath?: string | null;
   audioPolishPath?: string | null;
   mediaBackboneRuntime?: HammerMediaBackboneRuntimeSummary | null | undefined;
+  packagingMedia?: HammerPackagingIntent;
 }
 
 function inferSourceExtension(pathLike: string | null | undefined): string | null {
@@ -236,6 +239,13 @@ export function buildHammerReleasePrepPackage(
     },
     text_outputs: textOutputs,
     media_prep_outputs: mediaPrepOutputs,
+    packaging_media: args.packagingMedia ?? {
+      schemaVersion: 1,
+      workspaceId: args.workspaceId ?? "",
+      workpieceId: args.workpieceId ?? "",
+      media: [],
+      readiness: { state: "ready", blockingPlacementIds: [] },
+    },
     media_backbone: {
       runtime,
       audio_polish_plan: audioPlan,

@@ -3,7 +3,6 @@ import { uploadBrollBeatAsset } from "../../lib/hearth-broll-plan-repo";
 import {
   advanceExternalRequestTracker,
   buildReferenceClipBrief,
-  createManualResultCandidate,
   formatVisualBriefAsText,
   type ExternalGenerationProvider,
 } from "../../lib/hearth-visual-actionability";
@@ -319,30 +318,16 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
       args.setReferenceClipSaveState("error");
       return;
     }
-    const candidate = createManualResultCandidate({
-      assetClass: "reference_clip",
-      beatId: args.selectedReferenceClipEntry.id,
-      sourceLabel: args.referenceClipSourceLabelDraft || "External provider",
-      sourceUrl,
-      title: args.referenceClipTitleDraft || args.selectedReferenceClipEntry.description,
-      providerNote: args.referenceClipProviderNoteDraft,
-      usageNote: args.referenceClipUsageNoteDraft,
-    });
     const nextEntry: EpisodeContextualDataCompositePlan = {
       ...args.selectedReferenceClipEntry,
       source_type: "external",
-      candidate_assets: [
-        ...(args.selectedReferenceClipEntry.candidate_assets ?? []).filter((asset) => asset.asset_id !== candidate.asset_id),
-        candidate,
-      ],
-      selected_asset_id: candidate.asset_id,
-      external_request: advanceExternalRequestTracker(args.selectedReferenceClipEntry.external_request, "asset_attached", {
+      external_request: advanceExternalRequestTracker(args.selectedReferenceClipEntry.external_request, "result_unregistered", {
         providerId: args.referenceClipProviderIdDraft,
         sourceUrl: args.referenceClipSourceUrlDraft,
         providerNote: args.referenceClipProviderNoteDraft,
         usageNote: args.referenceClipUsageNoteDraft,
         resultMetadata: args.referenceClipResultMetadataDraft,
-        attachedAssetId: candidate.asset_id,
+        attachedAssetId: null,
       }),
       updated_at: new Date().toISOString(),
     };
@@ -364,7 +349,7 @@ export function useReferenceClipBridgeActions(args: UseReferenceClipBridgeAction
       return;
     }
     args.setReferenceClipSaveState("saved");
-    args.setReferenceClipMessage("Result URL attached as a classed reference clip candidate.");
+    args.setReferenceClipMessage("Result URL recorded as external provenance. Import the media through Tongs before attaching it as a production Reference Clip.");
   }, [args]);
 
   const onUploadReferenceClipAsset = useCallback(async (file: File) => {

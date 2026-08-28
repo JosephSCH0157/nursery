@@ -22,6 +22,9 @@ export * from "./storage/resolve-mount.js";
 export * from "./storage/storage-guard.js";
 export * from "./providers/image-provider.js";
 export * from "./asset-variant-resolver.js";
+export * from "./canonical-asset-authority.js";
+export * from "./publishing-destination-authority.js";
+export * from "./publication-operation-authority.js";
 export * from "./image-map-anchor-authority.js";
 export type {
   WorkspaceCanonicalRecordingListing,

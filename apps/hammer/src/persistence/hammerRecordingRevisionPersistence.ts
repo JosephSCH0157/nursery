@@ -175,18 +175,34 @@ export type OpenHammerRecordingSessionResult = {
   revision: HammerRecordingRevisionRecord;
 };
 
+export type HammerPreparationAttemptRecord = {
+  id: string; workspace_id: string; workpiece_id: string; canonical_recording_id: string;
+  recording_revision_id: string; source_kind: "anvil_capture" | "hammer_import" | "legacy_unresolved";
+  source_authority_id: string | null; source_capture_authority_id: string | null;
+  media_path: string; media_id: string; media_hash: string | null;
+  transcript_policy: "reuse_only" | "allow_ai_fallback";
+  state: "reserved" | "resolving_recording" | "resolving_transcript" | "awaiting_transcript_choice" | "transcribing" | "hydrating" | "ready" | "recoverable_failure" | "blocked" | "superseded";
+  state_version: number; transcript_job_id: string | null; transcript_artifact_path: string | null;
+  failure_code: string | null; failure_detail: string | null; retry_count: number; updated_at: string;
+};
+
+export type OpenHammerAuthorityResult = OpenHammerRecordingSessionResult & {
+  preparation_attempt: HammerPreparationAttemptRecord;
+};
+
 export async function openHammerRecordingSession(
   target: HammerPersistenceTarget,
-  args?: { revision_label?: string | null },
-): Promise<PersistenceResult<OpenHammerRecordingSessionResult>> {
+  args?: { revision_label?: string | null; operation_key?: string },
+): Promise<PersistenceResult<OpenHammerAuthorityResult>> {
   let response: Response;
   try {
     response = await tongsFetch(
-      `/tongs/workspaces/${encodeURIComponent(target.workspaceId)}/workpieces/${encodeURIComponent(target.workpieceId)}/hammer/session`,
+      `/tongs/workspaces/${encodeURIComponent(target.workspaceId)}/workpieces/${encodeURIComponent(target.workpieceId)}/hammer/open-authority`,
       {
         method: "POST",
         json: {
-          written_by: { ...HAMMER_RUNTIME_WRITTEN_BY },
+          operation_key: args?.operation_key ?? `hammer-open:${crypto.randomUUID()}`,
+          transcript_policy: "reuse_only",
           ...(typeof args?.revision_label === "undefined" ? {} : { revision_label: args.revision_label }),
         },
         timeoutMs: 45_000,
@@ -212,11 +228,12 @@ export async function openHammerRecordingSession(
   const data = readJsonObject(root?.data);
   const canonical = (data?.canonical_recording ?? null) as HammerCanonicalRecordingRecord | null;
   const revision = (data?.revision ?? null) as HammerRecordingRevisionRecord | null;
-  if (!canonical?.id || !revision?.id) {
+  const preparationAttempt = (data?.preparation_attempt ?? null) as HammerPreparationAttemptRecord | null;
+  if (!canonical?.id || !revision?.id || !preparationAttempt?.id) {
     return { ok: false, status: response.status, error: "Hammer session response was invalid." };
   }
 
-  return { ok: true, status: response.status, data: { canonical_recording: canonical, revision } };
+  return { ok: true, status: response.status, data: { canonical_recording: canonical, revision, preparation_attempt: preparationAttempt } };
 }
 
 export type HammerCanonicalBaselineArtifacts = {
@@ -302,6 +319,26 @@ export async function readHammerRecordingRevision(
   const revision = (data?.revision ?? null) as HammerRecordingRevisionRecord | null;
   if (!canonical?.id || !revision?.id) return { ok: false, status: response.status, error: "Hammer revision response was invalid." };
   return { ok: true, status: response.status, data: { canonical_recording: canonical, revision } };
+}
+
+export async function advanceHammerPreparation(args: {
+  target: HammerPersistenceTarget; attempt: HammerPreparationAttemptRecord;
+  action: "await_transcript_choice" | "begin_hydration" | "mark_ready" | "retry" | "fail_recoverable" | "block";
+  transcriptArtifactPath?: string | null; failureCode?: string | null; failureDetail?: string | null;
+}): Promise<PersistenceResult<HammerPreparationAttemptRecord>> {
+  let response: Response;
+  try {
+    response = await tongsFetch(`/tongs/workspaces/${encodeURIComponent(args.target.workspaceId)}/workpieces/${encodeURIComponent(args.target.workpieceId)}/hammer/preparations/${encodeURIComponent(args.attempt.id)}/advance`, {
+      method:"POST", json:{ expected_state_version:args.attempt.state_version, action:args.action,
+        transcript_artifact_path:args.transcriptArtifactPath ?? null, failure_code:args.failureCode ?? null,
+        failure_detail:args.failureDetail ?? null }, timeoutMs:20_000,
+    });
+  } catch (error) { return { ok:false,status:504,error:toErrorMessage(error,"Failed to update Hammer preparation.") }; }
+  const payload=await readJsonBody(response);
+  if(!response.ok) { const info=readErrorInfo(payload,"Failed to update Hammer preparation."); return {ok:false,status:response.status,error:info.message,error_code:info.code}; }
+  const root=readJsonObject(payload),data=readJsonObject(root?.data);
+  const attempt=(data?.preparation_attempt??null) as HammerPreparationAttemptRecord|null;
+  return attempt?.id?{ok:true,status:response.status,data:attempt}:{ok:false,status:502,error:"Preparation response was invalid."};
 }
 
 type HammerRevisionEditorialAuthorityArtifactV1 = {

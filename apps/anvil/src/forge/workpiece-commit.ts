@@ -187,6 +187,9 @@ export type AnvilCaptureAuthority = Readonly<{
   scriptPath: string;
   scriptRevision: number;
   scriptHash: string;
+  scriptApprovalId: string;
+  scriptApprovalRevision: number;
+  scriptApprovalHash: string;
   operationKey: string;
   provenance: "live_established" | "completion_backfill";
 }>;
@@ -758,11 +761,20 @@ async function resolveRecordingCaptureTarget(): Promise<RecordingCaptureTargetRe
     workpieceId: normalizeUuid(row?.workpiece_id)!, recordingSessionId: normalizeUuid(row?.recording_session_id),
     readyTransitionId: normalizeUuid(row?.ready_transition_id), scriptPath: readString(row?.script_path)!,
     scriptRevision: Number(row?.script_revision), scriptHash: readString(row?.script_hash)!.toLowerCase(),
+    scriptApprovalId: normalizeUuid(row?.script_approval_id) ?? "", scriptApprovalRevision: Number(row?.script_approval_revision),
+    scriptApprovalHash: (readString(row?.script_approval_hash) ?? "").toLowerCase(),
     operationKey: readString(row?.operation_key)!, provenance: row?.provenance === "completion_backfill" ? "completion_backfill" : "live_established",
   });
   if (authority.workspaceId !== workspaceId || authority.workpieceId !== workpieceId || authority.captureSessionId !== captureSessionId
-    || !authority.scriptPath || !Number.isInteger(authority.scriptRevision) || authority.scriptRevision <= 0 || !/^[0-9a-f]{64}$/.test(authority.scriptHash)) {
+    || !authority.scriptPath || !Number.isInteger(authority.scriptRevision) || authority.scriptRevision <= 0 || !/^[0-9a-f]{64}$/.test(authority.scriptHash)
+    || !authority.scriptApprovalId || !Number.isInteger(authority.scriptApprovalRevision) || authority.scriptApprovalRevision <= 0
+    || authority.scriptApprovalHash !== authority.scriptHash) {
     return { ok: false, reason: "capture_authority_contract_malformed", status: 502, details: body, workspaceId, workpieceId };
+  }
+  if (normalizeUuid(identity?.scriptApprovalId) !== authority.scriptApprovalId
+    || Number(identity?.scriptApprovalRevision) !== authority.scriptApprovalRevision
+    || readString(identity?.scriptApprovalHash)?.toLowerCase() !== authority.scriptApprovalHash) {
+    return { ok: false, reason: "displayed_script_approval_mismatch", status: 409, details: body, workspaceId, workpieceId };
   }
   activeCaptureAuthority = authority;
   writeSessionStorage(CAPTURE_AUTHORITY_KEY, authority.id);

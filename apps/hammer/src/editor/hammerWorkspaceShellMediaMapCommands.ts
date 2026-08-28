@@ -2,7 +2,6 @@ import type { HammerTranscriptSegment } from "../../../../packages/contracts/ham
 import type { HammerVisualPlacementRecord } from "../persistence/hammerPersistenceContract";
 import { DEFAULT_VISUAL_PLACEMENT_GEOMETRY } from "./hammerWorkspaceShellVisualUtils";
 import {
-  deriveStableHammerVisualAssetId,
   migrateLegacyPlacementRecordToAsset,
   migrateLegacyPlacementRecordToClip,
 } from "../visuals/model/hammerVisualMigrations";
@@ -205,7 +204,8 @@ export function createHammerMediaMapMutationCommands(args: {
           overlay_z_index: resolveCanonicalWorkspaceVisualTimeline(before).clips.length + 1,
         };
         const updatedAt = new Date().toISOString();
-        const assetId = deriveStableHammerVisualAssetId(brollPlacement);
+        const assetId = brollPlacement.canonical_asset_state === "canonical_proven" ? brollPlacement.canonical_asset_id : null;
+        if (!assetId) return before;
         const nextClip = migrateLegacyPlacementRecordToClip({ record: brollPlacement, asset_id: assetId, updated_at: updatedAt });
         const asset = migrateLegacyPlacementRecordToAsset({ record: brollPlacement, asset_id: assetId, updated_at: updatedAt });
         return applyWorkspaceVisualTimelineActions({ ...before, editorialAuthorityGraph: nextGraph }, [
@@ -339,7 +339,8 @@ export function createHammerMediaMapMutationCommands(args: {
             overlay_opacity: clip.opacity,
             overlay_z_index: clip.z_index,
           };
-          const assetId = deriveStableHammerVisualAssetId(nextRecord);
+          const assetId = clip.canonical_asset_state === "canonical_proven" ? clip.canonical_asset_id : null;
+          if (!assetId) return timeline;
           const asset = migrateLegacyPlacementRecordToAsset({
             record: nextRecord,
             asset_id: assetId,

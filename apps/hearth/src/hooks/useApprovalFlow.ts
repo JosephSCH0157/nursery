@@ -155,6 +155,7 @@ export function useApprovalFlow(args: UseApprovalFlowArgs): {
         workpieceId: episodeId,
         workspaceId: args.workspaceId,
         creatorVersion: nextVersion,
+        scriptText: normalizedText,
       });
       if (!args.operationAuthority.isCurrent(operation)) return false;
       if (!authorityCommit.ok) {

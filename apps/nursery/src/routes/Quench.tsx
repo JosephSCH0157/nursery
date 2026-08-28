@@ -7,6 +7,7 @@ import {
   type PlatformCapabilities,
   type PlatformPublishOptions,
   type PublishContext,
+  type PublicationExecutionContext,
   type QuenchMockReleaseCase,
   type QuenchPlatform,
   type QuenchReleaseReadinessVerdict,
@@ -21,8 +22,9 @@ import {
   YouTubeAdapter,
   listQuenchMockReleaseCases,
   resolveReleaseAssets,
-  isQuenchCanonicalReleaseProjection,
   type QuenchCanonicalReleaseProjection,
+  isQuenchOpenAuthority,
+  type QuenchOpenAuthority,
   isQuenchCandidateSelectable,
   getQuenchExperimentCapability,
 } from "@forge/quench";
@@ -40,6 +42,7 @@ import type { AppShellContext } from "./AppShell";
 import "./Quench.css";
 
 const QUENCH_ADAPTERS = [new YouTubeAdapter(), new RssAdapter()];
+type PublicationDestination = { executable_destination_id:string;display_label:string;provider:string;destination_kind:string;capability_revision_id:string;capability_revision:number;capability_content_hash:string };
 
 const PLATFORM_LABELS: Record<QuenchPlatform, string> = {
   youtube: "YouTube",
@@ -88,11 +91,16 @@ type QuenchPreparedReleaseState = {
   loadedPreparedAt: string | null;
 };
 
-type QuenchPreparedReleaseResolvedHandoff = QuenchPreparedReleaseHandoff & {
-  workpieceId: string;
-  packagePath: string;
-};
 type QuenchReleaseConsoleCase = QuenchMockReleaseCase & { authority: "canonical"|"fixture"; canonical_projection?: QuenchCanonicalReleaseProjection };
+
+function getQuenchOpenOperationId(workspaceId:string,workpieceId:string):string{
+  const key=`forge.quench.open-authority.v1:${workspaceId}:${workpieceId}`;
+  try{const existing=window.sessionStorage.getItem(key);if(existing)return existing;const created=crypto.randomUUID();window.sessionStorage.setItem(key,created);return created;}catch{return crypto.randomUUID();}
+}
+
+function resetQuenchOpenOperationId(workspaceId:string,workpieceId:string):void{
+  try{window.sessionStorage.removeItem(`forge.quench.open-authority.v1:${workspaceId}:${workpieceId}`);}catch{/* recovery hint only */}
+}
 
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -320,6 +328,12 @@ export default function QuenchRoute() {
   const [validations, setValidations] = useState<Partial<Record<QuenchPlatform, AdapterValidationResult>>>({});
   const [publishResults, setPublishResults] = useState<Partial<Record<QuenchPlatform, AdapterPublishResult>>>({});
   const [boardUpdatedAt, setBoardUpdatedAt] = useState<string | null>(null);
+  const [publicationDestinations,setPublicationDestinations]=useState<PublicationDestination[]>([]);
+  const [selectedPublicationDestinationId,setSelectedPublicationDestinationId]=useState<string>("");
+  const [publicationCommandState,setPublicationCommandState]=useState<"idle"|"establishing"|"reserved"|"recorded"|"error">("idle");
+  const [publicationCommandMessage,setPublicationCommandMessage]=useState<string|null>(null);
+  const [publicationOperationId,setPublicationOperationId]=useState<string|null>(null);
+  const [publicationOperationKey,setPublicationOperationKey]=useState<string|null>(null);
   const [metadataAssistState, setMetadataAssistState] = useState<"idle" | "running" | "ready" | "error">("idle");
   const [metadataAssistError, setMetadataAssistError] = useState<string | null>(null);
   const [metadataAssistDraft, setMetadataAssistDraft] = useState<{
@@ -333,196 +347,39 @@ export default function QuenchRoute() {
   const [experimentMessage, setExperimentMessage] = useState<string | null>(null);
   const [thumbnailSelectionState,setThumbnailSelectionState]=useState<"idle"|"saving"|"saved"|"conflict"|"error">("idle");
   const [thumbnailSelectionMessage,setThumbnailSelectionMessage]=useState<string|null>(null);
+  const [openAuthority,setOpenAuthority]=useState<QuenchOpenAuthority|null>(null);
+  const [openRevision,setOpenRevision]=useState(0);
 
   useEffect(() => {
     let cancelled = false;
     const handoff = parsePreparedReleaseHandoff(location.search);
-    if (!handoff) {
-      if(routeCtx.workpieceId&&shell.workspaceId){
-        queueMicrotask(()=>setPreparedHandoffState({status:"loading",handoff:null,message:null,warning:null,loadedFingerprint:null,loadedPreparedAt:null}));
-        void (async()=>{try{const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(routeCtx.workpieceId!)}/quench/release-projection`,{method:"POST",json:{workspace_id:shell.workspaceId},timeoutMs:45_000});const payload=await readResponseJson(response);const root=readJsonObject(payload);const projection=root?.ok===true?root.data:null;if(!response.ok||!isQuenchCanonicalReleaseProjection(projection))throw new Error(readString(readJsonObject(root?.error)?.message)??"Canonical Quench release authority is unavailable.");if(cancelled)return;setHandoffPreparedCase(buildCanonicalReleaseCase(projection));setPreparedHandoffState({status:"ready",handoff:null,message:null,warning:null,loadedFingerprint:projection.hammer.manifest_content_hash,loadedPreparedAt:projection.hammer.manifest.generated_at});}catch(error){if(cancelled)return;setHandoffPreparedCase(null);setPreparedHandoffState({status:"error",handoff:null,message:error instanceof Error?error.message:"Canonical Quench release authority is unavailable.",warning:null,loadedFingerprint:null,loadedPreparedAt:null});}})();
-        return()=>{cancelled=true;};
-      }
-      queueMicrotask(() => {
-        setHandoffPreparedCase(null);
-        setPreparedHandoffState({
-          status: "idle",
-          handoff: null,
-          message: null,
-          warning: null,
-          loadedFingerprint: null,
-          loadedPreparedAt: null,
-        });
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
-
-    if (!handoff.workpieceId || !handoff.packagePath) {
-      queueMicrotask(() => {
-        setHandoffPreparedCase(null);
-        setPreparedHandoffState({
-          status: "error",
-          handoff,
-          message: "This release handoff is incomplete. Reopen Prepare Release from Editing.",
-          warning: null,
-          loadedFingerprint: null,
-          loadedPreparedAt: null,
-        });
-      });
-      return () => {
-        cancelled = true;
-      };
-    }
-    const activeHandoff: QuenchPreparedReleaseResolvedHandoff = {
-      ...handoff,
-      workpieceId: handoff.workpieceId,
-      packagePath: handoff.packagePath,
-    };
-
-    queueMicrotask(() => {
-      setPreparedHandoffState({
-        status: "loading",
-        handoff: activeHandoff,
-        message: null,
-        warning: null,
-        loadedFingerprint: null,
-        loadedPreparedAt: null,
-      });
-    });
-
-    async function loadPreparedHandoff(): Promise<void> {
+    const workspaceId=routeCtx.workspaceId;const workpieceId=routeCtx.workpieceId;
+    queueMicrotask(()=>setPreparedHandoffState({status:"loading",handoff,message:null,warning:null,loadedFingerprint:null,loadedPreparedAt:null}));
+    async function loadReviewAuthority():Promise<void>{
       try {
-        const response = await tongsFetch(
-          `/tongs/workpieces/${encodeURIComponent(activeHandoff.workpieceId)}/read-file?path=${encodeURIComponent(activeHandoff.packagePath)}`,
-          {
-            method: "GET",
-            timeoutMs: 45_000,
-          },
-        );
-        const payload = await readResponseJson(response);
-        if (!response.ok) {
-          const root = readJsonObject(payload);
-          const errorMessage = readString(readJsonObject(root?.error)?.message)
-            ?? "Quench could not load this release handoff from Tongs.";
-          if (cancelled) return;
-          setHandoffPreparedCase(null);
-          setPreparedHandoffState({
-            status: "error",
-            handoff: activeHandoff,
-            message: errorMessage,
-            warning: null,
-            loadedFingerprint: null,
-            loadedPreparedAt: null,
-          });
-          return;
+        if(!workspaceId||!workpieceId)throw new Error("Source Conflict: Quench requires explicit route workspace and workpiece identity.");
+        let loadedFingerprint:string|null=null;let loadedPreparedAt:string|null=null;
+        if(handoff){
+          if(!handoff.workspaceId||!handoff.workpieceId||!handoff.packagePath)throw new Error("Source Conflict: this prepared release handoff is incomplete.");
+          if(handoff.workspaceId!==workspaceId||handoff.workpieceId!==workpieceId)throw new Error("Source Conflict: route and Hammer handoff identities disagree.");
+          const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(handoff.packagePath)}`,{method:"GET",timeoutMs:45_000});const payload=await readResponseJson(response);const root=readJsonObject(payload);
+          if(!response.ok||root?.exists!==true)throw new Error("Manifest Missing: the prepared release package cannot be retrieved.");
+          const pkg=normalizePreparedReleasePackage(root.data);if(!pkg)throw new Error("Source Conflict: the prepared release package is incompatible.");
+          if(pkg.workspaceId!==workspaceId||pkg.workpieceId!==workpieceId)throw new Error("Source Conflict: route, handoff, and package identities disagree.");
+          if(handoff.expectedVersion!=null&&pkg.version!==handoff.expectedVersion)throw new Error("Source Conflict: the prepared release package version changed.");
+          loadedFingerprint=buildPreparedPackageIdentityFingerprint(pkg);loadedPreparedAt=pkg.preparedAt;
+          if(handoff.expectedFingerprint&&handoff.expectedFingerprint!==loadedFingerprint)throw new Error("Source Conflict: the prepared release package changed after Hammer created this handoff.");
         }
-
-        const root = readJsonObject(payload);
-        if (root?.exists !== true) {
-          if (cancelled) return;
-          setHandoffPreparedCase(null);
-          setPreparedHandoffState({
-            status: "error",
-            handoff: activeHandoff,
-            message: "The prepared release for this episode could not be found. Reopen Prepare Release from Editing.",
-            warning: null,
-            loadedFingerprint: null,
-            loadedPreparedAt: null,
-          });
-          return;
-        }
-
-        const pkg = normalizePreparedReleasePackage(root?.data);
-        if (!pkg) {
-          if (cancelled) return;
-          setHandoffPreparedCase(null);
-          setPreparedHandoffState({
-            status: "error",
-            handoff: activeHandoff,
-            message: "This release handoff is incompatible with the current Quench flow.",
-            warning: null,
-            loadedFingerprint: null,
-            loadedPreparedAt: null,
-          });
-          return;
-        }
-
-        if (pkg.workpieceId !== activeHandoff.workpieceId) {
-          if (cancelled) return;
-          setHandoffPreparedCase(null);
-          setPreparedHandoffState({
-            status: "error",
-            handoff: activeHandoff,
-            message: "This prepared release does not match the episode in the current workflow.",
-            warning: null,
-            loadedFingerprint: null,
-            loadedPreparedAt: pkg.preparedAt,
-          });
-          return;
-        }
-
-        if (activeHandoff.expectedVersion != null && pkg.version !== activeHandoff.expectedVersion) {
-          if (cancelled) return;
-          setHandoffPreparedCase(null);
-          setPreparedHandoffState({
-            status: "error",
-            handoff: activeHandoff,
-            message: "This release handoff is out of date. Reopen Prepare Release from Editing.",
-            warning: null,
-            loadedFingerprint: null,
-            loadedPreparedAt: pkg.preparedAt,
-          });
-          return;
-        }
-
-        const loadedFingerprint = buildPreparedPackageIdentityFingerprint(pkg);
-        const warning = activeHandoff.expectedFingerprint && activeHandoff.expectedFingerprint !== loadedFingerprint
-          ? "Release prep changed after Editing created this handoff. Review the latest package before publishing."
-          : activeHandoff.workspaceId && pkg.workspaceId && activeHandoff.workspaceId !== pkg.workspaceId
-            ? "This prepared release belongs to a different workspace than the current route."
-            : null;
-        const canonicalWorkspaceId=pkg.workspaceId??activeHandoff.workspaceId??shell.workspaceId;
-        if(!canonicalWorkspaceId)throw new Error("Canonical workspace context is required for Quench release resolution.");
-        const projectionResponse=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(activeHandoff.workpieceId)}/quench/release-projection`,{method:"POST",json:{workspace_id:canonicalWorkspaceId},timeoutMs:45_000});
-        const projectionPayload=await readResponseJson(projectionResponse);const projectionRoot=readJsonObject(projectionPayload);const projection=projectionRoot?.ok===true?projectionRoot.data:null;
-        if(!projectionResponse.ok||!isQuenchCanonicalReleaseProjection(projection)){
-          const code=readString(readJsonObject(projectionRoot?.error)?.code);throw new Error(code?`Canonical Quench release resolution failed: ${code.replaceAll("_"," ")}.`:"Canonical Quench release authority is unavailable.");
-        }
-        const preparedCase = buildCanonicalReleaseCase(projection);
-        if (cancelled) return;
-        setHandoffPreparedCase(preparedCase);
-        setPreparedHandoffState({
-          status: "ready",
-          handoff: activeHandoff,
-          message: null,
-          warning,
-          loadedFingerprint,
-          loadedPreparedAt: pkg.preparedAt,
-        });
-      } catch (error) {
-        if (cancelled) return;
-        const message = error instanceof Error && error.message.trim()
-          ? error.message
-          : "Quench could not load this release handoff.";
-        setHandoffPreparedCase(null);
-        setPreparedHandoffState({
-          status: "error",
-          handoff: activeHandoff,
-          message,
-          warning: null,
-          loadedFingerprint: null,
-          loadedPreparedAt: null,
-        });
+        const openOperationId=getQuenchOpenOperationId(workspaceId,workpieceId);
+        const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/quench/open-authority`,{method:"POST",json:{workspace_id:workspaceId,open_operation_id:openOperationId},timeoutMs:45_000});const payload=await readResponseJson(response);const root=readJsonObject(payload);const authority=root?.ok===true?root.data:null;
+        if(!response.ok||!isQuenchOpenAuthority(authority))throw new Error(readString(readJsonObject(root?.error)?.message)??"Quench could not establish immutable open authority.");
+        if(authority.workspace_id!==workspaceId||authority.workpiece_id!==workpieceId||authority.review_projection.hammer.manifest_snapshot_id!==authority.manifest_snapshot_id||authority.review_projection.hammer.manifest_content_hash!==authority.manifest_content_hash)throw new Error("Source Conflict: Tongs returned disagreeing Quench authority.");
+        if(cancelled)return;setOpenAuthority(authority);setHandoffPreparedCase(buildCanonicalReleaseCase(authority.review_projection));setPreparedHandoffState({status:"ready",handoff,message:null,warning:authority.newer_manifest_available?"New Package Available: this review remains on its original manifest until you explicitly review the new package.":null,loadedFingerprint:loadedFingerprint??authority.manifest_content_hash,loadedPreparedAt:loadedPreparedAt??authority.opened_at});
+      }catch(error){if(cancelled)return;setOpenAuthority(null);setHandoffPreparedCase(null);setPreparedHandoffState({status:"error",handoff,message:error instanceof Error?error.message:"Quench could not open this review.",warning:null,loadedFingerprint:null,loadedPreparedAt:null});
       }
     }
-
-    void loadPreparedHandoff();
-    return () => {
-      cancelled = true;
-    };
-  }, [location.search, routeCtx.workpieceId, shell.workspaceId]);
+    void loadReviewAuthority();return()=>{cancelled=true;};
+  },[location.search,openRevision,routeCtx.workspaceId,routeCtx.workpieceId]);
 
   const applySelectedCaseDefaults = useCallback((nextCase: QuenchReleaseConsoleCase) => {
     setSelectedCaseId(nextCase.case_id);
@@ -555,8 +412,10 @@ export default function QuenchRoute() {
   const thumbnailSelectionScope=canonicalProjection?.destination_capabilities.find((scope)=>scope.platform==="youtube"&&scope.state==="active")??canonicalProjection?.destination_capabilities.find((scope)=>scope.state==="active")??null;
   const thumbnailSelectionDecision=thumbnailSelectionScope?canonicalProjection?.current_decisions.find((decision)=>decision.destination_scope_id===thumbnailSelectionScope.id)??null:null;
   const experimentCapability=getQuenchExperimentCapability(thumbnailSelectionScope);
+  useEffect(()=>{let cancelled=false;async function load(){if(!openAuthority){setPublicationDestinations([]);setSelectedPublicationDestinationId("");return;}try{const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(openAuthority.workpiece_id)}/quench/publication-destinations`,{method:"POST",json:{workspace_id:openAuthority.workspace_id},timeoutMs:45_000});const payload=await readResponseJson(response);const root=readJsonObject(payload);const rows=Array.isArray(root?.data)?root.data.filter((entry):entry is PublicationDestination=>!!entry&&typeof entry==="object"&&typeof (entry as Record<string,unknown>).executable_destination_id==="string"&&typeof (entry as Record<string,unknown>).capability_revision_id==="string"):[];if(cancelled)return;setPublicationDestinations(rows);setSelectedPublicationDestinationId((current)=>rows.some((row)=>row.executable_destination_id===current)?current:rows[0]?.executable_destination_id??"");}catch{if(!cancelled){setPublicationDestinations([]);setSelectedPublicationDestinationId("");}}}void load();return()=>{cancelled=true;};},[openAuthority]);
+  useEffect(()=>{let cancelled=false;async function recover(){if(!openAuthority)return;try{const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(openAuthority.workpiece_id)}/quench/publication-operations`,{method:"POST",json:{workspace_id:openAuthority.workspace_id,manifest_snapshot_id:openAuthority.manifest_snapshot_id},timeoutMs:45_000});const payload=await readResponseJson(response);const rows=readJsonObject(payload)?.data;if(cancelled||!Array.isArray(rows)||!rows.length)return;const latest=readJsonObject(rows[0]);const operationId=readString(latest?.publication_operation_id);if(!operationId)return;setPublicationOperationId(operationId);setSelectedPublicationDestinationId(readString(latest?.executable_destination_id)??"");setPublicationCommandState(readString(latest?.operation_state)==="reserved"?"reserved":"recorded");setPublicationCommandMessage(`Recovered durable publication operation ${operationId}; refresh did not rebuild its authority.`);}catch{/* recovery failure does not manufacture authority */}}void recover();return()=>{cancelled=true;};},[openAuthority]);
   useEffect(()=>{if(thumbnailSelectionDecision?.decision?.decision_kind!=="experiment_intent"||thumbnailSelectionDecision.decision.intent_state!=="experiment_planned")return;const control=thumbnailSelectionDecision.assignments?.find((entry)=>entry.assignment_role==="control")?.candidate_revision_id;const variants=thumbnailSelectionDecision.assignments?.filter((entry)=>entry.assignment_role==="variant").map((entry)=>String(entry.candidate_revision_id))??[];setExperimentControlId(typeof control==="string"?control:null);setExperimentVariantIds(variants);},[thumbnailSelectionDecision]);
-  const selectCanonicalThumbnail=useCallback(async(candidateId:string)=>{if(!canonicalProjection||!thumbnailSelectionScope)return;setThumbnailSelectionState("saving");setThumbnailSelectionMessage(null);try{const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(canonicalProjection.workpiece_id)}/quench/select-candidate`,{method:"POST",json:{workspace_id:canonicalProjection.workspace_id,destination_scope_id:thumbnailSelectionScope.id,candidate_revision_id:candidateId,expected_decision_id:thumbnailSelectionDecision?.current_decision_id??null,expected_revision:thumbnailSelectionDecision?.current_revision??0,operation_id:crypto.randomUUID()},timeoutMs:45_000});const payload=await readResponseJson(response);const root=readJsonObject(payload);const result=readJsonObject(root?.data);const disposition=readString(result?.disposition);if(!response.ok)throw new Error(readString(readJsonObject(root?.error)?.message)??"Selection failed.");if(disposition==="revision_conflict"){setThumbnailSelectionState("conflict");setThumbnailSelectionMessage("The canonical decision advanced. Reloaded the latest Tongs authority; review before retrying.");}else if(!["committed","replayed","no_change"].includes(disposition??"")){throw new Error(`Selection was not committed: ${(disposition??"blocked").replaceAll("_"," ")}.`);}else{setThumbnailSelectionState("saved");setThumbnailSelectionMessage(disposition==="no_change"?"That candidate is already the canonical selection.":disposition==="replayed"?"The original canonical selection was restored from its operation receipt.":"Canonical thumbnail selection committed.");}const refresh=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(canonicalProjection.workpiece_id)}/quench/release-projection`,{method:"POST",json:{workspace_id:canonicalProjection.workspace_id},timeoutMs:45_000});const refreshPayload=await readResponseJson(refresh);const refreshRoot=readJsonObject(refreshPayload);if(refresh.ok&&isQuenchCanonicalReleaseProjection(refreshRoot?.data))setHandoffPreparedCase(buildCanonicalReleaseCase(refreshRoot.data));}catch(error){setThumbnailSelectionState("error");setThumbnailSelectionMessage(error instanceof Error?error.message:"Selection failed.");}},[canonicalProjection,thumbnailSelectionDecision,thumbnailSelectionScope]);
+  const selectCanonicalThumbnail=useCallback(async(candidateId:string)=>{if(!canonicalProjection||!thumbnailSelectionScope||!openAuthority)return;setThumbnailSelectionState("saving");setThumbnailSelectionMessage(null);try{const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(canonicalProjection.workpiece_id)}/quench/select-candidate`,{method:"POST",json:{workspace_id:canonicalProjection.workspace_id,destination_scope_id:thumbnailSelectionScope.id,candidate_revision_id:candidateId,manifest_snapshot_id:openAuthority.manifest_snapshot_id,expected_decision_id:thumbnailSelectionDecision?.current_decision_id??null,expected_revision:thumbnailSelectionDecision?.current_revision??0,operation_id:crypto.randomUUID()},timeoutMs:45_000});const payload=await readResponseJson(response);const root=readJsonObject(payload);const result=readJsonObject(root?.data);const disposition=readString(result?.disposition);if(!response.ok)throw new Error(readString(readJsonObject(root?.error)?.message)??"Selection failed.");if(disposition==="revision_conflict"){setThumbnailSelectionState("conflict");setThumbnailSelectionMessage("The canonical decision advanced. Reload this same review authority before retrying.");}else if(!["committed","replayed","no_change"].includes(disposition??"")){throw new Error(`Selection was not committed: ${(disposition??"blocked").replaceAll("_"," ")}.`);}else{setThumbnailSelectionState("saved");setThumbnailSelectionMessage(disposition==="no_change"?"That candidate is already the canonical selection.":disposition==="replayed"?"The original canonical selection was restored from its operation receipt.":"Canonical thumbnail selection committed.");}setOpenRevision((value)=>value+1);}catch(error){setThumbnailSelectionState("error");setThumbnailSelectionMessage(error instanceof Error?error.message:"Selection failed.");}},[canonicalProjection,openAuthority,thumbnailSelectionDecision,thumbnailSelectionScope]);
   const readinessVerdict = selectedCase
     ? deriveReleasePacketReadinessVerdict(selectedCase.packet, resolvedAssets, selectedPlatforms)
     : null;
@@ -650,37 +509,19 @@ export default function QuenchRoute() {
     };
   }, [publishOptions, readinessVerdict?.ready, readinessVerdict?.status, resolvedAssets, runMode, selectedCase]);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadPublishBoard() {
-      if (!selectedCase || selectedPlatforms.length === 0 || !readinessVerdict || !canExecuteQuenchPublish(readinessVerdict)) {
-        setPublishResults({});
-        setBoardUpdatedAt(null);
-        return;
-      }
-
-      const context = buildPublishContext(runMode, resolvedAssets, readinessVerdict);
-      const nextEntries = await Promise.all(
-        QUENCH_ADAPTERS
-          .filter((adapter) => selectedPlatforms.includes(adapter.platform))
-          .map(async (adapter) => {
-            const options = publishOptions[adapter.platform] ?? getDefaultPublishOptions(adapter.platform);
-            const result = await adapter.publish(selectedCase.packet, options, context);
-            return [adapter.platform, result] as const;
-          }),
-      );
-
-      if (cancelled) return;
-      setPublishResults(Object.fromEntries(nextEntries) as Partial<Record<QuenchPlatform, AdapterPublishResult>>);
-      setBoardUpdatedAt(new Date().toISOString());
-    }
-
-    void loadPublishBoard();
-    return () => {
-      cancelled = true;
-    };
-  }, [publishOptions, readinessVerdict?.ready, readinessVerdict?.status, resolvedAssets, runMode, selectedCase, selectedPlatforms]);
+  async function establishAndRunPublicationStub():Promise<void>{
+    if(!selectedCase||!openAuthority||!readinessVerdict||!canExecuteQuenchPublish(readinessVerdict))return;
+    const destination=publicationDestinations.find((row)=>row.executable_destination_id===selectedPublicationDestinationId);const decision=thumbnailSelectionDecision?.decision;const decisionId=thumbnailSelectionDecision?.current_decision_id;const decisionRevision=thumbnailSelectionDecision?.current_revision??0;
+    if(!destination||!decisionId||decisionRevision<1||!decision){setPublicationCommandState("error");setPublicationCommandMessage("An exact release decision and executable destination are required before publication can be established.");return;}
+    const platform:QuenchPlatform=destination.provider==="google"?"youtube":destination.provider==="rss_host"?"rss":selectedPlatforms[0]??"youtube";const adapter=QUENCH_ADAPTERS.find((entry)=>entry.platform===platform);if(!adapter){setPublicationCommandState("error");setPublicationCommandMessage("No reviewed adapter exists for this executable destination.");return;}
+    const operationKey=publicationOperationKey??crypto.randomUUID();setPublicationOperationKey(operationKey);setPublicationCommandState("establishing");setPublicationCommandMessage(null);
+    try{
+      const options=publishOptions[platform]??getDefaultPublishOptions(platform);const establishResponse=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(openAuthority.workpiece_id)}/quench/establish-publication`,{method:"POST",json:{workspace_id:openAuthority.workspace_id,operation_key:operationKey,manifest_snapshot_id:openAuthority.manifest_snapshot_id,manifest_content_hash:openAuthority.manifest_content_hash,release_decision_id:decisionId,release_decision_revision:decisionRevision,executable_destination_id:destination.executable_destination_id,destination_capability_revision_id:destination.capability_revision_id,publication_intent_contract_version:"forge.publication-intent.v1",publication_intent_snapshot:{platform,options}},timeoutMs:45_000});const establishPayload=await readResponseJson(establishResponse);const establishRoot=readJsonObject(establishPayload);const established=readJsonObject(establishRoot?.data);const operationId=readString(established?.publication_operation_id);if(!establishResponse.ok||!operationId||!["established","replayed"].includes(readString(established?.disposition)??""))throw new Error(`Publication authority was not established: ${readString(established?.code)??readString(established?.disposition)??"blocked"}.`);setPublicationOperationId(operationId);
+      const claimResponse=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(openAuthority.workpiece_id)}/quench/claim-publication-attempt`,{method:"POST",json:{workspace_id:openAuthority.workspace_id,publication_operation_id:operationId,retry:false},timeoutMs:45_000});const claimPayload=await readResponseJson(claimResponse);const claim=readJsonObject(readJsonObject(claimPayload)?.data);const attemptId=readString(claim?.publication_attempt_id);if(!claimResponse.ok||!attemptId||readString(claim?.disposition)!=="claimed")throw new Error(`Publication attempt was not reserved: ${readString(claim?.code)??"blocked"}.`);setPublicationCommandState("reserved");
+      const context={...buildPublishContext(runMode,resolvedAssets,readinessVerdict),publication_operation_id:operationId,publication_attempt_id:attemptId,manifest_snapshot_id:openAuthority.manifest_snapshot_id,release_decision_id:decisionId,executable_destination_id:destination.executable_destination_id,destination_capability_revision_id:destination.capability_revision_id} satisfies PublicationExecutionContext;const result=await adapter.publish(selectedCase.packet,options,context);setPublishResults({[platform]:result});
+      const completeResponse=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(openAuthority.workpiece_id)}/quench/complete-publication-stub`,{method:"POST",json:{workspace_id:openAuthority.workspace_id,publication_operation_id:operationId,publication_attempt_id:attemptId},timeoutMs:45_000});if(!completeResponse.ok)throw new Error("The stub result could not be persisted as a durable blocked receipt.");setPublicationCommandState("recorded");setPublicationCommandMessage("P1 and A1 were persisted. Stub execution created a durable blocked receipt; no provider side effect occurred.");setBoardUpdatedAt(new Date().toISOString());
+    }catch(error){setPublicationCommandState("error");setPublicationCommandMessage(error instanceof Error?error.message:"Publication authority failed.");}
+  }
 
   const requestMetadataAssist = useCallback(async () => {
     if (!selectedCase) return;
@@ -740,7 +581,7 @@ export default function QuenchRoute() {
     });
   }
 
-  async function mutateThumbnailExperiment(cancel=false){if(!canonicalProjection||!thumbnailSelectionScope)return;setExperimentState("saving");setExperimentMessage(null);try{const assignments=cancel?[]:[experimentControlId,...experimentVariantIds].filter((id):id is string=>!!id).map((candidate_revision_id,index)=>({candidate_revision_id,assignment_role:index===0?"control":"variant",assignment_ordinal:index+1,allocation_basis_points:null}));const endpoint=cancel?"cancel-thumbnail-experiment":"plan-thumbnail-experiment";const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(canonicalProjection.workpiece_id)}/quench/${endpoint}`,{method:"POST",json:{workspace_id:canonicalProjection.workspace_id,destination_scope_id:thumbnailSelectionScope.id,expected_decision_id:thumbnailSelectionDecision?.current_decision_id??null,expected_revision:thumbnailSelectionDecision?.current_revision??0,operation_id:crypto.randomUUID(),...(cancel?{}:{assignments})},timeoutMs:45_000});const payload=await readResponseJson(response);const root=readJsonObject(payload);const result=readJsonObject(root?.data);const disposition=readString(result?.disposition);if(!response.ok)throw new Error(readString(readJsonObject(root?.error)?.message)??"Experiment intent failed.");if(disposition==="revision_conflict"){setExperimentState("error");setExperimentMessage("The canonical decision advanced. Reload the latest authority before retrying.");}else if(!["committed","replayed","no_change"].includes(disposition??"")){throw new Error(`Experiment intent was not committed: ${(disposition??"blocked").replaceAll("_"," ")}.`);}else{setExperimentState("saved");setExperimentMessage(cancel?"Experiment cancelled. This creates a new zero-assignment decision and does not restore the previous selected thumbnail.":disposition==="no_change"?"This exact experiment plan is already current.":"Canonical experiment intent planned. Automatic thumbnail rotation is not active.");}const refresh=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(canonicalProjection.workpiece_id)}/quench/release-projection`,{method:"POST",json:{workspace_id:canonicalProjection.workspace_id},timeoutMs:45_000});const refreshPayload=await readResponseJson(refresh);const refreshRoot=readJsonObject(refreshPayload);if(refresh.ok&&isQuenchCanonicalReleaseProjection(refreshRoot?.data))setHandoffPreparedCase(buildCanonicalReleaseCase(refreshRoot.data));}catch(error){setExperimentState("error");setExperimentMessage(error instanceof Error?error.message:"Unable to save experiment intent.");}}
+  async function mutateThumbnailExperiment(cancel=false){if(!canonicalProjection||!thumbnailSelectionScope||!openAuthority)return;setExperimentState("saving");setExperimentMessage(null);try{const assignments=cancel?[]:[experimentControlId,...experimentVariantIds].filter((id):id is string=>!!id).map((candidate_revision_id,index)=>({candidate_revision_id,assignment_role:index===0?"control":"variant",assignment_ordinal:index+1,allocation_basis_points:null}));const endpoint=cancel?"cancel-thumbnail-experiment":"plan-thumbnail-experiment";const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(canonicalProjection.workpiece_id)}/quench/${endpoint}`,{method:"POST",json:{workspace_id:canonicalProjection.workspace_id,destination_scope_id:thumbnailSelectionScope.id,manifest_snapshot_id:openAuthority.manifest_snapshot_id,expected_decision_id:thumbnailSelectionDecision?.current_decision_id??null,expected_revision:thumbnailSelectionDecision?.current_revision??0,operation_id:crypto.randomUUID(),...(cancel?{}:{assignments})},timeoutMs:45_000});const payload=await readResponseJson(response);const root=readJsonObject(payload);const result=readJsonObject(root?.data);const disposition=readString(result?.disposition);if(!response.ok)throw new Error(readString(readJsonObject(root?.error)?.message)??"Experiment intent failed.");if(disposition==="revision_conflict"){setExperimentState("error");setExperimentMessage("The canonical decision advanced. Reload this same review authority before retrying.");}else if(!["committed","replayed","no_change"].includes(disposition??"")){throw new Error(`Experiment intent was not committed: ${(disposition??"blocked").replaceAll("_"," ")}.`);}else{setExperimentState("saved");setExperimentMessage(cancel?"Experiment cancelled. This creates a new zero-assignment decision and does not restore the previous selected thumbnail.":disposition==="no_change"?"This exact experiment plan is already current.":"Canonical experiment intent planned. Automatic thumbnail rotation is not active.");}setOpenRevision((value)=>value+1);}catch(error){setExperimentState("error");setExperimentMessage(error instanceof Error?error.message:"Unable to save experiment intent.");}}
 
   return (
     <section className="quench-console">
@@ -794,7 +635,12 @@ export default function QuenchRoute() {
         </div>
       ) : null}
       {preparedHandoffState.warning ? (
-        <div className="quench-console__issue is-warn">{preparedHandoffState.warning}</div>
+        <div className="quench-console__issue is-warn">
+          <strong>{preparedHandoffState.warning}</strong>
+          {openAuthority?.newer_manifest_available&&routeCtx.workspaceId&&routeCtx.workpieceId?(
+            <button type="button" onClick={()=>{resetQuenchOpenOperationId(routeCtx.workspaceId!,routeCtx.workpieceId!);setOpenRevision((value)=>value+1);}}>Review New Package</button>
+          ):null}
+        </div>
       ) : null}
 
       <div className="quench-console__layout">
@@ -1063,6 +909,18 @@ export default function QuenchRoute() {
                   <h3>Publish board</h3>
                   <span>{boardUpdatedAt ? `updated ${formatDate(boardUpdatedAt)}` : "waiting for selection"}</span>
                 </div>
+                <label className="quench-console__field">
+                  <span>Executable destination</span>
+                  <select value={selectedPublicationDestinationId} onChange={(event)=>{setSelectedPublicationDestinationId(event.target.value);setPublicationOperationKey(null);setPublicationOperationId(null);setPublicationCommandState("idle");setPublicationCommandMessage(null);}} disabled={publicationCommandState==="establishing"||publicationCommandState==="reserved"}>
+                    <option value="">Select an exact granted destination</option>
+                    {publicationDestinations.map((destination)=><option key={destination.executable_destination_id} value={destination.executable_destination_id}>{destination.display_label} · capability {destination.capability_revision}</option>)}
+                  </select>
+                </label>
+                <button type="button" className="quench-console__button" onClick={()=>void establishAndRunPublicationStub()} disabled={!selectedPublicationDestinationId||!readinessVerdict?.ready||publicationCommandState==="establishing"||publicationCommandState==="reserved"||publicationCommandState==="recorded"}>
+                  {publicationCommandState==="establishing"?"Establishing P1…":publicationCommandState==="reserved"?"Attempt A1 reserved…":"Establish publication operation"}
+                </button>
+                {publicationOperationId?<div className="quench-console__receipt-detail"><span>publication operation</span><strong>{publicationOperationId}</strong></div>:null}
+                {publicationCommandMessage?<p className="quench-console__receipt-message">{publicationCommandMessage}</p>:null}
                 {selectedPlatforms.length ? (
                   <div className="quench-console__receipt-grid">
                     {selectedPlatforms.map((platform) => {

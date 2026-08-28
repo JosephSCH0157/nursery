@@ -8,7 +8,7 @@ import type { HammerVisualClip, HammerVisualTimelineState } from "../src/visuals
 import { createDefaultSemanticAnchor, createEmptyVisualTimelineState } from "../src/visuals/model/hammerVisualDefaults";
 
 function clip(id: string, x: number): HammerVisualClip {
-  return { clip_id: id, lane_id: "images", asset_id: null, start_sec: Number(id.slice(1)), end_sec: Number(id.slice(1)) + 2,
+  return { clip_id: id, lane_id: "images", asset_id: `asset:${id}`, canonical_asset_id: `asset:${id}`, canonical_asset_state: "canonical_proven", start_sec: Number(id.slice(1)), end_sec: Number(id.slice(1)) + 2,
     geometry: { x, y: 0.3, width: 0.2, height: 0.2, anchor: "top_left" }, placement_status: "placed", enabled: true,
     updated_at: `2026-08-25T00:00:0${id.slice(1)}.000Z`, uncertainty_flags: [], animation: { preset: "none" },
     anchor_hint: { anchor_segment_id: null, matched_segment_ids: [], anchor_text: null, anchor_label: null, detached: false },
@@ -18,6 +18,9 @@ function clip(id: string, x: number): HammerVisualClip {
 
 function timeline(clips: HammerVisualClip[]): HammerVisualTimelineState {
   return { ...createEmptyVisualTimelineState({ updated_at: "2026-08-25T00:00:00.000Z", debug_origin: "empty_init" }), revision: 7,
+    assets: clips.map((item) => ({ asset_id: item.asset_id!, canonical_asset_id: item.canonical_asset_id,
+      authority_state: "canonical_proven", asset_ref: item.canonical_asset_id!, kind: "image", label: item.clip_id,
+      path: null, storage_key: null, mime_type: "image/png", source_mode: "manual", roles: ["timeline_visual"], updated_at: item.updated_at })),
     lanes: [{ lane_id: "images", label: "Images", clip_ids: clips.map((item) => item.clip_id) }], clips };
 }
 

@@ -100,6 +100,7 @@ test("extractHammerWorkpieceRecordingTruth reads kept-take truth from API payloa
     canonicalRecording: null,
     latestKeptTakePath: "recordings/session-a.wav",
     latestKeptTake: {
+      completionId: null,
       eventId: 7,
       createdAt: "2026-03-17T16:00:00.000Z",
       filePath: "recordings/session-a.wav",
@@ -265,6 +266,7 @@ test("canonical media remains authoritative when a different candidate is also p
     recorded: true,
     canonical_recording: FLORIDA_CANONICAL,
     latest_kept_take: {
+      completion_id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
       event_id: null,
       created_at: "2026-08-18T12:00:00Z",
       file_path: "recordings/newer-eligible.webm",
@@ -285,6 +287,7 @@ test("canonical media remains authoritative when a different candidate is also p
   assert.equal(launch?.media.ref.media_id, FLORIDA_CANONICAL.media_id);
   assert.equal(launch?.media.ref.local_relpath, FLORIDA_CANONICAL.media_path);
   assert.equal(projectHammerRecordingTruth(recordingTruth).mediaPath, FLORIDA_CANONICAL.media_path);
+  assert.equal(projectHammerRecordingTruth(recordingTruth).hasNewerKeptTake, true);
 });
 
 test("readHammerStoredActiveWorkspaceId prefers Hammer-owned workspace cache before shared Forge keys", () => {

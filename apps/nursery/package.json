@@ -37,6 +37,7 @@
     "test:thumbnail-ledger": "tsx --test tests/thumbnail-ledger-intelligence.test.mts",
     "test:brand-library": "tsx --test tests/brand-library-authority.test.mts",
     "test:admin-panel": "tsx tests/admin-panel.test.mts",
+    "test:youtube-publishing-connection": "tsx tests/youtube-publishing-connection.test.mts",
     "test:workspace-label": "tsx tests/workspace-label.test.mts",
     "test:workspace-access-union": "tsx tests/workspace-access-union.test.mts",
     "test": "node scripts/run-tests.mjs",

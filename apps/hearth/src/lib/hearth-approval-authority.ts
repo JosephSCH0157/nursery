@@ -1,4 +1,5 @@
 import type { Revision } from "../domain/revision";
+import type { MediaContentHash, ScriptDerivativeBasis } from "@forge/tongs/canonical-asset-authority";
 import { tongsFetch } from "./tongs-fetch";
 
 export type ScriptApprovalState = Readonly<{
@@ -33,6 +34,24 @@ export async function readTongsCanonicalApprovedScript(workpieceId: string): Pro
   const text = typeof approval?.script_text === "string" ? approval.script_text : "";
   if (!approvalId || !Number.isInteger(approvalRevision) || approvalRevision < 1 || !contentHash || !text.trim()) return null;
   return { approvalId, approvalRevision, contentHash, text };
+}
+
+export async function readTongsProductionScriptDerivativeBasis(
+  workspaceId: string,
+  workpieceId: string,
+): Promise<ScriptDerivativeBasis | null> {
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/production-script`, { method: "GET" });
+  if (!response.ok) return null;
+  const body = await response.json().catch(() => null) as { data?: Record<string, unknown> } | null;
+  const data = body?.data;
+  const responseWorkspaceId = typeof data?.workspace_id === "string" ? data.workspace_id.trim() : "";
+  const responseWorkpieceId = typeof data?.workpiece_id === "string" ? data.workpiece_id.trim() : "";
+  const scriptApprovalId = typeof data?.script_approval_id === "string" ? data.script_approval_id.trim() : "";
+  const scriptApprovalRevision = Number(data?.script_approval_revision ?? 0);
+  const scriptContentHash = typeof data?.script_content_hash === "string" ? data.script_content_hash.trim().toLowerCase() : "";
+  if (responseWorkspaceId !== workspaceId || responseWorkpieceId !== workpieceId || !scriptApprovalId
+    || !Number.isInteger(scriptApprovalRevision) || scriptApprovalRevision < 1 || !/^[a-f0-9]{64}$/.test(scriptContentHash)) return null;
+  return { workspaceId, workpieceId, scriptApprovalId, scriptApprovalRevision, scriptContentHash: scriptContentHash as MediaContentHash };
 }
 
 export async function readTongsCanonicalScriptApproval(workpieceId:string):Promise<ScriptApprovalState>{

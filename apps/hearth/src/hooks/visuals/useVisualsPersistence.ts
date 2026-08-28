@@ -10,6 +10,7 @@ import {
   type EpisodeReferenceClipPlan,
   type EpisodeSpokenBeat,
 } from "../../lib/episode-package-v2";
+import { readTongsProductionScriptDerivativeBasis } from "../../lib/hearth-approval-authority";
 import { replaceEpisodePackageImageMap } from "../../lib/hearth-episode-package-image-map";
 import { saveEpisodePackageForWorkpiece } from "../../lib/hearth-thumbnail-api";
 import { saveWorkpieceImageMap } from "../../lib/hearth-image-map-repo";
@@ -212,12 +213,17 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
     if (!episodeId || !workspace) {
       return { ok: false, error: "Workspace or workpiece is missing." };
     }
+    const derivativeBasis = await readTongsProductionScriptDerivativeBasis(workspace, episodeId);
+    if (!derivativeBasis) {
+      return { ok: false, error: "Approve and publish the current production script before saving production B-roll derivatives." };
+    }
     const operation = args.operationAuthority.begin("visuals.persist.broll");
     const nextEpisodePackage = ensureBrollPlanV2({
       ...baseEpisodePackage,
       broll_plan: {
         ...input.plan,
         workpiece_id: episodeId,
+        script_derivative_basis: derivativeBasis,
       },
     });
     const saved = await saveEpisodePackageForWorkpiece({
@@ -308,12 +314,17 @@ export function useVisualsPersistence(args: UseVisualsPersistenceArgs) {
     if (!episodeId || !workspace) {
       return { ok: false, error: "Workspace or workpiece is missing." };
     }
+    const derivativeBasis = await readTongsProductionScriptDerivativeBasis(workspace, episodeId);
+    if (!derivativeBasis) {
+      return { ok: false, error: "Approve and publish the current production script before saving production Reference Clip derivatives." };
+    }
     const operation = args.operationAuthority.begin("visuals.persist.reference-clip");
     const nextEpisodePackage = ensureReferenceClipPlanV2({
       ...baseEpisodePackage,
       cdc_plan: {
         ...input.plan,
         workpiece_id: episodeId,
+        script_derivative_basis: derivativeBasis,
       },
     });
     const saved = await saveEpisodePackageForWorkpiece({

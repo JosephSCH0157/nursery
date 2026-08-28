@@ -81,6 +81,10 @@ export async function saveHammerQuenchReleasePacket(args: {
   workpieceId: string;
   packet: HammerQuenchReleasePacketArtifacts;
 }): Promise<ReleasePacketSaveResult> {
+  if (args.packet.manifest.packaging_media_readiness.state !== "ready"
+    || args.packet.visuals.some((placement) => placement.media_reference.state !== "validated")) {
+    return { ok: false, status: 422, error: "Release packet contains unresolved production media." };
+  }
   try {
     if (args.packet.transcriptText) {
       await commitTextFile({

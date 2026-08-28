@@ -40,6 +40,7 @@ export function selectAutomaticPlacementBatch(args: {
     if (entry.status !== "resolved-safe" || !entry.resolvedTransform) { review += 1; continue; }
     const clip = clips.get(entry.item.placementId);
     if (!clip || !clip.enabled || clip.placement_status !== "placed"
+      || clip.canonical_asset_state !== "canonical_proven" || !clip.canonical_asset_id
       || entry.item.mediaRevision !== args.mediaRevision
       || entry.item.sourceIdentity === ""
       || entry.item.compositionPresentationTimeSec !== Math.max(0, clip.start_sec)
