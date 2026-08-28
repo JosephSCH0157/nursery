@@ -3,6 +3,7 @@ import { buildHammerRenderAssembly, projectEditorialAuthorityGraphFromEditPlan }
 import { buildHammerReleasePrepPackage } from "../src/lib/hammerReleasePrepPackage";
 import { buildHammerQuenchReleasePacket } from "../src/lib/hammerQuenchReleasePacket";
 import {
+  HAMMER_QUENCH_HANDOFF_PACKAGE_SAVED_MESSAGE,
   decideHammerQuenchHandoff,
   validateHammerQuenchPacketForHandoff,
 } from "../src/editor/hammerQuenchHandoff";
@@ -153,6 +154,7 @@ function buildReadiness(status: HammerReadinessGateResult["status"]): HammerRead
 }
 
 async function testDecisions() {
+  assert.equal(HAMMER_QUENCH_HANDOFF_PACKAGE_SAVED_MESSAGE, "Release package saved.");
   const prep = buildReadyPrep();
   const allowed = decideHammerQuenchHandoff({ releasePrepPackage: prep, readinessGate: buildReadiness("ready") });
   assert.equal(allowed.status, "allowed");
@@ -228,6 +230,26 @@ async function testPacketValidation() {
     renderAssembly,
     readinessGate: buildReadiness("ready"),
   }).ok, true);
+  const reviewReadiness = buildReadiness("needs_review");
+  const reviewPacket = buildHammerQuenchReleasePacket({
+    releasePrepPackage: prep,
+    readinessGate: reviewReadiness,
+    preparedAt: "2026-03-24T14:02:00.000Z",
+    canonicalGraph: graph,
+    renderAssembly,
+    finalAudioMaster,
+  });
+  const reviewValidation = validateHammerQuenchPacketForHandoff({
+    releasePrepPackage: prep,
+    packet: reviewPacket,
+    renderAssembly,
+    readinessGate: reviewReadiness,
+  });
+  assert.equal(reviewPacket.manifest.readiness.status, "needs_review");
+  assert.equal(reviewPacket.manifest.readiness.ready_for_quench, false);
+  assert.equal(reviewValidation.ok, true);
+  assert.equal(reviewValidation.reasonCodes.includes("handoff_needs_review"), true);
+  assert.equal(reviewValidation.reasonDetails.every((reason) => reason.severity === "review"), true);
   const blockedValidation = validateHammerQuenchPacketForHandoff({
     releasePrepPackage: prep,
     packet,

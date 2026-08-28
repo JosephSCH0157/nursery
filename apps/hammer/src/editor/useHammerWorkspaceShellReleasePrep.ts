@@ -4,6 +4,7 @@ import type { HammerPreparedNextStepActionId } from "./hammerPreparedHandoff";
 import type { HammerPassId } from "../persistence/hammerPersistenceContract";
 import type { HammerWorkspaceFocusOverride } from "./hammerWorkspaceTimeline";
 import {
+  HAMMER_QUENCH_HANDOFF_PACKAGE_SAVED_MESSAGE,
   decideHammerQuenchHandoff,
   type HammerQuenchHandoffStatus,
   validateHammerQuenchPacketForHandoff,
@@ -332,7 +333,7 @@ export function useHammerWorkspaceShellReleasePrep(
       setLoadedPreparedPackage(result.data ?? preparedPackage);
       setQuenchHandoffStatus({
         status: "sent",
-        message: "Sent to Quench successfully.",
+        message: HAMMER_QUENCH_HANDOFF_PACKAGE_SAVED_MESSAGE,
       });
     } catch (error) {
       const message = args.toErrorMessage(error, "Hammer could not send the Quench release packet.");

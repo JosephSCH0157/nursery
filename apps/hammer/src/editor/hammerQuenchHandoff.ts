@@ -16,6 +16,8 @@ export type HammerQuenchHandoffStatus =
   | "failed_persistence"
   | "failed_handoff";
 
+export const HAMMER_QUENCH_HANDOFF_PACKAGE_SAVED_MESSAGE = "Release package saved.";
+
 export interface HammerQuenchHandoffDecision {
   status: "allowed" | "requires_confirmation" | "blocked";
   reasonCodes: HammerReadinessReasonCode[];
@@ -147,7 +149,7 @@ export function validateHammerQuenchPacketForHandoff(args: {
     )) === index
   ));
   return {
-    ok: dedupedReasonDetails.length === 0,
+    ok: !dedupedReasonDetails.some((reason) => reason.severity === "blocking"),
     reasonCodes: dedupedReasonDetails.map((reason) => reason.code),
     reasonDetails: dedupedReasonDetails,
     reasons: dedupedReasonDetails.map((reason) => reason.label),
