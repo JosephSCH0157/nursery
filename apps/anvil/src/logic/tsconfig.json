@@ -9,7 +9,8 @@
     "exactOptionalPropertyTypes": true,
     "alwaysStrict": true,
     "noEmit": false,
-    "outDir": "../build-logic"
+    "outDir": "../build-logic",
+    "tsBuildInfoFile": "../../../../node_modules/.cache/typescript/anvil-logic.tsbuildinfo"
   },
   "include": ["**/*"]
 }

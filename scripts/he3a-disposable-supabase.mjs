@@ -6,7 +6,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { once } from "node:events";
 
 const root = path.resolve(import.meta.dirname, "..");
-const [command, projectId, rawBasePort = "56320"] = process.argv.slice(2);
+const [command, projectId, rawBasePort = "56320", migrationCutoff] = process.argv.slice(2);
 assert.match(projectId ?? "", /^forge-he3-[a-z0-9-]+$/, "project ID must be a unique forge-he3-* identity");
 assert.notEqual(projectId, "nursery");
 assert.notEqual(projectId, "wtvdjndyxegudufrompx");
@@ -44,6 +44,14 @@ function stableNurserySnapshot(snapshot) {
 }
 function writeConfig() {
   fs.cpSync(path.join(root, "supabase"), supabaseDir, { recursive: true });
+  if (migrationCutoff) {
+    assert.match(migrationCutoff, /^\d{8,14}$/, "migration cutoff must be an 8-14 digit canonical migration version");
+    const migrationsDir = path.join(supabaseDir, "migrations");
+    for (const entry of fs.readdirSync(migrationsDir)) {
+      const match = entry.match(/^(\d{8,14})_.*\.sql$/);
+      if (match && match[1].localeCompare(migrationCutoff) > 0) fs.rmSync(path.join(migrationsDir, entry));
+    }
+  }
   const configPath = path.join(supabaseDir, "config.toml");
   let config = fs.readFileSync(configPath, "utf8");
   config = `project_id = "${projectId}"\n\n${config}`.replace(/\[api\]\r?\n/, `[api]\nport = ${basePort + 1}\n`);
@@ -119,7 +127,7 @@ async function start() {
     if (!pending.length) break;
     await new Promise((resolve) => setTimeout(resolve, 2_000));
   }
-  fs.writeFileSync(manifestPath, `${JSON.stringify({ project_id: projectId, base_port: basePort, nursery_before: nurseryBefore }, null, 2)}\n`);
+  fs.writeFileSync(manifestPath, `${JSON.stringify({ project_id: projectId, base_port: basePort, migration_cutoff: migrationCutoff ?? null, nursery_before: nurseryBefore }, null, 2)}\n`);
   await verify();
 }
 function stop() {
@@ -144,4 +152,4 @@ function stop() {
 if (command === "start") await start();
 else if (command === "verify") await verify();
 else if (command === "stop") stop();
-else throw new Error("usage: node scripts/he3a-disposable-supabase.mjs <start|verify|stop> <forge-he3-id> [base-port]");
+else throw new Error("usage: node scripts/he3a-disposable-supabase.mjs <start|verify|stop> <forge-he3-id> [base-port] [migration-cutoff]");

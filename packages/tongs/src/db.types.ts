@@ -1193,14 +1193,32 @@ export type Database = {
         ]
       }
       anvil_capture_authorities: {
-        Row: { capture_session_id: string; established_at: string; established_by: string; id: string; operation_key: string; provenance: string; ready_transition_id: string | null; recording_session_id: string | null; script_hash: string; script_path: string; script_revision: number; script_approval_id: string | null; script_approval_revision: number | null; script_approval_hash: string | null; workpiece_id: string; workspace_id: string }
-        Insert: { capture_session_id: string; established_at?: string; established_by: string; id?: string; operation_key: string; provenance: string; ready_transition_id?: string | null; recording_session_id?: string | null; script_hash: string; script_path: string; script_revision: number; script_approval_id?: string | null; script_approval_revision?: number | null; script_approval_hash?: string | null; workpiece_id: string; workspace_id: string }
-        Update: { capture_session_id?: string; established_at?: string; established_by?: string; id?: string; operation_key?: string; provenance?: string; ready_transition_id?: string | null; recording_session_id?: string | null; script_hash?: string; script_path?: string; script_revision?: number; script_approval_id?: string | null; script_approval_revision?: number | null; script_approval_hash?: string | null; workpiece_id?: string; workspace_id?: string }
+        Row: { capture_session_id: string; established_at: string; established_by: string; id: string; operation_key: string; provenance: string; ready_transition_id: string | null; recording_session_id: string | null; request_fingerprint: string; venue: string; script_binding_kind: string; script_hash: string | null; script_path: string | null; script_revision: number | null; script_approval_id: string | null; script_approval_revision: number | null; script_approval_hash: string | null; workpiece_id: string; workspace_id: string }
+        Insert: never
+        Update: never
+        Relationships: []
+      }
+      recording_capture_authorities: {
+        Row: { established_at: string; established_by: string; id: string; operation_key: string; provenance: string; ready_transition_id: string | null; recording_session_id: string | null; request_fingerprint: string; venue: string; script_binding_kind: string; script_hash: string | null; script_path: string | null; script_revision: number | null; script_approval_id: string | null; script_approval_revision: number | null; script_approval_hash: string | null; workpiece_id: string; workspace_id: string }
+        Insert: { established_at?: string; established_by: string; id?: string; operation_key: string; provenance: string; ready_transition_id?: string | null; recording_session_id?: string | null; request_fingerprint: string; venue: string; script_binding_kind: string; script_hash?: string | null; script_path?: string | null; script_revision?: number | null; script_approval_id?: string | null; script_approval_revision?: number | null; script_approval_hash?: string | null; workpiece_id: string; workspace_id: string }
+        Update: never
+        Relationships: []
+      }
+      anvil_capture_executions: {
+        Row: { execution_id: string; recording_capture_authority_id: string; operation_key: string; anvil_version: string | null; created_by: string; created_at: string }
+        Insert: { execution_id: string; recording_capture_authority_id: string; operation_key: string; anvil_version?: string | null; created_by: string; created_at?: string }
+        Update: never
+        Relationships: []
+      }
+      recording_workpiece_creation_requests: {
+        Row: { id: string; workspace_id: string; workpiece_id: string; operation_key: string; request_fingerprint: string; title: string; origin_venue: string; created_by: string; created_at: string }
+        Insert: { id?: string; workspace_id: string; workpiece_id: string; operation_key: string; request_fingerprint: string; title: string; origin_venue: string; created_by: string; created_at?: string }
+        Update: never
         Relationships: []
       }
       anvil_recording_completion_requests: {
         Row: {
-          capture_session_id: string
+          capture_session_id: string | null
           capture_authority_id: string | null
           completed_by: string
           completion_evidence: Json
@@ -1210,15 +1228,15 @@ export type Database = {
           media_hash: string
           media_path: string
           media_revision: number
-          ready_transition_id: string
+          ready_transition_id: string | null
           request_fingerprint: string
-          script_hash: string
-          script_revision: number
+          script_hash: string | null
+          script_revision: number | null
           workpiece_id: string
           workspace_id: string
         }
         Insert: {
-          capture_session_id: string
+          capture_session_id?: string | null
           capture_authority_id?: string | null
           completed_by: string
           completion_evidence: Json
@@ -1228,10 +1246,10 @@ export type Database = {
           media_hash: string
           media_path: string
           media_revision: number
-          ready_transition_id: string
+          ready_transition_id?: string | null
           request_fingerprint: string
-          script_hash: string
-          script_revision: number
+          script_hash?: string | null
+          script_revision?: number | null
           workpiece_id: string
           workspace_id: string
         }
@@ -1940,6 +1958,7 @@ export type Database = {
           mode: string
           outcome: string | null
           recording_session_id: string | null
+          recording_capture_authority_id: string | null
           recording_state: string
           seal_state: string
           sealed_at: string | null
@@ -1949,6 +1968,7 @@ export type Database = {
           title: string
           updated_at: string
           upload_state: string
+          workpiece_id: string | null
           workspace_id: string
         }
         Insert: {
@@ -1969,6 +1989,7 @@ export type Database = {
           mode: string
           outcome?: string | null
           recording_session_id?: string | null
+          recording_capture_authority_id?: string | null
           recording_state: string
           seal_state: string
           sealed_at?: string | null
@@ -1978,6 +1999,7 @@ export type Database = {
           title: string
           updated_at?: string
           upload_state: string
+          workpiece_id?: string | null
           workspace_id: string
         }
         Update: {
@@ -1998,6 +2020,7 @@ export type Database = {
           mode?: string
           outcome?: string | null
           recording_session_id?: string | null
+          recording_capture_authority_id?: string | null
           recording_state?: string
           seal_state?: string
           sealed_at?: string | null
@@ -2007,6 +2030,7 @@ export type Database = {
           title?: string
           updated_at?: string
           upload_state?: string
+          workpiece_id?: string | null
           workspace_id?: string
         }
         Relationships: [
@@ -2023,6 +2047,13 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "bellows_session_checkpoints"
             referencedColumns: ["session_id", "id"]
+          },
+          {
+            foreignKeyName: "bellows_sessions_recording_capture_authority_id_fkey"
+            columns: ["recording_capture_authority_id"]
+            isOneToOne: false
+            referencedRelation: "recording_capture_authorities"
+            referencedColumns: ["id"]
           },
           {
             foreignKeyName: "bellows_sessions_recording_session_id_fkey"
@@ -3788,6 +3819,13 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
+            foreignKeyName: "bellows_sessions_workpiece_id_fkey"
+            columns: ["workpiece_id"]
+            isOneToOne: false
+            referencedRelation: "episodes"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "canonical_recordings_workpiece_id_fkey"
             columns: ["workpiece_id"]
             isOneToOne: false
@@ -3944,6 +3982,8 @@ export type Database = {
           archived_at: string | null
           archived_by: string | null
           canonical_recording_id: string | null
+          created_by: string | null
+          creation_origin: string | null
           created_at: string
           deleted_at: string | null
           deleted_by: string | null
@@ -3961,6 +4001,8 @@ export type Database = {
           archived_at?: string | null
           archived_by?: string | null
           canonical_recording_id?: string | null
+          created_by?: string | null
+          creation_origin?: string | null
           created_at?: string
           deleted_at?: string | null
           deleted_by?: string | null
@@ -3978,6 +4020,8 @@ export type Database = {
           archived_at?: string | null
           archived_by?: string | null
           canonical_recording_id?: string | null
+          created_by?: string | null
+          creation_origin?: string | null
           created_at?: string
           deleted_at?: string | null
           deleted_by?: string | null
@@ -13269,6 +13313,10 @@ export type Database = {
         Returns: Json
       }
       establish_anvil_capture_authority: { Args: { p_capture_session_id: string; p_operation_key: string; p_recording_session_id?: string | null; p_workpiece_id: string; p_workspace_id: string }; Returns: Json }
+      establish_recording_capture_authority: { Args: { p_execution_id: string; p_operation_key: string; p_recording_session_id?: string | null; p_venue: string; p_venue_version?: string | null; p_workpiece_id: string; p_workspace_id: string }; Returns: Json }
+      create_recording_workpiece: { Args: { p_operation_key: string; p_origin_venue: string; p_title: string; p_workspace_id: string }; Returns: Json }
+      recording_transition_take_completed: { Args: { p_completion_evidence: Json; p_expected_media_bytes: number; p_expected_media_content_type: string; p_expected_media_hash: string; p_expected_media_revision: number; p_idempotency_key: string; p_media_path: string; p_recording_capture_authority_id: string; p_storage_bucket: string; p_storage_key: string }; Returns: Json }
+      recording_transition_take_decision: { Args: { p_completion_id: string; p_decision: string; p_decision_evidence: Json; p_idempotency_key: string; p_recording_capture_authority_id: string }; Returns: Json }
       anvil_transition_take_completed_v3: { Args: { p_capture_authority_id: string; p_completion_evidence: Json; p_expected_media_bytes: number; p_expected_media_content_type: string; p_expected_media_hash: string; p_expected_media_revision: number; p_idempotency_key: string; p_media_path: string; p_storage_bucket: string; p_storage_key: string }; Returns: Json }
       anvil_transition_take_decision_v2: { Args: { p_capture_authority_id: string; p_completion_id: string; p_decision: string; p_decision_evidence: Json; p_idempotency_key: string }; Returns: Json }
       acknowledge_hammer_editorial_authority: {

@@ -23,9 +23,16 @@ declare
   v_file tongs.workpiece_files%rowtype;
   v_existing_ready tongs.workpiece_ready_script_meta%rowtype;
 begin
-  select created_by into strict v_actor_id
+  -- This migration is an evidence-bound production incident repair, not a
+  -- schema seed. Fresh databases and installations that never contained the
+  -- incident fixture must apply the canonical chain without manufacturing it.
+  select created_by into v_actor_id
   from tongs.barstock_assignments
   where id = v_project_id and workspace_id = v_workspace_id;
+
+  if not found then
+    return;
+  end if;
 
   select * into strict v_file
   from tongs.workpiece_files

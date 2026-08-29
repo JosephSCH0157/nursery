@@ -56,6 +56,8 @@ function createSession(
   const session: BellowsSession = {
     sessionId,
     workspaceId,
+    workpieceId: "workpiece-1" as never,
+    recordingCaptureAuthorityId: "capture-authority-1" as never,
     hostUserId,
     authorityState: {
       actingAuthorityState: "host_present",
@@ -66,6 +68,7 @@ function createSession(
     draft: {
       sessionId,
       workspaceId,
+      workpieceId: "workpiece-1" as never,
       hostUserId,
       mode: "live",
       sessionType: "remote",
@@ -210,6 +213,21 @@ test("starts countdown from ready_to_start and declares countdown effect", () =>
   assert.equal(result.state.machineState.lifecycle, "countdown");
   assert.equal(result.state.recordingState, "countdown");
   assert.deepEqual(result.effects.map((effect) => effect.type), ["start_countdown"]);
+});
+
+test("rejects countdown without canonical workpiece and shared capture authority", () => {
+  const { session, hostParticipantId } = createSession({
+    workpieceId: null,
+    recordingCaptureAuthorityId: null,
+    machineState: { lifecycle: "ready_to_start", outcome: null },
+  });
+  const result = reduceBellowsSession(
+    session,
+    { source: "host", type: "HOST_START_SHOW", payload: {}, meta: { actorId: hostParticipantId, offsetMs: asOffset(1) } },
+    createContext(),
+  );
+  assert.equal(result.kind, "rejected");
+  if (result.kind === "rejected") assert.equal(result.rejection.code, "recording_authority_required");
 });
 
 test("promotes a co-host when the host disconnects during recording", () => {

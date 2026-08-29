@@ -10,6 +10,8 @@ import type {
   SessionId,
   UserId,
   WorkspaceId,
+  WorkpieceId,
+  RecordingCaptureAuthorityId,
 } from "../domain/ids.js";
 import type { BellowsRoleCode } from "../domain/roles.js";
 import type {
@@ -57,6 +59,8 @@ export interface BellowsTongsAuthorityProjection {
 export interface BellowsTongsSessionHeaderRecord {
   readonly sessionId: SessionId;
   readonly workspaceId: WorkspaceId;
+  readonly workpieceId: WorkpieceId | null;
+  readonly recordingCaptureAuthorityId: RecordingCaptureAuthorityId | null;
   readonly hostUserId: UserId;
   readonly title: string;
   readonly mode: BellowsSessionMode;
@@ -118,6 +122,8 @@ export interface BellowsCreateTongsSessionHeaderInput {
 
 export interface BellowsSyncTongsSessionHeaderInput {
   readonly sessionId: SessionId;
+  readonly workpieceId?: WorkpieceId | null;
+  readonly recordingCaptureAuthorityId?: RecordingCaptureAuthorityId | null;
   readonly title?: string;
   readonly mode?: BellowsSessionMode;
   readonly sessionType?: BellowsSessionType;

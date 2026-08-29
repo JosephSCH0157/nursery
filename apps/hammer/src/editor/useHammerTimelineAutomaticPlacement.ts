@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { resolveCanonicalAutomaticPlacement } from "../features/auto-placement/canonicalPlacementAuthority";
-import type { PlacementFrameAnalysisAuthority } from "../features/auto-placement/placementFrameAnalysisAuthority";
-import type { PlacementFrameEvidence } from "../features/auto-placement/placementFrameAnalysisAuthority";
+import type { PlacementFrameAnalysisAuthority, PlacementFrameEvidence } from "../features/auto-placement/placementFrameAnalysisAuthority";
 import { TimelinePlacementAnalysisQueue, type TimelinePlacementAnalysisEntry, type TimelinePlacementAnalysisWorkItem } from "../features/auto-placement/timelinePlacementAnalysisQueue";
 import { applyPreviewOverride, clearPreviewOverride, type PreviewPlacementTransform } from "./hammerAutoPreviewPosition";
 import type { HammerVisualAsset, HammerVisualTimelineState } from "../visuals/model/hammerVisualTypes";
@@ -70,20 +69,21 @@ export function useHammerTimelineAutomaticPlacement(args: {
   paused: boolean;
   setOverrides: React.Dispatch<React.SetStateAction<Record<string, PreviewPlacementTransform>>>;
 }) {
+  const { authority, items, paused, setOverrides } = args;
   const queue = useMemo(() => new TimelinePlacementAnalysisQueue<PreviewPlacementTransform>(), []);
   const [entries, setEntries] = useState<readonly TimelinePlacementAnalysisEntry<PreviewPlacementTransform>[]>([]);
   const activeAbortRef = useRef<AbortController | null>(null);
-  const itemsKey = useMemo(() => args.items.map((item) => [item.placementId, item.canonicalRevision,
-    item.mediaRevision, item.geometryRevision, item.compositionPresentationTimeSec, item.sourceMediaTimeSec].join(":" )).join("|"), [args.items]);
+  const itemsKey = useMemo(() => items.map((item) => [item.placementId, item.canonicalRevision,
+    item.mediaRevision, item.geometryRevision, item.compositionPresentationTimeSec, item.sourceMediaTimeSec].join(":" )).join("|"), [items]);
 
   useEffect(() => {
-    queue.reconcile(args.items);
+    queue.reconcile(items);
     const next = queue.snapshot();
     setEntries((current) => timelinePlacementEntriesEqual(current, next) ? current : next);
-  }, [args.items, queue]);
+  }, [items, queue]);
 
   useEffect(() => {
-    if (args.paused) {
+    if (paused) {
       activeAbortRef.current?.abort();
       queue.cancelActive();
       return;
@@ -101,7 +101,7 @@ export function useHammerTimelineAutomaticPlacement(args: {
         let timeout = 0;
         let timedOut = false;
         try {
-          const analysis = args.authority.analyze({ requestId: `${item.placementId}:${item.canonicalRevision}:${item.mediaRevision}`,
+          const analysis = authority.analyze({ requestId: `${item.placementId}:${item.canonicalRevision}:${item.mediaRevision}`,
             placementId: item.placementId, sourceIdentity: item.sourceIdentity, sourceUrl: detail.sourceUrl,
             compositionPresentationTimeSec: item.compositionPresentationTimeSec, expectedMediaRevision: item.mediaRevision,
             sourceMediaTimeSec: item.sourceMediaTimeSec,
@@ -114,10 +114,10 @@ export function useHammerTimelineAutomaticPlacement(args: {
           const result = resolveTimelinePlacementResult(detail.canonicalTransform, evidence);
         if (result.status === "safe-existing") {
           queue.settle({ item, status: "safe-existing" });
-          args.setOverrides((current) => clearPreviewOverride(current, item.placementId));
+          setOverrides((current) => clearPreviewOverride(current, item.placementId));
         } else if (result.status === "resolved-safe") {
           queue.settle({ item, status: "resolved-safe", resolvedTransform: result.transform });
-          args.setOverrides((current) => applyPreviewOverride(current, item.placementId, result.transform));
+          setOverrides((current) => applyPreviewOverride(current, item.placementId, result.transform));
         } else {
           queue.settle({ item, status: "needs-review", reason: result.reason });
         }
@@ -144,7 +144,7 @@ export function useHammerTimelineAutomaticPlacement(args: {
       activeAbortRef.current = null;
       queue.cancelActive();
     };
-  }, [args.authority, args.paused, args.setOverrides, itemsKey, queue]);
+  }, [authority, itemsKey, paused, queue, setOverrides]);
 
   useEffect(() => () => { activeAbortRef.current?.abort(); queue.reset(); }, [queue]);
 
@@ -170,26 +170,37 @@ export function useHammerTimelineAutomaticPlacementFromTimeline(args: {
   setOverrides: React.Dispatch<React.SetStateAction<Record<string, PreviewPlacementTransform>>>;
   resolveSourceMediaTime: (compositionTimeSec: number) => number;
 }) {
+  const {
+    assetsById,
+    authority,
+    isPlaybackActive,
+    isScrubbing,
+    resolveSourceMediaTime,
+    setOverrides,
+    sourceUrl,
+    timeline,
+    workpieceId,
+  } = args;
   const items = useMemo(() => {
-    if (!args.timeline || !args.sourceUrl || !args.workpieceId) return [];
-    return args.timeline.clips.flatMap((clip) => {
-      const asset = clip.asset_id ? args.assetsById.get(clip.asset_id) : null;
+    if (!timeline || !sourceUrl || !workpieceId) return [];
+    return timeline.clips.flatMap((clip) => {
+      const asset = clip.asset_id ? assetsById.get(clip.asset_id) : null;
       if (!clip.enabled || clip.placement_status !== "placed" || asset?.kind !== "image") return [];
       const transform = geometryToTransform(clip.geometry);
       const geometryRevision = [transform.leftPct, transform.topPct, transform.widthPct, transform.heightPct].map((value) => value.toFixed(3)).join(":");
       const compositionPresentationTimeSec = Math.max(0, clip.start_sec);
-      return [{ placementId: clip.clip_id, sessionIdentity: args.workpieceId!, sourceIdentity: `${args.workpieceId}:${args.sourceUrl}`,
-        sourceUrl: args.sourceUrl!, compositionPresentationTimeSec,
-        sourceMediaTimeSec: args.resolveSourceMediaTime(compositionPresentationTimeSec),
-        canonicalRevision: automaticPlacementCanonicalRevision(args.timeline!, clip),
-        mediaRevision: args.sourceUrl!, geometryRevision, canonicalTransform: transform }];
+      return [{ placementId: clip.clip_id, sessionIdentity: workpieceId, sourceIdentity: `${workpieceId}:${sourceUrl}`,
+        sourceUrl, compositionPresentationTimeSec,
+        sourceMediaTimeSec: resolveSourceMediaTime(compositionPresentationTimeSec),
+        canonicalRevision: automaticPlacementCanonicalRevision(timeline, clip),
+        mediaRevision: sourceUrl, geometryRevision, canonicalTransform: transform }];
     });
-  }, [args.assetsById, args.resolveSourceMediaTime, args.sourceUrl, args.timeline, args.workpieceId]);
+  }, [assetsById, resolveSourceMediaTime, sourceUrl, timeline, workpieceId]);
   const [paused, setPaused] = useState(true);
   useEffect(() => {
-    if (args.isPlaybackActive || args.isScrubbing) { setPaused(true); return; }
+    if (isPlaybackActive || isScrubbing) { setPaused(true); return; }
     const timer = window.setTimeout(() => setPaused(false), 300);
     return () => window.clearTimeout(timer);
-  }, [args.isPlaybackActive, args.isScrubbing]);
-  return useHammerTimelineAutomaticPlacement({ authority: args.authority, items, paused, setOverrides: args.setOverrides });
+  }, [isPlaybackActive, isScrubbing]);
+  return useHammerTimelineAutomaticPlacement({ authority, items, paused, setOverrides });
 }

@@ -184,12 +184,13 @@ export type AnvilCaptureAuthority = Readonly<{
   workpieceId: string;
   recordingSessionId: string | null;
   readyTransitionId: string | null;
-  scriptPath: string;
-  scriptRevision: number;
-  scriptHash: string;
-  scriptApprovalId: string;
-  scriptApprovalRevision: number;
-  scriptApprovalHash: string;
+  scriptBindingKind: "approved_canonical_script" | "none";
+  scriptPath: string | null;
+  scriptRevision: number | null;
+  scriptHash: string | null;
+  scriptApprovalId: string | null;
+  scriptApprovalRevision: number | null;
+  scriptApprovalHash: string | null;
   operationKey: string;
   provenance: "live_established" | "completion_backfill";
 }>;
@@ -734,9 +735,6 @@ async function resolveRecordingCaptureTarget(): Promise<RecordingCaptureTargetRe
     return { ok: false, reason: "explicit_episode_context_required", workspaceId, workpieceId };
   }
   const identity = (window as any).__forgeCanonicalScriptIdentity as Record<string, unknown> | undefined;
-  if (normalizeUuid(identity?.workspaceId) !== workspaceId || normalizeUuid(identity?.workpieceId) !== workpieceId) {
-    return { ok: false, reason: "displayed_script_episode_mismatch", workspaceId, workpieceId };
-  }
   const captureSessionId = getOrCreateCaptureSessionId();
   if (activeCaptureAuthority?.captureSessionId === captureSessionId) {
     return { ok: true, workspaceId, workpieceId, createdCradle: false, plannerRecordingSessionId, captureSessionId, captureAuthority: activeCaptureAuthority };
@@ -745,35 +743,39 @@ async function resolveRecordingCaptureTarget(): Promise<RecordingCaptureTargetRe
   const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/recording-capture-authority`, {
     method: "POST", headers: await buildHeaders(apiToken), body: JSON.stringify({
       workspace_id: workspaceId, capture_session_id: captureSessionId, operation_key: operationKey,
-      recording_session_id: plannerRecordingSessionId,
+      recording_session_id: plannerRecordingSessionId, venue_version: getWrittenBy().tool_version,
     }),
   });
   const body = await readBodyAsJson(response);
   const data = body && typeof body === "object" && !Array.isArray(body) ? (body as any).data : null;
   const row = data?.capture_authority as Record<string, unknown> | undefined;
+  const execution = data?.venue_execution as Record<string, unknown> | undefined;
   const authorityId = normalizeUuid(row?.id);
   if (!response.ok || !authorityId || !["established", "duplicate"].includes(readString(data?.outcome) ?? "")) {
     const apiError = extractApiError(body);
     return { ok: false, reason: readString(data?.reason) ?? apiError.code ?? "capture_authority_establishment_failed", status: response.status, details: body, workspaceId, workpieceId };
   }
   const authority: AnvilCaptureAuthority = Object.freeze({
-    id: authorityId, captureSessionId: normalizeUuid(row?.capture_session_id)!, workspaceId: normalizeUuid(row?.workspace_id)!,
+    id: authorityId, captureSessionId: normalizeUuid(execution?.execution_id)!, workspaceId: normalizeUuid(row?.workspace_id)!,
     workpieceId: normalizeUuid(row?.workpiece_id)!, recordingSessionId: normalizeUuid(row?.recording_session_id),
-    readyTransitionId: normalizeUuid(row?.ready_transition_id), scriptPath: readString(row?.script_path)!,
-    scriptRevision: Number(row?.script_revision), scriptHash: readString(row?.script_hash)!.toLowerCase(),
-    scriptApprovalId: normalizeUuid(row?.script_approval_id) ?? "", scriptApprovalRevision: Number(row?.script_approval_revision),
-    scriptApprovalHash: (readString(row?.script_approval_hash) ?? "").toLowerCase(),
+    readyTransitionId: normalizeUuid(row?.ready_transition_id),
+    scriptBindingKind: row?.script_binding_kind === "approved_canonical_script" ? "approved_canonical_script" : "none",
+    scriptPath: readString(row?.script_path), scriptRevision: row?.script_revision != null && Number.isInteger(Number(row.script_revision)) ? Number(row.script_revision) : null,
+    scriptHash: readString(row?.script_hash)?.toLowerCase() ?? null,
+    scriptApprovalId: normalizeUuid(row?.script_approval_id), scriptApprovalRevision: row?.script_approval_revision != null && Number.isInteger(Number(row.script_approval_revision)) ? Number(row.script_approval_revision) : null,
+    scriptApprovalHash: readString(row?.script_approval_hash)?.toLowerCase() ?? null,
     operationKey: readString(row?.operation_key)!, provenance: row?.provenance === "completion_backfill" ? "completion_backfill" : "live_established",
   });
-  if (authority.workspaceId !== workspaceId || authority.workpieceId !== workpieceId || authority.captureSessionId !== captureSessionId
-    || !authority.scriptPath || !Number.isInteger(authority.scriptRevision) || authority.scriptRevision <= 0 || !/^[0-9a-f]{64}$/.test(authority.scriptHash)
-    || !authority.scriptApprovalId || !Number.isInteger(authority.scriptApprovalRevision) || authority.scriptApprovalRevision <= 0
-    || authority.scriptApprovalHash !== authority.scriptHash) {
+  if (authority.workspaceId !== workspaceId || authority.workpieceId !== workpieceId || authority.captureSessionId !== captureSessionId) {
     return { ok: false, reason: "capture_authority_contract_malformed", status: 502, details: body, workspaceId, workpieceId };
   }
-  if (normalizeUuid(identity?.scriptApprovalId) !== authority.scriptApprovalId
+  if (authority.scriptBindingKind === "approved_canonical_script" && (
+    !authority.scriptPath || !authority.scriptRevision || !authority.scriptHash || !authority.scriptApprovalId || !authority.scriptApprovalRevision
+    || authority.scriptApprovalHash !== authority.scriptHash
+    || normalizeUuid(identity?.scriptApprovalId) !== authority.scriptApprovalId
     || Number(identity?.scriptApprovalRevision) !== authority.scriptApprovalRevision
-    || readString(identity?.scriptApprovalHash)?.toLowerCase() !== authority.scriptApprovalHash) {
+    || readString(identity?.scriptApprovalHash)?.toLowerCase() !== authority.scriptApprovalHash
+  )) {
     return { ok: false, reason: "displayed_script_approval_mismatch", status: 409, details: body, workspaceId, workpieceId };
   }
   activeCaptureAuthority = authority;
@@ -1301,11 +1303,10 @@ export async function transitionRecordingCompleted(input: {
     return { ok: false, outcome: "malformed", reason: "recording_completion_evidence_incomplete" };
   }
   const evidence = {
-    schema: "anvil.recording-completion.v3",
+    schema: "forge.recording-completion.v1",
     completed: true,
-    capture_authority_id: input.commit.captureAuthorityId,
-    capture_session_id: input.commit.captureSessionId,
-    anvil_version: getWrittenBy().tool_version,
+    recording_capture_authority_id: input.commit.captureAuthorityId,
+    venue_version: getWrittenBy().tool_version,
     asr_diagnostics: {
       terminal_line_completed: asr?.terminalCompleted === true,
       unresolved_skipped_line_count: Array.isArray(asr?.unresolvedSkippedLines) ? asr.unresolvedSkippedLines.length : null,
@@ -1404,7 +1405,7 @@ async function transitionRecordingDecisionV2(
 ): Promise<RecordingAuthorityOutcome> {
   if (!commit.captureAuthorityId) return { ok: false, outcome: "malformed", reason: "capture_authority_missing" };
   const evidence = { schema: "anvil.take-decision.v2", decision, completion_id: completionId,
-    capture_authority_id: commit.captureAuthorityId, capture_session_id: commit.captureSessionId };
+    recording_capture_authority_id: commit.captureAuthorityId };
   try {
     const response = await fetch(`/tongs/workpieces/${encodeURIComponent(commit.workpieceId)}/recording-decision-v2`, {
       method: "POST", headers: await buildHeaders(getApiToken()), body: JSON.stringify({
@@ -1462,12 +1463,14 @@ export async function transitionRecordingDiscarded(input: {
   }
 }
 
-export type PendingRecordingDecision = { completionId: string; workpieceId: string; captureSessionId: string; mediaPath: string };
+export type PendingRecordingDecision = {
+  completionId: string; workpieceId: string; captureSessionId: string; captureAuthorityId: string; mediaPath: string;
+};
 
 export async function readPendingRecordingDecisions(): Promise<PendingRecordingDecision[]> {
   const ready = (window as any).__forgeCanonicalReadyScript as Record<string, unknown> | undefined;
-  const workspaceId = normalizeUuid(ready?.workspaceId);
-  const workpieceId = normalizeUuid(ready?.workpieceId);
+  const workspaceId = normalizeUuid(ready?.workspaceId) ?? normalizeUuid(getQueryParam("workspace_id", "workspaceId"));
+  const workpieceId = normalizeUuid(ready?.workpieceId) ?? normalizeUuid(getQueryParam("workpiece_id", "workpieceId"));
   if (!workspaceId || !workpieceId) return [];
   try {
     const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/pending-recording-decisions?workspace_id=${encodeURIComponent(workspaceId)}`, { headers: await buildHeaders(getApiToken()) });
@@ -1479,9 +1482,11 @@ export async function readPendingRecordingDecisions(): Promise<PendingRecordingD
       const value = row as Record<string, unknown>;
       const completionId = normalizeUuid(value.completion_id);
       const captureSessionId = normalizeUuid(value.capture_session_id);
+      const captureAuthorityId = normalizeUuid(value.recording_capture_authority_id);
       const rowWorkpieceId = normalizeUuid(value.workpiece_id);
       const mediaPath = readString(value.media_path);
-      return completionId && captureSessionId && rowWorkpieceId === workpieceId && mediaPath ? [{ completionId, captureSessionId, workpieceId, mediaPath }] : [];
+      return completionId && captureSessionId && captureAuthorityId && rowWorkpieceId === workpieceId && mediaPath
+        ? [{ completionId, captureSessionId, captureAuthorityId, workpieceId, mediaPath }] : [];
     });
   } catch {
     return [];

@@ -4,7 +4,13 @@ const mockShowRecordingDecisionDialog = jest.fn(async (..._args: unknown[]) => {
 jest.mock('../../src/forge/workpiece-commit', () => ({
   beginRecordingCaptureSession: jest.fn(() => 'cap-test-1'),
   hasCanonicalRecordingScriptIdentity: jest.fn(() => true),
-  ensureRecordingCaptureTarget: jest.fn(async () => ({ ok: true, workpieceId: 'w-test-1' })),
+  ensureRecordingCaptureTarget: jest.fn(async () => ({ ok: true, workpieceId: 'w-test-1', captureAuthority: {
+    id: '11111111-1111-4111-8111-111111111111', captureSessionId: '22222222-2222-4222-8222-222222222222',
+    workspaceId: '33333333-3333-4333-8333-333333333333', workpieceId: '44444444-4444-4444-8444-444444444444',
+    recordingSessionId: null, readyTransitionId: null, scriptBindingKind: 'none', scriptPath: null,
+    scriptRevision: null, scriptHash: null, scriptApprovalId: null, scriptApprovalRevision: null,
+    scriptApprovalHash: null, operationKey: 'test-capture-operation', provenance: 'live_established',
+  } })),
   commitRecordingBytesToTongs: (...args: unknown[]) => mockCommitRecordingBytesToTongs(...args),
   commitRecordingJsonArtifactToTongs: jest.fn(async () => ({ ok: true })),
   appendRecordingDecisionToTongs: jest.fn(async () => ({ ok: true })),
@@ -28,20 +34,26 @@ jest.mock('../../src/recording/recording-decision-dialog', () => ({
 }));
 
 describe('local-auto recorder safety guards', () => {
-  class FakeTrack {
+  let lastAudioTrack: FakeTrack | null = null;
+  class FakeTrack extends EventTarget {
     kind: 'audio' | 'video';
     enabled = true;
     muted = false;
     readyState: MediaStreamTrackState = 'live';
     label: string;
     constructor(kind: 'audio' | 'video', label: string) {
+      super();
       this.kind = kind;
       this.label = label;
     }
     getSettings() {
       return { deviceId: this.kind === 'audio' ? 'mic-1' : 'cam-1' };
     }
-    stop() {}
+    stop() {
+      if (this.readyState === 'ended') return;
+      this.readyState = 'ended';
+      this.dispatchEvent(new Event('ended'));
+    }
   }
 
   class FakeMediaStream {
@@ -57,6 +69,7 @@ describe('local-auto recorder safety guards', () => {
 
   class FakeMediaRecorder {
     static created = 0;
+    static outputBytes = 128;
     state: RecordingState = 'inactive';
     mimeType = 'video/webm';
     ondataavailable: ((event: BlobEvent) => void) | null = null;
@@ -65,7 +78,7 @@ describe('local-auto recorder safety guards', () => {
     start() { this.state = 'recording'; }
     stop() {
       this.state = 'inactive';
-      this.ondataavailable?.({ data: new Blob([], { type: 'video/webm' }) } as BlobEvent);
+      this.ondataavailable?.({ data: new Blob([new Uint8Array(FakeMediaRecorder.outputBytes)], { type: 'video/webm' }) } as BlobEvent);
       this.onstop?.(new Event('stop'));
     }
   }
@@ -89,7 +102,10 @@ describe('local-auto recorder safety guards', () => {
       value: {
         getUserMedia: jest.fn(async (constraints: MediaStreamConstraints) => {
           const stream = new FakeMediaStream();
-          if (constraints?.audio) stream.addTrack(new FakeTrack('audio', 'Mic'));
+          if (constraints?.audio) {
+            lastAudioTrack = new FakeTrack('audio', 'Mic');
+            stream.addTrack(lastAudioTrack);
+          }
           if (constraints?.video) stream.addTrack(new FakeTrack('video', 'Cam'));
           return stream as unknown as MediaStream;
         }),
@@ -136,6 +152,8 @@ describe('local-auto recorder safety guards', () => {
     jest.clearAllMocks();
     localStorage.clear();
     FakeMediaRecorder.created = 0;
+    FakeMediaRecorder.outputBytes = 128;
+    lastAudioTrack = null;
     delete (window as any).__tpAutoRecord;
     delete (window as any).__tpRecording;
     setupWindow();
@@ -392,6 +410,41 @@ describe('local-auto recorder safety guards', () => {
       'The finalized recording has no audio track. This cannot be saved as a podcast take.',
       { type: 'error' },
     );
+  });
+
+  test('blocks canonical upload when the microphone track ends during capture', async () => {
+    await (window as any).__tpAutoRecord.start();
+    lastAudioTrack?.stop();
+    await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockCommitRecordingBytesToTongs).not.toHaveBeenCalled();
+    expect((window as any).toast).toHaveBeenCalledWith(
+      'Microphone capture stopped before this recording ended. This take cannot be kept.',
+      { type: 'error' },
+    );
+  });
+
+  test('blocks canonical upload for an empty finalized artifact', async () => {
+    FakeMediaRecorder.outputBytes = 0;
+    await (window as any).__tpAutoRecord.start();
+    await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockCommitRecordingBytesToTongs).not.toHaveBeenCalled();
+    expect((window as any).toast).toHaveBeenCalledWith(
+      'The finalized recording failed browser media sanity checks and cannot be uploaded as a take.',
+      { type: 'error' },
+    );
+  });
+
+  test('blocks AV upload when the finalized artifact has no video stream', async () => {
+    (window as any).__tpVerifyRecordedArtifact = jest.fn(async () => ({
+      hasAudioStream: true, hasVideoStream: false, channels: 1, sampleRate: 48000,
+      audioDurationSec: 2, nearSilent: false, rmsDbfs: -20,
+    }));
+    await (window as any).__tpAutoRecord.start();
+    await (window as any).__tpAutoRecord.stop();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(mockCommitRecordingBytesToTongs).not.toHaveBeenCalled();
   });
 
   test('allows valid audio-only finalized artifact', async () => {

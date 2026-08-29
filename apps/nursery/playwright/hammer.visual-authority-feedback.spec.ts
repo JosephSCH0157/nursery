@@ -3,6 +3,59 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+type SelectionTransition = { from: string | null; to: string | null; reason: string };
+type SelectionRender = { selected_id: string | null; shifted?: boolean; reconcile_generation?: number };
+type SelectionEvent = {
+  event: string;
+  target_id: string | null;
+  target_instance?: string | null;
+  selected_instance?: string | null;
+  selected_geometry?: { x: number; y: number; width: number; height: number } | null;
+  scroll_y?: number;
+  geometry?: { x: number; y: number; width: number; height: number } | null;
+};
+type SelectionRaceEvidence = {
+  events: SelectionEvent[];
+  transitions: SelectionTransition[];
+  renders: SelectionRender[];
+};
+type ScrolledSelectionEvidence = SelectionRaceEvidence & {
+  geometry: Record<string, { x: number; y: number; width: number; height: number } | null>;
+  transcriptSegmentCount: number;
+  placementCount: number;
+};
+type MountedSelectionEvidence = {
+  emissions: number;
+  events: SelectionEvent[];
+  selectedSnapshots: string[][];
+};
+type AuthorityMetrics = {
+  emissions: number;
+  emissionsAtReconcile: number;
+  revisionWrites: number;
+  workpieceWrites: number;
+  clips: number;
+  assets: number;
+  approvals: number;
+  timelinePath: string;
+  identity: string;
+  initialIdentity: string;
+  identityPreserved: boolean;
+  timerPending: boolean;
+  completed: boolean;
+};
+
+declare global {
+  interface Window {
+    __hammerTimelineHitTestSelections: string[];
+    __hammerSelectionRaceEvidence: SelectionRaceEvidence;
+    __hammerScrolledSelectionEvidence: ScrolledSelectionEvidence;
+    __hammerMountedFloridaSelectionEvidence: MountedSelectionEvidence;
+    __hammerResponsiveControlClicks: Array<string | null>;
+    __hammerAuthorityMetrics: AuthorityMetrics;
+  }
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const repositoryRoot = path.resolve(__dirname, "../../..");
@@ -84,7 +137,7 @@ test("visual clips beyond playback duration retain distinct native pointer targe
     const { createRoot } = (await import("/node_modules/.vite/deps/react-dom_client.js")).default;
     const { default: VisualTimelineDock } = await import(urls.visualTimelineDock);
     const selected: string[] = [];
-    (window as any).__hammerTimelineHitTestSelections = selected;
+    window.__hammerTimelineHitTestSelections = selected;
     document.body.innerHTML = `
       <style>
         .hammer-visual-timeline-lane__track { position: relative; width: 160px; min-height: 44px; overflow: hidden; }
@@ -138,7 +191,7 @@ test("visual clips beyond playback duration retain distinct native pointer targe
   await duplicate.click();
   await later.click();
   await expect.poll(() => page.evaluate(() => (
-    (window as any).__hammerTimelineHitTestSelections as string[]
+    window.__hammerTimelineHitTestSelections
   ).filter((value, index, values) => index === 0 || value !== values[index - 1]))).toEqual([
     "placement-target",
     "placement-exact-duplicate",
@@ -163,8 +216,8 @@ test("Florida-shaped editable clip remains selected when mousedown reflows the t
     const targetId = "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2";
     const duplicateId = "placement_mm_from_media_still_broll-beat-155848e3-0799-44b2-9fea-9457bfd48cdf";
     const interceptorId = "placement_6c70e9c8-575b-4849-abd2-86377bc7334e";
-    const evidence = { events: [] as any[], transitions: [] as any[], renders: [] as any[] };
-    (window as any).__hammerSelectionRaceEvidence = evidence;
+    const evidence: SelectionRaceEvidence = { events: [], transitions: [], renders: [] };
+    window.__hammerSelectionRaceEvidence = evidence;
     document.body.innerHTML = `
       <style>
         .hammer-visual-timeline-lane__track { position: relative; width: 160px; min-height: 44px; overflow: hidden; }
@@ -223,11 +276,11 @@ test("Florida-shaped editable clip remains selected when mousedown reflows the t
   const target = page.locator('[data-clip-id="placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2"]');
   await target.click();
   await expect(target).toHaveClass(/is-selected/);
-  await expect.poll(() => page.evaluate(() => (window as any).__hammerSelectionRaceEvidence.renders.at(-1))).toEqual({
+  await expect.poll(() => page.evaluate(() => window.__hammerSelectionRaceEvidence.renders.at(-1))).toEqual({
     selected_id: "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2",
     shifted: true,
   });
-  const evidence = await page.evaluate(() => (window as any).__hammerSelectionRaceEvidence);
+  const evidence = await page.evaluate(() => window.__hammerSelectionRaceEvidence);
   expect(evidence.events[0]).toMatchObject({
     event: "pointerdown",
     target_id: "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2",
@@ -245,7 +298,7 @@ test("Florida-shaped editable clip remains selected when mousedown reflows the t
     selected_instance: "target-stable-node",
   });
   expect(evidence.events[1].selected_geometry.y - evidence.events[0].selected_geometry.y).toBe(120);
-  expect(evidence.transitions.filter((transition: any) => transition.reason === "select")).toEqual([{
+  expect(evidence.transitions.filter((transition) => transition.reason === "select")).toEqual([{
     from: null,
     to: "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2",
     reason: "select",
@@ -270,14 +323,14 @@ test("Florida-shaped below-viewport clip remains selected after locator scroll a
     const duplicateId = "placement_mm_from_media_still_broll-beat-155848e3-0799-44b2-9fea-9457bfd48cdf";
     const interceptorId = "placement_6c70e9c8-575b-4849-abd2-86377bc7334e";
     const evidence = {
-      events: [] as any[],
-      transitions: [] as any[],
-      renders: [] as any[],
-      geometry: {} as Record<string, any>,
+      events: [],
+      transitions: [],
+      renders: [],
+      geometry: {},
       transcriptSegmentCount: 137,
       placementCount: 30,
-    };
-    (window as any).__hammerScrolledSelectionEvidence = evidence;
+    } satisfies ScrolledSelectionEvidence;
+    window.__hammerScrolledSelectionEvidence = evidence;
     document.body.innerHTML = `
       <style>
         body { margin: 0; }
@@ -308,10 +361,10 @@ test("Florida-shaped below-viewport clip remains selected after locator scroll a
     function Harness() {
       const [selectedId, setSelectedId] = React.useState<string | null>(null);
       const [reconcileGeneration, setReconcileGeneration] = React.useState(0);
-      const reconciledGeneration = React.useRef(0);
+      const reconciledGenerationRef = React.useRef(0);
       React.useLayoutEffect(() => {
-        if (reconcileGeneration === 0 || reconciledGeneration.current === reconcileGeneration) return;
-        reconciledGeneration.current = reconcileGeneration;
+        if (reconcileGeneration === 0 || reconciledGenerationRef.current === reconcileGeneration) return;
+        reconciledGenerationRef.current = reconcileGeneration;
         evidence.transitions.push({ from: targetId, to: null, reason: "scroll_focus_reconciliation" });
         setSelectedId(null);
       }, [reconcileGeneration]);
@@ -351,24 +404,24 @@ test("Florida-shaped below-viewport clip remains selected after locator scroll a
   }, moduleUrls);
 
   const target = page.locator('[data-clip-id="placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2"]');
-  const preScroll = await page.evaluate(() => (window as any).__hammerScrolledSelectionEvidence.geometry.pre_scroll);
+  const preScroll = await page.evaluate(() => window.__hammerScrolledSelectionEvidence.geometry.pre_scroll);
   expect(preScroll.y).toBeGreaterThan(720);
   await target.click();
   await expect(target).toHaveClass(/is-selected/);
-  await expect.poll(() => page.evaluate(() => (window as any).__hammerScrolledSelectionEvidence.renders.at(-1)?.selected_id)).toBe(
+  await expect.poll(() => page.evaluate(() => window.__hammerScrolledSelectionEvidence.renders.at(-1)?.selected_id)).toBe(
     "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2",
   );
-  const evidence = await page.evaluate(() => (window as any).__hammerScrolledSelectionEvidence);
+  const evidence = await page.evaluate(() => window.__hammerScrolledSelectionEvidence);
   expect(evidence.transcriptSegmentCount).toBe(137);
   expect(evidence.placementCount).toBe(30);
-  expect(evidence.events.map((event: any) => event.event)).toEqual([
+  expect(evidence.events.map((event) => event.event)).toEqual([
     "pointerdown", "mousedown", "focus", "pointerup", "click",
   ]);
-  expect(evidence.events.every((event: any) => event.target_id === "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2")).toBe(true);
-  expect(evidence.events.every((event: any) => event.target_instance === "florida-target-stable-node")).toBe(true);
+  expect(evidence.events.every((event) => event.target_id === "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2")).toBe(true);
+  expect(evidence.events.every((event) => event.target_instance === "florida-target-stable-node")).toBe(true);
   expect(evidence.events[0].scroll_y).toBeGreaterThan(0);
   expect(evidence.events.at(-1).geometry.y).toBeLessThan(720);
-  expect(evidence.transitions.map((transition: any) => transition.reason)).toEqual([
+  expect(evidence.transitions.map((transition) => transition.reason)).toEqual([
     "user_select", "scroll_focus_reconciliation", "user_select",
   ]);
   expect(evidence.transitions.at(-1).to).toBe("placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2");
@@ -488,7 +541,7 @@ test(`mounted Florida-shaped shell retains visual selection while Source Desk is
       status: "prepared",
       source_refs: ["transcript:frozen-florida"],
       uncertainty_flags: ["three_review_flags"],
-      placements: clips.map((clip: any) => ({
+      placements: clips.map((clip) => ({
         placement_id: clip.clip_id,
         entry_id: clip.entry_id,
         anchor_segment_id: "turn_107",
@@ -523,8 +576,8 @@ test(`mounted Florida-shaped shell retains visual selection while Source Desk is
       derived_text_layers: { schema_version: 1, active_layer_id: null, output_layer_id: null, layers: [] },
       subtitle_outputs: { schema_version: 1, last_generated_format: null, srt: null, vtt: null },
     };
-    const evidence = { emissions: 0, events: [] as any[], selectedSnapshots: [] as string[][] };
-    (window as any).__hammerMountedFloridaSelectionEvidence = evidence;
+    const evidence: MountedSelectionEvidence = { emissions: 0, events: [], selectedSnapshots: [] };
+    window.__hammerMountedFloridaSelectionEvidence = evidence;
     let priorSelectedSnapshot = "";
     const recordSelectedSnapshot = () => {
       const selectedIds = Array.from(document.querySelectorAll("[data-clip-id].is-selected"))
@@ -563,7 +616,7 @@ test(`mounted Florida-shaped shell retains visual selection while Source Desk is
   await expect(target).toHaveCount(1);
   const preClickBox = await target.boundingBox();
   expect(preClickBox?.y).toBeGreaterThan(720);
-  const emissionsBefore = await page.evaluate(() => (window as any).__hammerMountedFloridaSelectionEvidence.emissions);
+  const emissionsBefore = await page.evaluate(() => window.__hammerMountedFloridaSelectionEvidence.emissions);
   await target.click();
   await expect(target).toHaveClass(/is-selected/);
   await page.waitForTimeout(sourceDeskCase.settleBeforeSelectionMs);
@@ -572,9 +625,9 @@ test(`mounted Florida-shaped shell retains visual selection while Source Desk is
   const removeTarget = page.getByRole("button", { name: `Remove selected B-roll clip ${"placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2"}`, exact: true });
   await expect(removeTarget).toBeVisible();
   await expect(removeTarget).toHaveAttribute("data-placement-id", "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2");
-  const evidence = await page.evaluate(() => (window as any).__hammerMountedFloridaSelectionEvidence);
-  expect(evidence.events.map((event: any) => event.event)).toEqual(["pointerdown", "mousedown", "focus", "pointerup", "click"]);
-  expect(evidence.events.slice(0, 2).every((event: any) => event.target_id === "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2")).toBe(true);
+  const evidence = await page.evaluate(() => window.__hammerMountedFloridaSelectionEvidence);
+  expect(evidence.events.map((event) => event.event)).toEqual(["pointerdown", "mousedown", "focus", "pointerup", "click"]);
+  expect(evidence.events.slice(0, 2).every((event) => event.target_id === "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2")).toBe(true);
   const firstSelectedSnapshot = evidence.selectedSnapshots.findIndex((ids: string[]) => ids.length > 0);
   expect(firstSelectedSnapshot).toBeGreaterThanOrEqual(0);
   expect(evidence.selectedSnapshots.slice(firstSelectedSnapshot)).toEqual([
@@ -607,7 +660,7 @@ test("archived-history notice keeps Visuals controls inside the exact 1280x720 s
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.goto("/");
   await page.evaluate(() => {
-    (window as any).__hammerResponsiveControlClicks = [];
+    window.__hammerResponsiveControlClicks = [];
     document.body.innerHTML = `
       <section class="hammer-workspace-shell is-tool-focus" style="height:720px">
         <div class="hammer-workspace-shell__notices">
@@ -635,7 +688,7 @@ test("archived-history notice keeps Visuals controls inside the exact 1280x720 s
       </section>
     `;
     for (const button of document.querySelectorAll(".hammer-tool-bay button")) {
-      button.addEventListener("click", () => (window as any).__hammerResponsiveControlClicks.push(button.textContent));
+      button.addEventListener("click", () => window.__hammerResponsiveControlClicks.push(button.textContent));
     }
   });
 
@@ -666,7 +719,7 @@ test("archived-history notice keeps Visuals controls inside the exact 1280x720 s
   await page.getByRole("button", { name: "Remove Clip", exact: true }).click();
   await assertContained(960);
   await assertContained(1280);
-  await expect.poll(() => page.evaluate(() => (window as any).__hammerResponsiveControlClicks)).toEqual([
+  await expect.poll(() => page.evaluate(() => window.__hammerResponsiveControlClicks)).toEqual([
     "Visuals",
     "Images",
     "Remove Clip",
@@ -713,7 +766,7 @@ test("mounted Hammer shell does not re-emit a stale workpiece visual downgrade",
     const canonicalTimeline = { version: 2, revision: 7, updated_at: updatedAt, source_mode: "packaging", selected_clip_id: "clip-0", assets, clips, lanes: [{ lane_id: "lane:primary", label: "Visuals", clip_ids: clips.map((clip) => clip.clip_id) }], debug_origin: "canonical_load" };
     const canonicalAuthority = { schema_version: 1, graph_id: "workpiece:plan:authority", graph_version: 1, workspace_id: "workspace", workpiece_id: "workpiece", session_id: "session", source_transcript_id: null, operation_order: [], operations: [], created_at: updatedAt, updated_at: updatedAt };
     const artifact = (data: unknown, path: string | null = null) => ({ path, updated_at: updatedAt, data });
-    const canonicalSnapshot: any = {
+    const canonicalSnapshot = {
       schema_version: 1,
       state: { workspace_id: "workspace", workpiece_id: "workpiece", active_session_id: "session", current_pass: "visual_assembly", pass_order_version: 1, pass_status: {}, editor_session_path: null, transcript_artifact_path: null, transcript_versions_artifact_path: null, speaker_map_artifact_path: null, visual_placement_artifact_path: "canonical-placements", visual_timeline_artifact_path: "canonical-timeline", audio_polish_artifact_path: null, edit_plan_artifact_path: null, editorial_authority_artifact_path: null, edit_plan_signature: null, prep_status: "prepared", alignment_status: "aligned", macro_recipe_ref: null, last_macro_run_ref: null, last_opened_at: updatedAt, updated_at: updatedAt, updated_by: "revision" },
       editor_session: artifact(null), structured_transcript: artifact(null), transcript_version_registry: artifact(null), speaker_map: artifact(null),
@@ -726,24 +779,24 @@ test("mounted Hammer shell does not re-emit a stale workpiece visual downgrade",
     stale.state.visual_timeline_artifact_path = null;
     stale.state.visual_placement_artifact_path = "legacy-placements";
     const metrics = { emissions: 0, emissionsAtReconcile: 0, revisionWrites: 0, workpieceWrites: 0, clips: 0, assets: 0, approvals: 0, timelinePath: "", identity: "", initialIdentity: `${canonicalTimeline.revision}:${canonicalTimeline.updated_at}`, identityPreserved: false, timerPending: false, completed: false };
-    (window as any).__hammerAuthorityMetrics = metrics;
+    window.__hammerAuthorityMetrics = metrics;
     const revision = { id: "revision", workspace_id: "workspace", workpiece_id: "workpiece", canonical_recording_id: "recording", status: "active", label: null, editor_session_path: null, revision_transcript_path: null, audio_polish_path: null, visual_timeline_path: "canonical-timeline", visual_placements_path: "canonical-placements", history_path: null, snapshots_manifest_path: null };
     const lanes = { canonical_hydration: 0, revision_mutation: 0, workpiece_reconciliation: 0, lifecycle_flush: 0 };
+    let saved = false;
+    let saveTimer = 0;
     function Harness() {
       const [timeline, setTimeline] = React.useState(canonicalTimeline);
-      const saved = React.useRef(false);
-      const saveTimer = React.useRef(0);
-      const onWorkspaceSnapshotChange = React.useCallback((snapshot: any) => {
+      const onWorkspaceSnapshotChange = React.useCallback((snapshot: { visualTimeline: { clips: Array<{ ingest_state: string }>; assets: unknown[]; revision: number; updated_at: string } }) => {
         metrics.emissions += 1;
         metrics.clips = snapshot.visualTimeline.clips.length;
         metrics.assets = snapshot.visualTimeline.assets.length;
-        metrics.approvals = snapshot.visualTimeline.clips.filter((clip: any) => clip.ingest_state === "approved").length;
+        metrics.approvals = snapshot.visualTimeline.clips.filter((clip) => clip.ingest_state === "approved").length;
         metrics.identity = `${snapshot.visualTimeline.revision}:${snapshot.visualTimeline.updated_at}`;
-        if (saved.current) return;
-        window.clearTimeout(saveTimer.current);
+        if (saved) return;
+        window.clearTimeout(saveTimer);
         metrics.timerPending = true;
-        saveTimer.current = window.setTimeout(async () => {
-          saved.current = true;
+        saveTimer = window.setTimeout(async () => {
+          saved = true;
           const result = await persistHammerCanonicalSave({
             target: { workspaceId: "workspace", workpieceId: "workpiece" }, revisionId: "revision",
             revisionRequest: { visual_timeline: { data: canonicalTimeline }, visual_placements: { data: canonicalSnapshot.visual_placements.data } },
@@ -764,7 +817,7 @@ test("mounted Hammer shell does not re-emit a stale workpiece visual downgrade",
             metrics.completed = true;
           }
         }, 200);
-      }, []);
+      }, [setTimeline]);
       return React.createElement(HammerWorkspaceShell, { launchContext: getHammerDevLaunchPreset("tongs-stub-clean"), recordingRevisionId: "revision", visualTimeline: timeline, visualPlacements: canonicalSnapshot.visual_placements.data, initialCurrentPass: "visual_assembly", onWorkspaceSnapshotChange });
     }
     document.body.innerHTML = "<div id='hammer-mounted-authority-root'></div>";
@@ -772,9 +825,9 @@ test("mounted Hammer shell does not re-emit a stale workpiece visual downgrade",
   }, moduleUrls);
   await expect(page.locator("section.hammer-timeline-dock")).toBeVisible();
   await expect(page.locator(".hammer-timeline-block--image, .hammer-timeline-block--broll")).toHaveCount(30);
-  await expect.poll(() => page.evaluate(() => (window as any).__hammerAuthorityMetrics.completed)).toBe(true);
+  await expect.poll(() => page.evaluate(() => window.__hammerAuthorityMetrics.completed)).toBe(true);
   await page.waitForTimeout(1_500);
-  const metrics = await page.evaluate(() => (window as any).__hammerAuthorityMetrics);
+  const metrics = await page.evaluate(() => window.__hammerAuthorityMetrics);
   expect(metrics).toMatchObject({ revisionWrites: 1, workpieceWrites: 1, clips: 30, assets: 30, approvals: 29, timelinePath: "canonical-timeline", identity: metrics.initialIdentity, identityPreserved: true, timerPending: false, completed: true });
   expect(metrics.emissions).toBe(metrics.emissionsAtReconcile);
 });

@@ -10,7 +10,7 @@ import {
 import { loadWorkpieceRecordingCardThumbnailState } from "./hammerRecordingCardThumbnail";
 import { loadWorkpieceMediaPreviewUrl } from "../lib/hammerSourceDeskMediaApi";
 import { intake, pickMediaFile } from "../lib/hammerIntakeRecordingApi";
-import { useNewTakeThenOpen } from "./hammerTakeAdoption";
+import { useNewTakeThenOpen as adoptNewTakeThenOpen } from "./hammerTakeAdoption";
 import HammerWorkspaceSelection from "./HammerWorkspaceSelection";
 import type { HammerShellWorkspaceOption, HammerWorkspaceResolutionState } from "./hammerShellContext";
 import "./HammerProjectLibrary.css";
@@ -264,12 +264,12 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
     }));
   }
 
-  async function useNewTake(project: HammerRuntimeProjectCard): Promise<void> {
+  async function handleUseNewTake(project: HammerRuntimeProjectCard): Promise<void> {
     if (takeAdoptionBusyWorkpieceId) return;
     setTakeAdoptionError(null);
     setTakeAdoptionBusyWorkpieceId(project.workpieceId);
     try {
-      await useNewTakeThenOpen({
+      await adoptNewTakeThenOpen({
         target: { workspaceId: project.workspaceId, workpieceId: project.workpieceId },
         open: (target, authority) => {
           const href = new URL(buildHammerCanonicalEditorHref(location.search, target), window.location.origin);
@@ -468,7 +468,7 @@ export default function HammerProjectLibrary(props: HammerProjectLibraryProps): 
                     <button
                       type="button"
                       className="hammer-project-library__button hammer-project-library__button--secondary hammer-project-library__button--card"
-                      onClick={() => void useNewTake(project)}
+                      onClick={() => void handleUseNewTake(project)}
                       disabled={takeAdoptionBusyWorkpieceId !== null}
                     >
                       {takeAdoptionBusyWorkpieceId === project.workpieceId ? "Using New Take..." : "Use New Take"}

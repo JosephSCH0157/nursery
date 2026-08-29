@@ -1662,16 +1662,17 @@ export type AnvilTakeCompletionV2Request = {
   user_access_token?: string | null;
 };
 
-export type AnvilCaptureAuthority = Readonly<{
+export type RecordingCaptureAuthority = Readonly<{
   id: string;
-  capture_session_id: string;
   workspace_id: string;
   workpiece_id: string;
   recording_session_id: string | null;
+  venue: "anvil" | "bellows";
+  script_binding_kind: "approved_canonical_script" | "none";
   ready_transition_id: string | null;
-  script_path: string;
-  script_revision: number;
-  script_hash: string;
+  script_path: string | null;
+  script_revision: number | null;
+  script_hash: string | null;
   script_approval_id: string | null;
   script_approval_revision: number | null;
   script_approval_hash: string | null;
@@ -1681,19 +1682,43 @@ export type AnvilCaptureAuthority = Readonly<{
   established_at: string;
 }>;
 
+export type AnvilCaptureExecution = Readonly<{
+  execution_id: string;
+  recording_capture_authority_id: string;
+  operation_key: string;
+  anvil_version: string | null;
+  created_by: string;
+  created_at: string;
+}>;
+
 export type EstablishAnvilCaptureRequest = {
   workspace_id: string;
   capture_session_id: string;
   operation_key: string;
   recording_session_id?: string | null;
+  venue_version?: string | null;
   user_access_token?: string | null;
 };
 
 export type EstablishAnvilCaptureResult = {
   outcome: "established" | "duplicate" | "conflict" | "denied" | "not_found";
   reason?: string | null;
-  capture_authority: AnvilCaptureAuthority | null;
+  capture_authority: RecordingCaptureAuthority | null;
+  venue_execution?: AnvilCaptureExecution | null;
 };
+
+export type RecordingWorkpieceCreationReceipt = Readonly<{
+  id: string; workspace_id: string; workpiece_id: string; operation_key: string;
+  request_fingerprint: string; title: string; origin_venue: "anvil" | "bellows";
+  created_by: string; created_at: string;
+}>;
+
+export type CreateRecordingWorkpieceResult = Readonly<{
+  outcome: "created" | "existing" | "conflict" | "denied";
+  reason?: string | null;
+  workpiece_id?: string;
+  receipt?: RecordingWorkpieceCreationReceipt;
+}>;
 
 export type AnvilTakeCompletionV3Request = {
   capture_authority_id: string;
@@ -2466,6 +2491,10 @@ export type TongsCommitApiService = {
     workspaceId: string,
     options?: ListWorkspaceEpisodesOptions,
   ): Promise<WorkspaceEpisodeSummary[]>;
+  createRecordingWorkpiece(input: {
+    workspace_id: string; title: string; origin_venue: "anvil" | "bellows"; operation_key: string; user_access_token: string;
+  }): Promise<CreateRecordingWorkpieceResult>;
+  recoverRecordingWorkpieceCreation(workspaceId: string, operationKey: string, userAccessToken: string): Promise<RecordingWorkpieceCreationReceipt | null>;
   renameWorkpiece(workpieceId: string, input: RenameWorkpieceRequest, options?: { userAccessToken?: string | null }): Promise<WorkspaceEpisodeSummary>;
   listWorkspaceStorage(
     workspaceId: string,
@@ -10699,7 +10728,7 @@ export class TongsCommitService {
     if (input.event_name === "anvil.recording.artifact.saved.v1") {
       if (!input.capture_authority_id) throw new HttpError(409, "capture_authority_required", "A canonical capture authority is required before recording upload.");
       const authority = await (this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient)
-        .from("anvil_capture_authorities").select("workspace_id,workpiece_id").eq("id", input.capture_authority_id).maybeSingle();
+        .from("recording_capture_authorities").select("workspace_id,workpiece_id").eq("id", input.capture_authority_id).maybeSingle();
       if (authority.error || !authority.data || readStringField(authority.data, "workpiece_id") !== workpieceId
         || readStringField(authority.data, "workspace_id") !== cradle.workspace_id) {
         throw new HttpError(409, "capture_authority_mismatch", "This recording is bound to a different episode.");
@@ -10963,12 +10992,14 @@ export class TongsCommitService {
     if (cradle.workspace_id !== input.workspace_id) throw new HttpError(404, "episode_membership_invalid", "This episode does not belong to the requested workspace.");
     if (!this.userClientFactory) throw new HttpError(503, "anvil_capture_authority_migration_required", "Anvil capture authority is unavailable.");
     const rpcClient = this.userClientFactory(token).schema("tongs") as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { code?: string; message: string } | null }> };
-    const { data, error } = await rpcClient.rpc("establish_anvil_capture_authority", {
+    const { data, error } = await rpcClient.rpc("establish_recording_capture_authority", {
       p_workspace_id: input.workspace_id,
       p_workpiece_id: workpieceId,
-      p_capture_session_id: input.capture_session_id,
+      p_venue: "anvil",
+      p_execution_id: input.capture_session_id,
       p_operation_key: input.operation_key,
       p_recording_session_id: input.recording_session_id ?? null,
+      p_venue_version: input.venue_version ?? null,
     });
     if (error) throw new HttpError(error.code === "PGRST202" ? 503 : 502, "anvil_capture_authority_establishment_failed", "Anvil could not bind this recording to the episode.", { reason: error.message });
     if (!isRecord(data) || typeof data.outcome !== "string") throw new HttpError(502, "anvil_capture_authority_malformed", "Anvil capture authority returned malformed data.");
@@ -10980,31 +11011,55 @@ export class TongsCommitService {
     input: AnvilTakeCompletionV3Request,
   ): Promise<AnvilTakeTransitionResult> {
     const token = normalizeNonEmptyString(input.user_access_token, "user_access_token");
-    const authorityResult = await (this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient).from("anvil_capture_authorities")
+    const authorityResult = await (this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient).from("recording_capture_authorities")
       .select("id,workspace_id,workpiece_id").eq("id", input.capture_authority_id).maybeSingle();
     if (authorityResult.error) throw new HttpError(502, "capture_authority_read_failed", "Anvil could not validate the capture authority.", { reason: authorityResult.error.message });
     const authorityWorkpieceId = authorityResult.data ? readStringField(authorityResult.data, "workpiece_id") : null;
     const authorityWorkspaceId = authorityResult.data ? readStringField(authorityResult.data, "workspace_id") : null;
     if (!authorityWorkpieceId || authorityWorkpieceId !== workpieceId || !authorityWorkspaceId) throw new HttpError(409, "capture_authority_mismatch", "This recording is bound to a different episode.");
-    await this.assertWorkspaceRoleFromAccessToken(authorityWorkspaceId, "editor", token);
+    const auth = await this.assertWorkspaceRoleFromAccessToken(authorityWorkspaceId, "editor", token);
     const mediaPath = normalizeRelativePath(input.media_path);
     const fileResult = await this.supabase.schema("tongs").from("workpiece_files")
       .select("revision,hash_value,bytes,content_type,storage_bucket,storage_key")
       .eq("workpiece_id", workpieceId).eq("path", mediaPath).maybeSingle();
     if (fileResult.error || !fileResult.data) throw new HttpError(404, "media_not_found", "The uploaded recording could not be found for this episode.");
+    if (fileResult.data.revision !== input.expected_media_revision
+      || fileResult.data.hash_value.toLowerCase() !== input.expected_media_hash.toLowerCase()
+      || fileResult.data.bytes !== input.expected_media_bytes
+      || fileResult.data.content_type.toLowerCase() !== input.expected_media_content_type.toLowerCase()) {
+      throw new HttpError(409, "canonical_metadata_mismatch", "Canonical recording metadata did not match the completion request.");
+    }
     const stored = await downloadStorageObject(this.supabase, fileResult.data.storage_bucket, fileResult.data.storage_key);
     const storedHash = stored ? await sha256Hex(stored) : null;
     if (!stored || stored.length !== input.expected_media_bytes || storedHash !== input.expected_media_hash.toLowerCase()) {
-      throw new HttpError(409, "upload_evidence_mismatch", "The uploaded recording did not match the locally finalized take.");
+      throw new HttpError(409, "canonical_storage_readback_mismatch", "The canonical storage object did not match its registered file revision.");
     }
-    if (!this.userClientFactory) throw new HttpError(503, "anvil_capture_authority_migration_required", "Anvil capture authority is unavailable.");
-    const rpcClient = this.userClientFactory(token).schema("tongs") as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { code?: string; message: string } | null }> };
-    const { data, error } = await rpcClient.rpc("anvil_transition_take_completed_v3", {
-      p_capture_authority_id: input.capture_authority_id, p_media_path: mediaPath,
+    const expectedKind = input.expected_media_content_type.toLowerCase().startsWith("video/") ? "video" : "audio";
+    let inspected: VerifiedBrollMedia;
+    try {
+      inspected = await this.brollAcquisitionRuntime.inspectMedia(stored, expectedKind);
+    } catch (error) {
+      throw new HttpError(422, "canonical_media_probe_failed", "The canonical recording is not decodable media with the required streams.", {
+        reason: error instanceof Error ? error.message : String(error),
+      });
+    }
+    if ((inspected.durationMs ?? 0) <= 0 || inspected.hasAudioStream !== true
+      || (expectedKind === "video" && inspected.hasVideoStream !== true)) {
+      throw new HttpError(422, "canonical_media_streams_invalid", "The canonical recording is missing a required decodable media stream.");
+    }
+    if (inspected.mimeType.toLowerCase() !== input.expected_media_content_type.toLowerCase()) {
+      throw new HttpError(409, "canonical_content_type_mismatch", "The canonical media signature did not match its registered content type.");
+    }
+    const rpcClient = this.supabase.schema("tongs") as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { code?: string; message: string } | null }> };
+    const { data, error } = await rpcClient.rpc("recording_transition_take_completed_verified", {
+      p_recording_capture_authority_id: input.capture_authority_id, p_media_path: mediaPath,
       p_expected_media_revision: input.expected_media_revision, p_expected_media_hash: input.expected_media_hash.toLowerCase(),
       p_expected_media_bytes: input.expected_media_bytes, p_expected_media_content_type: input.expected_media_content_type.toLowerCase(),
       p_storage_bucket: fileResult.data.storage_bucket, p_storage_key: fileResult.data.storage_key,
+      p_duration_ms: inspected.durationMs, p_has_audio_stream: inspected.hasAudioStream,
+      p_has_video_stream: inspected.hasVideoStream === true, p_probe_implementation: "ffprobe:tongs-runtime",
       p_idempotency_key: input.idempotency_key, p_completion_evidence: input.completion_evidence,
+      p_completed_by: auth.userId,
     });
     if (error) throw new HttpError(error.code === "PGRST202" ? 503 : 502, "anvil_recording_transition_failed", "Anvil recording completion failed.", { reason: error.message });
     if (!isRecord(data) || typeof data.outcome !== "string") throw new HttpError(502, "anvil_recording_transition_malformed", "Anvil recording completion returned malformed data.");
@@ -11016,7 +11071,7 @@ export class TongsCommitService {
     input: AnvilTakeDecisionV2Request,
   ): Promise<AnvilTakeTransitionResult> {
     const token = normalizeNonEmptyString(input.user_access_token, "user_access_token");
-    const authorityResult = await (this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient).from("anvil_capture_authorities")
+    const authorityResult = await (this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient).from("recording_capture_authorities")
       .select("workspace_id,workpiece_id").eq("id", input.capture_authority_id).maybeSingle();
     if (authorityResult.error || !authorityResult.data) throw new HttpError(404, "capture_authority_not_found", "The recording identity could not be found.");
     const authorityWorkpieceId = readStringField(authorityResult.data, "workpiece_id");
@@ -11025,8 +11080,8 @@ export class TongsCommitService {
     await this.assertWorkspaceRoleFromAccessToken(authorityWorkspaceId, "editor", token);
     if (!this.userClientFactory) throw new HttpError(503, "anvil_capture_authority_migration_required", "Anvil capture authority is unavailable.");
     const rpcClient = this.userClientFactory(token).schema("tongs") as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { code?: string; message: string } | null }> };
-    const { data, error } = await rpcClient.rpc("anvil_transition_take_decision_v2", {
-      p_capture_authority_id: input.capture_authority_id, p_completion_id: input.completion_id,
+    const { data, error } = await rpcClient.rpc("recording_transition_take_decision", {
+      p_recording_capture_authority_id: input.capture_authority_id, p_completion_id: input.completion_id,
       p_decision: input.decision, p_idempotency_key: input.idempotency_key, p_decision_evidence: input.decision_evidence,
     });
     if (error) throw new HttpError(error.code === "PGRST202" ? 503 : 502, "anvil_take_decision_failed", "Anvil could not save this take decision.", { reason: error.message });
@@ -11168,7 +11223,7 @@ export class TongsCommitService {
   ): Promise<BeginRecordingUploadSessionResponse> {
     const cradle = await this.getCradleOrThrow(workpieceId);
     const authorityResult = await (this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient)
-      .from("anvil_capture_authorities").select("id,workspace_id,workpiece_id")
+      .from("recording_capture_authorities").select("id,workspace_id,workpiece_id")
       .eq("id", input.capture_authority_id).maybeSingle();
     if (authorityResult.error) throw new HttpError(502, "capture_authority_read_failed", "Anvil could not validate the recording identity.", { reason: authorityResult.error.message });
     if (!authorityResult.data || readStringField(authorityResult.data, "workpiece_id") !== workpieceId
@@ -13845,6 +13900,33 @@ export class TongsCommitService {
       canonical_recording: canonicalByWorkpiece.get(row.id) ?? null,
       recording_decision_status: decisionByWorkpiece.get(row.id) ?? "none",
     }));
+  }
+
+  async createRecordingWorkpiece(input: {
+    workspace_id: string; title: string; origin_venue: "anvil" | "bellows"; operation_key: string; user_access_token: string;
+  }): Promise<CreateRecordingWorkpieceResult> {
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", input.user_access_token);
+    const title = input.title.trim();
+    if (!title || title.length > 200) throw new HttpError(400, "invalid_episode_title", "Episode title must be between 1 and 200 characters.");
+    if (!this.userClientFactory) throw new HttpError(503, "recording_workpiece_creation_migration_required", "Recording workpiece creation authority is unavailable.");
+    const client = this.userClientFactory(input.user_access_token).schema("tongs") as unknown as {
+      rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { code?: string; message: string } | null }>;
+    };
+    const result = await client.rpc("create_recording_workpiece", {
+      p_workspace_id: input.workspace_id, p_title: title, p_origin_venue: input.origin_venue, p_operation_key: input.operation_key,
+    });
+    if (result.error) throw new HttpError(result.error.code === "PGRST202" ? 503 : 502, "recording_workpiece_creation_failed", "Tongs could not create the recording workpiece.", { reason: result.error.message });
+    if (!isRecord(result.data) || typeof result.data.outcome !== "string") throw new HttpError(502, "recording_workpiece_creation_malformed", "Tongs returned a malformed workpiece-creation receipt.");
+    return result.data as unknown as CreateRecordingWorkpieceResult;
+  }
+
+  async recoverRecordingWorkpieceCreation(workspaceId: string, operationKey: string, userAccessToken: string): Promise<RecordingWorkpieceCreationReceipt | null> {
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", userAccessToken);
+    const result = await (this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient).from("recording_workpiece_creation_requests")
+      .select("id,workspace_id,workpiece_id,operation_key,request_fingerprint,title,origin_venue,created_by,created_at")
+      .eq("workspace_id", workspaceId).eq("operation_key", operationKey).maybeSingle();
+    if (result.error) throw new HttpError(502, "recording_workpiece_creation_read_failed", "Tongs could not recover the workpiece-creation receipt.", { reason: result.error.message });
+    return result.data as unknown as RecordingWorkpieceCreationReceipt | null;
   }
 
   async renameWorkpiece(workpieceId: string, input: RenameWorkpieceRequest, options?: { userAccessToken?: string | null }): Promise<WorkspaceEpisodeSummary> {
@@ -17675,6 +17757,7 @@ export function createTongsCommitApiHandlerWithService(
           capture_session_id: normalizeUuid(body.capture_session_id, "capture_session_id"),
           operation_key: normalizeNonEmptyString(body.operation_key, "operation_key"),
           recording_session_id: body.recording_session_id == null ? null : normalizeUuid(body.recording_session_id, "recording_session_id"),
+          venue_version: body.venue_version == null ? null : normalizeNonEmptyString(body.venue_version, "venue_version"),
           user_access_token: userAccessToken,
         });
         return jsonResponse(200, { ok: true, data: result });
@@ -18191,6 +18274,33 @@ export function createTongsCommitApiHandlerWithService(
         const includeArchived = parseBooleanQueryFlag(url.searchParams.get("include_archived"));
         const result = await service.listWorkspaceEpisodes(workspaceId, { userAccessToken, includeArchived });
         return jsonResponse(200, { ok: true, data: { episodes: result } });
+      }
+
+      if (parts.length === 4 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "recording-workpieces") {
+        requireMethod(request, "POST");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const body = await parseJsonBody(request);
+        const originVenue = normalizeNonEmptyString(body.origin_venue, "origin_venue");
+        if (originVenue !== "anvil" && originVenue !== "bellows") throw new HttpError(400, "invalid_origin_venue", "origin_venue must be anvil or bellows");
+        const result = await service.createRecordingWorkpiece({
+          workspace_id: workspaceId,
+          title: normalizeNonEmptyString(body.title, "title"),
+          origin_venue: originVenue,
+          operation_key: normalizeNonEmptyString(body.operation_key, "operation_key"),
+          user_access_token: userAccessToken,
+        });
+        return jsonResponse(result.outcome === "created" ? 201 : 200, { ok: true, data: result });
+      }
+
+      if (parts.length === 5 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "recording-workpiece-creations") {
+        requireMethod(request, "GET");
+        const workspaceId = normalizeUuid(decodeURIComponent(parts[2]), "workspace_id");
+        const operationKey = normalizeNonEmptyString(decodeURIComponent(parts[4]), "operation_key");
+        const userAccessToken = requireUserAccessTokenHeader(request);
+        const receipt = await service.recoverRecordingWorkpieceCreation(workspaceId, operationKey, userAccessToken);
+        if (!receipt) throw new HttpError(404, "recording_workpiece_creation_not_found", "No recording workpiece creation exists for this operation.");
+        return jsonResponse(200, { ok: true, data: { outcome: "existing", workpiece_id: receipt.workpiece_id, receipt } });
       }
 
       if (parts.length === 5 && parts[0] === "tongs" && parts[1] === "workspaces" && parts[3] === "storage") {

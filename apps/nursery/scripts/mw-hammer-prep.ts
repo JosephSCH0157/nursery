@@ -7,6 +7,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import type { Database } from "@forge/tongs";
+import type { CanonicalAssetId } from "@forge/tongs/canonical-asset-authority";
 import {
   AI_USAGE_FEATURE,
   AI_USAGE_LANE,
@@ -1973,7 +1974,7 @@ export function createHammerPrepMiddleware() {
           if (committed.error) throw new Error(committed.error.message ?? "Final audio master commit failed.");
           const receipt = committed.data as { asset?: Record<string, unknown> } | null;
           const asset = receipt?.asset;
-          const canonicalAssetId = typeof asset?.id === "string" ? asset.id : null;
+          const canonicalAssetId = typeof asset?.id === "string" ? asset.id as CanonicalAssetId : null;
           if (!canonicalAssetId) throw new Error("Final audio master commit returned no canonical asset.");
           const acknowledgedResultFingerprint = crypto.createHash("sha256").update(JSON.stringify({ render_job_id: identity.render_job_id, asset_id: canonicalAssetId, content_hash: contentHash })).digest("hex");
           return {

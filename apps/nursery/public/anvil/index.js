@@ -90197,72 +90197,20 @@ var init_workpiece_performance_entrypoint = __esm({
   }
 });
 
-// src/forge/canonical-script-read.ts
+// src/forge/workpiece-script-handoff.ts
 function readString5(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
-async function readCanonicalScriptFile(workpieceId, path, headersInit) {
-  let response;
-  try {
-    response = await fetchAuthenticatedTongs(
-      `/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(path)}`,
-      { method: "GET", headers: headersInit }
-    );
-  } catch (error) {
-    if (error instanceof ForgeUserAuthorizationError) {
-      return { ok: false, reason: "unauthorized", status: 401 };
-    }
-    return { ok: false, reason: "request_failed" };
-  }
-  if (response.status === 404) return { ok: false, reason: "not_found", status: 404 };
-  if (response.status === 401 || response.status === 403) {
-    return { ok: false, reason: "unauthorized", status: response.status };
-  }
-  if (!response.ok) return { ok: false, reason: "request_failed", status: response.status };
-  let body = null;
-  try {
-    body = await response.json();
-  } catch {
-    return { ok: false, reason: "invalid_response", status: response.status };
-  }
-  if (!body || typeof body !== "object" || body.ok !== true) {
-    return { ok: false, reason: "invalid_response", status: response.status };
-  }
-  const root = body;
-  if (typeof root.data !== "string") {
-    return { ok: false, reason: "invalid_response", status: response.status };
-  }
-  const fileRow = root.file_row && typeof root.file_row === "object" ? root.file_row : null;
-  const revision = typeof fileRow?.revision === "number" && Number.isInteger(fileRow.revision) ? fileRow.revision : 0;
-  const hash = readString5(fileRow?.hash_value)?.toLowerCase() ?? "";
-  if (revision < 1 || !/^[0-9a-f]{64}$/.test(hash)) {
-    return { ok: false, reason: "invalid_response", status: response.status };
-  }
-  return { ok: true, text: root.data, revision, hash };
-}
-var init_canonical_script_read = __esm({
-  "src/forge/canonical-script-read.ts"() {
-    "use strict";
-    init_tongs_user_auth();
-  }
-});
-
-// src/forge/workpiece-script-handoff.ts
-function readString6(value) {
-  if (typeof value !== "string") return null;
-  const trimmed = value.trim();
-  return trimmed.length ? trimmed : null;
-}
 function normalizeUuid(value) {
-  const str = readString6(value);
+  const str = readString5(value);
   if (!str) return null;
   return UUID_RE.test(str) ? str.toLowerCase() : null;
 }
 function readLocalStorage(key) {
   try {
-    return readString6(window.localStorage.getItem(key));
+    return readString5(window.localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -90277,7 +90225,7 @@ function getQueryParam(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString6(q3.get(key));
+      const value = readString5(q3.get(key));
       if (value) return value;
     }
   } catch {
@@ -90321,25 +90269,25 @@ function persistWorkpiece(workspaceId, workpieceId) {
   }
 }
 function shouldAutoloadWorkpieceScript() {
-  const open = readString6(getQueryParam("open", "intent", "action"))?.toLowerCase();
+  const open = readString5(getQueryParam("open", "intent", "action"))?.toLowerCase();
   if (open === "script" || open === "script_primary") return true;
-  return Boolean(readString6(getQueryParam("script_path", "path")));
+  return Boolean(readString5(getQueryParam("script_path", "path")));
 }
 function resolveScriptPath() {
-  const fromQuery = readString6(getQueryParam("script_path", "path"));
+  const fromQuery = readString5(getQueryParam("script_path", "path"));
   if (!fromQuery) return DEFAULT_SCRIPT_PATH;
   if (fromQuery.startsWith("/") || fromQuery.includes("..")) return DEFAULT_SCRIPT_PATH;
   return fromQuery;
 }
 function resolveTongsApiToken() {
-  const fromQuery = readString6(getQueryParam("tongs_api_token", "tongsApiToken"));
+  const fromQuery = readString5(getQueryParam("tongs_api_token", "tongsApiToken"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = readString6(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
+  const fromWindow = readString5(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
   try {
     const meta2 = import.meta;
-    const fromEnv = readString6(meta2.env?.VITE_TONGS_API_TOKEN);
+    const fromEnv = readString5(meta2.env?.VITE_TONGS_API_TOKEN);
     if (fromEnv) return fromEnv;
   } catch {
   }
@@ -90392,7 +90340,30 @@ async function readWorkpieceScript(workpieceId, path) {
   if (token) {
     headers.set("authorization", `Bearer ${token}`);
   }
-  return readCanonicalScriptFile(workpieceId, path, headers);
+  let response;
+  try {
+    response = await fetchAuthenticatedTongs(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/production-script`, { method: "GET", headers });
+  } catch (error) {
+    return error instanceof ForgeUserAuthorizationError ? { ok: false, reason: "unauthorized", status: 401 } : { ok: false, reason: "request_failed" };
+  }
+  if (response.status === 404) return { ok: false, reason: "not_found", status: 404 };
+  if (response.status === 401 || response.status === 403) return { ok: false, reason: "unauthorized", status: response.status };
+  if (!response.ok) return { ok: false, reason: "request_failed", status: response.status };
+  let body;
+  try {
+    body = await response.json();
+  } catch {
+    return { ok: false, reason: "invalid_response", status: response.status };
+  }
+  const data = body && typeof body === "object" && body.ok === true && body.data && typeof body.data === "object" ? body.data : null;
+  const text = typeof data?.script_text === "string" ? data.script_text : "";
+  const revision = Number(data?.source_file_revision);
+  const hash = readString5(data?.script_content_hash)?.toLowerCase() ?? "";
+  const readyTransitionId = normalizeUuid(data?.ready_transition_id);
+  const scriptApprovalId = normalizeUuid(data?.script_approval_id);
+  const scriptApprovalRevision = Number(data?.script_approval_revision);
+  if (!text || !Number.isInteger(revision) || revision < 1 || !/^[0-9a-f]{64}$/.test(hash) || !readyTransitionId || !scriptApprovalId || !Number.isInteger(scriptApprovalRevision) || scriptApprovalRevision < 1) return { ok: false, reason: "invalid_response", status: response.status };
+  return { ok: true, text, revision, hash, readyTransitionId, scriptApprovalId, scriptApprovalRevision };
 }
 async function loadWorkpieceScriptOnBoot() {
   if (booted) return;
@@ -90431,7 +90402,11 @@ async function loadWorkpieceScriptOnBoot() {
     workpieceId,
     path,
     scriptRevision: readResult.revision,
-    scriptHash: readResult.hash
+    scriptHash: readResult.hash,
+    readyTransitionId: readResult.readyTransitionId,
+    scriptApprovalId: readResult.scriptApprovalId,
+    scriptApprovalRevision: readResult.scriptApprovalRevision,
+    scriptApprovalHash: readResult.hash
   };
   const dispatchResult = await dispatchAuthenticatedWorkpieceScript({
     canonicalIdentity,
@@ -90477,7 +90452,7 @@ var init_workpiece_script_handoff = __esm({
     init_apply_script();
     init_app_store();
     init_workpiece_performance_entrypoint();
-    init_canonical_script_read();
+    init_tongs_user_auth();
     UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     DEFAULT_SCRIPT_PATH = "script/script.md";
     WORKSPACE_STORAGE_KEYS = ["forge_workspace_id_v1", "barstock_workspace_id"];
@@ -90862,7 +90837,7 @@ function readNumber(value, fallback) {
   const n = typeof value === "number" ? value : Number(value);
   return Number.isFinite(n) ? n : fallback;
 }
-function readString7(value, fallback) {
+function readString6(value, fallback) {
   if (typeof value !== "string") return fallback;
   const v = value.trim();
   if (!v || v === "undefined" || v === "null") return fallback;
@@ -90871,14 +90846,14 @@ function readString7(value, fallback) {
 function normalizeTypography(input, fallback) {
   const src = input && typeof input === "object" ? input : {};
   return clampTypography({
-    fontFamily: readString7(src.fontFamily, fallback.fontFamily),
+    fontFamily: readString6(src.fontFamily, fallback.fontFamily),
     fontSizePx: readNumber(src.fontSizePx, fallback.fontSizePx),
     lineHeight: readNumber(src.lineHeight, fallback.lineHeight),
     weight: readNumber(src.weight, fallback.weight),
     letterSpacingEm: readNumber(src.letterSpacingEm, fallback.letterSpacingEm),
     wordSpacingEm: readNumber(src.wordSpacingEm, fallback.wordSpacingEm),
-    color: readString7(src.color, fallback.color),
-    background: readString7(src.background, fallback.background),
+    color: readString6(src.color, fallback.color),
+    background: readString6(src.background, fallback.background),
     maxLineWidthCh: readNumber(src.maxLineWidthCh, fallback.maxLineWidthCh),
     dimOthers: readNumber(src.dimOthers, fallback.dimOthers)
   });
@@ -92558,26 +92533,26 @@ var init_rec_pills = __esm({
 });
 
 // src/forge/workpiece-commit.ts
-function readString8(value) {
+function readString7(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
 function normalizeUuid2(value) {
-  const str = readString8(value);
+  const str = readString7(value);
   if (!str) return null;
   return UUID_RE2.test(str) ? str.toLowerCase() : null;
 }
 function readLocalStorage2(key) {
   try {
-    return readString8(localStorage.getItem(key));
+    return readString7(localStorage.getItem(key));
   } catch {
     return null;
   }
 }
 function readSessionStorage(key) {
   try {
-    return readString8(sessionStorage.getItem(key));
+    return readString7(sessionStorage.getItem(key));
   } catch {
     return null;
   }
@@ -92592,7 +92567,7 @@ function getQueryParam2(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString8(q3.get(key));
+      const value = readString7(q3.get(key));
       if (value) return value;
     }
   } catch {
@@ -92665,16 +92640,16 @@ function deriveRecordingTitleFromName(name) {
 }
 function resolveLane() {
   const w3 = window;
-  const fromQuery = readString8(getQueryParam2("forge_lane", "lane"));
+  const fromQuery = readString7(getQueryParam2("forge_lane", "lane"));
   if (fromQuery) return fromQuery;
-  const fromWindow = readString8(w3.__forgeLane ?? w3.__tpLane);
+  const fromWindow = readString7(w3.__forgeLane ?? w3.__tpLane);
   if (fromWindow) return fromWindow;
-  const fromStorage = readString8(readLocalStorage2("forge_lane_v1"));
+  const fromStorage = readString7(readLocalStorage2("forge_lane_v1"));
   if (fromStorage) return fromStorage;
   return DEFAULT_LANE;
 }
 function getWrittenBy() {
-  const version5 = readString8(window.APP_VERSION) || DEFAULT_TOOL_VERSION;
+  const version5 = readString7(window.APP_VERSION) || DEFAULT_TOOL_VERSION;
   return {
     tool: "anvil",
     tool_version: version5,
@@ -92682,9 +92657,9 @@ function getWrittenBy() {
   };
 }
 function getApiToken() {
-  const fromQuery = readString8(getQueryParam2("tongs_api_token", "tongsApiToken"));
+  const fromQuery = readString7(getQueryParam2("tongs_api_token", "tongsApiToken"));
   if (fromQuery) return fromQuery;
-  const fromWindow = readString8(window.__forgeTongsApiToken ?? window.__tpTongsApiToken);
+  const fromWindow = readString7(window.__forgeTongsApiToken ?? window.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
   return readLocalStorage2("forge_tongs_api_token_v1") ?? void 0;
 }
@@ -92697,7 +92672,7 @@ function getOrCreateCaptureSessionId() {
   let next = "";
   try {
     const randomUuid = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "";
-    next = readString8(randomUuid) || "";
+    next = readString7(randomUuid) || "";
   } catch {
   }
   if (!next) {
@@ -92712,7 +92687,7 @@ function beginRecordingCaptureSession() {
   let next = "";
   try {
     const randomUuid = typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : "";
-    next = readString8(randomUuid) || "";
+    next = readString7(randomUuid) || "";
   } catch {
   }
   if (!next) {
@@ -92727,13 +92702,6 @@ function beginRecordingCaptureSession() {
     window.__forgeRecordingScriptIdentityByCapture[next] = { ...identity };
   }
   return next;
-}
-function hasCanonicalRecordingScriptIdentity() {
-  if (typeof window === "undefined") return false;
-  const identity = window.__forgeCanonicalScriptIdentity;
-  return Boolean(
-    identity && identity.workspaceId === resolveWorkspaceId2() && identity.workpieceId === resolveDirectWorkpieceId() && typeof identity.path === "string" && identity.path.trim() && Number.isInteger(identity.scriptRevision) && identity.scriptRevision > 0 && typeof identity.scriptHash === "string" && /^[a-f0-9]{64}$/i.test(identity.scriptHash)
-  );
 }
 function nextCorrelationId(prefix) {
   correlationSeq += 1;
@@ -92756,24 +92724,8 @@ function resolveWorkspaceId2() {
   }
   return null;
 }
-function resolveDirectWorkpieceId() {
-  const fromQuery = normalizeUuid2(
-    getQueryParam2("workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId")
-  );
-  if (fromQuery) return fromQuery;
-  const w3 = window;
-  const fromWindow = normalizeUuid2(
-    w3.__forgeWorkpieceId ?? w3.__tpWorkpieceId ?? w3.__forgeCradleId ?? w3.__tpCradleId
-  );
-  if (fromWindow) return fromWindow;
-  for (const key of WORKPIECE_STORAGE_KEYS2) {
-    const value = normalizeUuid2(readLocalStorage2(key));
-    if (value) return value;
-  }
-  return null;
-}
 function inferContentType(contentType, name) {
-  const fromInput = readString8(contentType);
+  const fromInput = readString7(contentType);
   if (fromInput) return fromInput;
   const lower = name.toLowerCase();
   if (lower.endsWith(".wav")) return "audio/wav";
@@ -92800,7 +92752,7 @@ async function buildHeaders(apiToken) {
 }
 async function readBodyAsJson(response) {
   const text = await response.text();
-  const raw = readString8(text);
+  const raw = readString7(text);
   if (!raw) return null;
   try {
     return JSON.parse(raw);
@@ -92816,8 +92768,8 @@ function isCommitAck(body) {
 function extractApiError(body) {
   if (!body || typeof body !== "object") return {};
   const root = body;
-  const code = readString8(root.error?.code);
-  const message = readString8(root.error?.message);
+  const code = readString7(root.error?.code);
+  const message = readString7(root.error?.message);
   return {
     ...code ? { code } : {},
     ...message ? { message } : {}
@@ -92886,14 +92838,14 @@ async function finalizeChunkedRecordingUpload(workpieceId, uploadId, payload, ap
 function readScriptHash2() {
   try {
     const raw = window.__TP_LAST_APPLIED_HASH;
-    return readString8(raw);
+    return readString7(raw);
   } catch {
     return null;
   }
 }
 function readSessionRunKey(captureSessionId) {
   try {
-    return readString8(window.__tpAsrRunKey) || captureSessionId;
+    return readString7(window.__tpAsrRunKey) || captureSessionId;
   } catch {
     return captureSessionId;
   }
@@ -92944,9 +92896,6 @@ async function resolveRecordingCaptureTarget() {
     return { ok: false, reason: "explicit_episode_context_required", workspaceId, workpieceId };
   }
   const identity = window.__forgeCanonicalScriptIdentity;
-  if (normalizeUuid2(identity?.workspaceId) !== workspaceId || normalizeUuid2(identity?.workpieceId) !== workpieceId) {
-    return { ok: false, reason: "displayed_script_episode_mismatch", workspaceId, workpieceId };
-  }
   const captureSessionId = getOrCreateCaptureSessionId();
   if (activeCaptureAuthority?.captureSessionId === captureSessionId) {
     return { ok: true, workspaceId, workpieceId, createdCradle: false, plannerRecordingSessionId, captureSessionId, captureAuthority: activeCaptureAuthority };
@@ -92959,32 +92908,41 @@ async function resolveRecordingCaptureTarget() {
       workspace_id: workspaceId,
       capture_session_id: captureSessionId,
       operation_key: operationKey,
-      recording_session_id: plannerRecordingSessionId
+      recording_session_id: plannerRecordingSessionId,
+      venue_version: getWrittenBy().tool_version
     })
   });
   const body = await readBodyAsJson(response);
   const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
   const row = data?.capture_authority;
+  const execution = data?.venue_execution;
   const authorityId = normalizeUuid2(row?.id);
-  if (!response.ok || !authorityId || !["established", "duplicate"].includes(readString8(data?.outcome) ?? "")) {
+  if (!response.ok || !authorityId || !["established", "duplicate"].includes(readString7(data?.outcome) ?? "")) {
     const apiError = extractApiError(body);
-    return { ok: false, reason: readString8(data?.reason) ?? apiError.code ?? "capture_authority_establishment_failed", status: response.status, details: body, workspaceId, workpieceId };
+    return { ok: false, reason: readString7(data?.reason) ?? apiError.code ?? "capture_authority_establishment_failed", status: response.status, details: body, workspaceId, workpieceId };
   }
   const authority = Object.freeze({
     id: authorityId,
-    captureSessionId: normalizeUuid2(row?.capture_session_id),
+    captureSessionId: normalizeUuid2(execution?.execution_id),
     workspaceId: normalizeUuid2(row?.workspace_id),
     workpieceId: normalizeUuid2(row?.workpiece_id),
     recordingSessionId: normalizeUuid2(row?.recording_session_id),
     readyTransitionId: normalizeUuid2(row?.ready_transition_id),
-    scriptPath: readString8(row?.script_path),
-    scriptRevision: Number(row?.script_revision),
-    scriptHash: readString8(row?.script_hash).toLowerCase(),
-    operationKey: readString8(row?.operation_key),
+    scriptBindingKind: row?.script_binding_kind === "approved_canonical_script" ? "approved_canonical_script" : "none",
+    scriptPath: readString7(row?.script_path),
+    scriptRevision: row?.script_revision != null && Number.isInteger(Number(row.script_revision)) ? Number(row.script_revision) : null,
+    scriptHash: readString7(row?.script_hash)?.toLowerCase() ?? null,
+    scriptApprovalId: normalizeUuid2(row?.script_approval_id),
+    scriptApprovalRevision: row?.script_approval_revision != null && Number.isInteger(Number(row.script_approval_revision)) ? Number(row.script_approval_revision) : null,
+    scriptApprovalHash: readString7(row?.script_approval_hash)?.toLowerCase() ?? null,
+    operationKey: readString7(row?.operation_key),
     provenance: row?.provenance === "completion_backfill" ? "completion_backfill" : "live_established"
   });
-  if (authority.workspaceId !== workspaceId || authority.workpieceId !== workpieceId || authority.captureSessionId !== captureSessionId || !authority.scriptPath || !Number.isInteger(authority.scriptRevision) || authority.scriptRevision <= 0 || !/^[0-9a-f]{64}$/.test(authority.scriptHash)) {
+  if (authority.workspaceId !== workspaceId || authority.workpieceId !== workpieceId || authority.captureSessionId !== captureSessionId) {
     return { ok: false, reason: "capture_authority_contract_malformed", status: 502, details: body, workspaceId, workpieceId };
+  }
+  if (authority.scriptBindingKind === "approved_canonical_script" && (!authority.scriptPath || !authority.scriptRevision || !authority.scriptHash || !authority.scriptApprovalId || !authority.scriptApprovalRevision || authority.scriptApprovalHash !== authority.scriptHash || normalizeUuid2(identity?.scriptApprovalId) !== authority.scriptApprovalId || Number(identity?.scriptApprovalRevision) !== authority.scriptApprovalRevision || readString7(identity?.scriptApprovalHash)?.toLowerCase() !== authority.scriptApprovalHash)) {
+    return { ok: false, reason: "displayed_script_approval_mismatch", status: 409, details: body, workspaceId, workpieceId };
   }
   activeCaptureAuthority = authority;
   writeSessionStorage(CAPTURE_AUTHORITY_KEY, authority.id);
@@ -93412,11 +93370,10 @@ async function transitionRecordingCompleted(input) {
     return { ok: false, outcome: "malformed", reason: "recording_completion_evidence_incomplete" };
   }
   const evidence = {
-    schema: "anvil.recording-completion.v3",
+    schema: "forge.recording-completion.v1",
     completed: true,
-    capture_authority_id: input.commit.captureAuthorityId,
-    capture_session_id: input.commit.captureSessionId,
-    anvil_version: getWrittenBy().tool_version,
+    recording_capture_authority_id: input.commit.captureAuthorityId,
+    venue_version: getWrittenBy().tool_version,
     asr_diagnostics: {
       terminal_line_completed: asr?.terminalCompleted === true,
       unresolved_skipped_line_count: Array.isArray(asr?.unresolvedSkippedLines) ? asr.unresolvedSkippedLines.length : null,
@@ -93465,13 +93422,13 @@ async function transitionRecordingCompleted(input) {
       const apiError = extractApiError(body);
       return { ok: false, outcome: "unavailable", reason: apiError.code ?? "recording_completion_unavailable", details: body };
     }
-    const outcome = readString8(data?.outcome);
+    const outcome = readString7(data?.outcome);
     if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) {
       return { ok: false, outcome: "malformed", reason: "recording_completion_response_malformed", details: body };
     }
     const completionId = readAuthorityRowId(data, "completion");
     const accepted = (outcome === "saved" || outcome === "duplicate") && !!completionId;
-    return { ok: accepted, outcome, ...completionId ? { completionId } : {}, reason: readString8(data?.reason) ?? void 0, details: data };
+    return { ok: accepted, outcome, ...completionId ? { completionId } : {}, reason: readString7(data?.reason) ?? void 0, details: data };
   } catch (error) {
     return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_completion_unavailable" };
   }
@@ -93501,11 +93458,11 @@ async function transitionRecordingKept(input) {
     const body = await readBodyAsJson(response);
     const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
     if (!response.ok) return { ok: false, outcome: "unavailable", reason: extractApiError(body).code ?? "recording_keep_unavailable", details: body };
-    const outcome = readString8(data?.outcome);
+    const outcome = readString7(data?.outcome);
     const keepId = readAuthorityRowId(data, "keep");
     const accepted = (outcome === "saved" || outcome === "duplicate") && !!keepId;
     if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) return { ok: false, outcome: "malformed", reason: "recording_keep_response_malformed", details: body };
-    return { ok: accepted, outcome, ...keepId ? { keepId } : {}, reason: readString8(data?.reason) ?? void 0, details: data };
+    return { ok: accepted, outcome, ...keepId ? { keepId } : {}, reason: readString7(data?.reason) ?? void 0, details: data };
   } catch (error) {
     return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_keep_unavailable" };
   }
@@ -93516,8 +93473,7 @@ async function transitionRecordingDecisionV2(commit, completionId, decision) {
     schema: "anvil.take-decision.v2",
     decision,
     completion_id: completionId,
-    capture_authority_id: commit.captureAuthorityId,
-    capture_session_id: commit.captureSessionId
+    recording_capture_authority_id: commit.captureAuthorityId
   };
   try {
     const response = await fetch(`/tongs/workpieces/${encodeURIComponent(commit.workpieceId)}/recording-decision-v2`, {
@@ -93534,7 +93490,7 @@ async function transitionRecordingDecisionV2(commit, completionId, decision) {
     const body = await readBodyAsJson(response);
     const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
     if (!response.ok) return { ok: false, outcome: "unavailable", reason: extractApiError(body).code ?? `recording_${decision}_unavailable`, details: body };
-    const outcome = readString8(data?.outcome);
+    const outcome = readString7(data?.outcome);
     const rowKey = decision === "keep" ? "keep" : "discard";
     const rowId = readAuthorityRowId(data, rowKey);
     const accepted = (outcome === "saved" || outcome === "duplicate") && !!rowId;
@@ -93544,7 +93500,7 @@ async function transitionRecordingDecisionV2(commit, completionId, decision) {
       outcome,
       ...decision === "keep" && rowId ? { keepId: rowId } : {},
       ...decision === "discard" && rowId ? { discardId: rowId } : {},
-      reason: readString8(data?.reason) ?? void 0,
+      reason: readString7(data?.reason) ?? void 0,
       details: data
     };
   } catch (error) {
@@ -93576,11 +93532,11 @@ async function transitionRecordingDiscarded(input) {
     const body = await readBodyAsJson(response);
     const data = body && typeof body === "object" && !Array.isArray(body) ? body.data : null;
     if (!response.ok) return { ok: false, outcome: "unavailable", reason: extractApiError(body).code ?? "recording_discard_unavailable", details: body };
-    const outcome = readString8(data?.outcome);
+    const outcome = readString7(data?.outcome);
     const discardId = readAuthorityRowId(data, "discard");
     const accepted = (outcome === "saved" || outcome === "duplicate") && !!discardId;
     if (!outcome || !["saved", "duplicate", "stale", "conflict", "denied", "not_found"].includes(outcome)) return { ok: false, outcome: "malformed", reason: "recording_discard_response_malformed", details: body };
-    return { ok: accepted, outcome, ...discardId ? { discardId } : {}, reason: readString8(data?.reason) ?? void 0, details: data };
+    return { ok: accepted, outcome, ...discardId ? { discardId } : {}, reason: readString7(data?.reason) ?? void 0, details: data };
   } catch (error) {
     return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_discard_unavailable" };
   }
@@ -93601,14 +93557,14 @@ async function readPendingRecordingDecisions() {
       const completionId = normalizeUuid2(value.completion_id);
       const captureSessionId = normalizeUuid2(value.capture_session_id);
       const rowWorkpieceId = normalizeUuid2(value.workpiece_id);
-      const mediaPath = readString8(value.media_path);
+      const mediaPath = readString7(value.media_path);
       return completionId && captureSessionId && rowWorkpieceId === workpieceId && mediaPath ? [{ completionId, captureSessionId, workpieceId, mediaPath }] : [];
     });
   } catch {
     return [];
   }
 }
-var UUID_RE2, DEFAULT_TOOL_VERSION, DEFAULT_LANE, WORKSPACE_STORAGE_KEYS2, WORKPIECE_STORAGE_KEYS2, CAPTURE_SESSION_KEY, CAPTURE_AUTHORITY_KEY, PLANNER_RECORDING_SESSION_KEY, LARGE_UPLOAD_WARN_MB_KEY, CHUNK_UPLOAD_THRESHOLD_MB_KEY, CHUNK_SIZE_MB_KEY, DEFAULT_LARGE_UPLOAD_WARN_MB, DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB, DEFAULT_CHUNK_SIZE_MB, CHUNK_UPLOAD_RETRY_ATTEMPTS, CHUNK_UPLOAD_RETRY_BACKOFF_MS, correlationSeq, activeCaptureAuthority;
+var UUID_RE2, DEFAULT_TOOL_VERSION, DEFAULT_LANE, WORKSPACE_STORAGE_KEYS2, CAPTURE_SESSION_KEY, CAPTURE_AUTHORITY_KEY, PLANNER_RECORDING_SESSION_KEY, LARGE_UPLOAD_WARN_MB_KEY, CHUNK_UPLOAD_THRESHOLD_MB_KEY, CHUNK_SIZE_MB_KEY, DEFAULT_LARGE_UPLOAD_WARN_MB, DEFAULT_CHUNK_UPLOAD_THRESHOLD_MB, DEFAULT_CHUNK_SIZE_MB, CHUNK_UPLOAD_RETRY_ATTEMPTS, CHUNK_UPLOAD_RETRY_BACKOFF_MS, correlationSeq, activeCaptureAuthority;
 var init_workpiece_commit = __esm({
   "src/forge/workpiece-commit.ts"() {
     "use strict";
@@ -93617,11 +93573,6 @@ var init_workpiece_commit = __esm({
     DEFAULT_TOOL_VERSION = "1.8.5";
     DEFAULT_LANE = "forge-managed";
     WORKSPACE_STORAGE_KEYS2 = ["forge_workspace_id_v1", "barstock_workspace_id"];
-    WORKPIECE_STORAGE_KEYS2 = [
-      "forge_active_workpiece_id_v1",
-      "forge_workpiece_id_v1",
-      "tp_workpiece_id"
-    ];
     CAPTURE_SESSION_KEY = "forge_anvil_capture_session_v1";
     CAPTURE_AUTHORITY_KEY = "forge_anvil_capture_authority_id_v1";
     PLANNER_RECORDING_SESSION_KEY = "forge_anvil_recording_session_v1";
@@ -93639,19 +93590,19 @@ var init_workpiece_commit = __esm({
 });
 
 // src/forge/ready-scripts.ts
-function readString9(value) {
+function readString8(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
 function normalizeUuid3(value) {
-  const str = readString9(value);
+  const str = readString8(value);
   if (!str) return null;
   return UUID_RE3.test(str) ? str.toLowerCase() : null;
 }
 function readLocalStorage3(key) {
   try {
-    return readString9(window.localStorage.getItem(key));
+    return readString8(window.localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -93660,7 +93611,7 @@ function getQueryParam3(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString9(q3.get(key));
+      const value = readString8(q3.get(key));
       if (value) return value;
     }
   } catch {
@@ -93682,10 +93633,10 @@ function resolveWorkspaceId3() {
   return null;
 }
 function resolveTongsApiToken2() {
-  const fromQuery = readString9(getQueryParam3("tongs_api_token", "tongsApiToken"));
+  const fromQuery = readString8(getQueryParam3("tongs_api_token", "tongsApiToken"));
   if (fromQuery) return fromQuery;
   const w3 = window;
-  const fromWindow = readString9(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
+  const fromWindow = readString8(w3.__forgeTongsApiToken ?? w3.__tpTongsApiToken);
   if (fromWindow) return fromWindow;
   return readLocalStorage3("forge_tongs_api_token_v1") ?? void 0;
 }
@@ -93698,13 +93649,13 @@ function withApiHeaders() {
   return headers;
 }
 function normalizeScriptPath(value) {
-  const path = readString9(value);
+  const path = readString8(value);
   if (!path) return null;
   if (path.startsWith("/") || path.includes("..")) return null;
   return path;
 }
 function normalizeIso(value) {
-  const iso = readString9(value);
+  const iso = readString8(value);
   if (!iso) return void 0;
   const timestamp = Date.parse(iso);
   if (!Number.isFinite(timestamp)) return void 0;
@@ -93740,11 +93691,11 @@ function parseReadyScriptsPayload(payload, workspaceId) {
     const scriptPaths = normalizeScriptPaths(item.script_paths);
     const path = primaryPath ?? scriptPaths[0] ?? null;
     const scriptRevision = typeof item.script_revision === "number" && Number.isInteger(item.script_revision) && item.script_revision > 0 ? item.script_revision : null;
-    const scriptHash = readString9(item.script_hash)?.toLowerCase() ?? null;
+    const scriptHash = readString8(item.script_hash)?.toLowerCase() ?? null;
     const transitionId = normalizeUuid3(item.transition_id);
     if (!rowWorkspace || !workpieceId || !path || !scriptRevision || !scriptHash || !/^[0-9a-f]{64}$/.test(scriptHash) || !transitionId) continue;
     const normalizedScriptPaths = scriptPaths.length ? scriptPaths.includes(path) ? scriptPaths : [path, ...scriptPaths] : [path];
-    const title = readString9(item.title) ?? `Episode ${workpieceId.slice(0, 8)}`;
+    const title = readString8(item.title) ?? `Episode ${workpieceId.slice(0, 8)}`;
     scripts.push({
       id: toReadyScriptId(workpieceId, path),
       workspaceId: rowWorkspace,
@@ -93783,7 +93734,7 @@ function parseRecordingSessionsPayload(payload, workspaceId) {
     const id = normalizeUuid3(item.id);
     const rowWorkspace = normalizeUuid3(item.workspace_id) ?? workspaceId;
     if (!id || !rowWorkspace) continue;
-    const title = readString9(item.title) ?? "Recording Session";
+    const title = readString8(item.title) ?? "Recording Session";
     out.push({
       id,
       workspaceId: rowWorkspace,
@@ -93893,7 +93844,7 @@ async function readRecordingSessionScripts(sessionId) {
   const workspaceId = normalizeUuid3(detail.workspace_id);
   const parsedSessionId = normalizeUuid3(detail.id);
   if (!workspaceId || !parsedSessionId) return null;
-  const sessionTitle = readString9(detail.title) ?? "Recording Session";
+  const sessionTitle = readString8(detail.title) ?? "Recording Session";
   const workspaceReady = await listWorkspaceReadyScripts().catch(() => []);
   const titleByKey = /* @__PURE__ */ new Map();
   const readyByKey = /* @__PURE__ */ new Map();
@@ -93955,7 +93906,7 @@ async function readReadyScriptText(workpieceId, path) {
   const safePath = normalizeScriptPath(path);
   if (!safeWorkpieceId || !safePath) return null;
   const response = await fetchAuthenticatedTongs(
-    `/tongs/workpieces/${encodeURIComponent(safeWorkpieceId)}/read-file?path=${encodeURIComponent(safePath)}`,
+    `/tongs/workpieces/${encodeURIComponent(safeWorkpieceId)}/production-script`,
     {
       method: "GET",
       headers: withApiHeaders()
@@ -93973,7 +93924,14 @@ async function readReadyScriptText(workpieceId, path) {
     return null;
   }
   const data = body.data;
-  return typeof data === "string" ? data : null;
+  if (!data || typeof data !== "object") return null;
+  const row = data;
+  if (row.source_file_path !== safePath || typeof row.script_text !== "string") return null;
+  try {
+    window.__forgeLastProductionScriptAuthority = { ...row };
+  } catch {
+  }
+  return row.script_text;
 }
 var UUID_RE3, WORKSPACE_STORAGE_KEYS3;
 var init_ready_scripts = __esm({
@@ -94173,6 +94131,11 @@ var init_scripts_store = __esm({
               created: existing?.created || ready.updatedAt || (/* @__PURE__ */ new Date()).toISOString(),
               updated: ready.updatedAt || (/* @__PURE__ */ new Date()).toISOString()
             };
+            const productionAuthority = window.__forgeLastProductionScriptAuthority;
+            const approvalId = typeof productionAuthority?.script_approval_id === "string" ? productionAuthority.script_approval_id : "";
+            const approvalRevision = Number(productionAuthority?.script_approval_revision);
+            const approvalHash = typeof productionAuthority?.script_content_hash === "string" ? productionAuthority.script_content_hash : "";
+            if (productionAuthority?.workpiece_id !== ready.workpieceId || !approvalId || !Number.isInteger(approvalRevision) || approvalRevision < 1 || approvalHash !== ready.scriptHash) return null;
             window.__forgeCanonicalReadyScript = { ...ready };
             window.__forgeCanonicalScriptIdentity = {
               workspaceId: ready.workspaceId,
@@ -94180,7 +94143,10 @@ var init_scripts_store = __esm({
               path: ready.path,
               scriptRevision: ready.scriptRevision,
               scriptHash: ready.scriptHash,
-              readyTransitionId: ready.transitionId
+              readyTransitionId: ready.transitionId,
+              scriptApprovalId: approvalId,
+              scriptApprovalRevision: approvalRevision,
+              scriptApprovalHash: approvalHash
             };
             scriptsById.set(id, rec2);
             return rec2;
@@ -94713,7 +94679,7 @@ var init_recording_decision_dialog = __esm({
 });
 
 // src/recording/recording-name.ts
-function readString10(value) {
+function readString9(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -94725,7 +94691,7 @@ function sanitizeRecordingTitle(title) {
   return sliced || "Script";
 }
 function pickRecordingBaseTitle(args) {
-  return readString10(args.inputTitle) ?? readString10(args.routeEpisodeTitle) ?? readString10(args.storedTitle) ?? "Script";
+  return readString9(args.inputTitle) ?? readString9(args.routeEpisodeTitle) ?? readString9(args.storedTitle) ?? "Script";
 }
 function pad2(n) {
   return String(n).padStart(2, "0");
@@ -94753,19 +94719,19 @@ var init_recording_name = __esm({
 });
 
 // src/forge/workpiece-context.ts
-function readString11(value) {
+function readString10(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length ? trimmed : null;
 }
 function normalizeUuid4(value) {
-  const str = readString11(value);
+  const str = readString10(value);
   if (!str) return null;
   return UUID_RE4.test(str) ? str.toLowerCase() : null;
 }
 function readLocalStorage4(key) {
   try {
-    return readString11(window.localStorage.getItem(key));
+    return readString10(window.localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -94780,7 +94746,7 @@ function getQueryParam4(...keys) {
   try {
     const q3 = new URLSearchParams(window.location.search || "");
     for (const key of keys) {
-      const value = readString11(q3.get(key));
+      const value = readString10(q3.get(key));
       if (value) return value;
     }
   } catch {
@@ -94801,7 +94767,7 @@ function resolveWorkspaceId4() {
   }
   return null;
 }
-function resolveDirectWorkpieceId2() {
+function resolveDirectWorkpieceId() {
   const fromQuery = normalizeUuid4(
     getQueryParam4("workpiece_id", "workpieceId", "workpiece", "cradle_id", "cradleId")
   );
@@ -94811,7 +94777,7 @@ function resolveDirectWorkpieceId2() {
     w3.__forgeWorkpieceId ?? w3.__tpWorkpieceId ?? w3.__forgeCradleId ?? w3.__tpCradleId
   );
   if (fromWindow) return fromWindow;
-  for (const key of WORKPIECE_STORAGE_KEYS3) {
+  for (const key of WORKPIECE_STORAGE_KEYS2) {
     const value = normalizeUuid4(readLocalStorage4(key));
     if (value) return value;
   }
@@ -94822,7 +94788,7 @@ function loadCachedWorkpiece(workspaceId) {
   return normalizeUuid4(readLocalStorage4(`${WORKSPACE_WORKPIECE_PREFIX2}${workspaceId}`));
 }
 function parseReadyScriptWorkpieceId(scriptId) {
-  const id = readString11(scriptId);
+  const id = readString10(scriptId);
   if (!id) return null;
   if (!id.toLowerCase().startsWith("ready:")) return null;
   const rest = id.slice("ready:".length);
@@ -94841,17 +94807,17 @@ function persistActiveWorkpieceFromScriptId(scriptId) {
   return workpieceId;
 }
 function resolveActiveWorkpieceId() {
-  const direct = resolveDirectWorkpieceId2();
+  const direct = resolveDirectWorkpieceId();
   if (direct) return direct;
   return loadCachedWorkpiece(resolveWorkspaceId4());
 }
-var UUID_RE4, WORKSPACE_STORAGE_KEYS4, WORKPIECE_STORAGE_KEYS3, ACTIVE_WORKPIECE_KEY2, WORKSPACE_WORKPIECE_PREFIX2;
+var UUID_RE4, WORKSPACE_STORAGE_KEYS4, WORKPIECE_STORAGE_KEYS2, ACTIVE_WORKPIECE_KEY2, WORKSPACE_WORKPIECE_PREFIX2;
 var init_workpiece_context = __esm({
   "src/forge/workpiece-context.ts"() {
     "use strict";
     UUID_RE4 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
     WORKSPACE_STORAGE_KEYS4 = ["forge_workspace_id_v1", "barstock_workspace_id"];
-    WORKPIECE_STORAGE_KEYS3 = [
+    WORKPIECE_STORAGE_KEYS2 = [
       "forge_active_workpiece_id_v1",
       "forge_workpiece_id_v1",
       "tp_workpiece_id"
@@ -95707,6 +95673,7 @@ var init_local_auto = __esm({
       let audioSampleRate = 48e3;
       let recordingStartedAtMs = null;
       let activeStrategy = null;
+      let recorderAudioTrackFailure = null;
       let activeSaveIdentity = null;
       const transcriptController = new RecordingTranscriptController({
         ensureCaptureTarget: ensureRecordingCaptureTarget,
@@ -95718,7 +95685,7 @@ var init_local_auto = __esm({
       });
       const pad = (n) => String(n).padStart(2, "0");
       const READY_SCRIPT_PREFIX = "ready:";
-      const UUID_RE5 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+      const UUID_RE6 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
       function parseReadyScriptWorkpieceId2(scriptId) {
         const raw = String(scriptId || "").trim();
         if (!raw.toLowerCase().startsWith(READY_SCRIPT_PREFIX)) return null;
@@ -95726,7 +95693,7 @@ var init_local_auto = __esm({
         const separator = rest.indexOf(":");
         if (separator <= 0) return null;
         const candidate = rest.slice(0, separator).trim().toLowerCase();
-        return UUID_RE5.test(candidate) ? candidate : null;
+        return UUID_RE6.test(candidate) ? candidate : null;
       }
       async function recoverPendingTakeDecision() {
         if (isRecordingDecisionPending()) return;
@@ -95861,6 +95828,9 @@ var init_local_auto = __esm({
       }
       async function verifyFinalizedRecordingArtifact(blob) {
         const contentType = String(blob.type || "application/octet-stream").trim().toLowerCase();
+        if (recorderAudioTrackFailure) {
+          return { ok: false, reason: "audio_track_ended", probe: buildProbeFromSnapshot(contentType) };
+        }
         try {
           const customVerifier = window.__tpVerifyRecordedArtifact;
           if (typeof customVerifier === "function") {
@@ -96139,25 +96109,38 @@ var init_local_auto = __esm({
         }
       };
       const getAudioStream = async () => {
+        const selectedDeviceId = readSelectedMicDeviceId();
         try {
-          const mic2 = window.__tpMic;
-          const s2 = mic2?.__lastStream;
-          if (s2 && typeof s2.getAudioTracks === "function" && s2.getAudioTracks().length) {
-            return cloneTracksIntoStream([...s2.getAudioTracks()]);
-          }
-        } catch {
+          return await navigator.mediaDevices.getUserMedia({
+            audio: selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : true,
+            video: false
+          });
+        } catch (error) {
+          if (!selectedDeviceId) throw error;
+          return navigator.mediaDevices.getUserMedia({ audio: true, video: false });
         }
-        try {
-          const mic2 = window.__tpMic;
-          if (mic2 && typeof mic2.requestMic === "function") {
-            const s2 = await mic2.requestMic();
-            const tracks = s2?.getAudioTracks?.();
-            if (tracks && tracks.length) return cloneTracksIntoStream([...tracks]);
-          }
-        } catch {
+      };
+      const monitorRecorderAudioTracks = (stream) => {
+        for (const track of stream.getAudioTracks()) {
+          track.addEventListener("ended", () => {
+            if (!active || recorderAudioTrackFailure) return;
+            recorderAudioTrackFailure = "recorder_audio_track_ended_during_capture";
+            try {
+              console.error("[core-recorder] audio track ended during active capture", {
+                label: track.label || null,
+                readyState: track.readyState
+              });
+              window.dispatchEvent(new CustomEvent("tp:recording:audio-track-failed", {
+                detail: { reason: recorderAudioTrackFailure, label: track.label || null }
+              }));
+            } catch {
+            }
+            showRecorderToast(
+              "Microphone capture stopped during recording. This take cannot be kept; stop and record a new take.",
+              "error"
+            );
+          }, { once: true });
         }
-        const s = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-        return new MediaStream([...s.getAudioTracks()]);
       };
       const mustSkipForMode = () => {
         try {
@@ -96173,6 +96156,8 @@ var init_local_auto = __esm({
         if (!AC) throw new Error("AudioContext not available");
         const stream = await getAudioStream();
         currentStream = stream;
+        recorderAudioTrackFailure = null;
+        monitorRecorderAudioTracks(stream);
         const ctx = new AC({ sampleRate: 48e3 });
         audioCtx2 = ctx;
         try {
@@ -96266,6 +96251,8 @@ var init_local_auto = __esm({
           }
         }
         currentStream = mix;
+        recorderAudioTrackFailure = null;
+        monitorRecorderAudioTracks(mix);
         const recorderTrackSnapshot = summarizeTracks(mix);
         lastRecorderTrackSnapshot = recorderTrackSnapshot;
         try {
@@ -96318,7 +96305,7 @@ var init_local_auto = __esm({
           } catch {
           }
         };
-        mediaRecorder.start();
+        mediaRecorder.start(1e3);
       };
       async function start2() {
         if (active) return;
@@ -96331,13 +96318,6 @@ var init_local_auto = __esm({
             return;
           }
           const recordingMode = getRecordingMode();
-          if (!hasCanonicalRecordingScriptIdentity()) {
-            showRecorderToast(
-              "Recording cannot start until this displayed script is bound to its canonical Tongs path, revision, and hash. Reload the script and try again.",
-              "error"
-            );
-            throw new Error("canonical_script_identity_unavailable");
-          }
           try {
             console.log("[core-recorder] start", {
               mode: window.__tpStore?.get?.("scrollMode") || null,
@@ -96349,7 +96329,7 @@ var init_local_auto = __esm({
           const captureSessionId = beginRecordingCaptureSession();
           const captureTarget = await ensureRecordingCaptureTarget();
           if (!captureTarget.ok) {
-            showRecorderToast("Recording cannot start because this page is not explicitly bound to a Ready episode. Return to Hearth and open this episode in Anvil again.", "error");
+            showRecorderToast("Recording cannot start until this page is bound to a canonical episode and Tongs acknowledges capture authority.", "error");
             throw new Error(captureTarget.reason);
           }
           activeSaveIdentity = { ...captureRecordingSaveIdentity(), captureAuthority: captureTarget.captureAuthority };
@@ -96420,11 +96400,13 @@ var init_local_auto = __esm({
           }
           return null;
         });
+        let cleanupStreamAfterRecorderStop = false;
         try {
           if (activeMode === "audio" && strategyAtStop?.mechanism === "pcm-wav-fallback") {
             await stopAudioOnly(durationMs, transcriptFinalize, strategyAtStop, saveIdentityAtStop);
           } else if (mediaRecorder && mediaRecorder.state !== "inactive") {
             const recorder2 = mediaRecorder;
+            cleanupStreamAfterRecorderStop = true;
             const stopName = nowName(strategyAtStop?.mode ?? "av", strategyAtStop?.fileExtension, saveIdentityAtStop);
             recorder2.onstop = async () => {
               try {
@@ -96449,24 +96431,30 @@ var init_local_auto = __esm({
                 }
               } finally {
                 recordingStartedAtMs = null;
+                try {
+                  currentStream?.getTracks().forEach((track) => track.stop());
+                } catch {
+                }
+                currentStream = null;
               }
             };
+            try {
+              recorder2.requestData();
+            } catch {
+            }
             recorder2.stop();
           } else {
             recordingStartedAtMs = null;
           }
         } catch {
         }
-        try {
-          if (currentStream) currentStream.getTracks().forEach((t) => {
-            try {
-              t.stop();
-            } catch {
-            }
-          });
-        } catch {
+        if (!cleanupStreamAfterRecorderStop) {
+          try {
+            currentStream?.getTracks().forEach((track) => track.stop());
+          } catch {
+          }
+          currentStream = null;
         }
-        currentStream = null;
         mediaRecorder = null;
         active = false;
         activeMode = null;
@@ -96530,6 +96518,10 @@ var init_local_auto = __esm({
               showRecorderToast("The finalized recording has no audio track. This cannot be saved as a podcast take.", "error");
               canonicalErrorCode = "podcast_take_no_audio_stream";
               canonicalErrorMessage = "The finalized recording has no audio track. This cannot be saved as a podcast take.";
+            } else if (recordingValidity.reason === "audio_track_ended") {
+              showRecorderToast("Microphone capture stopped before this recording ended. This take cannot be kept.", "error");
+              canonicalErrorCode = "podcast_take_audio_track_ended";
+              canonicalErrorMessage = "Microphone capture stopped before this recording ended. This take cannot be kept.";
             } else {
               showRecorderToast("The finalized recording contains an audio track, but no usable audio was detected. Verify the recording before leaving.", "error");
               canonicalErrorCode = "podcast_take_near_silent_audio";
@@ -99999,14 +99991,14 @@ var init_mic_gate = __esm({
 });
 
 // src/forge/script-source.ts
-function readString12(value) {
+function readString11(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
 function readLocalStorage5(key) {
   try {
-    return readString12(window.localStorage.getItem(key));
+    return readString11(window.localStorage.getItem(key));
   } catch {
     return null;
   }
@@ -104317,6 +104309,101 @@ var init_recording_upload_audit = __esm({
     RECORDING_UPLOAD_AUDIT_MAX_ENTRIES = 25;
     historyCache = null;
     listenersWired = false;
+  }
+});
+
+// src/features/new-recording-workpiece.ts
+function resolveWorkspaceId5() {
+  const query = new URLSearchParams(window.location.search);
+  return uuid(query.get("workspace_id") ?? query.get("workspaceId")) ?? uuid(window.__forgeWorkspaceId) ?? uuid(localStorage.getItem("forge_workspace_id_v1")) ?? uuid(localStorage.getItem("barstock_workspace_id"));
+}
+function snapshotEphemeralTeleprompterState() {
+  return {
+    editorValue: document.getElementById("editor")?.value ?? "",
+    renderedHtml: document.getElementById("script")?.innerHTML ?? "",
+    viewerScrollTop: document.getElementById("viewer")?.scrollTop ?? 0,
+    titleValue: document.getElementById("scriptTitle")?.value ?? ""
+  };
+}
+function restoreEphemeralTeleprompterState(snapshot) {
+  const editor = document.getElementById("editor");
+  const rendered = document.getElementById("script");
+  const viewer2 = document.getElementById("viewer");
+  const title = document.getElementById("scriptTitle");
+  if (editor) editor.value = snapshot.editorValue;
+  if (rendered) rendered.innerHTML = snapshot.renderedHtml;
+  if (viewer2) viewer2.scrollTop = snapshot.viewerScrollTop;
+  if (title) title.value = snapshot.titleValue;
+}
+async function createNewRecordingWorkpiece(titleInput, operationKey) {
+  const workspaceId = resolveWorkspaceId5();
+  if (!workspaceId) throw new Error("workspace_context_required");
+  const title = titleInput.trim();
+  if (!title || title.length > 200) throw new Error("invalid_episode_title");
+  const resolvedOperationKey = operationKey ?? sessionStorage.getItem("forge_anvil_pending_workpiece_creation_v1") ?? `recording-workpiece:anvil:${crypto.randomUUID()}`;
+  const snapshot = snapshotEphemeralTeleprompterState();
+  sessionStorage.setItem("forge_anvil_pending_workpiece_creation_v1", resolvedOperationKey);
+  const response = await fetchAuthenticatedTongs(`/tongs/workspaces/${encodeURIComponent(workspaceId)}/recording-workpieces`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title, origin_venue: "anvil", operation_key: resolvedOperationKey })
+  });
+  const envelope = await response.json();
+  if (!response.ok || !envelope.data || !["created", "existing"].includes(envelope.data.outcome) || !uuid(envelope.data.workpiece_id)) {
+    if (!response.ok) sessionStorage.removeItem("forge_anvil_pending_workpiece_creation_v1");
+    throw new Error(envelope.error?.code ?? "recording_workpiece_creation_failed");
+  }
+  const workpieceId = envelope.data.workpiece_id.toLowerCase();
+  const route = new URL(window.location.href);
+  route.searchParams.set("workspace_id", workspaceId);
+  route.searchParams.set("workpiece_id", workpieceId);
+  history.replaceState({ ...history.state ?? {}, forgeWorkpieceRebind: true }, "", route);
+  window.__forgeWorkspaceId = workspaceId;
+  window.__forgeWorkpieceId = workpieceId;
+  delete window.__forgeCanonicalScriptIdentity;
+  delete window.__forgeCanonicalReadyScript;
+  localStorage.setItem("forge_workspace_id_v1", workspaceId);
+  localStorage.setItem("forge_active_workpiece_id_v1", workpieceId);
+  sessionStorage.removeItem("forge_anvil_pending_workpiece_creation_v1");
+  restoreEphemeralTeleprompterState(snapshot);
+  window.dispatchEvent(new CustomEvent("forge:recording-workpiece:created", { detail: { workspaceId, workpieceId, originVenue: "anvil" } }));
+  return { outcome: envelope.data.outcome, workpiece_id: workpieceId };
+}
+function initNewRecordingWorkpieceEntry() {
+  const anchor = document.getElementById("scriptRefreshBtn");
+  if (!anchor || document.getElementById("newRecordingWorkpieceBtn")) return;
+  const button = document.createElement("button");
+  button.id = "newRecordingWorkpieceBtn";
+  button.type = "button";
+  button.textContent = "New recording";
+  button.title = "Create a canonical episode for a new recording";
+  anchor.insertAdjacentElement("afterend", button);
+  button.addEventListener("click", async () => {
+    const entered = window.prompt("Name this new recording");
+    if (entered == null) return;
+    const title = entered.trim();
+    if (!title || title.length > 200) {
+      window.toast?.("Enter a title between 1 and 200 characters.", { type: "error" });
+      return;
+    }
+    button.disabled = true;
+    try {
+      await createNewRecordingWorkpiece(title);
+      window.toast?.("Episode created. Press Record when you are ready.", { type: "success" });
+    } catch (error) {
+      window.toast?.(`Could not create the episode: ${error instanceof Error ? error.message : String(error)}`, { type: "error" });
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
+var UUID_RE5, uuid;
+var init_new_recording_workpiece = __esm({
+  "src/features/new-recording-workpiece.ts"() {
+    "use strict";
+    init_tongs_user_auth();
+    UUID_RE5 = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    uuid = (value) => typeof value === "string" && UUID_RE5.test(value.trim()) ? value.trim().toLowerCase() : null;
   }
 });
 
@@ -112439,7 +112526,7 @@ var init_dom = __esm({
 });
 
 // src/pairing/pairing-api.ts
-function readString13(value) {
+function readString12(value) {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
@@ -112514,9 +112601,9 @@ var init_pairing_api = __esm({
     w2 = typeof window !== "undefined" ? window : {};
     metaEnv2 = typeof import.meta !== "undefined" ? import.meta.env || {} : {};
     DEFAULT_PAIR_QR_URL = "https://wtvdjndyxegudufrompx.functions.supabase.co/pair-qr";
-    PAIR_QR_URL = readString13(w2.__TP_PAIR_QR_URL) || readString13(metaEnv2.VITE_PAIR_QR_URL) || DEFAULT_PAIR_QR_URL;
-    SUPABASE_ANON_KEY2 = readString13(w2.__forgeSupabaseAnonKey) || readString13(metaEnv2.VITE_SUPABASE_ANON_KEY) || "";
-    PAIR_BASE_URL_OVERRIDE = readString13(w2.__TP_PAIR_BASE_URL) || readString13(metaEnv2.VITE_PAIR_BASE_URL) || null;
+    PAIR_QR_URL = readString12(w2.__TP_PAIR_QR_URL) || readString12(metaEnv2.VITE_PAIR_QR_URL) || DEFAULT_PAIR_QR_URL;
+    SUPABASE_ANON_KEY2 = readString12(w2.__forgeSupabaseAnonKey) || readString12(metaEnv2.VITE_SUPABASE_ANON_KEY) || "";
+    PAIR_BASE_URL_OVERRIDE = readString12(w2.__TP_PAIR_BASE_URL) || readString12(metaEnv2.VITE_PAIR_BASE_URL) || null;
     DEFAULT_PAIR_PATH = "/display.html";
     DEFAULT_TTL_MINUTES = Number(w2.__TP_PAIR_QR_TTL_MINUTES ?? metaEnv2.VITE_PAIR_QR_TTL_MINUTES ?? 10);
     DEFAULT_METADATA = typeof w2.__TP_PAIR_QR_METADATA === "object" && w2.__TP_PAIR_QR_METADATA !== null ? { ...w2.__TP_PAIR_QR_METADATA } : { role: "display", app: "anvil" };
@@ -119530,6 +119617,10 @@ async function boot() {
         } catch {
         }
         try {
+          startNewRecordingEntry();
+        } catch {
+        }
+        try {
           const ready = Object.assign({}, window.__tpInit || {});
           console.log("[TP-READY]", ready);
         } catch {
@@ -119968,7 +120059,7 @@ async function boot() {
     }
   }
 }
-var TS_BOOT_OWNER, IS_CI_MODE, SCROLL_MODE_SELECT_ID, ALLOWED_SCROLL_MODES, lastStableUiMode, selectPrefersAsr, lastScrollModeSource, SETTINGS_KEYS, settingsSync, asrRejectionToastShown, lastAsrReadyState, asrGatePending, ENABLE_HUD, startPersistence, startTelemetry, startScroll, startHotkeys, startToasts, startUploadAudit, __docCh2, __isDisplay;
+var TS_BOOT_OWNER, IS_CI_MODE, SCROLL_MODE_SELECT_ID, ALLOWED_SCROLL_MODES, lastStableUiMode, selectPrefersAsr, lastScrollModeSource, SETTINGS_KEYS, settingsSync, asrRejectionToastShown, lastAsrReadyState, asrGatePending, ENABLE_HUD, startPersistence, startTelemetry, startScroll, startHotkeys, startToasts, startUploadAudit, startNewRecordingEntry, __docCh2, __isDisplay;
 var init_index_app = __esm({
   "src/index-app.ts"() {
     "use strict";
@@ -120048,6 +120139,7 @@ var init_index_app = __esm({
     init_telemetry();
     init_toasts2();
     init_recording_upload_audit();
+    init_new_recording_workpiece();
     init_script_editor();
     init_asr_bridge();
     init_brain_access();
@@ -120332,6 +120424,7 @@ var init_index_app = __esm({
     startHotkeys = initOnce("hotkeys", initHotkeys);
     startToasts = initOnce("toasts", initToasts);
     startUploadAudit = initOnce("upload-audit", initRecordingUploadAudit);
+    startNewRecordingEntry = initOnce("new-recording-entry", initNewRecordingWorkpieceEntry);
     bootTrace("index-app.ts:dom-ready-hook:install:start");
     try {
       onDomReady2(() => {

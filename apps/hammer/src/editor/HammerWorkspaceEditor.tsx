@@ -4185,8 +4185,6 @@ export default function HammerWorkspaceEditor(
     handoffMediaPrepOutputs, jobsStatusUnavailable,
     reopenPersistenceSource, sessionState,
     loadedPersistenceSnapshot?.editorial_authority.data, visualTimelineData, workspaceSnapshot,
-    workspaceSnapshot?.diagnostics?.actualRecordingMismatchWarning,
-    workspaceSnapshot?.diagnostics?.mediaLabelMismatchWarning,
   ]);
   const diagnosticsIssueSetHash = useMemo(
     () => JSON.stringify(

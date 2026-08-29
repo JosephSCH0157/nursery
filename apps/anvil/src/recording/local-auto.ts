@@ -6,7 +6,6 @@ import {
   commitRecordingJsonArtifactToTongs,
   commitRecordingBytesToTongs,
   ensureRecordingCaptureTarget,
-  hasCanonicalRecordingScriptIdentity,
   readPendingRecordingDecisions,
   transitionRecordingCompleted,
   transitionRecordingDiscarded,
@@ -259,7 +258,7 @@ import {
 
   type RecordedArtifactValidity =
     | { ok: true; probe: RecordedArtifactAudioProbe }
-    | { ok: false; reason: 'no_audio_stream' | 'near_silent_audio' | 'audio_track_ended'; probe: RecordedArtifactAudioProbe };
+    | { ok: false; reason: 'empty_artifact' | 'content_type_mismatch' | 'no_audio_stream' | 'missing_video_stream' | 'invalid_duration' | 'near_silent_audio' | 'audio_track_ended'; probe: RecordedArtifactAudioProbe };
 
   function buildProbeFromSnapshot(contentType: string): RecordedArtifactAudioProbe {
     const audioTrackCount = Number(lastRecorderTrackSnapshot?.audioTrackCount || 0);
@@ -276,10 +275,16 @@ import {
     };
   }
 
-  async function verifyFinalizedRecordingArtifact(blob: Blob): Promise<RecordedArtifactValidity> {
+  async function verifyFinalizedRecordingArtifact(blob: Blob, strategy: RecordingCaptureStrategy | null): Promise<RecordedArtifactValidity> {
     const contentType = String(blob.type || 'application/octet-stream').trim().toLowerCase();
+    const snapshotProbe = buildProbeFromSnapshot(contentType);
+    if (blob.size <= 0) return { ok: false, reason: 'empty_artifact', probe: snapshotProbe };
+    if ((strategy?.mode === 'audio' && !contentType.startsWith('audio/'))
+      || (strategy?.mode === 'av' && !contentType.startsWith('video/'))) {
+      return { ok: false, reason: 'content_type_mismatch', probe: snapshotProbe };
+    }
     if (recorderAudioTrackFailure) {
-      return { ok: false, reason: 'audio_track_ended', probe: buildProbeFromSnapshot(contentType) };
+      return { ok: false, reason: 'audio_track_ended', probe: snapshotProbe };
     }
     try {
       const customVerifier = (window as any).__tpVerifyRecordedArtifact;
@@ -306,6 +311,8 @@ import {
           if (!probe.hasAudioStream || (typeof probe.channels === 'number' && probe.channels <= 0) || (typeof probe.sampleRate === 'number' && probe.sampleRate <= 0)) {
             return { ok: false, reason: 'no_audio_stream', probe };
           }
+          if (strategy?.mode === 'av' && !probe.hasVideoStream) return { ok: false, reason: 'missing_video_stream', probe };
+          if (typeof probe.audioDurationSec === 'number' && probe.audioDurationSec <= 0) return { ok: false, reason: 'invalid_duration', probe };
           if (probe.nearSilent === true) {
             return { ok: false, reason: 'near_silent_audio', probe };
           }
@@ -314,7 +321,7 @@ import {
       }
     } catch {}
 
-    const fallbackProbe = buildProbeFromSnapshot(contentType);
+    const fallbackProbe = snapshotProbe;
     if (!fallbackProbe.hasAudioStream) {
       return { ok: false, reason: 'no_audio_stream', probe: fallbackProbe };
     }
@@ -841,13 +848,6 @@ import {
       }
 
       const recordingMode = getRecordingMode();
-      if (!hasCanonicalRecordingScriptIdentity()) {
-        showRecorderToast(
-          'Recording cannot start until this displayed script is bound to its canonical Tongs path, revision, and hash. Reload the script and try again.',
-          'error',
-        );
-        throw new Error('canonical_script_identity_unavailable');
-      }
       try {
         console.log('[core-recorder] start', {
           mode: (window as any).__tpStore?.get?.('scrollMode') || null,
@@ -859,7 +859,7 @@ import {
       const captureSessionId = beginRecordingCaptureSession();
       const captureTarget = await ensureRecordingCaptureTarget();
       if (!captureTarget.ok) {
-        showRecorderToast('Recording cannot start because this page is not explicitly bound to a Ready episode. Return to Hearth and open this episode in Anvil again.', 'error');
+        showRecorderToast('Recording cannot start until this page is bound to a canonical episode and Tongs acknowledges capture authority.', 'error');
         throw new Error(captureTarget.reason);
       }
       activeSaveIdentity = { ...captureRecordingSaveIdentity(), captureAuthority: captureTarget.captureAuthority };
@@ -1020,7 +1020,7 @@ import {
       });
     };
     try {
-      const recordingValidity = await verifyFinalizedRecordingArtifact(blob);
+      const recordingValidity = await verifyFinalizedRecordingArtifact(blob, opts.strategy ?? null);
       try {
         console.info('[core-recorder] finalized artifact validity', recordingValidity);
         window.dispatchEvent(new CustomEvent('tp:recording:artifact-audio-verification', {
@@ -1040,10 +1040,14 @@ import {
           showRecorderToast('Microphone capture stopped before this recording ended. This take cannot be kept.', 'error');
           canonicalErrorCode = 'podcast_take_audio_track_ended';
           canonicalErrorMessage = 'Microphone capture stopped before this recording ended. This take cannot be kept.';
-        } else {
+        } else if (recordingValidity.reason === 'near_silent_audio') {
           showRecorderToast('The finalized recording contains an audio track, but no usable audio was detected. Verify the recording before leaving.', 'error');
           canonicalErrorCode = 'podcast_take_near_silent_audio';
           canonicalErrorMessage = 'The finalized recording contains an audio track, but no usable audio was detected. Verify the recording before leaving.';
+        } else {
+          showRecorderToast('The finalized recording failed browser media sanity checks and cannot be uploaded as a take.', 'error');
+          canonicalErrorCode = `podcast_take_${recordingValidity.reason}`;
+          canonicalErrorMessage = `The finalized recording failed browser media sanity checks (${recordingValidity.reason}).`;
         }
         try {
           window.dispatchEvent(new CustomEvent('tp:recording:podcast-audio-invalid', {
@@ -1073,7 +1077,7 @@ import {
       const storageLimitHintBytes = readStorageLimitHintBytes();
       const skipCanonicalCommit =
         storageLimitHintBytes != null && bytes.length >= storageLimitHintBytes;
-      if (canonicalErrorCode === 'podcast_take_no_audio_stream' || canonicalErrorCode === 'podcast_take_near_silent_audio') {
+      if (!recordingValidity.ok) {
         canonicalAttempted = false;
       } else if (skipCanonicalCommit) {
         try {

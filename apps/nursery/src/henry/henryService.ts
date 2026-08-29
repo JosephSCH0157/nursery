@@ -23,6 +23,15 @@ export type HenryTelemetryEventName =
 
 const unavailableRpcNames = new Set<string>();
 
+type HenryRpc = (
+  name: string,
+  payload: Record<string, unknown>,
+) => Promise<{ data: unknown; error: unknown }>;
+
+// Narrow the generated Supabase client before reading `rpc`. Accessing the
+// generic member first forces TypeScript to instantiate the complete RPC map.
+const henryRpcClient = tongsSupabase as unknown as { rpc: HenryRpc };
+
 function toErrorMessage(error: unknown, fallback: string): string {
   if (error && typeof error === "object" && "message" in error) {
     const message = (error as { message?: unknown }).message;
@@ -86,10 +95,7 @@ async function callHenryRpc(
   if (unavailableRpcNames.has(fn)) {
     return { data: null, error: { code: "PGRST202", message: `RPC ${fn} unavailable` } };
   }
-  const rpc = tongsSupabase.rpc.bind(tongsSupabase) as unknown as (
-    name: string,
-    payload: Record<string, unknown>,
-  ) => Promise<{ data: unknown; error: unknown }>;
+  const rpc = henryRpcClient.rpc;
   await ensureTongsSupabaseSession();
   try {
     let result = await rpc(fn, args);

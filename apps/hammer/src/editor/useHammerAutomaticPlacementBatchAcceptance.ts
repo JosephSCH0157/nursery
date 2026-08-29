@@ -19,7 +19,11 @@ export function useHammerAutomaticPlacementBatchAcceptance(args: {
   setOverrides: Dispatch<SetStateAction<Record<string, PreviewPlacementTransform>>>;
 }) {
   const [resultSummary, setResultSummary] = useState<string | null>(null);
-  const plan = useMemo(() => selectAutomaticPlacementBatch(args), [args.timeline, args.mediaRevision, args.entries]);
+  const { entries, mediaRevision, timeline } = args;
+  const plan = useMemo(
+    () => selectAutomaticPlacementBatch({ timeline, mediaRevision, entries }),
+    [entries, mediaRevision, timeline],
+  );
   const applyAll = useCallback(() => {
     const result = executeAutomaticPlacementBatch(args);
     const appliedPlan = result.plan;

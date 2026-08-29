@@ -7,23 +7,24 @@ export function useHammerDiagnosticsPresentation(args: {
   issues: HammerIssueDiagnostic[];
   showIssueSet: (hash: string | null) => void;
 }) {
+  const { currentPass, issues, issueSetHash, showIssueSet } = args;
   const [visualDetailsExpanded, setVisualDetailsExpanded] = useState(false);
-  const transcriptPassActive = args.currentPass == null || ["transcript_cleanup", "retakes", "gap_pacing"].includes(args.currentPass);
+  const transcriptPassActive = currentPass == null || ["transcript_cleanup", "retakes", "gap_pacing"].includes(currentPass);
   const presentation = useMemo(
-    () => deriveHammerDiagnosticsPresentation({ currentPass: args.currentPass, issues: args.issues, visualDetailsExpanded }),
-    [args.currentPass, args.issues, visualDetailsExpanded],
+    () => deriveHammerDiagnosticsPresentation({ currentPass, issues, visualDetailsExpanded }),
+    [currentPass, issues, visualDetailsExpanded],
   );
   useEffect(() => {
     if (transcriptPassActive) return;
     setVisualDetailsExpanded(false);
-    if (args.issues.some((issue) => issue.affectedAreas.includes("visuals"))) args.showIssueSet(args.issueSetHash);
-  }, [args.issueSetHash, args.issues, args.showIssueSet, transcriptPassActive]);
+    if (issues.some((issue) => issue.affectedAreas.includes("visuals"))) showIssueSet(issueSetHash);
+  }, [issueSetHash, issues, showIssueSet, transcriptPassActive]);
   return {
     ...presentation,
     collapseVisualDetails: () => setVisualDetailsExpanded(false),
     showVisualDetails: () => {
       setVisualDetailsExpanded(true);
-      args.showIssueSet(args.issueSetHash);
+      showIssueSet(issueSetHash);
     },
   };
 }

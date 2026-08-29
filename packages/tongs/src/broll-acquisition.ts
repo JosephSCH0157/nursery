@@ -20,6 +20,8 @@ export type VerifiedBrollMedia = {
   width: number;
   height: number;
   durationMs: number | null;
+  hasAudioStream?: boolean;
+  hasVideoStream?: boolean;
 };
 
 function isPrivateAddress(address: string): boolean {
@@ -86,11 +88,22 @@ export async function inspectBrollMedia(bytes: Uint8Array, expected: "video" | "
   const extension = effectiveMime === "video/mp4" || effectiveMime === "audio/mp4" ? "mp4"
     : effectiveMime === "audio/wav" ? "wav" : effectiveMime === "audio/mpeg" ? "mp3" : "webm";
   return await withTempMedia(bytes, extension, async (path) => {
-    const output = await run("ffprobe", ["-v", "error", "-show_entries", "stream=width,height:format=duration", "-of", "json", path]);
-    const parsed = JSON.parse(output) as { streams?: Array<{ width?: number; height?: number }>; format?: { duration?: string } };
-    const stream = parsed.streams?.[0]; const duration = Number(parsed.format?.duration ?? 0);
-    if (!Number.isFinite(duration) || duration <= 0 || (expected === "video" && (!stream?.width || !stream.height))) throw new Error("broll_timed_media_metadata_invalid");
-    return { bytes, mimeType: effectiveMime, width: stream?.width ?? 0, height: stream?.height ?? 0, durationMs: Math.round(duration * 1000) };
+    const output = await run("ffprobe", ["-v", "error", "-show_entries", "stream=codec_type,width,height:format=duration", "-of", "json", path]);
+    const parsed = JSON.parse(output) as { streams?: Array<{ codec_type?: string; width?: number; height?: number }>; format?: { duration?: string } };
+    const streams = parsed.streams ?? [];
+    const videoStream = streams.find((stream) => stream.codec_type === "video");
+    const hasAudioStream = streams.some((stream) => stream.codec_type === "audio");
+    const hasVideoStream = Boolean(videoStream);
+    const duration = Number(parsed.format?.duration ?? 0);
+    if (!Number.isFinite(duration) || duration <= 0
+      || (expected === "audio" && !hasAudioStream)
+      || (expected === "video" && (!hasVideoStream || !videoStream?.width || !videoStream.height))) {
+      throw new Error("broll_timed_media_metadata_invalid");
+    }
+    return {
+      bytes, mimeType: effectiveMime, width: videoStream?.width ?? 0, height: videoStream?.height ?? 0,
+      durationMs: Math.round(duration * 1000), hasAudioStream, hasVideoStream,
+    };
   });
 }
 

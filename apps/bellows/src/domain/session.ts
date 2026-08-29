@@ -14,6 +14,8 @@ import type {
   TrackId,
   UserId,
   WorkspaceId,
+  WorkpieceId,
+  RecordingCaptureAuthorityId,
 } from "./ids.js";
 import type { BellowsParticipant } from "./participant.js";
 import type {
@@ -59,6 +61,7 @@ export interface BellowsSessionTimeline {
 export interface BellowsSessionDraft {
   readonly sessionId: SessionId;
   readonly workspaceId: WorkspaceId;
+  readonly workpieceId: WorkpieceId | null;
   readonly hostUserId: UserId;
   readonly mode: BellowsSessionMode;
   readonly sessionType: BellowsSessionType;
@@ -73,6 +76,8 @@ export interface BellowsSessionDraft {
 export interface BellowsSession {
   readonly sessionId: SessionId;
   readonly workspaceId: WorkspaceId;
+  readonly workpieceId: WorkpieceId | null;
+  readonly recordingCaptureAuthorityId: RecordingCaptureAuthorityId | null;
   readonly hostUserId: UserId;
   readonly authorityState: BellowsAuthorityState;
   readonly draft: BellowsSessionDraft;

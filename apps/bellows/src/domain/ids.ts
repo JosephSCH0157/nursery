@@ -3,6 +3,8 @@ export type BellowsBrand<T, TName extends string> = T & {
 };
 
 export type WorkspaceId = BellowsBrand<string, "WorkspaceId">;
+export type WorkpieceId = BellowsBrand<string, "WorkpieceId">;
+export type RecordingCaptureAuthorityId = BellowsBrand<string, "RecordingCaptureAuthorityId">;
 export type SessionId = BellowsBrand<string, "SessionId">;
 export type UserId = BellowsBrand<string, "UserId">;
 export type ParticipantId = BellowsBrand<string, "ParticipantId">;

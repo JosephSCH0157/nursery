@@ -56,6 +56,8 @@ function createSession(
   const session: BellowsSession = {
     sessionId,
     workspaceId,
+    workpieceId: "workpiece-operator-1" as never,
+    recordingCaptureAuthorityId: "capture-authority-operator-1" as never,
     hostUserId,
     authorityState: {
       actingAuthorityState: "host_present",
@@ -66,6 +68,7 @@ function createSession(
     draft: {
       sessionId,
       workspaceId,
+      workpieceId: "workpiece-operator-1" as never,
       hostUserId,
       mode: "live",
       sessionType: "remote",

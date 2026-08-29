@@ -1,0 +1,68 @@
+project_id = "forge-he3-agu-1qh8vac"
+
+
+[api]
+port = 60321
+schemas = ["public", "graphql_public", "tongs"]
+extra_search_path = ["public", "extensions", "tongs"]
+
+[functions.create-checkout-session]
+enabled = true
+verify_jwt = true
+import_map = "./functions/create-checkout-session/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/create-checkout-session/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/create-checkout-session/*.html" ]
+
+[functions.stripe-webhook]
+enabled = true
+verify_jwt = false
+import_map = "./functions/stripe-webhook/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/stripe-webhook/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/stripe-webhook/*.html" ]
+
+[functions.display-ws]
+enabled = true
+verify_jwt = false
+import_map = "./functions/display-ws/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/display-ws/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/display-ws/*.html" ]
+
+[functions.create-one-time-checkout-session]
+enabled = true
+verify_jwt = true
+import_map = "./functions/create-one-time-checkout-session/deno.json"
+# Uncomment to specify a custom file path to the entrypoint.
+# Supported file extensions are: .ts, .js, .mjs, .jsx, .tsx
+entrypoint = "./functions/create-one-time-checkout-session/index.ts"
+# Specifies static files to be bundled with the function. Supports glob patterns.
+# For example, if you want to serve static HTML pages in your function:
+# static_files = [ "./functions/create-one-time-checkout-session/*.html" ]
+
+[db]
+port = 60322
+shadow_port = 60320
+
+[db.pooler]
+enabled = true
+port = 60329
+
+[studio]
+port = 60323
+
+[inbucket]
+port = 60324
+
+[analytics]
+port = 60327

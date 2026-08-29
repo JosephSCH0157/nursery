@@ -68,14 +68,16 @@ describe('Anvil canonical recording authority', () => {
 
   test('capture establishment requires explicit route identity and returns the server binding', async () => {
     window.history.replaceState({}, '', `/?workspace_id=${WORKSPACE_ID}&workpiece_id=${WORKPIECE_ID}`);
-    (window as any).__forgeCanonicalScriptIdentity = { workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID, path: 'script/script.md', scriptRevision: 7, scriptHash: 'b'.repeat(64) };
+    (window as any).__forgeCanonicalScriptIdentity = { workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID, path: 'script/script.md', scriptRevision: 7,
+      scriptHash: 'b'.repeat(64), scriptApprovalId: '99999999-9999-4999-8999-999999999999', scriptApprovalRevision: 1, scriptApprovalHash: 'b'.repeat(64) };
     (global as any).fetch = jest.fn(async (_url: string, init: RequestInit) => {
       const request = JSON.parse(String(init.body));
       return response(200, { ok: true, data: { outcome: 'established', capture_authority: {
-        id: CAPTURE_AUTHORITY_ID, capture_session_id: request.capture_session_id, workspace_id: WORKSPACE_ID, workpiece_id: WORKPIECE_ID,
+        id: CAPTURE_AUTHORITY_ID, workspace_id: WORKSPACE_ID, workpiece_id: WORKPIECE_ID, venue: 'anvil', script_binding_kind: 'approved_canonical_script',
         recording_session_id: null, ready_transition_id: '44444444-4444-4444-8444-444444444444', script_path: 'script/script.md',
-        script_revision: 7, script_hash: 'b'.repeat(64), operation_key: request.operation_key, provenance: 'live_established',
-      } } });
+        script_revision: 7, script_hash: 'b'.repeat(64), script_approval_id: '99999999-9999-4999-8999-999999999999',
+        script_approval_revision: 1, script_approval_hash: 'b'.repeat(64), operation_key: request.operation_key, provenance: 'live_established',
+      }, venue_execution: { execution_id: request.capture_session_id } } });
     });
     const authority = await import('../../src/forge/workpiece-commit');
     authority.beginRecordingCaptureSession();
@@ -93,6 +95,24 @@ describe('Anvil canonical recording authority', () => {
     authority.beginRecordingCaptureSession();
     await expect(authority.ensureRecordingCaptureTarget()).resolves.toEqual(expect.objectContaining({ ok: false, reason: 'explicit_episode_context_required' }));
     expect((global as any).fetch).not.toHaveBeenCalled();
+  });
+
+  test('establishes an authoritative unscripted capture when no approved script exists', async () => {
+    window.history.replaceState({}, '', `/?workspace_id=${WORKSPACE_ID}&workpiece_id=${WORKPIECE_ID}`);
+    delete (window as any).__forgeCanonicalScriptIdentity;
+    (global as any).fetch = jest.fn(async (_url: string, init: RequestInit) => {
+      const request = JSON.parse(String(init.body));
+      return response(200, { ok: true, data: { outcome: 'established', capture_authority: {
+        id: CAPTURE_AUTHORITY_ID, workspace_id: WORKSPACE_ID, workpiece_id: WORKPIECE_ID, venue: 'anvil', script_binding_kind: 'none',
+        recording_session_id: null, ready_transition_id: null, script_path: null, script_revision: null, script_hash: null,
+        script_approval_id: null, script_approval_revision: null, script_approval_hash: null, operation_key: request.operation_key, provenance: 'live_established',
+      }, venue_execution: { execution_id: request.capture_session_id } } });
+    });
+    const authority = await import('../../src/forge/workpiece-commit');
+    authority.beginRecordingCaptureSession();
+    await expect(authority.ensureRecordingCaptureTarget()).resolves.toEqual(expect.objectContaining({
+      ok: true, captureAuthority: expect.objectContaining({ scriptBindingKind: 'none', scriptPath: null }),
+    }));
   });
 
   test('completion uses capture authority without re-reading browser script identity', async () => {
@@ -144,7 +164,8 @@ describe('Anvil canonical recording authority', () => {
   });
 
   test('transient completion retry reuses the same logical idempotency identity', async () => {
-    (window as any).__forgeCanonicalScriptIdentity = { workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID, path: 'script/script.md', scriptRevision: 7, scriptHash: 'b'.repeat(64) };
+    (window as any).__forgeCanonicalScriptIdentity = { workspaceId: WORKSPACE_ID, workpieceId: WORKPIECE_ID, path: 'script/script.md', scriptRevision: 7, scriptHash: 'b'.repeat(64),
+      scriptApprovalId: '99999999-9999-4999-8999-999999999999', scriptApprovalRevision: 1, scriptApprovalHash: 'b'.repeat(64) };
     (global as any).fetch = jest.fn()
       .mockResolvedValueOnce(response(503, { error: { code: 'temporary' } }))
       .mockResolvedValueOnce(response(200, { ok: true, data: { outcome: 'saved', completion: { id: COMPLETION_ID } } }));
@@ -155,5 +176,21 @@ describe('Anvil canonical recording authority', () => {
     expect(first.idempotency_key).toBe(second.idempotency_key);
     expect(first.capture_authority_id).toBe(second.capture_authority_id);
     expect(first.media_path).toBe(second.media_path);
+  });
+
+  test('refresh recovers an unscripted pending decision from route and canonical authority evidence', async () => {
+    delete (window as any).__forgeCanonicalReadyScript;
+    window.history.replaceState({}, '', `/?workspace_id=${WORKSPACE_ID}&workpiece_id=${WORKPIECE_ID}`);
+    (global as any).fetch = jest.fn(async () => response(200, { ok: true, data: { outcome: 'ok', pending: [{
+      completion_id: COMPLETION_ID, workpiece_id: WORKPIECE_ID, capture_session_id: CAPTURE_ID,
+      recording_capture_authority_id: CAPTURE_AUTHORITY_ID, media_verification_receipt_id: '88888888-8888-4888-8888-888888888888',
+      media_path: 'recordings/take.webm',
+    }] } }));
+    const { readPendingRecordingDecisions } = await import('../../src/forge/workpiece-commit');
+    await expect(readPendingRecordingDecisions()).resolves.toEqual([{
+      completionId: COMPLETION_ID, workpieceId: WORKPIECE_ID, captureSessionId: CAPTURE_ID,
+      captureAuthorityId: CAPTURE_AUTHORITY_ID, mediaPath: 'recordings/take.webm',
+    }]);
+    expect((global as any).fetch).toHaveBeenCalledWith(expect.stringContaining(`workspace_id=${WORKSPACE_ID}`), expect.any(Object));
   });
 });

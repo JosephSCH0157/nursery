@@ -558,6 +558,14 @@ export function applyBellowsTransition(
           actionType: action.type,
         });
       }
+      if (!session.workpieceId || !session.recordingCaptureAuthorityId) {
+        return rejectTransition(session, action, context, {
+          code: "recording_authority_required",
+          message: "Bellows cannot begin countdown until a canonical workpiece and recording capture authority are established.",
+          lifecycle: session.machineState.lifecycle,
+          actionType: action.type,
+        });
+      }
 
       return accept(
         {

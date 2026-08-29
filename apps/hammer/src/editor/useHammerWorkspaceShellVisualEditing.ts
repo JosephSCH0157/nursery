@@ -813,14 +813,21 @@ export function useHammerWorkspaceShellVisualEditing(
     });
   }, [args]);
 
+  const {
+    setTranscriptTimingHint,
+    transcriptDurationSec,
+    workspaceId,
+    workpieceId,
+  } = args;
+
   const upsertResolvedIntroPlacement = useCallback(async (assetId: string, assetPath: string, source: "profile" | "episode" | "manual", durationMs?: number | null): Promise<void> => {
     const introDurationSec = Math.round(Math.max(0, durationMs ?? 0)) / 1000;
     if (introDurationSec <= 0) {
-      args.setTranscriptTimingHint("Intro duration is unavailable. Re-upload the asset so Tongs can inspect it.");
+      setTranscriptTimingHint("Intro duration is unavailable. Re-upload the asset so Tongs can inspect it.");
       return;
     }
-    try { await requireReadyHammerCanonicalAssetAuthority({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, canonicalAssetId: assetId as CanonicalAssetId, expectedPath: assetPath }); }
-    catch (error) { args.setTranscriptTimingHint(error instanceof Error ? error.message : "Intro canonical asset validation failed."); return; }
+    try { await requireReadyHammerCanonicalAssetAuthority({ workspaceId, workpieceId, canonicalAssetId: assetId as CanonicalAssetId, expectedPath: assetPath }); }
+    catch (error) { setTranscriptTimingHint(error instanceof Error ? error.message : "Intro canonical asset validation failed."); return; }
     upsertPackagingPlacement({
       entryId: PACKAGING_INTRO_ENTRY_ID,
       assetPath,
@@ -832,29 +839,29 @@ export function useHammerWorkspaceShellVisualEditing(
       uncertaintyFlags: ["packaging:intro"],
       systemMeta: { system_managed: true, system_type: "intro", system_source: source, system_asset_id: assetId },
     });
-  }, [args.setTranscriptTimingHint, args.workspaceId, args.workpieceId, upsertPackagingPlacement]);
+  }, [setTranscriptTimingHint, upsertPackagingPlacement, workspaceId, workpieceId]);
 
   const upsertResolvedOutroPlacement = useCallback(async (assetId: string, assetPath: string, source: "profile" | "episode" | "manual", durationMs?: number | null): Promise<void> => {
     const outroDurationSec = Math.round(Math.max(0, durationMs ?? 0)) / 1000;
     if (outroDurationSec <= 0) {
-      args.setTranscriptTimingHint("Outro duration is unavailable. Re-upload the asset so Tongs can inspect it.");
+      setTranscriptTimingHint("Outro duration is unavailable. Re-upload the asset so Tongs can inspect it.");
       return;
     }
-    try { await requireReadyHammerCanonicalAssetAuthority({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, canonicalAssetId: assetId as CanonicalAssetId, expectedPath: assetPath }); }
-    catch (error) { args.setTranscriptTimingHint(error instanceof Error ? error.message : "Outro canonical asset validation failed."); return; }
-    const startSec = Math.max(0, roundToTenth(args.transcriptDurationSec - outroDurationSec));
+    try { await requireReadyHammerCanonicalAssetAuthority({ workspaceId, workpieceId, canonicalAssetId: assetId as CanonicalAssetId, expectedPath: assetPath }); }
+    catch (error) { setTranscriptTimingHint(error instanceof Error ? error.message : "Outro canonical asset validation failed."); return; }
+    const startSec = Math.max(0, roundToTenth(transcriptDurationSec - outroDurationSec));
     upsertPackagingPlacement({
       entryId: PACKAGING_OUTRO_ENTRY_ID,
       assetPath,
       assetId,
       label: "Packaging Outro",
       startSec,
-      endSec: args.transcriptDurationSec,
+      endSec: transcriptDurationSec,
       visualMode: "packaging_outro",
       uncertaintyFlags: ["packaging:outro"],
       systemMeta: { system_managed: true, system_type: "outro", system_source: source, system_asset_id: assetId },
     });
-  }, [args.setTranscriptTimingHint, args.transcriptDurationSec, args.workspaceId, args.workpieceId, upsertPackagingPlacement]);
+  }, [setTranscriptTimingHint, transcriptDurationSec, upsertPackagingPlacement, workspaceId, workpieceId]);
 
   const buildWorkspaceDefaultIntroOutroDestPath = useCallback((kind: "intro" | "outro", sourcePath: string): string => {
     const normalized = normalizeWorkpieceRelativePath(args.workpieceId, sourcePath);
@@ -1065,11 +1072,11 @@ export function useHammerWorkspaceShellVisualEditing(
       return;
     }
     if (!packagingLogoAssetPath) {
-      args.setTranscriptTimingHint("Select a logo asset before enabling overlay.");
+      setTranscriptTimingHint("Select a logo asset before enabling overlay.");
       return;
     }
-    args.setTranscriptTimingHint("This logo selection has only path metadata. Choose a canonically registered Tongs asset before enabling it.");
-  }, [args.setTranscriptTimingHint, args.transcriptDurationSec, packagingLogoAssetPath, packagingLogoPlacement, packagingLogoPosition, packagingLogoSize, removePackagingPlacement, upsertPackagingPlacement]);
+    setTranscriptTimingHint("This logo selection has only path metadata. Choose a canonically registered Tongs asset before enabling it.");
+  }, [packagingLogoAssetPath, packagingLogoPlacement, removePackagingPlacement, setTranscriptTimingHint]);
 
   const applyLogoOverlayStyle = useCallback((next: {
     position?: HammerLogoOverlayPosition;
@@ -1083,7 +1090,7 @@ export function useHammerWorkspaceShellVisualEditing(
     const canonicalLogoAssetId = packagingLogoPlacement.canonical_asset_state === "canonical_proven"
       ? packagingLogoPlacement.canonical_asset_id ?? null : null;
     if (!canonicalLogoAssetId) {
-      args.setTranscriptTimingHint("The current logo placement has no validated canonical asset identity.");
+      setTranscriptTimingHint("The current logo placement has no validated canonical asset identity.");
       return;
     }
     const position = next.position ?? packagingLogoPosition;
@@ -1096,12 +1103,12 @@ export function useHammerWorkspaceShellVisualEditing(
       assetId: canonicalLogoAssetId,
       label: `Logo Overlay (${position.replace("_", " ")}, ${size})`,
       startSec: 0,
-      endSec: args.transcriptDurationSec,
+      endSec: transcriptDurationSec,
       visualMode: "overlay_graphic",
       overlayGeometry: positionFromLogoOption(position, size),
       uncertaintyFlags: ["packaging:logo", `logo_position:${position}`, `logo_size:${size}`],
     });
-  }, [args.transcriptDurationSec, packagingLogoAssetPath, packagingLogoPlacement, packagingLogoPosition, packagingLogoSize, upsertPackagingPlacement]);
+  }, [packagingLogoAssetPath, packagingLogoPlacement, packagingLogoPosition, packagingLogoSize, setTranscriptTimingHint, transcriptDurationSec, upsertPackagingPlacement]);
 
   const flushPendingPlacementDrafts = useCallback((): void => {
     const timelineDrafts = imagePlacementDraftWindowsRef.current;

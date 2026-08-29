@@ -133,6 +133,7 @@ export function resolveVisualSelectionSnapTime(args: {
 export function useHammerWorkspaceShellSelection(
   args: UseHammerWorkspaceShellSelectionArgs,
 ): UseHammerWorkspaceShellSelectionResult {
+  const { onVisualSelectionRequested } = args;
   const visualItems = useMemo(
     () => toHammerLinkedSelectionVisualItems(args.visualPlacementItems),
     [args.visualPlacementItems],
@@ -303,9 +304,9 @@ export function useHammerWorkspaceShellSelection(
     allowSurfaceSwitch?: boolean;
     snapTarget?: HammerVisualSelectionSnapTarget;
   }) => {
-    args.onVisualSelectionRequested?.(nextArgs.clipId);
+    onVisualSelectionRequested?.(nextArgs.clipId);
     selectLinkedVisualTarget(nextArgs);
-  }, [args.onVisualSelectionRequested, selectLinkedVisualTarget]);
+  }, [onVisualSelectionRequested, selectLinkedVisualTarget]);
 
   return {
     applyLinkedSelectionState,

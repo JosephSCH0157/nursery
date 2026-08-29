@@ -10,6 +10,7 @@ export type BellowsTransitionRejectionCode =
   | "illegal_transition"
   | "unauthorized_actor"
   | "invalid_session_draft"
+  | "recording_authority_required"
   | "insufficient_ready_participants"
   | "live_targets_not_configured"
   | "recovery_unavailable";

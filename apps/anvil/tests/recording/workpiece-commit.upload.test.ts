@@ -7,6 +7,23 @@ jest.mock('../../src/forge/tongs-user-auth', () => ({
 const WORKSPACE_ID = "11111111-1111-4111-8111-111111111111";
 const WORKPIECE_ID = "22222222-2222-4222-8222-222222222222";
 const MEDIA_HASH = "a".repeat(64);
+const CAPTURE_AUTHORITY = {
+  id: '55555555-5555-4555-8555-555555555555',
+  captureSessionId: '66666666-6666-4666-8666-666666666666',
+  workspaceId: WORKSPACE_ID,
+  workpieceId: WORKPIECE_ID,
+  recordingSessionId: null,
+  readyTransitionId: null,
+  scriptBindingKind: 'none' as const,
+  scriptPath: null,
+  scriptRevision: null,
+  scriptHash: null,
+  scriptApprovalId: null,
+  scriptApprovalRevision: null,
+  scriptApprovalHash: null,
+  operationKey: 'upload-test-capture-operation',
+  provenance: 'live_established' as const,
+};
 const canonicalCommitData = (path: string) => ({ workpiece_id: WORKPIECE_ID, path, hash: MEDIA_HASH, file_row: { revision: 1 } });
 
 function jsonResponse(status: number, body: unknown): Response {
@@ -49,6 +66,7 @@ describe('workpiece recording upload strategy', () => {
 
     const { commitRecordingBytesToTongs } = await import('../../src/forge/workpiece-commit');
     const result = await commitRecordingBytesToTongs({
+      captureAuthority: CAPTURE_AUTHORITY,
       bytes: new Uint8Array(4096),
       originalName: 'Florida_Oranges.webm',
       contentType: 'video/webm',
@@ -132,6 +150,7 @@ describe('workpiece recording upload strategy', () => {
 
       const { commitRecordingBytesToTongs } = await import('../../src/forge/workpiece-commit');
       const result = await commitRecordingBytesToTongs({
+        captureAuthority: CAPTURE_AUTHORITY,
         bytes: new Uint8Array([1, 2, 3]),
         originalName: 'Florida_Oranges.webm',
         contentType: 'video/webm',
@@ -141,7 +160,7 @@ describe('workpiece recording upload strategy', () => {
       if (result.ok) {
         throw new Error('expected failed commit result');
       }
-      expect(result.reason).toBe('commit_failed');
+      expect(result.reason).toBe('commit_failed_same_episode_recoverable');
       expect(chunkCalls).toBe(3);
       expect(finalizeCalls).toBe(0);
       expect(uploadStatusEvents.some((event) => event.phase === 'failed')).toBe(true);
@@ -190,6 +209,7 @@ describe('workpiece recording upload strategy', () => {
 
       const { commitRecordingBytesToTongs } = await import('../../src/forge/workpiece-commit');
       const result = await commitRecordingBytesToTongs({
+        captureAuthority: CAPTURE_AUTHORITY,
         bytes: new Uint8Array([4, 5, 6]),
         originalName: 'Florida_Oranges.webm',
         contentType: 'video/webm',
@@ -242,6 +262,7 @@ describe('workpiece recording upload strategy', () => {
 
     const { commitRecordingBytesToTongs } = await import('../../src/forge/workpiece-commit');
     const result = await commitRecordingBytesToTongs({
+      captureAuthority: CAPTURE_AUTHORITY,
       bytes: new Uint8Array([9, 8, 7]),
       originalName: 'Florida_Oranges_Story.webm',
       contentType: 'video/webm',

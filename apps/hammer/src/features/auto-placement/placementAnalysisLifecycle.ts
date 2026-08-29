@@ -8,6 +8,12 @@ export type FrameBoundPlacementEvidencePair = Readonly<{
   face: FaceAnalysisResult;
 }>;
 
+type RetainedFrameMap = Readonly<{
+  size: number;
+  keys: () => MapIterator<string>;
+  delete: (key: string) => boolean;
+}>;
+
 function frameKey(frameRef: Pick<FaceAnalysisFrameRef, "captureEpoch" | "captureRevision">): string {
   return `${frameRef.captureEpoch}:${frameRef.captureRevision}`;
 }
@@ -71,7 +77,7 @@ export class PlacementAnalysisLifecycle {
     });
   }
 
-  private trim<T>(map: Map<string, T>): void {
+  private trim(map: RetainedFrameMap): void {
     const limit = Math.max(1, Math.floor(this.retentionLimit));
     while (map.size > limit) {
       const oldest = map.keys().next().value;
