@@ -99,6 +99,21 @@ function fieldsConflict<T extends string | number>(left: T | null | undefined, r
   return left != null && right != null && left !== right;
 }
 
+function signaturesDifferOnlyByEvidenceEnrichment(left: string | null, right: string | null): boolean {
+  if (!left || !right) return false;
+  if (left === right) return true;
+  const a = left.split("|");
+  const b = right.split("|");
+  if (a.length !== 7 || b.length !== 7) return false;
+  for (let index = 0; index < 4; index += 1) {
+    if (a[index] !== b[index]) return false;
+  }
+  for (let index = 4; index < 7; index += 1) {
+    if (a[index] && b[index] && a[index] !== b[index]) return false;
+  }
+  return true;
+}
+
 function mediaRefsConflict(current: MediaRef | null, transcriptSource: MediaRef | null): boolean {
   if (!current || !transcriptSource) return false;
   return fieldsConflict(current.media_id, transcriptSource.media_id)
@@ -158,9 +173,24 @@ function resolveAudioFreshness(
 ): HammerMediaPrepFreshness {
   if (!polish) return "missing";
   if (!rawSource.media_id && !rawSource.media_signature) return "missing";
-  const mediaIdMatches = polish.source_media_id === rawSource.media_id;
-  const signatureMatches = polish.source_media_signature === rawSource.media_signature;
-  return mediaIdMatches && signatureMatches ? "current" : "stale";
+  if (polish.source_media_id && rawSource.media_id) {
+    if (polish.source_media_id !== rawSource.media_id) return "stale";
+    const preparedPath = typeof polish.settings_summary.source_local_relpath === "string"
+      ? normalizePathLike(polish.settings_summary.source_local_relpath)
+      : null;
+    const preparedKind = typeof polish.settings_summary.source_media_kind === "string"
+      ? polish.settings_summary.source_media_kind
+      : null;
+    if (fieldsConflict(preparedPath, normalizePathLike(rawSource.local_relpath))) return "stale";
+    if (fieldsConflict(preparedKind, rawSource.kind)) return "stale";
+    // Canonical media ID establishes identity. The legacy aggregate signature
+    // also contains optional duration/byte/hash evidence, which may be enriched
+    // between transcript and audio-prep projections without changing the asset.
+    return signaturesDifferOnlyByEvidenceEnrichment(polish.source_media_signature, rawSource.media_signature)
+      ? "current"
+      : "stale";
+  }
+  return polish.source_media_signature === rawSource.media_signature ? "current" : "stale";
 }
 
 function resolvePreferredPlayback(args: {

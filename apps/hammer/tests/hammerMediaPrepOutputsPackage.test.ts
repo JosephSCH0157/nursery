@@ -215,6 +215,39 @@ const snapshot: HammerPersistenceSnapshot = {
 }
 
 {
+  const sameCanonicalMediaWithEnrichedEvidence = buildHammerMediaPrepOutputsPackage({
+    structuredTranscript: {
+      ...snapshot.structured_transcript.data!,
+      media_signature: "media_media_pkg_01|recording_audio|recordings/media-pkg.wav||12345|8000|abc123",
+      source_media_ref: {
+        ...(snapshot.structured_transcript.data!.source_media_ref ?? {
+          media_id: "media_media_pkg_01",
+          kind: "recording_audio" as const,
+        }),
+        local_relpath: "recordings/media-pkg.wav",
+        byte_size: 12345,
+        duration_ms: 8000,
+        sha256: "abc123",
+      },
+    },
+    visualPlacements: snapshot.visual_placements.data,
+    audioPolish: {
+      ...snapshot.audio_polish.data!,
+      source_media_signature: "media_media_pkg_01|recording_audio|recordings/media-pkg.wav||||",
+      settings_summary: {
+        ...snapshot.audio_polish.data!.settings_summary,
+        source_media_kind: "recording_audio",
+        source_local_relpath: "recordings/media-pkg.wav",
+      },
+    },
+    mediaRef: snapshot.editor_session.data?.media_ref ?? null,
+    mediaSourceLabel: snapshot.editor_session.data?.media_source_label ?? null,
+  });
+  assert.equal(sameCanonicalMediaWithEnrichedEvidence.audio.polish.freshness, "current");
+  assert.equal(sameCanonicalMediaWithEnrichedEvidence.audio.preferred_playback.kind, "polished");
+}
+
+{
   const unsupported = buildHammerMediaPrepOutputsPackage({
     structuredTranscript: snapshot.structured_transcript.data,
     visualPlacements: null,

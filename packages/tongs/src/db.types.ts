@@ -4665,9 +4665,6 @@ export type Database = {
           edit_plan_artifact_path: string | null
           edit_plan_signature: string | null
           editor_session_path: string | null
-          editorial_authority_fingerprint: string | null
-          editorial_authority_path: string | null
-          editorial_authority_revision: number
           last_macro_run_ref: string | null
           last_opened_at: string
           macro_recipe_ref: string | null
@@ -4691,9 +4688,6 @@ export type Database = {
           edit_plan_artifact_path?: string | null
           edit_plan_signature?: string | null
           editor_session_path?: string | null
-          editorial_authority_fingerprint?: string | null
-          editorial_authority_path?: string | null
-          editorial_authority_revision?: number
           last_macro_run_ref?: string | null
           last_opened_at?: string
           macro_recipe_ref?: string | null
@@ -4717,9 +4711,6 @@ export type Database = {
           edit_plan_artifact_path?: string | null
           edit_plan_signature?: string | null
           editor_session_path?: string | null
-          editorial_authority_fingerprint?: string | null
-          editorial_authority_path?: string | null
-          editorial_authority_revision?: number
           last_macro_run_ref?: string | null
           last_opened_at?: string
           macro_recipe_ref?: string | null

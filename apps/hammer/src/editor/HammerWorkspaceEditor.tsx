@@ -3116,7 +3116,10 @@ export default function HammerWorkspaceEditor(
             has_speaker_map: Boolean(legacyResult.ok && legacyResult.data.speaker_map),
             cached_missing_probe: useCachedMissing,
           });
-          if (legacyResult.ok && legacyResult.data.structured_transcript && legacyResult.data.speaker_map) {
+          const legacyTranscriptMatchesCurrentRecording = Boolean(legacyResult.ok
+            && legacyResult.data.structured_transcript
+            && transcriptMatchesCanonicalMedia(legacyResult.data.structured_transcript, currentCanonicalRecording.media_id));
+          if (legacyResult.ok && legacyResult.data.structured_transcript && legacyResult.data.speaker_map && legacyTranscriptMatchesCurrentRecording) {
             logTranscriptStage("legacy:load:ok", {
               structured_segments: legacyResult.data.structured_transcript.segments.length,
               has_speaker_map: true,
@@ -3295,7 +3298,7 @@ export default function HammerWorkspaceEditor(
             }
           }
 
-          // Legacy transcript not available: request AI fallback when media exists.
+          // A missing or cross-recording legacy transcript requires fresh transcription.
           logTranscriptStage("legacy:missing", {}, "warn");
           const recoveredAnvilSnapshot = findRecoveredAnvilSnapshotByWorkpieceId(currentLaunchContext.workpiece_id);
           try {

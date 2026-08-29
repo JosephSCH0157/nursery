@@ -48,6 +48,7 @@ import {
   let audioSampleRate = 48000;
   let recordingStartedAtMs: number | null = null;
   let activeStrategy: RecordingCaptureStrategy | null = null;
+  let recorderAudioTrackFailure: string | null = null;
   type RecordingSaveIdentity = {
     workpieceId: string | null;
     baseTitle: string;
@@ -258,7 +259,7 @@ import {
 
   type RecordedArtifactValidity =
     | { ok: true; probe: RecordedArtifactAudioProbe }
-    | { ok: false; reason: 'no_audio_stream' | 'near_silent_audio'; probe: RecordedArtifactAudioProbe };
+    | { ok: false; reason: 'no_audio_stream' | 'near_silent_audio' | 'audio_track_ended'; probe: RecordedArtifactAudioProbe };
 
   function buildProbeFromSnapshot(contentType: string): RecordedArtifactAudioProbe {
     const audioTrackCount = Number(lastRecorderTrackSnapshot?.audioTrackCount || 0);
@@ -277,6 +278,9 @@ import {
 
   async function verifyFinalizedRecordingArtifact(blob: Blob): Promise<RecordedArtifactValidity> {
     const contentType = String(blob.type || 'application/octet-stream').trim().toLowerCase();
+    if (recorderAudioTrackFailure) {
+      return { ok: false, reason: 'audio_track_ended', probe: buildProbeFromSnapshot(contentType) };
+    }
     try {
       const customVerifier = (window as any).__tpVerifyRecordedArtifact;
       if (typeof customVerifier === 'function') {
@@ -620,23 +624,44 @@ import {
   };
 
   const getAudioStream = async (): Promise<MediaStream> => {
+    // The production recorder must own its microphone source. The shared __tpMic
+    // stream belongs to preview/ASR and requestMic() intentionally releases it
+    // when Whisper changes capture mode. Cloning that shared stream therefore
+    // lets transcript startup terminate the audio inside an otherwise-live video.
+    const selectedDeviceId = readSelectedMicDeviceId();
     try {
-      const mic = (window as any).__tpMic;
-      const s = mic?.__lastStream as MediaStream | undefined;
-      if (s && typeof s.getAudioTracks === 'function' && s.getAudioTracks().length) {
-        return cloneTracksIntoStream([...s.getAudioTracks()]);
-      }
-    } catch {}
-    try {
-      const mic = (window as any).__tpMic;
-      if (mic && typeof mic.requestMic === 'function') {
-        const s = await mic.requestMic();
-        const tracks = (s as any)?.getAudioTracks?.();
-        if (tracks && tracks.length) return cloneTracksIntoStream([...tracks]);
-      }
-    } catch {}
-    const s = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-    return new MediaStream([...s.getAudioTracks()]);
+      return await navigator.mediaDevices.getUserMedia({
+        audio: selectedDeviceId ? { deviceId: { exact: selectedDeviceId } } : true,
+        video: false,
+      });
+    } catch (error) {
+      if (!selectedDeviceId) throw error;
+      // A previously selected device may have been unplugged or renumbered. The
+      // browser's current default is safer than falling back to ASR-owned media.
+      return navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+    }
+  };
+
+  const monitorRecorderAudioTracks = (stream: MediaStream): void => {
+    for (const track of stream.getAudioTracks()) {
+      track.addEventListener('ended', () => {
+        if (!active || recorderAudioTrackFailure) return;
+        recorderAudioTrackFailure = 'recorder_audio_track_ended_during_capture';
+        try {
+          console.error('[core-recorder] audio track ended during active capture', {
+            label: track.label || null,
+            readyState: track.readyState,
+          });
+          window.dispatchEvent(new CustomEvent('tp:recording:audio-track-failed', {
+            detail: { reason: recorderAudioTrackFailure, label: track.label || null },
+          }));
+        } catch {}
+        showRecorderToast(
+          'Microphone capture stopped during recording. This take cannot be kept; stop and record a new take.',
+          'error',
+        );
+      }, { once: true });
+    }
   };
 
   const mustSkipForMode = (): boolean => {
@@ -655,6 +680,8 @@ import {
 
     const stream = await getAudioStream();
     currentStream = stream;
+    recorderAudioTrackFailure = null;
+    monitorRecorderAudioTracks(stream);
     const ctx = new AC({ sampleRate: 48000 });
     audioCtx = ctx as AudioContext;
     try {
@@ -751,6 +778,8 @@ import {
     }
 
     currentStream = mix;
+    recorderAudioTrackFailure = null;
+    monitorRecorderAudioTracks(mix);
     const recorderTrackSnapshot = summarizeTracks(mix);
     lastRecorderTrackSnapshot = recorderTrackSnapshot;
     try {
@@ -799,7 +828,8 @@ import {
         else console.log('[core-recorder] dataavailable empty chunk');
       } catch {}
     };
-    mediaRecorder.start();
+    // Periodic chunks limit loss and make track failure visible before finalize.
+    mediaRecorder.start(1000);
   };
 
   async function start(): Promise<void> {
@@ -888,11 +918,13 @@ import {
       try { console.warn('[auto-rec] transcript finalize failed', error); } catch {}
       return null;
     });
+    let cleanupStreamAfterRecorderStop = false;
     try {
       if (activeMode === 'audio' && strategyAtStop?.mechanism === 'pcm-wav-fallback') {
         await stopAudioOnly(durationMs, transcriptFinalize, strategyAtStop, saveIdentityAtStop);
       } else if (mediaRecorder && mediaRecorder.state !== 'inactive') {
         const recorder = mediaRecorder;
+        cleanupStreamAfterRecorderStop = true;
         const stopName = nowName(strategyAtStop?.mode ?? 'av', strategyAtStop?.fileExtension, saveIdentityAtStop);
         recorder.onstop = async () => {
           try {
@@ -915,21 +947,24 @@ import {
             } catch {}
           } finally {
             recordingStartedAtMs = null;
+            try {
+              currentStream?.getTracks().forEach((track) => track.stop());
+            } catch {}
+            currentStream = null;
           }
         };
+        try { recorder.requestData(); } catch {}
         recorder.stop();
       } else {
         recordingStartedAtMs = null;
       }
     } catch {}
-    try {
-      if (currentStream) currentStream.getTracks().forEach((t) => {
-        try {
-          t.stop();
-        } catch {}
-      });
-    } catch {}
-    currentStream = null;
+    // MediaRecorder.onstop owns stream cleanup so tracks remain live while the
+    // browser flushes its final encoded chunk.
+    if (!cleanupStreamAfterRecorderStop) {
+      try { currentStream?.getTracks().forEach((track) => track.stop()); } catch {}
+      currentStream = null;
+    }
     mediaRecorder = null;
     active = false;
     activeMode = null;
@@ -1001,6 +1036,10 @@ import {
           showRecorderToast('The finalized recording has no audio track. This cannot be saved as a podcast take.', 'error');
           canonicalErrorCode = 'podcast_take_no_audio_stream';
           canonicalErrorMessage = 'The finalized recording has no audio track. This cannot be saved as a podcast take.';
+        } else if (recordingValidity.reason === 'audio_track_ended') {
+          showRecorderToast('Microphone capture stopped before this recording ended. This take cannot be kept.', 'error');
+          canonicalErrorCode = 'podcast_take_audio_track_ended';
+          canonicalErrorMessage = 'Microphone capture stopped before this recording ended. This take cannot be kept.';
         } else {
           showRecorderToast('The finalized recording contains an audio track, but no usable audio was detected. Verify the recording before leaving.', 'error');
           canonicalErrorCode = 'podcast_take_near_silent_audio';
