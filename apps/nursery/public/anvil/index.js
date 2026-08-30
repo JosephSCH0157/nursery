@@ -93543,8 +93543,8 @@ async function transitionRecordingDiscarded(input) {
 }
 async function readPendingRecordingDecisions() {
   const ready = window.__forgeCanonicalReadyScript;
-  const workspaceId = normalizeUuid2(ready?.workspaceId);
-  const workpieceId = normalizeUuid2(ready?.workpieceId);
+  const workspaceId = normalizeUuid2(ready?.workspaceId) ?? normalizeUuid2(getQueryParam2("workspace_id", "workspaceId"));
+  const workpieceId = normalizeUuid2(ready?.workpieceId) ?? normalizeUuid2(getQueryParam2("workpiece_id", "workpieceId"));
   if (!workspaceId || !workpieceId) return [];
   try {
     const response = await fetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/pending-recording-decisions?workspace_id=${encodeURIComponent(workspaceId)}`, { headers: await buildHeaders(getApiToken()) });
@@ -93556,9 +93556,10 @@ async function readPendingRecordingDecisions() {
       const value = row;
       const completionId = normalizeUuid2(value.completion_id);
       const captureSessionId = normalizeUuid2(value.capture_session_id);
+      const captureAuthorityId = normalizeUuid2(value.recording_capture_authority_id);
       const rowWorkpieceId = normalizeUuid2(value.workpiece_id);
       const mediaPath = readString7(value.media_path);
-      return completionId && captureSessionId && rowWorkpieceId === workpieceId && mediaPath ? [{ completionId, captureSessionId, workpieceId, mediaPath }] : [];
+      return completionId && captureSessionId && captureAuthorityId && rowWorkpieceId === workpieceId && mediaPath ? [{ completionId, captureSessionId, captureAuthorityId, workpieceId, mediaPath }] : [];
     });
   } catch {
     return [];
@@ -95826,10 +95827,15 @@ var init_local_auto = __esm({
           contentType
         };
       }
-      async function verifyFinalizedRecordingArtifact(blob) {
+      async function verifyFinalizedRecordingArtifact(blob, strategy) {
         const contentType = String(blob.type || "application/octet-stream").trim().toLowerCase();
+        const snapshotProbe = buildProbeFromSnapshot(contentType);
+        if (blob.size <= 0) return { ok: false, reason: "empty_artifact", probe: snapshotProbe };
+        if (strategy?.mode === "audio" && !contentType.startsWith("audio/") || strategy?.mode === "av" && !contentType.startsWith("video/")) {
+          return { ok: false, reason: "content_type_mismatch", probe: snapshotProbe };
+        }
         if (recorderAudioTrackFailure) {
-          return { ok: false, reason: "audio_track_ended", probe: buildProbeFromSnapshot(contentType) };
+          return { ok: false, reason: "audio_track_ended", probe: snapshotProbe };
         }
         try {
           const customVerifier = window.__tpVerifyRecordedArtifact;
@@ -95852,6 +95858,8 @@ var init_local_auto = __esm({
               if (!probe.hasAudioStream || typeof probe.channels === "number" && probe.channels <= 0 || typeof probe.sampleRate === "number" && probe.sampleRate <= 0) {
                 return { ok: false, reason: "no_audio_stream", probe };
               }
+              if (strategy?.mode === "av" && !probe.hasVideoStream) return { ok: false, reason: "missing_video_stream", probe };
+              if (typeof probe.audioDurationSec === "number" && probe.audioDurationSec <= 0) return { ok: false, reason: "invalid_duration", probe };
               if (probe.nearSilent === true) {
                 return { ok: false, reason: "near_silent_audio", probe };
               }
@@ -95860,7 +95868,7 @@ var init_local_auto = __esm({
           }
         } catch {
         }
-        const fallbackProbe = buildProbeFromSnapshot(contentType);
+        const fallbackProbe = snapshotProbe;
         if (!fallbackProbe.hasAudioStream) {
           return { ok: false, reason: "no_audio_stream", probe: fallbackProbe };
         }
@@ -96501,7 +96509,7 @@ var init_local_auto = __esm({
           });
         };
         try {
-          const recordingValidity = await verifyFinalizedRecordingArtifact(blob);
+          const recordingValidity = await verifyFinalizedRecordingArtifact(blob, opts.strategy ?? null);
           try {
             console.info("[core-recorder] finalized artifact validity", recordingValidity);
             window.dispatchEvent(new CustomEvent("tp:recording:artifact-audio-verification", {
@@ -96522,10 +96530,14 @@ var init_local_auto = __esm({
               showRecorderToast("Microphone capture stopped before this recording ended. This take cannot be kept.", "error");
               canonicalErrorCode = "podcast_take_audio_track_ended";
               canonicalErrorMessage = "Microphone capture stopped before this recording ended. This take cannot be kept.";
-            } else {
+            } else if (recordingValidity.reason === "near_silent_audio") {
               showRecorderToast("The finalized recording contains an audio track, but no usable audio was detected. Verify the recording before leaving.", "error");
               canonicalErrorCode = "podcast_take_near_silent_audio";
               canonicalErrorMessage = "The finalized recording contains an audio track, but no usable audio was detected. Verify the recording before leaving.";
+            } else {
+              showRecorderToast("The finalized recording failed browser media sanity checks and cannot be uploaded as a take.", "error");
+              canonicalErrorCode = `podcast_take_${recordingValidity.reason}`;
+              canonicalErrorMessage = `The finalized recording failed browser media sanity checks (${recordingValidity.reason}).`;
             }
             try {
               window.dispatchEvent(new CustomEvent("tp:recording:podcast-audio-invalid", {
@@ -96555,7 +96567,7 @@ var init_local_auto = __esm({
           }
           const storageLimitHintBytes = readStorageLimitHintBytes();
           const skipCanonicalCommit = storageLimitHintBytes != null && bytes.length >= storageLimitHintBytes;
-          if (canonicalErrorCode === "podcast_take_no_audio_stream" || canonicalErrorCode === "podcast_take_near_silent_audio") {
+          if (!recordingValidity.ok) {
             canonicalAttempted = false;
           } else if (skipCanonicalCommit) {
             try {
