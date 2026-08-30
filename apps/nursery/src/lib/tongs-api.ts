@@ -45,6 +45,14 @@ function normalizeMessage(input: unknown): string {
 }
 
 async function resolveUserAccessToken(): Promise<string | null> {
+  try {
+    const { data, error } = await supabase.auth.getSession();
+    const liveToken = sanitizeAccessToken(readString(data.session?.access_token ?? null));
+    if (!error && liveToken) return liveToken;
+  } catch {
+    // Fall through to compatibility storage for older shells.
+  }
+
   if (typeof window !== "undefined") {
     const fromPrimary = readAccessTokenFromStorageKey(SUPABASE_AUTH_STORAGE_KEY);
     if (fromPrimary) return fromPrimary;
@@ -62,13 +70,24 @@ async function resolveUserAccessToken(): Promise<string | null> {
     }
   }
 
+  return null;
+}
+
+function sanitizeAccessToken(token: string | null): string | null {
+  if (!token) return null;
+  const parts = token.split(".");
+  if (parts.length < 2) return token;
   try {
-    const { data, error } = await supabase.auth.getSession();
-    if (error) return null;
-    return readString(data.session?.access_token ?? null);
+    const normalized = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = normalized + "=".repeat((4 - (normalized.length % 4)) % 4);
+    const payload = JSON.parse(atob(padded)) as { exp?: unknown };
+    if (typeof payload.exp === "number" && payload.exp * 1000 <= Date.now() + 5000) {
+      return null;
+    }
   } catch {
-    return null;
+    // Let Supabase validate opaque or non-standard bearer tokens.
   }
+  return token;
 }
 
 function readAccessTokenFromStorageKey(key: string): string | null {
@@ -84,12 +103,12 @@ function readAccessTokenFromStorageKey(key: string): string | null {
   if (!value) return null;
 
   if (!value.startsWith("{") && !value.startsWith("[")) {
-    return value;
+    return sanitizeAccessToken(value);
   }
 
   try {
     const parsed = JSON.parse(value) as unknown;
-    return extractAccessToken(parsed);
+    return sanitizeAccessToken(extractAccessToken(parsed));
   } catch {
     return null;
   }
