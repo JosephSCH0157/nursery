@@ -252,6 +252,33 @@ async function createProjectEpisodeIdentity(args: {
   return { ok: true, workpieceId };
 }
 
+async function createSparkEpisodeIdentity(args: {
+  workspaceId: string;
+  sparkId: string;
+  title?: string | null;
+}): Promise<CreateWorkpieceResult> {
+  const runtimeClient = getRuntimeSupabaseClient();
+  const sparkId = normalizeUuid(args.sparkId);
+  if (!runtimeClient || !sparkId) return { ok: false, reason: "spark_intake_identity_unavailable" };
+  const scope = typeof runtimeClient.schema === "function" ? runtimeClient.schema("tongs") : runtimeClient;
+  if (typeof scope.rpc !== "function") return { ok: false, reason: "spark_intake_rpc_unavailable" };
+  const { data, error } = await scope.rpc("get_or_create_hearth_spark_episode", {
+    p_workspace_id: args.workspaceId,
+    p_spark_id: sparkId,
+    p_title: readString(args.title) ?? "Untitled Spark",
+  });
+  if (error || !data || typeof data !== "object" || Array.isArray(data)) {
+    return { ok: false, reason: "spark_intake_identity_failed", details: error ?? data };
+  }
+  const row = data as Record<string, unknown>;
+  const workpieceId = normalizeUuid(row.workpiece_id);
+  const outcome = readString(row.outcome);
+  if (!workpieceId || (outcome !== "created" && outcome !== "existing")) {
+    return { ok: false, reason: `spark_intake_${outcome ?? "malformed"}`, details: data };
+  }
+  return { ok: true, workpieceId };
+}
+
 async function commitMetadata(args: {
   workpieceId: string;
   workspaceId: string;
@@ -420,6 +447,35 @@ export async function getOrCreateHearthProjectWorkpiece(args: {
     }
   } catch (error) {
     return { ok: false, reason: "project_bootstrap_verification_failed", details: error, workpieceId: resolved.workpieceId };
+  }
+  persistWorkpiece(workspaceId, resolved.workpieceId);
+  return { ok: true, workpieceId: resolved.workpieceId };
+}
+
+export async function getOrCreateHearthSparkWorkpiece(args: {
+  sparkId: string;
+  title?: string | null;
+  origin?: ForgeOrigin;
+  scriptSeed?: string | null;
+}): Promise<CreateWorkpieceResult> {
+  if (typeof window === "undefined") return { ok: false, reason: "no_window" };
+  const workspaceId = resolveWorkspaceId();
+  if (!workspaceId) return { ok: false, reason: "missing_workspace" };
+  const writtenBy = getWrittenBy();
+  const resolved = await createSparkEpisodeIdentity({ workspaceId, sparkId: args.sparkId, title: args.title });
+  if (!resolved.ok) return resolved;
+
+  try {
+    if (!await bootstrapFileExists(resolved.workpieceId, "metadata.json")) {
+      const metadata = await commitMetadata({ workpieceId: resolved.workpieceId, workspaceId, writtenBy, origin: args.origin });
+      if (!metadata.ok) return { ok: false, reason: "metadata_commit_failed", status: metadata.status, details: metadata.details, workpieceId: resolved.workpieceId };
+    }
+    if (!await bootstrapFileExists(resolved.workpieceId, PRIMARY_SCRIPT_PATH)) {
+      const script = await commitScriptSeed({ workpieceId: resolved.workpieceId, writtenBy, origin: args.origin, scriptSeed: args.scriptSeed });
+      if (!script.ok) return { ok: false, reason: "script_seed_failed", status: script.status, details: script.details, workpieceId: resolved.workpieceId };
+    }
+  } catch (error) {
+    return { ok: false, reason: "spark_bootstrap_verification_failed", details: error, workpieceId: resolved.workpieceId };
   }
   persistWorkpiece(workspaceId, resolved.workpieceId);
   return { ok: true, workpieceId: resolved.workpieceId };

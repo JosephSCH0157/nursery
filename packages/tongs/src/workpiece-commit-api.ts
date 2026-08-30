@@ -13973,7 +13973,7 @@ export class TongsCommitService {
 
     const { data, error } = await tongsUntyped
       .from("barstock_sparks")
-      .select("id,workspace_id,assignment_id,title,body,tags,status,created_at,updated_at")
+      .select("id,workspace_id,assignment_id,title,body,tags,status,created_at,updated_at,linked_workpiece_id")
       .eq("workspace_id", workspaceId)
       .is("deleted_at", null)
       .order("created_at", { ascending: false })
@@ -13996,6 +13996,7 @@ export class TongsCommitService {
       status: typeof row.status === "string" ? row.status : "raw",
       created_at: typeof row.created_at === "string" ? row.created_at : new Date(0).toISOString(),
       updated_at: typeof row.updated_at === "string" ? row.updated_at : new Date(0).toISOString(),
+      linked_workpiece_id: typeof row.linked_workpiece_id === "string" ? row.linked_workpiece_id : null,
     })).filter((row) => row.id && row.body.trim().length > 0);
 
     const assignmentIds = [...new Set(
@@ -14027,7 +14028,8 @@ export class TongsCommitService {
 
     return sparkRows.map((row) => toWorkspaceSparkSummary(
       row,
-      row.assignment_id ? linkedWorkpieceIdsByAssignment.get(row.assignment_id) ?? null : null,
+      row.linked_workpiece_id
+        ?? (row.assignment_id ? linkedWorkpieceIdsByAssignment.get(row.assignment_id) ?? null : null),
     ));
   }
 

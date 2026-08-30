@@ -339,6 +339,7 @@ import {
   useHearthWorkpieceCollectionLoader,
   createHearthCollectionWorkpiece,
   getOrCreateHearthProjectWorkpiece,
+  getOrCreateHearthSparkWorkpiece,
   renameHearthCollectionWorkpiece,
   enqueueBarStockSpark,
   resolveBarStockSparkHearthWorkpieceId,
@@ -4667,10 +4668,10 @@ export default function HearthShell({
     try {
       const sparkTitle = deriveSparkTitle(spark);
       const scriptSeed = "[s1]\nDraft intro goes here.\n[/s1]\n";
-      const created = await createHearthCollectionWorkpiece({
-        created_from: "bar-stock",
-        spark_id: spark.id,
-      }, scriptSeed, {
+      const created = await getOrCreateHearthSparkWorkpiece({
+        sparkId: spark.id,
+        origin: { created_from: "bar-stock", spark_id: spark.id },
+        scriptSeed,
         title: sparkTitle,
       });
       if (!created.ok) {

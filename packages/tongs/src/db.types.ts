@@ -1712,6 +1712,7 @@ export type Database = {
           deleted_at: string | null
           id: string
           import_key: string | null
+          linked_workpiece_id: string | null
           pinned: boolean
           revision: number
           source: string
@@ -1729,6 +1730,7 @@ export type Database = {
           deleted_at?: string | null
           id: string
           import_key?: string | null
+          linked_workpiece_id?: string | null
           pinned?: boolean
           revision?: number
           source?: string
@@ -1746,6 +1748,7 @@ export type Database = {
           deleted_at?: string | null
           id?: string
           import_key?: string | null
+          linked_workpiece_id?: string | null
           pinned?: boolean
           revision?: number
           source?: string
