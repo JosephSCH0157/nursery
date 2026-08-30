@@ -370,8 +370,6 @@ function readAccessTokenFromStorage(): string | null {
 }
 
 async function readAccessTokenForRequest(): Promise<string | null> {
-  const fromStorage = readAccessTokenFromStorage();
-  if (fromStorage) return fromStorage;
   if (typeof window === "undefined") return null;
 
   const runtimeWindow = window as Window & typeof globalThis & {
@@ -383,15 +381,17 @@ async function readAccessTokenForRequest(): Promise<string | null> {
   };
 
   const getSession = runtimeWindow.__forge_supabase_client__?.auth?.getSession;
-  if (typeof getSession !== "function") return null;
-
-  try {
-    const sessionPayload = await getSession();
-    const token = extractAccessTokenFromAuthPayload(sessionPayload);
-    return sanitizeAccessToken(token);
-  } catch {
-    return null;
+  if (typeof getSession === "function") {
+    try {
+      const sessionPayload = await getSession();
+      const token = sanitizeAccessToken(extractAccessTokenFromAuthPayload(sessionPayload));
+      if (token) return token;
+    } catch {
+      // Fall back to persisted auth state when the runtime client is unavailable.
+    }
   }
+
+  return readAccessTokenFromStorage();
 }
 
 async function buildAuthHeaders(opts?: { includeJson?: boolean }): Promise<Headers> {
