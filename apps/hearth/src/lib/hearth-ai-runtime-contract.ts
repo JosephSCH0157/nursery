@@ -7,6 +7,7 @@ import {
 export const HEARTH_AI_ROUTES = {
   chat: "/api/hearth/chat",
   chatStatus: "/api/hearth/chat/status",
+  researchReadiness: "/api/hearth/research/readiness",
   stt: "/api/hearth/stt",
   costAudit: "/api/hearth/cost-audit",
   aiKeysConnect: "/api/ai-keys/connect",
@@ -63,6 +64,11 @@ export type HearthChatResponse = {
   script_text: string | null;
   tag_audit: Record<string, unknown> | null;
   research_result?: HearthResearchResult;
+  research_context?: {
+    provider_status: HearthResearchResult["providerStatus"];
+    source_count: number;
+    model_context_injected: boolean;
+  };
   gate?: "clarify";
   total_tokens: number | null;
   actual_cost_usd?: number;

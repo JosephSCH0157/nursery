@@ -22,6 +22,12 @@
   force = true
 
 [[redirects]]
+  from = "/api/hearth/research/readiness"
+  to = "/.netlify/functions/hearth-research-readiness"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/api/hearth/stt"
   to = "/.netlify/functions/hearth-stt"
   status = 200

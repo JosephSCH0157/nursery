@@ -720,6 +720,16 @@ function isAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError";
 }
 
+class BraveSearchError extends Error {
+  readonly status: number;
+
+  constructor(status: number) {
+    super(`Brave search returned ${status}`);
+    this.name = "BraveSearchError";
+    this.status = status;
+  }
+}
+
 async function searchWithBrave(args: {
   apiKey: string;
   request: HearthResearchRequest;
@@ -737,7 +747,7 @@ async function searchWithBrave(args: {
     signal: args.signal,
   });
   if (!response.ok) {
-    throw new Error(`Brave search returned ${response.status}`);
+    throw new BraveSearchError(response.status);
   }
   const payload = (await response.json()) as Record<string, unknown>;
   const web = payload.web as Record<string, unknown> | undefined;
@@ -1286,6 +1296,7 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
         return buildEmptyHearthResearchResult({
           mode: "knowledge_first",
           runtimeStatus: "error",
+          providerStatus: "request_cancelled",
           summary: "Research runtime was cancelled before execution.",
         });
       }
@@ -1295,6 +1306,7 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
           ...buildEmptyHearthResearchResult({
             mode: "knowledge_first",
             runtimeStatus: "partial",
+            providerStatus: "not_configured",
             summary: "Research provider is not configured; returning knowledge-first fallback.",
           }),
           synthesis: {
@@ -1323,17 +1335,24 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
           return buildEmptyHearthResearchResult({
             mode: "knowledge_first",
             runtimeStatus: "error",
+            providerStatus: "request_cancelled",
             summary: "Research retrieval was cancelled.",
           });
         }
+        const rateLimited = error instanceof BraveSearchError && error.status === 429;
         return {
           ...buildEmptyHearthResearchResult({
             mode: "knowledge_first",
             runtimeStatus: "error",
-            summary: "Search provider failed before retrieval could complete.",
+            providerStatus: rateLimited ? "provider_rate_limited" : "configured_but_provider_failing",
+            summary: rateLimited
+              ? "Search provider rate limited the retrieval request."
+              : "Search provider failed before retrieval could complete.",
           }),
           synthesis: {
-            summary: "Search provider returned an error, so no retrieval-backed synthesis was possible.",
+            summary: rateLimited
+              ? "Search provider rate limiting prevented retrieval-backed synthesis."
+              : "Search provider returned an error, so no retrieval-backed synthesis was possible.",
             keyPoints: [`Query attempted: ${args.request.query}`],
             uncertainties: [error instanceof Error ? error.message : "Unknown search provider error"],
             coverageNote: "Provider error; 0/0 sources extracted.",
@@ -1346,6 +1365,7 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
           ...buildEmptyHearthResearchResult({
             mode: "retrieval_first",
             runtimeStatus: "no_results",
+            providerStatus: "configured_and_operational",
             summary: `No results found for "${args.request.query}".`,
           }),
           synthesis: {
@@ -1475,6 +1495,7 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
       const result: HearthResearchResult = {
         mode: outcome.mode,
         runtimeStatus: outcome.runtimeStatus,
+        providerStatus: "configured_and_operational",
         sources: uniqueSources,
         synthesis: buildSynthesis({
           request: args.request,

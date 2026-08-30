@@ -16,6 +16,7 @@ import {
 } from "../server/hearth/create-hearth-ai-handler";
 import type { HearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
 import { resolveHearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
+import { createHearthResearchRuntime } from "../server/hearth/hearth-research-runtime";
 import { mwHearthChatApi } from "../scripts/mw-hearth-chat-api";
 import "./hearth-youtube-source-ingest.test.mts";
 
@@ -110,6 +111,51 @@ function restoreResearchEnv(snapshot: Partial<Record<(typeof RESEARCH_ENV_KEYS)[
     if (snapshot[key] != null) process.env[key] = snapshot[key];
   }
 }
+
+test("research runtime distinguishes rate limiting from provider failure", async () => {
+  const runtime = createHearthResearchRuntime({ braveApiKey: "brave-test-key" });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response("rate limited", { status: 429 });
+  try {
+    const result = await runtime.run({
+      request: {
+        query: "OpenAI official documentation",
+        intent: "background",
+        recencyPreference: "none",
+        maxSources: 1,
+        requireDates: false,
+        requireFullExtraction: false,
+      },
+      workspaceId: null,
+      workpieceId: "readiness-test",
+    });
+    assert.equal(result.providerStatus, "provider_rate_limited");
+    assert.equal(result.runtimeStatus, "error");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("research runtime distinguishes cancellation", async () => {
+  const runtime = createHearthResearchRuntime({ braveApiKey: "brave-test-key" });
+  const controller = new AbortController();
+  controller.abort();
+  const result = await runtime.run({
+    request: {
+      query: "OpenAI official documentation",
+      intent: "background",
+      recencyPreference: "none",
+      maxSources: 1,
+      requireDates: false,
+      requireFullExtraction: false,
+    },
+    workspaceId: null,
+    workpieceId: "readiness-test",
+    signal: controller.signal,
+  });
+  assert.equal(result.providerStatus, "request_cancelled");
+  assert.equal(result.runtimeStatus, "error");
+});
 
 function buildEpisodeContext(overrides: Partial<EpisodeContext> = {}): EpisodeContext {
   const defaults: EpisodeContext = {
@@ -1078,8 +1124,9 @@ test("createHearthAiHandler bypasses clarify gate for short research asks and en
     assert.match(capturedSystemPrompt, /Canonical research runtime result:/i);
     assert.equal(payload.research_result?.mode, "knowledge_first");
     assert.equal(payload.research_result?.runtimeStatus, "partial");
-    assert.match(String(payload.assistant_text ?? ""), /Research outcome: Live retrieval was unavailable in this run/i);
-    assert.match(String(payload.assistant_text ?? ""), /knowledge-first fallback/i);
+    assert.equal(payload.research_result?.providerStatus, "not_configured");
+    assert.match(String(payload.assistant_text ?? ""), /Live retrieval is not configured/i);
+    assert.doesNotMatch(String(payload.assistant_text ?? ""), /failed|timed out|errored/i);
   } finally {
     globalThis.fetch = originalFetch;
     restoreResearchEnv(priorResearchEnv);
@@ -1750,14 +1797,16 @@ test("createHearthAiHandler labels retrieval errors as knowledge-first fallback 
     assert.equal(payload.ok, true);
     assert.equal(payload.research_result?.runtimeStatus, "error");
     assert.equal(payload.research_result?.mode, "knowledge_first");
-    assert.match(String(payload.assistant_text ?? ""), /Live retrieval was unavailable in this run/i);
-    assert.match(String(payload.assistant_text ?? ""), /knowledge-first fallback/i);
+    assert.equal(payload.research_result?.providerStatus, "configured_but_provider_failing");
+    assert.match(String(payload.assistant_text ?? ""), /configured, but the search provider failed/i);
   } finally {
     globalThis.fetch = originalFetch;
   }
 });
 
 test("createHearthAiHandler strips internal prompt markers from research fallback replies", async () => {
+  const priorResearchEnv = snapshotResearchEnv();
+  clearResearchEnv();
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
   const originalFetch = globalThis.fetch;
 
@@ -1808,12 +1857,14 @@ test("createHearthAiHandler strips internal prompt markers from research fallbac
     assert.equal(response.status, 200);
     const payload = await response.json();
     const assistantText = String(payload.assistant_text ?? "");
-    assert.match(assistantText, /Research outcome: Live retrieval was unavailable in this run/i);
+    assert.match(assistantText, /Research outcome: Live retrieval is not configured/i);
+    assert.doesNotMatch(assistantText, /failed|timed out|errored/i);
     assert.doesNotMatch(assistantText, /Response tone:/i);
     assert.doesNotMatch(assistantText, /The user prefers/i);
     assert.doesNotMatch(assistantText, /If helpful, ask whether/i);
   } finally {
     globalThis.fetch = originalFetch;
+    restoreResearchEnv(priorResearchEnv);
   }
 });
 

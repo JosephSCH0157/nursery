@@ -4,6 +4,13 @@ export type HearthResearchMode = "knowledge_first" | "retrieval_first" | "partia
 
 export type HearthResearchRuntimeStatus = "ok" | "partial" | "no_results" | "error";
 
+export type HearthResearchProviderStatus =
+  | "configured_and_operational"
+  | "configured_but_provider_failing"
+  | "not_configured"
+  | "request_cancelled"
+  | "provider_rate_limited";
+
 export type HearthResearchExtractionStatus = "pending" | "extracted" | "partial" | "failed" | "skipped";
 
 export type HearthResearchSourceType = "web_page" | "web_article" | "youtube_video" | "tweet" | "unknown";
@@ -77,6 +84,7 @@ export type HearthResearchSynthesis = {
 export type HearthResearchResult = {
   mode: HearthResearchMode;
   runtimeStatus: HearthResearchRuntimeStatus;
+  providerStatus?: HearthResearchProviderStatus;
   sources: HearthResearchSource[];
   synthesis: HearthResearchSynthesis;
 };
@@ -112,11 +120,13 @@ export function buildHearthResearchRequest(input: {
 export function buildEmptyHearthResearchResult(input: {
   mode: HearthResearchMode;
   runtimeStatus: HearthResearchRuntimeStatus;
+  providerStatus?: HearthResearchProviderStatus;
   summary: string;
 }): HearthResearchResult {
   return {
     mode: input.mode,
     runtimeStatus: input.runtimeStatus,
+    ...(input.providerStatus ? { providerStatus: input.providerStatus } : {}),
     sources: [],
     synthesis: {
       summary: input.summary,
@@ -146,6 +156,7 @@ export function normalizeHearthResearchResult(value: unknown): HearthResearchRes
   if (!isRecord(value)) return null;
   const mode = value.mode;
   const runtimeStatus = value.runtimeStatus;
+  const providerStatus = value.providerStatus;
   const sources = Array.isArray(value.sources) ? value.sources : [];
   const synthesis = isRecord(value.synthesis) ? value.synthesis : null;
   if (
@@ -160,6 +171,16 @@ export function normalizeHearthResearchResult(value: unknown): HearthResearchRes
     && runtimeStatus !== "partial"
     && runtimeStatus !== "no_results"
     && runtimeStatus !== "error"
+  ) {
+    return null;
+  }
+  if (
+    providerStatus != null
+    && providerStatus !== "configured_and_operational"
+    && providerStatus !== "configured_but_provider_failing"
+    && providerStatus !== "not_configured"
+    && providerStatus !== "request_cancelled"
+    && providerStatus !== "provider_rate_limited"
   ) {
     return null;
   }
@@ -307,6 +328,7 @@ export function normalizeHearthResearchResult(value: unknown): HearthResearchRes
   return {
     mode,
     runtimeStatus,
+    ...(providerStatus ? { providerStatus } : {}),
     sources: normalizedSources,
     synthesis: normalizedSynthesis,
   };

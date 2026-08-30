@@ -1971,6 +1971,9 @@ function hasInternalLeakMarker(line: string): boolean {
 }
 
 function fallbackResearchBodyFromResult(result: HearthResearchResult): string {
+  if (result.providerStatus === "not_configured") {
+    return "Live retrieval is not configured.";
+  }
   const summary = readOptionalString(result.synthesis.summary);
   if (summary) return summary;
   if (result.runtimeStatus === "no_results") {
@@ -1986,6 +1989,9 @@ function fallbackResearchBodyFromResult(result: HearthResearchResult): string {
 }
 
 function sanitizeResearchReplyBody(rawBody: string, result: HearthResearchResult): string {
+  if (result.providerStatus === "not_configured") {
+    return "Live retrieval is not configured.";
+  }
   const lines = rawBody
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
     .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
@@ -2038,6 +2044,22 @@ function buildResearchOutcomeLead(args: {
 
   if (args.result.runtimeStatus === "no_results") {
     return "Research outcome: No strong retrieval results were found in this pass.";
+  }
+
+  if (args.result.providerStatus === "not_configured") {
+    return "Research outcome: Live retrieval is not configured.";
+  }
+
+  if (args.result.providerStatus === "request_cancelled") {
+    return "Research outcome: The retrieval request was cancelled.";
+  }
+
+  if (args.result.providerStatus === "provider_rate_limited") {
+    return "Research outcome: The configured search provider rate limited this request.";
+  }
+
+  if (args.result.providerStatus === "configured_but_provider_failing") {
+    return "Research outcome: Live retrieval is configured, but the search provider failed during this request.";
   }
 
   if (args.result.runtimeStatus === "error" || args.result.mode === "knowledge_first") {
@@ -2837,6 +2859,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       if (
         pathname !== HEARTH_AI_ROUTES.chat
         && pathname !== HEARTH_AI_ROUTES.chatStatus
+        && pathname !== HEARTH_AI_ROUTES.researchReadiness
         && pathname !== HEARTH_AI_ROUTES.stt
         && pathname !== HEARTH_AI_ROUTES.costAudit
         && pathname !== HEARTH_AI_ROUTES.aiKeysConnect
@@ -2857,6 +2880,35 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         return jsonResponse(200, {
           ok: true,
           ...buildBillingSnapshot(lane),
+        });
+      }
+
+      if (pathname === HEARTH_AI_ROUTES.researchReadiness) {
+        if (method !== "GET") {
+          return jsonResponse(405, { ok: false, error: "Method not allowed" });
+        }
+        const bearerToken = readBearerToken(request.headers.get("authorization"));
+        const userId = await resolveUserId(bearerToken);
+        if (!userId) {
+          return jsonResponse(401, { ok: false, error: "Authentication required." });
+        }
+        const readinessResult = await researchRuntime.run({
+          request: buildHearthResearchRequest({
+            query: "OpenAI official documentation",
+            maxSources: 1,
+            requireDates: false,
+            requireFullExtraction: false,
+          }),
+          workspaceId: null,
+          workpieceId: "production-readiness",
+          signal: request.signal,
+        });
+        const providerStatus = readinessResult.providerStatus ?? "configured_but_provider_failing";
+        return jsonResponse(providerStatus === "configured_and_operational" ? 200 : 503, {
+          ok: providerStatus === "configured_and_operational",
+          provider_status: providerStatus,
+          runtime_status: readinessResult.runtimeStatus,
+          source_count: readinessResult.sources.length,
         });
       }
 
@@ -4544,6 +4596,13 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           script_text: structured.scriptText,
           tag_audit: structured.tagAudit,
           ...(researchResult ? { research_result: researchResult } : {}),
+          ...(researchResult ? {
+            research_context: {
+              provider_status: researchResult.providerStatus,
+              source_count: researchResult.sources.length,
+              model_context_injected: true,
+            },
+          } : {}),
           total_tokens: spent,
           actual_cost_usd: estimatedCostUsd,
           billable_tokens: billableTokens,
