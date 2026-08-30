@@ -263,6 +263,8 @@ function mapSessionRow(row: BellowsSessionRow): BellowsTongsSessionHeaderRecord 
   return {
     sessionId: asSessionId(row.id),
     workspaceId: asWorkspaceId(row.workspace_id),
+    workpieceId: null,
+    recordingCaptureAuthorityId: null,
     hostUserId: asUserId(row.host_user_id),
     title: row.title,
     mode: row.mode as BellowsSessionMode,

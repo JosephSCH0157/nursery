@@ -563,6 +563,8 @@ function createSeedSession(args: {
   return {
     sessionId,
     workspaceId: args.workspaceId,
+    workpieceId: null,
+    recordingCaptureAuthorityId: null,
     hostUserId: args.hostUserId,
     authorityState: {
       actingAuthorityState: "host_present",
@@ -573,6 +575,7 @@ function createSeedSession(args: {
     draft: {
       sessionId,
       workspaceId: args.workspaceId,
+      workpieceId: null,
       hostUserId: args.hostUserId,
       mode: "live",
       sessionType: "remote",
