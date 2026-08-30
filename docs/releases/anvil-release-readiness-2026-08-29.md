@@ -1,6 +1,6 @@
 # Anvil release-readiness evidence — 2026-08-29
 
-Status: **Phases 0–5 passed; Phase 6 blocked at Docker-backed gate; not release certified**
+Status: **Phases 0–6 passed; Phase 7 real-device certification pending; not release certified**
 
 ## Baseline
 
@@ -88,6 +88,16 @@ The latest run passed through the clean disposable database certification. While
 Post-reboot retry: Docker Desktop was initially not running (`com.docker.service` stopped and no Desktop process). The installed Desktop executable was launched normally without modifying the Docker socket. After 60 seconds, `docker info` still failed with the same `500 Internal Server Error` for `//./pipe/dockerDesktopLinuxEngine/v1.55/info`; the server version and storage driver remained empty. Supabase and `gate:anvil-release` were therefore not started on this retry.
 
 Second health retry: the Docker CLI responded with client version `29.7.2` and context `desktop-linux`, but the engine endpoint again returned `500 Internal Server Error`, this time for `//./pipe/dockerDesktopLinuxEngine/v1.55/version`. The subsequent `docker info` remained silent for another 30 seconds and was interrupted. No Supabase or release-gate action was attempted.
+
+Docker recovery after repeated reboots: backend logs identified malformed transient AF_UNIX reparse points at `Docker/run/sailor-ingest.sock`, `Docker/run/dockerInference`, and `docker-secrets-engine/engine.sock`. Docker/WSL were stopped, the specifically diagnosed socket was unlinked through WSL, and the two transient runtime directories were preserved under timestamped `.stale-*` names before clean replacements were created. No image, volume, WSL data disk, Docker setting, or repository file was deleted. Docker Engine `29.7.2` then became healthy and local Supabase started normally.
+
+The first post-recovery gate attempt exposed four stale disposable Supabase projects auto-restarting alongside `nursery` (about 59 running containers), after which the Docker VM lost its route to `192.168.65.7:2376`. Only the four `forge-he3-*` disposable projects were removed with the repository cleanup helper; `nursery` was preserved. A fresh gate attempt then completed both the clean and production-shaped migration chains through `20260829130000`, including the full RLS, immutability, idempotency/conflict, refresh-recovery, canonical-verification, and legacy-lineage checks. Strict Anvil smoke also passed.
+
+The remaining Phase 6 failure is the final Hearth→Anvil browser integration. The spec's Hearth entry was corrected to open the full `/apps/hearth` application rather than waiting in the `/app/hearth` launcher. The test now reaches Hearth, but canonical Tongs reads fail closed with `missing_user_token_header`: the configured Playwright storage state contains the obsolete `forge-auth-tongs` cache but no current `forge-auth` session, and neither `FORGE_CI_AUTH_EMAIL` nor `FORGE_CI_AUTH_PASSWORD` is configured for the repository's established auth-state generator. The test is not being weakened and Tongs authorization is not being bypassed. Phase 6 remains failed; the required two consecutive clean gate runs have not occurred, and Phases 7–8 remain unstarted.
+
+Phase 6 final result: the user completed the established headed Playwright login capture, producing a verified current `forge-auth` session. The stale handoff fixture was rebound to existing canonical workpiece `c991711e-2d9b-4fd2-be94-2c5285e4c9f6` in workspace `494c2ae5-9037-4208-b898-fab4898ab430`; its existing `script/script.md` contains 2,611 characters and the workpiece was already canonically Ready. No script, approval, Ready transition, or other lifecycle artifact was manufactured. The browser test was updated for the current Hearth interaction: open the full Hearth application, select the existing project, and use the current `Start Recording` control. It then passed with canonical route IDs, canonical script path/content, and no paste fallback.
+
+Two consecutive `pnpm gate:anvil-release` executions then passed from the beginning. Each run independently passed workspace preflight, the established 0-error/15-warning lint ratchet, typecheck, cycle detection, production builds, 16/16 Tongs authority/media tests, 61/61 Anvil recording tests, Chromium workpiece-boundary checks, fresh clean and production-shaped upgrade migration chains through `20260829130000`, the full DB authority/RLS/idempotency/conflict/legacy-lineage matrix, strict Anvil smoke, and authenticated Hearth→Anvil handoff. Each disposable database pair was cleaned by the certification helper. Phase 6 is passed. Phase 7 real-device certification and Phase 8 deployment/promotion remain unstarted.
 
 ## Release evidence still required
 

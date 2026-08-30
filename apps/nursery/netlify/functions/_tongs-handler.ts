@@ -4,6 +4,24 @@ import { resolveTongsRuntimeConfig } from "../../server/tongs/tongs-runtime-conf
 const config = resolveTongsRuntimeConfig();
 const handler = config.missing.length ? null : createTongsCommitApiHandler(config.options);
 
+const USER_AUTH_HEADERS = ["x-forge-user-authorization", "x-forge-user-token"] as const;
+
+export function authorizeFirstPartyUserRequest(
+  request: Request,
+  apiToken: string | undefined,
+): Request {
+  if (!apiToken || request.headers.has("authorization")) return request;
+  const hasUserAuthorization = USER_AUTH_HEADERS.some((name) => {
+    const value = request.headers.get(name)?.trim();
+    return Boolean(value && /^Bearer\s+\S+$/i.test(value));
+  });
+  if (!hasUserAuthorization) return request;
+
+  const headers = new Headers(request.headers);
+  headers.set("authorization", `Bearer ${apiToken}`);
+  return new Request(request, { headers });
+}
+
 function remapTongsPath(pathname: string, routePrefix: string): string {
   const functionPrefix = "/.netlify/functions/tongs";
   if (pathname === functionPrefix) return routePrefix;
@@ -34,7 +52,12 @@ export function createNetlifyTongsFunction(routePrefix = "/tongs") {
 
     const original = new URL(request.url);
     original.pathname = remapTongsPath(original.pathname, routePrefix);
-    const forwarded = new Request(original.toString(), request);
+    const remapped = new Request(original.toString(), request);
+    // Browser callers prove user authority with their Supabase bearer token.
+    // Keep the deployment API credential server-only and add it at this
+    // same-origin function boundary; route handlers still validate the user
+    // token and enforce workspace roles/RLS before touching canonical state.
+    const forwarded = authorizeFirstPartyUserRequest(remapped, config.options.apiToken);
     return handler(forwarded);
   };
 }

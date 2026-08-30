@@ -33,6 +33,24 @@ revoke insert, update, delete on tongs.recording_media_verification_receipts fro
 grant select on tongs.recording_media_verification_receipts to authenticated;
 grant all on tongs.recording_media_verification_receipts to service_role;
 
+-- Repair the shared immutable-receipt guard when a production-shaped database
+-- records the preceding authority migration but does not contain this helper.
+-- CREATE OR REPLACE also remains safe on complete migration chains because it
+-- preserves any existing trigger bindings to the function.
+create or replace function tongs.reject_recording_receipt_mutation()
+returns trigger
+language plpgsql
+set search_path=pg_catalog,tongs
+as $function$
+begin
+  raise exception using
+    errcode='55000',
+    message='recording transition receipts are immutable';
+end;
+$function$;
+alter function tongs.reject_recording_receipt_mutation() owner to postgres;
+revoke all on function tongs.reject_recording_receipt_mutation() from public,anon,authenticated;
+
 create trigger trg_recording_media_verification_immutable
 before update or delete on tongs.recording_media_verification_receipts
 for each row execute function tongs.reject_recording_receipt_mutation();

@@ -70,8 +70,7 @@ export async function openWorkpieceInHearth(page: Page, workpieceTitle: string):
 
 export async function clickOpenInAnvil(page: Page): Promise<void> {
   await page
-    .locator(".hs-active-workpiece")
-    .getByRole("button", { name: "Open in Anvil" })
+    .getByRole("button", { name: "Start Recording", exact: true })
     .click();
 }
 

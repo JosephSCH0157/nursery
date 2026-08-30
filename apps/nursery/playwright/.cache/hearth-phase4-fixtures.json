@@ -1,14 +1,14 @@
 {
-  "verified_at": "2026-03-10T21:10:37.668Z",
+  "verified_at": "2026-08-29T19:07:00.000Z",
   "storage_state_path": "D:\\nursery\\nursery\\apps\\nursery\\playwright\\.auth\\state.json",
-  "workspace_id": "2980fc39-8c8b-489a-a900-8d3bd3248432",
-  "workpiece_id": "cf464ad0-8745-43df-99ee-7bfca5dddcd8",
-  "selected_workspace_id": "2980fc39-8c8b-489a-a900-8d3bd3248432",
+  "workspace_id": "494c2ae5-9037-4208-b898-fab4898ab430",
+  "workpiece_id": "c991711e-2d9b-4fd2-be94-2c5285e4c9f6",
+  "selected_workspace_id": "494c2ae5-9037-4208-b898-fab4898ab430",
   "invalid_workspace_id": "00000000-0000-4000-8000-000000000000",
   "handoff": {
-    "title": "are drivers getting less polite?",
+    "title": "in the forge 8/26/26",
     "script_path": "script/script.md",
-    "script_snippet": "are drivers getting less polite?"
+    "script_snippet": "Alright—welcome to In the Forge."
   },
   "ready": {
     "visible_items": [

@@ -20,6 +20,13 @@ export type OperationExecution = {
   rpcOutcome?: BarStockMutationResult<Assignment | Spark>["outcome"];
 };
 
+export type WorkspaceReconciliationResult = {
+  snapshot: BarStockSnapshot;
+  executions: OperationExecution[];
+  legacy: { imported: number; malformed: number; pending: number };
+  remainingRetryCount: number;
+};
+
 export function assignmentOperation(args: {
   workspaceId: string;
   action: "create" | "update" | "archive" | "delete";
@@ -141,6 +148,32 @@ export async function reconcileRetryCache(args: {
     results.push(await executeOperation({ ...args, operation }));
   }
   return results;
+}
+
+export async function reconcileWorkspacePersistence(args: {
+  repository: BarStockRepository;
+  storage: RetryStorage;
+  scope: BarStockScope;
+  online: boolean;
+}): Promise<WorkspaceReconciliationResult> {
+  const initial = await args.repository.hydrateWorkspace(args.scope);
+  const executions = await reconcileRetryCache({
+    ...args,
+    snapshot: initial,
+  });
+  // Import after replaying the cache so a failed legacy write is retained for
+  // the next explicit reconciliation instead of being attempted twice here.
+  const legacy = await importLegacyBrowserData(args);
+  const snapshot = executions.some((execution) => execution.acknowledged) || legacy.imported > 0
+    ? await args.repository.hydrateWorkspace(args.scope)
+    : initial;
+
+  return {
+    snapshot,
+    executions,
+    legacy,
+    remainingRetryCount: loadRetryCache(args.storage, args.scope.workspaceId).length,
+  };
 }
 
 export async function importLegacyBrowserData(args: {

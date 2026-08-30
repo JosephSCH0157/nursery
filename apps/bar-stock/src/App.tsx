@@ -22,7 +22,14 @@ import {
 } from "./lib/tongs-api";
 import type { Session as SupabaseSession } from "@supabase/supabase-js";
 import { createSupabaseBarStockRepository, type BarStockSnapshot } from "./lib/bar-stock-repository";
-import { assignmentOperation, executeOperation, importLegacyBrowserData, reconcileRetryCache, sparkOperation, type OperationExecution } from "./lib/bar-stock-persistence";
+import {
+  assignmentOperation,
+  executeOperation,
+  reconcileWorkspacePersistence,
+  sparkOperation,
+  type OperationExecution,
+  type WorkspaceReconciliationResult,
+} from "./lib/bar-stock-persistence";
 import { setEntityState, type BarStockPersistenceState, type BarStockStateMap } from "./lib/bar-stock-state";
 import { loadRetryCache } from "./lib/retry-cache";
 
@@ -195,7 +202,7 @@ export default function App(props: BarstockAppProps = {}) {
   const repository = useMemo(() => supabase ? createSupabaseBarStockRepository(supabase) : null, []);
   const syncOnline = useMemo(() => {
     if (!supabaseAvailable || !workspaceId) return false;
-    if (hasExternalWorkspaceState) return externalCloudConnected === true;
+    if (hasExternalWorkspaceState) return externalCloudConnected === true && isBrowserOnline && !!sessionUserId;
     return isBrowserOnline && !!sessionUserId;
   }, [
     externalCloudConnected,
@@ -206,6 +213,10 @@ export default function App(props: BarstockAppProps = {}) {
   ]);
 
   const importRef = useRef<HTMLInputElement | null>(null);
+  const reconciliationRef = useRef<{
+    scopeKey: string;
+    promise: Promise<WorkspaceReconciliationResult>;
+  } | null>(null);
 
   useEffect(() => {
     if (!openMenuSparkId) return;
@@ -275,6 +286,40 @@ export default function App(props: BarstockAppProps = {}) {
     return execution;
   }, [applyExecution, repository, sessionUserId, snapshot, syncOnline, workspaceId]);
 
+  const scopeKey = `${sessionUserId ?? "anonymous"}:${workspaceId ?? "unresolved"}`;
+  const activeScopeKeyRef = useRef(scopeKey);
+  activeScopeKeyRef.current = scopeKey;
+
+  const reconcileCanonicalWorkspace = useCallback(() => {
+    if (!repository || !sessionUserId || !workspaceId || !syncOnline) return null;
+    const requestedScopeKey = `${sessionUserId}:${workspaceId}`;
+    if (reconciliationRef.current?.scopeKey === requestedScopeKey) {
+      return reconciliationRef.current.promise;
+    }
+
+    const promise = reconcileWorkspacePersistence({
+      repository,
+      storage: localStorage,
+      scope: { workspaceId, userId: sessionUserId },
+      online: true,
+    }).finally(() => {
+      if (reconciliationRef.current?.promise === promise) {
+        reconciliationRef.current = null;
+      }
+    });
+    reconciliationRef.current = { scopeKey: requestedScopeKey, promise };
+    return promise;
+  }, [repository, sessionUserId, syncOnline, workspaceId]);
+
+  const applyReconciliation = useCallback((result: WorkspaceReconciliationResult) => {
+    for (const execution of result.executions) applyExecution(execution);
+    setAssignments(result.snapshot.assignments);
+    setSparks(result.snapshot.sparks);
+    setOutboxCount(result.remainingRetryCount);
+    const unresolved = [...result.executions].reverse().find((execution) => !execution.acknowledged);
+    setPersistenceState(unresolved?.state ?? { status: "saved" });
+  }, [applyExecution]);
+
   const setActiveWorkspace = useCallback((next: string | null) => {
     if (hasExternalWorkspaceState && externalWorkspaceChange) {
       externalWorkspaceChange(next);
@@ -285,27 +330,22 @@ export default function App(props: BarstockAppProps = {}) {
   }, [hasExternalWorkspaceState, externalWorkspaceChange]);
 
   const onSyncNow = useCallback(async () => {
-    if (!repository || !sessionUserId || !workspaceId) return popToast("Canonical persistence unavailable.");
+    const reconciliation = reconcileCanonicalWorkspace();
+    if (!reconciliation) return popToast("Canonical persistence unavailable.");
+    const requestedScopeKey = scopeKey;
     try {
       setSyncing(true);
-      const canonical = await repository.hydrateWorkspace({ workspaceId, userId: sessionUserId });
-      const results = await reconcileRetryCache({
-        repository, storage: localStorage, scope: { workspaceId, userId: sessionUserId }, snapshot: canonical, online: syncOnline,
-        onTransition: (operation, state) => setEntityStates((current) => setEntityState(current, operation.kind, operation.entityId, state)),
-      });
-      for (const result of results) applyExecution(result);
-      const refreshed = await repository.hydrateWorkspace({ workspaceId, userId: sessionUserId });
-      setAssignments(refreshed.assignments);
-      setSparks(refreshed.sparks);
-      setOutboxCount(loadRetryCache(localStorage, workspaceId).length);
-      popToast(`Reconciled ${results.filter((result) => result.acknowledged).length} item(s).`);
+      const result = await reconciliation;
+      if (activeScopeKeyRef.current !== requestedScopeKey) return;
+      applyReconciliation(result);
+      popToast(`Reconciled ${result.executions.filter((execution) => execution.acknowledged).length} item(s).`);
     } catch (e: any) {
       console.error(e);
       popToast(`Sync failed: ${e?.message ?? "Unknown error"}`);
     } finally {
       setSyncing(false);
     }
-  }, [applyExecution, repository, sessionUserId, syncOnline, workspaceId]);
+  }, [applyReconciliation, reconcileCanonicalWorkspace, scopeKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -317,13 +357,6 @@ export default function App(props: BarstockAppProps = {}) {
       window.removeEventListener("offline", sync);
     };
   }, []);
-
-  useEffect(() => {
-    if (!supabaseAvailable) return;
-    if (!syncOnline) return;
-    if (outboxCount === 0) return;
-    onSyncNow();
-  }, [supabaseAvailable, syncOnline, outboxCount, onSyncNow]);
 
   useEffect(() => {
     if (!supabase) return;
@@ -358,29 +391,25 @@ export default function App(props: BarstockAppProps = {}) {
     setActiveAssignment("all");
     if (!repository || !sessionUserId || !workspaceId) {
       setPersistenceState({ status: "offline", message: "Authentication and workspace resolution required." });
+    }
+  }, [repository, sessionUserId, workspaceId]);
+
+  useEffect(() => {
+    if (!repository || !sessionUserId || !workspaceId) return;
+    if (!syncOnline) {
+      setPersistenceState({ status: "offline", message: "Browser is offline; changes will remain pending." });
       return;
     }
     let cancelled = false;
     (async () => {
       try {
         setPersistenceState({ status: "loading" });
-        const scope = { workspaceId, userId: sessionUserId };
-        await repository.hydrateWorkspace(scope);
-        await importLegacyBrowserData({ repository, storage: localStorage, scope, online: syncOnline });
-        const canonical = await repository.hydrateWorkspace(scope);
-        const retryResults = await reconcileRetryCache({
-          repository, storage: localStorage, scope, snapshot: canonical, online: syncOnline,
-          onTransition: (operation, state) => setEntityStates((current) => setEntityState(current, operation.kind, operation.entityId, state)),
-        });
-        const refreshed = retryResults.some((result) => result.acknowledged) ? await repository.hydrateWorkspace(scope) : canonical;
+        const reconciliation = reconcileCanonicalWorkspace();
+        if (!reconciliation) return;
+        const result = await reconciliation;
         if (cancelled) return;
-        setAssignments(refreshed.assignments);
-        setSparks(refreshed.sparks);
+        applyReconciliation(result);
         setAuthorityReady(true);
-        for (const result of retryResults) applyExecution(result);
-        setOutboxCount(loadRetryCache(localStorage, workspaceId).length);
-        const unresolved = [...retryResults].reverse().find((result) => !result.acknowledged);
-        setPersistenceState(unresolved?.state ?? { status: "saved" });
       } catch (err) {
         if (!cancelled) {
           console.warn("[bar-stock] failed to hydrate workspace state", err);
@@ -392,7 +421,7 @@ export default function App(props: BarstockAppProps = {}) {
     return () => {
       cancelled = true;
     };
-  }, [applyExecution, repository, sessionUserId, syncOnline, workspaceId]);
+  }, [applyReconciliation, reconcileCanonicalWorkspace, repository, sessionUserId, syncOnline, workspaceId]);
 
   useEffect(() => {
     if (hasExternalWorkspaceState) return;

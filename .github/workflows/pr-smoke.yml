@@ -57,6 +57,29 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm gate:integration
 
+  barstock-production-gate:
+    name: barstock:production
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.0
+          cache: pnpm
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.84.2
+      - run: pnpm install --frozen-lockfile
+      - name: Start disposable local Supabase
+        run: supabase start
+      - name: Run Barstock production gate
+        run: pnpm gate:barstock-release
+      - name: Stop disposable local Supabase
+        if: always()
+        run: supabase stop --no-backup
+
   nursery-media-gate:
     name: nursery:media
     runs-on: ubuntu-latest
