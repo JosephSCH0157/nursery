@@ -34,9 +34,9 @@ function isDevMode(): boolean {
   }
 }
 
-function toast(message: string, type: ToastKind = 'info', timeoutMs = 2600): void {
+function toast(message: string, type: ToastKind = 'info', timeoutMs?: number): void {
   try {
-    showToast(message, { type, timeoutMs });
+    showToast(message, { type, ...(timeoutMs == null ? {} : { timeoutMs }) });
   } catch {
     // ignore
   }
@@ -59,7 +59,7 @@ function onUploadWarning(ev: Event): void {
   const detail = ((ev as CustomEvent<UploadWarningDetail>).detail ?? {}) as UploadWarningDetail;
   const mb = Number.isFinite(Number(detail.mb)) ? Number(detail.mb).toFixed(1) : 'unknown';
   const threshold = Number.isFinite(Number(detail.thresholdMb)) ? Number(detail.thresholdMb).toFixed(0) : 'unknown';
-  toast(`Large upload (${mb} MB) exceeds ${threshold} MB warning threshold`, 'warning', 3200);
+  toast(`Large upload (${mb} MB) exceeds ${threshold} MB warning threshold`, 'warning');
 }
 
 function onUploadStatus(ev: Event): void {
@@ -81,7 +81,7 @@ function onUploadStatus(ev: Event): void {
   if (phase === 'uploading' && strategy === 'chunked' && isDevMode() && !chunkedNoticeShown) {
     const mb = Number.isFinite(Number(detail.mb)) ? Number(detail.mb).toFixed(1) : '?';
     const chunkLabel = Number.isFinite(totalChunks) && totalChunks > 0 ? ` in ${totalChunks} chunks` : '';
-    toast(`Chunked upload active (${mb} MB${chunkLabel})`, 'info', 2800);
+    toast(`Chunked upload active (${mb} MB${chunkLabel})`, 'info');
     chunkedNoticeShown = true;
     return;
   }
@@ -96,19 +96,19 @@ function onUploadStatus(ev: Event): void {
     shouldEmitProgressToast(Date.now())
   ) {
     const progressText = pct == null ? '' : ` (${pct}%)`;
-    toast(`Uploading chunk ${chunkIndex}/${totalChunks}${progressText}`, 'info', 1800);
+    toast(`Uploading chunk ${chunkIndex}/${totalChunks}${progressText}`, 'info', 4_000);
     return;
   }
 
   if (phase === 'done' && detail.safeToLeave && !safeToLeaveShown) {
-    toast('Recording upload complete. Safe to leave.', 'success', 3200);
+    toast('Recording upload complete. Safe to leave.', 'success');
     safeToLeaveShown = true;
     return;
   }
 
   if (phase === 'failed' && !failedShown) {
     const msg = detail.errorMessage ? ` (${detail.errorMessage})` : '';
-    toast(`Canonical upload failed${msg}. Falling back to local save.`, 'warning', 4200);
+    toast(`Canonical upload failed${msg}. Falling back to local save.`, 'warning', 20_000);
     failedShown = true;
   }
 }

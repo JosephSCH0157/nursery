@@ -11047,7 +11047,9 @@ export class TongsCommitService {
       || (expectedKind === "video" && inspected.hasVideoStream !== true)) {
       throw new HttpError(422, "canonical_media_streams_invalid", "The canonical recording is missing a required decodable media stream.");
     }
-    if (inspected.mimeType.toLowerCase() !== input.expected_media_content_type.toLowerCase()) {
+    const expectedMediaType = input.expected_media_content_type.trim().toLowerCase().split(";", 1)[0]?.trim();
+    const inspectedMediaType = inspected.mimeType.trim().toLowerCase().split(";", 1)[0]?.trim();
+    if (!expectedMediaType || inspectedMediaType !== expectedMediaType) {
       throw new HttpError(409, "canonical_content_type_mismatch", "The canonical media signature did not match its registered content type.");
     }
     const rpcClient = this.supabase.schema("tongs") as unknown as { rpc: (name: string, args: Record<string, unknown>) => Promise<{ data: unknown; error: { code?: string; message: string } | null }> };

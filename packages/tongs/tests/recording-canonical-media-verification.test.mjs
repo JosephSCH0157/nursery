@@ -58,6 +58,18 @@ test("valid canonical readback and AV probe mint trusted verification before com
   assert.equal(rpcCalls[0].args.p_completed_by, USER);
 });
 
+test("container MIME parameters do not conflict with a matching trusted media signature", async () => {
+  const contentType = "video/webm;codecs=vp9,opus";
+  const { service, input, rpcCalls } = fixture({
+    media: { content_type: contentType },
+    input: { expected_media_content_type: contentType },
+    inspected: { mimeType: "video/webm", durationMs: 1000, hasAudioStream: true, hasVideoStream: true },
+  });
+  const result = await service.transitionAnvilTakeCompletedV3(WORKPIECE, input);
+  assert.equal(result.outcome, "saved");
+  assert.equal(rpcCalls[0].args.p_expected_media_content_type, contentType);
+});
+
 for (const [name, overrides, code] of [
   ["tampered hash", { input: { expected_media_hash: "a".repeat(64) } }, "canonical_metadata_mismatch"],
   ["truncated canonical object", { storedBytes: new Uint8Array([1, 2]), media: { bytes: 4 }, input: { expected_media_bytes: 4 } }, "canonical_storage_readback_mismatch"],

@@ -6,8 +6,14 @@
 // - Keeps the old CSS hook: .tp-toast-container / .tp-toast / .tp-toast-action
 
 const CONTAINER_ID = 'tp_toast_container';
-const MAX_VISIBLE = 3;
-const DEFAULT_FADE_MS = 4000;
+const MAX_VISIBLE = 5;
+
+const DEFAULT_TIMEOUT_MS: Record<string, number> = {
+  info: 6_000,
+  success: 8_000,
+  warning: 15_000,
+  error: 20_000,
+};
 
 export type ToastKind = 'info' | 'success' | 'warning' | 'error' | string;
 
@@ -17,7 +23,7 @@ export interface ToastOptions {
   action?: () => void;
   /** Label for the action button (default: "Open") */
   actionLabel?: string;
-  /** Override auto-dismiss timeout (ms), default 4000 */
+  /** Override auto-dismiss timeout (ms). Defaults vary by severity. */
   timeoutMs?: number;
 }
 
@@ -54,6 +60,8 @@ export function showToast(message: string, opts: ToastOptions = {}): void {
     const t = document.createElement('div');
     const typeClass = opts.type ? String(opts.type) : '';
     t.className = `tp-toast show ${typeClass}`;
+    t.setAttribute('role', typeClass === 'warning' || typeClass === 'error' ? 'alert' : 'status');
+    t.setAttribute('aria-live', typeClass === 'warning' || typeClass === 'error' ? 'assertive' : 'polite');
 
     // Message text
     const txt = document.createElement('span');
@@ -89,7 +97,7 @@ export function showToast(message: string, opts: ToastOptions = {}): void {
 
     const timeout = Number.isFinite(opts.timeoutMs as number)
       ? (opts.timeoutMs as number)
-      : DEFAULT_FADE_MS;
+      : (DEFAULT_TIMEOUT_MS[typeClass] ?? DEFAULT_TIMEOUT_MS.info);
 
     window.setTimeout(() => {
       t.classList.remove('show');
