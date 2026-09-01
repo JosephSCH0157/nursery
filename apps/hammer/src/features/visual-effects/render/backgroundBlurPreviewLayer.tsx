@@ -17,7 +17,7 @@ import type { FaceAnalysisFrame } from "../../eye-contact-assist/types";
 import { LatestOwnedAnalysisFrameQueue } from "../../eye-contact-assist/analysis/ownedAnalysisFrameQueue";
 import type { PlacementFrameAnalysisAuthority } from "../../auto-placement/placementFrameAnalysisAuthority";
 import { resolveCanvasBackingScale, resolveMatteControlScale } from "./visualEffectCssSpace";
-import { HammerPreviewRuntime, resolvePreviewAnalysisSize, resolvePreviewBackingSize } from "./hammerPreviewRuntime";
+import { HammerPreviewRuntime, isPreviewCompositeCadenceReady, resolvePreviewAnalysisSize, resolvePreviewBackingSize } from "./hammerPreviewRuntime";
 
 export type HammerBackgroundBlurRuntimeStatus = {
   provider: {
@@ -350,6 +350,8 @@ export default function BackgroundBlurPreviewLayer(props: {
   const debugMatteUrlRef = useRef<string | null>(null);
   const debugFinalCompositeUrlRef = useRef<string | null>(null);
   const frameTokenRef = useRef(0);
+  const pendingCompositeControlAtMsRef = useRef<number | null>(null);
+  const lastPerformanceTickAtMsRef = useRef<number | null>(null);
 
   const [runtimeStatus, setRuntimeStatus] = useState<HammerBackgroundBlurRuntimeStatus>(() => ({
     provider: { name: provider.name, readiness: provider.getReadiness() },
@@ -391,6 +393,8 @@ export default function BackgroundBlurPreviewLayer(props: {
     statusMessage: "Segmentation unavailable – background treatment disabled",
     debug: undefined,
   }));
+  const runtimeStatusRef = useRef(runtimeStatus);
+  useEffect(() => { runtimeStatusRef.current = runtimeStatus; }, [runtimeStatus]);
 
   // Avoid render loops if the parent passes a non-memoized callback that sets state.
   // We always invoke the latest `onStatus`, but only when `runtimeStatus` changes.
@@ -604,6 +608,7 @@ export default function BackgroundBlurPreviewLayer(props: {
     lastCompositeAtMsRef.current = null;
     lastCompositeSourceTimeSecRef.current = null;
     degradedReasonSinceMsRef.current = null;
+    pendingCompositeControlAtMsRef.current = nowMs();
     previewRuntimeRef.current?.updateCompositeSettings();
   }, [
     props.enabled,
@@ -679,7 +684,6 @@ export default function BackgroundBlurPreviewLayer(props: {
     if (!props.enabled) return;
     let cancelled = false;
 
-    const minCompositeGapMs = 1000 / DISPLAY_MAX_FPS;
 
     const computeCadenceSnapshot = () => ({
       effectiveSegmentationFps: computeEffectiveRate({
@@ -716,14 +720,20 @@ export default function BackgroundBlurPreviewLayer(props: {
       analysisFrame: FaceAnalysisFrame | null;
     }): Promise<void> => {
       if (inFlightRef.current) {
-        if (pendingSegmentationRef.current) segmentationSupersededRef.current += 1;
+        if (pendingSegmentationRef.current) {
+          segmentationSupersededRef.current += 1;
+          previewRuntimeRef.current?.recordSegmentationSuperseded();
+        }
         pendingSegmentationRef.current = true;
+        previewRuntimeRef.current?.recordPendingJobs(2);
         skippedSegmentationFramesRef.current += 1;
         droppedFramesRef.current += 1;
         return;
       }
       inFlightRef.current = true;
       segmentationAttemptedRef.current += 1;
+      previewRuntimeRef.current?.recordSegmentationAttempt();
+      previewRuntimeRef.current?.recordPendingJobs(1);
       const segmentStartedAt = nowMs();
 
       try {
@@ -765,6 +775,7 @@ export default function BackgroundBlurPreviewLayer(props: {
         if (!maskValid || maskRejectedReason) {
           consecutiveMaskFailuresRef.current += 1;
           segmentationFailedRef.current += 1;
+          previewRuntimeRef.current?.recordSegmentationFailure();
           const missingReason = !maskValid ? "mask_unavailable" : maskRejectedReason;
           logSegmentationDiagnostics({
             providerName: segmentation.providerName,
@@ -894,6 +905,7 @@ export default function BackgroundBlurPreviewLayer(props: {
           : Math.max(maxSegMsRef.current, seg.processingMs);
         segmentationSampleCountRef.current += 1;
         segmentationCompletedRef.current += 1;
+        previewRuntimeRef.current?.recordSegmentationCompleted(seg.processingMs);
 
         if (props.debugMasks) {
           latestRawPlaneRef.current = {
@@ -986,6 +998,7 @@ export default function BackgroundBlurPreviewLayer(props: {
         }, true);
       } catch (error) {
         segmentationFailedRef.current += 1;
+        previewRuntimeRef.current?.recordSegmentationFailure();
         if (args.analysisFrame) {
           onPlacementMatteRef.current?.(Object.freeze({
             kind: "failed",
@@ -1043,6 +1056,7 @@ export default function BackgroundBlurPreviewLayer(props: {
       } finally {
         args.analysisFrame?.release();
         inFlightRef.current = false;
+        previewRuntimeRef.current?.recordPendingJobs(pendingSegmentationRef.current ? 1 : 0);
         const elapsed = nowMs() - segmentStartedAt;
         if (elapsed > ((1000 / Math.max(1, qualityPolicyRef.current.maxSegmentationFps)) * 3)) {
           skippedSegmentationFramesRef.current += 1;
@@ -1158,6 +1172,8 @@ export default function BackgroundBlurPreviewLayer(props: {
       }
 
       const now = nowMs();
+      const previousPerformanceTickAtMs = lastPerformanceTickAtMsRef.current;
+      lastPerformanceTickAtMsRef.current = now;
       const targetSegFps = Math.max(1, policy.maxSegmentationFps);
       const minSegGapMs = 1000 / targetSegFps;
       const minSegSourceDeltaSec = Math.max(1 / (targetSegFps * 1.8), 0.008);
@@ -1194,10 +1210,11 @@ export default function BackgroundBlurPreviewLayer(props: {
 
       const lastCompositeAt = lastCompositeAtMsRef.current;
       const lastCompositeSource = lastCompositeSourceTimeSecRef.current;
-      if (lastCompositeAt != null && (now - lastCompositeAt) < minCompositeGapMs) {
-        return;
-      }
-      if (lastCompositeSource != null && Math.abs(sourceTimeSec - lastCompositeSource) < 0.002 && !maskPreviewModeRef.current) {
+      if (!isPreviewCompositeCadenceReady({
+        wallDeltaMs: lastCompositeAt == null ? null : now - lastCompositeAt,
+        mediaDeltaSec: lastCompositeSource == null ? null : sourceTimeSec - lastCompositeSource,
+        maximumFps: DISPLAY_MAX_FPS,
+      }) && !maskPreviewModeRef.current) {
         return;
       }
 
@@ -1208,6 +1225,7 @@ export default function BackgroundBlurPreviewLayer(props: {
       });
       const hasUsableMask = cachedMatte != null && canReuseMask;
       if (!hasUsableMask) {
+        previewRuntimeRef.current?.recordDegradedDuration(previousPerformanceTickAtMs == null ? 0 : Math.max(0, now - previousPerformanceTickAtMs));
         if (cachedMatte) {
           const ageMs = Math.max(0, Math.round(nowMs() - cachedMatte.generatedAtMs));
           publishStatus((prev) => ({ ...prev, lastMaskAgeMs: ageMs, degradedReason: "segmentation_unavailable",
@@ -1215,6 +1233,7 @@ export default function BackgroundBlurPreviewLayer(props: {
           return;
         }
         drawPassthroughFrame({ source: video, output: canvas });
+        previewRuntimeRef.current?.recordRawFrameFlash();
         const nowForDegrade = nowMs();
         if (degradedReasonSinceMsRef.current == null) degradedReasonSinceMsRef.current = nowForDegrade;
         const shouldShowDegradeMessage = (nowForDegrade - degradedReasonSinceMsRef.current) >= DEGRADE_STICKY_MS;
@@ -1300,6 +1319,14 @@ export default function BackgroundBlurPreviewLayer(props: {
       }
 
       compositeSampleCountRef.current += 1;
+      const compositeCompletedAtMs = nowMs();
+      previewRuntimeRef.current?.recordSuccessfulComposite(composite.compositingMs, compositeCompletedAtMs);
+      if (pendingCompositeControlAtMsRef.current != null) {
+        previewRuntimeRef.current?.recordControlLatency(Math.max(0, compositeCompletedAtMs - pendingCompositeControlAtMsRef.current));
+        pendingCompositeControlAtMsRef.current = null;
+      }
+
+      if (composite.degradedReason) previewRuntimeRef.current?.recordDegradedDuration(previousPerformanceTickAtMs == null ? 0 : Math.max(0, now - previousPerformanceTickAtMs));
       avgCompMsRef.current = avgCompMsRef.current == null
         ? composite.compositingMs
         : roundToTenth((avgCompMsRef.current * 0.9) + (composite.compositingMs * 0.1));
@@ -1416,11 +1443,39 @@ export default function BackgroundBlurPreviewLayer(props: {
     const video = props.videoRef.current;
     const runtime = new HammerPreviewRuntime(() => { void tick(); });
     previewRuntimeRef.current = runtime;
+    const diagnosticsEnabled = isSegmentationFrameLogEnabled();
+    const performanceWindow = window as typeof window & { __hammerPreviewPerformance?: {
+      reset: () => void;
+      snapshot: () => ReturnType<HammerPreviewRuntime["snapshotPerformance"]>;
+      diagnostics: () => unknown;
+    } };
+    const performanceBridge = {
+      candidateCommit: (import.meta.env as unknown as Record<string, string | undefined>).VITE_HAMMER_CANDIDATE_SHA ?? null,
+      diagnostics: () => ({
+        provider: provider.name,
+        scheduler: runtime.snapshotDiagnostics().scheduler,
+        quality: settingsRef.current.qualityMode,
+        analysisResolution: analysisResolutionRef.current,
+        backingResolution: canvasRef.current ? { width: canvasRef.current.width, height: canvasRef.current.height } : null,
+        degradedReason: runtimeStatusRef.current.degradedReason,
+        warnings: runtimeStatusRef.current.warnings,
+        effects: { segmentation: settingsRef.current.enabled || settingsRef.current.replacementEnabled || settingsRef.current.washEnabled, blur: settingsRef.current.enabled, replacement: settingsRef.current.replacementEnabled, wash: settingsRef.current.washEnabled },
+      }),
+      reset: () => runtime.resetPerformance(),
+      snapshot: () => runtime.snapshotPerformance(),
+    };
+    if (diagnosticsEnabled) performanceWindow.__hammerPreviewPerformance = performanceBridge;
+    const longTaskObserver = diagnosticsEnabled && typeof PerformanceObserver !== "undefined"
+      ? new PerformanceObserver((list) => { for (const entry of list.getEntries()) runtime.recordLongTask(entry.duration); })
+      : null;
+    try { longTaskObserver?.observe({ entryTypes: ["longtask"] }); } catch { longTaskObserver?.disconnect(); }
     if (video) runtime.attachSource(video, props.mediaRevision ?? (video.currentSrc || video.src || "preview-source"));
 
     return () => {
       cancelled = true;
       runtime.dispose();
+      longTaskObserver?.disconnect();
+      if (performanceWindow.__hammerPreviewPerformance === performanceBridge) delete performanceWindow.__hammerPreviewPerformance;
       if (previewRuntimeRef.current === runtime) previewRuntimeRef.current = null;
     };
   }, [

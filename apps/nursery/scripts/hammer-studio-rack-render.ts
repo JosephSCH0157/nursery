@@ -537,7 +537,11 @@ async function analyzeLoudnessWithFfmpeg(args: { ffmpegBin: string; bytes: Buffe
       let output = ""; const timeoutId = setTimeout(() => child.kill(), FFMPEG_PROCESS_TIMEOUT_MS);
       child.stderr.on("data", (chunk) => { output += chunk.toString("utf8"); });
       child.on("error", (error) => { clearTimeout(timeoutId); reject(error); });
-      child.on("close", (code) => { clearTimeout(timeoutId); code === 0 ? resolve(output) : reject(new Error(output.trim() || "FFmpeg loudnorm analysis failed.")); });
+      child.on("close", (code) => {
+        clearTimeout(timeoutId);
+        if (code === 0) resolve(output);
+        else reject(new Error(output.trim() || "FFmpeg loudnorm analysis failed."));
+      });
     });
     return parseLoudnormMeasurement(stderr);
   } finally { await fsPromises.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined); }

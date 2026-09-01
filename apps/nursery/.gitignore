@@ -25,3 +25,5 @@ public/forge-nav.json
 *.sw?
 playwright/.auth/
 playwright/.cache/
+public/__hammer_performance__/
+public/__hammer_performance_internal__/

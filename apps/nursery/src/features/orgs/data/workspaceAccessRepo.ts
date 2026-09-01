@@ -12,6 +12,7 @@ import {
 
 type RawOrgMemberRow = {
   user_id?: unknown;
+  user_email?: unknown;
   org_role?: unknown;
   created_at?: unknown;
 };
@@ -40,13 +41,6 @@ type RawWorkspaceMembershipRow = {
   } | null;
 };
 
-type RawProfileRow = {
-  user_id?: unknown;
-  display_name?: unknown;
-  avatar_url?: unknown;
-  email?: unknown;
-};
-
 function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
@@ -63,57 +57,23 @@ function fail(message: string): never {
   throw new Error(message);
 }
 
-async function loadProfilesByUserId(userIds: string[]): Promise<Map<string, RawProfileRow>> {
-  if (userIds.length === 0) return new Map();
-  const { data, error } = await supabase
-    .from("profiles")
-    .select("user_id, display_name, avatar_url, email")
-    .in("user_id", userIds);
-  if (error) {
-    throw new Error(toErrorMessage(error, "Failed loading member profiles."));
-  }
-  const rows = Array.isArray(data) ? data as RawProfileRow[] : [];
-  return new Map(rows.map((row) => [readString(row.user_id) ?? "", row]));
-}
-
-function readProfileFields(profile: RawProfileRow | undefined): Pick<OrgMember, "displayName" | "avatarUrl" | "email"> {
-  return {
-    displayName: readString(profile?.display_name),
-    avatarUrl: readString(profile?.avatar_url),
-    email: readString(profile?.email),
-  };
-}
-
 export async function loadOrgMembers(orgId: string): Promise<OrgMember[]> {
   const normalizedOrgId = orgId.trim();
   if (!normalizedOrgId) return [];
 
   const tongsClient = supabase.schema("tongs") as unknown as {
-    from: (table: "org_members") => {
-      select: (columns: string) => {
-        eq: (column: string, value: string) => {
-          order: (column: string, options?: { ascending?: boolean }) => Promise<{ data: unknown; error: unknown }>;
-        };
-      };
-    };
+    rpc: (fn: "list_org_members", args: { p_org_id: string }) => Promise<{ data: unknown; error: unknown }>;
   };
 
-  const { data, error } = await tongsClient
-    .from("org_members")
-    .select("user_id, org_role, created_at")
-    .eq("org_id", normalizedOrgId)
-    .order("created_at", { ascending: true });
+  const { data, error } = await tongsClient.rpc("list_org_members", {
+    p_org_id: normalizedOrgId,
+  });
 
   if (error) {
     throw new Error(toErrorMessage(error, "Failed loading organization members."));
   }
 
   const rows = Array.isArray(data) ? data as RawOrgMemberRow[] : [];
-  const userIds = rows
-    .map((row) => readString(row.user_id))
-    .filter((value): value is string => Boolean(value));
-  const profilesByUserId = await loadProfilesByUserId(userIds);
-
   return rows.map((row) => {
     const userId = readString(row.user_id) ?? fail("Organization member row is missing user_id.");
     const orgRole = normalizeOrgRole(readString(row.org_role)) ?? fail(`Unsupported org role for user ${userId}.`);
@@ -122,7 +82,9 @@ export async function loadOrgMembers(orgId: string): Promise<OrgMember[]> {
       userId,
       orgRole,
       createdAt,
-      ...readProfileFields(profilesByUserId.get(userId)),
+      displayName: null,
+      avatarUrl: null,
+      email: readString(row.user_email),
     } satisfies OrgMember;
   });
 }

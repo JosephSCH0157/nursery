@@ -13,6 +13,7 @@ export const HAMMER_PASS_ID_VALUES = [
   "image_animation",
   "audio_finalization",
   "packaging",
+  "shorts",
   "ready",
 ] as const;
 export type HammerPassId = (typeof HAMMER_PASS_ID_VALUES)[number];
@@ -22,7 +23,7 @@ export type HammerPassState = (typeof HAMMER_PASS_STATE_VALUES)[number];
 
 export type HammerPassStatusMap = Partial<Record<HammerPassId, HammerPassState>>;
 
-export const HAMMER_PASS_ORDER_VERSION = 2;
+export const HAMMER_PASS_ORDER_VERSION = 3;
 
 export interface HammerOrchestrationStateContract {
   prep_status: HammerPrepStatus;

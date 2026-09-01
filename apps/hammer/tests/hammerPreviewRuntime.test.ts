@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { HammerPreviewRuntime, resolveMatteContinuity, resolvePreviewAnalysisSize, resolvePreviewBackingSize } from "../src/features/visual-effects/render/hammerPreviewRuntime";
+import { HammerPreviewRuntime, isPreviewCompositeCadenceReady, resolveMatteContinuity, resolvePreviewAnalysisSize, resolvePreviewBackingSize } from "../src/features/visual-effects/render/hammerPreviewRuntime";
 
 type Listener = () => void;
 
@@ -80,4 +80,10 @@ test("matte continuity degrades without flashing raw", () => {
   assert.equal(resolveMatteContinuity(751), "degraded");
   assert.equal(resolveMatteContinuity(2_000), "degraded");
   assert.equal(resolveMatteContinuity(2_001), "unavailable");
+});
+
+test("30 FPS source cadence is not aliased down by wall-clock jitter", () => {
+  assert.equal(isPreviewCompositeCadenceReady({ wallDeltaMs: 29, mediaDeltaSec: 1 / 30 }), true);
+  assert.equal(isPreviewCompositeCadenceReady({ wallDeltaMs: 17, mediaDeltaSec: 1 / 60 }), false);
+  assert.equal(isPreviewCompositeCadenceReady({ wallDeltaMs: 34, mediaDeltaSec: 0 }), true, "paused control redraws remain available");
 });

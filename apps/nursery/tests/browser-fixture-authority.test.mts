@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import {
   BROWSER_FIXTURE_NAMESPACE,
   BROWSER_FIXTURE_SCHEMA,
@@ -8,6 +9,29 @@ import {
   sanitizeFixtureDiagnostic,
   validateBrowserFixtureManifest,
 } from "../scripts/browser-fixture-authority.mts";
+
+test("Hammer fixture timeline uses the current packaging source authority", async () => {
+  const source = await readFile(new URL("../scripts/browser-fixture-authority.mts", import.meta.url), "utf8");
+  assert.match(source, /source_mode:\s*["']packaging["']/);
+  assert.match(source, /packaging:\s*\{\s*version:\s*1,\s*intro_asset_id:\s*null,\s*outro_asset_id:\s*null/);
+  assert.doesNotMatch(source, /source_mode:\s*["']canonical["']/);
+});
+
+test("Hammer fixture seeds a reusable canonical speaker-turn transcript", async () => {
+  const source = await readFile(new URL("../scripts/browser-fixture-authority.mts", import.meta.url), "utf8");
+  assert.match(source, /structure:\s*["']speaker_turns["']/);
+  assert.match(source, /label_scheme:\s*["']forge-neutral-speakers\.v1["']/);
+  assert.match(source, /speaker:\s*index % 2 \? ["']S2["'] : ["']S1["']/);
+  assert.match(source, /media_signature:\s*mediaSignature/);
+});
+
+test("Hearth fixtures seed recording-valid speaker blocks", async () => {
+  const source = await readFile(new URL("../scripts/browser-fixture-authority.mts", import.meta.url), "utf8");
+  assert.match(source, /const script = `\[s1\]\\n/);
+  assert.match(source, /\\n\[\/s1\]\\n`/);
+  assert.match(source, /body:\s*handoffScript/);
+  assert.match(source, /hearth\/drafts\.v1\.json/);
+});
 
 test("non-production guard allows local and explicit remote project refs", () => {
   assert.equal(assertNonProductionTarget("http://127.0.0.1:54321", null), "local");

@@ -15,6 +15,7 @@ import { sameFaceAnalysisFrame } from "../features/eye-contact-assist/analysis/f
 import VisualPreviewComposer, { type VisualPreviewOverlayModel } from "../visuals/components/VisualPreviewComposer";
 import { isAutoPlacementDebugFlagEnabled } from "./hammerAutoPlacementDebugFlag";
 import { isAnalysisFrameAtCompositionTime } from "./hammerAutoPreviewPosition";
+import { resolveHammerPreviewPerformanceMediaOverride } from "./hammerPreviewPerformanceMediaOverride";
 
 export type HammerWorkspaceShellPreviewBayVM = {
   previewModeLabel: string;
@@ -205,13 +206,16 @@ export type HammerWorkspaceShellPreviewBayVM = {
 export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorkspaceShellPreviewBayVM; analysisAuthority: PlacementFrameAnalysisAuthority }): JSX.Element {
   const vm = props.vm;
   const analysisAuthority = props.analysisAuthority;
+  const performanceMediaOverride = resolveHammerPreviewPerformanceMediaOverride({ development: import.meta.env.DEV, search: typeof window === "undefined" ? "" : window.location.search });
+  const visualPreviewMediaSrc = performanceMediaOverride ?? vm.previewVideoSrc;
+  const segmentationMediaSrc = performanceMediaOverride ?? vm.segmentationSourceVideoSrc;
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [faceAnalysisResult, setFaceAnalysisResult] = useState<FaceAnalysisResult | null>(null);
   const [analysisFrame, setAnalysisFrame] = useState<FaceAnalysisFrame | null>(null);
   const [placementPair, setPlacementPair] = useState<FrameBoundPlacementEvidencePair | null>(null);
   const [backgroundRuntimeStatus, setBackgroundRuntimeStatus] = useState<HammerBackgroundBlurRuntimeStatus | null>(null);
   const [videoReady, setVideoReady] = useState(false);
-  useEffect(() => { setVideoReady(false); }, [vm.previewVideoSrc]);
+  useEffect(() => { setVideoReady(false); }, [visualPreviewMediaSrc]);
   const handleBackgroundStatus = useCallback((status: HammerBackgroundBlurRuntimeStatus) => {
     setBackgroundRuntimeStatus(status);
     vm.backgroundEffect.onStatus(status);
@@ -437,7 +441,7 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
         <div className="hammer-preview-surface" ref={vm.previewSurfaceRef}>
           <video
             ref={vm.previewVideoRef}
-            src={vm.previewVideoSrc ?? undefined}
+            src={visualPreviewMediaSrc ?? undefined}
             muted
             preload="auto"
             playsInline
@@ -448,7 +452,7 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
           {vm.segmentationSourceVideoRef !== vm.previewVideoRef ? (
             <video
               ref={vm.segmentationSourceVideoRef}
-              src={vm.segmentationSourceVideoSrc ?? undefined}
+              src={segmentationMediaSrc ?? undefined}
               muted
               preload="auto"
               playsInline
@@ -478,7 +482,7 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
             settings={vm.backgroundEffect.settings}
             providerId={vm.backgroundEffect.providerId}
             videoRef={vm.backgroundEffect.sourceVideoRef}
-            mediaRevision={vm.previewVideoSrc}
+            mediaRevision={visualPreviewMediaSrc}
             onStatus={handleBackgroundStatus}
             debugMasks={vm.backgroundEffect.debugMasks}
             maskPreviewMode={vm.backgroundEffect.maskPreviewMode}

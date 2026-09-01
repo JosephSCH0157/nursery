@@ -92,7 +92,7 @@ export function validateBrowserFixtureManifest(value: unknown, expectedProjectRe
   if (expectedProjectRef && row.project_ref !== expectedProjectRef) throw new Error("Browser fixture manifest belongs to a different Supabase project.");
   const projectRef = String(row.project_ref ?? "");
   const expectedIds = {
-    org_id: deterministicFixtureUuid(`${projectRef}:org`), workspace_id: deterministicFixtureUuid(`${projectRef}:workspace`),
+    workspace_id: deterministicFixtureUuid(`${projectRef}:workspace`),
     hearth_workpiece_id: deterministicFixtureUuid(`${projectRef}:hearth`), hammer_workpiece_id: deterministicFixtureUuid(`${projectRef}:hammer`),
     hammer_recording_id: deterministicFixtureUuid(`${projectRef}:hammer:recording`), hammer_revision_id: deterministicFixtureUuid(`${projectRef}:hammer:revision`),
   };
@@ -118,7 +118,7 @@ export function loadFixtureConfig(): FixtureConfig {
   return {
     supabaseUrl, anonKey, serviceKey, password, projectRef,
     email: readString(env.FORGE_BROWSER_FIXTURE_EMAIL) ?? `forge-browser-fixture-${projectRef}@example.invalid`,
-    origin: new URL(readString(env.FORGE_TEST_BASE_URL) ?? readString(env.PLAYWRIGHT_BASE_URL) ?? "http://127.0.0.1:5173").origin,
+    origin: new URL(readString(env.FORGE_SMOKE_BASE_URL) ?? readString(env.FORGE_TEST_BASE_URL) ?? readString(env.PLAYWRIGHT_BASE_URL) ?? "http://127.0.0.1:5173").origin,
     manifestPath: resolvePath(env, "FORGE_BROWSER_FIXTURE_MANIFEST", DEFAULT_MANIFEST_PATH),
     receiptPath: resolvePath(env, "FORGE_BROWSER_FIXTURE_RECEIPT", DEFAULT_RECEIPT_PATH),
     authPath: resolvePath(env, "PLAYWRIGHT_STORAGE_STATE", DEFAULT_AUTH_PATH),
@@ -181,51 +181,101 @@ export async function provisionBrowserFixtures(): Promise<BrowserFixtureManifest
   const config = loadFixtureConfig();
   const admin = createClient(config.supabaseUrl, config.serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
   const userId = await findOrCreateUser(admin, config);
-  const orgId = deterministicFixtureUuid(`${config.projectRef}:org`); const workspaceId = deterministicFixtureUuid(`${config.projectRef}:workspace`);
+  const tongs = admin.schema("tongs");
+  const personalOrg = await tongs.from("orgs").select("id").eq("personal_owner_user_id", userId).maybeSingle();
+  if (personalOrg.error) throw new Error(`Managed personal organization lookup failed: ${personalOrg.error.message}`);
+  const orgId = personalOrg.data?.id ?? deterministicFixtureUuid(`${config.projectRef}:org`); const workspaceId = deterministicFixtureUuid(`${config.projectRef}:workspace`);
   const hearthId = deterministicFixtureUuid(`${config.projectRef}:hearth`); const readyIds = [deterministicFixtureUuid(`${config.projectRef}:ready:1`), deterministicFixtureUuid(`${config.projectRef}:ready:2`)] as [string, string];
   const hammerId = deterministicFixtureUuid(`${config.projectRef}:hammer`); const recordingId = deterministicFixtureUuid(`${config.projectRef}:hammer:recording`); const revisionId = deterministicFixtureUuid(`${config.projectRef}:hammer:revision`);
-  const tongs = admin.schema("tongs"); const now = new Date().toISOString();
+  const now = new Date().toISOString();
   await requireSuccess(tongs.from("orgs").upsert({ id: orgId, name: `[fixture] Forge Browser Release ${config.projectRef}`, personal_owner_user_id: userId, created_by: userId, updated_at: now }), "Org");
   await requireSuccess(tongs.from("org_members").upsert({ org_id: orgId, user_id: userId, org_role: "owner", created_by: userId }, { onConflict: "org_id,user_id" }), "Org membership");
   await requireSuccess(tongs.from("workspaces").upsert({ id: workspaceId, org_id: orgId, name: `[fixture] Browser Release ${config.projectRef}`, created_by: userId }), "Workspace");
   await requireSuccess(tongs.from("workspace_members").upsert({ workspace_id: workspaceId, user_id: userId, role: "owner", created_by: userId }, { onConflict: "workspace_id,user_id" }), "Workspace membership");
+  await requireSuccess(tongs.from("account_balances").upsert({ user_id: userId, plan_item_id: "creator", plan_status: "active", plan_entitled: true }, { onConflict: "user_id" }), "Fixture plan entitlement");
   await requireSuccess(tongs.from("recording_sessions").delete().eq("workspace_id", workspaceId).eq("created_by", userId).like("title", `[fixture:${BROWSER_FIXTURE_NAMESPACE}]%`), "Stale fixture session cleanup");
-  const episodes = [{ id: hearthId, label: "[fixture] Hearth authenticated handoff", state: "draft" }, { id: readyIds[0], label: "[fixture] Ready candidate Alpha", state: "ready" }, { id: readyIds[1], label: "[fixture] Ready candidate Beta", state: "ready" }, { id: hammerId, label: "[fixture] Hammer authenticated recording", state: "recorded" }];
-  for (const episode of episodes) await requireSuccess(tongs.from("episodes").upsert({ id: episode.id, workspace_id: workspaceId, label: episode.label, lifecycle_state: episode.state, storage_tier: "active", created_by: userId, creation_origin: BROWSER_FIXTURE_NAMESPACE, deleted_at: null, archived_at: null, updated_at: now }), `Episode ${episode.label}`);
+  const episodes = [{ id: hearthId, label: "[fixture] Hearth authenticated handoff" }, { id: readyIds[0], label: "[fixture] Ready candidate Alpha" }, { id: readyIds[1], label: "[fixture] Ready candidate Beta" }, { id: hammerId, label: "[fixture] Hammer authenticated recording" }];
+  for (const episode of episodes) await requireSuccess(tongs.from("episodes").upsert({ id: episode.id, workspace_id: workspaceId, label: episode.label, lifecycle_state: "active", storage_tier: "hot", created_by: userId, creation_origin: BROWSER_FIXTURE_NAMESPACE, deleted_at: null, archived_at: null, updated_at: now }), `Episode ${episode.label}`);
   const hashes: Record<string, string> = {};
   for (const episode of episodes.slice(0, 3)) {
-    const script = `# ${episode.label}\n\nThis authenticated non-production fixture proves canonical script access.\n\nIt must never be published.\n`;
+    const script = `[s1]\n${episode.label.replace(/^\[fixture\]\s*/u, "")}.\n\nThis authenticated non-production fixture proves canonical script access.\n\nIt must never be published.\n[/s1]\n`;
     hashes[`${episode.id}:script/script.md`] = await uploadWorkpieceFile(admin, config.bucket, episode.id, "script/script.md", "text/markdown", Buffer.from(script));
   }
+  const handoffScript = `[s1]\n${episodes[0]!.label.replace(/^\[fixture\]\s*/u, "")}.\n\nThis authenticated non-production fixture proves canonical script access.\n\nIt must never be published.\n[/s1]\n`;
+  const handoffDrafts = {
+    schemaVersion: 1,
+    workspaceId,
+    updatedAt: now,
+    drafts: [{
+      id: hearthId,
+      title: episodes[0]!.label,
+      body: handoffScript,
+      createdAt: Date.parse(now),
+      updatedAt: Date.parse(now),
+      revisionCount: 0,
+      archived: false,
+      pinned: false,
+      createdBy: { userId, displayName: "Forge Browser Fixture Local" },
+      updatedBy: { userId, displayName: "Forge Browser Fixture Local" },
+      scriptValidationMeta: null,
+      scriptAuthoringMeta: null,
+    }],
+  };
+  hashes[`${hearthId}:hearth/drafts.v1.json`] = await uploadWorkpieceFile(admin, config.bucket, hearthId, "hearth/drafts.v1.json", "application/json", Buffer.from(JSON.stringify(handoffDrafts)));
   const authenticated = await signIn(config);
   for (const [index, workpieceId] of readyIds.entries()) {
     const userTongs = authenticated.client.schema("tongs");
+    const scriptFile = await userTongs.from("workpiece_files").select("revision,hash_value").eq("workpiece_id", workpieceId).eq("path", "script/script.md").maybeSingle();
+    if (scriptFile.error || !scriptFile.data || scriptFile.data.hash_value !== hashes[`${workpieceId}:script/script.md`]) throw new Error(`Ready script authority ${index + 1} is missing or stale.`);
     const sequence = await userTongs.from("workpiece_script_approval_sequences").select("current_revision,current_approval_id").eq("workspace_id", workspaceId).eq("workpiece_id", workpieceId).maybeSingle();
     if (sequence.error) throw new Error(`Ready approval sequence ${index + 1}: ${sequence.error.message}`);
     let approvalId = String(sequence.data?.current_approval_id ?? "");
+    let approvalDisposition = "malformed";
+    let approvalReason = "unspecified";
     if (approvalId) {
       const current = await userTongs.from("script_approval_revisions").select("script_content_hash").eq("id", approvalId).maybeSingle();
       if (current.error || current.data?.script_content_hash !== hashes[`${workpieceId}:script/script.md`]) approvalId = "";
     }
     if (!approvalId) {
-      const scriptText = `# ${episodes[index + 1]!.label}\n\nThis authenticated non-production fixture proves canonical script access.\n\nIt must never be published.\n`;
-      const approval = await userTongs.rpc("approve_canonical_script_v2", { p_workspace_id: workspaceId, p_workpiece_id: workpieceId, p_expected_current_approval_revision: sequence.data?.current_revision ?? 0, p_expected_source_file_revision: 1, p_expected_source_content_hash: hashes[`${workpieceId}:script/script.md`], p_script_text: scriptText, p_creator_version_label: "Authenticated browser fixture", p_operation_id: deterministicFixtureUuid(`${config.projectRef}:ready:${index + 1}:approval:${sequence.data?.current_revision ?? 0}:${hashes[`${workpieceId}:script/script.md`]}`) });
+      const scriptText = `[s1]\n${episodes[index + 1]!.label.replace(/^\[fixture\]\s*/u, "")}.\n\nThis authenticated non-production fixture proves canonical script access.\n\nIt must never be published.\n[/s1]\n`;
+      const approvalOperationId = `forge:script-approval:browser-fixture-${deterministicFixtureUuid(`${config.projectRef}:ready:${index + 1}:approval:${sequence.data?.current_revision ?? 0}:${scriptFile.data.revision}:${hashes[`${workpieceId}:script/script.md`]}`)}`;
+      const approval = await userTongs.rpc("approve_canonical_script_v2", { p_workspace_id: workspaceId, p_workpiece_id: workpieceId, p_expected_current_approval_revision: sequence.data?.current_revision ?? 0, p_expected_source_file_revision: scriptFile.data.revision, p_expected_source_content_hash: hashes[`${workpieceId}:script/script.md`], p_script_text: scriptText, p_creator_version_label: "Authenticated browser fixture", p_operation_id: approvalOperationId });
       if (approval.error || !approval.data || typeof approval.data !== "object") throw new Error(`Ready approval ${index + 1}: ${approval.error?.message ?? "malformed receipt"}`);
+      approvalDisposition = String((approval.data as Record<string, unknown>).disposition ?? "malformed");
+      approvalReason = String((approval.data as Record<string, unknown>).reason ?? "unspecified");
       const approvalRow = (approval.data as Record<string, unknown>).approval;
       approvalId = String(approvalRow && typeof approvalRow === "object" ? (approvalRow as Record<string, unknown>).id ?? "" : "");
     }
-    if (!approvalId) throw new Error(`Ready approval ${index + 1} returned no approval identity.`);
+    if (!approvalId) {
+      throw new Error(`Ready approval ${index + 1} returned no approval identity (${approvalDisposition}:${approvalReason}).`);
+    }
     const transition = await userTongs.rpc("hearth_transition_approved_script_ready", { p_workspace_id: workspaceId, p_workpiece_id: workpieceId, p_script_approval_id: approvalId, p_idempotency_key: deterministicFixtureUuid(`${config.projectRef}:ready:${index + 1}:transition:${approvalId}`), p_publish_evidence: { transition: "hearth.approved-script.ready.v2", script_approval_id: approvalId, script_approval_hash: hashes[`${workpieceId}:script/script.md`], fixture_namespace: BROWSER_FIXTURE_NAMESPACE, ordinal: index + 1 } });
     if (transition.error) throw new Error(`Ready transition ${index + 1}: ${transition.error.message}`);
   }
   const transcriptPath = `hammer/revisions/${revisionId}/transcript.v1.json`; const editorPath = `hammer/revisions/${revisionId}/editor-session.v1.json`; const timelinePath = `hammer/revisions/${revisionId}/visual-timeline.v2.json`; const historyPath = `hammer/revisions/${revisionId}/history.v1.json`; const mediaPath = "recordings/browser-fixture.wav";
-  const segments = Array.from({ length: 8 }, (_, index) => ({ segment_id: `fixture-segment-${index + 1}`, speaker: index % 2 ? "Guest" : "Host", text: `Authenticated browser fixture segment ${index + 1}.`, start_sec: index * 3.5, end_sec: index * 3.5 + 3, is_disabled: false }));
-  hashes[`${hammerId}:${transcriptPath}`] = await uploadWorkpieceFile(admin, config.bucket, hammerId, transcriptPath, "application/json", jsonBytes({ schema_version: 1, transcript_id: `fixture-transcript-${hammerId}`, segments }));
+  const wav = makeSilentWav();
+  hashes[`${hammerId}:${mediaPath}`] = await uploadWorkpieceFile(admin, config.bucket, hammerId, mediaPath, "audio/wav", wav);
+  const mediaSignature = hashes[`${hammerId}:${mediaPath}`];
+  const segments = Array.from({ length: 8 }, (_, index) => ({ segment_id: `fixture-segment-${index + 1}`, speaker: index % 2 ? "S2" : "S1", text: `Authenticated browser fixture segment ${index + 1}.`, start_sec: index * 3.5, end_sec: index * 3.5 + 3 }));
+  hashes[`${hammerId}:${transcriptPath}`] = await uploadWorkpieceFile(admin, config.bucket, hammerId, transcriptPath, "application/json", jsonBytes({
+    schema_version: 1,
+    transcript_id: `fixture-transcript-${hammerId}`,
+    media_id: `fixture-media-${hammerId}`,
+    media_signature: mediaSignature,
+    prepared_at: now,
+    structure: "speaker_turns",
+    source_media_ref: { media_id: `fixture-media-${hammerId}`, kind: "recording_audio", source_hint: "cloud", cloud_uri: mediaPath, byte_size: wav.byteLength, duration_ms: 30000, sha256: mediaSignature },
+    diarization: { label_scheme: "forge-neutral-speakers.v1", labels: ["S1", "S2"], raw_labels: ["S1", "S2"], version: "browser-fixture.v1", provider: "openai", provider_request_id: null, model: null },
+    confidence_flags: [],
+    segments,
+  }));
   hashes[`${hammerId}:${editorPath}`] = await uploadWorkpieceFile(admin, config.bucket, hammerId, editorPath, "application/json", jsonBytes({ schema_version: 1, session_id: `fixture-session-${hammerId}`, source_mode: "tongs", preview_mode: "edit-aware", transcript_source_id: `fixture-transcript-${hammerId}`, selected_segment_id: null, selected_overlay_row_id: null, media_ref: { media_id: `fixture-media-${hammerId}`, kind: "recording_audio", source_hint: "cloud", cloud_uri: mediaPath, duration_ms: 30000 }, workspace_mapping: null, media_source_label: "authenticated browser fixture", visual_preview: { white_balance: 0, color_amount: 0, background_blur: false }, last_opened_at: now }));
-  hashes[`${hammerId}:${timelinePath}`] = await uploadWorkpieceFile(admin, config.bucket, hammerId, timelinePath, "application/json", jsonBytes({ version: 2, revision: 1, updated_at: now, source_mode: "canonical", selected_clip_id: null, assets: [], lanes: [], clips: [], packaging: { intro: null, outro: null } }));
+  hashes[`${hammerId}:${timelinePath}`] = await uploadWorkpieceFile(admin, config.bucket, hammerId, timelinePath, "application/json", jsonBytes({ version: 2, revision: 1, updated_at: now, source_mode: "packaging", selected_clip_id: null, assets: [], lanes: [], clips: [], packaging: { version: 1, intro_asset_id: null, outro_asset_id: null, intro_source: null, outro_source: null } }));
   hashes[`${hammerId}:${historyPath}`] = await uploadWorkpieceFile(admin, config.bucket, hammerId, historyPath, "application/json", jsonBytes({ version: 1, workpieceId: hammerId, sessionId: `fixture-session-${hammerId}`, baseRevisionId: `fixture-base-${revisionId}`, createdAt: now, updatedAt: now, headEntryId: null, entries: [], checkpoints: [], undoStack: [], redoStack: [], metadata: { fixture_namespace: BROWSER_FIXTURE_NAMESPACE } }));
-  const wav = makeSilentWav(); hashes[`${hammerId}:${mediaPath}`] = await uploadWorkpieceFile(admin, config.bucket, hammerId, mediaPath, "audio/wav", wav);
-  await requireSuccess(tongs.from("canonical_recordings").upsert({ id: recordingId, workspace_id: workspaceId, workpiece_id: hammerId, media_id: `fixture-media-${hammerId}`, media_path: mediaPath, media_signature: hashes[`${hammerId}:${mediaPath}`], media_content_type: "audio/wav", media_bytes: wav.byteLength, media_duration_ms: 30000, source_kind: BROWSER_FIXTURE_NAMESPACE, status: "sealed", sealed_at: now, baseline_transcript_path: transcriptPath, created_by: userId, updated_by: userId }), "Canonical recording");
+  const existingRecording = await tongs.from("canonical_recordings").select("sealed_at").eq("id", recordingId).maybeSingle();
+  if (existingRecording.error) throw new Error(`Canonical recording lookup failed: ${existingRecording.error.message}`);
+  const sealedAt = existingRecording.data?.sealed_at ?? now;
+  await requireSuccess(tongs.from("canonical_recordings").upsert({ id: recordingId, workspace_id: workspaceId, workpiece_id: hammerId, media_id: `fixture-media-${hammerId}`, media_path: mediaPath, media_signature: mediaSignature, media_content_type: "audio/wav", media_bytes: wav.byteLength, media_duration_ms: 30000, source_kind: "hammer_import", status: "sealed", sealed_at: sealedAt, baseline_transcript_path: transcriptPath, created_by: userId, updated_by: userId }), "Canonical recording");
   await requireSuccess(tongs.from("recording_revisions").upsert({ id: revisionId, workspace_id: workspaceId, workpiece_id: hammerId, canonical_recording_id: recordingId, status: "active", label: "Authenticated browser fixture", editor_session_path: editorPath, revision_transcript_path: transcriptPath, visual_timeline_path: timelinePath, history_path: historyPath, created_by: userId, updated_by: userId }), "Hammer revision");
   await requireSuccess(tongs.from("episodes").update({ canonical_recording_id: recordingId, active_revision_id: revisionId, updated_at: now }).eq("id", hammerId), "Hammer pointers");
   const { session } = authenticated;
@@ -242,8 +292,11 @@ export async function verifyBrowserFixtures(): Promise<BrowserFixtureManifest> {
   if (!fs.existsSync(config.manifestPath)) throw new Error("Browser fixture manifest is missing. Run browser:fixtures:provision.");
   const manifest = validateBrowserFixtureManifest(JSON.parse(fs.readFileSync(config.manifestPath, "utf8")), config.projectRef);
   const { client, session, user } = await signIn(config);
+  const admin = createClient(config.supabaseUrl, config.serviceKey, { auth: { persistSession: false, autoRefreshToken: false } });
   if (user.id !== manifest.user_id) throw new Error("Authenticated fixture user does not match the manifest.");
   const userTongs = client.schema("tongs");
+  const entitlement = await userTongs.from("account_balances").select("user_id,plan_item_id,plan_entitled").eq("user_id", user.id).maybeSingle();
+  if (entitlement.error || entitlement.data?.plan_item_id !== "creator" || entitlement.data.plan_entitled !== true) throw new Error("Fixture plan entitlement is missing or inaccessible through RLS.");
   const membership = await userTongs.from("workspace_members").select("workspace_id,role").eq("workspace_id", manifest.workspace_id).eq("user_id", user.id).maybeSingle();
   if (membership.error || !membership.data) throw new Error(`Fixture workspace is not reachable through normal RLS: ${membership.error?.message ?? "missing membership"}`);
   const episodes = await userTongs.from("episodes").select("id,workspace_id,canonical_recording_id,active_revision_id").in("id", [manifest.hearth_workpiece_id, ...manifest.ready_workpiece_ids, manifest.hammer_workpiece_id]);
@@ -254,8 +307,8 @@ export async function verifyBrowserFixtures(): Promise<BrowserFixtureManifest> {
   if (revision.error || !revision.data || revision.data.canonical_recording_id !== manifest.hammer_recording_id) throw new Error("Hammer fixture revision is missing or stale.");
   const transcriptRow = await userTongs.from("workpiece_files").select("storage_bucket,storage_key,hash_value").eq("workpiece_id", manifest.hammer_workpiece_id).eq("path", revision.data.revision_transcript_path!).maybeSingle();
   if (transcriptRow.error || !transcriptRow.data) throw new Error("Hammer fixture transcript registry is missing.");
-  const downloaded = await client.storage.from(transcriptRow.data.storage_bucket).download(transcriptRow.data.storage_key);
-  if (downloaded.error || !downloaded.data) throw new Error(`Hammer fixture transcript is not readable through storage policy: ${downloaded.error?.message ?? "missing object"}`);
+  const downloaded = await admin.storage.from(transcriptRow.data.storage_bucket).download(transcriptRow.data.storage_key);
+  if (downloaded.error || !downloaded.data) throw new Error(`Hammer fixture transcript object is missing from canonical storage: ${downloaded.error?.message ?? "missing object"}`);
   const transcriptBytes = Buffer.from(await downloaded.data.arrayBuffer()); const transcript = JSON.parse(transcriptBytes.toString("utf8"));
   if (!Array.isArray(transcript.segments) || transcript.segments.length < 6 || sha256(transcriptBytes) !== transcriptRow.data.hash_value) throw new Error("Hammer fixture transcript is malformed or hash-mismatched.");
   const canonical = await userTongs.from("canonical_recordings").select("id,media_path,media_duration_ms,status").eq("id", manifest.hammer_recording_id).eq("workpiece_id", manifest.hammer_workpiece_id).maybeSingle();
@@ -265,7 +318,7 @@ export async function verifyBrowserFixtures(): Promise<BrowserFixtureManifest> {
   if (requiredFiles.error || requiredFiles.data?.length !== requiredPaths.length || requiredFiles.data.some((row) => manifest.artifact_hashes[`${manifest.hammer_workpiece_id}:${row.path}`] !== row.hash_value)) throw new Error("Hammer editor, timeline, history, or media fixture authority is incomplete.");
   const verified = { ...manifest, verified_at: new Date().toISOString() };
   fs.writeFileSync(config.manifestPath, `${JSON.stringify(verified, null, 2)}\n`);
-  const receipt = sanitizeFixtureDiagnostic({ schema_version: BROWSER_FIXTURE_SCHEMA, project_ref: config.projectRef, fixture_namespace: BROWSER_FIXTURE_NAMESPACE, verified_at: verified.verified_at, user_id: user.id, workspace_id: manifest.workspace_id, workpiece_ids: [manifest.hearth_workpiece_id, ...manifest.ready_workpiece_ids, manifest.hammer_workpiece_id], checks: { authentication: true, membership_rls: true, episodes_rls: true, ready_candidates: 2, hammer_transcript_segments: transcript.segments.length, transcript_hash: transcriptRow.data.hash_value, canonical_recording: true, editor_session: true, visual_timeline: true, history: true }, session_expires_at: session.expires_at ?? null });
+  const receipt = sanitizeFixtureDiagnostic({ schema_version: BROWSER_FIXTURE_SCHEMA, project_ref: config.projectRef, fixture_namespace: BROWSER_FIXTURE_NAMESPACE, verified_at: verified.verified_at, user_id: user.id, workspace_id: manifest.workspace_id, workpiece_ids: [manifest.hearth_workpiece_id, ...manifest.ready_workpiece_ids, manifest.hammer_workpiece_id], checks: { authentication: true, membership_rls: true, plan_entitlement_rls: true, episodes_rls: true, ready_candidates: 2, hammer_transcript_segments: transcript.segments.length, transcript_hash: transcriptRow.data.hash_value, canonical_recording: true, editor_session: true, visual_timeline: true, history: true }, session_expires_at: session.expires_at ?? null });
   fs.mkdirSync(path.dirname(config.receiptPath), { recursive: true }); fs.writeFileSync(config.receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
   return verified;
 }

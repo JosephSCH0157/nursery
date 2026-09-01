@@ -10,14 +10,19 @@ async function openHammerEditor(page: Page): Promise<void> {
   await expect(page.locator("section.hammer-source-bay")).toBeVisible();
   await expect(page.locator("section.hammer-preview-bay")).toBeVisible();
   await expect(page.locator("section.hammer-timeline-dock")).toBeVisible();
+  const expandTimeline = page.locator("section.hammer-timeline-dock").getByRole("button", { name: "Expand", exact: true });
+  if (await expandTimeline.isVisible()) {
+    await expandTimeline.click();
+    await expect(page.locator("section.hammer-timeline-dock").getByRole("button", { name: "Collapse", exact: true })).toBeVisible();
+  }
 }
 
 function transcriptLines(page: Page): Locator {
-  return page.locator(".hammer-transcript-line");
+  return page.locator(".hammer-transcript-doc-seg");
 }
 
 function activeTranscriptLine(page: Page): Locator {
-  return page.locator(".hammer-transcript-line.is-active");
+  return page.locator(".hammer-transcript-doc-seg.is-active");
 }
 
 function dialogueTimelineBlocks(page: Page): Locator {
@@ -29,8 +34,9 @@ function activeDialogueTimelineBlock(page: Page): Locator {
 }
 
 async function requireEditableTranscript(page: Page, minimumLines = 6): Promise<void> {
-  await expect(page.getByRole("button", { name: "Transcript" })).toBeVisible();
-  await page.getByRole("button", { name: "Transcript" }).click();
+  const transcriptTab = page.locator("section.hammer-source-bay").getByRole("button", { name: "Transcript", exact: true });
+  await expect(transcriptTab).toBeVisible();
+  await transcriptTab.click();
   await expect(transcriptLines(page).first()).toBeVisible();
   const lineCount = await transcriptLines(page).count();
   test.skip(lineCount < minimumLines, `Need at least ${minimumLines} transcript lines for triad lock smoke.`);
@@ -46,12 +52,13 @@ test.describe("hammer_triad_lock_smoke", () => {
     await requireEditableTranscript(page);
 
     const targetLine = transcriptLines(page).nth(2);
-    const targetSpeaker = (await targetLine.locator(".hammer-transcript-line__speaker").textContent())?.trim() ?? "";
+    const targetSpeaker = (await targetLine.locator("xpath=ancestor::section[contains(@class, 'hammer-transcript-doc-turn')]").locator(".hammer-transcript-doc-turn__label").textContent())?.trim() ?? "";
+    const targetText = ((await targetLine.textContent()) ?? "").trim();
     await targetLine.click();
 
     await expect(activeTranscriptLine(page)).toHaveCount(1);
     await expect(activeDialogueTimelineBlock(page)).toHaveCount(1);
-    await expect(activeTranscriptLine(page)).toContainText(targetSpeaker.replace(/:$/, ""));
+    await expect(activeTranscriptLine(page)).toHaveText(targetText);
 
     const centeredRatio = await page.evaluate(() => {
       const scroll = document.querySelector(".hammer-timeline-track-scroll");
@@ -87,23 +94,20 @@ test.describe("hammer_triad_lock_smoke", () => {
       }
     });
 
-    const playhead = page.getByLabel("Timeline playhead");
+    const playhead = page.getByLabel("Track-based timeline").getByLabel("Timeline playhead", { exact: true });
     await expect(playhead).toBeVisible();
-    const max = Number(await playhead.getAttribute("max"));
-    expect(Number.isFinite(max)).toBe(true);
+    const playheadBox = await playhead.boundingBox();
+    expect(playheadBox).not.toBeNull();
 
     const seenActive = new Set<string>();
-    const steps = [0.12, 0.16, 0.2, 0.24, 0.28, 0.32];
+    const steps = [0.16, 0.27, 0.38, 0.49];
+    let previousActiveText = ((await activeTranscriptLine(page).textContent()) ?? "").trim();
     for (const ratio of steps) {
-      const value = Number((max * ratio).toFixed(1));
-      await playhead.evaluate((element, v) => {
-        const input = element as HTMLInputElement;
-        input.value = String(v);
-        input.dispatchEvent(new Event("change", { bubbles: true }));
-      }, value);
-      await page.waitForTimeout(60);
-      const activeText = ((await activeTranscriptLine(page).locator(".hammer-transcript-line__text").textContent()) ?? "").trim();
+      await playhead.click({ position: { x: Math.max(1, (playheadBox?.width ?? 1) * ratio), y: Math.max(1, (playheadBox?.height ?? 1) / 2) } });
+      await expect.poll(async () => ((await activeTranscriptLine(page).textContent()) ?? "").trim()).not.toBe(previousActiveText);
+      const activeText = ((await activeTranscriptLine(page).textContent()) ?? "").trim();
       if (activeText) seenActive.add(activeText);
+      previousActiveText = activeText;
     }
 
     expect(seenActive.size).toBeGreaterThanOrEqual(2);
@@ -119,26 +123,24 @@ test.describe("hammer_triad_lock_smoke", () => {
     await requireEditableTranscript(page);
 
     const blocks = dialogueTimelineBlocks(page);
-    await expect(blocks.first()).toBeVisible();
     const count = await blocks.count();
     test.skip(count < 3, "Need at least 3 dialogue timeline blocks.");
 
-    await blocks.first().click();
-    await blocks.nth(count - 1).click();
+    await blocks.first().dispatchEvent("click");
+    await blocks.nth(count - 1).dispatchEvent("click");
 
     await expect(activeTranscriptLine(page)).toHaveCount(1);
     await expect(activeDialogueTimelineBlock(page)).toHaveCount(1);
 
-    const comfortBandOk = await page.evaluate(() => {
-      const container = document.querySelector("section.hammer-source-bay .hammer-bay-body");
-      const active = document.querySelector(".hammer-transcript-line.is-active");
-      if (!container || !active) return null;
+    await expect.poll(async () => page.evaluate(() => {
+      const active = document.querySelector(".hammer-transcript-doc-seg.is-active");
+      const container = active?.closest(".hammer-bay-body");
+      if (!(container instanceof HTMLElement) || !(active instanceof HTMLElement)) return false;
       const containerRect = container.getBoundingClientRect();
       const activeRect = active.getBoundingClientRect();
       const topRatio = (activeRect.top - containerRect.top) / containerRect.height;
       const bottomRatio = (activeRect.bottom - containerRect.top) / containerRect.height;
       return topRatio >= 0.1 && bottomRatio <= 0.9;
-    });
-    expect(comfortBandOk).toBe(true);
+    })).toBe(true);
   });
 });

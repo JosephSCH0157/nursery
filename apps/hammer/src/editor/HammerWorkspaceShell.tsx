@@ -69,14 +69,13 @@ import {
   buildIntroOutroCandidateItemsById,
 } from "./hammerIntroOutroState";
 import {
-  activeMediaTimeToTransportTime,
   compositionTimeToTransportTime,
   isIntroOutroPackagingClip,
   resolvePackagingClipDurationSec,
   resolvePackagingTransport,
   shiftCompositionWindowToTransport,
-  transportTimeToActiveMediaTime,
 } from "./hammerPackagingTransport";
+import { useHammerShortMediaTimeMapping } from "./useHammerShortMediaTimeMapping";
 import {
   buildLinkedSelectionTranscriptSegmentIdSet,
   buildLinkedSelectionVisualIdSet,
@@ -137,6 +136,7 @@ import { useHammerWorkspaceShellTranscriptCleanup } from "./useHammerWorkspaceSh
 import { useHammerWorkspaceShellCleanupCandidateReview } from "./useHammerWorkspaceShellCleanupCandidateReview";
 import { useHammerWorkspaceShellRouting } from "./useHammerWorkspaceShellRouting";
 import { createHammerWorkspaceShellViewModelComposition } from "./useHammerWorkspaceShellViewModels";
+import { resolveHammerEffectiveVisualSelection } from "./hammerWorkspaceSelectionProjection";
 import { useHammerWorkspaceShellReleaseComparison, useHammerWorkspaceShellReleaseReadiness } from "./hammerWorkspaceShellReleaseStatus";
 import { createHammerWorkspaceVisualSelectionCommand } from "./hammerWorkspaceVisualSelectionCommand";
 import { deriveHammerSelectedVisualContext, isHammerSelectedBrollReferenceContext, isHammerSelectedImageContext } from "./hammerSelectedVisualContext";
@@ -206,12 +206,10 @@ import {
   type HammerPassSelectorResult,
 } from "./hammerPassSelectors";
 import { appendHammerAuthorityInstructionForHistory, captureHammerPostHistorySaveRequest, executeHammerCompositionHistoryMutation, normalizeHammerHistoryCompatibilityState } from "./hammerCompositionHistoryCommands";
-import HammerWorkspaceShellToolbar from "./HammerWorkspaceShellToolbar";
-import HammerWorkspaceShellPreviewBay from "./HammerWorkspaceShellPreviewBay";
-import HammerWorkspaceShellTimelineDock from "./HammerWorkspaceShellTimelineDock";
-import HammerWorkspaceShellSourceBay from "./HammerWorkspaceShellSourceBay";
+import HammerWorkspaceShellToolbar from "./HammerWorkspaceShellToolbar"; import HammerWorkspaceShellPreviewBay from "./HammerWorkspaceShellPreviewBay"; import HammerWorkspaceShellTimelineDock from "./HammerWorkspaceShellTimelineDock"; import HammerWorkspaceShellSourceBay from "./HammerWorkspaceShellSourceBay";
 import { HammerTimelineAutomaticPlacementStatus } from "./HammerTimelineAutomaticPlacementStatus";
 import HammerWorkspaceShellToolBay from "./HammerWorkspaceShellToolBay";
+import HammerShortsToolBay from "./HammerShortsToolBay"; import { buildHammerShortsToolBayAuthority } from "./hammerShortsToolBayAuthority";
 import HammerAcceptanceDiagnosticOutput from "./HammerAcceptanceDiagnosticOutput";
 import { projectHammerMountedCompositionClips } from "./hammerMountedCompositionProjection";
 import { assembleHammerToolBayRuntimeContexts } from "./hammerToolBayRuntimeContext";
@@ -286,6 +284,7 @@ const TIMELINE_ZOOM_LEVELS = [100, 125, 150, 200, 300] as const;
 type HammerWorkspaceShellProps = {
   launchContext?: HammerLaunchContext;
   canonicalMediaPath?: string | null;
+  canonicalTimingMap?: unknown | null;
   recordingRevisionId?: string | null;
   recordingRevisionHistoryPath?: string | null; recordingRevisionUpdatedAt?: string | null; canonicalRecordingId?: string | null; historyEpochComponentPaths?: import("../lib/hammerHistoryEpochApi").HammerHistoryComponentPaths; historyEpochPersistenceAuthority?: import("./hammerHistoryEpochPersistence").HammerHistoryEpochPersistenceAuthority;
   structuredTranscript?: HammerPersistedStructuredTranscript | null;
@@ -900,14 +899,12 @@ function HammerWorkspaceShellWithContext(
     };
   }, [activeTranscriptTargetRange, compositionOffsetSec]);
   const playheadSegment = resolvePlayheadSegment(editableTranscriptSegments, compositionPlayheadSec);
+  const activeTranscriptSegmentId = playheadSegment?.segment_id ?? selectedSegmentId;
   const playheadPrimaryVisualClip = useMemo(
     () => (compositionVisualTimeline ? selectPrimaryActiveClipAtTime(compositionVisualTimeline, compositionPlayheadSec) : null),
     [compositionPlayheadSec, compositionVisualTimeline],
   );
-  const playheadPrimaryClipId = playheadPrimaryVisualClip?.clip_id ?? null;
-  const effectiveSelectedClipId = (isPlaybackActive || isScrubbing)
-    ? (playheadPrimaryClipId ?? selectedClipId)
-    : selectedClipId;
+  const effectiveSelectedClipId = resolveHammerEffectiveVisualSelection({ transportActive: isPlaybackActive || isScrubbing, playheadClipId: playheadPrimaryVisualClip?.clip_id ?? null, selectedClipId });
   const timelineDurationSec = Math.max(packagingTransport.totalDurationSec, 1);
   const playbackTransportDurationSec = packagingTransport.totalDurationSec;
   const playbackTranscriptSegments = useMemo(
@@ -928,20 +925,7 @@ function HammerWorkspaceShellWithContext(
     : null;
   const effectivePreviewVideoSrc = activePackagingMediaPath ? activePackagingMediaSrc : previewVideoSrc;
   const effectivePlaybackMediaSrc = activePackagingMediaPath ? activePackagingMediaSrc : playbackMediaSrc;
-  const resolveActiveMediaTimeForTransportTime = useCallback(
-    (transportTimeSec: number) => transportTimeToActiveMediaTime({
-      transport: packagingTransport,
-      timeSec: transportTimeSec,
-    }),
-    [packagingTransport],
-  );
-  const resolveTransportTimeForActiveMediaTime = useCallback(
-    (mediaTimeSec: number) => activeMediaTimeToTransportTime({
-      transport: packagingTransport,
-      timeSec: mediaTimeSec,
-    }),
-    [packagingTransport],
-  );
+  const { resolveMediaTimeForTransportTime: resolveActiveMediaTimeForTransportTime, resolveTransportTimeForMediaTime: resolveTransportTimeForActiveMediaTime } = useHammerShortMediaTimeMapping(packagingTransport, props.canonicalTimingMap);
   const effectivePlaybackCutRegions = useMemo(
     () => getEffectiveCutRegions(editableAudioPolish?.audio_edit ?? null, transcriptDurationSec).map((region) => ({
       ...region,
@@ -1537,7 +1521,7 @@ function HammerWorkspaceShellWithContext(
   }, [selectedClipId, sourceVisualPlacementItems]);
   useEffect(() => {
     if (!import.meta.env.DEV) return;
-    const expectedClipId = playheadPrimaryClipId;
+    const expectedClipId = playheadPrimaryVisualClip?.clip_id ?? null;
     const renderedClipId = activePreviewOverlays.at(-1)?.clip_id ?? null;
     if (!expectedClipId) {
       if (renderedClipId) {
@@ -1565,7 +1549,7 @@ function HammerWorkspaceShellWithContext(
         playhead_sec: playheadSec,
       });
     }
-  }, [activePreviewOverlays, compositionPlayheadSec, compositionVisualTimeline, playheadPrimaryClipId]);
+  }, [activePreviewOverlays, compositionPlayheadSec, compositionVisualTimeline, playheadPrimaryVisualClip]);
   useEffect(() => {
     if (currentPass !== "image_placement") return;
     if (selectedClipId) return;
@@ -2491,8 +2475,8 @@ function HammerWorkspaceShellWithContext(
   }, [timelineDurationSec]);
 
   useEffect(() => {
-    if (!selectedSegmentId) return;
-    const selected = editableTranscriptSegments.find((segment) => segment.segment_id === selectedSegmentId);
+    if (!activeTranscriptSegmentId) return;
+    const selected = editableTranscriptSegments.find((segment) => segment.segment_id === activeTranscriptSegmentId);
     if (!selected) return;
 
     const origin = selectionOriginRef.current;
@@ -2503,7 +2487,7 @@ function HammerWorkspaceShellWithContext(
     }
 
     selectionRevealFrameRef.current = window.requestAnimationFrame(() => {
-      const line = transcriptLineRefs.current.get(selectedSegmentId) ?? null;
+      const line = transcriptLineRefs.current.get(activeTranscriptSegmentId) ?? null;
       if (line) {
         const parentScroll = line.closest(".hammer-bay-body");
         if (parentScroll instanceof HTMLElement) {
@@ -2548,7 +2532,7 @@ function HammerWorkspaceShellWithContext(
         selectionRevealFrameRef.current = null;
       }
     };
-  }, [compositionOffsetSec, editableTranscriptSegments, selectedSegmentId, timelineDurationSec]);
+  }, [activeTranscriptSegmentId, compositionOffsetSec, editableTranscriptSegments, timelineDurationSec]);
 
   const previousPlacementBoundaryRef = useRef<{
     selectedClipId: string | null;
@@ -3158,6 +3142,7 @@ function HammerWorkspaceShellWithContext(
     editableTranscriptSegments,
     selectedSegment,
     selectedSegmentId,
+    activeTranscriptSegmentId,
     linkedSelection,
     linkedTranscriptSegmentIdSet,
     linkedVisualIdSet,
@@ -3856,6 +3841,8 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
     createFallbackEditPlan,
   });
 
+  const shortsAuthority = buildHammerShortsToolBayAuthority({ workspaceId: launchContext.workspace_id, workpieceId: launchContext.workpiece_id, parentLabel: canonicalWorkpieceLabel, canonicalRecordingId: props.canonicalRecordingId, recordingRevisionId: props.recordingRevisionId, historyState: (props.historyEpochPersistenceAuthority ?? defaultHistoryEpochPersistence)?.getState() ?? null, historyEpochPending, editorState: historyController?.getState() ?? null, structuredTranscript: workspaceStructuredTranscript, transcriptSegments: editableTranscriptSegments, sourceMode: launchContext.source_mode, sessionId: launchContext.session_id ?? `${launchContext.workpiece_id}:shorts`, previewMode, transcriptSourceId, mediaRef, workspaceMapping, mediaSourceLabel, visualPreview: { white_balance: visualWhiteBalance, color_amount: visualColorAmount, background_blur: visualBackgroundBlur, eye_contact_assist_enabled: visualEyeContactAssistEnabled, eye_contact_assist_strength: visualEyeContactAssistStrength, background_blur_px: visualBackgroundBlurPx, background_blur_feather_px: visualBackgroundBlurFeatherPx, background_blur_temporal_smoothing: visualBackgroundBlurTemporalSmoothing, background_blur_subject_expansion_px: visualBackgroundBlurSubjectExpansionPx, background_blur_quality_mode: visualBackgroundBlurQualityMode, background_blur_fallback_mode: visualBackgroundBlurFallbackMode, background_blur_provider: visualBackgroundBlurProviderId, background_replace_enabled: visualBackgroundReplaceEnabled, background_replace_mode: visualBackgroundReplaceMode, background_replace_color: visualBackgroundReplaceColor, background_replace_image_url: visualBackgroundReplaceImageUrl, background_replace_image_asset_path: visualBackgroundReplaceImageAssetPath, background_replace_image_asset_id: visualBackgroundReplaceImageAssetId, background_replace_image_asset_type: visualBackgroundReplaceImageAssetPath ? "image" : null, background_wash_enabled: visualBackgroundWashEnabled, background_wash_dim_amount: visualBackgroundWashDimAmount, background_wash_desaturate_amount: visualBackgroundWashDesaturateAmount }, visualTimeline: editableVisualTimeline, visualPlacements: editableVisualPlacements, audioPolish: editableAudioPolish, studioRack: editableStudioRack });
+
   const toolBayRuntimeContexts = assembleHammerToolBayRuntimeContexts({ audioFinalizationData: { compareMode: audioFinalizationCompareMode, voicePolish }, audioAdjustmentsData: { editableAudioPolish, persistedAudioCutCount, effectivePlaybackCutRegions, silenceSuggestionCount, editableStudioRack, studioRackPlaybackConfig, studioRackPlaybackBackendResolution, studioRackRenderConfig, studioRackRenderBackendResolution, studioRackRenderStatus, studioRackRenderAppliedModules, studioRackRenderDeferredModules, studioRackEnabledModuleCount, studioRackComparePreviewStatusLabel, studioRackOpen, podcastMasterLayer, podcastMasterUiStatus, audioLevelingEnabled, audioNoiseReductionEnabled }, captionsData: { activeCaptionArtifactText, activeCaptionMode, activeCaptionState, captionActiveModeLabel, captionActiveModeSourceLabel, captionArtifactStatusLabel, captionBuildFeedback, captionBuildFreshness, captionBuildState, captionBuiltSummary, captionBuiltTone, captionDiscardConsequenceLabel, captionEditedBasisDetail, captionEditedChangeSummary, captionEditedState, captionEditedSummary, captionEditedTone, captionEditorRefs, captionFormatting, captionRebuildConsequenceLabel, captionReleasePrepSafetyDetail, captionReleasePrepSafetyLabel, captionReleasePrepSafetyState, captionReleaseSourceLabel, captionSourceLabel, selectedCaptionArtifactFormat }, metadataData: { detailTag }, transcriptReviewData: { activeReviewKind, fillerCandidateCards, fillerActiveCandidateIndex, fillerDecisionInFlight, retakeCandidateCards, retakeActiveCandidateIndex, retakeDecisionInFlight, candidateReceiptByKind, candidateProposedRemovalById, activeFillerCandidateCard, activeRetakeCandidateCard, hasSilenceSuggestionAnalysis, silenceCutSuggestions, visibleSilenceCutSuggestions, deadAirThresholdSec, deadAirAnalysis, deadAirApplyInFlight, fillerCleanupOptions, retakeCleanupOptions, silenceSuggestionCount, activeFillerCandidateDiffOps, selectedTranscriptRange }, transcriptPolishData: { gapCleanupOptions, fillerCleanupOptions, retakeCleanupOptions, speakerSoloOptions, speakerInterviewOptions, speakerMonologueOptions, speakerPanelOptions, cleanupPreview, cleanupPreviewSummary, cleanupReceipt, editableTranscriptSegments, speakerOptions, hasTranscriptSelection, transcriptSelectionRange, polishStrength }, packagingData: { selectedIntroPath: introOutroSelectedIntroPath, selectedOutroPath: introOutroSelectedOutroPath, selectedIntroAssetId: introOutroSelection.intro_asset_id, selectedOutroAssetId: introOutroSelection.outro_asset_id, introPlaced: Boolean(packagingIntroPlacement), outroPlaced: Boolean(packagingOutroPlacement), logoAssetPath: packagingLogoAssetPath, logoPlaced: Boolean(packagingLogoPlacement), logoPosition: packagingLogoPosition, logoSize: packagingLogoSize, sourceImageLibraryItems, logoPositionOptions: LOGO_POSITION_OPTIONS, logoSizeOptions: LOGO_SIZE_OPTIONS, introEntryId: PACKAGING_INTRO_ENTRY_ID, outroEntryId: PACKAGING_OUTRO_ENTRY_ID }, finishingData: { checklist: finishingChecklist }, imageInspectorData: isHammerSelectedImageContext(selectedVisualContext) && imageInspectorPlacement && selectedVisualClip ? { selectedVisual: selectedVisualContext, placementId: selectedVisualContext.placementId, placement: imageInspectorPlacement, transform: selectedImagePlacementTransform, selectedClip: selectedVisualClip, selectedAnchorSegment: selectedVisualAnchorSegment, selectedAnchorSegmentId: selectedVisualAnchorSegmentId, anchorTextDraft, anchorLabelDraft, autoPlacementDebugEnabled, selectedAutoPreviewActive, previewAutoPositionStatus, previewDiagnostics: previewDiagnosticsSummary, episodeHealth: episodeHealthSnapshot } : null, visualPolishData: { activeExposureAdjustment, activeLookPreset, backgroundBlurProviderDescriptor, segmentationProviderDescriptors: SEGMENTATION_PROVIDER_DESCRIPTORS, sourceImageLibraryItems, selectedBackgroundReplacementAssetId, uploadingCategory, visualBackgroundBlur, visualBackgroundBlurDebugMask, visualBackgroundMaskPreviewMode, visualBackgroundMaskPreviewStage, visualBackgroundBlurFallbackMode, visualBackgroundBlurFeatherPx, visualBackgroundBlurSubjectExpansionPx, visualBackgroundBlurPx, visualBackgroundBlurQualityMode, visualBackgroundBlurRuntimeStatus, visualBackgroundBlurStatusSummary, visualBackgroundBlurTemporalSmoothing, visualBackgroundReplaceColor, visualBackgroundReplaceEnabled, visualBackgroundReplaceImageAssetPath, visualBackgroundReplaceImageAssetId, visualBackgroundReplaceImageUrl, visualBackgroundReplaceMode, visualBackgroundWashDesaturateAmount, visualBackgroundWashDimAmount, visualBackgroundWashEnabled, visualColorAmount, visualEyeContactAssistDebugOverlay, visualEyeContactAssistEnabled, visualEyeContactAssistRuntimeStatus, visualEyeContactAssistStatusSummary, visualEyeContactAssistStrength, visualWhiteBalance }, brollReferenceData: isHammerSelectedBrollReferenceContext(selectedVisualContext) && imageInspectorPlacement && selectedVisualClip ? { selectedVisual: selectedVisualContext, placementId: selectedVisualContext.placementId, placement: { id: imageInspectorPlacement.id, kind: selectedVisualContext.kind, label: imageInspectorPlacement.label, startSec: imageInspectorPlacement.startSec, endSec: imageInspectorPlacement.endSec }, selectedClip: selectedVisualClip, placedVisualCount: editableVisualPlacements?.placements.length ?? 0, resolvedBrollBindingItems, unresolvedBrollSuggestionItems, boundAttentionQueue, boundAttentionSummary, selectedBoundBrollInspectorState, selectedBoundBrollOperationId, selectedTransitionBoundObject, sourceBrollItems, videoSnapMode } : null, selectedVisualContext, visualPolishCommands: { applyLookPresetSelection, applyExposureAdjustment, commitBackgroundEffect, setVisualBackgroundBlur, setVisualBackgroundBlurDebugMask, setVisualBackgroundMaskPreviewMode, setVisualBackgroundMaskPreviewStage, setVisualBackgroundBlurFallbackMode, setVisualBackgroundBlurFeatherPx, setVisualBackgroundBlurSubjectExpansionPx, setVisualBackgroundBlurProviderId, setVisualBackgroundBlurPx, setVisualBackgroundBlurQualityMode, setVisualBackgroundBlurRuntimeStatus, setVisualBackgroundBlurTemporalSmoothing, setVisualBackgroundReplaceColor, setVisualBackgroundReplaceEnabled, setVisualBackgroundReplaceImageAssetPath, setVisualBackgroundReplaceImageAssetId, setVisualBackgroundReplaceImageUrl, setVisualBackgroundReplaceMode, setVisualBackgroundWashDesaturateAmount, setVisualBackgroundWashDimAmount, setVisualBackgroundWashEnabled, setVisualColorAmount, setVisualEyeContactAssistDebugOverlay, setVisualEyeContactAssistEnabled, setVisualEyeContactAssistRuntimeStatus, setVisualEyeContactAssistStrength, setVisualWhiteBalance, setFocusOverride, handleSourceDeskUpload }, imageInspectorCommands: { focus: setFocusOverride, previewAutoPosition, resetPreviewAutoPosition, setAnchorTextDraft, setAnchorLabelDraft, commitAnchor: commitVisualAnchorRefinement, commitTiming: commitVisualPlacementWindow, shiftTiming: updateVisualPlacementTiming, removePlacement: removeVisualPlacementWithDiagnostics, updateTransformDraft: updateImagePlacementTransform, commitTransform: commitImagePlacementTransform }, brollCommands: { removePlacement: removeVisualPlacementWithDiagnostics, addMinimalTransition, navigateBoundAttention, focusBoundAttentionOperation, moveResolvedBrollBinding, trimResolvedBrollBinding, replaceResolvedBrollBinding, revertResolvedBrollBinding, resolveHearthBrollSuggestion, discardHearthBrollSuggestion, setTranscriptTimingHint, setVideoSnapMode, setFocusOverride }, referenceClipCommands: { removePlacement: removeVisualPlacementWithDiagnostics, addMinimalTransition, navigateBoundAttention, focusBoundAttentionOperation, moveResolvedBrollBinding, trimResolvedBrollBinding, replaceResolvedBrollBinding, revertResolvedBrollBinding, resolveHearthBrollSuggestion, discardHearthBrollSuggestion, setTranscriptTimingHint, setVideoSnapMode, setFocusOverride }, audioFinalizationCommands: { setVoiceCleanupEnabled, setVoiceFixEnabled: setVoicePolishFixEnabled, applyVoicePreset: applyVoicePolishPreset, setCompareMode: setAudioFinalizationCompare, setDeEsserStrength: setVoicePolishDeEsserStrength, setEqProfile: setVoicePolishEqProfile }, audioAdjustmentCommands: { focusTool: () => setFocusOverride("tool-focus"), applyPodcastMaster: applyPodcastMasterPass, toggleRack: () => setStudioRackOpen((current) => !current), setRackEnabled: setStudioRackEnabled, setRackBypassed: setStudioRackBypassed, setRackBackend: setStudioRackBackend, setModuleEnabled: setStudioRackModuleEnabled, setModuleBypassed: setStudioRackModuleBypassed, applyRackMutation: applyStudioRackMutation, setLevelingEnabled: setAudioLevelingEnabled, setNoiseReductionEnabled: setAudioNoiseReductionEnabled }, captionCommands: { focusTool: () => setFocusOverride("tool-focus"), buildCaptions: handleRebuildCaptionArtifacts, enableEdits: handleEnableCaptionEdits, selectMode: setActiveCaptionArtifactMode, discardEdits: handleDiscardEditedCaptions, updateFormatting: setCaptionFormatting, selectArtifactFormat: setSelectedCaptionArtifactFormat, editCaption: handleEditCaptionChunkText, splitCaption: handleSplitEditedCaptionChunk, mergeCaption: handleMergeEditedCaptionChunk, normalizePunctuation: handleNormalizeEditedCaptionChunkPunctuation, toggleSpeakerLabel: handleToggleEditedCaptionChunkSpeakerLabel }, metadataCommands: { focusTool: () => setFocusOverride("tool-focus"), setTag: setDetailTag }, transcriptReviewCommands: { setActiveReviewKind, updateCandidateProposedRemoval, handleCandidateDecision, acceptSilenceCutSuggestion, dismissSilenceCutSuggestion, setDeadAirThresholdSec, analyzeDeadAirClosure, applyDeadAirClosureBatch, setFillerCleanupOptions, setRetakeCleanupOptions, setFocusOverride, setActiveTranscriptToolSection, refreshCleanupCandidateQueue, seekPlayheadToTime }, transcriptPolishCommands: { setGapCleanupOptions, setFillerCleanupOptions, setRetakeCleanupOptions, setSpeakerSoloOptions, setSpeakerInterviewOptions, setSpeakerMonologueOptions, setSpeakerPanelOptions, setCleanupPreview, applyCleanup, previewQuickClean, previewRemoveFillers, previewRemoveRetakes, previewShortenGaps, previewSpeakerInterview, previewSpeakerMonologue, previewSpeakerPanel, previewSpeakerSolo, setFocusOverride, setPolishStrength }, packagingCommands: { focusTool: () => setFocusOverride("tool-focus"), applyIntro: applyIntroPlacement, applyOutro: applyOutroPlacement, removePlacement: removePackagingPlacementWithDiagnostics, updateLogoStyle: applyLogoOverlayStyle, toggleLogo: toggleLogoOverlay }, finishingCommands: { focusTool: () => setFocusOverride("tool-focus"), setReviewFlag: (flag: "transcript" | "visual" | "audio", complete: boolean) => setFinishingChecklist((current) => flag === "transcript" ? { ...current, transcriptReviewed: complete } : flag === "visual" ? { ...current, visualsReviewed: complete } : { ...current, audioReviewed: complete }) }, route: toolBayRouteDecision, passLabel: currentPassMeta.label, passStatus: currentPassSelectorResult.status, markPassComplete: markCurrentPassComplete, readinessData: { summaryAreas: readySummaryAreas, readinessLabel: readinessStatusLabel, blockerCount: readinessVerdict.counts.blocking, reviewCount: readinessVerdict.counts.review, exportStatusLabel, sending: releasePrepSaving, loading: releasePrepLoading, blocked: readinessVerdict.status === "blocked", sendLabel: sendToQuenchButtonLabel, handoffStatus: quenchHandoffStatus }, exportData: { handoffAvailable: Boolean(releasePrepOpenHref), openHref: releasePrepOpenHref, exportStatusLabel, readinessLabel: readinessStatusLabel, readinessStatus: readinessVerdict.status, blockerCount: readinessVerdict.counts.blocking, reviewCount: readinessVerdict.counts.review, outputSelectionSummary, previewTruthPosture, exportTruthPosture, handoffTruthPosture, unresolvedBrollCount: unresolvedBrollSuggestionItems.length, blockingReasons: readinessVerdict.blockingReasons, reviewReasons: readinessVerdict.reviewReasons, captionSafetyState: captionReleasePrepSafetyState, captionSafetyLabel: captionReleasePrepSafetyLabel, captionSummaryLine: captionReleasePrepSummaryLine, captionSourceLabel, captionSafetyDetail: captionReleasePrepSafetyDetail, renderStatus: studioRackRenderStatus ? { message: studioRackRenderStatus.message, requestedBackend: studioRackRenderStatus.requestedBackend, resolvedBackend: studioRackRenderStatus.resolvedBackend, status: studioRackRenderStatus.status, outputWorkpiecePath: studioRackRenderStatus.outputWorkpiecePath ?? null, appliedModules: studioRackRenderAppliedModules, deferredModules: studioRackRenderDeferredModules } : null, loading: releasePrepLoading, sending: releasePrepSaving, sendLabel: sendToQuenchButtonLabel, preparedPackage: loadedPreparedPackage?.preparedAt ? { preparedAt: loadedPreparedPackage.preparedAt, overallStatus: loadedPreparedPackage.overallStatus, subtitleArtifactCount: 0, transcriptFingerprint: loadedPreparedPackage.transcript.fingerprint ?? null } : null, exportTruthState, staleReasons: releasePrepStaleReasons, handoffStatus: quenchHandoffStatus, savedPackage: releasePrepSaved ? { preparedAt: releasePrepSaved.preparedAt, overallStatus: releasePrepSaved.overallStatus, subtitleArtifactCount: releasePrepSaved.subtitleArtifactCount, transcriptFingerprint: null } : null, error: releasePrepError }, focusIssue: focusReadinessIssue, sendToQuench: handleSendToQuench, }); return (
     <section
       ref={workspaceShellRef}
@@ -3889,7 +3876,7 @@ const readinessStatusLabel = readinessVerdict.status === "ready"
           <section className="hammer-tool-bay">
             {editorMode === "images" ? <HammerTimelineAutomaticPlacementStatus progress={timelineAutomaticPlacement.progress} entries={timelineAutomaticPlacement.entries}
               eligibleBatchCount={automaticPlacementBatch.eligibleCount} onApplyAll={automaticPlacementBatch.applyAll} resultSummary={automaticPlacementBatch.resultSummary} /> : null}
-            <HammerWorkspaceShellToolBay contexts={toolBayRuntimeContexts} />
+            <HammerWorkspaceShellToolBay contexts={toolBayRuntimeContexts} shortsSurface={currentPass === "shorts" ? <HammerShortsToolBay authority={shortsAuthority} onPreview={(startSec, endSec) => { const start = compositionTimeToTransportTime(startSec, compositionOffsetSec); const end = compositionTimeToTransportTime(endSec, compositionOffsetSec); setPlaybackWindow({ mode: "roll", startSec: start, endSec: end, label: "Short candidate" }); seekTransportPlayheadToTime(start, "playhead", { snapToBoundary: false }); setIsPlaybackActive(true); setFocusOverride("time-focus"); }} /> : null} />
           </section>
         </div>
         <section className="hammer-timeline-dock">

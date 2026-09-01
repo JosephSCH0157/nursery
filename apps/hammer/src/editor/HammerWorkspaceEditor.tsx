@@ -520,7 +520,7 @@ export default function HammerWorkspaceEditor(
   const [effectiveLaunchContext, setEffectiveLaunchContext] = useState<HammerLaunchContext | undefined>(
     () => incomingLaunchContext,
   );
-  const [loadedPersistenceSnapshot, setLoadedPersistenceSnapshot] = useState<HammerPersistenceSnapshot | null>(null);
+  const [loadedPersistenceSnapshot, setLoadedPersistenceSnapshot] = useState<HammerPersistenceSnapshot | null>(null); const [canonicalTimingBaseline, setCanonicalTimingBaseline] = useState<unknown | null>(null);
   const [activeCanonicalRecording, setActiveCanonicalRecording] = useState<HammerCanonicalRecordingRecord | null>(null);
   const [activeRevision, setActiveRevision] = useState<HammerRecordingRevisionRecord | null>(null);
   const effectiveLaunchContextRef = useRef<HammerLaunchContext | undefined>(incomingLaunchContext);
@@ -1395,7 +1395,7 @@ export default function HammerWorkspaceEditor(
     setWorkspaceSnapshot(null);
     setLoadedPersistenceSnapshot(null);
     setTranscriptDiscoveryStatus(persistenceMode === "canonical" ? "pending" : "complete");
-    setActiveCanonicalRecording(null);
+    setActiveCanonicalRecording(null); setCanonicalTimingBaseline(null);
     setActiveRevision(null);
     setPrepTranscriptJobId(null);
     setRegenAiTranscriptJobId(null);
@@ -1553,6 +1553,7 @@ export default function HammerWorkspaceEditor(
             loadHammerRecordingRevisionArtifacts(sessionResult.data.revision),
             loadHammerPersistenceSnapshot(persistenceTarget),
           ]);
+          setCanonicalTimingBaseline(baselineResult.ok ? baselineResult.data.timing_baseline : null);
           if (!revisionArtifactsResult.ok) {
             return {
               reloadOutcome: "failure",
@@ -3189,6 +3190,7 @@ export default function HammerWorkspaceEditor(
               loadHammerCanonicalBaselineArtifacts(canonicalAfterSeal),
               currentRevision ? loadHammerRecordingRevisionArtifacts(currentRevision) : Promise.resolve({ ok: true as const, status: 200, data: null as any }),
             ]);
+            setCanonicalTimingBaseline(baselineResult.ok ? baselineResult.data.timing_baseline : null);
             hydrateSpan.end({
               baseline_ok: baselineResult.ok,
               baseline_status: baselineResult.status,
@@ -5217,6 +5219,7 @@ export default function HammerWorkspaceEditor(
           <HammerWorkspaceShell
             launchContext={effectiveLaunchContext}
             canonicalMediaPath={activeCanonicalRecording?.media_path ?? null}
+            canonicalTimingMap={canonicalTimingBaseline}
             recordingRevisionId={activeRevision?.id ?? null}
             recordingRevisionHistoryPath={activeRevision?.history_path ?? null}
             recordingRevisionUpdatedAt={activeRevision?.updated_at ?? null} canonicalRecordingId={activeRevision?.canonical_recording_id ?? null}

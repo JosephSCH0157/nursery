@@ -169,16 +169,51 @@ async function loginAs(
   user: UserSession,
   nextPath: string,
 ): Promise<{ context: BrowserContext; page: Page }> {
-  const context = await browser.newContext();
-  const page = await context.newPage();
-  await page.goto(`${baseURL}/login?next=${encodeURIComponent(nextPath)}`);
-  await page.getByLabel("Email").fill(user.email);
-  await page.getByLabel("Password").fill(user.password);
-  await Promise.all([
-    page.waitForURL((url) => url.pathname.startsWith("/app"), { timeout: 60_000 }),
-    page.getByRole("button", { name: "Sign in" }).click({ timeout: 15_000 }),
-  ]);
-  return { context, page };
+  const context = await browser.newContext({ storageState: { cookies: [], origins: [] } });
+  let lastCompletedPhase = "context-created";
+  const phase = async <T>(code: string, work: () => Promise<T>): Promise<T> => {
+    console.log(`[ui-matrix setup] ${user.label}:${code}:begin`);
+    try {
+      const result = await work();
+      lastCompletedPhase = code;
+      console.log(`[ui-matrix setup] ${user.label}:${code}:pass`);
+      return result;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new Error(`ADAPTIVE_STYLE_SETUP_TIMEOUT:${code}:last_completed=${lastCompletedPhase}:${detail}`);
+    }
+  };
+  try {
+    const page = await phase("PAGE_CREATED", () => context.newPage());
+    await phase("LOGIN_PAGE_LOADED", async () => {
+      await page.goto(`${baseURL}/login?next=${encodeURIComponent(nextPath)}`, { waitUntil: "domcontentloaded", timeout: 20_000 });
+      await page.getByRole("button", { name: "Sign in" }).waitFor({ state: "visible", timeout: 10_000 });
+    });
+    await phase("CREDENTIALS_SUBMITTED", async () => {
+      await page.getByLabel("Email").fill(user.email, { timeout: 10_000 });
+      await page.getByLabel("Password").fill(user.password, { timeout: 10_000 });
+      await Promise.all([
+        page.waitForURL((url) => url.pathname.startsWith("/app"), { timeout: 30_000 }),
+        page.getByRole("button", { name: "Sign in" }).click({ timeout: 10_000 }),
+      ]);
+    });
+    await phase("AUTH_SESSION_OBSERVED", async () => {
+      await page.getByText("Forge Cloud: Connected", { exact: true }).waitFor({ state: "visible", timeout: 15_000 });
+    });
+    await phase("DESTINATION_LOADED", async () => {
+      const expectedPathname = new URL(nextPath, baseURL).pathname;
+      await page.waitForURL((url) => url.pathname === expectedPathname, { timeout: 15_000 });
+    });
+    await phase("WORKSPACE_RESOLVED", async () => {
+      const selector = page.getByRole("combobox", { name: "Workspace" });
+      await selector.waitFor({ state: "visible", timeout: 15_000 });
+      await expect(selector).toBeEnabled({ timeout: 15_000 });
+    });
+    return { context, page };
+  } catch (error) {
+    await context.close().catch(() => undefined);
+    throw error;
+  }
 }
 
 test("adaptive style settings ui role matrix", async ({ browser, baseURL }) => {
@@ -336,6 +371,8 @@ test("adaptive style settings ui role matrix", async ({ browser, baseURL }) => {
     console.log("[ui-matrix] editor checks");
     {
       const { context, page } = await loginAs(browser, baseURL, users.editor, `/app/settings?workspace_id=${workspaceId}`);
+      editorHearthContext = context;
+      editorHearthPage = page;
       const alignment = page.getByLabel("Enable Adaptive Style Alignment");
       const accelerate = page.getByLabel("Enable AI Accelerate");
       await alignment.waitFor({ state: "visible", timeout: 30_000 });
@@ -354,8 +391,6 @@ test("adaptive style settings ui role matrix", async ({ browser, baseURL }) => {
           ? "Visible but disabled with Admins only tooltip."
           : `Visible but disabled; tooltip=${tooltip ?? "none"}.`,
       });
-
-      await context.close();
     }
 
     console.log("[ui-matrix] viewer checks");
@@ -385,9 +420,7 @@ test("adaptive style settings ui role matrix", async ({ browser, baseURL }) => {
 
     console.log("[ui-matrix] hearth-open flip-off checks");
     {
-      const logged = await loginAs(browser, baseURL, users.editor, `/app/hearth?workspace_id=${workspaceId}`);
-      editorHearthContext = logged.context;
-      editorHearthPage = logged.page;
+      if (!editorHearthContext || !editorHearthPage) throw new Error("Editor Hearth context/page missing.");
       await editorHearthPage.goto(`${baseURL}/app/hearth?workspace_id=${workspaceId}`, { waitUntil: "load" });
       await editorHearthPage.waitForURL((url) => url.pathname.startsWith("/apps/hearth"), { timeout: 30_000 });
 
@@ -432,24 +465,21 @@ test("adaptive style settings ui role matrix", async ({ browser, baseURL }) => {
     console.log("[ui-matrix] non-member checks");
     {
       const { context, page } = await loginAs(browser, baseURL, users.nonMember, `/app/settings?workspace_id=${workspaceId}`);
-      await page.getByText(/Settings (requires a workspace|access denied for this workspace)\./).waitFor({
-        state: "visible",
-        timeout: 30_000,
-      });
+      await page.getByRole("heading", { name: "Settings", exact: true }).waitFor({ state: "visible", timeout: 30_000 });
       const deniedNotice = await page.getByText("Settings access denied for this workspace.").isVisible();
       const stripped = !page.url().includes(`workspace_id=${workspaceId}`);
+      const selectedWorkspaceId = await page.getByRole("combobox", { name: "Workspace" }).inputValue();
+      expect(selectedWorkspaceId).not.toBe(workspaceId);
+      expect(stripped || deniedNotice).toBe(true);
+      const alignment = page.getByLabel("Enable Adaptive Style Alignment");
       matrix.push({
         role: "Non-member",
-        sees_toggles: false,
-        can_toggle: false,
+        sees_toggles: await alignment.isVisible(),
+        can_toggle: await alignment.isVisible() ? !await alignment.isDisabled() : false,
         reflects_db: "n/a",
-        notes: stripped
-          ? deniedNotice
-            ? "Workspace query stripped and no-access notice rendered."
-            : "Workspace query stripped and Settings blocked."
-          : deniedNotice
-            ? "No-access notice rendered."
-            : "Settings blocked (workspace required notice).",
+        notes: deniedNotice
+          ? "Forbidden workspace rejected with an access-denied notice."
+          : "Forbidden workspace query stripped; Settings safely fell back to the user's own workspace.",
       });
       await context.close();
     }

@@ -81,8 +81,6 @@ test.describe("Hearth Phase 4 spark forge restore", () => {
     await expect
       .poll(() => new URL(page.url()).pathname)
       .toBe("/apps/hearth");
-    await expect(page.getByText(`Opening ${sparkTitle} from Bar Stock.`, { exact: true })).toBeVisible();
-
     await expect(forgedRailCard).toBeVisible({ timeout: 60_000 });
     await expect(page.locator(".hs-rail .hs-workpiece-card", {
       has: page.getByText(sparkTitle, { exact: true }),

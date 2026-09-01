@@ -2116,7 +2116,7 @@ test("TongsCommitService.readHammerWorkpieceState normalizes malformed orchestra
   assert.equal(result.state?.prep_status, "idle");
   assert.equal(result.state?.alignment_status, "not_started");
   assert.equal(result.state?.current_pass, "transcript_cleanup");
-  assert.equal(result.state?.pass_order_version, 2);
+  assert.equal(result.state?.pass_order_version, 3);
   assert.equal(result.state?.pass_status.transcript_cleanup, "in_progress");
   assert.equal(result.state?.pass_status.retakes, "completed");
   assert.equal(result.state?.pass_status.ready, "not_started");
@@ -2207,7 +2207,7 @@ test("TongsCommitService.saveHammerWorkpieceState normalizes malformed stored or
   assert.equal(upserts[0]?.prep_status, "idle");
   assert.equal(upserts[0]?.alignment_status, "not_started");
   assert.equal(upserts[0]?.current_pass, "transcript_cleanup");
-  assert.equal(upserts[0]?.pass_order_version, 2);
+  assert.equal(upserts[0]?.pass_order_version, 3);
   assert.equal(upserts[0]?.pass_status.transcript_cleanup, "in_progress");
   assert.equal(upserts[0]?.pass_status.retakes, "completed");
   assert.equal(upserts[0]?.pass_status.ready, "not_started");
@@ -7543,7 +7543,7 @@ test("TongsCommitService.getWorkpieceVisualPackage returns Hammer-ready ordering
   assert.equal(result.visuals[3]?.broll_evidence?.prompt_revision_id, "broll-prompt-1");
 });
 
-test("TongsCommitService.saveWorkpieceImageMap writes metadata, asset file, and refreshes the current image-map asset row", async () => {
+test("TongsCommitService.saveWorkpieceImageMap writes metadata and reuses matching immutable image-map evidence", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const workpieceId = "11111111-1111-4111-8111-111111111111";
   const editorId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
@@ -7745,17 +7745,13 @@ test("TongsCommitService.saveWorkpieceImageMap writes metadata, asset file, and 
   assert.equal(commitCalls[1]?.input.json?.spoken_beats?.[0]?.cue_phrase, "Open with the skyline");
   assert.equal(commitCalls[1]?.input.json?.schema, "forge.image-map.v1");
   assert.equal(commitCalls[1]?.input.json?.workpiece_id, workpieceId);
-  assert.equal(state.updateCalls.length, 1);
-  assert.equal(state.updateCalls[0]?.id, "asset-old");
-  assert.equal(state.updateCalls[0]?.patch?.status, "ready");
-  assert.equal(state.updateCalls[0]?.patch?.request_id, "corr-123");
-  assert.equal(state.updateCalls[0]?.patch?.storage_key, `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`);
+  assert.equal(state.updateCalls.length, 0);
   assert.equal(state.insertCalls.length, 0);
   assert.equal(result.image_map.metadata_updated_at, "2026-03-10T16:05:00.000Z");
   assert.equal(result.asset?.supersedes_asset_id, null);
 });
 
-test("TongsCommitService.saveWorkpieceImageMap recovers a superseded image-map asset when no ready row exists", async () => {
+test("TongsCommitService.saveWorkpieceImageMap reactivates matching immutable evidence without rewriting it", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const workpieceId = "11111111-1111-4111-8111-111111111111";
   const editorId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
@@ -7898,7 +7894,8 @@ test("TongsCommitService.saveWorkpieceImageMap recovers a superseded image-map a
   assert.equal(state.updateCalls.length, 1);
   assert.equal(state.updateCalls[0]?.id, "asset-superseded");
   assert.equal(state.updateCalls[0]?.patch?.status, "ready");
-  assert.equal(state.updateCalls[0]?.patch?.request_id, "corr-456");
+  assert.equal(state.updateCalls[0]?.patch?.status, "ready");
+  assert.equal(state.updateCalls[0]?.patch?.storage_key, undefined);
   assert.equal(result.asset?.id, "asset-superseded");
   assert.equal(result.asset?.status, "ready");
 });
@@ -8067,7 +8064,8 @@ test("TongsCommitService.saveWorkpieceImageMap reuses the asset row that already
   assert.equal(state.updateCalls[0]?.patch?.status, "superseded");
   assert.equal(state.updateCalls[1]?.id, "asset-fixed-path");
   assert.equal(state.updateCalls[1]?.patch?.status, "ready");
-  assert.equal(state.updateCalls[1]?.patch?.request_id, "corr-789");
+  assert.equal(state.updateCalls[1]?.patch?.status, "ready");
+  assert.equal(state.updateCalls[1]?.patch?.storage_key, undefined);
   assert.equal(result.asset?.id, "asset-fixed-path");
   assert.equal(result.asset?.status, "ready");
 });

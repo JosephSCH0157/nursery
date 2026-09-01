@@ -1,6 +1,18 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFile } from "node:fs/promises";
 import { normalizeWorkspaceAccessRows, type WorkspaceAccessRow } from "../../bar-stock/src/lib/workspace-access";
+
+test("workspace-access authority recognizes the current personal-organization model", async () => {
+  const migration = await readFile(
+    new URL("../../../supabase/migrations/20260901110000_tongs_personal_org_workspace_source.sql", import.meta.url),
+    "utf8",
+  );
+
+  assert.match(migration, /o\.personal_owner_user_id\s*=\s*v_user/);
+  assert.match(migration, /security definer/);
+  assert.match(migration, /grant execute on function tongs\.list_my_workspace_access\(\) to authenticated/);
+});
 
 test("personal-only workspace remains personal", () => {
   const rows: WorkspaceAccessRow[] = [

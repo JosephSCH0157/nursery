@@ -828,6 +828,7 @@ export function buildSourceBayVM(args: any) {
     editableTranscriptSegments: args.editableTranscriptSegments,
     selectedSegment: args.selectedSegment,
     selectedSegmentId: args.selectedSegmentId,
+    activeTranscriptSegmentId: args.activeTranscriptSegmentId,
     linkedSelection: args.linkedSelection,
     linkedTranscriptSegmentIdSet: args.linkedTranscriptSegmentIdSet,
     linkedVisualIdSet: args.linkedVisualIdSet,
@@ -1319,6 +1320,15 @@ export function buildToolbarVM(args: any) {
           statusLabel: args.passSelectorResults.get("packaging")?.humanLabel
             ?? args.getPassStatus("packaging", args.passSelectorContext).humanLabel,
           isActive: args.currentPass === "packaging",
+        },
+        {
+          id: "shorts",
+          shortLabel: "S",
+          label: "Shorts",
+          toolId: "export",
+          statusLabel: args.passSelectorResults.get("shorts")?.humanLabel
+            ?? args.getPassStatus("shorts", args.passSelectorContext).humanLabel,
+          isActive: args.currentPass === "shorts",
         },
       ];
       return visiblePasses;

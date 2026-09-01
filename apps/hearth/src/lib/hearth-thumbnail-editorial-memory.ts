@@ -47,8 +47,8 @@ function readConfig(): { url: string; anonKey: string } | null {
     __forgeSupabaseUrl?: string; __forgeSupabaseAnonKey?: string;
     __forge_supabase_client__?: { supabaseUrl?: string; supabaseKey?: string };
   };
-  const url = env?.VITE_SUPABASE_URL ?? runtime?.__forgeSupabaseUrl ?? runtime?.__forge_supabase_client__?.supabaseUrl;
-  const anonKey = env?.VITE_SUPABASE_ANON_KEY ?? runtime?.__forgeSupabaseAnonKey ?? runtime?.__forge_supabase_client__?.supabaseKey;
+  const url = runtime?.__forge_supabase_client__?.supabaseUrl ?? runtime?.__forgeSupabaseUrl ?? env?.VITE_SUPABASE_URL;
+  const anonKey = runtime?.__forge_supabase_client__?.supabaseKey ?? runtime?.__forgeSupabaseAnonKey ?? env?.VITE_SUPABASE_ANON_KEY;
   return url?.trim() && anonKey?.trim() ? { url: url.trim(), anonKey: anonKey.trim() } : null;
 }
 

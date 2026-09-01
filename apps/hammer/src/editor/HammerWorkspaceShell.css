@@ -520,7 +520,7 @@ Guardrails:
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 12px;
   background: rgba(15, 23, 42, 0.5);
-  padding: 14px 14px 16px;
+  padding: 14px 14px clamp(84px, 24vh, 180px);
   display: grid;
   gap: 14px;
 }

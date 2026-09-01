@@ -25,6 +25,7 @@ export class HammerPreviewRuntime {
   private explicitFrames = 0;
   private disposed = false;
   private scheduler: HammerPreviewRuntimeDiagnostics["scheduler"] = "idle";
+  private performanceCollector = new HammerPreviewPerformanceCollector();
 
   public constructor(onFrame: (reason: HammerPreviewFrameReason, mediaTimeSec: number | null) => void) { this.onFrame = onFrame; }
 
@@ -61,6 +62,19 @@ export class HammerPreviewRuntime {
     return Object.freeze({ sourceRevision: this.sourceRevision, scheduler: this.scheduler,
       decodedFrames: this.decodedFrames, explicitFrames: this.explicitFrames, disposed: this.disposed });
   }
+  public snapshotPerformance(): HammerPreviewPerformanceSnapshot { return this.performanceCollector.snapshot(); }
+  public resetPerformance(atMs = performance.now()): void { this.performanceCollector = new HammerPreviewPerformanceCollector(atMs); }
+  public recordSuccessfulComposite(latencyMs: number, atMs = performance.now()): void { this.performanceCollector.recordComposite(latencyMs, atMs); }
+  public recordSegmentationAttempt(): void { this.performanceCollector.recordSegmentationAttempt(); }
+  public recordSegmentationCompleted(latencyMs: number, atMs = performance.now()): void { this.performanceCollector.recordSegmentation(latencyMs, atMs); }
+  public recordSegmentationFailure(): void { this.performanceCollector.recordSegmentationFailure(); }
+  public recordSegmentationSuperseded(): void { this.performanceCollector.recordSegmentationSuperseded(); }
+  public recordPendingJobs(count: number): void { this.performanceCollector.recordPendingJobs(count); }
+  public recordControlLatency(latencyMs: number): void { this.performanceCollector.recordControlLatency(latencyMs); }
+  public recordLongTask(durationMs: number): void { this.performanceCollector.recordLongTask(durationMs); }
+  public recordRawFrameFlash(): void { this.performanceCollector.recordRawFrameFlash(); }
+  public recordVisibleSourceReload(): void { this.performanceCollector.recordVisibleSourceReload(); }
+  public recordDegradedDuration(durationMs: number): void { this.performanceCollector.recordDegradedDuration(durationMs); }
 
   public dispose(): void {
     if (this.disposed) return;
@@ -83,6 +97,7 @@ export class HammerPreviewRuntime {
           this.rvfcHandle = 0;
           if (!this.video || this.disposed) return;
           this.decodedFrames += 1;
+          this.performanceCollector.recordDecoded();
           this.onFrame("decoded_frame", Number.isFinite(metadata.mediaTime) ? metadata.mediaTime! : this.video.currentTime);
           next();
         });
@@ -97,6 +112,7 @@ export class HammerPreviewRuntime {
         this.rafHandle = 0;
         if (!this.video || this.disposed) return;
         this.decodedFrames += 1;
+        this.performanceCollector.recordDecoded();
         this.onFrame("decoded_frame", this.video.currentTime);
         loop();
       });
@@ -141,6 +157,13 @@ export function resolvePreviewBackingSize(args: { cssWidth: number; cssHeight: n
   return { width, height, effectiveDpr };
 }
 
+export function isPreviewCompositeCadenceReady(args: { wallDeltaMs: number | null; mediaDeltaSec: number | null; maximumFps?: number }): boolean {
+  const maximumFps = args.maximumFps ?? 30;
+  const wallReady = args.wallDeltaMs == null || args.wallDeltaMs >= (1_000 / maximumFps);
+  const mediaReady = args.mediaDeltaSec == null || Math.abs(args.mediaDeltaSec) >= ((1 / maximumFps) - 0.002);
+  return wallReady || mediaReady;
+}
+
 export type HammerMatteContinuity = "missing" | "fresh" | "degraded" | "unavailable";
 
 export function resolveMatteContinuity(ageMs: number | null): HammerMatteContinuity {
@@ -149,3 +172,4 @@ export function resolveMatteContinuity(ageMs: number | null): HammerMatteContinu
   if (ageMs <= 2_000) return "degraded";
   return "unavailable";
 }
+import { HammerPreviewPerformanceCollector, type HammerPreviewPerformanceSnapshot } from "./hammerPreviewPerformance";

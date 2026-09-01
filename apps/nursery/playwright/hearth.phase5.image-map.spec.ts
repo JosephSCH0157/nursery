@@ -14,92 +14,39 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 async function ensureImageMapEntry(page: Page): Promise<void> {
-  const panel = page.getByLabel("Image map panel");
-  const rows = panel.locator(".hs-imap-row");
+  const rows = page.getByRole("navigation", { name: "Planned episode images" }).getByRole("button");
+  const addImageButton = page.locator(".hs-episode-images-empty button.is-primary");
+  await expect.poll(async () => ({ rows: await rows.count(), add: await addImageButton.count() })).not.toEqual({ rows: 0, add: 0 });
   if (await rows.count()) return;
 
-  await panel.getByRole("button", { name: "New Entry" }).click();
+  await expect(addImageButton).toBeVisible({ timeout: 15_000 });
+  await addImageButton.click();
   await expect(rows.first()).toBeVisible();
-}
-
-async function tryActivateImageMapPanel(page: Page): Promise<boolean> {
-  const panel = page.getByLabel("Image map panel");
-  if (await panel.isVisible().catch(() => false)) {
-    return true;
-  }
-
-  const fixFormattingButton = page.getByRole("button", { name: "Fix formatting (no AI)" });
-  if (await fixFormattingButton.count()) {
-    await expect(fixFormattingButton).toBeVisible({ timeout: 15_000 });
-    await fixFormattingButton.click();
-    await page.waitForTimeout(1_500);
-    if (await fixFormattingButton.count()) {
-      return false;
-    }
-    if (await panel.isVisible().catch(() => false)) {
-      return true;
-    }
-  }
-
-  const approveButton = page.getByRole("button", { name: "Approve Script" });
-  if (!(await approveButton.isVisible().catch(() => false))) {
-    return false;
-  }
-
-  await approveButton.click();
-  try {
-    await expect(page.locator(".hs-production-mode-status")).toContainText("approved", {
-      timeout: 20_000,
-    });
-  } catch {
-    return await panel.isVisible().catch(() => false);
-  }
-  return await panel.isVisible().catch(() => false);
-}
-
-function buildImageMapCandidates(artifact: ReturnType<typeof readHearthPhase4Artifact>): Array<{
-  workpieceId: string;
-  title: string;
-}> {
-  const raw = [
-    { workpieceId: artifact.workpiece_id, title: artifact.handoff.title },
-    ...artifact.ready.visible_items.map((entry) => ({
-      workpieceId: entry.workpiece_id,
-      title: entry.title,
-    })),
-  ];
-
-  const seenTitles = new Set<string>();
-  const out: Array<{ workpieceId: string; title: string }> = [];
-  for (const entry of raw) {
-    if (seenTitles.has(entry.title)) continue;
-    seenTitles.add(entry.title);
-    out.push(entry);
-  }
-  return out;
 }
 
 async function openImageMapWorkpiece(page: Page, artifact: ReturnType<typeof readHearthPhase4Artifact>): Promise<{
   workpieceId: string;
   title: string;
 }> {
-  const candidates = buildImageMapCandidates(artifact).slice(0, 8);
-
-  for (const candidate of candidates) {
-    await page.getByRole("button", { name: "Episodes (In Progress)" }).click();
-    await openWorkpieceInHearth(page, candidate.title);
-    await expectCanonicalWorkpieceContext(page, {
-      workspaceId: artifact.workspace_id,
-      workpieceId: candidate.workpieceId,
-      pathnamePrefix: "/apps/hearth",
-    });
-
-    if (await tryActivateImageMapPanel(page)) {
-      return candidate;
-    }
+  const candidate = { workpieceId: artifact.workpiece_id, title: artifact.handoff.title };
+  await page.getByRole("button", { name: "Episodes (In Progress)" }).click();
+  await openWorkpieceInHearth(page, candidate.title);
+  await expectCanonicalWorkpieceContext(page, {
+    workspaceId: artifact.workspace_id,
+    workpieceId: candidate.workpieceId,
+    pathnamePrefix: "/apps/hearth",
+  });
+  const readyPill = page.locator(".hs-episode-ready-pill");
+  if ((await readyPill.textContent())?.trim() !== "Ready") {
+    await page.getByRole("button", { name: "Approve & Replace Script", exact: true }).click();
+    await expect(readyPill).toHaveText("Ready");
   }
-
-  throw new Error("No seeded workpiece in the fixture workspace mounted the image-map surface.");
+  await page.getByRole("tab", { name: /^Visuals/u }).click();
+  const workflow = page.getByRole("region", { name: "Episode visual production workflow" });
+  await expect(workflow).toBeVisible({ timeout: 20_000 });
+  await workflow.getByRole("button", { name: /^3\. Images/u }).click();
+  await expect(page.getByRole("region", { name: "Episode Images" }).last()).toBeVisible();
+  return candidate;
 }
 
 async function readCanonicalImageMap(page: Page, workpieceId: string): Promise<unknown> {
@@ -181,10 +128,15 @@ async function readCanonicalImageMap(page: Page, workpieceId: string): Promise<u
     if (!accessToken) {
       throw new Error("Missing browser access token for canonical image map readback.");
     }
+    const apiToken = readString(window.localStorage.getItem("forge_tongs_api_token_v1"));
+    if (!apiToken) {
+      throw new Error("Missing Tongs API token for canonical image map readback.");
+    }
 
     const response = await fetch(`/tongs/workpieces/${encodeURIComponent(targetWorkpieceId)}/image-map`, {
       method: "GET",
       headers: {
+        authorization: `Bearer ${apiToken}`,
         "x-forge-user-authorization": `Bearer ${accessToken}`,
       },
     });
@@ -209,15 +161,16 @@ test.describe("Hearth Phase 5 Slice 1 image map", () => {
     const imageMapWorkpiece = await openImageMapWorkpiece(page, artifact);
     const imageMapWorkpieceId = imageMapWorkpiece.workpieceId;
 
-    const panel = page.getByLabel("Image map panel");
+    const panel = page.getByRole("region", { name: "Episode Images" }).last();
     await expect(panel).toBeVisible();
     await ensureImageMapEntry(page);
 
-    const saveState = panel.locator(".hs-imap-save-state");
-    const descriptionField = panel.getByLabel("Description");
+    const saveState = panel.locator(".hs-episode-image-direction [role='status']").first();
+    const descriptionField = panel.getByLabel("Image direction");
     await expect(descriptionField).toBeVisible();
     await descriptionField.fill(descriptionMarker);
-    await expect(saveState).toContainText("Editing");
+    await expect(saveState).toContainText("Press Enter to save");
+    await descriptionField.press("Enter");
     await expect(saveState).toContainText("Saved", { timeout: 30_000 });
     await expect(panel.locator(".hs-error-text-small")).toHaveCount(0);
 
@@ -228,9 +181,13 @@ test.describe("Hearth Phase 5 Slice 1 image map", () => {
       workpieceId: imageMapWorkpieceId,
       pathnamePrefix: "/apps/hearth",
     });
+    await page.getByRole("tab", { name: /^Visuals/u }).click();
+    const workflow = page.getByRole("region", { name: "Episode visual production workflow" });
+    await expect(workflow).toBeVisible();
+    await workflow.getByRole("button", { name: /^3\. Images/u }).click();
     await expect(panel).toBeVisible();
 
-    const matchingRow = panel.locator(".hs-imap-row", {
+    const matchingRow = page.getByRole("navigation", { name: "Planned episode images" }).getByRole("button", {
       has: page.getByText(descriptionMarker, { exact: false }),
     }).first();
     await expect(matchingRow).toBeVisible({ timeout: 30_000 });

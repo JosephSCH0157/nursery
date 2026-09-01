@@ -17,7 +17,7 @@ test.describe("Hearth Phase 4 ready list behavior", () => {
     await seedLibrarySourceMode(page);
     await openAnvil(page, { workspaceId: artifact.workspace_id });
     await expect(page).toHaveURL(/\/anvil\/teleprompter_pro\.html/);
-    await expect(page.locator("#scriptSourceIndicator")).toContainText("Source: Library");
+    await expect(page.locator("#scriptSourceIndicator")).toHaveText("Library");
     await expectReadyCandidateTitles(page, artifact.ready.visible_titles);
 
     for (const hiddenTitle of artifact.ready.hidden_titles) {

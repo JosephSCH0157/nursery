@@ -16289,6 +16289,43 @@ export class TongsCommitService {
       }
     }
 
+    let canonicalAfterSave = canonicalBeforeSave;
+    if (canonicalBeforeSave) {
+      const mutationFingerprint = await sha256Hex(canonicalJsonBytes({
+        workspace_id: input.workspace_id,
+        workpiece_id: workpieceId,
+        source_revision_id: canonicalBeforeSave.authority.revisionId,
+        source_revision: canonicalBeforeSave.authority.revision,
+        target_script_approval_id: canonicalBeforeSave.authority.scriptApprovalId,
+        entries: authoritativeEntries,
+      }));
+      const committed = await this.commitCanonicalImageMap({
+        workspaceId: input.workspace_id,
+        workpieceId,
+        actorId: auth.userId,
+        entries: authoritativeEntries,
+        mutationKind: "reapply_visual_plan",
+        operationId: `forge:image-map:save-${mutationFingerprint.slice(0, 40)}`,
+        targetApprovalId: canonicalBeforeSave.authority.scriptApprovalId,
+        expectedRevision: canonicalBeforeSave.authority.revision,
+        expectedRevisionId: canonicalBeforeSave.authority.revisionId,
+        affectedEntryIds: authoritativeEntries.map((entry) => entry.id),
+        inputs: { intent_hash: mutationFingerprint },
+      });
+      const disposition = readStringField(committed, "disposition");
+      if (disposition === "revision_conflict") {
+        throw new HttpError(409, "image_map_conflict", "Image map changed since last load.");
+      }
+      if (disposition !== "committed" && disposition !== "no_change") {
+        throw new HttpError(502, "canonical_image_map_save_failed", "Tongs could not save canonical image-map authority.", { disposition });
+      }
+      canonicalAfterSave = await this.readCanonicalImageMapProjection(input.workspace_id, workpieceId);
+      if (!canonicalAfterSave) {
+        throw new HttpError(502, "canonical_image_map_readback_failed", "Canonical image-map save could not be read back.");
+      }
+      authoritativeEntries = canonicalAfterSave.entries;
+    }
+
     const nextEpisodePackage: EpisodePackageRecord = {
       ...current.episodePackage,
       spoken_beats: input.spoken_beats ?? current.episodePackage.spoken_beats,
@@ -16357,8 +16394,11 @@ export class TongsCommitService {
       throw error;
     }
 
+    const evidencePath = canonicalAfterSave?.authority.revisionId
+      ? `assets/image-map/revisions/${canonicalAfterSave.authority.revisionId}.json`
+      : IMAGE_MAP_ASSET_PATH;
     const assetCommit = await this.commitFile(workpieceId, {
-      path: IMAGE_MAP_ASSET_PATH,
+      path: evidencePath,
       content_type: "application/json",
       file_type: "json",
       json: buildImageMapAssetDocument(workpieceId, authoritativeEntries, nextEpisodePackage.spoken_beats),
@@ -16374,47 +16414,25 @@ export class TongsCommitService {
     const assetMetadata = {
       schema: IMAGE_MAP_ASSET_SCHEMA,
       entry_count: input.entries.length,
+      image_map_revision_id: canonicalAfterSave?.authority.revisionId ?? null,
+      image_map_revision: canonicalAfterSave?.authority.revision ?? 0,
     } as Json;
-    const assetPatch: Database["tongs"]["Tables"]["assets"]["Update"] = {
-      path: IMAGE_MAP_ASSET_PATH,
-      mime_type: "application/json",
-      bytes: assetCommit.bytes,
-      storage_bucket: assetCommit.file_row.storage_bucket,
-      storage_key: assetCommit.storage_key,
-      provider: "hearth",
-      provider_request_id: null,
-      request_id: assetCommit.event.correlation_id ?? assetCommit.event.id.toString(),
-      prompt: null,
-      asset_kind: IMAGE_MAP_ASSET_KIND,
-      status: "ready",
-      ready_at: assetCommit.file_row.updated_at ?? new Date().toISOString(),
-      metadata_json: assetMetadata,
-    };
     const assetAtCommittedLocation = await this.getImageMapAssetByStorageLocation(
       input.workspace_id,
       workpieceId,
       assetCommit.file_row.storage_bucket,
       assetCommit.storage_key,
     );
-    const reusableImageMapAsset = assetAtCommittedLocation ?? currentReadyAsset ?? latestImageMapAsset;
-
-    if (
-      currentReadyAsset
-      && reusableImageMapAsset
-      && currentReadyAsset.id !== reusableImageMapAsset.id
-    ) {
-      await this.supersedeImageMapAsset(currentReadyAsset.id);
-    }
-
-    const assetRow = reusableImageMapAsset
-      ? await this.updateImageMapAssetRow(
-        reusableImageMapAsset.id,
-        assetPatch,
-        currentReadyAsset
-          ? "Failed to refresh current image map asset"
-          : "Failed to recover current image map asset",
-      )
-      : await this.insertImageMapAssetRow({
+    let assetRow: AssetRow;
+    if (assetAtCommittedLocation) {
+      if (currentReadyAsset && currentReadyAsset.id !== assetAtCommittedLocation.id) {
+        await this.supersedeImageMapAsset(currentReadyAsset.id);
+      }
+      assetRow = assetAtCommittedLocation.status === "ready"
+        ? assetAtCommittedLocation
+        : await this.updateImageMapAssetRow(assetAtCommittedLocation.id, { status: "ready" }, "Failed to recover image map asset revision");
+    } else {
+      const pending = await this.insertImageMapAssetRow({
         workspace_id: input.workspace_id,
         workpiece_id: workpieceId,
         path: IMAGE_MAP_ASSET_PATH,
@@ -16428,11 +16446,18 @@ export class TongsCommitService {
         prompt: null,
         created_by: auth.userId,
         asset_kind: IMAGE_MAP_ASSET_KIND,
-        status: "ready",
+        status: currentReadyAsset ? "pending" : "ready",
         ready_at: assetCommit.file_row.updated_at ?? new Date().toISOString(),
         metadata_json: assetMetadata,
-        supersedes_asset_id: null,
+        supersedes_asset_id: currentReadyAsset?.id ?? latestImageMapAsset?.id ?? null,
       });
+      if (currentReadyAsset) {
+        await this.supersedeImageMapAsset(currentReadyAsset.id);
+        assetRow = await this.updateImageMapAssetRow(pending.id, { status: "ready" }, "Failed to advance current image map asset revision");
+      } else {
+        assetRow = pending;
+      }
+    }
 
     return this.buildWorkpieceImageMapResponse({
       workpieceId,
@@ -16443,6 +16468,7 @@ export class TongsCommitService {
         metadataCommit.file_row.updated_at ?? current.metadata.updated_at ?? null,
       ),
       assetRow,
+      ...(canonicalAfterSave ? { authority: canonicalAfterSave.authority } : {}),
     });
   }
 

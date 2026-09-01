@@ -42,6 +42,11 @@
       "import": "./dist/workpiece-commit-api.js",
       "default": "./dist/workpiece-commit-api.js"
     },
+    "./hammer-shorts-authority": {
+      "types": "./src/hammer-shorts-authority.ts",
+      "import": "./dist/hammer-shorts-authority.js",
+      "default": "./dist/hammer-shorts-authority.js"
+    },
     "./canonical-asset-authority": {
       "types": "./src/canonical-asset-authority.ts",
       "import": "./dist/canonical-asset-authority.js",
