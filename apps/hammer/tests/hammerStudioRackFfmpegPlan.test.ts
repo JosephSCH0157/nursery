@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { buildHammerStudioRackFfmpegPlan } from "../src/editor/hammerStudioRackFfmpegPlan";
-import { createDefaultHammerStudioRackState } from "../src/editor/hammerStudioRack";
+import { createDefaultHammerStudioRackState, isHammerStudioRackIdentity, normalizeHammerStudioRackState } from "../src/editor/hammerStudioRack";
 
 function testConservativeGateCompressorDefaults() {
   const rack = createDefaultHammerStudioRackState();
@@ -8,6 +8,28 @@ function testConservativeGateCompressorDefaults() {
   assert.equal(rack.modules.gate.range_db >= -12, true);
   assert.equal(rack.modules.compressor.ratio <= 2.0, true);
   assert.equal(rack.modules.compressor.makeup_gain_db <= 1, true);
+}
+
+function testPersistedRackNormalizationIsBoundedAndIdentityAware() {
+  const defaults = createDefaultHammerStudioRackState();
+  assert.equal(isHammerStudioRackIdentity(defaults), true);
+  const normalized = normalizeHammerStudioRackState({
+    is_enabled: true,
+    is_bypassed: false,
+    backend_preference: "ffmpeg",
+    modules: {
+      gate: { is_enabled: true, threshold_db: 999, range_db: Number.NaN },
+      compressor: { is_enabled: true, ratio: -12, makeup_gain_db: 999 },
+      eq: null,
+      reverb: "invalid",
+    },
+  });
+  assert.equal(normalized.is_enabled, true);
+  assert.equal(normalized.backend_preference, "ffmpeg");
+  assert.notEqual(normalized.modules.gate.threshold_db, 999);
+  assert.notEqual(normalized.modules.compressor.ratio, -12);
+  assert.equal(Number.isFinite(normalized.modules.gate.range_db), true);
+  assert.equal(isHammerStudioRackIdentity(normalized), false);
 }
 
 function testGateAndCompressorAreApplied() {
@@ -103,6 +125,7 @@ function testVoiceCleanupPresetChainUsesConservativeSpeechFilters() {
 
 function run() {
   testConservativeGateCompressorDefaults();
+  testPersistedRackNormalizationIsBoundedAndIdentityAware();
   testGateAndCompressorAreApplied();
   testEqReverbTubeAreApplied();
   testBypassedAndDisabledModulesAreNotRequested();
