@@ -35,6 +35,8 @@ test("hearthVisualPlanOperation: every operation stage has creator-facing copy",
   }
   assert.match(describeHearthVisualPlanOperation("generating").message, /saves this generation atomically/i);
   assert.match(describeHearthVisualPlanOperation("refreshing").message, /canonical projections/i);
+  assert.equal(describeHearthVisualPlanOperation("failed").message, "Visual plan generation failed. Please try again.");
+  assert.doesNotMatch(describeHearthVisualPlanOperation("failed").message, /review the error/i);
 });
 
 test("hearthVisualPlanOperation: both generation commands publish truthful terminal stages", () => {
@@ -51,7 +53,8 @@ test("hearthVisualPlanOperation: presentation is accessible and local controls r
   assert.match(panelSource, /aria-live="polite"/);
   assert.match(panelSource, /aria-atomic="true"/);
   assert.match(panelSource, /data-operation-stage=\{props\.operationStage\}/);
+  assert.match(panelSource, /props\.operationStage === "failed" && props\.saveError/);
+  assert.match(panelSource, /<summary>View details<\/summary>/);
   assert.match(panelSource, /Duplicate generation is disabled until this operation finishes\./);
   assert.match(panelSource, /finally \{\s*setIsConversationApplying\(false\);\s*\}/);
 });
-

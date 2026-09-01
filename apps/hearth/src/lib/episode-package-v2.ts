@@ -572,7 +572,7 @@ export type EpisodePackageV2 = {
   cdc_plan: EpisodeCdcPlan;
 };
 
-export type ProductionArtifactAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet";
+export type ProductionArtifactAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "pack";
 
 type ImageBeatLegacyEntry = {
   id: string;
@@ -2599,6 +2599,12 @@ export function applyProductionArtifactToEpisodePackage(args: {
     if (tags.length) {
       nextEpisode.seo.tags = tags;
     }
+  }
+
+  if (args.action === "pack") {
+    const descriptions = parseDescriptionFromSeoText(args.rawText);
+    if (descriptions.shortDescription) nextEpisode.seo.description_short = descriptions.shortDescription;
+    if (descriptions.longDescription) nextEpisode.seo.description_long = descriptions.longDescription;
   }
 
   if (args.action === "thumbnails") {

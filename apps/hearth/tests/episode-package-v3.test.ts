@@ -318,6 +318,26 @@ test("legacy non-thumbnail production writes preserve v3 thumbnail authority and
   assert.deepEqual(episode.seo.tags, ["durable", "canonical"]);
 });
 
+test("framing pack projects short and long descriptions without disturbing v3 authority", () => {
+  const v3 = hydrateEpisodePackageV3(legacyMetadata);
+  const updated = applyProductionArtifactToEpisodePackage({
+    metadata: { ...legacyMetadata, episode: v3 },
+    action: "pack",
+    rawText: [
+      "SHORT_DESCRIPTION:",
+      "A concise canonical description.",
+      "",
+      "LONG_DESCRIPTION:",
+      "A longer canonical description retained for release packaging.",
+    ].join("\n"),
+    generatedAt: "2026-09-01T12:00:00.000Z",
+  });
+  const episode = updated.episode as EpisodePackageV3;
+  assert.equal(episode.seo.description_short, "A concise canonical description.");
+  assert.equal(episode.seo.description_long, "A longer canonical description retained for release packaging.");
+  assert.deepEqual(episode.thumbnail, v3.thumbnail);
+});
+
 test("v2 workspace projection preserves v3 thumbnail progress for cold-boot summaries", () => {
   const v3 = hydrateEpisodePackageV3(legacyMetadata);
   const projected = hydrateEpisodePackageV2({ ...legacyMetadata, episode: v3 });

@@ -375,6 +375,12 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
             {props.operationStage === "generating" ? (
               <small>Keep this page open. Duplicate generation is disabled until this operation finishes.</small>
             ) : null}
+            {props.operationStage === "failed" && props.saveError ? (
+              <details className="hs-imap-error-details">
+                <summary>View details</summary>
+                <div className="hs-error-text-small">{props.saveError}</div>
+              </details>
+            ) : null}
           </span>
         </div>
       ) : null}
@@ -577,7 +583,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
         </section>
       )}
 
-      {props.saveError ? <div className="hs-error-text-small">{props.saveError}</div> : null}
+      {props.saveError && props.operationStage !== "failed" ? <div className="hs-error-text-small">{props.saveError}</div> : null}
       {props.message ? <div className="hs-imap-help-text">{props.message}</div> : null}
     </div>
   );

@@ -131,6 +131,13 @@ export function buildProductionPrompt(args: {
       "- click-optimized but honest",
       "- varied emotional framing",
       "",
+      "SHORT_DESCRIPTION:",
+      "- one concise, publish-ready description no longer than 180 characters",
+      "",
+      "LONG_DESCRIPTION:",
+      "- one detailed, publish-ready episode description",
+      "- preserve the approved script's claims and avoid invented details",
+      "",
       "SHORT_FORM_HOOK_20S:",
       "- one cold-open hook suitable for Shorts/TikTok/Reels",
       "- keep it to <= 20 seconds spoken length",
@@ -197,7 +204,7 @@ export async function persistProductionArtifact(args: {
     action: args.action,
     assistantText: args.assistantText,
   });
-  if (!validation.ok && args.action !== "thumbnails") {
+  if (!validation.ok && args.action !== "thumbnails" && args.action !== "release_prep_pack") {
     args.setAiRuntimeWarning(validation.error);
     return;
   }
@@ -223,7 +230,7 @@ export async function persistProductionArtifact(args: {
       scriptVersion: args.scriptVersion,
       kind: artifactKind,
       payload,
-      syncCanonical: args.action !== "tags",
+      syncCanonical: args.action !== "tags" && (args.action !== "release_prep_pack" || validation.ok),
       artifactAlreadyPersisted: args.reuseStoredArtifact,
     });
 
@@ -252,6 +259,12 @@ export async function persistProductionArtifact(args: {
       await args.refreshEpisodePackage();
     }
     if (args.action === "release_prep_pack") {
+      if (artifactFeedback.descriptionShort) {
+        args.setMetadataDescriptionShortDraft(artifactFeedback.descriptionShort);
+      }
+      if (artifactFeedback.descriptionLong) {
+        args.setMetadataDescriptionLongDraft(artifactFeedback.descriptionLong);
+      }
       await args.loadLatestReleasePrepPack(args.scriptVersion);
     }
     return committed;

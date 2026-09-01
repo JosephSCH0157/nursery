@@ -5,6 +5,7 @@ import {
   validateHearthProductionArtifactOutput,
 } from "../src/lib/hearth-production-feedback";
 import { buildProductionPrompt, resolveAcceptedTagProposal } from "../src/lib/hearth-production-actions";
+import { parseReleasePrepPackSections } from "../src/lib/hearth-release-prep-pack";
 
 test("production prompts use the single approved-script copy in episode context", () => {
   const secretScriptLine = "THIS SCRIPT LINE MUST NOT BE DUPLICATED INTO CHAT HISTORY";
@@ -104,7 +105,45 @@ test("production prompts keep titles, tags, and framing pack contracts separate"
   assert.match(tags, /TAGS_FULL:/);
   assert.doesNotMatch(tags, /SEO_TITLES|SHORT_DESCRIPTION|MONETIZATION_ANGLE/);
   assert.match(pack, /MONETIZATION_ANGLE:/);
+  assert.match(pack, /SHORT_DESCRIPTION:/);
+  assert.match(pack, /LONG_DESCRIPTION:/);
   assert.doesNotMatch(pack, /TAGS_FULL|SEO_TITLES:/);
+});
+
+test("hearthProductionFeedback: framing pack requires and exposes both descriptions", () => {
+  const assistantText = [
+    "YOUTUBE_OPTIMIZED_CUT:",
+    "- Open on the central tension.",
+    "",
+    "TITLE_OPTIONS:",
+    "- Florida's Orange Reckoning",
+    "",
+    "SHORT_DESCRIPTION:",
+    "How Florida oranges became an icon—and what threatens their future.",
+    "",
+    "LONG_DESCRIPTION:",
+    "A detailed, script-grounded account of Florida citrus, its history, and its uncertain future.",
+    "",
+    "SHORT_FORM_HOOK_20S:",
+    "- The orange in your kitchen carries a much bigger story.",
+  ].join("\n");
+  const result = validateHearthProductionArtifactOutput({ action: "release_prep_pack", assistantText });
+  assert.equal(result.ok, true);
+  if (result.ok) {
+    assert.equal(result.feedback.descriptionShort, "How Florida oranges became an icon—and what threatens their future.");
+    assert.match(result.feedback.descriptionLong ?? "", /detailed, script-grounded account/i);
+  }
+  assert.deepEqual(
+    parseReleasePrepPackSections(assistantText).map((section) => section.key),
+    ["youtube_optimized_cut", "title_options", "short_description", "long_description", "short_form_hook_20s"],
+  );
+
+  const incomplete = validateHearthProductionArtifactOutput({
+    action: "release_prep_pack",
+    assistantText: "YOUTUBE_OPTIMIZED_CUT:\n- A useful edit plan without descriptions.",
+  });
+  assert.equal(incomplete.ok, false);
+  if (!incomplete.ok) assert.match(incomplete.error, /both SHORT_DESCRIPTION and LONG_DESCRIPTION/i);
 });
 
 test("tag proposal acceptance only reintroduces visible proposed tags", () => {

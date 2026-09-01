@@ -1,4 +1,5 @@
 import {
+  parseDescriptionFromSeoText,
   parseSeoTitlesFromText,
   parseTagsFromText,
   parseThumbnailConceptsFromText,
@@ -76,6 +77,20 @@ export function resolveHearthProductionArtifactFeedback(args: {
     };
   }
 
+  if (args.action === "release_prep_pack") {
+    const descriptions = parseDescriptionFromSeoText(args.assistantText);
+    const complete = Boolean(descriptions.shortDescription && descriptions.longDescription);
+    return {
+      ...EMPTY_FEEDBACK,
+      shouldRefreshEpisodePackage: true,
+      descriptionShort: descriptions.shortDescription,
+      descriptionLong: descriptions.longDescription,
+      warning: complete
+        ? null
+        : "Framing Pack was not saved because Hearth did not return both SHORT_DESCRIPTION and LONG_DESCRIPTION.",
+    };
+  }
+
   return EMPTY_FEEDBACK;
 }
 
@@ -91,6 +106,9 @@ export function validateHearthProductionArtifactOutput(args: {
     return { ok: false, error: feedback.warning ?? "Generated tag output was unusable.", feedback };
   }
   if (args.action === "thumbnails" && feedback.warning) {
+    return { ok: false, error: feedback.warning, feedback };
+  }
+  if (args.action === "release_prep_pack" && feedback.warning) {
     return { ok: false, error: feedback.warning, feedback };
   }
   return { ok: true, feedback };
