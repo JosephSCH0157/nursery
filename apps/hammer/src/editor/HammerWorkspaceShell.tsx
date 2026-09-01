@@ -928,7 +928,6 @@ function HammerWorkspaceShellWithContext(
     : null;
   const effectivePreviewVideoSrc = activePackagingMediaPath ? activePackagingMediaSrc : previewVideoSrc;
   const effectivePlaybackMediaSrc = activePackagingMediaPath ? activePackagingMediaSrc : playbackMediaSrc;
-  useHammerAudioFinishingNativePreviewEffect({ mode: audioFinalizationCompareMode, rack: editableStudioRack, mediaSrc: effectivePlaybackMediaSrc, videoRef: previewVideoRef, audioRef: previewAudioRef });
   const resolveActiveMediaTimeForTransportTime = useCallback(
     (transportTimeSec: number) => transportTimeToActiveMediaTime({
       transport: packagingTransport,
@@ -2087,7 +2086,7 @@ function HammerWorkspaceShellWithContext(
   const voicePolish = audioFinishingRackDerived.voicePolish;
   const studioRackHasAudibleProcessing = audioFinishingRackDerived.hasAudibleProcessing;
   const {
-    studioRackComparePreviewStatusLabel,
+    studioRackComparePreviewStatusLabel, studioRackExactPreviewActive,
     eyeContactUseBackgroundCanvasAsSource,
     visualBackgroundBlurRuntimeStatus,
     setVisualBackgroundBlurRuntimeStatus,
@@ -2123,6 +2122,7 @@ function HammerWorkspaceShellWithContext(
     setStudioRackRenderStatus,
     inferPlaybackMimeTypeFromPath,
   });
+  useHammerAudioFinishingNativePreviewEffect({ mode: audioFinalizationCompareMode, rack: studioRackExactPreviewActive ? { ...editableStudioRack, is_bypassed: true } : editableStudioRack, mediaSrc: effectivePlaybackMediaSrc, videoRef: previewVideoRef, audioRef: previewAudioRef });
   const mediaLabelMismatchWarning = recordingIdentity.labelMismatchWarning;
   const actualRecordingMismatchWarning = recordingIdentity.actualRecordingMismatchWarning;
   const canUndo = !historyEpochPending && (historyController?.canUndo() ?? false);

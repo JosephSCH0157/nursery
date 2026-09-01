@@ -24,6 +24,74 @@ function clamp01(value: number): number {
   return Math.min(1, Math.max(0, value));
 }
 
+export type SegmentationMaskChannel = "alpha" | "luminance";
+
+type ChannelSignal = {
+  histogram: Uint32Array;
+  percentile01: number;
+  percentile99: number;
+  occupiedBins: number;
+  nonOpaqueShare: number;
+};
+
+function percentileFromHistogram(histogram: Uint32Array, percentile: number, sampleCount: number): number {
+  const target = Math.max(0, Math.min(sampleCount - 1, Math.floor((sampleCount - 1) * percentile)));
+  let seen = 0;
+  for (let value = 0; value < histogram.length; value += 1) {
+    seen += histogram[value] ?? 0;
+    if (seen > target) return value;
+  }
+  return 0;
+}
+
+function summarizeAlphaSignal(rgba: Uint8ClampedArray): ChannelSignal {
+  const histogram = new Uint32Array(256);
+  const coarseBins = new Uint8Array(16);
+  let nonOpaque = 0;
+  const sampleCount = Math.floor(rgba.length / 4);
+  for (let i = 3; i < rgba.length; i += 4) {
+    const alpha = rgba[i] ?? 255;
+    histogram[alpha] += 1;
+    coarseBins[Math.min(15, alpha >>> 4)] = 1;
+    if (alpha <= 247) nonOpaque += 1;
+  }
+  return {
+    histogram,
+    percentile01: percentileFromHistogram(histogram, 0.01, sampleCount),
+    percentile99: percentileFromHistogram(histogram, 0.99, sampleCount),
+    occupiedBins: coarseBins.reduce((sum, occupied) => sum + occupied, 0),
+    nonOpaqueShare: sampleCount > 0 ? nonOpaque / sampleCount : 0,
+  };
+}
+
+/** Selects one confidence channel for the complete MediaPipe result frame. */
+export function extractSegmentationMaskFromRgba(rgba: Uint8ClampedArray): {
+  mask: Uint8ClampedArray;
+  channel: SegmentationMaskChannel;
+} {
+  const pixelCount = Math.floor(rgba.length / 4);
+  const alpha = summarizeAlphaSignal(rgba);
+  // Percentiles reject isolated transparent pixels; bin occupancy rejects a binary
+  // canvas transparency artifact masquerading as a confidence plane.
+  const alphaHasSignal = alpha.nonOpaqueShare >= 0.01
+    && (alpha.percentile99 - alpha.percentile01) >= 24
+    && alpha.occupiedBins >= 4;
+  const channel: SegmentationMaskChannel = alphaHasSignal ? "alpha" : "luminance";
+  const mask = new Uint8ClampedArray(pixelCount);
+  for (let px = 0; px < pixelCount; px += 1) {
+    const i = px * 4;
+    if (channel === "alpha") {
+      mask[px] = rgba[i + 3] ?? 255;
+      continue;
+    }
+    const red = rgba[i] ?? 0;
+    const green = rgba[i + 1] ?? red;
+    const blue = rgba[i + 2] ?? red;
+    mask[px] = Math.round((red + green + blue) / 3);
+  }
+  return { mask, channel };
+}
+
 function buildConfidenceSummary(args: {
   mask: Uint8ClampedArray;
   threshold: number;
@@ -145,14 +213,10 @@ export class MediapipeSelfieSegmentationProvider implements SegmentationProvider
 
     const imageData = this.maskCtx.getImageData(0, 0, width, height);
     const rgba = imageData.data;
-    const mask = new Uint8ClampedArray(width * height);
-    for (let i = 0, px = 0; i < rgba.length; i += 4, px += 1) {
-      // MediaPipe masks are typically grayscale in RGB; use red channel.
-      mask[px] = rgba[i] ?? 0;
-    }
+    const { mask, channel } = extractSegmentationMaskFromRgba(rgba);
 
     const confidenceSummary = buildConfidenceSummary({ mask, threshold: 128 });
-    const warnings = [...confidenceSummary.warnings];
+    const warnings = [...confidenceSummary.warnings, `mask_channel_${channel}`];
 
     return {
       width,

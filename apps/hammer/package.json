@@ -59,7 +59,7 @@
     "test:transcript-authority": "tsx tests/hammerTranscriptAuthorityEnforcement.test.ts",
     "test:transcript-hardening": "tsx tests/hammerTranscriptHardening.test.ts",
     "test:cleanup-tools": "tsx tests/hammerCleanupTools.test.ts",
-    "test:visual-effects-matte": "tsx tests/hammerSimpleMatteRefiner.test.ts && tsx tests/hammerVisualEffectsTemporalMatteSmoothing.test.ts",
+    "test:visual-effects-matte": "tsx tests/hammerBackgroundBlurMatteRepair.test.ts && tsx tests/hammerSimpleMatteRefiner.test.ts && tsx tests/hammerVisualEffectsTemporalMatteSmoothing.test.ts",
     "test:dead-air-closure": "tsx tests/hammerDeadAirClosure.test.ts",
     "test:audio-backend": "tsx tests/hammerAudioProcessingBackend.test.ts",
     "test:studio-rack-ffmpeg-plan": "tsx tests/hammerStudioRackFfmpegPlan.test.ts",

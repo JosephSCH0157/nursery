@@ -24,7 +24,7 @@ function testGateAndCompressorAreApplied() {
   assert.equal(plan.filterChain.includes("acompressor"), true);
 }
 
-function testEqReverbTubeAreReservedForLater() {
+function testEqReverbTubeAreApplied() {
   const rack = createDefaultHammerStudioRackState();
   rack.is_enabled = true;
   rack.modules.eq.is_enabled = true;
@@ -36,10 +36,13 @@ function testEqReverbTubeAreReservedForLater() {
   const reverbDecision = plan.decisions.find((item) => item.moduleId === "reverb");
   const tubeDecision = plan.decisions.find((item) => item.moduleId === "tubeMicCharacter");
   assert.equal(eqDecision?.requested, true);
-  assert.equal(eqDecision?.applied, false);
-  assert.equal(eqDecision?.reason, "reserved_for_future_slice");
-  assert.equal(reverbDecision?.reason, "reserved_for_future_slice");
-  assert.equal(tubeDecision?.reason, "reserved_for_future_slice");
+  assert.equal(eqDecision?.applied, true);
+  assert.equal(eqDecision?.reason, "applied_in_v1");
+  assert.equal(reverbDecision?.applied, true);
+  assert.equal(tubeDecision?.applied, true);
+  assert.match(plan.filterChain, /lowshelf/);
+  assert.match(plan.filterChain, /aecho/);
+  assert.match(plan.filterChain, /asoftclip/);
 }
 
 function testBypassedAndDisabledModulesAreNotRequested() {
@@ -101,7 +104,7 @@ function testVoiceCleanupPresetChainUsesConservativeSpeechFilters() {
 function run() {
   testConservativeGateCompressorDefaults();
   testGateAndCompressorAreApplied();
-  testEqReverbTubeAreReservedForLater();
+  testEqReverbTubeAreApplied();
   testBypassedAndDisabledModulesAreNotRequested();
   testVoicePolishAdvancedSettingsChangeRenderedFilters();
   testVoiceCleanupPresetChainUsesConservativeSpeechFilters();

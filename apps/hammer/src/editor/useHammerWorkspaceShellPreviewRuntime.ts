@@ -57,6 +57,7 @@ export type UseHammerWorkspaceShellPreviewRuntimeArgs = {
 
 export type UseHammerWorkspaceShellPreviewRuntimeResult = {
   studioRackComparePreviewStatusLabel: string | null;
+  studioRackExactPreviewActive: boolean;
   eyeContactUseBackgroundCanvasAsSource: boolean;
   visualBackgroundBlurRuntimeStatus: HammerBackgroundBlurRuntimeStatus | null;
   setVisualBackgroundBlurRuntimeStatus: Dispatch<SetStateAction<HammerBackgroundBlurRuntimeStatus | null>>;
@@ -111,9 +112,11 @@ export function useHammerWorkspaceShellPreviewRuntime(
   });
 
   const studioRackComparePreviewStatusLabel = useHammerAudioFinishingCompareStatus({ activeTool: args.activeTool, currentPass: args.currentPass, compareMode: args.audioFinalizationCompareMode, hasAudibleProcessing: args.studioRackHasAudibleProcessing, ffmpegAvailable: args.studioRackRenderBackendFfmpegAvailable, previewSrc: studioRackPreviewSrc, playbackMediaSrc: args.playbackMediaSrc });
+  const studioRackExactPreviewActive = Boolean(studioRackPreviewSrc && args.playbackMediaSrc === studioRackPreviewSrc);
 
   return {
     studioRackComparePreviewStatusLabel,
+    studioRackExactPreviewActive,
     eyeContactUseBackgroundCanvasAsSource,
     visualBackgroundBlurRuntimeStatus,
     setVisualBackgroundBlurRuntimeStatus,

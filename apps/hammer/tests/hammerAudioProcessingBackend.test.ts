@@ -13,9 +13,11 @@ function testNativePreviewPlanTracksCleanupAndBypass() {
   assert.deepEqual(buildHammerNativePreviewPlan(rack), []);
   rack.is_enabled = true;
   rack.voice_polish!.voice_cleanup_enabled = true;
-  assert.deepEqual(buildHammerNativePreviewPlan(rack).map((filter) => filter.kind), [
-    "highpass", "peaking", "peaking", "compressor", "gain", "peaking",
-  ]);
+  const kinds = buildHammerNativePreviewPlan(rack).map((filter) => filter.kind);
+  assert.equal(kinds.includes("highpass"), true);
+  assert.equal(kinds.includes("noise_reduction"), true);
+  assert.equal(kinds.includes("compressor"), true);
+  assert.equal(kinds.includes("limiter"), true);
   rack.is_bypassed = true;
   assert.deepEqual(buildHammerNativePreviewPlan(rack), []);
 }

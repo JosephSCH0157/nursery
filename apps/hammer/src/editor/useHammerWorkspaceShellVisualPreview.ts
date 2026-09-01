@@ -144,9 +144,9 @@ export function useHammerVisualPreviewState(initialSettings: HammerPersistedVisu
   const [visualEyeContactAssistStrength, setVisualEyeContactAssistStrength] = useState(Number(initial.eye_contact_assist_strength ?? 0.25));
   const [visualBackgroundBlur, setVisualBackgroundBlur] = useState(initial.background_blur);
   const [visualBackgroundBlurPx, setVisualBackgroundBlurPx] = useState(Number(initial.background_blur_px ?? 14));
-  const [visualBackgroundBlurFeatherPx, setVisualBackgroundBlurFeatherPx] = useState(Number(initial.background_blur_feather_px ?? 6));
+  const [visualBackgroundBlurFeatherPx, setVisualBackgroundBlurFeatherPx] = useState(Number(initial.background_blur_feather_px ?? 3));
   const [visualBackgroundBlurTemporalSmoothing, setVisualBackgroundBlurTemporalSmoothing] = useState(Number(initial.background_blur_temporal_smoothing ?? 0.25));
-  const [visualBackgroundBlurSubjectExpansionPx, setVisualBackgroundBlurSubjectExpansionPx] = useState(Number(initial.background_blur_subject_expansion_px ?? 0));
+  const [visualBackgroundBlurSubjectExpansionPx, setVisualBackgroundBlurSubjectExpansionPx] = useState(Number(initial.background_blur_subject_expansion_px ?? 5));
   const [visualBackgroundBlurQualityMode, setVisualBackgroundBlurQualityMode] = useState<BackgroundBlurSettings["qualityMode"]>((initial.background_blur_quality_mode as BackgroundBlurSettings["qualityMode"]) ?? "medium");
   const [visualBackgroundBlurFallbackMode, setVisualBackgroundBlurFallbackMode] = useState<BackgroundBlurSettings["fallbackMode"]>((initial.background_blur_fallback_mode as BackgroundBlurSettings["fallbackMode"]) ?? "disable");
   const [visualBackgroundBlurProviderId, setVisualBackgroundBlurProviderId] = useState<string | null>(typeof initial.background_blur_provider === "string" ? initial.background_blur_provider : "mediapipe_selfie_segmentation");
@@ -170,9 +170,9 @@ export function useHammerVisualPreviewState(initialSettings: HammerPersistedVisu
     setVisualEyeContactAssistEnabled(Boolean(next.eye_contact_assist_enabled ?? false));
     setVisualEyeContactAssistStrength(Math.max(0, Math.min(1, Number(next.eye_contact_assist_strength ?? 0.25))));
     setVisualBackgroundBlur(next.background_blur); setVisualBackgroundBlurPx(Number(next.background_blur_px ?? 14));
-    setVisualBackgroundBlurFeatherPx(Number(next.background_blur_feather_px ?? 6));
+    setVisualBackgroundBlurFeatherPx(Number(next.background_blur_feather_px ?? 3));
     setVisualBackgroundBlurTemporalSmoothing(Number(next.background_blur_temporal_smoothing ?? 0.25));
-    setVisualBackgroundBlurSubjectExpansionPx(Number(next.background_blur_subject_expansion_px ?? 0));
+    setVisualBackgroundBlurSubjectExpansionPx(Number(next.background_blur_subject_expansion_px ?? 5));
     setVisualBackgroundBlurQualityMode((next.background_blur_quality_mode as BackgroundBlurSettings["qualityMode"]) ?? "medium");
     setVisualBackgroundBlurFallbackMode((next.background_blur_fallback_mode as BackgroundBlurSettings["fallbackMode"]) ?? "disable");
     setVisualBackgroundBlurProviderId(typeof next.background_blur_provider === "string" ? next.background_blur_provider : "mediapipe_selfie_segmentation");

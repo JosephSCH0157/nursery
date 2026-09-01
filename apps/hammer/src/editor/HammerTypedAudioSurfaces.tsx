@@ -416,9 +416,7 @@ function AudioAdjustmentsSurface(props: { context: HammerAudioAdjustmentsToolBay
                           <strong>Parametric EQ</strong>
                           <span>Low shelf, mid, and high shelf shaping.</span>
                         </div>
-                        <div className="hammer-tool-hint">
-                          Render lane note: EQ controls are visible now, but FFmpeg render v1 does not apply EQ yet.
-                        </div>
+                        <div className="hammer-tool-hint">Status: Live + export</div>
                         <label className="hammer-tool-check">
                           <input
                             type="checkbox"
@@ -459,9 +457,7 @@ function AudioAdjustmentsSurface(props: { context: HammerAudioAdjustmentsToolBay
                           <strong>Reverb</strong>
                           <span>Subtle space for voice polish.</span>
                         </div>
-                        <div className="hammer-tool-hint">
-                          Render lane note: Reverb controls are visible now, but FFmpeg render v1 does not apply reverb yet.
-                        </div>
+                        <div className="hammer-tool-hint">Status: Live + export</div>
                         <label className="hammer-tool-check">
                           <input
                             type="checkbox"
@@ -502,9 +498,7 @@ function AudioAdjustmentsSurface(props: { context: HammerAudioAdjustmentsToolBay
                           <strong>Tube Mic Character</strong>
                           <span>Premium condenser-style character layer.</span>
                         </div>
-                        <div className="hammer-tool-hint">
-                          Render lane note: Tube Mic Character controls are visible now, but FFmpeg render v1 does not apply tube shaping yet.
-                        </div>
+                        <div className="hammer-tool-hint">Status: Live + export</div>
                         <label className="hammer-tool-check">
                           <input
                             type="checkbox"

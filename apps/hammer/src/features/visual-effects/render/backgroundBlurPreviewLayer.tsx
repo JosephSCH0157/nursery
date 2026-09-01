@@ -16,6 +16,8 @@ import type { FrameBoundPlacementMatteResult } from "../../auto-placement/canoni
 import type { FaceAnalysisFrame } from "../../eye-contact-assist/types";
 import { LatestOwnedAnalysisFrameQueue } from "../../eye-contact-assist/analysis/ownedAnalysisFrameQueue";
 import type { PlacementFrameAnalysisAuthority } from "../../auto-placement/placementFrameAnalysisAuthority";
+import { resolveCanvasBackingScale, resolveMatteControlScale } from "./visualEffectCssSpace";
+import { HammerPreviewRuntime, resolvePreviewAnalysisSize, resolvePreviewBackingSize } from "./hammerPreviewRuntime";
 
 export type HammerBackgroundBlurRuntimeStatus = {
   provider: {
@@ -26,6 +28,7 @@ export type HammerBackgroundBlurRuntimeStatus = {
     mode: BackgroundBlurSettings["qualityMode"];
     policy: {
       maxSegmentationFps: number;
+      maxAnalysisLongEdgePx: number;
       edgeFeatherCapPx: number;
       subjectExpansionCapPx: number;
       temporalSmoothingCap: number;
@@ -44,6 +47,17 @@ export type HammerBackgroundBlurRuntimeStatus = {
   effectiveSegmentationFps: number | null;
   effectiveCompositeFps: number | null;
   lastMaskAgeMs: number | null;
+  runtime?: {
+    scheduler: "request_video_frame_callback" | "request_animation_frame" | "idle";
+    sourceRevision: string | null;
+    segmentationAttempted: number;
+    segmentationCompleted: number;
+    segmentationFailed: number;
+    segmentationSuperseded: number;
+    pendingJobs: 0 | 1;
+    analysisResolution: { width: number; height: number } | null;
+    backingResolution: { width: number; height: number } | null;
+  };
   degradedReason: string | null;
   warnings: string[];
   mask: {
@@ -73,9 +87,9 @@ export type HammerBackgroundBlurRuntimeStatus = {
 };
 
 const DISPLAY_MAX_FPS = 30;
-const MASK_REUSE_MAX_AGE_MS = 260;
-const MASK_REUSE_MAX_DELTA_SEC = 0.12;
-const STATUS_DEBOUNCE_MS = 140;
+const MASK_FRESH_MAX_AGE_MS = 750;
+const MASK_UNAVAILABLE_MAX_AGE_MS = 2_000;
+const STATUS_DEBOUNCE_MS = 250;
 const DEGRADE_STICKY_MS = 360;
 const SEGMENTATION_LOG_MIN_GAP_MS = 1200;
 
@@ -202,13 +216,6 @@ function isSegmentationFrameLogEnabled(): boolean {
   return false;
 }
 
-function computeCanvasSize(args: { element: HTMLCanvasElement; dpr: number }): { width: number; height: number } {
-  const rect = args.element.getBoundingClientRect();
-  const width = Math.max(1, Math.round(rect.width * args.dpr));
-  const height = Math.max(1, Math.round(rect.height * args.dpr));
-  return { width, height };
-}
-
 type CachedAlphaPlane = {
   width: number;
   height: number;
@@ -243,9 +250,8 @@ function isMaskReusable(args: {
 }): boolean {
   if (!args.cached) return false;
   const ageMs = nowMs() - args.cached.generatedAtMs;
-  if (ageMs > MASK_REUSE_MAX_AGE_MS) return false;
-  const sourceDelta = Math.abs(args.sourceTimeSec - args.cached.sourceTimeSec);
-  return sourceDelta <= MASK_REUSE_MAX_DELTA_SEC;
+  if (ageMs > MASK_UNAVAILABLE_MAX_AGE_MS) return false;
+  return Number.isFinite(args.sourceTimeSec);
 }
 
 export default function BackgroundBlurPreviewLayer(props: {
@@ -257,6 +263,7 @@ export default function BackgroundBlurPreviewLayer(props: {
   maskPreviewMode?: boolean;
   maskPreviewStage?: "raw" | "expanded" | "feathered" | "refined" | "final_composite";
   videoRef: React.RefObject<HTMLVideoElement | null>;
+  mediaRevision?: string | null;
   onCanvas?: (canvas: HTMLCanvasElement | null) => void;
   onStatus?: (status: HammerBackgroundBlurRuntimeStatus) => void;
   analysisFrame?: FaceAnalysisFrame | null;
@@ -264,6 +271,14 @@ export default function BackgroundBlurPreviewLayer(props: {
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const qualityPolicy = resolveVisualPreviewQualityPolicy(props.settings.qualityMode);
+  const settingsRef = useRef(props.settings);
+  const qualityPolicyRef = useRef(qualityPolicy);
+  const maskPreviewModeRef = useRef(Boolean(props.maskPreviewMode));
+  const maskPreviewStageRef = useRef(props.maskPreviewStage);
+  settingsRef.current = props.settings;
+  qualityPolicyRef.current = qualityPolicy;
+  maskPreviewModeRef.current = Boolean(props.maskPreviewMode);
+  maskPreviewStageRef.current = props.maskPreviewStage;
   const provider = useMemo(() => ({
     name: props.analysisAuthority.primarySegmentationName(),
     initialize: () => props.analysisAuthority.initialize(),
@@ -295,6 +310,15 @@ export default function BackgroundBlurPreviewLayer(props: {
   }, [analysisFrameQueue]);
 
   const inFlightRef = useRef(false);
+  const pendingSegmentationRef = useRef(false);
+  const analysisCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const maskPreviewCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const previewRuntimeRef = useRef<HammerPreviewRuntime | null>(null);
+  const analysisResolutionRef = useRef<{ width: number; height: number } | null>(null);
+  const segmentationAttemptedRef = useRef(0);
+  const segmentationCompletedRef = useRef(0);
+  const segmentationFailedRef = useRef(0);
+  const segmentationSupersededRef = useRef(0);
   const lastSegmentationAttemptAtMsRef = useRef<number | null>(null);
   const lastSegmentationSourceTimeSecRef = useRef<number | null>(null);
   const lastCompositeAtMsRef = useRef<number | null>(null);
@@ -333,6 +357,7 @@ export default function BackgroundBlurPreviewLayer(props: {
       mode: props.settings.qualityMode,
       policy: {
         maxSegmentationFps: qualityPolicy.maxSegmentationFps,
+        maxAnalysisLongEdgePx: qualityPolicy.maxAnalysisLongEdgePx,
         edgeFeatherCapPx: qualityPolicy.edgeFeatherCapPx,
         subjectExpansionCapPx: qualityPolicy.subjectExpansionCapPx,
         temporalSmoothingCap: qualityPolicy.temporalSmoothingCap,
@@ -546,6 +571,7 @@ export default function BackgroundBlurPreviewLayer(props: {
     if (!props.enabled) {
       matteRefiner.reset();
       inFlightRef.current = false;
+      pendingSegmentationRef.current = false;
       lastSegmentationAttemptAtMsRef.current = null;
       lastSegmentationSourceTimeSecRef.current = null;
       lastCompositeAtMsRef.current = null;
@@ -554,6 +580,10 @@ export default function BackgroundBlurPreviewLayer(props: {
       skippedSegmentationFramesRef.current = 0;
       reusedMaskFramesRef.current = 0;
       droppedFramesRef.current = 0;
+      segmentationAttemptedRef.current = 0;
+      segmentationCompletedRef.current = 0;
+      segmentationFailedRef.current = 0;
+      segmentationSupersededRef.current = 0;
       segmentationSampleCountRef.current = 0;
       compositeSampleCountRef.current = 0;
       maxSegMsRef.current = null;
@@ -574,6 +604,7 @@ export default function BackgroundBlurPreviewLayer(props: {
     lastCompositeAtMsRef.current = null;
     lastCompositeSourceTimeSecRef.current = null;
     degradedReasonSinceMsRef.current = null;
+    previewRuntimeRef.current?.updateCompositeSettings();
   }, [
     props.enabled,
     props.maskPreviewMode,
@@ -592,16 +623,13 @@ export default function BackgroundBlurPreviewLayer(props: {
 
   useEffect(() => {
     if (!props.enabled) return;
-    // Matte-shaping controls require a fresh segmentation/matte pass; otherwise the
-    // preview can appear frozen because cached matte/composite state is reused.
-    matteRefiner.reset();
-    latestMatteFrameRef.current = null;
+    // Preserve the last-good matte while the changed refinement settings are analyzed.
     lastSegmentationAttemptAtMsRef.current = null;
     lastSegmentationSourceTimeSecRef.current = null;
     lastCompositeAtMsRef.current = null;
     lastCompositeSourceTimeSecRef.current = null;
+    previewRuntimeRef.current?.updateMatteSettings();
   }, [
-    matteRefiner,
     props.enabled,
     props.providerId,
     props.settings.edgeFeatherPx,
@@ -609,6 +637,20 @@ export default function BackgroundBlurPreviewLayer(props: {
     props.settings.subjectExpansionPx,
     props.settings.qualityMode,
   ]);
+
+  const lastMediaRevisionRef = useRef(props.mediaRevision ?? null);
+  useEffect(() => {
+    const revision = props.mediaRevision ?? null;
+    if (lastMediaRevisionRef.current === revision) return;
+    lastMediaRevisionRef.current = revision;
+    frameTokenRef.current += 1;
+    matteRefiner.reset();
+    latestMatteFrameRef.current = null;
+    lastSegmentationAttemptAtMsRef.current = null;
+    lastSegmentationSourceTimeSecRef.current = null;
+    lastCompositeAtMsRef.current = null;
+    lastCompositeSourceTimeSecRef.current = null;
+  }, [matteRefiner, props.mediaRevision]);
 
   useEffect(() => {
     if (!props.enabled) return;
@@ -618,14 +660,16 @@ export default function BackgroundBlurPreviewLayer(props: {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    const dpr = Math.max(1, Math.min(3, window.devicePixelRatio || 1));
     const ro = new ResizeObserver(() => {
-      const { width, height } = computeCanvasSize({ element: canvas, dpr });
+      const rect = canvas.getBoundingClientRect();
+      const { width, height } = resolvePreviewBackingSize({ cssWidth: rect.width, cssHeight: rect.height, devicePixelRatio: window.devicePixelRatio || 1 });
       if (canvas.width !== width) canvas.width = width;
       if (canvas.height !== height) canvas.height = height;
+      previewRuntimeRef.current?.requestFrame("control_change");
     });
     ro.observe(canvas);
-    const initial = computeCanvasSize({ element: canvas, dpr });
+    const rect = canvas.getBoundingClientRect();
+    const initial = resolvePreviewBackingSize({ cssWidth: rect.width, cssHeight: rect.height, devicePixelRatio: window.devicePixelRatio || 1 });
     canvas.width = initial.width;
     canvas.height = initial.height;
     return () => ro.disconnect();
@@ -635,9 +679,6 @@ export default function BackgroundBlurPreviewLayer(props: {
     if (!props.enabled) return;
     let cancelled = false;
 
-    const targetSegFps = Math.max(1, qualityPolicy.maxSegmentationFps);
-    const minSegGapMs = 1000 / targetSegFps;
-    const minSegSourceDeltaSec = Math.max(1 / (targetSegFps * 1.8), 0.008);
     const minCompositeGapMs = 1000 / DISPLAY_MAX_FPS;
 
     const computeCadenceSnapshot = () => ({
@@ -675,11 +716,14 @@ export default function BackgroundBlurPreviewLayer(props: {
       analysisFrame: FaceAnalysisFrame | null;
     }): Promise<void> => {
       if (inFlightRef.current) {
+        if (pendingSegmentationRef.current) segmentationSupersededRef.current += 1;
+        pendingSegmentationRef.current = true;
         skippedSegmentationFramesRef.current += 1;
         droppedFramesRef.current += 1;
         return;
       }
       inFlightRef.current = true;
+      segmentationAttemptedRef.current += 1;
       const segmentStartedAt = nowMs();
 
       try {
@@ -688,8 +732,21 @@ export default function BackgroundBlurPreviewLayer(props: {
           await provider.initialize();
         }
 
+        let segmentationSource = args.source;
+        if (!args.analysisFrame) {
+          const policy = qualityPolicyRef.current;
+          const size = resolvePreviewAnalysisSize({ width: args.frameInput.width, height: args.frameInput.height, maxLongEdge: policy.maxAnalysisLongEdgePx });
+          const analysisCanvas = analysisCanvasRef.current ?? document.createElement("canvas");
+          analysisCanvasRef.current = analysisCanvas;
+          if (analysisCanvas.width !== size.width) analysisCanvas.width = size.width;
+          if (analysisCanvas.height !== size.height) analysisCanvas.height = size.height;
+          const analysisCtx = analysisCanvas.getContext("2d", { alpha: false });
+          analysisCtx?.drawImage(args.source, 0, 0, size.width, size.height);
+          analysisResolutionRef.current = size;
+          segmentationSource = analysisCanvas;
+        }
         const segmentation = await props.analysisAuthority.segmentDisplayedFrame({
-          source: args.source,
+          source: segmentationSource,
           sourcePresentationTimeSec: args.sourceTimeSec,
         });
         const seg = segmentation.result;
@@ -707,6 +764,7 @@ export default function BackgroundBlurPreviewLayer(props: {
 
         if (!maskValid || maskRejectedReason) {
           consecutiveMaskFailuresRef.current += 1;
+          segmentationFailedRef.current += 1;
           const missingReason = !maskValid ? "mask_unavailable" : maskRejectedReason;
           logSegmentationDiagnostics({
             providerName: segmentation.providerName,
@@ -726,12 +784,13 @@ export default function BackgroundBlurPreviewLayer(props: {
               ...prev,
               provider: { name: provider.name, readiness: provider.getReadiness() },
               quality: {
-                mode: props.settings.qualityMode,
+                mode: settingsRef.current.qualityMode,
                 policy: {
-                  maxSegmentationFps: qualityPolicy.maxSegmentationFps,
-                  edgeFeatherCapPx: qualityPolicy.edgeFeatherCapPx,
-                  subjectExpansionCapPx: qualityPolicy.subjectExpansionCapPx,
-                  temporalSmoothingCap: qualityPolicy.temporalSmoothingCap,
+                  maxSegmentationFps: qualityPolicyRef.current.maxSegmentationFps,
+                  maxAnalysisLongEdgePx: qualityPolicyRef.current.maxAnalysisLongEdgePx,
+                  edgeFeatherCapPx: qualityPolicyRef.current.edgeFeatherCapPx,
+                  subjectExpansionCapPx: qualityPolicyRef.current.subjectExpansionCapPx,
+                  temporalSmoothingCap: qualityPolicyRef.current.temporalSmoothingCap,
                 },
               },
               frameInput: args.frameInput,
@@ -781,18 +840,29 @@ export default function BackgroundBlurPreviewLayer(props: {
           return;
         }
 
-        const effectiveFeatherPx = Math.min(props.settings.edgeFeatherPx, qualityPolicy.edgeFeatherCapPx);
-        const effectiveExpansionPx = Math.max(
-          -qualityPolicy.subjectExpansionCapPx,
-          Math.min(props.settings.subjectExpansionPx, qualityPolicy.subjectExpansionCapPx),
+        const canvasRect = args.canvas.getBoundingClientRect();
+        const matteControlScale = resolveMatteControlScale({
+          maskWidth: seg.width,
+          maskHeight: seg.height,
+          surfaceCssWidth: canvasRect?.width ?? seg.width,
+          surfaceCssHeight: canvasRect?.height ?? seg.height,
+        }).maskPixelsPerCssPixel;
+        const settings = settingsRef.current;
+        const policy = qualityPolicyRef.current;
+        const effectiveFeatherCssPx = Math.min(settings.edgeFeatherPx, policy.edgeFeatherCapPx);
+        const effectiveExpansionCssPx = Math.max(
+          -policy.subjectExpansionCapPx,
+          Math.min(settings.subjectExpansionPx, policy.subjectExpansionCapPx),
         );
-        const effectiveTemporal = Math.min(props.settings.temporalSmoothing, qualityPolicy.temporalSmoothingCap);
+        const effectiveFeatherPx = effectiveFeatherCssPx * matteControlScale;
+        const effectiveExpansionPx = effectiveExpansionCssPx * matteControlScale;
+        const effectiveTemporal = Math.min(settings.temporalSmoothing, policy.temporalSmoothingCap);
         const temporalForStability = Math.max(0, Math.min(1, effectiveTemporal * 0.92));
         const matte = matteRefiner.buildMatte(seg, {
           featherPx: effectiveFeatherPx,
           subjectExpansionPx: effectiveExpansionPx,
           temporalSmoothing: temporalForStability,
-          quality: props.settings.qualityMode,
+          quality: settings.qualityMode,
         });
 
         latestMatteFrameRef.current = {
@@ -823,6 +893,7 @@ export default function BackgroundBlurPreviewLayer(props: {
           ? seg.processingMs
           : Math.max(maxSegMsRef.current, seg.processingMs);
         segmentationSampleCountRef.current += 1;
+        segmentationCompletedRef.current += 1;
 
         if (props.debugMasks) {
           latestRawPlaneRef.current = {
@@ -875,12 +946,13 @@ export default function BackgroundBlurPreviewLayer(props: {
             ...prev,
             provider: { name: provider.name, readiness: provider.getReadiness() },
             quality: {
-              mode: props.settings.qualityMode,
+              mode: settingsRef.current.qualityMode,
               policy: {
-                maxSegmentationFps: qualityPolicy.maxSegmentationFps,
-                edgeFeatherCapPx: qualityPolicy.edgeFeatherCapPx,
-                subjectExpansionCapPx: qualityPolicy.subjectExpansionCapPx,
-                temporalSmoothingCap: qualityPolicy.temporalSmoothingCap,
+                maxSegmentationFps: qualityPolicyRef.current.maxSegmentationFps,
+                maxAnalysisLongEdgePx: qualityPolicyRef.current.maxAnalysisLongEdgePx,
+                edgeFeatherCapPx: qualityPolicyRef.current.edgeFeatherCapPx,
+                subjectExpansionCapPx: qualityPolicyRef.current.subjectExpansionCapPx,
+                temporalSmoothingCap: qualityPolicyRef.current.temporalSmoothingCap,
               },
             },
             initMs: initMsRef.current,
@@ -913,6 +985,7 @@ export default function BackgroundBlurPreviewLayer(props: {
           };
         }, true);
       } catch (error) {
+        segmentationFailedRef.current += 1;
         if (args.analysisFrame) {
           onPlacementMatteRef.current?.(Object.freeze({
             kind: "failed",
@@ -927,12 +1000,13 @@ export default function BackgroundBlurPreviewLayer(props: {
             ...prev,
             provider: { name: provider.name, readiness: provider.getReadiness() },
             quality: {
-              mode: props.settings.qualityMode,
+              mode: settingsRef.current.qualityMode,
               policy: {
-                maxSegmentationFps: qualityPolicy.maxSegmentationFps,
-                edgeFeatherCapPx: qualityPolicy.edgeFeatherCapPx,
-                subjectExpansionCapPx: qualityPolicy.subjectExpansionCapPx,
-                temporalSmoothingCap: qualityPolicy.temporalSmoothingCap,
+                maxSegmentationFps: qualityPolicyRef.current.maxSegmentationFps,
+                maxAnalysisLongEdgePx: qualityPolicyRef.current.maxAnalysisLongEdgePx,
+                edgeFeatherCapPx: qualityPolicyRef.current.edgeFeatherCapPx,
+                subjectExpansionCapPx: qualityPolicyRef.current.subjectExpansionCapPx,
+                temporalSmoothingCap: qualityPolicyRef.current.temporalSmoothingCap,
               },
             },
             initMs: initMsRef.current,
@@ -970,8 +1044,14 @@ export default function BackgroundBlurPreviewLayer(props: {
         args.analysisFrame?.release();
         inFlightRef.current = false;
         const elapsed = nowMs() - segmentStartedAt;
-        if (elapsed > (minSegGapMs * 3)) {
+        if (elapsed > ((1000 / Math.max(1, qualityPolicyRef.current.maxSegmentationFps)) * 3)) {
           skippedSegmentationFramesRef.current += 1;
+        }
+        if (pendingSegmentationRef.current) {
+          pendingSegmentationRef.current = false;
+          lastSegmentationAttemptAtMsRef.current = null;
+          lastSegmentationSourceTimeSecRef.current = null;
+          previewRuntimeRef.current?.requestFrame("decoded_frame");
         }
       }
     };
@@ -1008,10 +1088,12 @@ export default function BackgroundBlurPreviewLayer(props: {
         return;
       }
 
-      const visualModeActive = props.settings.enabled
-        || props.settings.replacementEnabled
-        || props.settings.washEnabled
-        || props.maskPreviewMode
+      const settings = settingsRef.current;
+      const policy = qualityPolicyRef.current;
+      const visualModeActive = settings.enabled
+        || settings.replacementEnabled
+        || settings.washEnabled
+        || maskPreviewModeRef.current
         || analysisFrameQueue.hasPending();
       if (!visualModeActive) {
         drawPassthroughFrame({ source: video, output: canvas });
@@ -1076,6 +1158,9 @@ export default function BackgroundBlurPreviewLayer(props: {
       }
 
       const now = nowMs();
+      const targetSegFps = Math.max(1, policy.maxSegmentationFps);
+      const minSegGapMs = 1000 / targetSegFps;
+      const minSegSourceDeltaSec = Math.max(1 / (targetSegFps * 1.8), 0.008);
       const lastSegAttempt = lastSegmentationAttemptAtMsRef.current;
       const lastSegSource = lastSegmentationSourceTimeSecRef.current;
       const enoughWallTime = lastSegAttempt == null || (now - lastSegAttempt) >= minSegGapMs;
@@ -1084,10 +1169,9 @@ export default function BackgroundBlurPreviewLayer(props: {
       const analysisFrame = analysisFrameQueue.take();
       const shouldAttemptSegmentation = Boolean(analysisFrame) || (enoughWallTime && enoughSourceDelta) || hasNoMaskYet;
 
-      if (shouldAttemptSegmentation) {
+      if (shouldAttemptSegmentation && !inFlightRef.current) {
         lastSegmentationAttemptAtMsRef.current = now;
         lastSegmentationSourceTimeSecRef.current = sourceTimeSec;
-        segmentationSampleCountRef.current += 1;
         const frameToken = ++frameTokenRef.current;
         void runSegmentationJob({
           source: analysisFrame?.pixels ?? video,
@@ -1100,6 +1184,11 @@ export default function BackgroundBlurPreviewLayer(props: {
           analysisFrame,
         });
       } else {
+        if (shouldAttemptSegmentation && inFlightRef.current) {
+          if (analysisFrame) analysisFrameQueue.offer(analysisFrame);
+          if (pendingSegmentationRef.current) segmentationSupersededRef.current += 1;
+          pendingSegmentationRef.current = true;
+        }
         skippedSegmentationFramesRef.current += 1;
       }
 
@@ -1108,7 +1197,7 @@ export default function BackgroundBlurPreviewLayer(props: {
       if (lastCompositeAt != null && (now - lastCompositeAt) < minCompositeGapMs) {
         return;
       }
-      if (lastCompositeSource != null && Math.abs(sourceTimeSec - lastCompositeSource) < 0.002 && !props.maskPreviewMode) {
+      if (lastCompositeSource != null && Math.abs(sourceTimeSec - lastCompositeSource) < 0.002 && !maskPreviewModeRef.current) {
         return;
       }
 
@@ -1117,8 +1206,14 @@ export default function BackgroundBlurPreviewLayer(props: {
         cached: cachedMatte,
         sourceTimeSec,
       });
-      const hasUsableMask = cachedMatte != null && (canReuseMask || Math.abs(sourceTimeSec - cachedMatte.sourceTimeSec) < 0.2);
+      const hasUsableMask = cachedMatte != null && canReuseMask;
       if (!hasUsableMask) {
+        if (cachedMatte) {
+          const ageMs = Math.max(0, Math.round(nowMs() - cachedMatte.generatedAtMs));
+          publishStatus((prev) => ({ ...prev, lastMaskAgeMs: ageMs, degradedReason: "segmentation_unavailable",
+            statusMessage: "Preview effect unavailable · retaining last processed frame" }));
+          return;
+        }
         drawPassthroughFrame({ source: video, output: canvas });
         const nowForDegrade = nowMs();
         if (degradedReasonSinceMsRef.current == null) degradedReasonSinceMsRef.current = nowForDegrade;
@@ -1159,17 +1254,35 @@ export default function BackgroundBlurPreviewLayer(props: {
       const maskAgeMs = Math.max(0, Math.round(nowMs() - cachedMatte.generatedAtMs));
 
       const matte = cachedMatte.matte;
-      let composite = props.settings.washEnabled
-        ? washRenderer.render({ source: video, matte, settings: props.settings, output: canvas })
-        : props.settings.replacementEnabled
-        ? replacementRenderer.render({ source: video, matte, settings: props.settings, output: canvas })
-        : blurRenderer.render({ source: video, matte, settings: props.settings, output: canvas });
+      const canvasRect = canvas.getBoundingClientRect();
+      const backingScale = resolveCanvasBackingScale({
+        canvasWidth: canvas.width,
+        canvasHeight: canvas.height,
+        surfaceCssWidth: canvasRect.width,
+        surfaceCssHeight: canvasRect.height,
+      });
+      const matteControlScale = resolveMatteControlScale({
+        maskWidth: matte.width,
+        maskHeight: matte.height,
+        surfaceCssWidth: canvasRect.width,
+        surfaceCssHeight: canvasRect.height,
+      }).maskPixelsPerCssPixel;
+      const renderSettings = {
+        ...settings,
+        blurPx: settings.blurPx * backingScale,
+        edgeFeatherPx: settings.edgeFeatherPx * matteControlScale,
+      };
+      let composite = settings.washEnabled
+        ? washRenderer.render({ source: video, matte, settings: renderSettings, output: canvas })
+        : settings.replacementEnabled
+        ? replacementRenderer.render({ source: video, matte, settings: renderSettings, output: canvas })
+        : blurRenderer.render({ source: video, matte, settings: renderSettings, output: canvas });
 
       const cadenceSnapshot = computeCadenceSnapshot();
       const segRate = cadenceSnapshot.effectiveSegmentationFps ?? targetSegFps;
       const underLoad = inFlightRef.current || segRate < (targetSegFps * 0.55);
-      if (props.settings.replacementEnabled && underLoad) {
-        composite = blurRenderer.render({ source: video, matte, settings: props.settings, output: canvas });
+      if (settings.replacementEnabled && underLoad) {
+        composite = blurRenderer.render({ source: video, matte, settings: renderSettings, output: canvas });
         composite = {
           ...composite,
           degradedReason: composite.degradedReason ?? "replacement_degraded_under_load",
@@ -1177,8 +1290,8 @@ export default function BackgroundBlurPreviewLayer(props: {
         };
       }
 
-      if (props.settings.replacementEnabled && cachedMatte.providerSource === "secondary") {
-        composite = blurRenderer.render({ source: video, matte, settings: props.settings, output: canvas });
+      if (settings.replacementEnabled && cachedMatte.providerSource === "secondary") {
+        composite = blurRenderer.render({ source: video, matte, settings: renderSettings, output: canvas });
         composite = {
           ...composite,
           degradedReason: composite.degradedReason ?? "replacement_downgraded_to_blur",
@@ -1193,10 +1306,10 @@ export default function BackgroundBlurPreviewLayer(props: {
       lastCompositeAtMsRef.current = now;
       lastCompositeSourceTimeSecRef.current = sourceTimeSec;
 
-      if (props.maskPreviewMode) {
+      if (maskPreviewModeRef.current) {
         const maskCtx = canvas.getContext("2d");
         if (maskCtx) {
-          const stage = props.maskPreviewStage ?? "raw";
+          const stage = maskPreviewStageRef.current ?? "raw";
           if (stage !== "final_composite") {
             const stageAlpha = stage === "expanded"
               ? (matte.metadata.debugPlanes?.expandedAlphaMask ?? matte.alphaMask)
@@ -1213,7 +1326,8 @@ export default function BackgroundBlurPreviewLayer(props: {
               maskImage.data[i + 2] = value;
               maskImage.data[i + 3] = 255;
             }
-            const temp = document.createElement("canvas");
+            const temp = maskPreviewCanvasRef.current ?? document.createElement("canvas");
+            maskPreviewCanvasRef.current = temp;
             temp.width = matte.width;
             temp.height = matte.height;
             const tempCtx = temp.getContext("2d");
@@ -1236,12 +1350,13 @@ export default function BackgroundBlurPreviewLayer(props: {
           ...prev,
           provider: { name: provider.name, readiness: provider.getReadiness() },
           quality: {
-            mode: props.settings.qualityMode,
+            mode: settings.qualityMode,
             policy: {
-              maxSegmentationFps: qualityPolicy.maxSegmentationFps,
-              edgeFeatherCapPx: qualityPolicy.edgeFeatherCapPx,
-              subjectExpansionCapPx: qualityPolicy.subjectExpansionCapPx,
-              temporalSmoothingCap: qualityPolicy.temporalSmoothingCap,
+              maxSegmentationFps: policy.maxSegmentationFps,
+              maxAnalysisLongEdgePx: policy.maxAnalysisLongEdgePx,
+              edgeFeatherCapPx: policy.edgeFeatherCapPx,
+              subjectExpansionCapPx: policy.subjectExpansionCapPx,
+              temporalSmoothingCap: policy.temporalSmoothingCap,
             },
           },
           initMs: initMsRef.current,
@@ -1256,7 +1371,18 @@ export default function BackgroundBlurPreviewLayer(props: {
           effectiveSegmentationFps: cadence.effectiveSegmentationFps,
           effectiveCompositeFps: cadence.effectiveCompositeFps,
           lastMaskAgeMs: maskAgeMs,
-          degradedReason: composite.degradedReason,
+          runtime: {
+            scheduler: previewRuntimeRef.current?.snapshotDiagnostics().scheduler ?? "idle",
+            sourceRevision: previewRuntimeRef.current?.snapshotDiagnostics().sourceRevision ?? null,
+            segmentationAttempted: segmentationAttemptedRef.current,
+            segmentationCompleted: segmentationCompletedRef.current,
+            segmentationFailed: segmentationFailedRef.current,
+            segmentationSuperseded: segmentationSupersededRef.current,
+            pendingJobs: inFlightRef.current ? 1 : 0,
+            analysisResolution: analysisResolutionRef.current,
+            backingResolution: { width: canvas.width, height: canvas.height },
+          },
+          degradedReason: maskAgeMs > MASK_FRESH_MAX_AGE_MS ? "reusing_stale_mask" : composite.degradedReason,
           warnings: [...new Set([...(cachedMatte.warnings ?? []), ...composite.warnings])],
           mask: {
             status: "ok",
@@ -1288,65 +1414,23 @@ export default function BackgroundBlurPreviewLayer(props: {
     };
 
     const video = props.videoRef.current;
-    const videoFrameSource = video as (HTMLVideoElement & {
-      requestVideoFrameCallback?: (callback: (now: number, metadata: { mediaTime?: number }) => void) => number;
-      cancelVideoFrameCallback?: (handle: number) => void;
-    }) | null;
-    const requestVideoFrameCallback = videoFrameSource?.requestVideoFrameCallback?.bind(videoFrameSource) ?? null;
-    const cancelVideoFrameCallback = videoFrameSource?.cancelVideoFrameCallback?.bind(videoFrameSource) ?? null;
-
-    let rvfcHandle = 0;
-    if (video && typeof requestVideoFrameCallback === "function") {
-      const onVideoFrame = (_now: number, metadata: { mediaTime?: number }) => {
-        if (typeof metadata?.mediaTime === "number" && Number.isFinite(metadata.mediaTime)) {
-          const lastSource = lastSegmentationSourceTimeSecRef.current;
-          if (lastSource != null && Math.abs(metadata.mediaTime - lastSource) < 0.0005) {
-            skippedSegmentationFramesRef.current += 1;
-          }
-        }
-        void tick();
-        rvfcHandle = requestVideoFrameCallback(onVideoFrame);
-      };
-      rvfcHandle = requestVideoFrameCallback(onVideoFrame);
-    }
-
-    let raf = 0;
-    const loop = () => {
-      void tick();
-      raf = window.requestAnimationFrame(loop);
-    };
-    raf = window.requestAnimationFrame(loop);
-
-    const handlePrime = () => {
-      void tick();
-    };
-    video?.addEventListener("loadeddata", handlePrime);
-    video?.addEventListener("canplay", handlePrime);
-    video?.addEventListener("seeked", handlePrime);
-    video?.addEventListener("play", handlePrime);
-    video?.addEventListener("pause", handlePrime);
+    const runtime = new HammerPreviewRuntime(() => { void tick(); });
+    previewRuntimeRef.current = runtime;
+    if (video) runtime.attachSource(video, props.mediaRevision ?? (video.currentSrc || video.src || "preview-source"));
 
     return () => {
       cancelled = true;
-      if (typeof cancelVideoFrameCallback === "function" && rvfcHandle) cancelVideoFrameCallback(rvfcHandle);
-      window.cancelAnimationFrame(raf);
-      video?.removeEventListener("loadeddata", handlePrime);
-      video?.removeEventListener("canplay", handlePrime);
-      video?.removeEventListener("seeked", handlePrime);
-      video?.removeEventListener("play", handlePrime);
-      video?.removeEventListener("pause", handlePrime);
+      runtime.dispose();
+      if (previewRuntimeRef.current === runtime) previewRuntimeRef.current = null;
     };
   }, [
     blurRenderer,
     analysisFrameQueue,
     matteRefiner,
     props.enabled,
-    props.maskPreviewMode,
-    props.maskPreviewStage,
-    props.settings,
     props.videoRef,
+    props.mediaRevision,
     provider,
-    qualityPolicy,
     replacementRenderer,
     washRenderer,
   ]);
@@ -1366,8 +1450,6 @@ export default function BackgroundBlurPreviewLayer(props: {
       />
       {props.maskPreviewMode && runtimeStatus.mask.status !== "ok" ? (
         <div className="hammer-preview-matte-overlay">NO MASK</div>
-      ) : runtimeStatus.statusMessage ? (
-        <div className="hammer-preview-matte-overlay">{runtimeStatus.statusMessage}</div>
       ) : null}
     </>
   );
