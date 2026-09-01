@@ -258,8 +258,7 @@ export function buildHammerVoicePolishTier2FfmpegFilters(state: HammerVoicePolis
       : { threshold: 0.11, ratio: 2.0, attack: 12, release: 220, makeup: 1.12 };
     filters.push(
       [
-        "acompressor",
-        `threshold=${compressor.threshold.toFixed(3)}`,
+        "acompressor=threshold=" + compressor.threshold.toFixed(3),
         `ratio=${compressor.ratio.toFixed(2)}`,
         `attack=${compressor.attack.toFixed(1)}`,
         `release=${compressor.release.toFixed(1)}`,

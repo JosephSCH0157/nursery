@@ -11,6 +11,8 @@ import {
 import type { HammerStudioRackState } from "./hammerStudioRack";
 import type { HammerAudioTimelineSegmentInput } from "./hammerAudioTimelineRenderPlan";
 import type { HammerFinalAudioRenderIdentity } from "../composition/hammerFinalAudioAuthority";
+import { buildHammerAudioDspPlan, buildHammerAudioRenderIdentity, fingerprintHammerAudio, type HammerAudioRenderIdentityV1 } from "./hammerAudioDspPlan";
+import type { HammerExactAudioRenderReceiptV1 } from "./hammerExactAudioReceipt";
 
 export type HammerAudioProcessingBackendId = "native" | "ffmpeg";
 export type HammerAudioProcessingMode = "playback" | "render";
@@ -102,6 +104,7 @@ export interface HammerDialogueRenderExecutionResult {
   outputMimeType: string | null;
   outputDurationMs: number | null;
   rawResponse: HammerStudioRackRenderResponse | null;
+  exactAudioReceipt: HammerExactAudioRenderReceiptV1 | null;
 }
 
 function mapRenderResponseMessage(response: HammerStudioRackRenderResponse): string {
@@ -109,7 +112,9 @@ function mapRenderResponseMessage(response: HammerStudioRackRenderResponse): str
     const output = response.output_workpiece_path
       ?? response.output_local_relpath
       ?? "derived artifact";
-    return `Studio Rack render completed via ${response.resolved_backend} lane (${output}). A/B stays honest via bypass against source audio.`;
+    return response.exact_audio_receipt
+      ? `Exact audio verified via ${response.resolved_backend} lane (${output}).`
+      : `Studio Rack render completed via ${response.resolved_backend} lane (${output}), but exact-audio verification is unavailable.`;
   }
   if (response.status === "skipped") {
     return response.failure_reason
@@ -133,6 +138,7 @@ export async function executeDialogueAudioRenderWithBackend(args: {
   renderPurpose?: "preview" | "final";
   finalAudioIdentity?: HammerFinalAudioRenderIdentity | null;
   podcastMaster?: HammerStudioRackRenderRequest["podcast_master"];
+  renderIdentity?: HammerAudioRenderIdentityV1;
   executor?: (request: HammerStudioRackRenderRequest) => Promise<HammerStudioRackRenderResponse>;
 }): Promise<HammerDialogueRenderExecutionResult> {
   const mode: HammerAudioProcessingMode = "render";
@@ -153,6 +159,7 @@ export async function executeDialogueAudioRenderWithBackend(args: {
       outputMimeType: null,
       outputDurationMs: null,
       rawResponse: null,
+      exactAudioReceipt: null,
     };
   }
   if (!Array.isArray(args.timelineSegments) || args.timelineSegments.length === 0) {
@@ -167,11 +174,19 @@ export async function executeDialogueAudioRenderWithBackend(args: {
       outputMimeType: null,
       outputDurationMs: null,
       rawResponse: null,
+      exactAudioReceipt: null,
     };
   }
 
   const execute = args.executor ?? requestHammerStudioRackRender;
   try {
+    const dspPlan = buildHammerAudioDspPlan(args.rackState, { podcastMaster: args.podcastMaster ?? null });
+    const renderIdentity = args.renderIdentity ?? buildHammerAudioRenderIdentity({
+      sourceIdentity: args.finalAudioIdentity?.recording_revision_id ?? args.canonicalWorkpiecePath ?? args.localRelpath ?? `${args.workpieceId}:source:unknown`,
+      timelineIdentity: fingerprintHammerAudio(args.timelineSegments),
+      historyHead: args.finalAudioIdentity?.composition_fingerprint ?? "head:preview",
+      dspFingerprint: dspPlan.dspFingerprint,
+    });
     const response = await execute({
       workspace_id: args.workspaceId,
       workpiece_id: args.workpieceId,
@@ -179,6 +194,8 @@ export async function executeDialogueAudioRenderWithBackend(args: {
       requested_backend: resolution.requestedBackend,
       timeline_segments: args.timelineSegments,
       rack_state: args.rackState,
+      dsp_plan: dspPlan,
+      render_identity: renderIdentity,
       render_purpose: args.renderPurpose ?? "preview",
       final_audio_identity: args.finalAudioIdentity ?? null,
       podcast_master: args.podcastMaster ?? null,
@@ -199,6 +216,7 @@ export async function executeDialogueAudioRenderWithBackend(args: {
       outputMimeType: response.output_mime_type,
       outputDurationMs: response.output_duration_ms,
       rawResponse: response,
+      exactAudioReceipt: response.exact_audio_receipt,
     };
   } catch (error) {
     const message = error instanceof Error && error.message.trim()
@@ -215,6 +233,7 @@ export async function executeDialogueAudioRenderWithBackend(args: {
       outputMimeType: null,
       outputDurationMs: null,
       rawResponse: null,
+      exactAudioReceipt: null,
     };
   }
 }

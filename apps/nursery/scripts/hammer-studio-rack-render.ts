@@ -15,8 +15,10 @@ import {
   buildHammerTimelineAudioRenderPlan,
   type HammerAudioTimelineSegmentInput,
 } from "../../hammer/src/editor/hammerAudioTimelineRenderPlan";
-import { buildHammerStudioRackFfmpegPlan } from "../../hammer/src/editor/hammerStudioRackFfmpegPlan";
+import { buildHammerExactDspFfmpegPlan, buildHammerStudioRackFfmpegPlan } from "../../hammer/src/editor/hammerStudioRackFfmpegPlan";
 import type { HammerFinalAudioMasterAuthority, HammerFinalAudioRenderIdentity } from "../../hammer/src/composition/hammerFinalAudioAuthority";
+import { buildHammerExactAudioRenderReceipt, HAMMER_AUDIO_ALGORITHM_VERSIONS, type HammerExactAudioLoudnessReceiptV1, type HammerLoudnessMeasurementV1 } from "../../hammer/src/editor/hammerExactAudioReceipt";
+import type { HammerAudioDspPlanV1, HammerAudioRenderIdentityV1 } from "../../hammer/src/editor/hammerAudioDspPlan";
 
 type HammerStudioRackRenderRouteResult = {
   status: number;
@@ -263,6 +265,7 @@ function createFailedResponse(args: {
       ...args.summary,
     },
     canonical_audio_master: null,
+    exact_audio_receipt: null,
   };
 }
 
@@ -286,6 +289,7 @@ function createSkippedResponse(args: {
       ...args.summary,
     },
     canonical_audio_master: null,
+    exact_audio_receipt: null,
   };
 }
 
@@ -314,6 +318,8 @@ function normalizeStudioRackRenderRequest(body: unknown): NormalizedStudioRackRe
     }, [])
     : [];
   const rackState = row.rack_state;
+  const dspPlan = readObject(row.dsp_plan) as unknown as HammerAudioDspPlanV1 | null;
+  const renderIdentity = readObject(row.render_identity) as unknown as HammerAudioRenderIdentityV1 | null;
   const renderPurpose = readTrimmed(row.render_purpose);
   const identityRow = readObject(row.final_audio_identity);
   const podcastMasterRow = readObject(row.podcast_master);
@@ -339,7 +345,7 @@ function normalizeStudioRackRenderRequest(body: unknown): NormalizedStudioRackRe
     || !mediaKind
     || (requestedBackend !== "native" && requestedBackend !== "ffmpeg")
     || timelineSegments.length === 0
-    || !rackState
+    || !rackState || !dspPlan || !renderIdentity || !readTrimmed(dspPlan.dspFingerprint) || !readTrimmed(renderIdentity.renderFingerprint)
     || (renderPurpose === "final" && (!finalAudioIdentity || !finalAudioIdentity.recording_revision_id || finalAudioIdentity.composition_revision <= 0 || !/^[0-9a-f]{64}$/.test(finalAudioIdentity.operation_fingerprint)))
   ) {
     return null;
@@ -352,6 +358,8 @@ function normalizeStudioRackRenderRequest(body: unknown): NormalizedStudioRackRe
     requested_backend: requestedBackend,
     timeline_segments: timelineSegments,
     rack_state: rackState as HammerStudioRackState,
+    dsp_plan: dspPlan,
+    render_identity: renderIdentity,
     render_purpose: renderPurpose === "final" ? "final" : "preview",
     final_audio_identity: finalAudioIdentity,
     podcast_master: podcastMaster,
@@ -502,6 +510,44 @@ async function renderWaveBufferWithFfmpeg(args: {
   } finally {
     await fsPromises.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);
   }
+}
+
+function parseLoudnormMeasurement(stderr: string): HammerLoudnessMeasurementV1 {
+  const matches = stderr.match(/\{[\s\S]*?\}/g) ?? [];
+  const row = matches.length > 0 ? JSON.parse(matches[matches.length - 1]!) as Record<string, unknown> : null;
+  const number = (key: string): number => {
+    const parsed = Number(row?.[key]);
+    if (!Number.isFinite(parsed)) throw new Error(`FFmpeg loudnorm measurement is missing ${key}.`);
+    return parsed;
+  };
+  return Object.freeze({
+    integrated_lufs: number("input_i"), loudness_range_lu: number("input_lra"),
+    true_peak_dbtp: number("input_tp"), threshold_lufs: number("input_thresh"),
+    offset_lu: number("target_offset"),
+  });
+}
+
+async function analyzeLoudnessWithFfmpeg(args: { ffmpegBin: string; bytes: Buffer; targetLufs: number; targetLra: number; truePeak: number }): Promise<HammerLoudnessMeasurementV1> {
+  const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), "hammer-loudnorm-analysis-"));
+  const inputPath = path.join(tempRoot, "input.wav");
+  try {
+    await fsPromises.writeFile(inputPath, args.bytes);
+    const stderr = await new Promise<string>((resolve, reject) => {
+      const child = spawn(args.ffmpegBin, ["-hide_banner", "-nostats", "-i", inputPath, "-af", `loudnorm=I=${args.targetLufs}:TP=${args.truePeak}:LRA=${args.targetLra}:print_format=json`, "-f", "null", "-"], { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
+      let output = ""; const timeoutId = setTimeout(() => child.kill(), FFMPEG_PROCESS_TIMEOUT_MS);
+      child.stderr.on("data", (chunk) => { output += chunk.toString("utf8"); });
+      child.on("error", (error) => { clearTimeout(timeoutId); reject(error); });
+      child.on("close", (code) => { clearTimeout(timeoutId); code === 0 ? resolve(output) : reject(new Error(output.trim() || "FFmpeg loudnorm analysis failed.")); });
+    });
+    return parseLoudnormMeasurement(stderr);
+  } finally { await fsPromises.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined); }
+}
+
+function readPcm16SamplePeakDbfs(buffer: Buffer): number | null {
+  if (buffer.length < 44 || buffer.toString("ascii", 0, 4) !== "RIFF") return null;
+  let peak = 0;
+  for (let offset = 44; offset + 1 < buffer.length; offset += 2) peak = Math.max(peak, Math.abs(buffer.readInt16LE(offset)));
+  return peak === 0 ? null : 20 * Math.log10(peak / 32768);
 }
 
 function readWavDurationMs(buffer: Buffer): number | null {
@@ -785,13 +831,8 @@ export async function handleHammerStudioRackRenderRequest(
       && request.rack_state.is_enabled
       && !request.rack_state.is_bypassed
       && !isHammerStudioRackIdentity(request.rack_state);
-    const podcastMasterFilters = request.podcast_master ? [
-      ...(request.podcast_master.noise_cleanup === "light" ? ["afftdn=nf=-25"] : []),
-      `acompressor=threshold=${request.podcast_master.compression_amount === "medium" ? "0.089125" : "0.125893"}:ratio=${request.podcast_master.compression_amount === "medium" ? "3" : "2"}:attack=20:release=250`,
-      `loudnorm=I=${request.podcast_master.normalization_lufs}:TP=${request.podcast_master.limiter_ceiling_dbtp}:LRA=11`,
-      `alimiter=limit=${Math.pow(10, request.podcast_master.limiter_ceiling_dbtp / 20).toFixed(6)}`,
-    ] : [];
-    const postFilterChain = [shouldApplyRack ? chain.filterChain : "", ...podcastMasterFilters].filter(Boolean).join(",");
+    const exactDspPlan = buildHammerExactDspFfmpegPlan(request.dsp_plan);
+    const postFilterChain = shouldApplyRack ? exactDspPlan.preLoudnessFilters.join(",") : "";
     const timelinePlan = buildHammerTimelineAudioRenderPlan({
       segments: request.timeline_segments,
       postFilterChain: postFilterChain || null,
@@ -815,7 +856,7 @@ export async function handleHammerStudioRackRenderRequest(
       };
     }
 
-    const renderedWaveBytes = await renderWaveBufferWithFfmpeg({
+    const preLoudnessWaveBytes = await renderWaveBufferWithFfmpeg({
       sourceBytes: sourceMedia.sourceBytes,
       sourceExtension: sourceMedia.sourceExtension,
       sourceLabel: sourceMedia.sourceLabel,
@@ -823,8 +864,48 @@ export async function handleHammerStudioRackRenderRequest(
       filterComplex: timelinePlan.filterComplex,
       outputLabel: timelinePlan.outputLabel,
     });
+    const loudnessOperation = request.dsp_plan.operations.find((operation) => operation.id === "loudness_normalization" && operation.enabled) ?? null;
+    const limiterOperation = request.dsp_plan.operations.find((operation) => operation.id === "output_limiter" && operation.enabled) ?? null;
+    let loudnessReceipt: HammerExactAudioLoudnessReceiptV1 = Object.freeze({ status: "not_requested", target_lufs: null, target_lra_lu: null, true_peak_ceiling_dbtp: null, first_pass: null, second_pass_parameters: null, verification: null, sample_peak_dbfs: readPcm16SamplePeakDbfs(preLoudnessWaveBytes) });
+    let renderedWaveBytes = preLoudnessWaveBytes;
+    let exactLoudnessFilter = "";
+    if (loudnessOperation) {
+      const targetLufs = Number(loudnessOperation.parameters.target_lufs);
+      const targetLra = Number(loudnessOperation.parameters.lra);
+      const truePeak = Number(loudnessOperation.parameters.true_peak_dbtp);
+      if (![targetLufs, targetLra, truePeak].every(Number.isFinite)) throw new Error("Canonical loudness targets are invalid.");
+      const firstPass = await analyzeLoudnessWithFfmpeg({ ffmpegBin, bytes: preLoudnessWaveBytes, targetLufs, targetLra, truePeak });
+      const secondPassParameters = Object.freeze({ measured_I: firstPass.integrated_lufs, measured_LRA: firstPass.loudness_range_lu, measured_TP: firstPass.true_peak_dbtp, measured_thresh: firstPass.threshold_lufs, offset: firstPass.offset_lu });
+      const loudnorm = `loudnorm=I=${targetLufs}:TP=${truePeak}:LRA=${targetLra}:measured_I=${firstPass.integrated_lufs}:measured_LRA=${firstPass.loudness_range_lu}:measured_TP=${firstPass.true_peak_dbtp}:measured_thresh=${firstPass.threshold_lufs}:offset=${firstPass.offset_lu}:linear=true:print_format=summary`;
+      const limiter = limiterOperation ? `,alimiter=limit=${Math.pow(10, Number(limiterOperation.parameters.ceiling_dbfs) / 20).toFixed(6)}:level=false` : "";
+      exactLoudnessFilter = `${loudnorm}${limiter}`;
+      renderedWaveBytes = await renderWaveBufferWithFfmpeg({ sourceBytes: preLoudnessWaveBytes, sourceExtension: ".wav", sourceLabel: "pre-loudness exact audio", ffmpegBin, filterComplex: `[0:a:0]${exactLoudnessFilter}[outa]`, outputLabel: "outa" });
+      const verification = await analyzeLoudnessWithFfmpeg({ ffmpegBin, bytes: renderedWaveBytes, targetLufs, targetLra, truePeak });
+      const verified = Math.abs(verification.integrated_lufs - targetLufs) <= 1 && verification.true_peak_dbtp <= truePeak;
+      loudnessReceipt = Object.freeze({ status: verified ? "verified" : "failed", target_lufs: targetLufs, target_lra_lu: targetLra, true_peak_ceiling_dbtp: truePeak, first_pass: firstPass, second_pass_parameters: secondPassParameters, verification, sample_peak_dbfs: readPcm16SamplePeakDbfs(renderedWaveBytes) });
+      if (!verified) throw new Error(`Exact loudness verification failed (I=${verification.integrated_lufs} LUFS, TP=${verification.true_peak_dbtp} dBTP).`);
+    } else if (limiterOperation) {
+      const ceiling = Number(limiterOperation.parameters.ceiling_dbfs);
+      if (!Number.isFinite(ceiling)) throw new Error("Canonical sample-limiter ceiling is invalid.");
+      exactLoudnessFilter = `alimiter=limit=${Math.pow(10, ceiling / 20).toFixed(6)}:level=false`;
+      renderedWaveBytes = await renderWaveBufferWithFfmpeg({ sourceBytes: preLoudnessWaveBytes, sourceExtension: ".wav", sourceLabel: "pre-limiter exact audio", ffmpegBin, filterComplex: `[0:a:0]${exactLoudnessFilter}[outa]`, outputLabel: "outa" });
+      loudnessReceipt = Object.freeze({ ...loudnessReceipt, sample_peak_dbfs: readPcm16SamplePeakDbfs(renderedWaveBytes) });
+    }
     const outputWorkpiecePath = buildArtifactRelpath(request, sourceMedia.sourceLabel);
     const outputDurationMs = readWavDurationMs(renderedWaveBytes);
+    const outputContentHash = crypto.createHash("sha256").update(renderedWaveBytes).digest("hex");
+    const operationDecisions = request.dsp_plan.operations.map((operation) => ({ id: operation.id, order: operation.order, state: operation.enabled ? (shouldApplyRack ? "applied" as const : "failed" as const) : "bypassed" as const, detail: operation.enabled && !shouldApplyRack ? "ffmpeg_exact_lane_not_selected" : operation.enabled ? null : operation.bypassed ? "rack_bypassed" : "operation_disabled" }));
+    let exactAudioReceipt = buildHammerExactAudioRenderReceipt({
+      dspImplementationVersion: request.dsp_plan.implementationVersion,
+      rendererVersion: request.render_identity.rendererVersion,
+      algorithmVersions: HAMMER_AUDIO_ALGORITHM_VERSIONS,
+      dspFingerprint: request.dsp_plan.dspFingerprint,
+      renderIdentity: request.render_identity,
+      operations: operationDecisions,
+      ffmpegFilterPlan: `${timelinePlan.filterComplex}${exactLoudnessFilter ? `;[${timelinePlan.outputLabel}]${exactLoudnessFilter}[exact_out]` : ""}`,
+      loudness: loudnessReceipt,
+      output: { canonicalAssetId: null, contentHash: outputContentHash, workpiecePath: outputWorkpiecePath, mimeType: OUTPUT_MIME_TYPE, durationMs: outputDurationMs ?? 0, sampleRate: 48000, channels: 2 },
+    });
 
     let commitError: string | null = null;
     let canonicalAudioMaster: HammerFinalAudioMasterAuthority | null = null;
@@ -857,10 +938,16 @@ export async function handleHammerStudioRackRenderRequest(
             renderEvidence: {
               timeline_summary: timelinePlan.summary,
               rack_summary: chain.summary,
+              exact_audio_receipt: exactAudioReceipt,
               output_sample_rate: 48000,
               output_channels: 2,
             },
           });
+          exactAudioReceipt = buildHammerExactAudioRenderReceipt({
+            ...exactAudioReceipt,
+            output: { ...exactAudioReceipt.output, canonicalAssetId: canonicalAudioMaster.canonical_asset_id },
+          });
+          canonicalAudioMaster = { ...canonicalAudioMaster, exact_audio_receipt_fingerprint: exactAudioReceipt.receiptFingerprint };
         }
       } catch (error) {
         commitError = error instanceof Error && error.message.trim()
@@ -907,6 +994,8 @@ export async function handleHammerStudioRackRenderRequest(
             preview_audio_filter_chain: null,
             export_audio_filter_mode: "filter_complex",
             export_audio_filter_chain: timelinePlan.filterComplex,
+            exact_audio_post_filter_chain: exactLoudnessFilter || null,
+            exact_audio_receipt_fingerprint: exactAudioReceipt.receiptFingerprint,
             export_audio_filter_args: `-filter_complex <graph> -map [${timelinePlan.outputLabel}]`,
             export_audio_mapped_stream: `[${timelinePlan.outputLabel}]`,
             export_audio_source_stream: "0:a:0",
@@ -926,6 +1015,7 @@ export async function handleHammerStudioRackRenderRequest(
             ...chain.summary,
           },
           canonical_audio_master: canonicalAudioMaster,
+          exact_audio_receipt: exactAudioReceipt,
         },
       },
     };

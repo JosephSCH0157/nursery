@@ -160,6 +160,7 @@ async function testRenderExecutionProcessesWhenFfmpegAvailable() {
         failure_reason: null,
         settings_summary: {},
         canonical_audio_master: null,
+        exact_audio_receipt: null,
       };
     },
   });

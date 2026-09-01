@@ -2,6 +2,8 @@ import type { MediaKind } from "../../../../packages/contracts/hammer/media-reso
 import type { HammerStudioRackState } from "./hammerStudioRack";
 import type { HammerAudioTimelineSegmentInput } from "./hammerAudioTimelineRenderPlan";
 import type { HammerFinalAudioMasterAuthority, HammerFinalAudioRenderIdentity } from "../composition/hammerFinalAudioAuthority";
+import type { HammerAudioDspPlanV1, HammerAudioRenderIdentityV1 } from "./hammerAudioDspPlan";
+import type { HammerExactAudioRenderReceiptV1 } from "./hammerExactAudioReceipt";
 
 export const HAMMER_STUDIO_RACK_RENDER_ROUTE = "/api/hammer/render/studio-rack";
 
@@ -15,6 +17,8 @@ export interface HammerStudioRackRenderRequest {
   requested_backend: HammerStudioRackRenderRequestBackend;
   timeline_segments: HammerAudioTimelineSegmentInput[];
   rack_state: HammerStudioRackState;
+  dsp_plan: HammerAudioDspPlanV1;
+  render_identity: HammerAudioRenderIdentityV1;
   render_purpose?: "preview" | "final";
   final_audio_identity?: HammerFinalAudioRenderIdentity | null;
   podcast_master?: {
@@ -41,6 +45,7 @@ export interface HammerStudioRackRenderResponse {
   failure_reason: string | null;
   settings_summary: Record<string, string | number | boolean | null>;
   canonical_audio_master: HammerFinalAudioMasterAuthority | null;
+  exact_audio_receipt: HammerExactAudioRenderReceiptV1 | null;
 }
 
 function readString(value: unknown): string | null {
@@ -115,6 +120,7 @@ function normalizeResponse(payload: unknown): HammerStudioRackRenderResponse | n
     failure_reason: readString(data.failure_reason),
     settings_summary,
     canonical_audio_master: readObject(data.canonical_audio_master) as unknown as HammerFinalAudioMasterAuthority | null,
+    exact_audio_receipt: readObject(data.exact_audio_receipt) as unknown as HammerExactAudioRenderReceiptV1 | null,
   };
 }
 

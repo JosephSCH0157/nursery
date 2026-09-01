@@ -115,6 +115,14 @@ export function validateHammerQuenchPacketForHandoff(args: {
       source: "packet",
     }));
   }
+  if (!args.packet.manifest.audio.exact_audio_receipt_fingerprint || !args.packet.manifest.audio.dsp_fingerprint || !args.packet.manifest.audio.render_fingerprint) {
+    reasonDetails.push(createHammerReadinessReason({
+      code: "exact_audio_receipt_missing",
+      label: "The release packet does not contain verified exact-audio DSP and render identity evidence.",
+      severity: "blocking",
+      source: "packet",
+    }));
+  }
   if (args.renderAssembly.export_timeline.export_posture === "unavailable") {
     reasonDetails.push(createHammerReadinessReason({
       code: "packet_timeline_snapshot_missing",

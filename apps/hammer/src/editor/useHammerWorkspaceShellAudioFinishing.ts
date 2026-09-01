@@ -10,25 +10,9 @@ import { buildHammerDevMediaUrl, loadCanonicalAudioPolishPreviewUrl } from "../l
 import { loadWorkpieceMediaPreviewUrl } from "../lib/hammerSourceDeskMediaApi";
 import { applyHammerStudioRackNativePreview } from "./hammerStudioRackNativePreview";
 import { buildHammerAudioDspPlan, buildHammerAudioRenderIdentity, fingerprintHammerAudio } from "./hammerAudioDspPlan";
-import {
-  cloneHammerStudioRackState,
-  createDefaultHammerStudioRackState,
-  isHammerStudioRackIdentity,
-  normalizeHammerStudioRackState,
-  type HammerStudioRackState,
-} from "./hammerStudioRack";
-import {
-  applyHammerVoicePolishPreset,
-  createDefaultHammerVoicePolishState,
-  setHammerVoiceCleanupEnabled,
-  setHammerVoicePolishDeEsserStrength,
-  setHammerVoicePolishEqProfile,
-  setHammerVoicePolishFixEnabled,
-  type HammerVoicePolishDeEsserStrength,
-  type HammerVoicePolishEqProfile,
-  type HammerVoicePolishFixId,
-  type HammerVoicePolishPresetId,
-} from "./hammerVoicePolish";
+import { validateHammerExactAudioReleaseReceipt } from "./hammerExactAudioReceipt";
+import { cloneHammerStudioRackState, createDefaultHammerStudioRackState, isHammerStudioRackIdentity, normalizeHammerStudioRackState, type HammerStudioRackState } from "./hammerStudioRack";
+import { applyHammerVoicePolishPreset, createDefaultHammerVoicePolishState, setHammerVoiceCleanupEnabled, setHammerVoicePolishDeEsserStrength, setHammerVoicePolishEqProfile, setHammerVoicePolishFixEnabled, type HammerVoicePolishDeEsserStrength, type HammerVoicePolishEqProfile, type HammerVoicePolishFixId, type HammerVoicePolishPresetId } from "./hammerVoicePolish";
 import type { HammerEditorStateSerializable, HammerHistoryEntry } from "./hammerWorkspaceHistory";
 import { createPodcastMasterPassInstruction } from "./hammerAuthorityOps";
 import type { HammerHistoryMutationArgs } from "./hammerWorkspaceShellHistoryController";
@@ -230,11 +214,22 @@ export function useHammerAudioFinishingPreviewEffects(
     refs.requestLifecycleRef.current.syncIdentity(key); if (refs.previewKeyRef.current === key && previewSrc || !ffmpegAvailable || !mediaRef) return;
     const capturedMediaRef = mediaRef; const timer = window.setTimeout(() => { refs.previewInFlightRef.current = true; refs.previewKeyRef.current = key;
       const requestToken = refs.requestLifecycleRef.current.begin(); void (async () => { try {
-      const result = await executeDialogueAudioRenderWithBackend({ workspaceId, workpieceId, mediaKind: capturedMediaRef.kind, timelineSegments: transcriptSegments.map((segment) => ({ segment_id: segment.segment_id, start_sec: segment.start_sec, end_sec: segment.end_sec, is_disabled: segment.is_disabled, gain_db: segment.gain_db })), rackState: renderRackState, localRootAbs, localRelpath, canonicalWorkpiecePath: workpiecePath, mimeType: preferredPlayback.kind === "polished" ? preferredPlayback.mime_type ?? null : null, runtimeSummary: runtime });
+      const result = await executeDialogueAudioRenderWithBackend({ workspaceId, workpieceId, mediaKind: capturedMediaRef.kind, timelineSegments: transcriptSegments.map((segment) => ({ segment_id: segment.segment_id, start_sec: segment.start_sec, end_sec: segment.end_sec, is_disabled: segment.is_disabled, gain_db: segment.gain_db })), rackState: renderRackState, localRootAbs, localRelpath, canonicalWorkpiecePath: workpiecePath, mimeType: preferredPlayback.kind === "polished" ? preferredPlayback.mime_type ?? null : null, runtimeSummary: runtime, renderIdentity });
       if (!refs.requestLifecycleRef.current.accepts(requestToken)) return;
       setRenderStatus(result);
       if (import.meta.env.DEV) console.info("[Hammer][AudioComparePreview] render", { compareMode: compareMode, requestedBackend: result.requestedBackend, resolvedBackend: result.resolvedBackend, status: result.status, outputLocalRelpath: result.outputLocalRelpath, outputWorkpiecePath: result.outputWorkpiecePath });
       if (result.status !== "processed") { setPreviewSrc(null); return; }
+      const receiptValidation = validateHammerExactAudioReleaseReceipt({ receipt: result.exactAudioReceipt, plan: dspPlan, renderIdentity });
+      if (!receiptValidation.ok || !refs.requestLifecycleRef.current.accepts(requestToken)) {
+        if (refs.requestLifecycleRef.current.accepts(requestToken)) setRenderStatus({
+          ...result,
+          status: "failed",
+          message: receiptValidation.reasons.some((reason) => reason.code.includes("identity") || reason.code.includes("obsolete"))
+            ? "Exact audio stale. Live processed playback remains active."
+            : "Exact audio failed verification. Live processed playback remains active.",
+        });
+        setPreviewSrc(null); return;
+      }
       if (result.outputLocalRelpath && localRootAbs) { setPreviewSrc(buildHammerDevMediaUrl(localRootAbs, result.outputLocalRelpath)); return; }
       if (result.outputWorkpiecePath) { setPreviewSrc(await loadCanonicalAudioPolishPreviewUrl({ workpieceId: workpieceId, workpiecePath: result.outputWorkpiecePath, mimeType: result.outputMimeType })); return; }
       setPreviewSrc(null);

@@ -3,13 +3,10 @@ import type { Dispatch, SetStateAction } from "react";
 import type { HammerPreparedNextStepActionId } from "./hammerPreparedHandoff";
 import type { HammerPassId } from "../persistence/hammerPersistenceContract";
 import type { HammerWorkspaceFocusOverride } from "./hammerWorkspaceTimeline";
-import {
-  HAMMER_QUENCH_HANDOFF_PACKAGE_SAVED_MESSAGE,
-  decideHammerQuenchHandoff,
-  type HammerQuenchHandoffStatus,
-  validateHammerQuenchPacketForHandoff,
-} from "./hammerQuenchHandoff";
+import { HAMMER_QUENCH_HANDOFF_PACKAGE_SAVED_MESSAGE, decideHammerQuenchHandoff, type HammerQuenchHandoffStatus, validateHammerQuenchPacketForHandoff } from "./hammerQuenchHandoff";
 import type { HammerDialogueRenderExecutionResult } from "./hammerAudioProcessingBackend";
+import { buildHammerAudioDspPlan } from "./hammerAudioDspPlan";
+import { validateHammerExactAudioReleaseReceipt } from "./hammerExactAudioReceipt";
 import { executeHammerFinalAudioRender } from "./hammerFinalAudioRenderExecution";
 import type { HammerReadinessGateResult } from "./hammerReadinessGate";
 import type { HammerRenderAssemblyResult } from "./hammerRenderAssembly";
@@ -259,6 +256,7 @@ export function useHammerWorkspaceShellReleasePrep(
           outputMimeType: null,
           outputDurationMs: null,
           rawResponse: null,
+          exactAudioReceipt: null,
         };
       } else {
         if (!args.recordingRevisionId) {
@@ -276,12 +274,18 @@ export function useHammerWorkspaceShellReleasePrep(
       if (!finalAudioMaster) {
         throw new Error(renderExecution.message || "Hammer did not produce a canonical final-audio master.");
       }
+      const masterOperation = canonicalGraphSnapshot?.operations.find((operation) => operation.lifecycle === "active" && operation.instruction.type === "podcast_master_pass");
+      const podcastMaster = masterOperation?.instruction.type === "podcast_master_pass" ? { normalization_lufs: masterOperation.instruction.normalization_lufs, limiter_ceiling_dbtp: masterOperation.instruction.limiter_ceiling_dbtp, noise_cleanup: masterOperation.instruction.noise_cleanup, compression_amount: masterOperation.instruction.compression_amount } : null;
+      const exactPlan = buildHammerAudioDspPlan(sendArgs.editableStudioRack, { podcastMaster });
+      const exactReceiptValidation = validateHammerExactAudioReleaseReceipt({ receipt: renderExecution.exactAudioReceipt, plan: exactPlan, renderIdentity: renderExecution.exactAudioReceipt?.renderIdentity ?? { sourceIdentity: "missing", timelineIdentity: "missing", historyHead: "missing", dspFingerprint: "missing", rendererVersion: "missing", algorithmVersions: {}, renderFingerprint: "missing" }, canonicalAssetId: finalAudioMaster.canonical_asset_id, contentHash: finalAudioMaster.canonical_content_hash, renderFingerprint: finalAudioMaster.render_fingerprint, receiptFingerprint: finalAudioMaster.exact_audio_receipt_fingerprint });
+      if (!exactReceiptValidation.ok) throw new Error(exactReceiptValidation.reasons.map((reason) => reason.label).join(" "));
 
       const preparedPackage = buildHammerPreparedReleasePackage({
         current: releasePrepPackageSnapshot,
         timelineRevision: timelineRevisionSnapshot,
         recordingRevisionId: args.recordingRevisionId,
         finalAudioMaster,
+        exactAudioReceipt: renderExecution.exactAudioReceipt,
       });
 
       const result = await saveHammerPreparedReleasePackage({
@@ -300,6 +304,7 @@ export function useHammerWorkspaceShellReleasePrep(
         canonicalGraph: canonicalGraphSnapshot,
         renderAssembly: renderAssemblySnapshot,
         finalAudioMaster,
+        exactAudioReceipt: renderExecution.exactAudioReceipt,
       });
       const packetValidation = validateHammerQuenchPacketForHandoff({
         releasePrepPackage: releasePrepPackageSnapshot,

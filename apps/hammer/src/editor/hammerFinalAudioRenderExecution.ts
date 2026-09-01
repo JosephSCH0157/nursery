@@ -5,6 +5,7 @@ import type { HammerMediaBackboneRuntimeSummary } from "../media/hammerMediaBack
 import { executeDialogueAudioRenderWithBackend, type HammerDialogueRenderExecutionResult } from "./hammerAudioProcessingBackend";
 import type { HammerRenderAssemblyResult } from "./hammerRenderAssembly";
 import type { HammerStudioRackState } from "./hammerStudioRack";
+import { buildHammerAudioDspPlan, buildHammerAudioRenderIdentity } from "./hammerAudioDspPlan";
 
 async function sha256Json(value: unknown): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value)));
@@ -41,14 +42,17 @@ export async function executeHammerFinalAudioRender(args: {
   const renderJobId = `hammer-audio:${renderPlanFingerprint}`;
   const operationFingerprint = await sha256Json({ render_job_id: renderJobId, composition_fingerprint: compositionFingerprint, render_plan_fingerprint: renderPlanFingerprint });
   const masterOperation = args.canonicalGraph?.operations.find((candidate) => candidate.lifecycle === "active" && candidate.instruction.type === "podcast_master_pass");
+  const podcastMaster = masterOperation?.instruction.type === "podcast_master_pass" ? { noise_cleanup: masterOperation.instruction.noise_cleanup, normalization_lufs: masterOperation.instruction.normalization_lufs, compression_amount: masterOperation.instruction.compression_amount, limiter_ceiling_dbtp: masterOperation.instruction.limiter_ceiling_dbtp } : null;
+  const dspPlan = buildHammerAudioDspPlan(args.studioRack, { podcastMaster });
+  const renderIdentity = buildHammerAudioRenderIdentity({ sourceIdentity: args.recordingRevisionId, timelineIdentity: renderPlanFingerprint, historyHead: args.timelineRevision ?? compositionFingerprint, dspFingerprint: dspPlan.dspFingerprint });
   const polished = args.preferredPlayback.kind === "polished";
   return executeDialogueAudioRenderWithBackend({
     workspaceId: args.workspaceId, workpieceId: args.workpieceId, mediaKind: args.mediaRef.kind,
-    timelineSegments: buildSegments(args.transcriptSegments, args.renderAssembly), rackState: args.studioRack,
+    timelineSegments: buildSegments(args.transcriptSegments, args.renderAssembly), rackState: { ...args.studioRack, backend_preference: "ffmpeg" },
     localRootAbs: args.playbackLocalRootAbs, localRelpath: polished ? (args.preferredPlayback.local_relpath ?? args.mediaRef.local_relpath ?? null) : (args.mediaRef.local_relpath ?? null),
     canonicalWorkpiecePath: polished ? args.preferredPlayback.workpiece_path : args.mediaRef.local_relpath,
     mimeType: polished ? args.preferredPlayback.mime_type : null, runtimeSummary: args.runtimeSummary, renderPurpose: "final",
-    finalAudioIdentity: { recording_revision_id: args.recordingRevisionId, composition_revision: compositionRevision, composition_fingerprint: compositionFingerprint, render_job_id: renderJobId, render_plan_fingerprint: renderPlanFingerprint, operation_fingerprint: operationFingerprint, renderer_version: "forge-v1.2.0/hammer-final-audio.v1", output_profile_id: "hammer-audio-master-wav-v1" },
-    podcastMaster: masterOperation?.instruction.type === "podcast_master_pass" ? { noise_cleanup: masterOperation.instruction.noise_cleanup, normalization_lufs: masterOperation.instruction.normalization_lufs, compression_amount: masterOperation.instruction.compression_amount, limiter_ceiling_dbtp: masterOperation.instruction.limiter_ceiling_dbtp } : null,
+    finalAudioIdentity: { recording_revision_id: args.recordingRevisionId, composition_revision: compositionRevision, composition_fingerprint: compositionFingerprint, render_job_id: renderJobId, render_plan_fingerprint: renderPlanFingerprint, operation_fingerprint: operationFingerprint, renderer_version: renderIdentity.rendererVersion, output_profile_id: "hammer-audio-master-wav-v1" },
+    podcastMaster, renderIdentity,
   });
 }
