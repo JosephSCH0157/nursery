@@ -4,7 +4,7 @@ import { TimelinePlacementAnalysisQueue, type TimelinePlacementAnalysisWorkItem 
 
 function item(placementId: string, time: number, revision = "canonical-1"): TimelinePlacementAnalysisWorkItem {
   return Object.freeze({ placementId, sessionIdentity: "workpiece-1", sourceIdentity: "media-1", compositionPresentationTimeSec: time,
-    canonicalRevision: revision, mediaRevision: "media-rev-1", geometryRevision: "geometry-1" });
+    sourceMediaTimeSec: time, canonicalRevision: revision, mediaRevision: "media-rev-1", geometryRevision: "geometry-1" });
 }
 
 test("timeline placement queue consumes deterministically and serially", () => {

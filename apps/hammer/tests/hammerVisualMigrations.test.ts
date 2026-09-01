@@ -145,7 +145,7 @@ test("migration is deterministic across repeated runs", () => {
   });
 
   assert.deepEqual(normalizeForSnapshot(first), normalizeForSnapshot(second));
-  assert.equal(first.assets.length, 1);
+  assert.equal(first.assets.length, 2);
   assert.deepEqual(first.clips.map((clip) => clip.clip_id), ["placement_001", "placement_002"]);
   assert.equal(first.selected_clip_id, "placement_002");
 });

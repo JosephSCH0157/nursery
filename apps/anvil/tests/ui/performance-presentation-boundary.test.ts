@@ -127,7 +127,8 @@ describe('HA-3B performance presentation boundary', () => {
     await transitionRecordingCompleted({
       commit: {
         ok: true, workpieceId: SOURCE.workpieceId, path: 'recordings/take.webm', createdCradle: false,
-        plannerRecordingSessionId: null, captureSessionId: captureId, mediaRevision: 3,
+        plannerRecordingSessionId: null, captureSessionId: captureId,
+        captureAuthorityId: '66666666-6666-4666-8666-666666666666', mediaRevision: 3,
         mediaHash: 'a'.repeat(64), mediaBytes: 4096, mediaContentType: 'video/webm', status: 200,
       },
     });

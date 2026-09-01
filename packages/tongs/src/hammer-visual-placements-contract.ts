@@ -32,6 +32,11 @@ export interface HammerVisualPlacementRecordContract {
   transcript_media_signature?: string | null;
   asset_ref: string;
   asset_id: string | null;
+  canonical_asset_id?: string | null;
+  canonical_asset_state?: "canonical_proven" | "legacy_resolved" | "legacy_unresolved" | "conflicting_evidence";
+  canonical_asset_workspace_id?: string | null;
+  canonical_asset_workpiece_id?: string | null;
+  canonical_asset_content_hash?: string | null;
   asset_path: string | null;
   storage_key: string | null;
   label: string | null;
@@ -163,6 +168,12 @@ function normalizePlacementRecord(
   const placementAuthority = row.placement_authority === "hammer_timeline_anchor"
     ? "hammer_timeline_anchor"
     : undefined;
+  const canonicalAssetState = row.canonical_asset_state === "canonical_proven"
+    || row.canonical_asset_state === "legacy_resolved"
+    || row.canonical_asset_state === "legacy_unresolved"
+    || row.canonical_asset_state === "conflicting_evidence"
+    ? row.canonical_asset_state
+    : undefined;
   const alignmentRow = readObject(row.alignment);
   const alignment = alignmentRow
     ? (() => {
@@ -220,6 +231,11 @@ function normalizePlacementRecord(
     transcript_media_signature: readString(row.transcript_media_signature),
     asset_ref: assetRef,
     asset_id: readString(row.asset_id),
+    canonical_asset_id: readString(row.canonical_asset_id),
+    ...(canonicalAssetState ? { canonical_asset_state: canonicalAssetState } : {}),
+    canonical_asset_workspace_id: readString(row.canonical_asset_workspace_id),
+    canonical_asset_workpiece_id: readString(row.canonical_asset_workpiece_id),
+    canonical_asset_content_hash: readString(row.canonical_asset_content_hash),
     asset_path: readString(row.asset_path),
     storage_key: readString(row.storage_key),
     label: readString(row.label),

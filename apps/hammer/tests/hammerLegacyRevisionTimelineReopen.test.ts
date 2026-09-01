@@ -106,7 +106,14 @@ test("Anvil-shaped canonical v1 normalizes losslessly and deterministically", ()
   assert.equal(timeline.source_mode, "packaging");
   assert.equal(timeline.debug_origin, "legacy_migration");
   assert.match(timeline.debug_migration_hash ?? "", /^v2-[0-9a-f]{8}$/);
-  assert.deepEqual(timeline.assets.map(({ roles: _roles, ...asset }) => asset), source.assets);
+  assert.deepEqual(timeline.assets.map(({ roles: _roles, ...asset }) => asset), source.assets.map((asset) => ({
+    ...asset,
+    canonical_asset_id: null,
+    authority_state: "legacy_unresolved",
+    authority_workspace_id: null,
+    authority_workpiece_id: null,
+    authority_content_hash: null,
+  })));
   assert.deepEqual(timeline.lanes, source.lanes);
   assert.deepEqual(timeline.clips[0] && {
     clip_id: timeline.clips[0].clip_id,

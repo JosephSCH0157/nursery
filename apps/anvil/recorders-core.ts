@@ -814,8 +814,12 @@ export function all(): RecorderAdapter[] {
 
 // --- Built-in adapters (OBS, Bridge) registration ---
 let _builtInsInit = false;
+let _resolveBuiltInsReady: (() => void) | null = null;
+const _builtInsReady = new Promise<void>((resolve) => {
+  _resolveBuiltInsReady = resolve;
+});
 export async function initBuiltIns(): Promise<void> {
-  if (_builtInsInit) return;
+  if (_builtInsInit) return _builtInsReady;
   _builtInsInit = true;
   try {
     // Attempt to load and register built-in adapters. Each is optional.
@@ -882,7 +886,10 @@ export async function initBuiltIns(): Promise<void> {
     // Late-bind OBS events if bridge appeared during adapter init
     try { ensureObsDisconnectFallback(); } catch {}
     try { ensureObsRecordingStartedHandoff(); } catch {}
-  } catch {}
+  } catch {} finally {
+    _resolveBuiltInsReady?.();
+    _resolveBuiltInsReady = null;
+  }
 }
 
 // Fire-and-forget initialization on module load (safe if ignored)

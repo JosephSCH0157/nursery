@@ -2765,7 +2765,12 @@ function createReadyQueueSupabase({
                     return {
                       data: episodes
                         .filter((row) => matchesFilters(row, filters) && idSet.has(row.id))
-                        .map((row) => ({ id: row.id })),
+                        .map((row) => ({
+                          id: row.id,
+                          canonical_recording_id: canonicalRows.find(
+                            (canonical) => canonical.workpiece_id === row.id,
+                          )?.id ?? null,
+                        })),
                       error: null,
                     };
                   },
@@ -3062,40 +3067,47 @@ function createReadyQueueSupabase({
                 let workpieceFilter = null;
                 let eventNameFilter = null;
                 let ordered = events.slice();
-                return {
-                  in(field, values) {
-                    assert.equal(field, "workpiece_id");
-                    workpieceFilter = new Set(values);
-                    return {
-                      eq(innerField, innerValue) {
-                        assert.equal(innerField, "event_name");
-                        eventNameFilter = innerValue;
+                const buildEventFilterChain = () => ({
+                  eq(innerField, innerValue) {
+                    assert.equal(innerField, "event_name");
+                    eventNameFilter = new Set([innerValue]);
+                    return buildEventOrderChain();
+                  },
+                  in(innerField, innerValues) {
+                    assert.equal(innerField, "event_name");
+                    eventNameFilter = new Set(innerValues);
+                    return buildEventOrderChain();
+                  },
+                });
+                const buildEventOrderChain = () => ({
+                  order(orderField, options) {
+                    ordered = sortRows(
+                      events.filter(
+                        (row) => workpieceFilter.has(row.workpiece_id) && eventNameFilter.has(row.event_name),
+                      ),
+                      orderField,
+                      options?.ascending ?? true,
+                    );
+                    return Object.assign(Promise.resolve({ data: ordered, error: null }), {
+                      order(nextOrderField, nextOptions) {
+                        ordered = sortRows(ordered, nextOrderField, nextOptions?.ascending ?? true);
                         return {
-                          order(orderField, options) {
-                            ordered = sortRows(
-                              events.filter(
-                                (row) => workpieceFilter.has(row.workpiece_id) && row.event_name === eventNameFilter,
-                              ),
-                              orderField,
-                              options?.ascending ?? true,
-                            );
+                          async limit(limit) {
                             return {
-                              order(nextOrderField, nextOptions) {
-                                ordered = sortRows(ordered, nextOrderField, nextOptions?.ascending ?? true);
-                                return {
-                                  async limit(limit) {
-                                    return {
-                                      data: ordered.slice(0, limit),
-                                      error: null,
-                                    };
-                                  },
-                                };
-                              },
+                              data: ordered.slice(0, limit),
+                              error: null,
                             };
                           },
                         };
                       },
-                    };
+                    });
+                  },
+                });
+                return {
+                  in(field, values) {
+                    assert.equal(field, "workpiece_id");
+                    workpieceFilter = new Set(values);
+                    return buildEventFilterChain();
                   },
                 };
               },
@@ -3137,10 +3149,10 @@ function createReadyQueueSupabase({
               select() {
                 return {
                   async in(field, values) {
-                    assert.equal(field, "workpiece_id");
+                    assert.equal(field, "id");
                     const idSet = new Set(values);
                     return {
-                      data: canonicalRows.filter((row) => idSet.has(row.workpiece_id)),
+                      data: canonicalRows.filter((row) => idSet.has(row.id)),
                       error: null,
                     };
                   },
@@ -9694,6 +9706,31 @@ test("TongsCommitService.listWorkpieceStorage returns nested canonical workpiece
   const workspaceId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
   const storageCalls = [];
   const service = new TongsCommitService({
+    schema(schemaName) {
+      assert.equal(schemaName, "tongs");
+      return {
+        from(tableName) {
+          assert.equal(tableName, "assets");
+          return {
+            select() {
+              return {
+                eq(field, value) {
+                  assert.equal(field, "workpiece_id");
+                  assert.equal(value, workpieceId);
+                  return {
+                    async eq(innerField, innerValue) {
+                      assert.equal(innerField, "status");
+                      assert.equal(innerValue, "ready");
+                      return { data: [], error: null };
+                    },
+                  };
+                },
+              };
+            },
+          };
+        },
+      };
+    },
     storage: {
       from(bucket) {
         assert.equal(bucket, "forge-workpieces");
