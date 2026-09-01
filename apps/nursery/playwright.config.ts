@@ -2,9 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "playwright/test";
+import { applyFixtureManifestToEnvironment } from "./scripts/browser-fixture-authority.mts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+applyFixtureManifestToEnvironment();
 
 const baseURL = process.env.FORGE_SMOKE_BASE_URL
   ?? process.env.FORGE_TEST_BASE_URL

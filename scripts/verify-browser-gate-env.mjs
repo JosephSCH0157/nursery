@@ -3,6 +3,14 @@ import path from "node:path";
 
 const root = process.cwd();
 const failures = [];
+const manifestPath = process.env.FORGE_BROWSER_FIXTURE_MANIFEST
+  ? path.resolve(process.env.FORGE_BROWSER_FIXTURE_MANIFEST)
+  : path.join(root, "apps", "nursery", "playwright", ".cache", "browser-fixtures.v1.json");
+let manifest = null;
+if (fs.existsSync(manifestPath)) {
+  try { manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8")); }
+  catch { failures.push(`Invalid browser fixture manifest: ${manifestPath}`); }
+} else failures.push(`Missing browser fixture manifest: ${manifestPath}`);
 const requiredEnv = [
   "FORGE_TEST_WORKSPACE_ID",
   "FORGE_TEST_WORKPIECE_ID",
@@ -10,7 +18,10 @@ const requiredEnv = [
 ];
 
 for (const name of requiredEnv) {
-  if (!String(process.env[name] ?? "").trim()) failures.push(`Missing required env: ${name}`);
+  const fallback = name === "FORGE_TEST_WORKSPACE_ID" ? manifest?.workspace_id
+    : name === "FORGE_TEST_WORKPIECE_ID" ? manifest?.hearth_workpiece_id
+    : manifest?.hammer_workpiece_id;
+  if (!String(process.env[name] ?? fallback ?? "").trim()) failures.push(`Missing required fixture identity: ${name}`);
 }
 
 const storageStatePath = process.env.PLAYWRIGHT_STORAGE_STATE

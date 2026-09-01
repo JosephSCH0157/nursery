@@ -24,3 +24,4 @@ public/forge-nav.json
 *.sln
 *.sw?
 playwright/.auth/
+playwright/.cache/

@@ -366,15 +366,20 @@ export function readStorageSession(storageStatePath: string = getPlaywrightStora
 }
 
 export function getHearthPhase4Fixtures(env: Record<string, string> = loadNurseryEnv()): HearthPhase4Env {
+  const manifestPath = path.resolve(getNurseryRoot(), readString(env.FORGE_BROWSER_FIXTURE_MANIFEST) ?? "playwright/.cache/browser-fixtures.v1.json");
+  let generated: { workspace_id?: unknown; hearth_workpiece_id?: unknown } = {};
+  if (fs.existsSync(manifestPath)) {
+    try { generated = JSON.parse(fs.readFileSync(manifestPath, "utf8")) as typeof generated; } catch { generated = {}; }
+  }
+  const workspaceId = normalizeUuid(readString(env.FORGE_TEST_WORKSPACE_ID) ?? generated.workspace_id);
+  const workpieceId = normalizeUuid(readString(env.FORGE_TEST_WORKPIECE_ID) ?? generated.hearth_workpiece_id);
   return {
     nurseryRoot: getNurseryRoot(),
     repoRoot: getRepoRoot(),
     storageStatePath: getPlaywrightStorageStatePath(env),
     artifactPath: getHearthPhase4ArtifactPath(env),
-    workspaceId: normalizeUuid(requireFixtureEnv("FORGE_TEST_WORKSPACE_ID", env))
-      ?? (() => { throw new Error("FORGE_TEST_WORKSPACE_ID must be a UUID"); })(),
-    workpieceId: normalizeUuid(requireFixtureEnv("FORGE_TEST_WORKPIECE_ID", env))
-      ?? (() => { throw new Error("FORGE_TEST_WORKPIECE_ID must be a UUID"); })(),
+    workspaceId: workspaceId ?? (() => { throw new Error("FORGE_TEST_WORKSPACE_ID or a generated browser fixture manifest must provide a workspace UUID"); })(),
+    workpieceId: workpieceId ?? (() => { throw new Error("FORGE_TEST_WORKPIECE_ID or a generated browser fixture manifest must provide a workpiece UUID"); })(),
   };
 }
 

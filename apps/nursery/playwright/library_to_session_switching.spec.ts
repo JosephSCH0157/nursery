@@ -42,7 +42,7 @@ test("library_to_session_switching", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Recording Sessions" })).toBeVisible();
 
-  const sessionTitle = `PW Session ${Date.now()}`;
+  const sessionTitle = `[fixture:forge-browser-release-v1] PW Session ${Date.now()}`;
   await page.getByRole("button", { name: "Create Session" }).click();
   await page.getByPlaceholder("Recording Session").fill(sessionTitle);
   await page.locator("div").filter({ hasText: "Create Session" }).first().getByRole("button", { name: "Create" }).click();

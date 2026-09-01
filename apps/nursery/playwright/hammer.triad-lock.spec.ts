@@ -37,7 +37,9 @@ async function requireEditableTranscript(page: Page, minimumLines = 6): Promise<
 }
 
 test.describe("hammer_triad_lock_smoke", () => {
-  test.skip(!WORKSPACE_ID || !WORKPIECE_ID, "Set FORGE_TEST_HAMMER_WORKSPACE_ID and FORGE_TEST_HAMMER_WORKPIECE_ID.");
+  test.beforeAll(() => {
+    if (!WORKSPACE_ID || !WORKPIECE_ID) throw new Error("Authenticated Hammer fixture authority is missing. Run pnpm --filter nursery browser:prepare.");
+  });
 
   test("transcript click centers the right world", async ({ page }) => {
     await openHammerEditor(page);
