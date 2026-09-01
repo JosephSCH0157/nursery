@@ -1,4 +1,5 @@
 import type { BackgroundEffectFrameResult, BackgroundEffectRenderer, BackgroundBlurSettings, ForegroundMatte } from "../types";
+import { drawSourceContained, drawSourceInContentRect, resolvePreviewContentGeometry, type HammerPreviewContentGeometry } from "./mediaFrameGeometry";
 
 function nowMs(): number {
   return (typeof performance !== "undefined" && typeof performance.now === "function") ? performance.now() : Date.now();
@@ -41,6 +42,7 @@ export class BackgroundWashRenderer implements BackgroundEffectRenderer {
     matte: ForegroundMatte;
     settings: BackgroundBlurSettings;
     output: HTMLCanvasElement;
+    geometry?: HammerPreviewContentGeometry | null;
   }): BackgroundEffectFrameResult {
     const started = nowMs();
     const warnings: string[] = [];
@@ -59,6 +61,10 @@ export class BackgroundWashRenderer implements BackgroundEffectRenderer {
     if (w <= 0 || h <= 0) {
       return { compositingMs: 0, droppedFrame: true, degradedReason: "canvas_size_unavailable", warnings: [] };
     }
+    const geometry = args.geometry ?? resolvePreviewContentGeometry({ source: args.source, destWidth: w, destHeight: h });
+    if (!geometry) {
+      return { compositingMs: 0, droppedFrame: true, degradedReason: "canvas_size_unavailable", warnings: [] };
+    }
 
     const confidence = args.matte.metadata.confidenceScore;
     const lowConfidence = confidence < 0.25;
@@ -69,7 +75,7 @@ export class BackgroundWashRenderer implements BackgroundEffectRenderer {
     outputCtx.clearRect(0, 0, w, h);
 
     if (degradedReason && args.settings.fallbackMode === "passthrough") {
-      outputCtx.drawImage(args.source, 0, 0, w, h);
+      drawSourceContained({ ctx: outputCtx, source: args.source, destWidth: w, destHeight: h, geometry });
       const finished = nowMs();
       return {
         compositingMs: Math.max(0, Math.round((finished - started) * 10) / 10),
@@ -109,21 +115,22 @@ export class BackgroundWashRenderer implements BackgroundEffectRenderer {
 
     bgCtx.clearRect(0, 0, w, h);
     bgCtx.filter = desat > 0 ? `saturate(${saturation})` : "none";
-    bgCtx.drawImage(args.source, 0, 0, w, h);
+    drawSourceContained({ ctx: bgCtx, source: args.source, destWidth: w, destHeight: h, clear: false, geometry });
     bgCtx.filter = "none";
 
     // Remove the subject from the background pass using the exclusion matte.
     bgCtx.globalCompositeOperation = "destination-out";
-    bgCtx.drawImage(this.exclusionMatteCanvas, 0, 0, w, h);
+    drawSourceInContentRect({ ctx: bgCtx, source: this.exclusionMatteCanvas, rect: geometry.contentRect });
     bgCtx.globalCompositeOperation = "source-over";
 
     if (dim > 0.001) {
       bgCtx.fillStyle = `rgba(0, 0, 0, ${dim})`;
-      bgCtx.fillRect(0, 0, w, h);
+      const content = geometry.contentRect;
+      bgCtx.fillRect(content.dx, content.dy, content.dw, content.dh);
     }
 
     // Composite: subject from source + washed background behind it.
-    outputCtx.drawImage(args.source, 0, 0, w, h);
+    drawSourceContained({ ctx: outputCtx, source: args.source, destWidth: w, destHeight: h, clear: false, geometry });
     outputCtx.drawImage(this.backgroundCanvas, 0, 0, w, h);
 
     const finished = nowMs();

@@ -8,7 +8,7 @@ import { SimpleMatteRefiner } from "../matte/simpleMatteRefiner";
 import { BackgroundBlurRenderer } from "../effects/backgroundBlurRenderer";
 import { BackgroundReplacementRenderer } from "../effects/backgroundReplacementRenderer";
 import { BackgroundWashRenderer } from "../effects/backgroundWashRenderer";
-import { drawSourceContained } from "../effects/mediaFrameGeometry";
+import { drawSourceContained, resolvePreviewContentGeometry } from "../effects/mediaFrameGeometry";
 import { resolveVisualPreviewQualityPolicy } from "./previewQualityPolicy";
 import type { Rect as AutoPlacementRect } from "../../auto-placement/types";
 import { extractSpeakerMaskBoundsFromMatte } from "../../auto-placement/speakerMaskAnalysis";
@@ -1291,17 +1291,18 @@ export default function BackgroundBlurPreviewLayer(props: {
         blurPx: settings.blurPx * backingScale,
         edgeFeatherPx: settings.edgeFeatherPx * matteControlScale,
       };
+      const geometry = resolvePreviewContentGeometry({ source: video, destWidth: canvas.width, destHeight: canvas.height });
       let composite = settings.washEnabled
-        ? washRenderer.render({ source: video, matte, settings: renderSettings, output: canvas })
+        ? washRenderer.render({ source: video, matte, settings: renderSettings, output: canvas, geometry })
         : settings.replacementEnabled
-        ? replacementRenderer.render({ source: video, matte, settings: renderSettings, output: canvas })
-        : blurRenderer.render({ source: video, matte, settings: renderSettings, output: canvas });
+        ? replacementRenderer.render({ source: video, matte, settings: renderSettings, output: canvas, geometry })
+        : blurRenderer.render({ source: video, matte, settings: renderSettings, output: canvas, geometry });
 
       const cadenceSnapshot = computeCadenceSnapshot();
       const segRate = cadenceSnapshot.effectiveSegmentationFps ?? targetSegFps;
       const underLoad = inFlightRef.current || segRate < (targetSegFps * 0.55);
       if (settings.replacementEnabled && underLoad) {
-        composite = blurRenderer.render({ source: video, matte, settings: renderSettings, output: canvas });
+        composite = blurRenderer.render({ source: video, matte, settings: renderSettings, output: canvas, geometry });
         composite = {
           ...composite,
           degradedReason: composite.degradedReason ?? "replacement_degraded_under_load",
@@ -1310,7 +1311,7 @@ export default function BackgroundBlurPreviewLayer(props: {
       }
 
       if (settings.replacementEnabled && cachedMatte.providerSource === "secondary") {
-        composite = blurRenderer.render({ source: video, matte, settings: renderSettings, output: canvas });
+        composite = blurRenderer.render({ source: video, matte, settings: renderSettings, output: canvas, geometry });
         composite = {
           ...composite,
           degradedReason: composite.degradedReason ?? "replacement_downgraded_to_blur",
@@ -1365,6 +1366,7 @@ export default function BackgroundBlurPreviewLayer(props: {
                   source: temp,
                   destWidth: canvas.width,
                   destHeight: canvas.height,
+                  geometry,
                 });
             }
           }
