@@ -46,6 +46,13 @@ test("visual Source attribution is immutable, role-guarded, and bound to canonic
   assert.match(attributionMigration,/operation_identity_conflict/);
 });
 
+test("direct Reference opportunities carry complete canonical Source revision identities",()=>{
+  assert.match(service,/source_revision:\s*direct\?\.source_revision\s*\?\?\s*null/);
+  assert.match(service,/workpiece_source_link_revision:\s*direct\?\.workpiece_source_link_revision\s*\?\?\s*null/);
+  assert.match(service,/source_revision:\s*sourceRevision/);
+  assert.match(service,/workpiece_source_link_revision:\s*linkRevision/);
+});
+
 test("source-aware validation rejects invented keys and invalid relationship cardinality",()=>{
   const base={context_before:"",context_focus:"Approved script.",context_after:"",description:"Image",visual_intent:"Explain",creator_direction:"Clear",style:"documentary",placement_hint:"on phrase",source_rationale:"The supplied report supports this visual."};
   const plan={images:[{...base,source_keys:["invented"],source_relationship:"direct"}],broll:[],reference_clips:[],reference_visuals:[]};
@@ -106,6 +113,17 @@ test("Unified provider submits once and validates exact script-relative mixed ou
   const originalFetch=globalThis.fetch;let calls=0;let providerInput=null;const script="The growers moved south through Florida.";const plan={images:[{context_before:"",context_focus:script,context_after:"",description:"Florida citrus growers relocating",visual_intent:"Explain geographic change",creator_direction:"Show a Florida map",style:"documentary",placement_hint:"on phrase"}],broll:[{context_before:"",context_focus:script,context_after:"",narrative_purpose:"Show movement",placement_hint:"on phrase",duration_target_ms:5000,shot_type:"tracking",motion_intent:"Vehicles move south",mood_pacing:"steady",asset_category:"location"}],reference_clips:[{context_before:"",context_focus:script,context_after:"",editorial_reason:"Authentic archive establishes the historical scale",desired_material:"Archival Florida citrus packing footage",search_terms:["Florida citrus archive","orange packing house"],narrative_purpose:"Ground the history",placement_hint:"on phrase",duration_target_ms:6000}],reference_visuals:[]};
   globalThis.fetch=async(_url,init)=>{calls+=1;providerInput=JSON.parse(JSON.parse(String(init.body)).input);return new Response(JSON.stringify({id:"response-1",output:[{content:[{text:JSON.stringify(plan)}]}],usage:{input_tokens:10,output_tokens:20}}),{status:200,headers:{"x-request-id":"request-1"}});};
   try{const result=await new OpenAiUnifiedVisualPlanProvider("test-key").generate({scriptText:script,creatorDirection:null,generationScope:"full_media_plan"});assert.equal(calls,1);assert.equal(providerInput.generation_scope,"full_media_plan");assert.deepEqual(result.plan,plan);assert.deepEqual(validateUnifiedVisualPlan(result.plan,script),[]);}finally{globalThis.fetch=originalFetch;}
+});
+
+test("Unified provider turns a network failure into an actionable creator-facing error",async()=>{
+  const originalFetch=globalThis.fetch;
+  globalThis.fetch=async()=>{throw Object.assign(new Error("fetch failed"),{cause:{code:"ECONNRESET"}});};
+  try{
+    await assert.rejects(
+      new OpenAiUnifiedVisualPlanProvider("test-key").generate({scriptText:"Approved script.",creatorDirection:null,generationScope:"full_media_plan",sourceCatalog:[]}),
+      /OpenAI could not be reached.*ECONNRESET.*last verified plan is unchanged/,
+    );
+  }finally{globalThis.fetch=originalFetch;}
 });
 
 test("mixed planning selects one strongest family for an overlapping script span",()=>{

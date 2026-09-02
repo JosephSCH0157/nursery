@@ -6126,6 +6126,13 @@ export default function HearthShell({
           description: opportunity.editorialReason || opportunity.desiredMaterial,
           status: opportunity.selectedRevisionIds.length > 0 ? "selected" : opportunity.sourceStatus,
         })),
+        ...(canonicalReferenceVisualState?.opportunities ?? []).map((opportunity) => ({
+          id: opportunity.id,
+          kind: "reference_visual" as const,
+          focus: opportunity.focus,
+          description: opportunity.editorialReason || opportunity.desiredMaterial,
+          status: opportunity.selectedCandidateRevisionId ? "selected" : opportunity.sourceStatus,
+        })),
       ],
       selectedEntryId: selectedMediaMapEntryId,
       approvedScriptVersion,

@@ -332,31 +332,44 @@ export class OpenAiUnifiedVisualPlanProvider {
     model?: string | null;
   }): Promise<UnifiedVisualPlanProviderOutput> {
     const model = input.model?.trim() || this.defaultModel;
-    const response = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${this.apiKey}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        instructions: `${scopeInstructions}${instructions}`,
-        input: JSON.stringify({
-          approved_script: input.scriptText,
-          creator_direction: input.creatorDirection,
-          generation_scope: input.generationScope,
-          source_catalog: input.sourceCatalog,
-        }),
-        text: {
-          format: {
-            type: "json_schema",
-            name: "unified_visual_plan",
-            strict: true,
-            schema,
-          },
+    let response: Response;
+    try {
+      response = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${this.apiKey}`,
+          "content-type": "application/json",
         },
-      }),
-    });
+        body: JSON.stringify({
+          model,
+          instructions: `${scopeInstructions}${instructions}`,
+          input: JSON.stringify({
+            approved_script: input.scriptText,
+            creator_direction: input.creatorDirection,
+            generation_scope: input.generationScope,
+            source_catalog: input.sourceCatalog,
+          }),
+          text: {
+            format: {
+              type: "json_schema",
+              name: "unified_visual_plan",
+              strict: true,
+              schema,
+            },
+          },
+        }),
+      });
+    } catch (error) {
+      const cause = error instanceof Error && error.cause && typeof error.cause === "object"
+        ? error.cause as { code?: unknown; message?: unknown }
+        : null;
+      const detail = typeof cause?.code === "string"
+        ? cause.code
+        : typeof cause?.message === "string"
+          ? cause.message
+          : null;
+      throw new Error(`OpenAI could not be reached while generating the Visual Plan${detail ? ` (${detail})` : ""}. Try again; the last verified plan is unchanged.`);
+    }
     const rawText = await response.text();
     let payload: Record<string, unknown> = {};
     try {

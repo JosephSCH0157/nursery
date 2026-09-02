@@ -28027,13 +28027,23 @@ export class TongsCommitService {
         "invalid_request",
         "invalid_reason",
       ].includes(String(result.data.disposition))
-    )
+    ) {
+      const disposition = String(result.data.disposition);
+      const message =
+        disposition === "revision_conflict"
+          ? "Your choice was not saved because this opportunity changed in another session. Reload the current plan and choose again."
+          : disposition === "target_revision_conflict"
+            ? "Your choice was not saved because the displayed opportunity is from an older plan. Reload the current plan and choose again."
+            : disposition === "operation_identity_conflict"
+              ? "Your choice was not saved because this request no longer matches its original operation. Reload and choose again."
+              : "Your choice was not saved because the visual opportunity request was invalid.";
       throw new HttpError(
         409,
-        String(result.data.disposition),
-        "Visual opportunity disposition was rejected.",
+        disposition,
+        message,
         result.data,
       );
+    }
     return result.data as Record<string, Json>;
   }
   async generateUnifiedVisualPlan(
@@ -28177,7 +28187,9 @@ export class TongsCommitService {
       string,
       {
         source_revision_id: string;
+        source_revision: number;
         workpiece_source_link_revision_id: string;
+        workpiece_source_link_revision: number;
         source_type: string;
       }
     >(
@@ -28192,14 +28204,23 @@ export class TongsCommitService {
         )
           return [];
         const linkId = readStringField(entry.link_revision, "id"),
-          sourceId = readStringField(entry.source_revision, "id");
-        return linkId && sourceId
+          sourceId = readStringField(entry.source_revision, "id"),
+          linkRevision = Number(entry.link_revision.revision),
+          sourceRevision = Number(entry.source_revision.revision);
+        return linkId &&
+          sourceId &&
+          Number.isInteger(linkRevision) &&
+          linkRevision > 0 &&
+          Number.isInteger(sourceRevision) &&
+          sourceRevision > 0
           ? [
               [
                 `src_${linkId.replaceAll("-", "")}`,
                 {
                   source_revision_id: sourceId,
+                  source_revision: sourceRevision,
                   workpiece_source_link_revision_id: linkId,
+                  workpiece_source_link_revision: linkRevision,
                   source_type:
                     readStringField(entry.source_revision, "source_type") ??
                     "unknown",
@@ -28867,8 +28888,11 @@ export class TongsCommitService {
               ),
               source_status: direct ? "linked" : "unresolved",
               source_revision_id: direct?.source_revision_id ?? null,
+              source_revision: direct?.source_revision ?? null,
               workpiece_source_link_revision_id:
                 direct?.workpiece_source_link_revision_id ?? null,
+              workpiece_source_link_revision:
+                direct?.workpiece_source_link_revision ?? null,
               citation_anchor: { span_text: item.context_focus },
               media_range: {},
             };
@@ -28992,8 +29016,11 @@ export class TongsCommitService {
               ),
               source_status: direct ? "linked" : "unresolved",
               source_revision_id: direct?.source_revision_id ?? null,
+              source_revision: direct?.source_revision ?? null,
               workpiece_source_link_revision_id:
                 direct?.workpiece_source_link_revision_id ?? null,
+              workpiece_source_link_revision:
+                direct?.workpiece_source_link_revision ?? null,
               citation_anchor: { span_text: item.context_focus },
               document_locator: {},
               media_range: {},

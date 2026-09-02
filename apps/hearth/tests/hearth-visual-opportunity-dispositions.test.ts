@@ -12,7 +12,8 @@ test("all canonical visual opportunity classes expose one revision-safe skip and
  for(const source of [images,clips,visuals,broll])assert.match(source,/VisualOpportunityDispositionControl/);
  for(const kind of ["image","reference_clip","reference_visual","broll"])assert.ok([images,clips,visuals,broll].some(source=>source.includes(`kind="${kind}"`)),`missing ${kind}`);
  assert.match(control,/Skip this opportunity/);
- assert.match(control,/Restore opportunity/);
+ assert.match(control,/Skipped by you/);
+ assert.match(control,/Restore to plan/);
  assert.match(control,/setVisualOpportunityDisposition/);
  assert.match(control,/rights_unavailable/);
  assert.match(control,/material_unobtainable/);
