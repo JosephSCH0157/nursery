@@ -4,11 +4,25 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TextEncoder } from "node:util";
 import { createHash } from "node:crypto";
-import { TongsCommitService, buildImageMapPromptSourceContext, createTongsCommitApiHandlerWithService, extractPdfTextParserA, extractPdfTextParserB, extractPdfTextFallbackChain, imageMapPromptAuthorityBasis } from "../dist/workpiece-commit-api.js";
+import { TongsCommitService, buildImageMapPromptSourceContext, createTongsCommitApiHandlerWithService, extractPdfTextParserA, extractPdfTextParserB, extractPdfTextFallbackChain, imageMapPromptAuthorityBasis, resolveCanonicalGeneratedImageDimensions, resolvePriorCandidateAssetIdsToSupersede } from "../dist/workpiece-commit-api.js";
 import { ImageProviderRequestError } from "../dist/providers/image-provider.js";
 import { deflateSync } from "node:zlib";
 
 const registryJsonSha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+
+test("recovered ready image-map candidates are never superseded by idempotent cleanup", () => {
+  assert.deepEqual(
+    resolvePriorCandidateAssetIdsToSupersede(["recovered-a", "recovered-b", "old-c"], ["recovered-a", "recovered-b"]),
+    ["old-c"],
+  );
+  assert.deepEqual(resolvePriorCandidateAssetIdsToSupersede(["same-a", "same-b"], ["same-a", "same-b"]), []);
+});
+
+test("generated image sizes become canonical intrinsic dimensions", () => {
+  assert.deepEqual(resolveCanonicalGeneratedImageDimensions("1536x1024"), { width: 1536, height: 1024 });
+  assert.deepEqual(resolveCanonicalGeneratedImageDimensions("1024x1024"), { width: 1024, height: 1024 });
+  assert.throws(() => resolveCanonicalGeneratedImageDimensions("auto"), /canonical intrinsic dimensions/i);
+});
 
 function registryAuthoritativeJsonFixture({
   workpieceId = "22222222-2222-4222-8222-222222222222",
@@ -5390,6 +5404,8 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
   assert.equal(candidateInserts[0]?.status, "ready");
   assert.equal(candidateInserts[0]?.ready_at, "2026-03-11T19:00:01.000Z");
   assert.equal(candidateInserts[0]?.content_hash, "hash_abc");
+  assert.equal(candidateInserts[0]?.width, 1536);
+  assert.equal(candidateInserts[0]?.height, 1024);
   assert.match(candidateInserts[0]?.operation_fingerprint ?? "", /^[0-9a-f]{64}$/);
   assert.match(candidateInserts[0]?.operation_id ?? "", /^[0-9a-f-]{36}:explainer$/);
   assert.equal(candidateInserts[1]?.ready_at, "2026-03-11T19:00:01.000Z");

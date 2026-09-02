@@ -18,6 +18,7 @@ import {
   readWorkspaceSourcesIndex,
 } from "../lib/sources-repo";
 import type { HearthOperationAuthority, HearthOperationToken } from "../lib/hearth-operation-authority";
+import { createCanonicalChatSource } from "../lib/hearth-reference-clip-authority";
 
 type SourcesStatusKind = "idle" | "saving" | "success" | "error";
 
@@ -389,6 +390,24 @@ export function useSourcesState(
     const operation = operationAuthority.begin("sources.library.add");
 
     setStatusWithTimeout({ kind: "saving", message: "Saving source..." }, 0);
+    if (options?.attachToWorkpiece && workpieceId && source.url) {
+      const canonical = await createCanonicalChatSource({
+        workspaceId,
+        workpieceId,
+        sourceId: source.source_id,
+        title: source.title,
+        sourceType: source.type,
+        url: source.url,
+        author: source.author ?? null,
+        publisher: source.publisher ?? null,
+        note: source.notes ?? null,
+      });
+      if (!operationAuthority.isCurrent(operation)) return null;
+      if (!canonical.ok) {
+        setStatusWithTimeout({ kind: "error", message: canonical.error });
+        return null;
+      }
+    }
     const sourceResult = await commitWorkspaceSource(workspaceId, source);
     if (!operationAuthority.isCurrent(operation)) return null;
     if (!sourceResult.ok) {

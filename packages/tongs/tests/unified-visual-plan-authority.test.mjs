@@ -7,6 +7,32 @@ const migration=await readFile(new URL("../../../supabase/migrations/20260804200
 const fourChildMigration=await readFile(new URL("../../../supabase/migrations/20260805130000_tongs_unified_visual_plan_reference_visual_child.sql",import.meta.url),"utf8");
 const service=await readFile(new URL("../src/workpiece-commit-api.ts",import.meta.url),"utf8");
 const provider=await readFile(new URL("../src/providers/unified-visual-plan-provider.ts",import.meta.url),"utf8");
+const attributionMigration=await readFile(new URL("../../../supabase/migrations/20260902090000_tongs_visual_source_attribution.sql",import.meta.url),"utf8");
+
+test("visual Source attribution is immutable, role-guarded, and bound to canonical Source links",()=>{
+  assert.match(attributionMigration,/create table tongs\.visual_source_attribution_revisions/);
+  assert.match(attributionMigration,/create table tongs\.visual_source_attribution_members/);
+  assert.match(attributionMigration,/visual_source_attribution_revisions_immutable/);
+  assert.match(attributionMigration,/has_workspace_role\(p_workspace_id,'editor'\)/);
+  assert.match(attributionMigration,/workpiece_source_link_revisions/);
+  assert.match(attributionMigration,/read_current_visual_source_attributions/);
+  assert.match(attributionMigration,/resolve_visual_source_attribution/);
+  assert.match(attributionMigration,/reassign_reference_clip_source/);
+  assert.match(attributionMigration,/reassign_reference_visual_source/);
+  assert.match(attributionMigration,/commit_reference_visual_source_set/);
+  assert.match(attributionMigration,/visual attribution and family authority diverged/);
+  assert.match(attributionMigration,/operation_identity_conflict/);
+});
+
+test("source-aware validation rejects invented keys and invalid relationship cardinality",()=>{
+  const base={context_before:"",context_focus:"Approved script.",context_after:"",description:"Image",visual_intent:"Explain",creator_direction:"Clear",style:"documentary",placement_hint:"on phrase",source_rationale:"The supplied report supports this visual."};
+  const plan={images:[{...base,source_keys:["invented"],source_relationship:"direct"}],broll:[],reference_clips:[],reference_visuals:[]};
+  assert.deepEqual(validateUnifiedVisualPlan(plan,"Approved script.",new Set(["src_known"])),["images[0]:unknown_source_key"]);
+  plan.images[0]={...base,source_keys:[],source_relationship:"direct"};
+  assert.deepEqual(validateUnifiedVisualPlan(plan,"Approved script.",new Set(["src_known"])),["images[0]:direct_source_count"]);
+  plan.images[0]={...base,source_keys:["src_known"],source_relationship:"ambiguous"};
+  assert.deepEqual(validateUnifiedVisualPlan(plan,"Approved script.",new Set(["src_known"])),["images[0]:ambiguous_source_count"]);
+});
 
 test("Reference Clip planning can be unresolved without fabricating Source authority",()=>{
   assert.match(migration,/source_status text not null default 'linked'/);
