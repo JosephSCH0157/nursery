@@ -1,13 +1,23 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { normalizeUnifiedVisualPlanContextAnchors, OpenAiUnifiedVisualPlanProvider, validateUnifiedVisualPlan, validateUnifiedVisualPlanScope } from "../dist/providers/unified-visual-plan-provider.js";
+import { arbitrateUnifiedVisualPlanCoverage, normalizeUnifiedVisualPlanContextAnchors, OpenAiUnifiedVisualPlanProvider, validateUnifiedVisualPlan, validateUnifiedVisualPlanScope } from "../dist/providers/unified-visual-plan-provider.js";
 
 const migration=await readFile(new URL("../../../supabase/migrations/20260804200000_tongs_unresolved_reference_and_unified_visual_plan.sql",import.meta.url),"utf8");
 const fourChildMigration=await readFile(new URL("../../../supabase/migrations/20260805130000_tongs_unified_visual_plan_reference_visual_child.sql",import.meta.url),"utf8");
 const service=await readFile(new URL("../src/workpiece-commit-api.ts",import.meta.url),"utf8");
 const provider=await readFile(new URL("../src/providers/unified-visual-plan-provider.ts",import.meta.url),"utf8");
 const attributionMigration=await readFile(new URL("../../../supabase/migrations/20260902090000_tongs_visual_source_attribution.sql",import.meta.url),"utf8");
+const coverageMigration=await readFile(new URL("../../../supabase/migrations/20260902163000_tongs_unified_visual_coverage_exclusivity.sql",import.meta.url),"utf8");
+
+test("cross-family visual coverage is arbitrated before canonical child plans commit",()=>{
+  assert.match(provider,/Each script passage belongs to exactly one visual family/);
+  assert.match(service,/arbitrateUnifiedVisualPlanCoverage\(normalizeUnifiedVisualPlanContextAnchors/);
+  assert.match(service,/assert_unified_visual_plan_coverage_exclusive/);
+  assert.match(coverageMigration,/has_workspace_role\(p_workspace_id, 'editor'\)/);
+  assert.match(coverageMigration,/having count\(\*\) > 1/);
+  assert.match(coverageMigration,/grant execute on function tongs\.assert_unified_visual_plan_coverage_exclusive/);
+});
 
 test("visual Source attribution is immutable, role-guarded, and bound to canonical Source links",()=>{
   assert.match(attributionMigration,/create table tongs\.visual_source_attribution_revisions/);
@@ -84,6 +94,28 @@ test("Unified provider submits once and validates exact script-relative mixed ou
   const originalFetch=globalThis.fetch;let calls=0;let providerInput=null;const script="The growers moved south through Florida.";const plan={images:[{context_before:"",context_focus:script,context_after:"",description:"Florida citrus growers relocating",visual_intent:"Explain geographic change",creator_direction:"Show a Florida map",style:"documentary",placement_hint:"on phrase"}],broll:[{context_before:"",context_focus:script,context_after:"",narrative_purpose:"Show movement",placement_hint:"on phrase",duration_target_ms:5000,shot_type:"tracking",motion_intent:"Vehicles move south",mood_pacing:"steady",asset_category:"location"}],reference_clips:[{context_before:"",context_focus:script,context_after:"",editorial_reason:"Authentic archive establishes the historical scale",desired_material:"Archival Florida citrus packing footage",search_terms:["Florida citrus archive","orange packing house"],narrative_purpose:"Ground the history",placement_hint:"on phrase",duration_target_ms:6000}],reference_visuals:[]};
   globalThis.fetch=async(_url,init)=>{calls+=1;providerInput=JSON.parse(JSON.parse(String(init.body)).input);return new Response(JSON.stringify({id:"response-1",output:[{content:[{text:JSON.stringify(plan)}]}],usage:{input_tokens:10,output_tokens:20}}),{status:200,headers:{"x-request-id":"request-1"}});};
   try{const result=await new OpenAiUnifiedVisualPlanProvider("test-key").generate({scriptText:script,creatorDirection:null,generationScope:"full_media_plan"});assert.equal(calls,1);assert.equal(providerInput.generation_scope,"full_media_plan");assert.deepEqual(result.plan,plan);assert.deepEqual(validateUnifiedVisualPlan(result.plan,script),[]);}finally{globalThis.fetch=originalFetch;}
+});
+
+test("mixed planning selects one strongest family for an overlapping script span",()=>{
+  const focus="County data showed average waits around 42 minutes.";
+  const source={source_keys:["src_report"],source_relationship:"direct",source_rationale:"County reporting supports the number."};
+  const plan={
+    images:[{context_before:"",context_focus:focus,context_after:"",description:"Transit rider",visual_intent:"Explain",creator_direction:"Show transit",style:"documentary",placement_hint:"on claim",...source}],
+    broll:[{context_before:"",context_focus:focus,context_after:"",narrative_purpose:"Show transit",placement_hint:"on claim",duration_target_ms:5000,shot_type:"wide",motion_intent:"Bus moving",mood_pacing:"steady",asset_category:"transit",...source}],
+    reference_clips:[{context_before:"",context_focus:focus,context_after:"",editorial_reason:"News report",desired_material:"Original report",search_terms:["wait report"],narrative_purpose:"Corroborate",placement_hint:"on claim",duration_target_ms:5000,...source}],
+    reference_visuals:[{context_before:"",context_focus:focus,context_after:"",visual_subtype:"stat_card",editorial_reason:"Make the wait legible",audience_understanding:"See the number",required_evidence:"42 minute average",required_source_type:"report",desired_material:"Stat card",search_terms:["wait data"],placement_hint:"on claim",duration_target_ms:5000,creator_direction:"Use exact value",...source}],
+  };
+  const result=arbitrateUnifiedVisualPlanCoverage(plan,focus);
+  assert.equal(result.reference_visuals.length,1);
+  assert.equal(result.images.length+result.broll.length+result.reference_clips.length,0);
+});
+
+test("coverage arbitration keeps non-overlapping moments and prefers motion B-roll",()=>{
+  const first="Riders boarded buses across the county.";const second="The service cost $2.50 at peak hours.";const script=`${first} ${second}`;
+  const none={source_keys:[],source_relationship:"none",source_rationale:"No source required."};
+  const plan={images:[{context_before:"",context_focus:first,context_after:"",description:"Bus",visual_intent:"Coverage",creator_direction:"Show bus",style:"documentary",placement_hint:"on line",...none}],broll:[{context_before:"",context_focus:first,context_after:"",narrative_purpose:"Show riders boarding",placement_hint:"on line",duration_target_ms:4000,shot_type:"wide",motion_intent:"Riders board",mood_pacing:"steady",asset_category:"transit",...none}],reference_clips:[],reference_visuals:[{context_before:"",context_focus:second,context_after:"",visual_subtype:"stat_card",editorial_reason:"Show price",audience_understanding:"See fare",required_evidence:"Peak fare",required_source_type:"fare page",desired_material:"Fare card",search_terms:["peak fare"],placement_hint:"on line",duration_target_ms:4000,creator_direction:"Show $2.50",source_keys:["src_fare"],source_relationship:"direct",source_rationale:"Fare page."}]};
+  const result=arbitrateUnifiedVisualPlanCoverage(plan,script);
+  assert.equal(result.broll.length,1);assert.equal(result.images.length,0);assert.equal(result.reference_visuals.length,1);
 });
 
 test("generation scope fails closed when provider output widens the selected media family",()=>{
