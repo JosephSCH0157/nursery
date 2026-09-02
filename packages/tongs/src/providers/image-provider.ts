@@ -6,6 +6,11 @@ export type GenerateImageInput = {
   size?: string | null;
   model?: string | null;
   quality?: "low" | "medium" | "high";
+  referenceImage?: {
+    bytesBase64: string;
+    mimeType: "image/png" | "image/jpeg" | "image/webp";
+    purpose: "subject" | "composition" | "style";
+  } | null;
 };
 
 export type ImageProviderUsage = {
@@ -32,6 +37,18 @@ export type GenerateImageOutput = {
 
 export interface ImageProvider {
   generateImage(input: GenerateImageInput): Promise<GenerateImageOutput>;
+}
+
+export const IMAGE_REFERENCE_CONTRACT_VERSION = "forge-image-reference-v2" as const;
+
+export function buildImageReferenceInstruction(purpose: NonNullable<GenerateImageInput["referenceImage"]>["purpose"]): string {
+  if (purpose === "subject") {
+    return "Treat the attached image as the authoritative identity reference for the primary subject. Preserve the subject's recognizable factual identity and distinctive visible characteristics, including its physical shape, proportions, colors, livery, logos, decals, written markings, county or agency identifiers, graphics, and other identifying features. Do not remove, replace, simplify, genericize, or invent identifying branding or markings unless the requested image direction explicitly requires that change. Keep visible lettering and logos as faithful and legible as the image-generation system permits.";
+  }
+  if (purpose === "composition") {
+    return "Use the attached image only as a composition reference: follow its framing, camera angle, subject placement, depth, and visual balance. Do not treat the depicted subject, branding, logos, decals, written markings, or style as required content unless the requested image direction separately asks for them.";
+  }
+  return "Use the attached image only as a style reference: follow its lighting, palette, texture, mood, and rendering treatment. Do not copy its specific subject identity, composition, branding, logos, decals, or written markings unless the requested image direction separately asks for them.";
 }
 
 export class ImageProviderRequestError extends Error {
@@ -159,18 +176,29 @@ export class OpenAiImageProvider implements ImageProvider {
 
     let response: Response;
     try {
-      response = await fetch("https://api.openai.com/v1/images/generations", {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${this.apiKey}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ model, prompt, size, quality, output_format: "png" }),
-      });
+      if (input.referenceImage) {
+        const binary = Uint8Array.from(atob(input.referenceImage.bytesBase64), (character) => character.charCodeAt(0));
+        const form = new FormData();
+        form.set("model", model);
+        form.set("prompt", `${prompt}\n\nREFERENCE CONTRACT (${input.referenceImage.purpose.toUpperCase()}): ${buildImageReferenceInstruction(input.referenceImage.purpose)}`);
+        form.set("size", size);
+        form.set("quality", quality);
+        form.set("output_format", "png");
+        form.set("image", new Blob([new Uint8Array(binary)], { type: input.referenceImage.mimeType }), `reference.${input.referenceImage.mimeType.split("/")[1]}`);
+        response = await fetch("https://api.openai.com/v1/images/edits", {
+          method: "POST", headers: { authorization: `Bearer ${this.apiKey}` }, body: form,
+        });
+      } else {
+        response = await fetch("https://api.openai.com/v1/images/generations", {
+          method: "POST",
+          headers: { authorization: `Bearer ${this.apiKey}`, "content-type": "application/json" },
+          body: JSON.stringify({ model, prompt, size, quality, output_format: "png" }),
+        });
+      }
     } catch (error) {
       throw new ImageProviderRequestError(error instanceof Error ? error.message : "OpenAI image request transport failed", {
         delivery: "ambiguous_transport",
-        evidence: { endpoint: "/v1/images/generations", model, size, quality },
+        evidence: { endpoint: input.referenceImage ? "/v1/images/edits" : "/v1/images/generations", model, size, quality },
       });
     }
 
@@ -184,7 +212,7 @@ export class OpenAiImageProvider implements ImageProvider {
         delivery: "definitive_response",
         status: response.status,
         providerRequestId,
-        evidence: { endpoint: "/v1/images/generations", model, size, quality, status: response.status, body: rawText.slice(0, 4096) },
+        evidence: { endpoint: input.referenceImage ? "/v1/images/edits" : "/v1/images/generations", model, size, quality, status: response.status, body: rawText.slice(0, 4096) },
       });
     }
 
@@ -205,7 +233,7 @@ export class OpenAiImageProvider implements ImageProvider {
         status: response.status,
         providerRequestId,
         evidence: {
-          endpoint: "/v1/images/generations", model, size, quality, status: response.status,
+          endpoint: input.referenceImage ? "/v1/images/edits" : "/v1/images/generations", model, size, quality, status: response.status,
           response_id: readString(payloadRecord.id), usage: payloadRecord.usage ?? null,
           response_parseable: payload !== null,
         },
@@ -232,6 +260,9 @@ export class OpenAiImageProvider implements ImageProvider {
         model: payloadRecord.model ?? model,
         usage: usage?.raw ?? null,
         data: Array.isArray(payloadRecord.data) ? payloadRecord.data : [],
+        operation: input.referenceImage ? "edit" : "generation",
+        reference_purpose: input.referenceImage?.purpose ?? null,
+        reference_contract_version: input.referenceImage ? IMAGE_REFERENCE_CONTRACT_VERSION : null,
       },
     };
   }

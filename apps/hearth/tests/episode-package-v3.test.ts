@@ -150,6 +150,12 @@ test("render recipe is sole live presentation authority and prompt reconstructio
     concept,
   });
   assert.notEqual(changedProviderSettings.canonical_hash, first.canonical_hash);
+  const withReference = deriveThumbnailPromptPack({ recipe: { ...recipe, generation_reference: {
+    schema_version: "hearth-generation-reference-image-v1", asset_id: "e599fe66-21dd-4b24-a13e-63295dfe0b0f",
+    path: "assets/generation-references/thumbnail_direction/concept/abc.png", content_hash: "a".repeat(64),
+    mime_type: "image/png", bytes: 3, purpose: "subject", original_filename: "host.png", created_at: "2026-07-15T12:00:00.000Z",
+  } }, concept });
+  assert.notEqual(withReference.canonical_hash, first.canonical_hash, "reference evidence is part of the immutable generation identity");
   assert.equal(saved.thumbnail.composition_revisions[0]?.render_recipe_id, recipe.id);
   assert.equal(saved.thumbnail.composition_revisions[0]?.revision, recipe.composition_revision);
   const reloaded = hydrateEpisodePackageV3({ episode: saved });

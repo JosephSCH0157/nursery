@@ -609,6 +609,7 @@ export async function generateForgeAiBaseArtwork(args: {
       prompt_package_hash: promptPack.canonical_hash,
       prompt_serialization_version: promptPack.serialization_version,
       provider_settings: recipe.provider_settings,
+      generation_reference: recipe.generation_reference ?? null,
     },
   });
   const body = await json(response);

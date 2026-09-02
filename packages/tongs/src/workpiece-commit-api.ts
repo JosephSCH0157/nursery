@@ -82,8 +82,10 @@ type PaidImageGenerationContext = {
 };
 import {
   ImageProviderRequestError,
+  IMAGE_REFERENCE_CONTRACT_VERSION,
   extractOpenAiImageUsage,
   OpenAiImageProvider,
+  type GenerateImageInput,
   type ImageProvider,
 } from "./providers/image-provider.js";
 import { OpenAiNarrativeInterpretationProvider, validateSubstantiveVisualBrief, synthesizeConcreteVendorPrompt, type NarrativeInterpretationProvider, type ImagePromptVisualBrief } from "./providers/narrative-interpretation-provider.js";
@@ -1110,6 +1112,12 @@ export type EpisodeImageMapEntryRecord = {
   selected_asset_id: string | null;
   status: string;
   placement_hint?: string | null;
+  generation_reference?: (GenerationReferenceRequest & {
+    schema_version: "hearth-generation-reference-image-v1";
+    bytes: number;
+    original_filename: string;
+    created_at: string;
+  }) | null;
   canonical_anchor_assessment?: {
     state: "current" | "stale" | "unresolved" | "provenance_unknown";
     reason: string | null;
@@ -1294,6 +1302,15 @@ export type GenerateImageMapCandidatesRequest = {
   prompt_revision_id: string;
   prompt_revision: number;
   prompt_content_hash: string;
+  generation_reference?: GenerationReferenceRequest | null;
+};
+
+type GenerationReferenceRequest = {
+  asset_id: string;
+  path: string;
+  content_hash: string;
+  mime_type: "image/png" | "image/jpeg" | "image/webp";
+  purpose: "subject" | "composition" | "style";
 };
 
 export type SelectImageMapCandidateRequest = {
@@ -1354,6 +1371,7 @@ export type GenerateEpisodeThumbnailRequest = {
   concept_revision_id?: string;
   render_recipe_id?: string;
   render_recipe_revision?: number;
+  generation_reference?: GenerationReferenceRequest | null;
 };
 
 export type LegacyGenerateEpisodeThumbnailResponse = {
@@ -4847,6 +4865,27 @@ function mapThumbnailAspectToPaidSize(aspect: string | null | undefined): string
   throw new HttpError(400, "unsupported_paid_image_dimensions", `Paid thumbnail generation does not support aspect ${aspect}.`);
 }
 
+function normalizeGenerationReference(input: unknown): GenerationReferenceRequest | null | undefined {
+  if (typeof input === "undefined") return undefined;
+  if (input === null) return null;
+  if (!isRecord(input)) throw new HttpError(400, "invalid_generation_reference", "generation_reference must be an object or null");
+  const mimeType = readStringField(input, "mime_type");
+  const purpose = readStringField(input, "purpose");
+  const contentHash = readStringField(input, "content_hash");
+  if (!contentHash || !/^[a-f0-9]{64}$/.test(contentHash)
+    || !["image/png", "image/jpeg", "image/webp"].includes(mimeType ?? "")
+    || !["subject", "composition", "style"].includes(purpose ?? "")) {
+    throw new HttpError(400, "invalid_generation_reference", "generation_reference has invalid canonical evidence");
+  }
+  return {
+    asset_id: normalizeUuid(input.asset_id, "generation_reference.asset_id"),
+    path: normalizeNonEmptyString(input.path, "generation_reference.path"),
+    content_hash: contentHash,
+    mime_type: mimeType as GenerationReferenceRequest["mime_type"],
+    purpose: purpose as GenerationReferenceRequest["purpose"],
+  };
+}
+
 function normalizeGenerateEpisodeThumbnailRequest(
   body: Record<string, unknown>,
   workpieceId: string,
@@ -4891,6 +4930,7 @@ function normalizeGenerateEpisodeThumbnailRequest(
     concept_revision_id: typeof body.concept_revision_id === "string" ? normalizeNonEmptyString(body.concept_revision_id, "concept_revision_id") : undefined,
     render_recipe_id: typeof body.render_recipe_id === "string" ? normalizeNonEmptyString(body.render_recipe_id, "render_recipe_id") : undefined,
     render_recipe_revision: typeof body.render_recipe_revision === "undefined" ? undefined : normalizePositiveInteger(body.render_recipe_revision, "render_recipe_revision"),
+    generation_reference: normalizeGenerationReference(body.generation_reference),
     user_access_token: userAccessTokenFromHeader ?? (typeof body.user_access_token === "string" ? normalizeNonEmptyString(body.user_access_token, "user_access_token") : undefined),
   };
 }
@@ -5290,6 +5330,8 @@ function normalizeEpisodeImageMapEntry(
   const assessmentState = assessmentRaw && new Set(["current", "stale", "unresolved", "provenance_unknown"]).has(String(assessmentRaw.state))
     ? assessmentRaw.state as "current" | "stale" | "unresolved" | "provenance_unknown"
     : null;
+  const generationReferenceInput = isRecord(value.generation_reference) ? value.generation_reference : null;
+  const generationReference = generationReferenceInput ? normalizeGenerationReference(generationReferenceInput) : null;
 
   return {
     id,
@@ -5311,6 +5353,12 @@ function normalizeEpisodeImageMapEntry(
     selected_asset_id: selectedAssetId,
     status,
     placement_hint: readStringField(value, "placement_hint"),
+    generation_reference: generationReference && generationReferenceInput
+      ? { ...generationReference, schema_version: "hearth-generation-reference-image-v1",
+          bytes: normalizeNonNegativeInteger(generationReferenceInput.bytes, `entries[${index}].generation_reference.bytes`),
+          original_filename: normalizeNonEmptyString(generationReferenceInput.original_filename, `entries[${index}].generation_reference.original_filename`),
+          created_at: normalizeIsoTimestamp(generationReferenceInput.created_at, `entries[${index}].generation_reference.created_at`) }
+      : null,
     ...(assessmentState ? {
       canonical_anchor_assessment: {
         state: assessmentState,
@@ -5404,6 +5452,7 @@ function normalizeGenerateImageMapCandidatesRequest(
     ...(Object.prototype.hasOwnProperty.call(body, "always_approve_ai_spend")
       ? { always_approve_ai_spend: Boolean(body.always_approve_ai_spend) }
       : {}),
+    generation_reference: normalizeGenerationReference(body.generation_reference),
     user_access_token: userAccessToken,
   };
 }
@@ -10744,7 +10793,8 @@ export class TongsCommitService {
     if (path === MANIFEST_PATH) {
       throw new HttpError(400, "invalid_path", "manifest.json is managed by Tongs and cannot be committed directly");
     }
-    if (READY_SCRIPT_PATH_SET.has(path) || isHammerRevisionEditorialAuthorityPath(path)) {
+    if (READY_SCRIPT_PATH_SET.has(path) || isHammerRevisionEditorialAuthorityPath(path)
+      || path.startsWith("assets/generation-references/")) {
       await this.assertWorkspaceRoleFromAccessToken(
         cradle.workspace_id,
         "editor",
@@ -12650,6 +12700,7 @@ export class TongsCommitService {
     userId: string; workspaceId: string; workpieceId: string; operationId: string; tool: string;
     originatingEntityId: string | null; promptRevisionId: string | null; promptContentHash: string;
     prompt: string; size: string; quality: "low" | "medium" | "high"; creatorApproved: boolean;
+    referenceImage?: GenerateImageInput["referenceImage"];
   }): Promise<PaidImageGenerationContext> {
     const prepared = await this.preparePaidImageQuote(args);
     if (!args.creatorApproved) throw new HttpError(409, "paid_image_authorization_required", "Approve the maximum Forge charge before generation.", {
@@ -12667,7 +12718,7 @@ export class TongsCommitService {
       p_contract_version: "forge.paid-media.v1",
     });
     if (approved.error) throw new HttpError(409, "paid_image_reservation_failed", approved.error.message, { quote_id: prepared.quoteId, authorized_customer_ceiling: prepared.ceiling });
-    const requestEvidence = { endpoint: "/v1/images/generations", model: "gpt-image-2-2026-04-21", size: args.size, quality: args.quality, output_count: 1, prompt_content_hash: args.promptContentHash };
+    const requestEvidence = { endpoint: args.referenceImage ? "/v1/images/edits" : "/v1/images/generations", model: "gpt-image-2-2026-04-21", size: args.size, quality: args.quality, output_count: 1, prompt_content_hash: args.promptContentHash, reference_purpose: args.referenceImage?.purpose ?? null };
     const requestHash = await sha256Hex(canonicalJsonBytes(requestEvidence));
     const begun = await authority.rpc("begin_paid_media_provider_attempt", { p_paid_media_operation_id: paidMediaOperationId, p_operation_fingerprint: prepared.fingerprint, p_attempt_id: attemptId, p_request_payload_hash: requestHash, p_request_evidence_json: requestEvidence });
     if (begun.error || !isRecord(begun.data)) throw new HttpError(502, "paid_image_attempt_failed", begun.error?.message ?? "Tongs could not begin the paid provider attempt.");
@@ -12691,7 +12742,7 @@ export class TongsCommitService {
         quoteId: prepared.quoteId, reservationId, authorizedCeiling: prepared.ceiling, settlementBlocked: false, image };
     }
     try {
-      image = await this.imageProvider!.generateImage({ prompt: args.prompt, size: args.size, model: "gpt-image-2-2026-04-21", quality: args.quality });
+      image = await this.imageProvider!.generateImage({ prompt: args.prompt, size: args.size, model: "gpt-image-2-2026-04-21", quality: args.quality, referenceImage: args.referenceImage });
     } catch (error) {
       if (error instanceof ImageProviderRequestError && error.delivery === "definitive_response") {
         const failureEvidence = { ...error.evidence, provider_request_id: error.providerRequestId, status: error.status };
@@ -12883,7 +12934,8 @@ export class TongsCommitService {
         const metadata = isRecord(existing.metadata_json) ? existing.metadata_json : {};
         if (metadata.concept_revision_id !== input.concept_revision_id
           || metadata.render_recipe_id !== input.render_recipe_id
-          || metadata.render_recipe_revision !== input.render_recipe_revision) {
+          || metadata.render_recipe_revision !== input.render_recipe_revision
+          || JSON.stringify(metadata.generation_reference ?? null) !== JSON.stringify(input.generation_reference ?? null)) {
           throw new HttpError(409, "thumbnail_operation_conflict", "operation_id is already bound to different thumbnail authority");
         }
         await this.recoverPaidImageSettlement(input.operation_id, { asset_id: existing.id, asset_path: existing.path, asset_content_hash: existing.content_hash, delivery_kind: "thumbnail_base_art", recovered: true });
@@ -12941,17 +12993,19 @@ export class TongsCommitService {
     ].filter(Boolean).join("\n\n");
 
     const resolvedPaidSize = input.size?.trim() || mapThumbnailAspectToPaidSize(input.aspect ?? "16:9");
-    const finalPromptHash = await sha256Hex(new TextEncoder().encode(finalPrompt));
+    const referenceImage = await this.resolveGenerationReference(workpieceId, input.generation_reference);
+    const finalPromptHash = await sha256Hex(canonicalJsonBytes({ prompt: finalPrompt, generation_reference: input.generation_reference ?? null,
+      reference_contract_version: input.generation_reference ? IMAGE_REFERENCE_CONTRACT_VERSION : null }));
     let paidContext: PaidImageGenerationContext | null = null;
     let imageResult: Awaited<ReturnType<ImageProvider["generateImage"]>> | null = null;
     if (lane === "forge") {
       paidContext = await this.executePaidImageGeneration({ userId, workspaceId: workspace.id, workpieceId, operationId: input.operation_id,
         tool: "hearth_thumbnail", originatingEntityId: input.concept_revision_id ?? conceptId, promptRevisionId: null,
         promptContentHash: finalPromptHash, prompt: finalPrompt, size: resolvedPaidSize, quality: "high",
-        creatorApproved: Boolean(input.confirm_spend || input.always_approve_ai_spend) });
+        creatorApproved: Boolean(input.confirm_spend || input.always_approve_ai_spend), referenceImage });
       imageResult = paidContext.image ?? null;
     } else {
-      imageResult = await this.imageProvider.generateImage({ prompt: finalPrompt, size: resolvedPaidSize, model: "gpt-image-2-2026-04-21", quality: "high" });
+      imageResult = await this.imageProvider.generateImage({ prompt: finalPrompt, size: resolvedPaidSize, model: "gpt-image-2-2026-04-21", quality: "high", referenceImage });
     }
     if (!imageResult) {
       throw new HttpError(502, "paid_image_generation_missing", "The image generation did not produce a canonical image payload.");
@@ -12977,6 +13031,8 @@ export class TongsCommitService {
             render_recipe_revision: input.render_recipe_revision ?? null,
             intended_aspect_ratio: input.aspect ?? "16:9",
             prompt_persisted: false,
+            generation_reference: input.generation_reference ?? null,
+            reference_contract_version: input.generation_reference ? IMAGE_REFERENCE_CONTRACT_VERSION : null,
           }
         : buildThumbnailAssetMetadata({
             conceptId,
@@ -13902,6 +13958,25 @@ export class TongsCommitService {
       canonical_recording: canonicalByWorkpiece.get(row.id) ?? null,
       recording_decision_status: decisionByWorkpiece.get(row.id) ?? "none",
     }));
+  }
+
+  private async resolveGenerationReference(
+    workpieceId: string,
+    reference: GenerationReferenceRequest | null | undefined,
+  ): Promise<GenerateImageInput["referenceImage"]> {
+    if (!reference) return null;
+    if (!reference.path.startsWith("assets/generation-references/")) {
+      throw new HttpError(400, "generation_reference_path_invalid", "Reference images must use the canonical generation-reference path.");
+    }
+    const stored = await this.readWorkpieceBinaryBytes(workpieceId, reference.path);
+    if (!stored.found || !stored.bytes) {
+      throw new HttpError(409, "generation_reference_missing", "The selected reference image is no longer available in canonical storage.");
+    }
+    const [contentHash] = await Promise.all([sha256Hex(stored.bytes)]);
+    if (contentHash !== reference.content_hash || stored.content_type !== reference.mime_type) {
+      throw new HttpError(409, "generation_reference_mismatch", "The selected reference image does not match its canonical evidence.");
+    }
+    return { bytesBase64: encodeBase64(stored.bytes), mimeType: reference.mime_type, purpose: reference.purpose };
   }
 
   async createRecordingWorkpiece(input: {
@@ -15816,6 +15891,12 @@ export class TongsCommitService {
     if (!entry) {
       throw new HttpError(404, "image_map_entry_not_found", "Image map entry was not found");
     }
+    if (JSON.stringify(input.generation_reference ?? null) !== JSON.stringify(entry.generation_reference
+      ? { asset_id: entry.generation_reference.asset_id, path: entry.generation_reference.path, content_hash: entry.generation_reference.content_hash,
+          mime_type: entry.generation_reference.mime_type, purpose: entry.generation_reference.purpose }
+      : null)) {
+      throw new HttpError(409, "generation_reference_conflict", "The generation reference changed after this request was prepared.");
+    }
     if (entry.canonical_anchor_assessment?.state !== "current") {
       throw new HttpError(409, "canonical_anchor_not_current", "Repair this image moment to the approved script before generating candidates.", { entry_id: entry.id, anchor_state: entry.canonical_anchor_assessment?.state ?? "provenance_unknown" });
     }
@@ -15861,6 +15942,7 @@ export class TongsCommitService {
     );
     const aspect = input.aspect?.trim() || "16:9";
     const size = input.size?.trim() || mapThumbnailAspectToPaidSize(aspect);
+    const referenceImage = await this.resolveGenerationReference(workpieceId, input.generation_reference);
     const variants = [
       { label: AI_USAGE_SUBFEATURE.EXPLAINER, divergenceHint: null as string | null },
       {
@@ -15889,6 +15971,8 @@ export class TongsCommitService {
       prompt_revision_id:canonicalPromptId,
       prompt_revision:canonicalPromptRevision,
       prompt_content_hash:canonicalPromptHash,
+      generation_reference: input.generation_reference ?? null,
+      reference_contract_version: input.generation_reference ? IMAGE_REFERENCE_CONTRACT_VERSION : null,
     }));
     const imageMapActionId = uuidFromSha256(imageMapActionHash);
     const generatedAssetRows: AssetRow[] = [];
@@ -15900,7 +15984,7 @@ export class TongsCommitService {
         const operationId = `${imageMapActionId}:${variant.label}`;
         return this.preparePaidImageQuote({ userId: auth.userId, workspaceId: input.workspace_id, workpieceId, operationId,
           tool: "hearth_episode_images", originatingEntityId: entry.id, promptRevisionId: canonicalPromptId,
-          promptContentHash: canonicalPromptHash, prompt: canonicalPrompt, size, quality: "high" });
+          promptContentHash: await sha256Hex(canonicalJsonBytes({ prompt_content_hash: canonicalPromptHash, generation_reference: input.generation_reference ?? null, reference_contract_version: input.generation_reference ? IMAGE_REFERENCE_CONTRACT_VERSION : null })), prompt: canonicalPrompt, size, quality: "high" });
       }));
       const ceiling = quotes.reduce((sum, quote) => sum + quote.ceiling, 0);
       throw new HttpError(409, "paid_image_authorization_required", "Approve the maximum Forge charge before generation.", {
@@ -15986,8 +16070,8 @@ export class TongsCommitService {
       const operationId = `${imageMapActionId}:${variant.label}`;
       const paidContext = lane === "forge" ? await this.executePaidImageGeneration({ userId: auth.userId, workspaceId: input.workspace_id,
         workpieceId, operationId, tool: "hearth_episode_images", originatingEntityId: entry.id,
-        promptRevisionId: canonicalPromptId, promptContentHash: canonicalPromptHash, prompt, size, quality: "high", creatorApproved: true }) : null;
-      const image = paidContext?.image ?? await this.imageProvider.generateImage({ prompt, size, model: "gpt-image-2-2026-04-21", quality: "high" });
+        promptRevisionId: canonicalPromptId, promptContentHash: await sha256Hex(canonicalJsonBytes({ prompt_content_hash: canonicalPromptHash, generation_reference: input.generation_reference ?? null, reference_contract_version: input.generation_reference ? IMAGE_REFERENCE_CONTRACT_VERSION : null })), prompt, size, quality: "high", creatorApproved: true, referenceImage }) : null;
+      const image = paidContext?.image ?? await this.imageProvider.generateImage({ prompt, size, model: "gpt-image-2-2026-04-21", quality: "high", referenceImage });
       generatedOutputs.push({
         variantLabel: variant.label,
         visualMode,
@@ -16002,8 +16086,8 @@ export class TongsCommitService {
       const retryOperationId = `${imageMapActionId}:${AI_USAGE_SUBFEATURE.ILLUSTRATIVE_RETRY}`;
       const retryPaidContext = lane === "forge" ? await this.executePaidImageGeneration({ userId: auth.userId, workspaceId: input.workspace_id,
         workpieceId, operationId: retryOperationId, tool: "hearth_episode_images", originatingEntityId: entry.id,
-        promptRevisionId: canonicalPromptId, promptContentHash: canonicalPromptHash, prompt: retryPrompt, size, quality: "high", creatorApproved: true }) : null;
-      const retryImage = retryPaidContext?.image ?? await this.imageProvider.generateImage({ prompt: retryPrompt, size, model: "gpt-image-2-2026-04-21", quality: "high" });
+        promptRevisionId: canonicalPromptId, promptContentHash: await sha256Hex(canonicalJsonBytes({ prompt_content_hash: canonicalPromptHash, generation_reference: input.generation_reference ?? null, reference_contract_version: input.generation_reference ? IMAGE_REFERENCE_CONTRACT_VERSION : null, retry: true })), prompt: retryPrompt, size, quality: "high", creatorApproved: true, referenceImage }) : null;
+      const retryImage = retryPaidContext?.image ?? await this.imageProvider.generateImage({ prompt: retryPrompt, size, model: "gpt-image-2-2026-04-21", quality: "high", referenceImage });
       generatedOutputs[1] = {
         ...generatedOutputs[1],
         prompt: retryPrompt,

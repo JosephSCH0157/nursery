@@ -15,6 +15,7 @@ import type { EpisodeImageMapEntry, EpisodePackageV2 } from "../../lib/episode-p
 import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
 import type { CanonicalImagePromptRevision } from "../../lib/hearth-image-prompt-authority";
 import { prepareOutsideImageForFrame } from "../../lib/hearth-thumbnail-outside-image-fit";
+import { uploadHearthGenerationReference, type HearthGenerationReferencePurpose } from "../../lib/hearth-generation-reference";
 
 type CanonicalScriptResult =
   | {
@@ -196,6 +197,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
           aspect: args.thumbnailAspect,
           confirmSpend,
           alwaysApproveAiSpend: confirmSpend && alwaysApproveSpend,
+          generationReference: args.selectedImageMapEntry!.generation_reference ?? null,
         })
       );
 
@@ -280,6 +282,45 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
         args.setIsImageMapCandidateGenerating(false);
       }
     }
+  }, [args]);
+
+  const onUploadImageMapGenerationReference = useCallback(async (file: File, purpose: HearthGenerationReferencePurpose) => {
+    if (!args.episodePackage || !args.selectedImageMapEntry || !args.workpieceId || !args.workspaceId) return;
+    args.setImageMapCandidateSelectionError(null);
+    try {
+      const reference = await uploadHearthGenerationReference({
+        workpieceId: args.workpieceId,
+        targetKind: "timeline_image",
+        targetId: args.selectedImageMapEntry.id,
+        file,
+        purpose,
+      });
+      const entries = args.episodePackage.image_map.entries.map((entry) => entry.id === args.selectedImageMapEntry!.id
+        ? { ...entry, generation_reference: reference }
+        : entry);
+      const saved = await args.persistImageMapEntries({ entries });
+      if (!saved.ok) throw new Error(saved.error);
+      args.setEpisodePackage(saved.episodePackage);
+      args.setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
+      args.setImageMapExportMessage("Reference image verified and attached to this timeline image prompt.");
+    } catch (error) {
+      args.setImageMapCandidateSelectionError(error instanceof Error ? error.message : "Unable to attach the reference image.");
+    }
+  }, [args]);
+
+  const onRemoveImageMapGenerationReference = useCallback(async () => {
+    if (!args.episodePackage || !args.selectedImageMapEntry) return;
+    const entries = args.episodePackage.image_map.entries.map((entry) => entry.id === args.selectedImageMapEntry!.id
+      ? { ...entry, generation_reference: null }
+      : entry);
+    const saved = await args.persistImageMapEntries({ entries });
+    if (!saved.ok) {
+      args.setImageMapCandidateSelectionError(saved.error);
+      return;
+    }
+    args.setEpisodePackage(saved.episodePackage);
+    args.setImageMapMetadataUpdatedAt(saved.metadataUpdatedAt);
+    args.setImageMapExportMessage("Reference image removed from this timeline image prompt.");
   }, [args]);
 
   const onSelectImageMapCandidate = useCallback(async (candidateAssetId: string) => {
@@ -461,5 +502,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
     onGenerateImageMapCandidates,
     onSelectImageMapCandidate,
     onUploadImageMapAsset,
+    onUploadImageMapGenerationReference,
+    onRemoveImageMapGenerationReference,
   };
 }

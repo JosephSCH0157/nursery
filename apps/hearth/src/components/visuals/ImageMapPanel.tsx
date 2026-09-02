@@ -19,6 +19,8 @@ import type {
 import { resolveImageMapWorkflowGuidance } from "../../lib/hearth-image-map-workflow";
 import { buildEpisodeImagesWorkspaceViewModel, episodeImageStatusLabel } from "../../lib/hearth-episode-images-view-model";
 import type { ImagePromptAuthorityState } from "../../hooks/visuals/useImagePromptAuthority";
+import type { HearthGenerationReferencePurpose } from "../../lib/hearth-generation-reference";
+import { loadThumbnailCompositePreview } from "../../lib/hearth-thumbnail-v3-api";
 import {
   buildTimelineImagePromptPack,
   type PromptPack,
@@ -27,6 +29,18 @@ import {
 } from "../../lib/hearth-visual-provider-profiles";
 
 type ImageMapSaveState = "saved" | "editing" | "saving" | "error" | "offline";
+
+function GenerationReferencePreview({ workpieceId, path, alt }: { workpieceId: string; path: string; alt: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let active = true;
+    void loadThumbnailCompositePreview({ workpieceId, assetPath: path }).then((result) => {
+      if (active) setSrc(result.ok ? result.dataUrl : null);
+    });
+    return () => { active = false; };
+  }, [path, workpieceId]);
+  return src ? <img src={src} alt={alt} className="hs-thumbnail-candidate-preview" /> : null;
+}
 
 type ImageMapCandidateCard = {
   id: string;
@@ -102,6 +116,8 @@ type ImageMapPanelProps = {
   onSavePromptEdit: (finalPrompt: string) => void;
   onRefreshPrompt: () => void;
   onUploadAsset: (file: File) => void;
+  onUploadGenerationReference: (file: File, purpose: HearthGenerationReferencePurpose) => void;
+  onRemoveGenerationReference: () => void;
   onSelectCandidate: (candidateId: string) => void;
   onCopyExport: () => void;
   copyExportAcknowledged?: boolean;
@@ -244,6 +260,8 @@ export default function ImageMapPanel({
   onSavePromptEdit,
   onRefreshPrompt,
   onUploadAsset,
+  onUploadGenerationReference,
+  onRemoveGenerationReference,
   onSelectCandidate,
   onCopyExport,
   copyExportAcknowledged = false,
@@ -258,6 +276,8 @@ export default function ImageMapPanel({
 }: ImageMapPanelProps) {
   const [dispositions, setDispositions] = useState<VisualOpportunityDisposition[]>([]);
   const [canonicalPlan, setCanonicalPlan] = useState<{ revisionId: string; revision: number } | null>(null);
+  const [referencePurpose, setReferencePurpose] = useState<HearthGenerationReferencePurpose>("subject");
+  const referenceInputRef = useRef<HTMLInputElement>(null);
   const resolvedPanelTitle = panelTitle?.trim() || (manualOnly ? "Visual Beats" : "Image Map");
   const entryLabel = manualOnly ? "Anchor" : "Entry";
   const hasSelection = Boolean(selectedEntryId);
@@ -460,6 +480,14 @@ export default function ImageMapPanel({
                 {promptAuthorityState.error ? <p className="hs-episode-image-direction-error" role="alert"><strong>{promptAuthorityState.errorCode ?? "prompt_error"}</strong>: {promptAuthorityState.error}</p> : null}
                 <p className="hs-episode-image-prompt-stage" role="status">Canonical prompt stage: {promptAuthorityState.stage ?? "not started"}{canonicalPrompt ? ` · revision ${canonicalPrompt.revision} · ${canonicalPrompt.promptSource === "creator_edited" ? "creator edited" : "AI derived"}` : ""}</p>
                 {canonicalPrompt ? <section className="hs-episode-image-canonical-prompt" aria-label="Canonical image prompt"><h5>AI visual brief</h5><dl>{Object.entries(canonicalPrompt.visualBrief).filter(([, value]) => typeof value === "string" || Array.isArray(value)).map(([key, value]) => <div key={key}><dt>{key.replaceAll("_", " ")}</dt><dd>{Array.isArray(value) ? value.join(", ") : String(value)}</dd></div>)}</dl><label className="hs-field"><span>Final image prompt</span><textarea value={canonicalPromptDraft} onChange={(event) => setCanonicalPromptDraft(event.target.value)} rows={8} disabled={disabled || promptAuthorityState.status === "saving"} /></label><div className="hs-episode-image-direction-actions"><button type="button" className="is-primary" onClick={() => onSavePromptEdit(canonicalPromptDraft)} disabled={disabled || !canonicalPromptDirty || !canonicalPromptDraft.trim() || promptAuthorityState.status === "saving"}>{promptAuthorityState.status === "saving" ? "Saving canonical prompt…" : "Save prompt as new revision"}</button><button type="button" onClick={() => { void copyTextToClipboard(canonicalPrompt.finalPrompt).then((copied) => { if (copied) acknowledgeCopy("image-map-panel.canonical-prompt"); }); }} disabled={disabled || canonicalPromptDirty}>{isCopyAcknowledged("image-map-panel.canonical-prompt") ? "Prompt copied" : "Copy canonical prompt"}</button></div></section> : promptAuthorityState.status === "loading" ? <p role="status">Reading canonical prompt…</p> : null}
+                <section className="hs-episode-image-canonical-prompt" aria-label="Generation reference image">
+                  <h5>Reference image (optional)</h5>
+                  <p>Give the image generator a verified subject, composition, or style reference for this timeline image.</p>
+                  <label className="hs-field"><span>Reference purpose</span><select value={referencePurpose} onChange={(event) => setReferencePurpose(event.target.value as HearthGenerationReferencePurpose)} disabled={disabled}><option value="subject">Subject</option><option value="composition">Composition</option><option value="style">Style</option></select></label>
+                  {selectedEntry.generation_reference ? <><p><strong>Attached:</strong> {selectedEntry.generation_reference.original_filename} · {selectedEntry.generation_reference.purpose} · {selectedEntry.generation_reference.content_hash.slice(0, 12)}</p>{canonicalWorkpieceId ? <GenerationReferencePreview workpieceId={canonicalWorkpieceId} path={selectedEntry.generation_reference.path} alt="Timeline image generation reference" /> : null}</> : <p>No reference image attached.</p>}
+                  <div className="hs-episode-image-direction-actions"><button type="button" onClick={() => referenceInputRef.current?.click()} disabled={disabled}>{selectedEntry.generation_reference ? "Replace reference" : "Upload reference"}</button>{selectedEntry.generation_reference ? <button type="button" onClick={onRemoveGenerationReference} disabled={disabled}>Remove reference</button> : null}</div>
+                  <input ref={referenceInputRef} type="file" accept="image/png,image/jpeg,image/webp" className="hs-imap-upload-input" aria-label="Upload generation reference image" onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) onUploadGenerationReference(file, referencePurpose); event.currentTarget.value = ""; }} />
+                </section>
               </section> : null}
 
               {!selectedEntry.selected_asset_id ? <section className="hs-episode-images-sources" aria-labelledby="episode-image-source-heading"><h4 id="episode-image-source-heading">How would you like to get this image?</h4><div className="hs-episode-images-source-grid">

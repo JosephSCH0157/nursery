@@ -4137,6 +4137,8 @@ export default function HearthShell({
     onGenerateImageMapCandidates,
     onSelectImageMapCandidate,
     onUploadImageMapAsset,
+    onUploadImageMapGenerationReference,
+    onRemoveImageMapGenerationReference,
   } = useHearthImageCandidateCommands({
     operationAuthority,
     workpieceId,
@@ -6246,6 +6248,8 @@ export default function HearthShell({
       onSavePromptEdit: (finalPrompt: string) => void imagePromptAuthority.saveEdit(finalPrompt),
       onRefreshPrompt: () => void imagePromptAuthority.refresh(),
       onUploadAsset: (file: File) => void onUploadImageMapAsset(file),
+      onUploadGenerationReference: (file: File, purpose: import("../lib/hearth-generation-reference").HearthGenerationReferencePurpose) => void onUploadImageMapGenerationReference(file, purpose),
+      onRemoveGenerationReference: () => void onRemoveImageMapGenerationReference(),
       onSelectCandidate: (candidateId: string) => void onSelectImageMapCandidate(candidateId),
       onCopyExport: () => {
         void onCopyImageMapExportJson().then((copied) => {

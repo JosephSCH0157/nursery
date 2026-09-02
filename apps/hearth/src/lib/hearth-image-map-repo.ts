@@ -436,6 +436,7 @@ export async function generateWorkpieceImageMapCandidates(args: {
   size?: string | null;
   confirmSpend?: boolean;
   alwaysApproveAiSpend?: boolean;
+  generationReference?: import("./hearth-generation-reference").HearthGenerationReferenceImage | null;
 }): Promise<GenerateWorkpieceImageMapCandidatesResult> {
   const response = await tongsFetch(
     `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/image-map/generate-candidates`,
@@ -456,6 +457,7 @@ export async function generateWorkpieceImageMapCandidates(args: {
         ...(typeof args.size !== "undefined" ? { size: args.size } : {}),
         confirm_spend: args.confirmSpend,
         always_approve_ai_spend: args.alwaysApproveAiSpend,
+        generation_reference: args.generationReference ?? null,
       },
     },
   );
