@@ -13,7 +13,7 @@ const imageRetentionMigration=await readFile(new URL("../../../supabase/migratio
 
 test("cross-family visual coverage is arbitrated before canonical child plans commit",()=>{
   assert.match(provider,/Each script passage belongs to exactly one visual family/);
-  assert.match(service,/arbitrateUnifiedVisualPlanCoverage\(normalizeUnifiedVisualPlanContextAnchors/);
+  assert.match(service,/arbitrateUnifiedVisualPlanCoverage\(\s*normalizeUnifiedVisualPlanContextAnchors/);
   assert.match(service,/assert_unified_visual_plan_coverage_exclusive/);
   assert.match(coverageMigration,/has_workspace_role\(p_workspace_id, 'editor'\)/);
   assert.match(coverageMigration,/having count\(\*\) > 1/);
@@ -21,9 +21,9 @@ test("cross-family visual coverage is arbitrated before canonical child plans co
 });
 
 test("image regeneration replaces semantic duplicates and retains selections in place",()=>{
-  assert.match(service,/currentByAnchor=new Map/);
-  assert.match(service,/retained\?\.candidate_assets\?\?\[\]/);
-  assert.match(service,/retained\?\.selected_asset_id\?\?null/);
+  assert.match(service,/currentByAnchor\s*=\s*new Map/);
+  assert.match(service,/retained\?\.candidate_assets\s*\?\?\s*\[\]/);
+  assert.match(service,/retained\?\.selected_asset_id\s*\?\?\s*null/);
   assert.match(service,/record_unified_image_plan_membership/);
   assert.doesNotMatch(service,/p_child_kind:"image",p_provider_plan_revision_id/);
   assert.match(imageRetentionMigration,/creator_retained/);
@@ -69,7 +69,7 @@ test("Source fulfillment appends an immutable opportunity and advances the plan"
   assert.match(migration,/old\.revision\+1/);
   assert.match(migration,/source_fulfillment/);
   assert.match(migration,/opportunity_revision_conflict/);
-  assert.match(service,/action==="fulfill-source"/);
+  assert.match(service,/action\s*===\s*"fulfill-source"/);
   assert.match(service,/fulfillReferenceClipOpportunity/);
 });
 
@@ -83,11 +83,11 @@ test("Unified planning reserves before provider work and records exact child ide
   assert.match(migration,/reference_clip_plan_revision_id uuid/);
   assert.match(migration,/verified unified visual plan operation is immutable/);
   assert.match(service,/begin_unified_visual_plan[\s\S]*unifiedVisualPlanProvider[\s\S]*record_unified_visual_plan_provider_response/);
-  assert.match(service,/state==="provider_completed"[\s\S]*record_unified_visual_plan_child/);
-  assert.match(service,/repairEntriesAgainstApprovedScript\(draftEntries,scriptText\)/);
+  assert.match(service,/state\s*===\s*"provider_completed"[\s\S]*record_unified_visual_plan_child/);
+  assert.match(service,/repairEntriesAgainstApprovedScript\(\s*draftEntries,\s*scriptText/);
   assert.doesNotMatch(service,/paragraph_id:`visual-\$\{index\+1\}`/);
-  assert.match(service,/state==="image_plan_committed"[\s\S]*commit_broll_plan/);
-  assert.match(service,/state==="broll_plan_committed"[\s\S]*commit_reference_clip_plan/);
+  assert.match(service,/state\s*===\s*"image_plan_committed"[\s\S]*commit_broll_plan/);
+  assert.match(service,/state\s*===\s*"broll_plan_committed"[\s\S]*commit_reference_clip_plan/);
   assert.match(service,/verify_unified_visual_plan/);
   assert.match(provider,/never invent a Source, statistic, quote, URL, archive, rights claim, or existing asset/);
 });
@@ -99,7 +99,7 @@ test("v2 unified planning requires four canonical children while preserving v1 r
   assert.match(fourChildMigration,/reference_visual_plan_content_hash/);
   assert.match(fourChildMigration,/'empty',op\.reference_visual_plan_empty/);
   assert.match(fourChildMigration,/historical three-child evidence/);
-  assert.match(service,/state==="reference_plan_committed"[\s\S]*commit_reference_visual_plan[\s\S]*reference_visual_plan_committed/);
+  assert.match(service,/state\s*===\s*"reference_plan_committed"[\s\S]*commit_reference_visual_plan[\s\S]*reference_visual_plan_committed/);
 });
 
 test("Unified provider submits once and validates exact script-relative mixed output",async()=>{
@@ -144,14 +144,14 @@ test("generation scope fails closed when provider output widens the selected med
   const plan={images:[item],broll:[],reference_clips:[{context_before:"",context_focus:"Approved script.",context_after:"",editorial_reason:"Archive",desired_material:"Footage",search_terms:["archive"],narrative_purpose:"Ground",placement_hint:"on phrase",duration_target_ms:4000}],reference_visuals:[]};
   assert.deepEqual(validateUnifiedVisualPlanScope(plan,"images_broll"),["reference_clips:disallowed_by_generation_scope"]);
   assert.deepEqual(validateUnifiedVisualPlanScope(plan,"full_media_plan"),[]);
-  assert.match(service,/generation_scope:input\.generation_scope/);
-  assert.match(service,/validateUnifiedVisualPlanScope\(plan,generationScope\)[\s\S]*visual_plan_scope_violation[\s\S]*state==="provider_completed"/);
-  assert.match(service,/generation_scope:normalizeUnifiedVisualPlanGenerationScope\(body\.generation_scope\)/);
+  assert.match(service,/generation_scope:\s*input\.generation_scope/);
+  assert.match(service,/validateUnifiedVisualPlanScope\(\s*plan,\s*generationScope[\s\S]*visual_plan_scope_violation[\s\S]*state\s*===\s*"provider_completed"/);
+  assert.match(service,/generation_scope:\s*normalizeUnifiedVisualPlanGenerationScope\(\s*body\.generation_scope/);
 });
 
 test("individual visual categories may be empty but the complete plan may not",()=>{
   assert.deepEqual(validateUnifiedVisualPlan({images:[],broll:[],reference_clips:[],reference_visuals:[]},"Approved script."),["visual_plan:empty"]);
-  assert.match(provider,/images:\{type:"array",minItems:1/);
+  assert.match(provider,/images:\s*\{\s*type:\s*"array",\s*minItems:\s*1/);
   assert.match(provider,/named public figures/);
   assert.doesNotMatch(provider,/images:required|broll:required|reference_clips:required|reference_visuals:required/);
 });
