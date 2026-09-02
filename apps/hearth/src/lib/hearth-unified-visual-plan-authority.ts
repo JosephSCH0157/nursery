@@ -124,7 +124,8 @@ export async function generateOrResumeUnifiedVisualPlan(args: { workspaceId: str
   let inputs: JsonRecord;
   let operationId: string;
   let operationFingerprint: string;
-  if (latest.data && string(latest.data.state) !== "verified") {
+  const latestState = string(latest.data?.state);
+  if (latest.data && latestState !== "verified" && latestState !== "failed") {
     if (!record(latest.data.normalized_inputs_json)) return { ok: false, status: 502, code: "unified_visual_plan_resume_evidence_missing", error: "The durable Visual Plan operation is missing its canonical inputs.", stage: string(latest.data.state) };
     inputs = latest.data.normalized_inputs_json;
     operationId = string(latest.data.operation_id) ?? "";

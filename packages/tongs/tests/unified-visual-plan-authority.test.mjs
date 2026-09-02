@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
-import { arbitrateUnifiedVisualPlanCoverage, normalizeUnifiedVisualPlanContextAnchors, OpenAiUnifiedVisualPlanProvider, validateUnifiedVisualPlan, validateUnifiedVisualPlanScope } from "../dist/providers/unified-visual-plan-provider.js";
+import { arbitrateUnifiedVisualPlanCoverage, deriveUnifiedVisualMomentBudget, normalizeUnifiedVisualPlanContextAnchors, OpenAiUnifiedVisualPlanProvider, validateUnifiedVisualPlan, validateUnifiedVisualPlanScope } from "../dist/providers/unified-visual-plan-provider.js";
 
 const migration=await readFile(new URL("../../../supabase/migrations/20260804200000_tongs_unresolved_reference_and_unified_visual_plan.sql",import.meta.url),"utf8");
 const fourChildMigration=await readFile(new URL("../../../supabase/migrations/20260805130000_tongs_unified_visual_plan_reference_visual_child.sql",import.meta.url),"utf8");
@@ -9,6 +9,7 @@ const service=await readFile(new URL("../src/workpiece-commit-api.ts",import.met
 const provider=await readFile(new URL("../src/providers/unified-visual-plan-provider.ts",import.meta.url),"utf8");
 const attributionMigration=await readFile(new URL("../../../supabase/migrations/20260902090000_tongs_visual_source_attribution.sql",import.meta.url),"utf8");
 const coverageMigration=await readFile(new URL("../../../supabase/migrations/20260902163000_tongs_unified_visual_coverage_exclusivity.sql",import.meta.url),"utf8");
+const imageRetentionMigration=await readFile(new URL("../../../supabase/migrations/20260902170000_tongs_unified_image_retention_no_append.sql",import.meta.url),"utf8");
 
 test("cross-family visual coverage is arbitrated before canonical child plans commit",()=>{
   assert.match(provider,/Each script passage belongs to exactly one visual family/);
@@ -17,6 +18,17 @@ test("cross-family visual coverage is arbitrated before canonical child plans co
   assert.match(coverageMigration,/has_workspace_role\(p_workspace_id, 'editor'\)/);
   assert.match(coverageMigration,/having count\(\*\) > 1/);
   assert.match(coverageMigration,/grant execute on function tongs\.assert_unified_visual_plan_coverage_exclusive/);
+});
+
+test("image regeneration replaces semantic duplicates and retains selections in place",()=>{
+  assert.match(service,/currentByAnchor=new Map/);
+  assert.match(service,/retained\?\.candidate_assets\?\?\[\]/);
+  assert.match(service,/retained\?\.selected_asset_id\?\?null/);
+  assert.match(service,/record_unified_image_plan_membership/);
+  assert.doesNotMatch(service,/p_child_kind:"image",p_provider_plan_revision_id/);
+  assert.match(imageRetentionMigration,/creator_retained/);
+  assert.doesNotMatch(imageRetentionMigration,/\|\|retained_entries/);
+  assert.match(imageRetentionMigration,/has_workspace_role\(op\.workspace_id,'editor'\)/);
 });
 
 test("visual Source attribution is immutable, role-guarded, and bound to canonical Source links",()=>{
@@ -111,11 +123,20 @@ test("mixed planning selects one strongest family for an overlapping script span
 });
 
 test("coverage arbitration keeps non-overlapping moments and prefers motion B-roll",()=>{
-  const first="Riders boarded buses across the county.";const second="The service cost $2.50 at peak hours.";const script=`${first} ${second}`;
+  const first="Riders boarded buses across the county.";const second="The service cost $2.50 at peak hours.";const script=`${first} ${Array.from({length:180},()=>"narration").join(" ")} ${second}`;
   const none={source_keys:[],source_relationship:"none",source_rationale:"No source required."};
   const plan={images:[{context_before:"",context_focus:first,context_after:"",description:"Bus",visual_intent:"Coverage",creator_direction:"Show bus",style:"documentary",placement_hint:"on line",...none}],broll:[{context_before:"",context_focus:first,context_after:"",narrative_purpose:"Show riders boarding",placement_hint:"on line",duration_target_ms:4000,shot_type:"wide",motion_intent:"Riders board",mood_pacing:"steady",asset_category:"transit",...none}],reference_clips:[],reference_visuals:[{context_before:"",context_focus:second,context_after:"",visual_subtype:"stat_card",editorial_reason:"Show price",audience_understanding:"See fare",required_evidence:"Peak fare",required_source_type:"fare page",desired_material:"Fare card",search_terms:["peak fare"],placement_hint:"on line",duration_target_ms:4000,creator_direction:"Show $2.50",source_keys:["src_fare"],source_relationship:"direct",source_rationale:"Fare page."}]};
   const result=arbitrateUnifiedVisualPlanCoverage(plan,script);
   assert.equal(result.broll.length,1);assert.equal(result.images.length,0);assert.equal(result.reference_visuals.length,1);
+});
+
+test("coverage arbitration enforces a duration-aware episode-wide visual budget",()=>{
+  const moments=Array.from({length:24},(_,index)=>`Moment ${index+1} explains a distinct part of the episode with enough narration words for timing.`);const script=moments.join(" ");const none={source_keys:[],source_relationship:"none",source_rationale:"No source required."};
+  const plan={images:moments.map((focus,index)=>({context_before:"",context_focus:focus,context_after:"",description:`Image ${index+1}`,visual_intent:"Explain",creator_direction:"Clear",style:"documentary",placement_hint:"on line",...none})),broll:[],reference_clips:[],reference_visuals:[]};
+  const result=arbitrateUnifiedVisualPlanCoverage(plan,script);
+  assert.equal(result.images.length,deriveUnifiedVisualMomentBudget(script));
+  const hourScript=Array.from({length:9000},()=>"word").join(" ");
+  assert.ok(deriveUnifiedVisualMomentBudget(hourScript)>=37);
 });
 
 test("generation scope fails closed when provider output widens the selected media family",()=>{
