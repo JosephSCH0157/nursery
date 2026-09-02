@@ -848,14 +848,14 @@ async function commitHearthRevisionSnapshot(
   return { ok: true, fileUpdatedAt };
 }
 
-function buildChatSnapshot(cache: TongsCacheV1, workspaceId: string): {
+function buildChatSnapshot(cache: TongsCacheV1, workspaceId: string, draftId: string): {
   schema: "hearth.chat.v1";
   updatedAt: number;
   chats: Record<string, ChatSnapshotEntry>;
 } {
   const chats: Record<string, ChatSnapshotEntry> = {};
-  for (const [draftId, entry] of Object.entries(cache.chats)) {
-    if (cache.draftWorkspaceById[draftId] !== workspaceId) continue;
+  const entry = cache.chats[draftId];
+  if (entry && cache.draftWorkspaceById[draftId] === workspaceId) {
     chats[draftId] = {
       draftId: entry.draftId,
       updatedAt: entry.updatedAt,
@@ -1100,7 +1100,7 @@ export class TongsHearthStore implements HearthStore {
     cache.draftWorkspaceById[normalized.id] = workspaceId;
     writeCache(cache);
     try {
-      return await this.syncDraftsToTongs(cache, workspaceId, options?.reason);
+      return await this.syncDraftsToTongs(cache, workspaceId, options?.reason, normalized.id);
     } catch (error) {
       if ((error as { code?: unknown } | null)?.code === "draft_conflict") throw error;
       return {
@@ -1124,8 +1124,8 @@ export class TongsHearthStore implements HearthStore {
     delete cache.chats[id];
     delete cache.draftWorkspaceById[id];
     writeCache(cache);
-    await this.syncDraftsToTongs(cache, workspaceId);
-    await this.syncChatsToTongs(cache, workspaceId);
+    await this.syncDraftsToTongs(cache, workspaceId, undefined, id);
+    await this.syncChatsToTongs(cache, workspaceId, id);
   }
 
   async getChatHistory(draftId: DraftId): Promise<HearthChatMessage[]> {
@@ -1180,7 +1180,7 @@ export class TongsHearthStore implements HearthStore {
       };
     }
     writeCache(cache);
-    await this.syncChatsToTongs(cache, workspaceId);
+    await this.syncChatsToTongs(cache, workspaceId, id);
   }
 
   async getHearthRevisionSnapshot(workpieceId: string): Promise<HearthRevisionSnapshot | null> {
@@ -1479,6 +1479,7 @@ export class TongsHearthStore implements HearthStore {
     cache: TongsCacheV1,
     workspaceIdInput?: string | null,
     reason?: string,
+    draftId?: string,
   ): Promise<HearthDraftSaveAcknowledgement> {
     const workspaceId = workspaceIdInput ?? resolveWorkspaceId();
     if (!workspaceId) {
@@ -1493,24 +1494,17 @@ export class TongsHearthStore implements HearthStore {
     }
 
     const writtenBy = buildWrittenBy();
-    let workpieceId = resolveCachedWorkpieceId(workspaceId, cache);
+    const workpieceId = resolveCachedWorkpieceId(workspaceId, cache);
+    if (!workpieceId) return {
+      ok: false,
+      kind: "recovery_only",
+      authority: "browser_cache",
+      artifact: "draft_snapshot",
+      reason: "canonical_target_unavailable",
+      status: null,
+    };
 
-    if (!workpieceId) {
-      workpieceId = await createCradle(workspaceId, writtenBy);
-      if (!workpieceId) {
-        return {
-          ok: false,
-          kind: "recovery_only",
-          authority: "browser_cache",
-          artifact: "draft_snapshot",
-          reason: "canonical_target_unavailable",
-          status: null,
-        };
-      }
-      persistWorkpieceId(workspaceId, workpieceId, cache);
-    }
-
-    const drafts = readDrafts(cache, workspaceId);
+    const drafts = draftId && cache.drafts[draftId] ? [cloneDraft(cache.drafts[draftId]!)] : [];
     const snapshot = {
       schemaVersion: 1 as const,
       workspaceId,
@@ -1552,69 +1546,31 @@ export class TongsHearthStore implements HearthStore {
       };
     }
 
-    const replacementId = await createCradle(workspaceId, writtenBy);
-    if (!replacementId) {
-      return {
-        ok: false,
-        kind: "recovery_only",
-        authority: "browser_cache",
-        artifact: "draft_snapshot",
-        reason: "canonical_target_unavailable",
-        status: 404,
-      };
-    }
-    persistWorkpieceId(workspaceId, replacementId, cache);
-    writeDraftSnapshotUpdatedAt(cache, workspaceId, null);
-    const secondTry = await commitDraftSnapshot(replacementId, snapshot, writtenBy, { reason });
-    if (secondTry.ok) {
-      writeDraftSnapshotUpdatedAt(cache, workspaceId, secondTry.fileUpdatedAt);
-      writeCache(cache);
-      return {
-        ok: true,
-        kind: "canonical",
-        authority: "tongs",
-        artifact: "draft_snapshot",
-        workspaceId,
-        workpieceId: replacementId,
-        committedAt: secondTry.fileUpdatedAt,
-      };
-    }
-    if (secondTry.reason === "conflict") {
-      throw createDraftConflictError(secondTry.details);
-    }
     return {
       ok: false,
       kind: "recovery_only",
       authority: "browser_cache",
       artifact: "draft_snapshot",
-      reason: secondTry.reason === "invalid_response"
-        ? "canonical_response_invalid"
-        : "canonical_commit_failed",
-      status: secondTry.status,
+      reason: "canonical_target_unavailable",
+      status: 404,
     };
   }
 
-  private async syncChatsToTongs(cache: TongsCacheV1, workspaceIdInput?: string | null): Promise<void> {
+  private async syncChatsToTongs(cache: TongsCacheV1, workspaceIdInput: string | null | undefined, draftId: string): Promise<void> {
     const workspaceId = workspaceIdInput ?? resolveWorkspaceId();
     if (!workspaceId) return;
 
     const writtenBy = buildWrittenBy();
-    let workpieceId = resolveCachedWorkpieceId(workspaceId, cache);
+    const workpieceId = resolveCachedWorkpieceId(workspaceId, cache);
+    if (!workpieceId) throw new Error("canonical_chat_workpiece_required");
 
-    if (!workpieceId) {
-      workpieceId = await createCradle(workspaceId, writtenBy);
-      if (!workpieceId) return;
-      persistWorkpieceId(workspaceId, workpieceId, cache);
-    }
-
-    const snapshot = buildChatSnapshot(cache, workspaceId);
+    const snapshot = buildChatSnapshot(cache, workspaceId, draftId);
     let firstTry: { ok: true } | { ok: false; status: number };
     try {
       firstTry = await commitChatSnapshot(workpieceId, snapshot, writtenBy);
     } catch (error) {
-      // Chat snapshot sync is best-effort; keep local chat history even when remote is unavailable.
       console.warn("[hearth:tongs] chat snapshot sync request failed", error);
-      return;
+      throw error;
     }
     if (firstTry.ok) {
       loadedChatSnapshotByWorkpiece.add(workpieceId);
@@ -1626,27 +1582,9 @@ export class TongsHearthStore implements HearthStore {
         workpieceId,
         status: firstTry.status,
       });
-      return;
+      throw new Error(`canonical_chat_commit_failed:${firstTry.status}`);
     }
 
-    const replacementId = await createCradle(workspaceId, writtenBy);
-    if (!replacementId) return;
-    persistWorkpieceId(workspaceId, replacementId, cache);
-    let secondTry: { ok: true } | { ok: false; status: number };
-    try {
-      secondTry = await commitChatSnapshot(replacementId, snapshot, writtenBy);
-    } catch (error) {
-      console.warn("[hearth:tongs] chat snapshot replacement sync request failed", error);
-      return;
-    }
-    if (secondTry.ok) {
-      loadedChatSnapshotByWorkpiece.add(replacementId);
-      return;
-    }
-    console.warn("[hearth:tongs] chat snapshot replacement sync failed", {
-      workspaceId,
-      replacementId,
-      status: secondTry.status,
-    });
+    throw new Error("canonical_chat_workpiece_not_found");
   }
 }

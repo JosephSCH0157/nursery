@@ -1,6 +1,6 @@
 export type ChatUrlEvidence={draftId:string;messageIndex:number;role:string;url:string;normalizedUrl:string;host:string;excerptHash:string};
 export type RecoveredChatSource={normalized_url:string;host:string;title:string;source_type:"webpage";message_evidence:Array<{draft_id:string;message_index:number;role:string;excerpt_hash:string}>};
-export type VisualSourceMatch={family:"reference_clip"|"reference_visual";opportunity_id:string;normalized_url:string|null;status:"exact"|"ambiguous"|"unmatched";candidate_urls:string[];reason:string};
+export type VisualSourceMatch={family:"reference_clip"|"reference_visual";opportunity_id:string;opportunity_text:string;normalized_url:string|null;status:"exact"|"ambiguous"|"unmatched";candidate_urls:string[];reason:string};
 
 const URL_RE=/https?:\/\/[^\s<>{}\[\]"'`]+/gi;
 const TRACKING_KEYS=new Set(["fbclid","gclid","dclid","mc_cid","mc_eid","ref","ref_src","source"]);
@@ -19,7 +19,7 @@ export async function extractRecoveredChatSources(snapshot:unknown,hash:(value:s
 }
 export function proposeVisualSourceMatches(sources:RecoveredChatSource[],opportunities:Array<{family:"reference_clip"|"reference_visual";id:string;text:string}>):VisualSourceMatch[]{
  return opportunities.map(opportunity=>{const target=words(opportunity.text);const ranked=sources.map(source=>{const url=new URL(source.normalized_url),brand=source.host.split(".")[0]??"";const haystack=words(`${source.host} ${decodeURIComponent(url.pathname)}`),score=overlap(target,haystack),brandMatch=brand.length>3&&opportunity.text.toLowerCase().includes(brand.toLowerCase());return{source,score,brandMatch};}).filter(item=>item.brandMatch||item.score>=2).sort((a,b)=>Number(b.brandMatch)-Number(a.brandMatch)||b.score-a.score||a.source.normalized_url.localeCompare(b.source.normalized_url));
-  if(!ranked.length)return{family:opportunity.family,opportunity_id:opportunity.id,normalized_url:null,status:"unmatched",candidate_urls:[],reason:"No recovered URL has unique textual evidence for this opportunity."};
-  const top=ranked[0]!,candidates=ranked.filter(item=>item.brandMatch===top.brandMatch&&item.score===top.score).map(item=>item.source.normalized_url);return candidates.length===1?{family:opportunity.family,opportunity_id:opportunity.id,normalized_url:candidates[0]!,status:"exact",candidate_urls:candidates,reason:"Unique hostname/path evidence matches the opportunity wording."}:{family:opportunity.family,opportunity_id:opportunity.id,normalized_url:null,status:"ambiguous",candidate_urls:candidates,reason:"Multiple recovered URLs have equal supporting evidence."};
+  const opportunityText=opportunity.text.trim();if(!ranked.length)return{family:opportunity.family,opportunity_id:opportunity.id,opportunity_text:opportunityText,normalized_url:null,status:"unmatched",candidate_urls:[],reason:"No recovered URL has unique textual evidence for this opportunity."};
+  const top=ranked[0]!,candidates=ranked.filter(item=>item.brandMatch===top.brandMatch&&item.score===top.score).map(item=>item.source.normalized_url);return candidates.length===1?{family:opportunity.family,opportunity_id:opportunity.id,opportunity_text:opportunityText,normalized_url:candidates[0]!,status:"exact",candidate_urls:candidates,reason:"Unique hostname/path evidence matches the opportunity wording."}:{family:opportunity.family,opportunity_id:opportunity.id,opportunity_text:opportunityText,normalized_url:null,status:"ambiguous",candidate_urls:candidates,reason:`Multiple recovered URLs have equal supporting evidence for: ${opportunityText}`};
  });
 }

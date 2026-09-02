@@ -1,6 +1,6 @@
 import { tongsFetch } from "./tongs-fetch";
 export type RecoveredSource={normalized_url:string;host:string;title:string;source_type:string;message_evidence:Array<{draft_id:string;message_index:number;role:string;excerpt_hash:string}>;status?:"existing"|"will_create"};
-export type RecoveryMatch={family:"reference_clip"|"reference_visual";opportunity_id:string;normalized_url:string|null;status:"exact"|"ambiguous"|"unmatched";candidate_urls:string[];reason:string;committed?:boolean};
+export type RecoveryMatch={family:"reference_clip"|"reference_visual";opportunity_id:string;opportunity_text:string;normalized_url:string|null;status:"exact"|"ambiguous"|"unmatched";candidate_urls:string[];reason:string;committed?:boolean};
 export type ChatSourceRecoveryReport={disposition:string;chat_revision:number;chat_hash:string;recovered_from_chat:RecoveredSource[];canonical_episode_sources:RecoveredSource[];visual_opportunity_matches:RecoveryMatch[];unrelated_workspace_library_sources:unknown[];created_source_count?:number;reused_source_count?:number;matched_count?:number;unchanged_artifacts?:Record<string,boolean>};
 type Result={ok:true;data:ChatSourceRecoveryReport}|{ok:false;error:string};
 const normalize=(value:unknown):unknown=>value===null||typeof value!=="object"?value:Array.isArray(value)?value.map(normalize):Object.fromEntries(Object.keys(value as Record<string,unknown>).sort().flatMap(key=>typeof(value as Record<string,unknown>)[key]==="undefined"?[]:[[key,normalize((value as Record<string,unknown>)[key])]]));
