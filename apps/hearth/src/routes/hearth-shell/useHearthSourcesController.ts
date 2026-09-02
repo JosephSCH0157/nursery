@@ -13,6 +13,7 @@ import type { HearthSourcesController } from "./hearth-sources-contracts";
 type UseHearthSourcesControllerArgs = {
   workspaceId: string | null;
   workpieceId: string | null;
+  draftId: string | null;
   draftText: string;
   mode: "summary" | "full";
   operationAuthority: HearthOperationAuthority;
@@ -21,6 +22,7 @@ type UseHearthSourcesControllerArgs = {
 export function useHearthSourcesController({
   workspaceId,
   workpieceId,
+  draftId,
   draftText,
   mode,
   operationAuthority,
@@ -79,6 +81,7 @@ export function useHearthSourcesController({
           state: sources,
           workspaceId,
           workpieceId,
+          draftId,
           researchResult,
         }),
       ),

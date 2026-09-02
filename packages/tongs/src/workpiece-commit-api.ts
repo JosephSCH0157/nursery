@@ -7,6 +7,7 @@ import type { VerifiedBrollMedia } from "./broll-acquisition.js";
 import type { ReferenceVisualEvidence, ReferenceVisualRecipe, ReferenceVisualRender } from "./reference-visual-renderer.js";
 import { extractReferenceSourceEvidence, ingestReferenceSourceUrl, inspectReferenceResearchLead, type ReferenceSourceIngestion, type ReferenceSourceEvidenceClaim } from "./reference-source-ingestion.js";
 import { inspectYouTubeReference } from "./youtube-reference.js";
+import { extractRecoveredChatSources, proposeVisualSourceMatches, type VisualSourceMatch } from "./chat-source-reconciliation.js";
 import {
   coordinateHammerHistoryEpoch,
   isProtectedHammerHistoryEpochPath,
@@ -2095,6 +2096,7 @@ export type ExtractedReferenceVisualEvidence={sourceSetMemberId:string;ordinal:n
 export type AppendReferenceVisualOpportunityRequest={workspace_id:string;expected_plan_revision_id:string;expected_plan_revision:number;script_approval_id:string;script_approval_revision:number;script_content_hash:string;visual_subtype:string;context_before:string;context_focus:string;context_after:string;citation_anchor_json:Record<string,Json>;editorial_reason:string;desired_material:string;search_terms:Json[];placement_hint:string;duration_target_ms:number;creator_direction?:string|null;derived_from_opportunity_revision_id?:string|null;creator_request_json?:Record<string,Json>;operation_id:string;operation_fingerprint:string};
 export type FulfillReferenceClipOpportunityRequest={workspace_id:string;opportunity_id:string;expected_opportunity_revision_id:string;expected_opportunity_revision:number;source_revision_id:string;workpiece_source_link_revision_id:string;operation_id:string;operation_fingerprint:string};
 export type GenerateUnifiedVisualPlanRequest={workspace_id:string;script_approval_id:string;expected_image_revision_id:string|null;expected_image_revision:number;expected_broll_revision_id:string|null;expected_broll_revision:number;expected_reference_revision_id:string|null;expected_reference_revision:number;expected_reference_visual_revision_id:string|null;expected_reference_visual_revision:number;creator_direction?:string|null;generation_scope:UnifiedVisualPlanGenerationScope;operation_id:string;operation_fingerprint:string};
+export type ReconcileChatSourcesRequest={workspace_id:string;draft_id:string;mode:"dry_run"|"commit";expected_chat_revision:number|null;expected_chat_hash:string|null;matches?:VisualSourceMatch[];operation_id:string;operation_fingerprint:string};
 
 type RunwaySubmission = { taskId: string; acceptedResponse: Record<string, unknown> };
 type RunwayTask =
@@ -2593,6 +2595,7 @@ export type TongsCommitApiService = {
   adoptLegacySource(workpieceId: string, input: AdoptLegacySourceRequest, options?: { userAccessToken?: string | null }): Promise<Record<string, Json>>;
   readCurrentSource(workspaceId: string, sourceId: string, options?: { userAccessToken?: string | null }): Promise<Record<string, Json> | null>;
   readWorkpieceSources(workpieceId: string, workspaceId: string, options?: { userAccessToken?: string | null }): Promise<Record<string, Json> | null>;
+  reconcileChatSources(workpieceId:string,input:ReconcileChatSourcesRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
   commitReferenceClipPlan(workpieceId:string,input:CommitReferenceClipPlanRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
   commitReferenceClipCandidate(workpieceId:string,input:CommitReferenceClipCandidateRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
   selectReferenceClipCandidate(workpieceId:string,input:SelectReferenceClipCandidateRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>;
@@ -15394,6 +15397,35 @@ export class TongsCommitService {
     return isRecord(result.data) ? result.data as Record<string, Json> : null;
   }
 
+  async reconcileChatSources(workpieceId:string,input:ReconcileChatSourcesRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    await this.assertWorkpieceInWorkspace(workpieceId,input.workspace_id);const auth=await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"editor",options?.userAccessToken);
+    if(!options?.userAccessToken||!this.userClientFactory)throw new HttpError(503,"chat_source_reconciliation_unavailable","Authenticated chat Source reconciliation is unavailable.");
+    const chat=await this.readWorkpieceJson(workpieceId,"hearth/chat.v1.json");
+    if(!chat.found||!chat.file_row)throw new HttpError(409,"canonical_chat_snapshot_required","The canonical Hearth chat snapshot is unavailable.");
+    if(input.mode==="commit"&&(chat.file_row.revision!==input.expected_chat_revision||chat.file_row.hash_value.toLowerCase()!==input.expected_chat_hash?.toLowerCase()))throw new HttpError(409,"chat_snapshot_conflict","The Hearth chat changed after this recovery review.");
+    const chatRoot=isRecord(chat.data)?chat.data:null,chatEntries=chatRoot&&isRecord(chatRoot.chats)?chatRoot.chats:null,selectedChat=chatEntries?chatEntries[input.draft_id]:null;
+    if(!selectedChat)throw new HttpError(409,"workpiece_chat_not_found","The selected workpiece draft has no conversation in this canonical chat snapshot.",{draft_id:input.draft_id});
+    const recovered=await extractRecoveredChatSources({chats:{[input.draft_id]:selectedChat}},async(value)=>sha256Hex(Buffer.from(value)));
+    const authority=this.userClientFactory(options.userAccessToken).schema("tongs")as unknown as UntypedTongsSchemaClient;
+    const [clipRead,visualRead,sourceRead]=await Promise.all([
+      authority.rpc("read_current_reference_clip_plan",{p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId}),
+      authority.rpc("read_current_reference_visual_plan",{p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId}),
+      authority.rpc("read_workpiece_sources",{p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId}),
+    ]);
+    if(clipRead.error||visualRead.error||sourceRead.error)throw new HttpError(502,"chat_source_reconciliation_read_failed","Current Source and visual authority could not be read.",{clip:clipRead.error?.message??null,visual:visualRead.error?.message??null,sources:sourceRead.error?.message??null});
+    const opportunities:Array<{family:"reference_clip"|"reference_visual";id:string;text:string}>=[];
+    const collect=(family:"reference_clip"|"reference_visual",root:unknown)=>{if(!isRecord(root)||!Array.isArray(root.opportunities))return;for(const entry of root.opportunities){if(!isRecord(entry))continue;const row=isRecord(entry.opportunity_revision)?entry.opportunity_revision:entry,id=readStringField(row,"opportunity_id");if(!id||readStringField(row,"source_status")==="linked")continue;opportunities.push({family,id,text:["context_focus","editorial_reason","desired_material","creator_direction"].map(key=>readStringField(row,key)).filter(Boolean).join(" ")});}};
+    collect("reference_clip",clipRead.data);collect("reference_visual",visualRead.data);
+    const proposed=proposeVisualSourceMatches(recovered,opportunities);const links=isRecord(sourceRead.data)&&Array.isArray(sourceRead.data.links)?sourceRead.data.links:[];
+    const canonicalUrls=new Set(links.flatMap(entry=>isRecord(entry)&&isRecord(entry.source_revision)&&readStringField(entry.source_revision,"canonical_url")?[readStringField(entry.source_revision,"canonical_url")!]:[]));
+    const report={disposition:"dry_run",chat_revision:chat.file_row.revision,chat_hash:chat.file_row.hash_value.toLowerCase(),recovered_from_chat:recovered,canonical_episode_sources:recovered.map(source=>({...source,status:canonicalUrls.has(source.normalized_url)?"existing":"will_create"})),visual_opportunity_matches:proposed,unrelated_workspace_library_sources:[],unchanged_artifacts:{script:true,visual_plan_editorial_content:true,thumbnails:true,images:true,broll:true,readiness:true}};
+    if(input.mode==="dry_run")return report as unknown as Record<string,Json>;
+    const matches=input.matches??proposed;const expectedFingerprint=await sha256Hex(canonicalJsonBytes({workspace_id:input.workspace_id,workpiece_id:workpieceId,draft_id:input.draft_id,chat_revision:input.expected_chat_revision,chat_hash:input.expected_chat_hash!.toLowerCase(),recovered_sources:recovered,matches}));
+    if(expectedFingerprint!==input.operation_fingerprint)throw new HttpError(409,"operation_fingerprint_mismatch","Chat Source reconciliation fingerprint does not match the reviewed evidence.",{expected_operation_fingerprint:expectedFingerprint});
+    const committed=await authority.rpc("commit_chat_source_reconciliation",{p_workspace_id:input.workspace_id,p_workpiece_id:workpieceId,p_chat_revision:input.expected_chat_revision,p_chat_hash:input.expected_chat_hash!.toLowerCase(),p_recovered_sources:recovered,p_matches:matches,p_operation_id:input.operation_id,p_operation_fingerprint:input.operation_fingerprint,p_actor_id:auth.userId});
+    if(committed.error||!isRecord(committed.data))throw new HttpError(502,"chat_source_reconciliation_failed",committed.error?.message??"Chat Source reconciliation did not return a canonical receipt.");return committed.data as Record<string,Json>;
+  }
+
   async appendReferenceVisualOpportunity(workpieceId:string,input:AppendReferenceVisualOpportunityRequest,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
     await this.assertWorkpieceInWorkspace(workpieceId,input.workspace_id);const auth=await this.assertWorkspaceRoleFromAccessToken(input.workspace_id,"editor",options?.userAccessToken);if(!options?.userAccessToken||!this.userClientFactory)throw new HttpError(503,"reference_visual_authority_unavailable","Authenticated Reference Visual authority is unavailable.");
     const canonicalInputs={workspace_id:input.workspace_id,workpiece_id:workpieceId,expected_plan_revision_id:input.expected_plan_revision_id,expected_plan_revision:input.expected_plan_revision,script_approval_id:input.script_approval_id,script_approval_revision:input.script_approval_revision,script_content_hash:input.script_content_hash,visual_subtype:input.visual_subtype,context_before:input.context_before,context_focus:input.context_focus,context_after:input.context_after,citation_anchor_json:input.citation_anchor_json,editorial_reason:input.editorial_reason,desired_material:input.desired_material,search_terms:input.search_terms,placement_hint:input.placement_hint,duration_target_ms:input.duration_target_ms,creator_direction:input.creator_direction??null,derived_from_opportunity_revision_id:input.derived_from_opportunity_revision_id??null,creator_request_json:input.creator_request_json??{}};const expectedFingerprint=await sha256Hex(canonicalJsonBytes(canonicalInputs));if(expectedFingerprint!==input.operation_fingerprint)throw new HttpError(409,"operation_fingerprint_mismatch","Reference Visual amendment fingerprint does not match canonical inputs.",{expected_operation_fingerprint:expectedFingerprint});
@@ -17740,6 +17772,10 @@ export function createTongsCommitApiHandlerWithService(
       }
       if(parts.length===4&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="sources"){
         requireMethod(request,"GET");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const workspaceId=normalizeUuid(new URL(request.url).searchParams.get("workspace_id"),"workspace_id");const userAccessToken=requireUserAccessTokenHeader(request);const result=await service.readWorkpieceSources(workpieceId,workspaceId,{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+      if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="sources"&&parts[4]==="reconcile-chat"){
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id"),body=await parseJsonBody(request),userAccessToken=requireUserAccessTokenHeader(request),mode=normalizeNonEmptyString(body.mode,"mode");if(mode!=="dry_run"&&mode!=="commit")throw new HttpError(400,"invalid_reconciliation_mode","mode must be dry_run or commit");const rawMatches=normalizeJsonValue(body.matches??[]);if(!Array.isArray(rawMatches))throw new HttpError(400,"invalid_reconciliation_matches","matches must be an array");const result=await service.reconcileChatSources(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),draft_id:normalizeNonEmptyString(body.draft_id,"draft_id"),mode,expected_chat_revision:mode==="commit"?normalizePositiveInteger(body.expected_chat_revision,"expected_chat_revision"):null,expected_chat_hash:mode==="commit"?normalizeSha256(body.expected_chat_hash,"expected_chat_hash"):null,matches:rawMatches as VisualSourceMatch[],operation_id:normalizeNonEmptyString(body.operation_id,"operation_id"),operation_fingerprint:mode==="commit"?normalizeSha256(body.operation_fingerprint,"operation_fingerprint"):
+"0".repeat(64)},{userAccessToken});return jsonResponse(200,{ok:true,data:result});
       }
       if(parts.length===5&&parts[0]==="tongs"&&parts[1]==="workpieces"&&parts[3]==="sources"&&parts[4]==="link"){
         requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);

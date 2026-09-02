@@ -1673,6 +1673,7 @@ export default function HearthShell({
   const sourcesController = useHearthSourcesController({
     workspaceId,
     workpieceId,
+    draftId: activeDraft?.id ?? null,
     draftText: activeDraft?.body ?? "",
     mode: mode === "focus" && focusTab === "sources" ? "full" : "summary",
     operationAuthority,

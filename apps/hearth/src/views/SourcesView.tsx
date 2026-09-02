@@ -2,12 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { SourcesState, NewSourceInput } from "../hooks/useSourcesState";
 import type { HearthResearchResult } from "../lib/hearth-research-contract";
 import { normalizeSourceId } from "../lib/source-tokens";
+import { commitChatSourceRecovery, previewChatSourceRecovery, type ChatSourceRecoveryReport } from "../lib/hearth-chat-source-reconciliation";
 import "./SourcesView.css";
 
 type SourcesViewProps = {
   state: SourcesState;
   workspaceId: string | null;
   workpieceId: string | null;
+  draftId: string | null;
   researchResult?: HearthResearchResult | null;
 };
 
@@ -46,7 +48,7 @@ function buildResearchRuntimeMessage(result: HearthResearchResult): string {
   return "Retrieval completed with usable sources.";
 }
 
-export default function SourcesView({ state, workspaceId, workpieceId, researchResult = null }: SourcesViewProps) {
+export default function SourcesView({ state, workspaceId, workpieceId, draftId, researchResult = null }: SourcesViewProps) {
   const [expandedIds, setExpandedIds] = useState<Record<string, boolean>>({});
   const [notesDrafts, setNotesDrafts] = useState<Record<string, string>>({});
   const [form, setForm] = useState<NewSourceInput>({
@@ -60,6 +62,9 @@ export default function SourcesView({ state, workspaceId, workpieceId, researchR
   });
   const [attachOnSave, setAttachOnSave] = useState(false);
   const [overrideSourceId, setOverrideSourceId] = useState<string | null>(null);
+  const [recovery,setRecovery]=useState<ChatSourceRecoveryReport|null>(null);
+  const [recoveryPending,setRecoveryPending]=useState(false);
+  const [recoveryError,setRecoveryError]=useState<string|null>(null);
   const titleInputRef = useRef<HTMLInputElement | null>(null);
 
   const attachedIds = useMemo(() => {
@@ -164,6 +169,8 @@ export default function SourcesView({ state, workspaceId, workpieceId, researchR
     setOverrideSourceId(sourceId);
     setTimeout(() => titleInputRef.current?.focus(), 0);
   };
+  const previewRecovery=async()=>{if(!workspaceId||!workpieceId||!draftId)return;setRecoveryPending(true);setRecoveryError(null);const result=await previewChatSourceRecovery(workspaceId,workpieceId,draftId);setRecoveryPending(false);if(!result.ok){setRecoveryError(result.error);return;}setRecovery(result.data);};
+  const commitRecovery=async()=>{if(!workspaceId||!workpieceId||!draftId||!recovery)return;setRecoveryPending(true);setRecoveryError(null);const result=await commitChatSourceRecovery(workspaceId,workpieceId,draftId,recovery);setRecoveryPending(false);if(!result.ok){setRecoveryError(result.error);return;}setRecovery(result.data);await state.syncSources();};
 
   return (
     <section className="hs-sources-view">
@@ -233,10 +240,18 @@ export default function SourcesView({ state, workspaceId, workpieceId, researchR
         </div>
       ) : null}
 
+      {workpieceId&&workspaceId?<section className="hs-sources-section" aria-label="Recover Sources from chat"><div className="hs-sources-section-title">Recover Sources from chat</div><p className="hs-sources-muted">Reconstruct canonical episode Sources from the exact persisted Hearth conversation without changing the script or any visual editorial content.</p><button type="button" disabled={recoveryPending} onClick={()=>void previewRecovery()}>{recoveryPending?"Reviewing canonical chat…":"Review recovery"}</button>{recoveryError?<div role="alert" className="hs-sources-status hs-sources-status-error">{recoveryError}</div>:null}{recovery?<div className="hs-sources-list"><article className="hs-sources-card"><strong>Recovered from chat</strong><p>{recovery.recovered_from_chat.length} unique URL{recovery.recovered_from_chat.length===1?"":"s"} proven by chat snapshot v{recovery.chat_revision}.</p>{recovery.recovered_from_chat.map(source=><a key={source.normalized_url} href={source.normalized_url} target="_blank" rel="noreferrer" className="hs-sources-url">{source.normalized_url}</a>)}</article><article className="hs-sources-card"><strong>Canonical episode Sources</strong><p>{recovery.canonical_episode_sources.filter(source=>source.status==="existing").length} existing · {recovery.canonical_episode_sources.filter(source=>source.status==="will_create").length} to create</p></article><article className="hs-sources-card"><strong>Matched to visual opportunities</strong><p>{recovery.visual_opportunity_matches.filter(match=>match.status==="exact").length} exact · {recovery.visual_opportunity_matches.filter(match=>match.status==="ambiguous").length} need review · {recovery.visual_opportunity_matches.filter(match=>match.status==="unmatched").length} unmatched</p>{recovery.visual_opportunity_matches.filter(match=>match.status!=="exact").map(match=><div key={`${match.family}:${match.opportunity_id}`} className="hs-sources-muted"><div>{match.family.replace("_"," ")} · {match.status} · {match.reason}</div>{match.candidate_urls.map(url=><button type="button" key={url} onClick={()=>setRecovery(current=>current?{...current,visual_opportunity_matches:current.visual_opportunity_matches.map(item=>item.family===match.family&&item.opportunity_id===match.opportunity_id?{...item,status:"exact",normalized_url:url,candidate_urls:[url],reason:"Creator selected this recovered Source during reconciliation review."}:item)}:current)}>Use {new URL(url).hostname}</button>)}</div>)}</article>{recovery.disposition==="dry_run"?<button type="button" disabled={recoveryPending} onClick={()=>void commitRecovery()}>Commit recovered Sources</button>:<div role="status" className="hs-sources-status hs-sources-status-success">Recovery committed: {recovery.created_source_count??0} created, {recovery.reused_source_count??0} reused, {recovery.matched_count??0} visual opportunities linked.</div>}</div>:null}</section>:null}
+
       <section className="hs-sources-section">
         <div className="hs-sources-section-title">Cited in this script</div>
+        {state.canonicalEpisodeSources.length===0?<div className="hs-sources-muted">No canonical episode Sources attached yet.</div>:<div className="hs-sources-list">{state.canonicalEpisodeSources.map(source=><article key={source.sourceLinkRevisionId} className="hs-sources-card"><div className="hs-sources-card-title">{source.title}</div><div className="hs-sources-meta">{source.sourceType}{source.publisher?` · ${source.publisher}`:""}</div>{source.url?<a href={source.url} target="_blank" rel="noreferrer" className="hs-sources-url">{source.url}</a>:null}</article>)}</div>}
+      </section>
+
+      <section className="hs-sources-section">
+        <div className="hs-sources-section-title">Legacy source references</div>
+        <p className="hs-sources-muted">These older references are not canonical episode Sources. Unknown identifiers require chat recovery.</p>
         {workpieceRows.length === 0 ? (
-          <div className="hs-sources-muted">No sources attached yet.</div>
+          <div className="hs-sources-muted">No legacy references.</div>
         ) : (
           <div className="hs-sources-list">
             {workpieceRows.map(({ ref, normalized, entry, title }) => {

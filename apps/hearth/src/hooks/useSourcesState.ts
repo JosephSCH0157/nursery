@@ -18,7 +18,7 @@ import {
   readWorkspaceSourcesIndex,
 } from "../lib/sources-repo";
 import type { HearthOperationAuthority, HearthOperationToken } from "../lib/hearth-operation-authority";
-import { createCanonicalChatSource } from "../lib/hearth-reference-clip-authority";
+import { createCanonicalChatSource, readCanonicalWorkpieceSources, type CanonicalWorkpieceSource } from "../lib/hearth-reference-clip-authority";
 
 type SourcesStatusKind = "idle" | "saving" | "success" | "error";
 
@@ -74,6 +74,7 @@ function upsertIndexEntry(entries: SourceIndexEntry[], entry: SourceIndexEntry):
 }
 
 export type SourcesState = {
+  canonicalEpisodeSources: CanonicalWorkpieceSource[];
   workpieceSources: WorkpieceSourceRef[];
   sourceIndexEntries: SourceIndexEntry[];
   sourceIndexById: Map<string, SourceIndexEntry>;
@@ -107,6 +108,7 @@ export function useSourcesState(
 ): SourcesState {
   const mode = options.mode ?? "summary";
   const operationAuthority = options.operationAuthority;
+  const [canonicalEpisodeSources,setCanonicalEpisodeSources]=useState<CanonicalWorkpieceSource[]>([]);
   const workspaceScopeKey = workspaceId?.trim().toLowerCase() ?? "";
   const sourceScopeKey = `${workspaceScopeKey}:${workpieceId?.trim().toLowerCase() ?? ""}`;
   const [workpieceSourcesState, setWorkpieceSourcesState] = useState(() => ({
@@ -488,7 +490,8 @@ export function useSourcesState(
   const syncSources = useCallback((options?: { silent?: boolean }) => {
     if (!workpieceId) return;
     queueWorkpieceCommit(workpieceSources, { allowEmpty: false, silent: options?.silent });
-  }, [queueWorkpieceCommit, workpieceId, workpieceSources]);
+    if(workspaceId)void readCanonicalWorkpieceSources(workspaceId,workpieceId).then(result=>{if(result.ok)setCanonicalEpisodeSources(result.data);});
+  }, [queueWorkpieceCommit, workspaceId, workpieceId, workpieceSources]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -519,6 +522,7 @@ export function useSourcesState(
       const tasks: Promise<void>[] = [];
 
       if (workpieceId) {
+        tasks.push(readCanonicalWorkpieceSources(workspaceId??"",workpieceId).then(result=>{if(!cancelled&&operationAuthority.isCurrent(operation)&&result.ok)setCanonicalEpisodeSources(result.data);}).catch(()=>undefined));
         tasks.push(
           readWorkpieceSourceRefs(workpieceId)
             .then((refs) => {
@@ -576,6 +580,7 @@ export function useSourcesState(
   }, []);
 
   return {
+    canonicalEpisodeSources,
     workpieceSources,
     sourceIndexEntries,
     sourceIndexById,
