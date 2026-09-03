@@ -17,6 +17,13 @@ test("Hearth reserves deterministic interpretation and trusts only matching cano
   assert.doesNotMatch(authority, /localStorage/);
 });
 
+test("a failed first interpretation reads back as no prompt and remains retryable", () => {
+  assert.match(authority, /body\.data\.prompt_revision === null/);
+  assert.match(authority, /sequenceRevision === 0/);
+  assert.match(authority, /current_prompt_revision_id === null/);
+  assert.match(authority, /return \{ ok: true, data: null \}/);
+});
+
 test("Image Direction, AI brief, and canonical final prompt are separate creator concepts", () => {
   assert.match(panel, />Image direction</);
   assert.match(panel, />AI visual brief</);
@@ -34,6 +41,19 @@ test("generation is pinned to the exact current creator-visible prompt revision"
   assert.match(repository, /prompt_revision_id: args\.promptRevisionId/);
   assert.match(repository, /prompt_content_hash: args\.promptContentHash/);
   assert.match(panel, /Generate from the exact canonical final prompt revision shown above/);
+});
+
+test("image generation acknowledges the click before preparatory network work", () => {
+  assert.ok(candidates.indexOf("args.setIsImageMapCandidateGenerating(true)") < candidates.indexOf("await args.readCanonicalScriptForImageMapGeneration()"));
+  assert.match(panel, /aria-busy=\{candidateGenerateBusy\}/);
+  assert.match(panel, /Generating image…/);
+  assert.match(panel, /Request received\./);
+  assert.match(panel, /aria-live="polite"/);
+});
+
+test("creator-uploaded images carry normalized frame dimensions into canonical registration", () => {
+  assert.match(repository, /width: Number\.isInteger\(Number\(args\.preparationEvidence\?\.target_width\)\)/);
+  assert.match(repository, /height: Number\.isInteger\(Number\(args\.preparationEvidence\?\.target_height\)\)/);
 });
 
 test("creator edits append with expected revision and stale or mismatched readback cannot look successful", () => {

@@ -123,6 +123,10 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
     let expectedMetadataUpdatedAt = args.imageMapMetadataUpdatedAt;
     let context: { before: string | null; after: string | null };
     const operation = args.operationAuthority.begin("ig");
+    args.setIsImageMapCandidateGenerating(true);
+    args.setImageMapCandidateError(null);
+    args.setImageMapCandidateSelectionError(null);
+    args.setAiRuntimeWarning(null);
 
     if (args.selectedImageMapEntry.beat_anchor) {
       const beatContext = resolveBulletBeatContext({
@@ -138,6 +142,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
       if (!args.operationAuthority.isCurrent(operation)) return;
       if (!canonicalScript.ok) {
         args.setImageMapCandidateError(canonicalScript.message);
+        args.setIsImageMapCandidateGenerating(false);
         return;
       }
 
@@ -149,6 +154,7 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
         args.setShowScriptPanel(true);
         args.setIsImageMapReanchorMode(true);
         args.setImageMapCandidateError("This visual beat needs an exact script anchor before candidate generation. Use Re-anchor to bind it to the current canonical script.");
+        args.setIsImageMapCandidateGenerating(false);
         return;
       }
 
@@ -172,16 +178,13 @@ export function useImageMapCandidateActions(args: UseImageMapCandidateActionsArg
       if (!args.operationAuthority.isCurrent(operation)) return;
       if (!sourceSaved.ok) {
         args.setImageMapCandidateError(sourceSaved.error);
+        args.setIsImageMapCandidateGenerating(false);
         return;
       }
       expectedMetadataUpdatedAt = sourceSaved.metadataUpdatedAt;
       args.setImageMapSourceTypeDraft(requestedSourceType);
     }
 
-    args.setIsImageMapCandidateGenerating(true);
-    args.setImageMapCandidateError(null);
-    args.setImageMapCandidateSelectionError(null);
-    args.setAiRuntimeWarning(null);
     try {
       const requestCandidateGeneration = (metadataUpdatedAt: string | null | undefined, confirmSpend: boolean) => (
         generateWorkpieceImageMapCandidates({

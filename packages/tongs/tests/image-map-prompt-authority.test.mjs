@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { validateSubstantiveVisualBrief, synthesizeConcreteVendorPrompt } from "../dist/providers/narrative-interpretation-provider.js";
+import { OpenAiNarrativeInterpretationProvider, validateSubstantiveVisualBrief, synthesizeConcreteVendorPrompt } from "../dist/providers/narrative-interpretation-provider.js";
 
 const migration=readFileSync(new URL("../../../supabase/migrations/20260802130000_tongs_image_map_prompt_authority.sql",import.meta.url),"utf8");
 test("prompt authority reserves before provider and records provider output durably",()=>{
@@ -11,13 +11,20 @@ test("prompt revisions and terminal receipts are immutable and direct writes rev
   assert.match(migration,/image_map_prompt_revisions_immutable/);assert.match(migration,/revoke all on tongs\.image_map_prompt_revisions/);assert.match(migration,/state='committed'.*receipt_json/s);
 });
 test("candidate generation provenance is keyed to exact canonical prompt revision",()=>{
-  const source=readFileSync(new URL("../src/workpiece-commit-api.ts",import.meta.url),"utf8");assert.match(source,/prompt_revision_id:canonicalPromptId/);assert.match(source,/prompt_content_hash:canonicalPromptHash/);assert.match(source,/const prompt = canonicalPrompt/);
+  const source=readFileSync(new URL("../src/workpiece-commit-api.ts",import.meta.url),"utf8");assert.match(source,/prompt_revision_id:\s*canonicalPromptId/);assert.match(source,/prompt_content_hash:\s*canonicalPromptHash/);assert.match(source,/const prompt = canonicalPrompt/);
 });
 test("generic interpretation is rejected and concrete synthesis has no empty section",()=>{
   const brief={narrative_purpose:"supporting the stated narrative idea",central_message:"Florida juice competes with California fruit",primary_subjects:["glass of juice","crates of oranges"],relationship_or_action:"competing for shoppers",emotional_tone:"energetic rivalry",visual_mode:"editorial",setting:"grocery citrus display backed by two different orchard climates",composition:"products face one another in balanced opposing halves",essential_visual_evidence:["juice glass","orange crates"],avoid:["maps","state outlines"],source_context:{before:null,focus:"Florida versus California",after:null}};
   assert.deepEqual(validateSubstantiveVisualBrief(brief),["narrative_purpose"]);
   brief.narrative_purpose="Show a commercial rivalry between regional citrus industries";
   const prompt=synthesizeConcreteVendorPrompt(brief,null);assert.doesNotMatch(prompt,/Essential visual evidence:\s*;/);assert.match(prompt,/glass of juice/);assert.match(prompt,/state outlines/);
+});
+test("provider connection failures explain that retry is safe",async()=>{
+  const originalFetch=globalThis.fetch;
+  globalThis.fetch=async()=>{throw Object.assign(new Error("fetch failed"),{cause:{code:"ECONNRESET"}});};
+  try{
+    await assert.rejects(new OpenAiNarrativeInterpretationProvider("test-key").interpret({request:{},model:"gpt-5-mini"}),/OpenAI could not be reached.*ECONNRESET.*no prompt or image was lost/);
+  }finally{globalThis.fetch=originalFetch;}
 });
 
 const verboseSynthesis=(brief,style=null)=>[

@@ -80,3 +80,9 @@ test("migration derives creative authority in Tongs and gates generated candidat
   assert.match(sql, /assert_current_broll_prompt/i);
   assert.doesNotMatch(sql, /candidate_assets|selected_asset|licens(?:e|ing)_metadata|hammer_consumption/i);
 });
+
+test("forward repair keeps the B-roll prompt assertion callable by the authenticated API", () => {
+  const sql = readFileSync(new URL("../../../supabase/migrations/20260902173000_tongs_broll_prompt_assertion_execute_repair.sql", import.meta.url), "utf8");
+  assert.match(sql, /revoke all on function tongs\.assert_current_broll_prompt\(uuid,uuid,uuid,uuid,bigint,text\)\s+from public, anon/i);
+  assert.match(sql, /grant execute on function tongs\.assert_current_broll_prompt\(uuid,uuid,uuid,uuid,bigint,text\)\s+to authenticated, service_role/i);
+});

@@ -101,6 +101,10 @@ export async function readCurrentCanonicalImagePrompt(args: { workpieceId: strin
   if (!response.ok) return apiFailure(response, body, "Tongs could not read the canonical image prompt.");
   if (!isRecord(body) || body.ok !== true) return { ok: false, status: response.status, code: "invalid_prompt_readback", error: "Tongs returned an invalid image-prompt readback." };
   if (body.data === null) return { ok: true, data: null };
+  if (isRecord(body.data) && body.data.prompt_revision === null && isRecord(body.data.sequence)) {
+    const sequenceRevision = Number(body.data.sequence.current_prompt_revision);
+    if (sequenceRevision === 0 && body.data.sequence.current_prompt_revision_id === null) return { ok: true, data: null };
+  }
   const data = normalizeReadback(body.data);
   return data ? { ok: true, data } : { ok: false, status: response.status, code: "invalid_prompt_readback", error: "Tongs returned a malformed image-prompt revision." };
 }

@@ -158,6 +158,8 @@ export type EpisodeImageMapAssetRef = {
   visual_mode?: EpisodeImageMapVisualMode | null;
   mime_type?: string | null;
   source?: EpisodeImageMapAssetSource | null;
+  width?: number | null;
+  height?: number | null;
 };
 
 export const EPISODE_IMAGE_MAP_ASSET_SOURCE_VALUES = [
@@ -1015,6 +1017,8 @@ function normalizeImageMapAssetRefs(value: unknown): EpisodeImageMapAssetRef[] {
         visual_mode: normalizeImageMapVisualMode(readString(entry.visual_mode)),
         mime_type: readString(entry.mime_type),
         source: normalizeImageMapAssetSource(readString(entry.source)),
+        width: readInteger(entry.width),
+        height: readInteger(entry.height),
       });
       continue;
     }
@@ -1028,6 +1032,8 @@ function normalizeImageMapAssetRefs(value: unknown): EpisodeImageMapAssetRef[] {
       visual_mode: null,
       mime_type: null,
       source: null,
+      width: null,
+      height: null,
     });
   }
   return out;

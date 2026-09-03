@@ -1294,6 +1294,8 @@ export type EpisodeImageMapAssetRefRecord = {
   visual_mode?: string | null;
   mime_type?: string | null;
   source?: string | null;
+  width?: number | null;
+  height?: number | null;
 };
 
 export type EpisodeImageMapEntryRecord = {
@@ -2855,9 +2857,7 @@ class LazyRunwayBrollVideoProvider implements BrollVideoProvider {
   }
 }
 
-function asRunwayTransportError(
-  error: unknown,
-): {
+function asRunwayTransportError(error: unknown): {
   ambiguous: boolean;
   evidence: Record<string, unknown>;
   message: string;
@@ -3537,6 +3537,34 @@ export type TongsCommitApiService = {
     workspaceId: string,
     options?: { userAccessToken?: string | null },
   ): Promise<Record<string, Json> | null>;
+  beginReferenceReviewAttempt(
+    workpieceId: string,
+    input: {
+      workspace_id: string;
+      operation_id: string;
+      operation_fingerprint: string;
+      media_family: "reference_clip" | "reference_visual";
+      intent_kind: "use_source" | "save_edits" | "replace" | "approve" | "skip";
+      opportunity_id: string;
+      expected_opportunity_revision_id: string;
+      expected_plan_revision_id: string;
+      expected_revisions_json: Record<string, Json>;
+      parent_attempt_id: string | null;
+      ai_authorization: string;
+    },
+    options?: { userAccessToken?: string | null },
+  ): Promise<unknown>;
+  finishReferenceReviewAttempt(
+    workpieceId: string,
+    attemptId: string,
+    input: {
+      outcome: "succeeded" | "failed";
+      failure_code: string | null;
+      failure_message: string | null;
+      canonical_receipt_json: Record<string, Json> | null;
+    },
+    options?: { userAccessToken?: string | null },
+  ): Promise<unknown>;
   readVisualOpportunityDispositions(
     workpieceId: string,
     workspaceId: string,
@@ -7328,6 +7356,18 @@ function normalizeImageMapAssetRef(
     visual_mode: normalizeImageMapVisualMode(value.visual_mode),
     mime_type: readStringField(value, "mime_type"),
     source: readStringField(value, "source"),
+    width:
+      typeof value.width === "number" &&
+      Number.isInteger(value.width) &&
+      value.width > 0
+        ? value.width
+        : null,
+    height:
+      typeof value.height === "number" &&
+      Number.isInteger(value.height) &&
+      value.height > 0
+        ? value.height
+        : null,
   };
 }
 
@@ -8939,9 +8979,7 @@ export function extractPdfTextParserA(fileBytes: Uint8Array): string {
 export function extractPdfTextParserB(fileBytes: Uint8Array): string {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const B = (globalThis as any).Buffer as {
-    isBuffer(
-      v: unknown,
-    ): v is Uint8Array & {
+    isBuffer(v: unknown): v is Uint8Array & {
       indexOf(val: Uint8Array, offset?: number): number;
       slice(
         s?: number,
@@ -23603,9 +23641,7 @@ export class TongsCommitService {
         column: string,
         options: { ascending: boolean },
       ) => UntypedSparkQueryBuilder;
-      limit: (
-        count: number,
-      ) => Promise<{
+      limit: (count: number) => Promise<{
         data: unknown[] | null;
         error: { message: string } | null;
       }>;
@@ -24207,9 +24243,7 @@ export class TongsCommitService {
             }>;
           };
         };
-        insert: (
-          values: Record<string, unknown>,
-        ) => Promise<{
+        insert: (values: Record<string, unknown>) => Promise<{
           data: unknown[] | null;
           error: { message: string } | null;
         }>;
@@ -25968,11 +26002,16 @@ export class TongsCommitService {
                   item,
                   "candidate_revision_id",
                 ),
-                sourceRevisionId = readStringField(item, "source_revision_id"),
-                sourceLinkRevisionId = readStringField(
-                  item,
-                  "source_link_revision_id",
-                ),
+                orderedSources = Array.isArray(item.sources)
+                  ? item.sources.filter(isRecord)
+                  : [],
+                primarySource = orderedSources[0] ?? null,
+                sourceRevisionId =
+                  readStringField(item, "source_revision_id") ??
+                  readStringField(primarySource, "source_revision_id"),
+                sourceLinkRevisionId =
+                  readStringField(item, "source_link_revision_id") ??
+                  readStringField(primarySource, "source_link_revision_id"),
                 assetContentHash = readStringField(item, "asset_content_hash");
               const planRevision =
                   typeof item.plan_revision === "number"
@@ -25989,11 +26028,17 @@ export class TongsCommitService {
                 sourceRevision =
                   typeof item.source_revision === "number"
                     ? Math.trunc(item.source_revision)
-                    : null,
+                    : primarySource &&
+                        typeof primarySource.source_revision === "number"
+                      ? Math.trunc(primarySource.source_revision)
+                      : null,
                 sourceLinkRevision =
                   typeof item.source_link_revision === "number"
                     ? Math.trunc(item.source_link_revision)
-                    : null,
+                    : primarySource &&
+                        typeof primarySource.source_link_revision === "number"
+                      ? Math.trunc(primarySource.source_link_revision)
+                      : null,
                 durationTargetMs =
                   typeof item.duration_target_ms === "number"
                     ? Math.trunc(item.duration_target_ms)
@@ -27696,6 +27741,157 @@ export class TongsCommitService {
       options,
     );
   }
+  async beginReferenceReviewAttempt(
+    workpieceId: string,
+    input: {
+      workspace_id: string;
+      operation_id: string;
+      operation_fingerprint: string;
+      media_family: "reference_clip" | "reference_visual";
+      intent_kind: "use_source" | "save_edits" | "replace" | "approve" | "skip";
+      opportunity_id: string;
+      expected_opportunity_revision_id: string;
+      expected_plan_revision_id: string;
+      expected_revisions_json: Record<string, Json>;
+      parent_attempt_id: string | null;
+      ai_authorization: string;
+    },
+    options?: { userAccessToken?: string | null },
+  ) {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(
+      input.workspace_id,
+      "editor",
+      options?.userAccessToken,
+    );
+    const result = await this.sourceAuthorityClient(
+      options?.userAccessToken,
+    ).rpc("begin_reference_review_operation_attempt", {
+      p_workspace_id: input.workspace_id,
+      p_workpiece_id: workpieceId,
+      p_operation_id: input.operation_id,
+      p_operation_fingerprint: input.operation_fingerprint,
+      p_media_family: input.media_family,
+      p_intent_kind: input.intent_kind,
+      p_opportunity_id: input.opportunity_id,
+      p_expected_opportunity_revision_id:
+        input.expected_opportunity_revision_id,
+      p_expected_plan_revision_id: input.expected_plan_revision_id,
+      p_expected_revisions_json: input.expected_revisions_json,
+      p_parent_attempt_id: input.parent_attempt_id,
+      p_ai_authorization: input.ai_authorization,
+    });
+    if (result.error)
+      throw new HttpError(
+        502,
+        "reference_review_attempt_start_failed",
+        result.error.message,
+      );
+    return result.data;
+  }
+  async finishReferenceReviewAttempt(
+    workpieceId: string,
+    attemptId: string,
+    input: {
+      outcome: "succeeded" | "failed";
+      failure_code: string | null;
+      failure_message: string | null;
+      canonical_receipt_json: Record<string, Json> | null;
+    },
+    options?: { userAccessToken?: string | null },
+  ) {
+    const authority = this.sourceAuthorityClient(options?.userAccessToken);
+    const read = await authority
+      .from("reference_review_operation_attempts")
+      .select(
+        "workspace_id,workpiece_id,media_family,intent_kind,opportunity_id",
+      )
+      .eq("attempt_id", attemptId)
+      .single();
+    if (read.error || !read.data)
+      throw new HttpError(
+        404,
+        "reference_review_attempt_not_found",
+        "Reference review attempt was not found.",
+      );
+    const row = read.data as {
+      workspace_id: string;
+      workpiece_id: string;
+      media_family: "reference_clip" | "reference_visual";
+      intent_kind: string;
+      opportunity_id: string;
+    };
+    if (row.workpiece_id !== workpieceId)
+      throw new HttpError(
+        409,
+        "reference_review_attempt_scope_mismatch",
+        "Reference review attempt belongs to another workpiece.",
+      );
+    await this.assertWorkspaceRoleFromAccessToken(
+      row.workspace_id,
+      "editor",
+      options?.userAccessToken,
+    );
+    if (
+      input.outcome === "succeeded" &&
+      (row.intent_kind === "approve" || row.intent_kind === "skip")
+    ) {
+      const visualPackage = await this.getWorkpieceVisualPackage(workpieceId, {
+          userAccessToken: options?.userAccessToken,
+        }),
+        projected = visualPackage.visuals.filter(
+          (visual) =>
+            visual.asset_class === row.media_family &&
+            visual.entry_id === row.opportunity_id,
+        );
+      if (row.intent_kind === "skip" && projected.length)
+        throw new HttpError(
+          409,
+          "reference_review_hammer_presence_mismatch",
+          "Skipped Reference Material is still selected in Hammer.",
+        );
+      if (row.intent_kind === "approve") {
+        const candidateId =
+          typeof input.canonical_receipt_json?.native_candidate_revision_id ===
+          "string"
+            ? input.canonical_receipt_json.native_candidate_revision_id
+            : null;
+        const exact = projected.some((visual) => {
+          const evidence =
+            row.media_family === "reference_clip"
+              ? visual.reference_clip_evidence
+              : visual.reference_visual_evidence;
+          return evidence?.candidate_revision_id === candidateId;
+        });
+        if (!candidateId || !exact)
+          throw new HttpError(
+            409,
+            "reference_review_hammer_selection_mismatch",
+            "Approved Reference Material does not exactly match Hammer.",
+          );
+      }
+    }
+    const client = this.supabase.schema(
+      "tongs",
+    ) as unknown as UntypedTongsSchemaClient;
+    const result = await client.rpc(
+      "finish_reference_review_operation_attempt",
+      {
+        p_attempt_id: attemptId,
+        p_outcome: input.outcome,
+        p_failure_code: input.failure_code,
+        p_failure_message: input.failure_message,
+        p_canonical_receipt_json: input.canonical_receipt_json,
+      },
+    );
+    if (result.error)
+      throw new HttpError(
+        502,
+        "reference_review_attempt_finish_failed",
+        result.error.message,
+      );
+    return result.data;
+  }
   async commitReferenceVisualSourceSet(
     workpieceId: string,
     input: CommitReferenceVisualSourceSetRequest,
@@ -28037,12 +28233,7 @@ export class TongsCommitService {
             : disposition === "operation_identity_conflict"
               ? "Your choice was not saved because this request no longer matches its original operation. Reload and choose again."
               : "Your choice was not saved because the visual opportunity request was invalid.";
-      throw new HttpError(
-        409,
-        disposition,
-        message,
-        result.data,
-      );
+      throw new HttpError(409, disposition, message, result.data);
     }
     return result.data as Record<string, Json>;
   }
@@ -32281,6 +32472,8 @@ export class TongsCommitService {
               operation_fingerprint:
                 readStringField(committedFile.data, "hash_value") ?? assetId,
               content_hash: readStringField(committedFile.data, "hash_value"),
+              width: candidate.width ?? null,
+              height: candidate.height ?? null,
               ready_at:
                 readStringField(committedFile.data, "updated_at") ??
                 new Date().toISOString(),
@@ -34027,7 +34220,154 @@ export function createTongsCommitApiHandlerWithService(
         );
       }
 
-      // PATCH /tongs/hearth/attachments/:id/extracted-text
+      // POST /tongs/workpieces/:id/reference-review/attempts/:action
+      if (
+        parts.length === 6 &&
+        parts[0] === "tongs" &&
+        parts[1] === "workpieces" &&
+        parts[3] === "reference-review" &&
+        parts[4] === "attempts"
+      ) {
+        requireMethod(request, "POST");
+        const workpieceId = normalizeUuid(
+          decodeURIComponent(parts[2]),
+          "workpiece_id",
+        );
+        const body = await parseJsonBody(request);
+        if (parts[5] === "start") {
+          const userAccessToken = requireUserAccessTokenHeader(request);
+          const mediaFamily = normalizeNonEmptyString(
+            body.media_family,
+            "media_family",
+          );
+          const intentKind = normalizeNonEmptyString(
+            body.intent_kind,
+            "intent_kind",
+          );
+          if (
+            mediaFamily !== "reference_clip" &&
+            mediaFamily !== "reference_visual"
+          )
+            throw new HttpError(
+              400,
+              "invalid_reference_review_family",
+              "Unsupported Reference review family.",
+            );
+          if (
+            ![
+              "use_source",
+              "save_edits",
+              "replace",
+              "approve",
+              "skip",
+            ].includes(intentKind)
+          )
+            throw new HttpError(
+              400,
+              "invalid_reference_review_intent",
+              "Unsupported Reference review intent.",
+            );
+          const revisions = normalizeJsonValue(
+            body.expected_revisions_json ?? {},
+          );
+          if (!isRecord(revisions))
+            throw new HttpError(
+              400,
+              "invalid_reference_review_revisions",
+              "Expected revisions must be an object.",
+            );
+          const data = await service.beginReferenceReviewAttempt(
+            workpieceId,
+            {
+              workspace_id: normalizeUuid(body.workspace_id, "workspace_id"),
+              operation_id: normalizeNonEmptyString(
+                body.operation_id,
+                "operation_id",
+              ),
+              operation_fingerprint: normalizeSha256(
+                body.operation_fingerprint,
+                "operation_fingerprint",
+              ),
+              media_family: mediaFamily,
+              intent_kind: intentKind as
+                | "use_source"
+                | "save_edits"
+                | "replace"
+                | "approve"
+                | "skip",
+              opportunity_id: normalizeUuid(
+                body.opportunity_id,
+                "opportunity_id",
+              ),
+              expected_opportunity_revision_id: normalizeUuid(
+                body.expected_opportunity_revision_id,
+                "expected_opportunity_revision_id",
+              ),
+              expected_plan_revision_id: normalizeUuid(
+                body.expected_plan_revision_id,
+                "expected_plan_revision_id",
+              ),
+              expected_revisions_json: revisions as Record<string, Json>,
+              parent_attempt_id:
+                body.parent_attempt_id == null
+                  ? null
+                  : normalizeUuid(body.parent_attempt_id, "parent_attempt_id"),
+              ai_authorization: normalizeNonEmptyString(
+                body.ai_authorization ?? "not_applicable",
+                "ai_authorization",
+              ),
+            },
+            { userAccessToken },
+          );
+          return jsonResponse(200, { ok: true, data });
+        }
+        if (parts[5] === "finish") {
+          const userAccessToken = requireUserAccessTokenHeader(request);
+          const outcome = normalizeNonEmptyString(body.outcome, "outcome");
+          if (outcome !== "succeeded" && outcome !== "failed")
+            throw new HttpError(
+              400,
+              "invalid_reference_review_outcome",
+              "Outcome must be succeeded or failed.",
+            );
+          const receipt =
+            body.canonical_receipt_json == null
+              ? null
+              : normalizeJsonValue(body.canonical_receipt_json);
+          if (receipt !== null && !isRecord(receipt))
+            throw new HttpError(
+              400,
+              "invalid_reference_review_receipt",
+              "Canonical receipt must be an identity object.",
+            );
+          const data = await service.finishReferenceReviewAttempt(
+            workpieceId,
+            normalizeUuid(body.attempt_id, "attempt_id"),
+            {
+              outcome,
+              failure_code:
+                body.failure_code == null
+                  ? null
+                  : normalizeNonEmptyString(body.failure_code, "failure_code"),
+              failure_message:
+                body.failure_message == null
+                  ? null
+                  : normalizeNonEmptyString(
+                      body.failure_message,
+                      "failure_message",
+                    ),
+              canonical_receipt_json: receipt as Record<string, Json> | null,
+            },
+            { userAccessToken },
+          );
+          return jsonResponse(200, { ok: true, data });
+        }
+        throw new HttpError(
+          404,
+          "reference_review_attempt_route_not_found",
+          "Unknown Reference review attempt action.",
+        );
+      }
       if (
         parts.length === 5 &&
         parts[0] === "tongs" &&

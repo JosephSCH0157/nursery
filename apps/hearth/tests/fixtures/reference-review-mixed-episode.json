@@ -1,0 +1,25 @@
+{
+  "fixtureVersion": 1,
+  "description": "Sanitized deterministic mixed-media acceptance fixture; it is not evidence of a completed live episode observation.",
+  "planningBaseline": {
+    "creatorActions": 23,
+    "sourceAddActions": 5,
+    "exposedTechnicalControls": 14,
+    "hardRefreshes": 1
+  },
+  "expected": {
+    "goodProposalDecisions": 1,
+    "sourceAddActions": 1,
+    "hardRefreshes": 0,
+    "visibleTechnicalControls": 0
+  },
+  "scenarios": [
+    "reference_clip",
+    "facts_only_reference_visual",
+    "rights_sensitive_reference_visual",
+    "ordered_multi_source_visual",
+    "skipped_proposal",
+    "failed_attempt",
+    "linked_retry"
+  ]
+}

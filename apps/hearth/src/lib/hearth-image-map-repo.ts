@@ -113,6 +113,8 @@ export type UploadWorkpieceImageMapCandidateAssetResult =
       visual_mode: null;
       mime_type: string;
       source: EpisodeImageMapAssetSource;
+      width: number | null;
+      height: number | null;
     };
   }
   | {
@@ -682,6 +684,8 @@ export async function uploadWorkpieceImageMapCandidateAsset(args: {
       visual_mode: null,
       mime_type: mimeType,
       source,
+      width: Number.isInteger(Number(args.preparationEvidence?.target_width)) && Number(args.preparationEvidence?.target_width) > 0 ? Number(args.preparationEvidence?.target_width) : null,
+      height: Number.isInteger(Number(args.preparationEvidence?.target_height)) && Number(args.preparationEvidence?.target_height) > 0 ? Number(args.preparationEvidence?.target_height) : null,
     },
   };
 }
