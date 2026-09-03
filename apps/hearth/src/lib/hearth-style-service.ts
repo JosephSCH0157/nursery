@@ -158,6 +158,16 @@ type WorkspaceFeaturesRpcRow = {
   adaptive_style_ai_accelerate_enabled?: unknown;
 };
 
+type ReferenceMaterialRolloutRpcRow = {
+  workspace_id?: unknown;
+  reference_material_review_enabled?: unknown;
+};
+
+export type ReferenceMaterialRollout = {
+  workspaceId: string;
+  enabled: boolean;
+};
+
 type StyleProfileRpcRow = {
   workspace_id?: unknown;
   user_id?: unknown;
@@ -849,6 +859,33 @@ export async function getWorkspaceFeatures(
     ok: true,
     status: rpc.status,
     data: features,
+  };
+}
+
+export async function getReferenceMaterialRollout(
+  workspaceId: string,
+): Promise<RpcSuccess<ReferenceMaterialRollout> | RpcFailure> {
+  const normalizedWorkspaceId = normalizeUuid(workspaceId);
+  if (!normalizedWorkspaceId) {
+    return { ok: false, status: 400, error: "workspace_id is required." };
+  }
+
+  const rpc = await callTongsRpc<ReferenceMaterialRolloutRpcRow[] | ReferenceMaterialRolloutRpcRow>(
+    "get_my_reference_material_rollout",
+    { p_workspace_id: normalizedWorkspaceId },
+  );
+  if (!rpc.ok) return rpc;
+
+  const raw = (Array.isArray(rpc.data) ? rpc.data[0] : rpc.data) as
+    | ReferenceMaterialRolloutRpcRow
+    | undefined;
+  return {
+    ok: true,
+    status: rpc.status,
+    data: {
+      workspaceId: normalizeUuid(raw?.workspace_id) ?? normalizedWorkspaceId,
+      enabled: raw?.reference_material_review_enabled === true,
+    },
   };
 }
 

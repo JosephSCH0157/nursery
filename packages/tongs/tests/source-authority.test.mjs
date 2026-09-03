@@ -37,9 +37,9 @@ test("legacy adoption is explicit and Tongs derives current file hashes before t
 
 test("Source routes expose canonical read, revision, link, and adoption operations only through Tongs", async () => {
   const service = await readFile(serviceUrl, "utf8");
-  assert.match(service, /sources"&&parts\[4\]==="commit-revision"/);
-  assert.match(service, /sources"&&parts\[4\]==="link"/);
-  assert.match(service, /sources"&&parts\[4\]==="adopt-legacy"/);
-  assert.match(service, /\.rpc\("read_current_source"/);
-  assert.match(service, /\.rpc\("read_workpiece_sources"/);
+  assert.match(service, /sources"\s*&&\s*parts\[4\]\s*===\s*"commit-revision"/);
+  assert.match(service, /sources"\s*&&\s*parts\[4\]\s*===\s*"link"/);
+  assert.match(service, /sources"\s*&&\s*parts\[4\]\s*===\s*"adopt-legacy"/);
+  assert.match(service, /\.rpc\(\s*"read_current_source"/);
+  assert.match(service, /\.rpc\(\s*"read_workpiece_sources"/);
 });

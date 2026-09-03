@@ -305,3 +305,19 @@ test("sanitized workflow fixture enforces the acceptance target", () => {
   assert.equal(fixture.expected.hardRefreshes, 0);
   assert.equal(fixture.scenarios.includes("linked_retry"), true);
 });
+
+test("canonical Reference Material is default-off behind workspace authority", () => {
+  const panel = readFileSync(
+    new URL("../src/components/visuals/ReferenceClipPlanPanel.tsx", import.meta.url),
+    "utf8",
+  );
+  const service = readFileSync(
+    new URL("../src/lib/hearth-style-service.ts", import.meta.url),
+    "utf8",
+  );
+  assert.match(panel, /getReferenceMaterialRollout\(workspaceId\)/);
+  assert.match(panel, /rollout === "enabled"/);
+  assert.match(panel, /rollout === "unavailable"[\s\S]*LegacyReferenceClipPlanPanel/);
+  assert.match(service, /get_my_reference_material_rollout/);
+  assert.match(service, /enabled: raw\?\.reference_material_review_enabled === true/);
+});

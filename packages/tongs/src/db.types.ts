@@ -16106,6 +16106,7 @@ export type Database = {
         Row: {
           adaptive_style_ai_accelerate_enabled: boolean
           adaptive_style_alignment_enabled: boolean
+          reference_material_review_enabled: boolean
           created_at: string
           created_by: string | null
           id: string
@@ -16115,6 +16116,7 @@ export type Database = {
         Insert: {
           adaptive_style_ai_accelerate_enabled?: boolean
           adaptive_style_alignment_enabled?: boolean
+          reference_material_review_enabled?: boolean
           created_at?: string
           created_by?: string | null
           id?: string
@@ -16124,6 +16126,7 @@ export type Database = {
         Update: {
           adaptive_style_ai_accelerate_enabled?: boolean
           adaptive_style_alignment_enabled?: boolean
+          reference_material_review_enabled?: boolean
           created_at?: string
           created_by?: string | null
           id?: string
@@ -18743,6 +18746,13 @@ export type Database = {
           workspace_id: string
         }[]
       }
+      get_my_reference_material_rollout: {
+        Args: { p_workspace_id: string }
+        Returns: {
+          reference_material_review_enabled: boolean
+          workspace_id: string
+        }[]
+      }
       get_my_workspace_role: {
         Args: { _workspace_id: string }
         Returns: string
@@ -20304,6 +20314,13 @@ export type Database = {
         Returns: {
           adaptive_style_ai_accelerate_enabled: boolean
           adaptive_style_alignment_enabled: boolean
+          workspace_id: string
+        }[]
+      }
+      set_reference_material_rollout: {
+        Args: { p_enabled: boolean; p_workspace_id: string }
+        Returns: {
+          reference_material_review_enabled: boolean
           workspace_id: string
         }[]
       }

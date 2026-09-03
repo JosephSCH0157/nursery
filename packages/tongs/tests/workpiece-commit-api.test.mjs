@@ -3465,6 +3465,7 @@ test("successful image bytes with missing usage are persisted for reconciliation
 });
 
 function installCurrentImageMapAuthority(service, workspaceId, workpieceId) {
+  let committedEntries = null;
   const promptRevision = {
     id: "77777777-7777-4777-8777-777777777777",
     revision: 1,
@@ -3481,11 +3482,14 @@ function installCurrentImageMapAuthority(service, workspaceId, workpieceId) {
   service.readCanonicalImageMapProjection = async () => {
     const state = await service.readWorkpieceImageMapState(workpieceId, workspaceId);
     return {
-      entries: state.episodePackage.image_map.entries.map((entry) => ({ ...entry, canonical_anchor_assessment: { state: "current", reason: null, exact_anchor: entry.script_anchor, evidence: { match_count: 1 } } })),
+      entries: (committedEntries ?? state.episodePackage.image_map.entries).map((entry) => ({ ...entry, canonical_anchor_assessment: { state: "current", reason: null, exact_anchor: entry.script_anchor, evidence: { match_count: 1 } } })),
       authority: { source: "canonical", revisionId: "88888888-8888-4888-8888-888888888888", revision: 1, scriptApprovalId: "99999999-9999-4999-8999-999999999999", scriptApprovalRevision: 1, scriptContentHash: "a".repeat(64), anchorContractVersion: "forge.image-map-anchor.v1", provenanceState: "current", semanticStateHash: "b".repeat(64), immutableRevisionHash: "c".repeat(64) },
     };
   };
-  service.commitCanonicalImageMap = async () => ({ disposition: "committed" });
+  service.commitCanonicalImageMap = async ({ entries }) => {
+    committedEntries = entries;
+    return { disposition: "committed" };
+  };
   service.readCurrentImageMapPrompt = async () => ({ prompt_revision: promptRevision });
   return promptRevision;
 }
@@ -5397,7 +5401,7 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
   assert.equal(commitCalls[0]?.input.path.includes("assets/image-map/candidates/"), true);
   assert.equal(commitCalls[1]?.input.path.includes("assets/image-map/candidates/"), true);
   assert.equal(commitCalls[2]?.input.path, "metadata.json");
-  assert.equal(commitCalls[3]?.input.path, "assets/image-map/image-map.v1.json");
+  assert.equal(commitCalls[3]?.input.path, "assets/image-map/revisions/88888888-8888-4888-8888-888888888888.json");
 
   const candidateInserts = state.insertCalls.filter((row) => row.asset_kind === "image_map_candidate_image");
   assert.equal(candidateInserts.length, 2);
@@ -5451,10 +5455,8 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
   const candidateSupersedeCall = state.updateCalls.find((row) => Array.isArray(row.id));
   assert.deepEqual([...candidateSupersedeCall.id].sort(), ["asset-old-candidate-a", "asset-old-candidate-b"]);
   assert.equal(candidateSupersedeCall?.patch?.status, "superseded");
-  const imageMapRefreshCall = state.updateCalls.find((row) => row.id === "asset-old-image-map");
-  assert.equal(imageMapRefreshCall?.patch?.status, "ready");
-  assert.equal(imageMapRefreshCall?.patch?.ready_at, "2026-03-11T19:00:01.000Z");
-  assert.equal(imageMapRefreshCall?.patch?.storage_key, `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`);
+  const imageMapSupersedeCall = state.updateCalls.find((row) => row.id === "asset-old-image-map");
+  assert.equal(imageMapSupersedeCall?.patch?.status, "superseded");
 });
 
 test("TongsCommitService.generateImageMapCandidates accepts beat anchors for bullet scripts", async () => {

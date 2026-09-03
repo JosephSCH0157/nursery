@@ -12,8 +12,8 @@ test("Reference Clip authority is immutable, Source-relative, and excludes legac
  assert.match(sql,/legacy cdc_plan is not authority/);assert.doesNotMatch(sql,/chart_candidate|timeline_candidate|document_composite/);
 });
 test("Tongs exposes canonical Reference Clip routes and adds selected clips to Hammer",()=>{
- for(const action of ["plan","candidate","select","selection-set","current"])assert.match(service,new RegExp(`action===\\"${action}\\"`));
- assert.match(service,/read_reference_clip_visual_package/);assert.match(service,/asset_class:"reference_clip"/);
+ for(const action of ["plan","candidate","select","selection-set","current"])assert.match(service,new RegExp(`action\\s*===\\s*\\"${action}\\"`));
+ assert.match(service,/read_reference_clip_visual_package/);assert.match(service,/asset_class:\s*"reference_clip"/);
 });
 test("Reference Clip selection sets are immutable ordered collections with atomic full-set commits",()=>{
  for(const table of ["reference_clip_selection_set_revisions","reference_clip_selection_set_members"])assert.match(selectionSetSql,new RegExp(`create table tongs\\.${table}`));
@@ -45,5 +45,5 @@ test("Hammer projection preserves exact media, Source, rights, and provenance ev
  for(const field of ["plan_revision_id","opportunity_revision_id","candidate_revision_id","source_revision_id","source_link_revision_id","asset_content_hash","mime_type","duration_ms","poster_asset_id","rights","provenance"])assert.match(hammerEvidenceSql,new RegExp(`'${field}'`));
  assert.match(hammerEvidenceSql,/forge\.reference-clips\.hammer\.v2/);
  assert.match(service,/reference_clip_evidence/);
- assert.match(service,/mime_type:readStringField\(clip,"mime_type"\)/);
+ assert.match(service,/mime_type:\s*readStringField\(clip,\s*"mime_type"\)/);
 });

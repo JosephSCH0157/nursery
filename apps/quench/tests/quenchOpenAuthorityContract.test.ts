@@ -24,9 +24,9 @@ test("S5-1 persists one immutable idempotent open authority", async () => {
 
 test("open M1 then observe M2 without retargeting review projection", async () => {
   const service = await readFile(serviceUrl, "utf8");
-  assert.match(service, /manifest_snapshot_id:manifestSnapshotId[\s\S]*manifest_content_hash:manifestContentHash/);
-  assert.match(service, /newer_manifest_available:current\.hammer\.manifest_snapshot_id!==manifestSnapshotId/);
-  assert.match(service, /eq\("manifest_snapshot_id",manifestSnapshotId\)/);
+  assert.match(service, /manifest_snapshot_id:\s*manifestSnapshotId[\s\S]*manifest_content_hash:\s*manifestContentHash/);
+  assert.match(service, /newer_manifest_available:\s*current\.hammer\.manifest_snapshot_id\s*!==\s*manifestSnapshotId/);
+  assert.match(service, /eq\("manifest_snapshot_id",\s*manifestSnapshotId\)/);
   assert.match(service, /quench_review_manifest_advanced/);
 });
 

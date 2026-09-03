@@ -54,7 +54,7 @@ test("migration preserves local clips while adding constrained external YouTube 
 test("commit API verifies metadata and projects external references without downloading media", () => {
   assert.match(service, /inspectYouTubeReference\(input\.youtube_url\)/);
   assert.match(service, /commit_youtube_reference_clip_candidate/);
-  assert.match(service, /status:"external_reference"/);
-  assert.match(service, /external_reference:\{provider/);
+  assert.match(service, /status:\s*"external_reference"/);
+  assert.match(service, /external_reference:\s*\{\s*provider/);
   assert.doesNotMatch(service, /fetchExternalBrollMedia\(input\.youtube_url/);
 });

@@ -15,6 +15,8 @@ Hearth currently supports a unified Visual Plan containing Images, B-roll, Refer
 
 Reference Clips and Reference Visuals share a creator-facing Reference Material review queue but never share canonical identity. The queue is a disposable projection over Tongs readback.
 
+The unified queue is controlled by the canonical, default-off workspace flag `reference_material_review_enabled`. Hearth reads that authority from Tongs and retains the established reference workflow whenever the flag is disabled or unavailable.
+
 Creators decide `Approve`, `Edit`, `Replace`, or `Skip`. Internal acquisition, evidence extraction, rendering, immutable revisions, persistence verification, and Hammer handoff are not creator workflow stages. A proposal is Ready only when its durable decision exactly matches Hammer: approved identities are present; skipped opportunities are absent.
 
 Pasted URLs are drafts until `Use this source`. That explicit action may authorize disclosed AI-assisted analysis under the creator's credit preference. Deterministic retrieval remains available without AI authorization. Missing publication metadata remains unknown, and uncertain licensing blocks reproduction rather than facts-only use.

@@ -29,6 +29,7 @@ function installPersistenceRuntime(fetchImpl?: typeof fetch): { storage: MemoryS
   const previousStorage = runtime.localStorage;
   const previousFetch = globalThis.fetch;
   const storage = new MemoryStorage();
+  storage.setItem(`forge_hearth_script_workpiece_v1:${WORKSPACE_ID}`, WORKPIECE_ID);
   const windowStub = {
     location: {
       search: `?workspace_id=${WORKSPACE_ID}&workpiece_id=${WORKPIECE_ID}&tongs_api_token=test-token`,
@@ -99,7 +100,7 @@ test("persistence acknowledgement: an explicit Tongs commit produces canonical e
       workpieceId: WORKPIECE_ID,
       committedAt: COMMITTED_AT,
     });
-    assert.equal(calls.length, 2);
+    assert.equal(calls.length, 1);
   } finally {
     runtime.restore();
   }

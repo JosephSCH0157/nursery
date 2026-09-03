@@ -2,6 +2,13 @@
 
 Status: **release-certified for the feature-flagged single-proposal rollout** after migration-backed repair smoke.
 
+## Rollout authority
+
+- Migration `20260903150000_tongs_reference_material_rollout_gate.sql` adds the canonical workspace flag `reference_material_review_enabled`, defaulting to `false`.
+- Authenticated workspace viewers may read the flag through `get_my_reference_material_rollout`; only workspace admins may change it through `set_reference_material_rollout`.
+- Hearth mounts the canonical Reference Material queue only after a successful enabled read. Disabled or unavailable authority retains the established reference workflow; browser cache and local storage never select rollout state.
+- Enable a certified workspace with `set_reference_material_rollout(p_workspace_id, true)` after applying the migration. This new migration still requires environment-specific deployment evidence before that environment is considered rollout-ready.
+
 ## Database evidence
 
 - Migration `20260903120000_tongs_reference_review_operation_attempts.sql` is applied to the local stack and the linked hosted development project.

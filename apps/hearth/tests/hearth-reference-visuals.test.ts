@@ -14,7 +14,7 @@ test("Reference Material projects Clips and Visuals into one creator review queu
  assert.match(shell,/projectReferenceReviewItems/);
  assert.match(shell,/readCanonicalReferenceClips/);
  assert.match(shell,/readCanonicalReferenceVisualCollections/);
- for(const decision of ["Approve","Edit","Replace","Skip"])assert.match(shell,new RegExp(`>${decision}<`));
+ for(const decision of ["Approve","Edit","Replace","Skip"])assert.match(shell,new RegExp(`>\\s*${decision}\\s*<`));
  assert.doesNotMatch(shell,/role="tablist"/);
 });
 

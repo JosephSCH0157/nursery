@@ -12,22 +12,22 @@ test("chat-added URL Sources enter canonical Tongs authority before the compatib
   const canonicalAt=sourceState.indexOf("await createCanonicalChatSource");
   const legacyAt=sourceState.indexOf("await commitWorkspaceSource",canonicalAt);
   assert.ok(canonicalAt>=0&&legacyAt>canonicalAt);
-  assert.match(authority,/relationship_type:"script_research"/);
-  assert.match(authority,/script_approval_id:null/);
-  assert.match(authority,/user_supplied:true/);
+  assert.match(authority,/relationship_type:\s*"script_research"/);
+  assert.match(authority,/script_approval_id:\s*null/);
+  assert.match(authority,/user_supplied:\s*true/);
   assert.match(authority,/legacy_hearth_source_id/);
 });
 
 test("unified planning freezes the canonical source catalog and materializes direct bindings",()=>{
   assert.match(planner,/read_workpiece_sources/);
-  assert.match(planner,/source_catalog:sourceCatalog/);
+  assert.match(planner,/source_catalog:\s*sourceCatalog/);
   assert.match(planner,/forge\.unified-visual-plan-provider\.v3/);
-  assert.match(planner,/source_status:direct\?"linked":"unresolved"/);
+  assert.match(planner,/source_status:\s*direct\s*\?\s*"linked"\s*:\s*"unresolved"/);
   assert.match(planner,/commit_visual_source_attribution/);
-  assert.match(planner,/commitAttributions\("image"/);
-  assert.match(planner,/commitAttributions\("broll"/);
+  assert.match(planner,/commitAttributions\(\s*"image"/);
+  assert.match(planner,/commitAttributions\(\s*"broll"/);
   assert.match(planner,/commit_reference_visual_source_set/);
-  assert.match(planner,/validateUnifiedVisualPlan\(plan,scriptText,new Set\(frozenCatalog/);
+  assert.match(planner,/validateUnifiedVisualPlan\(\s*plan,\s*scriptText,\s*new Set\(frozenCatalog/);
 });
 
 test("Reference Clip creation reads canonical provenance and explains attached, ambiguous, and supporting-only Sources",()=>{
