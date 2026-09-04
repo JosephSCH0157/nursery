@@ -14,7 +14,7 @@ export type ReleaseReadinessCheckKey =
   | "thumbnail"
   | "video_export"
   | "audio_export"
-  | "rss_public_audio";
+  | "podcast_host_connection";
 
 export interface ReleaseReadinessError {
   code: string;
@@ -40,7 +40,7 @@ export type QuenchReleaseReadinessReasonCode =
   | "quench_thumbnail_missing"
   | "quench_video_export_missing"
   | "quench_audio_export_missing"
-  | "quench_rss_public_audio_required";
+  | "quench_podcast_host_connection_required";
 
 export interface QuenchReleaseReadinessReason {
   code: QuenchReleaseReadinessReasonCode;
@@ -73,7 +73,7 @@ const CHECK_REASON_CODES: Record<ReleaseReadinessCheckKey, QuenchReleaseReadines
   thumbnail: "quench_thumbnail_missing",
   video_export: "quench_video_export_missing",
   audio_export: "quench_audio_export_missing",
-  rss_public_audio: "quench_rss_public_audio_required",
+  podcast_host_connection: "quench_podcast_host_connection_required",
 };
 
 const CHECK_REASON_LABELS: Record<ReleaseReadinessCheckKey, string> = {
@@ -85,7 +85,7 @@ const CHECK_REASON_LABELS: Record<ReleaseReadinessCheckKey, string> = {
   thumbnail: "No resolvable thumbnail asset is available for this release packet.",
   video_export: "Video platforms require a resolvable video export.",
   audio_export: "Audio distribution requires a resolvable audio export.",
-  rss_public_audio: "RSS publication requires a publicly reachable audio URL.",
+  podcast_host_connection: "Podcast publication requires a selected, executable host show.",
 };
 
 function hasAccessibleAsset(
@@ -99,10 +99,6 @@ function hasAccessibleAsset(
   return asset == null ? true : asset.accessible;
 }
 
-function hasPublicAudio(audio: ResolvedReleaseAssets["audio"]): boolean {
-  return Boolean(audio?.accessible && audio.public_url);
-}
-
 function computeReleasePacketReadinessBase(
   packet: ReleasePacket,
   assets: Partial<ResolvedReleaseAssets> = {},
@@ -114,10 +110,12 @@ function computeReleasePacketReadinessBase(
     episode_id: !isBlank(packet.episode_id),
     title: !isBlank(packet.title),
     description: !isBlank(packet.description),
-    thumbnail: hasAccessibleAsset(packet.thumbnail_asset_id, assets.thumbnail),
-    video_export: hasAccessibleAsset(packet.video_export_id, assets.video),
-    audio_export: hasAccessibleAsset(packet.audio_export_id, assets.audio),
-    rss_public_audio: !selectedPlatforms.includes("rss") || hasPublicAudio(assets.audio ?? null),
+    thumbnail: !selectedPlatforms.includes("youtube") || hasAccessibleAsset(packet.thumbnail_asset_id, assets.thumbnail),
+    video_export: !selectedPlatforms.some((platform) => platform === "youtube" || platform === "rumble") || hasAccessibleAsset(packet.video_export_id, assets.video),
+    audio_export: !selectedPlatforms.includes("podcast_host") || hasAccessibleAsset(packet.audio_export_id, assets.audio),
+    // Destination authority verifies the linked show. Packet readiness must not
+    // pretend that a generic RSS endpoint is an executable destination.
+    podcast_host_connection: true,
   };
 
   const errors: ReleaseReadinessError[] = [];
@@ -136,18 +134,10 @@ function computeReleasePacketReadinessBase(
     });
   }
 
-  if (selectedPlatforms.some((platform) => platform === "spotify" || platform === "rss") && !checks.audio_export) {
+  if (selectedPlatforms.includes("podcast_host") && !checks.audio_export) {
     errors.push({
       code: "AUDIO_EXPORT_MISSING",
       message: "Audio distribution requires a resolvable audio export.",
-    });
-  }
-
-  if (selectedPlatforms.includes("rss") && !checks.rss_public_audio) {
-    errors.push({
-      code: "RSS_PUBLIC_AUDIO_REQUIRED",
-      message: "RSS publication requires a publicly reachable audio URL.",
-      platform: "rss",
     });
   }
 
@@ -192,8 +182,6 @@ export function deriveReleasePacketReadinessVerdict(
           return "quench_video_export_missing";
         case "AUDIO_EXPORT_MISSING":
           return "quench_audio_export_missing";
-        case "RSS_PUBLIC_AUDIO_REQUIRED":
-          return "quench_rss_public_audio_required";
         default:
           return null;
       }

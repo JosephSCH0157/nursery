@@ -250,9 +250,9 @@ Each destination adapter implements a shared boundary for:
 - retry execution
 - normalized results and receipts
 
-Current package scaffolds exist for YouTube and RSS. They provide real validation and deterministic stub-mode behavior, but live publish calls intentionally return `not_implemented`.
+Current package adapters exist for YouTube and Transistor. Transistor is the V1 podcast-host boundary: it submits one canonical episode to an exact user-linked show while the host owns RSS and directory syndication.
 
-No real Rumble or Spotify adapter currently exists.
+No real Rumble adapter currently exists. Spotify is not modeled as an upload destination.
 
 Platform adapters must not own canonical metadata, asset storage, decision history, credentials in the client, or authoritative receipts outside Tongs.
 
@@ -285,11 +285,9 @@ Live distribution remains future work, but its authority model is fixed:
 
 Long-running execution must not require the browser to remain open.
 
-## 16. RSS Boundary
+## 16. Podcast-host Boundary
 
-RSS publication requires a stable public media URL. Local-only audio cannot become a public enclosure without an authorized hosting step.
-
-Future RSS execution should render from canonical show and episode metadata, maintain stable GUIDs and enclosure details, and write publication evidence through Tongs. The current RSS adapter does not render or publish a live feed.
+Quench submits canonical audio and episode metadata to an exact user-linked host show. The host creates and serves RSS, controls enclosure URLs and GUIDs, and handles any directory syndication configured in the host account. Forge does not render or host a feed and does not upload directly to Spotify.
 
 ## 17. Authentication and Platform Connections
 
@@ -325,15 +323,16 @@ Implemented today:
 - canonical thumbnail selection
 - provider-neutral experiment planning and cancellation
 - immutable decision revisions, concurrency checks, and operation receipts
-- YouTube and RSS validation scaffolds
+- YouTube validation scaffold and Transistor podcast-host boundary
 - integrated release-console UI
 
 Not live today:
 
 - provider authentication and token refresh
 - media upload or scheduling
-- RSS rendering and hosting
-- YouTube, Rumble, Spotify, or RSS provider execution
+- Forge RSS rendering or hosting (intentionally out of scope)
+- direct Spotify upload (intentionally out of scope)
+- YouTube or Rumble provider execution
 - provider publish receipts
 - provider-side experiment rotation
 - Ledger performance ingestion

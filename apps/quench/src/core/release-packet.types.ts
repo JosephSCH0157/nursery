@@ -1,6 +1,7 @@
 export type AssetSourceMode = "local" | "cloud" | "external_url";
 
-export type QuenchPlatform = "youtube" | "rumble" | "spotify" | "rss";
+/** A release surface, not necessarily a directory. Podcast hosts own RSS and syndication. */
+export type QuenchPlatform = "youtube" | "rumble" | "podcast_host";
 
 export type ReleaseMode = "publish" | "schedule" | "premiere";
 

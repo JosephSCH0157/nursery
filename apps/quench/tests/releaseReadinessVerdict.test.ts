@@ -44,7 +44,7 @@ function testReadyVerdict() {
       accessible: true,
     },
     shorts: [],
-  }, ["youtube", "rss"]);
+  }, ["youtube", "podcast_host"]);
 
   assert.equal(verdict.status, "ready");
   assert.deepEqual(verdict.reason_codes, []);
@@ -66,7 +66,7 @@ function testBlockedVerdict() {
     },
     audio: null,
     shorts: [],
-  }, ["youtube", "rss"]);
+  }, ["youtube", "podcast_host"]);
 
   assert.equal(verdict.status, "blocked");
   assert.equal(verdict.reason_codes.includes("quench_thumbnail_missing"), true);

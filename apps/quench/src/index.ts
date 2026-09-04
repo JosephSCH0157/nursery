@@ -8,6 +8,6 @@ export * from "./core/publish-guard";
 export * from "./core/quenchMetadataAssist.contract";
 export * from "./core/canonical-release-projection.types";
 export * from "./adapters/adapter.contract";
-export * from "./adapters/rss/rss.adapter";
+export * from "./adapters/transistor/transistor.adapter";
 export * from "./adapters/youtube/youtube.adapter";
 export * from "./dev/mockReleasePackets";

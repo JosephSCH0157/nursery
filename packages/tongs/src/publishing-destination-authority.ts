@@ -7,7 +7,7 @@ export type ExecutableDestinationId = string & { readonly __brand: "ExecutableDe
 export type DestinationCapabilityRevisionId = string & { readonly __brand: "DestinationCapabilityRevisionId" };
 export type WorkspaceDestinationGrantRevisionId = string & { readonly __brand: "WorkspaceDestinationGrantRevisionId" };
 
-export type PublishingProvider = "google" | "spotify" | "rumble" | "rss_host";
+export type PublishingProvider = "google" | "rumble" | "rss_host";
 export type ProviderConnectionState =
   | "pending_authorization"
   | "active"

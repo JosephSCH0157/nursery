@@ -45,19 +45,19 @@ Metadata assistance may return an uncommitted draft. Tongs remains authoritative
 ### Scaffolded, not live
 
 - YouTube adapter contract, capability reporting, and validation
-- RSS adapter contract, capability reporting, and validation
+- Transistor podcast-host contract, capability reporting, and validation
 - deterministic stub-mode receipts for development
 - publish/retry interfaces and release-readiness contracts
 - UI controls for publish modes, scheduling, and destination selection
 
-In `live` mode, the YouTube and RSS adapters intentionally return `not_implemented`. Stub receipts are not provider receipts and must not be represented as external execution.
+The Transistor adapter defines the live server-side publishing port; credentials and media streaming remain outside the browser. Stub receipts are not provider receipts and must not be represented as external execution.
 
 ### Future
 
 - real server-side platform authentication and connection management
 - live YouTube upload, schedule, premiere, retry, and provider receipts
-- live RSS rendering, hosting, publication, and update
-- Rumble and Spotify adapters
+- additional podcast-host adapters after their official publishing APIs are verified
+- Rumble adapter
 - durable platform publish jobs and background execution
 - real platform schedule execution
 - provider-side thumbnail experiment execution and acknowledgement
@@ -83,7 +83,8 @@ Do not use a generic "ready" label without identifying which layer produced it.
 - `src/core/asset-resolver.ts` — asset-source abstraction
 - `src/core/quenchMetadataAssist.contract.ts` — uncommitted metadata-assist contract
 - `src/adapters/adapter.contract.ts` — shared destination adapter boundary
-- `src/adapters/youtube/` and `src/adapters/rss/` — non-live adapter scaffolds
+- `src/adapters/youtube/` — video-platform scaffold
+- `src/adapters/transistor/` — V1 podcast-host boundary; the host remains authoritative for RSS and directory distribution
 - `tests/` — ingest, readiness, authority, projection, and persistence-contract coverage
 
 The integrated UI lives at `apps/nursery/src/routes/Quench.tsx`. Canonical persistence and projection support live behind Tongs migrations and routes rather than inside this package.

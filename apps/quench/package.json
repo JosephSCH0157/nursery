@@ -12,7 +12,7 @@
     "lint": "tsc -p tsconfig.json --noEmit",
     "test:hammer-ingest": "tsx tests/hammerReleasePacketIngest.test.ts",
     "check:open-authority": "node scripts/check-open-authority-ratchet.mjs",
-    "test": "tsx tests/hammerReleasePacketIngest.test.ts && tsx tests/releaseReadinessVerdict.test.ts && tsx tests/publishAuthorityGuard.test.ts && tsx --test tests/releaseDecisionPersistenceContract.test.ts tests/canonicalReleaseProjection.test.ts tests/quenchOpenAuthorityContract.test.ts tests/publicationOperationAuthorityContract.test.ts && node scripts/check-open-authority-ratchet.mjs"
+    "test": "tsx tests/hammerReleasePacketIngest.test.ts && tsx tests/releaseReadinessVerdict.test.ts && tsx tests/publishAuthorityGuard.test.ts && tsx --test tests/transistorAdapter.test.ts tests/releaseDecisionPersistenceContract.test.ts tests/canonicalReleaseProjection.test.ts tests/quenchOpenAuthorityContract.test.ts tests/publicationOperationAuthorityContract.test.ts && node scripts/check-open-authority-ratchet.mjs"
   },
   "dependencies": {
     "@forge/contracts": "workspace:*"

@@ -17,7 +17,7 @@ import {
   type ResolvedReleaseAssets,
   deriveReleasePacketReadinessVerdict,
   canExecuteQuenchPublish,
-  RssAdapter,
+  TransistorAdapter,
   StaticAssetResolver,
   YouTubeAdapter,
   listQuenchMockReleaseCases,
@@ -41,14 +41,15 @@ import {
 import type { AppShellContext } from "./AppShell";
 import "./Quench.css";
 
-const QUENCH_ADAPTERS = [new YouTubeAdapter(), new RssAdapter()];
-type PublicationDestination = { executable_destination_id:string;display_label:string;provider:string;destination_kind:string;capability_revision_id:string;capability_revision:number;capability_content_hash:string };
+// The inventory supplies the concrete show id for live execution. This
+// unbound instance drives capability and packet validation only.
+const QUENCH_ADAPTERS = [new YouTubeAdapter(), new TransistorAdapter()];
+type PublicationDestination = { executable_destination_id:string;external_destination_id:string;display_label:string;provider:string;destination_kind:string;capability_revision_id:string;capability_revision:number;capability_content_hash:string };
 
 const PLATFORM_LABELS: Record<QuenchPlatform, string> = {
   youtube: "YouTube",
   rumble: "Rumble",
-  spotify: "Spotify",
-  rss: "RSS",
+  podcast_host: "Podcast host",
 };
 
 const READINESS_LABELS: Record<ReleaseReadinessCheckKey, string> = {
@@ -60,7 +61,7 @@ const READINESS_LABELS: Record<ReleaseReadinessCheckKey, string> = {
   thumbnail: "Thumbnail",
   video_export: "Video export",
   audio_export: "Audio export",
-  rss_public_audio: "RSS public audio",
+  podcast_host_connection: "Linked podcast show",
 };
 
 const MODE_LABELS: Record<ReleaseMode, string> = {
@@ -189,7 +190,7 @@ async function readResponseJson(response: Response): Promise<unknown> {
 }
 
 function getDefaultPublishOptions(platform: QuenchPlatform): PlatformPublishOptions {
-  if (platform === "rss") {
+  if (platform === "podcast_host") {
     return {
       enabled: true,
       mode: "publish",
@@ -513,7 +514,7 @@ export default function QuenchRoute() {
     if(!selectedCase||!openAuthority||!readinessVerdict||!canExecuteQuenchPublish(readinessVerdict))return;
     const destination=publicationDestinations.find((row)=>row.executable_destination_id===selectedPublicationDestinationId);const decision=thumbnailSelectionDecision?.decision;const decisionId=thumbnailSelectionDecision?.current_decision_id;const decisionRevision=thumbnailSelectionDecision?.current_revision??0;
     if(!destination||!decisionId||decisionRevision<1||!decision){setPublicationCommandState("error");setPublicationCommandMessage("An exact release decision and executable destination are required before publication can be established.");return;}
-    const platform:QuenchPlatform=destination.provider==="google"?"youtube":destination.provider==="rss_host"?"rss":selectedPlatforms[0]??"youtube";const adapter=QUENCH_ADAPTERS.find((entry)=>entry.platform===platform);if(!adapter){setPublicationCommandState("error");setPublicationCommandMessage("No reviewed adapter exists for this executable destination.");return;}
+    const platform:QuenchPlatform=destination.provider==="google"?"youtube":destination.provider==="rss_host"?"podcast_host":selectedPlatforms[0]??"youtube";const adapter=platform==="podcast_host"?new TransistorAdapter(destination.external_destination_id):QUENCH_ADAPTERS.find((entry)=>entry.platform===platform);if(!adapter){setPublicationCommandState("error");setPublicationCommandMessage("No reviewed adapter exists for this executable destination.");return;}
     const operationKey=publicationOperationKey??crypto.randomUUID();setPublicationOperationKey(operationKey);setPublicationCommandState("establishing");setPublicationCommandMessage(null);
     try{
       const options=publishOptions[platform]??getDefaultPublishOptions(platform);const establishResponse=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(openAuthority.workpiece_id)}/quench/establish-publication`,{method:"POST",json:{workspace_id:openAuthority.workspace_id,operation_key:operationKey,manifest_snapshot_id:openAuthority.manifest_snapshot_id,manifest_content_hash:openAuthority.manifest_content_hash,release_decision_id:decisionId,release_decision_revision:decisionRevision,executable_destination_id:destination.executable_destination_id,destination_capability_revision_id:destination.capability_revision_id,publication_intent_contract_version:"forge.publication-intent.v1",publication_intent_snapshot:{platform,options}},timeoutMs:45_000});const establishPayload=await readResponseJson(establishResponse);const establishRoot=readJsonObject(establishPayload);const established=readJsonObject(establishRoot?.data);const operationId=readString(established?.publication_operation_id);if(!establishResponse.ok||!operationId||!["established","replayed"].includes(readString(established?.disposition)??""))throw new Error(`Publication authority was not established: ${readString(established?.code)??readString(established?.disposition)??"blocked"}.`);setPublicationOperationId(operationId);
@@ -1025,7 +1026,7 @@ export default function QuenchRoute() {
                         </select>
                       </label>
 
-                      {platform !== "rss" ? (
+                      {platform !== "podcast_host" ? (
                         <label>
                           <span>Visibility</span>
                           <select

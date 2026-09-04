@@ -3,7 +3,7 @@ import {
   canExecuteQuenchPublish,
   executeQuenchPublishIfReady,
 } from "../src/core/publish-guard";
-import { RssAdapter } from "../src/adapters/rss/rss.adapter";
+import { TransistorAdapter } from "../src/adapters/transistor/transistor.adapter";
 import { YouTubeAdapter } from "../src/adapters/youtube/youtube.adapter";
 import type { PublishContext } from "../src/adapters/adapter.contract";
 import type { ReleasePacket } from "../src/core/release-packet.types";
@@ -67,7 +67,7 @@ async function run() {
       thumbnail: { asset_id: "thumbnail", kind: "thumbnail", source: "cloud", uri: "thumbnail", accessible: true },
     },
   };
-  for (const adapter of [new YouTubeAdapter(), new RssAdapter()]) {
+  for (const adapter of [new YouTubeAdapter(), new TransistorAdapter("show_01")]) {
     const denied = await adapter.publish(packet, { enabled: true, mode: "publish" }, blockedContext);
     assert.equal(denied.ok, false, `${adapter.platform} publish must fail closed`);
     assert.match(denied.message, /authority denied/i);

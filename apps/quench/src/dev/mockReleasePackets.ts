@@ -55,7 +55,7 @@ const CASE_DEFINITIONS: MockCaseDefinition[] = [
           tags: ["podcasting", "creator tools", "systems"],
           thumbnail_asset_id: "thumb_launch_ready",
         },
-        rss: {
+        podcast_host: {
           description: "Audio-first description trimmed for feed readers.",
         },
       },
@@ -105,14 +105,14 @@ const CASE_DEFINITIONS: MockCaseDefinition[] = [
         },
       ],
     },
-    default_platforms: ["youtube", "rss"],
+    default_platforms: ["youtube", "podcast_host"],
     default_publish_options: {
       youtube: {
         enabled: true,
         mode: "publish",
         visibility: "unlisted",
       },
-      rss: {
+      podcast_host: {
         enabled: true,
         mode: "publish",
       },
@@ -138,7 +138,7 @@ const CASE_DEFINITIONS: MockCaseDefinition[] = [
       asset_source: "local",
       rss_ready: true,
       platform_overrides: {
-        rss: {
+        podcast_host: {
           title: "Audio-first release path",
         },
       },
@@ -169,9 +169,9 @@ const CASE_DEFINITIONS: MockCaseDefinition[] = [
       },
       shorts: [],
     },
-    default_platforms: ["rss"],
+    default_platforms: ["podcast_host"],
     default_publish_options: {
-      rss: {
+      podcast_host: {
         enabled: true,
         mode: "schedule",
         scheduled_for: "2026-03-15T14:00:00.000Z",
@@ -230,14 +230,14 @@ const CASE_DEFINITIONS: MockCaseDefinition[] = [
       },
       shorts: [],
     },
-    default_platforms: ["youtube", "rss"],
+    default_platforms: ["youtube", "podcast_host"],
     default_publish_options: {
       youtube: {
         enabled: true,
         mode: "publish",
         visibility: "private",
       },
-      rss: {
+      podcast_host: {
         enabled: true,
         mode: "publish",
       },
