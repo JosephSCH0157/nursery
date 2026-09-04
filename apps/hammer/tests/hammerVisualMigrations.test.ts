@@ -5,7 +5,7 @@ import type {
   HammerPersistedVisualPlacements,
   HammerVisualPlacementRecord,
 } from "../src/persistence/hammerPersistenceContract";
-import { deriveStableHammerVisualAssetId, migrateLegacyPlacementRecordsToTimelineState } from "../src/visuals/model/hammerVisualMigrations";
+import { deriveStableHammerVisualAssetId, migrateLegacyPlacementRecordToClip, migrateLegacyPlacementRecordsToTimelineState } from "../src/visuals/model/hammerVisualMigrations";
 import { loadHammerVisualTimelineStateFromSnapshot } from "../src/visuals/persistence/hammerVisualTimelinePersistence";
 
 function buildPlacement(overrides?: Partial<HammerVisualPlacementRecord>): HammerVisualPlacementRecord {
@@ -15,6 +15,7 @@ function buildPlacement(overrides?: Partial<HammerVisualPlacementRecord>): Hamme
     anchor_segment_id: overrides?.anchor_segment_id ?? "seg_001",
     matched_segment_ids: overrides?.matched_segment_ids ?? ["seg_001"],
     anchor_text: overrides?.anchor_text ?? "hello world",
+    anchor_origin: overrides?.anchor_origin ?? null,
     asset_ref: overrides?.asset_ref ?? "visuals/hero.png",
     asset_id: overrides?.asset_id ?? null,
     asset_path: overrides?.asset_path ?? "visuals/hero.png",
@@ -28,6 +29,7 @@ function buildPlacement(overrides?: Partial<HammerVisualPlacementRecord>): Hamme
     status: overrides?.status ?? "placed",
     ingest_state: overrides?.ingest_state ?? "approved",
     uncertainty_flags: overrides?.uncertainty_flags ?? [],
+    alignment: overrides?.alignment,
     overlay_geometry: overrides?.overlay_geometry ?? {
       x: 0.5,
       y: 0.5,
@@ -145,7 +147,7 @@ test("migration is deterministic across repeated runs", () => {
   });
 
   assert.deepEqual(normalizeForSnapshot(first), normalizeForSnapshot(second));
-  assert.equal(first.assets.length, 1);
+  assert.equal(first.assets.length, 2);
   assert.deepEqual(first.clips.map((clip) => clip.clip_id), ["placement_001", "placement_002"]);
   assert.equal(first.selected_clip_id, "placement_002");
 });
@@ -239,4 +241,31 @@ test("empty init is returned when neither canonical nor legacy visuals exist", (
   assert.equal(loaded.debug_origin, "empty_init");
   assert.equal(loaded.assets.length, 0);
   assert.equal(loaded.clips.length, 0);
+});
+
+test("legacy anchor evidence maps every durable resolution state without losing timing", () => {
+  const detached = migrateLegacyPlacementRecordToClip({
+    record: buildPlacement({ uncertainty_flags: ["anchor_provenance_stale"], anchor_origin: "hammer_timeline" }),
+    asset_id: "asset:detached", updated_at: "2026-04-02T12:00:00.000Z",
+  });
+  assert.equal(detached.semantic_anchor.status, "detached");
+  assert.equal(detached.semantic_anchor.script?.resolution_state, "stale");
+  assert.equal(detached.semantic_anchor.origin, "hammer_timeline");
+
+  const ambiguous = migrateLegacyPlacementRecordToClip({
+    record: buildPlacement({ uncertainty_flags: ["anchor_match_ambiguous"] }), asset_id: "asset:ambiguous",
+  });
+  assert.equal(ambiguous.semantic_anchor.status, "ambiguous_match");
+
+  for (const match_method of ["deterministic_phrase", "fuzzy_text"] as const) {
+    const aligned = migrateLegacyPlacementRecordToClip({
+      record: buildPlacement({
+        alignment: { state: "aligned", transcript_segment_id: "seg_001", transcript_start_sec: 1.25, transcript_end_sec: 2.75, confidence: 0.88, match_method },
+      }),
+      asset_id: `asset:${match_method}`, updated_at: "2026-04-02T12:00:00.000Z",
+    });
+    assert.equal(aligned.semantic_anchor.status, "anchored");
+    assert.equal(aligned.semantic_anchor.resolution_method, match_method === "deterministic_phrase" ? "exact_ordered_words" : "fuzzy_text");
+    assert.deepEqual(aligned.divergence, { state: "aligned", start_delta_sec: -0.25, end_delta_sec: 0.25 });
+  }
 });

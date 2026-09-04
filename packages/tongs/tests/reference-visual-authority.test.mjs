@@ -122,7 +122,7 @@ test("Hammer projection preserves exact Source use, evidence, recipe, rights, an
   assert.match(sql,/'source_use',to_jsonb\(u\)/);
   assert.match(sql,/'evidence'.*reference_visual_evidence_revisions/s);
   assert.match(service,/reference_visual_evidence/);
-  assert.match(service,/rpc\("read_reference_visual_visual_package"/);
+  assert.match(service,/rpc\(\s*"read_reference_visual_visual_package"/);
 });
 
 test("Reference Visual evidence preserves Hearth metadata proposal provenance",()=>{
@@ -136,33 +136,40 @@ test("Reference Visual evidence preserves Hearth metadata proposal provenance",(
 
 test("Tongs reconstructs canonical readback before deterministic rendering and commits only after storage readback", () => {
   const method = service.slice(service.indexOf("async renderReferenceVisual"), service.indexOf("private async referenceClipRpc"));
-  assert.ok(method.indexOf('rpc("read_current_reference_visual_plan"') < method.indexOf('rpc("begin_reference_visual_render_v2"'));
-  assert.ok(method.indexOf('rpc("begin_reference_visual_render_v2"') < method.indexOf("brollAcquisitionRuntime.renderReferenceVisual"));
-  assert.ok(method.indexOf("downloadStorageObject") < method.indexOf('rpc("commit_reference_visual_render"'));
+  const readPlan = method.search(/rpc\(\s*"read_current_reference_visual_plan"/);
+  const beginRender = method.search(/rpc\(\s*"begin_reference_visual_render_v2"/);
+  const commitRender = method.search(/rpc\(\s*"commit_reference_visual_render"/);
+  assert.ok(readPlan >= 0 && readPlan < beginRender);
+  assert.ok(beginRender < method.indexOf("brollAcquisitionRuntime.renderReferenceVisual"));
+  assert.ok(method.indexOf("downloadStorageObject") < commitRender);
   assert.match(method, /canonical_svg_hash/);
   assert.match(method, /renderer_contract_version/);
   assert.match(method, /forge\.reference-visual-renderer\.v2/);
   assert.match(method, /forge_\$\{subtype\}_v\$\{rendererVersion\}/);
-  assert.match(method, /subtype==="document_excerpt"/);
-  assert.match(method, /subtype==="comparison"\|\|subtype==="stat_card"\?"3"/);
+  assert.match(method, /subtype\s*===\s*"document_excerpt"/);
+  assert.match(method, /subtype\s*===\s*"comparison"\s*\|\|\s*subtype\s*===\s*"stat_card"[\s\S]*\?\s*"3"/);
   assert.match(method, /reference_visual_source_coverage_required/);
-  assert.match(method, /sourceTitles\.size>1/);
+  assert.match(method, /sourceTitles\.size\s*>\s*1/);
   assert.match(method, /evidencedMembers/);
-  assert.match(service, /reference-visuals"&&parts\[4\]==="render"/);
+  assert.match(service, /reference-visuals"\s*&&\s*parts\[4\]\s*===\s*"render"/);
 });
 
 test("Tongs reserves archival acquisition before safe fetch or upload and commits only inspected storage readback", () => {
   const method = service.slice(service.indexOf("async acquireReferenceVisual"), service.indexOf("private async referenceClipRpc"));
-  assert.ok(method.indexOf('rpc("read_current_reference_visual_plan"') < method.indexOf('rpc("begin_reference_visual_acquisition"'));
-  assert.ok(method.indexOf('rpc("begin_reference_visual_acquisition"') < method.indexOf("brollAcquisitionRuntime.fetchExternalBytes"));
-  assert.ok(method.indexOf("downloadStorageObject") < method.indexOf('rpc("record_reference_visual_source_acquired"'));
-  assert.ok(method.indexOf('rpc("record_reference_visual_source_acquired"') < method.indexOf('rpc("commit_reference_visual_acquisition"'));
+  const readPlan = method.search(/rpc\(\s*"read_current_reference_visual_plan"/);
+  const beginAcquisition = method.search(/rpc\(\s*"begin_reference_visual_acquisition"/);
+  const recordSource = method.search(/rpc\(\s*"record_reference_visual_source_acquired"/);
+  const commitAcquisition = method.search(/rpc\(\s*"commit_reference_visual_acquisition"/);
+  assert.ok(readPlan >= 0 && readPlan < beginAcquisition);
+  assert.ok(beginAcquisition < method.indexOf("brollAcquisitionRuntime.fetchExternalBytes"));
+  assert.ok(method.indexOf("downloadStorageObject") < recordSource);
+  assert.ok(recordSource < commitAcquisition);
   assert.match(method, /brollAcquisitionRuntime\.inspectReferenceImage\(stored\)/);
   assert.match(method, /Array\.isArray\(opportunity\.sources\)/);
   assert.match(method, /member\.source_revision/);
   assert.match(method, /member\.source_link_revision/);
-  assert.doesNotMatch(method, /rights_declaration_revision_id\|\|readStringField\(opportunity\.opportunity_revision,"source_status"\)!=="linked"/);
-  assert.match(service, /reference-visuals"&&parts\[4\]==="acquire"/);
+  assert.doesNotMatch(method, /rights_declaration_revision_id\s*\|\|\s*readStringField\(opportunity\.opportunity_revision,\s*"source_status"\)\s*!==\s*"linked"/);
+  assert.match(service, /reference-visuals"\s*&&\s*parts\[4\]\s*===\s*"acquire"/);
 });
 
 test("Source creation safely reuses an existing canonical URL revision",()=>{
@@ -170,7 +177,7 @@ test("Source creation safely reuses an existing canonical URL revision",()=>{
  assert.match(method,/source_revision_conflict/);
  assert.match(method,/source_revisions/);
  assert.match(method,/stable_key/);
- assert.match(method,/disposition:"reused"/);
+ assert.match(method,/disposition:\s*"reused"/);
 });
 
 test("the forward acquisition repair restores the RPC with current Source collection and rights authority", () => {

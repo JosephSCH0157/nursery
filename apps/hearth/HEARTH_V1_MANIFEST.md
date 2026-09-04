@@ -1,7 +1,6 @@
-# Hearth - Canonical Product Manifest
+# Hearth V1 Manifest — Superseded Historical Record
 
-> Current product philosophy. Executable authority and lifecycle semantics are governed by
-> `HEARTH_CANONICAL_AUTHORITY.md` and `../../FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`.
+> Superseded by `HEARTH_CURRENT_MANIFEST.md`. This file records the historical V1 boundary and must not be treated as evidence that later visual-planning features shipped in V1. Executable authority and lifecycle semantics are governed by `HEARTH_CANONICAL_AUTHORITY.md` and `../../FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`.
 
 ## Purpose
 

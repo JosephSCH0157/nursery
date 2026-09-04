@@ -12,6 +12,7 @@ import { deriveHammerReleaseHandoffPosture } from "./hammerReleaseHandoffPosture
 import type { HammerPackageMediaReference, PackagingMediaReadiness } from "./hammerPackageMediaAuthority";
 import type { HammerFinalAudioMasterAuthority } from "../composition/hammerFinalAudioAuthority";
 import type { HammerFinalVideoMasterAuthority } from "../../../../packages/contracts/hammer/final-video-master.contract";
+import type { HammerExactAudioRenderReceiptV1 } from "../editor/hammerExactAudioReceipt";
 
 export const HAMMER_QUENCH_RELEASE_PACKET_MANIFEST_PATH = "hammer/release-packet/manifest.v1.json";
 export const HAMMER_QUENCH_RELEASE_PACKET_TRANSCRIPT_PATH = "hammer/release-packet/transcript/transcript.txt";
@@ -28,6 +29,9 @@ export interface HammerQuenchReleasePacketAudioRef {
   workpiece_path: string | null;
   mime_type: string | null;
   source_label: string | null;
+  dsp_fingerprint: string | null;
+  render_fingerprint: string | null;
+  exact_audio_receipt_fingerprint: string | null;
 }
 
 export interface HammerQuenchReleasePacketVideoRef {
@@ -301,6 +305,7 @@ export function buildHammerQuenchReleasePacket(args: {
   canonicalGraph?: HammerEditorialAuthorityGraph | null;
   renderAssembly?: HammerRenderAssemblyResult | null;
   finalAudioMaster?: HammerFinalAudioMasterAuthority | null;
+  exactAudioReceipt?: HammerExactAudioRenderReceiptV1 | null;
   finalVideoMaster?: HammerFinalVideoMasterAuthority | null;
 }): HammerQuenchReleasePacketArtifacts {
   const pkg = args.releasePrepPackage;
@@ -349,6 +354,9 @@ export function buildHammerQuenchReleasePacket(args: {
       workpiece_path: null,
       mime_type: args.finalAudioMaster?.mime_type ?? pkg.media_prep_outputs.audio.preferred_playback.mime_type,
       source_label: args.finalAudioMaster ? "canonical Hammer final-audio master" : pkg.media_prep_outputs.audio.preferred_playback.source_label,
+      dsp_fingerprint: args.exactAudioReceipt?.dspFingerprint ?? args.finalAudioMaster?.dsp_fingerprint ?? null,
+      render_fingerprint: args.exactAudioReceipt?.renderIdentity.renderFingerprint ?? args.finalAudioMaster?.render_fingerprint ?? null,
+      exact_audio_receipt_fingerprint: args.exactAudioReceipt?.receiptFingerprint ?? args.finalAudioMaster?.exact_audio_receipt_fingerprint ?? null,
     },
     captions: {
       srt_path: srtText ? HAMMER_QUENCH_RELEASE_PACKET_SRT_PATH : null,

@@ -4,11 +4,25 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TextEncoder } from "node:util";
 import { createHash } from "node:crypto";
-import { TongsCommitService, buildImageMapPromptSourceContext, createTongsCommitApiHandlerWithService, extractPdfTextParserA, extractPdfTextParserB, extractPdfTextFallbackChain, imageMapPromptAuthorityBasis } from "../dist/workpiece-commit-api.js";
+import { TongsCommitService, buildImageMapPromptSourceContext, createTongsCommitApiHandlerWithService, extractPdfTextParserA, extractPdfTextParserB, extractPdfTextFallbackChain, imageMapPromptAuthorityBasis, resolveCanonicalGeneratedImageDimensions, resolvePriorCandidateAssetIdsToSupersede } from "../dist/workpiece-commit-api.js";
 import { ImageProviderRequestError } from "../dist/providers/image-provider.js";
 import { deflateSync } from "node:zlib";
 
 const registryJsonSha256 = (bytes) => createHash("sha256").update(bytes).digest("hex");
+
+test("recovered ready image-map candidates are never superseded by idempotent cleanup", () => {
+  assert.deepEqual(
+    resolvePriorCandidateAssetIdsToSupersede(["recovered-a", "recovered-b", "old-c"], ["recovered-a", "recovered-b"]),
+    ["old-c"],
+  );
+  assert.deepEqual(resolvePriorCandidateAssetIdsToSupersede(["same-a", "same-b"], ["same-a", "same-b"]), []);
+});
+
+test("generated image sizes become canonical intrinsic dimensions", () => {
+  assert.deepEqual(resolveCanonicalGeneratedImageDimensions("1536x1024"), { width: 1536, height: 1024 });
+  assert.deepEqual(resolveCanonicalGeneratedImageDimensions("1024x1024"), { width: 1024, height: 1024 });
+  assert.throws(() => resolveCanonicalGeneratedImageDimensions("auto"), /canonical intrinsic dimensions/i);
+});
 
 function registryAuthoritativeJsonFixture({
   workpieceId = "22222222-2222-4222-8222-222222222222",
@@ -2116,7 +2130,7 @@ test("TongsCommitService.readHammerWorkpieceState normalizes malformed orchestra
   assert.equal(result.state?.prep_status, "idle");
   assert.equal(result.state?.alignment_status, "not_started");
   assert.equal(result.state?.current_pass, "transcript_cleanup");
-  assert.equal(result.state?.pass_order_version, 2);
+  assert.equal(result.state?.pass_order_version, 3);
   assert.equal(result.state?.pass_status.transcript_cleanup, "in_progress");
   assert.equal(result.state?.pass_status.retakes, "completed");
   assert.equal(result.state?.pass_status.ready, "not_started");
@@ -2207,7 +2221,7 @@ test("TongsCommitService.saveHammerWorkpieceState normalizes malformed stored or
   assert.equal(upserts[0]?.prep_status, "idle");
   assert.equal(upserts[0]?.alignment_status, "not_started");
   assert.equal(upserts[0]?.current_pass, "transcript_cleanup");
-  assert.equal(upserts[0]?.pass_order_version, 2);
+  assert.equal(upserts[0]?.pass_order_version, 3);
   assert.equal(upserts[0]?.pass_status.transcript_cleanup, "in_progress");
   assert.equal(upserts[0]?.pass_status.retakes, "completed");
   assert.equal(upserts[0]?.pass_status.ready, "not_started");
@@ -2765,7 +2779,12 @@ function createReadyQueueSupabase({
                     return {
                       data: episodes
                         .filter((row) => matchesFilters(row, filters) && idSet.has(row.id))
-                        .map((row) => ({ id: row.id })),
+                        .map((row) => ({
+                          id: row.id,
+                          canonical_recording_id: canonicalRows.find(
+                            (canonical) => canonical.workpiece_id === row.id,
+                          )?.id ?? null,
+                        })),
                       error: null,
                     };
                   },
@@ -3062,40 +3081,47 @@ function createReadyQueueSupabase({
                 let workpieceFilter = null;
                 let eventNameFilter = null;
                 let ordered = events.slice();
-                return {
-                  in(field, values) {
-                    assert.equal(field, "workpiece_id");
-                    workpieceFilter = new Set(values);
-                    return {
-                      eq(innerField, innerValue) {
-                        assert.equal(innerField, "event_name");
-                        eventNameFilter = innerValue;
+                const buildEventFilterChain = () => ({
+                  eq(innerField, innerValue) {
+                    assert.equal(innerField, "event_name");
+                    eventNameFilter = new Set([innerValue]);
+                    return buildEventOrderChain();
+                  },
+                  in(innerField, innerValues) {
+                    assert.equal(innerField, "event_name");
+                    eventNameFilter = new Set(innerValues);
+                    return buildEventOrderChain();
+                  },
+                });
+                const buildEventOrderChain = () => ({
+                  order(orderField, options) {
+                    ordered = sortRows(
+                      events.filter(
+                        (row) => workpieceFilter.has(row.workpiece_id) && eventNameFilter.has(row.event_name),
+                      ),
+                      orderField,
+                      options?.ascending ?? true,
+                    );
+                    return Object.assign(Promise.resolve({ data: ordered, error: null }), {
+                      order(nextOrderField, nextOptions) {
+                        ordered = sortRows(ordered, nextOrderField, nextOptions?.ascending ?? true);
                         return {
-                          order(orderField, options) {
-                            ordered = sortRows(
-                              events.filter(
-                                (row) => workpieceFilter.has(row.workpiece_id) && row.event_name === eventNameFilter,
-                              ),
-                              orderField,
-                              options?.ascending ?? true,
-                            );
+                          async limit(limit) {
                             return {
-                              order(nextOrderField, nextOptions) {
-                                ordered = sortRows(ordered, nextOrderField, nextOptions?.ascending ?? true);
-                                return {
-                                  async limit(limit) {
-                                    return {
-                                      data: ordered.slice(0, limit),
-                                      error: null,
-                                    };
-                                  },
-                                };
-                              },
+                              data: ordered.slice(0, limit),
+                              error: null,
                             };
                           },
                         };
                       },
-                    };
+                    });
+                  },
+                });
+                return {
+                  in(field, values) {
+                    assert.equal(field, "workpiece_id");
+                    workpieceFilter = new Set(values);
+                    return buildEventFilterChain();
                   },
                 };
               },
@@ -3137,10 +3163,10 @@ function createReadyQueueSupabase({
               select() {
                 return {
                   async in(field, values) {
-                    assert.equal(field, "workpiece_id");
+                    assert.equal(field, "id");
                     const idSet = new Set(values);
                     return {
-                      data: canonicalRows.filter((row) => idSet.has(row.workpiece_id)),
+                      data: canonicalRows.filter((row) => idSet.has(row.id)),
                       error: null,
                     };
                   },
@@ -3439,6 +3465,7 @@ test("successful image bytes with missing usage are persisted for reconciliation
 });
 
 function installCurrentImageMapAuthority(service, workspaceId, workpieceId) {
+  let committedEntries = null;
   const promptRevision = {
     id: "77777777-7777-4777-8777-777777777777",
     revision: 1,
@@ -3455,11 +3482,14 @@ function installCurrentImageMapAuthority(service, workspaceId, workpieceId) {
   service.readCanonicalImageMapProjection = async () => {
     const state = await service.readWorkpieceImageMapState(workpieceId, workspaceId);
     return {
-      entries: state.episodePackage.image_map.entries.map((entry) => ({ ...entry, canonical_anchor_assessment: { state: "current", reason: null, exact_anchor: entry.script_anchor, evidence: { match_count: 1 } } })),
+      entries: (committedEntries ?? state.episodePackage.image_map.entries).map((entry) => ({ ...entry, canonical_anchor_assessment: { state: "current", reason: null, exact_anchor: entry.script_anchor, evidence: { match_count: 1 } } })),
       authority: { source: "canonical", revisionId: "88888888-8888-4888-8888-888888888888", revision: 1, scriptApprovalId: "99999999-9999-4999-8999-999999999999", scriptApprovalRevision: 1, scriptContentHash: "a".repeat(64), anchorContractVersion: "forge.image-map-anchor.v1", provenanceState: "current", semanticStateHash: "b".repeat(64), immutableRevisionHash: "c".repeat(64) },
     };
   };
-  service.commitCanonicalImageMap = async () => ({ disposition: "committed" });
+  service.commitCanonicalImageMap = async ({ entries }) => {
+    committedEntries = entries;
+    return { disposition: "committed" };
+  };
   service.readCurrentImageMapPrompt = async () => ({ prompt_revision: promptRevision });
   return promptRevision;
 }
@@ -5371,13 +5401,15 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
   assert.equal(commitCalls[0]?.input.path.includes("assets/image-map/candidates/"), true);
   assert.equal(commitCalls[1]?.input.path.includes("assets/image-map/candidates/"), true);
   assert.equal(commitCalls[2]?.input.path, "metadata.json");
-  assert.equal(commitCalls[3]?.input.path, "assets/image-map/image-map.v1.json");
+  assert.equal(commitCalls[3]?.input.path, "assets/image-map/revisions/88888888-8888-4888-8888-888888888888.json");
 
   const candidateInserts = state.insertCalls.filter((row) => row.asset_kind === "image_map_candidate_image");
   assert.equal(candidateInserts.length, 2);
   assert.equal(candidateInserts[0]?.status, "ready");
   assert.equal(candidateInserts[0]?.ready_at, "2026-03-11T19:00:01.000Z");
   assert.equal(candidateInserts[0]?.content_hash, "hash_abc");
+  assert.equal(candidateInserts[0]?.width, 1536);
+  assert.equal(candidateInserts[0]?.height, 1024);
   assert.match(candidateInserts[0]?.operation_fingerprint ?? "", /^[0-9a-f]{64}$/);
   assert.match(candidateInserts[0]?.operation_id ?? "", /^[0-9a-f-]{36}:explainer$/);
   assert.equal(candidateInserts[1]?.ready_at, "2026-03-11T19:00:01.000Z");
@@ -5423,10 +5455,8 @@ test("TongsCommitService.generateImageMapCandidates writes candidate assets and 
   const candidateSupersedeCall = state.updateCalls.find((row) => Array.isArray(row.id));
   assert.deepEqual([...candidateSupersedeCall.id].sort(), ["asset-old-candidate-a", "asset-old-candidate-b"]);
   assert.equal(candidateSupersedeCall?.patch?.status, "superseded");
-  const imageMapRefreshCall = state.updateCalls.find((row) => row.id === "asset-old-image-map");
-  assert.equal(imageMapRefreshCall?.patch?.status, "ready");
-  assert.equal(imageMapRefreshCall?.patch?.ready_at, "2026-03-11T19:00:01.000Z");
-  assert.equal(imageMapRefreshCall?.patch?.storage_key, `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`);
+  const imageMapSupersedeCall = state.updateCalls.find((row) => row.id === "asset-old-image-map");
+  assert.equal(imageMapSupersedeCall?.patch?.status, "superseded");
 });
 
 test("TongsCommitService.generateImageMapCandidates accepts beat anchors for bullet scripts", async () => {
@@ -7531,7 +7561,7 @@ test("TongsCommitService.getWorkpieceVisualPackage returns Hammer-ready ordering
   assert.equal(result.visuals[3]?.broll_evidence?.prompt_revision_id, "broll-prompt-1");
 });
 
-test("TongsCommitService.saveWorkpieceImageMap writes metadata, asset file, and refreshes the current image-map asset row", async () => {
+test("TongsCommitService.saveWorkpieceImageMap writes metadata and reuses matching immutable image-map evidence", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const workpieceId = "11111111-1111-4111-8111-111111111111";
   const editorId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
@@ -7733,17 +7763,13 @@ test("TongsCommitService.saveWorkpieceImageMap writes metadata, asset file, and 
   assert.equal(commitCalls[1]?.input.json?.spoken_beats?.[0]?.cue_phrase, "Open with the skyline");
   assert.equal(commitCalls[1]?.input.json?.schema, "forge.image-map.v1");
   assert.equal(commitCalls[1]?.input.json?.workpiece_id, workpieceId);
-  assert.equal(state.updateCalls.length, 1);
-  assert.equal(state.updateCalls[0]?.id, "asset-old");
-  assert.equal(state.updateCalls[0]?.patch?.status, "ready");
-  assert.equal(state.updateCalls[0]?.patch?.request_id, "corr-123");
-  assert.equal(state.updateCalls[0]?.patch?.storage_key, `workpieces/${workpieceId}/assets/image-map/image-map.v1.json`);
+  assert.equal(state.updateCalls.length, 0);
   assert.equal(state.insertCalls.length, 0);
   assert.equal(result.image_map.metadata_updated_at, "2026-03-10T16:05:00.000Z");
   assert.equal(result.asset?.supersedes_asset_id, null);
 });
 
-test("TongsCommitService.saveWorkpieceImageMap recovers a superseded image-map asset when no ready row exists", async () => {
+test("TongsCommitService.saveWorkpieceImageMap reactivates matching immutable evidence without rewriting it", async () => {
   const workspaceId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
   const workpieceId = "11111111-1111-4111-8111-111111111111";
   const editorId = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
@@ -7886,7 +7912,8 @@ test("TongsCommitService.saveWorkpieceImageMap recovers a superseded image-map a
   assert.equal(state.updateCalls.length, 1);
   assert.equal(state.updateCalls[0]?.id, "asset-superseded");
   assert.equal(state.updateCalls[0]?.patch?.status, "ready");
-  assert.equal(state.updateCalls[0]?.patch?.request_id, "corr-456");
+  assert.equal(state.updateCalls[0]?.patch?.status, "ready");
+  assert.equal(state.updateCalls[0]?.patch?.storage_key, undefined);
   assert.equal(result.asset?.id, "asset-superseded");
   assert.equal(result.asset?.status, "ready");
 });
@@ -8055,7 +8082,8 @@ test("TongsCommitService.saveWorkpieceImageMap reuses the asset row that already
   assert.equal(state.updateCalls[0]?.patch?.status, "superseded");
   assert.equal(state.updateCalls[1]?.id, "asset-fixed-path");
   assert.equal(state.updateCalls[1]?.patch?.status, "ready");
-  assert.equal(state.updateCalls[1]?.patch?.request_id, "corr-789");
+  assert.equal(state.updateCalls[1]?.patch?.status, "ready");
+  assert.equal(state.updateCalls[1]?.patch?.storage_key, undefined);
   assert.equal(result.asset?.id, "asset-fixed-path");
   assert.equal(result.asset?.status, "ready");
 });
@@ -9694,6 +9722,31 @@ test("TongsCommitService.listWorkpieceStorage returns nested canonical workpiece
   const workspaceId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
   const storageCalls = [];
   const service = new TongsCommitService({
+    schema(schemaName) {
+      assert.equal(schemaName, "tongs");
+      return {
+        from(tableName) {
+          assert.equal(tableName, "assets");
+          return {
+            select() {
+              return {
+                eq(field, value) {
+                  assert.equal(field, "workpiece_id");
+                  assert.equal(value, workpieceId);
+                  return {
+                    async eq(innerField, innerValue) {
+                      assert.equal(innerField, "status");
+                      assert.equal(innerValue, "ready");
+                      return { data: [], error: null };
+                    },
+                  };
+                },
+              };
+            },
+          };
+        },
+      };
+    },
     storage: {
       from(bucket) {
         assert.equal(bucket, "forge-workpieces");

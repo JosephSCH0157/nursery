@@ -10,11 +10,12 @@ const shell=readFileSync(new URL("../src/components/visuals/CanonicalReferenceMa
 const unified=readFileSync(new URL("../src/lib/hearth-unified-visual-plan-authority.ts",import.meta.url),"utf8");
 const postResetSelection=readFileSync(new URL("../../../supabase/migrations/20260812153000_tongs_reference_visual_post_reset_selection.sql",import.meta.url),"utf8");
 
-test("Reference Material keeps Source Clips intact and exposes Reference Visuals separately",()=>{
- assert.match(shell,/CanonicalReferenceClipPanel/);
- assert.match(shell,/CanonicalReferenceVisualPanel/);
- assert.match(shell,/Source Clips/);
- assert.match(shell,/Reference Visuals/);
+test("Reference Material projects Clips and Visuals into one creator review queue",()=>{
+ assert.match(shell,/projectReferenceReviewItems/);
+ assert.match(shell,/readCanonicalReferenceClips/);
+ assert.match(shell,/readCanonicalReferenceVisualCollections/);
+ for(const decision of ["Approve","Edit","Replace","Skip"])assert.match(shell,new RegExp(`>\\s*${decision}\\s*<`));
+ assert.doesNotMatch(shell,/role="tablist"/);
 });
 
 test("Hearth consumes the fourth canonical child and never falls back to cdc_plan",()=>{

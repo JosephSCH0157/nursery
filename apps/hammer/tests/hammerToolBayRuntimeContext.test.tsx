@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import React from "react";
+import type { ReactElement, ReactNode } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { HammerTypedPassCompletionHeader, HammerTypedToolBayBody } from "../src/editor/HammerTypedToolBaySurfaces";
 import { assembleHammerToolBayRuntimeContexts } from "../src/editor/hammerToolBayRuntimeContext";
@@ -16,16 +17,72 @@ const unsupported: HammerToolBayRouteDecision = {
   navigationPermitted: false, selectionPreserved: true,
 };
 const noop = (): void => undefined;
+
+type InteractionCall = { command: string; args: unknown[] };
+
+function instrumentCommands<T extends object>(commands: T, calls: InteractionCall[]): T {
+  return new Proxy(commands, {
+    get(target, property, receiver) {
+      const value = Reflect.get(target, property, receiver);
+      if (typeof value !== "function") return value;
+      return (...args: unknown[]) => {
+        calls.push({ command: String(property), args });
+        for (const arg of args) {
+          if (typeof arg === "function") {
+            try { arg({}); } catch { /* The command owns the authoritative updater input. */ }
+          }
+        }
+        return undefined;
+      };
+    },
+  });
+}
+
+function exerciseEnabledInteractions(node: ReactNode): number {
+  let exercised = 0;
+  const visit = (current: ReactNode): void => {
+    if (current === null || current === undefined || typeof current === "boolean" || typeof current === "string" || typeof current === "number") return;
+    if (Array.isArray(current)) {
+      current.forEach(visit);
+      return;
+    }
+    if (!React.isValidElement(current)) return;
+    const element = current as ReactElement<Record<string, unknown>>;
+    if (typeof element.type === "function") {
+      visit(element.type(element.props));
+      return;
+    }
+    const props = element.props;
+    if (!props.disabled) {
+      const target = {
+        value: element.type === "select" ? "medium" : "0.5",
+        checked: true,
+        files: [],
+        dataset: {},
+      };
+      const event = { target, currentTarget: target, preventDefault() {}, stopPropagation() {} };
+      for (const [name, handler] of Object.entries(props)) {
+        if (/^on[A-Z]/.test(name) && typeof handler === "function") {
+          handler(event);
+          exercised += 1;
+        }
+      }
+    }
+    visit(props.children as ReactNode);
+  };
+  visit(node);
+  return exercised;
+}
 const visualPolishData = {
   activeExposureAdjustment: null, activeLookPreset: null, backgroundBlurProviderDescriptor: null, segmentationProviderDescriptors: [],
   sourceImageLibraryItems: [], selectedBackgroundReplacementAssetId: null, uploadingCategory: null,
-  visualWhiteBalance: 0, visualColorAmount: 0, visualEyeContactAssistEnabled: false, visualEyeContactAssistStrength: 0.25,
-  visualBackgroundBlur: false, visualBackgroundBlurPx: 14, visualBackgroundBlurFeatherPx: 6, visualBackgroundBlurTemporalSmoothing: 0.25,
+  visualWhiteBalance: 0, visualColorAmount: 0, visualEyeContactAssistEnabled: true, visualEyeContactAssistStrength: 0.25,
+  visualBackgroundBlur: true, visualBackgroundBlurPx: 14, visualBackgroundBlurFeatherPx: 6, visualBackgroundBlurTemporalSmoothing: 0.25,
   visualBackgroundBlurSubjectExpansionPx: 0, visualBackgroundBlurQualityMode: "medium" as const, visualBackgroundBlurFallbackMode: "disable" as const,
-  visualBackgroundReplaceEnabled: false, visualBackgroundReplaceMode: "solid" as const, visualBackgroundReplaceColor: "#2b2b2b",
-  visualBackgroundReplaceImageUrl: "", visualBackgroundReplaceImageAssetPath: null, visualBackgroundWashEnabled: false,
-  visualBackgroundWashDimAmount: 0.35, visualBackgroundWashDesaturateAmount: 0.25, visualBackgroundBlurDebugMask: false,
-  visualBackgroundMaskPreviewMode: false, visualBackgroundMaskPreviewStage: "raw" as const, visualEyeContactAssistDebugOverlay: false,
+  visualBackgroundReplaceEnabled: true, visualBackgroundReplaceMode: "solid" as const, visualBackgroundReplaceColor: "#2b2b2b",
+  visualBackgroundReplaceImageUrl: "", visualBackgroundReplaceImageAssetPath: null, visualBackgroundWashEnabled: true,
+  visualBackgroundWashDimAmount: 0.35, visualBackgroundWashDesaturateAmount: 0.25, visualBackgroundBlurDebugMask: true,
+  visualBackgroundMaskPreviewMode: true, visualBackgroundMaskPreviewStage: "raw" as const, visualEyeContactAssistDebugOverlay: true,
   visualBackgroundBlurRuntimeStatus: null, visualEyeContactAssistRuntimeStatus: null, visualBackgroundBlurStatusSummary: null,
   visualEyeContactAssistStatusSummary: null,
 };
@@ -35,7 +92,7 @@ const visualPolishCommands = {
   setVisualBackgroundBlurFeatherPx: noop, setVisualBackgroundBlurSubjectExpansionPx: noop, setVisualBackgroundBlurProviderId: noop,
   setVisualBackgroundBlurPx: noop, setVisualBackgroundBlurQualityMode: noop, setVisualBackgroundBlurRuntimeStatus: noop,
   setVisualBackgroundBlurTemporalSmoothing: noop, setVisualBackgroundReplaceColor: noop, setVisualBackgroundReplaceEnabled: noop,
-  setVisualBackgroundReplaceImageAssetPath: noop, setVisualBackgroundReplaceImageUrl: noop, setVisualBackgroundReplaceMode: noop,
+  setVisualBackgroundReplaceImageAssetPath: noop, setVisualBackgroundReplaceImageAssetId: noop, setVisualBackgroundReplaceImageUrl: noop, setVisualBackgroundReplaceMode: noop,
   setVisualBackgroundWashDesaturateAmount: noop, setVisualBackgroundWashDimAmount: noop, setVisualBackgroundWashEnabled: noop,
   setVisualColorAmount: noop, setVisualEyeContactAssistDebugOverlay: noop, setVisualEyeContactAssistEnabled: noop,
   setVisualEyeContactAssistRuntimeStatus: noop, setVisualEyeContactAssistStrength: noop, setVisualWhiteBalance: noop,
@@ -92,10 +149,10 @@ function fixture(route: HammerToolBayRouteDecision = resolved, currentPass: "rea
     activeCaptionArtifactText: "", activeCaptionMode: "built", activeCaptionState: null,
     captionActiveModeLabel: "Built", captionActiveModeSourceLabel: "Canonical transcript", captionArtifactStatusLabel: "Not built", captionBuildFeedback: null, captionBuildFreshness: "Current", captionBuildState: null, captionBuiltSummary: "No built captions", captionBuiltTone: "neutral", captionDiscardConsequenceLabel: null, captionEditedBasisDetail: "", captionEditedChangeSummary: "", captionEditedState: null, captionEditedSummary: "No caption edits", captionEditedTone: "neutral", captionEditorRefs: { current: new Map() }, captionFormatting: { style: "sentence", maxCharsPerLine: 42, maxLinesPerCaption: 2, includeSpeakerLabels: false, punctuationMode: "preserve", readingSpeed: "standard" }, captionRebuildConsequenceLabel: "", captionReleasePrepSafetyDetail: "", captionReleasePrepSafetyLabel: "Safe", captionReleasePrepSafetyState: "safe", captionReleaseSourceLabel: "Canonical transcript", captionSourceLabel: "Canonical transcript", detailTag: "", selectedCaptionArtifactFormat: "srt",
     handleDiscardEditedCaptions: noop, handleEditCaptionChunkText: noop, handleEnableCaptionEdits: noop, handleMergeEditedCaptionChunk: noop, handleNormalizeEditedCaptionChunkPunctuation: noop, handleRebuildCaptionArtifacts: noop, handleSplitEditedCaptionChunk: noop, handleToggleEditedCaptionChunkSpeakerLabel: noop, setActiveCaptionArtifactMode: noop, setCaptionFormatting: noop, setSelectedCaptionArtifactFormat: noop, setDetailTag: noop,
-    voicePolish: { preset_id: null, voice_cleanup_enabled: false, fixes: { remove_harsh_sibilance: false, reduce_room_boxiness: false, enhance_voice_clarity: false, level_volume: false }, advanced: { de_esser_strength: "medium", eq_profile: "voice" } },
+    voicePolish: { preset_id: null, voice_cleanup_enabled: true, fixes: { remove_harsh_sibilance: true, reduce_room_boxiness: true, enhance_voice_clarity: true, level_volume: true }, advanced: { de_esser_strength: "medium", eq_profile: "voice" } },
     audioFinalizationCompareMode: "after", editableAudioPolish: { status: "not_started" }, persistedAudioCutCount: 0, effectivePlaybackCutRegions: [], silenceSuggestionCount: 0,
-    editableStudioRack: { is_enabled: false, is_bypassed: false, backend_preference: "native", modules: { gate: { is_enabled: false, is_bypassed: false, threshold_db: -52 }, compressor: { is_enabled: false, is_bypassed: false, ratio: 1.8 }, eq: { is_enabled: false, is_bypassed: false, mid_gain_db: 1.2 }, reverb: { is_enabled: false, is_bypassed: false, mix: 0.06 }, tubeMicCharacter: { is_enabled: false, is_bypassed: false, amount: 0.16 } } },
-    studioRackPlaybackConfig: { backend: "native" }, studioRackPlaybackBackendResolution: { status: "available" }, studioRackRenderConfig: { backend: "native" }, studioRackRenderBackendResolution: { status: "available" }, studioRackRenderStatus: null, studioRackRenderAppliedModules: [], studioRackRenderDeferredModules: [], studioRackEnabledModuleCount: 0, studioRackComparePreviewStatusLabel: null, studioRackOpen: false,
+    editableStudioRack: { is_enabled: true, is_bypassed: false, backend_preference: "native", modules: { gate: { is_enabled: true, is_bypassed: false, threshold_db: -52 }, compressor: { is_enabled: true, is_bypassed: false, ratio: 1.8 }, eq: { is_enabled: true, is_bypassed: false, mid_gain_db: 1.2 }, reverb: { is_enabled: true, is_bypassed: false, mix: 0.06 }, tubeMicCharacter: { is_enabled: true, is_bypassed: false, amount: 0.16 } } },
+    studioRackPlaybackConfig: { backend: "native" }, studioRackPlaybackBackendResolution: { status: "available" }, studioRackRenderConfig: { backend: "native" }, studioRackRenderBackendResolution: { status: "available" }, studioRackRenderStatus: null, studioRackRenderAppliedModules: [], studioRackRenderDeferredModules: [], studioRackEnabledModuleCount: 5, studioRackComparePreviewStatusLabel: null, studioRackOpen: true,
     podcastMasterLayer: null, podcastMasterUiStatus: { headline: "Not applied", detail: "", action_label: "Apply Podcast Master" }, audioLevelingEnabled: false, audioNoiseReductionEnabled: false,
     applyPodcastMasterPass: noop, applyStudioRackMutation: noop, setAudioLevelingEnabled: noop, setAudioNoiseReductionEnabled: noop, setStudioRackBackend: noop, setStudioRackBypassed: noop, setStudioRackEnabled: noop, setStudioRackModuleBypassed: noop, setStudioRackModuleEnabled: noop, setStudioRackOpen: noop, setFocusOverride: noop, setAudioFinalizationCompare: noop, applyVoicePolishPreset: noop, setVoicePolishFixEnabled: noop, setVoicePolishDeEsserStrength: noop, setVoicePolishEqProfile: noop, setVoiceCleanupEnabled: noop,
     hasSilenceSuggestionAnalysis: false, silenceCutSuggestions: null, visibleSilenceCutSuggestions: [], acceptSilenceCutSuggestion: noop, dismissSilenceCutSuggestion: noop, seekPlayheadToTime: null, silenceSuggestionCount: 0,
@@ -231,6 +288,28 @@ test("all eleven extracted surfaces preserve exact dispatch, representative acce
   }
 });
 
+test("enabled typed-surface interactions dispatch through their canonical command contracts", () => {
+  const surfaces = [
+    "audio_finalization", "audio_adjustments", "captions", "metadata",
+    "transcript_cleanup", "retakes", "gap_pacing", "transcript_polish",
+    "visual_polish", "packaging", "finishing",
+  ] as const;
+  let interactionCount = 0;
+  let commandCount = 0;
+  for (const surface of surfaces) {
+    const item = fixture({ ...resolved, surface });
+    const body = item.contexts.body;
+    assert.ok(body && body.surface === surface);
+    const calls: InteractionCall[] = [];
+    const instrumented = { ...body, commands: instrumentCommands(body.commands, calls) } as typeof body;
+    interactionCount += exerciseEnabledInteractions(<HammerTypedToolBayBody context={instrumented} />);
+    commandCount += calls.length;
+    assert.ok(calls.length > 0, `${surface} must route at least one enabled interaction through its command contract`);
+  }
+  assert.ok(interactionCount >= 80, `expected broad interaction coverage, received ${interactionCount}`);
+  assert.ok(commandCount >= 60, `expected canonical command dispatch, received ${commandCount}`);
+});
+
 test("typed audio surfaces preserve finalization, measurement, backend, readiness, and cross-family transition markup without activity", () => {
   const sequence = ["audio_finalization", "audio_adjustments", "captions", "transcript_cleanup", "audio_finalization"] as const;
   for (const surface of sequence) {
@@ -316,6 +395,8 @@ test("exact visual routes assemble typed contexts and reject the Florida B-roll 
   assert.match(renderToStaticMarkup(<HammerTypedToolBayBody context={polish.contexts.body} />), /data-hammer-tool-bay-surface="visual_polish"/);
   const selectedImage = { status: "selected" as const, placementId: "image:florida", clipId: "image:florida", assetId: "asset:florida", laneId: "lane:overlay", kind: "image" as const, preferredTool: "images" as const, preferredPass: "image_placement" as const, capabilities: { remove: true, retime: true, anchor: true, transform: true, animate: true, rebind: false, replace: false, revert: false, transition: false } };
   const inspectorMarkup: string[] = [];
+  let visualInteractionCount = 0;
+  const visualCalls: InteractionCall[] = [];
   for (const surface of ["image_placement", "image_timing", "image_transform", "image_animation"] as const) {
     const route: HammerToolBayRouteDecision = { ...resolved, surface, activeTool: "video", activeVisualTool: "images", representativePass: "visual_polish", editorMode: "visual" };
     const item = fixture(route);
@@ -326,6 +407,8 @@ test("exact visual routes assemble typed contexts and reject the Florida B-roll 
       assert.equal(contexts.body.commands, visualRuntimeArgs.imageInspectorCommands);
       assert.equal(contexts.body.data.selectedVisual, selectedImage);
       assert.equal(contexts.body.data.placementId, selectedImage.placementId);
+      const interactiveBody = { ...contexts.body, commands: instrumentCommands(contexts.body.commands, visualCalls) } as typeof contexts.body;
+      visualInteractionCount += exerciseEnabledInteractions(<HammerTypedToolBayBody context={interactiveBody} />);
     }
     const markup = renderToStaticMarkup(<HammerTypedToolBayBody context={contexts.body} />);
     assert.match(markup, new RegExp(`data-hammer-tool-bay-surface="${surface}"`));
@@ -370,6 +453,8 @@ test("exact visual routes assemble typed contexts and reject the Florida B-roll 
     assert.match(markup, new RegExp(`data-placement-id="${selected.placementId}"`));
     assert.doesNotMatch(markup, /Transform|Center visual overlay/);
     assert.deepEqual(removals, []);
+    const interactiveBody = { ...contexts.body, commands: instrumentCommands(contexts.body.commands, visualCalls) } as typeof contexts.body;
+    visualInteractionCount += exerciseEnabledInteractions(<HammerTypedToolBayBody context={interactiveBody} />);
     contexts.body.commands.removePlacement(selected.placementId);
     assert.deepEqual(removals, [selected.placementId]);
   }
@@ -382,4 +467,6 @@ test("exact visual routes assemble typed contexts and reject the Florida B-roll 
   const incapableBrollContexts = assembleHammerToolBayRuntimeContexts({ ...visualRuntimeArgs, route: brollRoute, selectedVisualContext: incapableBroll, brollReferenceData: brollReferenceData(incapableBroll), passLabel: "Visual", passStatus: "in_progress", markPassComplete: noop, readinessData: null, exportData: null, focusIssue: noop, sendToQuench: noop });
   assert.equal(incapableBrollContexts.body?.surface, "unsupported");
   if (incapableBrollContexts.body?.surface === "unsupported") assert.equal(incapableBrollContexts.body.data.reason, "selected_visual_capability_mismatch");
+  assert.ok(visualInteractionCount >= 30, `expected visual inspector interactions, received ${visualInteractionCount}`);
+  assert.ok(visualCalls.length >= 20, `expected visual command dispatch, received ${visualCalls.length}`);
 });

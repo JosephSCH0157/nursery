@@ -21,15 +21,19 @@ test.describe("Hearth Phase 4 Anvil handoff", () => {
       workpieceId: artifact.workpiece_id,
       pathnamePrefix: "/apps/hearth",
     });
-    await expect(page.locator(".hs-home-title")).toContainText(artifact.handoff.title);
-
+    await expect(page.locator(".hs-workpiece-button", { has: page.getByText(artifact.handoff.title, { exact: true }) }).first()).toBeVisible();
     await openWorkpieceInHearth(page, artifact.handoff.title);
+    const readyPill = page.locator(".hs-episode-ready-pill");
+    if ((await readyPill.textContent())?.trim() !== "Ready") {
+      await page.getByRole("button", { name: "Approve & Replace Script", exact: true }).click();
+      await expect(readyPill).toHaveText("Ready");
+    }
     await clickOpenInAnvil(page);
 
     await expectCanonicalWorkpieceContext(page, {
       workspaceId: artifact.workspace_id,
       workpieceId: artifact.workpiece_id,
-      pathnamePrefix: "/anvil/teleprompter_pro.html",
+      pathnamePrefix: "/app/anvil",
     });
 
     await expect

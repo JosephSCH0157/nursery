@@ -31,10 +31,9 @@ Run with: node tools/rec_smoke.js
 
   try {
     const rec = await import('../dist/recorders.js');
-    // recorders.js initializes built-in adapters asynchronously at module load.
-    // Let that registration settle before installing deterministic test doubles,
-    // otherwise the late built-ins can overwrite the fakes mid-suite.
-    await new Promise((resolve) => setTimeout(resolve, 50));
+    // Finish built-in registration before installing deterministic test doubles,
+    // otherwise a late optional-adapter import can overwrite the fakes mid-suite.
+    await rec.initBuiltIns?.();
 
     // Fake adapters
     let startCount = 0;

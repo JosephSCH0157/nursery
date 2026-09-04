@@ -45,9 +45,9 @@ export function buildDefaultVisualPreviewSettings(): HammerPersistedVisualPrevie
     eye_contact_assist_enabled: false,
     eye_contact_assist_strength: 0.25,
     background_blur_px: 14,
-    background_blur_feather_px: 6,
+    background_blur_feather_px: 3,
     background_blur_temporal_smoothing: 0.25,
-    background_blur_subject_expansion_px: 0,
+    background_blur_subject_expansion_px: 5,
     background_blur_quality_mode: "medium",
     background_blur_fallback_mode: "disable",
     background_blur_provider: "mediapipe_selfie_segmentation",
@@ -71,19 +71,33 @@ export function normalizeVisualPreviewSettings(
     return buildDefaultVisualPreviewSettings();
   }
   const defaults = buildDefaultVisualPreviewSettings();
+  const blurPx = Number(value.background_blur_px ?? defaults.background_blur_px);
+  let featherPx = Number(value.background_blur_feather_px ?? defaults.background_blur_feather_px);
+  const temporalSmoothing = Number(value.background_blur_temporal_smoothing ?? defaults.background_blur_temporal_smoothing);
+  let subjectExpansionPx = Number(value.background_blur_subject_expansion_px ?? defaults.background_blur_subject_expansion_px);
+  const qualityMode = value.background_blur_quality_mode === "low" || value.background_blur_quality_mode === "high"
+    ? value.background_blur_quality_mode
+    : "medium";
+  const isCompleteLegacyBlurDefault = blurPx === 14
+    && featherPx === 6
+    && temporalSmoothing === 0.25
+    && subjectExpansionPx === 0
+    && qualityMode === "medium";
+  if (isCompleteLegacyBlurDefault) {
+    featherPx = 3;
+    subjectExpansionPx = 5;
+  }
   return {
     white_balance: Math.max(-100, Math.min(100, Math.round(value.white_balance))),
     color_amount: Math.max(-100, Math.min(100, Math.round(value.color_amount))),
     background_blur: Boolean(value.background_blur),
     eye_contact_assist_enabled: Boolean(value.eye_contact_assist_enabled ?? defaults.eye_contact_assist_enabled),
     eye_contact_assist_strength: Math.max(0, Math.min(1, Number(value.eye_contact_assist_strength ?? defaults.eye_contact_assist_strength))),
-    background_blur_px: Math.max(0, Math.min(64, Number(value.background_blur_px ?? defaults.background_blur_px))),
-    background_blur_feather_px: Math.max(0, Math.min(64, Number(value.background_blur_feather_px ?? defaults.background_blur_feather_px))),
-    background_blur_temporal_smoothing: Math.max(0, Math.min(1, Number(value.background_blur_temporal_smoothing ?? defaults.background_blur_temporal_smoothing))),
-    background_blur_subject_expansion_px: Math.max(-12, Math.min(12, Number(value.background_blur_subject_expansion_px ?? defaults.background_blur_subject_expansion_px))),
-    background_blur_quality_mode: value.background_blur_quality_mode === "low" || value.background_blur_quality_mode === "high"
-      ? value.background_blur_quality_mode
-      : "medium",
+    background_blur_px: Math.max(0, Math.min(64, blurPx)),
+    background_blur_feather_px: Math.max(0, Math.min(64, featherPx)),
+    background_blur_temporal_smoothing: Math.max(0, Math.min(1, temporalSmoothing)),
+    background_blur_subject_expansion_px: Math.max(-12, Math.min(12, subjectExpansionPx)),
+    background_blur_quality_mode: qualityMode,
     background_blur_fallback_mode: value.background_blur_fallback_mode === "passthrough" ? "passthrough" : "disable",
     background_blur_provider: typeof value.background_blur_provider === "string" ? value.background_blur_provider : defaults.background_blur_provider,
     background_replace_enabled: Boolean(value.background_replace_enabled ?? defaults.background_replace_enabled),

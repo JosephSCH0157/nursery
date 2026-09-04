@@ -9,25 +9,10 @@ import { executeDialogueAudioRenderWithBackend, processDialogueAudioWithBackend,
 import { buildHammerDevMediaUrl, loadCanonicalAudioPolishPreviewUrl } from "../lib/previewSource";
 import { loadWorkpieceMediaPreviewUrl } from "../lib/hammerSourceDeskMediaApi";
 import { applyHammerStudioRackNativePreview } from "./hammerStudioRackNativePreview";
-import {
-  cloneHammerStudioRackState,
-  createDefaultHammerStudioRackState,
-  isHammerStudioRackIdentity,
-  normalizeHammerStudioRackState,
-  type HammerStudioRackState,
-} from "./hammerStudioRack";
-import {
-  applyHammerVoicePolishPreset,
-  createDefaultHammerVoicePolishState,
-  setHammerVoiceCleanupEnabled,
-  setHammerVoicePolishDeEsserStrength,
-  setHammerVoicePolishEqProfile,
-  setHammerVoicePolishFixEnabled,
-  type HammerVoicePolishDeEsserStrength,
-  type HammerVoicePolishEqProfile,
-  type HammerVoicePolishFixId,
-  type HammerVoicePolishPresetId,
-} from "./hammerVoicePolish";
+import { buildHammerAudioDspPlan, buildHammerAudioRenderIdentity, fingerprintHammerAudio } from "./hammerAudioDspPlan";
+import { validateHammerExactAudioReleaseReceipt } from "./hammerExactAudioReceipt";
+import { cloneHammerStudioRackState, createDefaultHammerStudioRackState, isHammerStudioRackIdentity, normalizeHammerStudioRackState, type HammerStudioRackState } from "./hammerStudioRack";
+import { applyHammerVoicePolishPreset, createDefaultHammerVoicePolishState, setHammerVoiceCleanupEnabled, setHammerVoicePolishDeEsserStrength, setHammerVoicePolishEqProfile, setHammerVoicePolishFixEnabled, type HammerVoicePolishDeEsserStrength, type HammerVoicePolishEqProfile, type HammerVoicePolishFixId, type HammerVoicePolishPresetId } from "./hammerVoicePolish";
 import type { HammerEditorStateSerializable, HammerHistoryEntry } from "./hammerWorkspaceHistory";
 import { createPodcastMasterPassInstruction } from "./hammerAuthorityOps";
 import type { HammerHistoryMutationArgs } from "./hammerWorkspaceShellHistoryController";
@@ -225,21 +210,31 @@ export function useHammerAudioFinishingPreviewEffects(
     const renderRackState = { ...rack, backend_preference: "ffmpeg" as const };
     const localRelpath = preferredPlayback.kind === "polished" ? preferredPlayback.local_relpath ?? mediaRef?.local_relpath ?? null : mediaRef?.local_relpath ?? null;
     const workpiecePath = preferredPlayback.kind === "polished" ? preferredPlayback.workpiece_path ?? null : mediaRef?.local_relpath ?? null;
-    const key = JSON.stringify({ head: historyHeadEntryId ?? "head:unknown", basis: workpiecePath ?? localRelpath ?? "basis:unknown", rack: renderRackState });
-    refs.requestLifecycleRef.current.syncIdentity(key);
-    if (refs.previewInFlightRef.current || refs.previewKeyRef.current === key && previewSrc || !ffmpegAvailable || !mediaRef) return;
-    const capturedMediaRef = mediaRef; refs.previewInFlightRef.current = true; refs.previewKeyRef.current = key;
-    const requestToken = refs.requestLifecycleRef.current.begin();
-    void (async () => { try {
-      const result = await executeDialogueAudioRenderWithBackend({ workspaceId, workpieceId, mediaKind: capturedMediaRef.kind, timelineSegments: transcriptSegments.map((segment) => ({ segment_id: segment.segment_id, start_sec: segment.start_sec, end_sec: segment.end_sec, is_disabled: segment.is_disabled, gain_db: segment.gain_db })), rackState: renderRackState, localRootAbs, localRelpath, canonicalWorkpiecePath: workpiecePath, mimeType: preferredPlayback.kind === "polished" ? preferredPlayback.mime_type ?? null : null, runtimeSummary: runtime });
+    const dspPlan = buildHammerAudioDspPlan(renderRackState); const renderIdentity = buildHammerAudioRenderIdentity({ sourceIdentity: workpiecePath ?? localRelpath ?? `${workpieceId}:source:unknown`, timelineIdentity: fingerprintHammerAudio(transcriptSegments.map((segment) => ({ id: segment.segment_id, start: segment.start_sec, end: segment.end_sec, disabled: segment.is_disabled, gain: segment.gain_db ?? 0 }))), historyHead: historyHeadEntryId ?? "head:unknown", dspFingerprint: dspPlan.dspFingerprint }); const key = renderIdentity.renderFingerprint;
+    refs.requestLifecycleRef.current.syncIdentity(key); if (refs.previewKeyRef.current === key && previewSrc || !ffmpegAvailable || !mediaRef) return;
+    const capturedMediaRef = mediaRef; const timer = window.setTimeout(() => { refs.previewInFlightRef.current = true; refs.previewKeyRef.current = key;
+      const requestToken = refs.requestLifecycleRef.current.begin(); void (async () => { try {
+      const result = await executeDialogueAudioRenderWithBackend({ workspaceId, workpieceId, mediaKind: capturedMediaRef.kind, timelineSegments: transcriptSegments.map((segment) => ({ segment_id: segment.segment_id, start_sec: segment.start_sec, end_sec: segment.end_sec, is_disabled: segment.is_disabled, gain_db: segment.gain_db })), rackState: renderRackState, localRootAbs, localRelpath, canonicalWorkpiecePath: workpiecePath, mimeType: preferredPlayback.kind === "polished" ? preferredPlayback.mime_type ?? null : null, runtimeSummary: runtime, renderIdentity });
       if (!refs.requestLifecycleRef.current.accepts(requestToken)) return;
       setRenderStatus(result);
       if (import.meta.env.DEV) console.info("[Hammer][AudioComparePreview] render", { compareMode: compareMode, requestedBackend: result.requestedBackend, resolvedBackend: result.resolvedBackend, status: result.status, outputLocalRelpath: result.outputLocalRelpath, outputWorkpiecePath: result.outputWorkpiecePath });
       if (result.status !== "processed") { setPreviewSrc(null); return; }
+      const receiptValidation = validateHammerExactAudioReleaseReceipt({ receipt: result.exactAudioReceipt, plan: dspPlan, renderIdentity });
+      if (!receiptValidation.ok || !refs.requestLifecycleRef.current.accepts(requestToken)) {
+        if (refs.requestLifecycleRef.current.accepts(requestToken)) setRenderStatus({
+          ...result,
+          status: "failed",
+          message: receiptValidation.reasons.some((reason) => reason.code.includes("identity") || reason.code.includes("obsolete"))
+            ? "Exact audio stale. Live processed playback remains active."
+            : "Exact audio failed verification. Live processed playback remains active.",
+        });
+        setPreviewSrc(null); return;
+      }
       if (result.outputLocalRelpath && localRootAbs) { setPreviewSrc(buildHammerDevMediaUrl(localRootAbs, result.outputLocalRelpath)); return; }
       if (result.outputWorkpiecePath) { setPreviewSrc(await loadCanonicalAudioPolishPreviewUrl({ workpieceId: workpieceId, workpiecePath: result.outputWorkpiecePath, mimeType: result.outputMimeType })); return; }
       setPreviewSrc(null);
     } catch { if (refs.requestLifecycleRef.current.accepts(requestToken)) setPreviewSrc(null); } finally { refs.previewInFlightRef.current = false; } })();
+    }, 350); return () => window.clearTimeout(timer);
   }, [
     previewSrc,
     refs.previewInFlightRef,
@@ -299,11 +294,11 @@ export function useHammerAudioFinishingPreviewEffects(
 export function useHammerAudioFinishingCompareStatus(args: { activeTool: string; currentPass: string; compareMode: HammerAudioFinalizationCompareMode; hasAudibleProcessing: boolean; ffmpegAvailable: boolean; previewSrc: string | null; playbackMediaSrc: string | null }) {
   return useMemo(() => {
     if (args.currentPass !== "audio_finalization" || args.activeTool !== "audio") return null;
-    if (args.compareMode === "before") return "Compare source: source audio (Before selected).";
-    if (!args.hasAudibleProcessing) return "Compare source: source audio (rack disabled, bypassed, or identity).";
-    if (!args.ffmpegAvailable) return "Compare source: source audio. Processed compare preview requires FFmpeg because native playback DSP is not implemented.";
-    if (args.previewSrc && args.playbackMediaSrc === args.previewSrc) return "Compare source: processed Studio Rack preview artifact.";
-    if (args.previewSrc) return "Compare source: processed Studio Rack preview ready; transport swap pending.";
-    return "Compare source: preparing processed Studio Rack preview artifact.";
+    if (args.compareMode === "before") return "Before · Source";
+    if (!args.hasAudibleProcessing) return "After unavailable · Rack disabled, bypassed, or neutral";
+    if (!args.ffmpegAvailable) return "After · Live processed · Exact preview unavailable";
+    if (args.previewSrc && args.playbackMediaSrc === args.previewSrc) return "After · Exact processed";
+    if (args.previewSrc) return "After · Live processed · Exact preview handoff pending";
+    return "After · Rendering exact preview";
   }, [args.activeTool, args.compareMode, args.currentPass, args.ffmpegAvailable, args.hasAudibleProcessing, args.playbackMediaSrc, args.previewSrc]);
 }

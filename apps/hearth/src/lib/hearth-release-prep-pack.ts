@@ -1,6 +1,8 @@
 export type ReleasePrepSectionKey =
   | "youtube_optimized_cut"
   | "title_options"
+  | "short_description"
+  | "long_description"
   | "short_form_hook_20s"
   | "tone_variant_creator"
   | "audience_variant"
@@ -15,7 +17,7 @@ export type ReleasePrepSection = {
 export function parseReleasePrepPackSections(rawText: string): ReleasePrepSection[] {
   const text = rawText.replace(/\r\n?/g, "\n").trim();
   if (!text) return [];
-  const headerRe = /^(YOUTUBE_OPTIMIZED_CUT|TITLE_OPTIONS|SHORT_FORM_HOOK_20S|TONE_VARIANT_CREATOR|AUDIENCE_VARIANT|MONETIZATION_ANGLE):\s*$/gm;
+  const headerRe = /^(YOUTUBE_OPTIMIZED_CUT|TITLE_OPTIONS|SHORT_DESCRIPTION|LONG_DESCRIPTION|SHORT_FORM_HOOK_20S|TONE_VARIANT_CREATOR|AUDIENCE_VARIANT|MONETIZATION_ANGLE):\s*$/gm;
   const matches = [...text.matchAll(headerRe)];
   if (matches.length === 0) {
     return [{

@@ -38,10 +38,12 @@ import { HAMMER_TRANSCRIPT_CLEANUP_ASSIST_ROUTE } from "../../hammer/src/editor/
 import { HAMMER_VISUAL_ASSIST_PREFLIGHT_ROUTE } from "../../hammer/src/lib/hammerVisualAssistApi";
 import { resolveHearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
 import {
+  buildUsageAccounting,
   buildTranscriptionAccounting,
   recordAiUsageEvent,
   type BillingMode,
 } from "../server/ai-usage-accounting";
+import { executeHammerShortsDiscovery, HAMMER_SHORTS_DISCOVERY_ROUTE, type HammerShortsDiscoveryBody } from "./hammer-shorts-discovery";
 import {
   AI_REASON_CODES,
   getAiReasonMessage,
@@ -1808,6 +1810,7 @@ export function createHammerPrepMiddleware() {
         && url.pathname !== HAMMER_AUDIO_POLISH_ROUTE
         && url.pathname !== HAMMER_AUDIO_POLISH_STATUS_ROUTE
         && url.pathname !== HAMMER_STUDIO_RACK_RENDER_ROUTE
+        && url.pathname !== HAMMER_SHORTS_DISCOVERY_ROUTE
       ) {
         next();
         return;
@@ -1865,6 +1868,40 @@ export function createHammerPrepMiddleware() {
       }
 
       const body = await readJsonBody(req);
+      if (url.pathname === HAMMER_SHORTS_DISCOVERY_ROUTE) {
+        const bodyRow = readJsonObject(body);
+        const workspaceId = readTrimmed(bodyRow?.workspace_id);
+        const workpieceId = readTrimmed(bodyRow?.parent_workpiece_id);
+        const rawAuthorization = String(req.headers["x-forge-user-authorization"] ?? req.headers.authorization ?? "");
+        const accessToken = rawAuthorization.replace(/^Bearer\s+/i, "").trim();
+        if (!workspaceId || !workpieceId || !accessToken || !supabaseService || !runtimeConfig.supabaseUrl || !runtimeConfig.supabaseRpcKey || !textApiKey) {
+          sendJson(res, 401, { ok: false, error: { code: "hammer_shorts_authority_unavailable", message: "Authenticated Shorts discovery authority is unavailable." } });
+          return;
+        }
+        const userResult = await supabaseService.auth.getUser(accessToken);
+        const userId = userResult.data.user?.id ?? null;
+        if (userResult.error || !userId) {
+          sendJson(res, 401, { ok: false, error: { code: "hammer_shorts_auth_required" } });
+          return;
+        }
+        const userClient = createClient<Database>(runtimeConfig.supabaseUrl, runtimeConfig.supabaseRpcKey, {
+          auth: { persistSession: false, autoRefreshToken: false },
+          global: { headers: { Authorization: `Bearer ${accessToken}` } },
+        });
+        const shortsModel = readTrimmed(process.env.HAMMER_SHORTS_DISCOVERY_MODEL) ?? "gpt-5.3";
+        const result = await executeHammerShortsDiscovery(body as HammerShortsDiscoveryBody, {
+          userClient,
+          model: shortsModel,
+          apiKey: textApiKey,
+          policyPreflight: () => runHammerTranscriptPolicyPreflight({ supabaseUrl: runtimeConfig.supabaseUrl!, rpcKey: runtimeConfig.supabaseRpcKey!, userAccessToken: accessToken, workspaceId, action: "chat", feature: "research_flows" }),
+          recordUsage: async ({ status, providerRequestId, payload }) => {
+            const accounting = buildUsageAccounting({ model: shortsModel, payload, fallbackTotalTokens: 0, billableMode: hammerTelemetryLane });
+            await recordAiUsageEvent({ supabaseService, userId, lane: hammerTelemetryLane, provider: "openai", workspaceId, workpieceId, sessionId: null, feature: AI_USAGE_FEATURE.HAMMER_SHORTS_DISCOVERY, subfeature: AI_USAGE_SUBFEATURE.SHORTS_DISCOVERY, model: shortsModel, ...accounting, trigger: AI_USAGE_TRIGGER.USER, status: status === "success" ? AI_USAGE_STATUS.SUCCESS : AI_USAGE_STATUS.ERROR, actionId: readTrimmed(bodyRow?.operation_id), providerRequestId });
+          },
+        });
+        sendJson(res, result.status, result.payload);
+        return;
+      }
       if (url.pathname === HAMMER_AUDIO_POLISH_ROUTE) {
         const bodyRow = readJsonObject(body);
         const workspaceId = readTrimmed(bodyRow?.workspace_id);
@@ -1988,6 +2025,9 @@ export function createHammerPrepMiddleware() {
             renderer_version: identity.renderer_version,
             output_profile_id: identity.output_profile_id,
             acknowledged_result_fingerprint: acknowledgedResultFingerprint,
+            dsp_fingerprint: commitArgs.request.dsp_plan.dspFingerprint,
+            render_fingerprint: commitArgs.request.render_identity.renderFingerprint,
+            exact_audio_receipt_fingerprint: typeof (commitArgs.renderEvidence.exact_audio_receipt as { receiptFingerprint?: unknown } | undefined)?.receiptFingerprint === "string" ? (commitArgs.renderEvidence.exact_audio_receipt as { receiptFingerprint: string }).receiptFingerprint : undefined,
             canonical_asset_id: canonicalAssetId,
             canonical_content_hash: contentHash,
             storage_bucket: storageBucket,

@@ -374,9 +374,9 @@ assert.deepEqual(saveRequest.editor_session?.data.visual_preview, {
   eye_contact_assist_enabled: false,
   eye_contact_assist_strength: 0.25,
   background_blur_px: 14,
-  background_blur_feather_px: 6,
+  background_blur_feather_px: 3,
   background_blur_temporal_smoothing: 0.25,
-  background_blur_subject_expansion_px: 0,
+  background_blur_subject_expansion_px: 5,
   background_blur_quality_mode: "medium",
   background_blur_fallback_mode: "disable",
   background_blur_provider: "mediapipe_selfie_segmentation",
@@ -1008,7 +1008,7 @@ try {
     }
 
     assert.equal(result.data.state?.current_pass, "transcript_cleanup");
-    assert.equal(result.data.state?.pass_order_version, 2);
+    assert.equal(result.data.state?.pass_order_version, 3);
     assert.equal(result.data.state?.prep_status, "idle");
     assert.equal(result.data.state?.alignment_status, "not_started");
     assert.equal(result.data.state?.pass_status.transcript_cleanup, "in_progress");
@@ -1031,7 +1031,7 @@ try {
       lastMacroRunRef: result.data.macro_hooks.last_run_ref ?? null,
     });
     assert.equal(roundTripSaveRequest.current_pass, "transcript_cleanup");
-    assert.equal(roundTripSaveRequest.pass_order_version, 2);
+    assert.equal(roundTripSaveRequest.pass_order_version, 3);
     assert.equal(roundTripSaveRequest.prep_status, "idle");
     assert.equal(roundTripSaveRequest.alignment_status, "not_started");
     assert.equal(roundTripSaveRequest.pass_status?.transcript_cleanup, "in_progress");
@@ -1090,9 +1090,9 @@ try {
       eye_contact_assist_enabled: false,
       eye_contact_assist_strength: 0.25,
       background_blur_px: 14,
-      background_blur_feather_px: 6,
+      background_blur_feather_px: 3,
       background_blur_temporal_smoothing: 0.25,
-      background_blur_subject_expansion_px: 0,
+      background_blur_subject_expansion_px: 5,
       background_blur_quality_mode: "medium",
       background_blur_fallback_mode: "disable",
       background_blur_provider: "mediapipe_selfie_segmentation",
@@ -1119,9 +1119,9 @@ try {
       eye_contact_assist_enabled: false,
       eye_contact_assist_strength: 0.25,
       background_blur_px: 14,
-      background_blur_feather_px: 6,
+      background_blur_feather_px: 3,
       background_blur_temporal_smoothing: 0.25,
-      background_blur_subject_expansion_px: 0,
+      background_blur_subject_expansion_px: 5,
       background_blur_quality_mode: "medium",
       background_blur_fallback_mode: "disable",
       background_blur_provider: "mediapipe_selfie_segmentation",
@@ -1189,9 +1189,9 @@ try {
       eye_contact_assist_enabled: false,
       eye_contact_assist_strength: 0.25,
       background_blur_px: 14,
-      background_blur_feather_px: 6,
+      background_blur_feather_px: 3,
       background_blur_temporal_smoothing: 0.25,
-      background_blur_subject_expansion_px: 0,
+      background_blur_subject_expansion_px: 5,
       background_blur_quality_mode: "medium",
       background_blur_fallback_mode: "disable",
       background_blur_provider: "mediapipe_selfie_segmentation",
@@ -1218,9 +1218,9 @@ try {
       eye_contact_assist_enabled: false,
       eye_contact_assist_strength: 0.25,
       background_blur_px: 14,
-      background_blur_feather_px: 6,
+      background_blur_feather_px: 3,
       background_blur_temporal_smoothing: 0.25,
-      background_blur_subject_expansion_px: 0,
+      background_blur_subject_expansion_px: 5,
       background_blur_quality_mode: "medium",
       background_blur_fallback_mode: "disable",
       background_blur_provider: "mediapipe_selfie_segmentation",

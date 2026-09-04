@@ -11,10 +11,23 @@ const WRITING_PROFILE_CACHE = new Map<string, WritingProfile | null>();
 const ALIGNMENT_PAUSE_PREFIX = "hearth:style-alignment-paused:v1:";
 let workspaceFeatureSyncInitialized = false;
 
-type SupabaseConfig = {
+export type SupabaseConfig = {
   url: string;
   anonKey: string;
 };
+
+export function selectSupabaseConfigAuthority(input: {
+  runtimeClient?: { url?: unknown; anonKey?: unknown } | null;
+  runtimeGlobal?: { url?: unknown; anonKey?: unknown } | null;
+  compileTime?: { url?: unknown; anonKey?: unknown } | null;
+}): SupabaseConfig | null {
+  for (const candidate of [input.runtimeClient, input.runtimeGlobal, input.compileTime]) {
+    const url = readTokenString(candidate?.url);
+    const anonKey = readTokenString(candidate?.anonKey);
+    if (url && anonKey) return { url, anonKey };
+  }
+  return null;
+}
 
 type RpcFailure = {
   ok: false;
@@ -143,6 +156,16 @@ type WorkspaceFeaturesRpcRow = {
   workspace_id?: unknown;
   adaptive_style_alignment_enabled?: unknown;
   adaptive_style_ai_accelerate_enabled?: unknown;
+};
+
+type ReferenceMaterialRolloutRpcRow = {
+  workspace_id?: unknown;
+  reference_material_review_enabled?: unknown;
+};
+
+export type ReferenceMaterialRollout = {
+  workspaceId: string;
+  enabled: boolean;
 };
 
 type StyleProfileRpcRow = {
@@ -322,13 +345,8 @@ function readSupabaseConfig(): SupabaseConfig | null {
   const meta = import.meta as unknown as {
     env?: Record<string, string | undefined>;
   };
-  const envUrl = readTokenString(meta.env?.VITE_SUPABASE_URL);
-  const envAnonKey = readTokenString(meta.env?.VITE_SUPABASE_ANON_KEY);
-  if (envUrl && envAnonKey) {
-    return { url: envUrl, anonKey: envAnonKey };
-  }
-
-  if (typeof window === "undefined") return null;
+  const compileTime = { url: meta.env?.VITE_SUPABASE_URL, anonKey: meta.env?.VITE_SUPABASE_ANON_KEY };
+  if (typeof window === "undefined") return selectSupabaseConfigAuthority({ compileTime });
   const runtimeWindow = window as Window & typeof globalThis & {
     __forgeSupabaseUrl?: unknown;
     __forgeSupabaseAnonKey?: unknown;
@@ -340,20 +358,14 @@ function readSupabaseConfig(): SupabaseConfig | null {
     };
   };
 
-  const globalUrl = readTokenString(runtimeWindow.__forgeSupabaseUrl) ?? readTokenString(runtimeWindow.__tpSupabaseUrl);
-  const globalAnon = readTokenString(runtimeWindow.__forgeSupabaseAnonKey)
-    ?? readTokenString(runtimeWindow.__tpSupabaseAnonKey);
-  if (globalUrl && globalAnon) {
-    return { url: globalUrl, anonKey: globalAnon };
-  }
-
-  const clientUrl = readTokenString(runtimeWindow.__forge_supabase_client__?.supabaseUrl);
-  const clientKey = readTokenString(runtimeWindow.__forge_supabase_client__?.supabaseKey);
-  if (clientUrl && clientKey) {
-    return { url: clientUrl, anonKey: clientKey };
-  }
-
-  return null;
+  return selectSupabaseConfigAuthority({
+    runtimeClient: { url: runtimeWindow.__forge_supabase_client__?.supabaseUrl, anonKey: runtimeWindow.__forge_supabase_client__?.supabaseKey },
+    runtimeGlobal: {
+      url: readTokenString(runtimeWindow.__forgeSupabaseUrl) ?? readTokenString(runtimeWindow.__tpSupabaseUrl),
+      anonKey: readTokenString(runtimeWindow.__forgeSupabaseAnonKey) ?? readTokenString(runtimeWindow.__tpSupabaseAnonKey),
+    },
+    compileTime,
+  });
 }
 
 function readRpcError(payload: unknown, fallback: string): string {
@@ -847,6 +859,33 @@ export async function getWorkspaceFeatures(
     ok: true,
     status: rpc.status,
     data: features,
+  };
+}
+
+export async function getReferenceMaterialRollout(
+  workspaceId: string,
+): Promise<RpcSuccess<ReferenceMaterialRollout> | RpcFailure> {
+  const normalizedWorkspaceId = normalizeUuid(workspaceId);
+  if (!normalizedWorkspaceId) {
+    return { ok: false, status: 400, error: "workspace_id is required." };
+  }
+
+  const rpc = await callTongsRpc<ReferenceMaterialRolloutRpcRow[] | ReferenceMaterialRolloutRpcRow>(
+    "get_my_reference_material_rollout",
+    { p_workspace_id: normalizedWorkspaceId },
+  );
+  if (!rpc.ok) return rpc;
+
+  const raw = (Array.isArray(rpc.data) ? rpc.data[0] : rpc.data) as
+    | ReferenceMaterialRolloutRpcRow
+    | undefined;
+  return {
+    ok: true,
+    status: rpc.status,
+    data: {
+      workspaceId: normalizeUuid(raw?.workspace_id) ?? normalizedWorkspaceId,
+      enabled: raw?.reference_material_review_enabled === true,
+    },
   };
 }
 

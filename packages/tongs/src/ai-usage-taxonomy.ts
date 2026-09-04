@@ -4,6 +4,7 @@ export const AI_USAGE_FEATURE = {
   CDC_EXTRACT: "cdc_extract",
   THUMBNAIL_GENERATE: "thumbnail_generate",
   IMAGE_MAP_CANDIDATE_GENERATE: "image_map_candidate_generate",
+  HAMMER_SHORTS_DISCOVERY: "hammer_shorts_discovery",
 } as const;
 
 export const AI_USAGE_SUBFEATURE = {
@@ -20,6 +21,7 @@ export const AI_USAGE_SUBFEATURE = {
   ILLUSTRATIVE: "illustrative",
   ILLUSTRATIVE_RETRY: "illustrative_retry",
   INTERPRETATION: "interpretation",
+  SHORTS_DISCOVERY: "shorts_discovery",
 } as const;
 
 export const AI_USAGE_LANE = {
@@ -72,6 +74,9 @@ const FEATURE_TO_SUBFEATURES: Readonly<Record<AiUsageFeature, ReadonlySet<AiUsag
     AI_USAGE_SUBFEATURE.ILLUSTRATIVE,
     AI_USAGE_SUBFEATURE.ILLUSTRATIVE_RETRY,
     AI_USAGE_SUBFEATURE.INTERPRETATION,
+  ]),
+  [AI_USAGE_FEATURE.HAMMER_SHORTS_DISCOVERY]: new Set<AiUsageSubfeature>([
+    AI_USAGE_SUBFEATURE.SHORTS_DISCOVERY,
   ]),
 };
 

@@ -158,6 +158,8 @@ export type EpisodeImageMapAssetRef = {
   visual_mode?: EpisodeImageMapVisualMode | null;
   mime_type?: string | null;
   source?: EpisodeImageMapAssetSource | null;
+  width?: number | null;
+  height?: number | null;
 };
 
 export const EPISODE_IMAGE_MAP_ASSET_SOURCE_VALUES = [
@@ -202,6 +204,7 @@ export type EpisodeImageMapEntry = {
   selected_asset_id: string | null;
   status: EpisodeImageMapStatus;
   placement_hint?: string | null;
+  generation_reference?: import("./hearth-generation-reference").HearthGenerationReferenceImage | null;
   canonical_anchor_assessment?: {
     state: "current" | "stale" | "unresolved" | "provenance_unknown";
     reason: string | null;
@@ -572,7 +575,7 @@ export type EpisodePackageV2 = {
   cdc_plan: EpisodeCdcPlan;
 };
 
-export type ProductionArtifactAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet";
+export type ProductionArtifactAction = "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "pack";
 
 type ImageBeatLegacyEntry = {
   id: string;
@@ -1014,6 +1017,8 @@ function normalizeImageMapAssetRefs(value: unknown): EpisodeImageMapAssetRef[] {
         visual_mode: normalizeImageMapVisualMode(readString(entry.visual_mode)),
         mime_type: readString(entry.mime_type),
         source: normalizeImageMapAssetSource(readString(entry.source)),
+        width: readInteger(entry.width),
+        height: readInteger(entry.height),
       });
       continue;
     }
@@ -1027,6 +1032,8 @@ function normalizeImageMapAssetRefs(value: unknown): EpisodeImageMapAssetRef[] {
       visual_mode: null,
       mime_type: null,
       source: null,
+      width: null,
+      height: null,
     });
   }
   return out;
@@ -1241,6 +1248,7 @@ function normalizeImageMapEntryPatch(args: {
   const visualPriority = normalizeImageMapVisualPriority(readString(args.entry.visual_priority));
   const visualType = normalizeImageMapVisualType(readString(args.entry.visual_type));
   const assessment = isRecord(args.entry.canonical_anchor_assessment) ? args.entry.canonical_anchor_assessment : null;
+  const reference = isRecord(args.entry.generation_reference) ? args.entry.generation_reference : null;
   const assessmentState = assessment && ["current", "stale", "unresolved", "provenance_unknown"].includes(String(assessment.state))
     ? assessment.state as "current" | "stale" | "unresolved" | "provenance_unknown"
     : null;
@@ -1281,6 +1289,14 @@ function normalizeImageMapEntryPatch(args: {
       selectedAssetId,
     ),
     placement_hint: readString(args.entry.placement_hint) ?? null,
+    generation_reference: reference
+      && reference.schema_version === "hearth-generation-reference-image-v1"
+      && typeof reference.asset_id === "string" && typeof reference.path === "string"
+      && typeof reference.content_hash === "string" && /^[a-f0-9]{64}$/.test(reference.content_hash)
+      && (reference.mime_type === "image/png" || reference.mime_type === "image/jpeg" || reference.mime_type === "image/webp")
+      && (reference.purpose === "subject" || reference.purpose === "composition" || reference.purpose === "style")
+      ? reference as import("./hearth-generation-reference").HearthGenerationReferenceImage
+      : null,
     ...(assessmentState ? {
       canonical_anchor_assessment: {
         state: assessmentState,
@@ -2599,6 +2615,12 @@ export function applyProductionArtifactToEpisodePackage(args: {
     if (tags.length) {
       nextEpisode.seo.tags = tags;
     }
+  }
+
+  if (args.action === "pack") {
+    const descriptions = parseDescriptionFromSeoText(args.rawText);
+    if (descriptions.shortDescription) nextEpisode.seo.description_short = descriptions.shortDescription;
+    if (descriptions.longDescription) nextEpisode.seo.description_long = descriptions.longDescription;
   }
 
   if (args.action === "thumbnails") {

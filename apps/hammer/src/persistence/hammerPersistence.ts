@@ -80,9 +80,9 @@ function buildDefaultVisualPreviewSettings(): HammerPersistedVisualPreviewSettin
     eye_contact_assist_enabled: false,
     eye_contact_assist_strength: 0.25,
     background_blur_px: 14,
-    background_blur_feather_px: 6,
+    background_blur_feather_px: 3,
     background_blur_temporal_smoothing: 0.25,
-    background_blur_subject_expansion_px: 0,
+    background_blur_subject_expansion_px: 5,
     background_blur_quality_mode: "medium",
     background_blur_fallback_mode: "disable",
     background_blur_provider: "mediapipe_selfie_segmentation",
@@ -116,9 +116,9 @@ function normalizeVisualPreviewSettings(
     ? true
     : defaults.background_blur;
   const blurPx = readNumber(row?.background_blur_px) ?? readNumber(readJsonObject(row?.background_blur)?.blur_px) ?? defaults.background_blur_px!;
-  const featherPx = readNumber(row?.background_blur_feather_px) ?? readNumber(readJsonObject(row?.background_blur)?.edge_feather_px) ?? defaults.background_blur_feather_px!;
+  let featherPx = readNumber(row?.background_blur_feather_px) ?? readNumber(readJsonObject(row?.background_blur)?.edge_feather_px) ?? defaults.background_blur_feather_px!;
   const temporal = readNumber(row?.background_blur_temporal_smoothing) ?? readNumber(readJsonObject(row?.background_blur)?.temporal_smoothing) ?? defaults.background_blur_temporal_smoothing!;
-  const expansion = readNumber(row?.background_blur_subject_expansion_px) ?? readNumber(readJsonObject(row?.background_blur)?.subject_expansion_px) ?? defaults.background_blur_subject_expansion_px!;
+  let expansion = readNumber(row?.background_blur_subject_expansion_px) ?? readNumber(readJsonObject(row?.background_blur)?.subject_expansion_px) ?? defaults.background_blur_subject_expansion_px!;
   const quality = readString(row?.background_blur_quality_mode)
     ?? readString(readJsonObject(row?.background_blur)?.quality_mode)
     ?? defaults.background_blur_quality_mode!;
@@ -128,6 +128,15 @@ function normalizeVisualPreviewSettings(
   const provider = readString(row?.background_blur_provider)
     ?? readString(readJsonObject(row?.background_blur)?.provider)
     ?? defaults.background_blur_provider!;
+  const isCompleteLegacyBlurDefault = blurPx === 14
+    && featherPx === 6
+    && temporal === 0.25
+    && expansion === 0
+    && quality === "medium";
+  if (isCompleteLegacyBlurDefault) {
+    featherPx = 3;
+    expansion = 5;
+  }
   const replaceEnabled = typeof row?.background_replace_enabled === "boolean" ? row.background_replace_enabled : defaults.background_replace_enabled!;
   const replaceMode = readString(row?.background_replace_mode) ?? defaults.background_replace_mode!;
   const replaceColor = readString(row?.background_replace_color) ?? defaults.background_replace_color!;

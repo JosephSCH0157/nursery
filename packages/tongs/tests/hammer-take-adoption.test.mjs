@@ -17,6 +17,6 @@ test("explicit Hammer take adoption preserves old canonical evidence and atomica
 test("Tongs exposes take adoption as a dedicated authenticated command", async () => {
   const service = await readFile(serviceUrl, "utf8");
   assert.match(service, /adoptLatestKeptTakeForHammer/);
-  assert.match(service, /canonical-recording"\s*&& parts\[7\] === "adopt-latest-take"/);
-  assert.match(service, /rpc\("adopt_latest_kept_take_for_hammer"/);
+  assert.match(service, /canonical-recording"\s*&&\s*parts\[7\]\s*===\s*"adopt-latest-take"/);
+  assert.match(service, /rpc\(\s*"adopt_latest_kept_take_for_hammer"/);
 });

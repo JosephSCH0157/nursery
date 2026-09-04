@@ -9,6 +9,9 @@ export type HammerFinalAudioMasterAuthority = Readonly<{
   renderer_version: string;
   output_profile_id: string;
   acknowledged_result_fingerprint: string;
+  dsp_fingerprint?: string;
+  render_fingerprint?: string;
+  exact_audio_receipt_fingerprint?: string;
   canonical_asset_id: CanonicalAssetId;
   canonical_content_hash: string;
   storage_bucket: string;

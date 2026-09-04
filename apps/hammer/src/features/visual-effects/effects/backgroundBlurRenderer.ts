@@ -1,5 +1,5 @@
 import type { BackgroundEffectRenderer, BackgroundEffectFrameResult, BackgroundBlurSettings, ForegroundMatte } from "../types";
-import { drawSourceContained } from "./mediaFrameGeometry";
+import { drawSourceContained, drawSourceInContentRect, resolvePreviewContentGeometry, type HammerPreviewContentGeometry } from "./mediaFrameGeometry";
 
 function nowMs(): number {
   return (typeof performance !== "undefined" && typeof performance.now === "function") ? performance.now() : Date.now();
@@ -56,6 +56,7 @@ export class BackgroundBlurRenderer implements BackgroundEffectRenderer {
     matte: ForegroundMatte;
     settings: BackgroundBlurSettings;
     output: HTMLCanvasElement;
+    geometry?: HammerPreviewContentGeometry | null;
   }): BackgroundEffectFrameResult {
     const started = nowMs();
     const warnings: string[] = [];
@@ -87,6 +88,10 @@ export class BackgroundBlurRenderer implements BackgroundEffectRenderer {
     const w = args.output.width;
     const h = args.output.height;
     if (w <= 0 || h <= 0) {
+      return { compositingMs: 0, droppedFrame: true, degradedReason: "canvas_size_unavailable", warnings: [] };
+    }
+    const geometry = args.geometry ?? resolvePreviewContentGeometry({ source: args.source, destWidth: w, destHeight: h });
+    if (!geometry) {
       return { compositingMs: 0, droppedFrame: true, degradedReason: "canvas_size_unavailable", warnings: [] };
     }
 
@@ -123,18 +128,13 @@ export class BackgroundBlurRenderer implements BackgroundEffectRenderer {
       destWidth: this.subjectCanvas.width,
       destHeight: this.subjectCanvas.height,
       clear: false,
+      geometry,
     });
     if (!subjectRect) {
       return { compositingMs: 0, droppedFrame: true, degradedReason: "canvas_size_unavailable", warnings: [] };
     }
     subjCtx.globalCompositeOperation = "destination-in";
-    drawSourceContained({
-      ctx: subjCtx,
-      source: this.matteCanvas,
-      destWidth: this.subjectCanvas.width,
-      destHeight: this.subjectCanvas.height,
-      clear: false,
-    });
+    drawSourceInContentRect({ ctx: subjCtx, source: this.matteCanvas, rect: geometry.contentRect });
     subjCtx.globalCompositeOperation = "source-over";
 
     bgCtx.clearRect(0, 0, w, h);
@@ -147,6 +147,7 @@ export class BackgroundBlurRenderer implements BackgroundEffectRenderer {
       destHeight: h,
       clear: false,
       clipToContent: true,
+      geometry,
     });
     bgCtx.restore();
 

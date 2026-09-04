@@ -2,9 +2,11 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "playwright/test";
+import { applyFixtureManifestToEnvironment } from "./scripts/browser-fixture-authority.mts";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+applyFixtureManifestToEnvironment();
 
 const baseURL = process.env.FORGE_SMOKE_BASE_URL
   ?? process.env.FORGE_TEST_BASE_URL
@@ -44,9 +46,9 @@ export default defineConfig({
       // Browser verification is read-only with respect to generated workspace
       // assets. Bypass the package predev generator and serve the checked-out
       // tree exactly as it stands.
-      command: "pnpm --filter nursery exec node scripts/run-vite.mjs --configLoader runner --host 127.0.0.1 --port 5173",
+      command: "pnpm --filter nursery exec node scripts/run-vite.mjs --configLoader runner --host 127.0.0.1 --port 5173 --strictPort",
       url: baseURL,
-      reuseExistingServer: true,
+      reuseExistingServer: false,
       timeout: 180_000,
     },
 });

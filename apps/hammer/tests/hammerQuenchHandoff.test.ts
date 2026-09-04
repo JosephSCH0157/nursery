@@ -212,6 +212,7 @@ async function testPacketValidation() {
     composition_revision: 1, composition_fingerprint: "composition-handoff", render_job_id: "render-handoff",
     render_plan_fingerprint: "render-plan-handoff", renderer_version: "hammer-audio-master.v1",
     output_profile_id: "podcast-master-v1", acknowledged_result_fingerprint: "ack-handoff",
+    dsp_fingerprint: "dsp-handoff", render_fingerprint: "render-fingerprint-handoff", exact_audio_receipt_fingerprint: "receipt-handoff",
     canonical_asset_id: "audio-master-handoff", canonical_content_hash: "a".repeat(64),
     storage_bucket: "forge-workpieces", storage_key: "workpieces/wp_handoff/hammer/audio-master.wav",
     mime_type: "audio/wav", duration_ms: 5000, readiness: "ready" as const,

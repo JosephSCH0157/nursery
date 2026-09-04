@@ -5,6 +5,7 @@ import { spawnSync } from "node:child_process";
 import fsPromises from "node:fs/promises";
 import { handleHammerStudioRackRenderRequest } from "../scripts/hammer-studio-rack-render";
 import { createDefaultHammerStudioRackState } from "../../hammer/src/editor/hammerStudioRack";
+import { buildHammerAudioDspPlan, buildHammerAudioRenderIdentity } from "../../hammer/src/editor/hammerAudioDspPlan";
 
 function commandAvailable(command: string): boolean {
   try {
@@ -101,10 +102,8 @@ async function run() {
     const rackState = createDefaultHammerStudioRackState();
     rackState.is_enabled = true;
     rackState.backend_preference = "ffmpeg";
-    rackState.voice_polish = {
-      ...rackState.voice_polish!,
-      voice_cleanup_enabled: true,
-    };
+    rackState.modules.eq.is_enabled = true;
+    rackState.modules.eq.mid_gain_db = 5;
 
     const commonRequest = {
       workspace_id: "ws_hammer_studio_rack_test",
@@ -119,6 +118,8 @@ async function run() {
         },
       ],
       rack_state: rackState,
+      dsp_plan: buildHammerAudioDspPlan(rackState),
+      render_identity: buildHammerAudioRenderIdentity({ sourceIdentity: "recordings/input.wav", timelineIdentity: "timeline:test", historyHead: "head:test", dspFingerprint: buildHammerAudioDspPlan(rackState).dspFingerprint }),
       local_root_abs: tempRoot,
       local_relpath: inputRelpath,
       canonical_workpiece_path: "recordings/input.wav",
@@ -131,7 +132,7 @@ async function run() {
     });
     assert.equal(nativeResult.status, 200);
     assert.equal(nativeResult.payload.ok, true);
-    assert.equal(nativeResult.payload.data?.status, "processed");
+    assert.equal(nativeResult.payload.data?.status, "processed", nativeResult.payload.data?.failure_reason ?? "native render failed");
 
     const nativeOutRelpath = nativeResult.payload.data?.output_local_relpath;
     assert.equal(typeof nativeOutRelpath, "string");
@@ -155,7 +156,7 @@ async function run() {
     assert.equal(ffmpegResult.payload.data?.settings_summary.export_output_sample_rate, 48000);
     assert.equal(ffmpegResult.payload.data?.settings_summary.export_output_channels, 2);
     assert.equal(ffmpegResult.payload.data?.settings_summary.export_output_mime_type, "audio/wav");
-    assert.equal(ffmpegResult.payload.data?.settings_summary.voice_cleanup_enabled, true);
+    assert.equal(ffmpegResult.payload.data?.settings_summary.voice_cleanup_enabled, false);
     if (hasFfprobe) {
       assert.equal(typeof ffmpegResult.payload.data?.settings_summary.export_input_codec, "string");
       assert.equal(typeof ffmpegResult.payload.data?.settings_summary.export_input_sample_rate, "number");
@@ -178,6 +179,18 @@ async function run() {
       diff > 0.01,
       `expected processed export to differ measurably from native/raw (mean_abs_diff=${diff}, native_peak=${nativePeak}, ffmpeg_peak=${ffmpegPeak})`,
     );
+
+    const loudInputRelpath = "loudness-input.wav";
+    runCommand("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=12", "-filter:a", "volume=0.08", "-ac", "2", "-ar", "48000", path.join(tempRoot, loudInputRelpath)]);
+    const loudRack = createDefaultHammerStudioRackState(); loudRack.is_enabled = true; loudRack.backend_preference = "ffmpeg"; loudRack.voice_polish!.fixes.level_volume = true;
+    const loudPlan = buildHammerAudioDspPlan(loudRack);
+    const loudResult = await handleHammerStudioRackRenderRequest({ ...commonRequest, requested_backend: "ffmpeg", timeline_segments: [{ segment_id: "loud", start_sec: 0, end_sec: 12, gain_db: 0 }], rack_state: loudRack, dsp_plan: loudPlan, render_identity: buildHammerAudioRenderIdentity({ sourceIdentity: "recordings/loudness-input.wav", timelineIdentity: "timeline:loudness", historyHead: "head:loudness", dspFingerprint: loudPlan.dspFingerprint }), local_relpath: loudInputRelpath, canonical_workpiece_path: "recordings/loudness-input.wav" });
+    assert.equal(loudResult.payload.data?.status, "processed", loudResult.payload.data?.failure_reason ?? "loudness render failed");
+    assert.equal(loudResult.payload.data?.exact_audio_receipt?.loudness.status, "verified");
+    assert.equal(typeof loudResult.payload.data?.exact_audio_receipt?.loudness.first_pass?.integrated_lufs, "number");
+    assert.equal(typeof loudResult.payload.data?.exact_audio_receipt?.loudness.second_pass_parameters?.measured_I, "number");
+    assert.equal(typeof loudResult.payload.data?.exact_audio_receipt?.loudness.verification?.true_peak_dbtp, "number");
+    assert.match(loudResult.payload.data?.settings_summary.exact_audio_post_filter_chain as string, /loudnorm=.*alimiter=/);
     console.log("Hammer studio-rack render route tests passed.");
   } finally {
     await fsPromises.rm(tempRoot, { recursive: true, force: true }).catch(() => undefined);

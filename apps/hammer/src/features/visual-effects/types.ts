@@ -97,5 +97,6 @@ export interface BackgroundEffectRenderer {
     matte: ForegroundMatte;
     settings: BackgroundBlurSettings;
     output: HTMLCanvasElement;
+    geometry?: import("./effects/mediaFrameGeometry").HammerPreviewContentGeometry | null;
   }): BackgroundEffectFrameResult;
 }

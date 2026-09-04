@@ -108,7 +108,7 @@ export type HammerToolBayLegacyComparison = Readonly<{
 
 const PASS_IDS: readonly HammerPassId[] = [
   "transcript_cleanup", "retakes", "gap_pacing", "visual_finishing", "image_placement",
-  "image_animation", "audio_finalization", "packaging", "ready",
+  "image_animation", "audio_finalization", "packaging", "shorts", "ready",
 ];
 const EDITOR_MODES: readonly HammerEditorMode[] = ["transcript", "images", "assets", "broll", "intro_outro"];
 const TOOLS: readonly HammerWorkspaceToolId[] = ["polish", "audio", "video", "captions", "details", "finishing", "export"];
@@ -139,6 +139,7 @@ function passRoute(pass: HammerPassId): { tool: HammerWorkspaceToolId; visualToo
   if (pass === "image_animation") return { tool: "video", visualTool: "broll", mode: "broll" };
   if (pass === "audio_finalization") return { tool: "audio", visualTool: null, mode: "assets" };
   if (pass === "packaging") return { tool: "finishing", visualTool: null, mode: "intro_outro" };
+  if (pass === "shorts") return { tool: "export", visualTool: null, mode: "transcript" };
   return { tool: "export", visualTool: null, mode: "transcript" };
 }
 
@@ -161,6 +162,7 @@ function surfaceForPass(pass: HammerPassId, selected: HammerSelectedVisualContex
   if (pass === "image_animation") return selected.status === "selected" && selected.kind === "reference_clip" ? "reference_clip" : "broll";
   if (pass === "audio_finalization") return "audio_finalization";
   if (pass === "packaging") return "packaging";
+  if (pass === "shorts") return "release_readiness";
   return "release_readiness";
 }
 

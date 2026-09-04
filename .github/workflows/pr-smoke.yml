@@ -54,6 +54,8 @@ jobs:
         with:
           node-version: 20.20.0
           cache: pnpm
+      - name: Install FFmpeg
+        run: sudo apt-get update && sudo apt-get install --yes ffmpeg
       - run: pnpm install --frozen-lockfile
       - run: pnpm gate:integration
 

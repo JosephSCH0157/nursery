@@ -235,10 +235,6 @@ async function syncEpisodePackageMetadata(args: {
   kind: ProductionArtifactKind;
   payload: unknown;
 }): Promise<ProductionCommitResult> {
-  if (args.kind === "pack") {
-    return { ok: true };
-  }
-
   if (args.kind === "thumbnails") {
     const rawText = readRawTextFromPayload(args.payload);
     const parseDiagnostic = diagnoseThumbnailConceptParsing(rawText);
@@ -388,7 +384,7 @@ async function syncEpisodePackageMetadata(args: {
     action: args.kind,
     scriptVersion: args.scriptVersion,
   });
-  if (!committed.ok || (args.kind !== "seo" && args.kind !== "tags")) {
+  if (!committed.ok || (args.kind !== "seo" && args.kind !== "tags" && args.kind !== "pack")) {
     return committed;
   }
 

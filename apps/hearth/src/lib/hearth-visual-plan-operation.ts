@@ -17,7 +17,7 @@ const STATUS_BY_STAGE: Record<HearthVisualPlanOperationStage, string> = {
   validating: "Validating the saved canonical visual plan.",
   refreshing: "Refreshing the visual workflow from canonical projections.",
   complete: "Visual plan generation is complete.",
-  failed: "Visual plan generation failed. Review the error and try again.",
+  failed: "Visual plan generation failed. Please try again.",
 };
 
 export function describeHearthVisualPlanOperation(
@@ -25,4 +25,3 @@ export function describeHearthVisualPlanOperation(
 ): HearthVisualPlanOperationStatus {
   return { stage, message: STATUS_BY_STAGE[stage] };
 }
-

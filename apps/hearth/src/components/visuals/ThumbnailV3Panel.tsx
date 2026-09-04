@@ -50,6 +50,7 @@ import {
   type ThumbnailBrandSetupReceipt,
   type ThumbnailSaveState,
 } from "../../lib/hearth-thumbnail-v3-api";
+import { uploadHearthGenerationReference, type HearthGenerationReferenceImage, type HearthGenerationReferencePurpose } from "../../lib/hearth-generation-reference";
 
 export function CanonicalThumbnailPreview(props: { workpieceId: string; assetPath: string; alt: string; className: string }) {
   const [dataUrl, setDataUrl] = useState<string | null>(null);
@@ -167,6 +168,8 @@ export default function ThumbnailV3Panel(props: Props) {
   const [selectedVariationId, setSelectedVariationId] = useState<string | null>(null);
   const outsideUploadRef = useRef<HTMLInputElement | null>(null);
   const brandLogoFileRef = useRef<HTMLInputElement | null>(null);
+  const generationReferenceInputRef = useRef<HTMLInputElement | null>(null);
+  const [generationReferencePurpose, setGenerationReferencePurpose] = useState<HearthGenerationReferencePurpose>("subject");
   const styleChoiceRef = useRef<HTMLElement | null>(null);
 
   const reload = useCallback(async () => {
@@ -477,7 +480,7 @@ export default function ThumbnailV3Panel(props: Props) {
     setPkg(result.episodePackage); setToken(result.metadataUpdatedAt); setSaveState("saved");
   };
 
-  const buildRecipeRevision = (reviewed: boolean): ThumbnailRenderRecipe | null => {
+  const buildRecipeRevision = (reviewed: boolean, generationReference: HearthGenerationReferenceImage | null = activeRecipe?.generation_reference ?? null): ThumbnailRenderRecipe | null => {
     if (!pkg || !selectedConcept) return null;
     const title = pkg.seo.titles.find((entry) => entry.id === titleId && entry.revision === titleRevision);
     if (!title) { setLoadError("Choose an exact framing title before saving the recipe."); return null; }
@@ -488,6 +491,7 @@ export default function ThumbnailV3Panel(props: Props) {
       strategy_id: selectedConcept.strategy_id, strategy_revision: selectedConcept.strategy_revision,
       creative_brief_id: selectedConcept.creative_brief_id, creative_brief_revision: selectedConcept.creative_brief_revision,
       provider_id: providerId, provider_settings: activeRecipe?.provider_settings ?? {},
+      generation_reference: generationReference,
       intended_aspect_ratio: aspect, brand_template_id: null,
       brand_template_revision: null,
       presentation_override: {
@@ -511,9 +515,9 @@ export default function ThumbnailV3Panel(props: Props) {
     };
   };
 
-  const saveRecipe = async (reviewed: boolean) => {
+  const saveRecipe = async (reviewed: boolean, generationReference?: HearthGenerationReferenceImage | null) => {
     if (!pkg) return null;
-    const recipe = buildRecipeRevision(reviewed);
+    const recipe = buildRecipeRevision(reviewed, generationReference === undefined ? activeRecipe?.generation_reference ?? null : generationReference);
     if (!recipe) return null;
     const next = saveRenderRecipe({ episodePackage: pkg, recipe }); setSaveState("saving");
     const result = await commitEpisodePackageV3Mutation({ workpieceId: props.workpieceId, expectedMetadataUpdatedAt: token,
@@ -527,6 +531,25 @@ export default function ThumbnailV3Panel(props: Props) {
       setMemoryProjection(await loadThumbnailMemoryProjection(props.workspaceId)); setMemoryState("loaded"); setMemoryError(null);
     } catch (error) { setMemoryState("unavailable"); setMemoryError(error instanceof Error ? error.message : "Workspace thumbnail memory is unavailable."); } })();
     return { episodePackage: result.episodePackage, metadataUpdatedAt: result.metadataUpdatedAt, recipe };
+  };
+
+  const uploadGenerationReference = async (file: File) => {
+    if (!selectedConcept) return;
+    setSaveState("saving"); setLoadError(null);
+    try {
+      const reference = await uploadHearthGenerationReference({
+        workpieceId: props.workpieceId,
+        targetKind: "thumbnail_direction",
+        targetId: selectedConcept.concept_revision_id,
+        file,
+        purpose: generationReferencePurpose,
+      });
+      const saved = await saveRecipe(false, reference);
+      if (!saved) throw new Error("The verified reference image could not be attached to this thumbnail direction.");
+    } catch (error) {
+      setSaveState("error");
+      setLoadError(error instanceof Error ? error.message : "Unable to attach the reference image.");
+    }
   };
 
   const saveEditedThumbnail = async () => {
@@ -927,6 +950,13 @@ export default function ThumbnailV3Panel(props: Props) {
             </button>;
           })}
         </div> : <p className="hs-thumbnail-calm-empty">Hearth will curate three complete thumbnail directions from the approved episode.</p>}
+        {selectedConcept ? <aside className="hs-thumbnail-activation" aria-label="Thumbnail generation reference image">
+          <div><strong>Reference image (optional)</strong><p>Upload a verified photo for Forge AI to use as a subject, composition, or style reference for this direction.</p>{activeRecipe?.generation_reference ? <><small>{activeRecipe.generation_reference.original_filename} · {activeRecipe.generation_reference.purpose} · {activeRecipe.generation_reference.content_hash.slice(0, 12)}</small><CanonicalThumbnailPreview workpieceId={props.workpieceId} assetPath={activeRecipe.generation_reference.path} className="hs-thumbnail-candidate-preview" alt="Thumbnail generation reference" /></> : <small>No reference attached.</small>}</div>
+          <label><span className="hs-sr-only">Reference purpose</span><select value={generationReferencePurpose} onChange={(event) => setGenerationReferencePurpose(event.target.value as HearthGenerationReferencePurpose)} disabled={saveState === "saving"}><option value="subject">Subject</option><option value="composition">Composition</option><option value="style">Style</option></select></label>
+          <button type="button" onClick={() => generationReferenceInputRef.current?.click()} disabled={saveState === "saving"}>{activeRecipe?.generation_reference ? "Replace reference" : "Upload reference"}</button>
+          {activeRecipe?.generation_reference ? <button type="button" onClick={() => void saveRecipe(false, null)} disabled={saveState === "saving"}>Remove reference</button> : null}
+          <input ref={generationReferenceInputRef} type="file" accept="image/png,image/jpeg,image/webp" hidden aria-label="Upload thumbnail generation reference image" onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void uploadGenerationReference(file); event.currentTarget.value = ""; }} />
+        </aside> : null}
         {activeSet && pkg.thumbnail.active_concept_set_id !== activeSet.id ? <aside className="hs-thumbnail-activation" aria-label="Activate thumbnail direction set">
           <div><strong>Use this direction set for the episode</strong><p>This set is selected for review but is not yet the episode’s active thumbnail direction set.</p></div>
           <button type="button" className="is-primary" disabled={saveState === "saving"} onClick={() => void makeSelectedSetActive()}>{saveState === "saving" ? "Making active…" : "Make this concept set active"}</button>

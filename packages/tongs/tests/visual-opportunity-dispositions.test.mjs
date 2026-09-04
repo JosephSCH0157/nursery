@@ -28,3 +28,10 @@ test("Hammer excludes skipped outputs and retains canonical omission evidence", 
   assert.match(source, /reference_clip:\$\{item\.entry_id\}/);
   assert.match(source, /broll:\$\{item\.entry_id\}/);
 });
+
+test("creator decisions are never described as editorial rejection", async () => {
+  const source = await readFile(apiUrl, "utf8");
+  assert.doesNotMatch(source, /Visual opportunity disposition was rejected\./);
+  assert.match(source, /Your choice was not saved because this opportunity changed/);
+  assert.match(source, /displayed opportunity is from an older plan/);
+});

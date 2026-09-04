@@ -29,7 +29,7 @@ async function testTranscriptPrepRepairsStaleSessionIdentityBeforeJobCreation() 
   const editorPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../src/editor/HammerWorkspaceEditor.tsx");
   const source = await fs.readFile(editorPath, "utf-8");
   const refreshStart = source.indexOf('logTranscriptStage("canonical_identity:refresh:start"');
-  const sessionRefresh = source.indexOf("const refreshedSession = await openHammerRecordingSession(persistenceTarget);", refreshStart);
+  const sessionRefresh = source.indexOf("const refreshedSession = await openHammerRecordingSession(persistenceTarget", refreshStart);
   const jobCreate = source.indexOf('logTranscriptStage("job:create:start")', sessionRefresh);
 
   assert.ok(refreshStart >= 0, "Transcript prep should detect stale canonical session identity.");

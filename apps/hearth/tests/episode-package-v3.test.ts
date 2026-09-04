@@ -150,6 +150,12 @@ test("render recipe is sole live presentation authority and prompt reconstructio
     concept,
   });
   assert.notEqual(changedProviderSettings.canonical_hash, first.canonical_hash);
+  const withReference = deriveThumbnailPromptPack({ recipe: { ...recipe, generation_reference: {
+    schema_version: "hearth-generation-reference-image-v1", asset_id: "e599fe66-21dd-4b24-a13e-63295dfe0b0f",
+    path: "assets/generation-references/thumbnail_direction/concept/abc.png", content_hash: "a".repeat(64),
+    mime_type: "image/png", bytes: 3, purpose: "subject", original_filename: "host.png", created_at: "2026-07-15T12:00:00.000Z",
+  } }, concept });
+  assert.notEqual(withReference.canonical_hash, first.canonical_hash, "reference evidence is part of the immutable generation identity");
   assert.equal(saved.thumbnail.composition_revisions[0]?.render_recipe_id, recipe.id);
   assert.equal(saved.thumbnail.composition_revisions[0]?.revision, recipe.composition_revision);
   const reloaded = hydrateEpisodePackageV3({ episode: saved });
@@ -316,6 +322,26 @@ test("legacy non-thumbnail production writes preserve v3 thumbnail authority and
   assert.equal(episode.schema, EPISODE_PACKAGE_V3_SCHEMA);
   assert.deepEqual(episode.thumbnail, v3.thumbnail);
   assert.deepEqual(episode.seo.tags, ["durable", "canonical"]);
+});
+
+test("framing pack projects short and long descriptions without disturbing v3 authority", () => {
+  const v3 = hydrateEpisodePackageV3(legacyMetadata);
+  const updated = applyProductionArtifactToEpisodePackage({
+    metadata: { ...legacyMetadata, episode: v3 },
+    action: "pack",
+    rawText: [
+      "SHORT_DESCRIPTION:",
+      "A concise canonical description.",
+      "",
+      "LONG_DESCRIPTION:",
+      "A longer canonical description retained for release packaging.",
+    ].join("\n"),
+    generatedAt: "2026-09-01T12:00:00.000Z",
+  });
+  const episode = updated.episode as EpisodePackageV3;
+  assert.equal(episode.seo.description_short, "A concise canonical description.");
+  assert.equal(episode.seo.description_long, "A longer canonical description retained for release packaging.");
+  assert.deepEqual(episode.thumbnail, v3.thumbnail);
 });
 
 test("v2 workspace projection preserves v3 thumbnail progress for cold-boot summaries", () => {

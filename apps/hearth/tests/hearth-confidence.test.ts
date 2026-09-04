@@ -515,6 +515,7 @@ function installImageMapFetchHarness() {
     const match = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/image-map$/);
     const generateMatch = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/image-map\/generate-candidates$/);
     const selectionMatch = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/image-map\/select-candidate$/);
+    const authorityMatch = url.pathname.match(/^\/tongs\/workspaces\/([^/]+)\/assets\/([^/]+)\/resolve-authority$/);
     const readMatch = url.pathname.match(/^\/tongs\/workpieces\/([^/]+)\/read-file$/);
     if (readMatch) {
       const path = url.searchParams.get("path") ?? "";
@@ -574,6 +575,17 @@ function installImageMapFetchHarness() {
       selectionRequests.push({ workpieceId, body });
       if (conflictMode) return new Response(JSON.stringify({ ok: false, error: { code: "image_map_revision_conflict", message: "Image map changed since last load." } }), { status: 409, headers: { "content-type": "application/json" } });
       return new Response(JSON.stringify({ ok: true, data: savePayload }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (authorityMatch) {
+      return new Response(JSON.stringify({
+        ok: true,
+        data: {
+          authority: {
+            state: "ready",
+            canonical_asset_id: decodeURIComponent(authorityMatch[2] ?? ""),
+          },
+        },
+      }), { status: 200, headers: { "content-type": "application/json" } });
     }
     if (!match) {
       return new Response(JSON.stringify({ ok: true }), {

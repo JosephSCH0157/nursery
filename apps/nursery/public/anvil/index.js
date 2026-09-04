@@ -23752,6 +23752,8 @@ function showToast(message, opts = {}) {
     const t = document.createElement("div");
     const typeClass = opts.type ? String(opts.type) : "";
     t.className = `tp-toast show ${typeClass}`;
+    t.setAttribute("role", typeClass === "warning" || typeClass === "error" ? "alert" : "status");
+    t.setAttribute("aria-live", typeClass === "warning" || typeClass === "error" ? "assertive" : "polite");
     const txt = document.createElement("span");
     txt.textContent = String(message ?? "");
     t.appendChild(txt);
@@ -23776,7 +23778,7 @@ function showToast(message, opts = {}) {
     });
     container.appendChild(t);
     prune(container);
-    const timeout = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : DEFAULT_FADE_MS;
+    const timeout = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : DEFAULT_TIMEOUT_MS[typeClass] ?? DEFAULT_TIMEOUT_MS.info;
     window.setTimeout(() => {
       t.classList.remove("show");
       window.setTimeout(() => t.remove(), 120);
@@ -23788,13 +23790,18 @@ function showToast(message, opts = {}) {
     }
   }
 }
-var CONTAINER_ID, MAX_VISIBLE, DEFAULT_FADE_MS;
+var CONTAINER_ID, MAX_VISIBLE, DEFAULT_TIMEOUT_MS;
 var init_toasts = __esm({
   "src/ui/toasts.ts"() {
     "use strict";
     CONTAINER_ID = "tp_toast_container";
-    MAX_VISIBLE = 3;
-    DEFAULT_FADE_MS = 4e3;
+    MAX_VISIBLE = 5;
+    DEFAULT_TIMEOUT_MS = {
+      info: 6e3,
+      success: 8e3,
+      warning: 15e3,
+      error: 2e4
+    };
     if (typeof window !== "undefined") {
       if (!window.toast) {
         window.toast = showToast;
@@ -84165,7 +84172,7 @@ function all() {
   return [...registry2.values()];
 }
 async function initBuiltIns() {
-  if (_builtInsInit) return;
+  if (_builtInsInit) return _builtInsReady;
   _builtInsInit = true;
   try {
     const adapters = [];
@@ -84246,6 +84253,9 @@ async function initBuiltIns() {
     } catch {
     }
   } catch {
+  } finally {
+    _resolveBuiltInsReady?.();
+    _resolveBuiltInsReady = null;
   }
 }
 function ensureObsDisconnectFallback() {
@@ -84352,7 +84362,7 @@ function emitRecStats(_final = false) {
   } catch {
   }
 }
-var registry2, LS_KEY2, defaultSettings, settings, _busy, _recState, _recDetail, _recAdapter, __recEpoch, __lastBridgeTap, __recTimers, _onObsDisconnectCb, _onObsRecordingStartedCb, __now, __sleep, __lastRecKey, __handoffTimer, _builtInsInit, recStats, __recStatsTimer;
+var registry2, LS_KEY2, defaultSettings, settings, _busy, _recState, _recDetail, _recAdapter, __recEpoch, __lastBridgeTap, __recTimers, _onObsDisconnectCb, _onObsRecordingStartedCb, __now, __sleep, __lastRecKey, __handoffTimer, _builtInsInit, _resolveBuiltInsReady, _builtInsReady, recStats, __recStatsTimer;
 var init_recorders_core = __esm({
   "recorders-core.ts"() {
     "use strict";
@@ -84644,6 +84654,10 @@ var init_recorders_core = __esm({
     } catch {
     }
     _builtInsInit = false;
+    _resolveBuiltInsReady = null;
+    _builtInsReady = new Promise((resolve) => {
+      _resolveBuiltInsReady = resolve;
+    });
     try {
       initBuiltIns();
     } catch {
@@ -103930,9 +103944,9 @@ function isDevMode10() {
     return false;
   }
 }
-function toast3(message, type = "info", timeoutMs = 2600) {
+function toast3(message, type = "info", timeoutMs) {
   try {
-    showToast(message, { type, timeoutMs });
+    showToast(message, { type, ...timeoutMs == null ? {} : { timeoutMs } });
   } catch {
   }
 }
@@ -103951,7 +103965,7 @@ function onUploadWarning(ev) {
   const detail = ev.detail ?? {};
   const mb = Number.isFinite(Number(detail.mb)) ? Number(detail.mb).toFixed(1) : "unknown";
   const threshold = Number.isFinite(Number(detail.thresholdMb)) ? Number(detail.thresholdMb).toFixed(0) : "unknown";
-  toast3(`Large upload (${mb} MB) exceeds ${threshold} MB warning threshold`, "warning", 3200);
+  toast3(`Large upload (${mb} MB) exceeds ${threshold} MB warning threshold`, "warning");
 }
 function onUploadStatus(ev) {
   const detail = ev.detail ?? {};
@@ -103970,23 +103984,23 @@ function onUploadStatus(ev) {
   if (phase === "uploading" && strategy === "chunked" && isDevMode10() && !chunkedNoticeShown) {
     const mb = Number.isFinite(Number(detail.mb)) ? Number(detail.mb).toFixed(1) : "?";
     const chunkLabel = Number.isFinite(totalChunks) && totalChunks > 0 ? ` in ${totalChunks} chunks` : "";
-    toast3(`Chunked upload active (${mb} MB${chunkLabel})`, "info", 2800);
+    toast3(`Chunked upload active (${mb} MB${chunkLabel})`, "info");
     chunkedNoticeShown = true;
     return;
   }
   if (phase === "uploading" && strategy === "chunked" && isDevMode10() && Number.isFinite(chunkIndex) && Number.isFinite(totalChunks) && totalChunks > 1 && shouldEmitProgressToast(Date.now())) {
     const progressText = pct == null ? "" : ` (${pct}%)`;
-    toast3(`Uploading chunk ${chunkIndex}/${totalChunks}${progressText}`, "info", 1800);
+    toast3(`Uploading chunk ${chunkIndex}/${totalChunks}${progressText}`, "info", 4e3);
     return;
   }
   if (phase === "done" && detail.safeToLeave && !safeToLeaveShown) {
-    toast3("Recording upload complete. Safe to leave.", "success", 3200);
+    toast3("Recording upload complete. Safe to leave.", "success");
     safeToLeaveShown = true;
     return;
   }
   if (phase === "failed" && !failedShown) {
     const msg = detail.errorMessage ? ` (${detail.errorMessage})` : "";
-    toast3(`Canonical upload failed${msg}. Falling back to local save.`, "warning", 4200);
+    toast3(`Canonical upload failed${msg}. Falling back to local save.`, "warning", 2e4);
     failedShown = true;
   }
 }

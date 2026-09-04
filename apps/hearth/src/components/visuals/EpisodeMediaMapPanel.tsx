@@ -15,7 +15,7 @@ import {
 } from "../../lib/hearth-visual-plan-operation";
 
 type EpisodeMediaMapPanelProps = {
-  canonicalItems?: Array<{ id: string; kind: "image" | "broll" | "reference_clip"; focus: string; description: string; status: string }>;
+  canonicalItems?: Array<{ id: string; kind: "image" | "broll" | "reference_clip" | "reference_visual"; focus: string; description: string; status: string }>;
   entries: EpisodeMediaMapEntry[];
   selectedEntryId: string | null;
   scriptVersionLabel: string;
@@ -95,7 +95,8 @@ const CONSTRAINT_CHIPS = [
 
 function formatMediaKindLabel(kind: string): string {
   if (kind === "b_roll" || kind === "broll") return "B-roll";
-  if (kind === "contextual_data_composite" || kind === "reference_clip") return "Reference Clip";
+  if (kind === "contextual_data_composite" || kind === "reference_visual") return "Reference Visual";
+  if (kind === "reference_clip") return "Source Clip";
   return "Image";
 }
 
@@ -293,6 +294,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
     images: canonicalItems.filter((item) => item.kind === "image").length,
     broll: canonicalItems.filter((item) => item.kind === "broll").length,
     referenceClips: canonicalItems.filter((item) => item.kind === "reference_clip").length,
+    referenceVisuals: canonicalItems.filter((item) => item.kind === "reference_visual").length,
   };
   const estimatedMinutes = Math.max(0.1, props.budgetPolicy.estimatedDurationSec / 60);
   const cadenceSeconds = props.entries.length > 0
@@ -375,6 +377,9 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
             {props.operationStage === "generating" ? (
               <small>Keep this page open. Duplicate generation is disabled until this operation finishes.</small>
             ) : null}
+            {props.operationStage === "failed" && props.saveError ? (
+              <div className="hs-error-text-small"><strong>Why it failed:</strong> {props.saveError}</div>
+            ) : null}
           </span>
         </div>
       ) : null}
@@ -394,11 +399,11 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
             Recover last generation
           </button>
         ) : null}
-        <span className="hs-pill">{displayedCount} {hasCanonicalProjection ? "canonical moments" : "mapped beats"}</span>
+        <span className="hs-pill">{displayedCount} {hasCanonicalProjection ? "canonical visuals" : "mapped beats"}</span>
         <span className="hs-pill">Images: {hasCanonicalProjection ? canonicalCounts.images : modalitySummary.images}</span>
         <span className="hs-pill">Motion B-roll: {hasCanonicalProjection ? canonicalCounts.broll : modalitySummary.motionBroll}</span>
-        <span className="hs-pill">Reference clips: {hasCanonicalProjection ? canonicalCounts.referenceClips : modalitySummary.referenceClips}</span>
-        <span className="hs-pill">Data/graphics: {hasCanonicalProjection ? 0 : modalitySummary.dataComposites}</span>
+        <span className="hs-pill">Source Clips: {hasCanonicalProjection ? canonicalCounts.referenceClips : modalitySummary.referenceClips}</span>
+        <span className="hs-pill">Reference Visuals: {hasCanonicalProjection ? canonicalCounts.referenceVisuals : modalitySummary.dataComposites}</span>
         <details><summary>Planning details</summary><div>
           <span className="hs-pill">Generation burden: {modalitySummary.generationBurden}</span>
           <span className="hs-pill">Sized for: {estimatedMinutes.toFixed(1)} min</span>
@@ -577,7 +582,7 @@ export default function EpisodeMediaMapPanel(props: EpisodeMediaMapPanelProps) {
         </section>
       )}
 
-      {props.saveError ? <div className="hs-error-text-small">{props.saveError}</div> : null}
+      {props.saveError && props.operationStage !== "failed" ? <div className="hs-error-text-small">{props.saveError}</div> : null}
       {props.message ? <div className="hs-imap-help-text">{props.message}</div> : null}
     </div>
   );

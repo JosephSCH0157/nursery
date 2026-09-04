@@ -496,6 +496,49 @@ async function testApplyBackgroundEffectInstructionFlowsIntoVisualTimeline() {
   assert.equal(assembly.operations[0]?.reason_codes.includes("export_not_supported"), true);
 }
 
+async function testInvalidProviderFadeAndCaptionRemapRemainExplicit() {
+  const plan: HammerEditPlan = {
+    edit_plan_id: "plan_render_edge", version: "1",
+    created_at: "2026-03-24T13:10:00.000Z", updated_at: "2026-03-24T13:10:00.000Z",
+    source_transcript_id: "transcript_render_edge", preview_mode: "edit-aware",
+    instructions: [
+      {
+        instruction_id: "ins_invalid_provider", segment_id: "seg_01", type: "apply_background_effect",
+        effect_kind: "blur", provider_id: "missing_provider", applies_to: "primary_video",
+        settings_v1: { blur_px: 14, edge_feather_px: 3, subject_expansion_px: 5, temporal_smoothing: 0.25, quality_mode: "medium", fallback_mode: "disable" },
+        execution: { capability: "degraded", degradation_reasons: ["future_unknown_reason" as "operation_not_implemented"] },
+        created_at: "2026-03-24T13:10:00.000Z",
+      },
+      {
+        instruction_id: "ins_fade", segment_id: "seg_02", type: "fade_audio",
+        start_sec: 2, end_sec: 4, fade_curve: "log", created_at: "2026-03-24T13:10:00.000Z",
+      },
+      {
+        instruction_id: "ins_ripple_edge", segment_id: "seg_03", type: "ripple_delete",
+        start_sec: 3, end_sec: 5, created_at: "2026-03-24T13:10:00.000Z",
+      },
+    ],
+  };
+  const graph = projectEditorialAuthorityGraphFromEditPlan({ editPlan: plan });
+  assert.equal(graph.operations[0]?.capability_state.capability, "degraded");
+  assert.equal(graph.operations[0]?.capability_state.reason_codes.includes("operation_input_invalid"), true);
+  assert.equal(graph.operations[0]?.capability_state.reason_codes.includes("operation_not_implemented"), true);
+  const assembly = buildHammerRenderAssembly({
+    canonicalGraph: graph,
+    runtimeCapabilities: {
+      preview_supported_operation_types: ["fade_audio", "ripple_delete"],
+      export_supported_operation_types: ["fade_audio", "ripple_delete"],
+      handoff_supported_operation_types: ["fade_audio", "ripple_delete"],
+    },
+    transcriptSegments: [{ segment_id: "seg_01", start_sec: 0, end_sec: 8 }],
+    captionChunks: [{ chunk_id: "cap_overlap", start_sec: 2.5, end_sec: 5.5, segment_ids: ["seg_02"] }],
+  });
+  assert.equal(assembly.export_timeline.audio_layers.find((layer) => layer.kind === "fade_audio")?.meta?.fade_curve, "log");
+  assert.equal(assembly.export_timeline.transition_layers.some((layer) => layer.kind === "fade_audio"), true);
+  assert.equal(assembly.export_timeline.caption_timing_map[0]?.posture, "degraded");
+  assert.equal(assembly.export_timeline.attention_reasons.includes("captions:remap_attention:cap_overlap"), true);
+}
+
 async function run() {
   await testAuthorityGraphProjectionDefaultNowIsoIsDeterministic();
   await testAssemblyDeterminismAndPosture();
@@ -506,6 +549,7 @@ async function run() {
   await testApplyLookInstructionFlowsIntoVisualTimeline();
   await testApplyExposureInstructionFlowsIntoVisualTimeline();
   await testApplyBackgroundEffectInstructionFlowsIntoVisualTimeline();
+  await testInvalidProviderFadeAndCaptionRemapRemainExplicit();
   // eslint-disable-next-line no-console
   console.log("Hammer render assembly tests passed.");
 }

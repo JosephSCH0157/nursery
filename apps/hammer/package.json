@@ -3,8 +3,12 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "engines": { "node": "20.20.0" },
-  "volta": { "node": "20.20.0" },
+  "engines": {
+    "node": "20.20.0"
+  },
+  "volta": {
+    "node": "20.20.0"
+  },
   "scripts": {
     "dev": "node -e \"console.log('Hammer runs through Nursery.')\"",
     "build": "pnpm --dir ../nursery run build:hammer-integration",
@@ -28,6 +32,7 @@
     "test:edit-plan-signature": "tsx tests/editPlanSignature.test.ts",
     "test:media-truth": "tsx tests/mediaTruth.test.ts",
     "test:preview": "tsx tests/transcriptPreview.test.ts",
+    "test:preview-performance": "tsx tests/hammerPreviewPerformance.test.ts && tsx tests/hammerPreviewPerformanceReceipt.test.ts && tsx tests/hammerPreviewRuntime.test.ts",
     "test:launch-context": "tsx tests/launchContext.test.ts",
     "test:workspace-timeline": "tsx tests/hammerWorkspaceTimeline.test.ts",
     "test:workspace-transcript": "tsx tests/hammerWorkspaceTranscript.test.ts",
@@ -59,7 +64,7 @@
     "test:transcript-authority": "tsx tests/hammerTranscriptAuthorityEnforcement.test.ts",
     "test:transcript-hardening": "tsx tests/hammerTranscriptHardening.test.ts",
     "test:cleanup-tools": "tsx tests/hammerCleanupTools.test.ts",
-    "test:visual-effects-matte": "tsx tests/hammerSimpleMatteRefiner.test.ts && tsx tests/hammerVisualEffectsTemporalMatteSmoothing.test.ts",
+    "test:visual-effects-matte": "tsx tests/hammerBackgroundBlurMatteRepair.test.ts && tsx tests/hammerSimpleMatteRefiner.test.ts && tsx tests/hammerVisualEffectsTemporalMatteSmoothing.test.ts",
     "test:dead-air-closure": "tsx tests/hammerDeadAirClosure.test.ts",
     "test:audio-backend": "tsx tests/hammerAudioProcessingBackend.test.ts",
     "test:studio-rack-ffmpeg-plan": "tsx tests/hammerStudioRackFfmpegPlan.test.ts",
@@ -84,6 +89,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",
+    "@types/jsdom": "21.1.7",
     "@types/node": "^24.10.1",
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
@@ -93,6 +99,7 @@
     "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react-hooks": "^7.0.1",
     "globals": "^16.5.0",
+    "jsdom": "26.1.0",
     "tsx": "^4.21.0",
     "typescript": "~5.9.3",
     "typescript-eslint": "8.57.2"

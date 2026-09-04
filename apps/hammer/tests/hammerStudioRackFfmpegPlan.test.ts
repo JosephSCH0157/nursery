@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { buildHammerStudioRackFfmpegPlan } from "../src/editor/hammerStudioRackFfmpegPlan";
-import { createDefaultHammerStudioRackState } from "../src/editor/hammerStudioRack";
+import { createDefaultHammerStudioRackState, isHammerStudioRackIdentity, normalizeHammerStudioRackState } from "../src/editor/hammerStudioRack";
 
 function testConservativeGateCompressorDefaults() {
   const rack = createDefaultHammerStudioRackState();
@@ -8,6 +8,28 @@ function testConservativeGateCompressorDefaults() {
   assert.equal(rack.modules.gate.range_db >= -12, true);
   assert.equal(rack.modules.compressor.ratio <= 2.0, true);
   assert.equal(rack.modules.compressor.makeup_gain_db <= 1, true);
+}
+
+function testPersistedRackNormalizationIsBoundedAndIdentityAware() {
+  const defaults = createDefaultHammerStudioRackState();
+  assert.equal(isHammerStudioRackIdentity(defaults), true);
+  const normalized = normalizeHammerStudioRackState({
+    is_enabled: true,
+    is_bypassed: false,
+    backend_preference: "ffmpeg",
+    modules: {
+      gate: { is_enabled: true, threshold_db: 999, range_db: Number.NaN },
+      compressor: { is_enabled: true, ratio: -12, makeup_gain_db: 999 },
+      eq: null,
+      reverb: "invalid",
+    },
+  });
+  assert.equal(normalized.is_enabled, true);
+  assert.equal(normalized.backend_preference, "ffmpeg");
+  assert.notEqual(normalized.modules.gate.threshold_db, 999);
+  assert.notEqual(normalized.modules.compressor.ratio, -12);
+  assert.equal(Number.isFinite(normalized.modules.gate.range_db), true);
+  assert.equal(isHammerStudioRackIdentity(normalized), false);
 }
 
 function testGateAndCompressorAreApplied() {
@@ -24,7 +46,7 @@ function testGateAndCompressorAreApplied() {
   assert.equal(plan.filterChain.includes("acompressor"), true);
 }
 
-function testEqReverbTubeAreReservedForLater() {
+function testEqReverbTubeAreApplied() {
   const rack = createDefaultHammerStudioRackState();
   rack.is_enabled = true;
   rack.modules.eq.is_enabled = true;
@@ -36,10 +58,13 @@ function testEqReverbTubeAreReservedForLater() {
   const reverbDecision = plan.decisions.find((item) => item.moduleId === "reverb");
   const tubeDecision = plan.decisions.find((item) => item.moduleId === "tubeMicCharacter");
   assert.equal(eqDecision?.requested, true);
-  assert.equal(eqDecision?.applied, false);
-  assert.equal(eqDecision?.reason, "reserved_for_future_slice");
-  assert.equal(reverbDecision?.reason, "reserved_for_future_slice");
-  assert.equal(tubeDecision?.reason, "reserved_for_future_slice");
+  assert.equal(eqDecision?.applied, true);
+  assert.equal(eqDecision?.reason, "applied_in_v1");
+  assert.equal(reverbDecision?.applied, true);
+  assert.equal(tubeDecision?.applied, true);
+  assert.match(plan.filterChain, /lowshelf/);
+  assert.match(plan.filterChain, /aecho/);
+  assert.match(plan.filterChain, /asoftclip/);
 }
 
 function testBypassedAndDisabledModulesAreNotRequested() {
@@ -100,8 +125,9 @@ function testVoiceCleanupPresetChainUsesConservativeSpeechFilters() {
 
 function run() {
   testConservativeGateCompressorDefaults();
+  testPersistedRackNormalizationIsBoundedAndIdentityAware();
   testGateAndCompressorAreApplied();
-  testEqReverbTubeAreReservedForLater();
+  testEqReverbTubeAreApplied();
   testBypassedAndDisabledModulesAreNotRequested();
   testVoicePolishAdvancedSettingsChangeRenderedFilters();
   testVoiceCleanupPresetChainUsesConservativeSpeechFilters();

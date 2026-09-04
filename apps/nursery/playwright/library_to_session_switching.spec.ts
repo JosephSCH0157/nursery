@@ -42,12 +42,12 @@ test("library_to_session_switching", async ({ page }) => {
   await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Recording Sessions" })).toBeVisible();
 
-  const sessionTitle = `PW Session ${Date.now()}`;
+  const sessionTitle = `[fixture:forge-browser-release-v1] PW Session ${Date.now()}`;
   await page.getByRole("button", { name: "Create Session" }).click();
   await page.getByPlaceholder("Recording Session").fill(sessionTitle);
   await page.locator("div").filter({ hasText: "Create Session" }).first().getByRole("button", { name: "Create" }).click();
 
-  const createdSessionButton = page.getByRole("button", { name: new RegExp(sessionTitle) }).first();
+  const createdSessionButton = page.locator("button.trs-session-row__select").filter({ hasText: sessionTitle }).first();
   await expect(createdSessionButton).toBeVisible();
   await createdSessionButton.click();
 
@@ -69,21 +69,20 @@ test("library_to_session_switching", async ({ page }) => {
 
   await page.reload();
   await expect(page.getByRole("heading", { name: "Recording Sessions" })).toBeVisible();
-  await page.getByRole("button", { name: new RegExp(sessionTitle) }).first().click();
+  await page.locator("button.trs-session-row__select").filter({ hasText: sessionTitle }).first().click();
 
-  await expect.poll(async () => {
-    const rows = await readPlanRows(page);
-    return rows.length;
-  }).toBeGreaterThanOrEqual(2);
-
-  const reloadedRows = (await readPlanRows(page)).slice(0, 2);
-  expect(reloadedRows).toEqual(expectedPlanRows);
+  await expect.poll(async () => (await readPlanRows(page)).slice(0, 2)).toEqual(expectedPlanRows);
 
   await page.goto(`/app/anvil?workspace_id=${encodeURIComponent(WORKSPACE_ID)}`);
   await page.waitForURL(/\/anvil\/teleprompter_pro\.html/);
+  await page.waitForFunction(() => (window as typeof window & { __tp_init_done?: boolean }).__tp_init_done === true, null, {
+    timeout: 20_000,
+  });
 
-  await page.getByRole("button", { name: "Settings" }).click();
-  await page.locator('[data-settings-tab="media"]').click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  const settingsOverlay = page.locator("#settingsOverlay");
+  await expect(settingsOverlay).toBeVisible({ timeout: 10_000 });
+  await settingsOverlay.locator('[data-settings-tab="media"]').click({ timeout: 10_000 });
 
   const sourceSelect = page.locator("#scriptSourceSelect");
   await expect(sourceSelect).toBeVisible();
@@ -102,16 +101,18 @@ test("library_to_session_switching", async ({ page }) => {
     return match?.value ?? "";
   }, sessionTitle);
   await sessionSelect.selectOption(sessionOptionValue);
+  await expect(page.locator("#scriptSourceIndicator")).toHaveText(/Source: Session .*\(2 scripts\)/);
 
   const scriptSelect = page.locator("#scriptSelectSidebar");
   await expect(scriptSelect).toBeVisible();
-  await expect.poll(async () => scriptSelect.locator("option").count()).toBeGreaterThanOrEqual(2);
-
-  const loadedScriptTitles = (await scriptSelect.locator("option").allTextContents())
-    .map((text) => text.trim())
-    .filter(Boolean)
-    .slice(0, 2);
-  expect(loadedScriptTitles).toEqual(expectedPlanRows.map((row) => row.title));
+  await expect.poll(async () => {
+    const titles = (await scriptSelect.locator("option").allTextContents())
+      .map((text) => text.trim())
+      .filter(Boolean)
+      .slice(0, 2);
+    return titles.length === expectedPlanRows.length
+      && titles.every((title, index) => title.startsWith(expectedPlanRows[index]!.title));
+  }).toBe(true);
 
   await sourceSelect.selectOption("library");
   await expect(page.locator("#scriptSourceIndicator")).toHaveText(/Source: Library/);

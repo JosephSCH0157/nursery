@@ -77,6 +77,10 @@ async function currentInputs(workspaceId: string, workpieceId: string, generatio
   if (!broll.ok) return broll;
   if (!reference.ok) return reference;
   if (!referenceVisual.ok) return referenceVisual;
+  const sourcesResponse=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/sources?workspace_id=${encodeURIComponent(workspaceId)}`,{method:"GET"});
+  const sourcesBody=await json(sourcesResponse);if(!sourcesResponse.ok)return failure(sourcesResponse,sourcesBody,"Canonical episode Sources could not be read.");
+  const sourcesRoot=record(sourcesBody)&&record(sourcesBody.data)?sourcesBody.data:null;
+  const sourceCatalog=(sourcesRoot&&Array.isArray(sourcesRoot.links)?sourcesRoot.links:[]).flatMap((entry)=>{if(!record(entry)||!record(entry.link_revision)||!record(entry.source_revision))return[];const linkId=string(entry.link_revision.id),title=string(entry.source_revision.title),sourceType=string(entry.source_revision.source_type),canonicalUrl=string(entry.source_revision.canonical_url);if(!linkId||!title||!sourceType||!canonicalUrl)return[];const provenance=record(entry.source_revision.provenance_json)?entry.source_revision.provenance_json:{};return[{source_key:`src_${linkId.replaceAll("-","")}`,title,publisher:string(entry.source_revision.publisher),source_type:sourceType,canonical_url:canonicalUrl,user_supplied:provenance.user_supplied===true}];});
   const imageRow = Array.isArray(image.data) && record(image.data[0]) ? image.data[0] : null;
   const brollRow = Array.isArray(broll.data) && record(broll.data[0]) ? broll.data[0] : null;
   const referenceRow = Array.isArray(reference.data) && record(reference.data[0]) ? reference.data[0] : null;
@@ -88,8 +92,8 @@ async function currentInputs(workspaceId: string, workpieceId: string, generatio
     expected_broll_revision_id: string(brollRow?.current_plan_revision_id), expected_broll_revision: integer(brollRow?.current_plan_revision),
     expected_reference_revision_id: string(referenceRow?.current_plan_revision_id), expected_reference_revision: integer(referenceRow?.current_plan_revision),
     expected_reference_visual_revision_id: string(referenceVisualRow?.current_plan_revision_id), expected_reference_visual_revision: integer(referenceVisualRow?.current_plan_revision),
-    creator_direction: null, generation_scope: generationScope, contract_version: "forge.unified-visual-plan.v2",
-    provider_contract_version: "forge.unified-visual-plan-provider.v2",
+    creator_direction: null, generation_scope: generationScope, source_catalog:sourceCatalog, contract_version: "forge.unified-visual-plan.v3",
+    provider_contract_version: "forge.unified-visual-plan-provider.v3",
     model_configuration: { model: "gpt-5-mini" },
   } };
 }
@@ -120,7 +124,8 @@ export async function generateOrResumeUnifiedVisualPlan(args: { workspaceId: str
   let inputs: JsonRecord;
   let operationId: string;
   let operationFingerprint: string;
-  if (latest.data && string(latest.data.state) !== "verified") {
+  const latestState = string(latest.data?.state);
+  if (latest.data && latestState !== "verified" && latestState !== "failed") {
     if (!record(latest.data.normalized_inputs_json)) return { ok: false, status: 502, code: "unified_visual_plan_resume_evidence_missing", error: "The durable Visual Plan operation is missing its canonical inputs.", stage: string(latest.data.state) };
     inputs = latest.data.normalized_inputs_json;
     operationId = string(latest.data.operation_id) ?? "";

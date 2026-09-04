@@ -9,6 +9,7 @@ export * from "./ai-router.js";
 export * from "./ai-pricing.js";
 export * from "./ai-usage-taxonomy.js";
 export * from "./hammer-orchestration-contract.js";
+export * from "./hammer-shorts-authority.js";
 export * from "./hammer-structured-transcript-contract.js";
 export * from "./hammer-visual-placements-contract.js";
 export * from "./hammer-editorial-authority-commit.js";

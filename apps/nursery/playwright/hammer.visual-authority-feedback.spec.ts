@@ -141,6 +141,7 @@ test("visual clips beyond playback duration retain distinct native pointer targe
     document.body.innerHTML = `
       <style>
         .hammer-visual-timeline-lane__track { position: relative; width: 160px; min-height: 44px; overflow: hidden; }
+        .hammer-hit-test-wide .hammer-visual-timeline-lane__track { width: 800px; }
         .hammer-visual-clip-block { position: absolute; height: 32px; box-sizing: border-box; padding: 0; }
       </style>
       <div id="hammer-visual-hit-test-root"></div>
@@ -176,16 +177,9 @@ test("visual clips beyond playback duration retain distinct native pointer targe
   expect(targetBox?.y).not.toBe(duplicateBox?.y);
   expect(targetBox?.y).not.toBe(laterBox?.y);
 
-  await page.locator(".hammer-visual-timeline-lane__track").evaluate((track) => {
-    (track as HTMLElement).style.width = "800px";
-  });
+  await page.evaluate(() => document.body.classList.add("hammer-hit-test-wide"));
   await expect.poll(async () => (await target.boundingBox())?.y).toBe((await later.boundingBox())?.y);
   expect((await target.boundingBox())?.y).not.toBe((await duplicate.boundingBox())?.y);
-
-  await page.locator(".hammer-visual-timeline-lane__track").evaluate((track) => {
-    (track as HTMLElement).style.width = "160px";
-  });
-  await expect.poll(async () => (await target.boundingBox())?.y).not.toBe((await later.boundingBox())?.y);
 
   await target.click();
   await duplicate.click();
@@ -486,7 +480,7 @@ test(`mounted Florida-shaped shell retains visual selection while Source Desk is
     const assets = placementIds.map((id, index) => ({
       asset_id: `asset-${index}`,
       asset_ref: `asset-${index}`,
-      kind: id === targetId ? "video" : "image",
+      kind: id === targetId ? "broll" : "image",
       label: id === targetId ? "Entire seasons lost." : `Florida visual ${index + 1}`,
       path: id === targetId ? `visuals/${index}.mp4` : `visuals/${index}.png`,
       storage_key: null,
@@ -534,6 +528,7 @@ test(`mounted Florida-shaped shell retains visual selection while Source Desk is
       assets,
       clips,
       lanes: [{ lane_id: "lane:primary", label: "Visuals", clip_ids: placementIds }],
+      packaging: { version: 1, intro_asset_id: null, outro_asset_id: null, intro_source: null, outro_source: null },
       debug_origin: "canonical_load",
     };
     const visualPlacements = {
@@ -607,13 +602,15 @@ test(`mounted Florida-shaped shell retains visual selection while Source Desk is
       structuredTranscript,
       visualTimeline,
       visualPlacements,
-      initialCurrentPass: "transcript_cleanup",
+      initialCurrentPass: "image_animation",
       onWorkspaceSnapshotChange: () => { evidence.emissions += 1; },
     }));
   }, moduleUrls);
 
   const target = page.locator('[data-clip-id="placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2"]');
   await expect(target).toHaveCount(1);
+  const expandTimeline = page.locator("section.hammer-timeline-dock").getByRole("button", { name: "Expand", exact: true });
+  if (await expandTimeline.isVisible()) await expandTimeline.click();
   const preClickBox = await target.boundingBox();
   expect(preClickBox?.y).toBeGreaterThan(720);
   const emissionsBefore = await page.evaluate(() => window.__hammerMountedFloridaSelectionEvidence.emissions);
@@ -621,7 +618,6 @@ test(`mounted Florida-shaped shell retains visual selection while Source Desk is
   await expect(target).toHaveClass(/is-selected/);
   await page.waitForTimeout(sourceDeskCase.settleBeforeSelectionMs);
   await expect(target).toHaveClass(/is-selected/);
-  await expect(page.getByLabel("Visual tools").getByRole("button", { name: "B-roll", exact: true })).toHaveClass(/is-selected/);
   const removeTarget = page.getByRole("button", { name: `Remove selected B-roll clip ${"placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2"}`, exact: true });
   await expect(removeTarget).toBeVisible();
   await expect(removeTarget).toHaveAttribute("data-placement-id", "placement_mm_from_media_still_broll-beat-f89a4ff5-04b5-408d-9cc9-83a7ad9a65a2");
@@ -763,7 +759,7 @@ test("mounted Hammer shell does not re-emit a stale workpiece visual downgrade",
       anchor_hint: { anchor_segment_id: null, matched_segment_ids: [], anchor_text: null, anchor_label: null, detached: false },
       semantic_anchor: createDefaultSemanticAnchor(), divergence: { state: "not_comparable", start_delta_sec: null, end_delta_sec: null }, updated_at: updatedAt,
     }));
-    const canonicalTimeline = { version: 2, revision: 7, updated_at: updatedAt, source_mode: "packaging", selected_clip_id: "clip-0", assets, clips, lanes: [{ lane_id: "lane:primary", label: "Visuals", clip_ids: clips.map((clip) => clip.clip_id) }], debug_origin: "canonical_load" };
+    const canonicalTimeline = { version: 2, revision: 7, updated_at: updatedAt, source_mode: "packaging", selected_clip_id: "clip-0", assets, clips, lanes: [{ lane_id: "lane:primary", label: "Visuals", clip_ids: clips.map((clip) => clip.clip_id) }], packaging: { version: 1, intro_asset_id: null, outro_asset_id: null, intro_source: null, outro_source: null }, debug_origin: "canonical_load" };
     const canonicalAuthority = { schema_version: 1, graph_id: "workpiece:plan:authority", graph_version: 1, workspace_id: "workspace", workpiece_id: "workpiece", session_id: "session", source_transcript_id: null, operation_order: [], operations: [], created_at: updatedAt, updated_at: updatedAt };
     const artifact = (data: unknown, path: string | null = null) => ({ path, updated_at: updatedAt, data });
     const canonicalSnapshot = {

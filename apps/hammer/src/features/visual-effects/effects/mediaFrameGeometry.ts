@@ -5,7 +5,16 @@ export type ContainedDrawRect = {
   dh: number;
 };
 
-function resolveSourceSize(source: CanvasImageSource): { width: number; height: number } | null {
+export type HammerPreviewContentGeometry = {
+  sourceWidth: number;
+  sourceHeight: number;
+  destWidth: number;
+  destHeight: number;
+  contentRect: ContainedDrawRect;
+  sourceToDestScale: number;
+};
+
+export function resolveSourceSize(source: CanvasImageSource): { width: number; height: number } | null {
   const candidate = source as {
     videoWidth?: number;
     videoHeight?: number;
@@ -32,22 +41,55 @@ function resolveSourceSize(source: CanvasImageSource): { width: number; height: 
   return { width, height };
 }
 
+export function resolvePreviewContentGeometry(args: {
+  source: CanvasImageSource;
+  destWidth: number;
+  destHeight: number;
+}): HammerPreviewContentGeometry | null {
+  const sourceSize = resolveSourceSize(args.source);
+  if (
+    !sourceSize
+    || !Number.isFinite(args.destWidth)
+    || !Number.isFinite(args.destHeight)
+    || args.destWidth <= 0
+    || args.destHeight <= 0
+  ) return null;
+  const sourceToDestScale = Math.min(args.destWidth / sourceSize.width, args.destHeight / sourceSize.height);
+  const rawDw = sourceSize.width * sourceToDestScale;
+  const rawDh = sourceSize.height * sourceToDestScale;
+  const dw = Math.abs(rawDw - args.destWidth) < 1e-9 ? args.destWidth : rawDw;
+  const dh = Math.abs(rawDh - args.destHeight) < 1e-9 ? args.destHeight : rawDh;
+  const rawDx = (args.destWidth - dw) / 2;
+  const rawDy = (args.destHeight - dh) / 2;
+  return {
+    sourceWidth: sourceSize.width,
+    sourceHeight: sourceSize.height,
+    destWidth: args.destWidth,
+    destHeight: args.destHeight,
+    contentRect: {
+      dx: Math.abs(rawDx) < 1e-9 ? 0 : rawDx,
+      dy: Math.abs(rawDy) < 1e-9 ? 0 : rawDy,
+      dw,
+      dh,
+    },
+    sourceToDestScale,
+  };
+}
+
 export function resolveContainedDrawRect(args: {
   source: CanvasImageSource;
   destWidth: number;
   destHeight: number;
 }): ContainedDrawRect | null {
-  const sourceSize = resolveSourceSize(args.source);
-  if (!sourceSize) return null;
-  const scale = Math.min(args.destWidth / sourceSize.width, args.destHeight / sourceSize.height);
-  const dw = sourceSize.width * scale;
-  const dh = sourceSize.height * scale;
-  return {
-    dx: (args.destWidth - dw) / 2,
-    dy: (args.destHeight - dh) / 2,
-    dw,
-    dh,
-  };
+  return resolvePreviewContentGeometry(args)?.contentRect ?? null;
+}
+
+export function drawSourceInContentRect(args: {
+  ctx: CanvasRenderingContext2D;
+  source: CanvasImageSource;
+  rect: ContainedDrawRect;
+}): void {
+  args.ctx.drawImage(args.source, args.rect.dx, args.rect.dy, args.rect.dw, args.rect.dh);
 }
 
 export function drawSourceContained(args: {
@@ -57,8 +99,9 @@ export function drawSourceContained(args: {
   destHeight: number;
   clear?: boolean;
   clipToContent?: boolean;
+  geometry?: HammerPreviewContentGeometry | null;
 }): ContainedDrawRect | null {
-  const rect = resolveContainedDrawRect({
+  const rect = args.geometry?.contentRect ?? resolveContainedDrawRect({
     source: args.source,
     destWidth: args.destWidth,
     destHeight: args.destHeight,
@@ -75,7 +118,7 @@ export function drawSourceContained(args: {
     args.ctx.rect(rect.dx, rect.dy, rect.dw, rect.dh);
     args.ctx.clip();
   }
-  args.ctx.drawImage(args.source, rect.dx, rect.dy, rect.dw, rect.dh);
+  drawSourceInContentRect({ ctx: args.ctx, source: args.source, rect });
   args.ctx.restore();
   return rect;
 }

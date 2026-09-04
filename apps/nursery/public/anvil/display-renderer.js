@@ -22992,8 +22992,13 @@ function focusSidebarCalibrationSelect() {
 
 // src/ui/toasts.ts
 var CONTAINER_ID = "tp_toast_container";
-var MAX_VISIBLE = 3;
-var DEFAULT_FADE_MS = 4e3;
+var MAX_VISIBLE = 5;
+var DEFAULT_TIMEOUT_MS = {
+  info: 6e3,
+  success: 8e3,
+  warning: 15e3,
+  error: 2e4
+};
 function ensureContainer() {
   let c = document.getElementById(CONTAINER_ID);
   if (c) return c;
@@ -23019,6 +23024,8 @@ function showToast(message, opts = {}) {
     const t = document.createElement("div");
     const typeClass = opts.type ? String(opts.type) : "";
     t.className = `tp-toast show ${typeClass}`;
+    t.setAttribute("role", typeClass === "warning" || typeClass === "error" ? "alert" : "status");
+    t.setAttribute("aria-live", typeClass === "warning" || typeClass === "error" ? "assertive" : "polite");
     const txt = document.createElement("span");
     txt.textContent = String(message ?? "");
     t.appendChild(txt);
@@ -23043,7 +23050,7 @@ function showToast(message, opts = {}) {
     });
     container.appendChild(t);
     prune(container);
-    const timeout = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : DEFAULT_FADE_MS;
+    const timeout = Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : DEFAULT_TIMEOUT_MS[typeClass] ?? DEFAULT_TIMEOUT_MS.info;
     window.setTimeout(() => {
       t.classList.remove("show");
       window.setTimeout(() => t.remove(), 120);

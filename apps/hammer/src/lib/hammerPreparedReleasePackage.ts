@@ -2,6 +2,7 @@ import type { HammerReleasePrepPackage } from "./hammerReleasePrepPackage";
 import type { HammerPackagingIntent } from "./hammerPackageMediaAuthority";
 import type { HammerFinalAudioMasterAuthority } from "../composition/hammerFinalAudioAuthority";
 import type { HammerFinalVideoMasterAuthority } from "../../../../packages/contracts/hammer/final-video-master.contract";
+import type { HammerExactAudioRenderReceiptV1 } from "../editor/hammerExactAudioReceipt";
 
 export const HAMMER_PREPARED_RELEASE_PACKAGE_PATH = "hammer/release-prep/package.v1.json";
 export const HAMMER_PREPARED_RELEASE_SRT_PATH = "hammer/release-prep/subtitles/current.srt";
@@ -52,6 +53,7 @@ export interface HammerPreparedReleasePackage {
     activeAudioFocus: string | null;
   };
   finalAudioMaster: HammerFinalAudioMasterAuthority | null;
+  exactAudioReceipt: HammerExactAudioRenderReceiptV1 | null;
   finalVideoMaster: HammerFinalVideoMasterAuthority | null;
   packagingMedia?: HammerPackagingIntent;
   brandProvenance?: HammerBrandApplicationProvenance | null;
@@ -150,6 +152,7 @@ export function buildHammerPreparedReleasePackage(args: {
   timelineRevision?: string | null;
   recordingRevisionId?: string | null;
   finalAudioMaster?: HammerFinalAudioMasterAuthority | null;
+  exactAudioReceipt?: HammerExactAudioRenderReceiptV1 | null;
   finalVideoMaster?: HammerFinalVideoMasterAuthority | null;
 }): HammerPreparedReleasePackage {
   const preparedAt = args.preparedAt ?? new Date().toISOString();
@@ -229,6 +232,7 @@ export function buildHammerPreparedReleasePackage(args: {
       activeAudioFocus: args.current.media_prep_outputs.audio.preferred_playback.reason,
     },
     finalAudioMaster: args.finalAudioMaster ?? null,
+    exactAudioReceipt: args.exactAudioReceipt ?? null,
     finalVideoMaster: args.finalVideoMaster ?? null,
     packagingMedia: structuredClone(args.current.packaging_media),
     overallStatus: resolveOverallStatus({

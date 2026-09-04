@@ -1,4 +1,5 @@
 import type { BackgroundEffectFrameResult, BackgroundEffectRenderer, BackgroundBlurSettings, ForegroundMatte } from "../types";
+import { drawSourceContained, resolvePreviewContentGeometry, type ContainedDrawRect, type HammerPreviewContentGeometry } from "./mediaFrameGeometry";
 
 function nowMs(): number {
   return (typeof performance !== "undefined" && typeof performance.now === "function") ? performance.now() : Date.now();
@@ -97,19 +98,19 @@ function applyBoundaryDesaturation(args: {
   ctx.putImageData(image, 0, 0);
 }
 
-function drawCover(ctx: CanvasRenderingContext2D, img: CanvasImageSource, w: number, h: number): void {
+function drawCover(ctx: CanvasRenderingContext2D, img: CanvasImageSource, rect: ContainedDrawRect): void {
   // Simple cover fit based on intrinsic size when available.
-  const iw = (img as HTMLImageElement).naturalWidth || (img as HTMLVideoElement).videoWidth || (img as HTMLCanvasElement).width || w;
-  const ih = (img as HTMLImageElement).naturalHeight || (img as HTMLVideoElement).videoHeight || (img as HTMLCanvasElement).height || h;
+  const iw = (img as HTMLImageElement).naturalWidth || (img as HTMLVideoElement).videoWidth || (img as HTMLCanvasElement).width || rect.dw;
+  const ih = (img as HTMLImageElement).naturalHeight || (img as HTMLVideoElement).videoHeight || (img as HTMLCanvasElement).height || rect.dh;
   if (!iw || !ih) {
-    ctx.drawImage(img, 0, 0, w, h);
+    ctx.drawImage(img, rect.dx, rect.dy, rect.dw, rect.dh);
     return;
   }
-  const scale = Math.max(w / iw, h / ih);
+  const scale = Math.max(rect.dw / iw, rect.dh / ih);
   const dw = iw * scale;
   const dh = ih * scale;
-  const dx = (w - dw) / 2;
-  const dy = (h - dh) / 2;
+  const dx = rect.dx + ((rect.dw - dw) / 2);
+  const dy = rect.dy + ((rect.dh - dh) / 2);
   ctx.drawImage(img, dx, dy, dw, dh);
 }
 
@@ -170,6 +171,7 @@ export class BackgroundReplacementRenderer implements BackgroundEffectRenderer {
     matte: ForegroundMatte;
     settings: BackgroundBlurSettings;
     output: HTMLCanvasElement;
+    geometry?: HammerPreviewContentGeometry | null;
   }): BackgroundEffectFrameResult {
     const started = nowMs();
     const warnings: string[] = [];
@@ -186,6 +188,10 @@ export class BackgroundReplacementRenderer implements BackgroundEffectRenderer {
     const w = args.output.width;
     const h = args.output.height;
     if (w <= 0 || h <= 0) {
+      return { compositingMs: 0, droppedFrame: true, degradedReason: "canvas_size_unavailable", warnings: [] };
+    }
+    const geometry = args.geometry ?? resolvePreviewContentGeometry({ source: args.source, destWidth: w, destHeight: h });
+    if (!geometry) {
       return { compositingMs: 0, droppedFrame: true, degradedReason: "canvas_size_unavailable", warnings: [] };
     }
 
@@ -232,7 +238,7 @@ export class BackgroundReplacementRenderer implements BackgroundEffectRenderer {
 
     if (degradedReason && args.settings.fallbackMode === "passthrough") {
       // Keep preview honest: show passthrough when degraded and explicitly allowed.
-      outputCtx.drawImage(args.source, 0, 0, w, h);
+      drawSourceContained({ ctx: outputCtx, source: args.source, destWidth: w, destHeight: h, geometry });
       const finished = nowMs();
       return {
         compositingMs: Math.max(0, Math.round((finished - started) * 10) / 10),
@@ -252,23 +258,29 @@ export class BackgroundReplacementRenderer implements BackgroundEffectRenderer {
       };
     }
 
-    // Draw background replacement.
+    const content = geometry.contentRect;
+    outputCtx.save();
+    outputCtx.beginPath();
+    outputCtx.rect(content.dx, content.dy, content.dw, content.dh);
+    outputCtx.clip();
+    // Draw background replacement only inside the canonical media rectangle.
     if (args.settings.replacementMode === "solid") {
       outputCtx.fillStyle = args.settings.replacementColor || "#2b2b2b";
-      outputCtx.fillRect(0, 0, w, h);
+      outputCtx.fillRect(content.dx, content.dy, content.dw, content.dh);
     } else if (args.settings.replacementMode === "checkerboard") {
       outputCtx.fillStyle = this.getCheckerboardPattern(outputCtx);
-      outputCtx.fillRect(0, 0, w, h);
+      outputCtx.fillRect(content.dx, content.dy, content.dw, content.dh);
     } else if (this.replacementImageReady && this.replacementImage) {
-      drawCover(outputCtx, this.replacementImage, w, h);
+      drawCover(outputCtx, this.replacementImage, content);
     } else {
       outputCtx.fillStyle = "#2b2b2b";
-      outputCtx.fillRect(0, 0, w, h);
+      outputCtx.fillRect(content.dx, content.dy, content.dw, content.dh);
       warnings.push("replacement_image_fallback_solid");
     }
 
     // Composite the sharp subject on top.
-    outputCtx.drawImage(this.subjectCanvas, 0, 0, w, h);
+    outputCtx.drawImage(this.subjectCanvas, content.dx, content.dy, content.dw, content.dh);
+    outputCtx.restore();
 
     const finished = nowMs();
     return {

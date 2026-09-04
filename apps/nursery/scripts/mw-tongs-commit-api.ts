@@ -1,5 +1,8 @@
 import { Buffer } from "node:buffer";
 import type { IncomingMessage, ServerResponse } from "node:http";
+import { createClient } from "@supabase/supabase-js";
+import type { Database } from "../../../packages/tongs/src/db.types.ts";
+import { handleHammerShortsAuthorityRequest } from "../../../packages/tongs/src/hammer-shorts-authority.ts";
 // Use the workspace source in dev so new Tongs routes are available after a Vite restart
 // without depending on a separately rebuilt package dist snapshot.
 import {
@@ -131,6 +134,7 @@ export function createNurseryTongsMiddleware(opts?: { routePrefix?: string }) {
   const providerBoundary = resolveNurseryTongsProviderBoundary(config);
   const service = config.missing.length ? null : createTongsCommitService(providerBoundary.options);
   const handler = service ? createTongsCommitApiHandlerWithService(service, config.options.apiToken) : null;
+  const shortsServiceClient = config.missing.length ? null : createClient<Database>(config.options.supabaseUrl, config.options.supabaseServiceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });
 
   console.info("[nursery:tongs-commit-api] provider boundary", {
     ...providerBoundary.diagnostic,
@@ -187,7 +191,23 @@ export function createNurseryTongsMiddleware(opts?: { routePrefix?: string }) {
         body: requestBody,
       });
 
-      const response = await handler(request);
+      let response: Response;
+      if (pathname.startsWith(`${routePrefix}/hammer/shorts`)) {
+        const rawAuthorization = String(req.headers["x-forge-user-authorization"] ?? req.headers.authorization ?? "");
+        const accessToken = rawAuthorization.replace(/^Bearer\s+/i, "").trim();
+        if (!accessToken) {
+          response = new Response(JSON.stringify({ ok: false, error: { code: "hammer_shorts_auth_required" } }), { status: 401, headers: { "content-type": "application/json" } });
+        } else {
+          const userClient = createClient<Database>(config.options.supabaseUrl, config.options.supabaseServiceRoleKey, {
+            auth: { persistSession: false, autoRefreshToken: false },
+            global: { headers: { Authorization: `Bearer ${accessToken}` } },
+          });
+          response = await handleHammerShortsAuthorityRequest(request, userClient, shortsServiceClient ?? undefined)
+            ?? new Response(JSON.stringify({ ok: false, error: { code: "hammer_shorts_route_not_found" } }), { status: 404 });
+        }
+      } else {
+        response = await handler(request);
+      }
       await writeFetchResponse(res, response);
     } catch (error) {
       // Browser navigation, HMR, or cancellation can close a request while a

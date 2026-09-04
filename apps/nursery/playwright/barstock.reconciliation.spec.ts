@@ -96,7 +96,9 @@ test.describe("Barstock reconciliation", () => {
     await expect(card).toBeVisible({ timeout: 30_000 });
     await card.getByRole("button", { name: "More" }).click();
     page.once("dialog", (dialog) => void dialog.accept());
-    await card.getByRole("button", { name: "Delete" }).click();
+    const deleteButton = card.getByRole("button", { name: "Delete" });
+    await deleteButton.focus();
+    await page.keyboard.press("Enter");
     await expect(card).toHaveCount(0, { timeout: 30_000 });
 
     await page.reload({ waitUntil: "load" });

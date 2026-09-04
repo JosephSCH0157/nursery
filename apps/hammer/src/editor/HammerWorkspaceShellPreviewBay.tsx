@@ -1,6 +1,6 @@
 import type { JSX, MutableRefObject, MouseEvent, RefObject } from "react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import BackgroundBlurPreviewLayer from "../features/visual-effects/render/backgroundBlurPreviewLayer";
+import BackgroundBlurPreviewLayer, { type HammerBackgroundBlurRuntimeStatus } from "../features/visual-effects/render/backgroundBlurPreviewLayer";
 import EyeContactAssistPreviewLayer from "../features/eye-contact-assist/render/eyeContactAssistPreviewLayer";
 import FaceAnalysisPreviewLayer from "../features/eye-contact-assist/render/faceAnalysisPreviewLayer";
 import type { FaceAnalysisFrame, FaceAnalysisResult } from "../features/eye-contact-assist/types";
@@ -15,6 +15,7 @@ import { sameFaceAnalysisFrame } from "../features/eye-contact-assist/analysis/f
 import VisualPreviewComposer, { type VisualPreviewOverlayModel } from "../visuals/components/VisualPreviewComposer";
 import { isAutoPlacementDebugFlagEnabled } from "./hammerAutoPlacementDebugFlag";
 import { isAnalysisFrameAtCompositionTime } from "./hammerAutoPreviewPosition";
+import { resolveHammerPreviewPerformanceMediaOverride } from "./hammerPreviewPerformanceMediaOverride";
 
 export type HammerWorkspaceShellPreviewBayVM = {
   previewModeLabel: string;
@@ -205,10 +206,31 @@ export type HammerWorkspaceShellPreviewBayVM = {
 export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorkspaceShellPreviewBayVM; analysisAuthority: PlacementFrameAnalysisAuthority }): JSX.Element {
   const vm = props.vm;
   const analysisAuthority = props.analysisAuthority;
+  const performanceMediaOverride = resolveHammerPreviewPerformanceMediaOverride({ development: import.meta.env.DEV, search: typeof window === "undefined" ? "" : window.location.search });
+  const visualPreviewMediaSrc = performanceMediaOverride ?? vm.previewVideoSrc;
+  const segmentationMediaSrc = performanceMediaOverride ?? vm.segmentationSourceVideoSrc;
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
   const [faceAnalysisResult, setFaceAnalysisResult] = useState<FaceAnalysisResult | null>(null);
   const [analysisFrame, setAnalysisFrame] = useState<FaceAnalysisFrame | null>(null);
   const [placementPair, setPlacementPair] = useState<FrameBoundPlacementEvidencePair | null>(null);
+  const [backgroundRuntimeStatus, setBackgroundRuntimeStatus] = useState<HammerBackgroundBlurRuntimeStatus | null>(null);
+  const [videoReady, setVideoReady] = useState(false);
+  useEffect(() => { setVideoReady(false); }, [visualPreviewMediaSrc]);
+  const handleBackgroundStatus = useCallback((status: HammerBackgroundBlurRuntimeStatus) => {
+    setBackgroundRuntimeStatus(status);
+    vm.backgroundEffect.onStatus(status);
+  }, [vm.backgroundEffect]);
+  const previewHealth = useMemo(() => {
+    if (!videoReady) return { label: "Loading", state: "loading" } as const;
+    if (!vm.backgroundEffect.enabled) return { label: "Live", state: "live" } as const;
+    if (!backgroundRuntimeStatus || backgroundRuntimeStatus.mask.status !== "ok") {
+      return backgroundRuntimeStatus?.provider.readiness.status === "failed"
+        ? ({ label: "Unavailable", state: "unavailable" } as const)
+        : ({ label: "Refining", state: "refining" } as const);
+    }
+    if (backgroundRuntimeStatus.degradedReason) return { label: "Degraded", state: "degraded" } as const;
+    return { label: "Live", state: "live" } as const;
+  }, [backgroundRuntimeStatus, videoReady, vm.backgroundEffect.enabled]);
   const automaticPlacementEnabled = vm.automaticPlacement?.enabled ?? false;
   const automaticPlacementOverlayWidthPct = vm.automaticPlacement?.overlay?.widthPct ?? null;
   const automaticPlacementOverlayHeightPct = vm.automaticPlacement?.overlay?.heightPct ?? null;
@@ -419,16 +441,18 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
         <div className="hammer-preview-surface" ref={vm.previewSurfaceRef}>
           <video
             ref={vm.previewVideoRef}
-            src={vm.previewVideoSrc ?? undefined}
+            src={visualPreviewMediaSrc ?? undefined}
             muted
             preload="auto"
             playsInline
             className="hammer-preview-media"
+            onLoadedData={() => setVideoReady(true)}
           />
+          {!videoReady ? <div className="hammer-preview-loading" aria-label="Loading preview"><span /></div> : null}
           {vm.segmentationSourceVideoRef !== vm.previewVideoRef ? (
             <video
               ref={vm.segmentationSourceVideoRef}
-              src={vm.segmentationSourceVideoSrc ?? undefined}
+              src={segmentationMediaSrc ?? undefined}
               muted
               preload="auto"
               playsInline
@@ -458,7 +482,8 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
             settings={vm.backgroundEffect.settings}
             providerId={vm.backgroundEffect.providerId}
             videoRef={vm.backgroundEffect.sourceVideoRef}
-            onStatus={vm.backgroundEffect.onStatus}
+            mediaRevision={visualPreviewMediaSrc}
+            onStatus={handleBackgroundStatus}
             debugMasks={vm.backgroundEffect.debugMasks}
             maskPreviewMode={vm.backgroundEffect.maskPreviewMode}
             maskPreviewStage={vm.backgroundEffect.maskPreviewStage}
@@ -487,6 +512,7 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
             faceAnalysisResult={faceAnalysisResult}
           />
           <div className="hammer-preview-surface__label">{vm.previewSurfaceLabel}</div>
+          <div className={`hammer-preview-health-chip is-${previewHealth.state}`} role="status">{previewHealth.label}</div>
           <VisualPreviewComposer
             overlays={vm.visualPreview.overlays}
             emptyStateMessage={vm.visualPreview.emptyStateMessage}
@@ -678,6 +704,7 @@ export default function HammerWorkspaceShellPreviewBay(props: { vm: HammerWorksp
         <div className="hammer-preview-primary-controls">
           <span>Playhead {vm.playheadSec.toFixed(1)}s</span>
           <span>{vm.playbackModeLabel}</span>
+          <span>{vm.backgroundEffect.settings.qualityMode ?? "medium"} quality</span>
           <button type="button" onClick={vm.togglePlayback}>
             {vm.isPlaybackActive ? "Pause (Space)" : "Play (Space)"}
           </button>

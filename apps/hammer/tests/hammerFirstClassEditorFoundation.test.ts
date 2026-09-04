@@ -27,7 +27,7 @@ import { acceptHammerAiProposalV1, auditHammerPermanentExpansionGateV1, createHa
 test("Tongs fails closed before any V2 artifact write when the migration is unavailable", () => {
   const source = readFileSync(new URL("../../../packages/tongs/src/workpiece-commit-api.ts", import.meta.url), "utf8");
   const probe = source.indexOf("hammer_v2_schema_unavailable");
-  const firstWrite = source.indexOf('commitRevisionArtifact("composition_v2"');
+  const firstWrite = source.search(/commitRevisionArtifact\(\s*"composition_v2"/);
   assert.ok(probe >= 0 && firstWrite > probe);
   const migration = readFileSync(new URL("../../../supabase/migrations/20260713023000_tongs_hammer_composition_v2.sql", import.meta.url), "utf8");
   assert.match(migration, /alter table tongs\.recording_revisions enable row level security/);
@@ -170,10 +170,11 @@ test("an acknowledged V2 transaction wins and a stale V2 transaction never falls
 
 test("Tongs composition pointer acknowledgement is compare-and-swap guarded", () => {
   const source = readFileSync(new URL("../../../packages/tongs/src/workpiece-commit-api.ts", import.meta.url), "utf8");
-  assert.match(source, /select\("composition_v2_path,media_provenance_path,render_jobs_path,release_packet_path,composition_revision,composition_fingerprint,composition_history_head_id"\)/);
-  assert.ok(source.indexOf("composition_history_head_id\")") < source.indexOf("commitRevisionArtifact(\"composition_v2\""));
+  const pointerProbe = source.search(/select\(\s*"composition_v2_path,media_provenance_path,render_jobs_path,release_packet_path,composition_revision,composition_fingerprint,composition_history_head_id"/);
+  const compositionWrite = source.search(/commitRevisionArtifact\(\s*"composition_v2"/);
+  assert.ok(pointerProbe >= 0 && pointerProbe < compositionWrite);
   assert.match(source, /composition_expected_revision_required/);
-  assert.match(source, /updateQuery\.eq\("updated_at", input\.expected_revision_updated_at\)/);
+  assert.match(source, /updateQuery\.eq\(\s*"updated_at",\s*input\.expected_revision_updated_at\s*,?\s*\)/);
   assert.match(source, /composition_revision_conflict/);
   const migration = readFileSync(new URL("../../../supabase/migrations/20260713043000_tongs_hammer_composition_v2_concurrency.sql", import.meta.url), "utf8");
   assert.match(migration, /composition_revision bigint/);

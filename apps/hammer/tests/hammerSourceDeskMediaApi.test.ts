@@ -14,7 +14,6 @@ import {
   saveWorkspaceIntroOutroDefaults,
   uploadWorkpieceMediaFile,
 } from "../src/lib/hammerSourceDeskMediaApi";
-import { deriveStableHammerAssetIdFromPath } from "../src/lib/hammerAssetIdentity";
 import { detectMediaType, intake } from "../src/lib/hammerIntakeRecordingApi";
 import { normalizeWorkpieceRelativePath } from "../../../packages/contracts/workpiece-paths";
 
@@ -166,7 +165,7 @@ async function testIntroOutroSelectionParsesTongsEnvelope() {
   });
 }
 
-async function testIntroOutroSelectionLegacyPathMigration() {
+async function testIntroOutroSelectionLegacyPathsFailClosed() {
   const legacyIntroPath = "assets/uploads/introoutro/1-intro.mp4";
   const legacyOutroPath = "assets/uploads/introoutro/2-outro.mp4";
   const readFetch = async () => createOkJsonResponse({
@@ -180,8 +179,8 @@ async function testIntroOutroSelectionLegacyPathMigration() {
   const loaded = await loadIntroOutroSelection("workpiece-abc", readFetch as never);
   assert.deepEqual(loaded, {
     schema_version: 1,
-    intro_asset_id: deriveStableHammerAssetIdFromPath(legacyIntroPath),
-    outro_asset_id: deriveStableHammerAssetIdFromPath(legacyOutroPath),
+    intro_asset_id: null,
+    outro_asset_id: null,
     updated_at: "2026-03-21T12:00:00.000Z",
   });
 }
@@ -495,7 +494,7 @@ async function run() {
   await testInvalidUploadRejectedBeforeFetch();
   await testLegacyIntroOutroSelectionImport();
   await testIntroOutroSelectionParsesTongsEnvelope();
-  await testIntroOutroSelectionLegacyPathMigration();
+  await testIntroOutroSelectionLegacyPathsFailClosed();
   await testWorkspaceIntroOutroDefaultsSerializationRoundTrip();
   await testListWorkpieceStoredMediaParsesTongsEnvelopeAndNormalizesPaths();
   await testNormalizeWorkpieceRelativePath();

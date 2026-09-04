@@ -170,6 +170,8 @@ type BuildImageMapPanelArgs = {
   onSavePromptEdit: ImageMapPanelProps["onSavePromptEdit"];
   onRefreshPrompt: ImageMapPanelProps["onRefreshPrompt"];
   onUploadAsset: (file: File) => void;
+  onUploadGenerationReference: ImageMapPanelProps["onUploadGenerationReference"];
+  onRemoveGenerationReference: ImageMapPanelProps["onRemoveGenerationReference"];
   onSelectCandidate: (candidateId: string) => void;
   onCopyExport: () => void;
   onDownloadExport: () => void;
@@ -446,6 +448,8 @@ export function buildImageMapPanelProps(args: BuildImageMapPanelArgs): ImageMapP
     onSavePromptEdit: args.onSavePromptEdit,
     onRefreshPrompt: args.onRefreshPrompt,
     onUploadAsset: args.onUploadAsset,
+    onUploadGenerationReference: args.onUploadGenerationReference,
+    onRemoveGenerationReference: args.onRemoveGenerationReference,
     onSelectCandidate: args.onSelectCandidate,
     onCopyExport: args.onCopyExport,
     onDownloadExport: args.onDownloadExport,

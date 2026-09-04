@@ -113,6 +113,8 @@ export type UploadWorkpieceImageMapCandidateAssetResult =
       visual_mode: null;
       mime_type: string;
       source: EpisodeImageMapAssetSource;
+      width: number | null;
+      height: number | null;
     };
   }
   | {
@@ -436,6 +438,7 @@ export async function generateWorkpieceImageMapCandidates(args: {
   size?: string | null;
   confirmSpend?: boolean;
   alwaysApproveAiSpend?: boolean;
+  generationReference?: import("./hearth-generation-reference").HearthGenerationReferenceImage | null;
 }): Promise<GenerateWorkpieceImageMapCandidatesResult> {
   const response = await tongsFetch(
     `/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/image-map/generate-candidates`,
@@ -456,6 +459,7 @@ export async function generateWorkpieceImageMapCandidates(args: {
         ...(typeof args.size !== "undefined" ? { size: args.size } : {}),
         confirm_spend: args.confirmSpend,
         always_approve_ai_spend: args.alwaysApproveAiSpend,
+        generation_reference: args.generationReference ?? null,
       },
     },
   );
@@ -680,6 +684,8 @@ export async function uploadWorkpieceImageMapCandidateAsset(args: {
       visual_mode: null,
       mime_type: mimeType,
       source,
+      width: Number.isInteger(Number(args.preparationEvidence?.target_width)) && Number(args.preparationEvidence?.target_width) > 0 ? Number(args.preparationEvidence?.target_width) : null,
+      height: Number.isInteger(Number(args.preparationEvidence?.target_height)) && Number(args.preparationEvidence?.target_height) > 0 ? Number(args.preparationEvidence?.target_height) : null,
     },
   };
 }

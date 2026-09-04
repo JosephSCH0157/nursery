@@ -30,12 +30,12 @@ test("creator amendments reject stale plan, script, anchor, and replay evidence"
 
 test("unified recovery loads the frozen operation before rebuilding canonical inputs", () => {
   const method = service.slice(service.indexOf("async generateUnifiedVisualPlan"), service.indexOf("async acquireReferenceClipCandidate"));
-  const read = method.indexOf('rpc("read_unified_visual_plan_operation"');
-  const hash = method.indexOf("const expectedFingerprint=await sha256Hex");
-  const begin = method.indexOf('rpc("begin_unified_visual_plan"');
+  const read = method.search(/rpc\(\s*"read_unified_visual_plan_operation"/);
+  const hash = method.search(/const expectedFingerprint\s*=\s*await sha256Hex/);
+  const begin = method.search(/rpc\(\s*"begin_unified_visual_plan"/);
   assert.ok(read >= 0 && read < hash && hash < begin);
-  assert.match(method, /const normalizedInputs=frozen\?\?/);
-  assert.match(method, /providerResponse=isRecord\(operation\.provider_response_json\)/);
+  assert.match(method, /const normalizedInputs\s*=\s*frozen\s*\?\?/);
+  assert.match(method, /providerResponse\s*=\s*isRecord\(operation\.provider_response_json\)/);
 });
 
 test("successor plans retain canonical B-roll, Source Clip, and Reference Visual selections", () => {
@@ -56,8 +56,8 @@ test("Source Clip retention uses a dedicated one-based deterministic merge", () 
   assert.match(retentionRepair, /not exists \([\s\S]*m\.opportunity_id = s\.opportunity_id/);
   assert.match(retentionRepair, /provider_proposed', provider_members/);
   assert.match(retentionRepair, /creator_retained', retained/);
-  assert.match(service, /rpc\("retain_unified_reference_clip_selections"/);
-  assert.match(service, /p_failed_stage:"reference_clip_retention"/);
+  assert.match(service, /rpc\(\s*"retain_unified_reference_clip_selections"/);
+  assert.match(service, /p_failed_stage:\s*"reference_clip_retention"/);
   assert.match(service, /fail_unified_visual_plan/);
 });
 
@@ -68,8 +68,8 @@ test("a direct creator-authored Reference Visual successor can supersede the fro
   assert.match(creatorSupersession, /provider_output_applied', false/);
   assert.match(creatorSupersession, /superseded_by_creator_plan', true/);
   assert.match(creatorSupersession, /opportunity_origin = 'creator_added'/);
-  assert.match(service, /rpc\("adopt_creator_amended_reference_visual_plan"/);
-  assert.match(service, /p_failed_stage:"reference_visual_retention"/);
+  assert.match(service, /rpc\(\s*"adopt_creator_amended_reference_visual_plan"/);
+  assert.match(service, /p_failed_stage:\s*"reference_visual_retention"/);
 });
 
 test("a direct canonical Image anchor-repair successor can be adopted before final verification", () => {
@@ -78,11 +78,11 @@ test("a direct canonical Image anchor-repair successor can be adopted before fin
   assert.match(imageRepairSuccessor, /forge\.image-map-anchor\.v1/);
   assert.match(imageRepairSuccessor, /current_map\.provenance_state <> 'current'/);
   assert.match(imageRepairSuccessor, /authority_repair_successor', true/);
-  assert.match(service, /rpc\("adopt_repaired_image_map_for_unified_operation"/);
-  assert.match(service, /p_failed_stage:"verification"/);
+  assert.match(service, /rpc\(\s*"adopt_repaired_image_map_for_unified_operation"/);
+  assert.match(service, /p_failed_stage:\s*"verification"/);
 });
 
 test("the authenticated route exposes the canonical append operation", () => {
-  assert.match(service, /parts\[4\]==="append-opportunity"/);
+  assert.match(service, /parts\[4\]\s*===\s*"append-opportunity"/);
   assert.match(service, /service\.appendReferenceVisualOpportunity/);
 });

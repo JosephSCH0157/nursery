@@ -101,6 +101,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   const editableTranscriptSegments = ctx.editableTranscriptSegments as any[];
   const linkedSelection = ctx.linkedSelection as { anchorId?: string | null; isLinked?: boolean } | null;
   const selectedSegmentId = (linkedSelection?.anchorId ?? ctx.selectedSegmentId) as string | null;
+  const activeTranscriptSegmentId = (ctx.activeTranscriptSegmentId ?? selectedSegmentId) as string | null;
   const setFocusOverride = ctx.setFocusOverride as (mode: "auto" | "source-focus" | "tool-focus" | "time-focus") => void;
   const transcriptTimingHint = ctx.transcriptTimingHint as string | null;
   const applyTranscriptSelection = ctx.applyTranscriptSelection as (segmentId: string, extend: boolean) => void;
@@ -1026,7 +1027,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                     data-transcript-segment-id={segment.segment_id}
                                     className={[
                                       "hammer-transcript-doc-seg",
-                                      segment.segment_id === selectedSegmentId ? "is-active" : "",
+                                      segment.segment_id === activeTranscriptSegmentId ? "is-active" : "",
                                       transcriptSelectionSegmentIdSet.has(segment.segment_id) ? "is-range" : "",
                                       modifiedTranscriptSegmentIds.has(segment.segment_id) ? "is-modified" : "",
                                       candidateSegmentIdSet.has(segment.segment_id) ? "is-candidate" : "",
@@ -1093,7 +1094,7 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                                     key={`diag-${segment.segment_id}`}
                                     className={[
                                       "hammer-transcript-page-seg",
-                                      segment.segment_id === selectedSegmentId ? "is-active" : "",
+                                      segment.segment_id === activeTranscriptSegmentId ? "is-active" : "",
                                       transcriptSelectionSegmentIdSet.has(segment.segment_id) ? "is-range" : "",
                                       modifiedTranscriptSegmentIds.has(segment.segment_id) ? "is-modified" : "",
                                       candidateSegmentIdSet.has(segment.segment_id) ? "is-candidate" : "",

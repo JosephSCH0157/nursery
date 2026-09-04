@@ -520,7 +520,7 @@ Guardrails:
   border: 1px solid rgba(148, 163, 184, 0.2);
   border-radius: 12px;
   background: rgba(15, 23, 42, 0.5);
-  padding: 14px 14px 16px;
+  padding: 14px 14px clamp(84px, 24vh, 180px);
   display: grid;
   gap: 14px;
 }
@@ -1140,6 +1140,50 @@ Guardrails:
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.hammer-preview-health-chip {
+  position: absolute;
+  z-index: 6;
+  right: 10px;
+  top: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  border-radius: 999px;
+  padding: 4px 9px;
+  background: rgba(2, 6, 23, 0.78);
+  color: #dbeafe;
+  font-size: 10px;
+  line-height: 1;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.hammer-preview-health-chip.is-live { border-color: rgba(74, 222, 128, 0.45); color: #bbf7d0; }
+.hammer-preview-health-chip.is-refining,
+.hammer-preview-health-chip.is-loading { border-color: rgba(96, 165, 250, 0.5); color: #bfdbfe; }
+.hammer-preview-health-chip.is-degraded { border-color: rgba(251, 191, 36, 0.5); color: #fde68a; }
+.hammer-preview-health-chip.is-unavailable { border-color: rgba(248, 113, 113, 0.5); color: #fecaca; }
+
+.hammer-preview-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  background: linear-gradient(110deg, rgba(2, 6, 23, 0.96) 30%, rgba(30, 41, 59, 0.86) 45%, rgba(2, 6, 23, 0.96) 60%);
+  background-size: 220% 100%;
+  animation: hammer-preview-loading 1.25s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.hammer-preview-loading span { width: 32px; height: 3px; border-radius: 999px; background: rgba(147, 197, 253, 0.72); }
+
+@keyframes hammer-preview-loading { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .hammer-preview-loading { animation: none; }
+  .hammer-preview-health-chip,
+  .hammer-preview-matte-canvas { transition: none; }
 }
 
 .hammer-preview-canvas {

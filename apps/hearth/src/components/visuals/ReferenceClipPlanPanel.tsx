@@ -4,6 +4,7 @@ import type { EpisodeBrollAssetCandidate, EpisodeContextualDataCompositePlan } f
 import type { ExternalGenerationProvider } from "../../lib/hearth-visual-actionability";
 import type { PromptPack } from "../../lib/hearth-visual-provider-profiles";
 import CanonicalReferenceMaterialPanel from "./CanonicalReferenceMaterialPanel";
+import { getReferenceMaterialRollout } from "../../lib/hearth-style-service";
 
 type ReferenceClipPlanPanelProps = {
   canonicalWorkspaceId?: string | null;
@@ -622,8 +623,38 @@ function LegacyReferenceClipPlanPanel(props: ReferenceClipPlanPanelProps) {
 }
 
 export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProps) {
-  if (props.canonicalWorkspaceId && props.canonicalWorkpieceId) {
-    return <CanonicalReferenceMaterialPanel workspaceId={props.canonicalWorkspaceId} workpieceId={props.canonicalWorkpieceId}/>;
+  const workspaceId = props.canonicalWorkspaceId ?? null;
+  const workpieceId = props.canonicalWorkpieceId ?? null;
+  const [rollout, setRollout] = useState<"loading" | "enabled" | "disabled" | "unavailable">(
+    workspaceId && workpieceId ? "loading" : "disabled",
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!workspaceId || !workpieceId) {
+      setRollout("disabled");
+      return () => {
+        cancelled = true;
+      };
+    }
+    setRollout("loading");
+    void getReferenceMaterialRollout(workspaceId).then((result) => {
+      if (cancelled) return;
+      setRollout(result.ok ? (result.data.enabled ? "enabled" : "disabled") : "unavailable");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceId, workpieceId]);
+
+  if (workspaceId && workpieceId && rollout === "enabled") {
+    return <CanonicalReferenceMaterialPanel workspaceId={workspaceId} workpieceId={workpieceId}/>;
   }
-  return <LegacyReferenceClipPlanPanel {...props}/>;
+  if (workspaceId && workpieceId && rollout === "loading") {
+    return <div className="hs-imap-help-text" role="status">Checking Reference Material availability…</div>;
+  }
+  return <>
+    {rollout === "unavailable" ? <div className="hs-error-text-small" role="status">Reference Material rollout authority is unavailable. The established reference workflow remains available.</div> : null}
+    <LegacyReferenceClipPlanPanel {...props}/>
+  </>;
 }

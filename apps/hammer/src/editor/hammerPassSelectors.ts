@@ -283,6 +283,8 @@ export function getPassReloadExpectation(
       return { code: "restore_audio_basis", label: "Restore canonical audio polish and audio edit state." };
     case "packaging":
       return { code: "restore_packaging_basis", label: "Restore persisted intro/outro/logo packaging state." };
+    case "shorts":
+      return { code: "recompute_readiness", label: "Recheck the saved canonical edit before creating Shorts." };
     case "ready":
       return { code: "recompute_readiness", label: "Recompute readiness from canonical export and handoff truth." };
     default:
@@ -308,7 +310,7 @@ export function canEnterPass(
   passId: HammerPassId,
   context: HammerPassSelectorContext,
 ): boolean {
-  if (passId === "packaging" || passId === "ready") {
+  if (passId === "packaging" || passId === "shorts" || passId === "ready") {
     return hasStructuredTranscript(context);
   }
   return !getPassStatus(passId, context).isBlocking;
@@ -342,6 +344,9 @@ export function getPassStatus(
       break;
     case "packaging":
       reasonCodes = packagingReasonCodes(context);
+      break;
+    case "shorts":
+      reasonCodes = hasStructuredTranscript(context) ? [] : ["structured_transcript_missing"];
       break;
     case "ready":
       reasonCodes = readyReasonCodes(context);

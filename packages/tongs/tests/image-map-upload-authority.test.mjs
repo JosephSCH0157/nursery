@@ -15,6 +15,8 @@ test("uploaded image-map candidates are registered and committed to canonical au
   assert.match(saveMethod, /candidate\.source !== "upload"/);
   assert.match(saveMethod, /insertAssetRow/);
   assert.match(saveMethod, /asset_kind: IMAGE_MAP_CANDIDATE_ASSET_KIND/);
+  assert.match(saveMethod, /width: candidate\.width \?\? null/);
+  assert.match(saveMethod, /height: candidate\.height \?\? null/);
   assert.match(saveMethod, /reason: "attach_uploaded_candidate"/);
   assert.match(saveMethod, /affectedEntryIds: \[\.\.\.attachedEntryIds\]/);
   assert.match(saveMethod, /canonicalAfterSave\.entries/);

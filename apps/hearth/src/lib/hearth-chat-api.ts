@@ -197,11 +197,7 @@ function readSupabaseConfig(): { url: string; anonKey: string } | null {
   };
   const envUrl = meta.env?.VITE_SUPABASE_URL?.trim();
   const envAnonKey = meta.env?.VITE_SUPABASE_ANON_KEY?.trim();
-  if (envUrl && envAnonKey) {
-    return { url: envUrl, anonKey: envAnonKey };
-  }
-
-  if (typeof window === "undefined") return null;
+  if (typeof window === "undefined") return envUrl && envAnonKey ? { url: envUrl, anonKey: envAnonKey } : null;
 
   const runtimeWindow = window as Window & typeof globalThis & {
     __forgeSupabaseUrl?: unknown;
@@ -214,19 +210,19 @@ function readSupabaseConfig(): { url: string; anonKey: string } | null {
     };
   };
 
-  const globalUrl = readTokenString(runtimeWindow.__forgeSupabaseUrl)
-    ?? readTokenString(runtimeWindow.__tpSupabaseUrl);
-  const globalAnon = readTokenString(runtimeWindow.__forgeSupabaseAnonKey)
-    ?? readTokenString(runtimeWindow.__tpSupabaseAnonKey);
-  if (globalUrl && globalAnon) {
-    return { url: globalUrl, anonKey: globalAnon };
-  }
-
   const clientUrl = readTokenString(runtimeWindow.__forge_supabase_client__?.supabaseUrl);
   const clientKey = readTokenString(runtimeWindow.__forge_supabase_client__?.supabaseKey);
   if (clientUrl && clientKey) {
     return { url: clientUrl, anonKey: clientKey };
   }
+
+  const globalUrl = readTokenString(runtimeWindow.__forgeSupabaseUrl)
+    ?? readTokenString(runtimeWindow.__tpSupabaseUrl);
+  const globalAnon = readTokenString(runtimeWindow.__forgeSupabaseAnonKey)
+    ?? readTokenString(runtimeWindow.__tpSupabaseAnonKey);
+  if (globalUrl && globalAnon) return { url: globalUrl, anonKey: globalAnon };
+
+  if (envUrl && envAnonKey) return { url: envUrl, anonKey: envAnonKey };
 
   return null;
 }

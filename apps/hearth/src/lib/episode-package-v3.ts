@@ -8,6 +8,7 @@ import {
   type EpisodeThumbnailVersion,
 } from "./episode-package-v2";
 import type { BrandApplicationProvenance, BrandBindingProjection } from "@forge/shared";
+import type { HearthGenerationReferenceImage } from "./hearth-generation-reference";
 
 export const EPISODE_PACKAGE_V3_SCHEMA = "forge.episode.package.v3" as const;
 export const THUMBNAIL_PROMPT_TEMPLATE_VERSION = "hearth-thumbnail-prompt-v1" as const;
@@ -130,6 +131,7 @@ export type ThumbnailRenderRecipe = {
   title_revision: number;
   provider_id: string;
   provider_settings: Readonly<Record<string, unknown>>;
+  generation_reference?: HearthGenerationReferenceImage | null;
   intended_aspect_ratio: "16:9" | "1:1" | "9:16";
   brand_template_id: string | null;
   brand_template_revision: number | null;
@@ -565,7 +567,9 @@ export function hydrateEpisodePackageV3(metadata: Record<string, unknown>): Epis
       strategy_revision: partial.strategy_revision ?? concept?.strategy_revision ?? 1,
       creative_brief_id: partial.creative_brief_id ?? concept?.creative_brief_id ?? briefs[0]?.id ?? "",
       creative_brief_revision: partial.creative_brief_revision ?? concept?.creative_brief_revision ?? 1,
-      provider_settings: partial.provider_settings ?? {}, composition_revision: partial.composition_revision ?? recipe.revision };
+      provider_settings: partial.provider_settings ?? {},
+      generation_reference: recipe.generation_reference ?? null,
+      composition_revision: partial.composition_revision ?? recipe.revision };
   });
   const existingCompositions = Array.isArray(thumbnail.composition_revisions) ? thumbnail.composition_revisions : [];
   const variationBatches = Array.isArray(thumbnail.variation_batches) ? thumbnail.variation_batches : [];
@@ -634,6 +638,12 @@ export function deriveThumbnailPromptPack(args: {
     template_version: templateVersion,
     provider_id: args.recipe.provider_id,
     provider_settings: args.recipe.provider_settings,
+    generation_reference: args.recipe.generation_reference ? {
+      asset_id: args.recipe.generation_reference.asset_id,
+      content_hash: args.recipe.generation_reference.content_hash,
+      mime_type: args.recipe.generation_reference.mime_type,
+      purpose: args.recipe.generation_reference.purpose,
+    } : null,
     aspect_ratio: args.recipe.intended_aspect_ratio,
     authority: {
       strategy_id: args.recipe.strategy_id,

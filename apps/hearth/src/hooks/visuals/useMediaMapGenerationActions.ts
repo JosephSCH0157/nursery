@@ -156,10 +156,12 @@ export function useMediaMapGenerationActions(args: UseMediaMapGenerationActionsA
         `Canonical Visual Plan verified from the approved script with producer direction. Image v${generated.data.imageMapRevision}, B-roll v${generated.data.brollPlanRevision}, Source Clips v${generated.data.referenceClipPlanRevision}, Reference Visuals v${generated.data.referenceVisualPlanRevision}.`,
       );
       return true;
-    } catch {
+    } catch (error) {
       if (!args.operationAuthority.isCurrent(operation)) return false;
       args.setVisualPlanOperationStage("failed");
-      args.setMediaMapSaveError("Unable to build and apply the Episode Visual Plan.");
+      args.setMediaMapSaveError(error instanceof Error
+        ? error.message
+        : "Unable to build and apply the Episode Visual Plan.");
       args.setMediaMapSaveState("error");
       return false;
     } finally {

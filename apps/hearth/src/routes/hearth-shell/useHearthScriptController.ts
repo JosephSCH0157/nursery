@@ -292,25 +292,27 @@ export function useHearthCanonicalScriptApprovalLoader(args: {
   useEffect(() => {
     const episodeId = args.workpieceId?.trim() ?? "";
     const draftId = args.activeDraftId;
-    const operation = args.operationAuthority.begin("approval.canonical.read");
+    let cancelled = false;
     args.setScriptApprovalState((previous) => (
       isScriptApprovalStateEqual(previous, NO_CANONICAL_SCRIPT_APPROVAL)
         ? previous
         : NO_CANONICAL_SCRIPT_APPROVAL
     ));
-    if (!episodeId || !draftId) return;
-    void Promise.all([args.store.readCanonicalRevisions(episodeId, draftId),readTongsCanonicalScriptApproval(episodeId)]).then(([result,tongsApproval]) => {
-      if (!args.operationAuthority.isCurrent(operation)) return;
-      const revisionApproval=result.ok?resolveCanonicalScriptApproval(result.revisions,draftId):NO_CANONICAL_SCRIPT_APPROVAL;
+    if (!episodeId || !draftId) return () => { cancelled = true; };
+    void Promise.allSettled([args.store.readCanonicalRevisions(episodeId, draftId),readTongsCanonicalScriptApproval(episodeId)]).then(([revisionRead,tongsRead]) => {
+      if (cancelled) return;
+      const result=revisionRead.status==="fulfilled"?revisionRead.value:null;
+      const tongsApproval=tongsRead.status==="fulfilled"?tongsRead.value:NO_CANONICAL_SCRIPT_APPROVAL;
+      const revisionApproval=result?.ok?resolveCanonicalScriptApproval(result.revisions,draftId):NO_CANONICAL_SCRIPT_APPROVAL;
       const resolved=revisionApproval.hasApprovedScript?revisionApproval:tongsApproval;
       args.setScriptApprovalState((previous) => (
         isScriptApprovalStateEqual(previous, resolved) ? previous : resolved
       ));
       args.writeRecoveryEvidence(episodeId, resolved);
     });
+    return () => { cancelled = true; };
   }, [
     args.activeDraftId,
-    args.operationAuthority,
     args.revisions,
     args.store,
     args.workpieceId,

@@ -21,12 +21,12 @@ for (const required of [
   if (!route.includes(required)) throw new Error(`S5-1 open authority ratchet missing: ${required}`);
 }
 
-for (const required of [
-  "openQuenchAuthority",
-  "newer_manifest_available:current.hammer.manifest_snapshot_id!==manifestSnapshotId",
-  "quench_review_manifest_advanced",
+for (const [label, pattern] of [
+  ["openQuenchAuthority", /openQuenchAuthority/],
+  ["newer manifest detection", /newer_manifest_available:\s*current\.hammer\.manifest_snapshot_id\s*!==\s*manifestSnapshotId/],
+  ["quench_review_manifest_advanced", /quench_review_manifest_advanced/],
 ]) {
-  if (!service.includes(required)) throw new Error(`S5-1 Tongs authority ratchet missing: ${required}`);
+  if (!pattern.test(service)) throw new Error(`S5-1 Tongs authority ratchet missing: ${label}`);
 }
 
 console.log("S5-1 Quench open authority ratchet passed.");

@@ -863,8 +863,12 @@ function all() {
   return [...registry.values()];
 }
 var _builtInsInit = false;
+var _resolveBuiltInsReady = null;
+var _builtInsReady = new Promise((resolve) => {
+  _resolveBuiltInsReady = resolve;
+});
 async function initBuiltIns() {
-  if (_builtInsInit) return;
+  if (_builtInsInit) return _builtInsReady;
   _builtInsInit = true;
   try {
     const adapters = [];
@@ -945,6 +949,9 @@ async function initBuiltIns() {
     } catch {
     }
   } catch {
+  } finally {
+    _resolveBuiltInsReady?.();
+    _resolveBuiltInsReady = null;
   }
 }
 try {

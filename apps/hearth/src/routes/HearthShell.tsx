@@ -1673,6 +1673,7 @@ export default function HearthShell({
   const sourcesController = useHearthSourcesController({
     workspaceId,
     workpieceId,
+    draftId: activeDraft?.id ?? null,
     draftText: activeDraft?.body ?? "",
     mode: mode === "focus" && focusTab === "sources" ? "full" : "summary",
     operationAuthority,
@@ -4137,6 +4138,8 @@ export default function HearthShell({
     onGenerateImageMapCandidates,
     onSelectImageMapCandidate,
     onUploadImageMapAsset,
+    onUploadImageMapGenerationReference,
+    onRemoveImageMapGenerationReference,
   } = useHearthImageCandidateCommands({
     operationAuthority,
     workpieceId,
@@ -6123,6 +6126,13 @@ export default function HearthShell({
           description: opportunity.editorialReason || opportunity.desiredMaterial,
           status: opportunity.selectedRevisionIds.length > 0 ? "selected" : opportunity.sourceStatus,
         })),
+        ...(canonicalReferenceVisualState?.opportunities ?? []).map((opportunity) => ({
+          id: opportunity.id,
+          kind: "reference_visual" as const,
+          focus: opportunity.focus,
+          description: opportunity.editorialReason || opportunity.desiredMaterial,
+          status: opportunity.selectedCandidateRevisionId ? "selected" : opportunity.sourceStatus,
+        })),
       ],
       selectedEntryId: selectedMediaMapEntryId,
       approvedScriptVersion,
@@ -6246,6 +6256,8 @@ export default function HearthShell({
       onSavePromptEdit: (finalPrompt: string) => void imagePromptAuthority.saveEdit(finalPrompt),
       onRefreshPrompt: () => void imagePromptAuthority.refresh(),
       onUploadAsset: (file: File) => void onUploadImageMapAsset(file),
+      onUploadGenerationReference: (file: File, purpose: import("../lib/hearth-generation-reference").HearthGenerationReferencePurpose) => void onUploadImageMapGenerationReference(file, purpose),
+      onRemoveGenerationReference: () => void onRemoveImageMapGenerationReference(),
       onSelectCandidate: (candidateId: string) => void onSelectImageMapCandidate(candidateId),
       onCopyExport: () => {
         void onCopyImageMapExportJson().then((copied) => {

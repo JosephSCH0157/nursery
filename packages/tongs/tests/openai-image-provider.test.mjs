@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   ImageProviderRequestError,
   OpenAiImageProvider,
+  buildImageReferenceInstruction,
   extractOpenAiImageUsage,
 } from "../dist/providers/image-provider.js";
 
@@ -69,6 +70,48 @@ test("OpenAiImageProvider classifies a complete validation response as definitiv
       && error.providerRequestId === "req-rejected",
   );
   assert.equal(calls, 1);
+});
+
+test("OpenAiImageProvider uses one verified reference image through the edit endpoint", async (t) => {
+  const calls = [];
+  const originalFetch = globalThis.fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  globalThis.fetch = async (url, init) => {
+    calls.push({ url, init });
+    return new Response(JSON.stringify({ id: "img-edit-1", data: [{ b64_json: "AQID" }], usage: {
+      input_tokens: 12, input_tokens_details: { text_tokens: 8, image_tokens: 4 }, output_tokens: 10, total_tokens: 22,
+    } }), { status: 200 });
+  };
+  const result = await new OpenAiImageProvider("test-key").generateImage({
+    prompt: "A documentary thumbnail", size: "1536x1024", quality: "high",
+    referenceImage: { bytesBase64: "AQID", mimeType: "image/png", purpose: "subject" },
+  });
+  assert.equal(calls[0].url, "https://api.openai.com/v1/images/edits");
+  assert.ok(calls[0].init.body instanceof FormData);
+  assert.equal(calls[0].init.body.has("input_fidelity"), false, "the pinned GPT Image 2 model rejects input_fidelity");
+  assert.equal(calls[0].init.body.get("reference_purpose"), null);
+  assert.ok(calls[0].init.body.get("image") instanceof Blob);
+  const submittedPrompt = String(calls[0].init.body.get("prompt"));
+  assert.match(submittedPrompt, /authoritative identity reference/);
+  assert.match(submittedPrompt, /livery, logos, decals, written markings/);
+  assert.match(submittedPrompt, /Do not remove, replace, simplify, genericize/);
+  assert.equal(result.responseEvidence.operation, "edit");
+  assert.equal(result.responseEvidence.reference_purpose, "subject");
+  assert.equal(result.responseEvidence.reference_contract_version, "forge-image-reference-v2");
+});
+
+test("reference purposes have distinct factual contracts", () => {
+  const subject = buildImageReferenceInstruction("subject");
+  const composition = buildImageReferenceInstruction("composition");
+  const style = buildImageReferenceInstruction("style");
+  assert.match(subject, /factual identity/);
+  assert.match(subject, /county or agency identifiers/);
+  assert.match(composition, /framing, camera angle/);
+  assert.match(composition, /Do not treat the depicted subject/);
+  assert.match(style, /lighting, palette, texture/);
+  assert.match(style, /Do not copy its specific subject identity/);
+  assert.notEqual(subject, composition);
+  assert.notEqual(composition, style);
 });
 
 test("OpenAiImageProvider classifies a lost create response as ambiguous and never retries", async (t) => {
