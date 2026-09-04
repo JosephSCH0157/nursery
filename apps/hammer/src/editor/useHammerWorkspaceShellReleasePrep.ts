@@ -36,7 +36,7 @@ export function useHammerWorkspaceShellReleaseBasis(
   input: HammerWorkspaceShellReleaseBasisInput,
 ): HammerWorkspaceShellReleasePackageProjection {
   const {
-    launchContext, previewMode, transcriptSourceId, transcriptSegments, structuredTranscript,
+    launchContext, releaseProfileAuthority, previewMode, transcriptSourceId, transcriptSegments, structuredTranscript,
     outputSelection, captionFormatting, selectedCaptionArtifactFormat, captionBuildState,
     captionEditedState, editorialAuthorityGraph, visualTimeline, visualPlacements, audioPolish,
     selectedSegmentId, selectedClipId, mediaRef, workspaceMapping, mediaSourceLabel,
@@ -50,7 +50,7 @@ export function useHammerWorkspaceShellReleaseBasis(
     visualBackgroundWashDimAmount, visualBackgroundWashDesaturateAmount, ffmpegAvailable,
   } = input;
   return useMemo(() => buildHammerWorkspaceShellReleaseBasis({
-    launchContext, previewMode, transcriptSourceId, transcriptSegments, structuredTranscript,
+    launchContext, releaseProfileAuthority, previewMode, transcriptSourceId, transcriptSegments, structuredTranscript,
     outputSelection, captionFormatting, selectedCaptionArtifactFormat, captionBuildState,
     captionEditedState, editorialAuthorityGraph, visualTimeline, visualPlacements, audioPolish,
     selectedSegmentId, selectedClipId, mediaRef, workspaceMapping, mediaSourceLabel,
@@ -68,6 +68,7 @@ export function useHammerWorkspaceShellReleaseBasis(
     captionFormatting, outputSelection,
     transcriptSegments,
     launchContext,
+    releaseProfileAuthority,
     mediaRef,
     mediaSourceLabel,
     previewMode,

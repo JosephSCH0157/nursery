@@ -47,6 +47,8 @@ export const HAMMER_QUENCH_CANONICAL_READINESS_REASON_CODES = [
   "packet_editorial_truth_missing",
   "packet_timeline_snapshot_missing",
   "packet_final_audio_master_missing",
+  "packet_final_video_master_missing",
+  "packet_final_video_master_forbidden",
   "exact_audio_receipt_missing",
   "exact_audio_receipt_fingerprint_mismatch",
   "exact_audio_dsp_identity_mismatch",

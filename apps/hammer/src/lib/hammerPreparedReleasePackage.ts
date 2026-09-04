@@ -16,6 +16,7 @@ export interface HammerBrandApplicationProvenance { bindingId: string; bindingRe
 
 export interface HammerPreparedReleasePackage {
   version: 1;
+  releaseProfileAuthority: HammerReleasePrepPackage["release_profile_authority"];
   workpieceId: string;
   workspaceId: string | null;
   recordingRevisionId: string | null;
@@ -126,13 +127,7 @@ function resolveMediaSourceKind(current: HammerReleasePrepPackage): HammerPrepar
   }
 }
 
-function resolveOverallStatus(args: {
-  transcript: HammerPreparedReleaseUnitStatus;
-  srt: HammerPreparedReleaseUnitStatus;
-  vtt: HammerPreparedReleaseUnitStatus;
-  media: HammerPreparedReleaseUnitStatus;
-}): HammerPreparedReleaseOverallStatus {
-  const statuses = [args.transcript, args.srt, args.vtt, args.media];
+function resolveOverallStatus(statuses: HammerPreparedReleaseUnitStatus[]): HammerPreparedReleaseOverallStatus {
   if (statuses.every((status) => status === "missing")) {
     return "missing";
   }
@@ -185,6 +180,7 @@ export function buildHammerPreparedReleasePackage(args: {
 
   return {
     version: 1,
+    releaseProfileAuthority: structuredClone(args.current.release_profile_authority),
     workpieceId: args.current.identity.workpiece_id ?? "",
     workspaceId: args.current.identity.workspace_id,
     recordingRevisionId: args.recordingRevisionId ?? null,
@@ -235,12 +231,9 @@ export function buildHammerPreparedReleasePackage(args: {
     exactAudioReceipt: args.exactAudioReceipt ?? null,
     finalVideoMaster: args.finalVideoMaster ?? null,
     packagingMedia: structuredClone(args.current.packaging_media),
-    overallStatus: resolveOverallStatus({
-      transcript: transcriptStatus,
-      srt: srtStatus,
-      vtt: vttStatus,
-      media: mediaStatus,
-    }),
+    overallStatus: resolveOverallStatus(args.current.release_profile_authority.profile === "video_episode"
+      ? [transcriptStatus, srtStatus, vttStatus, mediaStatus]
+      : [transcriptStatus, mediaStatus]),
   };
 }
 
@@ -283,6 +276,9 @@ export function compareHammerPreparedReleasePackageToCurrent(
   if (transcriptChanged) staleReasons.push("Transcript changed");
   if (subtitlesChanged) staleReasons.push("Subtitles changed");
   if (mediaChanged) staleReasons.push("Media source changed");
+  if (toStableJson(prepared.releaseProfileAuthority) !== toStableJson(currentPackage.releaseProfileAuthority)) {
+    staleReasons.push("Release profile changed");
+  }
 
   const preparedStatus = staleReasons.length > 0
     ? "stale"

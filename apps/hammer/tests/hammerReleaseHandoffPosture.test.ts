@@ -145,8 +145,9 @@ function buildGate(status: "ready" | "needs_review" | "blocked") {
   });
 }
 
-async function testArtifactReasonsAreCanonical() {
+async function testAudioEpisodeDoesNotRequireVisuals() {
   const prep = buildHammerReleasePrepPackage({
+    releaseProfileAuthority: { profile: "audio_episode", audio_visual_intent: "none" },
     workspaceId: "ws_posture",
     workpieceId: "wp_posture",
     prepStatus: "prepared",
@@ -161,15 +162,37 @@ async function testArtifactReasonsAreCanonical() {
     readinessGate: buildGate("ready"),
   });
 
+  assert.equal(posture.handoff_status, "ready");
+  assert.equal(posture.artifact_reason_codes.includes("artifact_visuals_missing"), false);
+  assert.equal(posture.review_reason_codes.includes("artifact_visuals_missing"), false);
+  assert.equal(posture.blocking_reason_codes.includes("artifact_visuals_missing"), false);
+}
+
+async function testAudioEpisodeWithVisualIntentRequiresVisuals() {
+  const prep = buildHammerReleasePrepPackage({
+    releaseProfileAuthority: { profile: "audio_episode", audio_visual_intent: "visual_deliverable" },
+    workspaceId: "ws_posture", workpieceId: "wp_posture", prepStatus: "prepared", alignmentStatus: "aligned",
+    structuredTranscript: transcript, visualPlacements: null, audioPolish, editorSession: null,
+  });
+  const posture = deriveHammerReleaseHandoffPosture({ releasePrepPackage: prep, readinessGate: buildGate("ready") });
   assert.equal(posture.handoff_status, "blocked");
-  assert.equal(posture.artifact_reason_codes.includes("artifact_visuals_missing"), true);
   assert.equal(posture.blocking_reason_codes.includes("artifact_visuals_missing"), true);
-  assert.equal(posture.reason_details.some((reason) => reason.source === "artifact"), true);
-  assert.equal(posture.artifact_reasons.includes("Visual placements are missing."), true);
+}
+
+async function testVideoEpisodeStillRequiresVisuals() {
+  const prep = buildHammerReleasePrepPackage({
+    releaseProfileAuthority: { profile: "video_episode", audio_visual_intent: "none" },
+    workspaceId: "ws_posture", workpieceId: "wp_posture", prepStatus: "prepared", alignmentStatus: "aligned",
+    structuredTranscript: transcript, visualPlacements: null, audioPolish, editorSession: null,
+  });
+  const posture = deriveHammerReleaseHandoffPosture({ releasePrepPackage: prep, readinessGate: buildGate("ready") });
+  assert.equal(posture.handoff_status, "blocked");
+  assert.equal(posture.blocking_reason_codes.includes("artifact_visuals_missing"), true);
 }
 
 async function testGateReviewSurvivesEnrichment() {
   const prep = buildHammerReleasePrepPackage({
+    releaseProfileAuthority: { profile: "video_episode", audio_visual_intent: "none" },
     workspaceId: "ws_posture",
     workpieceId: "wp_posture",
     prepStatus: "prepared",
@@ -192,7 +215,9 @@ async function testGateReviewSurvivesEnrichment() {
 }
 
 async function run() {
-  await testArtifactReasonsAreCanonical();
+  await testAudioEpisodeDoesNotRequireVisuals();
+  await testAudioEpisodeWithVisualIntentRequiresVisuals();
+  await testVideoEpisodeStillRequiresVisuals();
   await testGateReviewSurvivesEnrichment();
   // eslint-disable-next-line no-console
   console.log("Hammer release handoff posture tests passed.");

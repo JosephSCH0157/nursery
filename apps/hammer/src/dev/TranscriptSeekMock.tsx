@@ -2190,6 +2190,7 @@ export default function TranscriptSeekMock(
   );
   const currentReleasePrepPackage = useMemo(
     () => buildHammerReleasePrepPackage({
+      releaseProfileAuthority: { profile: "video_episode", audio_visual_intent: "none" },
       workspaceId: resolvedLaunch.launch_context.workspace_id,
       workpieceId: resolvedLaunch.launch_context.workpiece_id,
       prepStatus: structuredTranscriptState ? "prepared" : "idle",
@@ -5615,6 +5616,7 @@ export default function TranscriptSeekMock(
                     }
 
                     const nextReleasePrepPackage = buildHammerReleasePrepPackage({
+                      releaseProfileAuthority: { profile: "video_episode", audio_visual_intent: "none" },
                       workspaceId: resolvedLaunch.launch_context.workspace_id,
                       workpieceId: resolvedLaunch.launch_context.workpiece_id,
                       prepStatus: nextTranscript ? "prepared" : "idle",

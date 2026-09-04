@@ -8,7 +8,7 @@ import {
 } from "../../../../packages/contracts/hammer/editorial-authority.contract";
 import { createSemanticEditPlanSignature } from "../lib/editPlanSignature";
 import { buildHammerCaptionPreviewModel } from "../lib/hammerCaptionPreview";
-import { buildHammerReleasePrepPackage, type HammerReleasePrepPackage } from "../lib/hammerReleasePrepPackage";
+import { buildHammerReleasePrepPackage, type HammerReleasePrepPackage, type HammerReleaseProfileAuthority } from "../lib/hammerReleasePrepPackage";
 import type {
   HammerPersistedAudioPolish,
   HammerPersistedStructuredTranscript,
@@ -26,9 +26,7 @@ import {
   type HammerRenderAssemblyResult,
   type HammerRenderRuntimeCapabilities,
 } from "./hammerRenderAssembly";
-import {
-  projectHammerCaptionsForRelease,
-} from "./useHammerWorkspaceShellCaptions";
+import { projectHammerCaptionsForRelease } from "./useHammerWorkspaceShellCaptions";
 import type {
   HammerCaptionBuildState,
   HammerCaptionEditedState,
@@ -51,7 +49,7 @@ export const HAMMER_RELEASE_RENDER_RUNTIME_CAPABILITIES: HammerRenderRuntimeCapa
 };
 
 export interface HammerWorkspaceShellReleasePackageInput {
-  workspaceId: string;
+  releaseProfileAuthority: HammerReleaseProfileAuthority; workspaceId: string;
   workpieceId: string;
   sessionId: string | null;
   sourceMode: HammerLaunchSourceMode;
@@ -87,9 +85,9 @@ export interface HammerWorkspaceShellReleasePackageProjection {
   timelineRevision: string;
   canonicalGraph: HammerEditorialAuthorityGraph;
   renderAssembly: HammerRenderAssemblyResult;
-  subtitles: { srt: string | null; vtt: string | null };
-}
+  subtitles: { srt: string | null; vtt: string | null }; }
 export interface HammerWorkspaceShellReleaseBasisInput {
+  releaseProfileAuthority: HammerReleaseProfileAuthority;
   launchContext: HammerLaunchContext;
   previewMode: HammerPreviewMode;
   transcriptSourceId: string;
@@ -147,6 +145,7 @@ export function buildHammerWorkspaceShellReleaseBasis(
     ? input.structuredTranscript.prepared_at ?? now()
     : now();
   return buildHammerWorkspaceShellReleasePackage({
+    releaseProfileAuthority: input.releaseProfileAuthority,
     workspaceId: input.launchContext.workspace_id,
     workpieceId: input.launchContext.workpiece_id,
     sessionId: input.launchContext.session_id ?? null,
@@ -304,6 +303,7 @@ export function buildHammerWorkspaceShellReleasePackage(
     ? deriveLegacyVisualPlacementsFromTimeline(input.visualTimeline)
     : input.visualPlacements;
   const currentReleasePackage = buildHammerReleasePrepPackage({
+    releaseProfileAuthority: input.releaseProfileAuthority,
     workspaceId: input.workspaceId,
     workpieceId: input.workpieceId,
     prepStatus: transcriptForRelease.segments.length > 0 ? "prepared" : "idle",

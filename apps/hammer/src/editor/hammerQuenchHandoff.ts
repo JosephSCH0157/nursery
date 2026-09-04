@@ -115,6 +115,26 @@ export function validateHammerQuenchPacketForHandoff(args: {
       source: "packet",
     }));
   }
+  const profile = args.releasePrepPackage.release_profile_authority.profile;
+  const hasFinalVideoMaster = args.packet.manifest.video.kind === "final_master"
+    && Boolean(args.packet.manifest.video.canonical_asset_id)
+    && Boolean(args.packet.manifest.video.canonical_content_hash);
+  if (profile === "video_episode" && !hasFinalVideoMaster) {
+    reasonDetails.push(createHammerReadinessReason({
+      code: "packet_final_video_master_missing",
+      label: "A video episode requires a validated canonical final-video master.",
+      severity: "blocking",
+      source: "packet",
+    }));
+  }
+  if (profile === "audio_episode" && hasFinalVideoMaster) {
+    reasonDetails.push(createHammerReadinessReason({
+      code: "packet_final_video_master_forbidden",
+      label: "An audio episode cannot include a final-video master.",
+      severity: "blocking",
+      source: "packet",
+    }));
+  }
   if (!args.packet.manifest.audio.exact_audio_receipt_fingerprint || !args.packet.manifest.audio.dsp_fingerprint || !args.packet.manifest.audio.render_fingerprint) {
     reasonDetails.push(createHammerReadinessReason({
       code: "exact_audio_receipt_missing",

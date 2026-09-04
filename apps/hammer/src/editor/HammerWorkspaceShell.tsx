@@ -2847,6 +2847,7 @@ function HammerWorkspaceShellWithContext(
   });
 
   const exportBasis = useHammerWorkspaceShellReleaseBasis({
+      releaseProfileAuthority: { profile: "video_episode", audio_visual_intent: "none" },
       launchContext,
       previewMode,
       transcriptSourceId,

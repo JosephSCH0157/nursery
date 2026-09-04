@@ -118,6 +118,8 @@ export const HAMMER_RELEASE_REASON_CLASSIFICATION: Readonly<Record<
   packet_editorial_truth_missing: "prevents_certification",
   packet_timeline_snapshot_missing: "prevents_certification",
   packet_final_audio_master_missing: "prevents_certification",
+  packet_final_video_master_missing: "prevents_certification",
+  packet_final_video_master_forbidden: "prevents_certification",
   exact_audio_receipt_missing: "prevents_certification",
   exact_audio_receipt_fingerprint_mismatch: "prevents_certification",
   exact_audio_dsp_identity_mismatch: "prevents_certification",

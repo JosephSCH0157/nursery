@@ -96,7 +96,22 @@ function resolveArtifactReason(args: {
 }
 
 export function resolveHammerReleasePrepOverallStatus(pkg: HammerReleasePrepPackage): HammerReleasePrepStatus {
-  return pkg.readiness.blocking_statuses[0] ?? "ready";
+  const relevant = profileRelevantStatuses(pkg);
+  return relevant.find((status) => status !== "ready") ?? "ready";
+}
+
+function visualsRequired(pkg: HammerReleasePrepPackage): boolean {
+  return pkg.release_profile_authority.profile === "video_episode"
+    || pkg.release_profile_authority.audio_visual_intent === "visual_deliverable";
+}
+
+function profileRelevantStatuses(pkg: HammerReleasePrepPackage): HammerReleasePrepStatus[] {
+  return [
+    pkg.readiness.transcript_output,
+    ...(pkg.release_profile_authority.profile === "video_episode" ? [pkg.readiness.subtitles.srt] : []),
+    ...(visualsRequired(pkg) ? [pkg.readiness.visuals] : []),
+    pkg.readiness.audio_polish,
+  ];
 }
 
 export function buildHammerReleasePrepArtifactReasonDetails(pkg: HammerReleasePrepPackage): HammerReadinessReason[] {
@@ -111,7 +126,7 @@ export function buildHammerReleasePrepArtifactReasonDetails(pkg: HammerReleasePr
         failed: "artifact_transcript_failed",
       },
     }),
-    resolveArtifactReason({
+    pkg.release_profile_authority.profile === "video_episode" ? resolveArtifactReason({
       label: "SRT captions",
       linkingVerb: "are",
       status: pkg.readiness.subtitles.srt,
@@ -119,8 +134,8 @@ export function buildHammerReleasePrepArtifactReasonDetails(pkg: HammerReleasePr
         missing: "artifact_subtitles_srt_missing",
         stale: "artifact_subtitles_srt_stale",
       },
-    }),
-    resolveArtifactReason({
+    }) : null,
+    pkg.release_profile_authority.profile === "video_episode" ? resolveArtifactReason({
       label: "VTT captions",
       linkingVerb: "are",
       status: pkg.readiness.subtitles.vtt,
@@ -128,8 +143,8 @@ export function buildHammerReleasePrepArtifactReasonDetails(pkg: HammerReleasePr
         missing: "artifact_subtitles_vtt_missing",
         stale: "artifact_subtitles_vtt_stale",
       },
-    }),
-    resolveArtifactReason({
+    }) : null,
+    visualsRequired(pkg) ? resolveArtifactReason({
       label: "Visual placements",
       linkingVerb: "are",
       status: pkg.readiness.visuals,
@@ -137,7 +152,7 @@ export function buildHammerReleasePrepArtifactReasonDetails(pkg: HammerReleasePr
         missing: "artifact_visuals_missing",
         stale: "artifact_visuals_stale",
       },
-    }),
+    }) : null,
     resolveArtifactReason({
       label: "Audio prep",
       linkingVerb: "is",

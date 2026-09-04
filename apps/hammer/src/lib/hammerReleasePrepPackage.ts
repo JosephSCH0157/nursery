@@ -20,6 +20,17 @@ import type {
   HammerPrepStatus,
 } from "../persistence/hammerPersistenceContract";
 import type { HammerPackagingIntent } from "./hammerPackageMediaAuthority";
+import type { HammerReleaseProfile } from "@forge/contracts/hammer/release-commit.contract";
+
+export type HammerAudioVisualDeliverableIntent = "none" | "visual_deliverable";
+export type HammerReleaseProfileAuthority = Readonly<{
+  profile: HammerReleaseProfile;
+  audio_visual_intent: HammerAudioVisualDeliverableIntent;
+}>;
+export const HAMMER_VIDEO_RELEASE_PROFILE_AUTHORITY: HammerReleaseProfileAuthority = Object.freeze({
+  profile: "video_episode",
+  audio_visual_intent: "none",
+});
 
 export type HammerReleasePrepStatus =
   | "ready"
@@ -31,6 +42,7 @@ export type HammerReleasePrepStatus =
 
 export interface HammerReleasePrepPackage {
   schema_version: 1;
+  release_profile_authority: HammerReleaseProfileAuthority;
   identity: {
     workspace_id: string | null;
     workpiece_id: string | null;
@@ -76,6 +88,7 @@ export interface HammerReleasePrepPackage {
 }
 
 export interface BuildHammerReleasePrepPackageArgs {
+  releaseProfileAuthority?: HammerReleaseProfileAuthority;
   workspaceId?: string | null;
   workpieceId?: string | null;
   prepStatus?: HammerPrepStatus | null;
@@ -177,6 +190,7 @@ function buildBlockingStatuses(
 export function buildHammerReleasePrepPackage(
   args: BuildHammerReleasePrepPackageArgs,
 ): HammerReleasePrepPackage {
+  const releaseProfileAuthority = args.releaseProfileAuthority ?? HAMMER_VIDEO_RELEASE_PROFILE_AUTHORITY;
   const runtime = args.mediaBackboneRuntime ?? buildHammerMediaBackboneRuntimeSummary();
   const textOutputs = buildHammerTextOutputsPackage(args.structuredTranscript);
   const mediaPrepOutputs = buildHammerMediaPrepOutputsPackage({
@@ -207,16 +221,17 @@ export function buildHammerReleasePrepPackage(
     mediaPrepOutputs,
     audioPlan,
   });
-  const readinessStatuses: HammerReleasePrepStatus[] = [
-    transcriptOutputStatus,
-    subtitleSrtStatus,
-    subtitleVttStatus,
-    visualsStatus,
-    audioPolishStatus,
-  ];
+  const readinessStatuses: HammerReleasePrepStatus[] = releaseProfileAuthority.profile === "video_episode"
+    ? [transcriptOutputStatus, subtitleSrtStatus, subtitleVttStatus, visualsStatus, audioPolishStatus]
+    : [
+      transcriptOutputStatus,
+      ...(releaseProfileAuthority.audio_visual_intent === "visual_deliverable" ? [visualsStatus] : []),
+      audioPolishStatus,
+    ];
 
   return {
     schema_version: 1,
+    release_profile_authority: releaseProfileAuthority,
     identity: {
       workspace_id: args.workspaceId ?? null,
       workpiece_id: args.workpieceId ?? null,
@@ -276,9 +291,11 @@ export function buildHammerReleasePrepPackageFromSnapshot(
   snapshot: HammerPersistenceSnapshot | null | undefined,
   options?: {
     mediaBackboneRuntime?: HammerMediaBackboneRuntimeSummary | null | undefined;
+    releaseProfileAuthority: HammerReleaseProfileAuthority;
   },
 ): HammerReleasePrepPackage {
   return buildHammerReleasePrepPackage({
+    releaseProfileAuthority: options?.releaseProfileAuthority ?? HAMMER_VIDEO_RELEASE_PROFILE_AUTHORITY,
     workspaceId: snapshot?.state?.workspace_id ?? null,
     workpieceId: snapshot?.state?.workpiece_id ?? null,
     prepStatus: snapshot?.state?.prep_status ?? null,

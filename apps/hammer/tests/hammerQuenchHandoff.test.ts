@@ -119,8 +119,9 @@ const audioPolish: HammerPersistedAudioPolish = {
   failure_reason: null,
 };
 
-function buildReadyPrep() {
+function buildReadyPrep(profile: "audio_episode" | "video_episode" = "video_episode") {
   return buildHammerReleasePrepPackage({
+    releaseProfileAuthority: { profile, audio_visual_intent: "none" },
     workspaceId: "ws_handoff",
     workpieceId: "wp_handoff",
     prepStatus: "prepared",
@@ -206,7 +207,7 @@ async function testPacketValidation() {
     transcriptSegments: [{ segment_id: "seg_01", start_sec: 0, end_sec: 5 }],
     captionChunks: [{ chunk_id: "cap_01", start_sec: 0, end_sec: 1, segment_ids: ["seg_01"] }],
   });
-  const prep = buildReadyPrep();
+  const prep = buildReadyPrep("audio_episode");
   const finalAudioMaster = {
     workspace_id: "ws_handoff", workpiece_id: "wp_handoff", recording_revision_id: "recording-revision-handoff",
     composition_revision: 1, composition_fingerprint: "composition-handoff", render_job_id: "render-handoff",
@@ -231,6 +232,27 @@ async function testPacketValidation() {
     renderAssembly,
     readinessGate: buildReadiness("ready"),
   }).ok, true);
+  const forbiddenVideoPacket = structuredClone(packet);
+  forbiddenVideoPacket.manifest.video = {
+    kind: "final_master", canonical_asset_id: "video-master", canonical_content_hash: "b".repeat(64),
+    mime_type: "video/mp4", duration_ms: 5000,
+  };
+  const forbiddenVideoValidation = validateHammerQuenchPacketForHandoff({
+    releasePrepPackage: prep, packet: forbiddenVideoPacket, renderAssembly, readinessGate: buildReadiness("ready"),
+  });
+  assert.equal(forbiddenVideoValidation.ok, false);
+  assert.equal(forbiddenVideoValidation.reasonCodes.includes("packet_final_video_master_forbidden"), true);
+
+  const videoPrep = buildReadyPrep("video_episode");
+  const videoPacketWithoutMaster = buildHammerQuenchReleasePacket({
+    releasePrepPackage: videoPrep, readinessGate: buildReadiness("ready"), canonicalGraph: graph,
+    renderAssembly, finalAudioMaster,
+  });
+  const missingVideoValidation = validateHammerQuenchPacketForHandoff({
+    releasePrepPackage: videoPrep, packet: videoPacketWithoutMaster, renderAssembly, readinessGate: buildReadiness("ready"),
+  });
+  assert.equal(missingVideoValidation.ok, false);
+  assert.equal(missingVideoValidation.reasonCodes.includes("packet_final_video_master_missing"), true);
   const reviewReadiness = buildReadiness("needs_review");
   const reviewPacket = buildHammerQuenchReleasePacket({
     releasePrepPackage: prep,

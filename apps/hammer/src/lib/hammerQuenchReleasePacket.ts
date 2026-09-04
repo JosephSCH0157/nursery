@@ -57,6 +57,7 @@ export interface HammerQuenchReleasePacketManifest {
   packet_kind: "quench_release_packet";
   generated_by: "Hammer";
   generated_at: string;
+  release_profile_authority: HammerReleasePrepPackage["release_profile_authority"];
   workpiece_id: string;
   workspace_id: string | null;
   episode_title: string | null;
@@ -341,6 +342,7 @@ export function buildHammerQuenchReleasePacket(args: {
     packet_kind: "quench_release_packet",
     generated_by: "Hammer",
     generated_at: args.preparedAt ?? new Date().toISOString(),
+    release_profile_authority: pkg.release_profile_authority,
     workpiece_id: pkg.identity.workpiece_id ?? "",
     workspace_id: pkg.identity.workspace_id ?? null,
     episode_title: null,
