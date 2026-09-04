@@ -58,10 +58,10 @@ export async function executeHammerShortsDiscovery(body: HammerShortsDiscoveryBo
   const promptVersion = "hammer.shorts.discovery.prompt.v1";
   const contractVersion = "HammerShortsDiscoveryRequestV1";
   const requestUnsigned = {
-    schema_version: "HammerShortsDiscoveryRequestV1", basis_lock_id: body.basis_lock_id, basis_fingerprint: body.basis_fingerprint,
+    schema_version: "HammerShortsDiscoveryRequestV1" as const, basis_lock_id: body.basis_lock_id, basis_fingerprint: body.basis_fingerprint,
     goal: body.goal, duration_preset: body.duration_preset, minimum_duration_sec: body.minimum_duration_sec,
     maximum_duration_sec: body.maximum_duration_sec, target_candidate_count: body.target_candidate_count,
-    prompt_version: promptVersion, contract_version: contractVersion, provider: "openai", model: dependencies.model,
+    prompt_version: promptVersion, contract_version: contractVersion, provider: "openai" as const, model: dependencies.model,
   };
   const request = { ...requestUnsigned, request_fingerprint: await fingerprintHammerShortsValue(requestUnsigned) } satisfies HammerShortsDiscoveryRequestV1;
   const operationFingerprint = await fingerprintHammerShortsValue({ operation_id: body.operation_id, request });

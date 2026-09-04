@@ -6,7 +6,7 @@ Release basis:
 
 - Previous release: `v1.2.11` (`c0fbae0c5d2371800375a10d2bf4b8b76f547501`)
 - Certified product basis: `98218c9f` on `Hammer_Smoke3`
-- The final candidate is the certification commit containing this record and the three Tongs lint repairs described below.
+- The release candidate includes the certification record, the three Tongs lint repairs, and the clean-delivery repairs described below.
 - Linked Supabase migrations are paired through `20260903150000_tongs_reference_material_rollout_gate.sql`.
 
 ## Candidate changes certified
@@ -17,6 +17,8 @@ Release basis:
 - Exercise authenticated, locally provisioned browser fixtures without mutating production fixture data.
 - Make Anvil built-in recorder initialization awaitable so deterministic test adapters cannot be overwritten by late optional-adapter registration.
 - Keep Tongs URL recovery, provider error parsing, and PDF stream inspection within the repository's lint and type-safety contracts.
+- Keep clean Linux typechecking independent of pre-existing build output by declaring Nursery's Bellows project reference.
+- Remove unused Hearth cradle-creation code and preserve Hammer shorts request discriminators as literal contract values.
 
 ## Verification summary
 
@@ -27,6 +29,7 @@ Release basis:
 - Anvil release gate: passed lint, typecheck, cycle detection, build, recording suites, Chromium recording boundary, migration certification, strict OBS smoke, and the authenticated Hearth-to-Anvil canonical handoff.
 - Nursery umbrella gate: passed workspace typecheck/lint/architecture, production builds, all package integration suites, media tests, and the complete browser gate.
 - Existing warning budgets remain unchanged: Anvil reports 15 lint warnings and Nursery reports 4 lint warnings, with zero lint errors.
+- Post-certification delivery validation passed a forced Nursery TypeScript build, the complete workspace fast gate, the full production build, and all 28 authenticated browser tests after the clean-environment repairs.
 
 ## Release decision
 
@@ -36,4 +39,4 @@ The former authenticated-browser blocker is cleared. Local browser fixtures were
 
 One transient local Supabase Storage 500 was logged during a non-authoritative chat-artifact write in the Anvil handoff run. The gate's canonical script handoff passed, the complete browser gate subsequently passed, and no fallback persistence was introduced.
 
-No release tag, merge to `main`, application deployment, or Git push was performed by this certification step.
+The candidate branch was pushed and opened as PR #27. No release tag, merge to `main`, or production deployment was performed by this certification step.

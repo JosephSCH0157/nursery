@@ -23,7 +23,7 @@ Verdict: **GO — mandatory release evidence is green**
 | Supabase CLI | 2.84.2 |
 | Docker | 29.7.2 |
 
-The final release candidate is the certification commit containing this record and the lint-only repairs required by the final umbrella gate.
+The release candidate comprises the frozen product basis, the certification repairs, and the clean-delivery repairs recorded below. The exact release tag target is the commit that lands on `main`.
 
 ## Database and persistence evidence
 
@@ -45,6 +45,7 @@ The final release candidate is the certification commit containing this record a
 6. Replaced Anvil recorder smoke timing with an awaitable one-time built-in adapter initialization contract.
 7. Completed the Hearth reference-material workflow and deployed its rollout-gate migration.
 8. Repaired three final Tongs lint/type-safety findings without changing runtime behavior: URL character-class spelling, explicit malformed-provider-response handling, and typed PDF Buffer slicing.
+9. Repaired clean Linux delivery failures exposed by PR validation: removed unused Hearth cradle-creation code, literal-typed the Hammer shorts request discriminators, and declared Nursery's Bellows TypeScript project reference so clean typechecking builds the required declarations.
 
 ## Gate evidence
 
@@ -66,6 +67,10 @@ The final release candidate is the certification commit containing this record a
 | Tongs / shared packages | PASS | Full package suites |
 | `pnpm gate:media` | PASS | Audio backend, FFmpeg plan, recorder fallback/handoff smoke |
 | `pnpm gate:nursery` | PASS | Fast, build, integration, media, and authenticated browser stages |
+| Post-repair forced Nursery TypeScript build | PASS | `tsc -b` with `--force`, including the Bellows project reference |
+| Post-repair workspace fast gate | PASS | Clean-delivery typecheck, lint, architecture, and cycle checks |
+| Post-repair production build | PASS | All active packages and bundle budgets |
+| Post-repair authenticated browser gate | PASS | All 28 Playwright tests against loopback Supabase fixtures |
 
 Existing warning budgets remain unchanged: Anvil reports 15 lint warnings and Nursery reports 4 lint warnings, with zero lint errors.
 
@@ -77,6 +82,6 @@ Existing warning budgets remain unchanged: Anvil reports 15 lint warnings and Nu
 
 ## Release disposition
 
-The authenticated browser boundary that held the candidate at NO-GO is now certified. Forge v1.2.12 is approved to proceed to the controlled release operations: review the certification diff, commit the candidate, merge to `main`, create the `v1.2.12` tag, push the approved refs, and deploy through the normal release path.
+The authenticated browser boundary that held the candidate at NO-GO is now certified, including a complete rerun after the clean-delivery repairs. Forge v1.2.12 is approved to proceed to the controlled release operations: merge PR #27 to `main`, tag the exact landed commit as `v1.2.12`, push the tag, and deploy that tagged commit through the normal release path.
 
-No tag, merge to `main`, application deployment, or Git push was performed by this certification step.
+The candidate branch was pushed and opened as PR #27. No tag, merge to `main`, or production deployment was performed by this certification step.

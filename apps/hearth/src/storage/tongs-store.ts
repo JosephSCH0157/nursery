@@ -514,32 +514,6 @@ async function readJsonFromTongs(url: string): Promise<
   };
 }
 
-function resolveCreatedWorkpieceId(body: unknown): string | null {
-  const row = body as {
-    data?: {
-      cradle?: { id?: unknown };
-      episode?: { id?: unknown };
-      workpiece?: { id?: unknown };
-      id?: unknown;
-    };
-    cradle?: { id?: unknown };
-    episode?: { id?: unknown };
-    workpiece?: { id?: unknown };
-    id?: unknown;
-  };
-
-  return normalizeUuid(
-    row?.data?.cradle?.id
-      ?? row?.data?.episode?.id
-      ?? row?.data?.workpiece?.id
-      ?? row?.data?.id
-      ?? row?.cradle?.id
-      ?? row?.episode?.id
-      ?? row?.workpiece?.id
-      ?? row?.id,
-  );
-}
-
 function isCommitAck(body: unknown): boolean {
   const row = body as {
     ok?: unknown;
@@ -557,31 +531,6 @@ function isCommitAck(body: unknown): boolean {
     || row?.success === true
     || row?.data?.ok === true
     || row?.data?.success === true;
-}
-
-async function createCradle(workspaceId: string, writtenBy: WrittenBy): Promise<string | null> {
-  const response = await tongsFetch("/tongs/cradles", {
-    method: "POST",
-    json: {
-      workspace_id: workspaceId,
-      written_by: writtenBy,
-      origin_tool: {
-        name: "hearth",
-        version: writtenBy.tool_version,
-      },
-      metadata: {
-        schema: "hearth.drafts.v1",
-      },
-      correlation_id: nextCorrelationId("hearth-create-cradle"),
-    },
-  });
-
-  const body = await readJsonBody(response);
-  const createdId = resolveCreatedWorkpieceId(body);
-  if (!response.ok || !createdId) {
-    return null;
-  }
-  return createdId;
 }
 
 async function commitDraftSnapshot(
