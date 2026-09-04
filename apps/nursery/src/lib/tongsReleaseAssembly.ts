@@ -1,5 +1,6 @@
 import {
   buildHammerReleasePrepPackageFromSnapshot,
+  HAMMER_VIDEO_RELEASE_PROFILE_AUTHORITY,
   type HammerReleasePrepPackage,
 } from "../../../hammer/src/lib/hammerReleasePrepPackage";
 import {
@@ -108,6 +109,7 @@ export function buildTongsHammerReleaseAssembly(
 ): TongsHammerReleaseAssembly {
   const releasePrep = buildHammerReleasePrepPackageFromSnapshot(snapshot, {
     mediaBackboneRuntime: options?.mediaBackboneRuntime ?? null,
+    releaseProfileAuthority: HAMMER_VIDEO_RELEASE_PROFILE_AUTHORITY,
   });
   const preparedReleasePackage = options?.preparedReleasePackage ?? null;
   const preparedReleaseComparison = compareHammerPreparedReleasePackageToCurrent(

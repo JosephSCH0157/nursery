@@ -27,6 +27,9 @@ import {
   type QuenchOpenAuthority,
   isQuenchCandidateSelectable,
   getQuenchExperimentCapability,
+  buildRumbleManualHandoffSnapshot,
+  validateRumbleManualHandoff,
+  RUMBLE_UPLOAD_URL,
 } from "@forge/quench";
 import type { HammerPreparedReleasePackage } from "../../../hammer/src/lib/hammerPreparedReleasePackage";
 import { tongsFetch } from "../../../hammer/src/lib/tongsFetch";
@@ -175,7 +178,7 @@ function normalizePreparedReleasePackage(value: unknown): HammerPreparedReleaseP
 function buildCanonicalReleaseCase(projection:QuenchCanonicalReleaseProjection):QuenchReleaseConsoleCase{
   const manifest=projection.hammer.manifest;const episode=projection.metadata.episode;const seo=readJsonObject(episode.seo);const titles=Array.isArray(seo?.titles)?seo.titles.map(readJsonObject).filter(Boolean):[];const primary=titles.find((entry)=>entry?.is_primary===true)??titles[0];
   const title=readString(primary?.text)??readString(manifest.episode_title)??`Release ${projection.workpiece_id.slice(0,8)}`;const description=readString(seo?.description_long)??readString(seo?.description_short)??"Canonical release metadata is incomplete.";const tags=Array.isArray(seo?.tags)?seo.tags.map(readString).filter((value):value is string=>Boolean(value)):[];
-  const audioId=manifest.audio.media_id;return{authority:"canonical",canonical_projection:projection,case_id:`canonical:${projection.workpiece_id}:${projection.hammer.manifest_snapshot_id}`,label:"Canonical Hammer Release",summary:`Tongs-verified manifest ${projection.hammer.manifest_content_hash.slice(0,12)}…`,packet:{release_packet_id:projection.hammer.manifest_snapshot_id,workspace_id:projection.workspace_id,workpiece_id:projection.workpiece_id,episode_id:projection.workpiece_id,title,description,tags,thumbnail_asset_id:null,video_export_id:null,audio_export_id:audioId,shorts:[],asset_source:"cloud",rss_ready:projection.hammer.readiness.ready_for_quench===true,platform_overrides:{},seo_metadata:null},resolved_assets:{audio:audioId?{asset_id:audioId,kind:"audio",source:"cloud",uri:manifest.audio.workpiece_path??manifest.audio.local_relpath??`workpiece-media://${projection.workpiece_id}/${audioId}`,mime_type:manifest.audio.mime_type??undefined,duration_sec:manifest.duration_seconds??undefined,accessible:true}:null,shorts:[]},default_platforms:[],default_publish_options:{}};
+  const audio=readJsonObject(manifest.audio);const video=readJsonObject(manifest.video);const audioId=readString(audio?.media_id);const videoId=readString(video?.canonical_asset_id)??readString(video?.media_id);const videoPath=readString(video?.workpiece_path)??readString(video?.local_relpath);return{authority:"canonical",canonical_projection:projection,case_id:`canonical:${projection.workpiece_id}:${projection.hammer.manifest_snapshot_id}`,label:"Canonical Hammer Release",summary:`Tongs-verified manifest ${projection.hammer.manifest_content_hash.slice(0,12)}…`,packet:{release_packet_id:projection.hammer.manifest_snapshot_id,workspace_id:projection.workspace_id,workpiece_id:projection.workpiece_id,episode_id:projection.workpiece_id,title,description,tags,thumbnail_asset_id:null,video_export_id:videoId,audio_export_id:audioId,shorts:[],asset_source:"cloud",rss_ready:projection.hammer.readiness.ready_for_quench===true,platform_overrides:{},seo_metadata:null},resolved_assets:{video:videoId?{asset_id:videoId,kind:"video",source:"cloud",uri:videoPath??"",mime_type:readString(video?.mime_type)??undefined,duration_sec:typeof manifest.duration_seconds==="number"?manifest.duration_seconds:undefined,accessible:Boolean(videoPath)}:null,audio:audioId?{asset_id:audioId,kind:"audio",source:"cloud",uri:readString(audio?.workpiece_path)??readString(audio?.local_relpath)??`workpiece-media://${projection.workpiece_id}/${audioId}`,mime_type:readString(audio?.mime_type)??undefined,duration_sec:typeof manifest.duration_seconds==="number"?manifest.duration_seconds:undefined,accessible:true}:null,shorts:[]},default_platforms:[],default_publish_options:{}};
 }
 
 async function readResponseJson(response: Response): Promise<unknown> {
@@ -292,6 +295,8 @@ function QuenchCandidatePreview({workpieceId,path,mimeType,ordinal}:{workpieceId
   const src=path&&preview?.path===path?preview.src:null;return src?<img src={src} alt={`Canonical thumbnail candidate ${ordinal}`} style={{width:"100%",aspectRatio:"16 / 9",objectFit:"cover",borderRadius:"0.4rem"}}/>:<div className="quench-console__empty-note">Verified preview unavailable.</div>;
 }
 
+async function downloadWorkpieceFile(workpieceId:string,path:string,filename:string):Promise<void>{const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(workpieceId)}/read-file?path=${encodeURIComponent(path)}&encoding=base64`,{method:"GET",timeoutMs:45_000});const payload=await response.json() as{data?:{bytes_base64?:string;content_type?:string}};if(!response.ok||!payload.data?.bytes_base64)throw new Error("Canonical file download is unavailable.");const binary=atob(payload.data.bytes_base64);const bytes=new Uint8Array(binary.length);for(let index=0;index<binary.length;index+=1)bytes[index]=binary.charCodeAt(index);const url=URL.createObjectURL(new Blob([bytes],{type:payload.data.content_type??"application/octet-stream"}));const link=document.createElement("a");link.href=url;link.download=filename;link.click();URL.revokeObjectURL(url);}
+
 export default function QuenchRoute() {
   const shell = useOutletContext<AppShellContext>();
   const location = useLocation();
@@ -350,6 +355,11 @@ export default function QuenchRoute() {
   const [thumbnailSelectionMessage,setThumbnailSelectionMessage]=useState<string|null>(null);
   const [openAuthority,setOpenAuthority]=useState<QuenchOpenAuthority|null>(null);
   const [openRevision,setOpenRevision]=useState(0);
+  const [rumbleCategory,setRumbleCategory]=useState("");
+  const [rumbleResultUrl,setRumbleResultUrl]=useState("");
+  const [manualHandoffId,setManualHandoffId]=useState<string|null>(null);
+  const [manualReceiptId,setManualReceiptId]=useState<string|null>(null);
+  const [manualHandoffMessage,setManualHandoffMessage]=useState<string|null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -412,9 +422,13 @@ export default function QuenchRoute() {
   const canonicalProjection=selectedCase?.canonical_projection??null;
   const thumbnailSelectionScope=canonicalProjection?.destination_capabilities.find((scope)=>scope.platform==="youtube"&&scope.state==="active")??canonicalProjection?.destination_capabilities.find((scope)=>scope.state==="active")??null;
   const thumbnailSelectionDecision=thumbnailSelectionScope?canonicalProjection?.current_decisions.find((decision)=>decision.destination_scope_id===thumbnailSelectionScope.id)??null:null;
+  const rumbleScope=canonicalProjection?.destination_capabilities.find((scope)=>scope.platform==="rumble"&&scope.execution_context==="manual_handoff"&&scope.state==="active")??null;
+  const rumbleDecision=rumbleScope?canonicalProjection?.current_decisions.find((decision)=>decision.destination_scope_id===rumbleScope.id)??null:null;
+  const rumbleCandidate=canonicalThumbnails?.candidates.find((entry)=>rumbleDecision?.assignments?.some((assignment)=>assignment.candidate_revision_id===entry.id))??null;
   const experimentCapability=getQuenchExperimentCapability(thumbnailSelectionScope);
   useEffect(()=>{let cancelled=false;async function load(){if(!openAuthority){setPublicationDestinations([]);setSelectedPublicationDestinationId("");return;}try{const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(openAuthority.workpiece_id)}/quench/publication-destinations`,{method:"POST",json:{workspace_id:openAuthority.workspace_id},timeoutMs:45_000});const payload=await readResponseJson(response);const root=readJsonObject(payload);const rows=Array.isArray(root?.data)?root.data.filter((entry):entry is PublicationDestination=>!!entry&&typeof entry==="object"&&typeof (entry as Record<string,unknown>).executable_destination_id==="string"&&typeof (entry as Record<string,unknown>).capability_revision_id==="string"):[];if(cancelled)return;setPublicationDestinations(rows);setSelectedPublicationDestinationId((current)=>rows.some((row)=>row.executable_destination_id===current)?current:rows[0]?.executable_destination_id??"");}catch{if(!cancelled){setPublicationDestinations([]);setSelectedPublicationDestinationId("");}}}void load();return()=>{cancelled=true;};},[openAuthority]);
   useEffect(()=>{let cancelled=false;async function recover(){if(!openAuthority)return;try{const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(openAuthority.workpiece_id)}/quench/publication-operations`,{method:"POST",json:{workspace_id:openAuthority.workspace_id,manifest_snapshot_id:openAuthority.manifest_snapshot_id},timeoutMs:45_000});const payload=await readResponseJson(response);const rows=readJsonObject(payload)?.data;if(cancelled||!Array.isArray(rows)||!rows.length)return;const latest=readJsonObject(rows[0]);const operationId=readString(latest?.publication_operation_id);if(!operationId)return;setPublicationOperationId(operationId);setSelectedPublicationDestinationId(readString(latest?.executable_destination_id)??"");setPublicationCommandState(readString(latest?.operation_state)==="reserved"?"reserved":"recorded");setPublicationCommandMessage(`Recovered durable publication operation ${operationId}; refresh did not rebuild its authority.`);}catch{/* recovery failure does not manufacture authority */}}void recover();return()=>{cancelled=true;};},[openAuthority]);
+  useEffect(()=>{let cancelled=false;async function recover(){if(!openAuthority)return;try{const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(openAuthority.workpiece_id)}/quench/manual-handoffs`,{method:"POST",json:{workspace_id:openAuthority.workspace_id},timeoutMs:45_000});const rows=readJsonObject(await readResponseJson(response))?.data;if(cancelled||!Array.isArray(rows)||!rows.length)return;const latest=readJsonObject(rows[0]);const snapshot=readJsonObject(latest?.snapshot);const receipts=Array.isArray(latest?.receipts)?latest.receipts.map(readJsonObject).filter(Boolean):[];const receipt=receipts.at(-1);setManualHandoffId(readString(snapshot?.id));setManualReceiptId(readString(receipt?.id));setRumbleResultUrl(readString(receipt?.result_url)??"");setManualHandoffMessage(readString(latest?.freshness)==="stale"?"Prepared manual handoff is stale; prepare again from the current release authority.":receipt?"Recovered creator-confirmed manual handoff history.":"Recovered prepared manual handoff.");}catch{/* read failure does not manufacture confirmation */}}void recover();return()=>{cancelled=true;};},[openAuthority]);
   useEffect(()=>{if(thumbnailSelectionDecision?.decision?.decision_kind!=="experiment_intent"||thumbnailSelectionDecision.decision.intent_state!=="experiment_planned")return;const control=thumbnailSelectionDecision.assignments?.find((entry)=>entry.assignment_role==="control")?.candidate_revision_id;const variants=thumbnailSelectionDecision.assignments?.filter((entry)=>entry.assignment_role==="variant").map((entry)=>String(entry.candidate_revision_id))??[];setExperimentControlId(typeof control==="string"?control:null);setExperimentVariantIds(variants);},[thumbnailSelectionDecision]);
   const selectCanonicalThumbnail=useCallback(async(candidateId:string)=>{if(!canonicalProjection||!thumbnailSelectionScope||!openAuthority)return;setThumbnailSelectionState("saving");setThumbnailSelectionMessage(null);try{const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(canonicalProjection.workpiece_id)}/quench/select-candidate`,{method:"POST",json:{workspace_id:canonicalProjection.workspace_id,destination_scope_id:thumbnailSelectionScope.id,candidate_revision_id:candidateId,manifest_snapshot_id:openAuthority.manifest_snapshot_id,expected_decision_id:thumbnailSelectionDecision?.current_decision_id??null,expected_revision:thumbnailSelectionDecision?.current_revision??0,operation_id:crypto.randomUUID()},timeoutMs:45_000});const payload=await readResponseJson(response);const root=readJsonObject(payload);const result=readJsonObject(root?.data);const disposition=readString(result?.disposition);if(!response.ok)throw new Error(readString(readJsonObject(root?.error)?.message)??"Selection failed.");if(disposition==="revision_conflict"){setThumbnailSelectionState("conflict");setThumbnailSelectionMessage("The canonical decision advanced. Reload this same review authority before retrying.");}else if(!["committed","replayed","no_change"].includes(disposition??"")){throw new Error(`Selection was not committed: ${(disposition??"blocked").replaceAll("_"," ")}.`);}else{setThumbnailSelectionState("saved");setThumbnailSelectionMessage(disposition==="no_change"?"That candidate is already the canonical selection.":disposition==="replayed"?"The original canonical selection was restored from its operation receipt.":"Canonical thumbnail selection committed.");}setOpenRevision((value)=>value+1);}catch(error){setThumbnailSelectionState("error");setThumbnailSelectionMessage(error instanceof Error?error.message:"Selection failed.");}},[canonicalProjection,openAuthority,thumbnailSelectionDecision,thumbnailSelectionScope]);
   const readinessVerdict = selectedCase
@@ -470,6 +484,12 @@ export default function QuenchRoute() {
 
       const resolver = new StaticAssetResolver(selectedCase.resolved_assets);
       const assets = await resolveReleaseAssets(selectedCase.packet, resolver);
+      if(selectedCase.authority==="canonical"&&assets.video?.asset_id&&!assets.video.accessible){
+        const manifestVideo=readJsonObject(selectedCase.canonical_projection?.hammer.manifest.video);
+        const response=await tongsFetch(`/tongs/workspaces/${encodeURIComponent(selectedCase.packet.workspace_id)}/assets/${encodeURIComponent(assets.video.asset_id)}/resolve-authority`,{method:"POST",json:{expected_workpiece_id:selectedCase.packet.workpiece_id,expected_content_hash:readString(manifestVideo?.canonical_content_hash)},timeoutMs:45_000});
+        const root=readJsonObject(await readResponseJson(response));const authority=readJsonObject(readJsonObject(root?.data)?.authority);const path=readString(authority?.path);
+        if(response.ok&&readString(authority?.state)==="ready"&&path)assets.video={...assets.video,uri:path,mime_type:readString(authority?.mimeType)??assets.video.mime_type,accessible:true};
+      }
       if (cancelled) return;
       setResolvedAssets(assets);
       setPublishResults({});
@@ -523,6 +543,21 @@ export default function QuenchRoute() {
       const completeResponse=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(openAuthority.workpiece_id)}/quench/complete-publication-stub`,{method:"POST",json:{workspace_id:openAuthority.workspace_id,publication_operation_id:operationId,publication_attempt_id:attemptId},timeoutMs:45_000});if(!completeResponse.ok)throw new Error("The stub result could not be persisted as a durable blocked receipt.");setPublicationCommandState("recorded");setPublicationCommandMessage("P1 and A1 were persisted. Stub execution created a durable blocked receipt; no provider side effect occurred.");setBoardUpdatedAt(new Date().toISOString());
     }catch(error){setPublicationCommandState("error");setPublicationCommandMessage(error instanceof Error?error.message:"Publication authority failed.");}
   }
+
+  async function selectRumbleThumbnail(candidateId:string):Promise<void>{
+    if(!canonicalProjection||!rumbleScope||!openAuthority)return;const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(canonicalProjection.workpiece_id)}/quench/select-candidate`,{method:"POST",json:{workspace_id:canonicalProjection.workspace_id,destination_scope_id:rumbleScope.id,candidate_revision_id:candidateId,manifest_snapshot_id:openAuthority.manifest_snapshot_id,expected_decision_id:rumbleDecision?.current_decision_id??null,expected_revision:rumbleDecision?.current_revision??0,operation_id:crypto.randomUUID()},timeoutMs:45_000});const data=readJsonObject(readJsonObject(await readResponseJson(response))?.data);if(!response.ok||!["committed","replayed","no_change"].includes(readString(data?.disposition)??"")){setManualHandoffMessage(`Rumble thumbnail decision failed: ${readString(data?.code)??"blocked"}.`);return;}setManualHandoffMessage("Rumble handoff thumbnail selected.");setOpenRevision((value)=>value+1);
+  }
+
+  async function prepareRumbleManualHandoff():Promise<void>{
+    if(!selectedCase||!openAuthority||!rumbleScope||!rumbleDecision?.current_decision_id)return;
+    const candidate=canonicalThumbnails?.candidates.find((entry)=>rumbleDecision.assignments?.some((assignment)=>assignment.candidate_revision_id===entry.id))??null;
+    const thumbnail=candidate?{asset_id:candidate.composite_asset_id,kind:"thumbnail" as const,source:"cloud" as const,uri:candidate.asset_path??`workpiece-media://${openAuthority.workpiece_id}/${candidate.composite_asset_id}`,accessible:candidate.authority_verified}:null;
+    const assets={...resolvedAssets,thumbnail};const options=publishOptions.rumble??getDefaultPublishOptions("rumble");const intent={category:rumbleCategory,visibility:options.visibility??"private" as const,intended_schedule:options.mode==="schedule"?options.scheduled_for??null:null};const validation=validateRumbleManualHandoff({...selectedCase.packet,thumbnail_asset_id:thumbnail?.asset_id??null},assets,options,intent);
+    if(!validation.ok){setManualHandoffMessage(validation.errors.map((entry)=>entry.message).join(" "));return;}
+    const capability=readJsonObject(rumbleScope.current_capability);const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(openAuthority.workpiece_id)}/quench/prepare-manual-handoff`,{method:"POST",json:{workspace_id:openAuthority.workspace_id,prepare_key:crypto.randomUUID(),manifest_snapshot_id:openAuthority.manifest_snapshot_id,manifest_content_hash:openAuthority.manifest_content_hash,release_decision_id:rumbleDecision.current_decision_id,release_decision_revision:rumbleDecision.current_revision,destination_scope_id:rumbleScope.id,destination_capability_revision_id:readString(capability?.id),handoff_contract_version:"forge.manual-handoff.v1",handoff_snapshot:buildRumbleManualHandoffSnapshot({...selectedCase.packet,thumbnail_asset_id:thumbnail?.asset_id??null},assets,options,intent)},timeoutMs:45_000});const root=readJsonObject(await readResponseJson(response));const data=readJsonObject(root?.data);const id=readString(data?.manual_handoff_snapshot_id);if(!response.ok||!id){setManualHandoffMessage(`Manual handoff was not prepared: ${readString(data?.code)??"blocked"}.`);return;}setManualHandoffId(id);setManualHandoffMessage("Canonical manual handoff prepared. Download and upload remain creator actions.");
+  }
+
+  async function confirmRumbleManualHandoff():Promise<void>{if(!openAuthority||!manualHandoffId)return;const response=await tongsFetch(`/tongs/workpieces/${encodeURIComponent(openAuthority.workpiece_id)}/quench/confirm-manual-handoff`,{method:"POST",json:{workspace_id:openAuthority.workspace_id,manual_handoff_snapshot_id:manualHandoffId,result_url:rumbleResultUrl,supersedes_receipt_id:manualReceiptId},timeoutMs:45_000});const data=readJsonObject(readJsonObject(await readResponseJson(response))?.data);const id=readString(data?.receipt_id);if(!response.ok||!id){setManualHandoffMessage(`Confirmation was not recorded: ${readString(data?.code)??"blocked"}.`);return;}setManualReceiptId(id);setManualHandoffMessage(`Creator-confirmed receipt r${String(data?.revision??1)} recorded. This is not provider verification.`);}
 
   const requestMetadataAssist = useCallback(async () => {
     if (!selectedCase) return;
@@ -959,6 +994,31 @@ export default function QuenchRoute() {
                   </div>
                 )}
               </section>
+
+              {selectedPlatforms.includes("rumble")?<section className="quench-console__card" aria-label="Rumble manual handoff">
+                <div className="quench-console__card-head"><h3>Rumble manual handoff</h3><span>creator operated</span></div>
+                <p className="quench-console__empty-note">Quench prepares evidence only. Choose licensing, monetization, channel, syndication, and any premiere behavior yourself on Rumble.</p>
+                <label className="quench-console__field"><span>Intended category</span><input value={rumbleCategory} onChange={(event)=>setRumbleCategory(event.target.value)} /></label>
+                <label className="quench-console__field"><span>Intended visibility</span><select value={publishOptions.rumble?.visibility??"private"} onChange={(event)=>updatePlatformOptions("rumble",(current)=>({...current,visibility:event.target.value as "private"|"unlisted"|"public"}))}><option value="private">Private</option><option value="unlisted">Unlisted</option><option value="public">Public</option></select></label>
+                <label className="quench-console__field"><span>Release timing</span><select value={publishOptions.rumble?.mode??"publish"} onChange={(event)=>updatePlatformOptions("rumble",(current)=>({...current,mode:event.target.value as ReleaseMode}))}><option value="publish">Publish when uploaded</option><option value="schedule">Intended schedule</option></select></label>
+                {publishOptions.rumble?.mode==="schedule"?<label className="quench-console__field"><span>Intended schedule</span><input type="datetime-local" value={(publishOptions.rumble.scheduled_for??"").slice(0,16)} onChange={(event)=>updatePlatformOptions("rumble",(current)=>({...current,scheduled_for:event.target.value?new Date(event.target.value).toISOString():undefined}))}/></label>:null}
+                <div className="quench-console__asset-grid">{canonicalThumbnails?.candidates.filter(isQuenchCandidateSelectable).map((candidate)=><button type="button" key={`rumble-${candidate.id}`} onClick={()=>void selectRumbleThumbnail(candidate.id)}>{rumbleDecision?.assignments?.some((assignment)=>assignment.candidate_revision_id===candidate.id)?"Rumble thumbnail selected":`Use candidate ${candidate.candidate_ordinal} for Rumble`}</button>)}</div>
+                <button type="button" onClick={()=>void prepareRumbleManualHandoff()} disabled={!rumbleScope||!rumbleDecision?.current_decision_id}>Prepare manual handoff</button>
+                {manualHandoffId?<div className="quench-console__adapter-controls">
+                  <button type="button" disabled={!resolvedAssets.video?.accessible||!resolvedAssets.video.uri} onClick={()=>resolvedAssets.video?.uri?void downloadWorkpieceFile(openAuthority!.workpiece_id,resolvedAssets.video.uri,"rumble-video"):undefined}>Download final video</button>
+                  {rumbleCandidate?.asset_path?<button type="button" onClick={()=>void downloadWorkpieceFile(openAuthority!.workpiece_id,rumbleCandidate.asset_path!,"rumble-thumbnail")}>Download thumbnail</button>:null}
+                  <button type="button" onClick={()=>void navigator.clipboard.writeText(publishOptions.rumble?.title_override??selectedCase.packet.title)}>Copy title</button>
+                  <button type="button" onClick={()=>void navigator.clipboard.writeText(publishOptions.rumble?.description_override??selectedCase.packet.description)}>Copy description</button>
+                  <button type="button" onClick={()=>void navigator.clipboard.writeText(selectedCase.packet.tags.join(", "))}>Copy tags</button>
+                  <button type="button" onClick={()=>void navigator.clipboard.writeText(rumbleCategory)}>Copy category</button>
+                  <button type="button" onClick={()=>void navigator.clipboard.writeText(publishOptions.rumble?.visibility??"private")}>Copy visibility</button>
+                  {publishOptions.rumble?.scheduled_for?<button type="button" onClick={()=>void navigator.clipboard.writeText(publishOptions.rumble!.scheduled_for!)}>Copy intended schedule</button>:null}
+                  <a href={RUMBLE_UPLOAD_URL} target="_blank" rel="noreferrer">Open official Rumble upload page</a>
+                  <label><span>Resulting Rumble URL</span><input type="url" value={rumbleResultUrl} onChange={(event)=>setRumbleResultUrl(event.target.value)} placeholder="https://rumble.com/v…" /></label>
+                  <button type="button" onClick={()=>void confirmRumbleManualHandoff()} disabled={!rumbleResultUrl.trim()}>Record creator confirmation</button>
+                </div>:null}
+                {manualHandoffMessage?<p role="status" className="quench-console__receipt-message">{manualHandoffMessage}</p>:null}
+              </section>:null}
             </>
           ) : (
             <div className="quench-console__empty-note">No release packets are available.</div>
@@ -982,6 +1042,10 @@ export default function QuenchRoute() {
             {experimentMessage ? <p className={experimentState === "error" ? "quench-console__issue is-bad" : "quench-console__empty-note"}>{experimentMessage}</p> : null}
           </section>
           <div className="quench-console__adapter-list">
+            <article className={`quench-console__adapter${selectedPlatforms.includes("rumble")?" is-selected":""}`}>
+              <div className="quench-console__adapter-top"><div><strong>Rumble</strong><div className="quench-console__adapter-subtitle">manual video handoff</div></div><button type="button" onClick={()=>togglePlatform("rumble")}>{selectedPlatforms.includes("rumble")?"remove":"add"}</button></div>
+              <div className="quench-console__capability-row"><span data-on="1">video</span><span data-on="0">API upload</span><span data-on="1">manual schedule</span><span data-on="0">provider receipt</span></div>
+            </article>
             {QUENCH_ADAPTERS.map((adapter) => {
               const platform = adapter.platform;
               const capability = capabilities[platform];

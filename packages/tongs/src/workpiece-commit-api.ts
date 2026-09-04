@@ -1873,6 +1873,11 @@ export type EstablishPublicationOperationInput = {
   publication_intent_contract_version: string;
   publication_intent_snapshot: Record<string, Json>;
 };
+export type PrepareManualHandoffInput = {
+  workspace_id: string; prepare_key: string; manifest_snapshot_id: string; manifest_content_hash: string;
+  release_decision_id: string; release_decision_revision: number; destination_scope_id: string;
+  destination_capability_revision_id: string; handoff_contract_version: string; handoff_snapshot: Record<string, Json>;
+};
 export type CommitQuenchSingleCandidateRequest = {
   workspace_id: string;
   destination_scope_id: string;
@@ -3693,6 +3698,9 @@ export type TongsCommitApiService = {
     manifestSnapshotId: string,
     options?: { userAccessToken?: string | null },
   ): Promise<Record<string, Json>[]>;
+  prepareManualHandoff(workpieceId: string, input: PrepareManualHandoffInput, options?: { userAccessToken?: string | null }): Promise<Record<string, Json>>;
+  confirmManualHandoff(workpieceId: string, workspaceId: string, snapshotId: string, resultUrl: string, supersedesReceiptId: string | null, options?: { userAccessToken?: string | null }): Promise<Record<string, Json>>;
+  readManualHandoffs(workpieceId: string, workspaceId: string, options?: { userAccessToken?: string | null }): Promise<Record<string, Json>[]>;
   commitQuenchSingleCandidate(
     workpieceId: string,
     input: CommitQuenchSingleCandidateRequest,
@@ -20367,6 +20375,36 @@ export class TongsCommitService {
     return result.data as Record<string, Json>;
   }
 
+  async prepareManualHandoff(workpieceId: string, input: PrepareManualHandoffInput, options?: { userAccessToken?: string | null }): Promise<Record<string, Json>> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const result = await this.thumbnailAuthorityClient(options?.userAccessToken).rpc("prepare_manual_handoff", {
+      p_prepare_key: input.prepare_key, p_workspace_id: input.workspace_id, p_workpiece_id: workpieceId,
+      p_manifest_snapshot_id: input.manifest_snapshot_id, p_manifest_content_hash: input.manifest_content_hash,
+      p_release_decision_id: input.release_decision_id, p_release_decision_revision: input.release_decision_revision,
+      p_destination_scope_id: input.destination_scope_id, p_destination_capability_revision_id: input.destination_capability_revision_id,
+      p_handoff_contract_version: input.handoff_contract_version, p_handoff_snapshot: input.handoff_snapshot,
+    });
+    if (result.error || !isRecord(result.data)) throw new HttpError(502, "manual_handoff_prepare_failed", "Tongs could not prepare the manual handoff.", { reason: result.error?.message });
+    return result.data as Record<string, Json>;
+  }
+
+  async confirmManualHandoff(workpieceId: string, workspaceId: string, snapshotId: string, resultUrl: string, supersedesReceiptId: string | null, options?: { userAccessToken?: string | null }): Promise<Record<string, Json>> {
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "editor", options?.userAccessToken);
+    const result = await this.thumbnailAuthorityClient(options?.userAccessToken).rpc("confirm_manual_handoff", { p_snapshot_id: snapshotId, p_result_url: resultUrl, p_supersedes_receipt_id: supersedesReceiptId, p_evidence_json: { confirmation_source: "creator_input" } });
+    if (result.error || !isRecord(result.data)) throw new HttpError(502, "manual_handoff_confirm_failed", "Tongs could not confirm the manual handoff.", { reason: result.error?.message });
+    return result.data as Record<string, Json>;
+  }
+
+  async readManualHandoffs(workpieceId: string, workspaceId: string, options?: { userAccessToken?: string | null }): Promise<Record<string, Json>[]> {
+    await this.assertWorkpieceInWorkspace(workpieceId, workspaceId);
+    await this.assertWorkspaceRoleFromAccessToken(workspaceId, "viewer", options?.userAccessToken);
+    const result = await this.thumbnailAuthorityClient(options?.userAccessToken).rpc("read_manual_handoffs", { p_workspace_id: workspaceId, p_workpiece_id: workpieceId });
+    if (result.error || !Array.isArray(result.data)) throw new HttpError(502, "manual_handoff_read_failed", "Tongs could not read manual handoff history.", { reason: result.error?.message });
+    return result.data.filter(isRecord) as Record<string, Json>[];
+  }
+
   async claimPublicationAttempt(
     workpieceId: string,
     workspaceId: string,
@@ -34378,6 +34416,23 @@ export function createTongsCommitApiHandlerWithService(
           "Unknown Reference review attempt action.",
         );
       }
+      if (
+        parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "quench" && parts[4] === "prepare-manual-handoff"
+      ) {
+        requireMethod(request, "POST"); const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id"); const body=await parseJsonBody(request); const userAccessToken=requireUserAccessTokenHeader(request);
+        if(!isRecord(body.handoff_snapshot))throw new HttpError(400,"invalid_manual_handoff_snapshot","handoff_snapshot must be an object");
+        const result=await service.prepareManualHandoff(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),prepare_key:normalizeUuid(body.prepare_key,"prepare_key"),manifest_snapshot_id:normalizeUuid(body.manifest_snapshot_id,"manifest_snapshot_id"),manifest_content_hash:normalizeSha256(body.manifest_content_hash,"manifest_content_hash"),release_decision_id:normalizeUuid(body.release_decision_id,"release_decision_id"),release_decision_revision:normalizePositiveInteger(body.release_decision_revision,"release_decision_revision"),destination_scope_id:normalizeUuid(body.destination_scope_id,"destination_scope_id"),destination_capability_revision_id:normalizeUuid(body.destination_capability_revision_id,"destination_capability_revision_id"),handoff_contract_version:normalizeNonEmptyString(body.handoff_contract_version,"handoff_contract_version"),handoff_snapshot:body.handoff_snapshot as Record<string,Json>},{userAccessToken});
+        return jsonResponse(200,{ok:true,data:result});
+      }
+      if (parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "quench" && parts[4] === "confirm-manual-handoff") {
+        requireMethod(request,"POST"); const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id"); const body=await parseJsonBody(request); const userAccessToken=requireUserAccessTokenHeader(request);
+        const result=await service.confirmManualHandoff(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),normalizeUuid(body.manual_handoff_snapshot_id,"manual_handoff_snapshot_id"),normalizeNonEmptyString(body.result_url,"result_url"),body.supersedes_receipt_id==null?null:normalizeUuid(body.supersedes_receipt_id,"supersedes_receipt_id"),{userAccessToken}); return jsonResponse(200,{ok:true,data:result});
+      }
+      if (parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "quench" && parts[4] === "manual-handoffs") {
+        requireMethod(request,"POST"); const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id"); const body=await parseJsonBody(request); const userAccessToken=requireUserAccessTokenHeader(request);
+        const result=await service.readManualHandoffs(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),{userAccessToken}); return jsonResponse(200,{ok:true,data:result});
+      }
+
       if (
         parts.length === 5 &&
         parts[0] === "tongs" &&

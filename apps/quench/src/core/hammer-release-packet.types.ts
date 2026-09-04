@@ -35,6 +35,7 @@ export interface HammerQuenchReleasePacketManifest {
   packet_kind: "quench_release_packet";
   generated_by: "Hammer";
   generated_at: string;
+  release_profile_authority: { profile: "audio_episode"|"video_episode"; audio_visual_intent: "none"|"visual_deliverable" };
   workpiece_id: string;
   workspace_id: string | null;
   episode_title: string | null;
@@ -78,6 +79,7 @@ export interface HammerQuenchReleasePacketManifest {
     review_reasons?: string[];
     reasons: string[];
   };
+  video: { kind:"final_master"|"source"|"none"; canonical_asset_id:string|null; canonical_content_hash:string|null; mime_type:string|null; duration_ms:number|null };
   packaging_media_readiness?: Record<string, unknown>;
   editorial_truth?: {
     schema_version: 1;

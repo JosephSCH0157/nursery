@@ -9,5 +9,6 @@ export * from "./core/quenchMetadataAssist.contract";
 export * from "./core/canonical-release-projection.types";
 export * from "./adapters/adapter.contract";
 export * from "./adapters/transistor/transistor.adapter";
+export * from "./manual/manual-handoff.contract";
 export * from "./adapters/youtube/youtube.adapter";
 export * from "./dev/mockReleasePackets";

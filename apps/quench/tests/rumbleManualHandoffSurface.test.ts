@@ -1,0 +1,4 @@
+import assert from"node:assert/strict";import test from"node:test";import{readFile}from"node:fs/promises";
+const route=await readFile(new URL("../../nursery/src/routes/Quench.tsx",import.meta.url),"utf8");
+test("Rumble uses only manual handoff endpoints",()=>{assert.match(route,/prepare-manual-handoff/);assert.match(route,/confirm-manual-handoff/);assert.match(route,/manual-handoffs/);assert.match(route,/href=\{RUMBLE_UPLOAD_URL\}/);const manual=route.slice(route.indexOf("async function prepareRumbleManualHandoff"),route.indexOf("const requestMetadataAssist"));assert.doesNotMatch(manual,/establish-publication|claim-publication-attempt|complete-publication-stub/);});
+test("surface exposes prepared downloads, copy actions, and creator confirmation",()=>{for(const label of["Download final video","Download thumbnail","Copy title","Copy description","Copy tags","Resulting Rumble URL","creator-confirmed"])assert.match(route,new RegExp(label,"i"));});
