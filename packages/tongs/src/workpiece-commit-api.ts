@@ -535,10 +535,11 @@ type RecordingUploadSessionState = {
   total_bytes: number;
   total_chunks: number;
   chunk_size_bytes: number;
-  uploaded_chunks: Record<string, { bytes: number; updated_at: string }>;
+  uploaded_chunks: Record<string, { bytes: number; sha256?: string; updated_at: string }>;
   created_at: string;
   updated_at: string;
   finalized_at: string | null;
+  final_result?: CommitFileResponse | null;
 };
 
 type JsonPrimitive = string | number | boolean | null;
@@ -705,6 +706,7 @@ export type BeginRecordingUploadSessionResponse = {
   total_chunks: number;
   chunk_size_bytes: number;
   uploaded_chunks: number[];
+  finalized_result?: CommitFileResponse;
 };
 
 export type UploadRecordingChunkRequest = {
@@ -17220,9 +17222,10 @@ export class TongsCommitService {
 
   private async deleteRecordingUploadArtifacts(
     state: RecordingUploadSessionState,
+    preserveSession = false,
   ): Promise<void> {
     const keys: string[] = [];
-    keys.push(
+    if (!preserveSession) keys.push(
       buildRecordingUploadSessionStorageKey(
         state.workpiece_id,
         state.upload_id,
@@ -17371,13 +17374,12 @@ export class TongsCommitService {
         workpieceId,
         uploadId,
       );
-      if (existing.finalized_at) {
-        throw new HttpError(
-          409,
-          "upload_session_finalized",
-          "Recording upload session is already finalized",
-        );
-      }
+      if (existing.finalized_at && existing.final_result) return {
+        upload_id: existing.upload_id, workpiece_id: existing.workpiece_id, path: existing.path,
+        total_bytes: existing.total_bytes, total_chunks: existing.total_chunks,
+        chunk_size_bytes: existing.chunk_size_bytes, uploaded_chunks: parseUploadedChunkIndices(existing),
+        finalized_result: existing.final_result,
+      };
       if (existing.path !== path) {
         throw new HttpError(
           409,
@@ -17391,6 +17393,9 @@ export class TongsCommitService {
           "capture_authority_mismatch",
           "Upload session belongs to a different recording identity.",
         );
+      }
+      if (existing.total_bytes !== input.total_bytes || existing.total_chunks !== input.total_chunks || existing.chunk_size_bytes !== input.chunk_size_bytes) {
+        throw new HttpError(409, "upload_session_shape_mismatch", "Upload session byte or chunk shape mismatch");
       }
       return {
         upload_id: existing.upload_id,
@@ -17427,6 +17432,7 @@ export class TongsCommitService {
       created_at: nowIso,
       updated_at: nowIso,
       finalized_at: null,
+      final_result: null,
     };
     await this.saveRecordingUploadSessionState(state);
 
@@ -17450,13 +17456,7 @@ export class TongsCommitService {
       workpieceId,
       uploadId,
     );
-    if (state.finalized_at) {
-      throw new HttpError(
-        409,
-        "upload_session_finalized",
-        "Recording upload session is already finalized",
-      );
-    }
+    if (state.finalized_at) throw new HttpError(409, "upload_session_finalized", "Recording upload session is already finalized");
     if (input.total_chunks !== state.total_chunks) {
       throw new HttpError(
         409,
@@ -17497,7 +17497,13 @@ export class TongsCommitService {
     }
 
     const existing = state.uploaded_chunks[String(input.index)];
-    if (existing && existing.bytes === bytes.length) {
+    const chunkHash = await sha256Hex(bytes);
+    let existingHash = existing?.sha256 ?? null;
+    if (existing && !existingHash) {
+      const existingBytes = await downloadStorageObject(this.supabase, this.bucket, chunkKey);
+      existingHash = existingBytes ? await sha256Hex(existingBytes) : null;
+    }
+    if (existing && existing.bytes === bytes.length && existingHash === chunkHash) {
       return {
         upload_id: state.upload_id,
         workpiece_id: state.workpiece_id,
@@ -17507,6 +17513,7 @@ export class TongsCommitService {
         already_uploaded: true,
       };
     }
+    if (existing) throw new HttpError(409, "upload_chunk_conflict", "Uploaded chunk content differs from the existing resumable chunk", { index: input.index });
 
     await uploadStorageObject(
       this.supabase,
@@ -17519,6 +17526,7 @@ export class TongsCommitService {
     const nowIso = new Date().toISOString();
     state.uploaded_chunks[String(input.index)] = {
       bytes: bytes.length,
+      sha256: chunkHash,
       updated_at: nowIso,
     };
     state.updated_at = nowIso;
@@ -17628,9 +17636,10 @@ export class TongsCommitService {
 
     const finalizedAt = new Date().toISOString();
     state.finalized_at = finalizedAt;
+    state.final_result = result;
     state.updated_at = finalizedAt;
     await this.saveRecordingUploadSessionState(state);
-    await this.deleteRecordingUploadArtifacts(state);
+    await this.deleteRecordingUploadArtifacts(state, true);
 
     return {
       ...result,

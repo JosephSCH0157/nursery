@@ -121,6 +121,7 @@ import { initScrollSessionRouter } from './features/scroll-session';
 import { initRecordingSession } from './features/recording-session';
 import { initRecPillsDisplay, initRecPillsMain } from './features/rec-pills';
 import './recording/local-auto'; // ensure core recorder bridge is loaded
+import './recording/obs-finished-import'; // OBS StopRecord output -> authorized Tongs import
 import { ensurePageTabs } from './features/page-tabs';
 import { applyPagePanel } from './features/page-tabs';
 import { triggerWireAutoIntentListener, __AUTO_INTENT_WIRE_SENTINEL, ROUTER_STAMP } from './features/scroll/scroll-router';

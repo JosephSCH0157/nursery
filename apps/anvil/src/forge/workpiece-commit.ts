@@ -597,6 +597,7 @@ type ChunkedUploadBeginResponse = {
   total_chunks: number;
   chunk_size_bytes: number;
   uploaded_chunks?: number[];
+  finalized_result?: Record<string, unknown>;
 };
 
 type ChunkedUploadFinalizeResponse = {
@@ -864,7 +865,8 @@ export async function promoteRecordingTranscriptForHammer(input: {
 async function uploadRecordingWithStrategy(args: {
   strategy: UploadStrategy;
   workpieceId: string;
-  bytes: Uint8Array;
+  source: RecordingByteSource;
+  uploadId?: string;
   chunkSizeMb: number;
   commitPayloadBase: Record<string, unknown>;
   apiToken?: string;
@@ -883,26 +885,27 @@ async function uploadRecordingWithStrategy(args: {
       phase: "uploading",
       chunkIndex: 1,
       totalChunks: 1,
-      chunkBytes: args.bytes.byteLength,
+      chunkBytes: args.source.size,
       progressPct: 0,
     });
     return commitFileToWorkpiece(
       args.workpieceId,
       {
         ...args.commitPayloadBase,
-        bytes_base64: encodeBase64(args.bytes),
+        bytes_base64: encodeBase64(await args.source.read(0, args.source.size)),
       },
       args.apiToken,
     );
   }
 
   const chunkSizeBytes = mbToBytes(args.chunkSizeMb);
-  const chunks = buildRecordingChunks(args.bytes.byteLength, chunkSizeBytes);
+  const chunks = buildRecordingChunks(args.source.size, chunkSizeBytes);
   const begin = await beginChunkedRecordingUpload(
     args.workpieceId,
     {
       ...args.commitPayloadBase,
-      total_bytes: args.bytes.byteLength,
+      ...(args.uploadId ? { upload_id: args.uploadId } : {}),
+      total_bytes: args.source.size,
       total_chunks: chunks.length,
       chunk_size_bytes: chunkSizeBytes,
       strategy: "chunked",
@@ -915,6 +918,9 @@ async function uploadRecordingWithStrategy(args: {
       body: begin.body,
       ok: false,
     };
+  }
+  if (begin.data.finalized_result) {
+    return { status: begin.status, body: { ok: true, data: begin.data.finalized_result }, ok: true };
   }
   const uploadId = begin.data.upload_id;
   const uploadedChunks = new Set<number>(
@@ -969,7 +975,7 @@ async function uploadRecordingWithStrategy(args: {
       const payload = {
         index: chunk.index,
         total_chunks: chunk.totalChunks,
-        bytes_base64: encodeBase64(args.bytes.subarray(chunk.startByte, chunk.endByte)),
+        bytes_base64: encodeBase64(await args.source.read(chunk.startByte, chunk.endByte)),
       };
       const chunkResult = await uploadChunkToSession(args.workpieceId, uploadId, payload, args.apiToken);
       if (chunkResult.ok) {
@@ -1042,7 +1048,7 @@ async function uploadRecordingWithStrategy(args: {
   try {
     console.info("[recording/upload] finalize-start", {
       totalChunks: chunks.length,
-      totalBytes: args.bytes.byteLength,
+      totalBytes: args.source.size,
       });
   } catch {
     // ignore
@@ -1067,7 +1073,7 @@ async function uploadRecordingWithStrategy(args: {
       console.info("[recording/upload] finalize-complete", {
         objectId: finalize.data?.path ?? null,
         totalChunks: chunks.length,
-        totalBytes: args.bytes.byteLength,
+        totalBytes: args.source.size,
       });
     } catch {
       // ignore
@@ -1080,7 +1086,9 @@ async function uploadRecordingWithStrategy(args: {
   };
 }
 
-export async function commitRecordingBytesToTongs(input: RecordingCommitInput): Promise<RecordingCommitResult> {
+async function commitRecordingSourceToTongs(
+  input: Omit<RecordingCommitInput, "bytes"> & { source: RecordingByteSource; uploadId?: string },
+): Promise<RecordingCommitResult> {
   const apiToken = getApiToken();
   const writtenBy = getWrittenBy();
   const authority = input.captureAuthority;
@@ -1094,9 +1102,11 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
   const contentType = inferContentType(input.contentType, name);
   const captureSessionId = authority.captureSessionId;
   const uploadConfig = resolveUploadStrategyConfig();
-  const strategy = selectUploadStrategyForBytes(input.bytes.byteLength, uploadConfig);
-  const bytesMb = Number((input.bytes.byteLength / (1024 * 1024)).toFixed(2));
-  const thresholdExceeded = input.bytes.byteLength > mbToBytes(uploadConfig.largeUploadWarnMb);
+  const strategy: UploadStrategy = input.uploadId
+    ? "chunked"
+    : selectUploadStrategyForBytes(input.source.size, uploadConfig);
+  const bytesMb = Number((input.source.size / (1024 * 1024)).toFixed(2));
+  const thresholdExceeded = input.source.size > mbToBytes(uploadConfig.largeUploadWarnMb);
   const sessionRunKey = readSessionRunKey(captureSessionId);
   const title = deriveRecordingTitleFromName(input.originalName);
   const scriptHash = readScriptHash();
@@ -1108,7 +1118,7 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
     emitRecordingUploadStatus({
       phase,
       strategy,
-      bytes: input.bytes.byteLength,
+      bytes: input.source.size,
       mb: bytesMb,
       sessionRunKey,
       workpieceId,
@@ -1125,7 +1135,7 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
 
   try {
     console.info("[recording/upload] blob-summary", {
-      bytes: input.bytes.byteLength,
+      bytes: input.source.size,
       mb: bytesMb,
       sessionRunKey,
       workpieceId,
@@ -1143,7 +1153,7 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
   }
   if (thresholdExceeded) {
     emitLargeUploadWarning({
-      bytes: input.bytes.byteLength,
+      bytes: input.source.size,
       mb: bytesMb,
       thresholdMb: uploadConfig.largeUploadWarnMb,
       strategy,
@@ -1164,10 +1174,10 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
     written_by: writtenBy,
     event_name: "anvil.recording.artifact.saved.v1",
     event_payload: {
-      source: "anvil.local-auto",
+      source: input.recordingMedium === "obs" ? "anvil.obs" : "anvil.local-auto",
       file_path: path,
       original_name: input.originalName,
-      bytes: input.bytes.byteLength,
+      bytes: input.source.size,
       content_type: contentType,
       created_cradle: createdCradle,
       recording_session_id: plannerRecordingSessionId,
@@ -1184,7 +1194,8 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
   const commit = await uploadRecordingWithStrategy({
       strategy,
       workpieceId,
-      bytes: input.bytes,
+      source: input.source,
+      uploadId: input.uploadId,
       chunkSizeMb: uploadConfig.chunkSizeMb,
       commitPayloadBase,
       apiToken,
@@ -1257,7 +1268,7 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
     progressPct: 100,
     chunkIndex: strategy === "chunked" ? null : 1,
     totalChunks: strategy === "chunked" ? null : 1,
-    chunkBytes: strategy === "chunked" ? null : input.bytes.byteLength,
+    chunkBytes: strategy === "chunked" ? null : input.source.size,
     finalStorageKey: path,
   });
 
@@ -1271,7 +1282,7 @@ export async function commitRecordingBytesToTongs(input: RecordingCommitInput): 
     captureAuthorityId: authority.id,
     mediaRevision,
     mediaHash,
-    mediaBytes: input.bytes.byteLength,
+    mediaBytes: input.source.size,
     mediaContentType: contentType,
     status: commit.status,
   };
@@ -1398,6 +1409,48 @@ export async function transitionRecordingKept(input: {
   }
 }
 
+export async function commitRecordingBytesToTongs(input: RecordingCommitInput): Promise<RecordingCommitResult> {
+  return commitRecordingSourceToTongs({
+    ...input,
+    source: {
+      size: input.bytes.byteLength,
+      async read(startByte, endByte) { return input.bytes.subarray(startByte, endByte); },
+    },
+  });
+}
+
+export async function commitRecordingFileToTongs(input: {
+  captureAuthority: AnvilCaptureAuthority;
+  file: File;
+  originalName?: string;
+  transcriptPath?: string | null;
+  transcriptStatus?: string | null;
+}): Promise<RecordingCommitResult> {
+  const identityBytes = new TextEncoder().encode([
+    input.captureAuthority.id,
+    input.file.name,
+    input.file.size,
+    input.file.lastModified,
+  ].join('|'));
+  const digest = await crypto.subtle.digest('SHA-256', identityBytes);
+  const uploadId = `obs_${Array.from(new Uint8Array(digest)).slice(0, 20).map((value) => value.toString(16).padStart(2, '0')).join('')}`;
+  return commitRecordingSourceToTongs({
+    captureAuthority: input.captureAuthority,
+    originalName: input.originalName ?? input.file.name,
+    contentType: input.file.type || undefined,
+    transcriptPath: input.transcriptPath,
+    transcriptStatus: input.transcriptStatus,
+    recordingMedium: "obs",
+    uploadId,
+    source: {
+      size: input.file.size,
+      async read(startByte, endByte) {
+        return new Uint8Array(await input.file.slice(startByte, endByte).arrayBuffer());
+      },
+    },
+  });
+}
+
 async function transitionRecordingDecisionV2(
   commit: { workpieceId: string; captureSessionId: string; captureAuthorityId?: string },
   completionId: string,
@@ -1465,6 +1518,11 @@ export async function transitionRecordingDiscarded(input: {
 
 export type PendingRecordingDecision = {
   completionId: string; workpieceId: string; captureSessionId: string; captureAuthorityId: string; mediaPath: string;
+};
+
+type RecordingByteSource = {
+  size: number;
+  read(startByte: number, endByte: number): Promise<Uint8Array>;
 };
 
 export async function readPendingRecordingDecisions(): Promise<PendingRecordingDecision[]> {

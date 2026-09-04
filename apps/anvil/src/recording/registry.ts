@@ -5,7 +5,7 @@ export type RecorderAdapter = {
   label: string;
   isAvailable: () => Promise<boolean> | boolean;
   start: () => Promise<void> | void;
-  stop: () => Promise<void> | void;
+  stop: () => Promise<unknown> | unknown;
   test?: () => Promise<void> | void;
   configure?: (_cfg: any) => void;
 };
@@ -237,15 +237,19 @@ export async function stopSelected() {
           return { id, ok: false, error: String((e as any)?.message || e) };
         }
         try {
-          await callWithTimeout(() => a.stop(), settings.timeouts.stop as number);
+          const detail = await callWithTimeout(() => a.stop(), settings.timeouts.stop as number);
           logRecCommand('stop:adapter-stopped', { id });
-          return { id, ok: true };
+          return { id, ok: true, ...(detail && typeof detail === 'object' ? { detail } : {}) };
         } catch (e) {
           logRecCommand('stop:adapter-error', { id, error: String((e as any)?.message || e) });
           return { id, ok: false, error: String((e as any)?.message || e) };
         }
       })
     );
+    for (const result of rs) {
+      if (result.id !== 'obs' || !result.ok || !('detail' in result) || !result.detail) continue;
+      try { void (window as any).__tpObsImport?.acceptStopResult?.(result.detail); } catch {}
+    }
     return { results: rs } as any;
   });
 }

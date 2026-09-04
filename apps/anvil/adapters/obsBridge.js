@@ -213,8 +213,16 @@ const bridge = {
   },
   async stop() {
     try {
-      if (!_obsClient) return;
-      await _obsClient.call('StopRecord');
+      if (!_obsClient) return { adapter: 'obs', stopped: false };
+      const response = await _obsClient.call('StopRecord');
+      const outputPath = response && typeof response.outputPath === 'string'
+        ? response.outputPath.trim()
+        : '';
+      return {
+        adapter: 'obs',
+        stopped: true,
+        ...(outputPath ? { outputPath } : {}),
+      };
     } catch (e) {
       _emit('error', e);
       throw e;
@@ -392,4 +400,3 @@ try {
     window.__tpObs = Object.assign(window.__tpObs || {}, { setArmed, armed, maybeConnect });
   }
 } catch {}
-

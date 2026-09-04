@@ -14,7 +14,7 @@ export interface RecorderAdapter {
   label: string;
   isAvailable(): Promise<boolean>;
   start(): Promise<void>;
-  stop(): Promise<void>;
+  stop(): Promise<unknown>;
   test?(): Promise<unknown>;
   configure?(cfg: Record<string, unknown>): void;
 }
@@ -775,14 +775,20 @@ export async function stopSelected(): Promise<StopResults> {
         return { id, ok: false, error: describeError(e) };
       }
       try {
-        await callWithTimeout(() => a.stop(), settings.timeouts.stop);
-        return { id, ok: true };
+        const detail = await callWithTimeout(() => a.stop(), settings.timeouts.stop);
+        return { id, ok: true, ...(detail && typeof detail === 'object' ? { detail: detail as Record<string, unknown> } : {}) };
       } catch (e) {
         return { id, ok: false, error: describeError(e) };
       }
     })
   );
   _emitRecState('idle');
+  for (const result of rs) {
+    if (result.id !== 'obs' || !result.ok || !result.detail) continue;
+    try {
+      void window.__tpObsImport?.acceptStopResult?.(result.detail);
+    } catch {}
+  }
   try { recStats.stopLat.push(Math.max(0, __now() - t0)); } catch {}
   return { results: rs };
 }
