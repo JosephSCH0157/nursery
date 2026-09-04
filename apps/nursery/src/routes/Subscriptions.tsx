@@ -1256,7 +1256,7 @@ export default function SubscriptionsRoute() {
                     setPasswordUpdateError(null);
                   }}
                 >
-                  {passwordFormOpen ? "Close password form" : "Password settings"}
+                  {passwordFormOpen ? "Cancel password change" : "Change password"}
                 </button>
               </div>
 
@@ -1294,6 +1294,9 @@ export default function SubscriptionsRoute() {
 
               {passwordFormOpen ? (
                 <form className="subscriptions-inline-form" onSubmit={(event) => void handleUpdatePassword(event)}>
+                  <p className="subscriptions-card__copy">
+                    Choose a new password with at least 8 characters.
+                  </p>
                   <label className="subscriptions-inline-form__field">
                     <span>New password</span>
                     <input
@@ -1302,6 +1305,8 @@ export default function SubscriptionsRoute() {
                       onChange={(event) => setPasswordDraft(event.target.value)}
                       autoComplete="new-password"
                       placeholder="New password"
+                      minLength={8}
+                      required
                       disabled={passwordUpdatePending}
                     />
                   </label>
@@ -1313,6 +1318,8 @@ export default function SubscriptionsRoute() {
                       onChange={(event) => setPasswordConfirmDraft(event.target.value)}
                       autoComplete="new-password"
                       placeholder="Confirm password"
+                      minLength={8}
+                      required
                       disabled={passwordUpdatePending}
                     />
                   </label>
@@ -1326,10 +1333,10 @@ export default function SubscriptionsRoute() {
                     </button>
                   </div>
                   {passwordUpdateNotice ? (
-                    <p className="subscriptions-status subscriptions-status--success">{passwordUpdateNotice}</p>
+                    <p className="subscriptions-status subscriptions-status--success" role="status">{passwordUpdateNotice}</p>
                   ) : null}
                   {passwordUpdateError ? (
-                    <p className="subscriptions-status subscriptions-status--error">{passwordUpdateError}</p>
+                    <p className="subscriptions-status subscriptions-status--error" role="alert">{passwordUpdateError}</p>
                   ) : null}
                 </form>
               ) : null}
