@@ -2,7 +2,7 @@ export type ChatUrlEvidence={draftId:string;messageIndex:number;role:string;url:
 export type RecoveredChatSource={normalized_url:string;host:string;title:string;source_type:"webpage";message_evidence:Array<{draft_id:string;message_index:number;role:string;excerpt_hash:string}>};
 export type VisualSourceMatch={family:"reference_clip"|"reference_visual";opportunity_id:string;opportunity_text:string;normalized_url:string|null;status:"exact"|"ambiguous"|"unmatched";candidate_urls:string[];reason:string};
 
-const URL_RE=/https?:\/\/[^\s<>{}\[\]"'`]+/gi;
+const URL_RE=/https?:\/\/[^\s<>{}\x5B\]"'`]+/gi;
 const TRACKING_KEYS=new Set(["fbclid","gclid","dclid","mc_cid","mc_eid","ref","ref_src","source"]);
 const trimEnd=(value:string)=>value.replace(/[),.;!?\]}]+$/g,"");
 export function normalizeRecoveredUrl(raw:string):string|null{

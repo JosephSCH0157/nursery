@@ -1,43 +1,39 @@
 # Forge v1.2.12 Release Candidate
 
-Certification date: 2026-08-31 (America/New_York)
+Certification completed: 2026-09-03 (America/New_York)
 
 Release basis:
 
 - Previous release: `v1.2.11` (`c0fbae0c5d2371800375a10d2bf4b8b76f547501`)
-- Candidate source basis: `05636ddb474c69119ab9406783c044a868c7e55d`
-- Certification repairs are present in the working tree and are not committed or tagged.
+- Certified product basis: `98218c9f` on `Hammer_Smoke3`
+- The final candidate is the certification commit containing this record and the three Tongs lint repairs described below.
+- Linked Supabase migrations are paired through `20260903150000_tongs_reference_material_rollout_gate.sql`.
 
 ## Candidate changes certified
 
 - Preserve canonical asset authority fields through the shared Tongs/Hammer visual-placement contract.
 - Keep legacy Hammer media and timeline migration behavior fail-closed under the current canonical authority model.
-- Update stale Tongs, Hammer, Hearth, and Anvil fixtures to exercise the current contracts.
+- Complete the Hearth reference-material workflow and its database-backed rollout gate.
+- Exercise authenticated, locally provisioned browser fixtures without mutating production fixture data.
 - Make Anvil built-in recorder initialization awaitable so deterministic test adapters cannot be overwritten by late optional-adapter registration.
-- Regenerate the Nursery-hosted Anvil production bundles.
+- Keep Tongs URL recovery, provider error parsing, and PDF stream inspection within the repository's lint and type-safety contracts.
 
 ## Verification summary
 
-- Migration ledger: local and linked production ledgers pair through `20260831090000`; no local-only, remote-only, or duplicate migration was found.
+- Database deployment: the linked push applied `20260903150000_tongs_reference_material_rollout_gate.sql` successfully.
+- Migration ledger: local and linked ledgers pair through `20260903150000`; no local-only or remote-only migration was reported.
 - Docker migration certification: clean install and production-shaped upgrade passed, including loopback isolation, immutable receipts, canonical media verification, idempotency, and cross-workspace RLS denial.
-- Fast gate: passed typecheck, lint ratchets, and architecture checks for all active packages.
-- Production build: passed, including Hammer and Hearth bundle budgets.
-- Tests: Anvil 124 suites / 1,029 tests passed in-band; Hammer 186 registered files passed; Hearth 129 files passed; Nursery 50 files passed; Tongs and the remaining package suites passed.
-- Media gate: passed, including OBS-to-Bridge fallback and optional OBS handoff.
-- Anvil release gate: lint, typecheck, cycles, build, recording tests, Chromium boundary, migration certification, and strict smoke passed.
+- Authenticated browser gate: passed all 28 Playwright tests across adaptive style, organization sharing, session switching, Hammer triad lock, Hammer visual authority, Bar-Stock reconciliation, Hearth Phase 4, and Hearth image-map persistence.
+- Anvil release gate: passed lint, typecheck, cycle detection, build, recording suites, Chromium recording boundary, migration certification, strict OBS smoke, and the authenticated Hearth-to-Anvil canonical handoff.
+- Nursery umbrella gate: passed workspace typecheck/lint/architecture, production builds, all package integration suites, media tests, and the complete browser gate.
+- Existing warning budgets remain unchanged: Anvil reports 15 lint warnings and Nursery reports 4 lint warnings, with zero lint errors.
 
 ## Release decision
 
-**NO-GO** until authenticated browser certification can run.
+**GO — Forge v1.2.12 release candidate certified.**
 
-The browser gate is missing `FORGE_TEST_WORKSPACE_ID`, `FORGE_TEST_WORKPIECE_ID`, and `FORGE_TEST_HAMMER_WORKPIECE_ID`. The Anvil release handoff Playwright check also ran without a user token, received fail-closed Tongs authorization denials, and could not load the expected Hearth workpiece. No production data was mutated to manufacture test fixtures.
+The former authenticated-browser blocker is cleared. Local browser fixtures were provisioned against the loopback Supabase project, authenticated state was refreshed, and the canonical database-backed workflows survived reload and cross-tool handoff.
 
-After valid test authority IDs and authenticated Playwright state are supplied, rerun:
+One transient local Supabase Storage 500 was logged during a non-authoritative chat-artifact write in the Anvil handoff run. The gate's canonical script handoff passed, the complete browser gate subsequently passed, and no fallback persistence was introduced.
 
-```text
-pnpm gate:browser
-pnpm gate:anvil-release
-pnpm gate:nursery
-```
-
-No release tag, push, deployment, or production migration was performed.
+No release tag, merge to `main`, application deployment, or Git push was performed by this certification step.

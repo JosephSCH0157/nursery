@@ -374,7 +374,9 @@ export class OpenAiUnifiedVisualPlanProvider {
     let payload: Record<string, unknown> = {};
     try {
       payload = JSON.parse(rawText) as Record<string, unknown>;
-    } catch {}
+    } catch {
+      // Preserve the raw response for the error message below.
+    }
     if (!response.ok)
       throw new Error(
         (payload.error as { message?: string } | undefined)?.message ||

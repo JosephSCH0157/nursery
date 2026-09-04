@@ -9037,10 +9037,11 @@ export function extractPdfTextParserB(fileBytes: Uint8Array): string {
     if (endIdx < 0) break;
 
     // Look back to see if the containing dict uses FlateDecode
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const lookback = (
-      buf.slice(Math.max(0, streamIdx - 2000), streamIdx) as any
-    ).toString("binary") as string;
+    const lookbackBuffer = buf.slice(
+      Math.max(0, streamIdx - 2000),
+      streamIdx,
+    ) as Uint8Array & { toString(enc: string): string };
+    const lookback = lookbackBuffer.toString("binary");
     if (!lookback.includes("FlateDecode")) {
       pos = endIdx + 9;
       continue;
