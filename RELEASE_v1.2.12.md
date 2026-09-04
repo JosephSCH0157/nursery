@@ -19,6 +19,7 @@ Release basis:
 - Keep Tongs URL recovery, provider error parsing, and PDF stream inspection within the repository's lint and type-safety contracts.
 - Keep clean Linux typechecking independent of pre-existing build output by declaring Nursery's Bellows project reference.
 - Remove unused Hearth cradle-creation code and preserve Hammer shorts request discriminators as literal contract values.
+- Install FFmpeg explicitly in the clean Ubuntu integration job that exercises Tongs media inspection.
 
 ## Verification summary
 

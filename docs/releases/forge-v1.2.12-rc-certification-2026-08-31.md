@@ -46,6 +46,7 @@ The release candidate comprises the frozen product basis, the certification repa
 7. Completed the Hearth reference-material workflow and deployed its rollout-gate migration.
 8. Repaired three final Tongs lint/type-safety findings without changing runtime behavior: URL character-class spelling, explicit malformed-provider-response handling, and typed PDF Buffer slicing.
 9. Repaired clean Linux delivery failures exposed by PR validation: removed unused Hearth cradle-creation code, literal-typed the Hammer shorts request discriminators, and declared Nursery's Bellows TypeScript project reference so clean typechecking builds the required declarations.
+10. Made the Ubuntu integration gate self-contained by installing FFmpeg before the Tongs media-inspection tests.
 
 ## Gate evidence
 
