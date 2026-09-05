@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../lib/supabase";
+import { isRecoveryAuthCallback } from "../lib/auth-callback-intent";
 import "./AuthCallback.css";
 
 const AUTH_NEXT_STORAGE_KEY = "forge_auth_next_v1";
@@ -11,22 +12,6 @@ function normalizeNextPath(raw: string | null): string {
   if (!trimmed) return "/app";
   if (!trimmed.startsWith("/") || trimmed.startsWith("//")) return "/app";
   return trimmed;
-}
-
-function readCallbackType(): string | null {
-  try {
-    const searchType = new URLSearchParams(window.location.search).get("type");
-    if (searchType) return searchType;
-  } catch {
-    // ignore
-  }
-  try {
-    const hashType = new URLSearchParams(window.location.hash.replace(/^#/, "")).get("type");
-    if (hashType) return hashType;
-  } catch {
-    // ignore
-  }
-  return null;
 }
 
 function readCallbackError(): string | null {
@@ -92,6 +77,11 @@ export default function AuthCallback() {
   const [err, setErr] = useState("");
 
   useEffect(() => {
+    let recoveryEventSeen = false;
+    const { data: authState } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "PASSWORD_RECOVERY") recoveryEventSeen = true;
+    });
+
     (async () => {
       try {
         const next = readCallbackNext();
@@ -100,12 +90,7 @@ export default function AuthCallback() {
           throw new Error(callbackError);
         }
 
-        const type = readCallbackType();
-        if (type === "recovery") {
-          clearCallbackNext();
-          nav("/reset-password", { replace: true });
-          return;
-        }
+        const recoveryCallback = isRecoveryAuthCallback(window.location);
 
         const code = new URLSearchParams(window.location.search).get("code");
         if (code) {
@@ -114,6 +99,16 @@ export default function AuthCallback() {
         }
 
         const session = await waitForSession();
+        if (recoveryCallback || recoveryEventSeen) {
+          if (!session) {
+            nav("/login?reason=callback_session_missing&next=%2Freset-password", { replace: true });
+            return;
+          }
+          clearCallbackNext();
+          nav("/reset-password", { replace: true });
+          return;
+        }
+
         if (session) {
           clearCallbackNext();
           nav(next, { replace: true });
@@ -128,6 +123,7 @@ export default function AuthCallback() {
         nav(`/login?reason=callback_failed&next=${encodeURIComponent(next)}`, { replace: true });
       }
     })();
+    return () => authState.subscription.unsubscribe();
   }, [nav]);
 
   return <div className="auth-callback">{err ? `Error: ${err}` : "Finishing sign-in..."}</div>;

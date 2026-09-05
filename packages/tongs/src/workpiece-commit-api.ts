@@ -1873,6 +1873,12 @@ export type EstablishPublicationOperationInput = {
   publication_intent_contract_version: string;
   publication_intent_snapshot: Record<string, Json>;
 };
+export type FinalizeDestinationPackageInput = {
+  workspace_id: string; operation_key: string; executable_destination_id: string;
+  manifest_snapshot_id: string; manifest_content_hash: string; metadata_revision: number;
+  metadata_content_hash: string; destination_capability_revision_id: string;
+  resolved_package: Record<string, Json>;
+};
 export type PrepareManualHandoffInput = {
   workspace_id: string; prepare_key: string; manifest_snapshot_id: string; manifest_content_hash: string;
   release_decision_id: string; release_decision_revision: number; destination_scope_id: string;
@@ -3672,6 +3678,10 @@ export type TongsCommitApiService = {
     input: EstablishPublicationOperationInput,
     options?: { userAccessToken?: string | null },
   ): Promise<Record<string, Json>>;
+  finalizeDestinationPackage(workpieceId: string, input: FinalizeDestinationPackageInput, options?: { userAccessToken?: string | null }): Promise<Record<string, Json>>;
+  enqueueYoutubePublication(workpieceId: string, workspaceId: string, operationId: string, attemptId: string, finalizedPackageId: string, options?: { userAccessToken?: string | null }): Promise<Record<string, Json>>;
+  readYoutubePublicationProgress(workpieceId: string, workspaceId: string, operationId: string, options?: { userAccessToken?: string | null }): Promise<Record<string, Json>>;
+  retryYoutubePublicationStage(workpieceId: string, workspaceId: string, operationId: string, options?: { userAccessToken?: string | null }): Promise<Record<string, Json>>;
   claimPublicationAttempt(
     workpieceId: string,
     workspaceId: string,
@@ -20375,6 +20385,38 @@ export class TongsCommitService {
     return result.data as Record<string, Json>;
   }
 
+  async finalizeDestinationPackage(workpieceId: string, input: FinalizeDestinationPackageInput, options?: { userAccessToken?: string | null }): Promise<Record<string, Json>> {
+    await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
+    await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
+    const result = await this.thumbnailAuthorityClient(options?.userAccessToken).rpc("finalize_quench_destination_package", {
+      p_operation_key: input.operation_key, p_workspace_id: input.workspace_id, p_workpiece_id: workpieceId,
+      p_executable_destination_id: input.executable_destination_id, p_manifest_snapshot_id: input.manifest_snapshot_id,
+      p_manifest_content_hash: input.manifest_content_hash, p_metadata_revision: input.metadata_revision,
+      p_metadata_content_hash: input.metadata_content_hash, p_destination_capability_revision_id: input.destination_capability_revision_id,
+      p_resolved_package: input.resolved_package,
+    });
+    if (result.error || !isRecord(result.data)) throw new HttpError(502,"destination_package_finalize_failed","Tongs could not freeze the complete destination package.",{reason:result.error?.message});
+    return result.data as Record<string,Json>;
+  }
+
+  async enqueueYoutubePublication(workpieceId:string,workspaceId:string,operationId:string,attemptId:string,finalizedPackageId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    await this.assertWorkpieceInWorkspace(workpieceId,workspaceId);await this.assertWorkspaceRoleFromAccessToken(workspaceId,"editor",options?.userAccessToken);
+    const result=await this.thumbnailAuthorityClient(options?.userAccessToken).rpc("enqueue_youtube_publication_job",{p_publication_operation_id:operationId,p_publication_attempt_id:attemptId,p_finalized_package_id:finalizedPackageId});
+    if(result.error||!isRecord(result.data))throw new HttpError(502,"youtube_publication_enqueue_failed","Tongs could not enqueue the YouTube upload.",{reason:result.error?.message});return result.data as Record<string,Json>;
+  }
+
+  async readYoutubePublicationProgress(workpieceId:string,workspaceId:string,operationId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    await this.assertWorkpieceInWorkspace(workpieceId,workspaceId);await this.assertWorkspaceRoleFromAccessToken(workspaceId,"viewer",options?.userAccessToken);
+    const result=await this.thumbnailAuthorityClient(options?.userAccessToken).rpc("read_youtube_publication_progress",{p_workspace_id:workspaceId,p_workpiece_id:workpieceId,p_publication_operation_id:operationId});
+    if(result.error||!isRecord(result.data))throw new HttpError(502,"youtube_publication_progress_failed","YouTube publication progress is unavailable.",{reason:result.error?.message});return result.data as Record<string,Json>;
+  }
+
+  async retryYoutubePublicationStage(workpieceId:string,workspaceId:string,operationId:string,options?:{userAccessToken?:string|null}):Promise<Record<string,Json>>{
+    await this.assertWorkpieceInWorkspace(workpieceId,workspaceId);await this.assertWorkspaceRoleFromAccessToken(workspaceId,"editor",options?.userAccessToken);
+    const result=await this.thumbnailAuthorityClient(options?.userAccessToken).rpc("retry_youtube_publication_stage",{p_workspace_id:workspaceId,p_workpiece_id:workpieceId,p_publication_operation_id:operationId});
+    if(result.error||!isRecord(result.data))throw new HttpError(502,"youtube_publication_retry_failed","The failed YouTube stage could not be queued for retry.",{reason:result.error?.message});return result.data as Record<string,Json>;
+  }
+
   async prepareManualHandoff(workpieceId: string, input: PrepareManualHandoffInput, options?: { userAccessToken?: string | null }): Promise<Record<string, Json>> {
     await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
     await this.assertWorkspaceRoleFromAccessToken(input.workspace_id, "editor", options?.userAccessToken);
@@ -34431,6 +34473,37 @@ export function createTongsCommitApiHandlerWithService(
       if (parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "quench" && parts[4] === "manual-handoffs") {
         requireMethod(request,"POST"); const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id"); const body=await parseJsonBody(request); const userAccessToken=requireUserAccessTokenHeader(request);
         const result=await service.readManualHandoffs(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),{userAccessToken}); return jsonResponse(200,{ok:true,data:result});
+      }
+
+      if (
+        parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "quench" && parts[4] === "finalize-destination-package"
+      ) {
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);
+        if(!isRecord(body.resolved_package))throw new HttpError(400,"invalid_destination_package","resolved_package must be an object");
+        const metadataRevision=Number(body.metadata_revision);if(!Number.isInteger(metadataRevision)||metadataRevision<1)throw new HttpError(400,"invalid_metadata_revision","metadata_revision must be positive");
+        const result=await service.finalizeDestinationPackage(workpieceId,{workspace_id:normalizeUuid(body.workspace_id,"workspace_id"),operation_key:normalizeUuid(body.operation_key,"operation_key"),executable_destination_id:normalizeUuid(body.executable_destination_id,"executable_destination_id"),manifest_snapshot_id:normalizeUuid(body.manifest_snapshot_id,"manifest_snapshot_id"),manifest_content_hash:normalizeSha256(body.manifest_content_hash,"manifest_content_hash"),metadata_revision:metadataRevision,metadata_content_hash:normalizeSha256(body.metadata_content_hash,"metadata_content_hash"),destination_capability_revision_id:normalizeUuid(body.destination_capability_revision_id,"destination_capability_revision_id"),resolved_package:body.resolved_package as Record<string,Json>},{userAccessToken});
+        return jsonResponse(200,{ok:true,data:result});
+      }
+
+      if (
+        parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "quench" && parts[4] === "enqueue-youtube-publication"
+      ) {
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);
+        const result=await service.enqueueYoutubePublication(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),normalizeUuid(body.publication_operation_id,"publication_operation_id"),normalizeUuid(body.publication_attempt_id,"publication_attempt_id"),normalizeUuid(body.finalized_package_id,"finalized_package_id"),{userAccessToken});return jsonResponse(202,{ok:true,data:result});
+      }
+
+      if (
+        parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "quench" && parts[4] === "youtube-publication-progress"
+      ) {
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);
+        const result=await service.readYoutubePublicationProgress(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),normalizeUuid(body.publication_operation_id,"publication_operation_id"),{userAccessToken});return jsonResponse(200,{ok:true,data:result});
+      }
+
+      if (
+        parts.length === 5 && parts[0] === "tongs" && parts[1] === "workpieces" && parts[3] === "quench" && parts[4] === "retry-youtube-publication-stage"
+      ) {
+        requireMethod(request,"POST");const workpieceId=normalizeUuid(decodeURIComponent(parts[2]),"workpiece_id");const body=await parseJsonBody(request);const userAccessToken=requireUserAccessTokenHeader(request);
+        const result=await service.retryYoutubePublicationStage(workpieceId,normalizeUuid(body.workspace_id,"workspace_id"),normalizeUuid(body.publication_operation_id,"publication_operation_id"),{userAccessToken});return jsonResponse(202,{ok:true,data:result});
       }
 
       if (

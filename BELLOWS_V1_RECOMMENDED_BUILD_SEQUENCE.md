@@ -6,9 +6,55 @@ Define the highest-confidence implementation order for Bellows V1 so the system 
 
 Core goal:
 
-Build Bellows from the inside out:
+Build Bellows as certifiable vertical paths:
 
-Engine -> Capture -> Coordination -> UI -> Broadcast -> Ecosystem
+Engine -> one-participant capture-to-Hammer -> three-participant desktop -> browser/device expansion -> Broadcast
+
+## Active Record-Only Certification Sequence
+
+This section supersedes the earlier phase ordering where the two differ.
+
+### Milestone 1 - One Participant, Desktop Chromium
+
+The first finish line is one real recording opened from canonical truth in Hammer.
+
+Required in the same vertical slice:
+
+- Chrome and Edge on Windows and macOS
+- real `MediaRecorder` audio/video capture
+- ordered upload parts held in IndexedDB recovery custody
+- playable media segments reconstructed from those parts
+- network-loss and page-recovery behavior
+- idempotent canonical upload and checksum readback
+- integrity evaluation and truthful incomplete outcomes
+- adoption through Tongs into Hammer
+- audio/video alignment within 40 ms during a 60-minute certification run
+
+Measure alignment at the opening marker, every five minutes, the closing marker,
+and around every capture restart. Sixty minutes is a certification duration, not a
+product recording limit.
+
+### Milestone 2 - Three-Person Desktop Chromium
+
+After Milestone 1 passes, extend the same capture path to a host and two guests.
+Add WebRTC monitoring, reconnect segmentation, cross-participant synchronization,
+and server-enforced authority generations. Stale commands from a previous host
+generation must fail closed.
+
+### Independent Compatibility Gates
+
+- Desktop Safari
+- iOS Safari and Android Chrome mobile guests
+- Desktop Firefox
+
+These gates are independent of participant count. They do not block the
+three-person desktop milestone, and unsupported devices must remain disabled and
+unadvertised until their own gate passes.
+
+### Broadcast Gate
+
+Bellows-managed broadcasting begins only after record-only certification remains
+green. Broadcast failure must never be able to stop or corrupt local capture.
 
 ## Guiding Principle
 

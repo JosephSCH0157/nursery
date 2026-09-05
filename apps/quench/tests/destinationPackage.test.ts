@@ -1,0 +1,8 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+import { validateDestinationPackageDraft, type DraftDestinationConfiguration } from "../src/core/destination-package.contract";
+
+const draft:DraftDestinationConfiguration={platform:"youtube",executable_destination_id:"destination-1",mode:"publish",visibility:"private",timezone:"America/New_York",notify_subscribers:true,title:{id:"title-1",revision:2,content_hash:"a".repeat(64),text:"Approved title",rank:1},description:{id:"long",revision:3,content_hash:"b".repeat(64),text:"Approved description",kind:"long"},assets:[{kind:"video",ref:{id:"video-1",revision:1,content_hash:"c".repeat(64)},delivery:"youtube_resumable_video",canonical_path:"exports/video.mp4",required:true},{kind:"thumbnail",ref:{id:"thumb-1",revision:4,content_hash:"d".repeat(64)},delivery:"youtube_thumbnail",canonical_path:"assets/thumb.png",required:true}]};
+test("a complete YouTube destination package validates",()=>assert.deepEqual(validateDestinationPackageDraft(draft),[]));
+test("YouTube requires video delivery and scheduling requires time",()=>{const issues=validateDestinationPackageDraft({...draft,mode:"schedule",scheduled_for:null,assets:draft.assets.filter((item)=>item.kind!=="video")});assert.ok(issues.some((issue)=>issue.code==="schedule_required"));assert.ok(issues.some((issue)=>issue.code==="youtube_video_required"))});
+test("provider-incompatible asset delivery is rejected",()=>{const issues=validateDestinationPackageDraft({...draft,assets:[{...draft.assets[0],delivery:"rumble_download"}]});assert.ok(issues.some((issue)=>issue.code==="unsupported_delivery"))});

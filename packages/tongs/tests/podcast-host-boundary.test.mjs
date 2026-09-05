@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { readFile } from "node:fs/promises";
 
-const sql=await readFile(new URL("../../../supabase/migrations/20260904120000_tongs_quench_podcast_host_boundary.sql",import.meta.url),"utf8");
+const sql=await readFile(new URL("../../../supabase/migrations/20260904130000_tongs_quench_podcast_host_boundary.sql",import.meta.url),"utf8");
 
 test("podcast host replaces generic RSS as the executable release surface",()=>{
   assert.match(sql,/platform in\('youtube','podcast_host'\)/);

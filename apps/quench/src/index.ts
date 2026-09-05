@@ -7,6 +7,7 @@ export * from "./core/readiness";
 export * from "./core/publish-guard";
 export * from "./core/quenchMetadataAssist.contract";
 export * from "./core/canonical-release-projection.types";
+export * from "./core/destination-package.contract";
 export * from "./adapters/adapter.contract";
 export * from "./adapters/transistor/transistor.adapter";
 export * from "./manual/manual-handoff.contract";

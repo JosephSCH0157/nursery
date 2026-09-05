@@ -33,6 +33,7 @@ import {
   readReferenceReviewFailures,
   startReferenceReviewAttempt,
 } from "../../lib/hearth-reference-review-attempts";
+import { subscribeToForgeUserAccessToken } from "../../lib/tongs-fetch";
 
 type DrawerMode = "edit" | "replace" | "skip";
 type EditDraft = {
@@ -91,9 +92,11 @@ export default function CanonicalReferenceMaterialPanel({
     ),
     [skipNote, setSkipNote] = useState("");
   const alive = useRef(true),
+    refreshSequence = useRef(0),
     attempts = useRef(new Map<string, string>()),
     retryParents = useRef(new Map<string, string>());
   const refresh = useCallback(async () => {
+    const sequence = ++refreshSequence.current;
     const [clipResult, visualResult, dispositionResult, failureResult] =
       await Promise.all([
         readCanonicalReferenceClips(workspaceId, workpieceId),
@@ -101,7 +104,7 @@ export default function CanonicalReferenceMaterialPanel({
         readVisualOpportunityDispositions(workspaceId, workpieceId),
         readReferenceReviewFailures(workspaceId, workpieceId),
       ]);
-    if (!alive.current) return;
+    if (!alive.current || sequence !== refreshSequence.current) return;
     const failed = !clipResult.ok
       ? clipResult.error
       : !visualResult.ok
@@ -163,8 +166,10 @@ export default function CanonicalReferenceMaterialPanel({
       "forge:canonical-reference-visuals-changed",
       listener,
     );
+    const unsubscribeFromAuth = subscribeToForgeUserAccessToken(listener);
     return () => {
       alive.current = false;
+      unsubscribeFromAuth();
       window.removeEventListener(
         "forge:canonical-reference-clips-changed",
         listener,

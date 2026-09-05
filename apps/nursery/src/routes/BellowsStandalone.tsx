@@ -14,6 +14,7 @@ import type {
   BellowsPersistenceObservation,
   BellowsRoleCode,
   BellowsRuntimeDispatchResult,
+  BellowsRecordOnlyStatus,
   BellowsSession,
   BellowsSessionAction,
   BellowsStudioShellObservation,
@@ -21,9 +22,11 @@ import type {
   BellowsTongsJoinLinkRecord,
   BellowsTongsRecoveryCheckpointRecord,
   ParticipantId,
+  RecordingCaptureAuthorityId,
   SessionEventId,
   SessionId,
   UserId,
+  WorkpieceId,
   WorkspaceId,
 } from "@forge/bellows";
 import {
@@ -52,6 +55,13 @@ import {
   type BellowsParticipantPresencePayload,
 } from "../lib/bellows/bellowsSessionPresence";
 import { useBellowsLocalMediaReadiness } from "../lib/bellows/useBellowsLocalMediaReadiness";
+import { deriveBellowsRecordingView } from "../lib/bellows/bellowsRecordingView";
+import {
+  createBellowsRecordOnlyCaptureController,
+  readBellowsGateACompatibility,
+  readBellowsStorageReadiness,
+  type BellowsRecordOnlyCaptureController,
+} from "../lib/bellows/bellowsRecordOnlyCapture";
 import { supabase, tongsSupabase } from "../lib/supabase";
 import { useWorkspaceBootstrap } from "../hooks/useWorkspaceBootstrap";
 import {
@@ -555,46 +565,39 @@ function createHarnessState(session: BellowsSession): {
 function createSeedSession(args: {
   workspaceId: WorkspaceId;
   hostUserId: UserId;
+  workpieceId: WorkpieceId | null;
 }): BellowsSession {
   const sessionId = asSessionId(createBellowsId("bellows-session"));
   const hostParticipantId = asParticipantId(createBellowsId("bellows-host"));
-  const coHostParticipantId = asParticipantId(createBellowsId("bellows-cohost"));
 
   return {
     sessionId,
     workspaceId: args.workspaceId,
-    workpieceId: null,
-    recordingCaptureAuthorityId: null,
+    workpieceId: args.workpieceId,
+    recordingCaptureAuthorityId: args.workpieceId
+      ? (`bellows:${args.workpieceId}` as RecordingCaptureAuthorityId)
+      : null,
     hostUserId: args.hostUserId,
     authorityState: {
       actingAuthorityState: "host_present",
       hostParticipantId,
       actingHostParticipantId: hostParticipantId,
-      coHostParticipantIds: [coHostParticipantId],
+      coHostParticipantIds: [],
     },
     draft: {
       sessionId,
       workspaceId: args.workspaceId,
-      workpieceId: null,
+      workpieceId: args.workpieceId,
       hostUserId: args.hostUserId,
-      mode: "live",
-      sessionType: "remote",
-      title: "Bellows operator session",
+      mode: "record_only",
+      sessionType: "solo",
+      title: "Bellows record-only session",
       participantSlots: [
         { roleCode: "S1", participantId: hostParticipantId },
-        { roleCode: "S2", participantId: coHostParticipantId },
       ],
       scriptReference: null,
-      broadcastIntent: "single_platform",
-      broadcastTargets: [
-        {
-          broadcastTargetId: createBellowsId("bellows-target") as never,
-          platform: "youtube",
-          enabled: true,
-          credentialRef: null,
-          displayLabel: "YouTube",
-        },
-      ],
+      broadcastIntent: "none",
+      broadcastTargets: [],
       scheduledTimeUtc: null,
     },
     participants: {
@@ -604,17 +607,6 @@ function createSeedSession(args: {
         displayName: "Host",
         roleCode: "S1",
         authorityTier: "host",
-        presenceState: "ready",
-        joinState: "approved",
-        joinedAtOffsetMs: 0 as BellowsOffsetMs,
-        leftAtOffsetMs: null,
-      },
-      [coHostParticipantId]: {
-        participantId: coHostParticipantId,
-        userId: null,
-        displayName: "Co-host Slot",
-        roleCode: "S2",
-        authorityTier: "co_host",
         presenceState: "ready",
         joinState: "approved",
         joinedAtOffsetMs: 0 as BellowsOffsetMs,
@@ -1217,6 +1209,25 @@ export default function BellowsStandalone() {
   const hostPresenceJoinedAtRef = useRef<string | null>(null);
   const publishedHostPresenceRef = useRef<string>("");
   const publishedHostSessionSignalRef = useRef<string>("");
+  const recordOnlyControllerRef = useRef<BellowsRecordOnlyCaptureController | null>(null);
+  const [recordOnlyStatus, setRecordOnlyStatus] = useState<BellowsRecordOnlyStatus>({
+    phase: "idle",
+    segment: null,
+    partCount: 0,
+    bytesHeldLocally: 0,
+    uploadedPartCount: 0,
+    message: "Waiting for a canonical Bellows session.",
+  });
+  const [creatorTitle, setCreatorTitle] = useState("Untitled recording");
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const recordingStartedAtRef = useRef<number | null>(null);
+  const workpieceOperationKeyRef = useRef(`bellows:create:${crypto.randomUUID()}`);
+  const [storageReadiness, setStorageReadiness] = useState<{
+    readonly supported: boolean;
+    readonly quotaBytes: number | null;
+    readonly usageBytes: number | null;
+  }>({ supported: false, quotaBytes: null, usageBytes: null });
+  const gateACompatibility = useMemo(() => readBellowsGateACompatibility(), []);
 
   const viewerLabel = describeUser(authUser);
   const isAuthenticated = Boolean(authUser);
@@ -1413,6 +1424,7 @@ export default function BellowsStandalone() {
     const nextHref = buildForgeRouteHref(location.pathname, {
       search: location.search,
       workspaceId,
+      workpieceId: routeContext.workpieceId,
     });
     const nextSearch = searchFromHref(nextHref);
     if (nextSearch === location.search) return;
@@ -1424,7 +1436,7 @@ export default function BellowsStandalone() {
       },
       { replace: true },
     );
-  }, [location.pathname, location.search, navigate, workspaceId]);
+  }, [location.pathname, location.search, navigate, routeContext.workpieceId, workspaceId]);
 
   useEffect(() => {
     if (!authUser?.id) {
@@ -1467,7 +1479,11 @@ export default function BellowsStandalone() {
         let nextStatusMessage = "Rehydrated Bellows from Tongs.";
 
         if (loadMode === "forceFresh") {
-          session = createSeedSession({ workspaceId: workspace, hostUserId });
+          session = createSeedSession({
+            workspaceId: workspace,
+            hostUserId,
+            workpieceId: (routeContext.workpieceId ?? null) as WorkpieceId | null,
+          });
           await repository.createSessionHeader({ session });
           await repository.appendRecoveryCheckpoint({
             session,
@@ -1504,7 +1520,11 @@ export default function BellowsStandalone() {
             const latestBundle = await repository.loadMostRecentSession(workspace);
 
             if (!latestBundle) {
-              session = createSeedSession({ workspaceId: workspace, hostUserId });
+              session = createSeedSession({
+                workspaceId: workspace,
+                hostUserId,
+                workpieceId: (routeContext.workpieceId ?? null) as WorkpieceId | null,
+              });
               await repository.createSessionHeader({ session });
               await repository.appendRecoveryCheckpoint({
                 session,
@@ -1582,6 +1602,7 @@ export default function BellowsStandalone() {
     loadingWorkspaces,
     reloadToken,
     repository,
+    routeContext.workpieceId,
     workspaceError,
     workspaceId,
   ]);
@@ -1592,6 +1613,7 @@ export default function BellowsStandalone() {
   const dispatchLog = snapshot?.dispatchLog ?? [];
   const persistenceSnapshots = snapshot?.persistenceSnapshots ?? [];
   const currentHostParticipantId = runtimeShell?.hostParticipantId ?? null;
+  const currentSessionId = session?.sessionId ?? null;
   const currentHostRoleCode = session
     ? resolveParticipantRoleCode(session, currentHostParticipantId)
     : "S1";
@@ -1602,6 +1624,67 @@ export default function BellowsStandalone() {
     0,
     Math.min(100, Math.round(hostLocalMedia.audioLevelPct / 10) * 10),
   );
+
+  useEffect(() => {
+    if (!currentSessionId || !workspaceId || !currentHostParticipantId || !routeContext.workpieceId) {
+      recordOnlyControllerRef.current = null;
+      return;
+    }
+    const controller = createBellowsRecordOnlyCaptureController({
+      workspaceId: asWorkspaceId(workspaceId),
+      sessionId: currentSessionId,
+      participantId: currentHostParticipantId,
+      workpieceId: routeContext.workpieceId as WorkpieceId,
+      onStatus: setRecordOnlyStatus,
+    });
+    recordOnlyControllerRef.current = controller;
+    void controller.inspectRecovery().catch((error: unknown) => {
+      setRecordOnlyStatus((current) => ({
+        ...current,
+        phase: "failed",
+        message: getErrorMessage(error, "Bellows could not inspect local recovery custody."),
+      }));
+    });
+    void readBellowsStorageReadiness().then(setStorageReadiness).catch(() => {
+      setStorageReadiness({ supported: false, quotaBytes: null, usageBytes: null });
+    });
+    return () => {
+      if (recordOnlyControllerRef.current === controller) {
+        recordOnlyControllerRef.current = null;
+      }
+    };
+  }, [currentHostParticipantId, currentSessionId, routeContext.workpieceId, workspaceId]);
+
+  useEffect(() => {
+    const unsafe = recordOnlyStatus.phase === "recording"
+      || recordOnlyStatus.phase === "uploading"
+      || recordOnlyStatus.phase === "recoverable";
+    if (!unsafe) return;
+    const warnBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = true;
+    };
+    const inspectOnVisible = () => {
+      if (document.visibilityState === "visible") {
+        void recordOnlyControllerRef.current?.inspectRecovery();
+      }
+    };
+    window.addEventListener("beforeunload", warnBeforeUnload);
+    document.addEventListener("visibilitychange", inspectOnVisible);
+    return () => {
+      window.removeEventListener("beforeunload", warnBeforeUnload);
+      document.removeEventListener("visibilitychange", inspectOnVisible);
+    };
+  }, [recordOnlyStatus.phase]);
+
+  useEffect(() => {
+    if (recordOnlyStatus.phase !== "recording") return;
+    if (recordingStartedAtRef.current === null) recordingStartedAtRef.current = performance.now();
+    const update = () => setElapsedMs(Math.max(0, performance.now() - (recordingStartedAtRef.current ?? performance.now())));
+    update();
+    const timer = window.setInterval(update, 250);
+    return () => window.clearInterval(timer);
+  }, [recordOnlyStatus.phase]);
   const guestPresenceSignalKey = useMemo(
     () => participantPresenceEntries
       .filter((entry) => entry.participantKind === "guest")
@@ -2097,6 +2180,157 @@ export default function BellowsStandalone() {
     }
   }
 
+  async function createCreatorRecording() {
+    if (!workspaceId || !creatorTitle.trim()) return;
+    setBusyAction("creator-create");
+    setErrorMessage(null);
+    try {
+      const { data, error } = await tongsSupabase.rpc("create_recording_workpiece", {
+        p_workspace_id: workspaceId,
+        p_title: creatorTitle.trim(),
+        p_origin_venue: "bellows",
+        p_operation_key: workpieceOperationKeyRef.current,
+      });
+      if (error) throw error;
+      const receipt = data as { outcome?: string; workpiece_id?: string } | null;
+      if (!receipt?.workpiece_id || !["created", "existing"].includes(receipt.outcome ?? "")) {
+        throw new Error(`Bellows could not create the recording (${receipt?.outcome ?? "unknown"}).`);
+      }
+      pendingLoadModeRef.current = "forceFresh";
+      navigate(buildForgeRouteHref(location.pathname, {
+        search: location.search,
+        workspaceId,
+        workpieceId: receipt.workpiece_id,
+      }), { replace: true });
+      setReloadToken((value) => value + 1);
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "Bellows could not create this recording."));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  function startAnotherCreatorRecording() {
+    workpieceOperationKeyRef.current = crypto.randomUUID();
+    setCreatorTitle("");
+    pendingLoadModeRef.current = "forceFresh";
+    navigate(buildForgeRouteHref(location.pathname, {
+      search: location.search,
+      workspaceId,
+      workpieceId: null,
+    }), { replace: true });
+    setReloadToken((value) => value + 1);
+  }
+
+  async function advanceRecordOnlyEngineToCapture(): Promise<void> {
+    const shell = runtimeShell;
+    if (!shell) throw new Error("Bellows session authority is not ready.");
+    for (let step = 0; step < 8; step += 1) {
+      const current = shell.harness.getSnapshot().session;
+      const currentLifecycle = current.machineState.lifecycle;
+      if (currentLifecycle === "sync_initializing" || currentLifecycle === "recording_active") return;
+      let action: BellowsSessionAction;
+      if (currentLifecycle === "idle") {
+        action = createHostAction("HOST_BEGIN_SETUP", {}, shell.hostParticipantId, shell.nextOffsetMs);
+      } else if (currentLifecycle === "configuring") {
+        action = createHostAction("HOST_WAIT_FOR_PARTICIPANTS", {}, shell.hostParticipantId, shell.nextOffsetMs);
+      } else if (currentLifecycle === "waiting_for_participants" || currentLifecycle === "preflight_ready") {
+        action = createHostAction("HOST_RUN_PREFLIGHT", {}, shell.hostParticipantId, shell.nextOffsetMs);
+      } else if (currentLifecycle === "ready_to_start") {
+        action = createHostAction("HOST_START_SHOW", {}, shell.hostParticipantId, shell.nextOffsetMs);
+      } else {
+        throw new Error(`Bellows must recover the current ${humanizeCode(currentLifecycle)} session before recording.`);
+      }
+      const result = await shell.harness.dispatch(action);
+      await persistRuntimeTransition(repository, action, result);
+      if (result.transition.kind === "rejected") throw new Error(result.transition.rejection.message);
+    }
+    throw new Error("Bellows could not prepare the recording session.");
+  }
+
+  async function startRealLocalCapture() {
+    const controller = recordOnlyControllerRef.current;
+    const shell = runtimeShell;
+    if (!controller || !hostLocalMedia.stream || !shell) {
+      setErrorMessage("Bellows needs ready camera and microphone media before recording.");
+      return;
+    }
+    if (!routeContext.workpieceId) {
+      setErrorMessage("Open Bellows from a canonical workpiece before recording so Hammer handoff has an owner.");
+      return;
+    }
+    setBusyAction("record-only-start");
+    setErrorMessage(null);
+    try {
+      await advanceRecordOnlyEngineToCapture();
+      recordingStartedAtRef.current = performance.now();
+      setElapsedMs(0);
+      await controller.start(
+        hostLocalMedia.stream,
+        recordOnlyStatus.phase === "recoverable" ? "page_recovery" : "initial",
+      );
+      if (shell.harness.getSnapshot().session.machineState.lifecycle === "sync_initializing") {
+        const action = createEngineAction(
+          "CAPTURE_STARTED_FOR_ALL_REQUIRED_PARTICIPANTS",
+          {},
+          "system",
+          "capture",
+          shell.nextOffsetMs,
+        );
+        const result = await shell.harness.dispatch(action);
+        await persistRuntimeTransition(repository, action, result);
+      }
+      setSnapshot(shell.harness.getSnapshot());
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "Bellows could not start real local capture."));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function stopAndUploadRealCapture() {
+    const controller = recordOnlyControllerRef.current;
+    if (!controller) return;
+    setBusyAction("record-only-stop-upload");
+    setErrorMessage(null);
+    try {
+      await controller.stopAndUpload();
+      hostLocalMedia.retry();
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "Bellows could not finalize and upload local capture."));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function resumeRealCaptureUpload() {
+    const controller = recordOnlyControllerRef.current;
+    if (!controller) return;
+    setBusyAction("record-only-resume-upload");
+    setErrorMessage(null);
+    try {
+      await controller.resumeUpload();
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "Bellows could not resume canonical upload."));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
+  async function releaseVerifiedRecoveryMedia() {
+    const controller = recordOnlyControllerRef.current;
+    if (!controller) return;
+    setBusyAction("record-only-release-local");
+    setErrorMessage(null);
+    try {
+      await controller.releaseVerifiedLocalMedia();
+    } catch (error) {
+      setErrorMessage(getErrorMessage(error, "Bellows could not release local recovery media."));
+    } finally {
+      setBusyAction(null);
+    }
+  }
+
   const activeRuntime = session && runtimeShell ? runtimeShell : null;
   const lifecycle = session?.machineState.lifecycle ?? "idle";
   const terminal = session ? canArchive(lifecycle) : false;
@@ -2173,6 +2407,146 @@ export default function BellowsStandalone() {
     [session],
   );
 
+  const diagnosticsEnabled = import.meta.env.DEV
+    && new URLSearchParams(location.search).get("debug") === "1";
+  const devicesReady = hostLocalMedia.readiness.overall === "ready"
+    && Boolean(hostLocalMedia.stream?.getAudioTracks().some((track) => track.readyState === "live"))
+    && Boolean(hostLocalMedia.stream?.getVideoTracks().some((track) => track.readyState === "live"));
+  const authorityNeedsRecovery = recordOnlyStatus.phase === "idle"
+    && (session?.machineState.lifecycle === "sync_initializing"
+      || session?.machineState.lifecycle === "recording_active");
+  const creatorWorkflow = deriveBellowsRecordingView({
+    hasWorkpiece: Boolean(routeContext.workpieceId),
+    hasSession: Boolean(session),
+    devicesReady,
+    capture: recordOnlyStatus,
+    packageSealed: recordOnlyStatus.phase === "verified" || recordOnlyStatus.message.includes("sealed safely"),
+    hammerHandoffComplete: recordOnlyStatus.phase === "verified",
+    hasIntegrityFindings: false,
+    authorityNeedsRecovery,
+  });
+  const elapsedSeconds = Math.floor(elapsedMs / 1000);
+  const elapsedLabel = `${String(Math.floor(elapsedSeconds / 60)).padStart(2, "0")}:${String(elapsedSeconds % 60).padStart(2, "0")}`;
+
+  if (isAuthenticated && workspaceId && session && activeRuntime && !diagnosticsEnabled) {
+    const recording = creatorWorkflow === "recording";
+    const saving = creatorWorkflow === "saving" || creatorWorkflow === "hammer_handoff";
+    const canStart = creatorWorkflow === "ready" && gateACompatibility.supported && storageReadiness.supported;
+    return (
+      <div className="bellows-creator" data-testid="bellows-creator-workflow" data-workflow={creatorWorkflow}>
+        <header className="bellows-creator__header">
+          <div>
+            <span className="bellows-creator__eyebrow">Podcaster&apos;s Forge</span>
+            <h1>Bellows</h1>
+            <p>Record your conversation. Bellows keeps it safe and prepares it for editing.</p>
+          </div>
+          <Link to={backHref}>Back to Forge</Link>
+        </header>
+
+        <main className="bellows-creator__main">
+          {!routeContext.workpieceId ? (
+            <section className="bellows-creator__card bellows-creator__create">
+              <span className="bellows-creator__step">1 · New recording</span>
+              <h2>What are you recording?</h2>
+              <p>Give this recording a name. Bellows will create its editing project automatically.</p>
+              <label htmlFor="bellows-creator-title">Recording title</label>
+              <input id="bellows-creator-title" value={creatorTitle} onChange={(event) => setCreatorTitle(event.target.value)} autoFocus />
+              <button type="button" className="bellows-creator__primary" disabled={busyAction !== null || !creatorTitle.trim()} onClick={() => void createCreatorRecording()}>
+                {busyAction === "creator-create" ? "Creating recording…" : "Create recording"}
+              </button>
+            </section>
+          ) : (
+            <>
+              <section className="bellows-creator__card bellows-creator__preview-card">
+                <div className="bellows-creator__section-heading">
+                  <div>
+                    <span className="bellows-creator__step">1 · Camera and microphone</span>
+                    <h2>Look and sound right</h2>
+                  </div>
+                  {!hostLocalMedia.setupRequested ? (
+                    <button type="button" className="bellows-creator__primary" onClick={hostLocalMedia.setup}>Set up devices</button>
+                  ) : null}
+                </div>
+
+                <div className="bellows-creator__preview">
+                  <video ref={hostPreviewRef} autoPlay muted playsInline />
+                  {!hostLocalMedia.hasPreview ? <div>{hostLocalMedia.setupRequested ? "Waiting for your camera…" : "Your camera preview will appear here."}</div> : null}
+                  {recording ? <span className="bellows-creator__recording-badge"><i /> Recording {elapsedLabel}</span> : null}
+                </div>
+
+                {hostLocalMedia.setupRequested ? (
+                  <div className="bellows-creator__device-grid">
+                    <label>Camera
+                      <select value={hostLocalMedia.selectedVideoInputId} disabled={recording || saving} onChange={(event) => hostLocalMedia.selectVideoInput(event.target.value)}>
+                        {hostLocalMedia.videoInputs.map((device, index) => <option value={device.deviceId} key={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}
+                      </select>
+                    </label>
+                    <label>Microphone
+                      <select value={hostLocalMedia.selectedAudioInputId} disabled={recording || saving} onChange={(event) => hostLocalMedia.selectAudioInput(event.target.value)}>
+                        {hostLocalMedia.audioInputs.map((device, index) => <option value={device.deviceId} key={device.deviceId}>{device.label || `Microphone ${index + 1}`}</option>)}
+                      </select>
+                    </label>
+                    <div className="bellows-creator__meter">
+                      <span>Microphone level</span>
+                      <progress max={100} value={hostLocalMedia.audioLevelPct} aria-label="Microphone level" />
+                    </div>
+                  </div>
+                ) : null}
+                {hostLocalMedia.deviceError ? <p className="bellows-creator__error">{hostLocalMedia.deviceError}</p> : null}
+              </section>
+
+              <section className="bellows-creator__card bellows-creator__action-card">
+                <span className="bellows-creator__step">2 · Record</span>
+                {creatorWorkflow === "recover" ? (
+                  <>
+                    <h2>Finish saving your recording</h2>
+                    <p>{authorityNeedsRecovery ? "Bellows found an interrupted session checkpoint. It will not declare the studio ready until that interruption is resolved." : recordOnlyStatus.message} Your local recording will stay here until the canonical copy is verified.</p>
+                    {recordOnlyStatus.phase === "recoverable" ? <button type="button" className="bellows-creator__primary" onClick={() => void resumeRealCaptureUpload()}>Recover recording</button> : null}
+                    {authorityNeedsRecovery && recordOnlyStatus.bytesHeldLocally === 0 ? <button type="button" onClick={startAnotherCreatorRecording}>Start another recording</button> : null}
+                  </>
+                ) : recording ? (
+                  <>
+                    <h2>Recording in progress</h2>
+                    <strong className="bellows-creator__timer">{elapsedLabel}</strong>
+                    <button type="button" className="bellows-creator__stop" disabled={busyAction !== null} onClick={() => void stopAndUploadRealCapture()}>Stop recording</button>
+                  </>
+                ) : saving ? (
+                  <>
+                    <h2>Saving your recording</h2>
+                    <p>{recordOnlyStatus.message}</p>
+                    <progress max={Math.max(1, recordOnlyStatus.partCount)} value={recordOnlyStatus.uploadedPartCount} aria-label="Saving progress" />
+                  </>
+                ) : creatorWorkflow === "retry_saving" ? (
+                  <>
+                    <h2>Your recording is safe</h2>
+                    <p>{recordOnlyStatus.message}</p>
+                    <button type="button" className="bellows-creator__primary" onClick={() => void resumeRealCaptureUpload()}>Retry saving</button>
+                  </>
+                ) : creatorWorkflow === "complete" ? (
+                  <>
+                    <h2>Ready to edit</h2>
+                    <p>Your recording is sealed, verified, and available in Hammer. The local recovery copy remains until you release it.</p>
+                    <Link className="bellows-creator__primary bellows-creator__link-button" to={buildForgeRouteHref("/app/hammer/editor", { workspaceId, workpieceId: routeContext.workpieceId })}>Open in Hammer</Link>
+                  </>
+                ) : (
+                  <>
+                    <h2>{devicesReady ? "Ready when you are" : "Set up your devices to begin"}</h2>
+                    <p>{devicesReady ? "Your camera, microphone, and recovery storage are ready." : "Choose the camera and microphone you want to record."}</p>
+                    <button type="button" className="bellows-creator__record" disabled={!canStart || busyAction !== null} onClick={() => void startRealLocalCapture()}>
+                      <span /> Start recording
+                    </button>
+                  </>
+                )}
+                {errorMessage ? <p className="bellows-creator__error">{errorMessage}</p> : null}
+                <small>{recordOnlyStatus.bytesHeldLocally > 0 ? "A recoverable local copy is being preserved." : "Nothing is recorded until you press Start recording."}</small>
+              </section>
+            </>
+          )}
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="bellows-standalone">
       <header className="bellows-standalone__header">
@@ -2180,7 +2554,7 @@ export default function BellowsStandalone() {
           <div className="bellows-standalone__eyebrow">Forge Tool Surface</div>
           <div className="bellows-standalone__title-row">
             <h1 className="bellows-standalone__title">Bellows</h1>
-            <span className="bellows-standalone__title-badge">Under Construction</span>
+            <span className="bellows-standalone__title-badge">Record-Only Gate A</span>
           </div>
           <p className="bellows-standalone__subtitle">
             Thin operator console over the real Bellows runtime, rehydrated from canonical Tongs recovery truth.
@@ -2334,7 +2708,7 @@ export default function BellowsStandalone() {
             <div className="bellows-standalone__panel-header">
               <div>
                 <h2>Media Readiness</h2>
-                <p>Pre-recording device readiness and preview over Bellows session presence. No local capture files exist yet.</p>
+                <p>Device readiness and preview for the real record-only capture path. Recovery custody begins only after recording starts.</p>
               </div>
               <button type="button" onClick={hostLocalMedia.retry}>
                 Retry Devices
@@ -2460,6 +2834,100 @@ export default function BellowsStandalone() {
                   ))}
                 </ul>
               </article>
+            </div>
+          </section>
+
+          <section className="bellows-standalone__panel bellows-standalone__panel--wide" data-testid="bellows-record-only-foundation">
+            <div className="bellows-standalone__panel-header">
+              <div>
+                <h2>Record-Only Foundation</h2>
+                <p>Real browser media capture with IndexedDB recovery custody, idempotent upload parts, checksum readback, and a canonical playable segment.</p>
+              </div>
+            </div>
+
+            <div className="bellows-standalone__status-banner" data-state={recordOnlyStatus.phase === "failed" ? "error" : "ok"}>
+              {recordOnlyStatus.message}
+            </div>
+            <p>{gateACompatibility.reason}</p>
+
+            <div className="bellows-standalone__state-grid">
+              <article className="bellows-standalone__state-card">
+                <span>Capture</span>
+                <strong>{recordOnlyStatus.phase}</strong>
+              </article>
+              <article className="bellows-standalone__state-card">
+                <span>Local Parts</span>
+                <strong>{recordOnlyStatus.partCount}</strong>
+              </article>
+              <article className="bellows-standalone__state-card">
+                <span>Verified Parts</span>
+                <strong>{`${recordOnlyStatus.uploadedPartCount}/${recordOnlyStatus.partCount}`}</strong>
+              </article>
+              <article className="bellows-standalone__state-card">
+                <span>Recovery Bytes</span>
+                <strong>{`${(recordOnlyStatus.bytesHeldLocally / 1024 / 1024).toFixed(1)} MB`}</strong>
+              </article>
+              <article className="bellows-standalone__state-card">
+                <span>Storage</span>
+                <strong>{storageReadiness.supported ? "IndexedDB ready" : "Unavailable"}</strong>
+              </article>
+              <article className="bellows-standalone__state-card">
+                <span>Gate A Browser</span>
+                <strong>{gateACompatibility.supported ? gateACompatibility.browser : "unsupported"}</strong>
+              </article>
+              <article className="bellows-standalone__state-card">
+                <span>Available</span>
+                <strong>{storageReadiness.quotaBytes !== null && storageReadiness.usageBytes !== null
+                  ? `${Math.max(0, (storageReadiness.quotaBytes - storageReadiness.usageBytes) / 1024 / 1024).toFixed(0)} MB`
+                  : "Unknown"}</strong>
+              </article>
+              <article className="bellows-standalone__state-card">
+                <span>Segment Integrity</span>
+                <strong>{recordOnlyStatus.segment?.integrityState ?? "not_started"}</strong>
+              </article>
+              <article className="bellows-standalone__state-card">
+                <span>Recorder Generation</span>
+                <strong>{recordOnlyStatus.segment?.recorderGeneration ?? 0}</strong>
+              </article>
+            </div>
+
+            <div className="bellows-standalone__control-grid">
+              <button
+                type="button"
+                disabled={controlsDisabled || recordOnlyStatus.phase === "recording" || !hostLocalMedia.stream || !routeContext.workpieceId || !gateACompatibility.supported}
+                onClick={() => void startRealLocalCapture()}
+              >
+                Start Real Recording
+              </button>
+              <button
+                type="button"
+                disabled={controlsDisabled || recordOnlyStatus.phase !== "recording"}
+                onClick={() => void stopAndUploadRealCapture()}
+              >
+                Stop and Upload
+              </button>
+              <button
+                type="button"
+                disabled={controlsDisabled || recordOnlyStatus.phase !== "recoverable"}
+                onClick={() => void resumeRealCaptureUpload()}
+              >
+                Resume Upload
+              </button>
+              <button
+                type="button"
+                disabled={controlsDisabled || recordOnlyStatus.phase !== "verified" || recordOnlyStatus.partCount === 0}
+                onClick={() => void releaseVerifiedRecoveryMedia()}
+              >
+                Release Verified Local Copy
+              </button>
+              {routeContext.workpieceId && recordOnlyStatus.phase === "verified" ? (
+                <Link to={buildForgeRouteHref("/app/hammer/editor", {
+                  workspaceId,
+                  workpieceId: routeContext.workpieceId,
+                })}>
+                  Open Verified Result in Hammer
+                </Link>
+              ) : null}
             </div>
           </section>
 

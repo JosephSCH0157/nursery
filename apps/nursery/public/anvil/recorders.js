@@ -839,14 +839,21 @@ async function stopSelected() {
         return { id, ok: false, error: describeError(e) };
       }
       try {
-        await callWithTimeout(() => a.stop(), settings.timeouts.stop);
-        return { id, ok: true };
+        const detail = await callWithTimeout(() => a.stop(), settings.timeouts.stop);
+        return { id, ok: true, ...detail && typeof detail === "object" ? { detail } : {} };
       } catch (e) {
         return { id, ok: false, error: describeError(e) };
       }
     })
   );
   _emitRecState("idle");
+  for (const result of rs) {
+    if (result.id !== "obs" || !result.ok || !result.detail) continue;
+    try {
+      void window.__tpObsImport?.acceptStopResult?.(result.detail);
+    } catch {
+    }
+  }
   try {
     recStats.stopLat.push(Math.max(0, __now() - t0));
   } catch {

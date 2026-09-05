@@ -6483,16 +6483,16 @@ var init_phoenix = __esm({
        * @returns {Record<string, PresenceState>}
        */
       static syncState(currentState2, newState, onJoin, onLeave) {
-        let state8 = this.clone(currentState2);
+        let state9 = this.clone(currentState2);
         let joins = {};
         let leaves = {};
-        this.map(state8, (key, presence) => {
+        this.map(state9, (key, presence) => {
           if (!newState[key]) {
             leaves[key] = presence;
           }
         });
         this.map(newState, (key, newPresence) => {
-          let currentPresence = state8[key];
+          let currentPresence = state9[key];
           if (currentPresence) {
             let newRefs = newPresence.metas.map((m) => m.phx_ref);
             let curRefs = currentPresence.metas.map((m) => m.phx_ref);
@@ -6510,7 +6510,7 @@ var init_phoenix = __esm({
             joins[key] = newPresence;
           }
         });
-        return this.syncDiff(state8, { joins, leaves }, onJoin, onLeave);
+        return this.syncDiff(state9, { joins, leaves }, onJoin, onLeave);
       }
       /**
        *
@@ -6526,7 +6526,7 @@ var init_phoenix = __esm({
        *
        * @returns {Record<string, PresenceState>}
        */
-      static syncDiff(state8, diff, onJoin, onLeave) {
+      static syncDiff(state9, diff, onJoin, onLeave) {
         let { joins, leaves } = this.clone(diff);
         if (!onJoin) {
           onJoin = function() {
@@ -6537,17 +6537,17 @@ var init_phoenix = __esm({
           };
         }
         this.map(joins, (key, newPresence) => {
-          let currentPresence = state8[key];
-          state8[key] = this.clone(newPresence);
+          let currentPresence = state9[key];
+          state9[key] = this.clone(newPresence);
           if (currentPresence) {
-            let joinedRefs = state8[key].metas.map((m) => m.phx_ref);
+            let joinedRefs = state9[key].metas.map((m) => m.phx_ref);
             let curMetas = currentPresence.metas.filter((m) => joinedRefs.indexOf(m.phx_ref) < 0);
-            state8[key].metas.unshift(...curMetas);
+            state9[key].metas.unshift(...curMetas);
           }
           onJoin(key, currentPresence, newPresence);
         });
         this.map(leaves, (key, leftPresence) => {
-          let currentPresence = state8[key];
+          let currentPresence = state9[key];
           if (!currentPresence) {
             return;
           }
@@ -6557,10 +6557,10 @@ var init_phoenix = __esm({
           });
           onLeave(key, currentPresence, leftPresence);
           if (currentPresence.metas.length === 0) {
-            delete state8[key];
+            delete state9[key];
           }
         });
-        return state8;
+        return state9;
       }
       /**
        * Returns the array of presences, with selected metadata.
@@ -7394,8 +7394,8 @@ function transformState(presences) {
     return presence;
   });
 }
-function cloneState(state8) {
-  return JSON.parse(JSON.stringify(state8));
+function cloneState(state9) {
+  return JSON.parse(JSON.stringify(state9));
 }
 function phoenixPresenceOptions(opts) {
   return (opts === null || opts === void 0 ? void 0 : opts.events) && { events: opts.events };
@@ -7449,10 +7449,10 @@ var init_presenceAdapter = __esm({
        * })
        *
        */
-      static transformState(state8) {
-        state8 = cloneState(state8);
-        return Object.getOwnPropertyNames(state8).reduce((newState, key) => {
-          const presences = state8[key];
+      static transformState(state9) {
+        state9 = cloneState(state9);
+        return Object.getOwnPropertyNames(state9).reduce((newState, key) => {
+          const presences = state9[key];
           newState[key] = transformState(presences);
           return newState;
         }, {});
@@ -7543,8 +7543,8 @@ var init_channelAdapter = __esm({
       get state() {
         return this.channel.state;
       }
-      set state(state8) {
-        this.channel.state = state8;
+      set state(state9) {
+        this.channel.state = state9;
       }
       get joinedOnce() {
         return this.channel.joinedOnce;
@@ -7656,8 +7656,8 @@ var init_RealtimeChannel = __esm({
       get state() {
         return this.channelAdapter.state;
       }
-      set state(state8) {
-        this.channelAdapter.state = state8;
+      set state(state9) {
+        this.channelAdapter.state = state9;
       }
       get joinedOnce() {
         return this.channelAdapter.joinedOnce;
@@ -12228,33 +12228,33 @@ var init_errors = __esm({
 });
 
 // ../../node_modules/.pnpm/@supabase+auth-js@2.100.1/node_modules/@supabase/auth-js/dist/module/lib/base64url.js
-function byteToBase64URL(byte, state8, emit3) {
+function byteToBase64URL(byte, state9, emit3) {
   if (byte !== null) {
-    state8.queue = state8.queue << 8 | byte;
-    state8.queuedBits += 8;
-    while (state8.queuedBits >= 6) {
-      const pos = state8.queue >> state8.queuedBits - 6 & 63;
+    state9.queue = state9.queue << 8 | byte;
+    state9.queuedBits += 8;
+    while (state9.queuedBits >= 6) {
+      const pos = state9.queue >> state9.queuedBits - 6 & 63;
       emit3(TO_BASE64URL[pos]);
-      state8.queuedBits -= 6;
+      state9.queuedBits -= 6;
     }
-  } else if (state8.queuedBits > 0) {
-    state8.queue = state8.queue << 6 - state8.queuedBits;
-    state8.queuedBits = 6;
-    while (state8.queuedBits >= 6) {
-      const pos = state8.queue >> state8.queuedBits - 6 & 63;
+  } else if (state9.queuedBits > 0) {
+    state9.queue = state9.queue << 6 - state9.queuedBits;
+    state9.queuedBits = 6;
+    while (state9.queuedBits >= 6) {
+      const pos = state9.queue >> state9.queuedBits - 6 & 63;
       emit3(TO_BASE64URL[pos]);
-      state8.queuedBits -= 6;
+      state9.queuedBits -= 6;
     }
   }
 }
-function byteFromBase64URL(charCode, state8, emit3) {
+function byteFromBase64URL(charCode, state9, emit3) {
   const bits = FROM_BASE64URL[charCode];
   if (bits > -1) {
-    state8.queue = state8.queue << 6 | bits;
-    state8.queuedBits += 6;
-    while (state8.queuedBits >= 8) {
-      emit3(state8.queue >> state8.queuedBits - 8 & 255);
-      state8.queuedBits -= 8;
+    state9.queue = state9.queue << 6 | bits;
+    state9.queuedBits += 6;
+    while (state9.queuedBits >= 8) {
+      emit3(state9.queue >> state9.queuedBits - 8 & 255);
+      state9.queuedBits -= 8;
     }
   } else if (bits === -2) {
     return;
@@ -12314,47 +12314,47 @@ function stringToUTF8(str, emit3) {
     codepointToUTF8(codepoint, emit3);
   }
 }
-function stringFromUTF8(byte, state8, emit3) {
-  if (state8.utf8seq === 0) {
+function stringFromUTF8(byte, state9, emit3) {
+  if (state9.utf8seq === 0) {
     if (byte <= 127) {
       emit3(byte);
       return;
     }
     for (let leadingBit = 1; leadingBit < 6; leadingBit += 1) {
       if ((byte >> 7 - leadingBit & 1) === 0) {
-        state8.utf8seq = leadingBit;
+        state9.utf8seq = leadingBit;
         break;
       }
     }
-    if (state8.utf8seq === 2) {
-      state8.codepoint = byte & 31;
-    } else if (state8.utf8seq === 3) {
-      state8.codepoint = byte & 15;
-    } else if (state8.utf8seq === 4) {
-      state8.codepoint = byte & 7;
+    if (state9.utf8seq === 2) {
+      state9.codepoint = byte & 31;
+    } else if (state9.utf8seq === 3) {
+      state9.codepoint = byte & 15;
+    } else if (state9.utf8seq === 4) {
+      state9.codepoint = byte & 7;
     } else {
       throw new Error("Invalid UTF-8 sequence");
     }
-    state8.utf8seq -= 1;
-  } else if (state8.utf8seq > 0) {
+    state9.utf8seq -= 1;
+  } else if (state9.utf8seq > 0) {
     if (byte <= 127) {
       throw new Error("Invalid UTF-8 sequence");
     }
-    state8.codepoint = state8.codepoint << 6 | byte & 63;
-    state8.utf8seq -= 1;
-    if (state8.utf8seq === 0) {
-      emit3(state8.codepoint);
+    state9.codepoint = state9.codepoint << 6 | byte & 63;
+    state9.utf8seq -= 1;
+    if (state9.utf8seq === 0) {
+      emit3(state9.codepoint);
     }
   }
 }
 function base64UrlToUint8Array(str) {
   const result = [];
-  const state8 = { queue: 0, queuedBits: 0 };
+  const state9 = { queue: 0, queuedBits: 0 };
   const onByte = (byte) => {
     result.push(byte);
   };
   for (let i = 0; i < str.length; i += 1) {
-    byteFromBase64URL(str.charCodeAt(i), state8, onByte);
+    byteFromBase64URL(str.charCodeAt(i), state9, onByte);
   }
   return new Uint8Array(result);
 }
@@ -12365,12 +12365,12 @@ function stringToUint8Array(str) {
 }
 function bytesToBase64URL(bytes) {
   const result = [];
-  const state8 = { queue: 0, queuedBits: 0 };
+  const state9 = { queue: 0, queuedBits: 0 };
   const onChar = (char) => {
     result.push(char);
   };
-  bytes.forEach((byte) => byteToBase64URL(byte, state8, onChar));
-  byteToBase64URL(null, state8, onChar);
+  bytes.forEach((byte) => byteToBase64URL(byte, state9, onChar));
+  byteToBase64URL(null, state9, onChar);
   return result.join("");
 }
 var TO_BASE64URL, IGNORE_BASE64URL, FROM_BASE64URL;
@@ -21591,7 +21591,7 @@ var init_autoscroll = __esm({
 function createScrollBrain() {
   const PLL_GAIN = 0.4;
   const PLL_SMOOTH = 0.12;
-  const state8 = {
+  const state9 = {
     mode: "rehearsal",
     ticking: false,
     rafId: null,
@@ -21615,31 +21615,31 @@ function createScrollBrain() {
     lastCenteredLine: null
   };
   const resetForMode = (mode) => {
-    state8.pll = { errPx: 0, lastErrTs: now(), smoothedErr: 0, gain: PLL_GAIN, smoothFactor: PLL_SMOOTH };
-    state8.silence = { isSilent: false, lastChangeTs: now() };
-    state8.targetSpeedPxPerSec = 0;
-    state8.effectiveSpeedPxPerSec = 0;
-    state8.manualNudgePx = 0;
-    state8.lastCenteredLine = null;
-    state8.mode = mode;
+    state9.pll = { errPx: 0, lastErrTs: now(), smoothedErr: 0, gain: PLL_GAIN, smoothFactor: PLL_SMOOTH };
+    state9.silence = { isSilent: false, lastChangeTs: now() };
+    state9.targetSpeedPxPerSec = 0;
+    state9.effectiveSpeedPxPerSec = 0;
+    state9.manualNudgePx = 0;
+    state9.lastCenteredLine = null;
+    state9.mode = mode;
   };
   const tick = (ts) => {
-    if (!state8.ticking) {
-      state8.rafId = null;
+    if (!state9.ticking) {
+      state9.rafId = null;
       return;
     }
     if (!debugEnabled) debugEnabled = isScrollDebug();
-    const last = state8.lastTickTs ?? ts;
+    const last = state9.lastTickTs ?? ts;
     const dtMs = ts - last;
-    state8.lastTickTs = ts;
+    state9.lastTickTs = ts;
     const dtSec = dtMs > 0 ? dtMs / 1e3 : 0;
-    const mode = state8.mode;
-    const base = state8.targetSpeedPxPerSec || 0;
+    const mode = state9.mode;
+    const base = state9.targetSpeedPxPerSec || 0;
     let effectiveSpeed = base;
     const isClamped = clampActive();
-    const silenceHold = mode === "hybrid" && state8.silence.isSilent;
+    const silenceHold = mode === "hybrid" && state9.silence.isSilent;
     if (mode === "hybrid" && !silenceHold) {
-      effectiveSpeed += state8.pll.smoothedErr * state8.pll.gain;
+      effectiveSpeed += state9.pll.smoothedErr * state9.pll.gain;
     }
     if (mode === "hybrid" && silenceHold) {
       effectiveSpeed = 0;
@@ -21648,11 +21648,11 @@ function createScrollBrain() {
       effectiveSpeed = 0;
     }
     if (effectiveSpeed < 0 || !Number.isFinite(effectiveSpeed)) effectiveSpeed = 0;
-    state8.effectiveSpeedPxPerSec = effectiveSpeed;
+    state9.effectiveSpeedPxPerSec = effectiveSpeed;
     let dy = effectiveSpeed * dtSec;
-    if (state8.manualNudgePx) {
-      dy += state8.manualNudgePx;
-      state8.manualNudgePx = 0;
+    if (state9.manualNudgePx) {
+      dy += state9.manualNudgePx;
+      state9.manualNudgePx = 0;
     }
     if (Number.isFinite(dy) && dy !== 0 && !isClamped) {
       scrollByPx(dy);
@@ -21667,63 +21667,63 @@ function createScrollBrain() {
         try {
           console.log("[scroll-brain]", {
             mode,
-            target: state8.targetSpeedPxPerSec || 0,
+            target: state9.targetSpeedPxPerSec || 0,
             effective: effectiveSpeed,
             clamp: isClamped,
-            silent: state8.silence.isSilent,
-            pllErr: state8.pll?.smoothedErr ?? 0
+            silent: state9.silence.isSilent,
+            pllErr: state9.pll?.smoothedErr ?? 0
           });
         } catch {
         }
       }
     }
-    state8.rafId = typeof requestAnimationFrame === "function" ? requestAnimationFrame(tick) : null;
+    state9.rafId = typeof requestAnimationFrame === "function" ? requestAnimationFrame(tick) : null;
   };
   const startEngine = () => {
-    if (state8.ticking) return;
-    state8.ticking = true;
-    state8.lastTickTs = null;
-    state8.rafId = typeof requestAnimationFrame === "function" ? requestAnimationFrame(tick) : null;
+    if (state9.ticking) return;
+    state9.ticking = true;
+    state9.lastTickTs = null;
+    state9.rafId = typeof requestAnimationFrame === "function" ? requestAnimationFrame(tick) : null;
   };
   const stopEngine = () => {
-    state8.ticking = false;
-    if (state8.rafId && typeof cancelAnimationFrame === "function") {
-      cancelAnimationFrame(state8.rafId);
+    state9.ticking = false;
+    if (state9.rafId && typeof cancelAnimationFrame === "function") {
+      cancelAnimationFrame(state9.rafId);
     }
-    state8.rafId = null;
-    state8.lastTickTs = null;
+    state9.rafId = null;
+    state9.lastTickTs = null;
   };
   const setMode2 = (mode) => {
-    if (state8.mode === mode) return;
+    if (state9.mode === mode) return;
     stopEngine();
     resetForMode(mode);
   };
-  const getMode = () => state8.mode;
+  const getMode = () => state9.mode;
   const setTargetSpeed = (pxPerSec) => {
     const v = Number(pxPerSec);
-    state8.targetSpeedPxPerSec = Number.isFinite(v) && v > 0 ? v : 0;
+    state9.targetSpeedPxPerSec = Number.isFinite(v) && v > 0 ? v : 0;
   };
   const setMetrics = (pxPerLine, pxPerWord) => {
     const line = Number(pxPerLine);
     const word = Number(pxPerWord);
-    if (Number.isFinite(line) && line > 0) state8.pxPerLine = line;
-    if (Number.isFinite(word) && word > 0) state8.pxPerWord = word;
+    if (Number.isFinite(line) && line > 0) state9.pxPerLine = line;
+    if (Number.isFinite(word) && word > 0) state9.pxPerWord = word;
   };
   const reportAsrSample = (sample) => {
-    if (state8.mode !== "hybrid") return;
+    if (state9.mode !== "hybrid") return;
     if (!sample || typeof sample.errPx !== "number") return;
     const ts = typeof sample.ts === "number" ? sample.ts : now();
-    state8.pll.errPx = sample.errPx;
-    state8.pll.lastErrTs = ts;
-    const alpha = state8.pll.smoothFactor;
-    state8.pll.smoothedErr = state8.pll.smoothedErr * (1 - alpha) + sample.errPx * alpha;
+    state9.pll.errPx = sample.errPx;
+    state9.pll.lastErrTs = ts;
+    const alpha = state9.pll.smoothFactor;
+    state9.pll.smoothedErr = state9.pll.smoothedErr * (1 - alpha) + sample.errPx * alpha;
   };
   const reportAsrSilence = (isSilent, ts) => {
-    state8.silence.isSilent = !!isSilent;
-    state8.silence.lastChangeTs = typeof ts === "number" ? ts : now();
+    state9.silence.isSilent = !!isSilent;
+    state9.silence.lastChangeTs = typeof ts === "number" ? ts : now();
   };
   const centerOnLine = (lineIndex) => {
-    state8.lastCenteredLine = Number.isFinite(lineIndex) ? Math.max(0, Math.floor(lineIndex)) : null;
+    state9.lastCenteredLine = Number.isFinite(lineIndex) ? Math.max(0, Math.floor(lineIndex)) : null;
   };
   const onSpeechSample = (sample) => {
     try {
@@ -21734,7 +21734,7 @@ function createScrollBrain() {
   const nudge = (deltaPx) => {
     const delta = Number(deltaPx);
     if (!Number.isFinite(delta) || delta === 0) return;
-    state8.manualNudgePx += delta;
+    state9.manualNudgePx += delta;
   };
   return {
     setMode: setMode2,
@@ -21752,17 +21752,17 @@ function createScrollBrain() {
     setBaseSpeedPx: (px) => {
       const val = Number(px);
       if (Number.isFinite(val)) {
-        state8.targetSpeedPxPerSec = val;
-        state8.effectiveSpeedPxPerSec = val;
+        state9.targetSpeedPxPerSec = val;
+        state9.effectiveSpeedPxPerSec = val;
       }
     },
     onManualSpeedAdjust: (delta) => {
       const d = Number(delta);
       if (Number.isFinite(d)) {
-        state8.targetSpeedPxPerSec += d;
+        state9.targetSpeedPxPerSec += d;
       }
     },
-    getCurrentSpeedPx: () => state8.effectiveSpeedPxPerSec
+    getCurrentSpeedPx: () => state9.effectiveSpeedPxPerSec
   };
 }
 var now, debugEnabled, debugCounter, isScrollDebug;
@@ -22876,54 +22876,54 @@ function ensureExistingState() {
   }
   return {};
 }
-function sanitizeState(state8) {
-  if (!ALLOWED_PAGES.has(state8.page)) {
-    state8.page = "scripts";
+function sanitizeState(state9) {
+  if (!ALLOWED_PAGES.has(state9.page)) {
+    state9.page = "scripts";
   }
-  if (!ALLOWED_OVERLAYS.has(state8.overlay)) {
-    state8.overlay = "none";
+  if (!ALLOWED_OVERLAYS.has(state9.overlay)) {
+    state9.overlay = "none";
     try {
       localStorage.removeItem(OVERLAY_KEY);
     } catch {
     }
   }
-  if (typeof state8["asr.engineExplicit"] !== "boolean") {
-    state8["asr.engineExplicit"] = !!state8["asr.engineExplicit"];
+  if (typeof state9["asr.engineExplicit"] !== "boolean") {
+    state9["asr.engineExplicit"] = !!state9["asr.engineExplicit"];
   }
-  if (state8.scrollMode === "manual") {
-    state8.scrollMode = "step";
+  if (state9.scrollMode === "manual") {
+    state9.scrollMode = "step";
   }
-  if (!state8.asrProfiles || typeof state8.asrProfiles !== "object") {
-    state8.asrProfiles = {};
+  if (!state9.asrProfiles || typeof state9.asrProfiles !== "object") {
+    state9.asrProfiles = {};
   }
-  if (state8.asrActiveProfileId && typeof state8.asrActiveProfileId !== "string") {
-    state8.asrActiveProfileId = null;
+  if (state9.asrActiveProfileId && typeof state9.asrActiveProfileId !== "string") {
+    state9.asrActiveProfileId = null;
   }
-  if (!state8.asrTuningProfiles || typeof state8.asrTuningProfiles !== "object") {
-    state8.asrTuningProfiles = {};
+  if (!state9.asrTuningProfiles || typeof state9.asrTuningProfiles !== "object") {
+    state9.asrTuningProfiles = {};
   }
-  if (state8.asrTuningActiveProfileId && typeof state8.asrTuningActiveProfileId !== "string") {
-    state8.asrTuningActiveProfileId = null;
+  if (state9.asrTuningActiveProfileId && typeof state9.asrTuningActiveProfileId !== "string") {
+    state9.asrTuningActiveProfileId = null;
   }
-  if (typeof state8.asrLastAppliedAt !== "number") {
-    state8.asrLastAppliedAt = 0;
+  if (typeof state9.asrLastAppliedAt !== "number") {
+    state9.asrLastAppliedAt = 0;
   }
-  if (!state8.asrLastAppliedSummary || typeof state8.asrLastAppliedSummary !== "object") {
-    state8.asrLastAppliedSummary = {};
+  if (!state9.asrLastAppliedSummary || typeof state9.asrLastAppliedSummary !== "object") {
+    state9.asrLastAppliedSummary = {};
   }
-  if (typeof state8.asrLastApplyOk !== "boolean") {
-    state8.asrLastApplyOk = false;
+  if (typeof state9.asrLastApplyOk !== "boolean") {
+    state9.asrLastApplyOk = false;
   }
-  if (!state8.settingsSaveStatus || typeof state8.settingsSaveStatus !== "object") {
-    state8.settingsSaveStatus = { state: "idle", at: 0 };
+  if (!state9.settingsSaveStatus || typeof state9.settingsSaveStatus !== "object") {
+    state9.settingsSaveStatus = { state: "idle", at: 0 };
   }
-  return state8;
+  return state9;
 }
 function createAppStore(initial2) {
   const subs7 = /* @__PURE__ */ Object.create(null);
   const baseState = buildInitialState();
   migrateLegacyAsrSettings(loadLegacyAsrSettings());
-  const state8 = sanitizeState(
+  const state9 = sanitizeState(
     Object.assign(
       {},
       baseState,
@@ -22946,7 +22946,7 @@ function createAppStore(initial2) {
   }
   function get4(key) {
     try {
-      return state8[key];
+      return state9[key];
     } catch {
       return void 0;
     }
@@ -22959,9 +22959,9 @@ function createAppStore(initial2) {
       if (key === "overlay") {
         value = ALLOWED_OVERLAYS.has(value) ? value : "none";
       }
-      const prev2 = state8[key];
+      const prev2 = state9[key];
       if (prev2 === value) return value;
-      state8[key] = value;
+      state9[key] = value;
       if (key === "scrollMode") {
         try {
           const ctx = getScrollModeAuditContext();
@@ -22969,7 +22969,7 @@ function createAppStore(initial2) {
             writer: ctx?.writer || "unknown",
             from: prev2,
             to: value,
-            phase: state8["session.phase"],
+            phase: state9["session.phase"],
             source: ctx?.meta?.source,
             via: ctx?.meta?.via,
             stack: !!ctx?.meta?.stack
@@ -23017,7 +23017,7 @@ function createAppStore(initial2) {
     subs7[k] = subs7[k] || [];
     subs7[k].push(fn);
     try {
-      fn(state8[key]);
+      fn(state9[key]);
     } catch {
     }
     return function unsubscribe() {
@@ -23049,8 +23049,8 @@ function createAppStore(initial2) {
     set,
     subscribe,
     subscribeAll,
-    state: state8,
-    getSnapshot: () => ({ ...state8 })
+    state: state9,
+    getSnapshot: () => ({ ...state9 })
   };
   try {
     if (!IS_TEST) {
@@ -23550,8 +23550,8 @@ function onAsr(fn) {
   return () => subs.delete(fn);
 }
 function hasActiveAsrProfile() {
-  const state8 = getAsrState();
-  return !!(state8?.activeProfileId && state8.profiles?.[state8.activeProfileId]);
+  const state9 = getAsrState();
+  return !!(state9?.activeProfileId && state9.profiles?.[state9.activeProfileId]);
 }
 var store, stateFromStore, state, subs, storeSyncSuppressed, getAsrState;
 var init_store = __esm({
@@ -23627,8 +23627,8 @@ function formatChip(activeLabel) {
 function renderOptions() {
   const select = getSelect();
   if (!select) return;
-  const state8 = getAsrState();
-  const entries = Object.entries(state8.profiles || {});
+  const state9 = getAsrState();
+  const entries = Object.entries(state9.profiles || {});
   select.innerHTML = "";
   const placeholder = document.createElement("option");
   placeholder.value = "";
@@ -23640,7 +23640,7 @@ function renderOptions() {
     opt.textContent = profile.label || id;
     select.appendChild(opt);
   });
-  const activeId = state8.activeProfileId || "";
+  const activeId = state9.activeProfileId || "";
   const hasActive = activeId && entries.some(([id]) => id === activeId);
   if (!hasActive && activeId) {
     setActiveProfile("");
@@ -23651,7 +23651,7 @@ function renderOptions() {
   } else {
     select.value = "";
   }
-  updateStatusElements(hasActive ? state8.profiles[activeId] : null);
+  updateStatusElements(hasActive ? state9.profiles[activeId] : null);
 }
 function updateStatusElements(activeProfile) {
   const statusEl = getStatusEl();
@@ -24557,7 +24557,7 @@ function computeHybridModeHint(errorLines, weakMatch) {
   }
   return lines > 0 ? "CATCHING UP" : "LETTING YOU CATCH UP";
 }
-function renderHybridCtrlHud(state8) {
+function renderHybridCtrlHud(state9) {
   if (!HYBRID_CTRL_ENABLED) return;
   if (typeof document === "undefined") return;
   const container = document.body || document.documentElement;
@@ -24581,28 +24581,28 @@ function renderHybridCtrlHud(state8) {
     container.appendChild(hud);
   }
   const parts = [
-    `mode=${state8.modeHint}`,
-    `target=${formatHudNumber(state8.targetTop, 1)}`,
-    `curr=${formatHudNumber(state8.currentTop, 1)}`,
-    `err=${formatHudNumber(state8.errorPx, 1)}`,
-    `errLines=${formatHudNumber(state8.errorLines, 1)}`,
-    `markerIdx=${formatHudNumber(state8.markerIdx, 0)}`,
-    `bestIdx=${formatHudNumber(state8.bestIdx, 0)}`,
-    `lineTarget=${formatHudNumber(state8.lineTargetMult, 2)}`,
-    `lineMult=${formatHudNumber(state8.lineMult, 2)}`,
-    `lineSrc=${state8.lineSource}`,
-    `base=${formatHudNumber(state8.basePxps, 1)}`,
-    `baseCorr=${formatHudNumber(state8.baseWithCorrection, 1)}`,
-    `mult=${formatHudNumber(state8.mult, 2)}`,
-    `ctrl=${formatHudNumber(state8.ctrlMultApplied, 2)}`,
-    `scale=${formatHudNumber(state8.effectiveScaleApplied, 2)}`,
-    `final=${formatHudNumber(state8.finalPxps, 1)}`,
-    `silence=${formatHudNumber(state8.silenceMs, 0)}ms`,
-    `silenceCap=${formatHudNumber(state8.silenceCap, 2)}`,
-    `off=${formatHudNumber(state8.offScriptSeverity, 2)}`,
-    `offCap=${formatHudNumber(state8.offScriptCap, 2)}`,
-    `eligible=${state8.eligible ? "yes" : "no"}(${state8.eligibleReason})`,
-    `writer=${state8.writerSource ?? "n/a"}`
+    `mode=${state9.modeHint}`,
+    `target=${formatHudNumber(state9.targetTop, 1)}`,
+    `curr=${formatHudNumber(state9.currentTop, 1)}`,
+    `err=${formatHudNumber(state9.errorPx, 1)}`,
+    `errLines=${formatHudNumber(state9.errorLines, 1)}`,
+    `markerIdx=${formatHudNumber(state9.markerIdx, 0)}`,
+    `bestIdx=${formatHudNumber(state9.bestIdx, 0)}`,
+    `lineTarget=${formatHudNumber(state9.lineTargetMult, 2)}`,
+    `lineMult=${formatHudNumber(state9.lineMult, 2)}`,
+    `lineSrc=${state9.lineSource}`,
+    `base=${formatHudNumber(state9.basePxps, 1)}`,
+    `baseCorr=${formatHudNumber(state9.baseWithCorrection, 1)}`,
+    `mult=${formatHudNumber(state9.mult, 2)}`,
+    `ctrl=${formatHudNumber(state9.ctrlMultApplied, 2)}`,
+    `scale=${formatHudNumber(state9.effectiveScaleApplied, 2)}`,
+    `final=${formatHudNumber(state9.finalPxps, 1)}`,
+    `silence=${formatHudNumber(state9.silenceMs, 0)}ms`,
+    `silenceCap=${formatHudNumber(state9.silenceCap, 2)}`,
+    `off=${formatHudNumber(state9.offScriptSeverity, 2)}`,
+    `offCap=${formatHudNumber(state9.offScriptCap, 2)}`,
+    `eligible=${state9.eligible ? "yes" : "no"}(${state9.eligibleReason})`,
+    `writer=${state9.writerSource ?? "n/a"}`
   ];
   hud.textContent = parts.join(" | ");
 }
@@ -32561,8 +32561,8 @@ async function idbDel(key) {
 }
 async function verifyPermission(handle, mode = "read") {
   try {
-    const state8 = await handle.queryPermission?.({ mode });
-    if (state8 === "granted") return true;
+    const state9 = await handle.queryPermission?.({ mode });
+    if (state9 === "granted") return true;
     const req = await handle.requestPermission?.({ mode });
     return req === "granted";
   } catch {
@@ -34671,12 +34671,12 @@ function stringifyQueryParams(params) {
   });
   return JSON.stringify(pairs);
 }
-function summarizeChairpersonFlagState(state8) {
+function summarizeChairpersonFlagState(state9) {
   return [
-    `shadow=${state8.resolvedShadowEnabled ? 1 : 0}`,
-    `owner=${state8.resolvedOwnerEnabled ? 1 : 0}`,
-    `source=${state8.ownerFlagSource || "default"}`,
-    `disabled=${state8.ownerDisabledReason || "none"}`
+    `shadow=${state9.resolvedShadowEnabled ? 1 : 0}`,
+    `owner=${state9.resolvedOwnerEnabled ? 1 : 0}`,
+    `source=${state9.ownerFlagSource || "default"}`,
+    `disabled=${state9.ownerDisabledReason || "none"}`
   ].join("|");
 }
 function resolveAsrChairpersonFlagState(args) {
@@ -34773,28 +34773,28 @@ function clampConfidence(value) {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(1, Math.round(value * 1e3) / 1e3));
 }
-function buildOutput(state8, action, confidence, reason) {
+function buildOutput(state9, action, confidence, reason) {
   return {
-    state: { ...state8, lastAction: action },
+    state: { ...state9, lastAction: action },
     output: {
-      stableCursorIdx: state8.stableCursorIdx,
+      stableCursorIdx: state9.stableCursorIdx,
       confidence: clampConfidence(confidence),
       action,
       reason
     }
   };
 }
-function resetFarEvidence(state8) {
+function resetFarEvidence(state9) {
   return {
-    ...state8,
+    ...state9,
     farEvidenceIdx: null,
     farEvidenceCount: 0,
     farEvidenceBestSim: 0
   };
 }
-function resetForwardEvidence(state8) {
+function resetForwardEvidence(state9) {
   return {
-    ...state8,
+    ...state9,
     forwardEvidenceStreak: 0,
     forwardEvidenceBestIdx: null,
     forwardEvidenceBestSim: 0
@@ -34802,83 +34802,83 @@ function resetForwardEvidence(state8) {
 }
 function stepAsrEvidenceStabilizer(previous, input) {
   const committedLine = clampIndex(input.currentCommittedLine, previous.stableCursorIdx);
-  let state8 = {
+  let state9 = {
     ...previous,
     lastTimestampMs: Number.isFinite(input.timestampMs) ? input.timestampMs : previous.lastTimestampMs
   };
   if (input.speechLive === false || input.transcriptFresh === false) {
-    state8 = resetForwardEvidence(resetFarEvidence({ ...state8, backwardRepeatCount: 0 }));
-    return buildOutput(state8, "hold", 0.25, "quiet_or_stale_state");
+    state9 = resetForwardEvidence(resetFarEvidence({ ...state9, backwardRepeatCount: 0 }));
+    return buildOutput(state9, "hold", 0.25, "quiet_or_stale_state");
   }
   if (input.noMatch) {
-    state8 = resetForwardEvidence(
-      resetFarEvidence({ ...state8, backwardRepeatCount: 0, sameLineRepeatCount: 0 })
+    state9 = resetForwardEvidence(
+      resetFarEvidence({ ...state9, backwardRepeatCount: 0, sameLineRepeatCount: 0 })
     );
-    return buildOutput(state8, "hold", 0.1, "no_match_or_offscript");
+    return buildOutput(state9, "hold", 0.1, "no_match_or_offscript");
   }
   const rawIdx = clampIndex(input.matchBestIdx, -1);
   if (rawIdx < 0) {
-    state8 = resetForwardEvidence(
-      resetFarEvidence({ ...state8, backwardRepeatCount: 0, sameLineRepeatCount: 0 })
+    state9 = resetForwardEvidence(
+      resetFarEvidence({ ...state9, backwardRepeatCount: 0, sameLineRepeatCount: 0 })
     );
-    return buildOutput(state8, "hold", 0.05, "missing_match_idx");
+    return buildOutput(state9, "hold", 0.05, "missing_match_idx");
   }
-  const delta = rawIdx - state8.stableCursorIdx;
+  const delta = rawIdx - state9.stableCursorIdx;
   const isSameAsLastRaw = previous.lastRawIdx === rawIdx;
   const adjacentMinSim = input.textLen > 0 && input.textLen < DEFAULTS2.shortTextLen ? DEFAULTS2.shortAdjacentMinSim : DEFAULTS2.adjacentMinSim;
   if (delta === 0) {
-    state8 = resetFarEvidence({
-      ...state8,
+    state9 = resetFarEvidence({
+      ...state9,
       lastRawIdx: rawIdx,
       sameLineRepeatCount: isSameAsLastRaw ? previous.sameLineRepeatCount + 1 : 1,
       backwardRepeatCount: 0
     });
-    const hasBufferedForwardWindow = state8.forwardEvidenceStreak >= DEFAULTS2.bufferedCatchupNeed && Number.isFinite(state8.forwardEvidenceBestIdx) && Number(state8.forwardEvidenceBestIdx) > state8.stableCursorIdx && state8.forwardEvidenceBestSim >= DEFAULTS2.bufferedCatchupMinSim;
+    const hasBufferedForwardWindow = state9.forwardEvidenceStreak >= DEFAULTS2.bufferedCatchupNeed && Number.isFinite(state9.forwardEvidenceBestIdx) && Number(state9.forwardEvidenceBestIdx) > state9.stableCursorIdx && state9.forwardEvidenceBestSim >= DEFAULTS2.bufferedCatchupMinSim;
     if (hasBufferedForwardWindow) {
-      const bufferedConfidence = state8.forwardEvidenceBestSim;
-      state8 = resetForwardEvidence({
-        ...state8,
-        stableCursorIdx: state8.stableCursorIdx + 1,
+      const bufferedConfidence = state9.forwardEvidenceBestSim;
+      state9 = resetForwardEvidence({
+        ...state9,
+        stableCursorIdx: state9.stableCursorIdx + 1,
         sameLineRepeatCount: 0
       });
       return buildOutput(
-        state8,
+        state9,
         "advance_adjacent",
         bufferedConfidence,
         "buffered_forward_evidence_adjacent_catchup"
       );
     }
-    return buildOutput(state8, "hold", Math.max(0.4, input.matchBestSim), "repeat_same_line_collapsed");
+    return buildOutput(state9, "hold", Math.max(0.4, input.matchBestSim), "repeat_same_line_collapsed");
   }
   if (delta === 1) {
     if (!Number.isFinite(input.matchBestSim) || input.matchBestSim < adjacentMinSim) {
-      state8 = resetForwardEvidence(
+      state9 = resetForwardEvidence(
         resetFarEvidence({
-          ...state8,
+          ...state9,
           lastRawIdx: rawIdx,
           sameLineRepeatCount: 0,
           backwardRepeatCount: 0
         })
       );
-      return buildOutput(state8, "evidence_only", Math.max(0.2, input.matchBestSim), "adjacent_but_weak");
+      return buildOutput(state9, "evidence_only", Math.max(0.2, input.matchBestSim), "adjacent_but_weak");
     }
-    state8 = resetForwardEvidence(
+    state9 = resetForwardEvidence(
       resetFarEvidence({
-        ...state8,
+        ...state9,
         stableCursorIdx: rawIdx,
         lastRawIdx: rawIdx,
         sameLineRepeatCount: 0,
         backwardRepeatCount: 0
       })
     );
-    return buildOutput(state8, "advance_adjacent", input.matchBestSim, "adjacent_forward_evidence");
+    return buildOutput(state9, "advance_adjacent", input.matchBestSim, "adjacent_forward_evidence");
   }
   if (delta >= 2) {
     const sameForwardBand = previous.forwardEvidenceBestIdx != null && previous.forwardEvidenceBestIdx > previous.stableCursorIdx && rawIdx >= previous.stableCursorIdx + 1;
     const contradictoryBackwardRecent = previous.backwardRepeatCount > 0;
     const sameFarTarget = previous.farEvidenceIdx === rawIdx;
-    state8 = {
-      ...state8,
+    state9 = {
+      ...state9,
       lastRawIdx: rawIdx,
       sameLineRepeatCount: 0,
       backwardRepeatCount: 0,
@@ -34889,17 +34889,17 @@ function stepAsrEvidenceStabilizer(previous, input) {
       forwardEvidenceBestIdx: !contradictoryBackwardRecent && sameForwardBand ? Math.max(previous.forwardEvidenceBestIdx ?? rawIdx, rawIdx) : rawIdx,
       forwardEvidenceBestSim: !contradictoryBackwardRecent && sameForwardBand ? Math.max(previous.forwardEvidenceBestSim, input.matchBestSim) : input.matchBestSim
     };
-    const canBufferedCatchup = !contradictoryBackwardRecent && state8.forwardEvidenceStreak >= DEFAULTS2.bufferedCatchupNeed && state8.forwardEvidenceBestSim >= DEFAULTS2.bufferedCatchupMinSim && Number.isFinite(state8.forwardEvidenceBestIdx) && Number(state8.forwardEvidenceBestIdx) >= state8.stableCursorIdx + 2;
+    const canBufferedCatchup = !contradictoryBackwardRecent && state9.forwardEvidenceStreak >= DEFAULTS2.bufferedCatchupNeed && state9.forwardEvidenceBestSim >= DEFAULTS2.bufferedCatchupMinSim && Number.isFinite(state9.forwardEvidenceBestIdx) && Number(state9.forwardEvidenceBestIdx) >= state9.stableCursorIdx + 2;
     if (canBufferedCatchup) {
-      const bufferedConfidence = Math.max(DEFAULTS2.bufferedCatchupMinSim, state8.forwardEvidenceBestSim);
-      state8 = resetFarEvidence(
+      const bufferedConfidence = Math.max(DEFAULTS2.bufferedCatchupMinSim, state9.forwardEvidenceBestSim);
+      state9 = resetFarEvidence(
         resetForwardEvidence({
-          ...state8,
-          stableCursorIdx: state8.stableCursorIdx + 1
+          ...state9,
+          stableCursorIdx: state9.stableCursorIdx + 1
         })
       );
       return buildOutput(
-        state8,
+        state9,
         "advance_adjacent",
         bufferedConfidence,
         "buffered_forward_evidence_adjacent_catchup"
@@ -34907,20 +34907,20 @@ function stepAsrEvidenceStabilizer(previous, input) {
     }
     const farReason = delta >= DEFAULTS2.farJumpThreshold ? "far_jump_buffered_as_evidence" : "ahead_of_cursor_buffered_as_evidence";
     const farConfidence = Number.isFinite(input.matchBestSim) && input.matchBestSim >= DEFAULTS2.farEvidenceMinSim ? input.matchBestSim : Math.max(0.25, input.matchBestSim);
-    return buildOutput(state8, "evidence_only", farConfidence, farReason);
+    return buildOutput(state9, "evidence_only", farConfidence, farReason);
   }
   const backwardGap = Math.abs(delta);
   const locallyPlausible = backwardGap <= 1 && input.matchReason !== "off_script";
-  state8 = resetForwardEvidence(resetFarEvidence({
-    ...state8,
+  state9 = resetForwardEvidence(resetFarEvidence({
+    ...state9,
     lastRawIdx: rawIdx,
     sameLineRepeatCount: 0,
     backwardRepeatCount: locallyPlausible && isSameAsLastRaw ? previous.backwardRepeatCount + 1 : 1
   }));
-  if (locallyPlausible && state8.backwardRepeatCount >= DEFAULTS2.resetBackwardRepeatThreshold && state8.stableCursorIdx - committedLine >= DEFAULTS2.resetBackwardGapThreshold) {
-    return buildOutput(state8, "reset_needed", Math.max(0.45, input.matchBestSim), "repeated_local_backward_contradiction");
+  if (locallyPlausible && state9.backwardRepeatCount >= DEFAULTS2.resetBackwardRepeatThreshold && state9.stableCursorIdx - committedLine >= DEFAULTS2.resetBackwardGapThreshold) {
+    return buildOutput(state9, "reset_needed", Math.max(0.45, input.matchBestSim), "repeated_local_backward_contradiction");
   }
-  return buildOutput(state8, "evidence_only", Math.max(0.15, input.matchBestSim), "backward_jump_ignored");
+  return buildOutput(state9, "evidence_only", Math.max(0.15, input.matchBestSim), "backward_jump_ignored");
 }
 var DEFAULTS2;
 var init_asr_evidence_stabilizer = __esm({
@@ -37546,10 +37546,10 @@ function readStorage() {
     };
   }
 }
-function writeStorage(state8) {
+function writeStorage(state9) {
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(STORAGE_KEY7, JSON.stringify(state8));
+    window.localStorage.setItem(STORAGE_KEY7, JSON.stringify(state9));
   } catch {
   }
 }
@@ -38677,15 +38677,15 @@ function emitDevDiagnostic(key, level, message, opts) {
   } catch {
   }
 }
-function flushCoalescedDiagnosticSummary(key, level, state8) {
-  if (state8.suppressedCount <= 0) return;
+function flushCoalescedDiagnosticSummary(key, level, state9) {
+  if (state9.suppressedCount <= 0) return;
   emitDevDiagnostic(
     `${key}:COALESCED`,
     level,
-    `[ASR_DIAG_COALESCED] key=${key} suppressedCount=${state8.suppressedCount} durationMs=${Math.max(0, Date.now() - state8.suppressedSince)} signature=${state8.signature}`,
+    `[ASR_DIAG_COALESCED] key=${key} suppressedCount=${state9.suppressedCount} durationMs=${Math.max(0, Date.now() - state9.suppressedSince)} signature=${state9.signature}`,
     {
       minMs: 0,
-      signature: `${key}|${state8.signature}|${state8.suppressedCount}|${state8.suppressedSince}`,
+      signature: `${key}|${state9.signature}|${state9.suppressedCount}|${state9.suppressedSince}`,
       requireDev: true
     }
   );
@@ -45242,17 +45242,17 @@ function createAsrScrollDriver(options = {}) {
     };
   };
   const clearPendingSpeakableBridge = (reason, extras) => {
-    const state8 = pendingSpeakableBridgeState;
-    if (!state8) return;
+    const state9 = pendingSpeakableBridgeState;
+    if (!state9) return;
     warnGuard("asr_pending_speakable_bridge_clear", [
-      `semanticFrom=${state8.semanticFrom}`,
-      `semanticTarget=${state8.semanticTarget}`,
-      `visualCurrent=${state8.visualCurrent}`,
-      `visualReducedTarget=${state8.visualReducedTarget}`,
-      `skippedVisibleRows=${state8.skippedVisibleRows}`,
-      `proofSource=${state8.proofSource || "unknown"}`,
-      `sourceBranch=${state8.sourceBranch || "unknown"}`,
-      `ageMs=${Math.max(0, Date.now() - state8.createdAtMs)}`,
+      `semanticFrom=${state9.semanticFrom}`,
+      `semanticTarget=${state9.semanticTarget}`,
+      `visualCurrent=${state9.visualCurrent}`,
+      `visualReducedTarget=${state9.visualReducedTarget}`,
+      `skippedVisibleRows=${state9.skippedVisibleRows}`,
+      `proofSource=${state9.proofSource || "unknown"}`,
+      `sourceBranch=${state9.sourceBranch || "unknown"}`,
+      `ageMs=${Math.max(0, Date.now() - state9.createdAtMs)}`,
       `reason=${reason}`,
       ...extras || []
     ]);
@@ -46387,9 +46387,9 @@ function createAsrScrollDriver(options = {}) {
     setAsrProfileThresholdOverrides(profile?.asrTweaks);
   });
   attachManualScrollWatcher();
-  const unsubscribe = speechStore.subscribe((state8) => {
+  const unsubscribe = speechStore.subscribe((state9) => {
     if (disposed) return;
-    const nextCalm = !!state8.calmModeEnabled;
+    const nextCalm = !!state9.calmModeEnabled;
     if (nextCalm !== calmModeEnabled) {
       calmModeEnabled = nextCalm;
       syncMotionTuning(getAsrDriverThresholds(), Date.now());
@@ -46745,8 +46745,8 @@ function createAsrScrollDriver(options = {}) {
   const getDocumentVisibilityState = () => {
     try {
       if (typeof document === "undefined") return "visible";
-      const state8 = String(document.visibilityState || "visible").toLowerCase();
-      return state8 === "hidden" ? "hidden" : "visible";
+      const state9 = String(document.visibilityState || "visible").toLowerCase();
+      return state9 === "hidden" ? "hidden" : "visible";
     } catch {
       return "visible";
     }
@@ -65273,50 +65273,50 @@ function createAsrScrollDriver(options = {}) {
       localSafeVisualTargetLine
     };
   };
-  const emitAsr4PocketDriftState = (state8) => {
+  const emitAsr4PocketDriftState = (state9) => {
     if (!isDevMode4()) return;
     try {
       emitDevDiagnostic(
         "ASR4_POCKET_DRIFT_STATE",
         "info",
         buildAsr4PocketDriftStateDiagnostic({
-          currentLine: state8.currentLine,
-          committedLine: state8.committedLine,
-          targetLine: state8.targetLine,
-          currentScrollTop: state8.currentScrollTop,
-          targetScrollTop: state8.targetScrollTop,
-          markerTopPx: state8.markerTopPx,
-          activeLineTopPx: state8.activeLineTopPx,
-          activeLineDistanceFromMarkerPx: state8.activeLineDistanceFromMarkerPx,
-          activeLineViewportRatio: state8.activeLineViewportRatio,
-          lineHeightPx: state8.lineHeightPx,
-          pocketTolerancePx: state8.pocketTolerancePx,
-          belowPocketPx: state8.belowPocketPx,
-          abovePocketPx: state8.abovePocketPx,
-          visualDebtPx: state8.visualDebtPx,
-          movedPx: state8.movedPx,
-          targetPreservedForEasing: state8.targetPreservedForEasing,
-          directWriteBlocked: state8.directWriteBlocked,
-          visualSnapSuppressed: state8.visualSnapSuppressed,
-          terminalClampActive: state8.terminalClampActive,
-          asr4VisualRecoveryRecentlyApplied: state8.asr4VisualRecoveryRecentlyApplied,
-          scrollReason: state8.scrollReason,
-          followMode: state8.followMode,
-          pocketHealth: state8.pocketHealth,
-          suppressedReason: state8.suppressedReason,
-          reason: state8.reason
+          currentLine: state9.currentLine,
+          committedLine: state9.committedLine,
+          targetLine: state9.targetLine,
+          currentScrollTop: state9.currentScrollTop,
+          targetScrollTop: state9.targetScrollTop,
+          markerTopPx: state9.markerTopPx,
+          activeLineTopPx: state9.activeLineTopPx,
+          activeLineDistanceFromMarkerPx: state9.activeLineDistanceFromMarkerPx,
+          activeLineViewportRatio: state9.activeLineViewportRatio,
+          lineHeightPx: state9.lineHeightPx,
+          pocketTolerancePx: state9.pocketTolerancePx,
+          belowPocketPx: state9.belowPocketPx,
+          abovePocketPx: state9.abovePocketPx,
+          visualDebtPx: state9.visualDebtPx,
+          movedPx: state9.movedPx,
+          targetPreservedForEasing: state9.targetPreservedForEasing,
+          directWriteBlocked: state9.directWriteBlocked,
+          visualSnapSuppressed: state9.visualSnapSuppressed,
+          terminalClampActive: state9.terminalClampActive,
+          asr4VisualRecoveryRecentlyApplied: state9.asr4VisualRecoveryRecentlyApplied,
+          scrollReason: state9.scrollReason,
+          followMode: state9.followMode,
+          pocketHealth: state9.pocketHealth,
+          suppressedReason: state9.suppressedReason,
+          reason: state9.reason
         }),
         {
           minMs: 750,
           signature: [
-            state8.currentLine,
-            state8.committedLine,
-            state8.targetLine ?? -1,
-            state8.pocketHealth,
-            state8.suppressedReason,
-            Math.round(state8.belowPocketPx / 12),
-            Math.round(state8.visualDebtPx / 12),
-            state8.terminalClampActive ? 1 : 0
+            state9.currentLine,
+            state9.committedLine,
+            state9.targetLine ?? -1,
+            state9.pocketHealth,
+            state9.suppressedReason,
+            Math.round(state9.belowPocketPx / 12),
+            Math.round(state9.visualDebtPx / 12),
+            state9.terminalClampActive ? 1 : 0
           ].join("|")
         }
       );
@@ -65532,31 +65532,31 @@ function createAsrScrollDriver(options = {}) {
     return false;
   };
   const observeAsr4PocketDrift = (args) => {
-    const state8 = computeAsr4PocketDriftState(args);
-    emitAsr4PocketDriftState(state8);
+    const state9 = computeAsr4PocketDriftState(args);
+    emitAsr4PocketDriftState(state9);
     const focusHoldState = getAsrFocusHoldState(Date.now());
     if (isAsrLiveMovementSession() && focusHoldState.active) {
       asr4PocketDriftConsecutiveBelowPocketCount = 0;
       asrLowPocketDeadbandObservationCount = 0;
       return {
         applied: false,
-        afterScrollTop: state8.currentScrollTop,
-        movedPx: state8.movedPx,
+        afterScrollTop: state9.currentScrollTop,
+        movedPx: state9.movedPx,
         consecutiveBelowPocketCount: 0,
-        state: state8
+        state: state9
       };
     }
     const previousHoldReason = String(args.previousHoldReason || "");
-    const significantBelowPocketForHoldBypass = state8.pocketHealth === "belowPocket" && state8.belowPocketPx >= Math.max(1, state8.lineHeightPx);
-    const repeatedBelowPocketNoMoveCount = significantBelowPocketForHoldBypass && Math.abs(state8.movedPx) <= ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX ? asr4PocketDriftConsecutiveBelowPocketCount + 1 : 0;
-    const repeatedDeadbandNoMoveCount = previousHoldReason === "existing_target_within_deadband" && Math.abs(state8.movedPx) <= ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX ? asrLowPocketDeadbandObservationCount + 1 : 0;
+    const significantBelowPocketForHoldBypass = state9.pocketHealth === "belowPocket" && state9.belowPocketPx >= Math.max(1, state9.lineHeightPx);
+    const repeatedBelowPocketNoMoveCount = significantBelowPocketForHoldBypass && Math.abs(state9.movedPx) <= ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX ? asr4PocketDriftConsecutiveBelowPocketCount + 1 : 0;
+    const repeatedDeadbandNoMoveCount = previousHoldReason === "existing_target_within_deadband" && Math.abs(state9.movedPx) <= ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX ? asrLowPocketDeadbandObservationCount + 1 : 0;
     const readerOverrunHold = evaluateLegacyReaderOverrunHold({
       scroller: args.scroller,
       authority: "asr4-pocket-drift-authority",
       currentLine: args.currentLine,
       committedLine: args.committedLine,
       targetLine: args.targetLine,
-      currentScrollTop: state8.currentScrollTop,
+      currentScrollTop: state9.currentScrollTop,
       nextSpeakableLineIdx: args.nextSpeakableLineIdx,
       targetScrollTop: args.targetScrollTop
     });
@@ -65566,10 +65566,10 @@ function createAsrScrollDriver(options = {}) {
       emitLegacyReaderOverrunHold(readerOverrunHold);
       return {
         applied: false,
-        afterScrollTop: state8.currentScrollTop,
-        movedPx: state8.movedPx,
+        afterScrollTop: state9.currentScrollTop,
+        movedPx: state9.movedPx,
         consecutiveBelowPocketCount: asr4PocketDriftConsecutiveBelowPocketCount,
-        state: state8
+        state: state9
       };
     }
     if (repeatedBelowPocketNoMoveCount >= 2) {
@@ -65578,37 +65578,37 @@ function createAsrScrollDriver(options = {}) {
     if (repeatedDeadbandNoMoveCount >= 2) {
       asrLowPocketDeadbandObservationCount = repeatedDeadbandNoMoveCount;
     }
-    const nextSpeakableLineIdx = Number.isFinite(args.nextSpeakableLineIdx) ? Math.max(0, Math.floor(Number(args.nextSpeakableLineIdx))) : state8.targetLine;
+    const nextSpeakableLineIdx = Number.isFinite(args.nextSpeakableLineIdx) ? Math.max(0, Math.floor(Number(args.nextSpeakableLineIdx))) : state9.targetLine;
     const fastBelowPocketPx = Math.max(
       ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX,
-      state8.lineHeightPx * ASR_LOW_POCKET_DEADBAND_RECONCILE_FAST_LINES
+      state9.lineHeightPx * ASR_LOW_POCKET_DEADBAND_RECONCILE_FAST_LINES
     );
     const slowBelowPocketPx = Math.max(
       ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX,
-      state8.lineHeightPx * ASR_LOW_POCKET_DEADBAND_RECONCILE_SLOW_LINES
+      state9.lineHeightPx * ASR_LOW_POCKET_DEADBAND_RECONCILE_SLOW_LINES
     );
-    const sameTargetNotClosing = previousHoldReason === "existing_target_within_deadband" || state8.suppressedReason === "target_preserved_but_not_closing" || state8.suppressedReason === "leased_reader_correction_active";
-    const markerCorrectionBands = resolveAsrMarkerCorrectionHysteresisBands(state8.lineHeightPx);
-    const markerCorrectionWithinHoldBand = Number.isFinite(state8.activeLineDistanceFromMarkerPx) && Math.abs(state8.activeLineDistanceFromMarkerPx) <= markerCorrectionBands.holdBandPx;
-    const markerCorrectionBeyondEngageBand = Number.isFinite(state8.activeLineDistanceFromMarkerPx) && Math.abs(state8.activeLineDistanceFromMarkerPx) >= markerCorrectionBands.engageBandPx;
-    const activeForwardVisualOwner = hasActiveForwardVisualOwnerInCurrentEpoch(state8.currentScrollTop);
-    const evaluateLowPocketDeadband = sameTargetNotClosing && markerCorrectionBeyondEngageBand && state8.belowPocketPx > ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX && Math.abs(state8.movedPx) <= ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX;
+    const sameTargetNotClosing = previousHoldReason === "existing_target_within_deadband" || state9.suppressedReason === "target_preserved_but_not_closing" || state9.suppressedReason === "leased_reader_correction_active";
+    const markerCorrectionBands = resolveAsrMarkerCorrectionHysteresisBands(state9.lineHeightPx);
+    const markerCorrectionWithinHoldBand = Number.isFinite(state9.activeLineDistanceFromMarkerPx) && Math.abs(state9.activeLineDistanceFromMarkerPx) <= markerCorrectionBands.holdBandPx;
+    const markerCorrectionBeyondEngageBand = Number.isFinite(state9.activeLineDistanceFromMarkerPx) && Math.abs(state9.activeLineDistanceFromMarkerPx) >= markerCorrectionBands.engageBandPx;
+    const activeForwardVisualOwner = hasActiveForwardVisualOwnerInCurrentEpoch(state9.currentScrollTop);
+    const evaluateLowPocketDeadband = sameTargetNotClosing && markerCorrectionBeyondEngageBand && state9.belowPocketPx > ASR_LOW_POCKET_DEADBAND_RECONCILE_MIN_BELOW_PX && Math.abs(state9.movedPx) <= ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX;
     if (evaluateLowPocketDeadband) {
       asrLowPocketDeadbandObservationCount += 1;
     } else {
       asrLowPocketDeadbandObservationCount = 0;
     }
     const lowPocketDeadbandObservations = asrLowPocketDeadbandObservationCount;
-    const significantBelowPocket = state8.belowPocketPx >= Math.max(1, state8.lineHeightPx);
-    if (state8.pocketHealth === "inPocket" || state8.pocketHealth === "abovePocket" || !significantBelowPocket) {
+    const significantBelowPocket = state9.belowPocketPx >= Math.max(1, state9.lineHeightPx);
+    if (state9.pocketHealth === "inPocket" || state9.pocketHealth === "abovePocket" || !significantBelowPocket) {
       asr4PocketDriftConsecutiveBelowPocketCount = 0;
       if (!evaluateLowPocketDeadband) {
         return {
           applied: false,
-          afterScrollTop: state8.currentScrollTop,
-          movedPx: state8.movedPx,
+          afterScrollTop: state9.currentScrollTop,
+          movedPx: state9.movedPx,
           consecutiveBelowPocketCount: 0,
-          state: state8
+          state: state9
         };
       }
     } else {
@@ -65616,9 +65616,9 @@ function createAsrScrollDriver(options = {}) {
     }
     const consecutiveBelowPocketCount = asr4PocketDriftConsecutiveBelowPocketCount;
     const boundedCorrectionPx = Math.min(
-      state8.belowPocketPx,
-      Math.max(12, state8.lineHeightPx * ASR_LOW_POCKET_DEADBAND_RECONCILE_MAX_STEP_LINES),
-      Math.max(18, Math.round(state8.belowPocketPx * 0.45))
+      state9.belowPocketPx,
+      Math.max(12, state9.lineHeightPx * ASR_LOW_POCKET_DEADBAND_RECONCILE_MAX_STEP_LINES),
+      Math.max(18, Math.round(state9.belowPocketPx * 0.45))
     );
     const nowTs2 = Date.now();
     const speechFresh = asrRuntimeSpeechRunningActual || hasRecentActualSpeech(nowTs2) || hasRecentVadSpeechNow(nowTs2);
@@ -65626,67 +65626,67 @@ function createAsrScrollDriver(options = {}) {
     const noMatchOrOffscript = String(lastAsrGuardReason || "").toLowerCase().includes("no_match") || String(lastAsrHudGuardText || "").toLowerCase().includes("offscript");
     const hardContradiction = String(lastAsrGuardReason || "").toLowerCase().includes("contradiction");
     const localSemanticCandidateLine = [
-      state8.targetLine,
+      state9.targetLine,
       nextSpeakableLineIdx,
-      state8.committedLine
-    ].find((line) => Number.isFinite(line) && Number(line) <= state8.currentLine + ASR_LOW_POCKET_FREEZE_FAR_TARGET_MAX_SEMANTIC_DISTANCE) ?? null;
-    const semanticDistance = localSemanticCandidateLine != null ? Math.max(0, Number(localSemanticCandidateLine) - state8.currentLine) : Math.max(
-      state8.targetLine != null ? state8.targetLine - state8.currentLine : Number.POSITIVE_INFINITY,
-      nextSpeakableLineIdx != null ? nextSpeakableLineIdx - state8.currentLine : Number.POSITIVE_INFINITY
+      state9.committedLine
+    ].find((line) => Number.isFinite(line) && Number(line) <= state9.currentLine + ASR_LOW_POCKET_FREEZE_FAR_TARGET_MAX_SEMANTIC_DISTANCE) ?? null;
+    const semanticDistance = localSemanticCandidateLine != null ? Math.max(0, Number(localSemanticCandidateLine) - state9.currentLine) : Math.max(
+      state9.targetLine != null ? state9.targetLine - state9.currentLine : Number.POSITIVE_INFINITY,
+      nextSpeakableLineIdx != null ? nextSpeakableLineIdx - state9.currentLine : Number.POSITIVE_INFINITY
     );
-    const visualDistancePx = Number.isFinite(state8.targetScrollTop) ? Math.round(Number(state8.targetScrollTop) - state8.currentScrollTop) : Math.round(state8.activeLineDistanceFromMarkerPx);
+    const visualDistancePx = Number.isFinite(state9.targetScrollTop) ? Math.round(Number(state9.targetScrollTop) - state9.currentScrollTop) : Math.round(state9.activeLineDistanceFromMarkerPx);
     const repeatedRescueObservations = Math.max(lowPocketDeadbandObservations, consecutiveBelowPocketCount);
     const safeLocalRescueBlockedByHardContext = !!pendingSpeakableBridgeState || focusHoldState.active || !!window?.__tpLiveAsrGovernorHold;
-    const safeLocalRescueEligible = speechFresh && transcriptFresh && repeatedRescueObservations >= 2 && !safeLocalRescueBlockedByHardContext && !noMatchOrOffscript && !hardContradiction && localSemanticCandidateLine != null && semanticDistance >= 0 && semanticDistance <= ASR_LOW_POCKET_FREEZE_FAR_TARGET_MAX_SEMANTIC_DISTANCE && (state8.belowPocketPx > ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX || state8.activeLineDistanceFromMarkerPx > ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX);
+    const safeLocalRescueEligible = speechFresh && transcriptFresh && repeatedRescueObservations >= 2 && !safeLocalRescueBlockedByHardContext && !noMatchOrOffscript && !hardContradiction && localSemanticCandidateLine != null && semanticDistance >= 0 && semanticDistance <= ASR_LOW_POCKET_FREEZE_FAR_TARGET_MAX_SEMANTIC_DISTANCE && (state9.belowPocketPx > ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX || state9.activeLineDistanceFromMarkerPx > ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX);
     const resolveSafeLocalRescueTop = (requestedTargetTop, maxScrollTop) => resolveSafeLocalRecoveryStepTop({
-      currentScrollTop: state8.currentScrollTop,
+      currentScrollTop: state9.currentScrollTop,
       proposedScrollTop: requestedTargetTop,
       targetScrollTop: requestedTargetTop,
-      lineHeightPx: state8.lineHeightPx,
+      lineHeightPx: state9.lineHeightPx,
       maxScrollTop
     });
-    const farReason = !state8.localSafeTarget ? state8.targetLine != null && state8.targetLine > state8.currentLine + 1 ? "target_line_far" : state8.committedLine > state8.currentLine + 1 ? "committed_line_far" : "no_local_safe_target" : "local_safe_target";
-    const freezeFarTargetRescueCandidate = !state8.localSafeTarget && speechFresh && !noMatchOrOffscript && !hardContradiction && !state8.terminalClampActive && localSemanticCandidateLine != null && semanticDistance <= ASR_LOW_POCKET_FREEZE_FAR_TARGET_MAX_SEMANTIC_DISTANCE;
+    const farReason = !state9.localSafeTarget ? state9.targetLine != null && state9.targetLine > state9.currentLine + 1 ? "target_line_far" : state9.committedLine > state9.currentLine + 1 ? "committed_line_far" : "no_local_safe_target" : "local_safe_target";
+    const freezeFarTargetRescueCandidate = !state9.localSafeTarget && speechFresh && !noMatchOrOffscript && !hardContradiction && !state9.terminalClampActive && localSemanticCandidateLine != null && semanticDistance <= ASR_LOW_POCKET_FREEZE_FAR_TARGET_MAX_SEMANTIC_DISTANCE;
     let emittedFreezeFarTargetBlockedDiagnostic = false;
     if (evaluateLowPocketDeadband) {
       let blockedReason = "";
-      const satisfiesFastWindow = lowPocketDeadbandObservations >= ASR_LOW_POCKET_DEADBAND_RECONCILE_FAST_MIN_OBSERVATIONS && state8.belowPocketPx >= fastBelowPocketPx;
-      const satisfiesSlowWindow = lowPocketDeadbandObservations >= ASR_LOW_POCKET_DEADBAND_RECONCILE_SLOW_MIN_OBSERVATIONS && state8.belowPocketPx >= slowBelowPocketPx;
-      if (state8.terminalClampActive) {
+      const satisfiesFastWindow = lowPocketDeadbandObservations >= ASR_LOW_POCKET_DEADBAND_RECONCILE_FAST_MIN_OBSERVATIONS && state9.belowPocketPx >= fastBelowPocketPx;
+      const satisfiesSlowWindow = lowPocketDeadbandObservations >= ASR_LOW_POCKET_DEADBAND_RECONCILE_SLOW_MIN_OBSERVATIONS && state9.belowPocketPx >= slowBelowPocketPx;
+      if (state9.terminalClampActive) {
         blockedReason = "terminal_clamp";
       } else if (markerCorrectionWithinHoldBand) {
         blockedReason = "marker_error_within_hysteresis_hold_band";
       } else if (activeForwardVisualOwner) {
         blockedReason = "forward_owner_active";
-      } else if (!state8.localSafeTarget) {
+      } else if (!state9.localSafeTarget) {
         blockedReason = freezeFarTargetRescueCandidate ? "local_rescue_candidate" : "unsafe_target";
-      } else if ((state8.cooldownActive || state8.asr4VisualRecoveryRecentlyApplied) && !state8.leasedReaderCorrectionActive) {
+      } else if ((state9.cooldownActive || state9.asr4VisualRecoveryRecentlyApplied) && !state9.leasedReaderCorrectionActive) {
         blockedReason = "cooldown_active";
       } else if (!(satisfiesFastWindow || satisfiesSlowWindow)) {
         blockedReason = "awaiting_repeat_observations";
       }
       if (!blockedReason) {
         const maxTop = Math.max(0, (args.scroller.scrollHeight || 0) - args.scroller.clientHeight);
-        let reconciledTop = clamp5(state8.currentScrollTop + boundedCorrectionPx, 0, maxTop);
+        let reconciledTop = clamp5(state9.currentScrollTop + boundedCorrectionPx, 0, maxTop);
         if (safeLocalRescueEligible) {
           reconciledTop = Math.max(reconciledTop, resolveSafeLocalRescueTop(reconciledTop, maxTop));
         }
-        const correctionPx = Math.max(0, reconciledTop - state8.currentScrollTop);
+        const correctionPx = Math.max(0, reconciledTop - state9.currentScrollTop);
         if (correctionPx > ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX) {
           const rendered = applyApprovedVisualCorrection({
             scroller: args.scroller,
-            currentScrollTop: state8.currentScrollTop,
+            currentScrollTop: state9.currentScrollTop,
             approvedTargetScrollTop: reconciledTop,
             authority: "low_pocket_deadband_reconcile",
-            currentLineIdx: state8.currentLine,
-            committedLineIdx: state8.committedLine,
-            nextSpeakableLineIdx: state8.committedLine,
-            visualErrorPx: state8.activeLineDistanceFromMarkerPx,
+            currentLineIdx: state9.currentLine,
+            committedLineIdx: state9.committedLine,
+            nextSpeakableLineIdx: state9.committedLine,
+            visualErrorPx: state9.activeLineDistanceFromMarkerPx,
             smoothingReason: "asr-low-pocket-deadband-reconcile",
-            severeBypassReason: state8.belowPocketPx >= Math.max(96, state8.lineHeightPx) ? "severe_rescue" : null
+            severeBypassReason: state9.belowPocketPx >= Math.max(96, state9.lineHeightPx) ? "severe_rescue" : null
           });
-          const afterScrollTop = Number.isFinite(rendered.afterScrollTop) ? Number(rendered.afterScrollTop) : Number(args.scroller.scrollTop || state8.currentScrollTop);
-          let movedPx = Math.round(afterScrollTop - state8.currentScrollTop);
+          const afterScrollTop = Number.isFinite(rendered.afterScrollTop) ? Number(rendered.afterScrollTop) : Number(args.scroller.scrollTop || state9.currentScrollTop);
+          let movedPx = Math.round(afterScrollTop - state9.currentScrollTop);
           let resolvedAfterScrollTop = afterScrollTop;
           if (Math.abs(movedPx) < 1 && safeLocalRescueEligible) {
             const fallbackTop = resolveSafeLocalRescueTop(reconciledTop, maxTop);
@@ -65695,8 +65695,8 @@ function createAsrScrollDriver(options = {}) {
               reason: "low_pocket_deadband_reconcile:safe_local_rescue",
               source: "asr-follow"
             });
-            resolvedAfterScrollTop = Number.isFinite(fallbackApplied) ? Number(fallbackApplied) : Number(args.scroller.scrollTop || state8.currentScrollTop);
-            movedPx = Math.round(resolvedAfterScrollTop - state8.currentScrollTop);
+            resolvedAfterScrollTop = Number.isFinite(fallbackApplied) ? Number(fallbackApplied) : Number(args.scroller.scrollTop || state9.currentScrollTop);
+            movedPx = Math.round(resolvedAfterScrollTop - state9.currentScrollTop);
           }
           if (Math.abs(movedPx) >= 1) {
             lastMoveAt = Date.now();
@@ -65710,23 +65710,23 @@ function createAsrScrollDriver(options = {}) {
                 "ASR_LOW_POCKET_DEADBAND_RECONCILED",
                 "warn",
                 buildAsrLowPocketDeadbandReconciledDiagnostic({
-                  currentLineIdx: state8.currentLine,
-                  committedLineIdx: state8.committedLine,
-                  currentScrollTop: state8.currentScrollTop,
-                  targetScrollTop: state8.targetScrollTop,
-                  belowPocketPx: state8.belowPocketPx,
-                  activeLineDistanceFromMarkerPx: state8.activeLineDistanceFromMarkerPx,
-                  previousHoldReason: state8.suppressedReason === "target_preserved_but_not_closing" ? "target_preserved_but_not_closing" : previousHoldReason,
+                  currentLineIdx: state9.currentLine,
+                  committedLineIdx: state9.committedLine,
+                  currentScrollTop: state9.currentScrollTop,
+                  targetScrollTop: state9.targetScrollTop,
+                  belowPocketPx: state9.belowPocketPx,
+                  activeLineDistanceFromMarkerPx: state9.activeLineDistanceFromMarkerPx,
+                  previousHoldReason: state9.suppressedReason === "target_preserved_but_not_closing" ? "target_preserved_but_not_closing" : previousHoldReason,
                   correctionPx: movedPx,
                   observations: lowPocketDeadbandObservations
                 }),
                 {
                   minMs: 500,
                   signature: [
-                    state8.currentLine,
-                    state8.committedLine,
-                    state8.targetLine ?? -1,
-                    Math.round(state8.belowPocketPx / 12),
+                    state9.currentLine,
+                    state9.committedLine,
+                    state9.targetLine ?? -1,
+                    Math.round(state9.belowPocketPx / 12),
                     lowPocketDeadbandObservations
                   ].join("|")
                 }
@@ -65737,7 +65737,7 @@ function createAsrScrollDriver(options = {}) {
               afterScrollTop: resolvedAfterScrollTop,
               movedPx,
               consecutiveBelowPocketCount: 0,
-              state: state8
+              state: state9
             };
           }
           blockedReason = "correction_zero_after_apply";
@@ -65750,13 +65750,13 @@ function createAsrScrollDriver(options = {}) {
           "ASR_LOW_POCKET_DEADBAND_BLOCKED",
           "info",
           buildAsrLowPocketDeadbandBlockedDiagnostic({
-            currentLineIdx: state8.currentLine,
-            committedLineIdx: state8.committedLine,
-            currentScrollTop: state8.currentScrollTop,
-            targetScrollTop: state8.targetScrollTop,
-            belowPocketPx: state8.belowPocketPx,
-            activeLineDistanceFromMarkerPx: state8.activeLineDistanceFromMarkerPx,
-            previousHoldReason: state8.suppressedReason === "target_preserved_but_not_closing" ? "target_preserved_but_not_closing" : previousHoldReason,
+            currentLineIdx: state9.currentLine,
+            committedLineIdx: state9.committedLine,
+            currentScrollTop: state9.currentScrollTop,
+            targetScrollTop: state9.targetScrollTop,
+            belowPocketPx: state9.belowPocketPx,
+            activeLineDistanceFromMarkerPx: state9.activeLineDistanceFromMarkerPx,
+            previousHoldReason: state9.suppressedReason === "target_preserved_but_not_closing" ? "target_preserved_but_not_closing" : previousHoldReason,
             correctionPx: boundedCorrectionPx,
             observations: lowPocketDeadbandObservations,
             reason: blockedReason || "unknown"
@@ -65764,33 +65764,33 @@ function createAsrScrollDriver(options = {}) {
           {
             minMs: 750,
             signature: [
-              state8.currentLine,
-              state8.committedLine,
-              state8.targetLine ?? -1,
+              state9.currentLine,
+              state9.committedLine,
+              state9.targetLine ?? -1,
               blockedReason || "unknown",
-              Math.round(state8.belowPocketPx / 12),
+              Math.round(state9.belowPocketPx / 12),
               lowPocketDeadbandObservations
             ].join("|")
           }
         );
-        if (!state8.localSafeTarget) {
-          const freezeFarBlockedReason = !speechFresh ? "speech_not_fresh" : noMatchOrOffscript ? "offscript_or_no_match" : hardContradiction ? "contradiction" : state8.terminalClampActive ? "terminal_clamp" : localSemanticCandidateLine == null ? "semantic_distance_unsafe" : semanticDistance > ASR_LOW_POCKET_FREEZE_FAR_TARGET_MAX_SEMANTIC_DISTANCE ? "semantic_distance_unsafe" : blockedReason === "local_rescue_candidate" ? "awaiting_local_rescue" : blockedReason || "not_eligible";
+        if (!state9.localSafeTarget) {
+          const freezeFarBlockedReason = !speechFresh ? "speech_not_fresh" : noMatchOrOffscript ? "offscript_or_no_match" : hardContradiction ? "contradiction" : state9.terminalClampActive ? "terminal_clamp" : localSemanticCandidateLine == null ? "semantic_distance_unsafe" : semanticDistance > ASR_LOW_POCKET_FREEZE_FAR_TARGET_MAX_SEMANTIC_DISTANCE ? "semantic_distance_unsafe" : blockedReason === "local_rescue_candidate" ? "awaiting_local_rescue" : blockedReason || "not_eligible";
           emitDevDiagnostic(
             "ASR_LOW_POCKET_FREEZE_FAR_TARGET_BLOCKED",
             "info",
             buildAsrLowPocketFreezeFarTargetBlockedDiagnostic({
-              currentLineIdx: state8.currentLine,
-              committedLineIdx: state8.committedLine,
+              currentLineIdx: state9.currentLine,
+              committedLineIdx: state9.committedLine,
               nextSpeakableLineIdx: nextSpeakableLineIdx ?? -1,
-              currentScrollTop: state8.currentScrollTop,
-              targetScrollTop: state8.targetScrollTop,
+              currentScrollTop: state9.currentScrollTop,
+              targetScrollTop: state9.targetScrollTop,
               proposedScrollTop: clamp5(
-                state8.currentScrollTop + boundedCorrectionPx,
-                state8.currentScrollTop,
+                state9.currentScrollTop + boundedCorrectionPx,
+                state9.currentScrollTop,
                 Math.max(0, (args.scroller.scrollHeight || 0) - args.scroller.clientHeight)
               ),
-              belowPocketPx: state8.belowPocketPx,
-              activeLineDistanceFromMarkerPx: state8.activeLineDistanceFromMarkerPx,
+              belowPocketPx: state9.belowPocketPx,
+              activeLineDistanceFromMarkerPx: state9.activeLineDistanceFromMarkerPx,
               holdReason: previousHoldReason,
               authorityAction: "freeze_far_target",
               farReason,
@@ -65803,11 +65803,11 @@ function createAsrScrollDriver(options = {}) {
             {
               minMs: 750,
               signature: [
-                state8.currentLine,
-                state8.committedLine,
+                state9.currentLine,
+                state9.committedLine,
                 nextSpeakableLineIdx ?? -1,
                 freezeFarBlockedReason,
-                Math.round(state8.belowPocketPx / 12)
+                Math.round(state9.belowPocketPx / 12)
               ].join("|")
             }
           );
@@ -65818,23 +65818,23 @@ function createAsrScrollDriver(options = {}) {
     const allowFreezeFarTargetRescue = evaluateLowPocketDeadband && freezeFarTargetRescueCandidate;
     if (allowFreezeFarTargetRescue) {
       const maxTop = Math.max(0, (args.scroller.scrollHeight || 0) - args.scroller.clientHeight);
-      const fallbackTop = resolveTargetTop(args.scroller, localSemanticCandidateLine) ?? estimateTargetTopFromLines(args.scroller, state8.currentLine, localSemanticCandidateLine);
+      const fallbackTop = resolveTargetTop(args.scroller, localSemanticCandidateLine) ?? estimateTargetTopFromLines(args.scroller, state9.currentLine, localSemanticCandidateLine);
       const proposedScrollTop = clamp5(
         Math.min(
-          state8.currentScrollTop + boundedCorrectionPx,
-          Number.isFinite(fallbackTop) ? Number(fallbackTop) + Math.max(1, state8.pocketTolerancePx) : state8.currentScrollTop + boundedCorrectionPx
+          state9.currentScrollTop + boundedCorrectionPx,
+          Number.isFinite(fallbackTop) ? Number(fallbackTop) + Math.max(1, state9.pocketTolerancePx) : state9.currentScrollTop + boundedCorrectionPx
         ),
-        state8.currentScrollTop,
+        state9.currentScrollTop,
         maxTop
       );
       const rescuedProposedScrollTop = safeLocalRescueEligible ? Math.max(proposedScrollTop, resolveSafeLocalRescueTop(proposedScrollTop, maxTop)) : proposedScrollTop;
-      const correctionPx = Math.max(0, rescuedProposedScrollTop - state8.currentScrollTop);
+      const correctionPx = Math.max(0, rescuedProposedScrollTop - state9.currentScrollTop);
       let blockedReason = "";
       if (markerCorrectionWithinHoldBand) {
         blockedReason = "marker_error_within_hysteresis_hold_band";
       } else if (activeForwardVisualOwner) {
         blockedReason = "forward_owner_active";
-      } else if ((state8.cooldownActive || state8.asr4VisualRecoveryRecentlyApplied) && !state8.leasedReaderCorrectionActive) {
+      } else if ((state9.cooldownActive || state9.asr4VisualRecoveryRecentlyApplied) && !state9.leasedReaderCorrectionActive) {
         blockedReason = "cooldown_active";
       } else if (correctionPx <= ASR_LOW_POCKET_DEADBAND_RECONCILE_ZERO_MOVE_PX) {
         blockedReason = "bounded_correction_too_small";
@@ -65842,18 +65842,18 @@ function createAsrScrollDriver(options = {}) {
       if (!blockedReason) {
         const rendered = applyApprovedVisualCorrection({
           scroller: args.scroller,
-          currentScrollTop: state8.currentScrollTop,
+          currentScrollTop: state9.currentScrollTop,
           approvedTargetScrollTop: rescuedProposedScrollTop,
           authority: "low_pocket_freeze_far_target_reconcile",
-          currentLineIdx: state8.currentLine,
-          committedLineIdx: state8.committedLine,
-          nextSpeakableLineIdx: nextSpeakableLineIdx ?? state8.committedLine,
-          visualErrorPx: state8.activeLineDistanceFromMarkerPx,
+          currentLineIdx: state9.currentLine,
+          committedLineIdx: state9.committedLine,
+          nextSpeakableLineIdx: nextSpeakableLineIdx ?? state9.committedLine,
+          visualErrorPx: state9.activeLineDistanceFromMarkerPx,
           smoothingReason: "asr-low-pocket-freeze-far-target-reconcile",
-          severeBypassReason: state8.belowPocketPx >= Math.max(96, state8.lineHeightPx) ? "severe_rescue" : null
+          severeBypassReason: state9.belowPocketPx >= Math.max(96, state9.lineHeightPx) ? "severe_rescue" : null
         });
-        const afterScrollTop = Number.isFinite(rendered.afterScrollTop) ? Number(rendered.afterScrollTop) : Number(args.scroller.scrollTop || state8.currentScrollTop);
-        let movedPx = Math.round(afterScrollTop - state8.currentScrollTop);
+        const afterScrollTop = Number.isFinite(rendered.afterScrollTop) ? Number(rendered.afterScrollTop) : Number(args.scroller.scrollTop || state9.currentScrollTop);
+        let movedPx = Math.round(afterScrollTop - state9.currentScrollTop);
         let resolvedAfterScrollTop = afterScrollTop;
         if (Math.abs(movedPx) < 1 && safeLocalRescueEligible) {
           const fallbackTop2 = resolveSafeLocalRescueTop(rescuedProposedScrollTop, maxTop);
@@ -65862,8 +65862,8 @@ function createAsrScrollDriver(options = {}) {
             reason: "low_pocket_freeze_far_target_reconcile:safe_local_rescue",
             source: "asr-follow"
           });
-          resolvedAfterScrollTop = Number.isFinite(fallbackApplied) ? Number(fallbackApplied) : Number(args.scroller.scrollTop || state8.currentScrollTop);
-          movedPx = Math.round(resolvedAfterScrollTop - state8.currentScrollTop);
+          resolvedAfterScrollTop = Number.isFinite(fallbackApplied) ? Number(fallbackApplied) : Number(args.scroller.scrollTop || state9.currentScrollTop);
+          movedPx = Math.round(resolvedAfterScrollTop - state9.currentScrollTop);
         }
         if (Math.abs(movedPx) >= 1) {
           lastMoveAt = nowTs2;
@@ -65877,14 +65877,14 @@ function createAsrScrollDriver(options = {}) {
               "ASR_LOW_POCKET_FREEZE_FAR_TARGET_RECONCILED",
               "warn",
               buildAsrLowPocketFreezeFarTargetReconciledDiagnostic({
-                currentLineIdx: state8.currentLine,
-                committedLineIdx: state8.committedLine,
+                currentLineIdx: state9.currentLine,
+                committedLineIdx: state9.committedLine,
                 nextSpeakableLineIdx: nextSpeakableLineIdx ?? -1,
-                currentScrollTop: state8.currentScrollTop,
-                targetScrollTop: state8.targetScrollTop,
+                currentScrollTop: state9.currentScrollTop,
+                targetScrollTop: state9.targetScrollTop,
                 proposedScrollTop: rescuedProposedScrollTop,
-                belowPocketPx: state8.belowPocketPx,
-                activeLineDistanceFromMarkerPx: state8.activeLineDistanceFromMarkerPx,
+                belowPocketPx: state9.belowPocketPx,
+                activeLineDistanceFromMarkerPx: state9.activeLineDistanceFromMarkerPx,
                 holdReason: previousHoldReason,
                 authorityAction: "freeze_far_target",
                 farReason,
@@ -65896,11 +65896,11 @@ function createAsrScrollDriver(options = {}) {
               {
                 minMs: 500,
                 signature: [
-                  state8.currentLine,
-                  state8.committedLine,
+                  state9.currentLine,
+                  state9.committedLine,
                   nextSpeakableLineIdx ?? -1,
                   semanticDistance,
-                  Math.round(state8.belowPocketPx / 12)
+                  Math.round(state9.belowPocketPx / 12)
                 ].join("|")
               }
             );
@@ -65910,7 +65910,7 @@ function createAsrScrollDriver(options = {}) {
             afterScrollTop: resolvedAfterScrollTop,
             movedPx,
             consecutiveBelowPocketCount: 0,
-            state: state8
+            state: state9
           };
         }
         blockedReason = "correction_zero_after_apply";
@@ -65920,14 +65920,14 @@ function createAsrScrollDriver(options = {}) {
           "ASR_LOW_POCKET_FREEZE_FAR_TARGET_BLOCKED",
           "info",
           buildAsrLowPocketFreezeFarTargetBlockedDiagnostic({
-            currentLineIdx: state8.currentLine,
-            committedLineIdx: state8.committedLine,
+            currentLineIdx: state9.currentLine,
+            committedLineIdx: state9.committedLine,
             nextSpeakableLineIdx: nextSpeakableLineIdx ?? -1,
-            currentScrollTop: state8.currentScrollTop,
-            targetScrollTop: state8.targetScrollTop,
+            currentScrollTop: state9.currentScrollTop,
+            targetScrollTop: state9.targetScrollTop,
             proposedScrollTop: rescuedProposedScrollTop,
-            belowPocketPx: state8.belowPocketPx,
-            activeLineDistanceFromMarkerPx: state8.activeLineDistanceFromMarkerPx,
+            belowPocketPx: state9.belowPocketPx,
+            activeLineDistanceFromMarkerPx: state9.activeLineDistanceFromMarkerPx,
             holdReason: previousHoldReason,
             authorityAction: "freeze_far_target",
             farReason,
@@ -65940,36 +65940,36 @@ function createAsrScrollDriver(options = {}) {
           {
             minMs: 750,
             signature: [
-              state8.currentLine,
-              state8.committedLine,
+              state9.currentLine,
+              state9.committedLine,
               nextSpeakableLineIdx ?? -1,
               blockedReason,
               semanticDistance,
-              Math.round(state8.belowPocketPx / 12)
+              Math.round(state9.belowPocketPx / 12)
             ].join("|")
           }
         );
       }
-    } else if (evaluateLowPocketDeadband && !state8.localSafeTarget && isDevMode4() && !emittedFreezeFarTargetBlockedDiagnostic) {
+    } else if (evaluateLowPocketDeadband && !state9.localSafeTarget && isDevMode4() && !emittedFreezeFarTargetBlockedDiagnostic) {
       const proposedScrollTop = clamp5(
-        state8.currentScrollTop + boundedCorrectionPx,
-        state8.currentScrollTop,
+        state9.currentScrollTop + boundedCorrectionPx,
+        state9.currentScrollTop,
         Math.max(0, (args.scroller.scrollHeight || 0) - args.scroller.clientHeight)
       );
-      const correctionPx = Math.max(0, proposedScrollTop - state8.currentScrollTop);
-      const blockedReason = !speechFresh ? "speech_not_fresh" : noMatchOrOffscript ? "offscript_or_no_match" : hardContradiction ? "contradiction" : state8.terminalClampActive ? "terminal_clamp" : localSemanticCandidateLine == null ? "semantic_distance_unsafe" : "not_eligible";
+      const correctionPx = Math.max(0, proposedScrollTop - state9.currentScrollTop);
+      const blockedReason = !speechFresh ? "speech_not_fresh" : noMatchOrOffscript ? "offscript_or_no_match" : hardContradiction ? "contradiction" : state9.terminalClampActive ? "terminal_clamp" : localSemanticCandidateLine == null ? "semantic_distance_unsafe" : "not_eligible";
       emitDevDiagnostic(
         "ASR_LOW_POCKET_FREEZE_FAR_TARGET_BLOCKED",
         "info",
         buildAsrLowPocketFreezeFarTargetBlockedDiagnostic({
-          currentLineIdx: state8.currentLine,
-          committedLineIdx: state8.committedLine,
+          currentLineIdx: state9.currentLine,
+          committedLineIdx: state9.committedLine,
           nextSpeakableLineIdx: nextSpeakableLineIdx ?? -1,
-          currentScrollTop: state8.currentScrollTop,
-          targetScrollTop: state8.targetScrollTop,
+          currentScrollTop: state9.currentScrollTop,
+          targetScrollTop: state9.targetScrollTop,
           proposedScrollTop,
-          belowPocketPx: state8.belowPocketPx,
-          activeLineDistanceFromMarkerPx: state8.activeLineDistanceFromMarkerPx,
+          belowPocketPx: state9.belowPocketPx,
+          activeLineDistanceFromMarkerPx: state9.activeLineDistanceFromMarkerPx,
           holdReason: previousHoldReason,
           authorityAction: "freeze_far_target",
           farReason,
@@ -65982,55 +65982,55 @@ function createAsrScrollDriver(options = {}) {
         {
           minMs: 750,
           signature: [
-            state8.currentLine,
-            state8.committedLine,
+            state9.currentLine,
+            state9.committedLine,
             nextSpeakableLineIdx ?? -1,
             blockedReason,
-            Math.round(state8.belowPocketPx / 12)
+            Math.round(state9.belowPocketPx / 12)
           ].join("|")
         }
       );
     }
-    if (state8.pocketHealth === "inPocket" || state8.pocketHealth === "abovePocket" || !significantBelowPocket) {
+    if (state9.pocketHealth === "inPocket" || state9.pocketHealth === "abovePocket" || !significantBelowPocket) {
       return {
         applied: false,
-        afterScrollTop: state8.currentScrollTop,
-        movedPx: state8.movedPx,
+        afterScrollTop: state9.currentScrollTop,
+        movedPx: state9.movedPx,
         consecutiveBelowPocketCount: 0,
-        state: state8
+        state: state9
       };
     }
-    const shouldApply = (args.liveScrollStalled || consecutiveBelowPocketCount >= 2) && !state8.cooldownActive;
+    const shouldApply = (args.liveScrollStalled || consecutiveBelowPocketCount >= 2) && !state9.cooldownActive;
     if (!shouldApply) {
       return {
         applied: false,
-        afterScrollTop: state8.currentScrollTop,
-        movedPx: state8.movedPx,
+        afterScrollTop: state9.currentScrollTop,
+        movedPx: state9.movedPx,
         consecutiveBelowPocketCount,
-        state: state8
+        state: state9
       };
     }
     const authoritySignature = JSON.stringify({
-      currentLine: state8.currentLine,
-      committedLine: state8.committedLine,
-      targetLine: state8.targetLine,
+      currentLine: state9.currentLine,
+      committedLine: state9.committedLine,
+      targetLine: state9.targetLine,
       liveScrollStalled: args.liveScrollStalled,
       consecutiveBelowPocketCount,
-      pocketHealth: state8.pocketHealth
+      pocketHealth: state9.pocketHealth
     });
     if (authoritySignature === asr4PocketDriftLastAuthoritySignature) {
       return {
         applied: false,
-        afterScrollTop: state8.currentScrollTop,
-        movedPx: state8.movedPx,
+        afterScrollTop: state9.currentScrollTop,
+        movedPx: state9.movedPx,
         consecutiveBelowPocketCount,
-        state: state8
+        state: state9
       };
     }
     asr4PocketDriftLastAuthoritySignature = authoritySignature;
     const applied = applyAsr4PocketDriftAuthority({
       scroller: args.scroller,
-      state: state8,
+      state: state9,
       consecutiveBelowPocketCount
     });
     if (applied.applied) {
@@ -66041,7 +66041,7 @@ function createAsrScrollDriver(options = {}) {
       afterScrollTop: applied.afterScrollTop,
       movedPx: applied.movedPx,
       consecutiveBelowPocketCount,
-      state: state8
+      state: state9
     };
   };
   const applyAsr4VisualRecoveryAuthority = (args) => {
@@ -75647,10 +75647,10 @@ var init_tongs_user_auth = __esm({
 // src/asr/active-profile.ts
 function getActiveAsrProfile() {
   try {
-    const state8 = getAsrState();
-    const id = state8?.activeProfileId;
+    const state9 = getAsrState();
+    const id = state9?.activeProfileId;
     if (!id) return null;
-    return state8.profiles?.[id] || null;
+    return state9.profiles?.[id] || null;
   } catch {
     return null;
   }
@@ -76634,13 +76634,13 @@ var init_whisper_bridge = __esm({
         this.logTrackState("requestMic-return", stream);
         try {
           const runtimeDetail = window.__tpCalibrationRuntime;
-          const state8 = String(runtimeDetail?.calibrationState || (activeProfile ? "partially_calibrated" : "bypassed"));
+          const state9 = String(runtimeDetail?.calibrationState || (activeProfile ? "partially_calibrated" : "bypassed"));
           const detail = {
             path: "whisper-bridge",
             runtimePath,
             profileId: activeProfile?.id || null,
             version: activeProfile?.version ?? null,
-            state: state8,
+            state: state9,
             runtime: runtimeDetail || null
           };
           window.dispatchEvent(new CustomEvent("tp:asr:calibration-status", { detail }));
@@ -78376,8 +78376,8 @@ function getTpSpeechNamespace2() {
     } catch {
     }
     try {
-      subscribeSpeechStore(store3, (state8) => {
-        latestSpeechStoreState = state8;
+      subscribeSpeechStore(store3, (state9) => {
+        latestSpeechStoreState = state9;
       });
     } catch {
     }
@@ -80811,9 +80811,9 @@ function setListeningUi(listening) {
   } catch {
   }
 }
-function emitAsrState(state8, reason) {
-  currentAsrState = state8 || "idle";
-  const payload = { state: state8, reason };
+function emitAsrState(state9, reason) {
+  currentAsrState = state9 || "idle";
+  const payload = { state: state9, reason };
   try {
     window.__tpBus?.emit?.("tp:asr:state", payload);
   } catch {
@@ -80826,9 +80826,9 @@ function emitAsrState(state8, reason) {
     document.dispatchEvent(new CustomEvent("tp:asr:state", { detail: payload }));
   } catch {
   }
-  emitHudSnapshot(`asr-state:${String(state8 || "").toLowerCase() || "unknown"}`);
-  emitAsrHeartbeat(`state:${String(state8 || "").toLowerCase() || "unknown"}`, { force: true });
-  emitAsrRuntimeStatus(`state:${String(state8 || "").toLowerCase() || "unknown"}`);
+  emitHudSnapshot(`asr-state:${String(state9 || "").toLowerCase() || "unknown"}`);
+  emitAsrHeartbeat(`state:${String(state9 || "").toLowerCase() || "unknown"}`, { force: true });
+  emitAsrRuntimeStatus(`state:${String(state9 || "").toLowerCase() || "unknown"}`);
 }
 function shouldAutoRestartSpeech() {
   if (suppressRecognizerAutoRestart) return false;
@@ -83269,12 +83269,12 @@ function loadState() {
     return cloneState2(DEFAULT_STATE2);
   }
 }
-function persistState(state8) {
+function persistState(state9) {
   try {
     if (typeof window === "undefined") return;
     const toStore = {
-      enabled: cloneState2(state8.enabled),
-      configs: cloneState2(state8.configs)
+      enabled: cloneState2(state9.enabled),
+      configs: cloneState2(state9.configs)
     };
     toStore.configs.obs.password = "";
     window.localStorage.setItem(STORAGE_KEY8, JSON.stringify(toStore));
@@ -83489,8 +83489,8 @@ function connectViaBridge() {
     return;
   }
   const run = async () => {
-    const state8 = getRecorderSettings();
-    if (!state8.enabled.obs) {
+    const state9 = getRecorderSettings();
+    if (!state9.enabled.obs) {
       closeBridge();
       return;
     }
@@ -83503,9 +83503,9 @@ function connectViaBridge() {
     }
     await safeInvoke(
       "configure",
-      () => bridge.configure?.({ url: state8.configs.obs.url, password: state8.configs.obs.password || "" })
+      () => bridge.configure?.({ url: state9.configs.obs.url, password: state9.configs.obs.password || "" })
     );
-    logObsCommand("configure", { url: state8.configs.obs.url });
+    logObsCommand("configure", { url: state9.configs.obs.url });
     await safeInvoke("setArmed", () => bridge.setArmed?.(true));
     bridgeArmed = true;
     logObsCommand("setArmed", { armed: true });
@@ -83723,16 +83723,16 @@ function setTrackedTimeout(fn, ms) {
   }
   return h;
 }
-function _emitRecState(state8, detail = null) {
+function _emitRecState(state9, detail = null) {
   try {
-    _recState = state8;
+    _recState = state9;
     _recDetail = detail || null;
     if (typeof window !== "undefined") {
       try {
-        window.__recState = { state: state8, adapter: _recAdapter, detail: _recDetail, ts: Date.now() };
+        window.__recState = { state: state9, adapter: _recAdapter, detail: _recDetail, ts: Date.now() };
       } catch {
       }
-      const payload = { adapter: _recAdapter, state: state8, detail: _recDetail };
+      const payload = { adapter: _recAdapter, state: state9, detail: _recDetail };
       try {
         const key = String(payload.adapter || "") + "|" + String(payload.state || "") + "|" + (payload.detail && payload.detail.fallback ? "F" : "");
         if (key === __lastRecKey) return;
@@ -84148,14 +84148,21 @@ async function stopSelected() {
         return { id, ok: false, error: describeError(e) };
       }
       try {
-        await callWithTimeout(() => a.stop(), settings.timeouts.stop);
-        return { id, ok: true };
+        const detail = await callWithTimeout(() => a.stop(), settings.timeouts.stop);
+        return { id, ok: true, ...detail && typeof detail === "object" ? { detail } : {} };
       } catch (e) {
         return { id, ok: false, error: describeError(e) };
       }
     })
   );
   _emitRecState("idle");
+  for (const result of rs) {
+    if (result.id !== "obs" || !result.ok || !result.detail) continue;
+    try {
+      void window.__tpObsImport?.acceptStopResult?.(result.detail);
+    } catch {
+    }
+  }
   try {
     recStats.stopLat.push(Math.max(0, __now() - t0));
   } catch {
@@ -84267,18 +84274,18 @@ function ensureObsDisconnectFallback() {
     window.__tpObsDisconnectWired = true;
     _onObsDisconnectCb = async () => {
       try {
-        const state8 = _recState;
+        const state9 = _recState;
         const bridgeAdapter = registry2.get("bridge");
         const isAuto = __tpReadAutoRecordPref();
         try {
           recStats.disconnects++;
         } catch {
         }
-        if (state8 === "starting") {
+        if (state9 === "starting") {
           await startObsWithConfirm({ timeoutMs: 900, retryDelayMs: 300 });
           return;
         }
-        if (state8 === "recording") {
+        if (state9 === "recording") {
           _emitRecState("stopping", { reason: "disconnect" });
           if (isAuto && bridgeAdapter) {
             try {
@@ -85137,24 +85144,24 @@ function mapObsTextToStatus(txt, ok) {
   return ok ? "connected" : "disconnected";
 }
 function readObsSettings(src) {
-  let state8 = src;
-  if (!state8) {
+  let state9 = src;
+  if (!state9) {
     try {
-      state8 = getRecorderSettings();
+      state9 = getRecorderSettings();
     } catch {
-      state8 = null;
+      state9 = null;
     }
   }
-  const hasCfg = !!state8?.configs?.obs;
+  const hasCfg = !!state9?.configs?.obs;
   if (!hasCfg) {
     try {
       console.warn("[obs-wiring] No OBS settings yet; using defaults");
     } catch {
     }
   }
-  const enabled2 = Boolean(state8?.enabled?.obs);
-  const url = hasCfg && state8?.configs?.obs?.url || DEFAULT_OBS_URL;
-  const pass = hasCfg && state8?.configs?.obs?.password || "";
+  const enabled2 = Boolean(state9?.enabled?.obs);
+  const url = hasCfg && state9?.configs?.obs?.url || DEFAULT_OBS_URL;
+  const pass = hasCfg && state9?.configs?.obs?.password || "";
   return { enabled: enabled2, url, pass };
 }
 async function applyObsStateFromSettings() {
@@ -87342,23 +87349,23 @@ function renderNavPanel(panel, payload, opts = {}) {
 }
 function getOverlayState() {
   const win = window;
-  const state8 = win.__forgeNavOverlayState;
-  if (!state8 || !state8.root) return null;
-  return state8;
+  const state9 = win.__forgeNavOverlayState;
+  if (!state9 || !state9.root) return null;
+  return state9;
 }
-function setOverlayState(state8) {
+function setOverlayState(state9) {
   const win = window;
-  win.__forgeNavOverlayState = state8;
+  win.__forgeNavOverlayState = state9;
 }
 function closeForgeMenuOverlay() {
-  const state8 = getOverlayState();
-  if (state8) {
+  const state9 = getOverlayState();
+  if (state9) {
     try {
-      document.removeEventListener("keydown", state8.onKeydown, true);
+      document.removeEventListener("keydown", state9.onKeydown, true);
     } catch {
     }
     try {
-      state8.root.remove();
+      state9.root.remove();
     } catch {
     }
     setOverlayState(null);
@@ -87507,8 +87514,8 @@ function openNavOverlayShell() {
     panelShell.appendChild(hint);
     root.appendChild(panelShell);
     const closeOverlay = () => {
-      const state8 = getOverlayState();
-      if (state8 && state8.root !== root) return;
+      const state9 = getOverlayState();
+      if (state9 && state9.root !== root) return;
       try {
         document.removeEventListener("keydown", onKeydown2, true);
       } catch {
@@ -89162,8 +89169,8 @@ function publishDisplayScript(rawText, opts) {
 function getLatestRawScript() {
   return latestRaw;
 }
-function pushDisplayRecordState(state8) {
-  const payload = { kind: "tp:record", state: state8 };
+function pushDisplayRecordState(state9) {
+  const payload = { kind: "tp:record", state: state9 };
   const ch = getDisplayChannel();
   if (ch) {
     try {
@@ -89595,11 +89602,11 @@ function beginPresentationMutationTransaction(root, epoch) {
   return Object.freeze({ root, epoch, token });
 }
 function requireOwned(handle) {
-  const state8 = transactions.get(handle.root);
-  if (!state8 || state8.token !== handle.token || state8.epoch !== handle.epoch) {
+  const state9 = transactions.get(handle.root);
+  if (!state9 || state9.token !== handle.token || state9.epoch !== handle.epoch) {
     throw new Error("performance presentation mutation transaction is not installer-owned");
   }
-  return state8;
+  return state9;
 }
 function commitPresentationMutationTransaction(handle) {
   requireOwned(handle).outcome = "committed";
@@ -89608,10 +89615,10 @@ function rollBackPresentationMutationTransaction(handle) {
   requireOwned(handle).outcome = "rolled-back";
 }
 function classifyPresentationMutation(root) {
-  const state8 = transactions.get(root);
-  if (!state8) return "ordinary";
-  if (state8.outcome !== "committed" || state8.committedMirrorConsumed) return "suppress";
-  state8.committedMirrorConsumed = true;
+  const state9 = transactions.get(root);
+  if (!state9) return "ordinary";
+  if (state9.outcome !== "committed" || state9.committedMirrorConsumed) return "suppress";
+  state9.committedMirrorConsumed = true;
   return "committed-mirror";
 }
 function finishPresentationMutationTransaction(handle) {
@@ -90576,8 +90583,8 @@ function handleToggle(on3, sourceId) {
   const fromSidebar = sourceId === SIDEBAR_ENABLE_ID;
   if (enabling && fromSidebar) {
     try {
-      const state8 = getRecorderSettings();
-      const cfg = state8?.configs?.obs || {};
+      const state9 = getRecorderSettings();
+      const cfg = state9?.configs?.obs || {};
       const url = String(cfg.url ?? "");
       const host = String(cfg.host ?? "");
       const hasRemoteHost = !!host && host !== "localhost" && host !== "127.0.0.1";
@@ -90655,11 +90662,11 @@ function bindObsSettingsUI(doc = document) {
       console.info("[OBS-UI] wiring settings/sidebar controls");
     } catch {
     }
-    subscribeRecorderSettings((state8) => {
+    subscribeRecorderSettings((state9) => {
       syncing = true;
       try {
-        syncEnabledCheckboxes(doc, !!state8.enabled.obs);
-        const url = state8.configs.obs.url || "";
+        syncEnabledCheckboxes(doc, !!state9.enabled.obs);
+        const url = state9.configs.obs.url || "";
         try {
           const parsed = new URL(url);
           if (hostEl && hostEl !== doc.activeElement) {
@@ -90672,7 +90679,7 @@ function bindObsSettingsUI(doc = document) {
           if (portEl && portEl !== doc.activeElement) portEl.value = "4455";
         }
         if (passEl && passEl !== doc.activeElement) {
-          passEl.value = state8.configs.obs.password || "";
+          passEl.value = state9.configs.obs.password || "";
         }
       } finally {
         syncing = false;
@@ -92279,8 +92286,8 @@ function announceState(live, prev2, next) {
   }
   if (msg) live.textContent = msg;
 }
-function transcriptLabel(state8) {
-  switch (state8) {
+function transcriptLabel(state9) {
+  switch (state9) {
     case "starting":
       return "TX STARTING";
     case "live":
@@ -92324,33 +92331,33 @@ function renderTranscriptPill(pill, next, variant) {
   pill.setAttribute("aria-hidden", "false");
   pill.classList.add("is-visible");
 }
-function broadcastState(state8) {
+function broadcastState(state9) {
   if (isDisplayContext2()) return;
   try {
     bc = bc || new BroadcastChannel("tp_rec_state");
-    bc.postMessage({ type: "rec-state", state: state8 });
+    bc.postMessage({ type: "rec-state", state: state9 });
   } catch {
   }
   try {
     const send = window.sendToDisplay;
-    if (typeof send === "function") send({ type: "rec-state", state: state8 });
+    if (typeof send === "function") send({ type: "rec-state", state: state9 });
   } catch {
   }
   try {
-    pushDisplayRecordState(state8 === "off" ? "idle" : state8 === "armed" ? "armed" : "recording");
+    pushDisplayRecordState(state9 === "off" ? "idle" : state9 === "armed" ? "armed" : "recording");
   } catch {
   }
 }
-function broadcastTranscriptState(state8) {
+function broadcastTranscriptState(state9) {
   if (isDisplayContext2()) return;
   try {
     bc = bc || new BroadcastChannel("tp_rec_state");
-    bc.postMessage({ type: "transcript-state", state: state8 });
+    bc.postMessage({ type: "transcript-state", state: state9 });
   } catch {
   }
   try {
     const send = window.sendToDisplay;
-    if (typeof send === "function") send({ type: "transcript-state", state: state8 });
+    if (typeof send === "function") send({ type: "transcript-state", state: state9 });
   } catch {
   }
 }
@@ -93015,25 +93022,26 @@ async function uploadRecordingWithStrategy(args) {
       phase: "uploading",
       chunkIndex: 1,
       totalChunks: 1,
-      chunkBytes: args.bytes.byteLength,
+      chunkBytes: args.source.size,
       progressPct: 0
     });
     return commitFileToWorkpiece(
       args.workpieceId,
       {
         ...args.commitPayloadBase,
-        bytes_base64: encodeBase64(args.bytes)
+        bytes_base64: encodeBase64(await args.source.read(0, args.source.size))
       },
       args.apiToken
     );
   }
   const chunkSizeBytes = mbToBytes(args.chunkSizeMb);
-  const chunks = buildRecordingChunks(args.bytes.byteLength, chunkSizeBytes);
+  const chunks = buildRecordingChunks(args.source.size, chunkSizeBytes);
   const begin = await beginChunkedRecordingUpload(
     args.workpieceId,
     {
       ...args.commitPayloadBase,
-      total_bytes: args.bytes.byteLength,
+      ...args.uploadId ? { upload_id: args.uploadId } : {},
+      total_bytes: args.source.size,
       total_chunks: chunks.length,
       chunk_size_bytes: chunkSizeBytes,
       strategy: "chunked"
@@ -93046,6 +93054,9 @@ async function uploadRecordingWithStrategy(args) {
       body: begin.body,
       ok: false
     };
+  }
+  if (begin.data.finalized_result) {
+    return { status: begin.status, body: { ok: true, data: begin.data.finalized_result }, ok: true };
   }
   const uploadId = begin.data.upload_id;
   const uploadedChunks = new Set(
@@ -93093,7 +93104,7 @@ async function uploadRecordingWithStrategy(args) {
       const payload = {
         index: chunk.index,
         total_chunks: chunk.totalChunks,
-        bytes_base64: encodeBase64(args.bytes.subarray(chunk.startByte, chunk.endByte))
+        bytes_base64: encodeBase64(await args.source.read(chunk.startByte, chunk.endByte))
       };
       const chunkResult = await uploadChunkToSession(args.workpieceId, uploadId, payload, args.apiToken);
       if (chunkResult.ok) {
@@ -93161,7 +93172,7 @@ async function uploadRecordingWithStrategy(args) {
   try {
     console.info("[recording/upload] finalize-start", {
       totalChunks: chunks.length,
-      totalBytes: args.bytes.byteLength
+      totalBytes: args.source.size
     });
   } catch {
   }
@@ -93185,7 +93196,7 @@ async function uploadRecordingWithStrategy(args) {
       console.info("[recording/upload] finalize-complete", {
         objectId: finalize.data?.path ?? null,
         totalChunks: chunks.length,
-        totalBytes: args.bytes.byteLength
+        totalBytes: args.source.size
       });
     } catch {
     }
@@ -93196,7 +93207,7 @@ async function uploadRecordingWithStrategy(args) {
     ok: finalize.ok
   };
 }
-async function commitRecordingBytesToTongs(input) {
+async function commitRecordingSourceToTongs(input) {
   const apiToken = getApiToken();
   const writtenBy = getWrittenBy();
   const authority = input.captureAuthority;
@@ -93209,9 +93220,9 @@ async function commitRecordingBytesToTongs(input) {
   const contentType = inferContentType(input.contentType, name);
   const captureSessionId = authority.captureSessionId;
   const uploadConfig = resolveUploadStrategyConfig();
-  const strategy = selectUploadStrategyForBytes(input.bytes.byteLength, uploadConfig);
-  const bytesMb = Number((input.bytes.byteLength / (1024 * 1024)).toFixed(2));
-  const thresholdExceeded = input.bytes.byteLength > mbToBytes(uploadConfig.largeUploadWarnMb);
+  const strategy = input.uploadId ? "chunked" : selectUploadStrategyForBytes(input.source.size, uploadConfig);
+  const bytesMb = Number((input.source.size / (1024 * 1024)).toFixed(2));
+  const thresholdExceeded = input.source.size > mbToBytes(uploadConfig.largeUploadWarnMb);
   const sessionRunKey = readSessionRunKey(captureSessionId);
   const title = deriveRecordingTitleFromName(input.originalName);
   const scriptHash = readScriptHash2();
@@ -93220,7 +93231,7 @@ async function commitRecordingBytesToTongs(input) {
     emitRecordingUploadStatus({
       phase,
       strategy,
-      bytes: input.bytes.byteLength,
+      bytes: input.source.size,
       mb: bytesMb,
       sessionRunKey,
       workpieceId,
@@ -93236,7 +93247,7 @@ async function commitRecordingBytesToTongs(input) {
   };
   try {
     console.info("[recording/upload] blob-summary", {
-      bytes: input.bytes.byteLength,
+      bytes: input.source.size,
       mb: bytesMb,
       sessionRunKey,
       workpieceId,
@@ -93253,7 +93264,7 @@ async function commitRecordingBytesToTongs(input) {
   }
   if (thresholdExceeded) {
     emitLargeUploadWarning({
-      bytes: input.bytes.byteLength,
+      bytes: input.source.size,
       mb: bytesMb,
       thresholdMb: uploadConfig.largeUploadWarnMb,
       strategy,
@@ -93273,10 +93284,10 @@ async function commitRecordingBytesToTongs(input) {
     written_by: writtenBy,
     event_name: "anvil.recording.artifact.saved.v1",
     event_payload: {
-      source: "anvil.local-auto",
+      source: input.recordingMedium === "obs" ? "anvil.obs" : "anvil.local-auto",
       file_path: path,
       original_name: input.originalName,
-      bytes: input.bytes.byteLength,
+      bytes: input.source.size,
       content_type: contentType,
       created_cradle: createdCradle,
       recording_session_id: plannerRecordingSessionId,
@@ -93292,7 +93303,8 @@ async function commitRecordingBytesToTongs(input) {
   const commit = await uploadRecordingWithStrategy({
     strategy,
     workpieceId,
-    bytes: input.bytes,
+    source: input.source,
+    uploadId: input.uploadId,
     chunkSizeMb: uploadConfig.chunkSizeMb,
     commitPayloadBase,
     apiToken,
@@ -93354,7 +93366,7 @@ async function commitRecordingBytesToTongs(input) {
     progressPct: 100,
     chunkIndex: strategy === "chunked" ? null : 1,
     totalChunks: strategy === "chunked" ? null : 1,
-    chunkBytes: strategy === "chunked" ? null : input.bytes.byteLength,
+    chunkBytes: strategy === "chunked" ? null : input.source.size,
     finalStorageKey: path
   });
   return {
@@ -93367,7 +93379,7 @@ async function commitRecordingBytesToTongs(input) {
     captureAuthorityId: authority.id,
     mediaRevision,
     mediaHash,
-    mediaBytes: input.bytes.byteLength,
+    mediaBytes: input.source.size,
     mediaContentType: contentType,
     status: commit.status
   };
@@ -93480,6 +93492,42 @@ async function transitionRecordingKept(input) {
   } catch (error) {
     return { ok: false, outcome: "unavailable", reason: error instanceof Error ? error.message : "recording_keep_unavailable" };
   }
+}
+async function commitRecordingBytesToTongs(input) {
+  return commitRecordingSourceToTongs({
+    ...input,
+    source: {
+      size: input.bytes.byteLength,
+      async read(startByte, endByte) {
+        return input.bytes.subarray(startByte, endByte);
+      }
+    }
+  });
+}
+async function commitRecordingFileToTongs(input) {
+  const identityBytes = new TextEncoder().encode([
+    input.captureAuthority.id,
+    input.file.name,
+    input.file.size,
+    input.file.lastModified
+  ].join("|"));
+  const digest = await crypto.subtle.digest("SHA-256", identityBytes);
+  const uploadId = `obs_${Array.from(new Uint8Array(digest)).slice(0, 20).map((value) => value.toString(16).padStart(2, "0")).join("")}`;
+  return commitRecordingSourceToTongs({
+    captureAuthority: input.captureAuthority,
+    originalName: input.originalName ?? input.file.name,
+    contentType: input.file.type || void 0,
+    transcriptPath: input.transcriptPath,
+    transcriptStatus: input.transcriptStatus,
+    recordingMedium: "obs",
+    uploadId,
+    source: {
+      size: input.file.size,
+      async read(startByte, endByte) {
+        return new Uint8Array(await input.file.slice(startByte, endByte).arrayBuffer());
+      }
+    }
+  });
 }
 async function transitionRecordingDecisionV2(commit, completionId, decision) {
   if (!commit.captureAuthorityId) return { ok: false, outcome: "malformed", reason: "capture_authority_missing" };
@@ -94051,8 +94099,8 @@ async function ensureReadPermission(handle) {
     const hasQuery = typeof h?.queryPermission === "function";
     const hasRequest = typeof h?.requestPermission === "function";
     if (!hasQuery && !hasRequest) return true;
-    const state8 = hasQuery ? await h.queryPermission({ mode: "read" }) : null;
-    if (state8 === "granted") return true;
+    const state9 = hasQuery ? await h.queryPermission({ mode: "read" }) : null;
+    if (state9 === "granted") return true;
     if (!hasRequest) return true;
     const req = await h.requestPermission({ mode: "read" });
     return req === "granted";
@@ -95003,7 +95051,7 @@ function emitTranscriptDiag(event, detail) {
   } catch {
   }
 }
-function normalizeFinalSegments(segments) {
+function normalizeFinalSegments(segments2) {
   const out = [];
   const canonicalWords = (text) => String(text || "").trim().split(/\s+/).map((part) => part.trim()).filter(Boolean);
   const joinWords = (parts) => parts.join(" ").trim();
@@ -95026,7 +95074,7 @@ function normalizeFinalSegments(segments) {
     }
     return candidateLine;
   };
-  for (const segment of segments) {
+  for (const segment of segments2) {
     const text = readText(segment.text);
     if (!text) continue;
     const prev2 = out[out.length - 1] ?? null;
@@ -97023,6 +97071,139 @@ var init_local_auto = __esm({
   }
 });
 
+// src/recording/obs-finished-import.ts
+function segments(path) {
+  return path.replace(/\\/g, "/").split("/").filter(Boolean);
+}
+function relativeObsOutputPath(outputPath, directoryName) {
+  const parts = segments(outputPath);
+  if (!parts.length || parts.some((part) => part === "." || part === "..")) return null;
+  const rootAt = parts.map((part) => part.toLowerCase()).lastIndexOf(directoryName.trim().toLowerCase());
+  if (rootAt < 0 || rootAt === parts.length - 1) return null;
+  return parts.slice(rootAt + 1);
+}
+async function resolveFromLinkedDirectory(outputPath) {
+  await window.__tpRecDir?.init?.();
+  const root = window.__tpRecDir?.get?.();
+  if (!root) return null;
+  const permission = await root.queryPermission?.({ mode: "read" });
+  if (permission !== "granted") return null;
+  const relative = relativeObsOutputPath(outputPath, root.name);
+  if (!relative) return null;
+  let directory = root;
+  for (const part of relative.slice(0, -1)) directory = await directory.getDirectoryHandle(part);
+  const handle = await directory.getFileHandle(relative[relative.length - 1]);
+  return handle.getFile();
+}
+async function selectFinishedFile() {
+  const picker = window.showOpenFilePicker;
+  if (typeof picker !== "function") return null;
+  try {
+    const handles = await picker({ id: "anvil-obs-finished-recording", multiple: false });
+    return handles?.[0]?.getFile?.() ?? null;
+  } catch {
+    return null;
+  }
+}
+function announce(name, detail) {
+  try {
+    window.dispatchEvent(new CustomEvent(name, { detail }));
+  } catch {
+  }
+}
+async function prepareObsRecordingImport() {
+  const target = await ensureRecordingCaptureTarget();
+  state6.authority = target.ok ? target.captureAuthority : null;
+  return target.ok;
+}
+async function importFinishedObsRecording(result) {
+  state6.lastStop = result;
+  if (!result.stopped || !result.outputPath) {
+    announce("tp:obs:recording-import", { phase: "needs-file", reason: "output_path_missing" });
+    return;
+  }
+  let captureAuthority = state6.authority;
+  if (!captureAuthority) {
+    const target = await ensureRecordingCaptureTarget();
+    if (target.ok) captureAuthority = target.captureAuthority;
+  }
+  if (!captureAuthority) {
+    announce("tp:obs:recording-import", { phase: "failed", reason: "capture_authority_missing" });
+    return;
+  }
+  let file = state6.selectedFile;
+  state6.selectedFile = null;
+  if (!file) try {
+    file = await resolveFromLinkedDirectory(result.outputPath);
+  } catch {
+  }
+  if (!file) {
+    announce("tp:obs:recording-import", { phase: "needs-file", reason: "local_file_permission_required", retryAvailable: true });
+    return;
+  }
+  announce("tp:obs:recording-import", { phase: "uploading", name: file.name, bytes: file.size });
+  const committed = await commitRecordingFileToTongs({ file, originalName: file.name, captureAuthority });
+  if (!committed.ok) {
+    announce("tp:obs:recording-import", { phase: "failed", reason: committed.reason, errorCode: committed.errorCode ?? null });
+    return;
+  }
+  const completed = await transitionRecordingCompleted({ commit: committed });
+  if (!completed.ok || !completed.completionId) {
+    announce("tp:obs:recording-import", { phase: "failed", reason: completed.reason ?? completed.outcome });
+    return;
+  }
+  announce("tp:obs:recording-import", { phase: "decision-required", completionId: completed.completionId });
+  await showRecordingDecisionDialog({
+    takeName: file.name,
+    onKeep: async () => {
+      const decision = await transitionRecordingKept({ commit: committed, completionId: completed.completionId });
+      if (!decision.ok) throw new Error(decision.reason ?? decision.outcome);
+      announce("tp:obs:recording-import", { phase: "kept", completionId: completed.completionId });
+    },
+    onDiscard: async () => {
+      const decision = await transitionRecordingDiscarded({ commit: committed, completionId: completed.completionId });
+      if (!decision.ok) throw new Error(decision.reason ?? decision.outcome);
+      announce("tp:obs:recording-import", { phase: "discarded", completionId: completed.completionId });
+    }
+  });
+}
+async function selectAndImportFinishedObsRecording() {
+  const file = await selectFinishedFile();
+  if (!file) return;
+  state6.selectedFile = file;
+  await importFinishedObsRecording(state6.lastStop ?? { adapter: "obs", stopped: true, outputPath: file.name });
+}
+function acceptStopResult(result) {
+  if (state6.running) return state6.running;
+  state6.running = importFinishedObsRecording(result).finally(() => {
+    state6.running = null;
+  });
+  return state6.running;
+}
+var state6;
+var init_obs_finished_import = __esm({
+  "src/recording/obs-finished-import.ts"() {
+    "use strict";
+    init_recording_dir();
+    init_workpiece_commit();
+    init_recording_decision_dialog();
+    init_workpiece_commit();
+    state6 = { authority: null, running: null, lastStop: null, selectedFile: null };
+    try {
+      window.__tpObsImport = {
+        prepare: prepareObsRecordingImport,
+        acceptStopResult,
+        retryWithFilePicker: selectAndImportFinishedObsRecording
+      };
+      window.addEventListener("rec:state", (event) => {
+        const detail = event.detail;
+        if (detail?.adapter === "obs" && detail?.state === "starting") void prepareObsRecordingImport();
+      });
+    } catch {
+    }
+  }
+});
+
 // src/features/page-tabs.ts
 function getAllowedPages() {
   const pages = /* @__PURE__ */ new Set();
@@ -98303,12 +98484,12 @@ function initAsrStatsHud(opts = {}) {
   let activeSpeakerLabel = "";
   const refreshMeta = () => {
     if (!metaEl) return;
-    const segments = [`profile ${profileLabel}`];
-    if (thresholdLabel) segments.push(thresholdLabel);
-    if (guardText) segments.push(guardText);
-    if (activeSpeakerLabel) segments.push(activeSpeakerLabel);
-    if (speakerBindingLabel) segments.push(speakerBindingLabel);
-    metaEl.textContent = segments.join(" | ");
+    const segments2 = [`profile ${profileLabel}`];
+    if (thresholdLabel) segments2.push(thresholdLabel);
+    if (guardText) segments2.push(guardText);
+    if (activeSpeakerLabel) segments2.push(activeSpeakerLabel);
+    if (speakerBindingLabel) segments2.push(speakerBindingLabel);
+    metaEl.textContent = segments2.join(" | ");
   };
   refreshMeta();
   const buildThresholdLabel = (values) => {
@@ -98745,8 +98926,8 @@ function initScrollStripHud(opts) {
       modeEl.textContent = `Mode: ${label}${laneTag}`;
     }
     if (stateEl) {
-      const state8 = detail.running ? "Running" : "Waiting";
-      stateEl.textContent = `Scroll: ${state8}`;
+      const state9 = detail.running ? "Running" : "Waiting";
+      stateEl.textContent = `Scroll: ${state9}`;
     }
     if (posEl && detail.activeIdx != null && detail.lineCount != null && detail.lineCount > 0) {
       const idx = detail.activeIdx + 1;
@@ -99251,9 +99432,9 @@ function loadState2() {
     return { open: false, frozen: false, popout: false, x: 12, y: 120 };
   }
 }
-function saveState(state8) {
+function saveState(state9) {
   try {
-    localStorage.setItem(LS_STATE, JSON.stringify(state8));
+    localStorage.setItem(LS_STATE, JSON.stringify(state9));
   } catch {
   }
 }
@@ -99298,20 +99479,20 @@ function initHudPopup(opts = {}) {
   }
   const storeLines = [];
   let snapshotText = "";
-  const state8 = loadState2();
+  const state9 = loadState2();
   if (isPopout) {
-    state8.open = true;
-    state8.popout = true;
+    state9.open = true;
+    state9.popout = true;
   }
   const wrap = document.createElement("div");
   wrap.className = "tp-hud-popup";
   wrap.setAttribute("role", "dialog");
   wrap.setAttribute("aria-label", "Debug HUD");
   wrap.style.position = "fixed";
-  wrap.style.left = `${state8.x}px`;
-  wrap.style.top = `${state8.y}px`;
-  wrap.style.display = state8.open ? "block" : "none";
-  wrap.dataset.open = state8.open ? "1" : "0";
+  wrap.style.left = `${state9.x}px`;
+  wrap.style.top = `${state9.y}px`;
+  wrap.style.display = state9.open ? "block" : "none";
+  wrap.dataset.open = state9.open ? "1" : "0";
   const head2 = document.createElement("div");
   head2.className = "tp-hud-popup__head";
   const title = document.createElement("div");
@@ -99333,10 +99514,10 @@ function initHudPopup(opts = {}) {
   const btnPopout = makeBtn("Pop out");
   const btnDock = makeBtn("Dock");
   const btnClose = makeBtn("\xD7", "tp-hud-btn--close");
-  btnFreeze.dataset.on = state8.frozen ? "1" : "0";
-  btnFreeze.textContent = state8.frozen ? "Frozen" : "Freeze";
-  btnPopout.style.display = state8.popout ? "none" : "";
-  btnDock.style.display = state8.popout ? "" : "none";
+  btnFreeze.dataset.on = state9.frozen ? "1" : "0";
+  btnFreeze.textContent = state9.frozen ? "Frozen" : "Freeze";
+  btnPopout.style.display = state9.popout ? "none" : "";
+  btnDock.style.display = state9.popout ? "" : "none";
   btns.append(btnDump, btnCopy, btnClear, btnFreeze, btnPopout, btnDock, btnClose);
   head2.append(title, btns);
   const body = document.createElement("div");
@@ -99356,9 +99537,9 @@ function initHudPopup(opts = {}) {
     const y = clamp7(Number(wrap.style.top) || 0, 0, maxY);
     wrap.style.left = `${x}px`;
     wrap.style.top = `${y}px`;
-    state8.x = x;
-    state8.y = y;
-    saveState(state8);
+    state9.x = x;
+    state9.y = y;
+    saveState(state9);
   };
   let dragging = false;
   let startX = 0;
@@ -99410,7 +99591,7 @@ function initHudPopup(opts = {}) {
     }
   };
   const log = (line, data) => {
-    if (!state8.open || state8.frozen) return;
+    if (!state9.open || state9.frozen) return;
     const prefix = `[${nowStamp()}] `;
     appendLine(prefix + line);
     if (data !== void 0) {
@@ -99466,30 +99647,30 @@ function initHudPopup(opts = {}) {
     if (!isPopout) broadcastSnapshot(snapshotText);
   };
   const setOpen = (next) => {
-    state8.open = next;
+    state9.open = next;
     wrap.dataset.open = next ? "1" : "0";
     wrap.style.display = next ? "block" : "none";
-    saveState(state8);
+    saveState(state9);
     if (!isPopout) {
       broadcastState2();
     }
   };
   const setFrozen = (next) => {
-    state8.frozen = next;
+    state9.frozen = next;
     btnFreeze.dataset.on = next ? "1" : "0";
     btnFreeze.textContent = next ? "Frozen" : "Freeze";
-    saveState(state8);
+    saveState(state9);
     if (!isPopout) broadcastState2();
   };
   const setPopout = (next) => {
-    state8.popout = next;
+    state9.popout = next;
     btnPopout.style.display = next ? "none" : "";
     btnDock.style.display = next ? "" : "none";
-    saveState(state8);
+    saveState(state9);
     if (!isPopout) broadcastState2();
   };
   const openPopout = () => {
-    if (state8.popout) return;
+    if (state9.popout) return;
     const features = [
       "popup=yes",
       "width=520",
@@ -99506,7 +99687,7 @@ function initHudPopup(opts = {}) {
     }
     window.__tpHudPopoutWin = win;
     setPopout(true);
-    bridge.send({ type: "hud:state", state: state8 });
+    bridge.send({ type: "hud:state", state: state9 });
   };
   const closePopout = () => {
     setPopout(false);
@@ -99520,7 +99701,7 @@ function initHudPopup(opts = {}) {
     }
   };
   const broadcastState2 = () => {
-    bridge.send({ type: "hud:state", state: state8 });
+    bridge.send({ type: "hud:state", state: state9 });
   };
   const broadcastAppend = (lines) => {
     if (!lines.length) return;
@@ -99574,7 +99755,7 @@ function initHudPopup(opts = {}) {
     }
   });
   btnClose.addEventListener("click", () => setOpen(false));
-  btnFreeze.addEventListener("click", () => setFrozen(!state8.frozen));
+  btnFreeze.addEventListener("click", () => setFrozen(!state9.frozen));
   btnClear.addEventListener("click", () => clear());
   btnCopy.addEventListener("click", () => copyText());
   btnDump.addEventListener("click", () => dumpSnapshot("DUMP"));
@@ -99588,7 +99769,7 @@ function initHudPopup(opts = {}) {
     if (e.repeat) return;
     if (e.ctrlKey || e.altKey || e.metaKey) return;
     if (e.code !== "Backquote") return;
-    setOpen(!state8.open);
+    setOpen(!state9.open);
     e.preventDefault();
   }, { capture: true });
   window.addEventListener("message", (e) => {
@@ -99598,14 +99779,14 @@ function initHudPopup(opts = {}) {
       setPopout(false);
     }
   });
-  if (!state8.popout && state8.open) {
+  if (!state9.popout && state9.open) {
     broadcastState2();
   }
   window.addEventListener("beforeunload", () => {
     bridge.close();
   });
   return {
-    isOpen: () => state8.open,
+    isOpen: () => state9.open,
     setOpen,
     log,
     dumpSnapshot,
@@ -99614,7 +99795,7 @@ function initHudPopup(opts = {}) {
     appendLines: (lines) => lines.forEach((line) => appendLine(line)),
     setSnapshotText,
     copyText,
-    getState: () => ({ ...state8 }),
+    getState: () => ({ ...state9 }),
     openPopout,
     closePopout,
     setPopout
@@ -99630,10 +99811,10 @@ var init_popup = __esm({
 });
 
 // src/hud/shouldShowHud.ts
-function shouldShowHud(state8) {
-  const hudSupported = !!state8?.hudSupported;
-  const hudEnabledByUser = !!state8?.hudEnabledByUser;
-  const page = state8?.page || "scripts";
+function shouldShowHud(state9) {
+  const hudSupported = !!state9?.hudSupported;
+  const hudEnabledByUser = !!state9?.hudEnabledByUser;
+  const page = state9?.page || "scripts";
   if (!hudSupported) return false;
   if (!hudEnabledByUser) return false;
   return page !== "display";
@@ -99984,8 +100165,8 @@ async function attemptGetUserMedia() {
   }
 }
 async function ensureMicAccess() {
-  const state8 = await queryMicPermission();
-  if (state8 === "denied") {
+  const state9 = await queryMicPermission();
+  if (state9 === "denied") {
     try {
       appStoreSingleton.set("micGranted", false);
     } catch {
@@ -99996,7 +100177,7 @@ async function ensureMicAccess() {
     }
     return { allowed: false, reason: "NO_PERMISSION" };
   }
-  if (state8 === "granted") {
+  if (state9 === "granted") {
     try {
       appStoreSingleton.set("micGranted", true);
     } catch {
@@ -100087,7 +100268,7 @@ var init_script_source = __esm({
 
 // src/forge/entitlements.ts
 function notify3(next) {
-  state6 = next;
+  state7 = next;
   subscribers2.forEach((fn) => {
     try {
       fn(next);
@@ -100141,7 +100322,7 @@ async function refreshEntitlements(supabase2) {
     return next;
   }
 }
-var FREE_ENTITLEMENTS, state6, subscribers2;
+var FREE_ENTITLEMENTS, state7, subscribers2;
 var init_entitlements = __esm({
   "src/forge/entitlements.ts"() {
     "use strict";
@@ -100153,7 +100334,7 @@ var init_entitlements = __esm({
       stripe_subscription_id: null,
       current_period_end: null
     };
-    state6 = { status: "idle", ent: null };
+    state7 = { status: "idle", ent: null };
     subscribers2 = /* @__PURE__ */ new Set();
   }
 });
@@ -100683,27 +100864,27 @@ function getStates() {
   }).filter((value) => Boolean(value));
 }
 function summarize(states) {
-  const issues = states.filter((state8) => state8.tone === "issue");
+  const issues = states.filter((state9) => state9.tone === "issue");
   if (issues.length > 0) {
     const first = issues[0];
     const suffix = issues.length > 1 ? ` +${issues.length - 1}` : "";
     return {
       label: `Session: ${first.short}${suffix}`,
-      title: states.map((state8) => state8.full).join("\n"),
+      title: states.map((state9) => state9.full).join("\n"),
       tone: "issue"
     };
   }
-  const good = states.filter((state8) => state8.tone === "good");
+  const good = states.filter((state9) => state9.tone === "good");
   if (good.length > 0) {
     return {
-      label: `Session: ${good.slice(0, 2).map((state8) => state8.short).join(" \xB7 ")}`,
-      title: states.map((state8) => state8.full).join("\n"),
+      label: `Session: ${good.slice(0, 2).map((state9) => state9.short).join(" \xB7 ")}`,
+      title: states.map((state9) => state9.full).join("\n"),
       tone: "good"
     };
   }
   return {
     label: "Session: Idle",
-    title: states.map((state8) => state8.full).join("\n") || "Session status",
+    title: states.map((state9) => state9.full).join("\n") || "Session status",
     tone: "neutral"
   };
 }
@@ -101506,8 +101687,8 @@ function renderProfileOptions() {
   try {
     const select = getProfileSelect();
     if (!select) return;
-    const state8 = getAsrState();
-    const entries = Object.entries(state8.profiles || {});
+    const state9 = getAsrState();
+    const entries = Object.entries(state9.profiles || {});
     select.innerHTML = "";
     const placeholder = document.createElement("option");
     placeholder.value = "";
@@ -101519,7 +101700,7 @@ function renderProfileOptions() {
       opt.textContent = profile.label || id;
       select.appendChild(opt);
     });
-    const active = state8.activeProfileId;
+    const active = state9.activeProfileId;
     select.value = active && entries.some(([id]) => id === active) ? active : "";
   } catch {
   }
@@ -102147,24 +102328,24 @@ var init_builder = __esm({
 
 // src/settings/uiPrefs.ts
 function setUiPrefs(p) {
-  state7 = { ...state7, ...p };
+  state8 = { ...state8, ...p };
   try {
-    localStorage.setItem(KEY5, JSON.stringify(state7));
+    localStorage.setItem(KEY5, JSON.stringify(state8));
   } catch {
   }
   subs6.forEach((fn) => {
     try {
-      fn(state7);
+      fn(state8);
     } catch {
     }
   });
 }
-var KEY5, state7, subs6, getUiPrefs2;
+var KEY5, state8, subs6, getUiPrefs2;
 var init_uiPrefs = __esm({
   "src/settings/uiPrefs.ts"() {
     "use strict";
     KEY5 = "tp_ui_prefs_v1";
-    state7 = (() => {
+    state8 = (() => {
       try {
         const parsed = JSON.parse(localStorage.getItem(KEY5) || "{}") || {};
         return { linkTypography: false, hybridGate: "db_or_vad", hybridUseProfileId: parsed.hybridUseProfileId || null, ...parsed };
@@ -102173,7 +102354,7 @@ var init_uiPrefs = __esm({
       }
     })();
     subs6 = /* @__PURE__ */ new Set();
-    getUiPrefs2 = () => state7;
+    getUiPrefs2 = () => state8;
   }
 });
 
@@ -103087,26 +103268,26 @@ function queryAsrInputs(card) {
     calm: q3("#asrCalmMode")
   };
 }
-function applyAsrStateToInputs(inputs, state8) {
+function applyAsrStateToInputs(inputs, state9) {
   const { eng, lang, interim, fillers, thresh, endms } = inputs;
-  if (eng && typeof state8.engine === "string") {
+  if (eng && typeof state9.engine === "string") {
     try {
-      eng.value = state8.engine;
+      eng.value = state9.engine;
     } catch {
     }
   }
-  if (lang && typeof state8.lang === "string") {
-    lang.value = state8.lang;
+  if (lang && typeof state9.lang === "string") {
+    lang.value = state9.lang;
   }
-  if (interim) interim.checked = !!state8.interim;
-  if (fillers) fillers.checked = !!state8.fillerFilter;
-  if (thresh && typeof state8.threshold === "number") {
-    thresh.value = String(state8.threshold);
+  if (interim) interim.checked = !!state9.interim;
+  if (fillers) fillers.checked = !!state9.fillerFilter;
+  if (thresh && typeof state9.threshold === "number") {
+    thresh.value = String(state9.threshold);
   }
-  if (endms && typeof state8.endpointingMs === "number") {
-    endms.value = String(state8.endpointingMs);
+  if (endms && typeof state9.endpointingMs === "number") {
+    endms.value = String(state9.endpointingMs);
   }
-  if (inputs.calm) inputs.calm.checked = !!state8.calmModeEnabled;
+  if (inputs.calm) inputs.calm.checked = !!state9.calmModeEnabled;
 }
 function attachAsrInputListeners(inputs) {
   const { eng, lang, interim, fillers, thresh, endms, calm } = inputs;
@@ -103220,8 +103401,8 @@ function hydrateAsrSettingsCard(root = document) {
   const card = findAsrCard(root);
   if (!card) return;
   const inputs = queryAsrInputs(card);
-  const state8 = getAsrSettings();
-  withAsrHydration(() => applyAsrStateToInputs(inputs, state8));
+  const state9 = getAsrSettings();
+  withAsrHydration(() => applyAsrStateToInputs(inputs, state9));
 }
 function mountAsrSettings(root = document, store3) {
   const card = wireAsrSettingsCard(root, store3);
@@ -107110,25 +107291,25 @@ function bindCameraUI() {
       camToggleSpinner.style.display = "none";
       camToggleSpinner.setAttribute("aria-hidden", "true");
     }
-    const setToggleState = (state8) => {
+    const setToggleState = (state9) => {
       if (camToggleLabel) {
-        if (state8 === "on") camToggleLabel.textContent = "Camera: On";
-        else if (state8 === "starting") camToggleLabel.textContent = "Camera: Starting\u2026";
-        else if (state8 === "error") camToggleLabel.textContent = "Camera: Error";
+        if (state9 === "on") camToggleLabel.textContent = "Camera: On";
+        else if (state9 === "starting") camToggleLabel.textContent = "Camera: Starting\u2026";
+        else if (state9 === "error") camToggleLabel.textContent = "Camera: Error";
         else camToggleLabel.textContent = "Camera: Off";
       }
       if (camToggleSpinner) {
-        const show2 = state8 === "starting";
+        const show2 = state9 === "starting";
         camToggleSpinner.style.display = show2 ? "" : "none";
         camToggleSpinner.setAttribute("aria-hidden", show2 ? "false" : "true");
       }
-      if (state8 === "on") {
+      if (state9 === "on") {
         camToggleBtn.setAttribute("aria-pressed", "true");
         camToggleBtn.disabled = false;
-      } else if (state8 === "starting") {
+      } else if (state9 === "starting") {
         camToggleBtn.setAttribute("aria-pressed", api.isActive() ? "true" : "false");
         camToggleBtn.disabled = true;
-      } else if (state8 === "error") {
+      } else if (state9 === "error") {
         camToggleBtn.setAttribute("aria-pressed", "false");
         camToggleBtn.disabled = false;
       } else {
@@ -107373,14 +107554,14 @@ function getMicUiState() {
   if (permission === "denied") return { state: "blocked", permission, capturing };
   return { state: "idle", permission, capturing };
 }
-function updateMicPill(state8) {
+function updateMicPill(state9) {
   try {
     const pill = document.getElementById("permChip");
     if (!pill) return;
-    const label = state8 === "capturing" ? "Mic: capturing" : state8 === "granted" ? "Mic: granted" : state8 === "blocked" ? "Mic: blocked" : "Mic: idle";
+    const label = state9 === "capturing" ? "Mic: capturing" : state9 === "granted" ? "Mic: granted" : state9 === "blocked" ? "Mic: blocked" : "Mic: idle";
     pill.textContent = label;
-    pill.dataset.micState = state8;
-    pill.classList.toggle("mic-active", state8 === "capturing");
+    pill.dataset.micState = state9;
+    pill.classList.toggle("mic-active", state9 === "capturing");
   } catch {
   }
 }
@@ -109871,8 +110052,8 @@ async function ensureWelcomeScript() {
       return;
     }
     await waitForScriptStabilization(1200);
-    const state8 = await resolveWelcomeState();
-    if (state8.seen) {
+    const state9 = await resolveWelcomeState();
+    if (state9.seen) {
       welcomeCheckDone = true;
       return;
     }
@@ -109881,9 +110062,9 @@ async function ensureWelcomeScript() {
       welcomeCheckDone = true;
       return;
     }
-    const script = buildWelcomeScript(state8.displayName);
+    const script = buildWelcomeScript(state9.displayName);
     applyScript(script, "load", { updateEditor: true });
-    await state8.markSeen();
+    await state9.markSeen();
     welcomeCheckDone = true;
   } catch {
   } finally {
@@ -109898,8 +110079,8 @@ async function loadWelcomeGuide(opts) {
     const ok = window.confirm("Replace current script with the Welcome Guide?");
     if (!ok) return;
   }
-  const state8 = await resolveWelcomeState();
-  const script = buildWelcomeScript(state8.displayName);
+  const state9 = await resolveWelcomeState();
+  const script = buildWelcomeScript(state9.displayName);
   applyScript(script, "load", { updateEditor: true });
 }
 async function devResetWelcomeSeen() {
@@ -110588,12 +110769,12 @@ var init_camera = __esm({
           } catch {
           }
         }, stop4 = function() {
-          if (!state8.stream) return;
+          if (!state9.stream) return;
           try {
-            for (const t of state8.stream.getTracks()) t.stop();
+            for (const t of state9.stream.getTracks()) t.stop();
           } catch {
           }
-          state8.stream = null;
+          state9.stream = null;
           const videoEl = document.getElementById("camVideo");
           if (videoEl) {
             try {
@@ -110612,14 +110793,14 @@ var init_camera = __esm({
         };
         var emit3 = emit4, stop3 = stop4;
         const cam = window.__tpCamera = window.__tpCamera || {};
-        const state8 = { stream: null, starting: false };
+        const state9 = { stream: null, starting: false };
         async function start2() {
-          if (state8.starting) return;
-          if (state8.stream) {
+          if (state9.starting) return;
+          if (state9.stream) {
             emit4("tp:camera:started", { resumed: true });
             return;
           }
-          state8.starting = true;
+          state9.starting = true;
           emit4("tp:camera:starting");
           try {
             console.debug("[CAM] hardened start \u2192 request");
@@ -110628,7 +110809,7 @@ var init_camera = __esm({
           try {
             const constraints = { video: true, audio: false };
             const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            state8.stream = stream;
+            state9.stream = stream;
             const videoEl = document.getElementById("camVideo");
             if (videoEl) {
               try {
@@ -110662,7 +110843,7 @@ var init_camera = __esm({
             }
             throw err;
           } finally {
-            state8.starting = false;
+            state9.starting = false;
           }
         }
         cam.startCamera = start2;
@@ -111521,8 +111702,8 @@ function installAiActivityChip() {
         return null;
       };
       const readSelectedEngine = () => {
-        const state8 = readSpeechState();
-        return String(state8?.engine || state8?.["asr.engine"] || "").trim().toLowerCase();
+        const state9 = readSpeechState();
+        return String(state9?.engine || state9?.["asr.engine"] || "").trim().toLowerCase();
       };
       const subscribeSpeechState = (fn) => {
         try {
@@ -111561,12 +111742,12 @@ function installAiActivityChip() {
           const queueDepth = Number(detail?.queueDepth || 0);
           let text = "AI: off";
           let sessionText = "AI: off";
-          let state8 = "off";
+          let state9 = "off";
           let title = "AI is not active.";
           if (phase === "transcribing") {
             text = "AI: transcribing";
             sessionText = `AI: ${provider} ${engine} transcribing`;
-            state8 = "busy";
+            state9 = "busy";
             title = `${provider} ${engine} is actively transcribing mic audio${model ? ` (${model})` : ""}.`;
             if (requestsInFlight > 0 || queueDepth > 0) {
               title += ` In flight: ${requestsInFlight}. Queued: ${queueDepth}.`;
@@ -111574,31 +111755,31 @@ function installAiActivityChip() {
           } else if (phase === "ready") {
             text = "AI: active";
             sessionText = `AI: ${provider} ${engine} active`;
-            state8 = "on";
+            state9 = "on";
             title = `${provider} ${engine} is active for this speech session${model ? ` (${model})` : ""}.`;
           } else if (phase === "error") {
             text = "AI: error";
             sessionText = `AI: ${provider} ${engine} error`;
-            state8 = "error";
+            state9 = "error";
             title = message ? `${provider} ${engine} reported an error: ${message}` : `${provider} ${engine} reported an error.`;
           } else if (runtime?.fallbackActive) {
             text = "AI: browser";
             sessionText = `AI: ${provider} ${engine} fallback`;
-            state8 = "browser";
+            state9 = "browser";
             title = message ? `${requestedEngine || "Whisper"} fell back to ${engine}: ${message}` : `${requestedEngine || "Whisper"} fell back to ${engine}.`;
           } else if (effectiveEngine === "whisper") {
             text = "AI: standby";
             sessionText = `AI: ${provider} ${engine} standby`;
-            state8 = "standby";
+            state9 = "standby";
             title = message ? message : `${provider} ${engine} is selected and will activate when speech starts${model ? ` (${model})` : ""}.`;
           } else {
             text = "AI: browser";
             sessionText = "AI: browser speech";
-            state8 = "browser";
+            state9 = "browser";
             title = message || "Browser speech recognition is selected. AI transcription is not active.";
           }
           chip.textContent = text;
-          chip.dataset.state = state8;
+          chip.dataset.state = state9;
           chip.dataset.sessionText = sessionText;
           chip.title = title;
           chip.setAttribute("aria-label", sessionText);
@@ -113116,8 +113297,8 @@ function initDisplayPairingPanel() {
   if (!elements) return;
   bindModalEvents();
   updatePairingDiagnostics(resolvePairBaseUrl(window.location.origin));
-  onNetworkDisplayStatus(({ connectedDisplays, state: state8, lastError }) => {
-    if (state8 === "error" && lastError) {
+  onNetworkDisplayStatus(({ connectedDisplays, state: state9, lastError }) => {
+    if (state9 === "error" && lastError) {
       elements.status.textContent = `Connected: ${connectedDisplays} (${lastError})`;
       return;
     }
@@ -117275,23 +117456,23 @@ function installScrollWriteGuard(scroller) {
   const el = scroller;
   if (el.__tpScrollGuardInstalled) return;
   el.__tpScrollGuardInstalled = true;
-  const state8 = { scroller: el };
-  el.__tpScrollGuardState = state8;
+  const state9 = { scroller: el };
+  el.__tpScrollGuardState = state9;
   const desc = findScrollTopDescriptor(el);
-  if (desc?.get) state8.originalScrollTopGet = desc.get.bind(el);
-  if (desc?.set) state8.originalScrollTopSet = desc.set.bind(el);
+  if (desc?.get) state9.originalScrollTopGet = desc.get.bind(el);
+  if (desc?.set) state9.originalScrollTopSet = desc.set.bind(el);
   try {
     Object.defineProperty(el, "scrollTop", {
       configurable: true,
       enumerable: desc?.enumerable ?? true,
       get() {
-        if (state8.originalScrollTopGet) return state8.originalScrollTopGet();
+        if (state9.originalScrollTopGet) return state9.originalScrollTopGet();
         return 0;
       },
       set(value) {
         if (!shouldAllow()) logWrite("scrollTop=", el, value);
-        if (state8.originalScrollTopSet) {
-          state8.originalScrollTopSet(Number(value) || 0);
+        if (state9.originalScrollTopSet) {
+          state9.originalScrollTopSet(Number(value) || 0);
         }
       }
     });
@@ -117299,10 +117480,10 @@ function installScrollWriteGuard(scroller) {
   }
   try {
     if (typeof el.scrollTo === "function") {
-      state8.originalScrollTo = el.scrollTo.bind(el);
+      state9.originalScrollTo = el.scrollTo.bind(el);
       el.scrollTo = function(...args) {
         if (!shouldAllow()) logWrite("scrollTo()", el, args?.[0]);
-        return state8.originalScrollTo?.(...args);
+        return state9.originalScrollTo?.(...args);
       };
     }
   } catch {
@@ -118317,16 +118498,16 @@ function getAsrModeState() {
   const asrMode = resolveCompatAsrMode();
   if (asrMode && typeof asrMode.getState === "function") {
     try {
-      const state8 = asrMode.getState();
-      return typeof state8 === "string" ? state8.toLowerCase() : null;
+      const state9 = asrMode.getState();
+      return typeof state9 === "string" ? state9.toLowerCase() : null;
     } catch {
     }
   }
   return null;
 }
 function isAsrEngineEngaged() {
-  const state8 = getAsrModeState();
-  return state8 === "running" || state8 === "listening" || state8 === "ready";
+  const state9 = getAsrModeState();
+  return state9 === "running" || state9 === "listening" || state9 === "ready";
 }
 function isAsrOverlayActive() {
   return selectPrefersAsr || isAsrEngineEngaged();
@@ -118499,9 +118680,9 @@ function waitForActiveAsrProfile(timeoutMs = 6e4) {
       }
       resolve(ok);
     };
-    const unsub = onAsr((state8) => {
+    const unsub = onAsr((state9) => {
       try {
-        if (state8?.activeProfileId && state8.profiles?.[state8.activeProfileId]) {
+        if (state9?.activeProfileId && state9.profiles?.[state9.activeProfileId]) {
           finish(true);
         }
       } catch {
@@ -118964,8 +119145,8 @@ function initScrollModeUiSync() {
     const handleAsrStateEvent = (ev) => {
       try {
         const detail = ev?.detail || {};
-        const state8 = String(detail.state || "").toLowerCase();
-        const engaged = state8 === "running" || state8 === "listening";
+        const state9 = String(detail.state || "").toLowerCase();
+        const engaged = state9 === "running" || state9 === "listening";
         updateOverlayFromEngineState(engaged, detail.reason);
       } catch {
       }
@@ -120136,6 +120317,7 @@ var init_index_app = __esm({
     init_recording_session();
     init_rec_pills();
     init_local_auto();
+    init_obs_finished_import();
     init_page_tabs();
     init_page_tabs();
     init_scroll_router();

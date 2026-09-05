@@ -2,10 +2,22 @@
 
 Bellows is the Forge remote production studio package.
 
-Bellows now contains the package boundary, pure domain layer, pure session engine,
-runtime seam contracts, a concrete studio-shell adapter slice, and a concrete
-persistence adapter slice. Media, signaling, canonical storage, and broadcast
-implementations still arrive in later phases.
+Bellows contains the package boundary, pure domain layer, session engine, runtime
+contracts, studio-shell and recovery adapters, canonical join links, and the first
+record-only capture contract. Nursery now wires a real desktop Chromium capture
+path: `MediaRecorder` output is held as ordered upload parts in IndexedDB, verified
+through canonical Storage readback, reconstructed as a playable segment, and
+adopted through Hammer's existing recording-import authority.
+
+Current certification status:
+
+- Gate A implementation exists for desktop Chrome and Edge; a production 60-minute
+  proof run on Windows and macOS is still required before support is certified.
+- Gate B (three-person desktop), Safari, mobile, Firefox, and Bellows-managed
+  broadcast remain unavailable and must not be advertised as supported.
+- IndexedDB is temporary recovery custody only. Tongs remains canonical truth.
+- Local media is retained until every upload part has verified canonical receipt.
+- Upload parts are reconstruction inputs, not assumed independently playable files.
 
 Canonical references:
 

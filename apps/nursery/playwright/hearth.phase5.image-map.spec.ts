@@ -150,6 +150,95 @@ async function readCanonicalImageMap(page: Page, workpieceId: string): Promise<u
 }
 
 test.describe("Hearth Phase 5 Slice 1 image map", () => {
+  test("shell-authenticated user loads canonical Reference Material without signing in again", async ({ page }) => {
+    const artifact = readHearthPhase4Artifact();
+
+    await openHearth(page, {
+      workspaceId: artifact.workspace_id,
+    });
+    await openImageMapWorkpiece(page, artifact);
+
+    await expect(page.getByText(/^Logged in as /u)).toBeVisible();
+    const workflow = page.getByRole("region", { name: "Episode visual production workflow" });
+    await workflow.getByRole("button", { name: /^4\. Reference Material/u }).click();
+    const panel = page.locator(".hs-reference-review");
+    await expect(panel).toBeVisible();
+    await expect(panel.getByText("Hearth is working")).toHaveCount(0);
+
+    await page.evaluate(async () => {
+      type RuntimeAuth = {
+        getSession: () => Promise<{ data: { session: { access_token: string; refresh_token: string } | null } }>;
+        refreshSession: () => Promise<unknown>;
+        setSession: (session: { access_token: string; refresh_token: string }) => Promise<unknown>;
+      };
+      const runtime = window as Window & typeof globalThis & {
+        __forge_supabase_client__?: { auth?: RuntimeAuth };
+        __forge_test_restore_session__?: () => void;
+      };
+      const auth = runtime.__forge_supabase_client__?.auth;
+      if (!auth) throw new Error("Forge shell did not expose its authenticated Supabase client.");
+      const current = (await auth.getSession()).data.session;
+      if (!current?.access_token || !current.refresh_token) {
+        throw new Error("Forge shell did not expose an authenticated session.");
+      }
+      const getSession = auth.getSession.bind(auth);
+      const refreshSession = auth.refreshSession.bind(auth);
+      const authStorage = new Map<string, string>();
+      for (let index = 0; index < window.localStorage.length; index += 1) {
+        const key = window.localStorage.key(index);
+        if (!key || (key !== "forge-auth" && key !== "forge-auth-tongs" && !/^sb-[a-z0-9-]+-auth-token$/iu.test(key))) continue;
+        const value = window.localStorage.getItem(key);
+        if (value) authStorage.set(key, value);
+      }
+      auth.getSession = async () => ({ data: { session: null } });
+      auth.refreshSession = async () => ({ data: { session: null } });
+      for (const key of authStorage.keys()) window.localStorage.removeItem(key);
+      runtime.__forge_test_restore_session__ = () => {
+        auth.getSession = getSession;
+        auth.refreshSession = refreshSession;
+        for (const [key, value] of authStorage) window.localStorage.setItem(key, value);
+        void auth.setSession({
+          access_token: current.access_token,
+          refresh_token: current.refresh_token,
+        });
+      };
+      window.dispatchEvent(
+        new CustomEvent("forge:canonical-reference-clips-changed"),
+      );
+    });
+    await expect(panel.getByRole("alert")).toHaveText(
+      "Sign in to load canonical Reference Clips.",
+    );
+    const requestPromise = page.waitForRequest(
+      (request) =>
+        request.url().includes("/rest/v1/rpc/read_current_reference_clip_plan"),
+      { timeout: 10_000 },
+    );
+    await page.evaluate(() => {
+      const runtime = window as Window & typeof globalThis & {
+        __forge_test_restore_session__?: () => void;
+      };
+      if (!runtime.__forge_test_restore_session__) {
+        throw new Error("Missing delayed Forge session restore hook.");
+      }
+      runtime.__forge_test_restore_session__();
+      delete runtime.__forge_test_restore_session__;
+    });
+
+    const request = await requestPromise;
+    const authorization = request.headers().authorization;
+    expect(authorization).toMatch(/^Bearer\s+\S+/u);
+    const response = await request.response();
+    expect(response?.status()).toBe(200);
+
+    await expect(panel).toBeVisible();
+    await expect(
+      panel.getByText("Sign in to load canonical Reference Clips.", {
+        exact: true,
+      }),
+    ).toHaveCount(0);
+  });
+
   test("save -> reload -> canonical readback preserves image-map entries", async ({ page }) => {
     const artifact = readHearthPhase4Artifact();
     const descriptionMarker = `Slice 1 image map ${Date.now().toString(36)}`;

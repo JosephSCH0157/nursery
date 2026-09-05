@@ -9,7 +9,8 @@ test("mutable option effects cannot invoke publication",()=>{
   const effects=[...route.matchAll(/useEffect\(\(\) => \{[\s\S]*?\n  \}, \[[^\]]*\]\);/g)].map((match)=>match[0]).join("\n");
   assert.doesNotMatch(effects,/adapter\.publish\(/);
   assert.match(route,/async function establishAndRunPublicationStub/);
-  assert.match(route,/establish-publication[\s\S]+claim-publication-attempt[\s\S]+adapter\.publish[\s\S]+complete-publication-stub/);
+  assert.match(route,/finalize-destination-package[\s\S]+establish-publication[\s\S]+claim-publication-attempt[\s\S]+enqueue-youtube-publication/);
+  assert.doesNotMatch(route.slice(route.indexOf("async function establishAndRunPublicationStub"),route.indexOf("async function selectRumbleThumbnail")),/adapter\.publish|complete-publication-stub/);
 });
 
 test("adapters require durable operation and attempt context",()=>{

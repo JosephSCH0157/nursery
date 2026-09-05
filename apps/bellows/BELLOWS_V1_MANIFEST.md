@@ -350,9 +350,11 @@ Future backstage roles (e.g., Engineer/Producer) are reserved but not implemente
 
 📱 Device Support
 
-Participants may join from desktop or mobile devices.
+Certified V1 support is capability-gated. The first recording foundation targets
+desktop Chrome and Edge. Safari, Firefox, iOS Safari, and Android Chrome require
+independent certification before they may be advertised as supported.
 
-Mobile participation must support:
+When mobile participation is certified, it must support:
 
 camera capture
 

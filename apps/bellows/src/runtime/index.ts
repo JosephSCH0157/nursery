@@ -6,6 +6,7 @@ export * from "./dispatcher.js";
 export * from "./noop-adapters.js";
 export * from "./operator-console-harness.js";
 export * from "./persistence.js";
+export * from "./record-only-contract.js";
 export * from "./persistence-adapter.js";
 export * from "./persistence-harness.js";
 export * from "./persistence-store.js";

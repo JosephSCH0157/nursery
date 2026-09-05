@@ -77,8 +77,8 @@ const LINKS: HubLink[] = [
     to: "/apps/bellows",
     name: "Bellows",
     hint: "Remote Production Studio",
-    desc: "Run live remote recording sessions with role-based controls.",
-    underConstruction: true,
+    desc: "Record locally with recovery custody and verified Hammer handoff. Desktop Chromium certification is in progress.",
+    underConstruction: false,
   },
   {
     ...linkFor("hammer"),
@@ -86,7 +86,6 @@ const LINKS: HubLink[] = [
   },
   {
     ...linkFor("quench"),
-    underConstruction: true,
   },
   {
     ...linkFor("ledger"),
