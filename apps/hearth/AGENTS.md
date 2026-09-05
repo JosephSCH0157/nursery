@@ -160,6 +160,8 @@ Any action that consumes AI credits MUST:
 - request confirmation
 - respect user preference (always approve / never approve)
 
+A durable, explicitly granted and revocable authorization may cover bounded Bar-Stock discovery refreshes. Login or opening Bar-Stock is never authorization. Each refresh must still pass current policy, role, funding, lease, and budget checks; revocation stops additional provider or model calls.
+
 Non-AI helpers MUST NOT consume AI credits, including:
 - punctuation correction
 - grammar cleanup
