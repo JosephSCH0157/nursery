@@ -55,6 +55,7 @@
     "generate:playwright:auth": "tsx scripts/generate-playwright-auth-state.mts && pnpm verify:playwright:auth",
     "preflight:hearth-phase4": "tsx scripts/verify-hearth-phase4-fixtures.mts",
     "test:playwright:auth": "playwright test -c playwright.config.ts playwright/auth.capture.spec.ts --headed --workers=1 && pnpm verify:playwright:auth",
+    "test:playwright:login-password": "playwright test -c playwright.config.ts playwright/login.password-visibility.spec.ts --workers=1",
     "test:playwright:adaptive-style": "playwright test -c playwright.config.ts playwright/adaptive_style_ui_matrix.spec.ts --workers=1",
     "test:playwright:org-sharing": "playwright test -c playwright.config.ts playwright/org.workspace-sharing.smoke.spec.ts --workers=1",
     "test:playwright:barstock-reconciliation": "playwright test -c playwright.config.ts playwright/barstock.reconciliation.spec.ts --workers=1",

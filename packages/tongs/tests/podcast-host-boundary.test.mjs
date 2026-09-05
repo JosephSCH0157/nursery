@@ -10,11 +10,11 @@ test("podcast host replaces generic RSS as the executable release surface",()=>{
   assert.match(sql,/host_owns_rss/);
   assert.match(sql,/direct_spotify_upload/);
   assert.match(sql,/forge_rss_hosting/);
-  assert.match(sql,/\"provider\":\"transistor\"/);
-  assert.match(sql,/\"audio_upload\":true/);
-  assert.match(sql,/\"episode_draft_create\":true/);
-  assert.match(sql,/\"episode_publish\":true/);
-  assert.match(sql,/\"idempotent_episode_create\":false/);
+  assert.match(sql,/"provider":"transistor"/);
+  assert.match(sql,/"audio_upload":true/);
+  assert.match(sql,/"episode_draft_create":true/);
+  assert.match(sql,/"episode_publish":true/);
+  assert.match(sql,/"idempotent_episode_create":false/);
 });
 
 test("publication establishment checks the exact Transistor capability revision",()=>{
