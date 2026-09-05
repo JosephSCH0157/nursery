@@ -101,6 +101,10 @@ Barstock respects a simple truth:
 
 > Most good ideas don't arrive politely.
 
+## Timely topic suggestions
+
+Authenticated editors may opt into bounded, source-backed topic suggestions prepared by Hearth. Suggestions remain separate from Sparks until the creator chooses one. The creator—not a popularity algorithm—chooses the subject and angle. Tongs preserves preferences, evidence, dismissal, budgets, and accepted identity; failed live research never becomes model-guessed current news.
+
 ---
 
 ## Current State

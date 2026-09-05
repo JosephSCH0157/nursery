@@ -32,6 +32,7 @@ import {
 } from "./lib/bar-stock-persistence";
 import { setEntityState, type BarStockPersistenceState, type BarStockStateMap } from "./lib/bar-stock-state";
 import { loadRetryCache } from "./lib/retry-cache";
+import TopicDiscoveryPanel from "./TopicDiscoveryPanel";
 
 type AssignmentFilter = "all" | AssignmentId;
 
@@ -1057,6 +1058,7 @@ export default function App(props: BarstockAppProps = {}) {
           children: (
             <div className="barstock-mobile-content">
               {toast ? <div className="barstock-mobile-toast">{toast}</div> : null}
+              {workspaceId ? <TopicDiscoveryPanel workspaceId={workspaceId} canWrite={canWrite} onSaved={()=>void onSyncNow()} /> : null}
               <p className="barstock-mobile-count">
                 {showGraduated
                   ? `${activeSparkCount} active • ${graduatedSparkCount} graduated`
@@ -1383,6 +1385,8 @@ export default function App(props: BarstockAppProps = {}) {
             {toast}
           </div>
         )}
+
+        {workspaceId ? <TopicDiscoveryPanel workspaceId={workspaceId} canWrite={canWrite} onSaved={()=>void onSyncNow()} /> : null}
 
         <div className="barstock-main__composer">
           <textarea

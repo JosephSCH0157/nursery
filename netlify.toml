@@ -10,6 +10,11 @@
     directory = "apps/nursery/netlify/functions"
 
 [[redirects]]
+  from = "/api/hearth/topic-discovery"
+  to = "/.netlify/functions/hearth-topic-discovery"
+  status = 200
+
+[[redirects]]
   from = "/api/hearth/chat"
   to = "/.netlify/functions/hearth-chat"
   status = 200
