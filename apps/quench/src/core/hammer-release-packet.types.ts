@@ -54,6 +54,8 @@ export interface HammerQuenchReleasePacketManifest {
   };
   transcript: {
     text_path: string | null;
+    /** Legacy manifests may expose the canonical transcript path under this key. */
+    path?: string | null;
     source_layer_id: string | null;
     source_recipe_ref: string | null;
     source_kind: "raw" | "derived";
@@ -79,7 +81,7 @@ export interface HammerQuenchReleasePacketManifest {
     review_reasons?: string[];
     reasons: string[];
   };
-  video: { kind:"final_master"|"source"|"none"; canonical_asset_id:string|null; canonical_content_hash:string|null; mime_type:string|null; duration_ms:number|null };
+  video: { kind:"final_master"|"source"|"none"; canonical_asset_id:string|null; canonical_content_hash:string|null; mime_type:string|null; duration_ms:number|null; media_id?:string|null; workpiece_path?:string|null; local_relpath?:string|null };
   packaging_media_readiness?: Record<string, unknown>;
   editorial_truth?: {
     schema_version: 1;

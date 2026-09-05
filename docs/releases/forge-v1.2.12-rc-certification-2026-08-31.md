@@ -6,7 +6,11 @@ Completed: 2026-09-03
 
 Timezone: America/New_York
 
-Verdict: **GO — mandatory release evidence is green**
+Current release status: **NO-GO — authenticated Hearth session-hydration defect reproduced at the certified RC**
+
+Original certification verdict: **GO — mandatory release evidence was green before the production defect report**
+
+The GO disposition was withdrawn on 2026-09-03 after the authenticated Reference Material loader race was reproduced against exact RC `3689ffbc`. See `forge-v1.2.12-hearth-auth-context-diagnosis-2026-09-03.md`. A repaired commit must become a new candidate and pass the affected authenticated browser coverage plus the normal release gates before this release can return to GO.
 
 ## Frozen basis
 
@@ -81,8 +85,8 @@ Existing warning budgets remain unchanged: Anvil reports 15 lint warnings and Nu
 - A later Anvil run logged one transient local Supabase Storage 500 while attempting a non-authoritative chat-artifact write. The canonical Hearth-to-Anvil script handoff passed, and the subsequent complete browser gate passed. This did not create or authorize fallback persistence.
 - Supabase CLI 2.84.2 reported that 2.116.0 is available. This is a maintenance notice, not a release blocker.
 
-## Release disposition
+## Historical release disposition (superseded)
 
-The authenticated browser boundary that held the candidate at NO-GO is now certified, including a complete rerun after the clean-delivery repairs. Forge v1.2.12 is approved to proceed to the controlled release operations: merge PR #27 to `main`, tag the exact landed commit as `v1.2.12`, push the tag, and deploy that tagged commit through the normal release path.
+At completion of the original certification, the authenticated browser boundary had passed, including a complete rerun after the clean-delivery repairs. That evidence authorized the controlled release operations: merge PR #27 to `main`, tag the exact landed commit as `v1.2.12`, push the tag, and deploy that tagged commit through the normal release path.
 
-The candidate branch was pushed and opened as PR #27. No tag, merge to `main`, or production deployment was performed by this certification step.
+That authorization is now withdrawn because the later production investigation reproduced the authentication-context split at exact RC `3689ffbc`. The current disposition is the NO-GO recorded at the top of this document; a repaired candidate must earn certification again.

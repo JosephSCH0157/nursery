@@ -14,16 +14,36 @@ alter table tongs.quench_destination_scopes add constraint quench_destination_sc
 alter table tongs.quench_destination_scopes add constraint quench_destination_scopes_adapter_id_check
   check(adapter_id in('forge.youtube','forge.transistor'));
 
+-- A previous push may have committed this file before failing to insert its
+-- migration-history row (the original timestamp collided with another file).
+-- Reuse only an exact immutable seed; never overwrite conflicting authority.
+do $capability_seed$
+declare
+  caps jsonb := '{"provider":"transistor","audio_upload":true,"episode_draft_create":true,"episode_publish":true,"episode_schedule":true,"supports_experiment_intent":false,"supports_thumbnail_selection":false,"supports_thumbnail_rotation":false,"supports_schedule":true,"supports_premiere":false,"supports_video":false,"supports_audio_only":true,"host_owns_rss":true,"host_owns_directory_distribution":true,"forge_rss_hosting":false,"direct_spotify_upload":false,"idempotent_episode_create":false}'::jsonb;
+  expected_hash text;
+begin
+expected_hash := encode(extensions.digest(convert_to(caps::text,'UTF8'),'sha256'),'hex');
 insert into tongs.quench_destination_capability_revisions(
-  id,destination_scope_id,revision,previous_revision_id,contract_version,
+  id,destination_scope_id,revision,contract_version,
   capabilities_json,content_hash,adapter_version
 )
 select '82000000-0000-4000-8000-000000000003'::uuid,
   '81000000-0000-4000-8000-000000000002'::uuid,2,
-  '82000000-0000-4000-8000-000000000002'::uuid,
   'forge.quench-destination-capabilities.v1',caps,
-  encode(extensions.digest(convert_to(caps::text,'UTF8'),'sha256'),'hex'),'1.0.0'
-from (values ('{"provider":"transistor","audio_upload":true,"episode_draft_create":true,"episode_publish":true,"episode_schedule":true,"supports_experiment_intent":false,"supports_thumbnail_selection":false,"supports_thumbnail_rotation":false,"supports_schedule":true,"supports_premiere":false,"supports_video":false,"supports_audio_only":true,"host_owns_rss":true,"host_owns_directory_distribution":true,"forge_rss_hosting":false,"direct_spotify_upload":false,"idempotent_episode_create":false}'::jsonb)) x(caps);
+  expected_hash,'1.0.0'
+on conflict (id) do nothing;
+if not exists (
+  select 1 from tongs.quench_destination_capability_revisions r
+  where r.id='82000000-0000-4000-8000-000000000003'::uuid
+    and r.destination_scope_id='81000000-0000-4000-8000-000000000002'::uuid
+    and r.revision=2
+    and r.contract_version='forge.quench-destination-capabilities.v1'
+    and r.capabilities_json=caps and r.content_hash=expected_hash
+    and r.adapter_version='1.0.0'
+) then
+  raise exception 'Existing podcast-host capability differs from the expected immutable seed';
+end if;
+end $capability_seed$;
 update tongs.quench_destination_scopes
 set current_capability_revision_id='82000000-0000-4000-8000-000000000003'::uuid
 where id='81000000-0000-4000-8000-000000000002'::uuid;
@@ -60,9 +80,11 @@ begin
   v_definition := replace(v_definition,
     $find$(v_destination.provider='rss_host' and v_scope.platform<>'rss')$find$,
     $replace$(v_destination.provider='rss_host' and v_scope.platform<>'podcast_host')$replace$);
-  v_definition := replace(v_definition,
-    $find$if v_scope.platform='youtube' and coalesce(v_cap.capabilities_json->'video_upload','false'::jsonb)<>'true'::jsonb then return jsonb_build_object('disposition','blocked','code','publication_capability_incompatible'); end if;$find$,
-    $replace$if v_scope.platform='youtube' and coalesce(v_cap.capabilities_json->'video_upload','false'::jsonb)<>'true'::jsonb then return jsonb_build_object('disposition','blocked','code','publication_capability_incompatible'); end if; if v_scope.platform='podcast_host' and not tongs.quench_podcast_host_capability_is_compatible(v_cap.capabilities_json) then return jsonb_build_object('disposition','blocked','code','publication_capability_incompatible'); end if;$replace$);
+  if position($find$if v_scope.platform='podcast_host' and not tongs.quench_podcast_host_capability_is_compatible(v_cap.capabilities_json) then return jsonb_build_object('disposition','blocked','code','publication_capability_incompatible'); end if;$find$ in v_definition)=0 then
+    v_definition := replace(v_definition,
+      $find$if v_scope.platform='youtube' and coalesce(v_cap.capabilities_json->'video_upload','false'::jsonb)<>'true'::jsonb then return jsonb_build_object('disposition','blocked','code','publication_capability_incompatible'); end if;$find$,
+      $replace$if v_scope.platform='youtube' and coalesce(v_cap.capabilities_json->'video_upload','false'::jsonb)<>'true'::jsonb then return jsonb_build_object('disposition','blocked','code','publication_capability_incompatible'); end if; if v_scope.platform='podcast_host' and not tongs.quench_podcast_host_capability_is_compatible(v_cap.capabilities_json) then return jsonb_build_object('disposition','blocked','code','publication_capability_incompatible'); end if;$replace$);
+  end if;
   if position($find$v_scope.platform<>'podcast_host'$find$ in v_definition)=0
     or position($find$quench_podcast_host_capability_is_compatible$find$ in v_definition)=0 then
     raise exception 'Podcast-host operation authority patch failed';

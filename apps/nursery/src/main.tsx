@@ -66,6 +66,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
+          <Route path="/auth/callback/recovery" element={<AuthCallback />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/app/hammer/acceptance" element={withRouteFallback(<HammerAcceptanceRoute />, "Loading Hammer acceptance...")} />
 

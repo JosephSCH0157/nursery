@@ -7,6 +7,7 @@
 /login    /index.html    200
 /signup   /index.html    200
 /auth/callback  /index.html  200
+/auth/callback/*  /index.html  200
 /reset-password  /index.html  200
 /app/*    /index.html    200
 /         /app           302

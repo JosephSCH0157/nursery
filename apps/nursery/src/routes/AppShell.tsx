@@ -39,7 +39,6 @@ const WORKSPACE_REQUIRED_APP_SEGMENTS = new Set([
 const MOBILE_WARNING_TOOLS: Record<string, string> = {
   anvil: "Anvil",
   hammer: "Hammer",
-  quench: "Quench",
 };
 
 function getAppSegment(pathname: string): string | null {

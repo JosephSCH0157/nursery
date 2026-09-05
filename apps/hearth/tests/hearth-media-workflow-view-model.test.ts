@@ -72,6 +72,22 @@ test("canonical empty Reference Material child plans are accessible",()=>{
   assert.equal(workflow.stages[3]?.reviewAvailable,true);
 });
 
+test("verified zero Reference Material requirements cannot block episode completion",()=>{
+  const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:16,images:16,broll:0,referenceClips:0,referenceVisuals:0,version:4},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:16,completed:16,canonicalCount:16,projectionLoaded:true},referenceClips:{planned:0,completed:0,exists:false,authorityState:"available"},referenceVisuals:{planned:0,completed:0,exists:false,authorityState:"available"},broll:{planned:0,completed:0}}));
+  assert.equal(workflow.stages[3]?.status,"complete");
+  assert.equal(workflow.stages[3]?.reviewAvailable,true);
+  assert.equal(workflow.stages[5]?.status,"ready");
+  assert.equal(workflow.activeStage,"review");
+  assert.equal(workflow.overallStatus,"ready_for_review");
+});
+
+test("zero Reference Material remains fail-closed until both canonical authorities load",()=>{
+  const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:16,images:16,broll:0,referenceClips:0,referenceVisuals:0,version:4},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:16,completed:16,canonicalCount:16,projectionLoaded:true},referenceClips:{planned:0,completed:0,exists:false,authorityState:"error"},referenceVisuals:{planned:0,completed:0,exists:false,authorityState:"available"},broll:{planned:0,completed:0}}));
+  assert.equal(workflow.stages[3]?.status,"blocked");
+  assert.equal(workflow.stages[5]?.status,"blocked");
+  assert.equal(workflow.overallStatus,"in_progress");
+});
+
 test("upstream revision requests review without deleting downstream summaries",()=>{
   const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:3,images:2,broll:1,version:2},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:2,completed:2,canonicalCount:2,projectionLoaded:true},broll:{planned:1,completed:1},upstreamChanged:true}));
   assert.equal(workflow.activeStage,"visual_plan");assert.equal(workflow.stages[2]?.status,"blocked");assert.match(workflow.stages[2]?.summary??"",/2 of 2/);

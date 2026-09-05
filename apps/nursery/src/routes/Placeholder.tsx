@@ -4,7 +4,7 @@ import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
 import "./Placeholder.css";
 
 const WORKSPACE_REQUIRED_PLACEHOLDERS = new Set(["hearth", "hammer", "quench", "ledger", "calendar"]);
-const UNDER_CONSTRUCTION_TOOLS = new Set(["hammer", "bellows", "quench", "ledger"]);
+const UNDER_CONSTRUCTION_TOOLS = new Set(["hammer", "quench", "ledger"]);
 
 export default function Placeholder({ name }: { name: string }) {
   const shell = useOutletContext<AppShellContext>();

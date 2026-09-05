@@ -10,8 +10,8 @@ alter table tongs.quench_destination_scopes add constraint quench_destination_sc
 
 insert into tongs.quench_destination_scopes(id,scope_key,platform,adapter_id,execution_context,state)
 values('81000000-0000-4000-8000-000000000003','system:rumble:manual-handoff','rumble','forge.rumble.manual','manual_handoff','active');
-insert into tongs.quench_destination_capability_revisions(id,destination_scope_id,revision,previous_revision_id,contract_version,capabilities_json,content_hash,adapter_version)
-select '82000000-0000-4000-8000-000000000004','81000000-0000-4000-8000-000000000003',1,null,
+insert into tongs.quench_destination_capability_revisions(id,destination_scope_id,revision,contract_version,capabilities_json,content_hash,adapter_version)
+select '82000000-0000-4000-8000-000000000004','81000000-0000-4000-8000-000000000003',1,
  'forge.quench-manual-destination-capabilities.v1',caps,encode(extensions.digest(convert_to(caps::text,'UTF8'),'sha256'),'hex'),'1.0.0'
 from (values ('{"provider":"rumble","release_profiles":["video_episode"],"manual_video_upload":true,"manual_metadata_entry":true,"manual_thumbnail_upload":true,"manual_visibility_selection":true,"manual_schedule_intent":true,"creator_decides_channel":true,"creator_decides_licensing":true,"creator_decides_monetization":true,"creator_decides_syndication":true,"creator_decides_premiere":true,"api_authentication":false,"api_video_upload":false,"api_status_read":false,"api_delete":false,"idempotent_create":false,"safe_automatic_retry":false,"allowed_result_hosts":["rumble.com","www.rumble.com"]}'::jsonb))x(caps);
 update tongs.quench_destination_scopes set current_capability_revision_id='82000000-0000-4000-8000-000000000004' where id='81000000-0000-4000-8000-000000000003';

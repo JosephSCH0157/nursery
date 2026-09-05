@@ -48,7 +48,7 @@ export default function AnvilLoginPanel({ onSuccess }: Props) {
     setMsg(null);
 
     const { error } = await supabase.auth.resetPasswordForEmail(em, {
-      redirectTo: `${window.location.origin}/auth/callback`,
+      redirectTo: `${window.location.origin}/auth/callback/recovery`,
     });
 
     setBusy(false);

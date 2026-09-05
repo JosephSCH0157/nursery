@@ -340,3 +340,39 @@
   justify-content: flex-end;
   gap: 8px;
 }
+
+@media (max-width: 640px) {
+  .appshell-header {
+    gap: 8px;
+    padding: 10px 12px;
+  }
+
+  .appshell-header-left,
+  .appshell-workspace-group,
+  .appshell-workspace-stack,
+  .appshell-workspace-controls {
+    min-width: 0;
+  }
+
+  .appshell-workspace-label,
+  .appshell-workspace-button,
+  .appshell-cloud-pill,
+  .appshell-avatar,
+  .appshell-user-email {
+    display: none;
+  }
+
+  .appshell-workspace-select {
+    min-width: 0;
+    width: min(210px, 54vw);
+  }
+
+  .appshell-nav {
+    display: none;
+  }
+
+  .appshell-main {
+    min-width: 0;
+    padding: 8px;
+  }
+}

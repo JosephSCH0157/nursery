@@ -54,6 +54,7 @@ import { useEpisodePackageLoader } from "../hooks/visuals/useEpisodePackageLoade
 import { useVisualWorkspaceResetLifecycle } from "../hooks/visuals/useVisualWorkspaceResetLifecycle";
 import { shouldInvalidateMediaMapForScriptVersion } from "../lib/hearth-visual-artifact-authority";
 import { deriveHearthMediaWorkflow } from "../lib/hearth-media-workflow-view-model";
+import { subscribeToForgeUserAccessToken } from "../lib/tongs-fetch";
 import { useVisualSelectionHydration } from "../hooks/visuals/useVisualSelectionHydration";
 import { resolveWorkpieceId, resolveWorkspaceId } from "../lib/sources-repo";
 import {
@@ -2123,23 +2124,39 @@ export default function HearthShell({
     : "Ready";
   const [canonicalReferenceClipState, setCanonicalReferenceClipState] = useState<ReferenceClipState | null>(null);
   const [canonicalReferenceVisualState, setCanonicalReferenceVisualState] = useState<ReferenceVisualState | null>(null);
+  const [canonicalReferenceClipAuthorityState, setCanonicalReferenceClipAuthorityState] = useState<"available"|"loading"|"error">("loading");
+  const [canonicalReferenceVisualAuthorityState, setCanonicalReferenceVisualAuthorityState] = useState<"available"|"loading"|"error">("loading");
+  const canonicalReferenceClipRefreshSequence = useRef(0);
+  const canonicalReferenceVisualRefreshSequence = useRef(0);
   const [visualOpportunityDispositions, setVisualOpportunityDispositions] = useState<VisualOpportunityDisposition[]>([]);
   const refreshCanonicalReferenceClips = useCallback(async () => {
-    if (!workspaceId || !workpieceId) { setCanonicalReferenceClipState(null); return false; }
+    const sequence = ++canonicalReferenceClipRefreshSequence.current;
+    if (!workspaceId || !workpieceId) { setCanonicalReferenceClipState(null); setCanonicalReferenceClipAuthorityState("loading"); return false; }
+    setCanonicalReferenceClipAuthorityState("loading");
     const result = await readCanonicalReferenceClips(workspaceId, workpieceId);
-    if (!result.ok) return false;
+    if (sequence !== canonicalReferenceClipRefreshSequence.current) return false;
+    if (!result.ok) { setCanonicalReferenceClipAuthorityState("error"); return false; }
     setCanonicalReferenceClipState(result.data);
+    setCanonicalReferenceClipAuthorityState("available");
     return true;
   }, [workspaceId, workpieceId]);
   useEffect(() => { void refreshCanonicalReferenceClips(); }, [refreshCanonicalReferenceClips]);
   const refreshCanonicalReferenceVisuals = useCallback(async () => {
-    if (!workspaceId || !workpieceId) { setCanonicalReferenceVisualState(null); return false; }
+    const sequence = ++canonicalReferenceVisualRefreshSequence.current;
+    if (!workspaceId || !workpieceId) { setCanonicalReferenceVisualState(null); setCanonicalReferenceVisualAuthorityState("loading"); return false; }
+    setCanonicalReferenceVisualAuthorityState("loading");
     const result = await readCanonicalReferenceVisuals(workspaceId, workpieceId);
-    if (!result.ok) return false;
+    if (sequence !== canonicalReferenceVisualRefreshSequence.current) return false;
+    if (!result.ok) { setCanonicalReferenceVisualAuthorityState("error"); return false; }
     setCanonicalReferenceVisualState(result.data);
+    setCanonicalReferenceVisualAuthorityState("available");
     return true;
   }, [workspaceId, workpieceId]);
   useEffect(() => { void refreshCanonicalReferenceVisuals(); }, [refreshCanonicalReferenceVisuals]);
+  useEffect(() => subscribeToForgeUserAccessToken(() => {
+    void refreshCanonicalReferenceClips();
+    void refreshCanonicalReferenceVisuals();
+  }), [refreshCanonicalReferenceClips, refreshCanonicalReferenceVisuals]);
   const refreshVisualOpportunityDispositions = useCallback(async () => {
     if (!workspaceId || !workpieceId) { setVisualOpportunityDispositions([]); return false; }
     const result = await readVisualOpportunityDispositions(workspaceId, workpieceId);
@@ -2152,7 +2169,11 @@ export default function HearthShell({
   useEffect(() => {
     const listener = (event: Event) => {
       const detail = (event as CustomEvent<{ workspaceId?: string; workpieceId?: string; state?: ReferenceClipState | null }>).detail;
-      if (detail?.workspaceId === workspaceId && detail?.workpieceId === workpieceId && "state" in detail) setCanonicalReferenceClipState(detail.state ?? null);
+      if (detail?.workspaceId === workspaceId && detail?.workpieceId === workpieceId && "state" in detail) {
+        canonicalReferenceClipRefreshSequence.current += 1;
+        setCanonicalReferenceClipState(detail.state ?? null);
+        setCanonicalReferenceClipAuthorityState("available");
+      }
     };
     window.addEventListener("forge:canonical-reference-clips-progress", listener);
     return () => window.removeEventListener("forge:canonical-reference-clips-progress", listener);
@@ -2160,7 +2181,11 @@ export default function HearthShell({
   useEffect(() => {
     const listener = (event: Event) => {
       const detail = (event as CustomEvent<{ workspaceId?: string; workpieceId?: string; state?: ReferenceVisualState | null }>).detail;
-      if (detail?.workspaceId === workspaceId && detail?.workpieceId === workpieceId && "state" in detail) setCanonicalReferenceVisualState(detail.state ?? null);
+      if (detail?.workspaceId === workspaceId && detail?.workpieceId === workpieceId && "state" in detail) {
+        canonicalReferenceVisualRefreshSequence.current += 1;
+        setCanonicalReferenceVisualState(detail.state ?? null);
+        setCanonicalReferenceVisualAuthorityState("available");
+      }
     };
     window.addEventListener("forge:canonical-reference-visuals-progress", listener);
     return () => window.removeEventListener("forge:canonical-reference-visuals-progress", listener);
@@ -2205,11 +2230,13 @@ export default function HearthShell({
       planned: canonicalReferenceClipState?.opportunities.length ?? 0,
       completed: canonicalReferenceClipState?.opportunities.filter((opportunity) => opportunity.selectedRevisionIds.length > 0 || skippedReferenceClipIds.has(opportunity.id)).length ?? 0,
       exists: Boolean(canonicalReferenceClipState?.planRevisionId),
+      authorityState: canonicalReferenceClipAuthorityState,
     },
     referenceVisuals: {
       planned: canonicalReferenceVisualState?.opportunities.length ?? 0,
       completed: canonicalReferenceVisualState?.opportunities.filter((opportunity) => Boolean(opportunity.selectedCandidateRevisionId) || skippedReferenceVisualIds.has(opportunity.id)).length ?? 0,
       exists: Boolean(canonicalReferenceVisualState?.planRevisionId),
+      authorityState: canonicalReferenceVisualAuthorityState,
     },
     broll: { planned: brollBeats.length, completed: brollBeats.filter((beat) => beat.fulfillment_state === "resolved" && Boolean(beat.selected_asset_id)).length },
     upstreamChanged: visualPlanRevisionChanged,

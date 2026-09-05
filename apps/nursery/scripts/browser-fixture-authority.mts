@@ -190,7 +190,7 @@ export async function provisionBrowserFixtures(): Promise<BrowserFixtureManifest
   const now = new Date().toISOString();
   await requireSuccess(tongs.from("orgs").upsert({ id: orgId, name: `[fixture] Forge Browser Release ${config.projectRef}`, personal_owner_user_id: userId, created_by: userId, updated_at: now }), "Org");
   await requireSuccess(tongs.from("org_members").upsert({ org_id: orgId, user_id: userId, org_role: "owner", created_by: userId }, { onConflict: "org_id,user_id" }), "Org membership");
-  await requireSuccess(tongs.from("workspaces").upsert({ id: workspaceId, org_id: orgId, name: `[fixture] Browser Release ${config.projectRef}`, created_by: userId }), "Workspace");
+  await requireSuccess(tongs.from("workspaces").upsert({ id: workspaceId, org_id: orgId, name: `[fixture] Browser Release ${config.projectRef}`, created_by: userId, reference_material_review_enabled: true }), "Workspace");
   await requireSuccess(tongs.from("workspace_members").upsert({ workspace_id: workspaceId, user_id: userId, role: "owner", created_by: userId }, { onConflict: "workspace_id,user_id" }), "Workspace membership");
   await requireSuccess(tongs.from("account_balances").upsert({ user_id: userId, plan_item_id: "creator", plan_status: "active", plan_entitled: true }, { onConflict: "user_id" }), "Fixture plan entitlement");
   await requireSuccess(tongs.from("recording_sessions").delete().eq("workspace_id", workspaceId).eq("created_by", userId).like("title", `[fixture:${BROWSER_FIXTURE_NAMESPACE}]%`), "Stale fixture session cleanup");

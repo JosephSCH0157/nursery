@@ -13,6 +13,11 @@ export type BellowsLocalMediaReadinessState = {
   readonly deviceMessage: string;
   readonly deviceError: string | null;
   readonly hasPreview: boolean;
+  readonly audioInputs: readonly MediaDeviceInfo[];
+  readonly videoInputs: readonly MediaDeviceInfo[];
+  readonly selectedAudioInputId: string;
+  readonly selectedVideoInputId: string;
+  readonly setupRequested: boolean;
 };
 
 type BellowsLocalMediaRequestState = {
@@ -82,7 +87,7 @@ function describeDeviceMessage(readiness: BellowsParticipantReadiness): string {
   return "Bellows is checking local devices.";
 }
 
-async function requestLocalMedia(): Promise<{
+async function requestLocalMedia(selectedAudioInputId: string, selectedVideoInputId: string): Promise<{
   readiness: BellowsParticipantReadiness;
   stream: MediaStream | null;
   deviceError: string | null;
@@ -101,8 +106,8 @@ async function requestLocalMedia(): Promise<{
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({
-      audio: true,
-      video: true,
+      audio: selectedAudioInputId ? { deviceId: { exact: selectedAudioInputId } } : true,
+      video: selectedVideoInputId ? { deviceId: { exact: selectedVideoInputId } } : true,
     });
 
     return {
@@ -183,9 +188,17 @@ export function useBellowsLocalMediaReadiness(
   enabled: boolean,
 ): BellowsLocalMediaReadinessState & {
   readonly retryToken: number;
+  setup(): void;
+  selectAudioInput(deviceId: string): void;
+  selectVideoInput(deviceId: string): void;
   retry(): void;
 } {
   const [retryToken, setRetryToken] = useState(0);
+  const [setupRequested, setSetupRequested] = useState(false);
+  const [audioInputs, setAudioInputs] = useState<readonly MediaDeviceInfo[]>([]);
+  const [videoInputs, setVideoInputs] = useState<readonly MediaDeviceInfo[]>([]);
+  const [selectedAudioInputId, setSelectedAudioInputId] = useState("");
+  const [selectedVideoInputId, setSelectedVideoInputId] = useState("");
   const [requestState, setRequestState] = useState<BellowsLocalMediaRequestState>(
     enabled ? PENDING_BELLOWS_LOCAL_MEDIA_REQUEST_STATE : DISABLED_BELLOWS_LOCAL_MEDIA_REQUEST_STATE,
   );
@@ -197,7 +210,8 @@ export function useBellowsLocalMediaReadiness(
     audioActivity: "unknown",
   });
 
-  const effectiveRequestState = enabled
+  const mediaEnabled = enabled && setupRequested;
+  const effectiveRequestState = mediaEnabled
     ? (requestState.readiness.overall === "unknown" ? PENDING_BELLOWS_LOCAL_MEDIA_REQUEST_STATE : requestState)
     : DISABLED_BELLOWS_LOCAL_MEDIA_REQUEST_STATE;
   const stream = effectiveRequestState.stream;
@@ -213,13 +227,13 @@ export function useBellowsLocalMediaReadiness(
     : "unknown";
 
   useEffect(() => {
-    if (!enabled) {
+    if (!mediaEnabled) {
       return;
     }
 
     let active = true;
 
-    void requestLocalMedia()
+    void requestLocalMedia(selectedAudioInputId, selectedVideoInputId)
       .then((result) => {
         if (!active) {
           stopStream(result.stream);
@@ -235,6 +249,16 @@ export function useBellowsLocalMediaReadiness(
             deviceError: result.deviceError,
           };
         });
+        return navigator.mediaDevices.enumerateDevices();
+      })
+      .then((devices) => {
+        if (!active || !devices) return;
+        const nextAudio = devices.filter((device) => device.kind === "audioinput");
+        const nextVideo = devices.filter((device) => device.kind === "videoinput");
+        setAudioInputs(nextAudio);
+        setVideoInputs(nextVideo);
+        setSelectedAudioInputId((current) => current || nextAudio[0]?.deviceId || "");
+        setSelectedVideoInputId((current) => current || nextVideo[0]?.deviceId || "");
       })
       .catch((error) => {
         if (!active) return;
@@ -259,12 +283,24 @@ export function useBellowsLocalMediaReadiness(
     return () => {
       active = false;
     };
-  }, [enabled, retryToken]);
+  }, [mediaEnabled, retryToken, selectedAudioInputId, selectedVideoInputId]);
 
   useEffect(() => {
-    if (enabled) return;
+    if (!mediaEnabled || !navigator.mediaDevices?.addEventListener) return;
+    const refreshDevices = () => {
+      void navigator.mediaDevices.enumerateDevices().then((devices) => {
+        setAudioInputs(devices.filter((device) => device.kind === "audioinput"));
+        setVideoInputs(devices.filter((device) => device.kind === "videoinput"));
+      });
+    };
+    navigator.mediaDevices.addEventListener("devicechange", refreshDevices);
+    return () => navigator.mediaDevices.removeEventListener("devicechange", refreshDevices);
+  }, [mediaEnabled]);
+
+  useEffect(() => {
+    if (mediaEnabled) return;
     stopStream(stream);
-  }, [enabled, stream]);
+  }, [mediaEnabled, stream]);
 
   useEffect(() => {
     if (audioTracks.length === 0) {
@@ -320,6 +356,21 @@ export function useBellowsLocalMediaReadiness(
   }, [audioTracks, readiness.microphone, stream]);
 
   useEffect(() => {
+    if (!stream) return;
+    const handleEnded = () => {
+      setRequestState((current) => ({
+        ...current,
+        readiness: { microphone: "blocked", camera: "blocked", overall: "blocked" },
+        deviceMessage: "A selected device disconnected. Choose your devices again.",
+        deviceError: "A selected camera or microphone is no longer available.",
+      }));
+    };
+    const tracks = stream.getTracks();
+    tracks.forEach((track) => track.addEventListener("ended", handleEnded));
+    return () => tracks.forEach((track) => track.removeEventListener("ended", handleEnded));
+  }, [stream]);
+
+  useEffect(() => {
     return () => {
       stopStream(stream);
     };
@@ -333,7 +384,22 @@ export function useBellowsLocalMediaReadiness(
     deviceMessage,
     deviceError,
     hasPreview: Boolean(stream?.getVideoTracks().length),
+    audioInputs,
+    videoInputs,
+    selectedAudioInputId,
+    selectedVideoInputId,
+    setupRequested,
     retryToken,
+    setup() {
+      setSetupRequested(true);
+      setRetryToken((value) => value + 1);
+    },
+    selectAudioInput(deviceId: string) {
+      setSelectedAudioInputId(deviceId);
+    },
+    selectVideoInput(deviceId: string) {
+      setSelectedVideoInputId(deviceId);
+    },
     retry() {
       setRetryToken((value) => value + 1);
     },

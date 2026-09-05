@@ -191,6 +191,36 @@ export async function resolveTongsUserAccessToken(): Promise<string | null> {
   return resolveUserAccessTokenFromStorage();
 }
 
+export function subscribeToForgeUserAccessToken(
+  listener: () => void,
+): () => void {
+  if (typeof window === "undefined") return () => undefined;
+
+  const runtimeWindow = window as Window & typeof globalThis & {
+    __forge_supabase_client__?: {
+      auth?: {
+        onAuthStateChange?: (
+          callback: (event: string, session: unknown) => void,
+        ) => {
+          data?: {
+            subscription?: { unsubscribe?: () => void };
+          };
+        };
+      };
+    };
+  };
+  const auth = runtimeWindow.__forge_supabase_client__?.auth;
+  const subscribe = auth?.onAuthStateChange;
+  if (typeof subscribe !== "function") return () => undefined;
+
+  const result = subscribe.call(auth, (_event, session) => {
+    if (sanitizeAccessToken(extractAccessTokenFromAuthPayload(session))) {
+      listener();
+    }
+  });
+  return () => result?.data?.subscription?.unsubscribe?.();
+}
+
 function resolveFromQuery(): string | null {
   try {
     const params = new URLSearchParams(window.location.search);

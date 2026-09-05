@@ -63,6 +63,7 @@ export default function Login() {
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [passwordVisible, setPasswordVisible] = useState(false);
 
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState("");
@@ -126,7 +127,7 @@ export default function Login() {
     }
 
     setBusy(true);
-    const redirectTo = `${window.location.origin}/auth/callback?type=recovery`;
+    const redirectTo = `${window.location.origin}/auth/callback/recovery`;
 
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
@@ -201,16 +202,37 @@ export default function Login() {
               />
             </label>
 
-            <label className="forge-login-field">
-              <span>Password</span>
-              <input
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                type="password"
-                autoComplete="current-password"
-                required
-              />
-            </label>
+            <div className="forge-login-field">
+              <label htmlFor="forge-login-password">Password</label>
+              <div className="forge-login-password">
+                <input
+                  id="forge-login-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  type={passwordVisible ? "text" : "password"}
+                  autoComplete="current-password"
+                  required
+                />
+                <button
+                  type="button"
+                  className="forge-login-password__toggle"
+                  aria-label={passwordVisible ? "Hide password" : "Show password"}
+                  aria-pressed={passwordVisible}
+                  onClick={() => setPasswordVisible((visible) => !visible)}
+                >
+                  {passwordVisible ? (
+                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                      <path d="m3 3 18 18M10.6 10.7a2 2 0 0 0 2.7 2.7M9.9 4.2A10.7 10.7 0 0 1 12 4c5.5 0 9 5.1 9 5.1a15.8 15.8 0 0 1-2.2 2.7M6.6 6.6C4.4 8 3 10 3 10s3.5 5 9 5c1.2 0 2.3-.2 3.3-.7" />
+                    </svg>
+                  ) : (
+                    <svg aria-hidden="true" viewBox="0 0 24 24">
+                      <path d="M3 10s3.5-5 9-5 9 5 9 5-3.5 5-9 5-9-5-9-5Z" />
+                      <circle cx="12" cy="10" r="2.5" />
+                    </svg>
+                  )}
+                </button>
+              </div>
+            </div>
 
             <button type="submit" disabled={busy} className="forge-login-button forge-login-button--primary">
               {busy ? "Signing in..." : "Sign in"}

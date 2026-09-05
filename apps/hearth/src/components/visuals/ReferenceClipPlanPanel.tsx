@@ -5,6 +5,7 @@ import type { ExternalGenerationProvider } from "../../lib/hearth-visual-actiona
 import type { PromptPack } from "../../lib/hearth-visual-provider-profiles";
 import CanonicalReferenceMaterialPanel from "./CanonicalReferenceMaterialPanel";
 import { getReferenceMaterialRollout } from "../../lib/hearth-style-service";
+import { subscribeToForgeUserAccessToken } from "../../lib/tongs-fetch";
 
 type ReferenceClipPlanPanelProps = {
   canonicalWorkspaceId?: string | null;
@@ -637,13 +638,18 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
         cancelled = true;
       };
     }
-    setRollout("loading");
-    void getReferenceMaterialRollout(workspaceId).then((result) => {
-      if (cancelled) return;
-      setRollout(result.ok ? (result.data.enabled ? "enabled" : "disabled") : "unavailable");
-    });
+    const refreshRollout = () => {
+      setRollout("loading");
+      void getReferenceMaterialRollout(workspaceId).then((result) => {
+        if (cancelled) return;
+        setRollout(result.ok ? (result.data.enabled ? "enabled" : "disabled") : "unavailable");
+      });
+    };
+    refreshRollout();
+    const unsubscribeFromAuth = subscribeToForgeUserAccessToken(refreshRollout);
     return () => {
       cancelled = true;
+      unsubscribeFromAuth();
     };
   }, [workspaceId, workpieceId]);
 

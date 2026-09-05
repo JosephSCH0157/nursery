@@ -10,7 +10,7 @@ const GOOGLE_TOKEN = "https://oauth2.googleapis.com/token";
 const GOOGLE_USERINFO = "https://openidconnect.googleapis.com/v1/userinfo";
 const GOOGLE_REVOKE = "https://oauth2.googleapis.com/revoke";
 const YOUTUBE_CHANNELS = "https://www.googleapis.com/youtube/v3/channels?part=id,snippet,status&mine=true&maxResults=50";
-const SCOPES = ["openid", "email", "https://www.googleapis.com/auth/youtube.readonly", "https://www.googleapis.com/auth/youtube.upload"];
+const SCOPES = ["openid", "email", "https://www.googleapis.com/auth/youtube.readonly", "https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube.force-ssl"];
 
 type RpcResult = { data: unknown; error: { message: string } | null };
 export type PublishingRpc = { rpc(fn: string, params: Record<string, unknown>): Promise<RpcResult> };
@@ -103,7 +103,7 @@ function normalizeToken(body: Json, priorRefreshToken?: string, priorScopes: str
   const scopes = (string(body.scope) ?? "").split(/\s+/).filter(Boolean);
   if (!scopes.length) scopes.push(...priorScopes);
   const normalizedScopes = [...new Set(scopes)].sort();
-  for (const required of ["https://www.googleapis.com/auth/youtube.readonly", "https://www.googleapis.com/auth/youtube.upload"]) {
+  for (const required of ["https://www.googleapis.com/auth/youtube.readonly", "https://www.googleapis.com/auth/youtube.upload", "https://www.googleapis.com/auth/youtube.force-ssl"]) {
     if (!normalizedScopes.includes(required)) throw new YoutubeConnectionError("youtube_scope_insufficient");
   }
   const seconds = number(body.expires_in);
@@ -148,7 +148,7 @@ async function discoverAndPersist(args: { rpc: PublishingRpc; fetchImpl: typeof 
     const head = await rpc(args.rpc, "get_publishing_destination_capability_head", { p_destination_id: destinationId });
     await rpc(args.rpc, "commit_publishing_destination_capability_revision", {
       p_destination_id: destinationId, p_expected_revision: number(head.capability_revision), p_contract_version: "youtube-destination-capabilities/v1",
-      p_observation_source: "provider_api", p_capabilities: { video_upload: true, channel_id: channelId, scopes: args.token.scopes, scheduling: true, thumbnail_upload: true },
+      p_observation_source: "provider_api", p_capabilities: { video_upload: true, channel_id: channelId, scopes: args.token.scopes, scheduling: true, thumbnail_upload: true, caption_upload: args.token.scopes.includes("https://www.googleapis.com/auth/youtube.force-ssl") },
       p_adapter_id: "youtube-data-api-v3", p_adapter_version: "v3", p_observed_at: new Date().toISOString(),
     });
     destinationIds.push(destinationId);
