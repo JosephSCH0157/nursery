@@ -127,7 +127,7 @@ export default function Login() {
     }
 
     setBusy(true);
-    const redirectTo = `${window.location.origin}/auth/callback/recovery`;
+    const redirectTo = `${window.location.origin}/reset-password?type=recovery`;
 
     try {
       const { error } = await supabase.auth.resetPasswordForEmail(email, {
