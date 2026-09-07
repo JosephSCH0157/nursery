@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
-import { tongsSupabase } from "../lib/supabase";
+import { supabase, tongsSupabase } from "../lib/supabase";
 import { loadThumbnailLedgerIntelligence } from "../lib/thumbnail-ledger";
 import {
   formatCurrencyMicros,
@@ -146,7 +146,7 @@ export default function LedgerRoute() {
     const loadOwnerPurchases = async () => {
       setOwnerLoading(true);
       setOwnerError(null);
-      const { data: authData } = await tongsSupabase.auth.getUser();
+      const { data: authData } = await supabase.auth.getUser();
       if (cancelled) return;
       if (!authData.user) {
         setOwnerAccess("not_operator");
