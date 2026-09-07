@@ -20,6 +20,11 @@ import {
   inspectBrollMedia,
 } from "../../../packages/tongs/src/broll-acquisition.ts";
 import { renderCanonicalReferenceVisual } from "../../../packages/tongs/src/reference-visual-renderer.ts";
+import {
+  derivePosterWithForgeFfmpeg,
+  probeMediaWithForgeFfmpeg,
+  readForgeFfmpegClientConfig,
+} from "../server/forge-ffmpeg-client";
 import { resolveTongsRuntimeConfig, type ResolvedTongsRuntimeConfig } from "../server/tongs/tongs-runtime-config";
 import { ensureWorkpieceJobRunnerStarted } from "../server/tongs/workpiece-job-runner";
 
@@ -46,15 +51,50 @@ export type NurseryTongsProviderBoundary = {
   };
 };
 
+function detectTimedBrollMime(bytes: Uint8Array): "video/mp4" | "video/webm" | null {
+  if (bytes.length >= 12 && String.fromCharCode(...bytes.slice(4, 8)) === "ftyp") return "video/mp4";
+  if (bytes.length >= 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) return "video/webm";
+  return null;
+}
+
 export function resolveNurseryTongsProviderBoundary(
   config: ResolvedTongsRuntimeConfig,
   createRunwayProvider: (apiKey: string) => BrollVideoProvider = (apiKey) => new RunwayBrollVideoProvider(apiKey),
 ): NurseryTongsProviderBoundary {
   const runwayApiKey = config.options.runwayApiKey?.trim();
   const provider = runwayApiKey ? createRunwayProvider(runwayApiKey) : undefined;
+  const forgeFfmpeg = readForgeFfmpegClientConfig(process.env, { callerId: "netlify" });
   const acquisitionRuntime: BrollAcquisitionRuntime = {
-    inspectMedia: inspectBrollMedia,
-    derivePoster: deriveBrollPoster,
+    inspectMedia: async (bytes, expected) => {
+      if (!forgeFfmpeg || expected !== "video") return inspectBrollMedia(bytes, expected);
+      const mimeType = detectTimedBrollMime(bytes);
+      if (!mimeType) throw new Error("broll_media_signature_invalid");
+      const inspected = await probeMediaWithForgeFfmpeg({
+        client: forgeFfmpeg,
+        sourceBytes: bytes,
+        sourceFilename: mimeType === "video/mp4" ? "broll.mp4" : "broll.webm",
+        contentType: mimeType,
+      });
+      return {
+        bytes,
+        mimeType,
+        width: inspected.width,
+        height: inspected.height,
+        durationMs: inspected.durationMs,
+        hasAudioStream: inspected.hasAudio,
+        hasVideoStream: true,
+      };
+    },
+    derivePoster: async (video) => {
+      if (!forgeFfmpeg) return deriveBrollPoster(video);
+      const poster = await derivePosterWithForgeFfmpeg({
+        client: forgeFfmpeg,
+        sourceBytes: video.bytes,
+        sourceFilename: video.mimeType === "video/mp4" ? "broll.mp4" : "broll.webm",
+        contentType: video.mimeType,
+      });
+      return inspectBrollMedia(new Uint8Array(poster.posterBytes), "poster");
+    },
     fetchExternalMedia: fetchExternalBrollMedia,
     inspectReferenceImage: (bytes) => inspectBrollMedia(bytes, "poster"),
     fetchExternalBytes: fetchExternalMediaBytes,

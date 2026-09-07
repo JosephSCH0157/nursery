@@ -11,11 +11,14 @@ const HOST = process.env.HOST?.trim() || "0.0.0.0";
 const MAX_INPUT_BYTES = readPositiveInteger(process.env.MAX_INPUT_BYTES) ?? 64 * 1024 * 1024;
 const MAX_TRANSCODE_INPUT_BYTES = readPositiveInteger(process.env.MAX_TRANSCODE_INPUT_BYTES) ?? MAX_INPUT_BYTES;
 const MAX_PROBE_INPUT_BYTES = readPositiveInteger(process.env.MAX_PROBE_INPUT_BYTES) ?? MAX_INPUT_BYTES;
+const MAX_POSTER_INPUT_BYTES = readPositiveInteger(process.env.MAX_POSTER_INPUT_BYTES) ?? MAX_INPUT_BYTES;
 const MAX_BACKGROUND_EFFECT_INPUT_BYTES = readPositiveInteger(process.env.MAX_BACKGROUND_EFFECT_INPUT_BYTES) ?? MAX_INPUT_BYTES;
 const MAX_TRANSCODE_OUTPUT_BYTES = readPositiveInteger(process.env.MAX_TRANSCODE_OUTPUT_BYTES) ?? 512 * 1024 * 1024;
 const MAX_BACKGROUND_EFFECT_OUTPUT_BYTES = readPositiveInteger(process.env.MAX_BACKGROUND_EFFECT_OUTPUT_BYTES) ?? 1024 * 1024 * 1024;
+const MAX_POSTER_OUTPUT_BYTES = readPositiveInteger(process.env.MAX_POSTER_OUTPUT_BYTES) ?? 10 * 1024 * 1024;
 const MAX_TRANSCODE_DURATION_MS = readPositiveInteger(process.env.MAX_TRANSCODE_DURATION_MS) ?? 4 * 60 * 60_000;
 const MAX_PROBE_DURATION_MS = readPositiveInteger(process.env.MAX_PROBE_DURATION_MS) ?? 4 * 60 * 60_000;
+const MAX_POSTER_DURATION_MS = readPositiveInteger(process.env.MAX_POSTER_DURATION_MS) ?? 10 * 60_000;
 const MAX_BACKGROUND_EFFECT_DURATION_MS = readPositiveInteger(process.env.MAX_BACKGROUND_EFFECT_DURATION_MS) ?? 2 * 60 * 60_000;
 const FFMPEG_TIMEOUT_MS = readPositiveInteger(process.env.FFMPEG_TIMEOUT_MS) ?? 120_000;
 const BACKGROUND_EFFECT_TIMEOUT_MS = readPositiveInteger(process.env.BACKGROUND_EFFECT_TIMEOUT_MS) ?? 30 * 60_000;
@@ -25,6 +28,7 @@ const PROTECTED_ROUTE_CONFIG = new Map([
   ["GET /ffmpeg/version", { concurrency: 2, requestsPerWindow: readPositiveInteger(process.env.MAX_VERSION_REQUESTS_PER_MINUTE) ?? 20 }],
   ["POST /transcode/wav", { concurrency: readPositiveInteger(process.env.MAX_CONCURRENT_TRANSCODES) ?? 2, requestsPerWindow: readPositiveInteger(process.env.MAX_TRANSCODE_REQUESTS_PER_MINUTE) ?? 30 }],
   ["POST /probe/media", { concurrency: readPositiveInteger(process.env.MAX_CONCURRENT_PROBES) ?? 4, requestsPerWindow: readPositiveInteger(process.env.MAX_PROBE_REQUESTS_PER_MINUTE) ?? 60 }],
+  ["POST /derive/poster", { concurrency: readPositiveInteger(process.env.MAX_CONCURRENT_POSTERS) ?? 2, requestsPerWindow: readPositiveInteger(process.env.MAX_POSTER_REQUESTS_PER_MINUTE) ?? 30 }],
   ["POST /render/background-effect", { concurrency: readPositiveInteger(process.env.MAX_CONCURRENT_BACKGROUND_EFFECTS) ?? 1, requestsPerWindow: readPositiveInteger(process.env.MAX_BACKGROUND_EFFECT_REQUESTS_PER_MINUTE) ?? 6 }],
 ]);
 
@@ -421,6 +425,48 @@ async function handleProbeMedia(req, res) {
   }
 }
 
+async function handleDerivePoster(req, res) {
+  try {
+    const inputBuffer = await readRequestBuffer(req, MAX_POSTER_INPUT_BYTES);
+    if (inputBuffer.byteLength === 0) {
+      sendJson(res, 400, { ok: false, error: { message: "POST /derive/poster requires a non-empty binary body." } });
+      return;
+    }
+    const sourceName = req.headers["x-file-name"];
+    const sourceExt = typeof sourceName === "string" && sourceName.includes(".") ? path.extname(sourceName).slice(0, 16) : ".bin";
+    const output = await withTempDir(async (tempDir) => {
+      const inputPath = path.join(tempDir, `input${sourceExt}`);
+      const outputPath = path.join(tempDir, "poster.jpg");
+      await fsPromises.writeFile(inputPath, inputBuffer);
+      const inspection = await inspectMediaFile(inputPath);
+      assertDurationWithinLimit(inspection, MAX_POSTER_DURATION_MS, "Poster extraction");
+      await runCommand("ffmpeg", [
+        "-hide_banner",
+        "-loglevel", "error",
+        "-ss", "0.1",
+        "-i", inputPath,
+        "-frames:v", "1",
+        "-vf", "scale='min(1280,iw)':-2",
+        "-y",
+        outputPath,
+      ], FFMPEG_TIMEOUT_MS);
+      const bytes = await fsPromises.readFile(outputPath);
+      assertOutputWithinLimit(bytes, MAX_POSTER_OUTPUT_BYTES, "Poster extraction");
+      return bytes;
+    });
+    res.writeHead(200, {
+      "content-type": "image/jpeg",
+      "content-length": output.byteLength,
+      "cache-control": "no-store",
+      "x-forge-request-id": req.forgeContext.requestId,
+      "x-forge-output-format": "jpeg",
+    });
+    res.end(output);
+  } catch (error) {
+    sendJson(res, error.statusCode ?? 500, { ok: false, error: { message: error.message, stderr: error.stderr ?? null } });
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   const method = req.method ?? "GET";
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
@@ -460,6 +506,10 @@ const server = http.createServer(async (req, res) => {
     }
     if (method === "POST" && url.pathname === "/probe/media") {
       await runProtectedRoute(req, res, "POST /probe/media", handleProbeMedia);
+      return;
+    }
+    if (method === "POST" && url.pathname === "/derive/poster") {
+      await runProtectedRoute(req, res, "POST /derive/poster", handleDerivePoster);
       return;
     }
     if (method === "POST" && url.pathname === "/render/background-effect") {

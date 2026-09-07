@@ -13,6 +13,7 @@ process.env.FORGE_FFMPEG_NETLIFY_SERVICE_TOKEN_NEXT = tokens.netlifyNext;
 process.env.FORGE_FFMPEG_SUPABASE_SERVICE_TOKEN_CURRENT = tokens.supabase;
 process.env.FORGE_FFMPEG_WORKER_SERVICE_TOKEN_CURRENT = tokens.worker;
 process.env.MAX_TRANSCODE_INPUT_BYTES = "4";
+process.env.MAX_POSTER_INPUT_BYTES = "4";
 
 const { server } = await import("./server.mjs");
 
@@ -34,6 +35,12 @@ try {
     body: new Uint8Array([1]),
   });
   assert.equal(anonymous.status, 401);
+
+  const anonymousPoster = await fetch(`${baseUrl}/derive/poster`, {
+    method: "POST",
+    body: new Uint8Array([1]),
+  });
+  assert.equal(anonymousPoster.status, 401);
 
   const invalid = await fetch(`${baseUrl}/probe/media`, {
     method: "POST",
@@ -57,6 +64,14 @@ try {
   });
   assert.equal(rotated.status, 400);
   assert.equal(rotated.headers.get("x-forge-caller-id"), "netlify");
+
+  const poster = await fetch(`${baseUrl}/derive/poster`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${tokens.netlify}` },
+    body: new Uint8Array(),
+  });
+  assert.equal(poster.status, 400);
+  assert.equal(poster.headers.get("x-forge-caller-id"), "netlify");
 
   const supabase = await fetch(`${baseUrl}/probe/media`, {
     method: "POST",

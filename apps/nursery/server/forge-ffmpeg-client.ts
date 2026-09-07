@@ -117,6 +117,19 @@ export function readForgeFfmpegClientConfig(
   };
 }
 
+export interface ForgeFfmpegMediaInspection {
+  width: number;
+  height: number;
+  durationMs: number;
+  hasAudio: boolean;
+  requestId: string | null;
+}
+
+export interface ForgeFfmpegPosterResult {
+  posterBytes: Buffer;
+  requestId: string | null;
+}
+
 export function buildForgeFfmpegRequestHeaders(
   client: ForgeFfmpegClientConfig,
   headers: Record<string, string> = {},
@@ -197,4 +210,74 @@ export async function transcodeToWavWithForgeFfmpeg(args: {
   }
 
   throw lastError ?? new Error("Forge FFmpeg working-audio transcode failed.");
+}
+
+export async function probeMediaWithForgeFfmpeg(args: {
+  client: ForgeFfmpegClientConfig;
+  sourceBytes: Uint8Array;
+  sourceFilename?: string | null;
+  contentType?: string | null;
+}): Promise<ForgeFfmpegMediaInspection> {
+  const timeout = createTimeoutAbortController(args.client.timeoutMs);
+  try {
+    const response = await fetch(`${args.client.baseUrl}/probe/media`, {
+      method: "POST",
+      headers: buildForgeFfmpegRequestHeaders(args.client, {
+        "content-type": readTrimmed(args.contentType) ?? "application/octet-stream",
+        ...(readTrimmed(args.sourceFilename) ? { "x-file-name": readTrimmed(args.sourceFilename)! } : {}),
+      }),
+      body: new Uint8Array(args.sourceBytes),
+      signal: timeout.controller.signal,
+    });
+    if (!response.ok) throw new Error(`Forge FFmpeg media probe failed: ${await readForgeFfmpegErrorMessage(response)}`);
+    const payload = await response.json() as { inspection?: { width?: unknown; height?: unknown; duration_ms?: unknown; has_audio?: unknown } };
+    const width = Number(payload.inspection?.width);
+    const height = Number(payload.inspection?.height);
+    const durationMs = Number(payload.inspection?.duration_ms);
+    if (!Number.isInteger(width) || width <= 0 || !Number.isInteger(height) || height <= 0
+      || !Number.isFinite(durationMs) || durationMs <= 0) {
+      throw new Error("Forge FFmpeg media probe returned incomplete metadata.");
+    }
+    return {
+      width,
+      height,
+      durationMs,
+      hasAudio: payload.inspection?.has_audio === true,
+      requestId: readTrimmed(response.headers.get("x-forge-request-id")),
+    };
+  } catch (error) {
+    if (timeout.controller.signal.aborted) throw new Error(`Forge FFmpeg media probe timed out after ${args.client.timeoutMs}ms.`);
+    throw error;
+  } finally {
+    timeout.dispose();
+  }
+}
+
+export async function derivePosterWithForgeFfmpeg(args: {
+  client: ForgeFfmpegClientConfig;
+  sourceBytes: Uint8Array;
+  sourceFilename?: string | null;
+  contentType?: string | null;
+}): Promise<ForgeFfmpegPosterResult> {
+  const timeout = createTimeoutAbortController(args.client.timeoutMs);
+  try {
+    const response = await fetch(`${args.client.baseUrl}/derive/poster`, {
+      method: "POST",
+      headers: buildForgeFfmpegRequestHeaders(args.client, {
+        "content-type": readTrimmed(args.contentType) ?? "application/octet-stream",
+        ...(readTrimmed(args.sourceFilename) ? { "x-file-name": readTrimmed(args.sourceFilename)! } : {}),
+      }),
+      body: new Uint8Array(args.sourceBytes),
+      signal: timeout.controller.signal,
+    });
+    if (!response.ok) throw new Error(`Forge FFmpeg poster extraction failed: ${await readForgeFfmpegErrorMessage(response)}`);
+    const posterBytes = Buffer.from(await response.arrayBuffer());
+    if (posterBytes.byteLength === 0) throw new Error("Forge FFmpeg poster extraction returned an empty response body.");
+    return { posterBytes, requestId: readTrimmed(response.headers.get("x-forge-request-id")) };
+  } catch (error) {
+    if (timeout.controller.signal.aborted) throw new Error(`Forge FFmpeg poster extraction timed out after ${args.client.timeoutMs}ms.`);
+    throw error;
+  } finally {
+    timeout.dispose();
+  }
 }
