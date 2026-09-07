@@ -23,6 +23,7 @@ import {
 } from "../../../hammer/src/lib/hammerVisualPlacements";
 import { detectHammerMediaRuntime } from "../../scripts/hammer-media-runtime";
 import {
+  buildHammerForgeFfmpegRequestHeaders,
   readHammerForgeFfmpegClientConfig,
   transcodeToWorkingWavWithForgeFfmpeg,
 } from "../../scripts/hammer-forge-ffmpeg-client";
@@ -96,7 +97,7 @@ async function runFinalVideoRenderJob(deps: RunnerDeps, job: WorkpieceJobRow): P
     ]);
     const client = readHammerForgeFfmpegClientConfig();
     if (!client) throw new Error("Forge media runtime is not configured for final video rendering.");
-    const response = await fetch(`${client.baseUrl}/render/background-effect`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ source_base64: Buffer.from(source.bytes).toString("base64"), audio_master_base64: Buffer.from(audio).toString("base64"), replacement_asset_base64: replacement ? Buffer.from(replacement).toString("base64") : undefined, plan: effectPlan }), signal: AbortSignal.timeout(Math.max(client.timeoutMs, 30 * 60_000)) });
+    const response = await fetch(`${client.baseUrl}/render/background-effect`, { method: "POST", headers: buildHammerForgeFfmpegRequestHeaders(client, { "content-type": "application/json" }), body: JSON.stringify({ source_base64: Buffer.from(source.bytes).toString("base64"), audio_master_base64: Buffer.from(audio).toString("base64"), replacement_asset_base64: replacement ? Buffer.from(replacement).toString("base64") : undefined, plan: effectPlan }), signal: AbortSignal.timeout(Math.max(client.timeoutMs, 30 * 60_000)) });
     if (!response.ok) throw new Error(`Forge final video render failed (${response.status}).`);
     const output = Buffer.from(await response.arrayBuffer());
     const encodedEvidence = response.headers.get("x-forge-render-evidence");

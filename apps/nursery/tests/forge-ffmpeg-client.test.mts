@@ -42,9 +42,12 @@ async function testReadConfig(): Promise<void> {
   const config = readHammerForgeFfmpegClientConfig({
     HAMMER_FORGE_FFMPEG_BASE_URL: "https://forge-ffmpeg.fly.dev/",
     HAMMER_FORGE_FFMPEG_TIMEOUT_MS: "45000",
+    HAMMER_FORGE_FFMPEG_SERVICE_TOKEN_CURRENT: "test-worker-service-token-0000000000000001",
   } as NodeJS.ProcessEnv);
   assert.deepEqual(config, {
     baseUrl: "https://forge-ffmpeg.fly.dev",
+    callerId: "worker",
+    serviceToken: "test-worker-service-token-0000000000000001",
     timeoutMs: 45000,
     maxAttempts: 2,
     retryDelayMs: 400,
@@ -54,6 +57,7 @@ async function testReadConfig(): Promise<void> {
 async function testTranscodeSuccess(): Promise<void> {
   let seenContentType: string | null = null;
   let seenFileName: string | null = null;
+  let seenAuthorization: string | null = null;
   let seenBodyBytes = 0;
   const server = await startServer({
     responseBody: Buffer.from("RIFFfakewave", "utf8"),
@@ -66,6 +70,7 @@ async function testTranscodeSuccess(): Promise<void> {
     onRequest: (req, body) => {
       seenContentType = req.headers["content-type"] as string | null;
       seenFileName = req.headers["x-file-name"] as string | null;
+      seenAuthorization = req.headers.authorization ?? null;
       seenBodyBytes = body.byteLength;
     },
   });
@@ -73,6 +78,8 @@ async function testTranscodeSuccess(): Promise<void> {
     const result = await transcodeToWorkingWavWithForgeFfmpeg({
       client: {
         baseUrl: server.baseUrl,
+        callerId: "worker",
+        serviceToken: "test-worker-service-token-0000000000000001",
         timeoutMs: 5_000,
         maxAttempts: 1,
         retryDelayMs: 1,
@@ -83,6 +90,7 @@ async function testTranscodeSuccess(): Promise<void> {
     });
     assert.equal(seenContentType, "audio/mp4");
     assert.equal(seenFileName, "input.m4a");
+    assert.equal(seenAuthorization, "Bearer test-worker-service-token-0000000000000001");
     assert.equal(seenBodyBytes, 4);
     assert.equal(result.requestId, "req_123");
     assert.equal(result.outputFormat, "wav");
@@ -110,6 +118,8 @@ async function testTranscodeFailure(): Promise<void> {
       () => transcodeToWorkingWavWithForgeFfmpeg({
         client: {
           baseUrl: server.baseUrl,
+          callerId: "worker",
+          serviceToken: "test-worker-service-token-0000000000000001",
           timeoutMs: 5_000,
           maxAttempts: 1,
           retryDelayMs: 1,
@@ -154,7 +164,9 @@ async function testTranscodeRetriesTransientFailure(): Promise<void> {
   try {
     const result = await transcodeToWorkingWavWithForgeFfmpeg({
       client: {
-        baseUrl: server.baseUrl,
+      baseUrl: server.baseUrl,
+      callerId: "worker",
+      serviceToken: "test-worker-service-token-0000000000000001",
         timeoutMs: 5_000,
         maxAttempts: 2,
         retryDelayMs: 1,

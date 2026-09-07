@@ -9,8 +9,27 @@ import { parseFfprobeMedia } from "./media-probe.mjs";
 const PORT = readPositiveInteger(process.env.PORT) ?? 8080;
 const HOST = process.env.HOST?.trim() || "0.0.0.0";
 const MAX_INPUT_BYTES = readPositiveInteger(process.env.MAX_INPUT_BYTES) ?? 64 * 1024 * 1024;
+const MAX_TRANSCODE_INPUT_BYTES = readPositiveInteger(process.env.MAX_TRANSCODE_INPUT_BYTES) ?? MAX_INPUT_BYTES;
+const MAX_PROBE_INPUT_BYTES = readPositiveInteger(process.env.MAX_PROBE_INPUT_BYTES) ?? MAX_INPUT_BYTES;
+const MAX_BACKGROUND_EFFECT_INPUT_BYTES = readPositiveInteger(process.env.MAX_BACKGROUND_EFFECT_INPUT_BYTES) ?? MAX_INPUT_BYTES;
+const MAX_TRANSCODE_OUTPUT_BYTES = readPositiveInteger(process.env.MAX_TRANSCODE_OUTPUT_BYTES) ?? 512 * 1024 * 1024;
+const MAX_BACKGROUND_EFFECT_OUTPUT_BYTES = readPositiveInteger(process.env.MAX_BACKGROUND_EFFECT_OUTPUT_BYTES) ?? 1024 * 1024 * 1024;
+const MAX_TRANSCODE_DURATION_MS = readPositiveInteger(process.env.MAX_TRANSCODE_DURATION_MS) ?? 4 * 60 * 60_000;
+const MAX_PROBE_DURATION_MS = readPositiveInteger(process.env.MAX_PROBE_DURATION_MS) ?? 4 * 60 * 60_000;
+const MAX_BACKGROUND_EFFECT_DURATION_MS = readPositiveInteger(process.env.MAX_BACKGROUND_EFFECT_DURATION_MS) ?? 2 * 60 * 60_000;
 const FFMPEG_TIMEOUT_MS = readPositiveInteger(process.env.FFMPEG_TIMEOUT_MS) ?? 120_000;
 const BACKGROUND_EFFECT_TIMEOUT_MS = readPositiveInteger(process.env.BACKGROUND_EFFECT_TIMEOUT_MS) ?? 30 * 60_000;
+const RATE_LIMIT_WINDOW_MS = 60_000;
+
+const PROTECTED_ROUTE_CONFIG = new Map([
+  ["GET /ffmpeg/version", { concurrency: 2, requestsPerWindow: readPositiveInteger(process.env.MAX_VERSION_REQUESTS_PER_MINUTE) ?? 20 }],
+  ["POST /transcode/wav", { concurrency: readPositiveInteger(process.env.MAX_CONCURRENT_TRANSCODES) ?? 2, requestsPerWindow: readPositiveInteger(process.env.MAX_TRANSCODE_REQUESTS_PER_MINUTE) ?? 30 }],
+  ["POST /probe/media", { concurrency: readPositiveInteger(process.env.MAX_CONCURRENT_PROBES) ?? 4, requestsPerWindow: readPositiveInteger(process.env.MAX_PROBE_REQUESTS_PER_MINUTE) ?? 60 }],
+  ["POST /render/background-effect", { concurrency: readPositiveInteger(process.env.MAX_CONCURRENT_BACKGROUND_EFFECTS) ?? 1, requestsPerWindow: readPositiveInteger(process.env.MAX_BACKGROUND_EFFECT_REQUESTS_PER_MINUTE) ?? 6 }],
+]);
+
+const activeRouteCounts = new Map();
+const rateLimitWindows = new Map();
 
 function readPositiveInteger(value) {
   if (!value) return null;
@@ -28,34 +47,27 @@ function sendJson(res, statusCode, payload) {
   res.end(body);
 }
 
-function sendText(res, statusCode, text, contentType = "text/plain; charset=utf-8") {
-  const body = Buffer.from(text);
-  res.writeHead(statusCode, {
-    "content-type": contentType,
-    "content-length": body.byteLength,
-    "cache-control": "no-store",
-  });
-  res.end(body);
-}
-
 function readRequestBuffer(req, maxBytes) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let totalBytes = 0;
+    let rejected = false;
 
     req.on("data", (chunk) => {
+      if (rejected) return;
       totalBytes += chunk.length;
+      if (req.forgeContext) req.forgeContext.inputBytes = totalBytes;
       if (totalBytes > maxBytes) {
+        rejected = true;
         reject(Object.assign(new Error(`Request body exceeds ${maxBytes} bytes.`), { statusCode: 413 }));
-        req.destroy();
         return;
       }
       chunks.push(chunk);
     });
 
-    req.on("end", () => resolve(Buffer.concat(chunks)));
-    req.on("error", reject);
-    req.on("aborted", () => reject(Object.assign(new Error("Request aborted."), { statusCode: 499 })));
+    req.on("end", () => { if (!rejected) resolve(Buffer.concat(chunks)); });
+    req.on("error", (error) => { if (!rejected) reject(error); });
+    req.on("aborted", () => { if (!rejected) reject(Object.assign(new Error("Request aborted."), { statusCode: 499 })); });
   });
 }
 
@@ -120,18 +132,135 @@ async function handleHealth(_req, res) {
   sendJson(res, 200, {
     ok: true,
     service: "forge-ffmpeg",
-    timestamp: new Date().toISOString(),
-    limits: {
-      max_input_bytes: MAX_INPUT_BYTES,
-      ffmpeg_timeout_ms: FFMPEG_TIMEOUT_MS,
-    },
-    routes: {
-      health: "/health",
-      ffmpeg_version: "/ffmpeg/version",
-      transcode_wav: "/transcode/wav",
-      render_background_effect: "/render/background-effect",
-    },
   });
+}
+
+async function inspectMediaFile(filePath) {
+  const result = await runCommand(
+    "ffprobe",
+    ["-v", "error", "-show_streams", "-show_format", "-of", "json", filePath],
+    Math.min(FFMPEG_TIMEOUT_MS, 30_000),
+  );
+  return parseFfprobeMedia(JSON.parse(result.stdout));
+}
+
+function assertDurationWithinLimit(inspection, maximumDurationMs, routeLabel) {
+  const durationMs = Number(inspection?.duration_ms);
+  if (!Number.isFinite(durationMs) || durationMs < 0) {
+    throw Object.assign(new Error(`${routeLabel} input duration could not be verified.`), { statusCode: 422 });
+  }
+  if (durationMs > maximumDurationMs) {
+    throw Object.assign(new Error(`${routeLabel} input exceeds the ${maximumDurationMs}ms duration limit.`), { statusCode: 413 });
+  }
+}
+
+function assertOutputWithinLimit(bytes, maximumBytes, routeLabel) {
+  if (bytes.byteLength > maximumBytes) {
+    throw Object.assign(new Error(`${routeLabel} output exceeds the ${maximumBytes}-byte limit.`), { statusCode: 413 });
+  }
+}
+
+function readSecret(value) {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length >= 32 ? trimmed : null;
+}
+
+function tokenDigest(value) {
+  return crypto.createHash("sha256").update(value, "utf8").digest();
+}
+
+function loadServiceCredentials() {
+  const credentials = [];
+  const definitions = [
+    ["netlify", "FORGE_FFMPEG_NETLIFY_SERVICE_TOKEN_CURRENT", "FORGE_FFMPEG_NETLIFY_SERVICE_TOKEN_NEXT"],
+    ["supabase", "FORGE_FFMPEG_SUPABASE_SERVICE_TOKEN_CURRENT", "FORGE_FFMPEG_SUPABASE_SERVICE_TOKEN_NEXT"],
+    ["worker", "FORGE_FFMPEG_WORKER_SERVICE_TOKEN_CURRENT", "FORGE_FFMPEG_WORKER_SERVICE_TOKEN_NEXT"],
+  ];
+  for (const [callerId, currentName, nextName] of definitions) {
+    for (const [generation, name] of [["current", currentName], ["next", nextName]]) {
+      const token = readSecret(process.env[name]);
+      if (token) credentials.push({ callerId, generation, digest: tokenDigest(token) });
+    }
+  }
+
+  const seen = new Set();
+  for (const credential of credentials) {
+    const encoded = credential.digest.toString("hex");
+    if (seen.has(encoded)) {
+      return { credentials: [], error: "Service credentials must be unique per caller and rotation slot." };
+    }
+    seen.add(encoded);
+  }
+  return credentials.length > 0
+    ? { credentials, error: null }
+    : { credentials: [], error: "No valid service credentials are configured." };
+}
+
+const SERVICE_AUTH = loadServiceCredentials();
+
+function authenticateServiceRequest(req) {
+  if (SERVICE_AUTH.error) {
+    throw Object.assign(new Error("Forge FFmpeg service authentication is unavailable."), { statusCode: 503 });
+  }
+  const authorization = req.headers.authorization;
+  if (typeof authorization !== "string" || !authorization.startsWith("Bearer ")) {
+    throw Object.assign(new Error("Service authentication required."), { statusCode: 401 });
+  }
+  const token = readSecret(authorization.slice("Bearer ".length));
+  if (!token) throw Object.assign(new Error("Invalid service credential."), { statusCode: 401 });
+  const candidate = tokenDigest(token);
+  const match = SERVICE_AUTH.credentials.find((credential) => crypto.timingSafeEqual(credential.digest, candidate));
+  if (!match) throw Object.assign(new Error("Invalid service credential."), { statusCode: 401 });
+  return { callerId: match.callerId, generation: match.generation };
+}
+
+function consumeRateLimit(callerId, routeKey, maximum) {
+  const now = Date.now();
+  const key = `${callerId}:${routeKey}`;
+  const existing = rateLimitWindows.get(key);
+  if (!existing || now - existing.startedAt >= RATE_LIMIT_WINDOW_MS) {
+    rateLimitWindows.set(key, { startedAt: now, count: 1 });
+    return true;
+  }
+  if (existing.count >= maximum) return false;
+  existing.count += 1;
+  return true;
+}
+
+async function runProtectedRoute(req, res, routeKey, handler) {
+  let identity;
+  try {
+    identity = authenticateServiceRequest(req);
+  } catch (error) {
+    sendJson(res, error.statusCode ?? 401, { ok: false, error: { message: error.message } });
+    return;
+  }
+  req.forgeContext.callerId = identity.callerId;
+  res.setHeader("x-forge-caller-id", identity.callerId);
+
+  const config = PROTECTED_ROUTE_CONFIG.get(routeKey);
+  if (!config) {
+    sendJson(res, 500, { ok: false, error: { message: "Protected route configuration is missing." } });
+    return;
+  }
+  if (!consumeRateLimit(identity.callerId, routeKey, config.requestsPerWindow)) {
+    sendJson(res, 429, { ok: false, retryable: true, error: { message: "Caller rate limit exceeded." } });
+    return;
+  }
+  const active = activeRouteCounts.get(routeKey) ?? 0;
+  if (active >= config.concurrency) {
+    sendJson(res, 429, { ok: false, retryable: true, error: { message: "Route concurrency limit reached." } });
+    return;
+  }
+  activeRouteCounts.set(routeKey, active + 1);
+  try {
+    await handler(req, res);
+  } finally {
+    const remaining = Math.max(0, (activeRouteCounts.get(routeKey) ?? 1) - 1);
+    if (remaining === 0) activeRouteCounts.delete(routeKey);
+    else activeRouteCounts.set(routeKey, remaining);
+  }
 }
 
 function decodeBase64Field(payload, field, required = true) {
@@ -147,7 +276,7 @@ function decodeBase64Field(payload, field, required = true) {
 
 async function handleBackgroundEffectRender(req, res) {
   try {
-    const body = await readRequestBuffer(req, MAX_INPUT_BYTES);
+    const body = await readRequestBuffer(req, MAX_BACKGROUND_EFFECT_INPUT_BYTES);
     const payload = JSON.parse(body.toString("utf8"));
     if (!payload?.plan || typeof payload.plan !== "object") throw Object.assign(new Error("plan is required."), { statusCode: 400 });
     const source = decodeBase64Field(payload, "source_base64");
@@ -160,6 +289,8 @@ async function handleBackgroundEffectRender(req, res) {
       const planPath = path.join(tempDir, "background-effect-plan.json");
       const outputPath = path.join(tempDir, "video-master.mp4");
       await fsPromises.writeFile(sourcePath, source);
+      const sourceInspection = await inspectMediaFile(sourcePath);
+      assertDurationWithinLimit(sourceInspection, MAX_BACKGROUND_EFFECT_DURATION_MS, "Background-effect render");
       await fsPromises.writeFile(planPath, JSON.stringify(payload.plan));
       if (audioPath) await fsPromises.writeFile(audioPath, audio);
       if (replacementPath) await fsPromises.writeFile(replacementPath, replacement);
@@ -169,13 +300,15 @@ async function handleBackgroundEffectRender(req, res) {
       const executed = await runCommand("python", args, BACKGROUND_EFFECT_TIMEOUT_MS);
       const report = JSON.parse(executed.stdout.trim());
       if (!report?.ok || !report.evidence) throw new Error("Background-effect renderer returned invalid evidence.");
-      return { bytes: await fsPromises.readFile(outputPath), evidence: report.evidence };
+      const bytes = await fsPromises.readFile(outputPath);
+      assertOutputWithinLimit(bytes, MAX_BACKGROUND_EFFECT_OUTPUT_BYTES, "Background-effect render");
+      return { bytes, evidence: report.evidence };
     });
     res.writeHead(200, {
       "content-type": "video/mp4",
       "content-length": output.bytes.byteLength,
       "cache-control": "no-store",
-      "x-forge-request-id": buildRequestId(),
+      "x-forge-request-id": req.forgeContext.requestId,
       "x-forge-render-evidence": Buffer.from(JSON.stringify(output.evidence)).toString("base64url"),
     });
     res.end(output.bytes);
@@ -209,7 +342,7 @@ async function handleFfmpegVersion(_req, res) {
 
 async function handleTranscodeWav(req, res) {
   try {
-    const inputBuffer = await readRequestBuffer(req, MAX_INPUT_BYTES);
+    const inputBuffer = await readRequestBuffer(req, MAX_TRANSCODE_INPUT_BYTES);
     if (inputBuffer.byteLength === 0) {
       sendJson(res, 400, {
         ok: false,
@@ -218,7 +351,7 @@ async function handleTranscodeWav(req, res) {
       return;
     }
 
-    const requestId = buildRequestId();
+    const requestId = req.forgeContext.requestId;
     const sourceName = req.headers["x-file-name"];
     const sourceExt = typeof sourceName === "string" && sourceName.includes(".")
       ? path.extname(sourceName).slice(0, 16)
@@ -228,6 +361,8 @@ async function handleTranscodeWav(req, res) {
       const inputPath = path.join(tempDir, `input${sourceExt}`);
       const outputPath = path.join(tempDir, "output.wav");
       await fsPromises.writeFile(inputPath, inputBuffer);
+      const sourceInspection = await inspectMediaFile(inputPath);
+      assertDurationWithinLimit(sourceInspection, MAX_TRANSCODE_DURATION_MS, "WAV transcode");
       await runCommand("ffmpeg", [
         "-hide_banner",
         "-loglevel", "error",
@@ -240,6 +375,7 @@ async function handleTranscodeWav(req, res) {
         outputPath,
       ], FFMPEG_TIMEOUT_MS);
       const bytes = await fsPromises.readFile(outputPath);
+      assertOutputWithinLimit(bytes, MAX_TRANSCODE_OUTPUT_BYTES, "WAV transcode");
       return { bytes };
     });
 
@@ -266,7 +402,7 @@ async function handleTranscodeWav(req, res) {
 
 async function handleProbeMedia(req, res) {
   try {
-    const inputBuffer = await readRequestBuffer(req, MAX_INPUT_BYTES);
+    const inputBuffer = await readRequestBuffer(req, MAX_PROBE_INPUT_BYTES);
     if (inputBuffer.byteLength === 0) {
       sendJson(res, 400, { ok: false, error: { message: "POST /probe/media requires a non-empty binary body." } });
       return;
@@ -276,10 +412,10 @@ async function handleProbeMedia(req, res) {
     const result = await withTempDir(async (tempDir) => {
       const inputPath = path.join(tempDir, `input${sourceExt}`);
       await fsPromises.writeFile(inputPath, inputBuffer);
-      const probed = await runCommand("ffprobe", ["-v", "error", "-show_streams", "-show_format", "-of", "json", inputPath], FFMPEG_TIMEOUT_MS);
-      return JSON.parse(probed.stdout);
+      return inspectMediaFile(inputPath);
     });
-    sendJson(res, 200, { ok: true, inspection: parseFfprobeMedia(result) });
+    assertDurationWithinLimit(result, MAX_PROBE_DURATION_MS, "Media probe");
+    sendJson(res, 200, { ok: true, inspection: result });
   } catch (error) {
     sendJson(res, error.statusCode ?? 500, { ok: false, error: { message: error.message, stderr: error.stderr ?? null } });
   }
@@ -288,6 +424,24 @@ async function handleProbeMedia(req, res) {
 const server = http.createServer(async (req, res) => {
   const method = req.method ?? "GET";
   const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+  const requestId = buildRequestId();
+  const startedAt = Date.now();
+  req.forgeContext = { requestId, callerId: "public", inputBytes: 0 };
+  res.setHeader("x-forge-request-id", requestId);
+  res.on("finish", () => {
+    const outputLength = Number(res.getHeader("content-length"));
+    console.log(JSON.stringify({
+      event: "forge_ffmpeg_request",
+      request_id: requestId,
+      caller_id: req.forgeContext.callerId,
+      method,
+      route: url.pathname,
+      status: res.statusCode,
+      input_bytes: req.forgeContext.inputBytes,
+      output_bytes: Number.isFinite(outputLength) ? outputLength : null,
+      duration_ms: Date.now() - startedAt,
+    }));
+  });
 
   try {
     if (method === "GET" && url.pathname === "/health") {
@@ -296,25 +450,20 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (method === "GET" && url.pathname === "/ffmpeg/version") {
-      await handleFfmpegVersion(req, res);
+      await runProtectedRoute(req, res, "GET /ffmpeg/version", handleFfmpegVersion);
       return;
     }
 
     if (method === "POST" && url.pathname === "/transcode/wav") {
-      await handleTranscodeWav(req, res);
+      await runProtectedRoute(req, res, "POST /transcode/wav", handleTranscodeWav);
       return;
     }
     if (method === "POST" && url.pathname === "/probe/media") {
-      await handleProbeMedia(req, res);
+      await runProtectedRoute(req, res, "POST /probe/media", handleProbeMedia);
       return;
     }
     if (method === "POST" && url.pathname === "/render/background-effect") {
-      await handleBackgroundEffectRender(req, res);
-      return;
-    }
-
-    if (method === "GET" && url.pathname === "/") {
-      sendText(res, 200, "forge-ffmpeg is running\n");
+      await runProtectedRoute(req, res, "POST /render/background-effect", handleBackgroundEffectRender);
       return;
     }
 
@@ -334,14 +483,18 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, HOST, () => {
-  console.log(`forge-ffmpeg listening on http://${HOST}:${PORT}`);
-});
+export { server };
 
-process.on("SIGTERM", () => {
-  server.close(() => process.exit(0));
-});
+if (process.env.FORGE_FFMPEG_DISABLE_LISTEN !== "1") {
+  server.listen(PORT, HOST, () => {
+    console.log(`forge-ffmpeg listening on http://${HOST}:${PORT}`);
+  });
 
-process.on("SIGINT", () => {
-  server.close(() => process.exit(0));
-});
+  process.on("SIGTERM", () => {
+    server.close(() => process.exit(0));
+  });
+
+  process.on("SIGINT", () => {
+    server.close(() => process.exit(0));
+  });
+}

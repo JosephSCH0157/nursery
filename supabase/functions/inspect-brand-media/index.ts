@@ -13,7 +13,8 @@ serve(async (request) => {
   const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
   const anonKey = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
   const probeUrl = (Deno.env.get("FORGE_FFMPEG_BASE_URL") ?? "").replace(/\/+$/, "");
-  if (!supabaseUrl || !anonKey || !probeUrl) return json(503, { ok: false, retryable: true, error: { message: "Canonical media inspection is temporarily unavailable." } });
+  const probeServiceToken = Deno.env.get("FORGE_FFMPEG_SUPABASE_SERVICE_TOKEN_CURRENT")?.trim() ?? "";
+  if (!supabaseUrl || !anonKey || !probeUrl || probeServiceToken.length < 32) return json(503, { ok: false, retryable: true, error: { message: "Canonical media inspection is temporarily unavailable." } });
   const client = createClient(supabaseUrl, anonKey, { global: { headers: { Authorization: authorization } } });
   const body = await request.json().catch(() => null) as { revision_id?: unknown } | null;
   const revisionId = typeof body?.revision_id === "string" ? body.revision_id : "";
@@ -27,7 +28,7 @@ serve(async (request) => {
   if (stored.error) return json(503, { ok: false, retryable: true, error: { message: "The uploaded video is safe, but storage readback could not be completed." } });
   const bytes = await stored.data.arrayBuffer();
   const digest = await crypto.subtle.digest("SHA-256", bytes);
-  const probeResponse = await fetch(`${probeUrl}/probe/media`, { method: "POST", headers: { "content-type": "application/octet-stream", "x-file-name": revision.storage_key.split("/").at(-1) ?? "brand-video" }, body: bytes });
+  const probeResponse = await fetch(`${probeUrl}/probe/media`, { method: "POST", headers: { "authorization": `Bearer ${probeServiceToken}`, "content-type": "application/octet-stream", "x-file-name": revision.storage_key.split("/").at(-1) ?? "brand-video" }, body: bytes });
   const probe = await probeResponse.json().catch(() => null) as { ok?: boolean; inspection?: { width?: unknown; height?: unknown; duration_ms?: unknown; has_audio?: unknown; implementation?: unknown }; error?: { message?: unknown } } | null;
   if (!probeResponse.ok || probe?.ok !== true) return json(503, { ok: false, retryable: true, error: { message: "Video inspection could not be completed." }, details: { probe_implementation: "forge-ffprobe-json-v1" } });
   const width = Number(probe.inspection?.width); const height = Number(probe.inspection?.height); const duration = Number(probe.inspection?.duration_ms); const hasAudio = probe.inspection?.has_audio;

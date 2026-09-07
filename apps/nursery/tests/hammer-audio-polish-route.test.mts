@@ -378,6 +378,7 @@ async function main(): Promise<void> {
   }
 
   process.env.HAMMER_FORGE_FFMPEG_BASE_URL = "https://forge-ffmpeg.fly.dev";
+  process.env.HAMMER_FORGE_FFMPEG_SERVICE_TOKEN_CURRENT = "test-worker-service-token-0000000000000001";
 
   const tempRoot = await fsPromises.mkdtemp(path.join(os.tmpdir(), "hammer-audio-polish-route-test-"));
 

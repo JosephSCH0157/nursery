@@ -366,6 +366,11 @@ export function resolveAnvilWhisperRuntimeConfig(): AnvilWhisperRuntimeConfig {
         "FORGE_FFMPEG_RETRY_DELAY_MS",
         "HAMMER_FORGE_FFMPEG_RETRY_DELAY_MS",
       ],
+      serviceTokenEnvNames: [
+        "ANVIL_FORGE_FFMPEG_SERVICE_TOKEN_CURRENT",
+        "FORGE_FFMPEG_NETLIFY_SERVICE_TOKEN_CURRENT",
+      ],
+      callerId: "netlify",
     }),
   };
 }

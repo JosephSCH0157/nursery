@@ -2,6 +2,8 @@ import { Buffer } from "node:buffer";
 
 export interface ForgeFfmpegClientConfig {
   baseUrl: string;
+  callerId: "netlify" | "worker";
+  serviceToken: string;
   timeoutMs: number;
   maxAttempts: number;
   retryDelayMs: number;
@@ -20,6 +22,8 @@ export interface ReadForgeFfmpegClientConfigOptions {
   timeoutEnvNames?: string[];
   maxAttemptsEnvNames?: string[];
   retryDelayEnvNames?: string[];
+  serviceTokenEnvNames?: string[];
+  callerId?: ForgeFfmpegClientConfig["callerId"];
 }
 
 const DEFAULT_FORGE_FFMPEG_TIMEOUT_MS = 120_000;
@@ -95,15 +99,31 @@ export function readForgeFfmpegClientConfig(
   options: ReadForgeFfmpegClientConfigOptions = {},
 ): ForgeFfmpegClientConfig | null {
   const baseUrl = readFirstTrimmed(env, options.baseUrlEnvNames ?? ["FORGE_FFMPEG_BASE_URL"]);
-  if (!baseUrl) return null;
+  const serviceToken = readFirstTrimmed(
+    env,
+    options.serviceTokenEnvNames ?? ["FORGE_FFMPEG_NETLIFY_SERVICE_TOKEN_CURRENT"],
+  );
+  if (!baseUrl || !serviceToken || serviceToken.length < 32) return null;
   return {
     baseUrl: baseUrl.replace(/\/+$/, ""),
+    callerId: options.callerId ?? "netlify",
+    serviceToken,
     timeoutMs: readFirstPositiveInteger(env, options.timeoutEnvNames ?? ["FORGE_FFMPEG_TIMEOUT_MS"])
       ?? DEFAULT_FORGE_FFMPEG_TIMEOUT_MS,
     maxAttempts: readFirstPositiveInteger(env, options.maxAttemptsEnvNames ?? ["FORGE_FFMPEG_MAX_ATTEMPTS"])
       ?? DEFAULT_FORGE_FFMPEG_MAX_ATTEMPTS,
     retryDelayMs: readFirstPositiveInteger(env, options.retryDelayEnvNames ?? ["FORGE_FFMPEG_RETRY_DELAY_MS"])
       ?? DEFAULT_FORGE_FFMPEG_RETRY_DELAY_MS,
+  };
+}
+
+export function buildForgeFfmpegRequestHeaders(
+  client: ForgeFfmpegClientConfig,
+  headers: Record<string, string> = {},
+): Record<string, string> {
+  return {
+    ...headers,
+    authorization: `Bearer ${client.serviceToken}`,
   };
 }
 
@@ -130,10 +150,10 @@ export async function transcodeToWavWithForgeFfmpeg(args: {
       const sourceBytesBody = new Uint8Array(args.sourceBytes);
       const response = await fetch(`${args.client.baseUrl}/transcode/wav`, {
         method: "POST",
-        headers: {
+        headers: buildForgeFfmpegRequestHeaders(args.client, {
           "content-type": readTrimmed(args.contentType) ?? "application/octet-stream",
           ...(readTrimmed(args.sourceFilename) ? { "x-file-name": readTrimmed(args.sourceFilename)! } : {}),
-        },
+        }),
         body: sourceBytesBody,
         signal: timeout.controller.signal,
       });

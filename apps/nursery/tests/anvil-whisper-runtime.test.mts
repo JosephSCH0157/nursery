@@ -286,6 +286,8 @@ test("createAnvilWhisperHandler retries unsupported audio through forge-ffmpeg f
       supabaseServiceRoleKey: "service-role",
       ffmpegClient: {
         baseUrl: ffmpegServer.baseUrl,
+        callerId: "netlify",
+        serviceToken: "test-netlify-service-token-000000000000001",
         timeoutMs: 5_000,
         maxAttempts: 1,
         retryDelayMs: 1,

@@ -105,6 +105,7 @@ async function main(): Promise<void> {
   const originalFetch = globalThis.fetch;
   const originalTranscriptBackend = process.env.HAMMER_TRANSCRIPT_AUDIO_TRANSCODE_BACKEND;
   const originalForgeFfmpegBaseUrl = process.env.HAMMER_FORGE_FFMPEG_BASE_URL;
+  const originalForgeFfmpegServiceToken = process.env.HAMMER_FORGE_FFMPEG_SERVICE_TOKEN_CURRENT;
   const calls: FetchCall[] = [];
   const events: string[] = [];
   const transcriptionUploads: Array<{ type: string; name: string; bytes: Buffer }> = [];
@@ -121,6 +122,7 @@ async function main(): Promise<void> {
     events,
   });
   process.env.HAMMER_FORGE_FFMPEG_BASE_URL = ffmpegServer.baseUrl;
+  process.env.HAMMER_FORGE_FFMPEG_SERVICE_TOKEN_CURRENT = "test-worker-service-token-0000000000000001";
   process.env.HAMMER_TRANSCRIPT_AUDIO_TRANSCODE_BACKEND = "forge";
   const server = await listenServer((req, res) => {
     middleware(req, res, (error) => {
@@ -166,7 +168,7 @@ async function main(): Promise<void> {
       if (url.includes("/rest/v1/workspaces?id=eq.")) {
         return jsonResponse(200, [{ org_id: TEST_ORG_ID }]);
       }
-      if (url.endsWith("/rest/v1/rpc/resolve_ai_policy")) {
+      if (url.endsWith("/rest/v1/rpc/resolve_ai_access_policy")) {
         return jsonResponse(200, [{ decision_type: "ALLOW", reason_code: null }]);
       }
       if (url === "https://api.openai.com/v1/audio/transcriptions") {
@@ -350,6 +352,11 @@ async function main(): Promise<void> {
       delete process.env.HAMMER_FORGE_FFMPEG_BASE_URL;
     } else {
       process.env.HAMMER_FORGE_FFMPEG_BASE_URL = originalForgeFfmpegBaseUrl;
+    }
+    if (typeof originalForgeFfmpegServiceToken === "undefined") {
+      delete process.env.HAMMER_FORGE_FFMPEG_SERVICE_TOKEN_CURRENT;
+    } else {
+      process.env.HAMMER_FORGE_FFMPEG_SERVICE_TOKEN_CURRENT = originalForgeFfmpegServiceToken;
     }
     await fsPromises.rm(tempRoot, { recursive: true, force: true });
     await server.close();
