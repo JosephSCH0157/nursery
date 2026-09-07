@@ -5,6 +5,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import sharp from "sharp";
 import { assertSafeExternalMediaUrl, deriveBrollPoster, inspectBrollMedia } from "../dist/broll-acquisition.js";
 import { TongsCommitService, createTongsCommitApiHandlerWithService } from "../dist/workpiece-commit-api.js";
 
@@ -20,6 +21,14 @@ test("Tongs derives video and poster metadata from actual media bytes",async()=>
     const poster=await deriveBrollPoster(video);
     assert.equal(poster.mimeType,"image/jpeg");assert.ok(poster.width>0);assert.ok(poster.height>0);
   }finally{await rm(dir,{recursive:true,force:true});}
+});
+
+test("Reference-image inspection accepts genuine WebP bytes",async()=>{
+  const bytes=new Uint8Array(await sharp({create:{width:1200,height:675,channels:3,background:"#6b4423"}}).webp().toBuffer());
+  const image=await inspectBrollMedia(bytes,"poster");
+  assert.equal(image.mimeType,"image/webp");
+  assert.equal(image.width,1200);
+  assert.equal(image.height,675);
 });
 
 test("external acquisition rejects local and unsupported URLs before fetch",async()=>{

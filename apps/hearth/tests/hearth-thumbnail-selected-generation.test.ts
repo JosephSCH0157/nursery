@@ -34,10 +34,13 @@ test("Forge rendering publishes truthful shared AI activity", () => {
 
 test("generated base artwork is composed into a visible finished thumbnail", () => {
   assert.match(source, /const composite = await commitThumbnailLaunchComposite/);
+  assert.match(source, /setPkg\(composite\.episodePackage\)/);
+  assert.match(source, /setToken\(composite\.metadataUpdatedAt\)/);
+  assert.match(source, /Promise\.allSettled/);
   assert.match(source, /readCanonicalThumbnailWorkspaceV3/);
   assert.match(source, /readThumbnailCandidateAuthorityProjection/);
   assert.match(source, /setPkg\(canonicalAfterComposite\.episodePackage\)/);
-  assert.match(source, /setCandidateAuthority\(candidateAuthorityAfterComposite\)/);
+  assert.match(source, /if \(candidateAuthorityAfterComposite\) setCandidateAuthority\(candidateAuthorityAfterComposite\)/);
 });
 
 test("candidate cards render canonical composites and expose logo provenance", () => {

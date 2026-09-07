@@ -241,6 +241,7 @@ const CDC_REQUEST_RE = /\b(cdc|contextual data composite|chart|graph|plot|datase
 const RESEARCH_INTENT_RE = /\b(browse|look up|lookup|find(?: me)?|search|research|retrieval|web research|live research|live web research|news|reports?|reporting|examples?|case studies?|incidents?|breach(?:es)?|source|sources|citations?|evidence)\b/i;
 const URL_RE = /\bhttps?:\/\/[^\s<>"'`]+/gi;
 const CROSS_PROJECT_REFERENCE_RE = /\b(use|pull in|bring in|remember|recall|like|from)\b[\s\S]{0,120}\b(script|episode|project|conversation|workspace|last week|other chat|that)\b/i;
+const LISTENING_TURN_RE = /\b(are you with me(?: so far)?|do you follow(?: me)?|tracking(?: with me)?|you with me)\b/i;
 const OPINION_DISCUSSION_RE = /\b(my interpretation is|i think this means|i think\b|what do you think|am i reading this right|does this argument work|does this framing work|help me pressure[- ]?test|pressure[- ]?test this|i disagree|here is my opinion|my opinion is)\b/i;
 const WORKSPACE_CONTEXT_EXPLICIT_RE = /\b(use|pull|pull in|bring in|load|open|find|continue|compare|reference|grab|look at|work from|base this on|tighten|revise|rewrite)\b[\s\S]{0,120}\b(current|saved|previous|prior|earlier|last|other|workspace|project|episode|draft|script|version|notes?|bar stock|hearth|tongs|media map|framing pack|titles?|tags?)\b|\b(current|saved|previous|prior|earlier|last|other|workspace|project|episode|draft|script|version|notes?|bar stock|hearth|tongs|media map|framing pack|titles?|tags?)\b[\s\S]{0,120}\b(use|pull|pull in|bring in|load|open|find|continue|compare|reference|grab|look at|work from|base this on|tighten|revise|rewrite)\b/i;
 const WORKSPACE_OWNED_MATERIAL_RE = /\b(the episode we were working on|the project we were working on|the script we were working on|the draft i saved|saved draft|previous version|prior version|earlier draft|current episode draft|current script|current draft|current workspace|current project|current episode|bar stock|media map|framing pack)\b/i;
@@ -1325,6 +1326,7 @@ function buildSystemPrompt(
     researchResult?: HearthResearchResult | null;
     conversationResearchClaims?: HearthConversationClaimSnapshot | null;
     attachmentContextSnippet?: string | null;
+    listeningTurn?: boolean;
   },
 ): string {
   const baseLines = [
@@ -1573,6 +1575,16 @@ function buildSystemPrompt(
     "- Offer the bundle, then deliver clearly sectioned outputs when user confirms.",
     "- Keep output practical and shippable, not abstract commentary.",
   ];
+
+  if (options?.listeningTurn) {
+    baseLines.push(
+      "Listening-turn override (hard rule):",
+      "- The creator is still explaining an idea and is asking only whether you are following.",
+      "- Briefly acknowledge the direction in one or two natural sentences, then invite them to continue.",
+      "- Do not critique, outline, rewrite, add producer notes, propose production decisions, or ask format/host questions yet.",
+      "- This override takes precedence over momentum, critique, optimization, and concrete-next-step defaults for this turn.",
+    );
+  }
 
   if (options?.readinessCheck) {
     baseLines.push(
@@ -3617,7 +3629,10 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       const latestUserMessage = typeof latestUserMessageIndex === "number"
         ? messages[latestUserMessageIndex] ?? null
         : null;
-      const requestText = latestUserMessage?.content ?? "";
+      // Intent must be derived from creator-authored text, never from hidden UI
+      // writing-format or tone instructions appended to the provider message.
+      const requestText = readOptionalString(bodyRaw.user_authored_text)
+        ?? stripHearthInternalRequestInstructions(latestUserMessage?.content ?? "");
       const userId = await resolveUserId(bearerToken);
       const researchActorId = userId || (bearerToken ? crypto.createHash("sha256").update(bearerToken).digest("hex") : "anonymous");
       conversationResearchState.activate(researchActorId, episodeContext.workspaceId, episodeContext.episodeId);
@@ -4014,6 +4029,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       }
 
       const workspaceContextRequested = shouldUseWorkspaceContext(requestText);
+      const crossProjectRequested = isCrossProjectReferenceRequest(requestText);
 
       const styleGuidanceSections = framingPackRequested
         ? []
@@ -4033,15 +4049,15 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           : [];
       const recentScriptRefs = framingPackRequested
         ? []
-        : workspaceContextRequested
+        : crossProjectRequested
           ? await loadRecentScriptReferencesForToken(bearerToken, episodeContext.workspaceId)
           : [];
       const recentScriptExcerpts = framingPackRequested
         ? []
-        : workspaceContextRequested
+        : crossProjectRequested
           ? await loadRecentScriptExcerpts(recentScriptRefs)
           : [];
-      const crossProjectReference = framingPackRequested || !workspaceContextRequested
+      const crossProjectReference = framingPackRequested || !crossProjectRequested
         ? {
           detected: false,
           level: "unanchored" as const,
@@ -4132,6 +4148,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             researchResult,
             conversationResearchClaims: conversationResearchState.get(episodeContext.workspaceId, episodeContext.episodeId, researchActorId),
             attachmentContextSnippet,
+            listeningTurn: LISTENING_TURN_RE.test(requestText),
           },
         ),
       };
@@ -4375,7 +4392,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               });
             }
           }
-          if (!productionValidation.ok && productionAction !== "thumbnails") {
+          if (!productionValidation.ok) {
             const repairInstruction = productionAction === "seo"
               ? [
                   "Your prior response could not be parsed. Return ONLY this exact five-line title block, with real titles replacing the angle-bracket values:",
@@ -4391,12 +4408,40 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                   "<one real detailed YouTube-ready description paragraph>",
                   "Do not return JSON, markdown, commentary, placeholders, or an explanation.",
                 ].join("\n")
-              : [
-                  "Your prior response could not be parsed. Return ONLY this exact tag block with 20 to 35 real comma-separated tags:",
-                  "TAGS_FULL:",
-                  "<real tag 1>, <real tag 2>, <real tag 3>, ...",
-                  "Do not return JSON, markdown, commentary, placeholders, or an explanation.",
-                ].join("\n");
+              : productionAction === "tags"
+                ? [
+                    "Your prior response could not be parsed. Return ONLY this exact tag block with 6 to 10 real comma-separated tags, strongest and most specific first:",
+                    "TAGS_TOP10:",
+                    "<real tag 1>, <real tag 2>, <real tag 3>, ...",
+                    "Use only precise tags directly supported by the approved episode. Do not add generic filler, near-duplicates, or adjacent topics.",
+                    "Do not return JSON, markdown, commentary, placeholders, or an explanation.",
+                  ].join("\n")
+                : [
+                    "Your prior response could not be parsed. Return ONLY the thumbnail strategy and exactly five complete thumbnail blocks in the structure below.",
+                    "THUMBNAIL_STRATEGY",
+                    "Episode promise: <truthful promise supported by the approved script>",
+                    "Intended viewer: <specific intended viewer>",
+                    "Curiosity mechanism: <honest reason to click>",
+                    "Editorial positioning: <distinct truthful angle>",
+                    "Truthful connection: <connection to the approved script>",
+                    "Prohibited exaggerations: <claims the thumbnail must avoid>",
+                    "",
+                    "THUMBNAIL_01",
+                    "Headline: <short internal concept name>",
+                    "Subject: <primary subject>",
+                    "Focal action: <subject action or expression>",
+                    "Composition: <layout and crop>",
+                    "Emotional tone: <intended feeling>",
+                    "Visual hierarchy: <first, second, and last noticed>",
+                    "Title compatibility: <how title text fits>",
+                    "Integrity rationale: <why it represents the script truthfully>",
+                    "Render direction: <base artwork with no text, letters, logos, or watermarks>",
+                    "Mood/style: <visual style>",
+                    "",
+                    "Repeat THUMBNAIL_02 through THUMBNAIL_05 with every field present and meaningfully different subjects or compositions.",
+                    "Use the approved script already supplied in episode_context. Do not discuss research access or ask questions.",
+                    "Do not return JSON, markdown, commentary, placeholders, or an explanation.",
+                  ].join("\n");
             const repairMessages: ChatMessage[] = [
               ...completionMessages,
               { role: "assistant", content: rawReply },

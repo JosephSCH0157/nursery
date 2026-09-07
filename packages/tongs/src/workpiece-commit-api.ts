@@ -2451,7 +2451,7 @@ export type AcquireBrollCandidateRequest = {
   provider: string;
   provider_request_id?: string | null;
   final_prompt?: string | null;
-  runway_model?: "gen4.5" | null;
+  runway_model?: "gen4.5" | "seedance2" | null;
   duration_seconds?: number | null;
   ratio?: "1280:720" | "720:1280" | null;
   poster_required?: boolean;
@@ -2459,6 +2459,12 @@ export type AcquireBrollCandidateRequest = {
   always_approve_ai_spend?: boolean;
   license_json?: Json;
   provenance_json?: Json;
+  reference_images?: Array<{
+    bytes_base64: string;
+    mime_type: "image/jpeg" | "image/png" | "image/webp";
+    file_name?: string | null;
+    stage_label?: string | null;
+  }>;
 };
 
 export type InterpretBrollMotionPromptRequest = {
@@ -2747,10 +2753,11 @@ type RunwayTask =
 export type BrollVideoProvider = {
   submit(input: {
     prompt: string;
-    model: "gen4.5";
+    model: "gen4.5" | "seedance2";
     durationSeconds: number;
     ratio: "1280:720" | "720:1280";
     attemptId: string;
+    referenceImages?: Array<{ mimeType: string; bytesBase64: string }>;
   }): Promise<RunwaySubmission>;
   poll(taskId: string): Promise<RunwayTask>;
   download(outputUrl: string): Promise<Uint8Array>;
@@ -2797,7 +2804,13 @@ class LazyBrollAcquisitionRuntime implements BrollAcquisitionRuntime {
     return (await this.load()).fetchExternalBrollMedia(url);
   }
   async inspectReferenceImage(bytes: Uint8Array): Promise<VerifiedBrollMedia> {
-    return (await this.load()).inspectBrollMedia(bytes, "poster");
+    try {
+      return await (await this.load()).inspectBrollMedia(bytes, "poster");
+    } catch (error) {
+      if (error instanceof Error && error.message === "broll_media_signature_invalid")
+        throw new Error("reference_visual_image_signature_invalid");
+      throw error;
+    }
   }
   async fetchExternalBytes(url: string) {
     return (await this.load()).fetchExternalMediaBytes(url);
@@ -21751,7 +21764,7 @@ export class TongsCommitService {
     promptContentHash: string;
     prompt: string;
     creatorApproved: boolean;
-    model: "gen4.5";
+    model: "gen4.5" | "seedance2";
     durationSeconds: number;
     ratio: "1280:720" | "720:1280";
   }): Promise<PaidImageGenerationContext> {
@@ -27532,7 +27545,7 @@ export class TongsCommitService {
             "reference_visual_image_invalid",
             "The acquired bytes are not a supported PNG or JPEG image.",
           );
-        const extension = mimeType === "image/png" ? "png" : "jpg";
+        const extension = mimeType === "image/png" ? "png" : mimeType === "image/webp" ? "webp" : "jpg";
         storagePath = `${basePath}.${extension}`;
         storageKey = buildStorageKey(workpieceId, storagePath);
         const existing = await downloadStorageObject(
@@ -30021,6 +30034,26 @@ export class TongsCommitService {
           },
         );
     }
+    const suppliedReferences = input.reference_images ?? [];
+    if (suppliedReferences.length > 3)
+      throw new HttpError(400, "broll_reference_limit_exceeded", "Choose no more than three ordered reference images for one B-roll generation.");
+    const generationReferences = await Promise.all(suppliedReferences.map(async (reference, ordinal) => {
+      if (!reference.bytes_base64 || !["image/jpeg", "image/png", "image/webp"].includes(reference.mime_type))
+        throw new HttpError(400, "broll_reference_invalid", `Reference image ${ordinal + 1} is missing or has an unsupported format.`);
+      const bytes = decodeBase64(reference.bytes_base64);
+      if (bytes.byteLength > 5 * 1024 * 1024)
+        throw new HttpError(400, "broll_reference_too_large", `Reference image ${ordinal + 1} exceeds Runway's 5 MB image limit.`);
+      const inspected = await this.brollAcquisitionRuntime.inspectReferenceImage(bytes);
+      return {
+        ordinal,
+        bytes,
+        bytesBase64: reference.bytes_base64,
+        mimeType: inspected.mimeType,
+        contentHash: await sha256Hex(bytes),
+        fileName: reference.file_name?.trim() || null,
+        stageLabel: reference.stage_label?.trim() || null,
+      };
+    }));
     const normalizedOperation = input.operation_id.replace(
       /[^a-zA-Z0-9._-]+/g,
       "-",
@@ -30050,6 +30083,7 @@ export class TongsCommitService {
         duration_seconds: input.duration_seconds ?? 5,
         ratio: input.ratio ?? "1280:720",
         poster_required: posterRequired,
+        reference_images: generationReferences.map((reference) => ({ ordinal: reference.ordinal, content_hash: reference.contentHash, mime_type: reference.mimeType, stage_label: reference.stageLabel })),
       },
       p_actor_id: auth.userId,
     });
@@ -30071,6 +30105,20 @@ export class TongsCommitService {
     let state = operation ? readStringField(operation, "state") : null;
     if (state === "candidate_committed" && isRecord(operation?.receipt_json))
       return operation.receipt_json as Record<string, Json>;
+    if (input.source_kind === "generated" && generationReferences.length) {
+      const referenceReceipts: Array<Record<string, Json>> = [];
+      for (const reference of generationReferences) {
+        const extension = reference.mimeType === "image/png" ? "png" : reference.mimeType === "image/webp" ? "webp" : "jpg";
+        const path = `assets/broll-v2/${input.beat_id}/${normalizedOperation}/references/${reference.ordinal + 1}-${reference.contentHash.slice(0, 12)}.${extension}`;
+        const storageKey = buildStorageKey(workpieceId, path);
+        if (!(await downloadStorageObject(this.supabase, this.bucket, storageKey)))
+          await uploadStorageObject(this.supabase, this.bucket, storageKey, reference.bytes, reference.mimeType);
+        referenceReceipts.push({ ordinal: reference.ordinal, path, storage_bucket: this.bucket, storage_key: storageKey, mime_type: reference.mimeType, byte_size: reference.bytes.byteLength, content_hash: reference.contentHash, file_name: reference.fileName, stage_label: reference.stageLabel });
+      }
+      const committedReferences = await (this.supabase.schema("tongs") as unknown as UntypedTongsSchemaClient).rpc("commit_broll_generation_references", { p_workspace_id: input.workspace_id, p_workpiece_id: workpieceId, p_beat_id: input.beat_id, p_operation_id: input.operation_id, p_operation_fingerprint: input.operation_fingerprint, p_references: referenceReceipts, p_actor_id: auth.userId });
+      if (committedReferences.error || !isRecord(committedReferences.data) || committedReferences.data.disposition !== "committed")
+        throw new HttpError(502, "broll_reference_commit_failed", committedReferences.error?.message ?? "B-roll reference images could not be committed canonically.");
+    }
     if (input.source_kind === "generated" && operation) {
       input.provider =
         readStringField(operation, "provider") ?? input.provider ?? "runway";
@@ -30255,6 +30303,7 @@ export class TongsCommitService {
               durationSeconds,
               ratio,
               attemptId,
+              referenceImages: generationReferences.map((reference) => ({ mimeType: reference.mimeType, bytesBase64: reference.bytesBase64 })),
             });
             const recorded = await authority.rpc("record_broll_runway_task", {
               p_operation_id: input.operation_id,

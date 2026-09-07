@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { loadImageMapCandidatePreviewDataUrl } from "../../lib/hearth-image-map-repo";
 import type { EpisodeBrollAssetCandidate, EpisodeBrollPlanBeat } from "../../lib/episode-package-v2";
 import type { ExternalGenerationProvider } from "../../lib/hearth-visual-actionability";
-import type { CanonicalBrollPromptState } from "../../lib/hearth-broll-v2-authority";
+import { refreshCanonicalBrollMediaUrl, type CanonicalBrollPromptState } from "../../lib/hearth-broll-v2-authority";
 import { readVisualOpportunityDispositions, type VisualOpportunityDisposition } from "../../lib/hearth-visual-disposition-authority";
 import { VisualOpportunityDispositionControl } from "./VisualOpportunityDispositionControl";
 
@@ -70,7 +70,7 @@ type BrollPlanPanelProps = {
   onGenerateMotionPrompt?: (creatorDirection: string) => void;
   onSaveMotionPrompt?: (finalPrompt: string) => void;
   onCreateRunwayReadyPrompt?: () => Promise<{ finalPrompt:string;lengthUtf16:number }|null>;
-  onGenerateVideo?: () => void;
+  onGenerateVideo?: (referenceImages: Array<{ file: File; stageLabel?: string }>) => void;
   canonicalV2?: boolean;
 };
 
@@ -167,10 +167,11 @@ function candidateSourceLabel(candidate: EpisodeBrollAssetCandidate): string {
 
 function creatorBrollProgress(message: string): string {
   const normalized = message.toLowerCase();
+  if (normalized.includes("runway") || normalized.includes("generation")) return message;
   if (normalized.includes("candidate is ready") || normalized.includes("ready to preview")) return "Ready to review";
   if (normalized.includes("poster") || normalized.includes("preview")) return "Creating preview";
   if (normalized.includes("processing") || normalized.includes("video asset")) return "Processing video";
-  if (normalized.includes("runway") || normalized.includes("durable task")) return "Generating with Runway";
+  if (normalized.includes("durable task")) return "Generating with Runway";
   if (normalized.includes("reserved") || normalized.includes("preparing")) return "Preparing request";
   return message;
 }
@@ -186,6 +187,7 @@ function creatorBrollError(message: string): string {
 }
 
 function CandidateList(args: {
+  workpieceId: string | null;
   candidates: EpisodeBrollAssetCandidate[];
   selectedCandidateId: string | null;
   disabled: boolean;
@@ -195,12 +197,33 @@ function CandidateList(args: {
   onSelectCandidate: (candidateId: string) => void;
   onRetryCandidateIngestion: (candidateId: string) => void;
 }) {
+  const [freshMediaById, setFreshMediaById] = useState<Record<string, string>>({});
+  const [mediaErrorById, setMediaErrorById] = useState<Record<string, string>>({});
+  const refreshingMediaRef = useRef(new Set<string>());
+  const refreshMedia = async (candidate: EpisodeBrollAssetCandidate, open: boolean) => {
+    if (!candidate.path || refreshingMediaRef.current.has(candidate.asset_id)) return;
+    refreshingMediaRef.current.add(candidate.asset_id);
+    const opened = open ? window.open("about:blank", "_blank") : null;
+    if (opened) opened.opener = null;
+    if (!args.workpieceId) { opened?.close(); refreshingMediaRef.current.delete(candidate.asset_id); return; }
+    const result = await refreshCanonicalBrollMediaUrl({ workpieceId: args.workpieceId, path: candidate.path });
+    refreshingMediaRef.current.delete(candidate.asset_id);
+    if (!result.ok) {
+      opened?.close();
+      setMediaErrorById((current) => ({ ...current, [candidate.asset_id]: result.error }));
+      return;
+    }
+    setFreshMediaById((current) => ({ ...current, [candidate.asset_id]: result.data }));
+    setMediaErrorById((current) => ({ ...current, [candidate.asset_id]: "" }));
+    if (opened) opened.location.replace(result.data);
+  };
   if (args.candidates.length === 0) {
     return <div className="hs-imap-empty">No candidate assets attached yet.</div>;
   }
   return (
     <div className="hs-imap-candidates">
       {args.candidates.map((candidate) => {
+        const mediaSource = freshMediaById[candidate.asset_id] ?? candidate.uri ?? undefined;
         const status = resolveCandidateStatus(candidate);
         const previewSource = resolveCandidatePreviewSource(candidate, args.previewUrlById);
         const previewState = args.previewStateById[candidate.asset_id] ?? (previewSource ? "ready" : "error");
@@ -218,11 +241,12 @@ function CandidateList(args: {
             <div className="hs-imap-candidate-media">
               {previewSource && isVideoCandidate(candidate) ? (
                 <video
-                  src={candidate.uri ?? undefined}
+                  src={mediaSource}
                   poster={candidate.preview_path ?? undefined}
                   className="hs-imap-candidate-image"
                   controls
                   preload="metadata"
+                  onError={() => { if (candidate.path && !freshMediaById[candidate.asset_id]) void refreshMedia(candidate, false); }}
                 />
               ) : previewSource ? (
                 <img
@@ -252,11 +276,12 @@ function CandidateList(args: {
               <div className="hs-imap-candidate-status">{statusLabel}</div>
               {candidate.ingest_error ? <div className="hs-error-text-small">{candidate.ingest_error}</div> : null}
               {previewError ? <div className="hs-error-text-small">{previewError}</div> : null}
+              {mediaErrorById[candidate.asset_id] ? <div className="hs-error-text-small">{mediaErrorById[candidate.asset_id]}</div> : null}
               <details className="hs-broll-candidate-details">
                 <summary>Provenance</summary>
                 <p>Source: {candidateSourceLabel(candidate)}</p>
                 {candidate.mime_type ? <p>Media: {candidate.mime_type}</p> : null}
-                {candidate.uri && (candidate.uri.startsWith("http://") || candidate.uri.startsWith("https://")) ? <a href={candidate.uri} target="_blank" rel="noreferrer" className="hs-imap-link-inline">Open canonical media</a> : null}
+                {candidate.path ? <button type="button" className="hs-imap-link-inline" onClick={() => void refreshMedia(candidate, true)}>Open canonical media</button> : null}
               </details>
             </div>
             <div className="hs-imap-candidate-actions">
@@ -295,6 +320,7 @@ function CandidateList(args: {
 export default function BrollPlanPanel(props: BrollPlanPanelProps) {
   const [dispositions, setDispositions] = useState<VisualOpportunityDisposition[]>([]);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const referenceInputRef = useRef<HTMLInputElement | null>(null);
   const lastPreviewLoadSignatureRef = useRef<string>("");
   const formFieldIdPrefix = useId();
   const selectedBeat = useMemo(
@@ -317,6 +343,7 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
   const [creatorDirection, setCreatorDirection] = useState("");
   const [finalPromptDraft, setFinalPromptDraft] = useState("");
   const [runwayProposalPending, setRunwayProposalPending] = useState(false);
+  const [generationReferences, setGenerationReferences] = useState<Array<{ file: File; stageLabel: string }>>([]);
   const [acquisitionMode, setAcquisitionMode] = useState<"generate" | "upload" | "external" | "stock">("generate");
   const previewLoadSignature = useMemo(() => {
     const episodeId = props.workpieceId?.trim() ?? "";
@@ -338,6 +365,8 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
     setCreatorDirection(props.promptState?.creatorDirection?.trim() ? props.promptState.creatorDirection : selectedBeat?.description ?? "");
     setFinalPromptDraft(props.promptState?.finalPrompt ?? "");
   }, [selectedBeat?.id, selectedBeat?.description, props.promptState?.revisionId, props.promptState?.creatorDirection, props.promptState?.finalPrompt]);
+
+  useEffect(() => setGenerationReferences([]), [selectedBeat?.id]);
 
   useEffect(() => {
     if (lastPreviewLoadSignatureRef.current === previewLoadSignature) {
@@ -496,7 +525,7 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
                   {([['generate','Generate video'],['upload','Upload video'],['external','External clip'],['stock','Stock']] as const).map(([mode,label])=><button key={mode} type="button" role="tab" aria-selected={acquisitionMode===mode} className={acquisitionMode===mode?"is-active":""} onClick={()=>setAcquisitionMode(mode)}>{label}</button>)}
                 </div>
                 <div className="hs-broll-acquisition-pane">
-                  {acquisitionMode === "generate" ? <><p>Generate from the exact saved canonical prompt above.</p><button type="button" className="hs-primary-btn" onClick={props.onGenerateVideo} disabled={props.disabled || !props.onGenerateVideo || !props.promptState?.revisionId || (props.promptState.status !== "current" && props.promptState.status !== "creator_edited")}>{props.activeOperation === "video" ? "Generating Runway video…" : "Generate Video"}</button>{props.activeOperation === "video" ? <div className="hs-broll-operation-progress" role="status" aria-live="polite"><span aria-hidden="true" className="hs-broll-operation-spinner" /><span><strong>Runway generation in progress</strong><small>Forge is submitting or checking the durable video task. You can leave this page and return; the operation will resume without another submission.</small></span></div> : null}</> : null}
+                  {acquisitionMode === "generate" ? <><p>Generate from the exact saved canonical prompt above. Add up to three ordered historical references to preserve the subject across stages.</p><div className="hs-imap-field"><label>Reference images (optional)</label><button type="button" onClick={() => referenceInputRef.current?.click()} disabled={props.disabled || generationReferences.length >= 3}>Add reference images</button><small>JPEG, PNG, or WebP; 5 MB each. Order them from the opening state to the concluding state.</small></div>{generationReferences.map((reference,index)=><div className="hs-imap-field" key={`${reference.file.name}-${reference.file.lastModified}-${index}`}><label htmlFor={`${formFieldIdPrefix}-reference-${index}`}>{index+1}. {reference.file.name}</label><input id={`${formFieldIdPrefix}-reference-${index}`} value={reference.stageLabel} onChange={(event)=>setGenerationReferences((current)=>current.map((item,itemIndex)=>itemIndex===index?{...item,stageLabel:event.target.value}:item))} placeholder={index===0?"e.g. derelict museum display":index===generationReferences.length-1?"e.g. restored and under steam":"e.g. transported to the repair shop"}/><button type="button" onClick={()=>setGenerationReferences((current)=>current.filter((_,itemIndex)=>itemIndex!==index))}>Remove</button></div>)}<input ref={referenceInputRef} type="file" accept="image/jpeg,image/png,image/webp" multiple hidden onChange={(event)=>{const files=Array.from(event.currentTarget.files??[]).slice(0,3-generationReferences.length);setGenerationReferences((current)=>[...current,...files.map((file)=>({file,stageLabel:""}))]);event.currentTarget.value="";}}/><button type="button" className="hs-primary-btn" onClick={()=>props.onGenerateVideo?.(generationReferences)} disabled={props.disabled || !props.onGenerateVideo || !props.promptState?.revisionId || (props.promptState.status !== "current" && props.promptState.status !== "creator_edited")}>{props.activeOperation === "video" ? "Generating Runway video…" : generationReferences.length ? `Generate Video with ${generationReferences.length} Reference${generationReferences.length===1?"":"s"}` : "Generate Video"}</button>{props.activeOperation === "video" ? <div className="hs-broll-operation-progress" role="status" aria-live="polite"><span aria-hidden="true" className="hs-broll-operation-spinner" /><span><strong>{props.message?.includes("confirmation") ? "Waiting for confirmation" : "Runway generation in progress"}</strong><small>{props.message ?? "Keep this page open until the verified video and preview appear."}</small></span></div> : null}</> : null}
                   {acquisitionMode === "upload" ? <><p>Choose an MP4 or WebM file. Tongs will verify and preserve it.</p><button type="button" className="hs-primary-btn" onClick={() => uploadInputRef.current?.click()} disabled={props.disabled}>Choose video file</button></> : null}
                   {acquisitionMode === "external" ? <><div className="hs-imap-field"><label htmlFor={`${formFieldIdPrefix}-canonical-external-url`}>Video URL</label><input id={`${formFieldIdPrefix}-canonical-external-url`} value={props.draft.sourceUrl} onChange={(event) => props.onDraftChange("sourceUrl", event.target.value)} disabled={props.disabled} placeholder="https://…/clip.mp4" /></div><button type="button" className="hs-primary-btn" onClick={props.onAttachResultFromUrl} disabled={props.disabled || !props.draft.sourceUrl.trim()}>Fetch and verify external clip</button></> : null}
                   {acquisitionMode === "stock" ? <p>Licensed stock search will appear here when Forge has a configured provider.</p> : null}
@@ -504,7 +533,7 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
                 <input ref={uploadInputRef} type="file" accept="video/mp4,video/webm" hidden onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) props.onUploadAsset(file); event.currentTarget.value = ""; }} />
               </section>
               <div className="hs-broll-section-heading"><div><div className="hs-imap-next-eyebrow">Choose a clip</div><h5>{beatCandidates.length} candidate{beatCandidates.length === 1 ? "" : "s"}</h5></div></div>
-              <CandidateList candidates={beatCandidates} selectedCandidateId={props.selectedCandidateId} disabled={Boolean(props.disabled)} previewStateById={previewStateById} previewUrlById={previewUrlById} previewErrorById={previewErrorById} onSelectCandidate={props.onSelectCandidate} onRetryCandidateIngestion={props.onRetryCandidateIngestion} />
+              <CandidateList workpieceId={props.workpieceId} candidates={beatCandidates} selectedCandidateId={props.selectedCandidateId} disabled={Boolean(props.disabled)} previewStateById={previewStateById} previewUrlById={previewUrlById} previewErrorById={previewErrorById} onSelectCandidate={props.onSelectCandidate} onRetryCandidateIngestion={props.onRetryCandidateIngestion} />
               {selectedBeat.selected_asset_id ? <div className="hs-success-text">Selected clip saved. It will be included in the episode edit.</div> : null}
               <details className="hs-broll-advanced"><summary>Advanced details</summary><dl><div><dt>Authority status</dt><dd>{props.promptState?.status ?? "missing"}</dd></div><div><dt>Beat state</dt><dd>{resolveBeatState(selectedBeat)}</dd></div><div><dt>Shot type</dt><dd>{selectedBeat.shot_type ?? "mixed"}</dd></div><div><dt>Mood</dt><dd>{selectedBeat.mood ?? "neutral"}</dd></div></dl><p><strong>Legacy B-roll compatibility:</strong> older episode data remains read-only and cannot override this canonical workflow.</p></details>
             </>}
@@ -773,6 +802,7 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
               </div>
 
               <CandidateList
+                workpieceId={props.workpieceId}
                 candidates={beatCandidates}
                 selectedCandidateId={props.selectedCandidateId}
                 disabled={Boolean(props.disabled)}

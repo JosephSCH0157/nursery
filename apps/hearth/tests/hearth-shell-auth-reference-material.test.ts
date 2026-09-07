@@ -101,6 +101,7 @@ test("Reference Material binds shell-auth hydration to a canonical reload", () =
   assert.match(shell, /subscribeToForgeUserAccessToken\(\(\) => \{/);
   assert.match(shell, /authorityState: canonicalReferenceClipAuthorityState/);
   assert.match(shell, /authorityState: canonicalReferenceVisualAuthorityState/);
+  assert.match(shell, /canonicalAuthorityExists: Boolean\(canonicalReferenceClipState\?\.planRevisionId \|\| canonicalReferenceVisualState\?\.planRevisionId\)/);
   assert.match(shell, /canonicalReferenceClipRefreshSequence\.current \+= 1/);
   assert.match(shell, /canonicalReferenceVisualRefreshSequence\.current \+= 1/);
 });

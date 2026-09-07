@@ -53,7 +53,7 @@ test("Reference Material follows Images and combines Source Clip and Reference V
   const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:4,images:2,broll:1,referenceClips:1,version:1},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:2,completed:2,canonicalCount:2,projectionLoaded:true},referenceClips:{planned:1,completed:0,exists:true},broll:{planned:1,completed:0}}));
   assert.equal(workflow.activeStage,"reference_clips");
   assert.equal(workflow.stages[3]?.label,"Reference Material");
-  assert.equal(workflow.stages[3]?.summary,"0 of 1 Source Clips · 0 of 0 Reference Visuals");
+  assert.equal(workflow.stages[3]?.summary,"0 of 1 sourced Clips · 0 of 0 sourced Visuals");
   assert.equal(workflow.stages[4]?.status,"ready");
 });
 
@@ -79,6 +79,14 @@ test("verified zero Reference Material requirements cannot block episode complet
   assert.equal(workflow.stages[5]?.status,"ready");
   assert.equal(workflow.activeStage,"review");
   assert.equal(workflow.overallStatus,"ready_for_review");
+});
+
+test("unsourced planning suggestions remain reviewable but cannot block episode completion",()=>{
+  const workflow=deriveHearthMediaWorkflow(input({visualPlan:{status:"activated",total:13,images:1,broll:2,referenceClips:2,referenceVisuals:8,version:4},thumbnails:{eligible:3,total:3,previewAssetPaths:["a","b","c"]},images:{planned:1,completed:1,canonicalCount:1,projectionLoaded:true},referenceClips:{planned:0,completed:0,unsourced:2,exists:true,authorityState:"available"},referenceVisuals:{planned:0,completed:0,unsourced:8,exists:true,authorityState:"available"},broll:{planned:2,completed:2}}));
+  assert.equal(workflow.stages[3]?.status,"complete");
+  assert.equal(workflow.stages[3]?.reviewAvailable,true);
+  assert.equal(workflow.stages[3]?.summary,"0 of 0 sourced Clips · 0 of 0 sourced Visuals · 10 unsourced suggestions (optional)");
+  assert.equal(workflow.stages[5]?.status,"ready");
 });
 
 test("zero Reference Material remains fail-closed until both canonical authorities load",()=>{

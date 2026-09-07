@@ -13,7 +13,9 @@ import {
   readCanonicalReferenceVisualCollections,
 } from "../../lib/hearth-reference-visual-collections";
 import {
+  acquireReferenceVisual,
   commitReferenceVisualRecipe,
+  commitReferenceVisualRights,
   selectReferenceVisual,
   type ReferenceVisualState,
 } from "../../lib/hearth-reference-visual-authority";
@@ -35,7 +37,7 @@ import {
 } from "../../lib/hearth-reference-review-attempts";
 import { subscribeToForgeUserAccessToken } from "../../lib/tongs-fetch";
 
-type DrawerMode = "edit" | "replace" | "skip";
+type DrawerMode = "edit" | "replace" | "prepare" | "skip";
 type EditDraft = {
   title: string;
   subtitle: string;
@@ -81,6 +83,9 @@ export default function CanonicalReferenceMaterialPanel({
       null,
     ),
     [sourceUrl, setSourceUrl] = useState(""),
+    [rightsStatus, setRightsStatus] = useState("rights_unresolved"),
+    [rightsAttribution, setRightsAttribution] = useState(""),
+    [rightsAcknowledged, setRightsAcknowledged] = useState(false),
     [editDraft, setEditDraft] = useState<EditDraft>({
       title: "",
       subtitle: "",
@@ -208,7 +213,46 @@ export default function CanonicalReferenceMaterialPanel({
         ),
       });
     }
+    if (mode === "prepare") {
+      setSourceUrl(item.sourceUrl ?? "");
+      setRightsStatus("rights_unresolved");
+      setRightsAttribution("");
+      setRightsAcknowledged(false);
+    }
     setDrawer({ key: item.key, mode });
+  }
+
+  async function prepareLinkedVisual(item: ReferenceReviewItem) {
+    if (item.family !== "reference_visual" || !visuals || !sourceUrl.trim()) return;
+    const opportunity = visuals.opportunities.find((entry) => entry.id === item.opportunityId);
+    if (!opportunity || !(await begin(item, "replace"))) return;
+    const rights = await commitReferenceVisualRights({
+      workspaceId,
+      workpieceId,
+      opportunity,
+      status: rightsStatus,
+      declaration: {
+        creator_acknowledged_responsibility: rightsAcknowledged,
+        rights_holder: null,
+        attribution_required: Boolean(rightsAttribution.trim()),
+        attribution_text: rightsAttribution.trim() || null,
+        fair_use_rationale: null,
+        permission_evidence: {},
+        platform_terms: {},
+        territories: [],
+        provenance: { entered_in: "hearth_reference_material" },
+        access_controls_bypassed: false,
+      },
+    });
+    if (!rights.ok) { fail(item, "replace", rights.error); return; }
+    const withRights = await readCanonicalReferenceVisualCollections(workspaceId, workpieceId);
+    const current = withRights.ok ? withRights.data?.opportunities.find((entry) => entry.id === item.opportunityId) : null;
+    if (!withRights.ok || !current?.rights) { fail(item, "replace", withRights.ok ? "The rights declaration was not present in canonical readback." : withRights.error); return; }
+    const acquired = await acquireReferenceVisual({ workspaceId, workpieceId, opportunity: current, type: "external_fetch", sourceUrl: sourceUrl.trim() });
+    if (!acquired.ok) { fail(item, "replace", acquired.error); return; }
+    if (!(await succeed(item, "replace", { canonical_candidate_created: true }))) return;
+    setDrawer(null);
+    await refresh();
   }
   async function begin(item: ReferenceReviewItem, intent: Failure["intent"]) {
     setPendingKeys((current) => new Set(current).add(item.key));
@@ -652,11 +696,12 @@ export default function CanonicalReferenceMaterialPanel({
   async function retry(item: ReferenceReviewItem) {
     const failure = failures[item.key];
     if (!failure) return;
-    if (failure.intent === "approve") await approve(item);
-    else if (failure.intent === "skip") await skip(item);
-    else if (failure.intent === "use_source") await useSource(item);
-    else if (failure.intent === "save_edits") await saveEdits(item);
-    else openDrawer(item, "replace");
+      if (failure.intent === "approve") await approve(item);
+      else if (failure.intent === "skip") await skip(item);
+      else if (failure.intent === "use_source") await useSource(item);
+      else if (failure.intent === "save_edits") await saveEdits(item);
+      else if (item.family === "reference_visual" && item.sourceUrl && !item.candidate) openDrawer(item, "prepare");
+      else openDrawer(item, "replace");
   }
   return (
     <section
@@ -740,9 +785,15 @@ export default function CanonicalReferenceMaterialPanel({
                     Source:{" "}
                     {item.sourceSummary.length
                       ? item.sourceSummary.join(" · ")
-                      : "Choose a Source"}
+                      : "No canonical Source linked"}
                   </small>
                 </p>
+                {item.sourceUrl ? <p><a href={item.sourceUrl} target="_blank" rel="noreferrer">Open linked Source</a></p> : null}
+                {!item.sourceSummary.length ? (
+                  <p className="hs-reference-review-warning">
+                    This is an unsourced planning suggestion, not episode Reference Material. It will not block completion unless you attach a canonical Source.
+                  </p>
+                ) : null}
                 {item.warning ? (
                   <p className="hs-reference-review-warning">{item.warning}</p>
                 ) : null}
@@ -758,14 +809,11 @@ export default function CanonicalReferenceMaterialPanel({
                   <button
                     type="button"
                     className="hs-primary-btn"
-                    disabled={
-                      item.state === "hearth_is_working" ||
-                      !!item.approveDisabledReason
-                    }
-                    title={item.approveDisabledReason ?? undefined}
-                    onClick={() => void approve(item)}
+                    disabled={item.state === "hearth_is_working" || (Boolean(item.candidate) && !!item.approveDisabledReason)}
+                    title={item.candidate ? item.approveDisabledReason ?? undefined : item.sourceSummary.length ? "Create a canonical image candidate from the linked Source." : "Attach a canonical Source to make this Reference Material."}
+                    onClick={() => item.sourceSummary.length ? item.candidate ? void approve(item) : item.family === "reference_visual" && item.sourceUrl ? openDrawer(item, "prepare") : openDrawer(item, "replace") : openDrawer(item, "replace")}
                   >
-                    Approve
+                    {item.sourceSummary.length ? item.candidate ? "Approve" : item.family === "reference_visual" && item.sourceUrl ? "Prepare image" : "Replace" : "Add Source"}
                   </button>
                   <button
                     type="button"
@@ -833,6 +881,8 @@ export default function CanonicalReferenceMaterialPanel({
                     ? "Edit editorial details"
                     : drawer?.mode === "replace"
                       ? "Replace the material"
+                      : drawer?.mode === "prepare"
+                        ? "Prepare linked image"
                       : "Skip this proposal"}
                 </h4>
               </div>
@@ -959,6 +1009,26 @@ export default function CanonicalReferenceMaterialPanel({
                 >
                   Use this source
                 </button>
+              </>
+            ) : drawer?.mode === "prepare" ? (
+              <>
+                <p>The Source is linked. Confirm that you may use this image before Hearth copies it into the episode’s canonical assets.</p>
+                <p><a href={sourceUrl} target="_blank" rel="noreferrer">Open linked image</a></p>
+                <label>
+                  Rights status
+                  <select value={rightsStatus} onChange={(event) => setRightsStatus(event.target.value)}>
+                    <option value="rights_unresolved">Rights unresolved</option>
+                    <option value="creator_owned">Creator-owned</option>
+                    <option value="licensed">Licensed</option>
+                    <option value="public_domain">Public domain</option>
+                    <option value="permission_obtained">Permission obtained</option>
+                    <option value="platform_permitted">Platform-permitted</option>
+                    <option value="fair_use_asserted_by_creator">Fair use asserted by creator</option>
+                  </select>
+                </label>
+                <label>Attribution text (if required)<input value={rightsAttribution} onChange={(event) => setRightsAttribution(event.target.value)} /></label>
+                <label className="hs-reference-visual-check"><input type="checkbox" checked={rightsAcknowledged} onChange={(event) => setRightsAcknowledged(event.target.checked)} /> I confirm that I am responsible for rights and permissions and did not bypass access controls.</label>
+                <button type="button" className="hs-primary-btn" disabled={!rightsAcknowledged || rightsStatus === "rights_unresolved" || pendingKeys.has(activeDrawer.key)} onClick={() => void prepareLinkedVisual(activeDrawer)}>Save rights and add image</button>
               </>
             ) : (
               <>

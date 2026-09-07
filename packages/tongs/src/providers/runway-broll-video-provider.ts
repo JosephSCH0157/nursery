@@ -16,7 +16,7 @@ export class RunwayTransportError extends Error {
   }
 }
 
-type RunwayClient = Pick<RunwayML, "textToVideo" | "tasks">;
+type RunwayClient = Pick<RunwayML, "textToVideo" | "imageToVideo" | "tasks">;
 function asRecord(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 function sanitizeProviderError(error: APIError<number, Headers, object>, input: { model: string; ratio: string; durationSeconds: number }): Record<string, unknown> {
   const body = asRecord(error.error);
@@ -41,10 +41,30 @@ export class RunwayBrollVideoProvider {
     this.fetchImpl = fetchImpl;
   }
 
-  async submit(input: { prompt: string; model: "gen4.5"; durationSeconds: number; ratio: "1280:720" | "720:1280"; attemptId: string }): Promise<RunwaySubmission> {
+  async submit(input: { prompt: string; model: "gen4.5" | "seedance2"; durationSeconds: number; ratio: "1280:720" | "720:1280"; attemptId: string; referenceImages?: Array<{ mimeType: string; bytesBase64: string }> }): Promise<RunwaySubmission> {
     if (!input.prompt.trim() || input.prompt.length > 1000) throw new RunwayTransportError("Runway Gen-4.5 requires a motion prompt between 1 and 1000 UTF-16 code units.", false, { stage: "preflight", transmitted: false, prompt_length: input.prompt.length });
     try {
-      const accepted = await this.client.textToVideo.create({ model: input.model, promptText: input.prompt, ratio: input.ratio, duration: input.durationSeconds }, { maxRetries: 0 });
+      const references = input.referenceImages ?? [];
+      const accepted = references.length > 1
+        ? await this.client.textToVideo.create({
+            model: "seedance2",
+            promptText: input.prompt,
+            ratio: input.ratio,
+            duration: input.durationSeconds,
+            references: references.map((reference) => ({ uri: `data:${reference.mimeType};base64,${reference.bytesBase64}` })),
+          }, { maxRetries: 0 })
+        : references.length
+        ? await this.client.imageToVideo.create({
+            model: "gen4.5",
+            promptText: input.prompt,
+            ratio: input.ratio,
+            duration: input.durationSeconds,
+            promptImage: references.map((reference) => ({
+              position: "first" as const,
+              uri: `data:${reference.mimeType};base64,${reference.bytesBase64}`,
+            })),
+          }, { maxRetries: 0 })
+        : await this.client.textToVideo.create({ model: "gen4.5", promptText: input.prompt, ratio: input.ratio, duration: input.durationSeconds }, { maxRetries: 0 });
       if (!accepted.id) throw new RunwayTransportError("Runway accepted the request but returned no task ID.", true, { stage: "accepted_response", transmitted: true, response_received: true });
       return { taskId: accepted.id, acceptedResponse: asRecord(accepted) };
     } catch (error) {

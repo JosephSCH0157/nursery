@@ -110,7 +110,6 @@ export type HearthSttResult =
 const AI_SETTINGS_STORAGE_KEY = "forge:hearth:aiSettings:v1";
 const SUPABASE_AUTH_STORAGE_KEY = "forge-auth";
 const HEARTH_STT_BUCKET = "forge-workpieces";
-const SUPABASE_AUTH_KEY_RE = /^sb-[a-z0-9-]+-auth-token$/i;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 type AiSettingsSnapshot = {
@@ -347,22 +346,9 @@ function readAccessTokenFromStorageKey(key: string): string | null {
 
 function readAccessTokenFromStorage(): string | null {
   if (typeof window === "undefined") return null;
-
-  const primary = readAccessTokenFromStorageKey(SUPABASE_AUTH_STORAGE_KEY);
-  if (primary) return primary;
-
-  try {
-    for (let index = 0; index < window.localStorage.length; index += 1) {
-      const key = window.localStorage.key(index);
-      if (!key || key === SUPABASE_AUTH_STORAGE_KEY) continue;
-      if (!SUPABASE_AUTH_KEY_RE.test(key)) continue;
-      const token = readAccessTokenFromStorageKey(key);
-      if (token) return token;
-    }
-  } catch {
-    // ignore storage access failures
-  }
-  return null;
+  // Authentication is environment-bound. Never borrow a token from another
+  // Supabase client's default `sb-...-auth-token` storage key.
+  return readAccessTokenFromStorageKey(SUPABASE_AUTH_STORAGE_KEY);
 }
 
 async function readAccessTokenForRequest(): Promise<string | null> {
@@ -376,10 +362,11 @@ async function readAccessTokenForRequest(): Promise<string | null> {
     };
   };
 
-  const getSession = runtimeWindow.__forge_supabase_client__?.auth?.getSession;
+  const auth = runtimeWindow.__forge_supabase_client__?.auth;
+  const getSession = auth?.getSession;
   if (typeof getSession === "function") {
     try {
-      const sessionPayload = await getSession();
+      const sessionPayload = await getSession.call(auth);
       const token = sanitizeAccessToken(extractAccessTokenFromAuthPayload(sessionPayload));
       if (token) return token;
     } catch {
@@ -1181,6 +1168,7 @@ export async function requestHearthChatReply(
       includeEpisodeAttachments?: boolean;
       attachmentIds?: string[];
     };
+    userAuthoredText?: string;
   },
 ): Promise<HearthChatResult> {
   const normalized = normalizeMessages(messages);
@@ -1222,6 +1210,7 @@ export async function requestHearthChatReply(
   const requestPayload: HearthChatRequest = {
     messages: normalized,
     episode_context: episodeContext,
+    user_authored_text: options?.userAuthoredText?.trim() || undefined,
     behavior: settings.behavior,
     lane,
     attachment_context: {

@@ -3,8 +3,10 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { HEARTH_AI_ROUTES } from "../../hearth/src/lib/hearth-ai-runtime-contract";
 import { createHearthAiHandler } from "../server/hearth/create-hearth-ai-handler";
 import { resolveHearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
+import { createHearthTopicDiscoveryHandler } from "../server/hearth/hearth-topic-discovery";
 
 type Next = (err?: unknown) => void;
+const TOPIC_DISCOVERY_ROUTE = "/api/hearth/topic-discovery";
 
 function readBody(req: IncomingMessage): Promise<Uint8Array | undefined> {
   const method = (req.method || "GET").toUpperCase();
@@ -51,7 +53,9 @@ async function writeFetchResponse(res: ServerResponse, response: Response): Prom
 }
 
 export function mwHearthChatApi() {
-  const handler = createHearthAiHandler(resolveHearthRuntimeConfig());
+  const runtimeConfig = resolveHearthRuntimeConfig();
+  const handler = createHearthAiHandler(runtimeConfig);
+  const topicDiscoveryHandler = createHearthTopicDiscoveryHandler(runtimeConfig);
 
   return async function hearthChatMiddleware(req: IncomingMessage, res: ServerResponse, next: Next) {
     try {
@@ -68,6 +72,7 @@ export function mwHearthChatApi() {
         && pathname !== HEARTH_AI_ROUTES.aiKeysConnect
         && pathname !== HEARTH_AI_ROUTES.aiKeysDisconnect
         && pathname !== HEARTH_AI_ROUTES.aiKeysStatus
+        && pathname !== TOPIC_DISCOVERY_ROUTE
       ) {
         next();
         return;
@@ -89,7 +94,9 @@ export function mwHearthChatApi() {
 
         let response: Response;
         try {
-          response = await handler(request);
+          response = pathname === TOPIC_DISCOVERY_ROUTE
+            ? await topicDiscoveryHandler(request)
+            : await handler(request);
         } catch (err) {
           // Normalize unexpected failures (e.g., offline env, missing env keys) to a JSON 503
           // instead of letting Vite's default error handler emit an HTML 500 page.

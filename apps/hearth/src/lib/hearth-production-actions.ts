@@ -80,10 +80,10 @@ export function buildProductionPrompt(args: {
       ...header,
       "Return plain text only in this exact parseable shape. Replace every <...> value; do not add markdown, fences, or commentary:",
       "TAGS_TOP10:",
-      "<tag 1>, <tag 2>, <tag 3>, <tag 4>, <tag 5>, <tag 6>, <tag 7>, <tag 8>, <tag 9>, <tag 10>",
-      "",
-      "TAGS_FULL:",
-      "<20 to 35 comma-separated tags>",
+      "<6 to 10 comma-separated tags, strongest and most specific first>",
+      "Choose only tags directly supported by the approved episode: exact subject names, defining identifiers, organizations, places, and the episode's central themes.",
+      "Prefer a precise multi-word tag over several broad variants. Do not add generic category filler, speculative interests, near-duplicates, or tags merely adjacent to the topic.",
+      "Return no more than 10 tags.",
     ].join("\n");
   }
 

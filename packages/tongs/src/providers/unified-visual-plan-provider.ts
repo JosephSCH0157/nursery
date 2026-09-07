@@ -297,7 +297,7 @@ const schema = {
     },
   },
 };
-const instructions = `Create one mixed editorial visual plan from the exact approved podcast script. Each script passage belongs to exactly one visual family: never reuse or overlap a context_focus across Images, B-roll, Reference Clips, or Reference Visuals. Choose the single treatment that communicates that moment best. Prefer a Reference Visual for sourced numbers, comparisons, timelines, quotes, or documents; an authentic Reference Clip when the source media itself is essential and obtainable; B-roll for motion, process, atmosphere, or newly filmed coverage; and an Image for a static person, place, object, or concept. For each item identify provenance only with opaque source_key values from source_catalog. Never invent a URL or source key. Use direct only when one source is the specific basis; supporting for an intentionally joint ordered set; ambiguous when several catalog sources are plausible; none with an empty source_keys array when no catalog source applies. When the script centers named public figures, use verified-photo opportunities rather than inventing their appearance. Planning is editorial only: never invent a Source, statistic, quote, URL, archive, rights claim, or existing asset. Every context_focus must be an exact nonempty excerpt from the supplied script. Return only the structured result.`;
+const instructions = `Create one mixed editorial visual plan from the exact approved podcast script. Each script passage belongs to exactly one visual family: never reuse or overlap a context_focus across Images, B-roll, Reference Clips, or Reference Visuals. Choose the single treatment that communicates that moment best. A Reference Clip or Reference Visual is canonical Reference Material and MUST use direct provenance with exactly one opaque source_key from source_catalog. Do not create Reference Material when no catalog Source directly supports it; choose Image or B-roll instead. Prefer a Reference Visual for source-backed numbers, comparisons, timelines, quotes, or documents; an authentic Reference Clip when linked source media itself is essential and obtainable; B-roll for motion, process, atmosphere, or newly filmed coverage; and an Image for a static person, place, object, or concept. For Image and B-roll items, identify provenance only with opaque source_key values from source_catalog. Never invent a URL or source key. Use direct only when one source is the specific basis; supporting for an intentionally joint ordered set; ambiguous when several catalog sources are plausible; none with an empty source_keys array when no catalog source applies. When the script centers named public figures, use verified-photo opportunities rather than inventing their appearance. Planning is editorial only: never invent a Source, statistic, quote, URL, archive, rights claim, or existing asset. Every context_focus must be an exact nonempty excerpt from the supplied script. Return only the structured result.`;
 function outputText(payload: Record<string, unknown>): string | null {
   const output = payload.output;
   if (!Array.isArray(output)) return null;
@@ -624,6 +624,11 @@ export function validateUnifiedVisualPlan(
           item.source_keys?.length < 2
         )
           errors.push(`${kind}[${index}]:ambiguous_source_count`);
+        if (
+          (kind === "reference_clips" || kind === "reference_visuals") &&
+          (item.source_relationship !== "direct" || item.source_keys?.length !== 1)
+        )
+          errors.push(`${kind}[${index}]:canonical_source_required`);
       }
     }
   }

@@ -1,7 +1,44 @@
 
 [api]
 schemas = ["public", "graphql_public", "tongs"]
-extra_search_path = ["public", "extensions", "tongs"]
+extra_search_path = ["public", "extensions"]
+
+[auth]
+site_url = "https://podcastersforge.com"
+additional_redirect_urls = [
+  "https://podcastersforge.com/auth/callback",
+  "https://podcastersforge.com/auth/callback/recovery",
+  "https://podcastersforge.com/reset-password",
+  "https://podcastersforge.netlify.app/auth/callback",
+  "https://podcastersforge.netlify.app/auth/callback/recovery",
+  "https://podcastersforge.netlify.app/reset-password",
+  "http://localhost:5173/auth/callback",
+  "http://localhost:5173/auth/callback/recovery",
+  "http://localhost:5173/reset-password",
+]
+minimum_password_length = 8
+password_requirements = "lower_upper_letters_digits_symbols"
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
+[auth.email]
+enable_signup = true
+double_confirm_changes = true
+enable_confirmations = true
+secure_password_change = true
+max_frequency = "1m0s"
+otp_length = 8
+otp_expiry = 3600
+
+[auth.email.notification.password_changed]
+enabled = true
+subject = "Your Podcaster's Forge password was changed"
+content_path = "./templates/password_changed_notification.html"
+
+[storage]
+file_size_limit = "500MiB"
 
 [functions.create-checkout-session]
 enabled = true

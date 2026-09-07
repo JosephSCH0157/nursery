@@ -185,6 +185,7 @@ type BuildImageMapPanelArgs = {
 };
 
 type BuildReferenceClipPanelArgs = {
+  canonicalAuthorityExists?: boolean;
   entries: EpisodeReferenceClipPlan["entries"];
   selectedEntryId: string | null;
   saveState: ReferenceClipPanelProps["saveState"];
@@ -465,6 +466,7 @@ export function buildImageMapPanelProps(args: BuildImageMapPanelArgs): ImageMapP
 
 export function buildReferenceClipPlanPanelProps(args: BuildReferenceClipPanelArgs): ReferenceClipPanelProps {
   return {
+    canonicalAuthorityExists: args.canonicalAuthorityExists,
     entries: args.entries,
     selectedEntryId: args.selectedEntryId,
     saveState: args.saveState,

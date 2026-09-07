@@ -29,6 +29,9 @@ import {
   type HearthInteractionEventType,
 } from "../lib/hearth-chat-api";
 import { writeHearthAiRuntimeStatus } from "../lib/ai-runtime-status";
+import {
+  serializeHearthConversation,
+} from "../lib/hearth-conversation-export";
 import { commitHearthSession } from "../lib/hearth-session-repo";
 import {
   commitHearthPrimaryScript,
@@ -461,9 +464,6 @@ import { buildHearthModalViewModel } from "./hearth-shell/buildHearthModalViewMo
 const SCRIPT_APPROVAL_STORAGE_PREFIX = "hearth:script-approval:v1:";
 const CHAT_HISTORY_STORAGE_PREFIX = "hearth:chat:v1:";
 const CHAT_HISTORY_MAX_MESSAGES = 200;
-const CHAT_HISTORY_MAX_STORAGE_CHARS = 650_000;
-const CHAT_HISTORY_MAX_ENTRY_CHARS = 24_000;
-const CHAT_HISTORY_TRUNCATED_SUFFIX = "\n\n[truncated in local cache]";
 const WORKSPACE_STORAGE_KEYS = new Set(["forge_workspace_id_v1", "barstock_workspace_id"]);
 const FORGE_AUTH_STORAGE_KEY = "forge-auth";
 const SUPABASE_AUTH_KEY_RE = /supabase-auth-token/i;
@@ -742,11 +742,7 @@ function normalizeChatRole(value: unknown): HearthChatMessage["role"] | null {
 }
 
 function trimChatContentForStorage(content: string): string {
-  const trimmed = content.trim();
-  if (!trimmed) return "";
-  if (trimmed.length <= CHAT_HISTORY_MAX_ENTRY_CHARS) return trimmed;
-  const maxLength = Math.max(1, CHAT_HISTORY_MAX_ENTRY_CHARS - CHAT_HISTORY_TRUNCATED_SUFFIX.length);
-  return `${trimmed.slice(0, maxLength)}${CHAT_HISTORY_TRUNCATED_SUFFIX}`;
+  return content.trim();
 }
 
 function sanitizeChatMessageForStorage(entry: unknown): HearthChatMessage | null {
@@ -760,21 +756,9 @@ function sanitizeChatMessageForStorage(entry: unknown): HearthChatMessage | null
 }
 
 function sanitizeChatMessagesForStorage(messages: ReadonlyArray<unknown>): HearthChatMessage[] {
-  const normalized = messages
+  return messages
     .map((entry) => sanitizeChatMessageForStorage(entry))
     .filter((entry): entry is HearthChatMessage => Boolean(entry));
-
-  const out: HearthChatMessage[] = [];
-  let totalChars = 0;
-  for (let idx = normalized.length - 1; idx >= 0; idx -= 1) {
-    if (out.length >= CHAT_HISTORY_MAX_MESSAGES) break;
-    const message = normalized[idx]!;
-    const nextChars = totalChars + message.content.length;
-    if (out.length > 0 && nextChars > CHAT_HISTORY_MAX_STORAGE_CHARS) break;
-    out.push(message);
-    totalChars = nextChars;
-  }
-  return out.reverse();
 }
 
 function readChatHistoryFromStorageKey(storageKey: string): { found: boolean; messages: HearthChatMessage[] } {
@@ -2200,6 +2184,8 @@ export default function HearthShell({
   }, [workspaceId, workpieceId]);
   const skippedReferenceClipIds = new Set(visualOpportunityDispositions.filter((item) => item.kind === "reference_clip" && item.state === "skipped").map((item) => item.opportunityId));
   const skippedReferenceVisualIds = new Set(visualOpportunityDispositions.filter((item) => item.kind === "reference_visual" && item.state === "skipped").map((item) => item.opportunityId));
+  const sourcedReferenceClips = canonicalReferenceClipState?.opportunities.filter((opportunity) => opportunity.sourceStatus === "linked") ?? [];
+  const sourcedReferenceVisuals = canonicalReferenceVisualState?.opportunities.filter((opportunity) => opportunity.sourceStatus === "linked" || (opportunity.sources?.length ?? 0) > 0) ?? [];
   const plannedImageCount = imageMapEntries.length;
   const imageMapAuthorityUnavailable = imageMapSaveError === "canonical_image_map_authority_unavailable";
   const mediaWorkflowInput = {
@@ -2227,14 +2213,16 @@ export default function HearthShell({
       projectionLoaded: imageMapProjectionLoaded && !imageMapAuthorityUnavailable,
     },
     referenceClips: {
-      planned: canonicalReferenceClipState?.opportunities.length ?? 0,
-      completed: canonicalReferenceClipState?.opportunities.filter((opportunity) => opportunity.selectedRevisionIds.length > 0 || skippedReferenceClipIds.has(opportunity.id)).length ?? 0,
+      planned: sourcedReferenceClips.length,
+      completed: sourcedReferenceClips.filter((opportunity) => opportunity.selectedRevisionIds.length > 0 || skippedReferenceClipIds.has(opportunity.id)).length,
+      unsourced: (canonicalReferenceClipState?.opportunities.length ?? 0) - sourcedReferenceClips.length,
       exists: Boolean(canonicalReferenceClipState?.planRevisionId),
       authorityState: canonicalReferenceClipAuthorityState,
     },
     referenceVisuals: {
-      planned: canonicalReferenceVisualState?.opportunities.length ?? 0,
-      completed: canonicalReferenceVisualState?.opportunities.filter((opportunity) => Boolean(opportunity.selectedCandidateRevisionId) || skippedReferenceVisualIds.has(opportunity.id)).length ?? 0,
+      planned: sourcedReferenceVisuals.length,
+      completed: sourcedReferenceVisuals.filter((opportunity) => Boolean(opportunity.selectedCandidateRevisionId) || skippedReferenceVisualIds.has(opportunity.id)).length,
+      unsourced: (canonicalReferenceVisualState?.opportunities.length ?? 0) - sourcedReferenceVisuals.length,
       exists: Boolean(canonicalReferenceVisualState?.planRevisionId),
       authorityState: canonicalReferenceVisualAuthorityState,
     },
@@ -2705,6 +2693,7 @@ export default function HearthShell({
   const { flushChatHistoryNow } = useHearthConversationHistory<PendingAiProposal>({
     store,
     activeDraftId: activeDraft?.id ?? null,
+    activeWorkpieceId: workpieceId,
     chatHistoryKey,
     chatMessages,
     setChatMessages,
@@ -3241,6 +3230,36 @@ export default function HearthShell({
         setChatMessages([]);
         setChatError(null);
         setPendingAiProposal(null);
+      },
+      onCopyChat: () => {
+        const completeness = store.getChatHistoryCompleteness?.(workpieceId) ?? "legacy_completeness_unknown";
+        if (completeness !== "complete") {
+          setChatError(completeness === "known_truncated"
+            ? "This legacy conversation is known to be truncated, so Hearth cannot label a copy as complete."
+            : "This legacy conversation predates complete retention, so its completeness cannot be verified.");
+          return;
+        }
+        const title = activeDraft?.title ?? planningSession?.title ?? "Untitled Episode";
+        void writeTextToClipboard(serializeHearthConversation(title, chatMessages)).then((copied) => {
+          setChatError(copied ? null : "The conversation could not be copied.");
+        });
+      },
+      onExportChatPdf: () => {
+        const completeness = store.getChatHistoryCompleteness?.(workpieceId) ?? "legacy_completeness_unknown";
+        if (completeness !== "complete") {
+          setChatError(completeness === "known_truncated"
+            ? "This legacy conversation is known to be truncated, so Hearth cannot label its PDF as complete."
+            : "This legacy conversation predates complete retention, so its completeness cannot be verified.");
+          return;
+        }
+        const title = activeDraft?.title ?? planningSession?.title ?? "Untitled Episode";
+        void import("../lib/hearth-conversation-pdf")
+          .then(async ({ buildHearthConversationPdf, downloadHearthConversationPdf, sanitizeHearthConversationFilename }) => {
+            const bytes = await buildHearthConversationPdf(title, chatMessages);
+            downloadHearthConversationPdf(bytes, sanitizeHearthConversationFilename(title));
+          })
+          .then(() => setChatError(null))
+          .catch(() => setChatError("The conversation PDF could not be created."));
       },
       onToggleAiProposalOp,
       onEditAiProposalBody,
@@ -4676,7 +4695,7 @@ export default function HearthShell({
       if (nextChatKey) {
         skipChatHydrationKeyRef.current = nextChatKey;
         writeChatHistoryCache(nextChatKey, []);
-        void store.saveChatHistory(draft.id, []);
+        void store.saveChatHistory(draft.id, [], created.workpieceId);
       }
       setChatMessages([]);
       setChatDraft("");
@@ -4744,7 +4763,7 @@ export default function HearthShell({
       if (nextChatKey) {
         skipChatHydrationKeyRef.current = nextChatKey;
         writeChatHistoryCache(nextChatKey, [markerMessage]);
-        void store.saveChatHistory(draft.id, [markerMessage]);
+        void store.saveChatHistory(draft.id, [markerMessage], workpieceId);
       }
       setChatMessages([markerMessage]);
       setChatDraft("");
@@ -6379,7 +6398,7 @@ export default function HearthShell({
       onGenerateMotionPrompt: (creatorDirection: string) => selectedBrollBeat ? void canonicalBrollV2.generatePrompt(selectedBrollBeat.id, creatorDirection) : undefined,
       onSaveMotionPrompt: (finalPrompt: string) => selectedBrollBeat ? void canonicalBrollV2.editPrompt(selectedBrollBeat.id, finalPrompt) : undefined,
       onCreateRunwayReadyPrompt: () => selectedBrollBeat ? canonicalBrollV2.proposeRunwayPrompt(selectedBrollBeat.id) : Promise.resolve(null),
-      onGenerateVideo: () => selectedBrollBeat ? void canonicalBrollV2.generateVideo(selectedBrollBeat.id) : undefined,
+      onGenerateVideo: (referenceImages: Array<{ file: File; stageLabel?: string }>) => selectedBrollBeat ? void canonicalBrollV2.generateVideo(selectedBrollBeat.id, referenceImages) : undefined,
       onFindStock: () => {},
       onUploadAsset: (file: File) => selectedBrollBeat ? void canonicalBrollV2.upload(selectedBrollBeat.id, file) : undefined,
       onSelectCandidate: (candidateId: string) => selectedBrollBeat ? void canonicalBrollV2.select(selectedBrollBeat.id, candidateId) : undefined,
@@ -6421,6 +6440,7 @@ export default function HearthShell({
       surfaceInput: brollSurfaceInput,
     });
     const referenceClipsSurfaceInput = {
+      canonicalAuthorityExists: Boolean(canonicalReferenceClipState?.planRevisionId || canonicalReferenceVisualState?.planRevisionId),
       entries: referenceClipEntries,
       selectedEntryId: selectedReferenceClipEntryId,
       saveState: referenceClipSaveState,

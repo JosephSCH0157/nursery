@@ -32,6 +32,7 @@ type ReferenceReviewBase = {
   placement: string;
   durationMs: number;
   sourceSummary: string[];
+  sourceUrl: string | null;
   warning: string | null;
   state: ReferenceReviewState;
   resolution: ReferenceReviewResolution;
@@ -126,6 +127,7 @@ export function projectReferenceReviewItems(
       placement: opportunity.placement,
       durationMs: opportunity.durationMs,
       sourceSummary: opportunity.source ? [opportunity.source.title] : [],
+      sourceUrl: opportunity.source?.url ?? null,
       warning: approveDisabledReason,
       state: pending.has(key)
         ? "hearth_is_working"
@@ -178,9 +180,10 @@ export function projectReferenceReviewItems(
         : reproduction && !opportunity.rights
           ? "Confirm permission or licensing before approving reproduced material."
           : null;
-    const sources = (opportunity.sources ?? []).map(
+    const sources = [...new Set((opportunity.sources ?? []).map(
       (member) => text(member.source.title) ?? "Untitled Source",
-    );
+    ))];
+    const sourceUrl = text((opportunity.sources ?? [])[0]?.source.canonical_url);
     return {
       key,
       family: "reference_visual",
@@ -200,6 +203,7 @@ export function projectReferenceReviewItems(
       placement: opportunity.placement,
       durationMs: opportunity.durationMs,
       sourceSummary: sources,
+      sourceUrl,
       warning: approveDisabledReason,
       state: pending.has(key)
         ? "hearth_is_working"

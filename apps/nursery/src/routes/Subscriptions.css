@@ -167,6 +167,16 @@
   gap: 10px;
 }
 
+.subscriptions-inline-form__reauth {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.subscriptions-inline-form__reauth .subscriptions-button {
+  justify-self: start;
+}
+
 .subscriptions-storage-ladder {
   margin-top: 16px;
   display: grid;

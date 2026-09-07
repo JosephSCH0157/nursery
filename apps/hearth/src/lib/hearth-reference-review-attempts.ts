@@ -17,6 +17,12 @@ export type ReferenceReviewFailure = {
 };
 const rec = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === "object" && !Array.isArray(value);
+const friendlyFailure = (value: unknown) =>
+  value === "broll_media_signature_invalid"
+    ? "The linked image format was not recognized. WebP is supported now; choose Prepare image to try again."
+    : typeof value === "string"
+      ? value
+      : "This operation failed.";
 async function body(response: Response) {
   try {
     return await response.json();
@@ -95,10 +101,7 @@ export async function readReferenceReviewFailures(
             attemptId: row.attempt_id,
             key,
             intent,
-            message:
-              typeof row.failure_message === "string"
-                ? row.failure_message
-                : "This operation failed.",
+            message: friendlyFailure(row.failure_message),
           }
         : null,
     );

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { buildBrollPlanFromScript } from "../../lib/hearth-broll-plan";
 import { tongsFetch } from "../../lib/tongs-fetch";
 import {
@@ -9,7 +9,6 @@ import {
   generateCanonicalBrollVideo,
   proposeRunwayReadyBrollPrompt,
   readCanonicalBrollV2,
-  resumeCanonicalBrollVideo,
   selectCanonicalBrollCandidate,
   type CanonicalBrollV2State,
 } from "../../lib/hearth-broll-v2-authority";
@@ -36,7 +35,6 @@ export function useCanonicalBrollV2(args: {
   const [activeOperation, setActiveOperation] = useState<"motion_prompt" | "video" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-  const resumedOperations = useRef(new Set<string>());
 
   const refresh = useCallback(async () => {
     if (!args.workspaceId || !args.workpieceId) { setState(EMPTY); return false; }
@@ -48,25 +46,6 @@ export function useCanonicalBrollV2(args: {
   }, [args.workspaceId, args.workpieceId]);
 
   useEffect(() => { void refresh(); }, [refresh]);
-
-  useEffect(() => {
-    if (!args.workspaceId || !args.workpieceId || loading || busy || !state.plan) return;
-    const beats = state.plan.beats.filter((item) => !item.selected_asset_id && (item.candidate_assets?.length ?? 0) === 0 && state.promptsByBeat[item.id]?.revisionId && !resumedOperations.current.has(item.id));
-    if (!beats.length) return;
-    for (const beat of beats) resumedOperations.current.add(beat.id);
-    void (async () => {
-      setBusy(true); setActiveOperation("video"); setMessage("Checking for an existing Runway generation…");
-      try {
-        for (const beat of beats) {
-          const resumed = await resumeCanonicalBrollVideo({ workspaceId: args.workspaceId!, workpieceId: args.workpieceId!, beatId: beat.id, prompt: state.promptsByBeat[beat.id] });
-          if (!resumed.ok) { setError(resumed.error); return; }
-          if (!resumed.data) continue;
-          setState(resumed.data); setError(null); setMessage("Existing Runway generation recovered. Video and poster are ready to preview."); return;
-        }
-        setMessage(null);
-      } finally { setBusy(false); setActiveOperation(null); }
-    })();
-  }, [args.workspaceId, args.workpieceId, busy, loading, state]);
 
   const generatePlan = useCallback(async (readApprovedScript: () => Promise<{ ok: true; text: string } | { ok: false; message: string }>) => {
     if (!args.workspaceId || !args.workpieceId || busy) return;
@@ -130,18 +109,21 @@ export function useCanonicalBrollV2(args: {
     } finally { setBusy(false); }
   }, [args.workspaceId, args.workpieceId, busy]);
 
-  const generateVideo = useCallback(async (beatId: string) => {
+  const generateVideo = useCallback(async (beatId: string, referenceImages: Array<{ file: File; stageLabel?: string }> = []) => {
     if (!args.workspaceId || !args.workpieceId || busy) return;
-    setBusy(true); setActiveOperation("video"); setError(null); setMessage("Runway generation is active. Waiting for the durable task result…");
+    setBusy(true); setActiveOperation("video"); setError(null); setMessage("Preparing the Runway cost confirmation. No video has been submitted yet.");
     try {
-      const quote = await generateCanonicalBrollVideo({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, beatId, prompt: state.promptsByBeat[beatId], confirmSpend: false });
-      if (quote.ok) { setState(quote.data); setMessage("Existing Runway generation recovered. Video and poster are ready to preview."); return; }
-      if (!quote.requiresConfirmation) { setError(quote.error); setMessage(null); return; }
+      const quote = await generateCanonicalBrollVideo({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, beatId, prompt: state.promptsByBeat[beatId], referenceImages, confirmSpend: false });
+      if (quote.ok) { setState(quote.data); setMessage("An identical completed Runway result already exists. No new generation or credit charge was made."); return; }
+      if (!quote.requiresConfirmation) { setError(quote.error); setMessage("Runway generation did not start."); return; }
+      setMessage("Waiting for your cost confirmation. Runway generation has not started yet.");
+      await new Promise<void>((resolve) => window.requestAnimationFrame(() => resolve()));
       const confirmed = window.confirm(quote.authorizationMessage ?? `Generate this Runway video? Up to ${(quote.authorizedCustomerCeiling ?? 0).toLocaleString()} AI credits will be held.`);
-      if (!confirmed) { setMessage(null); return; }
-      const acquired = await generateCanonicalBrollVideo({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, beatId, prompt: state.promptsByBeat[beatId], confirmSpend: true });
-      if (!acquired.ok) { setError(acquired.error); setMessage(null); return; }
-      setState(acquired.data); setMessage("Runway video and poster verified. Candidate is ready to preview.");
+      if (!confirmed) { setMessage("Generation cancelled. No Runway video was submitted and no credits were spent."); return; }
+      setMessage("Runway generation submitted. Keep this page open until the verified video and preview appear.");
+      const acquired = await generateCanonicalBrollVideo({ workspaceId: args.workspaceId, workpieceId: args.workpieceId, beatId, prompt: state.promptsByBeat[beatId], referenceImages, confirmSpend: true });
+      if (!acquired.ok) { setError(acquired.error); setMessage("Runway generation did not complete. Your reference-image selection remains on this page so you can retry after reviewing the error."); return; }
+      setState(acquired.data); setMessage("Runway generation complete. The verified video and preview are ready to review.");
     } finally { setBusy(false); setActiveOperation(null); }
   }, [args.workspaceId, args.workpieceId, busy, state.promptsByBeat]);
 

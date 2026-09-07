@@ -467,15 +467,39 @@ test("createHearthAiHandler rejects unusable production output before successful
   }
 });
 
-test("createHearthAiHandler rejects malformed thumbnail production output without a repair request or billing", async () => {
+test("createHearthAiHandler repairs malformed thumbnail production output once before billing", async () => {
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key", configuredBillingMode: "byo" }));
   const originalFetch = globalThis.fetch;
   let calls = 0;
   globalThis.fetch = async () => {
     calls += 1;
+    const assistantText = calls === 1
+      ? "Research outcome: Live retrieval was unavailable. Here are five thumbnail ideas."
+      : [
+          "THUMBNAIL_STRATEGY",
+          "Episode promise: Explain the approved episode without exaggeration.",
+          "Intended viewer: Curious documentary viewers.",
+          "Curiosity mechanism: Reveal a surprising contrast.",
+          "Editorial positioning: Practical and evidence-led.",
+          "Truthful connection: Every visual maps to the approved script.",
+          "Prohibited exaggerations: No invented outcomes.",
+          ...Array.from({ length: 5 }, (_, index) => [
+            `THUMBNAIL_0${index + 1}`,
+            `Headline: Distinct direction ${index + 1}`,
+            `Subject: Distinct subject ${index + 1}`,
+            `Focal action: Distinct action ${index + 1}`,
+            `Composition: Distinct composition ${index + 1}`,
+            `Emotional tone: Restrained curiosity ${index + 1}`,
+            `Visual hierarchy: Subject, context, detail ${index + 1}`,
+            `Title compatibility: Clear negative space ${index + 1}`,
+            `Integrity rationale: Supported by the approved script ${index + 1}`,
+            `Render direction: Clean base artwork without text ${index + 1}`,
+            `Mood/style: Documentary realism ${index + 1}`,
+          ].join("\n")),
+        ].join("\n");
     return new Response(JSON.stringify({
       choices: [{ message: { content: JSON.stringify({
-        assistantText: "Research outcome: Live retrieval was unavailable. Here are five thumbnail ideas.",
+        assistantText,
         ops: [],
       }) } }],
       usage: { prompt_tokens: 40, completion_tokens: 12, total_tokens: 52 },
@@ -494,11 +518,10 @@ test("createHearthAiHandler rejects malformed thumbnail production output withou
       }),
     }));
     const payload = await response.json();
-    assert.equal(response.status, 502);
-    assert.equal(payload.code, "invalid_production_output");
-    assert.equal(payload.billable_tokens, 0);
-    assert.equal(calls, 1);
-    assert.match(payload.error, /exactly five complete, distinct concept briefs/i);
+    assert.equal(response.status, 200);
+    assert.equal(payload.ok, true);
+    assert.equal(calls, 2);
+    assert.match(payload.assistant_text, /THUMBNAIL_05/);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1865,6 +1888,46 @@ test("createHearthAiHandler strips internal prompt markers from research fallbac
   } finally {
     globalThis.fetch = originalFetch;
     restoreResearchEnv(priorResearchEnv);
+  }
+});
+
+test("createHearthAiHandler classifies creator text separately and activates listening mode", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+  let capturedSystemPrompt = "";
+  const raw = "I want to establish the scale, then cover its working life and restoration. Are you with me so far?";
+  const augmented = `${raw}\n\nThe user prefers a full script when explicitly requested. Recording-ready script rules: write scripts for Anvil and perform a narrative rewrite.`;
+
+  globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as { messages?: Array<{ content?: string }> };
+    capturedSystemPrompt = body.messages?.[0]?.content ?? "";
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ assistantText: "I’m with you. Keep going.", ops: [], script_text: null, tag_audit: null }) } }],
+      usage: { total_tokens: 24 },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  try {
+    assert.equal(shouldUseWorkspaceContext(raw), false);
+    assert.equal(shouldUseWorkspaceContext(augmented), true);
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: augmented }],
+        user_authored_text: raw,
+        episode_context: buildEpisodeContext({ title: "Big Boy 4014" }),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+    assert.equal(response.status, 200);
+    assert.match(capturedSystemPrompt, /Listening-turn override \(hard rule\)/i);
+    assert.match(capturedSystemPrompt, /still explaining an idea/i);
+    const payload = await response.json();
+    assert.doesNotMatch(String(payload.assistant_text ?? ""), /possible draft match/i);
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 

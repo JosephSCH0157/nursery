@@ -26,7 +26,7 @@ export type LedgerTopFeature = {
   percent: number;
 };
 
-export type LedgerTimeRange = "today" | "7d" | "30d";
+export type LedgerTimeRange = "today" | "7d" | "30d" | "90d";
 
 function roundUsd(value: number): number {
   return Math.max(0, Number(value.toFixed(6)));
@@ -56,6 +56,14 @@ export function filterLedgerEventsByRange(
 ): LedgerUsageEvent[] {
   if (range === "30d") {
     const from = now.getTime() - (30 * 24 * 60 * 60 * 1000);
+    return events.filter((event) => {
+      const createdAt = parseCreatedAt(event.created_at);
+      return createdAt ? createdAt.getTime() >= from : false;
+    });
+  }
+
+  if (range === "90d") {
+    const from = now.getTime() - (90 * 24 * 60 * 60 * 1000);
     return events.filter((event) => {
       const createdAt = parseCreatedAt(event.created_at);
       return createdAt ? createdAt.getTime() >= from : false;

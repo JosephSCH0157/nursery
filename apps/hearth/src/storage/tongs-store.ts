@@ -20,6 +20,11 @@ import {
   type HearthRevisionSnapshot,
 } from "../lib/hearth-revisions-contract";
 import type { HearthChatMessage } from "../lib/hearth-chat-api";
+import {
+  appendCanonicalHearthConversation,
+  clearCanonicalHearthConversation,
+  readCanonicalHearthConversation,
+} from "../lib/hearth-conversation-repo";
 import type {
   HearthCanonicalRevisionsResult,
   HearthDraftSaveAcknowledgement,
@@ -88,6 +93,8 @@ const MAX_CHAT_TOTAL_CHARS = 650_000;
 const MAX_CHAT_ENTRY_CHARS = 24_000;
 const CHAT_TRUNCATED_SUFFIX = "\n\n[truncated in local cache]";
 const loadedChatSnapshotByWorkpiece = new Set<string>();
+const canonicalChatGenerationByWorkpiece = new Map<string, number>();
+const canonicalChatCompletenessByWorkpiece = new Map<string, "complete" | "legacy_completeness_unknown" | "known_truncated">();
 
 let correlationSeq = 0;
 
@@ -1077,7 +1084,7 @@ export class TongsHearthStore implements HearthStore {
     await this.syncChatsToTongs(cache, workspaceId, id);
   }
 
-  async getChatHistory(draftId: DraftId): Promise<HearthChatMessage[]> {
+  async getChatHistory(draftId: DraftId, explicitWorkpieceId?: string | null): Promise<HearthChatMessage[]> {
     const id = typeof draftId === "string" ? draftId.trim() : "";
     if (!id) return [];
 
@@ -1086,7 +1093,18 @@ export class TongsHearthStore implements HearthStore {
     if (!workspaceId) return [];
     if (cache.draftWorkspaceById[id] !== workspaceId) return [];
     if (workspaceId) {
-      const workpieceId = resolveCachedWorkpieceId(workspaceId, cache);
+      const workpieceId = normalizeUuid(explicitWorkpieceId) ?? resolveCachedWorkpieceId(workspaceId, cache);
+      if (workpieceId) {
+        const canonical = await readCanonicalHearthConversation(workspaceId, workpieceId);
+        if (canonical.ok && canonical.data) {
+          canonicalChatGenerationByWorkpiece.set(workpieceId, canonical.data.generation);
+          canonicalChatCompletenessByWorkpiece.set(workpieceId, canonical.data.completeness);
+          return canonical.data.messages;
+        }
+        if (!canonical.ok && canonical.status !== 404) {
+          throw new Error(`canonical_chat_read_failed:${canonical.status}`);
+        }
+      }
       if (workpieceId && !loadedChatSnapshotByWorkpiece.has(workpieceId)) {
         const remoteChats = await readChatSnapshot(workpieceId);
         if (remoteChats != null) {
@@ -1100,10 +1118,25 @@ export class TongsHearthStore implements HearthStore {
       }
     }
 
-    return readChatMessages(cache, id, workspaceId);
+    const legacyMessages = readChatMessages(cache, id, workspaceId);
+    const workpieceId = normalizeUuid(explicitWorkpieceId) ?? resolveCachedWorkpieceId(workspaceId, cache);
+    if (workpieceId && legacyMessages.length > 0) {
+      const knownTruncated = legacyMessages.length >= MAX_CHAT_MESSAGES
+        || legacyMessages.some((message) => message.content.includes(CHAT_TRUNCATED_SUFFIX));
+      canonicalChatCompletenessByWorkpiece.set(workpieceId, knownTruncated ? "known_truncated" : "legacy_completeness_unknown");
+      const imported = await appendCanonicalHearthConversation({
+        workspaceId,
+        workpieceId,
+        generation: 1,
+        messages: legacyMessages,
+        importCompleteness: knownTruncated ? "known_truncated" : "legacy_completeness_unknown",
+      });
+      if (imported.ok) canonicalChatGenerationByWorkpiece.set(workpieceId, imported.data.generation ?? 1);
+    }
+    return legacyMessages;
   }
 
-  async saveChatHistory(draftId: DraftId, messages: HearthChatMessage[]): Promise<void> {
+  async saveChatHistory(draftId: DraftId, messages: HearthChatMessage[], explicitWorkpieceId?: string | null): Promise<void> {
     const id = typeof draftId === "string" ? draftId.trim() : "";
     if (!id) return;
 
@@ -1116,7 +1149,10 @@ export class TongsHearthStore implements HearthStore {
       return;
     }
     cache.draftWorkspaceById[id] = workspaceId;
-    const sanitized = sanitizeChatMessages(messages);
+    const canonicalMessages = messages.filter((message) => (
+      (message.role === "user" || message.role === "assistant") && Boolean(message.content.trim())
+    ));
+    const sanitized = sanitizeChatMessages(canonicalMessages);
     if (sanitized.length === 0) {
       if (cache.chats[id]) {
         delete cache.chats[id];
@@ -1129,7 +1165,27 @@ export class TongsHearthStore implements HearthStore {
       };
     }
     writeCache(cache);
-    await this.syncChatsToTongs(cache, workspaceId, id);
+    const workpieceId = normalizeUuid(explicitWorkpieceId) ?? resolveCachedWorkpieceId(workspaceId, cache);
+    if (!workpieceId) throw new Error("canonical_chat_workpiece_required");
+    const generation = canonicalChatGenerationByWorkpiece.get(workpieceId) ?? 1;
+    if (canonicalMessages.length === 0) {
+      const cleared = await clearCanonicalHearthConversation(workspaceId, workpieceId, generation);
+      if (!cleared.ok) throw new Error(`canonical_chat_clear_failed:${cleared.status}`);
+      if (cleared.data.status === "generation_conflict") throw new Error("canonical_chat_generation_conflict");
+      canonicalChatGenerationByWorkpiece.set(workpieceId, cleared.data.generation ?? generation);
+    } else {
+      const appended = await appendCanonicalHearthConversation({ workspaceId, workpieceId, generation, messages: canonicalMessages });
+      if (!appended.ok) throw new Error(`canonical_chat_append_failed:${appended.status}`);
+      if (appended.data.status === "generation_conflict") throw new Error("canonical_chat_generation_conflict");
+      canonicalChatGenerationByWorkpiece.set(workpieceId, appended.data.generation ?? generation);
+    }
+    // Keep the bounded snapshot temporarily for rollback/read compatibility.
+    await this.syncChatsToTongs(cache, workspaceId, id, workpieceId);
+  }
+
+  getChatHistoryCompleteness(workpieceId: string | null): "complete" | "legacy_completeness_unknown" | "known_truncated" {
+    const normalized = normalizeUuid(workpieceId);
+    return normalized ? canonicalChatCompletenessByWorkpiece.get(normalized) ?? "complete" : "legacy_completeness_unknown";
   }
 
   async getHearthRevisionSnapshot(workpieceId: string): Promise<HearthRevisionSnapshot | null> {
@@ -1505,12 +1561,12 @@ export class TongsHearthStore implements HearthStore {
     };
   }
 
-  private async syncChatsToTongs(cache: TongsCacheV1, workspaceIdInput: string | null | undefined, draftId: string): Promise<void> {
+  private async syncChatsToTongs(cache: TongsCacheV1, workspaceIdInput: string | null | undefined, draftId: string, explicitWorkpieceId?: string | null): Promise<void> {
     const workspaceId = workspaceIdInput ?? resolveWorkspaceId();
     if (!workspaceId) return;
 
     const writtenBy = buildWrittenBy();
-    const workpieceId = resolveCachedWorkpieceId(workspaceId, cache);
+    const workpieceId = normalizeUuid(explicitWorkpieceId) ?? resolveCachedWorkpieceId(workspaceId, cache);
     if (!workpieceId) throw new Error("canonical_chat_workpiece_required");
 
     const snapshot = buildChatSnapshot(cache, workspaceId, draftId);

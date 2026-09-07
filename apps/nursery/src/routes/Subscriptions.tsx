@@ -637,9 +637,10 @@ function getPasswordUpdateErrorMessage(message: string): string {
 
   if (
     normalized.includes("reauthentication required")
+    || normalized.includes("requires reauthentication")
     || normalized.includes("recent login required")
   ) {
-    return "For security, please sign in again before updating your password.";
+    return "Password update requires email verification. Send a verification code below, then enter it to continue.";
   }
 
   return message || "Unable to update password.";
@@ -805,6 +806,9 @@ export default function SubscriptionsRoute() {
   const [passwordUpdatePending, setPasswordUpdatePending] = useState(false);
   const [passwordUpdateNotice, setPasswordUpdateNotice] = useState<string | null>(null);
   const [passwordUpdateError, setPasswordUpdateError] = useState<string | null>(null);
+  const [passwordReauthCode, setPasswordReauthCode] = useState("");
+  const [passwordReauthPending, setPasswordReauthPending] = useState(false);
+  const [passwordReauthRequested, setPasswordReauthRequested] = useState(false);
   const [accountOverview, setAccountOverview] = useState<AccountBillingOverview | null>(null);
   const [accountOverviewLoading, setAccountOverviewLoading] = useState(false);
   const [accountOverviewError, setAccountOverviewError] = useState<string | null>(null);
@@ -1138,7 +1142,11 @@ export default function SubscriptionsRoute() {
         return;
       }
 
-      const { error } = await supabase.auth.updateUser({ password: nextPassword });
+      const nonce = passwordReauthCode.trim();
+      const { error } = await supabase.auth.updateUser({
+        password: nextPassword,
+        ...(nonce ? { nonce } : {}),
+      });
       if (error) {
         setPasswordUpdateError(getPasswordUpdateErrorMessage(error.message));
         return;
@@ -1146,12 +1154,35 @@ export default function SubscriptionsRoute() {
 
       setPasswordDraft("");
       setPasswordConfirmDraft("");
-      setPasswordUpdateNotice("Password updated.");
+      setPasswordReauthCode("");
+      setPasswordReauthRequested(false);
+      setPasswordUpdateNotice("Password updated. A security notification will be sent to your account email.");
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to update password.";
       setPasswordUpdateError(getPasswordUpdateErrorMessage(message));
     } finally {
       setPasswordUpdatePending(false);
+    }
+  }
+
+  async function handleSendPasswordReauthentication(): Promise<void> {
+    if (!user || passwordReauthPending) return;
+    setPasswordReauthPending(true);
+    setPasswordUpdateNotice(null);
+    setPasswordUpdateError(null);
+    try {
+      const { error } = await supabase.auth.reauthenticate();
+      if (error) {
+        setPasswordUpdateError(getPasswordUpdateErrorMessage(error.message));
+        return;
+      }
+      setPasswordReauthRequested(true);
+      setPasswordUpdateNotice("Verification email sent. Enter the code from that email below.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to send verification email.";
+      setPasswordUpdateError(getPasswordUpdateErrorMessage(message));
+    } finally {
+      setPasswordReauthPending(false);
     }
   }
 
@@ -1331,6 +1362,33 @@ export default function SubscriptionsRoute() {
                     >
                       {passwordUpdatePending ? "Updating..." : "Update password"}
                     </button>
+                  </div>
+                  <div className="subscriptions-inline-form__reauth">
+                    <p className="subscriptions-card__copy">
+                      If Forge asks you to reauthenticate, request a verification code before submitting the password again.
+                    </p>
+                    <button
+                      type="button"
+                      className="subscriptions-button subscriptions-button--ghost"
+                      disabled={passwordReauthPending}
+                      onClick={() => void handleSendPasswordReauthentication()}
+                    >
+                      {passwordReauthPending ? "Sending..." : passwordReauthRequested ? "Resend verification email" : "Send verification email"}
+                    </button>
+                    {passwordReauthRequested ? (
+                      <label className="subscriptions-inline-form__field">
+                        <span>Verification code</span>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          value={passwordReauthCode}
+                          onChange={(event) => setPasswordReauthCode(event.target.value)}
+                          placeholder="Enter the code from your email"
+                          disabled={passwordUpdatePending || passwordReauthPending}
+                        />
+                      </label>
+                    ) : null}
                   </div>
                   {passwordUpdateNotice ? (
                     <p className="subscriptions-status subscriptions-status--success" role="status">{passwordUpdateNotice}</p>

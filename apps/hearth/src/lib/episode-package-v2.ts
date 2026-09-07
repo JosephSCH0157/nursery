@@ -1467,13 +1467,16 @@ export function parseTagsFromText(rawText: string): string[] {
   const jsonTags = readProductionArray(rawText, ["tags", "full_tags", "tags_full", "top_tags", "tags_top10"])
     .map((value) => typeof value === "string" ? value : null)
     .filter((value): value is string => Boolean(value));
-  if (jsonTags.length) return dedupeTags(jsonTags);
-  const full = parseSectionBody(rawText, "TAGS_FULL");
-  if (full) return dedupeTags(parseCsvTags(full.replace(/^(?:[-*]|\d+[.)])\s*/gm, "")));
+  if (jsonTags.length) return dedupeTags(jsonTags).slice(0, 10);
   const top10 = parseSectionBody(rawText, "TAGS_TOP10");
-  if (top10) return dedupeTags(parseCsvTags(top10.replace(/^(?:[-*]|\d+[.)])\s*/gm, "")));
+  if (top10) return dedupeTags(parseCsvTags(top10.replace(/^(?:[-*]|\d+[.)])\s*/gm, ""))).slice(0, 10);
+  // Keep legacy TAGS_FULL artifacts readable, but never surface their old
+  // 20–35 item payload as a new proposal. The model is instructed to rank
+  // strongest candidates first, so this boundary also contains verbose output.
+  const full = parseSectionBody(rawText, "TAGS_FULL");
+  if (full) return dedupeTags(parseCsvTags(full.replace(/^(?:[-*]|\d+[.)])\s*/gm, ""))).slice(0, 10);
   const generic = parseSectionBody(rawText, "TAGS");
-  if (generic) return dedupeTags(parseCsvTags(generic.replace(/^(?:[-*]|\d+[.)])\s*/gm, "")));
+  if (generic) return dedupeTags(parseCsvTags(generic.replace(/^(?:[-*]|\d+[.)])\s*/gm, ""))).slice(0, 10);
   return [];
 }
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ChangeEvent, type DragEv
 import CollapsibleFocusPanel from "../../components/focus/CollapsibleFocusPanel";
 import { resolveHearthChatScrollAffordance } from "../../lib/hearth-chat-scroll-affordance";
 import type { HearthWritingFormat } from "../../lib/hearth-writing-format";
+import { linkifyHearthText } from "../../lib/hearth-conversation-export";
 
 type ChatAttachmentView = {
   id: string;
@@ -60,6 +61,8 @@ export type ChatSurfaceProps = {
   chatInputRef: RefObject<HTMLTextAreaElement | null>;
   listeningIndicator: ReactNode;
   onClearChat: () => void;
+  onCopyChat: () => void;
+  onExportChatPdf: () => void;
   onToggleAiProposalOp: (index: number) => void;
   onEditAiProposalBody: (index: number, value: string) => void;
   onResetAiProposalBody: (index: number) => void;
@@ -221,13 +224,17 @@ export default function ChatSurface(props: ChatSurfaceProps) {
         <div ref={chatTopRef} className="hs-ai-chat-scroll-sentinel" aria-hidden="true" />
         <div className="hs-ai-chat-header">
           <div className="hs-ai-chat-title">Talk it through</div>
-          <button
-            type="button"
-            onClick={props.onClearChat}
-            disabled={props.isAiProcessing || props.chatMessages.length === 0}
-          >
-            Clear chat
-          </button>
+          <div className="hs-ai-chat-header-actions">
+            <button type="button" onClick={props.onCopyChat} disabled={props.chatMessages.length === 0}>Copy chat</button>
+            <button type="button" onClick={props.onExportChatPdf} disabled={props.chatMessages.length === 0}>Save as PDF</button>
+            <button
+              type="button"
+              onClick={props.onClearChat}
+              disabled={props.isAiProcessing || props.chatMessages.length === 0}
+            >
+              Clear chat
+            </button>
+          </div>
         </div>
 
         <div ref={chatLogRef} className="hs-ai-chat-log" role="log" aria-live="polite">
@@ -239,7 +246,11 @@ export default function ChatSurface(props: ChatSurfaceProps) {
             props.chatMessages.map((message, index) => (
               <div key={`${message.role}-${index}`} className={`hs-ai-chat-msg is-${message.role}`}>
                 <span className="hs-ai-chat-role">{message.role === "assistant" ? "Hearth" : "You"}</span>
-                <span className="hs-ai-chat-content">{message.content}</span>
+                <span className="hs-ai-chat-content">{linkifyHearthText(message.content).map((part, partIndex) => (
+                  part.href
+                    ? <a key={partIndex} href={part.href} target="_blank" rel="noreferrer">{part.text}</a>
+                    : <span key={partIndex}>{part.text}</span>
+                ))}</span>
               </div>
             ))
           )}

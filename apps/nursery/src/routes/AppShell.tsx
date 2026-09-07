@@ -222,6 +222,7 @@ export default function AppShell() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [workspaceGateChoice, setWorkspaceGateChoice] = useState("");
+  const [navOpen, setNavOpen] = useState(false);
   const [aiControlsOpen, setAiControlsOpen] = useState(false);
   const [invitePreview, setInvitePreview] = useState<InvitePreview | null>(null);
   const [invitePreviewLoading, setInvitePreviewLoading] = useState(false);
@@ -988,8 +989,27 @@ export default function AppShell() {
 
   function onNavAction(actionId: string) {
     if (actionId !== FORGE_NAV_ACTION_AI_CONTROLS) return;
+    setNavOpen(false);
     setAiControlsOpen(true);
   }
+
+  useEffect(() => {
+    if (!navOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setNavOpen(false);
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [navOpen]);
+
+  useEffect(() => {
+    setNavOpen(false);
+  }, [location.pathname, location.search]);
 
   const navExtraItems = useMemo(
     () => [
@@ -1035,8 +1055,39 @@ export default function AppShell() {
 
   return (
     <div className="appshell-root">
+      {navOpen ? (
+        <div className="appshell-nav-backdrop" role="presentation" onClick={() => setNavOpen(false)}>
+          <aside
+            className="appshell-nav-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-label="The Forge menu"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="appshell-nav-drawer-header">
+              <strong>The Forge menu</strong>
+              <button type="button" aria-label="Close The Forge menu" onClick={() => setNavOpen(false)}>×</button>
+            </div>
+            <ForgeNav
+              tree={navTreeWithWorkspace}
+              extraItems={navExtraItems}
+              onNavigate={() => setNavOpen(false)}
+              onAction={onNavAction}
+            />
+          </aside>
+        </div>
+      ) : null}
       <header className="appshell-header">
         <div className="appshell-header-left">
+          <button
+            type="button"
+            className="appshell-menu-trigger"
+            aria-label="Open The Forge menu"
+            aria-expanded={navOpen}
+            onClick={() => setNavOpen(true)}
+          >
+            ☰
+          </button>
           <Link to={homeHref} className="appshell-brand-link">
             The Forge
           </Link>
@@ -1175,10 +1226,6 @@ export default function AppShell() {
       ) : null}
 
       <div className="appshell-body">
-        <aside className="appshell-nav">
-          <ForgeNav tree={navTreeWithWorkspace} extraItems={navExtraItems} onAction={onNavAction} />
-        </aside>
-
         <main className="appshell-main">
           {appSegment && MOBILE_WARNING_TOOLS[appSegment] ? (
             <MobileWarningBanner

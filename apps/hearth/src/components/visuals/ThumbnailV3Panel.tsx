@@ -734,17 +734,22 @@ export default function ThumbnailV3Panel(props: Props) {
       requestedStyleSource: styleSource,
     });
     if (!composite.ok) { setSaveState("error"); setLoadError(`Base artwork was created, but the finished thumbnail could not be composed: ${composite.error}`); return; }
-    // The composite commit is authoritative for the write, but the acceptance
-    // workspace is derived from a canonical package read plus candidate
-    // authority. Read both back before declaring generation complete so the
-    // third thumbnail can reveal the Finish action without a page reload.
-    const [canonicalAfterComposite, candidateAuthorityAfterComposite] = await Promise.all([
+    // The successful composite mutation already includes its proven canonical
+    // readback. Publish it immediately so the third thumbnail can reveal the
+    // acceptance action even when an ancillary projection read is slow or
+    // temporarily unavailable. A later reconciliation may enrich this state,
+    // but it must not gate the saved launch from the UI.
+    setPkg(composite.episodePackage);
+    setToken(composite.metadataUpdatedAt);
+    const [canonicalReadback, candidateAuthorityReadback] = await Promise.allSettled([
       readCanonicalThumbnailWorkspaceV3({ workpieceId: props.workpieceId, workspaceId: props.workspaceId }),
       readThumbnailCandidateAuthorityProjection({ workspaceId: props.workspaceId, workpieceId: props.workpieceId }),
     ]);
+    const canonicalAfterComposite = canonicalReadback.status === "fulfilled" ? canonicalReadback.value : composite;
+    const candidateAuthorityAfterComposite = candidateAuthorityReadback.status === "fulfilled" ? candidateAuthorityReadback.value : candidateAuthority;
     setPkg(canonicalAfterComposite.episodePackage);
     setToken(canonicalAfterComposite.metadataUpdatedAt);
-    setCandidateAuthority(candidateAuthorityAfterComposite);
+    if (candidateAuthorityAfterComposite) setCandidateAuthority(candidateAuthorityAfterComposite);
     const completedLaunch = canonicalAfterComposite.episodePackage.thumbnail.launch_variant_revisions.at(-1);
     if (styleSource === "brand_profile" && completedLaunch?.snapshot.style_source !== "brand_profile") {
       setSaveState("error");
@@ -935,7 +940,7 @@ export default function ThumbnailV3Panel(props: Props) {
 
       <section className="hs-thumbnail-stage" aria-labelledby="thumbnail-directions-heading">
         <div className="hs-thumbnail-stage-heading"><div><span>1</span><h4 id="thumbnail-directions-heading">Choose three directions</h4></div>
-          {directions.length < 3 ? <button type="button" className="is-primary" disabled={props.isGeneratingConcepts || saveState === "saving"} onClick={() => void runConceptPersistence(props.onGenerateConcepts, "Hearth could not save the generated thumbnail directions. Your existing work is safe.")}>{props.isGeneratingConcepts ? "Creating directions…" : "Create thumbnail directions"}</button> : <small>Three pairwise-distinct editorial approaches</small>}
+          {directions.length < 3 ? <button type="button" className="is-primary" disabled={props.isGeneratingConcepts || saveState === "saving"} onClick={() => void runConceptPersistence(props.onGenerateConcepts, "Hearth could not create a complete thumbnail direction set. No incomplete set was saved; your existing work is safe.")}>{props.isGeneratingConcepts ? "Creating directions…" : "Create thumbnail directions"}</button> : <small>Three pairwise-distinct editorial approaches</small>}
         </div>
         {directions.length ? <div className="hs-thumbnail-direction-grid">
           {directions.map((direction) => {
@@ -950,13 +955,6 @@ export default function ThumbnailV3Panel(props: Props) {
             </button>;
           })}
         </div> : <p className="hs-thumbnail-calm-empty">Hearth will curate three complete thumbnail directions from the approved episode.</p>}
-        {selectedConcept ? <aside className="hs-thumbnail-activation" aria-label="Thumbnail generation reference image">
-          <div><strong>Reference image (optional)</strong><p>Upload a verified photo for Forge AI to use as a subject, composition, or style reference for this direction.</p>{activeRecipe?.generation_reference ? <><small>{activeRecipe.generation_reference.original_filename} · {activeRecipe.generation_reference.purpose} · {activeRecipe.generation_reference.content_hash.slice(0, 12)}</small><CanonicalThumbnailPreview workpieceId={props.workpieceId} assetPath={activeRecipe.generation_reference.path} className="hs-thumbnail-candidate-preview" alt="Thumbnail generation reference" /></> : <small>No reference attached.</small>}</div>
-          <label><span className="hs-sr-only">Reference purpose</span><select value={generationReferencePurpose} onChange={(event) => setGenerationReferencePurpose(event.target.value as HearthGenerationReferencePurpose)} disabled={saveState === "saving"}><option value="subject">Subject</option><option value="composition">Composition</option><option value="style">Style</option></select></label>
-          <button type="button" onClick={() => generationReferenceInputRef.current?.click()} disabled={saveState === "saving"}>{activeRecipe?.generation_reference ? "Replace reference" : "Upload reference"}</button>
-          {activeRecipe?.generation_reference ? <button type="button" onClick={() => void saveRecipe(false, null)} disabled={saveState === "saving"}>Remove reference</button> : null}
-          <input ref={generationReferenceInputRef} type="file" accept="image/png,image/jpeg,image/webp" hidden aria-label="Upload thumbnail generation reference image" onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void uploadGenerationReference(file); event.currentTarget.value = ""; }} />
-        </aside> : null}
         {activeSet && pkg.thumbnail.active_concept_set_id !== activeSet.id ? <aside className="hs-thumbnail-activation" aria-label="Activate thumbnail direction set">
           <div><strong>Use this direction set for the episode</strong><p>This set is selected for review but is not yet the episode’s active thumbnail direction set.</p></div>
           <button type="button" className="is-primary" disabled={saveState === "saving"} onClick={() => void makeSelectedSetActive()}>{saveState === "saving" ? "Making active…" : "Make this concept set active"}</button>
@@ -967,6 +965,19 @@ export default function ThumbnailV3Panel(props: Props) {
         <div className="hs-thumbnail-stage-heading"><div><span>2</span><h4 id="thumbnail-compare-heading">Generate and compare</h4></div>
           <button type="button" className="is-primary" disabled={!validSelectedPair || saveState === "saving" || selectedGenerationState !== "idle" || (styleSource === "brand_profile" && !myBrandReady)} onClick={() => void generateSelectedThumbnail()}>{selectedGenerationState === "preparing" ? "Preparing thumbnail…" : selectedGenerationState === "generating" ? "Generating thumbnail…" : "Generate selected thumbnail"}</button>
         </div>
+        <aside className="hs-thumbnail-activation" aria-label="Thumbnail generation reference image">
+          <div>
+            <strong>Add a reference image (optional)</strong>
+            <p>{selectedConcept ? "Guide Forge AI with a subject, composition, or style reference for the selected direction." : "Choose a thumbnail direction, then optionally add an image to guide its generation."}</p>
+            {activeRecipe?.generation_reference ? <><small>{activeRecipe.generation_reference.original_filename} · {activeRecipe.generation_reference.purpose} · {activeRecipe.generation_reference.content_hash.slice(0, 12)}</small><CanonicalThumbnailPreview workpieceId={props.workpieceId} assetPath={activeRecipe.generation_reference.path} className="hs-thumbnail-candidate-preview" alt="Thumbnail generation reference" /></> : <small>{selectedConcept ? "No reference attached to this direction." : "No direction selected."}</small>}
+          </div>
+          <label>Use reference for
+            <select value={generationReferencePurpose} onChange={(event) => setGenerationReferencePurpose(event.target.value as HearthGenerationReferencePurpose)} disabled={!selectedConcept || saveState === "saving"}><option value="subject">Subject</option><option value="composition">Composition</option><option value="style">Style</option></select>
+          </label>
+          <button type="button" onClick={() => generationReferenceInputRef.current?.click()} disabled={!selectedConcept || saveState === "saving"}>{activeRecipe?.generation_reference ? "Replace reference image" : "Upload reference image"}</button>
+          {activeRecipe?.generation_reference ? <button type="button" onClick={() => void saveRecipe(false, null)} disabled={saveState === "saving"}>Remove reference</button> : null}
+          <input ref={generationReferenceInputRef} type="file" accept="image/png,image/jpeg,image/webp" hidden aria-label="Upload thumbnail generation reference image" onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) void uploadGenerationReference(file); event.currentTarget.value = ""; }} />
+        </aside>
         {selectedGenerationState === "generating" ? <p className="hs-inline-note" role="status" aria-live="polite">Forge AI is generating the image{selectedGenerationElapsedSec > 0 ? ` · ${selectedGenerationElapsedSec}s elapsed` : ""}. Image generation can take a minute or more; keep this page open.</p> : null}
         {pendingCandidateCards.length ? <p className="hs-inline-note" role="status"><strong>Pending thumbnail set.</strong> These are the newest ready thumbnails with their original brand provenance intact. Accepting them records the canonical set; Tongs will still require explicit historical-brand approval when a thumbnail was made under an earlier binding.</p> : null}
         {loadError ? <div className="hs-inline-error" role="alert">{loadError}</div> : null}

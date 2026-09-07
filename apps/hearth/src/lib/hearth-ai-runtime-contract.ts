@@ -34,6 +34,8 @@ export type HearthAttachmentContextRequest = {
 export type HearthChatRequest = {
   messages: HearthChatMessage[];
   episode_context: EpisodeContext;
+  /** Creator-authored text before UI format/tone instructions are appended. */
+  user_authored_text?: string;
   behavior?: HearthAiBehavior;
   lane?: HearthAiLane;
   attachment_context?: HearthAttachmentContextRequest;
@@ -321,6 +323,7 @@ export function normalizeHearthChatRequest(value: unknown): HearthChatRequest | 
   return {
     messages,
     episode_context: episodeContext,
+    ...(readTrimmedString(value.user_authored_text) ? { user_authored_text: readTrimmedString(value.user_authored_text)! } : {}),
     ...(behavior ? { behavior } : {}),
     ...(lane ? { lane } : {}),
   };

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { validateScriptTags } from "@forge/shared/script-tags";
-import { coalesceScriptTextIntoOps, requestHearthChatReply, resolveScriptTextFromChatPayload } from "../src/lib/hearth-chat-api";
+import { coalesceScriptTextIntoOps, requestHearthChatReply, resolveForgeUserAccessToken, resolveScriptTextFromChatPayload } from "../src/lib/hearth-chat-api";
 import type { HearthOp } from "../src/lib/hearth-ai-runtime-contract";
 import { resolveHearthAttachmentStatusLabel } from "../src/views/surfaces/ChatSurface";
 
@@ -113,6 +113,24 @@ test("coalesceScriptTextIntoOps shapes set_body proposals before review display"
   assertMaxSpeakerSpokenLines(body, 8);
 });
 
+test("request authentication never borrows another Supabase environment's token", async () => {
+  const originalWindow = (globalThis as { window?: unknown }).window;
+  const foreignToken = `${Buffer.from("{}").toString("base64url")}.${Buffer.from(JSON.stringify({ sub: "foreign", exp: Math.floor(Date.now() / 1000) + 3600 })).toString("base64url")}.sig`;
+  const storage = new Map([["sb-another-project-auth-token", foreignToken]]);
+  (globalThis as { window?: unknown }).window = {
+    localStorage: {
+      getItem: (key: string) => storage.get(key) ?? null,
+      key: (index: number) => Array.from(storage.keys())[index] ?? null,
+      get length() { return storage.size; },
+    },
+  };
+  try {
+    assert.equal(await resolveForgeUserAccessToken(), null);
+  } finally {
+    (globalThis as { window?: unknown }).window = originalWindow;
+  }
+});
+
 test("requestHearthChatReply includes attachment context metadata in payload", async () => {
   const originalFetch = globalThis.fetch;
   const originalWindow = (globalThis as { window?: unknown }).window;
@@ -205,6 +223,7 @@ test("requestHearthChatReply includes attachment context metadata in payload", a
         sparks: [],
       },
       {
+        userAuthoredText: "Use my attachments",
         productionAction: "seo",
         productionScriptVersion: 7,
         attachmentContext: {
@@ -223,6 +242,7 @@ test("requestHearthChatReply includes attachment context metadata in payload", a
     assert.deepEqual(attachmentContext?.attachment_ids, ["33333333-3333-4333-8333-333333333333"]);
     assert.equal(submittedBody.production_action, "seo");
     assert.equal(submittedBody.production_script_version, 7);
+    assert.equal(submittedBody.user_authored_text, "Use my attachments");
   } finally {
     globalThis.fetch = originalFetch;
     (globalThis as { window?: unknown }).window = originalWindow;

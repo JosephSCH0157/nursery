@@ -306,7 +306,7 @@ export class LocalHearthStore implements HearthStore {
     }
   }
 
-  async getChatHistory(draftId: DraftId): Promise<HearthChatMessage[]> {
+  async getChatHistory(draftId: DraftId, _workpieceId?: string | null): Promise<HearthChatMessage[]> {
     const id = typeof draftId === "string" ? draftId.trim() : "";
     if (!id) return [];
     const record = readChatRecord();
@@ -314,7 +314,7 @@ export class LocalHearthStore implements HearthStore {
     return found ? sanitizeChatMessages(found.messages) : [];
   }
 
-  async saveChatHistory(draftId: DraftId, messages: HearthChatMessage[]): Promise<void> {
+  async saveChatHistory(draftId: DraftId, messages: HearthChatMessage[], _workpieceId?: string | null): Promise<void> {
     const id = typeof draftId === "string" ? draftId.trim() : "";
     if (!id) return;
     const record = readChatRecord();
@@ -332,6 +332,10 @@ export class LocalHearthStore implements HearthStore {
       messages: sanitized,
     };
     writeChatRecord(record);
+  }
+
+  getChatHistoryCompleteness(_workpieceId: string | null): "legacy_completeness_unknown" {
+    return "legacy_completeness_unknown";
   }
 
   async listRevisions(workpieceId: string, draftId?: DraftId | null): Promise<Revision[]> {

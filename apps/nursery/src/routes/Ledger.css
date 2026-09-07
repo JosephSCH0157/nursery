@@ -105,6 +105,72 @@
   padding: 0.9rem;
 }
 
+.ledger-route__episodes + .ledger-route__episodes {
+  margin-top: 1rem;
+}
+
+.ledger-route__coverage-grid {
+  margin-top: 0.75rem;
+}
+
+.ledger-route__payer-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem 1.25rem;
+  margin: 0.2rem 0 0.9rem;
+  font-size: 0.9rem;
+}
+
+.ledger-route__provider-breakdown {
+  margin: 0.85rem 0;
+}
+
+.ledger-route__provider-breakdown h4 {
+  margin: 0 0 0.55rem;
+}
+
+.ledger-route__operation-list {
+  list-style: none;
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.75rem 0 0;
+  padding: 0;
+}
+
+.ledger-route__operation-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.ledger-route__operation-row > div,
+.ledger-route__operation-evidence {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.ledger-route__operation-row span,
+.ledger-route__operation-row small {
+  color: var(--forge-text-muted, #a4a4ad);
+}
+
+.ledger-route__operation-evidence {
+  text-align: right;
+  font-size: 0.82rem;
+}
+
+@media (max-width: 640px) {
+  .ledger-route__operation-row {
+    display: grid;
+  }
+
+  .ledger-route__operation-evidence {
+    text-align: left;
+  }
+}
+
 .ledger-route__episodes-head {
   display: flex;
   justify-content: space-between;

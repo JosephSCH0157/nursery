@@ -18,6 +18,27 @@ test("Runway adapter exposes creation response before polling and retrieves only
   assert.equal(completed.state, "completed"); assert.equal(retrieves, 1); assert.equal(creates, 1);
 });
 
+test("Runway adapter sends multiple ordered historical references through a reference-capable video model", async () => {
+  let body = null;
+  const client = {
+    textToVideo: { create: async (value) => { body = value; return { id: "task-references" }; } },
+    imageToVideo: { create: async () => { throw new Error("multiple references must not use first-frame generation"); } },
+    tasks: { retrieve: async () => ({}) },
+  };
+  const provider = new RunwayBrollVideoProvider("", client);
+  await provider.submit({ prompt: "Move from museum display through repair to operation", model: "seedance2", durationSeconds: 5, ratio: "1280:720", attemptId: "attempt-references", referenceImages: [
+    { mimeType: "image/jpeg", bytesBase64: "b25l" },
+    { mimeType: "image/png", bytesBase64: "dHdv" },
+    { mimeType: "image/webp", bytesBase64: "dGhyZWU=" },
+  ] });
+  assert.equal(body.model, "seedance2");
+  assert.deepEqual(body.references, [
+    { uri: "data:image/jpeg;base64,b25l" },
+    { uri: "data:image/png;base64,dHdv" },
+    { uri: "data:image/webp;base64,dGhyZWU=" },
+  ]);
+});
+
 test("Runway adapter classifies lost creation responses as ambiguous and never retries inside the SDK", async () => {
   let creates = 0;
   const client = { textToVideo: { create: async () => { creates += 1; throw new Error("connection reset"); } }, tasks: { retrieve: async () => { throw new Error("not reached"); } } };

@@ -126,6 +126,16 @@ async function canonicalMediaUrl(workpieceId: string, storageKey: string | null)
   return response.ok ? string(data?.url) : null;
 }
 
+export async function refreshCanonicalBrollMediaUrl(args: { workpieceId: string; path: string | null }): Promise<Result<string>> {
+  if (!args.path) return { ok: false, status: 409, code: "canonical_media_path_missing", error: "Canonical media path is unavailable." };
+  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/media-url?path=${encodeURIComponent(args.path)}`, { method: "GET" });
+  const body = await json(response);
+  if (!response.ok) return failure(response, body, "Tongs could not create a fresh canonical media link.");
+  const data = record(body) && record(body.data) ? body.data : null;
+  const url = string(data?.url);
+  return url ? { ok: true, data: url } : { ok: false, status: 502, code: "canonical_media_url_missing", error: "Tongs returned no canonical media link." };
+}
+
 export function mapCanonicalBrollCandidate(row: JsonRecord, videoUrl: string | null, posterUrl: string | null): EpisodeBrollAssetCandidate {
   const source = (string(row.source_kind) as EpisodeBrollAssetCandidate["source"]) ?? "upload";
   return {
@@ -286,16 +296,18 @@ export async function acquireCanonicalBroll(args: { workspaceId: string; workpie
   return readCanonicalBrollV2(args);
 }
 
-export async function generateCanonicalBrollVideo(args: { workspaceId: string; workpieceId: string; beatId: string; prompt: CanonicalBrollPromptState; durationSeconds?: number; ratio?: "1280:720" | "720:1280"; confirmSpend?: boolean }): Promise<Result<CanonicalBrollV2State>> {
+export async function generateCanonicalBrollVideo(args: { workspaceId: string; workpieceId: string; beatId: string; prompt: CanonicalBrollPromptState; referenceImages?: Array<{ file: File; stageLabel?: string }>; durationSeconds?: number; ratio?: "1280:720" | "720:1280"; confirmSpend?: boolean }): Promise<Result<CanonicalBrollV2State>> {
   if (!args.prompt.revisionId || !args.prompt.contentHash || !args.prompt.finalPrompt || (args.prompt.status !== "current" && args.prompt.status !== "creator_edited")) {
     return { ok: false, status: 409, code: "broll_prompt_not_current", error: "A current canonical motion prompt is required before generating video." };
   }
   if(args.prompt.finalPrompt.length>1000)return{ok:false,status:409,code:"runway_prompt_too_long",error:`Runway Gen-4.5 accepts at most 1000 UTF-16 code units. Current canonical prompt: ${args.prompt.finalPrompt.length}. Create and confirm a Runway-ready prompt before generating video.`};
   const durationSeconds = args.durationSeconds ?? 5;
   const ratio = args.ratio ?? "1280:720";
-  const intent = { workspace_id: args.workspaceId, workpiece_id: args.workpieceId, beat_id: args.beatId, source_kind: "generated", source_url: null, prompt_revision_id: args.prompt.revisionId, prompt_revision: args.prompt.revision, prompt_content_hash: args.prompt.contentHash, final_prompt: args.prompt.finalPrompt, runway_model: "gen4.5", duration_seconds: durationSeconds, ratio, poster_required: true };
+  const referenceImages = await Promise.all((args.referenceImages ?? []).map(async ({ file, stageLabel }) => ({ bytes_base64: await fileBase64(file), mime_type: file.type, file_name: file.name, stage_label: stageLabel?.trim() || null })));
+  const runwayModel = referenceImages.length > 1 ? "seedance2" : "gen4.5";
+  const intent = { workspace_id: args.workspaceId, workpiece_id: args.workpieceId, beat_id: args.beatId, source_kind: "generated", source_url: null, prompt_revision_id: args.prompt.revisionId, prompt_revision: args.prompt.revision, prompt_content_hash: args.prompt.contentHash, final_prompt: args.prompt.finalPrompt, runway_model: runwayModel, duration_seconds: durationSeconds, ratio, poster_required: true, reference_images: referenceImages };
   const fingerprint = await canonicalHash(intent);
-  const request = { workspace_id: args.workspaceId, beat_id: args.beatId, operation_id: `forge:broll:acquire:${fingerprint}`, operation_fingerprint: fingerprint, source_kind: "generated", bytes_base64: null, source_url: null, prompt_revision_id: args.prompt.revisionId, prompt_revision: args.prompt.revision, prompt_content_hash: args.prompt.contentHash, provider: "runway", provider_request_id: null, final_prompt: args.prompt.finalPrompt, runway_model: "gen4.5", duration_seconds: durationSeconds, ratio, poster_required: true, confirm_spend: args.confirmSpend === true, license_json: {}, provenance_json: { initiated_by: "hearth_broll_v2", prompt_revision_id: args.prompt.revisionId, prompt_revision: args.prompt.revision, prompt_content_hash: args.prompt.contentHash } };
+  const request = { workspace_id: args.workspaceId, beat_id: args.beatId, operation_id: `forge:broll:acquire:${fingerprint}`, operation_fingerprint: fingerprint, source_kind: "generated", bytes_base64: null, source_url: null, prompt_revision_id: args.prompt.revisionId, prompt_revision: args.prompt.revision, prompt_content_hash: args.prompt.contentHash, provider: "runway", provider_request_id: null, final_prompt: args.prompt.finalPrompt, runway_model: runwayModel, duration_seconds: durationSeconds, ratio, poster_required: true, reference_images: referenceImages, confirm_spend: args.confirmSpend === true, license_json: {}, provenance_json: { initiated_by: "hearth_broll_v2", prompt_revision_id: args.prompt.revisionId, prompt_revision: args.prompt.revision, prompt_content_hash: args.prompt.contentHash } };
   const deadline = Date.now() + 15 * 60_000;
   while (Date.now() < deadline) {
     const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/broll-v2/acquire`, { method: "POST", json: request });
@@ -308,20 +320,6 @@ export async function generateCanonicalBrollVideo(args: { workspaceId: string; w
     await new Promise((resolve) => window.setTimeout(resolve, Math.min(delay, 60_000)));
   }
   return { ok: false, status: 408, code: "runway_generation_timeout", error: "Runway generation is still pending. Refresh to resume the same operation without another paid submission." };
-}
-
-export async function resumeCanonicalBrollVideo(args: { workspaceId: string; workpieceId: string; beatId: string; prompt: CanonicalBrollPromptState }): Promise<Result<CanonicalBrollV2State | null>> {
-  if (!args.prompt.revisionId || !args.prompt.contentHash || !args.prompt.finalPrompt || (args.prompt.status !== "current" && args.prompt.status !== "creator_edited")) return { ok: true, data: null };
-  const intent = { workspace_id: args.workspaceId, workpiece_id: args.workpieceId, beat_id: args.beatId, source_kind: "generated", source_url: null, prompt_revision_id: args.prompt.revisionId, prompt_revision: args.prompt.revision, prompt_content_hash: args.prompt.contentHash, final_prompt: args.prompt.finalPrompt, runway_model: "gen4.5", duration_seconds: 5, ratio: "1280:720", poster_required: true };
-  const fingerprint = await canonicalHash(intent);
-  const operationId = `forge:broll:acquire:${fingerprint}`;
-  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/broll-v2/runway-status`, { method: "POST", json: { workspace_id: args.workspaceId, operation_id: operationId } });
-  const body = await json(response);
-  if (!response.ok) return failure(response, body, "Tongs could not inspect the existing Runway operation.");
-  const data = record(body) && record(body.data) ? body.data : body;
-  if (!record(data) || string(data.disposition) === "operation_not_found") return { ok: true, data: null };
-  if (string(data.status) === "failed" || string(data.status) === "submission_unknown") return { ok: true, data: null };
-  return generateCanonicalBrollVideo({ ...args, confirmSpend: true });
 }
 
 export async function selectCanonicalBrollCandidate(args: { workspaceId: string; workpieceId: string; beatId: string; candidateRevisionId: string; current: CanonicalBrollV2State }): Promise<Result<CanonicalBrollV2State>> {

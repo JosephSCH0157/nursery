@@ -1007,6 +1007,14 @@
   gap: 8px;
 }
 
+.hs-ai-chat-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  user-select: none;
+}
+
 .hs-ai-chat-title {
   font-weight: 600;
   font-size: 13px;
@@ -1022,6 +1030,8 @@
   display: grid;
   gap: 8px;
   flex: 1 1 auto;
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 .hs-ai-chat-empty {
@@ -1054,6 +1064,7 @@
   border-radius: 8px;
   padding: 6px 8px;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .hs-ai-chat-scroll-sentinel {

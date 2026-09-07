@@ -10,6 +10,7 @@ import { subscribeToForgeUserAccessToken } from "../../lib/tongs-fetch";
 type ReferenceClipPlanPanelProps = {
   canonicalWorkspaceId?: string | null;
   canonicalWorkpieceId?: string | null;
+  canonicalAuthorityExists?: boolean;
   entries: EpisodeContextualDataCompositePlan[];
   selectedEntryId: string | null;
   saveState: "saved" | "editing" | "saving" | "error" | "offline";
@@ -653,7 +654,7 @@ export default function ReferenceClipPlanPanel(props: ReferenceClipPlanPanelProp
     };
   }, [workspaceId, workpieceId]);
 
-  if (workspaceId && workpieceId && rollout === "enabled") {
+  if (workspaceId && workpieceId && (rollout === "enabled" || props.canonicalAuthorityExists === true)) {
     return <CanonicalReferenceMaterialPanel workspaceId={workspaceId} workpieceId={workpieceId}/>;
   }
   if (workspaceId && workpieceId && rollout === "loading") {

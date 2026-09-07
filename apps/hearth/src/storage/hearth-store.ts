@@ -3,6 +3,7 @@ import type { Revision, RevisionId } from "../domain/revision";
 import type { HearthChatMessage } from "../lib/hearth-chat-api";
 
 export type HearthStoreKind = "local" | "tongs";
+export type HearthChatHistoryCompleteness = "complete" | "legacy_completeness_unknown" | "known_truncated";
 
 export type SaveDraftOptions = {
   reason?: string;
@@ -84,8 +85,9 @@ export interface HearthStore {
   getDraft(id: DraftId): Promise<Draft | null>;
   saveDraft(draft: Draft, options?: SaveDraftOptions): Promise<HearthDraftSaveAcknowledgement>;
   deleteDraft(id: DraftId): Promise<void>;
-  getChatHistory(draftId: DraftId): Promise<HearthChatMessage[]>;
-  saveChatHistory(draftId: DraftId, messages: HearthChatMessage[]): Promise<void>;
+  getChatHistory(draftId: DraftId, workpieceId?: string | null): Promise<HearthChatMessage[]>;
+  saveChatHistory(draftId: DraftId, messages: HearthChatMessage[], workpieceId?: string | null): Promise<void>;
+  getChatHistoryCompleteness?(workpieceId: string | null): HearthChatHistoryCompleteness;
   readCanonicalRevisions(workpieceId: string, draftId?: DraftId | null): Promise<HearthCanonicalRevisionsResult>;
   listRevisions(workpieceId: string, draftId?: DraftId | null): Promise<Revision[]>;
   getRevision(workpieceId: string, id: RevisionId): Promise<Revision | null>;

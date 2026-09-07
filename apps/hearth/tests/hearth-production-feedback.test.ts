@@ -102,7 +102,10 @@ test("production prompts keep titles, tags, and framing pack contracts separate"
   const pack = buildProductionPrompt({ action: "release_prep_pack", scriptVersion: 1, episodeTitle: "Episode" });
   assert.match(titles, /SEO_TITLES:/);
   assert.doesNotMatch(titles, /SHORT_DESCRIPTION|TAGS_FULL|MONETIZATION_ANGLE/);
-  assert.match(tags, /TAGS_FULL:/);
+  assert.match(tags, /TAGS_TOP10:/);
+  assert.match(tags, /no more than 10 tags/i);
+  assert.match(tags, /directly supported by the approved episode/i);
+  assert.doesNotMatch(tags, /TAGS_FULL:/);
   assert.doesNotMatch(tags, /SEO_TITLES|SHORT_DESCRIPTION|MONETIZATION_ANGLE/);
   assert.match(pack, /MONETIZATION_ANGLE:/);
   assert.match(pack, /SHORT_DESCRIPTION:/);
@@ -166,12 +169,7 @@ test("hearthProductionFeedback: tags replies hydrate tags and warn on empty stru
   });
 
   assert.equal(parsed.shouldRefreshEpisodePackage, true);
-  assert.deepEqual(parsed.tags, [
-    "media-framing",
-    "protest-coverage",
-    "no-kings-protest",
-    "cable-news",
-  ]);
+  assert.deepEqual(parsed.tags, ["media-framing", "protest-coverage", "no-kings-protest"]);
   assert.equal(parsed.warning, null);
 
   const empty = resolveHearthProductionArtifactFeedback({
@@ -187,6 +185,32 @@ test("hearthProductionFeedback: tags replies hydrate tags and warn on empty stru
     assistantText: "## **TAGS_TOP10:**\n- florida citrus, orange groves, citrus greening",
   });
   assert.equal(markdownTags.ok, true);
+});
+
+test("hearthProductionFeedback: generated tag proposals prefer the ranked top set and never exceed ten", () => {
+  const verbose = resolveHearthProductionArtifactFeedback({
+    action: "tags",
+    assistantText: [
+      "TAGS_TOP10:",
+      "Union Pacific Big Boy 4014, Big Boy 4014, Union Pacific Railroad, steam locomotive restoration, articulated steam locomotive, heritage railroad, excursion train, steam locomotive, railroad history, Cheyenne Wyoming, extra ignored tag",
+      "",
+      "TAGS_FULL:",
+      Array.from({ length: 47 }, (_, index) => `broad tag ${index + 1}`).join(", "),
+    ].join("\n"),
+  });
+
+  assert.deepEqual(verbose.tags, [
+    "union-pacific-big-boy-4014",
+    "big-boy-4014",
+    "union-pacific-railroad",
+    "steam-locomotive-restoration",
+    "articulated-steam-locomotive",
+    "heritage-railroad",
+    "excursion-train",
+    "steam-locomotive",
+    "railroad-history",
+    "cheyenne-wyoming",
+  ]);
 });
 
 test("hearthProductionFeedback: thumbnail replies require exactly five concepts and accept harmless markdown", () => {

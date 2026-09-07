@@ -48,7 +48,7 @@ test("buildLedgerSummary returns stable non-negative totals", () => {
   assert.equal(summary.costPerEpisode[0]?.costUsd, 0.2);
 });
 
-test("filterLedgerEventsByRange respects today, 7d, and 30d windows", () => {
+test("filterLedgerEventsByRange respects today, 7d, 30d, and 90d windows", () => {
   const events = [
     {
       created_at: "2026-04-02T09:00:00.000Z",
@@ -77,6 +77,7 @@ test("filterLedgerEventsByRange respects today, 7d, and 30d windows", () => {
   assert.equal(filterLedgerEventsByRange(events, "today", now).length, 1);
   assert.equal(filterLedgerEventsByRange(events, "7d", now).length, 2);
   assert.equal(filterLedgerEventsByRange(events, "30d", now).length, 2);
+  assert.equal(filterLedgerEventsByRange(events, "90d", now).length, 3);
 });
 
 test("derived metrics expose avg cost per episode and top feature share", () => {

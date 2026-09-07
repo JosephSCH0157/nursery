@@ -125,13 +125,14 @@ export function useChatWorkspaceState<TPendingAiProposal>() {
 }
 
 type ChatHistoryStore = {
-  getChatHistory: (draftId: string) => Promise<unknown>;
-  saveChatHistory: (draftId: string, messages: HearthChatMessage[]) => Promise<unknown> | void;
+  getChatHistory: (draftId: string, workpieceId?: string | null) => Promise<unknown>;
+  saveChatHistory: (draftId: string, messages: HearthChatMessage[], workpieceId?: string | null) => Promise<unknown> | void;
 };
 
 type UseChatWorkspaceHistoryArgs<TPendingAiProposal> = {
   store: ChatHistoryStore;
   activeDraftId: string | null;
+  activeWorkpieceId: string | null;
   chatHistoryKey: string | null;
   chatMessages: HearthChatMessage[];
   setChatMessages: (messages: HearthChatMessage[]) => void;
@@ -159,6 +160,15 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
     messages?: HearthChatMessage[];
   }) => void;
 } {
+  const persistChatHistory = useCallback((draftId: string, messages: HearthChatMessage[]) => {
+    void Promise.resolve(args.store.saveChatHistory(draftId, messages, args.activeWorkpieceId)).catch((error: unknown) => {
+      const detail = error instanceof Error ? error.message : String(error ?? "");
+      args.setChatError(/(?:401|authentication|unauthorized)/i.test(detail)
+        ? "This conversation could not be saved because your session has expired. Sign in again before continuing."
+        : "This conversation could not be saved to Tongs. Your visible chat is still available in this browser.");
+    });
+  }, [args.activeWorkpieceId, args.setChatError, args.store]);
+
   const flushChatHistoryNow = useCallback((options?: {
     historyKey?: string | null;
     draftId?: string | null;
@@ -174,15 +184,15 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
     const messages = options?.messages ?? args.chatMessagesRef.current;
     args.writeChatHistoryCache(historyKey, messages);
     if (draftId) {
-      void args.store.saveChatHistory(draftId, messages);
+      persistChatHistory(draftId, messages);
     }
   }, [
     args.chatMessagesRef,
     args.chatPersistTimerRef,
     args.latestChatDraftIdRef,
     args.latestChatHistoryKeyRef,
-    args.store,
     args.writeChatHistoryCache,
+    persistChatHistory,
   ]);
 
   useEffect(() => {
@@ -237,7 +247,7 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
 
       if (draftId) {
         try {
-          const storeMessages = await args.store.getChatHistory(draftId);
+          const storeMessages = await args.store.getChatHistory(draftId, args.activeWorkpieceId);
           hydratedMessages = args.sanitizeChatMessagesForStorage(
             Array.isArray(storeMessages) ? storeMessages : [],
           );
@@ -250,7 +260,7 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
       if (!loadedFromStore) {
         hydratedMessages = args.readChatHistoryFromCache(args.chatHistoryKey);
         if (draftId && hydratedMessages.length > 0) {
-          void args.store.saveChatHistory(draftId, hydratedMessages);
+          persistChatHistory(draftId, hydratedMessages);
         }
       } else {
         args.writeChatHistoryCache(args.chatHistoryKey, hydratedMessages);
@@ -278,6 +288,7 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
     args.store,
     args.writeChatHistoryCache,
     flushChatHistoryNow,
+    persistChatHistory,
   ]);
 
   useEffect(() => {
@@ -295,7 +306,7 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
     args.chatPersistTimerRef.current = window.setTimeout(() => {
       args.writeChatHistoryCache(args.chatHistoryKey, args.chatMessages);
       if (draftId) {
-        void args.store.saveChatHistory(draftId, args.chatMessages);
+        persistChatHistory(draftId, args.chatMessages);
       }
       args.chatPersistTimerRef.current = null;
     }, args.chatHistoryWriteDebounceMs);
@@ -313,8 +324,8 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
     args.chatMessages,
     args.chatPersistTimerRef,
     args.pendingChatHydrationKeyRef,
-    args.store,
     args.writeChatHistoryCache,
+    persistChatHistory,
   ]);
 
   return { flushChatHistoryNow };
@@ -399,6 +410,7 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp 
     episodeContext: TEpisodeContext,
     options: {
       signal: AbortSignal;
+      userAuthoredText?: string;
       productionAction?: "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack";
       productionScriptVersion?: number;
       attachmentContext?: {
@@ -525,7 +537,7 @@ export function useChatWorkspaceRuntime<
     const requestMessages = isProductionRequest
       ? [requestUserMessage]
       : [...baseMessages, requestUserMessage].slice(-args.chatHistoryMaxMessages);
-    const displayMessages = [...baseMessages, displayUserMessage].slice(-args.chatHistoryMaxMessages);
+    const displayMessages = [...baseMessages, displayUserMessage];
     args.setChatMessages(displayMessages);
     args.setChatDraft("");
     args.setChatError(null);
@@ -549,10 +561,7 @@ export function useChatWorkspaceRuntime<
       const assistantContent = localResult.assistantText
         ?? "I created a deterministic format-only preview. Wording, punctuation, notes, and cues are unchanged.";
       const localAssistantMessage: HearthChatMessage = { role: "assistant", content: assistantContent };
-      args.setChatMessages((prev) => [
-        ...prev,
-        localAssistantMessage,
-      ].slice(-args.chatHistoryMaxMessages));
+      args.setChatMessages((prev) => [...prev, localAssistantMessage]);
       args.setPendingAiProposal(localResult.proposal);
       args.recordInteractionEvent("draft_generated", {
         source,
@@ -589,6 +598,7 @@ export function useChatWorkspaceRuntime<
         : args.getAttachmentContext?.() ?? undefined;
       const result = await args.requestHearthChatReply(requestMessages, episodeContext, {
         signal: controller.signal,
+        userAuthoredText: rawRequestContent,
         attachmentContext,
         productionAction: params.productionAction as "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack" | undefined,
         productionScriptVersion: params.productionScriptVersion,
@@ -639,7 +649,7 @@ export function useChatWorkspaceRuntime<
         scriptMutationReady: scriptMutationRouting.hasScriptBodyProposal,
       });
       const assistantMessage: HearthChatMessage = { role: "assistant", content: assistantContent };
-      args.setChatMessages((prev) => [...prev, assistantMessage].slice(-args.chatHistoryMaxMessages));
+      args.setChatMessages((prev) => [...prev, assistantMessage]);
 
       if (params.productionAction && params.productionScriptVersion) {
         await args.persistProductionArtifact({

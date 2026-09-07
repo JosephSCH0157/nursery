@@ -317,6 +317,7 @@ test("canonical Reference Material is default-off behind workspace authority", (
   );
   assert.match(panel, /getReferenceMaterialRollout\(workspaceId\)/);
   assert.match(panel, /rollout === "enabled"/);
+  assert.match(panel, /props\.canonicalAuthorityExists === true/);
   assert.match(panel, /rollout === "unavailable"[\s\S]*LegacyReferenceClipPlanPanel/);
   assert.match(service, /get_my_reference_material_rollout/);
   assert.match(service, /enabled: raw\?\.reference_material_review_enabled === true/);

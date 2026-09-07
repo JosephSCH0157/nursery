@@ -7,8 +7,8 @@ export type HearthMediaWorkflowInput = {
   visualPlan: { status: string | null; total: number; images: number; broll: number; referenceClips?: number; referenceVisuals?: number; version: number };
   thumbnails: { eligible: number; total: number; pending?: number; previewAssetPaths?: string[]; authorityState?: "available"|"loading"|"error" };
   images: { planned: number; completed: number; canonicalCount: number; projectionLoaded: boolean };
-  referenceClips?: { planned: number; completed: number; exists?: boolean; authorityState?: "available"|"loading"|"error" };
-  referenceVisuals?: { planned: number; completed: number; exists?: boolean; authorityState?: "available"|"loading"|"error" };
+  referenceClips?: { planned: number; completed: number; unsourced?: number; exists?: boolean; authorityState?: "available"|"loading"|"error" };
+  referenceVisuals?: { planned: number; completed: number; unsourced?: number; exists?: boolean; authorityState?: "available"|"loading"|"error" };
   broll: { planned: number; completed: number };
   upstreamChanged?: boolean;
 };
@@ -47,6 +47,7 @@ export function deriveHearthMediaWorkflow(input: HearthMediaWorkflowInput) {
   const referenceClipsCompleted = input.referenceClips?.completed ?? 0;
   const referenceVisualsPlanned = input.referenceVisuals?.planned ?? input.visualPlan.referenceVisuals ?? 0;
   const referenceVisualsCompleted = input.referenceVisuals?.completed ?? 0;
+  const unsourcedReferenceSuggestions = (input.referenceClips?.unsourced ?? 0) + (input.referenceVisuals?.unsourced ?? 0);
   const referenceAuthorityReady = (input.referenceClips?.authorityState ?? "available") === "available"
     && (input.referenceVisuals?.authorityState ?? "available") === "available";
   const referenceMaterialExists = Boolean(input.referenceClips?.exists || input.referenceVisuals?.exists);
@@ -65,7 +66,7 @@ export function deriveHearthMediaWorkflow(input: HearthMediaWorkflowInput) {
     { id: "visual_plan", label: "Visual Plan", status: !input.hasApprovedScript ? "blocked" : visualNeedsAttention ? "needs_attention" : visualComplete ? "complete" : "ready", summary: visualExists ? `${input.visualPlan.total} planned visuals · ${input.visualPlan.images} images · ${input.visualPlan.referenceClips ?? 0} Source Clips · ${input.visualPlan.referenceVisuals ?? 0} Reference Visuals · ${input.visualPlan.broll} B-roll moments` : "Create the episode’s visual direction", reviewAvailable: visualExists },
     { id: "thumbnails", label: "Thumbnails", status: !input.hasApprovedScript ? "blocked" : !thumbnailAuthorityReady ? "needs_attention" : thumbnailsComplete ? "complete" : input.thumbnails.total > 0 || (input.thumbnails.pending ?? 0) > 0 ? "in_progress" : "ready", summary: !thumbnailAuthorityReady ? input.thumbnails.authorityState==="loading"?"Refreshing canonical thumbnail status…":"Canonical thumbnail status could not be refreshed" : thumbnailsComplete ? "Three thumbnail candidates are ready" : (input.thumbnails.pending ?? 0) > 0 ? `${input.thumbnails.pending} generated · awaiting thumbnail-set finalization` : `${input.thumbnails.eligible} of 3 thumbnails ready`, reviewAvailable: input.hasApprovedScript },
     { id: "images", label: "Images", status: !visualComplete || !thumbnailsComplete ? "blocked" : imagesComplete ? "complete" : imagesUnavailable ? "needs_attention" : input.images.completed > 0 ? "in_progress" : "ready", summary: imageSummary, reviewAvailable: imagePlanExpected > 0 },
-    { id: "reference_clips", label: "Reference Material", status: !referenceMaterialAccessible ? "blocked" : referenceClipsComplete ? "complete" : referenceClipsCompleted + referenceVisualsCompleted > 0 ? "in_progress" : "ready", summary: `${referenceClipsCompleted} of ${referenceClipsPlanned} Source Clips · ${referenceVisualsCompleted} of ${referenceVisualsPlanned} Reference Visuals`, reviewAvailable: referenceAuthorityReady && (referenceMaterialExists || referenceClipsPlanned === 0 && referenceVisualsPlanned === 0) },
+    { id: "reference_clips", label: "Reference Material", status: !referenceMaterialAccessible ? "blocked" : referenceClipsComplete ? "complete" : referenceClipsCompleted + referenceVisualsCompleted > 0 ? "in_progress" : "ready", summary: `${referenceClipsCompleted} of ${referenceClipsPlanned} sourced Clips · ${referenceVisualsCompleted} of ${referenceVisualsPlanned} sourced Visuals${unsourcedReferenceSuggestions ? ` · ${unsourcedReferenceSuggestions} unsourced suggestions (optional)` : ""}`, reviewAvailable: referenceAuthorityReady && (referenceMaterialExists || referenceClipsPlanned === 0 && referenceVisualsPlanned === 0) },
     { id: "broll", label: "B-roll", status: !imagesComplete ? "blocked" : brollComplete ? "complete" : input.broll.completed > 0 ? "in_progress" : "ready", summary: `${input.broll.completed} of ${input.broll.planned} B-roll moments ready`, reviewAvailable: input.broll.planned > 0 },
     { id: "review", label: "Review", status: imagesComplete && referenceClipsComplete && brollComplete ? "ready" : "blocked", summary: imagesComplete && referenceClipsComplete && brollComplete ? "Episode visuals are ready to review" : "Complete the media stages first", reviewAvailable: imagesComplete && referenceClipsComplete && brollComplete },
   ];
