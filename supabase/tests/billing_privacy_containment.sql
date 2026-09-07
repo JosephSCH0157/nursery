@@ -7,19 +7,30 @@ declare
   v_operator constant uuid := '9a000000-0000-4000-8000-000000000003';
   v_org constant uuid := '9a000000-0000-4000-8000-000000000004';
   v_workspace constant uuid := '9a000000-0000-4000-8000-000000000005';
+  v_editor constant uuid := '9a000000-0000-4000-8000-000000000006';
+  v_workspace_owner constant uuid := '9a000000-0000-4000-8000-000000000007';
 begin
   insert into auth.users(id, instance_id, aud, role, email, encrypted_password, email_confirmed_at, created_at, updated_at)
   values
     (v_viewer, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'billing-viewer@example.test', '', now(), now(), now()),
     (v_admin, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'billing-admin@example.test', '', now(), now(), now()),
-    (v_operator, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'billing-operator@example.test', '', now(), now(), now());
+    (v_operator, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'billing-operator@example.test', '', now(), now(), now()),
+    (v_editor, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'billing-editor@example.test', '', now(), now(), now()),
+    (v_workspace_owner, '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'billing-workspace-owner@example.test', '', now(), now(), now());
   insert into tongs.orgs(id, name, created_by) values(v_org, 'Billing containment test', v_admin);
   insert into tongs.org_members(org_id, user_id, org_role, created_by)
-  values(v_org, v_admin, 'admin', v_admin), (v_org, v_viewer, 'member', v_admin);
+  values
+    (v_org, v_admin, 'admin', v_admin),
+    (v_org, v_viewer, 'member', v_admin),
+    (v_org, v_editor, 'member', v_admin),
+    (v_org, v_workspace_owner, 'member', v_admin);
   insert into tongs.workspaces(id, name, created_by, org_id)
   values(v_workspace, 'Billing containment test', v_admin, v_org);
   insert into tongs.workspace_members(workspace_id, user_id, role, created_by)
-  values(v_workspace, v_viewer, 'viewer', v_admin);
+  values
+    (v_workspace, v_viewer, 'viewer', v_admin),
+    (v_workspace, v_editor, 'editor', v_admin),
+    (v_workspace, v_workspace_owner, 'owner', v_admin);
   insert into tongs.platform_operators(user_id, reason, granted_by)
   values(v_operator, 'containment test', v_operator);
   insert into tongs.ai_credits(user_id, token_balance)
@@ -118,6 +129,58 @@ begin
       '9a000000-0000-4000-8000-000000000005', now() - interval '1 day', now() + interval '1 day'
     );
     raise exception 'workspace viewer reached owner cost audit';
+  exception when insufficient_privilege then null;
+  end;
+end;
+$$;
+
+reset role;
+set local request.jwt.claim.role = 'authenticated';
+set local request.jwt.claim.sub = '9a000000-0000-4000-8000-000000000006';
+set local role authenticated;
+
+do $$
+declare
+  v_ledger jsonb;
+begin
+  v_ledger := tongs.read_workspace_billing_ledger(
+    '9a000000-0000-4000-8000-000000000005', now() - interval '1 day', now() + interval '1 day'
+  );
+  if v_ledger->>'contract_version' <> 'forge.workspace-billing-ledger.v1'
+     or v_ledger::text ~ '(cost_usd|provider_expense|markup|margin|invoice)' then
+    raise exception 'workspace editor ledger leaked an internal financial field: %', v_ledger;
+  end if;
+  begin
+    perform tongs.read_owner_workspace_cost_audit(
+      '9a000000-0000-4000-8000-000000000005', now() - interval '1 day', now() + interval '1 day'
+    );
+    raise exception 'workspace editor reached owner cost audit';
+  exception when insufficient_privilege then null;
+  end;
+end;
+$$;
+
+reset role;
+set local request.jwt.claim.role = 'authenticated';
+set local request.jwt.claim.sub = '9a000000-0000-4000-8000-000000000007';
+set local role authenticated;
+
+do $$
+declare
+  v_ledger jsonb;
+begin
+  v_ledger := tongs.read_workspace_billing_ledger(
+    '9a000000-0000-4000-8000-000000000005', now() - interval '1 day', now() + interval '1 day'
+  );
+  if v_ledger->>'contract_version' <> 'forge.workspace-billing-ledger.v1'
+     or v_ledger::text ~ '(cost_usd|provider_expense|markup|margin|invoice)' then
+    raise exception 'workspace owner ledger leaked an internal financial field: %', v_ledger;
+  end if;
+  begin
+    perform tongs.read_owner_workspace_cost_audit(
+      '9a000000-0000-4000-8000-000000000005', now() - interval '1 day', now() + interval '1 day'
+    );
+    raise exception 'workspace owner reached owner cost audit';
   exception when insufficient_privilege then null;
   end;
 end;
