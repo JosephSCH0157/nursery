@@ -1,8 +1,10 @@
 import { createTongsCommitApiHandler } from "../../../../packages/tongs/src/workpiece-commit-api.ts";
+import { resolveNurseryTongsProviderBoundary } from "../../scripts/mw-tongs-commit-api";
 import { resolveTongsRuntimeConfig } from "../../server/tongs/tongs-runtime-config";
 
 const config = resolveTongsRuntimeConfig();
-const handler = config.missing.length ? null : createTongsCommitApiHandler(config.options);
+const providerBoundary = config.missing.length ? null : resolveNurseryTongsProviderBoundary(config);
+const handler = providerBoundary ? createTongsCommitApiHandler(providerBoundary.options) : null;
 
 const USER_AUTH_HEADERS = ["x-forge-user-authorization", "x-forge-user-token"] as const;
 
