@@ -2,6 +2,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useOutletContext } from "react-router-dom";
 import { tongsSupabase } from "../lib/supabase";
 import { loadThumbnailLedgerIntelligence } from "../lib/thumbnail-ledger";
+import {
+  formatCurrencyMicros,
+  formatCurrencyMinor,
+  ownerPurchaseAccountingLabel,
+  type OwnerPurchaseActivity,
+  type OwnerPurchaseActivityResponse,
+  type OwnerPurchaseMode,
+} from "../lib/owner-purchase-activity";
 import type { AppShellContext } from "./AppShell";
 import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
 import "./Ledger.css";
@@ -45,6 +53,13 @@ type BillingLedgerRpcClient = {
     data: BillingLedgerResponse | null;
     error: { message: string } | null;
   }>;
+};
+
+type OwnerPurchaseRpcClient = {
+  rpc: (
+    name: "is_platform_operator" | "read_owner_purchase_activity",
+    args: Record<string, unknown>,
+  ) => Promise<{ data: boolean | OwnerPurchaseActivityResponse | null; error: { message: string } | null }>;
 };
 
 const RANGE_OPTIONS: ReadonlyArray<{ value: LedgerTimeRange; label: string }> = [
@@ -102,6 +117,12 @@ function operationChargeLabel(operation: BillingOperation): string {
   return `Up to ${formatCredits(operation.maximum_customer_charge_credits)}`;
 }
 
+function purchaseLabel(purchase: OwnerPurchaseActivity): string {
+  const item = purchase.item_id.replaceAll("_", " ");
+  const kind = purchase.purchase_type === "cloud_storage" ? "Cloud storage" : "Subscription";
+  return `${kind} · ${item} · ${purchase.interval}`;
+}
+
 export default function LedgerRoute() {
   const shell = useOutletContext<AppShellContext>();
   const workspaceId = shell.workspaceId;
@@ -114,6 +135,51 @@ export default function LedgerRoute() {
   const [timeRange, setTimeRange] = useState<LedgerTimeRange>("today");
   const [thumbnailIntelligence, setThumbnailIntelligence] = useState<Awaited<ReturnType<typeof loadThumbnailLedgerIntelligence>> | null>(null);
   const [thumbnailError, setThumbnailError] = useState<string | null>(null);
+  const [ownerMode, setOwnerMode] = useState<OwnerPurchaseMode>("test");
+  const [ownerAccess, setOwnerAccess] = useState<"checking" | "operator" | "not_operator">("checking");
+  const [ownerPurchases, setOwnerPurchases] = useState<OwnerPurchaseActivity[]>([]);
+  const [ownerLoading, setOwnerLoading] = useState(false);
+  const [ownerError, setOwnerError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadOwnerPurchases = async () => {
+      setOwnerLoading(true);
+      setOwnerError(null);
+      const { data: authData } = await tongsSupabase.auth.getUser();
+      if (cancelled) return;
+      if (!authData.user) {
+        setOwnerAccess("not_operator");
+        setOwnerLoading(false);
+        return;
+      }
+      const ownerClient = tongsSupabase as unknown as OwnerPurchaseRpcClient;
+      const operatorResult = await ownerClient.rpc("is_platform_operator", { p_user_id: authData.user.id });
+      if (cancelled) return;
+      if (operatorResult.error || operatorResult.data !== true) {
+        setOwnerAccess("not_operator");
+        setOwnerPurchases([]);
+        setOwnerLoading(false);
+        return;
+      }
+      setOwnerAccess("operator");
+      const result = await ownerClient.rpc("read_owner_purchase_activity", {
+        p_stripe_mode: ownerMode,
+        p_limit: 100,
+      });
+      if (cancelled) return;
+      if (result.error) {
+        setOwnerError(result.error.message || "Owner purchase activity is unavailable.");
+        setOwnerPurchases([]);
+      } else {
+        const response = result.data as OwnerPurchaseActivityResponse | null;
+        setOwnerPurchases(Array.isArray(response?.purchases) ? response.purchases : []);
+      }
+      setOwnerLoading(false);
+    };
+    void loadOwnerPurchases();
+    return () => { cancelled = true; };
+  }, [ownerMode]);
 
   useEffect(() => {
     if (!workspaceId) return;
@@ -309,6 +375,57 @@ export default function LedgerRoute() {
           </ul>
         )}
       </section>
+
+      {ownerAccess === "operator" ? (
+        <section className="ledger-route__episodes" aria-label="Owner purchase activity">
+          <div className="ledger-route__owner-head">
+            <div>
+              <h3>Owner purchase activity</h3>
+              <p className="ledger-card__hint">Cross-customer Stripe receipts. Test activity never funds live execution or counts as revenue.</p>
+            </div>
+            <div className="ledger-route__filters" role="group" aria-label="Purchase environment">
+              {(["test", "live"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={ownerMode === mode ? "ledger-route__filter-btn ledger-route__filter-btn--active" : "ledger-route__filter-btn"}
+                  onClick={() => setOwnerMode(mode)}
+                >
+                  {mode === "test" ? "Test" : "Live"}
+                </button>
+              ))}
+            </div>
+          </div>
+          {ownerError ? <div className="ledger-route__error">{ownerError}</div> : null}
+          {ownerLoading ? <p className="ledger-route__empty">Loading owner purchases...</p> : ownerPurchases.length === 0 ? (
+            <p className="ledger-route__empty">No {ownerMode} purchases recorded.</p>
+          ) : (
+            <ul className="ledger-route__operation-list">
+              {ownerPurchases.map((purchase) => (
+                <li key={`${purchase.stripe_mode}:${purchase.purchase_id}`} className="ledger-route__operation-row">
+                  <div>
+                    <strong>{purchase.customer_name?.trim() || purchase.customer_email || "Unknown customer"}</strong>
+                    <span>{purchase.customer_email}</span>
+                    <span>{purchaseLabel(purchase)}</span>
+                    <small>{new Date(purchase.observed_at).toLocaleString()}</small>
+                  </div>
+                  <div className="ledger-route__operation-evidence">
+                    <strong>{formatCurrencyMinor(purchase.checkout_amount_minor, purchase.checkout_currency)}</strong>
+                    <span className={`ledger-route__mode-badge ledger-route__mode-badge--${purchase.stripe_mode}`}>
+                      {purchase.stripe_mode === "test" ? "Test" : "Live"}
+                    </span>
+                    <span>Status: {purchase.status} · payment {purchase.payment_status ?? "unknown"}</span>
+                    <span>Accounting: {ownerPurchaseAccountingLabel(purchase)}</span>
+                    <span>Recognized revenue: {formatCurrencyMicros(purchase.recognized_revenue_micros, purchase.checkout_currency ?? purchase.accounting_currency)}</span>
+                    <span>Funding: {purchase.live_funding_eligible ? "eligible allowance recorded" : "not enabled"}</span>
+                    <span>Webhook evidence: {purchase.signed_webhook_events.length} event{purchase.signed_webhook_events.length === 1 ? "" : "s"}</span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      ) : null}
 
       <section className="ledger-route__episodes" aria-label="Thumbnail intelligence">
         <div className="ledger-route__episodes-head"><h3>Thumbnail Intelligence</h3><span>{thumbnailIntelligence?.analysis.freshness.state ?? "unavailable"}</span></div>
