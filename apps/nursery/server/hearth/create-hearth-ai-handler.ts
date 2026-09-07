@@ -588,7 +588,8 @@ function stripResearchScaffolding(input: string): string {
 function deriveResearchGoals(requestText: string): string[] {
   const clean = condenseWhitespace(requestText);
   const clauses = clean
-    .split(/(?:\r?\n|;|\?+|\.(?=\s|$))/)
+    .split(/(?:\r?\n|;|\?+|\.(?=\s|$)|,\s*(?=(?:and\s+)?(?:who|what|when|where|why|how)\b)|\s+and\s+(?=(?:who|what|when|where|why|how)\b))/i)
+    .map((clause) => clause.replace(/^and\s+/i, ""))
     .map((clause) => condenseWhitespace(clause.replace(/^(?:research|investigate|find|verify|look into)\s+/i, "")))
     .filter((clause) => clause.length >= 3);
   return Array.from(new Set(clauses.length ? clauses : [clean])).slice(0, 8);
@@ -1597,12 +1598,13 @@ function buildSystemPrompt(
       "- Do not claim completion unless research_artifact contains substantive findings.",
       "- For complete or partial work, return research_artifact with the exact briefFingerprint and workpieceId from the brief.",
       "- Each factual finding must name one or more sourceIds from inspected current-request evidence. Use status verified_fact, reported_claim, or uncertain.",
-      "- Editorial interpretation must use status editorial_interpretation and must not masquerade as a sourced fact.",
+      "- Editorial interpretation, including a causal connection inferred only from chronology, must use status editorial_interpretation and must not masquerade as a sourced fact.",
+      "- Set finding scope to current_subject only when it answers the named subject in the brief. Label separate nearby projects or entities adjacent_context and never use their spending, scope, or timeline to answer for the current subject.",
       "- Return uncertainties and conflicts explicitly. Never fill a gap from background knowledge.",
       "- If evidence is absent or unusable, return a failed artifact with no findings and say clearly that no validated findings were produced.",
       "- Creator assistance is appropriate only for a source explicitly marked inaccessible with a specific accessFailureReason; continue using other inspected sources.",
       "research_artifact shape:",
-      "{\"briefFingerprint\":string,\"workpieceId\":string,\"status\":\"complete\"|\"partial\"|\"failed\",\"findings\":[{\"text\":string,\"status\":\"verified_fact\"|\"reported_claim\"|\"uncertain\"|\"editorial_interpretation\",\"sourceIds\":string[]}],\"uncertainties\":string[],\"editorialInterpretation\":string[]}",
+      "{\"briefFingerprint\":string,\"workpieceId\":string,\"status\":\"complete\"|\"partial\"|\"failed\",\"findings\":[{\"text\":string,\"status\":\"verified_fact\"|\"reported_claim\"|\"uncertain\"|\"editorial_interpretation\",\"scope\":\"current_subject\"|\"adjacent_context\",\"sourceIds\":string[]}],\"uncertainties\":string[],\"editorialInterpretation\":string[]}",
     );
     if (options.researchRequest) {
       baseLines.push(
@@ -1999,7 +2001,8 @@ export function composeGroundedResearchAnswer(result: HearthResearchResult): str
   const citedIds = new Set(artifact.findings.flatMap((finding) => finding.sourceIds));
   const findingLines = artifact.findings.map((finding) => {
     const citations = finding.sourceIds.map((id) => `[${id}]`).join(" ");
-    return `- ${finding.text}${citations ? ` ${citations}` : ""}`;
+    const scope = finding.scope === "adjacent_context" ? "Adjacent context — " : "";
+    return `- ${scope}${finding.text}${citations ? ` ${citations}` : ""}`;
   });
   const inaccessible = result.sources.filter((source) => source.provenance?.inspectionStatus === "inaccessible");
   const referenceLines = [...citedIds]

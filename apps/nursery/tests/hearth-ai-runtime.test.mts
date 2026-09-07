@@ -1415,12 +1415,12 @@ test("createHearthAiHandler strips Hearth tone instructions from live research q
     researchApiKey: "brave-test-key",
   }));
   const originalFetch = globalThis.fetch;
-  let capturedQuery: string | null = null;
+  const capturedQueries: string[] = [];
 
   globalThis.fetch = async (input) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     if (url.startsWith("https://api.search.brave.com/res/v1/web/search")) {
-      capturedQuery = new URL(url).searchParams.get("q");
+      capturedQueries.push(new URL(url).searchParams.get("q") ?? "");
       return new Response(JSON.stringify({
         web: {
           results: [
@@ -1487,8 +1487,8 @@ test("createHearthAiHandler strips Hearth tone instructions from live research q
     }));
 
     assert.equal(response.status, 200);
-    assert.match(String(capturedQuery), /Find strong sources I should cite for this Episode/i);
-    assert.doesNotMatch(String(capturedQuery), /Response tone:|creative operations partner/i);
+    assert.match(capturedQueries.join("\n"), /Find strong sources I should cite for this Episode/i);
+    assert.doesNotMatch(capturedQueries.join("\n"), /Response tone:|creative operations partner/i);
     const payload = await response.json();
     assert.equal(payload.research_result?.mode, "retrieval_first");
     assert.doesNotMatch(String(payload.research_result?.request?.query ?? ""), /Response tone:/i);
@@ -1503,12 +1503,12 @@ test("createHearthAiHandler expands generic episode source requests with episode
     researchApiKey: "brave-test-key",
   }));
   const originalFetch = globalThis.fetch;
-  let capturedQuery: string | null = null;
+  const capturedQueries: string[] = [];
 
   globalThis.fetch = async (input) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
     if (url.startsWith("https://api.search.brave.com/res/v1/web/search")) {
-      capturedQuery = new URL(url).searchParams.get("q");
+      capturedQueries.push(new URL(url).searchParams.get("q") ?? "");
       return new Response(JSON.stringify({
         web: {
           results: [
@@ -1578,13 +1578,14 @@ test("createHearthAiHandler expands generic episode source requests with episode
     }));
 
     assert.equal(response.status, 200);
-    assert.match(String(capturedQuery), /Lobbying Is Not Bribery/i);
-    assert.match(String(capturedQuery), /Lobbying Disclosure Act/i);
-    assert.match(String(capturedQuery), /\bCRS\b/);
-    assert.match(String(capturedQuery), /\bGAO\b/);
-    assert.match(String(capturedQuery), /independent reporting archive data/i);
-    assert.doesNotMatch(String(capturedQuery), /^\s*Find strong sources I should cite for this Episode\.\s*$/i);
-    assert.doesNotMatch(String(capturedQuery), /\[s1\]|\[beat\]|Response tone:/i);
+    const joinedQueries = capturedQueries.join("\n");
+    assert.match(joinedQueries, /Lobbying Is Not Bribery/i);
+    assert.match(joinedQueries, /Lobbying Disclosure Act/i);
+    assert.match(joinedQueries, /\bCRS\b/);
+    assert.match(joinedQueries, /\bGAO\b/);
+    assert.match(joinedQueries, /independent reporting archive data/i);
+    assert.equal(capturedQueries.some((query) => /^\s*Find strong sources I should cite for this Episode\.\s*$/i.test(query)), false);
+    assert.doesNotMatch(joinedQueries, /\[s1\]|\[beat\]|Response tone:/i);
     const payload = await response.json();
     assert.equal(payload.research_result?.mode, "retrieval_first");
     assert.equal(payload.research_result?.runtimeStatus, "ok");

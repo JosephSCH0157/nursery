@@ -44,6 +44,19 @@ test("brief authority comes from the current creator request and rebuilds get a 
   assert.equal(first.workpieceId, "workpiece-church");
 });
 
+test("multi-part factual questions become distinct explicit research goals", () => {
+  const result = buildHearthResearchBrief({
+    requestText: "When was Church Street's heyday, what caused its decline, and what is Orlando spending on the current redevelopment?",
+    episodeContext: context(),
+    requestAuthority: "operation-goals",
+  });
+  assert.deepEqual(result?.goals, [
+    "When was Church Street's heyday",
+    "what caused its decline",
+    "what is Orlando spending on the current redevelopment",
+  ]);
+});
+
 test("runtime inspects accessible sources and serializes current-request provenance and evidence", async () => {
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async (input) => {
@@ -61,6 +74,42 @@ test("runtime inspects accessible sources and serializes current-request provena
     assert.match(result.evidence?.[0]?.excerpt ?? "", /Festival Street scope/i);
     assert.equal(result.evidence?.[0]?.workpieceId, activeBrief.workpieceId);
     assert.equal(result.evidence?.[0]?.authority, "primary_government");
+  } finally { globalThis.fetch = originalFetch; }
+});
+
+test("runtime performs a bounded refinement when an explicit money goal remains unresolved", async () => {
+  const originalFetch = globalThis.fetch;
+  const queries: string[] = [];
+  globalThis.fetch = async (input) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.startsWith("https://api.search.brave.com/")) {
+      const query = new URL(url).searchParams.get("q") ?? "";
+      queries.push(query);
+      const refinement = /budget|contract award|council agenda/i.test(query) && queries.length > 1;
+      return new Response(JSON.stringify({ web: { results: [refinement
+        ? { title: "Orlando City Council contract award", url: "https://orlando.gov/agenda/church-street-award", description: "Council agenda with the adopted Church Street project budget." }
+        : { title: "Church Street project overview", url: "https://orlando.gov/church-street", description: "Project history and streetscape overview." }] } }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    const text = url.includes("church-street-award")
+      ? "The Orlando City Council agenda awards $5.5 million for the Church Street Festival Street construction contract."
+      : "Church Street Station drew crowds in the late 1970s and 1980s. Attendance declined because competing entertainment districts drew visitors away. Separately, Orlando's nearby Canopy project has a $2 billion budget.";
+    return new Response(`<main>${`${text} `.repeat(8)}</main>`, { status: 200, headers: { "content-type": "text/html" } });
+  };
+  try {
+    const activeBrief = brief("workpiece-church", "Church Street research", "fp-refinement");
+    activeBrief.episodeTitle = "Church Street Orlando";
+    activeBrief.goals = [
+      "When was Church Street's heyday",
+      "what caused its decline",
+      "what is Orlando spending on the current redevelopment",
+    ];
+    const result = await createHearthResearchRuntime({ braveApiKey: "test" }).run({
+      request: { query: activeBrief.queries[0], intent: "mixed", recencyPreference: "recent", maxSources: 4, requireDates: true, requireFullExtraction: false },
+      brief: activeBrief,
+    });
+    assert.equal(queries.some((query) => /contract award|council agenda/i.test(query)), true);
+    assert.equal(result.brief?.queries.some((query) => /contract award|council agenda/i.test(query)), true);
+    assert.match(result.evidence?.map((entry) => entry.excerpt).join(" ") ?? "", /\$5\.5 million/i);
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -147,7 +196,16 @@ test("failed Topic B retrieval cannot reuse successful Topic A evidence", async 
 test("authority is domain-neutral and duplicate URLs collapse", () => {
   const base: HearthResearchSource = { sourceId: "one", title: "City project", url: "https://orlando.gov/project?utm_source=test", canonicalUrl: "https://orlando.gov/project", domain: "orlando.gov", publishedAt: null, snippet: null, extractedText: "Useful finding", extractionStatus: "extracted", extractionError: null };
   assert.equal(classifyResearchSourceAuthority(base), "primary_government");
+  assert.equal(classifyResearchSourceAuthority({ ...base, title: "Church Street Station", publisher: "Wikimedia Foundation, Inc.", url: "https://en.wikipedia.org/wiki/Church_Street_Station", canonicalUrl: null, domain: "en.wikipedia.org" }), "general_reference");
   assert.equal(dedupeHearthResearchSources([base, { ...base, sourceId: "two", url: "https://orlando.gov/project#scope", canonicalUrl: null }]).length, 1);
+});
+
+test("adjacent projects are visibly labeled instead of blended into the queried project", () => {
+  const activeBrief = brief("workpiece-church", "Church Street redevelopment scope and budget", "fp-scope");
+  activeBrief.episodeTitle = "Church Street Orlando";
+  const source: HearthResearchSource = { sourceId: "retrieval-1", title: "Downtown projects", url: "https://orlando.gov/downtown", domain: "orlando.gov", publishedAt: null, snippet: null, extractedText: "Separately, Orlando is developing the Canopy nearby as another downtown connectivity project.", extractionStatus: "extracted", extractionError: null, provenance: { origin: "search", briefFingerprint: activeBrief.briefFingerprint, inspectedAt: new Date().toISOString(), inspectionStatus: "inspected", accessFailureReason: null, verifiedInCurrentRequest: true } };
+  const result: HearthResearchResult = { mode: "retrieval_first", runtimeStatus: "ok", providerStatus: "configured_and_operational", brief: activeBrief, sources: [source], evidence: [{ evidenceId: "e-1", briefFingerprint: activeBrief.briefFingerprint, workpieceId: activeBrief.workpieceId, sourceId: source.sourceId, excerpt: source.extractedText, authority: "primary_government", state: "inspected", uncertainty: null }], artifact: { briefFingerprint: activeBrief.briefFingerprint, workpieceId: activeBrief.workpieceId, status: "complete", findings: [{ text: "Orlando is also developing the Canopy nearby as a separate downtown project.", status: "reported_claim", sourceIds: [source.sourceId], scope: "adjacent_context" } as HearthResearchArtifact["findings"][number]], uncertainties: [], editorialInterpretation: [] }, synthesis: { summary: "one", keyPoints: [], uncertainties: [], coverageNote: "1/1" } };
+  assert.match(composeGroundedResearchAnswer(result) ?? "", /Adjacent context/i);
 });
 
 test("representative scenes cannot be presented as personal memories", () => {

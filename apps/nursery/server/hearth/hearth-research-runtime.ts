@@ -10,6 +10,7 @@ import {
   type HearthResearchEvidence,
   type HearthResearchSourceAuthority,
   type HearthResearchAccessFailureReason,
+  type HearthResearchSourceProvenance,
   type HearthResearchSourceType,
   type HearthTranscriptMeta,
   type HearthTranscriptSegment,
@@ -1064,11 +1065,120 @@ export async function extractUrlToResearchSource(
 
 export function classifyResearchSourceAuthority(source: HearthResearchSource): HearthResearchSourceAuthority {
   const identity = `${source.domain ?? ""} ${source.publisher ?? ""} ${source.title ?? ""}`.toLowerCase();
+  if (/\b(?:wikipedia|wikimedia|wikiquote|britannica|encyclop(?:a)?edia)\b/.test(identity)) return "general_reference";
   if (/\.gov\b|\b(city of|county of|state of|department of|agency|commission|authority|public records?)\b/.test(identity)) return "primary_government";
   if (/\.edu\b|\b(university|college|journal|doi|peer.review|research institute)\b/.test(identity)) return "scholarly_technical";
   if (/\b(official|corporation|company|foundation|association|board|operator|developer)\b/.test(identity)) return "primary_institutional";
   if (/\b(visit|tourism|lifestyle|promotion|sponsored|advertorial|generic facts)\b/.test(identity)) return "promotional_general";
   return "reputable_secondary";
+}
+
+async function inspectResearchCandidate(args: {
+  candidate: BraveSearchResult;
+  sourceId: string;
+  brief: HearthResearchBrief;
+  sourceOrigin: HearthResearchSourceProvenance["origin"];
+  signal?: AbortSignal;
+}): Promise<HearthResearchSource> {
+  const retrievedAt = new Date().toISOString();
+  const outcome = await fetchReadableSource({ candidate: args.candidate, signal: args.signal });
+  const bestUrl = outcome.canonicalUrl || outcome.resolvedUrl || args.candidate.url;
+  const domain = parseDomain(bestUrl) || args.candidate.domain;
+  return {
+    sourceId: args.sourceId,
+    title: outcome.title || args.candidate.title,
+    sourceType: outcome.sourceType,
+    ...(outcome.ingestMode ? { ingestMode: outcome.ingestMode } : {}),
+    publisher: outcome.publisher,
+    author: outcome.author,
+    url: bestUrl,
+    originalUrl: args.candidate.url,
+    resolvedUrl: outcome.resolvedUrl,
+    canonicalUrl: outcome.canonicalUrl,
+    domain,
+    publishedAt: outcome.publishedAt || normalizePublishedAt(args.candidate.publishedAt),
+    updatedAt: outcome.updatedAt,
+    retrievedAt,
+    warnings: outcome.warnings.length ? outcome.warnings : null,
+    transcriptAvailable: outcome.transcriptAvailable,
+    snippet: args.candidate.snippet ? truncate(args.candidate.snippet, MAX_SNIPPET_CHARS) : null,
+    extractedText: outcome.extractedText,
+    transcript: outcome.transcript,
+    transcriptSegments: outcome.transcriptSegments,
+    transcriptMeta: outcome.transcriptMeta,
+    attributedQuotes: outcome.attributedQuotes,
+    extractionStatus: outcome.extractionStatus,
+    extractionError: outcome.extractionError,
+    provenance: {
+      origin: args.sourceOrigin,
+      briefFingerprint: args.brief.briefFingerprint,
+      inspectedAt: retrievedAt,
+      inspectionStatus: outcome.extractionStatus === "extracted"
+        ? "inspected"
+        : outcome.extractedText ? "metadata_only" : "inaccessible",
+      accessFailureReason: classifyAccessFailure(outcome.extractionError),
+      verifiedInCurrentRequest: outcome.extractionStatus === "extracted",
+    },
+  };
+}
+
+function goalEvidenceText(sources: HearthResearchSource[]): string {
+  return sources
+    .filter((source) => source.provenance?.inspectionStatus === "inspected")
+    .map((source) => evidenceText(source))
+    .join(" ")
+    .toLowerCase();
+}
+
+function researchSubjectTokens(brief: HearthResearchBrief): string[] {
+  return Array.from(new Set(brief.episodeTitle.toLowerCase().match(/[a-z0-9]{4,}/g) ?? []))
+    .filter((token) => !/^(?:episode|project|orlando|florida|current|research|about|with|from|that|this)$/.test(token));
+}
+
+function isResearchGoalCovered(brief: HearthResearchBrief, goal: string, sources: HearthResearchSource[]): boolean {
+  const normalizedGoal = compactWhitespace(goal).toLowerCase();
+  const evidence = goalEvidenceText(sources);
+  if (!evidence) return false;
+  if (/^(?:find|research|investigate|verify|look into)\b/.test(normalizedGoal)
+    && /\b(?:sources?|citations?|evidence|reports?|examples?)\b/.test(normalizedGoal)) {
+    return sources.some((source) => source.provenance?.inspectionStatus === "inspected");
+  }
+  if (/\b(?:how much|spend|spending|budget|cost|funding|investment|contract award)\b/.test(normalizedGoal)) {
+    const subjectTokens = researchSubjectTokens(brief);
+    return sources.some((source) => {
+      if (source.provenance?.inspectionStatus !== "inspected") return false;
+      return evidenceText(source).split(/(?:[.!?;]\s+|\r?\n+)/).some((passage) => {
+        const normalizedPassage = passage.toLowerCase();
+        const hasAmount = /(?:[$€£]\s?\d|\b\d+(?:\.\d+)?\s*(?:million|billion|thousand)\b)/i.test(passage);
+        const hasFinancialContext = /\b(?:budget|cost|spend|spending|funding|investment|contract|award)\b/i.test(passage);
+        const subjectMatches = subjectTokens.filter((token) => normalizedPassage.includes(token)).length;
+        return hasAmount && hasFinancialContext
+          && (subjectTokens.length === 0 || subjectMatches >= Math.min(2, subjectTokens.length));
+      });
+    });
+  }
+  if (/\b(?:when|date|year|timeline|heyday|history)\b/.test(normalizedGoal)) {
+    return /\b(?:18|19|20)\d{2}\b|\b(?:18|19|20)\d0s\b|\b(?:january|february|march|april|may|june|july|august|september|october|november|december)\b/i.test(evidence);
+  }
+  if (/\b(?:why|cause|caused|decline|reason|led to)\b/.test(normalizedGoal)) {
+    return /\b(?:because|caused|contributed|competition|competing|declined due|led to|resulted from|reason)\b/i.test(evidence);
+  }
+  const tokens = Array.from(new Set(normalizedGoal.match(/[a-z0-9]{4,}/g) ?? []))
+    .filter((token) => !/^(?:what|when|where|which|with|from|that|this|were|have|current|about)$/.test(token));
+  if (!tokens.length) return false;
+  const matches = tokens.filter((token) => evidence.includes(token)).length;
+  return matches >= Math.min(2, tokens.length) && matches / tokens.length >= 0.4;
+}
+
+function buildGoalRefinementQuery(brief: HearthResearchBrief, goal: string): string {
+  const suffix = /\b(?:how much|spend|spending|budget|cost|funding|investment|contract award)\b/i.test(goal)
+    ? "official budget contract award council agenda procurement"
+    : /\b(?:when|date|year|timeline|heyday|history)\b/i.test(goal)
+      ? "archive primary records dates historical reporting"
+      : /\b(?:why|cause|caused|decline|reason|led to)\b/i.test(goal)
+        ? "cause analysis contemporaneous reporting primary sources"
+        : "official records independent reporting";
+  return compactWhitespace(`${brief.episodeTitle} ${goal} ${suffix}`);
 }
 
 function evidenceText(source: HearthResearchSource): string {
@@ -1269,56 +1379,70 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
       for (let index = 0; index < uniqueCandidates.length; index += 1) {
         const candidate = uniqueCandidates[index];
         if (args.signal?.aborted) break;
-        const retrievedAt = new Date().toISOString();
-        const outcome = await fetchReadableSource({
+        sources.push(await inspectResearchCandidate({
           candidate,
-          signal: args.signal,
-        });
-        const bestUrl = outcome.canonicalUrl || outcome.resolvedUrl || candidate.url;
-        const domain = parseDomain(bestUrl) || candidate.domain;
-        sources.push({
           sourceId: `retrieval-${index + 1}`,
-          title: outcome.title || candidate.title,
-          sourceType: outcome.sourceType,
-          ...(outcome.ingestMode ? { ingestMode: outcome.ingestMode } : {}),
-          publisher: outcome.publisher,
-          author: outcome.author,
-          url: bestUrl,
-          originalUrl: candidate.url,
-          resolvedUrl: outcome.resolvedUrl,
-          canonicalUrl: outcome.canonicalUrl,
-          domain,
-          publishedAt: outcome.publishedAt || normalizePublishedAt(candidate.publishedAt),
-          updatedAt: outcome.updatedAt,
-          retrievedAt,
-          warnings: outcome.warnings.length ? outcome.warnings : null,
-          transcriptAvailable: outcome.transcriptAvailable,
-          snippet: candidate.snippet ? truncate(candidate.snippet, MAX_SNIPPET_CHARS) : null,
-          extractedText: outcome.extractedText,
-          transcript: outcome.transcript,
-          transcriptSegments: outcome.transcriptSegments,
-          transcriptMeta: outcome.transcriptMeta,
-          attributedQuotes: outcome.attributedQuotes,
-          extractionStatus: outcome.extractionStatus,
-          extractionError: outcome.extractionError,
-          provenance: {
-            origin: args.sourceOrigin ?? "search",
-            briefFingerprint: args.brief.briefFingerprint,
-            inspectedAt: retrievedAt,
-            inspectionStatus: outcome.extractionStatus === "extracted"
-              ? "inspected"
-              : outcome.extractedText ? "metadata_only" : "inaccessible",
-            accessFailureReason: classifyAccessFailure(outcome.extractionError),
-            verifiedInCurrentRequest: outcome.extractionStatus === "extracted",
-          },
-        });
+          brief: args.brief,
+          sourceOrigin: args.sourceOrigin ?? "search",
+          signal: args.signal,
+        }));
       }
 
       const prioritizedSources = [
         ...sources.filter((source) => source.extractionStatus === "extracted"),
         ...sources.filter((source) => source.extractionStatus !== "extracted"),
       ];
-      const uniqueSources = dedupeHearthResearchSources(prioritizedSources).slice(0, args.request.maxSources);
+      let uniqueSources = dedupeHearthResearchSources(prioritizedSources).slice(0, args.request.maxSources);
+      const unresolvedGoals = args.brief.goals.filter((goal) => !isResearchGoalCovered(args.brief, goal, uniqueSources));
+      const attemptedQueries = new Set(
+        [args.request.query, ...args.brief.queries].map((query) => compactWhitespace(query).toLowerCase()),
+      );
+      const refinementQueries = unresolvedGoals
+        .map((goal) => buildGoalRefinementQuery(args.brief, goal))
+        .filter((query) => {
+          const key = query.toLowerCase();
+          if (!key || attemptedQueries.has(key)) return false;
+          attemptedQueries.add(key);
+          return true;
+        })
+        .slice(0, 3);
+      const refinementSources: HearthResearchSource[] = [];
+      const knownUrls = new Set(uniqueSources.map((source) => canonicalizeResearchUrl(source.canonicalUrl || source.resolvedUrl || source.url)));
+
+      for (let index = 0; index < refinementQueries.length; index += 1) {
+        if (args.signal?.aborted) break;
+        try {
+          const refinementCandidates = await searchWithBrave({
+            apiKey: braveApiKey,
+            request: { ...args.request, query: refinementQueries[index], maxSources: Math.min(args.request.maxSources, 3) },
+            signal: args.signal,
+          });
+          const candidate = refinementCandidates.find((item) => !knownUrls.has(canonicalizeResearchUrl(item.url)));
+          if (!candidate) continue;
+          knownUrls.add(canonicalizeResearchUrl(candidate.url));
+          refinementSources.push(await inspectResearchCandidate({
+            candidate,
+            sourceId: `refinement-${index + 1}`,
+            brief: args.brief,
+            sourceOrigin: args.sourceOrigin ?? "search",
+            signal: args.signal,
+          }));
+        } catch (error) {
+          if (isAbortError(error)) break;
+        }
+      }
+
+      if (refinementSources.length > 0) {
+        uniqueSources = dedupeHearthResearchSources([
+          ...refinementSources.filter((source) => source.extractionStatus === "extracted"),
+          ...uniqueSources,
+          ...refinementSources.filter((source) => source.extractionStatus !== "extracted"),
+        ]).slice(0, args.request.maxSources);
+      }
+      const effectiveBrief: HearthResearchBrief = refinementQueries.length > 0
+        ? { ...args.brief, queries: Array.from(new Set([...args.brief.queries, ...refinementQueries])) }
+        : args.brief;
+      const remainingGoals = effectiveBrief.goals.filter((goal) => !isResearchGoalCovered(effectiveBrief, goal, uniqueSources));
       const extractionSuccessCount = uniqueSources.filter((source) => source.extractionStatus === "extracted").length;
       const extractionFailureCount = uniqueSources.length - extractionSuccessCount;
       const outcome = deriveRetrievalOutcome({
@@ -1327,20 +1451,28 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
         extractionFailureCount,
       });
 
+      const synthesis = buildSynthesis({
+        request: args.request,
+        sources: uniqueSources,
+        extractionSuccessCount,
+        extractionFailureCount,
+      });
+      if (refinementQueries.length > 0) {
+        synthesis.coverageNote = `${synthesis.coverageNote} Bounded refinements attempted: ${refinementQueries.length}.`;
+      }
+      if (remainingGoals.length > 0) {
+        synthesis.uncertainties.push(`Unresolved explicit goals after bounded refinement: ${remainingGoals.join("; ")}.`);
+      }
+
       const result: HearthResearchResult = {
         mode: outcome.mode,
         runtimeStatus: outcome.runtimeStatus,
         providerStatus: "configured_and_operational",
-        brief: args.brief,
-        evidence: buildSerializableEvidence({ brief: args.brief, sources: uniqueSources }),
+        brief: effectiveBrief,
+        evidence: buildSerializableEvidence({ brief: effectiveBrief, sources: uniqueSources }),
         artifact: null,
         sources: uniqueSources,
-        synthesis: buildSynthesis({
-          request: args.request,
-          sources: uniqueSources,
-          extractionSuccessCount,
-          extractionFailureCount,
-        }),
+        synthesis,
       };
       return result;
     },

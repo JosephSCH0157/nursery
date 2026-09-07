@@ -22,6 +22,7 @@ export type HearthResearchSourceAuthority =
   | "primary_institutional"
   | "scholarly_technical"
   | "reputable_secondary"
+  | "general_reference"
   | "promotional_general"
   | "unassessed";
 
@@ -71,6 +72,7 @@ export type HearthResearchFinding = {
   text: string;
   status: "verified_fact" | "reported_claim" | "uncertain" | "editorial_interpretation";
   sourceIds: string[];
+  scope?: "current_subject" | "adjacent_context";
 };
 
 export type HearthResearchArtifact = {
@@ -175,6 +177,7 @@ function normalizeAuthority(value: unknown): HearthResearchSourceAuthority {
     || value === "primary_institutional"
     || value === "scholarly_technical"
     || value === "reputable_secondary"
+    || value === "general_reference"
     || value === "promotional_general"
     || value === "unassessed"
     ? value
@@ -224,7 +227,12 @@ export function normalizeHearthResearchArtifact(value: unknown): HearthResearchA
     const text = typeof entry.text === "string" ? entry.text.trim() : "";
     const findingStatus = entry.status;
     if (!text || (findingStatus !== "verified_fact" && findingStatus !== "reported_claim" && findingStatus !== "uncertain" && findingStatus !== "editorial_interpretation")) return [];
-    return [{ text, status: findingStatus, sourceIds: stringArray(entry.sourceIds, 12) } satisfies HearthResearchFinding];
+    return [{
+      text,
+      status: findingStatus,
+      sourceIds: stringArray(entry.sourceIds, 12),
+      scope: entry.scope === "adjacent_context" ? "adjacent_context" : "current_subject",
+    } satisfies HearthResearchFinding];
   }).slice(0, 24) : [];
   return {
     briefFingerprint,
