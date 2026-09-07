@@ -527,7 +527,7 @@ async function runHearthAiPolicyPreflight(args: {
   const headers = buildSupabaseRpcHeaders(config, accessToken);
   let response: Response;
   try {
-    response = await fetch(`${config.url}/rest/v1/rpc/resolve_ai_policy`, {
+    response = await fetch(`${config.url}/rest/v1/rpc/resolve_ai_access_policy`, {
       method: "POST",
       headers,
       body: JSON.stringify({

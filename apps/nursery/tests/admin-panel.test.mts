@@ -17,16 +17,12 @@ test("canAccessAdminPanel allows owner/admin only", () => {
 test("parseAdminOverview normalizes totals and rollups", () => {
   const parsed = parseAdminOverview({
     total_usage_today: 8,
-    total_estimated_cost_today: 0.9234,
-    total_actual_cost_today: 0.7123,
     total_billable_tokens_today: 1022,
     usage_by_feature: [
       {
         feature: "speech_transcription",
         subfeature: "hammer_prep_nonbillable",
         call_count: 4,
-        total_estimated_cost_usd: 0.4,
-        total_actual_cost_usd: 0.32,
         total_billable_tokens: 400,
       },
     ],
@@ -34,8 +30,6 @@ test("parseAdminOverview normalizes totals and rollups", () => {
       {
         lane: "forge",
         call_count: 6,
-        total_estimated_cost_usd: 0.6,
-        total_actual_cost_usd: 0.5,
         total_billable_tokens: 900,
       },
     ],
@@ -44,6 +38,7 @@ test("parseAdminOverview normalizes totals and rollups", () => {
   assert.equal(parsed.totalUsageToday, 8);
   assert.equal(parsed.usageByFeature[0]?.feature, "speech_transcription");
   assert.equal(parsed.usageByLane[0]?.lane, "forge");
+  assert.equal("totalActualCostToday" in parsed, false);
 });
 
 test("parseAdminUsageEvents filters invalid rows and keeps key fields", () => {
@@ -56,8 +51,6 @@ test("parseAdminUsageEvents filters invalid rows and keeps key fields", () => {
       subfeature: "chat",
       lane: "forge",
       status: "success",
-      estimated_cost_usd: 0.1,
-      actual_cost_usd: 0.09,
       billable_tokens: 110,
       model: "gpt-5.2",
     },
@@ -69,6 +62,7 @@ test("parseAdminUsageEvents filters invalid rows and keeps key fields", () => {
   assert.equal(rows.length, 1);
   assert.equal(rows[0]?.feature, "script_assist");
   assert.equal(rows[0]?.lane, "forge");
+  assert.equal("actualCostUsd" in rows[0]!, false);
 });
 
 test("parseAdminUserInspection reads membership + policy fields", () => {
@@ -90,7 +84,6 @@ test("parseAdminUserInspection reads membership + policy fields", () => {
       byo_provider: "openai",
       policy_decision_type: "ALLOW",
       selected_funding_source: "org_shared_credits",
-      effective_policy_snapshot: { sample: true },
     },
   ]);
 
@@ -99,4 +92,5 @@ test("parseAdminUserInspection reads membership + policy fields", () => {
   assert.equal(parsed?.orgToolboxAllowed, true);
   assert.equal(parsed?.byoConfigured, true);
   assert.equal(parsed?.policyDecisionType, "ALLOW");
+  assert.equal("effectivePolicySnapshot" in parsed!, false);
 });

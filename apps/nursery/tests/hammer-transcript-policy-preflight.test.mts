@@ -127,7 +127,7 @@ async function runCase(caseDef: CaseDef): Promise<void> {
       if (url.includes("/rest/v1/workspaces?id=eq.")) {
         return jsonResponse(200, [{ org_id: TEST_ORG_ID }]);
       }
-      if (url.endsWith("/rest/v1/rpc/resolve_ai_policy")) {
+      if (url.endsWith("/rest/v1/rpc/resolve_ai_access_policy")) {
         return jsonResponse(200, [{ decision_type: caseDef.decision, reason_code: caseDef.reasonCode }]);
       }
       if (url === "https://api.openai.com/v1/audio/transcriptions") {
@@ -184,8 +184,8 @@ async function runCase(caseDef: CaseDef): Promise<void> {
     }
 
     if (includeAuthHeader) {
-      const rpcCall = calls.find((call) => call.url.endsWith("/rest/v1/rpc/resolve_ai_policy"));
-      assert(rpcCall, `${caseDef.label}: missing resolve_ai_policy call`);
+      const rpcCall = calls.find((call) => call.url.endsWith("/rest/v1/rpc/resolve_ai_access_policy"));
+      assert(rpcCall, `${caseDef.label}: missing resolve_ai_access_policy call`);
       assert.equal((rpcCall?.body as Record<string, unknown>)?.p_tool, "hammer", `${caseDef.label}: tool mismatch`);
       assert.equal((rpcCall?.body as Record<string, unknown>)?.p_feature, "heavy_tasks", `${caseDef.label}: feature mismatch`);
       assert.equal((rpcCall?.body as Record<string, unknown>)?.p_action, "stt", `${caseDef.label}: action mismatch`);

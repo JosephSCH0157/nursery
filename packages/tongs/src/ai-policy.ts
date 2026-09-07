@@ -182,24 +182,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function assertValidResolvePolicyRow(value: unknown): asserts value is RpcResolvePolicyRow {
-  if (!isRecord(value)) throw new Error("resolve_ai_policy returned a malformed row");
+  if (!isRecord(value)) throw new Error("resolve_ai_access_policy returned a malformed row");
   if (!AI_DECISION_TYPES.includes(value.decision_type as AiDecisionType)) {
-    throw new Error("resolve_ai_policy returned an invalid decision_type");
+    throw new Error("resolve_ai_access_policy returned an invalid decision_type");
   }
   if (value.reason_code !== null && !AI_REASON_CODES.includes(value.reason_code as AiReasonCode)) {
-    throw new Error("resolve_ai_policy returned an invalid reason_code");
+    throw new Error("resolve_ai_access_policy returned an invalid reason_code");
   }
   if (value.selected_funding_source !== null && !AI_FUNDING_SOURCES.includes(value.selected_funding_source as AiFundingSource)) {
-    throw new Error("resolve_ai_policy returned an invalid selected_funding_source");
+    throw new Error("resolve_ai_access_policy returned an invalid selected_funding_source");
   }
   if (value.decision_type === "ALLOW" && value.selected_funding_source === null) {
-    throw new Error("resolve_ai_policy returned ALLOW without a funding source");
+    throw new Error("resolve_ai_access_policy returned ALLOW without a funding source");
   }
   if (typeof value.fallback_available !== "boolean" || typeof value.fallback_used !== "boolean") {
-    throw new Error("resolve_ai_policy returned invalid fallback flags");
+    throw new Error("resolve_ai_access_policy returned invalid fallback flags");
   }
   if (!isRecord(value.effective_policy_snapshot)) {
-    throw new Error("resolve_ai_policy returned an invalid policy snapshot");
+    throw new Error("resolve_ai_access_policy returned an invalid policy snapshot");
   }
 }
 
@@ -251,7 +251,7 @@ export async function resolveAiPolicy(
   supabase: SupabaseClient,
   input: AiPolicyResolveInput,
 ): Promise<AiPolicyResolveResult> {
-  const { data, error } = await supabase.schema("tongs").rpc("resolve_ai_policy", {
+  const { data, error } = await supabase.schema("tongs").rpc("resolve_ai_access_policy", {
     p_org_id: input.orgId,
     p_workspace_id: input.workspaceId,
     p_user_id: input.userId,
@@ -275,7 +275,7 @@ export async function resolveAiPolicy(
 
   const row = Array.isArray(data) ? data[0] : undefined;
   if (!row) {
-    throw new Error("resolve_ai_policy returned no rows");
+    throw new Error("resolve_ai_access_policy returned no rows");
   }
 
   assertValidResolvePolicyRow(row);

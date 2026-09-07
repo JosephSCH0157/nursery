@@ -167,7 +167,7 @@ test("requestHearthChatReply includes attachment context metadata in payload", a
       });
     }
 
-    if (url.includes("/rest/v1/rpc/resolve_ai_policy")) {
+    if (url.includes("/rest/v1/rpc/resolve_ai_access_policy")) {
       return new Response(JSON.stringify([{ decision_type: "ALLOW", reason_code: null }]), {
         status: 200,
         headers: { "content-type": "application/json" },

@@ -59,7 +59,7 @@ class AttributionBackend {
         return new Response(JSON.stringify({ id: USER_ID }), { status: 200, headers: { "content-type": "application/json" } });
       }
 
-      if (url.includes("/rest/v1/rpc/resolve_ai_policy") && init?.method === "POST") {
+      if (url.includes("/rest/v1/rpc/resolve_ai_access_policy") && init?.method === "POST") {
         return new Response(JSON.stringify([this.policy]), { status: 200, headers: { "content-type": "application/json" } });
       }
 

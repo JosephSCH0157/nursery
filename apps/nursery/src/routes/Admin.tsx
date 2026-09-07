@@ -33,10 +33,6 @@ function toErrorMessage(error: unknown, fallback: string): string {
   return fallback;
 }
 
-function formatUsd(value: number): string {
-  return `$${value.toFixed(4)}`;
-}
-
 function formatDateTime(value: string): string {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "Unknown";
@@ -177,8 +173,8 @@ export default function AdminRoute() {
     void (async () => {
       try {
         const [overviewResponse, eventsResponse] = await Promise.all([
-          tongsRpcClient.rpc("admin_get_ai_usage_overview", { p_org_id: selectedOrgId }),
-          tongsRpcClient.rpc("admin_list_ai_usage_events", { p_org_id: selectedOrgId, p_limit: 40 }),
+          tongsRpcClient.rpc("admin_get_ai_activity_overview", { p_org_id: selectedOrgId }),
+          tongsRpcClient.rpc("admin_list_ai_activity_events", { p_org_id: selectedOrgId, p_limit: 40 }),
         ]);
 
         if (cancelled) return;
@@ -259,11 +255,11 @@ export default function AdminRoute() {
     void (async () => {
       try {
         const [inspectionResponse, eventsResponse] = await Promise.all([
-          tongsRpcClient.rpc("admin_get_user_ai_inspection", {
+          tongsRpcClient.rpc("admin_get_user_ai_access_inspection", {
             p_org_id: selectedOrgId,
             p_target_user_id: selectedUserId,
           }),
-          tongsRpcClient.rpc("admin_list_ai_usage_events", {
+          tongsRpcClient.rpc("admin_list_ai_activity_events", {
             p_org_id: selectedOrgId,
             p_user_id: selectedUserId,
             p_limit: 30,
@@ -318,11 +314,11 @@ export default function AdminRoute() {
     setDownloadError(null);
     try {
       const [overviewResponse, rowsResponse] = await Promise.all([
-        tongsRpcClient.rpc("admin_get_ai_usage_overview_window", {
+        tongsRpcClient.rpc("admin_get_ai_activity_overview_window", {
           p_org_id: selectedOrgId,
           p_days: days,
         }),
-        tongsRpcClient.rpc("admin_get_ai_usage_export_rows", {
+        tongsRpcClient.rpc("admin_get_ai_activity_export_rows", {
           p_org_id: selectedOrgId,
           p_days: days,
           p_limit: 5000,
@@ -341,40 +337,34 @@ export default function AdminRoute() {
       lines.push("section,metric,value");
       lines.push(`summary,window_days,${days}`);
       lines.push(`summary,total_usage,${exportOverview.totalUsageToday}`);
-      lines.push(`summary,total_estimated_cost_usd,${exportOverview.totalEstimatedCostToday.toFixed(6)}`);
-      lines.push(`summary,total_actual_cost_usd,${exportOverview.totalActualCostToday.toFixed(6)}`);
       lines.push(`summary,total_billable_tokens,${exportOverview.totalBillableTokensToday}`);
       lines.push("");
 
-      lines.push("section,feature,subfeature,call_count,estimated_cost_usd,actual_cost_usd,billable_tokens");
+      lines.push("section,feature,subfeature,call_count,billable_tokens");
       for (const row of exportOverview.usageByFeature) {
         lines.push([
           "usage_by_feature",
           csvEscape(row.feature),
           csvEscape(row.subfeature ?? ""),
           row.callCount,
-          row.estimatedCostUsd.toFixed(6),
-          row.actualCostUsd.toFixed(6),
           row.billableTokens,
         ].join(","));
       }
       lines.push("");
 
-      lines.push("section,lane,call_count,estimated_cost_usd,actual_cost_usd,billable_tokens");
+      lines.push("section,lane,call_count,billable_tokens");
       for (const row of exportOverview.usageByLane) {
         lines.push([
           "usage_by_lane",
           csvEscape(row.lane),
           row.callCount,
-          row.estimatedCostUsd.toFixed(6),
-          row.actualCostUsd.toFixed(6),
           row.billableTokens,
         ].join(","));
       }
       lines.push("");
 
       lines.push(
-        "section,created_at,user_id,workspace_id,feature,subfeature,lane,status,estimated_cost_usd,actual_cost_usd,billable_tokens,model,provider,action_id,effective_ai_key_source,effective_billing_lane,policy_decision_type,key_resolution_status",
+        "section,created_at,user_id,workspace_id,feature,subfeature,lane,status,billable_tokens,model,provider,action_id,effective_ai_key_source,effective_billing_lane,policy_decision_type,key_resolution_status",
       );
       for (const row of exportRows) {
         lines.push([
@@ -386,8 +376,6 @@ export default function AdminRoute() {
           csvEscape(row.subfeature ?? ""),
           csvEscape(row.lane),
           csvEscape(row.status),
-          row.estimatedCostUsd.toFixed(6),
-          row.actualCostUsd.toFixed(6),
           row.billableTokens,
           csvEscape(row.model),
           csvEscape(row.provider ?? ""),
@@ -476,14 +464,6 @@ export default function AdminRoute() {
                     <div className="admin-route__card-value">{overview.totalUsageToday}</div>
                   </article>
                   <article className="admin-route__card">
-                    <div className="admin-route__card-label">Estimated Cost Today</div>
-                    <div className="admin-route__card-value">{formatUsd(overview.totalEstimatedCostToday)}</div>
-                  </article>
-                  <article className="admin-route__card">
-                    <div className="admin-route__card-label">Actual Cost Today</div>
-                    <div className="admin-route__card-value">{formatUsd(overview.totalActualCostToday)}</div>
-                  </article>
-                  <article className="admin-route__card">
                     <div className="admin-route__card-label">Billable Tokens Today</div>
                     <div className="admin-route__card-value">{overview.totalBillableTokensToday}</div>
                   </article>
@@ -499,8 +479,7 @@ export default function AdminRoute() {
                             <th>Feature</th>
                             <th>Subfeature</th>
                             <th>Calls</th>
-                            <th>Est. Cost</th>
-                            <th>Actual Cost</th>
+                            <th>Billable Tokens</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -509,8 +488,7 @@ export default function AdminRoute() {
                               <td>{row.feature}</td>
                               <td>{row.subfeature ?? "n/a"}</td>
                               <td>{row.callCount}</td>
-                              <td>{formatUsd(row.estimatedCostUsd)}</td>
-                              <td>{formatUsd(row.actualCostUsd)}</td>
+                              <td>{row.billableTokens.toLocaleString("en-US")}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -525,8 +503,7 @@ export default function AdminRoute() {
                           <tr>
                             <th>Lane</th>
                             <th>Calls</th>
-                            <th>Est. Cost</th>
-                            <th>Actual Cost</th>
+                            <th>Billable Tokens</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -534,8 +511,7 @@ export default function AdminRoute() {
                             <tr key={row.lane}>
                               <td>{row.lane}</td>
                               <td>{row.callCount}</td>
-                              <td>{formatUsd(row.estimatedCostUsd)}</td>
-                              <td>{formatUsd(row.actualCostUsd)}</td>
+                              <td>{row.billableTokens.toLocaleString("en-US")}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -554,8 +530,7 @@ export default function AdminRoute() {
                         <th>Feature</th>
                         <th>Lane</th>
                         <th>Status</th>
-                        <th>Est. Cost</th>
-                        <th>Actual Cost</th>
+                        <th>Billable Tokens</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -566,8 +541,7 @@ export default function AdminRoute() {
                           <td>{event.feature}:{event.subfeature ?? "-"}</td>
                           <td>{event.lane}</td>
                           <td>{event.status}</td>
-                          <td>{formatUsd(event.estimatedCostUsd)}</td>
-                          <td>{formatUsd(event.actualCostUsd)}</td>
+                          <td>{event.billableTokens.toLocaleString("en-US")}</td>
                         </tr>
                       ))}
                     </tbody>
@@ -661,7 +635,7 @@ export default function AdminRoute() {
                         <th>Feature</th>
                         <th>Lane</th>
                         <th>Status</th>
-                        <th>Actual Cost</th>
+                        <th>Billable Tokens</th>
                         <th>Model</th>
                       </tr>
                     </thead>
@@ -672,7 +646,7 @@ export default function AdminRoute() {
                           <td>{event.feature}:{event.subfeature ?? "-"}</td>
                           <td>{event.lane}</td>
                           <td>{event.status}</td>
-                          <td>{formatUsd(event.actualCostUsd)}</td>
+                          <td>{event.billableTokens.toLocaleString("en-US")}</td>
                           <td>{event.model}</td>
                         </tr>
                       ))}

@@ -195,7 +195,7 @@ async function resolveCase(args: {
   c: ResolverCase;
   requestId: string;
 }): Promise<ResolverRow> {
-  const { data, error } = await args.actingClient.rpc("resolve_ai_policy", {
+  const { data, error } = await args.actingClient.rpc("resolve_ai_access_policy", {
     p_org_id: args.c.orgId,
     p_workspace_id: args.c.workspaceId,
     p_user_id: args.c.user.userId,
@@ -211,12 +211,12 @@ async function resolveCase(args: {
   });
 
   if (error) {
-    fail(`resolve_ai_policy failed for ${args.c.key}: ${error.message}`);
+    fail(`resolve_ai_access_policy failed for ${args.c.key}: ${error.message}`);
   }
 
   const row = Array.isArray(data) ? (data[0] as ResolverRow | undefined) : undefined;
   if (!row) {
-    fail(`resolve_ai_policy returned no row for ${args.c.key}`);
+    fail(`resolve_ai_access_policy returned no row for ${args.c.key}`);
   }
   return row;
 }

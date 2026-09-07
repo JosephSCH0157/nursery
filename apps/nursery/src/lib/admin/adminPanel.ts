@@ -4,23 +4,17 @@ export type AdminUsageByFeature = {
   feature: string;
   subfeature: string | null;
   callCount: number;
-  estimatedCostUsd: number;
-  actualCostUsd: number;
   billableTokens: number;
 };
 
 export type AdminUsageByLane = {
   lane: string;
   callCount: number;
-  estimatedCostUsd: number;
-  actualCostUsd: number;
   billableTokens: number;
 };
 
 export type AdminOverview = {
   totalUsageToday: number;
-  totalEstimatedCostToday: number;
-  totalActualCostToday: number;
   totalBillableTokensToday: number;
   usageByFeature: AdminUsageByFeature[];
   usageByLane: AdminUsageByLane[];
@@ -34,8 +28,6 @@ export type AdminUsageEvent = {
   subfeature: string | null;
   lane: string;
   status: string;
-  estimatedCostUsd: number;
-  actualCostUsd: number;
   billableTokens: number;
   model: string;
   provider: string | null;
@@ -69,7 +61,6 @@ export type AdminUserInspection = {
   effectiveAiKeySource: string | null;
   fallbackAvailable: boolean;
   fallbackUsed: boolean;
-  effectivePolicySnapshot: Record<string, unknown>;
 };
 
 function readNumber(value: unknown): number {
@@ -89,13 +80,6 @@ function readBoolean(value: unknown): boolean {
   return value === true;
 }
 
-function readObject(value: unknown): Record<string, unknown> {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
-  }
-  return {};
-}
-
 export function canAccessAdminPanel(myOrgRole: string | null | undefined): boolean {
   return canManageOrgWorkspaceAccess(normalizeOrgRole(myOrgRole));
 }
@@ -113,8 +97,6 @@ export function parseAdminOverview(value: unknown): AdminOverview {
         feature: readString(typed.feature) ?? "unknown",
         subfeature: readString(typed.subfeature),
         callCount: Math.max(0, Math.trunc(readNumber(typed.call_count))),
-        estimatedCostUsd: Math.max(0, readNumber(typed.total_estimated_cost_usd)),
-        actualCostUsd: Math.max(0, readNumber(typed.total_actual_cost_usd)),
         billableTokens: Math.max(0, Math.trunc(readNumber(typed.total_billable_tokens))),
       } satisfies AdminUsageByFeature;
     });
@@ -126,16 +108,12 @@ export function parseAdminOverview(value: unknown): AdminOverview {
       return {
         lane: readString(typed.lane) ?? "unknown",
         callCount: Math.max(0, Math.trunc(readNumber(typed.call_count))),
-        estimatedCostUsd: Math.max(0, readNumber(typed.total_estimated_cost_usd)),
-        actualCostUsd: Math.max(0, readNumber(typed.total_actual_cost_usd)),
         billableTokens: Math.max(0, Math.trunc(readNumber(typed.total_billable_tokens))),
       } satisfies AdminUsageByLane;
     });
 
   return {
     totalUsageToday: Math.max(0, Math.trunc(readNumber(row.total_usage_today ?? row.total_usage))),
-    totalEstimatedCostToday: Math.max(0, readNumber(row.total_estimated_cost_today ?? row.total_estimated_cost)),
-    totalActualCostToday: Math.max(0, readNumber(row.total_actual_cost_today ?? row.total_actual_cost)),
     totalBillableTokensToday: Math.max(
       0,
       Math.trunc(readNumber(row.total_billable_tokens_today ?? row.total_billable_tokens)),
@@ -159,8 +137,6 @@ export function parseAdminUsageEvents(value: unknown): AdminUsageEvent[] {
         subfeature: readString(typed.subfeature),
         lane: readString(typed.lane) ?? "unknown",
         status: readString(typed.status) ?? "unknown",
-        estimatedCostUsd: Math.max(0, readNumber(typed.estimated_cost_usd)),
-        actualCostUsd: Math.max(0, readNumber(typed.actual_cost_usd)),
         billableTokens: Math.max(0, Math.trunc(readNumber(typed.billable_tokens))),
         model: readString(typed.model) ?? "unknown",
         provider: readString(typed.provider),
@@ -205,6 +181,5 @@ export function parseAdminUserInspection(value: unknown): AdminUserInspection | 
     effectiveAiKeySource: readString(typed.effective_ai_key_source),
     fallbackAvailable: readBoolean(typed.fallback_available),
     fallbackUsed: readBoolean(typed.fallback_used),
-    effectivePolicySnapshot: readObject(typed.effective_policy_snapshot),
   };
 }

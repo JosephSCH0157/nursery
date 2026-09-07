@@ -90,7 +90,7 @@ async function runCase(caseDef: CaseDef): Promise<void> {
       if (url.includes("/rest/v1/workspaces?id=eq.")) {
         return jsonResponse(200, [{ org_id: TEST_ORG_ID }]);
       }
-      if (url.endsWith("/rest/v1/rpc/resolve_ai_policy")) {
+      if (url.endsWith("/rest/v1/rpc/resolve_ai_access_policy")) {
         return jsonResponse(200, [{ decision_type: caseDef.decision, reason_code: caseDef.reasonCode }]);
       }
       throw new Error(`Unexpected fetch url in visual preflight test: ${url}`);
@@ -120,7 +120,7 @@ async function runCase(caseDef: CaseDef): Promise<void> {
       }
     }
 
-    const policyCall = calls.find((call) => call.url.endsWith("/rest/v1/rpc/resolve_ai_policy"));
+    const policyCall = calls.find((call) => call.url.endsWith("/rest/v1/rpc/resolve_ai_access_policy"));
     assert(policyCall, `${caseDef.label}: missing policy call`);
     assert.equal((policyCall?.body as Record<string, unknown>)?.p_tool, "hammer", `${caseDef.label}: tool mismatch`);
     assert.equal((policyCall?.body as Record<string, unknown>)?.p_action, "chat", `${caseDef.label}: action mismatch`);

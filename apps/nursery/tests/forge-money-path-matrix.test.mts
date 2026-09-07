@@ -132,7 +132,7 @@ class MockMatrixBackend {
         return jsonResponse(200, []);
       }
 
-      if (url.endsWith("/rest/v1/rpc/resolve_ai_policy") && init?.method === "POST") {
+      if (url.endsWith("/rest/v1/rpc/resolve_ai_access_policy") && init?.method === "POST") {
         if (this.policyReply === "unavailable") return jsonResponse(503, { message: "policy unavailable" });
         if (this.policyReply === "missing") return jsonResponse(200, []);
         if (this.policyReply === "malformed") return jsonResponse(200, [{ decision_type: "ALLOW" }]);

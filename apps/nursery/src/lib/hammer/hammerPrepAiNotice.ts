@@ -57,7 +57,7 @@ export async function resolveHammerPrepAiEffectiveLane(
       : "forge-managed";
   }
 
-  // resolve_ai_policy lives in the tongs schema; use the tongs-profile client so PostgREST can find the RPC.
+  // resolve_ai_access_policy lives in the tongs schema; use the tongs-profile client so PostgREST can find the RPC.
   const tongsPolicyClient = (
     tongsSupabase as unknown as { schema?: (name: string) => unknown }
   ).schema?.("tongs") as Parameters<typeof resolveAiPolicy>[0] ?? (tongsSupabase as unknown as Parameters<typeof resolveAiPolicy>[0]);
