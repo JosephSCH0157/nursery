@@ -65,6 +65,7 @@
     "test:playwright:hammer-visual-authority-feedback": "playwright test -c playwright.config.ts playwright/hammer.visual-authority-feedback.spec.ts --workers=1",
     "test:playwright:hearth-phase4": "pnpm preflight:hearth-phase4 && playwright test -c playwright.config.ts playwright/hearth.phase4.*.spec.ts",
     "test:playwright:hearth-phase5-slice1": "pnpm preflight:hearth-phase4 && playwright test -c playwright.config.ts playwright/hearth.phase5.image-map.spec.ts",
+    "test:playwright:hearth-research": "playwright test -c playwright.config.ts playwright/hearth.research-isolation.spec.ts --workers=1",
     "test:playwright:thumbnail-v3": "playwright test -c playwright.config.ts playwright/hearth.thumbnail-v3.spec.ts --workers=1",
     "test:playwright:brand-media-live": "playwright test -c playwright.config.ts playwright/brand-media-live.spec.ts --workers=1"
   },

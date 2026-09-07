@@ -10,6 +10,7 @@ export {
   useChatWorkspaceStt as useHearthConversationStt,
   useChatWorkspaceProposal as useHearthConversationProposal,
   useChatWorkspace as useHearthConversationSurface,
+  isChatContextHydrated,
 } from "../../hooks/useChatWorkspace";
 
 export {

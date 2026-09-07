@@ -373,6 +373,7 @@ import {
   listHearthConversationAttachments,
   updateHearthConversationAttachmentText,
   uploadHearthConversationAttachment,
+  isChatContextHydrated,
   useHearthConversationAttachmentState,
   useHearthConversationController,
   useHearthConversationHistory,
@@ -1070,6 +1071,8 @@ export default function HearthShell({
     setAiRuntimeWarning,
     isAiProcessing,
     setIsAiProcessing,
+    hydratedChatHistoryKey,
+    setHydratedChatHistoryKey,
     chatInputRef,
     aiRequestControllerRef,
     speechRecognitionRef,
@@ -1089,6 +1092,7 @@ export default function HearthShell({
     chatMessagesRef,
     latestChatHistoryKeyRef,
     latestChatDraftIdRef,
+    latestChatWorkpieceIdRef,
     skipChatHydrationKeyRef,
     pendingChatHydrationKeyRef,
     chatHydrationSeqRef,
@@ -2497,13 +2501,22 @@ export default function HearthShell({
     history: false,
   };
   const hasAnyUnsavedTab = Object.values(tabDirtyById).some(Boolean);
+  const canonicalActiveDraftId = activeWorkpieceContext.draft?.id ?? null;
+  const hasCanonicalActiveDraft = Boolean(activeDraft?.id && activeDraft.id === canonicalActiveDraftId);
   const chatHistoryKey = useMemo(
-    () => resolveChatHistoryKey(workpieceId, activeDraft?.id ?? null),
-    [activeDraft?.id, workpieceId],
+    () => hasCanonicalActiveDraft ? resolveChatHistoryKey(workpieceId, canonicalActiveDraftId) : null,
+    [canonicalActiveDraftId, hasCanonicalActiveDraft, workpieceId],
   );
+  const chatContextHydrated = isChatContextHydrated({
+    historyKey: chatHistoryKey,
+    hydratedHistoryKey: hydratedChatHistoryKey,
+    draftId: activeDraft?.id ?? null,
+    canonicalDraftId: canonicalActiveDraftId,
+  });
   const buildActiveEpisodeContext = useCallback((): EpisodeContext | null => {
     const episodeId = workpieceId?.trim();
     if (!episodeId) return null;
+    if (!activeDraft || !hasCanonicalActiveDraft) return null;
     const episodeSparks = sparks.filter((spark) => (
       (workpieceId && spark.links?.hearthWorkpieceId === workpieceId)
       || (activeDraft?.id && spark.links?.hearthDraftId === activeDraft.id)
@@ -2517,7 +2530,7 @@ export default function HearthShell({
       sourceIndexById,
       sparks: episodeSparks,
     });
-  }, [activeDraft, planningSession, sourceIndexById, sparks, workpieceId, workpieceSources, workspaceId]);
+  }, [activeDraft, hasCanonicalActiveDraft, planningSession, sourceIndexById, sparks, workpieceId, workpieceSources, workspaceId]);
   const refreshChatAttachments = useCallback(async () => {
     const episodeId = workpieceId?.trim();
     const activeWorkspaceId = workspaceId?.trim();
@@ -2703,9 +2716,11 @@ export default function HearthShell({
     chatMessagesRef,
     latestChatHistoryKeyRef,
     latestChatDraftIdRef,
+    latestChatWorkpieceIdRef,
     skipChatHydrationKeyRef,
     pendingChatHydrationKeyRef,
     chatHydrationSeqRef,
+    setHydratedChatHistoryKey,
     readChatHistoryFromCache,
     writeChatHistoryCache,
     sanitizeChatMessagesForStorage,
@@ -2717,6 +2732,7 @@ export default function HearthShell({
     HearthOp
   >({
     operationAuthority,
+    isChatContextReady: chatContextHydrated,
     isAiProcessing,
     aiTokenBalance,
     chatDraft,
@@ -3202,7 +3218,7 @@ export default function HearthShell({
     chatSurfaceProps: {
       visible: activeWorkpieceTab === "script",
       chatPanelMeta,
-      chatMessages,
+      chatMessages: chatContextHydrated ? chatMessages : [],
       chatDraft,
       chatError: chatAttachmentError ?? chatError,
       aiRuntimeWarning,
@@ -3215,7 +3231,7 @@ export default function HearthShell({
       dirtyProposalBodyCount,
       isApplyingAiOps,
       isAiProcessing,
-      aiEpisodeReady,
+      aiEpisodeReady: aiEpisodeReady && chatContextHydrated,
       sttLane,
       sttTarget,
       sttState,

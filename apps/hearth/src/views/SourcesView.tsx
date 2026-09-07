@@ -184,7 +184,7 @@ export default function SourcesView({ state, workspaceId, workpieceId, draftId, 
             Research Runtime: {researchResult.mode} · {researchResult.runtimeStatus}
           </div>
           <div className="hs-sources-muted">
-            {researchResult.sources.length} source{researchResult.sources.length === 1 ? "" : "s"} in latest research run.
+            {researchResult.sources.filter((source) => source.provenance?.verifiedInCurrentRequest).length} inspected this request · {researchResult.sources.filter((source) => source.provenance?.origin === "saved_episode_source").length} saved earlier/not reverified.
           </div>
           {researchResult.synthesis.coverageNote ? (
             <div className="hs-sources-muted">{researchResult.synthesis.coverageNote}</div>
@@ -207,6 +207,13 @@ export default function SourcesView({ state, workspaceId, workpieceId, draftId, 
                         <div className="hs-sources-meta">
                           {source.domain ?? "unknown domain"}
                           {publishedLabel ? ` · ${publishedLabel}` : ""}
+                          {source.provenance?.origin === "saved_episode_source"
+                            ? " · saved earlier/not reverified"
+                            : source.provenance?.inspectionStatus === "inspected"
+                              ? " · inspected this request"
+                              : source.provenance?.accessFailureReason
+                                ? ` · inaccessible (${source.provenance.accessFailureReason.replace(/_/g, " ")})`
+                                : ""}
                         </div>
                       </div>
                       <span className={`hs-sources-research-badge hs-sources-research-badge-${source.extractionStatus}`}>

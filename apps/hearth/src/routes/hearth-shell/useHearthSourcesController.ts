@@ -1,7 +1,7 @@
 import { createElement, useState } from "react";
 import { useSourcesState } from "../../hooks/useSourcesState";
-import type { HearthResearchResult } from "../../lib/hearth-research-contract";
 import type { HearthOperationAuthority } from "../../lib/hearth-operation-authority";
+import { selectActiveHearthResearchResult, type ScopedHearthResearchResult } from "../../lib/hearth-research-scope";
 import SourcesView from "../../views/SourcesView";
 import {
   buildHearthSourceNotes,
@@ -31,7 +31,8 @@ export function useHearthSourcesController({
     mode,
     operationAuthority,
   });
-  const [researchResult, setResearchResult] = useState<HearthResearchResult | null>(null);
+  const [recordedResearchResult, setRecordedResearchResult] = useState<ScopedHearthResearchResult | null>(null);
+  const researchResult = selectActiveHearthResearchResult(recordedResearchResult, workspaceId, workpieceId);
 
   return {
     state: {
@@ -65,7 +66,7 @@ export function useHearthSourcesController({
       attachSourceToWorkpiece: sources.attachSourceToWorkpiece,
       detachSourceFromWorkpiece: sources.removeSourceFromWorkpiece,
       retrySourceLoad: sources.syncSources,
-      recordResearchResult: setResearchResult,
+      recordResearchResult: (result) => setRecordedResearchResult({ workspaceId, workpieceId, result }),
     },
     status: {
       load: deriveHearthSourcesLoadStatus(sources),

@@ -34,6 +34,10 @@ import {
 import {
   buildEmptyHearthResearchResult,
   buildHearthResearchRequest,
+  normalizeHearthResearchArtifact,
+  type HearthResearchArtifact,
+  type HearthResearchBrief,
+  type HearthResearchEvidence,
   type HearthResearchResult,
   type HearthResearchRequest,
   type HearthResearchSource,
@@ -47,8 +51,6 @@ import {
   createHearthResearchRuntime,
   classifyResearchSourceAuthority,
   extractUrlToResearchSource,
-  getHearthEvidenceLedger,
-  type HearthEvidenceFinding,
 } from "./hearth-research-runtime";
 import {
   FORGE_ALLOWED_CHAT_MODELS,
@@ -80,6 +82,7 @@ type StructuredReply = {
   ops: HearthOp[];
   scriptText: string | null;
   tagAudit: Record<string, unknown> | null;
+  researchArtifact: HearthResearchArtifact | null;
 };
 
 type ReadinessNudgeCategory = "sourcing" | "risk";
@@ -104,52 +107,6 @@ type WritingProfile = {
   lastUsedTonePreset: string | null;
   updatedAt: string | null;
 };
-
-export type HearthConversationClaimSnapshot = {
-  workspaceId: string | null;
-  workpieceId: string;
-  runIdentity: string;
-  refinementIdentity: string | null;
-  findings: Array<Pick<HearthEvidenceFinding, "findingId" | "normalizedClaim" | "supportingSourceIds" | "state" | "uncertainty">>;
-};
-
-export class HearthConversationResearchState {
-  private readonly claimsByScope = new Map<string, HearthConversationClaimSnapshot>();
-  private readonly activeScopeByActor = new Map<string, string>();
-
-  private scopeKey(actorId: string, workspaceId: string | null, workpieceId: string): string {
-    return `${actorId}:${workspaceId ?? "no-workspace"}:${workpieceId}`;
-  }
-
-  activate(actorId: string, workspaceId: string | null, workpieceId: string): void {
-    const next = this.scopeKey(actorId, workspaceId, workpieceId);
-    const prior = this.activeScopeByActor.get(actorId);
-    if (prior && prior !== next) this.claimsByScope.delete(prior);
-    this.activeScopeByActor.set(actorId, next);
-  }
-
-  replace(actorId: string, result: HearthResearchResult): void {
-    const ledger = getHearthEvidenceLedger(result);
-    if (!ledger) return;
-    this.claimsByScope.set(this.scopeKey(actorId, ledger.workspaceId, ledger.workpieceId), {
-      workspaceId: ledger.workspaceId,
-      workpieceId: ledger.workpieceId,
-      runIdentity: ledger.runIdentity,
-      refinementIdentity: ledger.refinementIdentity,
-      findings: ledger.findings.map(({ findingId, normalizedClaim, supportingSourceIds, state, uncertainty }) => ({
-        findingId, normalizedClaim, supportingSourceIds: [...supportingSourceIds], state, uncertainty,
-      })),
-    });
-  }
-
-  get(workspaceId: string | null, workpieceId: string, actorId = "anonymous"): HearthConversationClaimSnapshot | null {
-    return this.claimsByScope.get(this.scopeKey(actorId, workspaceId, workpieceId)) ?? null;
-  }
-
-  clear(workspaceId: string | null, workpieceId: string, actorId = "anonymous"): void {
-    this.claimsByScope.delete(this.scopeKey(actorId, workspaceId, workpieceId));
-  }
-}
 
 type StyleSample = {
   sampleId: string;
@@ -240,6 +197,8 @@ const RISK_NUDGE_RE = /\b(risk|risky|legal|defamation|liability|compliance|sensi
 const RECORD_ANYWAY_RE = /\b(record anyway|record now anyway|ok to record anyway|okay to record anyway|go ahead and record)\b/i;
 const CDC_REQUEST_RE = /\b(cdc|contextual data composite|chart|graph|plot|dataset|bar chart|line chart|pie chart)\b/i;
 const RESEARCH_INTENT_RE = /\b(browse|look up|lookup|find(?: me)?|search|research|retrieval|web research|live research|live web research|news|reports?|reporting|examples?|case studies?|incidents?|breach(?:es)?|source|sources|citations?|evidence)\b/i;
+const FACT_SEEKING_QUESTION_RE = /\b(?:who|what|when|where|why|how (?:much|many|long|often)|what caused|what led to)\b/i;
+const NON_RESEARCH_QUESTION_RE = /\b(?:what do you think|how does this (?:sound|read|feel)|should (?:i|we)|can (?:i|we)|help me (?:write|draft|revise|rewrite)|are you with me|do you follow)\b/i;
 const URL_RE = /\bhttps?:\/\/[^\s<>"'`]+/gi;
 const CROSS_PROJECT_REFERENCE_RE = /\b(use|pull in|bring in|remember|recall|like|from)\b[\s\S]{0,120}\b(script|episode|project|conversation|workspace|last week|other chat|that)\b/i;
 const LISTENING_TURN_RE = /\b(are you with me(?: so far)?|do you follow(?: me)?|tracking(?: with me)?|you with me)\b/i;
@@ -626,61 +585,75 @@ function stripResearchScaffolding(input: string): string {
   return condenseWhitespace(cleaned);
 }
 
-function selectResearchSourceFamilies(topic: string): string[] {
-  const normalized = topic.toLowerCase();
-  const isFloridaTopic = /\bflorida\b/.test(normalized);
-  const isCitrusOrAgricultureTopic = /\b(citrus|orange|grove|greening|huanglongbing|agriculture)\b/.test(normalized);
-  if (isFloridaTopic && isCitrusOrAgricultureTopic) {
-    return ["FDACS", "USDA NASS", "UF IFAS"];
-  }
-  if (isCitrusOrAgricultureTopic) {
-    return ["USDA NASS", "UF IFAS"];
-  }
-  if (/\b(congress|congressional|federal legislation|legislative|oversight|appropriation|accountability|lobbying disclosure|gao|crs)\b/.test(normalized)) {
-    return ["CRS", "GAO"];
-  }
-  if (/\b(health|disease|epidemic|public health|mortality|vaccine)\b/.test(normalized)) {
-    return ["CDC", "NIH"];
-  }
-  return [];
+function deriveResearchGoals(requestText: string): string[] {
+  const clean = condenseWhitespace(requestText);
+  const clauses = clean
+    .split(/(?:\r?\n|;|\?+|\.(?=\s|$))/)
+    .map((clause) => condenseWhitespace(clause.replace(/^(?:research|investigate|find|verify|look into)\s+/i, "")))
+    .filter((clause) => clause.length >= 3);
+  return Array.from(new Set(clauses.length ? clauses : [clean])).slice(0, 8);
+}
+
+export function buildHearthResearchBrief(args: {
+  requestText: string;
+  episodeContext: EpisodeContext;
+  requestAuthority?: string | null;
+}): HearthResearchBrief | null {
+  const creatorRequest = stripHearthInternalRequestInstructions(args.requestText);
+  if (!creatorRequest) return null;
+  const cleanTitle = stripResearchScaffolding(args.episodeContext.title);
+  const goals = deriveResearchGoals(creatorRequest);
+  const episodeContextText = stripResearchScaffolding([
+    args.episodeContext.outline,
+    args.episodeContext.body,
+    ...args.episodeContext.sparks.map((spark) => spark.text),
+  ].filter(Boolean).join(" "));
+  const contextSnippet = episodeContextText.length > 360
+    ? episodeContextText.slice(0, 360).replace(/\s+\S*$/, "")
+    : episodeContextText;
+  const baseQuery = condenseWhitespace([cleanTitle, creatorRequest, contextSnippet].filter(Boolean).join(" "));
+  const queries = Array.from(new Set([
+    baseQuery,
+    condenseWhitespace([cleanTitle, creatorRequest, "official records primary sources"].filter(Boolean).join(" ")),
+    condenseWhitespace([baseQuery, goals.join(" "), "independent reporting archive data"].filter(Boolean).join(" ")),
+  ].filter(Boolean))).slice(0, 3);
+  const requestAuthority = readOptionalString(args.requestAuthority) ?? "deterministic-preview";
+  const fingerprintPayload = JSON.stringify({
+    schema: "forge.hearth.research-brief.v1",
+    workspaceId: args.episodeContext.workspaceId,
+    workpieceId: args.episodeContext.episodeId,
+    creatorRequest,
+    episodeTitle: cleanTitle,
+    episodeContext: contextSnippet,
+    requestAuthority,
+  });
+  return {
+    schema: "forge.hearth.research-brief.v1",
+    workspaceId: args.episodeContext.workspaceId,
+    workpieceId: args.episodeContext.episodeId,
+    briefFingerprint: crypto.createHash("sha256").update(fingerprintPayload).digest("hex"),
+    creatorRequest,
+    episodeTitle: cleanTitle,
+    goals,
+    queries,
+    sourcePriorities: [
+      "Primary records from the entity or public body responsible for the claim",
+      "Independent reporting with named evidence and dates",
+      "Scholarly or technical material when the request needs specialist support",
+    ],
+  };
 }
 
 export function buildEpisodeContextResearchQuery(args: {
   requestText: string;
   episodeContext: EpisodeContext;
 }): string | null {
-  const requestText = stripHearthInternalRequestInstructions(args.requestText);
-
-  const titleVariants = args.episodeContext.titleVariants ?? { A: "", B: "", C: "" };
-  const cleanTitle = stripResearchScaffolding(args.episodeContext.title);
-  const contextParts = [
-    titleVariants.A,
-    titleVariants.B,
-    titleVariants.C,
-    args.episodeContext.outline,
-    args.episodeContext.body,
-    ...args.episodeContext.sparks.map((spark) => spark.text),
-  ];
-  const contextText = stripResearchScaffolding(contextParts.filter(Boolean).join(" "));
-  const topicContext = condenseWhitespace(`${cleanTitle} ${contextText}`);
-  if (!topicContext || /^test episode$/i.test(topicContext)) return null;
-
-  const meaningfulContext = contextText;
-  const contextSnippet = meaningfulContext.length > 360
-    ? `${meaningfulContext.slice(0, 360).replace(/\s+\S*$/, "")}`
-    : meaningfulContext;
-  const sourceFamilies = selectResearchSourceFamilies(`${topicContext} ${requestText}`);
-  return condenseWhitespace([
-    cleanTitle,
-    requestText,
-    contextSnippet,
-    sourceFamilies.join(" "),
-    "primary sources official reports data",
-  ].filter(Boolean).join(" "));
+  return buildHearthResearchBrief(args)?.queries[0] ?? null;
 }
 
 function buildLinkOnlyResearchResult(args: {
   sources: HearthResearchSource[];
+  brief: HearthResearchBrief;
 }): HearthResearchResult {
   const extracted = args.sources.filter((source) => source.extractionStatus === "extracted").length;
   const failed = args.sources.length - extracted;
@@ -698,6 +671,18 @@ function buildLinkOnlyResearchResult(args: {
       : extracted > 0
         ? (failed > 0 ? "partial" : "ok")
         : "partial",
+    brief: args.brief,
+    evidence: args.sources.map((source, index) => ({
+      evidenceId: `evidence-${index + 1}`,
+      briefFingerprint: args.brief.briefFingerprint,
+      workpieceId: args.brief.workpieceId,
+      sourceId: source.sourceId,
+      excerpt: source.extractedText?.slice(0, 700) ?? source.transcript?.slice(0, 700) ?? null,
+      authority: classifyResearchSourceAuthority(source),
+      state: source.extractionStatus === "extracted" ? "inspected" : "inaccessible",
+      uncertainty: source.extractionStatus === "extracted" ? null : source.extractionError || "Source content could not be inspected.",
+    } satisfies HearthResearchEvidence)),
+    artifact: null,
     sources: args.sources,
     synthesis: {
       summary: args.sources.length
@@ -840,6 +825,7 @@ function isResearchIntentRequest(text: string): boolean {
   const normalized = compactSpaces(text);
   if (!normalized) return false;
   if (RESEARCH_INTENT_RE.test(normalized)) return true;
+  if (normalized.includes("?") && FACT_SEEKING_QUESTION_RE.test(normalized) && !NON_RESEARCH_QUESTION_RE.test(normalized)) return true;
   return /\breach\b/.test(normalized) && /\breport(?:ing|s)?\b/.test(normalized);
 }
 
@@ -1325,7 +1311,6 @@ function buildSystemPrompt(
     researchMode?: boolean;
     researchRequest?: HearthResearchRequest | null;
     researchResult?: HearthResearchResult | null;
-    conversationResearchClaims?: HearthConversationClaimSnapshot | null;
     attachmentContextSnippet?: string | null;
     listeningTurn?: boolean;
   },
@@ -1377,7 +1362,7 @@ function buildSystemPrompt(
     "Never ask what the topic is.",
     "Use only the provided episode_context as your factual context unless the user explicitly gives new details.",
     "Return ONLY valid JSON with this shape:",
-    "{\"assistantText\": string, \"ops\": HearthOp[], \"script_text\": string|null, \"tag_audit\": object|null}",
+    "{\"assistantText\": string, \"ops\": HearthOp[], \"script_text\": string|null, \"tag_audit\": object|null, \"research_artifact\": object|null}",
     "Allowed ops:",
     "- set_title",
     "- set_title_variant",
@@ -1437,7 +1422,7 @@ function buildSystemPrompt(
     "- Preserve user voice: illuminate and sharpen, do not hijack or overwrite their intent.",
     "- Editorial honesty: never present a fictional, composite, or representative scene as the narrator's literal personal memory.",
     "- Use first-person memory framing such as 'I remember' only when the user explicitly supplied that lived memory.",
-    "- For constructed scenes, use transparent documentary framing such as 'Picture a grove manager...', 'For growers, greening looks like...', or 'A grower walking those rows might see...'.",
+    "- For constructed scenes, use transparent documentary framing such as 'Picture the scene...' or 'A person in that situation might see...'.",
     "- Never pressure the user or imply they must follow your preference.",
     "- Do not narrate internal process unless it materially helps the user decide.",
     "- Ask fewer follow-up questions. Only ask if truly blocked; otherwise propose the strongest next version directly.",
@@ -1605,32 +1590,19 @@ function buildSystemPrompt(
   if (options?.researchMode) {
     baseLines.push(
       "Research mode behavior (hard rule):",
-      "- Always attempt a first-pass answer before limitations.",
-      "- Never lead with inability, missing browsing, or uncertainty statements.",
-      "- Start with immediate known examples relevant to the user's angle (target: 2-5 examples).",
-      "- Organize examples into clear buckets/categories.",
-      "- Tie examples back to the user's thesis or production angle in one concise pattern statement.",
-      "- Include verification gaps only as a lightweight follow-up section; do not block delivery on them.",
-      "- Prefer fast producer momentum: first pass now, deeper sourcing next.",
-      "Evidence hygiene (hard rule):",
-      "- In research mode, treat only facts tied to source IDs and excerpts in the current runtime evidence as verified.",
-      "- Background knowledge may suggest searches or unverified leads, but must never enter verified findings or references.",
-      "- Do not name or recommend an institution as a reference unless that source was actually retrieved; put unretrieved suggestions under Sources to look for next.",
-      "- Separate verified findings, evidence limits, safe script wording, and unverified leads. Never bridge missing evidence with confident prose.",
-      "- Do not imply you 'watched' a video; you may only cite metadata, description, and transcript/captions if present.",
-      "- If a YouTube source has transcriptAvailable=true, say 'Based on video metadata and captions'. If transcriptAvailable=false, say 'Based on video metadata only'.",
-      "- Numeric impact claims require corroboration (prefer primary sources) before graduating into script fact.",
-      "- Keep claims vs quotes separate; quotes must preserve speaker/org when possible.",
-      "When a pasted URL was ingested, use this briefing format:",
-      "1) Safe fact claims (3-6 bullets; note if 'reported' vs confirmed).",
-      "2) Attributed quotes (2-3; speaker + org + quote).",
-      "3) Follow-on links to pull next (1-2; prefer primary sources like gov/regulator/operator).",
-      "Research response shape:",
-      "1) Brief angle confirmation.",
-      "2) Immediate examples.",
-      "3) Categorized buckets.",
-      "4) Optional verification gaps.",
-      "5) One concrete next step (expand list, script spine, or source-backed pass).",
+      "- The serialized research brief is the only authority for research goals and evaluation criteria in this request.",
+      "- Prior conversation may inform tone and continuity, but must not add research goals, claims, or sources.",
+      "- Use only current-request evidence whose workpieceId and briefFingerprint match the research brief.",
+      "- Inspect the supplied evidence excerpts and compare sources before writing findings.",
+      "- Do not claim completion unless research_artifact contains substantive findings.",
+      "- For complete or partial work, return research_artifact with the exact briefFingerprint and workpieceId from the brief.",
+      "- Each factual finding must name one or more sourceIds from inspected current-request evidence. Use status verified_fact, reported_claim, or uncertain.",
+      "- Editorial interpretation must use status editorial_interpretation and must not masquerade as a sourced fact.",
+      "- Return uncertainties and conflicts explicitly. Never fill a gap from background knowledge.",
+      "- If evidence is absent or unusable, return a failed artifact with no findings and say clearly that no validated findings were produced.",
+      "- Creator assistance is appropriate only for a source explicitly marked inaccessible with a specific accessFailureReason; continue using other inspected sources.",
+      "research_artifact shape:",
+      "{\"briefFingerprint\":string,\"workpieceId\":string,\"status\":\"complete\"|\"partial\"|\"failed\",\"findings\":[{\"text\":string,\"status\":\"verified_fact\"|\"reported_claim\"|\"uncertain\"|\"editorial_interpretation\",\"sourceIds\":string[]}],\"uncertainties\":string[],\"editorialInterpretation\":string[]}",
     );
     if (options.researchRequest) {
       baseLines.push(
@@ -1642,13 +1614,6 @@ function buildSystemPrompt(
       baseLines.push(
         "Canonical research runtime result:",
         JSON.stringify(options.researchResult),
-      );
-    }
-    if (options.conversationResearchClaims) {
-      baseLines.push(
-        "Active workpiece research claim state (ephemeral authority for later editorial guidance):",
-        JSON.stringify(options.conversationResearchClaims),
-        "Preserve each claim's support distinction. Never promote partial, unverified, or contradicted claims into established script facts.",
       );
     }
   }
@@ -1901,7 +1866,40 @@ function normalizeStructuredReply(raw: string): StructuredReply | null {
     ops: normalizedOps,
     scriptText: shapedScriptText,
     tagAudit,
+    researchArtifact: normalizeHearthResearchArtifact(parsed.research_artifact),
   };
+}
+
+function appendSavedEpisodeSourceProvenance(
+  result: HearthResearchResult,
+  episodeContext: EpisodeContext,
+  brief: HearthResearchBrief,
+): HearthResearchResult {
+  const currentUrls = new Set(result.sources.map((source) => (source.canonicalUrl || source.url).trim().toLowerCase()));
+  const savedEarlier: HearthResearchSource[] = episodeContext.sources.flatMap((source, index) => {
+    const url = source.url.trim();
+    if (!url || currentUrls.has(url.toLowerCase())) return [];
+    return [{
+      sourceId: `saved-${source.id || index + 1}`,
+      title: source.title.trim() || null,
+      url,
+      domain: (() => { try { return new URL(url).hostname.toLowerCase(); } catch { return null; } })(),
+      publishedAt: null,
+      snippet: source.note.trim() || null,
+      extractedText: null,
+      extractionStatus: "skipped" as const,
+      extractionError: "Saved earlier and not reverified during this research request.",
+      provenance: {
+        origin: "saved_episode_source" as const,
+        briefFingerprint: brief.briefFingerprint,
+        inspectedAt: null,
+        inspectionStatus: "metadata_only" as const,
+        accessFailureReason: null,
+        verifiedInCurrentRequest: false,
+      },
+    }];
+  });
+  return savedEarlier.length ? { ...result, sources: [...result.sources, ...savedEarlier] } : result;
 }
 
 function summarizeResearchResult(result: HearthResearchResult): Record<string, number | string> {
@@ -1937,187 +1935,6 @@ function summarizeResearchResult(result: HearthResearchResult): Record<string, n
   };
 }
 
-function formatResearchSourceArtifact(source: {
-  title: string | null;
-  domain: string | null;
-  url: string;
-  sourceType?: unknown;
-  ingestMode?: unknown;
-  transcriptAvailable?: unknown;
-  warnings?: unknown;
-}): string {
-  const label = readOptionalString(source.title) ?? readOptionalString(source.domain) ?? source.url;
-  const sourceType = typeof source.sourceType === "string" ? source.sourceType : null;
-  const ingestMode = typeof source.ingestMode === "string" ? source.ingestMode : null;
-  const transcriptAvailable = typeof source.transcriptAvailable === "boolean" ? source.transcriptAvailable : null;
-  const warnings = Array.isArray(source.warnings)
-    ? source.warnings.filter((entry): entry is string => typeof entry === "string").slice(0, 2)
-    : [];
-
-  if (sourceType === "youtube_video") {
-    const mode = ingestMode ? ingestMode.replace(/_/g, " ") : null;
-    const captions = transcriptAvailable === true ? "captions: yes" : transcriptAvailable === false ? "captions: no" : null;
-    const extras = [mode, captions].filter(Boolean).join(", ");
-    const warningSuffix = warnings.length ? ` (${warnings.join("; ")})` : "";
-    return extras ? `${label} — youtube (${extras})${warningSuffix}` : `${label} — youtube${warningSuffix}`;
-  }
-
-  return label;
-}
-
-const RESEARCH_REPLY_INTERNAL_MARKERS: RegExp[] = [
-  /\bresponse tone\s*:/i,
-  /\bthe user prefers\b/i,
-  /\bif helpful,\s*ask whether\b/i,
-  /\breturn only valid json\b/i,
-  /\ballowed ops\s*:/i,
-  /\btag contract\b/i,
-  /\bvoice examples\b/i,
-  /\bdo not ask follow-up questions\b/i,
-  /\bdo not behave as if each message is a new conversation\b/i,
-];
-
-function hasInternalLeakMarker(line: string): boolean {
-  const text = line.trim();
-  if (!text) return false;
-  return RESEARCH_REPLY_INTERNAL_MARKERS.some((pattern) => pattern.test(text));
-}
-
-function fallbackResearchBodyFromResult(result: HearthResearchResult): string {
-  if (result.providerStatus === "not_configured") {
-    return "Live retrieval is not configured.";
-  }
-  const summary = readOptionalString(result.synthesis.summary);
-  if (summary) return summary;
-  if (result.runtimeStatus === "no_results") {
-    return "No strong source evidence surfaced in this pass.";
-  }
-  if (result.runtimeStatus === "error" || result.mode === "knowledge_first") {
-    return "This response stays in knowledge-first mode for now.";
-  }
-  if (result.mode === "partial_retrieval" || result.runtimeStatus === "partial") {
-    return "Some source evidence was recovered, but coverage is incomplete.";
-  }
-  return "Source-backed findings are available from this run.";
-}
-
-function sanitizeResearchReplyBody(rawBody: string, result: HearthResearchResult): string {
-  if (result.providerStatus === "not_configured") {
-    return "Live retrieval is not configured.";
-  }
-  const lines = rawBody
-    .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&(?:nbsp|amp|quot|#39);/gi, " ")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const filtered = lines.filter((line) => !hasInternalLeakMarker(line));
-  const compact = filtered.join("\n").trim();
-  if (compact) return compact;
-  return fallbackResearchBodyFromResult(result);
-}
-
-function buildResearchOutcomeLead(args: {
-  request: HearthResearchRequest;
-  result: HearthResearchResult;
-}): string {
-  const query = args.request.query.trim() || "this query";
-  const sourceCount = args.result.sources.length;
-  const youtubeSource = args.result.sources.find((source) => source && typeof source === "object" && (source as { sourceType?: unknown }).sourceType === "youtube_video") as (
-    | null
-    | {
-      transcriptAvailable?: unknown;
-      warnings?: unknown;
-    }
-  );
-  const youtubeTranscriptAvailable = youtubeSource && typeof youtubeSource.transcriptAvailable === "boolean"
-    ? youtubeSource.transcriptAvailable
-    : null;
-  const youtubeWarnings = youtubeSource && Array.isArray(youtubeSource.warnings)
-    ? youtubeSource.warnings.filter((entry): entry is string => typeof entry === "string").slice(0, 2)
-    : [];
-  const youtubeEvidenceLine = youtubeTranscriptAvailable === true
-    ? "Video ingest: Based on video metadata and captions."
-    : youtubeTranscriptAvailable === false
-      ? "Video ingest: Based on video metadata only."
-      : null;
-  const youtubeWarningLine = youtubeWarnings.length
-    ? `Video warnings: ${youtubeWarnings.join(" ")}`
-    : null;
-  const topArtifacts = args.result.sources
-    .slice(0, 3)
-    .map((source) => formatResearchSourceArtifact(source))
-    .filter(Boolean);
-  const keyPoints = args.result.synthesis.keyPoints
-    .map((point) => point.trim())
-    .filter(Boolean)
-    .slice(0, 2);
-
-  if (args.result.runtimeStatus === "no_results") {
-    return "Research outcome: No strong retrieval results were found in this pass.";
-  }
-
-  if (args.result.providerStatus === "not_configured") {
-    return "Research outcome: Live retrieval is not configured.";
-  }
-
-  if (args.result.providerStatus === "request_cancelled") {
-    return "Research outcome: The retrieval request was cancelled.";
-  }
-
-  if (args.result.providerStatus === "provider_rate_limited") {
-    return "Research outcome: The configured search provider rate limited this request.";
-  }
-
-  if (args.result.providerStatus === "configured_but_provider_failing") {
-    return "Research outcome: Live retrieval is configured, but the search provider failed during this request.";
-  }
-
-  if (args.result.runtimeStatus === "error" || args.result.mode === "knowledge_first") {
-    return "Research outcome: Live retrieval was unavailable in this run, so this answer is a knowledge-first fallback.";
-  }
-
-  if (args.result.mode === "partial_retrieval" || args.result.runtimeStatus === "partial") {
-    const artifactLine = topArtifacts.length
-      ? `Recovered sources (${sourceCount}): ${topArtifacts.join("; ")}.`
-      : `Recovered sources (${sourceCount}): none surfaced in this pass.`;
-    const findingsLine = keyPoints.length
-      ? `Recovered findings: ${keyPoints.join(" ")}`
-      : "Recovered findings are limited in this pass.";
-    const unsupportedLine = args.result.synthesis.uncertainties.length
-      ? `Coverage remains incomplete: ${args.result.synthesis.uncertainties.slice(0, 2).join(" ")}`
-      : "Coverage remains incomplete; unsupported claims still need verification.";
-    return `Research outcome: Retrieval was partial. ${artifactLine} ${findingsLine} ${unsupportedLine}`;
-  }
-
-  const artifactLine = topArtifacts.length
-    ? `Sources found (${sourceCount}): ${topArtifacts.join("; ")}.`
-    : `Sources found (${sourceCount}).`;
-  const findingsLine = keyPoints.length
-    ? `Retrieved findings: ${keyPoints.join(" ")}`
-    : readOptionalString(args.result.synthesis.summary)
-      ? `Retrieved findings: ${args.result.synthesis.summary}`
-      : "Retrieved findings are available from the runtime source set.";
-  const addendum = [youtubeEvidenceLine, youtubeWarningLine].filter(Boolean).join(" ");
-  return addendum
-    ? `Research outcome: Retrieval found sources for "${query}". ${artifactLine} ${findingsLine} ${addendum}`
-    : `Research outcome: Retrieval found sources for "${query}". ${artifactLine} ${findingsLine}`;
-}
-
-const EPISODE_CLAIM_AREAS = [
-  { id: "historic production scale", pattern: /\b(production|boxes|acreage|industry|economic)\b/i },
-  { id: "Great Freeze chronology and movement south", pattern: /\b(great freeze|freeze of|moved south|movement south)\b/i },
-  { id: "development pressure and acreage loss", pattern: /\b(development|land conversion|acreage loss|urbanization)\b/i },
-  { id: "hurricane impacts", pattern: /\b(hurricane|storm damage)\b/i },
-  { id: "citrus greening / HLB", pattern: /\b(citrus greening|huanglongbing|HLB)\b/i },
-  { id: "production decline", pattern: /\b(production decline|declined|collapse|falling production)\b/i },
-  { id: "current research and recovery", pattern: /\b(research|recovery|treatment|resistant|resilience)\b/i },
-  { id: "tangelo or cultivar history", pattern: /\b(tangelo|cultivar|Minneola|Orlando|Seminole|Honeybell)\b/i },
-  { id: "cultural and landscape context", pattern: /\b(cultural|landscape|heritage|community|tourism)\b/i },
-] as const;
-
 function cleanResearchPresentationText(input: string | null | undefined): string {
   return condenseWhitespace(String(input ?? "")
     .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
@@ -2128,11 +1945,6 @@ function cleanResearchPresentationText(input: string | null | undefined): string
     .replace(/\b(?:subscribe|sign up|share this|cookie policy|privacy policy|skip to content|navigation|read more)\b/gi, " "));
 }
 
-function sourceClaimAreas(source: HearthResearchSource): string[] {
-  const text = cleanResearchPresentationText([source.title, source.publisher, source.snippet, source.extractedText].filter(Boolean).join(" "));
-  return EPISODE_CLAIM_AREAS.filter((area) => area.pattern.test(text)).map((area) => area.id);
-}
-
 function authorityLabel(source: HearthResearchSource): string {
   return classifyResearchSourceAuthority(source).replace(/_/g, " ");
 }
@@ -2141,87 +1953,72 @@ function sourcePublisher(source: HearthResearchSource): string {
   return cleanResearchPresentationText(source.publisher || source.title || source.domain || "Retrieved source");
 }
 
-function cleanSupportedClaim(finding: HearthEvidenceFinding, sourceById: Map<string, HearthResearchSource>): string {
-  const source = finding.supportingSourceIds.map((id) => sourceById.get(id)).find(Boolean);
-  const publisher = source ? sourcePublisher(source) : "A retrieved source";
-  if (finding.findingId === "tangelo-origin") {
-    if (finding.state === "contradicted") return "Retrieved authoritative sources conflict about named tangelo cultivar origin or development history.";
-    const year = finding.excerpts.map((excerpt) => excerpt.text.match(/\b(?:18|19|20)\d{2}\b/)?.[0]).find(Boolean);
-    return `${publisher} documents named tangelo cultivar origin, development, or release history${year ? `, including a retrieved date of ${year}` : ""}.`;
+const ANNOUNCEMENT_ONLY_RE = /^(?:(?:great|done|okay|all set)[,!.\s]+)?(?:here(?:'s| is) (?:the |your )?(?:research|research pack)|i(?:'ve| have)? (?:rebuilt|completed|finished|prepared) (?:the |your )?(?:research|research pack)|research (?:is )?complete|the research pack (?:is )?(?:ready|complete|rebuilt))\b[^.?!]*[.?!]?$/i;
+
+function validateResearchArtifact(result: HearthResearchResult): HearthResearchArtifact | null {
+  const brief = result.brief;
+  const artifact = result.artifact;
+  if (!brief || !artifact) return null;
+  if (artifact.briefFingerprint !== brief.briefFingerprint || artifact.workpieceId !== brief.workpieceId) return null;
+  if ((result.evidence ?? []).some((entry) => entry.briefFingerprint !== brief.briefFingerprint || entry.workpieceId !== brief.workpieceId)) return null;
+  const inspectedSourceIds = new Set(result.sources
+    .filter((source) => (
+      source.provenance?.briefFingerprint === brief.briefFingerprint
+      && source.provenance.inspectionStatus === "inspected"
+      && source.provenance.verifiedInCurrentRequest
+    ))
+    .map((source) => source.sourceId));
+  const inspectedIds = new Set((result.evidence ?? [])
+    .filter((entry) => entry.state === "inspected" && Boolean(entry.excerpt))
+    .filter((entry) => inspectedSourceIds.has(entry.sourceId))
+    .map((entry) => entry.sourceId));
+  const substantive = artifact.findings.filter((finding) => finding.text.trim().length >= 24 && !ANNOUNCEMENT_ONLY_RE.test(finding.text.trim()));
+  if (artifact.status === "failed") return substantive.length === 0 ? artifact : null;
+  if (substantive.length === 0) return null;
+  for (const finding of substantive) {
+    if (finding.status === "editorial_interpretation") continue;
+    if (finding.sourceIds.length === 0 || finding.sourceIds.some((sourceId) => !inspectedIds.has(sourceId))) return null;
   }
-  if (finding.findingId === "tangelo-cold-tolerance") return `${publisher} documents cold-tolerance characteristics for a tangelo cultivar.`;
-  if (finding.findingId === "tangelo-breeding-motive") return `${publisher} addresses the claimed breeding objective; the evidence must be read with the contradiction noted below.`;
-  const areas = source ? sourceClaimAreas(source) : [];
-  return areas.length
-    ? `${publisher} provides retrieved context for ${areas.slice(0, 3).join(", ")}.`
-    : `${publisher} supplied usable retrieved evidence for this research pass.`;
+  const currentRetrievalIncomplete = result.runtimeStatus !== "ok"
+    || result.mode !== "retrieval_first"
+    || result.sources.some((source) => (
+      source.provenance?.origin !== "saved_episode_source"
+      && source.provenance?.inspectionStatus !== "inspected"
+    ));
+  return {
+    ...artifact,
+    status: artifact.status === "complete" && currentRetrievalIncomplete ? "partial" : artifact.status,
+    findings: substantive,
+  };
 }
 
 export function composeGroundedResearchAnswer(result: HearthResearchResult): string | null {
-  const ledger = getHearthEvidenceLedger(result);
-  if (!ledger) return null;
-  const supported = ledger.findings.filter((finding) => finding.state === "supported" || finding.state === "contradicted");
-  const unresolved = ledger.findings.filter((finding) => finding.state === "partially_supported" || finding.state === "unverified_lead");
+  const artifact = validateResearchArtifact(result);
+  if (!artifact || artifact.status === "failed") return null;
   const sourceById = new Map(result.sources.map((source) => [source.sourceId, source]));
-  const references = ledger.referenceSourceIds.map((sourceId) => sourceById.get(sourceId)).filter((source): source is HearthResearchSource => Boolean(source));
-  const sourceRows = result.sources.map((source) => ({ source, areas: sourceClaimAreas(source), authority: classifyResearchSourceAuthority(source) }));
-  const usableRows = sourceRows.filter(({ source, areas }) => source.extractionStatus === "extracted" && areas.length > 0);
-  const referencedIds = new Set(ledger.referenceSourceIds);
-  const coreRows = usableRows.filter(({ source, authority }) => referencedIds.has(source.sourceId) && ["primary_agricultural", "land_grant_university", "government_agricultural", "peer_reviewed"].includes(authority));
-  const secondaryRows = usableRows.filter(({ source, authority }) => referencedIds.has(source.sourceId) && authority === "reputable_secondary");
-  const peripheralRows = sourceRows.filter(({ source, authority, areas }) => source.extractionStatus !== "extracted" || authority === "promotional_or_general" || areas.length === 0);
-  const supportedAreas = new Set(usableRows.flatMap(({ areas }) => areas));
-  const floridaScope = result.sources.some((source) => /\b(florida|citrus|orange|grove|tangelo)\b/i.test(`${source.title ?? ""} ${source.snippet ?? ""} ${source.extractedText ?? ""}`));
-  const missingAreas = floridaScope ? EPISODE_CLAIM_AREAS.map((area) => area.id).filter((area) => !supportedAreas.has(area)) : [];
-  const unusableCount = result.sources.filter((source) => source.extractionStatus !== "extracted").length;
-  const refinementUsed = Boolean(ledger.refinementIdentity);
-  const formatSource = ({ source, areas }: { source: HearthResearchSource; areas: string[] }) => {
-    const publisher = sourcePublisher(source);
-    const title = cleanResearchPresentationText(source.title) || "Untitled retrieved source";
-    const heading = publisher.toLowerCase() === title.toLowerCase() ? publisher : `${publisher} — ${title}`;
-    return [
-    `- ${heading}`,
-    `  Authority: ${authorityLabel(source)}.`,
-    `  Supports: ${areas.join(", ")}.`,
-    `  Why useful: ${areas.length ? `Directly contributes evidence for ${areas.slice(0, 2).join(" and ")}.` : "Peripheral to the episode's central factual needs."}`,
-    `  ${source.canonicalUrl || source.url}`,
-    ].join("\n");
-  };
-  const isTangelo = ledger.findings.some((finding) => finding.findingId.startsWith("tangelo-"));
-  const origin = ledger.findings.find((finding) => finding.findingId === "tangelo-origin");
-  const cold = ledger.findings.find((finding) => finding.findingId === "tangelo-cold-tolerance");
-  const motive = ledger.findings.find((finding) => finding.findingId === "tangelo-breeding-motive");
-  const safeWording = isTangelo
-    ? origin?.state === "supported"
-      ? cold?.state === "supported" && motive?.state !== "supported"
-        ? "Retrieved institutional evidence documents specific tangelo cultivar history and cold-tolerance characteristics, but it does not establish freeze resistance as the original breeding motive."
-        : "Retrieved institutional evidence documents specific tangelo cultivar history; the broader claim that Florida invented the tangelo to solve freezes is not established."
-      : "The retrieved evidence does not establish that Florida invented tangelos to solve freezes."
-    : supported.length
-      ? "Use only the attributed findings above; label broader causal or historical interpretation as editorial inference."
-      : "Treat the proposed claim as unverified until a directly relevant source is retrieved.";
+  const citedIds = new Set(artifact.findings.flatMap((finding) => finding.sourceIds));
+  const findingLines = artifact.findings.map((finding) => {
+    const citations = finding.sourceIds.map((id) => `[${id}]`).join(" ");
+    return `- ${finding.text}${citations ? ` ${citations}` : ""}`;
+  });
+  const inaccessible = result.sources.filter((source) => source.provenance?.inspectionStatus === "inaccessible");
+  const referenceLines = [...citedIds]
+    .map((sourceId) => sourceById.get(sourceId))
+    .filter((source): source is HearthResearchSource => Boolean(source))
+    .map((source) => `- [${source.sourceId}] ${sourcePublisher(source)} — ${authorityLabel(source)} — ${source.canonicalUrl || source.url}`);
   return [
-    "Verified findings",
-    supported.length ? supported.map((finding) => `- ${cleanSupportedClaim(finding, sourceById)}`).join("\n") : "- No externally verifiable claim was established by the retrieved evidence in this run.",
-    "What the evidence does not establish",
-    [
-      ...unresolved.map((finding) => `- ${finding.uncertainty || `${finding.normalizedClaim} remains unverified.`}`),
-      ...missingAreas.map((area) => `- Strong coverage is still needed for ${area}.`),
-      ...(unusableCount ? [`- ${unusableCount} retrieved source${unusableCount === 1 ? " was" : "s were"} unusable because extraction was incomplete.`] : []),
-      `- The single refinement attempt ${refinementUsed ? "was used" : "was not needed"} in this run.`,
-    ].join("\n"),
-    "Safe script wording",
-    safeWording,
-    "Leads worth researching further",
-    unresolved.length ? unresolved.map((finding) => `- ${finding.normalizedClaim} — not yet verified from an adequate retrieved source.`).join("\n") : "- None from this pass.",
-    "References",
-    references.length ? references.map((source) => `- ${sourcePublisher(source)}: ${source.canonicalUrl || source.url}`).join("\n") : "- No retrieved source met the support threshold for verified findings.",
-    "Best sources to cite",
-    coreRows.length ? coreRows.map(formatSource).join("\n") : "- No core authoritative source was adequately retrieved.",
-    "Useful secondary context",
-    secondaryRows.length ? secondaryRows.map(formatSource).join("\n") : "- None recommended from this pass.",
-    "Sources retrieved but not recommended",
-    peripheralRows.length ? peripheralRows.map(({ source, authority, areas }) => `- ${sourcePublisher(source)} — ${authority === "promotional_or_general" ? "promotional/general-interest authority" : source.extractionStatus !== "extracted" ? "incomplete extraction" : areas.length === 0 ? "not relevant to a major episode claim" : "peripheral"}.`).join("\n") : "- None.",
+    artifact.status === "complete" ? "Validated findings" : "Validated partial findings",
+    findingLines.join("\n"),
+    "Uncertainty and conflicts",
+    artifact.uncertainties.length ? artifact.uncertainties.map((item) => `- ${item}`).join("\n") : "- None identified in the inspected evidence.",
+    "Editorial interpretation",
+    artifact.editorialInterpretation.length ? artifact.editorialInterpretation.map((item) => `- ${item}`).join("\n") : "- No additional editorial interpretation.",
+    "References inspected for this request",
+    referenceLines.length ? referenceLines.join("\n") : "- No cited references.",
+    ...(inaccessible.length ? [
+      "Inaccessible sources",
+      inaccessible.map((source) => `- ${source.url} — ${source.provenance?.accessFailureReason || "extraction_failed"}.`).join("\n"),
+    ] : []),
   ].join("\n\n");
 }
 
@@ -2232,21 +2029,27 @@ export function enforceResearchOutcomeReply(args: {
 }): string {
   const groundedAnswer = composeGroundedResearchAnswer(args.result);
   if (groundedAnswer) {
-    const groundedLead = args.result.runtimeStatus === "partial"
-      ? "Research outcome: Retrieval was partial; supported findings and remaining gaps are separated below."
-      : "Research outcome: Retrieved evidence was curated by claim relevance and source authority."
+    const groundedLead = args.result.artifact?.status === "partial" || args.result.runtimeStatus === "partial"
+      ? "Research outcome: Partial. The validated findings and remaining uncertainty are separated below."
+      : "Research outcome: Complete. A validated findings artifact is present below."
     return `${groundedLead}\n\n${groundedAnswer}`;
   }
-  const lead = buildResearchOutcomeLead({
-    request: args.request,
-    result: args.result,
-  });
-  const body = sanitizeResearchReplyBody(args.assistantText.trim(), args.result);
-  if (!body) return lead;
-  const normalizedLead = lead.trim().toLowerCase();
-  const normalizedBody = body.toLowerCase();
-  if (normalizedBody.startsWith(normalizedLead)) return body;
-  return `${lead}\n\n${body}`;
+  const inaccessible = args.result.sources.filter((source) => source.provenance?.inspectionStatus === "inaccessible");
+  const reason = args.result.providerStatus === "not_configured"
+    ? "Live retrieval is not configured."
+    : args.result.providerStatus === "provider_rate_limited"
+      ? "The search provider rate limited this request."
+      : args.result.providerStatus === "configured_but_provider_failing"
+        ? "The search provider failed during this request."
+        : args.result.runtimeStatus === "no_results"
+          ? "No source candidates were returned for the current brief."
+          : "Hearth did not produce a validated, substantive findings artifact from the current-request evidence.";
+  const accessLines = inaccessible.map((source) => `- ${source.url} — ${source.provenance?.accessFailureReason || "extraction_failed"}.`);
+  return [
+    "Research outcome: Failed. No research pack was completed.",
+    reason,
+    ...(accessLines.length ? ["Inaccessible sources (creator assistance may be needed only for these):", accessLines.join("\n")] : []),
+  ].join("\n\n");
 }
 
 function buildCrossProjectScopeLead(resolution: CrossProjectReferenceResolution): string | null {
@@ -2287,27 +2090,6 @@ export function enforceHearthEditorialHonesty(args: {
   return args.assistantText
     .replace(/\bI remember(?:ed)?\b/gi, "Picture the scene:")
     .replace(/\bframe (?:it|this) as (?:a )?(?:personal )?memory\b/gi, "frame it as a representative scene");
-}
-
-export function enforceConversationalResearchState(args: {
-  assistantText: string;
-  claimState: HearthConversationClaimSnapshot | null;
-}): string {
-  if (!args.claimState) return args.assistantText;
-  const tangeloFindings = args.claimState.findings.filter((finding) => finding.findingId.startsWith("tangelo-"));
-  if (!tangeloFindings.length) return args.assistantText;
-  const unresolved = tangeloFindings.some((finding) => finding.state === "unverified_lead" || finding.state === "partially_supported");
-  const contradicted = tangeloFindings.some((finding) => finding.state === "contradicted");
-  if (!unresolved && !contradicted) return args.assistantText;
-  const cleaned = args.assistantText
-    .split(/(?<=[.!?])\s+/)
-    .filter((sentence) => !/\b(?:Orlando|Seminole|Minneola|Honeybell)\b[\s\S]{0,100}\b(?:Florida-developed|developed in Florida|created in Florida|bred to survive freezes)\b/i.test(sentence))
-    .join(" ")
-    .trim();
-  const qualification = contradicted
-    ? "The retrieved evidence does not support that tangelo framing, so keep it out of the script as fact."
-    : "One tangelo beat could work once we verify the cultivar and exactly what the sources establish; for now it remains an unverified lead.";
-  return cleaned ? `${cleaned}\n\n${qualification}` : qualification;
 }
 
 const FRAMING_PACK_INTERNAL_MARKERS: RegExp[] = [
@@ -2395,7 +2177,6 @@ export function sanitizeHearthUserFacingOutput(input: string): string {
 }
 
 export function createHearthAiHandler(config: HearthRuntimeConfig) {
-  const conversationResearchState = new HearthConversationResearchState();
   const researchApiKey = (
     config.researchApiKey
     || process.env.HEARTH_RESEARCH_API_KEY
@@ -3635,11 +3416,6 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       const requestText = readOptionalString(bodyRaw.user_authored_text)
         ?? stripHearthInternalRequestInstructions(latestUserMessage?.content ?? "");
       const userId = await resolveUserId(bearerToken);
-      const researchActorId = userId || (bearerToken ? crypto.createHash("sha256").update(bearerToken).digest("hex") : "anonymous");
-      conversationResearchState.activate(researchActorId, episodeContext.workspaceId, episodeContext.episodeId);
-      if (/\b(?:reset|clear|forget) (?:the )?research context\b/i.test(requestText)) {
-        conversationResearchState.clear(episodeContext.workspaceId, episodeContext.episodeId, researchActorId);
-      }
       const chatFeature = classifyChatFeature(requestText);
       const requestedReasoningEffort = isRecord(bodyRaw.behavior)
         ? readOptionalString((bodyRaw.behavior as Record<string, unknown>).reasoning_effort)
@@ -3914,11 +3690,14 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...buildBillingSnapshot(lane),
         });
       }
-      const contextualResearchQuery = buildEpisodeContextResearchQuery({
-        requestText: researchIntentText,
-        episodeContext,
-      });
-      const researchQuery = contextualResearchQuery || researchIntentText || urlsInRequest.join(" ");
+      const researchBrief = researchModeRequested
+        ? buildHearthResearchBrief({
+            requestText: researchIntentText || requestText,
+            episodeContext,
+            requestAuthority: chatActionId,
+          })
+        : null;
+      const researchQuery = researchBrief?.queries[0] || researchIntentText || urlsInRequest.join(" ");
       const researchRequest = researchModeRequested && researchQuery
         ? buildHearthResearchRequest({ query: researchQuery })
         : null;
@@ -3928,28 +3707,33 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           urlsInRequest.slice(0, 3).map((url, index) => extractUrlToResearchSource({
             url,
             sourceId: `link-${index + 1}`,
+            brief: researchBrief!,
             signal: request.signal,
           })),
         );
-        researchResult = buildLinkOnlyResearchResult({ sources: linkSources });
-      } else if (researchRequest) {
+        researchResult = buildLinkOnlyResearchResult({ sources: linkSources, brief: researchBrief! });
+      } else if (researchRequest && researchBrief) {
         try {
           researchResult = await researchRuntime.run({
             request: researchRequest,
-            workspaceId: episodeContext.workspaceId,
-            workpieceId: episodeContext.episodeId,
+            brief: researchBrief,
             signal: request.signal,
           });
         } catch {
-          researchResult = buildEmptyHearthResearchResult({
-            mode: "knowledge_first",
-            runtimeStatus: "error",
-            summary: "Research runtime failed before synthesis.",
-          });
+          researchResult = {
+            ...buildEmptyHearthResearchResult({
+              mode: "knowledge_first",
+              runtimeStatus: "error",
+              summary: "Research runtime failed before synthesis.",
+            }),
+            brief: researchBrief,
+            evidence: [],
+            artifact: null,
+          };
         }
       }
-      if (researchResult && getHearthEvidenceLedger(researchResult)) {
-        conversationResearchState.replace(researchActorId, researchResult);
+      if (researchResult && researchBrief) {
+        researchResult = appendSavedEpisodeSourceProvenance(researchResult, episodeContext, researchBrief);
       }
       if (researchRequest && researchResult) {
         await recordHearthEventForToken({
@@ -4147,7 +3931,6 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             researchMode: researchModeRequested,
             researchRequest,
             researchResult,
-            conversationResearchClaims: conversationResearchState.get(episodeContext.workspaceId, episodeContext.episodeId, researchActorId),
             attachmentContextSnippet,
             listeningTurn: LISTENING_TURN_RE.test(requestText),
           },
@@ -4333,6 +4116,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ops: [],
           scriptText: null,
           tagAudit: null,
+          researchArtifact: null,
         };
 
         if (readinessCheckRequested) {
@@ -4346,6 +4130,10 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         }
 
         if (researchModeRequested && researchRequest && researchResult) {
+          researchResult = {
+            ...researchResult,
+            artifact: structured.researchArtifact,
+          };
           structured.assistantText = enforceResearchOutcomeReply({
             assistantText: structured.assistantText,
             request: researchRequest,
@@ -4368,11 +4156,6 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           assistantText: structured.assistantText,
           requestText: researchIntentText || requestText,
         });
-        structured.assistantText = enforceConversationalResearchState({
-          assistantText: structured.assistantText,
-          claimState: conversationResearchState.get(episodeContext.workspaceId, episodeContext.episodeId, researchActorId),
-        });
-
         structured.assistantText = sanitizeHearthUserFacingOutput(structured.assistantText);
 
         if (productionAction === "seo" || productionAction === "tags" || productionAction === "thumbnails") {
@@ -4462,6 +4245,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 ops: [],
                 scriptText: null,
                 tagAudit: null,
+                researchArtifact: null,
               };
               repairStructured.assistantText = sanitizeHearthUserFacingOutput(repairStructured.assistantText);
               const repairedCanonical = canonicalizeHearthProductionArtifactOutput({

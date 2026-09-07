@@ -17,6 +17,71 @@ export type HearthResearchSourceType = "web_page" | "web_article" | "youtube_vid
 
 export type HearthResearchIngestMode = "metadata_only" | "metadata_plus_transcript" | "partial_failure";
 
+export type HearthResearchSourceAuthority =
+  | "primary_government"
+  | "primary_institutional"
+  | "scholarly_technical"
+  | "reputable_secondary"
+  | "promotional_general"
+  | "unassessed";
+
+export type HearthResearchAccessFailureReason =
+  | "authentication_required"
+  | "paywall"
+  | "access_denied"
+  | "timeout"
+  | "unsupported_content"
+  | "http_error"
+  | "extraction_failed"
+  | "cancelled";
+
+export type HearthResearchSourceProvenance = {
+  origin: "search" | "creator_url" | "saved_episode_source";
+  briefFingerprint: string;
+  inspectedAt: string | null;
+  inspectionStatus: "inspected" | "metadata_only" | "inaccessible";
+  accessFailureReason: HearthResearchAccessFailureReason | null;
+  verifiedInCurrentRequest: boolean;
+};
+
+export type HearthResearchBrief = {
+  schema: "forge.hearth.research-brief.v1";
+  workspaceId: string | null;
+  workpieceId: string;
+  briefFingerprint: string;
+  creatorRequest: string;
+  episodeTitle: string;
+  goals: string[];
+  queries: string[];
+  sourcePriorities: string[];
+};
+
+export type HearthResearchEvidence = {
+  evidenceId: string;
+  briefFingerprint: string;
+  workpieceId: string;
+  sourceId: string;
+  excerpt: string | null;
+  authority: HearthResearchSourceAuthority;
+  state: "inspected" | "inaccessible";
+  uncertainty: string | null;
+};
+
+export type HearthResearchFinding = {
+  text: string;
+  status: "verified_fact" | "reported_claim" | "uncertain" | "editorial_interpretation";
+  sourceIds: string[];
+};
+
+export type HearthResearchArtifact = {
+  briefFingerprint: string;
+  workpieceId: string;
+  status: "complete" | "partial" | "failed";
+  findings: HearthResearchFinding[];
+  uncertainties: string[];
+  editorialInterpretation: string[];
+};
+
 export type HearthTranscriptSegment = {
   cueIndex: number;
   startMs: number;
@@ -72,6 +137,7 @@ export type HearthResearchSource = {
   attributedQuotes?: HearthAttributedQuote[] | null;
   extractionStatus: HearthResearchExtractionStatus;
   extractionError: string | null;
+  provenance?: HearthResearchSourceProvenance | null;
 };
 
 export type HearthResearchSynthesis = {
@@ -85,6 +151,9 @@ export type HearthResearchResult = {
   mode: HearthResearchMode;
   runtimeStatus: HearthResearchRuntimeStatus;
   providerStatus?: HearthResearchProviderStatus;
+  brief?: HearthResearchBrief;
+  evidence?: HearthResearchEvidence[];
+  artifact?: HearthResearchArtifact | null;
   sources: HearthResearchSource[];
   synthesis: HearthResearchSynthesis;
 };
@@ -93,6 +162,78 @@ export const HEARTH_RESEARCH_DEFAULT_MAX_SOURCES = 6;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringArray(value: unknown, limit = 24): string[] {
+  return Array.isArray(value)
+    ? value.filter((entry): entry is string => typeof entry === "string").map((entry) => entry.trim()).filter(Boolean).slice(0, limit)
+    : [];
+}
+
+function normalizeAuthority(value: unknown): HearthResearchSourceAuthority {
+  return value === "primary_government"
+    || value === "primary_institutional"
+    || value === "scholarly_technical"
+    || value === "reputable_secondary"
+    || value === "promotional_general"
+    || value === "unassessed"
+    ? value
+    : "unassessed";
+}
+
+function normalizeAccessFailure(value: unknown): HearthResearchAccessFailureReason | null {
+  return value === "authentication_required"
+    || value === "paywall"
+    || value === "access_denied"
+    || value === "timeout"
+    || value === "unsupported_content"
+    || value === "http_error"
+    || value === "extraction_failed"
+    || value === "cancelled"
+    ? value
+    : null;
+}
+
+export function normalizeHearthResearchBrief(value: unknown): HearthResearchBrief | null {
+  if (!isRecord(value) || value.schema !== "forge.hearth.research-brief.v1") return null;
+  const workpieceId = typeof value.workpieceId === "string" ? value.workpieceId.trim() : "";
+  const briefFingerprint = typeof value.briefFingerprint === "string" ? value.briefFingerprint.trim() : "";
+  const creatorRequest = typeof value.creatorRequest === "string" ? value.creatorRequest.trim() : "";
+  if (!workpieceId || !briefFingerprint || !creatorRequest) return null;
+  return {
+    schema: "forge.hearth.research-brief.v1",
+    workspaceId: typeof value.workspaceId === "string" ? value.workspaceId : null,
+    workpieceId,
+    briefFingerprint,
+    creatorRequest,
+    episodeTitle: typeof value.episodeTitle === "string" ? value.episodeTitle : "",
+    goals: stringArray(value.goals, 8),
+    queries: stringArray(value.queries, 8),
+    sourcePriorities: stringArray(value.sourcePriorities, 8),
+  };
+}
+
+export function normalizeHearthResearchArtifact(value: unknown): HearthResearchArtifact | null {
+  if (!isRecord(value)) return null;
+  const briefFingerprint = typeof value.briefFingerprint === "string" ? value.briefFingerprint.trim() : "";
+  const workpieceId = typeof value.workpieceId === "string" ? value.workpieceId.trim() : "";
+  const status = value.status;
+  if (!briefFingerprint || !workpieceId || (status !== "complete" && status !== "partial" && status !== "failed")) return null;
+  const findings = Array.isArray(value.findings) ? value.findings.flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    const text = typeof entry.text === "string" ? entry.text.trim() : "";
+    const findingStatus = entry.status;
+    if (!text || (findingStatus !== "verified_fact" && findingStatus !== "reported_claim" && findingStatus !== "uncertain" && findingStatus !== "editorial_interpretation")) return [];
+    return [{ text, status: findingStatus, sourceIds: stringArray(entry.sourceIds, 12) } satisfies HearthResearchFinding];
+  }).slice(0, 24) : [];
+  return {
+    briefFingerprint,
+    workpieceId,
+    status,
+    findings,
+    uncertainties: stringArray(value.uncertainties, 16),
+    editorialInterpretation: stringArray(value.editorialInterpretation, 16),
+  };
 }
 
 export function buildHearthResearchRequest(input: {
@@ -313,6 +454,16 @@ export function normalizeHearthResearchResult(value: unknown): HearthResearchRes
       attributedQuotes: quotes,
       extractionStatus,
       extractionError: typeof item.extractionError === "string" ? item.extractionError : null,
+      provenance: isRecord(item.provenance) && typeof item.provenance.briefFingerprint === "string"
+        ? {
+            origin: item.provenance.origin === "creator_url" || item.provenance.origin === "saved_episode_source" ? item.provenance.origin : "search",
+            briefFingerprint: item.provenance.briefFingerprint,
+            inspectedAt: typeof item.provenance.inspectedAt === "string" ? item.provenance.inspectedAt : null,
+            inspectionStatus: item.provenance.inspectionStatus === "inspected" || item.provenance.inspectionStatus === "metadata_only" ? item.provenance.inspectionStatus : "inaccessible",
+            accessFailureReason: normalizeAccessFailure(item.provenance.accessFailureReason),
+            verifiedInCurrentRequest: item.provenance.verifiedInCurrentRequest === true,
+          }
+        : null,
     });
   }
   const normalizedSynthesis: HearthResearchSynthesis = {
@@ -325,10 +476,44 @@ export function normalizeHearthResearchResult(value: unknown): HearthResearchRes
       : [],
     coverageNote: synthesis && typeof synthesis.coverageNote === "string" ? synthesis.coverageNote : "",
   };
+  const brief = normalizeHearthResearchBrief(value.brief);
+  const normalizedArtifact = normalizeHearthResearchArtifact(value.artifact);
+  const normalizedEvidence: HearthResearchEvidence[] = Array.isArray(value.evidence) ? value.evidence.flatMap((entry) => {
+    if (!isRecord(entry)) return [];
+    const evidenceId = typeof entry.evidenceId === "string" ? entry.evidenceId.trim() : "";
+    const briefFingerprint = typeof entry.briefFingerprint === "string" ? entry.briefFingerprint.trim() : "";
+    const workpieceId = typeof entry.workpieceId === "string" ? entry.workpieceId.trim() : "";
+    const sourceId = typeof entry.sourceId === "string" ? entry.sourceId.trim() : "";
+    if (!evidenceId || !briefFingerprint || !workpieceId || !sourceId) return [];
+    return [{
+      evidenceId,
+      briefFingerprint,
+      workpieceId,
+      sourceId,
+      excerpt: typeof entry.excerpt === "string" ? entry.excerpt : null,
+      authority: normalizeAuthority(entry.authority),
+      state: entry.state === "inspected" ? "inspected" : "inaccessible",
+      uncertainty: typeof entry.uncertainty === "string" ? entry.uncertainty : null,
+    } satisfies HearthResearchEvidence];
+  }).slice(0, 48) : [];
+  const evidence = brief
+    ? normalizedEvidence.filter((entry) => (
+      entry.briefFingerprint === brief.briefFingerprint
+      && entry.workpieceId === brief.workpieceId
+    ))
+    : [];
+  const artifact = brief
+    && normalizedArtifact?.briefFingerprint === brief.briefFingerprint
+    && normalizedArtifact.workpieceId === brief.workpieceId
+    ? normalizedArtifact
+    : null;
   return {
     mode,
     runtimeStatus,
     ...(providerStatus ? { providerStatus } : {}),
+    ...(brief ? { brief } : {}),
+    ...(evidence.length ? { evidence } : {}),
+    ...(artifact ? { artifact } : {}),
     sources: normalizedSources,
     synthesis: normalizedSynthesis,
   };

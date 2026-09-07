@@ -48,6 +48,7 @@ export function useChatWorkspaceState<TPendingAiProposal>() {
   const [isApplyingAiOps, setIsApplyingAiOps] = useState(false);
   const [aiRuntimeWarning, setAiRuntimeWarning] = useState<string | null>(null);
   const [isAiProcessing, setIsAiProcessing] = useState(false);
+  const [hydratedChatHistoryKey, setHydratedChatHistoryKey] = useState<string | null>(null);
 
   const chatInputRef = useRef<HTMLTextAreaElement | null>(null);
   const aiRequestControllerRef = useRef<AbortController | null>(null);
@@ -68,6 +69,7 @@ export function useChatWorkspaceState<TPendingAiProposal>() {
   const chatMessagesRef = useRef<HearthChatMessage[]>([]);
   const latestChatHistoryKeyRef = useRef<string | null>(null);
   const latestChatDraftIdRef = useRef<string | null>(null);
+  const latestChatWorkpieceIdRef = useRef<string | null>(null);
   const skipChatHydrationKeyRef = useRef<string | null>(null);
   const pendingChatHydrationKeyRef = useRef<string | null>(null);
   const chatHydrationSeqRef = useRef(0);
@@ -99,6 +101,8 @@ export function useChatWorkspaceState<TPendingAiProposal>() {
     setAiRuntimeWarning,
     isAiProcessing,
     setIsAiProcessing,
+    hydratedChatHistoryKey,
+    setHydratedChatHistoryKey,
     chatInputRef,
     aiRequestControllerRef,
     speechRecognitionRef,
@@ -118,6 +122,7 @@ export function useChatWorkspaceState<TPendingAiProposal>() {
     chatMessagesRef,
     latestChatHistoryKeyRef,
     latestChatDraftIdRef,
+    latestChatWorkpieceIdRef,
     skipChatHydrationKeyRef,
     pendingChatHydrationKeyRef,
     chatHydrationSeqRef,
@@ -128,6 +133,42 @@ type ChatHistoryStore = {
   getChatHistory: (draftId: string, workpieceId?: string | null) => Promise<unknown>;
   saveChatHistory: (draftId: string, messages: HearthChatMessage[], workpieceId?: string | null) => Promise<unknown> | void;
 };
+
+export type HearthChatPersistenceTarget = {
+  historyKey: string;
+  draftId: string | null;
+  workpieceId: string | null;
+};
+
+export function resolvePreviousChatPersistenceTarget(args: {
+  previousHistoryKey: string | null;
+  previousDraftId: string | null;
+  previousWorkpieceId: string | null;
+  nextHistoryKey: string | null;
+  nextDraftId: string | null;
+}): HearthChatPersistenceTarget | null {
+  if (!args.previousHistoryKey) return null;
+  if (args.previousHistoryKey === args.nextHistoryKey && args.previousDraftId === args.nextDraftId) return null;
+  return {
+    historyKey: args.previousHistoryKey,
+    draftId: args.previousDraftId,
+    workpieceId: args.previousWorkpieceId,
+  };
+}
+
+export function isChatContextHydrated(args: {
+  historyKey: string | null;
+  hydratedHistoryKey: string | null;
+  draftId: string | null;
+  canonicalDraftId: string | null;
+}): boolean {
+  return Boolean(
+    args.historyKey
+    && args.hydratedHistoryKey === args.historyKey
+    && args.draftId
+    && args.draftId === args.canonicalDraftId
+  );
+}
 
 type UseChatWorkspaceHistoryArgs<TPendingAiProposal> = {
   store: ChatHistoryStore;
@@ -142,9 +183,11 @@ type UseChatWorkspaceHistoryArgs<TPendingAiProposal> = {
   chatMessagesRef: MutableRefObject<HearthChatMessage[]>;
   latestChatHistoryKeyRef: MutableRefObject<string | null>;
   latestChatDraftIdRef: MutableRefObject<string | null>;
+  latestChatWorkpieceIdRef: MutableRefObject<string | null>;
   skipChatHydrationKeyRef: MutableRefObject<string | null>;
   pendingChatHydrationKeyRef: MutableRefObject<string | null>;
   chatHydrationSeqRef: MutableRefObject<number>;
+  setHydratedChatHistoryKey: (value: string | null) => void;
   readChatHistoryFromCache: (historyKey: string | null) => HearthChatMessage[];
   writeChatHistoryCache: (historyKey: string | null, messages: HearthChatMessage[]) => void;
   sanitizeChatMessagesForStorage: (messages: ReadonlyArray<unknown>) => HearthChatMessage[];
@@ -157,25 +200,28 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
   flushChatHistoryNow: (options?: {
     historyKey?: string | null;
     draftId?: string | null;
+    workpieceId?: string | null;
     messages?: HearthChatMessage[];
   }) => void;
 } {
-  const persistChatHistory = useCallback((draftId: string, messages: HearthChatMessage[]) => {
-    void Promise.resolve(args.store.saveChatHistory(draftId, messages, args.activeWorkpieceId)).catch((error: unknown) => {
+  const persistChatHistory = useCallback((draftId: string, messages: HearthChatMessage[], workpieceId: string | null) => {
+    void Promise.resolve(args.store.saveChatHistory(draftId, messages, workpieceId)).catch((error: unknown) => {
       const detail = error instanceof Error ? error.message : String(error ?? "");
       args.setChatError(/(?:401|authentication|unauthorized)/i.test(detail)
         ? "This conversation could not be saved because your session has expired. Sign in again before continuing."
         : "This conversation could not be saved to Tongs. Your visible chat is still available in this browser.");
     });
-  }, [args.activeWorkpieceId, args.setChatError, args.store]);
+  }, [args.setChatError, args.store]);
 
   const flushChatHistoryNow = useCallback((options?: {
     historyKey?: string | null;
     draftId?: string | null;
+    workpieceId?: string | null;
     messages?: HearthChatMessage[];
   }) => {
     const historyKey = options?.historyKey ?? args.latestChatHistoryKeyRef.current;
     const draftId = options?.draftId ?? args.latestChatDraftIdRef.current;
+    const workpieceId = options?.workpieceId ?? args.latestChatWorkpieceIdRef.current;
     if (!historyKey) return;
     if (args.chatPersistTimerRef.current) {
       window.clearTimeout(args.chatPersistTimerRef.current);
@@ -184,12 +230,13 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
     const messages = options?.messages ?? args.chatMessagesRef.current;
     args.writeChatHistoryCache(historyKey, messages);
     if (draftId) {
-      persistChatHistory(draftId, messages);
+      persistChatHistory(draftId, messages, workpieceId);
     }
   }, [
     args.chatMessagesRef,
     args.chatPersistTimerRef,
     args.latestChatDraftIdRef,
+    args.latestChatWorkpieceIdRef,
     args.latestChatHistoryKeyRef,
     args.writeChatHistoryCache,
     persistChatHistory,
@@ -213,14 +260,24 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
   useEffect(() => {
     const previousKey = args.latestChatHistoryKeyRef.current;
     const previousDraftId = args.latestChatDraftIdRef.current;
+    const previousWorkpieceId = args.latestChatWorkpieceIdRef.current;
     const nextDraftId = args.activeDraftId ?? null;
-    const shouldFlushPrevious = previousKey
-      && (previousKey !== args.chatHistoryKey || previousDraftId !== nextDraftId);
-    if (shouldFlushPrevious) {
-      flushChatHistoryNow({ historyKey: previousKey, draftId: previousDraftId });
+    const previousTarget = resolvePreviousChatPersistenceTarget({
+      previousHistoryKey: previousKey,
+      previousDraftId,
+      previousWorkpieceId,
+      nextHistoryKey: args.chatHistoryKey,
+      nextDraftId,
+    });
+    if (previousTarget) {
+      flushChatHistoryNow(previousTarget);
     }
     args.latestChatHistoryKeyRef.current = args.chatHistoryKey;
     args.latestChatDraftIdRef.current = nextDraftId;
+    args.latestChatWorkpieceIdRef.current = args.activeWorkpieceId;
+    args.setHydratedChatHistoryKey(null);
+    const hydrationSeq = args.chatHydrationSeqRef.current + 1;
+    args.chatHydrationSeqRef.current = hydrationSeq;
 
     if (!args.chatHistoryKey) {
       args.pendingChatHydrationKeyRef.current = null;
@@ -233,11 +290,12 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
     if (args.skipChatHydrationKeyRef.current === args.chatHistoryKey) {
       args.skipChatHydrationKeyRef.current = null;
       args.pendingChatHydrationKeyRef.current = null;
+      args.setHydratedChatHistoryKey(args.chatHistoryKey);
       return;
     }
 
-    const hydrationSeq = args.chatHydrationSeqRef.current + 1;
-    args.chatHydrationSeqRef.current = hydrationSeq;
+    args.setChatMessages([]);
+
     args.pendingChatHydrationKeyRef.current = args.chatHistoryKey;
 
     const draftId = nextDraftId;
@@ -260,7 +318,7 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
       if (!loadedFromStore) {
         hydratedMessages = args.readChatHistoryFromCache(args.chatHistoryKey);
         if (draftId && hydratedMessages.length > 0) {
-          persistChatHistory(draftId, hydratedMessages);
+          persistChatHistory(draftId, hydratedMessages, args.activeWorkpieceId);
         }
       } else {
         args.writeChatHistoryCache(args.chatHistoryKey, hydratedMessages);
@@ -268,6 +326,7 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
 
       if (args.chatHydrationSeqRef.current !== hydrationSeq) return;
       args.pendingChatHydrationKeyRef.current = null;
+      args.setHydratedChatHistoryKey(args.chatHistoryKey);
       args.setChatMessages(hydratedMessages);
       args.setChatError(null);
       args.setPendingAiProposal(null);
@@ -278,12 +337,14 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
     args.chatHydrationSeqRef,
     args.latestChatDraftIdRef,
     args.latestChatHistoryKeyRef,
+    args.latestChatWorkpieceIdRef,
     args.pendingChatHydrationKeyRef,
     args.readChatHistoryFromCache,
     args.sanitizeChatMessagesForStorage,
     args.setChatError,
     args.setChatMessages,
     args.setPendingAiProposal,
+    args.setHydratedChatHistoryKey,
     args.skipChatHydrationKeyRef,
     args.store,
     args.writeChatHistoryCache,
@@ -306,7 +367,7 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
     args.chatPersistTimerRef.current = window.setTimeout(() => {
       args.writeChatHistoryCache(args.chatHistoryKey, args.chatMessages);
       if (draftId) {
-        persistChatHistory(draftId, args.chatMessages);
+        persistChatHistory(draftId, args.chatMessages, args.activeWorkpieceId);
       }
       args.chatPersistTimerRef.current = null;
     }, args.chatHistoryWriteDebounceMs);
@@ -319,6 +380,7 @@ export function useChatWorkspaceHistory<TPendingAiProposal>(
     };
   }, [
     args.activeDraftId,
+    args.activeWorkpieceId,
     args.chatHistoryKey,
     args.chatHistoryWriteDebounceMs,
     args.chatMessages,
@@ -343,6 +405,7 @@ type AiAutosaveReasonCode = "ai_outline" | "ai_script" | "ai_repair" | "ai_rewri
 
 type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp extends { op: string }> = {
   operationAuthority: HearthOperationAuthority;
+  isChatContextReady: boolean;
   isAiProcessing: boolean;
   aiTokenBalance: number | null;
   chatDraft: string;
@@ -474,6 +537,10 @@ export function useChatWorkspaceRuntime<
 
   const sendChatMessage = useCallback(async (params: SendChatMessageArgs) => {
     if (args.isAiProcessing) return;
+    if (!args.isChatContextReady) {
+      args.setChatError("Hearth is still loading this Episode's canonical conversation. Try again in a moment.");
+      return;
+    }
     const rawRequestContent = params.requestContent.trim();
     if (!rawRequestContent) return;
 

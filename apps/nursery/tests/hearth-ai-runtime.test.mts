@@ -126,8 +126,7 @@ test("research runtime distinguishes rate limiting from provider failure", async
         requireDates: false,
         requireFullExtraction: false,
       },
-      workspaceId: null,
-      workpieceId: "readiness-test",
+      brief: { schema: "forge.hearth.research-brief.v1", workspaceId: null, workpieceId: "readiness-test", briefFingerprint: "rate-limit-test", creatorRequest: "OpenAI official documentation", episodeTitle: "", goals: ["OpenAI official documentation"], queries: ["OpenAI official documentation"], sourcePriorities: [] },
     });
     assert.equal(result.providerStatus, "provider_rate_limited");
     assert.equal(result.runtimeStatus, "error");
@@ -149,8 +148,7 @@ test("research runtime distinguishes cancellation", async () => {
       requireDates: false,
       requireFullExtraction: false,
     },
-    workspaceId: null,
-    workpieceId: "readiness-test",
+    brief: { schema: "forge.hearth.research-brief.v1", workspaceId: null, workpieceId: "readiness-test", briefFingerprint: "cancel-test", creatorRequest: "OpenAI official documentation", episodeTitle: "", goals: ["OpenAI official documentation"], queries: ["OpenAI official documentation"], sourcePriorities: [] },
     signal: controller.signal,
   });
   assert.equal(result.providerStatus, "request_cancelled");
@@ -178,6 +176,25 @@ function buildEpisodeContext(overrides: Partial<EpisodeContext> = {}): EpisodeCo
     },
     sources: overrides.sources ?? defaults.sources,
     sparks: overrides.sparks ?? defaults.sparks,
+  };
+}
+
+function researchArtifactFromPrompt(init: RequestInit | undefined, text: string, status: "complete" | "partial" = "complete") {
+  const body = JSON.parse(String(init?.body ?? "{}")) as { messages?: Array<{ content?: string }> };
+  const prompt = body.messages?.[0]?.content ?? "";
+  const lines = prompt.split("\n");
+  const marker = lines.indexOf("Canonical research runtime result:");
+  assert.ok(marker >= 0);
+  const result = JSON.parse(lines[marker + 1] ?? "{}") as { brief?: { briefFingerprint?: string; workpieceId?: string }; evidence?: Array<{ sourceId?: string; state?: string }> };
+  const sourceId = result.evidence?.find((entry) => entry.state === "inspected")?.sourceId;
+  assert.ok(result.brief?.briefFingerprint && result.brief.workpieceId && sourceId);
+  return {
+    briefFingerprint: result.brief.briefFingerprint,
+    workpieceId: result.brief.workpieceId,
+    status,
+    findings: [{ text, status: "reported_claim", sourceIds: [sourceId] }],
+    uncertainties: status === "partial" ? ["One source could not be inspected."] : [],
+    editorialInterpretation: [],
   };
 }
 
@@ -1140,16 +1157,63 @@ test("createHearthAiHandler bypasses clarify gate for short research asks and en
     assert.equal(payload.gate, undefined);
     assert.equal(openAiCalled, true);
     assert.match(capturedSystemPrompt, /Research mode behavior \(hard rule\):/i);
-    assert.match(capturedSystemPrompt, /Always attempt a first-pass answer before limitations/i);
-    assert.match(capturedSystemPrompt, /Start with immediate known examples/i);
-    assert.match(capturedSystemPrompt, /Organize examples into clear buckets\/categories/i);
-    assert.match(capturedSystemPrompt, /Research response shape:/i);
+    assert.match(capturedSystemPrompt, /serialized research brief is the only authority/i);
+    assert.match(capturedSystemPrompt, /Do not claim completion unless research_artifact contains substantive findings/i);
+    assert.match(capturedSystemPrompt, /Prior conversation.*must not add research goals/i);
+    assert.match(capturedSystemPrompt, /research_artifact shape:/i);
     assert.match(capturedSystemPrompt, /Canonical research runtime result:/i);
     assert.equal(payload.research_result?.mode, "knowledge_first");
     assert.equal(payload.research_result?.runtimeStatus, "partial");
     assert.equal(payload.research_result?.providerStatus, "not_configured");
     assert.match(String(payload.assistant_text ?? ""), /Live retrieval is not configured/i);
-    assert.doesNotMatch(String(payload.assistant_text ?? ""), /failed|timed out|errored/i);
+    assert.match(String(payload.assistant_text ?? ""), /No research pack was completed/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreResearchEnv(priorResearchEnv);
+  }
+});
+
+test("createHearthAiHandler routes the Church Street factual canary through validated research", async () => {
+  const priorResearchEnv = snapshotResearchEnv();
+  clearResearchEnv();
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+  const delegatedChecklist = [
+    "Heyday: late 1970s through the 1980s.",
+    "Once you've got the lines from local coverage or city docs, verify the decline drivers.",
+    "Working number: about $5.5 million.",
+    "Pull one clean quote or line for each point and paste those lines here.",
+  ].join("\n");
+
+  globalThis.fetch = async () => new Response(JSON.stringify({
+    choices: [{ message: { content: JSON.stringify({ assistantText: delegatedChecklist, ops: [] }) } }],
+    usage: { total_tokens: 79 },
+  }), { status: 200, headers: { "content-type": "application/json" } });
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "When was Church Street's heyday, what caused its decline, and what is Orlando spending on the current redevelopment?" }],
+        episode_context: buildEpisodeContext({
+          episodeId: "33333333-3333-4333-8333-333333333333",
+          workspaceId: "11111111-1111-4111-8111-111111111111",
+          title: "Church Street Orlando",
+          body: "Church Street Station heyday, decline, and current redevelopment.",
+        }),
+        attachment_context: { include_episode_attachments: false, attachment_ids: [] },
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+
+    const payload = await response.json();
+    assert.equal(response.status, 200, JSON.stringify(payload));
+    assert.equal(payload.ok, true);
+    assert.ok(payload.research_result, "factual canary must enter the research path");
+    assert.match(String(payload.assistant_text ?? ""), /Research outcome: Failed/i);
+    assert.doesNotMatch(String(payload.assistant_text ?? ""), /paste those lines here|pull one clean quote/i);
   } finally {
     globalThis.fetch = originalFetch;
     restoreResearchEnv(priorResearchEnv);
@@ -1212,6 +1276,7 @@ test("createHearthAiHandler returns retrieval-backed canonical research results 
                 ops: [],
                 script_text: null,
                 tag_audit: null,
+                research_artifact: researchArtifactFromPrompt(init, "The two inspected incident reports document distinct breach timelines and response details."),
               }),
             },
           },
@@ -1251,8 +1316,8 @@ test("createHearthAiHandler returns retrieval-backed canonical research results 
     assert.equal(payload.research_result?.sources?.[1]?.url, "https://example.org/two");
     assert.equal(payload.research_result?.sources?.[1]?.extractionStatus, "extracted");
     assert.match(String(payload.research_result?.synthesis?.summary ?? ""), /Retrieved 2 source/);
-    assert.match(String(payload.assistant_text ?? ""), /Research outcome: Retrieved evidence was curated/i);
-    assert.match(String(payload.assistant_text ?? ""), /Verified findings/i);
+    assert.match(String(payload.assistant_text ?? ""), /Research outcome: Complete/i);
+    assert.match(String(payload.assistant_text ?? ""), /Validated findings/i);
     assert.match(String(payload.assistant_text ?? ""), /References/i);
   } finally {
     globalThis.fetch = originalFetch;
@@ -1422,7 +1487,8 @@ test("createHearthAiHandler strips Hearth tone instructions from live research q
     }));
 
     assert.equal(response.status, 200);
-    assert.equal(capturedQuery, "Find strong sources I should cite for this Episode.");
+    assert.match(String(capturedQuery), /Find strong sources I should cite for this Episode/i);
+    assert.doesNotMatch(String(capturedQuery), /Response tone:|creative operations partner/i);
     const payload = await response.json();
     assert.equal(payload.research_result?.mode, "retrieval_first");
     assert.doesNotMatch(String(payload.research_result?.request?.query ?? ""), /Response tone:/i);
@@ -1516,7 +1582,7 @@ test("createHearthAiHandler expands generic episode source requests with episode
     assert.match(String(capturedQuery), /Lobbying Disclosure Act/i);
     assert.match(String(capturedQuery), /\bCRS\b/);
     assert.match(String(capturedQuery), /\bGAO\b/);
-    assert.match(String(capturedQuery), /primary sources official reports/i);
+    assert.match(String(capturedQuery), /independent reporting archive data/i);
     assert.doesNotMatch(String(capturedQuery), /^\s*Find strong sources I should cite for this Episode\.\s*$/i);
     assert.doesNotMatch(String(capturedQuery), /\[s1\]|\[beat\]|Response tone:/i);
     const payload = await response.json();
@@ -1658,6 +1724,7 @@ test("createHearthAiHandler marks partial retrieval honestly when some sources f
                 ops: [],
                 script_text: null,
                 tag_audit: null,
+                research_artifact: researchArtifactFromPrompt(init, "The inspected report provides a concrete breach example with readable incident details.", "partial"),
               }),
             },
           },
@@ -1694,8 +1761,9 @@ test("createHearthAiHandler marks partial retrieval honestly when some sources f
       String(payload.research_result?.synthesis?.uncertainties?.[0] ?? ""),
       /partial, failed, or skipped/i,
     );
-    assert.match(String(payload.assistant_text ?? ""), /Research outcome: Retrieval was partial/i);
-    assert.match(String(payload.assistant_text ?? ""), /1 retrieved source was unusable because extraction was incomplete/i);
+    assert.match(String(payload.assistant_text ?? ""), /Research outcome: Partial/i);
+    assert.match(String(payload.assistant_text ?? ""), /Inaccessible sources/i);
+    assert.match(String(payload.assistant_text ?? ""), /http_error/i);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1762,7 +1830,8 @@ test("createHearthAiHandler returns no_results when provider returns no candidat
     assert.equal(payload.research_result?.runtimeStatus, "no_results");
     assert.equal(payload.research_result?.sources?.length, 0);
     assert.match(String(payload.research_result?.synthesis?.summary ?? ""), /No strong retrieval results/i);
-    assert.match(String(payload.assistant_text ?? ""), /No strong retrieval results were found/i);
+    assert.match(String(payload.assistant_text ?? ""), /No research pack was completed/i);
+    assert.match(String(payload.assistant_text ?? ""), /No source candidates were returned/i);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1821,7 +1890,8 @@ test("createHearthAiHandler labels retrieval errors as knowledge-first fallback 
     assert.equal(payload.research_result?.runtimeStatus, "error");
     assert.equal(payload.research_result?.mode, "knowledge_first");
     assert.equal(payload.research_result?.providerStatus, "configured_but_provider_failing");
-    assert.match(String(payload.assistant_text ?? ""), /configured, but the search provider failed/i);
+    assert.match(String(payload.assistant_text ?? ""), /No research pack was completed/i);
+    assert.match(String(payload.assistant_text ?? ""), /search provider failed during this request/i);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1880,8 +1950,8 @@ test("createHearthAiHandler strips internal prompt markers from research fallbac
     assert.equal(response.status, 200);
     const payload = await response.json();
     const assistantText = String(payload.assistant_text ?? "");
-    assert.match(assistantText, /Research outcome: Live retrieval is not configured/i);
-    assert.doesNotMatch(assistantText, /failed|timed out|errored/i);
+    assert.match(assistantText, /No research pack was completed/i);
+    assert.match(assistantText, /Live retrieval is not configured/i);
     assert.doesNotMatch(assistantText, /Response tone:/i);
     assert.doesNotMatch(assistantText, /The user prefers/i);
     assert.doesNotMatch(assistantText, /If helpful, ask whether/i);

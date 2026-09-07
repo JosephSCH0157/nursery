@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { act, createElement } from "react";
+import { act, createElement, useRef, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { createDraft } from "../src/domain/draft";
@@ -15,7 +15,7 @@ import {
   readWorkpieceSources,
   writeWorkpieceSourcesCache,
 } from "../src/lib/source-registry";
-import { useChatWorkspaceRuntime } from "../src/hooks/useChatWorkspace";
+import { useChatWorkspaceHistory, useChatWorkspaceRuntime } from "../src/hooks/useChatWorkspace";
 import { TongsHearthStore } from "../src/storage/tongs-store";
 
 const WORKSPACE_A = "11111111-1111-4111-8111-111111111111";
@@ -176,6 +176,7 @@ test("stabilization contract: a late AI result from workpiece A cannot mutate wo
 
   const args: RuntimeArgs = {
     operationAuthority,
+    isChatContextReady: true,
     isAiProcessing: false,
     aiTokenBalance: 100,
     chatDraft: "",
@@ -285,6 +286,158 @@ test("stabilization contract: a late AI result from workpiece A cannot mutate wo
     await act(async () => {
       root?.unmount();
     });
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "IS_REACT_ACT_ENVIRONMENT");
+    domHarness.restore();
+  }
+});
+
+test("stabilization contract: A conversation flush uses A identity during A to B navigation", async () => {
+  const domHarness = installDom();
+  const saves: Array<{ draftId: string; workpieceId: string | null; messages: HearthChatMessage[] }> = [];
+  let root: Root | null = null;
+  const messageA: HearthChatMessage = { role: "user", content: "Topic A research" };
+  const store = {
+    getChatHistory: async () => [] as HearthChatMessage[],
+    saveChatHistory: async (draftId: string, nextMessages: HearthChatMessage[], workpieceId?: string | null) => {
+      saves.push({ draftId, workpieceId: workpieceId ?? null, messages: nextMessages });
+    },
+  };
+  const ignore = () => undefined;
+  const readCachedHistory = () => [] as HearthChatMessage[];
+  const writeCachedHistory = () => undefined;
+  const sanitizeMessages = (entries: ReadonlyArray<unknown>) => entries as HearthChatMessage[];
+
+  function Harness(props: { workpieceId: string; draftId: string; historyKey: string }) {
+    const [messages, setMessages] = useState<HearthChatMessage[]>([messageA]);
+    const [, setHydratedKey] = useState<string | null>(null);
+    const chatMessagesRef = useRef<HearthChatMessage[]>(messages);
+    const latestChatHistoryKeyRef = useRef<string | null>(null);
+    const latestChatDraftIdRef = useRef<string | null>(null);
+    const latestChatWorkpieceIdRef = useRef<string | null>(null);
+    const skipChatHydrationKeyRef = useRef<string | null>(WORKPIECE_A);
+    const pendingChatHydrationKeyRef = useRef<string | null>(null);
+    const chatHydrationSeqRef = useRef(0);
+    const chatPersistTimerRef = useRef<number | null>(null);
+
+    useChatWorkspaceHistory({
+      store,
+      activeDraftId: props.draftId,
+      activeWorkpieceId: props.workpieceId,
+      chatHistoryKey: props.historyKey,
+      chatMessages: messages,
+      setChatMessages: setMessages,
+      setChatError: ignore,
+      setPendingAiProposal: ignore,
+      chatPersistTimerRef,
+      chatMessagesRef,
+      latestChatHistoryKeyRef,
+      latestChatDraftIdRef,
+      latestChatWorkpieceIdRef,
+      skipChatHydrationKeyRef,
+      pendingChatHydrationKeyRef,
+      chatHydrationSeqRef,
+      setHydratedChatHistoryKey: setHydratedKey,
+      readChatHistoryFromCache: readCachedHistory,
+      writeChatHistoryCache: writeCachedHistory,
+      sanitizeChatMessagesForStorage: sanitizeMessages,
+      chatHistoryWriteDebounceMs: 60_000,
+    });
+    return null;
+  }
+
+  (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+  try {
+    await act(async () => {
+      root = createRoot(domHarness.container);
+      root.render(createElement(Harness, {
+        workpieceId: WORKPIECE_A,
+        draftId: WORKPIECE_A,
+        historyKey: WORKPIECE_A,
+      }));
+    });
+    await act(async () => {
+      root?.render(createElement(Harness, {
+        workpieceId: WORKPIECE_B,
+        draftId: WORKPIECE_B,
+        historyKey: WORKPIECE_B,
+      }));
+    });
+
+    assert.equal(saves.some((save) => save.draftId === WORKPIECE_A && save.workpieceId === WORKPIECE_A && save.messages[0]?.content === messageA.content), true);
+    assert.equal(saves.some((save) => save.workpieceId === WORKPIECE_B && save.messages[0]?.content === messageA.content), false);
+  } finally {
+    await act(async () => root?.unmount());
+    Reflect.deleteProperty(globalThis as Record<string, unknown>, "IS_REACT_ACT_ENVIRONMENT");
+    domHarness.restore();
+  }
+});
+
+test("stabilization contract: stale A chat hydration cannot replace B conversation", async () => {
+  const domHarness = installDom();
+  const aHydration = deferred<HearthChatMessage[]>();
+  const messageB: HearthChatMessage = { role: "assistant", content: "Topic B conversation" };
+  let visibleMessages: HearthChatMessage[] = [];
+  let root: Root | null = null;
+  const store = {
+    getChatHistory: async (draftId: string) => draftId === WORKPIECE_A ? aHydration.promise : [messageB],
+    saveChatHistory: async () => undefined,
+  };
+  const ignore = () => undefined;
+  const readCachedHistory = () => [] as HearthChatMessage[];
+  const writeCachedHistory = () => undefined;
+  const sanitizeMessages = (entries: ReadonlyArray<unknown>) => entries as HearthChatMessage[];
+
+  function Harness(props: { workpieceId: string; draftId: string | null; historyKey: string | null }) {
+    const [messages, setMessages] = useState<HearthChatMessage[]>([]);
+    const [, setHydratedKey] = useState<string | null>(null);
+    visibleMessages = messages;
+    useChatWorkspaceHistory({
+      store,
+      activeDraftId: props.draftId,
+      activeWorkpieceId: props.workpieceId,
+      chatHistoryKey: props.historyKey,
+      chatMessages: messages,
+      setChatMessages: setMessages,
+      setChatError: ignore,
+      setPendingAiProposal: ignore,
+      chatPersistTimerRef: useRef<number | null>(null),
+      chatMessagesRef: useRef<HearthChatMessage[]>(messages),
+      latestChatHistoryKeyRef: useRef<string | null>(null),
+      latestChatDraftIdRef: useRef<string | null>(null),
+      latestChatWorkpieceIdRef: useRef<string | null>(null),
+      skipChatHydrationKeyRef: useRef<string | null>(null),
+      pendingChatHydrationKeyRef: useRef<string | null>(null),
+      chatHydrationSeqRef: useRef(0),
+      setHydratedChatHistoryKey: setHydratedKey,
+      readChatHistoryFromCache: readCachedHistory,
+      writeChatHistoryCache: writeCachedHistory,
+      sanitizeChatMessagesForStorage: sanitizeMessages,
+      chatHistoryWriteDebounceMs: 60_000,
+    });
+    return null;
+  }
+
+  (globalThis as Record<string, unknown>).IS_REACT_ACT_ENVIRONMENT = true;
+  try {
+    await act(async () => {
+      root = createRoot(domHarness.container);
+      root.render(createElement(Harness, { workpieceId: WORKPIECE_A, draftId: WORKPIECE_A, historyKey: WORKPIECE_A }));
+    });
+    await act(async () => {
+      root?.render(createElement(Harness, { workpieceId: WORKPIECE_B, draftId: null, historyKey: null }));
+    });
+    await act(async () => {
+      root?.render(createElement(Harness, { workpieceId: WORKPIECE_B, draftId: WORKPIECE_B, historyKey: WORKPIECE_B }));
+    });
+    assert.deepEqual(visibleMessages, [messageB]);
+
+    await act(async () => {
+      aHydration.resolve([{ role: "assistant", content: "Late Topic A conversation" }]);
+      await aHydration.promise;
+    });
+    assert.deepEqual(visibleMessages, [messageB]);
+  } finally {
+    await act(async () => root?.unmount());
     Reflect.deleteProperty(globalThis as Record<string, unknown>, "IS_REACT_ACT_ENVIRONMENT");
     domHarness.restore();
   }

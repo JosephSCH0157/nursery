@@ -3,6 +3,7 @@ import test from "node:test";
 import { extractUrlToResearchSource } from "../server/hearth/hearth-research-runtime";
 
 const WATCH_URL = "https://www.youtube.com/watch?v=qMHpj85KnYY";
+const BRIEF = { schema: "forge.hearth.research-brief.v1" as const, workspaceId: "workspace", workpieceId: "workpiece", briefFingerprint: "youtube-test", creatorRequest: "Inspect this video", episodeTitle: "", goals: ["Inspect this video"], queries: ["Inspect this video"], sourcePriorities: [] };
 
 function withMockFetch(run: () => Promise<void>): Promise<void> {
   const originalFetch = globalThis.fetch;
@@ -53,7 +54,7 @@ test("YouTube ingest: track exists but transcript fetch fails -> partial_failure
       throw new Error(`Unexpected fetch URL: ${url}`);
     };
 
-    const source = await extractUrlToResearchSource({ url: WATCH_URL, sourceId: "link-1" });
+    const source = await extractUrlToResearchSource({ url: WATCH_URL, sourceId: "link-1", brief: BRIEF });
     assert.equal(source.sourceType, "youtube_video");
     assert.equal(source.publisher, "YouTube");
     assert.equal(source.author, "Virgin Media News");
@@ -100,7 +101,7 @@ test("YouTube ingest: no caption tracks -> metadata_only with standardized warni
       throw new Error(`Unexpected fetch URL: ${url}`);
     };
 
-    const source = await extractUrlToResearchSource({ url: WATCH_URL, sourceId: "link-1" });
+    const source = await extractUrlToResearchSource({ url: WATCH_URL, sourceId: "link-1", brief: BRIEF });
     assert.equal(source.sourceType, "youtube_video");
     assert.equal(source.ingestMode, "metadata_only");
     assert.equal(source.transcriptAvailable, false);
@@ -156,7 +157,7 @@ test("YouTube ingest: ASR captions -> metadata_plus_transcript, auto-caption war
       throw new Error(`Unexpected fetch URL: ${url}`);
     };
 
-    const source = await extractUrlToResearchSource({ url: WATCH_URL, sourceId: "link-1" });
+    const source = await extractUrlToResearchSource({ url: WATCH_URL, sourceId: "link-1", brief: BRIEF });
     assert.equal(source.sourceType, "youtube_video");
     assert.equal(source.ingestMode, "metadata_plus_transcript");
     assert.equal(source.transcriptAvailable, true);

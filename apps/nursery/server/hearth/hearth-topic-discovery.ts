@@ -88,7 +88,7 @@ async function runDiscovery(args: { config: HearthRuntimeConfig; token: string; 
       headline, summary, suggested_angle: `What does ${headline.replace(/[?.!]$/, "")} mean for this audience?`,
       timeliness_reason: source.publishedAt ? `Published ${source.publishedAt}.` : "Recently indexed coverage; publication time was not verified.",
       event_at: null,
-      evidence_class: ["primary_agricultural", "land_grant_university", "government_agricultural", "peer_reviewed"].includes(classifyResearchSourceAuthority(source)) ? "single_authoritative" : "limited",
+      evidence_class: ["primary_government", "primary_institutional", "scholarly_technical"].includes(classifyResearchSourceAuthority(source)) ? "single_authoritative" : "limited",
       contradiction_state: "none",
       sources: [{ original_url: item.url, canonical_url: url, title: headline, publisher: source.publisher || source.domain, author: source.author, published_at: source.publishedAt, event_at: null, retrieved_at: source.retrievedAt, supporting_excerpt: summary.slice(0, 280), excerpt_hash: hash(summary.slice(0, 280)), extraction_status: source.extractionStatus, authority_class: classifyResearchSourceAuthority(source), syndication_cluster: hash(new URL(url).hostname + headline.toLowerCase()) }],
     });
