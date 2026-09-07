@@ -87,6 +87,7 @@ type CheckoutFulfillmentContext = ForgePurchaseMetadata & {
   paymentIntentId: string | null;
   amountTotal: number | null;
   currency: string | null;
+  paymentStatus: string | null;
 };
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
@@ -133,6 +134,30 @@ function normalizePaymentIntentId(
 function normalizeUnixTimestampIso(value: unknown): string | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   return new Date(value * 1000).toISOString();
+}
+
+const STRIPE_ZERO_DECIMAL_CURRENCIES = new Set([
+  "bif", "clp", "djf", "gnf", "jpy", "kmf", "krw", "mga", "pyg",
+  "rwf", "ugx", "vnd", "vuv", "xaf", "xof", "xpf",
+]);
+
+const STRIPE_THREE_DECIMAL_CURRENCIES = new Set(["bhd", "jod", "kwd", "omr", "tnd"]);
+
+function stripeMinorUnitsToCurrencyMicros(amount: number, currency: string): number {
+  if (!Number.isSafeInteger(amount) || amount < 0) {
+    throw new Error("Stripe amount must be a non-negative safe integer");
+  }
+  const normalizedCurrency = currency.toLowerCase();
+  const multiplier = STRIPE_ZERO_DECIMAL_CURRENCIES.has(normalizedCurrency)
+    ? 1_000_000
+    : STRIPE_THREE_DECIMAL_CURRENCIES.has(normalizedCurrency)
+    ? 1_000
+    : 10_000;
+  const micros = amount * multiplier;
+  if (!Number.isSafeInteger(micros)) {
+    throw new Error("Stripe amount exceeds safe currency-micros range");
+  }
+  return micros;
 }
 
 function readMetadataUserId(
@@ -405,6 +430,7 @@ async function parseCheckoutFulfillmentContext(
       ? session.amount_total
       : null,
     currency: normalizeLowerString(session.currency),
+    paymentStatus: normalizeLowerString(session.payment_status),
   };
 }
 
@@ -512,6 +538,125 @@ async function grantAiCredits(
   });
 }
 
+async function recordCustomerDepositAccounting(
+  supabase: SupabaseAdminClient,
+  params: {
+    event: Stripe.Event;
+    userId: string;
+    sessionId: string;
+    paymentIntentId: string | null;
+    itemId: string;
+    amountTotal: number;
+    currency: string;
+    creditUnits: number;
+  },
+): Promise<void> {
+  await runTongsRpc(supabase, "record_customer_deposit", {
+    p_deposit_id: crypto.randomUUID(),
+    p_user_id: params.userId,
+    p_stripe_event_id: params.event.id,
+    p_stripe_session_id: params.sessionId,
+    p_stripe_payment_intent_id: params.paymentIntentId,
+    p_livemode: params.event.livemode,
+    p_pack_id: params.itemId,
+    p_gross_amount_micros: stripeMinorUnitsToCurrencyMicros(
+      params.amountTotal,
+      params.currency,
+    ),
+    p_currency: params.currency,
+    p_credit_units: params.creditUnits,
+    p_received_at: normalizeUnixTimestampIso(params.event.created)
+      ?? new Date().toISOString(),
+    p_metadata_json: {
+      source: "stripe_webhook",
+      event_type: params.event.type,
+    },
+  });
+}
+
+async function recordSubscriptionReceiptAccounting(
+  supabase: SupabaseAdminClient,
+  params: {
+    event: Stripe.Event;
+    invoice: Stripe.Invoice;
+    userId: string;
+    subscriptionId: string;
+    metadata: RecurringPurchaseMetadata;
+  },
+): Promise<void> {
+  const amountPaid = params.invoice.amount_paid;
+  const currency = normalizeLowerString(params.invoice.currency);
+  const periodStart = normalizeUnixTimestampIso(params.invoice.period_start);
+  const periodEnd = normalizeUnixTimestampIso(params.invoice.period_end);
+  if (!Number.isSafeInteger(amountPaid) || amountPaid <= 0 || !currency) return;
+  if (!periodStart || !periodEnd) {
+    throw new Error(`invoice.paid missing cycle period for invoice=${params.invoice.id}`);
+  }
+  await runTongsRpc(supabase, "record_subscription_cycle_receipt", {
+    p_receipt_id: crypto.randomUUID(),
+    p_user_id: params.userId,
+    p_stripe_event_id: params.event.id,
+    p_stripe_invoice_id: params.invoice.id,
+    p_stripe_subscription_id: params.subscriptionId,
+    p_stripe_payment_intent_id: normalizePaymentIntentId(
+      params.invoice.payment_intent ?? null,
+    ),
+    p_livemode: params.event.livemode,
+    p_purchase_type: params.metadata.purchaseType,
+    p_plan_item_id: params.metadata.itemId,
+    p_gross_amount_micros: stripeMinorUnitsToCurrencyMicros(amountPaid, currency),
+    p_currency: currency,
+    p_period_start: periodStart,
+    p_period_end: periodEnd,
+    p_received_at: normalizeUnixTimestampIso(params.event.created)
+      ?? new Date().toISOString(),
+    p_metadata_json: {
+      source: "stripe_webhook",
+      event_type: params.event.type,
+      forge_offer_id: params.metadata.offerId,
+      forge_interval: params.metadata.interval,
+    },
+  });
+}
+
+async function resolveRefundPaymentIntentId(refund: Stripe.Refund): Promise<string | null> {
+  const direct = normalizePaymentIntentId(refund.payment_intent ?? null);
+  if (direct) return direct;
+  const chargeId = typeof refund.charge === "string"
+    ? refund.charge
+    : normalizeString(refund.charge?.id);
+  if (!chargeId) return null;
+  const charge = await stripe.charges.retrieve(chargeId);
+  return normalizePaymentIntentId(charge.payment_intent ?? null);
+}
+
+async function recordStripeAdjustmentAccounting(
+  supabase: SupabaseAdminClient,
+  params: {
+    event: Stripe.Event;
+    providerObjectId: string;
+    paymentIntentId: string;
+    adjustmentType: "refund" | "dispute" | "payment_reversal";
+    amount: number;
+    currency: string;
+    evidence: Record<string, unknown>;
+  },
+): Promise<void> {
+  await runTongsRpc(supabase, "record_stripe_adjustment_accounting", {
+    p_record_id: crypto.randomUUID(),
+    p_stripe_refund_id: params.providerObjectId,
+    p_stripe_event_id: params.event.id,
+    p_stripe_payment_intent_id: params.paymentIntentId,
+    p_adjustment_type: params.adjustmentType,
+    p_livemode: params.event.livemode,
+    p_amount_micros: stripeMinorUnitsToCurrencyMicros(params.amount, params.currency),
+    p_currency: params.currency,
+    p_recorded_at: normalizeUnixTimestampIso(params.event.created)
+      ?? new Date().toISOString(),
+    p_evidence_json: params.evidence,
+  });
+}
+
 async function upsertCanonicalSubscriptionFromStripe(
   supabase: SupabaseAdminClient,
   params: {
@@ -578,6 +723,8 @@ async function upsertCanonicalSubscriptionFromStripe(
   const periodEnd = normalizeUnixTimestampIso(params.subscription.current_period_end);
   if (
     params.metadata.purchaseType === "subscription"
+    && params.event.type === "invoice.paid"
+    && params.event.livemode === true
     && recurringStatusEntitlesAccess(subscriptionStatus)
     && periodStart
   ) {
@@ -610,6 +757,17 @@ async function fulfillAiCreditsCheckout(
   if (!tokens) {
     throw new Error(`Unsupported AI credits forge_item_id: ${context.itemId}`);
   }
+  if (context.paymentStatus !== "paid") {
+    throw new Error(`AI credits checkout is not paid: ${context.paymentStatus ?? "unknown"}`);
+  }
+  const amountTotal = context.amountTotal;
+  const currency = context.currency;
+  if (typeof amountTotal !== "number" || !Number.isSafeInteger(amountTotal) || amountTotal <= 0) {
+    throw new Error("AI credits checkout is missing a positive amount_total");
+  }
+  if (!currency) {
+    throw new Error("AI credits checkout is missing currency");
+  }
 
   await upsertBillingCustomerRecord(supabase, {
     userId: context.supabaseUserId,
@@ -627,15 +785,31 @@ async function fulfillAiCreditsCheckout(
     },
   });
 
-  await grantAiCredits(supabase, {
+  await recordCustomerDepositAccounting(supabase, {
+    event,
     userId: context.supabaseUserId,
-    itemId: context.itemId,
-    tokens,
-    eventId: context.eventId,
     sessionId: context.sessionId,
-    amountTotal: context.amountTotal,
-    currency: context.currency,
+    paymentIntentId: context.paymentIntentId,
+    itemId: context.itemId,
+    amountTotal,
+    currency,
+    creditUnits: tokens,
   });
+
+  // Keep the pre-foundation execution balance working only for live receipts.
+  // Test-mode value remains isolated in the new accounting journal. This
+  // compatibility grant is removed when the shared spending gate is activated.
+  if (event.livemode === true) {
+    await grantAiCredits(supabase, {
+      userId: context.supabaseUserId,
+      itemId: context.itemId,
+      tokens,
+      eventId: context.eventId,
+      sessionId: context.sessionId,
+      amountTotal: context.amountTotal,
+      currency: context.currency,
+    });
+  }
 
   await upsertBillingOneTimePurchaseRecord(supabase, {
     userId: context.supabaseUserId,
@@ -816,6 +990,15 @@ async function handleInvoiceLifecycleEvent(
   if (subscriptionId) {
     const subscription = await stripe.subscriptions.retrieve(subscriptionId);
     const metadata = await resolveSubscriptionMetadata(supabase, subscription);
+    if (event.type === "invoice.paid") {
+      await recordSubscriptionReceiptAccounting(supabase, {
+        event,
+        invoice,
+        userId: metadata.supabaseUserId,
+        subscriptionId,
+        metadata: toRecurringPurchaseMetadata(metadata),
+      });
+    }
     await upsertCanonicalSubscriptionFromStripe(supabase, {
       event,
       subscription,
@@ -831,6 +1014,102 @@ async function handleInvoiceLifecycleEvent(
     subscriptionId: null,
     sessionId: null,
   });
+}
+
+async function handleRefundCreatedEvent(
+  supabase: SupabaseAdminClient,
+  event: Stripe.Event,
+  refund: Stripe.Refund,
+): Promise<void> {
+  const paymentIntentId = await resolveRefundPaymentIntentId(refund);
+  const currency = normalizeLowerString(refund.currency);
+  if (!paymentIntentId || !currency) {
+    throw new Error(`Unable to resolve payment intent or currency for refund=${refund.id}`);
+  }
+  await recordStripeAdjustmentAccounting(supabase, {
+    event,
+    providerObjectId: refund.id,
+    paymentIntentId,
+    adjustmentType: "refund",
+    amount: refund.amount,
+    currency,
+    evidence: {
+      source: "stripe_webhook",
+      event_type: event.type,
+      charge_id: typeof refund.charge === "string" ? refund.charge : refund.charge?.id ?? null,
+      reason: refund.reason ?? null,
+      status: refund.status ?? null,
+    },
+  });
+  await recordBillingEventRecord(supabase, { event });
+}
+
+async function handleChargeRefundedEvent(
+  supabase: SupabaseAdminClient,
+  event: Stripe.Event,
+  charge: Stripe.Charge,
+): Promise<void> {
+  const paymentIntentId = normalizePaymentIntentId(charge.payment_intent ?? null);
+  const currency = normalizeLowerString(charge.currency);
+  if (!paymentIntentId || !currency) {
+    throw new Error(`Unable to resolve payment intent or currency for charge=${charge.id}`);
+  }
+  for (const refund of charge.refunds?.data ?? []) {
+    await recordStripeAdjustmentAccounting(supabase, {
+      event,
+      providerObjectId: refund.id,
+      paymentIntentId,
+      adjustmentType: "refund",
+      amount: refund.amount,
+      currency,
+      evidence: {
+        source: "stripe_webhook",
+        event_type: event.type,
+        charge_id: charge.id,
+        reason: refund.reason ?? null,
+        status: refund.status ?? null,
+      },
+    });
+  }
+  await recordBillingEventRecord(supabase, {
+    event,
+    customerId: normalizeCustomerId(charge.customer ?? null),
+  });
+}
+
+async function handleDisputeCreatedEvent(
+  supabase: SupabaseAdminClient,
+  event: Stripe.Event,
+  dispute: Stripe.Dispute,
+): Promise<void> {
+  let paymentIntentId = normalizePaymentIntentId(dispute.payment_intent ?? null);
+  const chargeId = typeof dispute.charge === "string"
+    ? dispute.charge
+    : normalizeString(dispute.charge?.id);
+  if (!paymentIntentId && chargeId) {
+    const charge = await stripe.charges.retrieve(chargeId);
+    paymentIntentId = normalizePaymentIntentId(charge.payment_intent ?? null);
+  }
+  const currency = normalizeLowerString(dispute.currency);
+  if (!paymentIntentId || !currency) {
+    throw new Error(`Unable to resolve payment intent or currency for dispute=${dispute.id}`);
+  }
+  await recordStripeAdjustmentAccounting(supabase, {
+    event,
+    providerObjectId: dispute.id,
+    paymentIntentId,
+    adjustmentType: "dispute",
+    amount: dispute.amount,
+    currency,
+    evidence: {
+      source: "stripe_webhook",
+      event_type: event.type,
+      charge_id: chargeId,
+      reason: dispute.reason,
+      status: dispute.status,
+    },
+  });
+  await recordBillingEventRecord(supabase, { event });
 }
 
 serve(async (req) => {
@@ -880,6 +1159,24 @@ serve(async (req) => {
       case "invoice.payment_failed": {
         const invoice = event.data.object as Stripe.Invoice;
         await handleInvoiceLifecycleEvent(supabase, event, invoice);
+        break;
+      }
+
+      case "refund.created": {
+        const refund = event.data.object as Stripe.Refund;
+        await handleRefundCreatedEvent(supabase, event, refund);
+        break;
+      }
+
+      case "charge.refunded": {
+        const charge = event.data.object as Stripe.Charge;
+        await handleChargeRefundedEvent(supabase, event, charge);
+        break;
+      }
+
+      case "charge.dispute.created": {
+        const dispute = event.data.object as Stripe.Dispute;
+        await handleDisputeCreatedEvent(supabase, event, dispute);
         break;
       }
 
