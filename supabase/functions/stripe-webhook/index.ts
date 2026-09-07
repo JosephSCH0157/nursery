@@ -11,6 +11,10 @@ import {
   parseForgePurchaseMetadata,
   type ForgePurchaseMetadata,
 } from "../_shared/forge-billing-metadata.ts";
+import {
+  resolveInvoiceServicePeriod,
+  resolveInvoiceSubscriptionId,
+} from "../_shared/stripe-invoice-compat.ts";
 
 type SupabaseAdminClient = ReturnType<typeof createClient>;
 
@@ -579,6 +583,7 @@ async function recordSubscriptionReceiptAccounting(
   params: {
     event: Stripe.Event;
     invoice: Stripe.Invoice;
+    subscription: Stripe.Subscription;
     userId: string;
     subscriptionId: string;
     metadata: RecurringPurchaseMetadata;
@@ -586,8 +591,13 @@ async function recordSubscriptionReceiptAccounting(
 ): Promise<void> {
   const amountPaid = params.invoice.amount_paid;
   const currency = normalizeLowerString(params.invoice.currency);
-  const periodStart = normalizeUnixTimestampIso(params.invoice.period_start);
-  const periodEnd = normalizeUnixTimestampIso(params.invoice.period_end);
+  const servicePeriod = resolveInvoiceServicePeriod(
+    params.invoice,
+    params.subscription,
+    params.subscriptionId,
+  );
+  const periodStart = normalizeUnixTimestampIso(servicePeriod?.start);
+  const periodEnd = normalizeUnixTimestampIso(servicePeriod?.end);
   if (!Number.isSafeInteger(amountPaid) || amountPaid <= 0 || !currency) return;
   if (!periodStart || !periodEnd) {
     throw new Error(`invoice.paid missing cycle period for invoice=${params.invoice.id}`);
@@ -984,7 +994,7 @@ async function handleInvoiceLifecycleEvent(
     throw new Error(`${event.type} missing customer`);
   }
 
-  const subscriptionId = normalizeSubscriptionId(invoice.subscription ?? null);
+  const subscriptionId = resolveInvoiceSubscriptionId(invoice);
   const userId = await resolveUserIdByCustomerId(supabase, customerId);
 
   if (subscriptionId) {
@@ -994,6 +1004,7 @@ async function handleInvoiceLifecycleEvent(
       await recordSubscriptionReceiptAccounting(supabase, {
         event,
         invoice,
+        subscription,
         userId: metadata.supabaseUserId,
         subscriptionId,
         metadata: toRecurringPurchaseMetadata(metadata),
