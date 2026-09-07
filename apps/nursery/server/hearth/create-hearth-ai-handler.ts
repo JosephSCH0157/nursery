@@ -192,6 +192,7 @@ type ReqBody = {
   attachment_context?: unknown;
   production_action?: unknown;
   production_script_version?: unknown;
+  user_authored_text?: unknown;
 };
 
 type AttachmentContextRequest = {
