@@ -14,6 +14,7 @@
     "test:he3c:lifecycle": "pnpm --filter nursery exec tsx ../../scripts/verify-he3c-synthetic-history-lifecycle.mts",
     "test:db:hearth-ready": "node scripts/verify-hearth-ready-transition-db.mjs",
     "test:db:pricing-reservation-concurrency": "node scripts/verify-private-pricing-reservation-concurrency.mjs",
+    "test:db:owner-budget-concurrency": "node scripts/verify-owner-budget-reservation-concurrency.mjs",
     "typecheck:workspace": "pnpm -r --sort --workspace-concurrency=2 typecheck",
     "typecheck": "pnpm preflight:workspace && pnpm typecheck:workspace",
     "types": "pnpm typecheck",
