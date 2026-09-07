@@ -11,6 +11,22 @@ import { TongsCommitService, createTongsCommitApiHandlerWithService } from "../d
 
 async function run(command,args){await new Promise((resolve,reject)=>{const child=spawn(command,args,{windowsHide:true});let error="";child.stderr.on("data",chunk=>error+=chunk);child.once("error",reject);child.once("close",code=>code===0?resolve():reject(new Error(error)));});}
 
+function withObserveRunwayBoundary(service) {
+  service.runwayPaidExecutionBoundary = {
+    async resolveOperationFunding() {
+      return { mode: "observe", rolloutRevision: 1, sharedFundingReady: false, useLegacyAccounting: true, reason: "test observe mode", reservationId: null, fundingSourceType: null };
+    },
+    async authorizeSubmission() {
+      return { mode: "observe", rolloutRevision: 1, providerExecutionAuthorized: false, legacyExecutionAllowed: true, reason: "test observe mode", replay: false, reservationId: null, fundingSourceType: null };
+    },
+    async markSubmissionUnknown() {},
+    async recordDefinitiveRejection() {},
+    async recordProviderFailure() {},
+    async recordCompletionForReconciliation() {},
+  };
+  return service;
+}
+
 test("Tongs derives video and poster metadata from actual media bytes",async()=>{
   const dir=await mkdtemp(join(tmpdir(),"forge-broll-test-"));
   try{
@@ -76,7 +92,7 @@ test("stored upload, external fetch, and provider output resume without repeated
       },
     };
     const provider={async generate(){providerCalls+=1;return{bytes,provider:"test",providerRequestId:"provider-1"};}};
-    const service=new TongsCommitService(supabase,"forge-workpieces",null,()=>authority,null,provider);
+    const service=withObserveRunwayBoundary(new TongsCommitService(supabase,"forge-workpieces",null,()=>authority,null,provider));
     service.assertWorkpieceInWorkspace=async()=>undefined;
     service.assertWorkspaceRoleFromAccessToken=async()=>({userId:"11111111-1111-4111-8111-111111111111",role:"editor"});
     for(const [index,sourceKind] of ["upload","external","generated"].entries()){
@@ -109,7 +125,7 @@ test("ambiguous Runway submission fails closed and replay never submits again",a
   }}}};
   const supabase={storage:{from(){return{async download(){return{data:null,error:{message:"Object not found",statusCode:404}};}}}},schema(){return{async rpc(name){if(name==="create_paid_media_authorization_quote")return{data:{quote:{id:"quote-1",authorized_customer_ceiling:1000}},error:null};if(name==="approve_and_reserve_paid_media_operation")return{data:{operation:{id:"paid-op-1",state:"reserved"}},error:null};if(name==="begin_paid_media_provider_attempt")return{data:{operation:{id:"paid-op-1",state:"submitting"},attempt:{id:"attempt-1",state:"submitting"}},error:null};if(name==="mark_paid_media_delivery")return{data:{operation:{id:"paid-op-1",state:"delivered"}},error:null};if(name==="settle_paid_media_operation")return{data:{operation:{id:"paid-op-1",state:"settled"},receipt:{settled_customer_charge:1_000}},error:null};return{data:{disposition:"ok"},error:null};}}}};
   const provider={async submit(){providerCalls+=1;throw new Error("connection reset");}};
-  const service=new TongsCommitService(supabase,"forge-workpieces",null,()=>authority,null,provider);
+  const service=withObserveRunwayBoundary(new TongsCommitService(supabase,"forge-workpieces",null,()=>authority,null,provider));
   service.assertWorkpieceInWorkspace=async()=>undefined;service.assertWorkspaceRoleFromAccessToken=async()=>({userId:"11111111-1111-4111-8111-111111111111",role:"editor"});
   const request={workspace_id:"33333333-3333-4333-8333-333333333333",beat_id:"44444444-4444-4444-8444-444444444444",operation_id:"forge:broll:runway-ambiguous-test-0001",operation_fingerprint:"a".repeat(64),source_kind:"generated",provider:"runway",final_prompt:"A slow documentary road transition",poster_required:false,confirm_spend:true,prompt_revision_id:"55555555-5555-4555-8555-555555555555",prompt_revision:1,prompt_content_hash:"b".repeat(64)};
   await assert.rejects(()=>service.acquireBrollCandidate("22222222-2222-4222-8222-222222222222",{...request},{userAccessToken:"token"}),error=>error.code==="broll_runway_submission_unknown");
@@ -120,7 +136,7 @@ test("ambiguous Runway submission fails closed and replay never submits again",a
 test("over-limit canonical prompt is rejected before operation reservation and transmission",async()=>{
   let begins=0;let submits=0;const longPrompt="visible motion ".repeat(260);
   const authority={schema(){return{async rpc(name){if(name==="assert_current_broll_prompt")return{data:{disposition:"verified",prompt_revision:{final_prompt:longPrompt}},error:null};if(name==="begin_broll_operation")begins+=1;throw new Error(`unexpected RPC ${name}`);}}}};
-  const service=new TongsCommitService({},"forge-workpieces",null,()=>authority,null,{async submit(){submits+=1;throw new Error("must not submit");}});
+  const service=withObserveRunwayBoundary(new TongsCommitService({},"forge-workpieces",null,()=>authority,null,{async submit(){submits+=1;throw new Error("must not submit");}}));
   service.assertWorkpieceInWorkspace=async()=>undefined;service.assertWorkspaceRoleFromAccessToken=async()=>({userId:"11111111-1111-4111-8111-111111111111",role:"editor"});
   await assert.rejects(()=>service.acquireBrollCandidate("22222222-2222-4222-8222-222222222222",{workspace_id:"33333333-3333-4333-8333-333333333333",beat_id:"44444444-4444-4444-8444-444444444444",operation_id:"forge:broll:too-long",operation_fingerprint:"a".repeat(64),source_kind:"generated",provider:"runway",prompt_revision_id:"55555555-5555-4555-8555-555555555555",prompt_revision:2,prompt_content_hash:"b".repeat(64),poster_required:true},{userAccessToken:"token"}),error=>error.code==="runway_prompt_too_long"&&error.details?.operation_reserved===false&&error.details?.transmitted===false);
   assert.equal(begins,0);assert.equal(submits,0);
@@ -138,7 +154,7 @@ test("generated Runway quote preflight uses the canonical video pricing contract
     throw new Error(`unexpected Supabase RPC ${name}`);
   }}}};
   const provider={async submit(){providerCalls+=1;throw new Error("must not submit before approval");}};
-  const service=new TongsCommitService(supabase,"forge-workpieces",null,()=>authority,null,provider);
+  const service=withObserveRunwayBoundary(new TongsCommitService(supabase,"forge-workpieces",null,()=>authority,null,provider));
   service.assertWorkpieceInWorkspace=async()=>undefined;service.assertWorkspaceRoleFromAccessToken=async()=>({userId:"11111111-1111-4111-8111-111111111111",role:"editor"});
   const request={workspace_id:"33333333-3333-4333-8333-333333333333",beat_id:"44444444-4444-4444-8444-444444444444",operation_id:"forge:broll:video-quote-test-0001",operation_fingerprint:"a".repeat(64),source_kind:"generated",provider:"runway",poster_required:false,prompt_revision_id:"55555555-5555-4555-8555-555555555555",prompt_revision:1,prompt_content_hash:"b".repeat(64),runway_model:"gen4.5",duration_seconds:5,ratio:"1280:720"};
   await assert.rejects(()=>service.acquireBrollCandidate("22222222-2222-4222-8222-222222222222",request,{userAccessToken:"token"}),error=>error.code==="paid_image_authorization_required");
@@ -150,8 +166,106 @@ test("generated Runway quote preflight uses the canonical video pricing contract
   assert.deepEqual(quoteArgs.p_request_parameters,{provider:"runway",model:"gen4.5",generation_mode:"text_to_video",duration_seconds:5,ratio:"1280:720",operation:"generation",metadata:{provider:"runway",model:"gen4.5",generation_mode:"text_to_video",duration_seconds:5,ratio:"1280:720"}});
 });
 
+test("enforced Runway route rejects an unfunded operation before provider transmission",async()=>{
+  let providerCalls=0;
+  const authority={schema(){return{async rpc(name,args){
+    if(name==="assert_current_broll_prompt")return{data:{disposition:"verified",prompt_revision:{id:"55555555-5555-4555-8555-555555555555",revision:1,content_hash:"b".repeat(64),final_prompt:"A slow documentary road transition"}},error:null};
+    if(name==="begin_broll_operation")return{data:{disposition:"replay",operation:{state:"pending"}},error:null};
+    if(name==="begin_broll_runway_submission")return{data:{disposition:"submitting",operation:{state:"submitting",submission_attempt_id:args.p_submission_attempt_id}},error:null};
+    if(name==="approve_and_reserve_paid_media_operation")return{data:{operation:{id:"paid-op-1",state:"reserved"}},error:null};
+    if(name==="begin_paid_media_provider_attempt")return{data:{operation:{id:"paid-op-1",state:"submitting"},attempt:{id:"attempt-1",state:"submitting"}},error:null};
+    throw new Error(`unexpected authority RPC ${name}`);
+  }}}};
+  const supabase={storage:{from(){return{async download(){return{data:null,error:{message:"Object not found",statusCode:404}};}}}},schema(){return{async rpc(name,args){
+    if(name==="create_paid_media_authorization_quote")return{data:{quote:{id:args.p_quote_id,authorized_customer_ceiling:44_460}},error:null};
+    if(name==="approve_and_reserve_paid_media_operation")return{data:{operation:{id:"paid-op-1",state:"reserved"}},error:null};
+    if(name==="begin_paid_media_provider_attempt")return{data:{operation:{id:"paid-op-1",state:"submitting"},attempt:{id:"attempt-1",state:"submitting"}},error:null};
+    throw new Error(`unexpected Supabase RPC ${name}`);
+  }}}};
+  const service=withObserveRunwayBoundary(new TongsCommitService(supabase,"forge-workpieces",null,()=>authority,null,{async submit(){providerCalls+=1;throw new Error("must not submit");}}));
+  service.runwayPaidExecutionBoundary={
+    async resolveOperationFunding(){return{mode:"enforce",rolloutRevision:2,sharedFundingReady:false,useLegacyAccounting:false,reason:"matching full-cost funding reservation required",reservationId:null,fundingSourceType:null};},
+    async authorizeSubmission(){return{mode:"enforce",rolloutRevision:2,providerExecutionAuthorized:false,legacyExecutionAllowed:false,reason:"matching full-cost funding reservation required",replay:false,reservationId:null,fundingSourceType:null};},
+    async markSubmissionUnknown(){},async recordDefinitiveRejection(){},async recordProviderFailure(){},async recordCompletionForReconciliation(){},
+  };
+  service.assertWorkpieceInWorkspace=async()=>undefined;service.assertWorkspaceRoleFromAccessToken=async()=>({userId:"11111111-1111-4111-8111-111111111111",role:"editor"});
+  const request={workspace_id:"33333333-3333-4333-8333-333333333333",beat_id:"44444444-4444-4444-8444-444444444444",operation_id:"forge:broll:unfunded-enforcement-test-0001",operation_fingerprint:"a".repeat(64),source_kind:"generated",provider:"runway",final_prompt:"A slow documentary road transition",poster_required:false,confirm_spend:true,prompt_revision_id:"55555555-5555-4555-8555-555555555555",prompt_revision:1,prompt_content_hash:"b".repeat(64)};
+  await assert.rejects(()=>service.acquireBrollCandidate("22222222-2222-4222-8222-222222222222",request,{userAccessToken:"token"}),error=>error.code==="runway_funding_required"&&error.details?.transmitted===false);
+  assert.equal(providerCalls,0);
+});
+
+test("enforced owner-funded Runway route bypasses legacy customer-credit accounting",async()=>{
+  let providerCalls=0;let legacyPaidCalls=0;let state="pending";let taskId=null;
+  const operation=()=>({state,submission_attempt_id:"owner-funded-attempt-0001",provider_task_id:taskId});
+  const authority = {
+    schema() {
+      return {
+        async rpc(name) {
+          if (name === "assert_current_broll_prompt")
+            return { data: { disposition: "verified", prompt_revision: { id: "55555555-5555-4555-8555-555555555555", revision: 1, content_hash: "b".repeat(64), final_prompt: "A slow documentary road transition" } }, error: null };
+          if (name === "begin_broll_operation")
+            return { data: { disposition: "replay", operation: operation() }, error: null };
+          if (name === "begin_broll_runway_submission") {
+            state = "submitting";
+            return { data: { disposition: "submitting", operation: operation() }, error: null };
+          }
+          if (name === "record_broll_runway_task") {
+            state = "provider_submitted";
+            taskId = "owner-funded-runway-task-1";
+            return { data: { disposition: "provider_submitted", operation: operation() }, error: null };
+          }
+          if (name === "claim_broll_runway_poll")
+            return { data: { disposition: "poll_claimed", operation: operation() }, error: null };
+          if (name === "record_broll_runway_pending")
+            return { data: { disposition: "provider_pending", operation: operation() }, error: null };
+          if (name.includes("paid_media")) {
+            legacyPaidCalls += 1;
+            throw new Error(`legacy accounting called: ${name}`);
+          }
+          throw new Error(`unexpected authority RPC ${name}`);
+        },
+      };
+    },
+  };
+  const supabase = {
+    storage: {
+      from() {
+        return {
+          async download() {
+            return { data: null, error: { message: "Object not found", statusCode: 404 } };
+          },
+        };
+      },
+    },
+    schema() {
+      return {
+        async rpc(name) {
+          if (name.includes("paid_media")) {
+            legacyPaidCalls += 1;
+            throw new Error(`legacy accounting called: ${name}`);
+          }
+          return { data: { disposition: "ok" }, error: null };
+        },
+      };
+    },
+  };
+  const provider={async submit(){providerCalls+=1;return{taskId:"owner-funded-runway-task-1",acceptedResponse:{id:"owner-funded-runway-task-1"}};},async poll(){return{state:"pending",taskId:"owner-funded-runway-task-1",response:{id:"owner-funded-runway-task-1",status:"RUNNING"}};}};
+  const service=withObserveRunwayBoundary(new TongsCommitService(supabase,"forge-workpieces",null,()=>authority,null,provider));
+  service.runwayPaidExecutionBoundary={
+    async resolveOperationFunding(){return{mode:"enforce",rolloutRevision:2,sharedFundingReady:true,useLegacyAccounting:false,reason:"matching shared funding reservation found",reservationId:"33333333-3333-4333-8333-333333333333",fundingSourceType:"owner_budget"};},
+    async authorizeSubmission(){return{mode:"enforce",rolloutRevision:2,providerExecutionAuthorized:true,legacyExecutionAllowed:false,reason:"owner_budget_authorized",replay:false,reservationId:"33333333-3333-4333-8333-333333333333",fundingSourceType:"owner_budget"};},
+    async markSubmissionUnknown(){},async recordDefinitiveRejection(){},async recordProviderFailure(){},async recordCompletionForReconciliation(){},
+  };
+  service.assertWorkpieceInWorkspace=async()=>undefined;service.assertWorkspaceRoleFromAccessToken=async()=>({userId:"11111111-1111-4111-8111-111111111111",role:"editor"});
+  const request={workspace_id:"33333333-3333-4333-8333-333333333333",beat_id:"44444444-4444-4444-8444-444444444444",operation_id:"forge:broll:owner-funded-route-test-0001",operation_fingerprint:"a".repeat(64),source_kind:"generated",provider:"runway",final_prompt:"A slow documentary road transition",poster_required:false,confirm_spend:false,prompt_revision_id:"55555555-5555-4555-8555-555555555555",prompt_revision:1,prompt_content_hash:"b".repeat(64)};
+  const result=await service.acquireBrollCandidate("22222222-2222-4222-8222-222222222222",request,{userAccessToken:"token"});
+  assert.equal(result.disposition,"provider_pending");assert.equal(providerCalls,1);assert.equal(legacyPaidCalls,0);
+});
+
 test("generated Runway acquisition routes through paid-media authorization and settlement", async () => {
   let providerCalls = 0;
+  let boundaryAuthorizations = 0;
+  let boundaryCompletions = 0;
   let paidRpcCalls = [];
   const authority = { schema() { return { async rpc(name, args) {
     paidRpcCalls.push({ source: "authority", name, args });
@@ -217,13 +331,34 @@ test("generated Runway acquisition routes through paid-media authorization and s
     fetchExternalBytes: async () => { throw new Error("must not fetch"); },
     renderReferenceVisual: async () => { throw new Error("must not render"); },
   };
-  const service = new TongsCommitService(supabase, "forge-workpieces", null, () => authority, null, provider, null, runtime);
+  const service = withObserveRunwayBoundary(new TongsCommitService(supabase, "forge-workpieces", null, () => authority, null, provider, null, runtime));
+  service.runwayPaidExecutionBoundary = {
+    async resolveOperationFunding() {
+      return { mode: "observe", rolloutRevision: 1, sharedFundingReady: false, useLegacyAccounting: true, reason: "test observe mode", reservationId: null, fundingSourceType: null };
+    },
+    async authorizeSubmission(input) {
+      boundaryAuthorizations += 1;
+      assert.equal(input.model, "gen4.5");
+      assert.equal(input.durationSeconds, 5);
+      return { mode: "observe", rolloutRevision: 1, providerExecutionAuthorized: false, legacyExecutionAllowed: true, reason: "test observe mode", replay: false, reservationId: null, fundingSourceType: null };
+    },
+    async markSubmissionUnknown() {},
+    async recordDefinitiveRejection() {},
+    async recordProviderFailure() {},
+    async recordCompletionForReconciliation(input, providerTaskId) {
+      boundaryCompletions += 1;
+      assert.equal(input.operationId, "forge:broll:paid-media-test-0003");
+      assert.equal(providerTaskId, "runway-task-durable-2");
+    },
+  };
   service.assertWorkpieceInWorkspace = async () => undefined;
   service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: "11111111-1111-4111-8111-111111111111", role: "editor" });
   const request = { workspace_id: "33333333-3333-4333-8333-333333333333", beat_id: "44444444-4444-4444-8444-444444444444", operation_id: "forge:broll:paid-media-test-0003", operation_fingerprint: "a".repeat(64), source_kind: "generated", provider: "runway", final_prompt: "A slow documentary road transition", poster_required: false, confirm_spend: true, prompt_revision_id: "55555555-5555-4555-8555-555555555555", prompt_revision: 1, prompt_content_hash: "b".repeat(64) };
   const result = await service.acquireBrollCandidate("22222222-2222-4222-8222-222222222222", request, { userAccessToken: "token" });
   assert.equal(result.disposition, "committed");
   assert.equal(providerCalls, 1);
+  assert.equal(boundaryAuthorizations, 1);
+  assert.equal(boundaryCompletions, 1);
   assert.equal(paidRpcCalls.filter((call) => call.name === "create_paid_media_authorization_quote" && call.source === "supabase").length, 1);
   assert.equal(paidRpcCalls.filter((call) => call.name === "approve_and_reserve_paid_media_operation" && call.source === "supabase").length, 1);
   assert.equal(paidRpcCalls.filter((call) => call.name === "begin_paid_media_provider_attempt" && call.source === "supabase").length, 1);
@@ -268,7 +403,7 @@ test("selected Beat 1 route reaches the injected provider and durably records it
   }}}};
   const supabase={storage:{from(){return{async download(){return{data:null,error:{message:"Object not found",statusCode:404}};}}}},schema(){return{async rpc(name){if(name==="create_paid_media_authorization_quote")return{data:{quote:{id:"quote-1",authorized_customer_ceiling:1000}},error:null};if(name==="approve_and_reserve_paid_media_operation")return{data:{operation:{id:"paid-op-1",state:"reserved"}},error:null};if(name==="begin_paid_media_provider_attempt")return{data:{operation:{id:"paid-op-1",state:"submitting"},attempt:{id:"attempt-1",state:"submitting"}},error:null};if(name==="mark_paid_media_delivery")return{data:{operation:{id:"paid-op-1",state:"delivered"}},error:null};if(name==="settle_paid_media_operation")return{data:{operation:{id:"paid-op-1",state:"settled"},receipt:{settled_customer_charge:1_000}},error:null};return{data:{disposition:"ok"},error:null};}}}};
   const provider={async submit(){creates+=1;return{taskId:"runway-task-durable-1",acceptedResponse:{id:"runway-task-durable-1"}};},async poll(id){polls+=1;assert.equal(id,"runway-task-durable-1");return{state:"pending",taskId:id,response:{id,status:"RUNNING"}};}};
-  const service=new TongsCommitService(supabase,"forge-workpieces",null,()=>authority,null,provider);
+  const service=withObserveRunwayBoundary(new TongsCommitService(supabase,"forge-workpieces",null,()=>authority,null,provider));
   assert.equal(service.brollVideoProvider,provider,"the acquire service must retain the exact injected provider instance");
   service.assertWorkpieceInWorkspace=async()=>undefined;service.assertWorkspaceRoleFromAccessToken=async()=>({userId:"11111111-1111-4111-8111-111111111111",role:"editor"});
   const request={workspace_id:"33333333-3333-4333-8333-333333333333",beat_id:"44444444-4444-4444-8444-444444444444",operation_id:"forge:broll:runway-pending-test-0002",operation_fingerprint:"a".repeat(64),source_kind:"generated",provider:"runway",final_prompt:"A slow documentary road transition",poster_required:false,confirm_spend:true,prompt_revision_id:"55555555-5555-4555-8555-555555555555",prompt_revision:1,prompt_content_hash:"b".repeat(64)};

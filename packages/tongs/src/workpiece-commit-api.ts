@@ -54,6 +54,12 @@ import {
   type HammerHistoryEpochHeadRequest,
 } from "./hammer-history-epoch-head-coordinator.js";
 import {
+  SupabaseRunwayPaidExecutionBoundary,
+  type RunwayPaidExecutionBoundary,
+  type RunwaySubmissionAuthorization,
+  type RunwaySubmissionAuthorizationInput,
+} from "./providers/runway-paid-execution-boundary.js";
+import {
   coordinateHammerHistoryAtomicComponentHead,
   isProtectedHammerHistoryAtomicStagingPath,
   type HammerHistoryAtomicCoordinatorAdapter,
@@ -2433,6 +2439,7 @@ export type TongsCommitApiOptions = {
   openAiTextModel?: string;
   runwayApiKey?: string;
   brollVideoProvider?: BrollVideoProvider;
+  runwayPaidExecutionBoundary?: RunwayPaidExecutionBoundary;
   brollAcquisitionRuntime?: BrollAcquisitionRuntime;
   unifiedVisualPlanProvider?: UnifiedVisualPlanProvider;
 };
@@ -9224,6 +9231,7 @@ export class TongsCommitService {
   readonly imageProvider: ImageProvider | null;
   readonly narrativeInterpretationProvider: NarrativeInterpretationProvider | null;
   readonly brollVideoProvider: BrollVideoProvider | null;
+  readonly runwayPaidExecutionBoundary: RunwayPaidExecutionBoundary | null;
   readonly brollMotionInterpretationProvider: BrollMotionInterpretationProvider | null;
   readonly brollAcquisitionRuntime: BrollAcquisitionRuntime;
   readonly unifiedVisualPlanProvider: UnifiedVisualPlanProvider | null;
@@ -9244,6 +9252,7 @@ export class TongsCommitService {
     brollMotionInterpretationProvider: BrollMotionInterpretationProvider | null = null,
     brollAcquisitionRuntime: BrollAcquisitionRuntime = new LazyBrollAcquisitionRuntime(),
     unifiedVisualPlanProvider: UnifiedVisualPlanProvider | null = null,
+    runwayPaidExecutionBoundary: RunwayPaidExecutionBoundary | null = null,
   ) {
     this.supabase = supabase;
     this.bucket = bucket;
@@ -9254,6 +9263,7 @@ export class TongsCommitService {
     this.brollMotionInterpretationProvider = brollMotionInterpretationProvider;
     this.brollAcquisitionRuntime = brollAcquisitionRuntime;
     this.unifiedVisualPlanProvider = unifiedVisualPlanProvider;
+    this.runwayPaidExecutionBoundary = runwayPaidExecutionBoundary;
   }
 
   private async getCradleOrThrow(workpieceId: string): Promise<EpisodeRow> {
@@ -30130,6 +30140,9 @@ export class TongsCommitService {
 
     let video: VerifiedBrollMedia | null = null;
     let paidContext: PaidImageGenerationContext | null = null;
+    let runwayBoundaryInput: RunwaySubmissionAuthorizationInput | null = null;
+    let runwayBoundaryAuthorization: RunwaySubmissionAuthorization | null =
+      null;
     const inspectBrollMedia = this.brollAcquisitionRuntime.inspectMedia.bind(
       this.brollAcquisitionRuntime,
     );
@@ -30147,13 +30160,72 @@ export class TongsCommitService {
           "broll_video_provider_unavailable",
           "No replay-safe B-roll video provider is configured.",
         );
+      if (!this.runwayPaidExecutionBoundary)
+        throw new HttpError(
+          503,
+          "runway_funding_boundary_unavailable",
+          "Runway cannot run because its paid-execution boundary is unavailable.",
+        );
       const creatorApproved = Boolean(
         input.confirm_spend || input.always_approve_ai_spend,
       );
       const model = input.runway_model ?? "gen4.5";
       const durationSeconds = input.duration_seconds ?? 5;
       const ratio = input.ratio ?? "1280:720";
-      if (!creatorApproved) {
+      if (model !== "gen4.5")
+        throw new HttpError(
+          503,
+          "runway_pricing_not_configured",
+          "Runway paid execution is currently configured only for Gen-4.5.",
+        );
+      let operationFunding;
+      try {
+        operationFunding =
+          await this.runwayPaidExecutionBoundary.resolveOperationFunding({
+            operationId: input.operation_id,
+            operationFingerprint: input.operation_fingerprint,
+            userId: auth.userId,
+            workspaceId: input.workspace_id,
+            model,
+            durationSeconds,
+            ratio,
+          });
+      } catch (error) {
+        throw new HttpError(
+          503,
+          "runway_funding_boundary_unavailable",
+          "Runway cannot continue because operation funding could not be resolved.",
+          {
+            reason: error instanceof Error ? error.message : String(error),
+            transmitted: false,
+          },
+        );
+      }
+      const mayCreateProviderTask =
+        state == null || state === "pending" || state === "submitting";
+      if (
+        mayCreateProviderTask &&
+        operationFunding.mode !== "observe" &&
+        !operationFunding.sharedFundingReady
+      ) {
+        const halted = operationFunding.mode === "halt_new";
+        throw new HttpError(
+          halted ? 503 : 402,
+          halted
+            ? "runway_paid_submissions_halted"
+            : "runway_funding_required",
+          halted
+            ? "New Runway submissions are halted. Existing jobs can still be polled and reconciled."
+            : "A matching full-cost reservation is required before Runway can be called.",
+          {
+            mode: operationFunding.mode,
+            reason: operationFunding.reason,
+            reservation_id: operationFunding.reservationId,
+            transmitted: false,
+          },
+        );
+      }
+      if (operationFunding.useLegacyAccounting && !creatorApproved) {
         const quote = await this.preparePaidImageQuote({
           userId: auth.userId,
           workspaceId: input.workspace_id,
@@ -30204,21 +30276,22 @@ export class TongsCommitService {
           },
         );
       }
-      paidContext = await this.executePaidMediaBrollGeneration({
-        userId: auth.userId,
-        workspaceId: input.workspace_id,
-        workpieceId,
-        operationId: input.operation_id,
-        tool: "tongs_broll_v2",
-        originatingEntityId: null,
-        promptRevisionId: input.prompt_revision_id ?? null,
-        promptContentHash: input.prompt_content_hash ?? "",
-        prompt: input.final_prompt,
-        creatorApproved: true,
-        model,
-        durationSeconds,
-        ratio,
-      });
+      if (operationFunding.useLegacyAccounting)
+        paidContext = await this.executePaidMediaBrollGeneration({
+          userId: auth.userId,
+          workspaceId: input.workspace_id,
+          workpieceId,
+          operationId: input.operation_id,
+          tool: "tongs_broll_v2",
+          originatingEntityId: null,
+          promptRevisionId: input.prompt_revision_id ?? null,
+          promptContentHash: input.prompt_content_hash ?? "",
+          prompt: input.final_prompt,
+          creatorApproved: true,
+          model,
+          durationSeconds,
+          ratio,
+        });
       const recoveredStored =
         state === "pending"
           ? await downloadStorageObject(this.supabase, this.bucket, videoKey)
@@ -30296,6 +30369,58 @@ export class TongsCommitService {
           ? reserved.data.operation
           : null;
         if (disposition === "submitting") {
+          runwayBoundaryInput = {
+            operationId: input.operation_id,
+            operationFingerprint: input.operation_fingerprint,
+            submissionAttemptId: attemptId,
+            userId: auth.userId,
+            workspaceId: input.workspace_id,
+            model,
+            durationSeconds,
+            ratio,
+          };
+          try {
+            runwayBoundaryAuthorization =
+              await this.runwayPaidExecutionBoundary.authorizeSubmission(
+                runwayBoundaryInput,
+              );
+          } catch (error) {
+            throw new HttpError(
+              503,
+              "runway_funding_boundary_unavailable",
+              "Runway cannot submit because funding authorization could not be verified.",
+              {
+                reason: error instanceof Error ? error.message : String(error),
+                transmitted: false,
+              },
+            );
+          }
+          if (
+            !runwayBoundaryAuthorization.providerExecutionAuthorized &&
+            !runwayBoundaryAuthorization.legacyExecutionAllowed
+          ) {
+            const halted = runwayBoundaryAuthorization.mode === "halt_new";
+            const duplicate = runwayBoundaryAuthorization.replay;
+            throw new HttpError(
+              halted ? 503 : duplicate ? 409 : 402,
+              halted
+                ? "runway_paid_submissions_halted"
+                : duplicate
+                  ? "runway_duplicate_submission_blocked"
+                  : "runway_funding_required",
+              halted
+                ? "New Runway submissions are halted. Existing jobs can still be polled and reconciled."
+                : duplicate
+                  ? "This Runway attempt has already crossed the paid boundary and cannot be submitted again automatically."
+                  : "A matching full-cost reservation is required before Runway can be called.",
+              {
+                mode: runwayBoundaryAuthorization.mode,
+                reason: runwayBoundaryAuthorization.reason,
+                reservation_id: runwayBoundaryAuthorization.reservationId,
+                transmitted: false,
+              },
+            );
+          }
           try {
             const submitted = await this.brollVideoProvider.submit({
               prompt: input.final_prompt,
@@ -30343,6 +30468,12 @@ export class TongsCommitService {
               evidence: { stage: "submit", transmitted: "unknown" },
             };
             if (transport.ambiguous) {
+              if (runwayBoundaryInput && runwayBoundaryAuthorization)
+                await this.runwayPaidExecutionBoundary.markSubmissionUnknown(
+                  runwayBoundaryAuthorization,
+                  runwayBoundaryInput,
+                  transport.evidence,
+                );
               await authority.rpc("mark_broll_submission_unknown", {
                 p_operation_id: input.operation_id,
                 p_operation_fingerprint: input.operation_fingerprint,
@@ -30378,6 +30509,12 @@ export class TongsCommitService {
                 p_rejection_evidence: transport.evidence,
               },
             );
+            if (runwayBoundaryInput && runwayBoundaryAuthorization)
+              await this.runwayPaidExecutionBoundary.recordDefinitiveRejection(
+                runwayBoundaryAuthorization,
+                runwayBoundaryInput,
+                transport.evidence,
+              );
             if (
               rejected.error ||
               !isRecord(rejected.data) ||
@@ -30469,6 +30606,25 @@ export class TongsCommitService {
           };
         }
         if (task.state === "failed") {
+          const reconciliationInput: RunwaySubmissionAuthorizationInput =
+            runwayBoundaryInput ?? {
+              operationId: input.operation_id,
+              operationFingerprint: input.operation_fingerprint,
+              submissionAttemptId:
+                (operation
+                  ? readStringField(operation, "submission_attempt_id")
+                  : null) ?? input.operation_id,
+              userId: auth.userId,
+              workspaceId: input.workspace_id,
+              model,
+              durationSeconds,
+              ratio,
+            };
+          await this.runwayPaidExecutionBoundary.recordProviderFailure(
+            reconciliationInput,
+            taskId,
+            task.response,
+          );
           await authority.rpc("record_broll_runway_pending", {
             p_operation_id: input.operation_id,
             p_operation_fingerprint: input.operation_fingerprint,
@@ -30499,6 +30655,25 @@ export class TongsCommitService {
             "broll_runway_completion_receipt_failed",
             completed.error.message,
           );
+        const reconciliationInput: RunwaySubmissionAuthorizationInput =
+          runwayBoundaryInput ?? {
+            operationId: input.operation_id,
+            operationFingerprint: input.operation_fingerprint,
+            submissionAttemptId:
+              (operation
+                ? readStringField(operation, "submission_attempt_id")
+                : null) ?? input.operation_id,
+            userId: auth.userId,
+            workspaceId: input.workspace_id,
+            model,
+            durationSeconds,
+            ratio,
+          };
+        await this.runwayPaidExecutionBoundary.recordCompletionForReconciliation(
+          reconciliationInput,
+          taskId,
+          task.response,
+        );
         state = "provider_completed";
         input.provider = "runway";
         input.provider_request_id = taskId;
@@ -33718,6 +33893,10 @@ export function createTongsCommitService(
     brollMotionInterpretationProvider,
     options.brollAcquisitionRuntime,
     unifiedVisualPlanProvider,
+    options.runwayPaidExecutionBoundary ??
+      new SupabaseRunwayPaidExecutionBoundary(
+        supabase.schema("tongs") as unknown as UntypedTongsSchemaClient,
+      ),
   );
 }
 
