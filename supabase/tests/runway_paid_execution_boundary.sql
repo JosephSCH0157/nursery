@@ -28,11 +28,11 @@ declare
       'failure_ceiling_micros',600000,'cost_policy_revision','runway-12-credits-per-second-2026-09-07',
       'tail_policy','none'),
     jsonb_build_object('component_code','forge-processing','component_kind','compute',
-      'credential_funding','forge','provider_label','Forge compute','success_ceiling_micros',25000,
-      'failure_ceiling_micros',25000,'cost_policy_revision','test-support-ceiling-v1',
+      'credential_funding','forge','provider_label','Forge compute','success_ceiling_micros',75000,
+      'failure_ceiling_micros',75000,'cost_policy_revision','test-support-ceiling-v1',
       'tail_policy','none'),
     jsonb_build_object('component_code','retained-output','component_kind','retention_tail',
-      'credential_funding','forge','provider_label','Supabase Storage','success_ceiling_micros',25000,
+      'credential_funding','forge','provider_label','Supabase Storage','success_ceiling_micros',75000,
       'failure_ceiling_micros',0,'cost_policy_revision','test-support-ceiling-v1',
       'tail_policy','included_until','tail_policy_details',jsonb_build_object('included_until','2026-10-07T00:00:00Z'))
   );
@@ -44,17 +44,17 @@ begin
   perform tongs.commit_private_pricing_revision(
     '9e000000-0000-4000-8000-000000000010','owner-runway-gen45-5s-16x9',
     'sku','runway','gen4.5:5s:1280:720',0,
-    '9e000000-0000-4000-8000-000000000011',0,65,'usd',v_components,
+    '9e000000-0000-4000-8000-000000000011',null,null,'usd',v_components,
     '["provider_billed_failure"]','["prebilling_rejection"]','{"duration_seconds":5,"outputs":1}',
     '{"kind":"included_until","included_until":"2026-10-07T00:00:00Z"}',
     'transaction-scoped owner Runway boundary test');
   perform tongs.create_owner_operating_budget_draft(
-    '9e000000-0000-4000-8000-000000000020','development',
+    '9e000000-0000-4000-8000-000000000020','production',
     '9e000000-0000-4000-8000-000000000002','runway','tongs_broll_v2',
     'gen4.5:5s:1280:720','usd',now()-interval '1 hour',now()+interval '1 day',
     'transaction-scoped owner Runway boundary test');
   perform tongs.revise_owner_operating_budget(
-    '9e000000-0000-4000-8000-000000000020','active',1300000,
+    '9e000000-0000-4000-8000-000000000020','active',750000,
     'transaction-scoped owner Runway boundary test');
 end $$;
 
@@ -82,50 +82,25 @@ begin
      or (v_result->>'provider_execution_authorized')::boolean then
     raise exception 'observe mode did not remain non-funded and non-activating: %',v_result;
   end if;
-  perform tongs.create_shadow_spending_quote(
-    '9e000000-0000-4000-8000-000000000030','9e000000-0000-4000-8000-000000000001',
-    'forge:broll:funded-owner-operation','tongs_broll_v2','9e000000-0000-4000-8000-000000000002',
-    '9e000000-0000-4000-8000-000000000011',repeat('a',64),
-    '[{"component":"generation","provider_label":"Runway","credential_source":"forge"},
-      {"component":"processing","provider_label":"Forge compute","credential_source":"forge"},
-      {"component":"retention","provider_label":"Supabase Storage","credential_source":"forge"}]',
-    now()+interval '1 hour');
-end $$;
-
-reset role;
-set local request.jwt.claim.role='authenticated';
-set local request.jwt.claim.sub='9e000000-0000-4000-8000-000000000001';
-set local role authenticated;
-
-do $$
-begin
-  perform tongs.accept_quote(
+  perform tongs.create_owner_runway_spending_quote(
     '9e000000-0000-4000-8000-000000000030','9e000000-0000-4000-8000-000000000031',
-    'accept-owner-runway-boundary',
-    tongs.read_my_spending_quote('9e000000-0000-4000-8000-000000000030')->>'quote_hash');
+    'accept-owner-runway-boundary','9e000000-0000-4000-8000-000000000001',
+    'forge:broll:funded-owner-operation','9e000000-0000-4000-8000-000000000002',
+    '9e000000-0000-4000-8000-000000000011',repeat('a',64),
+    'gen4.5',5,'1280:720',now()+interval '1 hour');
 end $$;
 
 reset role;
 set local request.jwt.claim.role='service_role';
 set local request.jwt.claim.sub='';
-
-do $$
-begin
-  insert into tongs.paid_execution_control_revisions(
-    revision,pricing_activation_enabled,reservation_shadow_enabled,customer_settlement_enabled,
-    owner_budget_spending_enabled,provider_execution_enabled,reason,actor_id
-  ) values (2,true,true,false,true,true,'transaction-scoped Runway owner pilot test',
-    '9e000000-0000-4000-8000-000000000001');
-end $$;
-
 set local role service_role;
 
 do $$
 begin
-  perform tongs.reserve_operation(
+  perform tongs.reserve_owner_runway_operation(
     '9e000000-0000-4000-8000-000000000040','9e000000-0000-4000-8000-000000000030',
-    'owner_budget','9e000000-0000-4000-8000-000000000020','reserve-owner-runway-boundary');
-  perform tongs.bind_runway_funding_reservation(
+    '9e000000-0000-4000-8000-000000000020','reserve-owner-runway-boundary');
+  perform tongs.bind_owner_runway_funding_reservation(
     'forge:broll:funded-owner-operation',repeat('a',64),
     '9e000000-0000-4000-8000-000000000040','9e000000-0000-4000-8000-000000000001',
     '9e000000-0000-4000-8000-000000000002','gen4.5',5,'1280:720');
@@ -138,6 +113,7 @@ set local role authenticated;
 
 do $$
 begin
+  perform tongs.activate_owner_runway_pilot_controls('transaction-scoped Runway owner pilot test');
   perform tongs.set_runway_execution_rollout_mode('enforce','transaction-scoped owner pilot cutover');
 end $$;
 
@@ -182,10 +158,31 @@ begin
      or (v_result->>'customer_revenue_micros')::bigint<>0 then
     raise exception 'Runway completion did not remain pending actual support reconciliation: %',v_result;
   end if;
+end $$;
+
+reset role;
+set local request.jwt.claim.role='authenticated';
+set local request.jwt.claim.sub='9e000000-0000-4000-8000-000000000001';
+set local role authenticated;
+
+do $$ begin
+  perform tongs.revise_owner_operating_budget(
+    '9e000000-0000-4000-8000-000000000020','closed',750000,
+    'transaction-scoped close before final reconciliation');
+end $$;
+
+reset role;
+set local request.jwt.claim.role='service_role';
+set local request.jwt.claim.sub='';
+set local role service_role;
+
+do $$
+declare v_result jsonb;
+begin
   v_result := tongs.reconcile_runway_execution(
     'forge:broll:funded-owner-operation',600000,40000,
     '9e000000-0000-4000-8000-000000000050','settle-owner-runway-boundary',
-    '{"fake_provider":true,"supporting_costs_measured":true}');
+    '{"fake_provider":true,"supporting_costs_measured":true,"budget_closed":true}');
   if (v_result->>'owner_expense_micros')::bigint<>640000
      or (v_result->>'customer_revenue_micros')::bigint<>0
      or v_result->>'margin'<>'not_applicable' then
