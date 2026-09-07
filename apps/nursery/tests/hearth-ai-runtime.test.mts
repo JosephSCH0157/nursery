@@ -1220,6 +1220,81 @@ test("createHearthAiHandler routes the Church Street factual canary through vali
   }
 });
 
+test("createHearthAiHandler exposes Church Street refinement attempts and segregates Canopy context", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key", researchApiKey: "brave-test-key" }));
+  const originalFetch = globalThis.fetch;
+  const queries: string[] = [];
+  const question = "When was Church Street's heyday, what caused its decline, and what is Orlando spending on the current redevelopment?";
+
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url.startsWith("https://api.search.brave.com/res/v1/web/search")) {
+      queries.push(new URL(url).searchParams.get("q") ?? "");
+      return new Response(JSON.stringify({ web: { results: [{
+        title: "Church Street project overview",
+        url: "https://orlando.gov/church-street-overview",
+        description: "Church Street history and adjacent downtown projects.",
+      }] } }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    if (url === "https://orlando.gov/church-street-overview") {
+      const text = "Church Street was a major destination in the 1980s and declined because competing districts drew visitors away. Separately, Orlando's nearby Canopy project has a $2 billion budget. ";
+      return new Response(`<main>${text.repeat(8)}</main>`, { status: 200, headers: { "content-type": "text/html" } });
+    }
+    if (url === "https://api.openai.com/v1/chat/completions") {
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({
+          assistantText: "Church Street research findings.",
+          ops: [],
+          research_artifact: researchArtifactFromPrompt(
+            init,
+            "Church Street redevelopment means streetscape and connectivity projects like the Canopy.",
+            "partial",
+          ),
+        }) } }],
+        usage: { total_tokens: 80 },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [
+          { role: "user", content: question },
+          { role: "assistant", content: "Earlier Church Street research response." },
+          { role: "user", content: question },
+        ],
+        episode_context: buildEpisodeContext({
+          episodeId: "33333333-3333-4333-8333-333333333333",
+          workspaceId: null,
+          title: "Church Street Orlando",
+          body: "Church Street Station heyday, decline, and current redevelopment.",
+        }),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+    const payload = await response.json();
+    const assistantText = String(payload.assistant_text ?? "");
+    assert.equal(response.status, 200, JSON.stringify(payload));
+    assert.equal(queries.some((query) => /contract award|council agenda/i.test(query)), true);
+    assert.equal(payload.research_result?.synthesis?.refinementQueries?.some((query: string) => /contract award|council agenda/i.test(query)), true);
+    assert.equal(payload.research_result?.synthesis?.unresolvedGoals?.some((goal: string) => /spending/i.test(goal)), true);
+    assert.match(assistantText, /Bounded refinement attempts/i);
+    assert.match(assistantText, /Unresolved explicit goals/i);
+    assert.match(assistantText, /asked this exact question before.*fresh research check/i);
+    assert.match(assistantText, /tried the official-budget refinement.*could not verify/i);
+    assert.doesNotMatch(assistantText, /official budget contract award council agenda procurement/i);
+    assert.match(assistantText, /Adjacent context\s*\n\s*- .*Canopy/i);
+    assert.doesNotMatch(assistantText, /Validated (?:partial )?findings\s*\n\s*- .*Canopy/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("createHearthAiHandler returns retrieval-backed canonical research results when provider is configured", async () => {
   const handler = createHearthAiHandler(buildConfig({
     textApiKey: "test-key",

@@ -1599,6 +1599,7 @@ function buildSystemPrompt(
       "- For complete or partial work, return research_artifact with the exact briefFingerprint and workpieceId from the brief.",
       "- Each factual finding must name one or more sourceIds from inspected current-request evidence. Use status verified_fact, reported_claim, or uncertain.",
       "- Editorial interpretation, including a causal connection inferred only from chronology, must use status editorial_interpretation and must not masquerade as a sourced fact.",
+      "- When evidence establishes only sequence, say that events coincided or that one followed the other; do not say an ownership or financial change caused decline.",
       "- Set finding scope to current_subject only when it answers the named subject in the brief. Label separate nearby projects or entities adjacent_context and never use their spending, scope, or timeline to answer for the current subject.",
       "- Return uncertainties and conflicts explicitly. Never fill a gap from background knowledge.",
       "- If evidence is absent or unusable, return a failed artifact with no findings and say clearly that no validated findings were produced.",
@@ -1987,11 +1988,87 @@ function validateResearchArtifact(result: HearthResearchResult): HearthResearchA
       source.provenance?.origin !== "saved_episode_source"
       && source.provenance?.inspectionStatus !== "inspected"
     ));
+  const scopedFindings = substantive.flatMap((finding) => {
+    const split = splitBlendedAdjacentContext(finding.text);
+    if (split) {
+      return [
+        { ...finding, text: split.currentSubject, scope: "current_subject" as const },
+        { ...finding, text: split.adjacentContext, scope: "adjacent_context" as const },
+      ];
+    }
+    return [{
+      ...finding,
+      scope: finding.scope === "adjacent_context"
+        || describesNamedProjectOutsideBrief(finding.text, brief)
+        || /\b(?:separate(?:ly)?|adjacent|nearby|broader)\b|\b(?:projects?|initiatives?|developments?)\s+(?:such as|like|including)\b/i.test(finding.text)
+        ? "adjacent_context" as const
+        : "current_subject" as const,
+    }];
+  });
   return {
     ...artifact,
-    status: artifact.status === "complete" && currentRetrievalIncomplete ? "partial" : artifact.status,
-    findings: substantive,
+    status: artifact.status === "complete" && (currentRetrievalIncomplete || scopedFindings.every((finding) => finding.scope === "adjacent_context")) ? "partial" : artifact.status,
+    findings: scopedFindings,
+    editorialInterpretation: artifact.editorialInterpretation.flatMap(normalizeEditorialInterpretation),
   };
+}
+
+function sentenceCase(value: string): string {
+  const clean = value.trim().replace(/[.]+$/, "");
+  return clean ? `${clean[0].toUpperCase()}${clean.slice(1)}.` : "";
+}
+
+function describesNamedProjectOutsideBrief(value: string, brief: HearthResearchBrief): boolean {
+  const match = value.match(/\bproject\s+(?:called|named)\s+(?:the\s+)?([A-Z][A-Za-z0-9'’&-]*(?:\s+[A-Z][A-Za-z0-9'’&-]*){0,4})\b/);
+  if (!match?.[1]) return false;
+  const namedTokens = normalizedRepeatedRequest(match[1]).split(" ").filter((token) => token.length >= 3);
+  if (namedTokens.length === 0) return false;
+  const briefTokens = new Set(normalizedRepeatedRequest(`${brief.episodeTitle} ${brief.creatorRequest}`).split(" "));
+  const overlapCount = namedTokens.filter((token) => briefTokens.has(token)).length;
+  return overlapCount < Math.min(2, namedTokens.length);
+}
+
+function splitBlendedAdjacentContext(value: string): { currentSubject: string; adjacentContext: string } | null {
+  const match = value.trim().match(/^(.+?)(?:\s*\+\s*|\s+and\s+)([^.;]*\b(?:projects?|initiatives?|developments?)\s+(?:such as|like|including)\s+.+?)\.?$/i);
+  if (!match) return null;
+  const currentSubject = sentenceCase(match[1]);
+  const adjacentDescription = match[2].trim().replace(/^adjacent\s+/i, "").replace(/[.]+$/, "");
+  if (!currentSubject || !adjacentDescription) return null;
+  return {
+    currentSubject,
+    adjacentContext: `Separately, adjacent ${adjacentDescription} may affect the broader context.`,
+  };
+}
+
+function normalizeEditorialInterpretation(value: string): string[] {
+  const split = splitBlendedAdjacentContext(value);
+  const parts = split ? [split.currentSubject, split.adjacentContext] : [value];
+  return parts.map((part) => {
+    let normalized = part
+      .replace(/\bownership\s*(?:\/|and)\s*financial turbulence\b/gi, "ownership transition")
+      .replace(/\bfinancial turbulence\b/gi, "ownership transition");
+    if (/\bownership transition\b/i.test(normalized) && !/\bcoincid(?:e|ed|ing)\b/i.test(normalized)) {
+      normalized = normalized.replace(/\bownership transition\b/i, "ownership transition (which coincided with the later decline)");
+    }
+    return normalized.trim();
+  }).filter(Boolean);
+}
+
+function refinementPresentationLines(result: HearthResearchResult): string[] {
+  const refinementQueries = result.synthesis.refinementQueries ?? [];
+  const unresolvedGoals = result.synthesis.unresolvedGoals ?? [];
+  const attemptCount = refinementQueries.length;
+  if (attemptCount === 0) return [];
+  const attemptLabel = attemptCount === 1 ? "follow-up search was" : "follow-up searches were";
+  const lines = [`- ${attemptCount} bounded goal-specific ${attemptLabel} attempted.`];
+  const moneyPattern = /\b(?:how much|spend|spending|budget|cost|funding|investment|contract award)\b/i;
+  if ([...unresolvedGoals, ...refinementQueries].some((value) => moneyPattern.test(value))) {
+    lines.push("- I tried the official-budget refinement and still could not verify the exact project amount from accessible current-request sources.");
+  }
+  for (const goal of unresolvedGoals.filter((value) => !moneyPattern.test(value))) {
+    lines.push(`- I tried a goal-specific refinement and still could not verify: ${goal}.`);
+  }
+  return lines;
 }
 
 export function composeGroundedResearchAnswer(result: HearthResearchResult): string | null {
@@ -1999,19 +2076,31 @@ export function composeGroundedResearchAnswer(result: HearthResearchResult): str
   if (!artifact || artifact.status === "failed") return null;
   const sourceById = new Map(result.sources.map((source) => [source.sourceId, source]));
   const citedIds = new Set(artifact.findings.flatMap((finding) => finding.sourceIds));
-  const findingLines = artifact.findings.map((finding) => {
+  const renderFinding = (finding: HearthResearchArtifact["findings"][number]) => {
     const citations = finding.sourceIds.map((id) => `[${id}]`).join(" ");
-    const scope = finding.scope === "adjacent_context" ? "Adjacent context — " : "";
-    return `- ${scope}${finding.text}${citations ? ` ${citations}` : ""}`;
-  });
+    return `- ${finding.text}${citations ? ` ${citations}` : ""}`;
+  };
+  const currentFindingLines = artifact.findings.filter((finding) => finding.scope !== "adjacent_context").map(renderFinding);
+  const adjacentFindingLines = artifact.findings.filter((finding) => finding.scope === "adjacent_context").map(renderFinding);
+  const refinementLines = refinementPresentationLines(result);
   const inaccessible = result.sources.filter((source) => source.provenance?.inspectionStatus === "inaccessible");
   const referenceLines = [...citedIds]
     .map((sourceId) => sourceById.get(sourceId))
     .filter((source): source is HearthResearchSource => Boolean(source))
     .map((source) => `- [${source.sourceId}] ${sourcePublisher(source)} — ${authorityLabel(source)} — ${source.canonicalUrl || source.url}`);
   return [
-    artifact.status === "complete" ? "Validated findings" : "Validated partial findings",
-    findingLines.join("\n"),
+    ...(currentFindingLines.length ? [artifact.status === "complete" ? "Validated findings" : "Validated partial findings", currentFindingLines.join("\n")] : []),
+    ...(adjacentFindingLines.length ? ["Adjacent context", adjacentFindingLines.join("\n")] : []),
+    "Research coverage",
+    `- ${result.synthesis.coverageNote || "Coverage details unavailable."}`,
+    ...(refinementLines.length ? [
+      "Bounded refinement attempts",
+      refinementLines.join("\n"),
+    ] : []),
+    ...(result.synthesis.unresolvedGoals?.length ? [
+      "Unresolved explicit goals",
+      result.synthesis.unresolvedGoals.map((goal) => `- ${goal}`).join("\n"),
+    ] : []),
     "Uncertainty and conflicts",
     artifact.uncertainties.length ? artifact.uncertainties.map((item) => `- ${item}`).join("\n") : "- None identified in the inspected evidence.",
     "Editorial interpretation",
@@ -2029,13 +2118,19 @@ export function enforceResearchOutcomeReply(args: {
   assistantText: string;
   request: HearthResearchRequest;
   result: HearthResearchResult;
+  repeatedRequestCount?: number;
 }): string {
+  const repeatLead = (args.repeatedRequestCount ?? 0) > 0
+    ? (args.repeatedRequestCount ?? 0) > 1
+      ? "You’ve asked this exact question a few times in this Episode, so I treated this as another fresh research check."
+      : "You’ve asked this exact question before in this Episode, so I treated this as a fresh research check."
+    : null;
   const groundedAnswer = composeGroundedResearchAnswer(args.result);
   if (groundedAnswer) {
     const groundedLead = args.result.artifact?.status === "partial" || args.result.runtimeStatus === "partial"
       ? "Research outcome: Partial. The validated findings and remaining uncertainty are separated below."
       : "Research outcome: Complete. A validated findings artifact is present below."
-    return `${groundedLead}\n\n${groundedAnswer}`;
+    return [repeatLead, groundedLead, groundedAnswer].filter(Boolean).join("\n\n");
   }
   const inaccessible = args.result.sources.filter((source) => source.provenance?.inspectionStatus === "inaccessible");
   const reason = args.result.providerStatus === "not_configured"
@@ -2049,10 +2144,28 @@ export function enforceResearchOutcomeReply(args: {
           : "Hearth did not produce a validated, substantive findings artifact from the current-request evidence.";
   const accessLines = inaccessible.map((source) => `- ${source.url} — ${source.provenance?.accessFailureReason || "extraction_failed"}.`);
   return [
+    ...(repeatLead ? [repeatLead] : []),
     "Research outcome: Failed. No research pack was completed.",
     reason,
     ...(accessLines.length ? ["Inaccessible sources (creator assistance may be needed only for these):", accessLines.join("\n")] : []),
   ].join("\n\n");
+}
+
+function normalizedRepeatedRequest(value: string): string {
+  return stripHearthInternalRequestInstructions(value)
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[’]/g, "'")
+    .replace(/[^a-z0-9']+/g, " ")
+    .trim();
+}
+
+function countRepeatedCreatorRequests(requestText: string, priorMessages: ChatMessage[]): number {
+  const target = normalizedRepeatedRequest(requestText);
+  if (target.length < 12) return 0;
+  return priorMessages.filter((message) => (
+    message.role === "user" && normalizedRepeatedRequest(message.content) === target
+  )).length;
 }
 
 function buildCrossProjectScopeLead(resolution: CrossProjectReferenceResolution): string | null {
@@ -3652,6 +3765,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       // route them through research or prepend a research outcome envelope.
       const researchModeRequested = !productionAction
         && (linkModeRequested || isResearchIntentRequest(researchIntentText || requestText));
+      const repeatedResearchRequestCount = researchModeRequested
+        ? countRepeatedCreatorRequests(researchIntentText || requestText, priorMessages)
+        : 0;
       const estimatedInputTokens = Math.max(
         1,
         Math.ceil(
@@ -4141,6 +4257,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             assistantText: structured.assistantText,
             request: researchRequest,
             result: researchResult,
+            repeatedRequestCount: repeatedResearchRequestCount,
           });
         }
 

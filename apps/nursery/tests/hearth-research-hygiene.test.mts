@@ -110,6 +110,17 @@ test("runtime performs a bounded refinement when an explicit money goal remains 
     assert.equal(queries.some((query) => /contract award|council agenda/i.test(query)), true);
     assert.equal(result.brief?.queries.some((query) => /contract award|council agenda/i.test(query)), true);
     assert.match(result.evidence?.map((entry) => entry.excerpt).join(" ") ?? "", /\$5\.5 million/i);
+    result.artifact = {
+      briefFingerprint: activeBrief.briefFingerprint,
+      workpieceId: activeBrief.workpieceId,
+      status: "complete",
+      findings: [{ text: "The adopted Church Street construction contract is $5.5 million.", status: "verified_fact", sourceIds: [result.sources[0].sourceId], scope: "current_subject" }],
+      uncertainties: [],
+      editorialInterpretation: [],
+    };
+    const rendered = composeGroundedResearchAnswer(result) ?? "";
+    assert.match(rendered, /Bounded refinement attempts/i);
+    assert.match(rendered, /contract award|council agenda/i);
   } finally { globalThis.fetch = originalFetch; }
 });
 
@@ -204,8 +215,17 @@ test("adjacent projects are visibly labeled instead of blended into the queried 
   const activeBrief = brief("workpiece-church", "Church Street redevelopment scope and budget", "fp-scope");
   activeBrief.episodeTitle = "Church Street Orlando";
   const source: HearthResearchSource = { sourceId: "retrieval-1", title: "Downtown projects", url: "https://orlando.gov/downtown", domain: "orlando.gov", publishedAt: null, snippet: null, extractedText: "Separately, Orlando is developing the Canopy nearby as another downtown connectivity project.", extractionStatus: "extracted", extractionError: null, provenance: { origin: "search", briefFingerprint: activeBrief.briefFingerprint, inspectedAt: new Date().toISOString(), inspectionStatus: "inspected", accessFailureReason: null, verifiedInCurrentRequest: true } };
-  const result: HearthResearchResult = { mode: "retrieval_first", runtimeStatus: "ok", providerStatus: "configured_and_operational", brief: activeBrief, sources: [source], evidence: [{ evidenceId: "e-1", briefFingerprint: activeBrief.briefFingerprint, workpieceId: activeBrief.workpieceId, sourceId: source.sourceId, excerpt: source.extractedText, authority: "primary_government", state: "inspected", uncertainty: null }], artifact: { briefFingerprint: activeBrief.briefFingerprint, workpieceId: activeBrief.workpieceId, status: "complete", findings: [{ text: "Orlando is also developing the Canopy nearby as a separate downtown project.", status: "reported_claim", sourceIds: [source.sourceId], scope: "adjacent_context" } as HearthResearchArtifact["findings"][number]], uncertainties: [], editorialInterpretation: [] }, synthesis: { summary: "one", keyPoints: [], uncertainties: [], coverageNote: "1/1" } };
-  assert.match(composeGroundedResearchAnswer(result) ?? "", /Adjacent context/i);
+  const result: HearthResearchResult = { mode: "retrieval_first", runtimeStatus: "ok", providerStatus: "configured_and_operational", brief: activeBrief, sources: [source], evidence: [{ evidenceId: "e-1", briefFingerprint: activeBrief.briefFingerprint, workpieceId: activeBrief.workpieceId, sourceId: source.sourceId, excerpt: source.extractedText, authority: "primary_government", state: "inspected", uncertainty: null }], artifact: { briefFingerprint: activeBrief.briefFingerprint, workpieceId: activeBrief.workpieceId, status: "complete", findings: [{ text: "Church Street redevelopment means streetscape and connectivity projects like the Canopy.", status: "reported_claim", sourceIds: [source.sourceId], scope: "current_subject" }, { text: "The city is working on a project called the Canopy to create a pedestrian passage and festival space.", status: "reported_claim", sourceIds: [source.sourceId], scope: "current_subject" }] as HearthResearchArtifact["findings"], uncertainties: [], editorialInterpretation: ["redevelopment = streetscape + connectivity projects like the Canopy", "competition + ownership/financial turbulence + later foot-traffic shifts"] }, synthesis: { summary: "one", keyPoints: [], uncertainties: [], coverageNote: "1/1", refinementQueries: ["Church Street Orlando current redevelopment official budget contract award"], unresolvedGoals: [] } };
+  const rendered = composeGroundedResearchAnswer(result) ?? "";
+  const [validatedSection, adjacentSection = ""] = rendered.split("Adjacent context");
+  assert.match(rendered, /Adjacent context\s*\n\s*- .*Canopy/i);
+  assert.doesNotMatch(validatedSection, /Canopy/i);
+  assert.match(adjacentSection, /project called the Canopy/i);
+  assert.match(rendered, /Separately, adjacent connectivity projects like the Canopy may affect the broader context/i);
+  assert.match(rendered, /ownership transition \(which coincided with the later decline\)/i);
+  assert.doesNotMatch(rendered, /ownership\/financial turbulence/i);
+  assert.match(rendered, /tried the official-budget refinement and still could not verify the exact project amount/i);
+  assert.doesNotMatch(rendered, /Church Street Orlando current redevelopment official budget contract award/i);
 });
 
 test("representative scenes cannot be presented as personal memories", () => {

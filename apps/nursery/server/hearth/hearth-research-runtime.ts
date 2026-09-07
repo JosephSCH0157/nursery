@@ -1459,9 +1459,11 @@ export function createHearthResearchRuntime(config: HearthResearchRuntimeConfig 
       });
       if (refinementQueries.length > 0) {
         synthesis.coverageNote = `${synthesis.coverageNote} Bounded refinements attempted: ${refinementQueries.length}.`;
+        synthesis.refinementQueries = refinementQueries;
       }
       if (remainingGoals.length > 0) {
         synthesis.uncertainties.push(`Unresolved explicit goals after bounded refinement: ${remainingGoals.join("; ")}.`);
+        synthesis.unresolvedGoals = remainingGoals;
       }
 
       const result: HearthResearchResult = {

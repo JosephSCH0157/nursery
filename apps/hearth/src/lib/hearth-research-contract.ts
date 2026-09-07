@@ -147,6 +147,8 @@ export type HearthResearchSynthesis = {
   keyPoints: string[];
   uncertainties: string[];
   coverageNote: string;
+  refinementQueries?: string[];
+  unresolvedGoals?: string[];
 };
 
 export type HearthResearchResult = {
@@ -483,6 +485,8 @@ export function normalizeHearthResearchResult(value: unknown): HearthResearchRes
       ? synthesis.uncertainties.filter((entry): entry is string => typeof entry === "string")
       : [],
     coverageNote: synthesis && typeof synthesis.coverageNote === "string" ? synthesis.coverageNote : "",
+    refinementQueries: synthesis ? stringArray(synthesis.refinementQueries, 8) : [],
+    unresolvedGoals: synthesis ? stringArray(synthesis.unresolvedGoals, 8) : [],
   };
   const brief = normalizeHearthResearchBrief(value.brief);
   const normalizedArtifact = normalizeHearthResearchArtifact(value.artifact);
