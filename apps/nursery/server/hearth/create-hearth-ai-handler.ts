@@ -2802,6 +2802,17 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         if (!userId) {
           return jsonResponse(401, { ok: false, error: "Authentication required." });
         }
+        const readinessBrief: HearthResearchBrief = {
+          schema: "forge.hearth.research-brief.v1",
+          workspaceId: null,
+          workpieceId: "production-readiness",
+          briefFingerprint: crypto.createHash("sha256").update("hearth-production-research-readiness").digest("hex"),
+          creatorRequest: "Verify that the production research provider can retrieve one official OpenAI documentation source.",
+          episodeTitle: "Production research readiness",
+          goals: ["Retrieve one official OpenAI documentation source."],
+          queries: ["OpenAI official documentation"],
+          sourcePriorities: ["Official OpenAI documentation"],
+        };
         const readinessResult = await researchRuntime.run({
           request: buildHearthResearchRequest({
             query: "OpenAI official documentation",
@@ -2809,8 +2820,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             requireDates: false,
             requireFullExtraction: false,
           }),
-          workspaceId: null,
-          workpieceId: "production-readiness",
+          brief: readinessBrief,
           signal: request.signal,
         });
         const providerStatus = readinessResult.providerStatus ?? "configured_but_provider_failing";

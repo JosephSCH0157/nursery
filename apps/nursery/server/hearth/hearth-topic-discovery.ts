@@ -50,8 +50,20 @@ export function buildDiscoveryQueries(preference: Json): string[] {
 async function runDiscovery(args: { config: HearthRuntimeConfig; token: string; workspaceId: string; revision: number; runId: string; lease: string; preference: Json }): Promise<Json[]> {
   const service = serviceClient(args.config).schema("tongs");
   const user = userClient(args.config, args.token);
+  const discoveryQueries = buildDiscoveryQueries(args.preference);
+  const discoveryBrief = {
+    schema: "forge.hearth.research-brief.v1" as const,
+    workspaceId: args.workspaceId,
+    workpieceId: `topic-discovery:${args.runId}`,
+    briefFingerprint: hash(JSON.stringify({ workspace_id: args.workspaceId, run_id: args.runId, queries: discoveryQueries })),
+    creatorRequest: "Discover timely, well-sourced podcast topics for the configured editorial preferences.",
+    episodeTitle: "Topic discovery",
+    goals: discoveryQueries,
+    queries: discoveryQueries,
+    sourcePriorities: ["Primary records", "Independent reporting", "Scholarly or technical sources"],
+  };
   const candidates = new Map<string, { title: string; url: string; description: string; publishedAt: string | null }>();
-  for (const [index, query] of buildDiscoveryQueries(args.preference).entries()) {
+  for (const [index, query] of discoveryQueries.entries()) {
     if (!(await stillAuthorized(user, args.workspaceId, String(args.preference.user_id), args.revision))) throw new Error("authorization_revoked");
     const requestKey = `search:${index}:${hash(query)}`;
     const recorded = await service.rpc("record_barstock_discovery_provider_call", { p_run_id: args.runId, p_lease_token_hash: hash(args.lease), p_provider: "brave", p_request_key: requestKey });
@@ -73,7 +85,7 @@ async function runDiscovery(args: { config: HearthRuntimeConfig; token: string; 
   for (const [index, item] of selected.entries()) {
     if (!(await stillAuthorized(user, args.workspaceId, String(args.preference.user_id), args.revision))) throw new Error("authorization_revoked");
     if(index>0&&index%3===0){const renewed=await service.rpc("renew_barstock_discovery_lease",{p_run_id:args.runId,p_lease_token_hash:hash(args.lease)});if(renewed.data?.outcome!=="renewed")throw new Error("lease_lost");}
-    const source = await extractUrlToResearchSource({ url: item.url, sourceId: `topic-${index + 1}` });
+    const source = await extractUrlToResearchSource({ url: item.url, sourceId: `topic-${index + 1}`, brief: discoveryBrief });
     extracted.push({ item, source });
   }
   const stories: Json[] = [];
