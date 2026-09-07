@@ -331,11 +331,6 @@ function toRecurringPurchaseMetadata(
   return metadata as RecurringPurchaseMetadata;
 }
 
-function recurringStatusEntitlesAccess(status: string | null): boolean {
-  const normalized = normalizeLowerString(status);
-  return normalized === "active" || normalized === "trialing";
-}
-
 function tryBuildSubscriptionMetadataFromCatalog(
   subscription: Stripe.Subscription,
   userId: string,
@@ -442,12 +437,13 @@ async function runTongsRpc(
   supabase: SupabaseAdminClient,
   fn: string,
   args: Record<string, unknown>,
-): Promise<void> {
+): Promise<unknown> {
   const rpcClient = getTongsRpcClient(supabase);
-  const { error } = await rpcClient.rpc(fn, args);
+  const { data, error } = await rpcClient.rpc(fn, args);
   if (error) {
     throw new Error(`${fn} failed: ${error.message ?? "unknown error"}`);
   }
+  return data;
 }
 
 async function upsertBillingCustomerRecord(
@@ -588,7 +584,7 @@ async function recordSubscriptionReceiptAccounting(
     subscriptionId: string;
     metadata: RecurringPurchaseMetadata;
   },
-): Promise<void> {
+): Promise<{ receiptId: string; stripeMode: "live" | "test"; replay: boolean } | null> {
   const amountPaid = params.invoice.amount_paid;
   const currency = normalizeLowerString(params.invoice.currency);
   const servicePeriod = resolveInvoiceServicePeriod(
@@ -598,11 +594,11 @@ async function recordSubscriptionReceiptAccounting(
   );
   const periodStart = normalizeUnixTimestampIso(servicePeriod?.start);
   const periodEnd = normalizeUnixTimestampIso(servicePeriod?.end);
-  if (!Number.isSafeInteger(amountPaid) || amountPaid <= 0 || !currency) return;
+  if (!Number.isSafeInteger(amountPaid) || amountPaid <= 0 || !currency) return null;
   if (!periodStart || !periodEnd) {
     throw new Error(`invoice.paid missing cycle period for invoice=${params.invoice.id}`);
   }
-  await runTongsRpc(supabase, "record_subscription_cycle_receipt", {
+  const result = await runTongsRpc(supabase, "record_subscription_cycle_receipt", {
     p_receipt_id: crypto.randomUUID(),
     p_user_id: params.userId,
     p_stripe_event_id: params.event.id,
@@ -627,6 +623,21 @@ async function recordSubscriptionReceiptAccounting(
       forge_interval: params.metadata.interval,
     },
   });
+  const record = result && typeof result === "object"
+    ? result as Record<string, unknown>
+    : null;
+  const receiptId = normalizeString(record?.receipt_id);
+  const stripeMode = record?.stripe_mode === "live" || record?.stripe_mode === "test"
+    ? record.stripe_mode
+    : null;
+  if (!receiptId || !stripeMode) {
+    throw new Error(`record_subscription_cycle_receipt returned an invalid result for invoice=${params.invoice.id}`);
+  }
+  return {
+    receiptId,
+    stripeMode,
+    replay: record?.replay === true,
+  };
 }
 
 async function resolveRefundPaymentIntentId(refund: Stripe.Refund): Promise<string | null> {
@@ -727,26 +738,6 @@ async function upsertCanonicalSubscriptionFromStripe(
       metadata_source: params.metadata.source,
     },
   });
-
-  const subscriptionStatus = normalizeLowerString(params.subscription.status);
-  const periodStart = normalizeUnixTimestampIso(params.subscription.current_period_start);
-  const periodEnd = normalizeUnixTimestampIso(params.subscription.current_period_end);
-  if (
-    params.metadata.purchaseType === "subscription"
-    && params.event.type === "invoice.paid"
-    && params.event.livemode === true
-    && recurringStatusEntitlesAccess(subscriptionStatus)
-    && periodStart
-  ) {
-    await runTongsRpc(supabase, "grant_plan_cycle_ai_credits", {
-      p_user_id: params.metadata.supabaseUserId,
-      p_stripe_subscription_id: subscriptionId,
-      p_plan_item_id: params.metadata.itemId,
-      p_period_start: periodStart,
-      p_period_end: periodEnd,
-      p_source_event_id: params.event.id,
-    });
-  }
 
   await recordBillingEventRecord(supabase, {
     event: params.event,
@@ -999,22 +990,42 @@ async function handleInvoiceLifecycleEvent(
 
   if (subscriptionId) {
     const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-    const metadata = await resolveSubscriptionMetadata(supabase, subscription);
+    const metadata = toRecurringPurchaseMetadata(
+      await resolveSubscriptionMetadata(supabase, subscription),
+    );
+    let accountingReceipt: Awaited<ReturnType<typeof recordSubscriptionReceiptAccounting>> = null;
     if (event.type === "invoice.paid") {
-      await recordSubscriptionReceiptAccounting(supabase, {
+      accountingReceipt = await recordSubscriptionReceiptAccounting(supabase, {
         event,
         invoice,
         subscription,
         userId: metadata.supabaseUserId,
         subscriptionId,
-        metadata: toRecurringPurchaseMetadata(metadata),
+        metadata,
       });
     }
     await upsertCanonicalSubscriptionFromStripe(supabase, {
       event,
       subscription,
-      metadata: toRecurringPurchaseMetadata(metadata),
+      metadata,
     });
+    if (
+      accountingReceipt
+      && accountingReceipt.stripeMode === "live"
+      && metadata.purchaseType === "subscription"
+    ) {
+      await runTongsRpc(supabase, "grant_legacy_plan_entitlement_compatibility", {
+        p_compatibility_grant_id: crypto.randomUUID(),
+        p_receipt_id: accountingReceipt.receiptId,
+        p_granted_at: normalizeUnixTimestampIso(event.created) ?? new Date().toISOString(),
+        p_metadata_json: {
+          source: "stripe_webhook",
+          event_type: event.type,
+          compatibility_only: true,
+          eligible_for_shared_spending_gate: false,
+        },
+      });
+    }
     return;
   }
 
