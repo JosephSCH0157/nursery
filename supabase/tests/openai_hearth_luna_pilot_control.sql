@@ -70,6 +70,18 @@ do $$ begin
   end;
 end $$;
 
+select tongs.halt_owner_hearth_chat_luna_pilot(
+  'bd000000-0000-4000-8000-000000000001','bd000000-0000-4000-8000-000000000020',
+  'isolated Luna emergency halt');
+
+do $$ begin
+  if (select mode from tongs._current_openai_text_rollout('hearth.chat_completion'))<>'halt_new' then
+    raise exception 'Luna emergency halt did not stop new submissions'; end if;
+  if (select status from tongs.owner_operating_budget_revisions
+      where budget_id='bd000000-0000-4000-8000-000000000020' order by revision desc limit 1)<>'active' then
+    raise exception 'Luna emergency halt closed the budget'; end if;
+end $$;
+
 select tongs.release_operation(
   'bd000000-0000-4000-8000-000000000032','luna-isolated-release-0001',
   'isolated proof cleanup','{}');

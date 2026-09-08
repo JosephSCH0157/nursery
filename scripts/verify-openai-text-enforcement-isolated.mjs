@@ -17,6 +17,7 @@ const migrations = [
   "supabase/migrations/20260921120000_tongs_openai_hearth_owner_pilot_control.sql",
   "supabase/migrations/20260922120000_tongs_openai_hearth_luna_pilot_proposal.sql",
   "supabase/migrations/20260922130000_tongs_openai_hearth_luna_pilot_control.sql",
+  "supabase/migrations/20260922140000_tongs_openai_hearth_luna_pilot_emergency_halt.sql",
 ];
 
 function docker(args, input) {
