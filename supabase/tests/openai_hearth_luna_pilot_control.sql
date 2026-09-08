@@ -189,12 +189,25 @@ do $$ declare v_attempt jsonb; begin
   if coalesce((v_attempt->>'provider_execution_authorized')::boolean,false) is not true then
     raise exception 'corrected retest path was not authorized'; end if;
 end $$;
+select tongs.record_provider_failure(
+  'bd000000-0000-4000-8000-000000000084','luna-corrected-retest-forge-validation',
+  'forge_validation_failure','{"provider":"fake","reason":"fixture_validation_failure"}');
 select tongs.close_openai_text_failure_exposure(
   'bd000000-0000-4000-8000-000000000084','luna-corrected-retest-attempt',
-  'success_released',0,'{"provider":"fake"}');
-select tongs.release_operation(
-  'bd000000-0000-4000-8000-000000000084','luna-corrected-retest-release',
-  'isolated corrected retest cleanup','{}');
+  'failure_realized',26,'{"provider":"fake"}');
+select tongs.settle_owner_operation(
+  'bd000000-0000-4000-8000-000000000084','bd000000-0000-4000-8000-000000000085',
+  'luna-corrected-retest-settlement','nonbillable_failure','forge_validation_failure',
+  10026,'{"provider":"fake","cost_coverage":"estimated"}');
+do $$ begin
+  if (select failure_class from tongs.funding_reservation_events
+      where reservation_id='bd000000-0000-4000-8000-000000000084'
+        and event_key='luna-corrected-retest-forge-validation')<>'forge_validation_failure' then
+    raise exception 'precise Forge validation failure was not retained'; end if;
+  if (select customer_charge_micros from tongs.funding_reservation_events
+      where reservation_id='bd000000-0000-4000-8000-000000000084' and event_type='settled')<>0 then
+    raise exception 'precise Forge validation failure charged customer'; end if;
+end $$;
 select tongs.close_owner_hearth_chat_luna_pilot(
   'bd000000-0000-4000-8000-000000000001','bd000000-0000-4000-8000-000000000080',
   'isolated corrected retest closure');
