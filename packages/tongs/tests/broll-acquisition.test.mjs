@@ -177,6 +177,7 @@ test("enforced Runway route rejects an unfunded operation before provider transm
     throw new Error(`unexpected authority RPC ${name}`);
   }}}};
   const supabase={storage:{from(){return{async download(){return{data:null,error:{message:"Object not found",statusCode:404}};}}}},schema(){return{async rpc(name,args){
+    if(name==="create_customer_runway_quote")return{data:null,error:{message:"pricing_not_configured"}};
     if(name==="create_paid_media_authorization_quote")return{data:{quote:{id:args.p_quote_id,authorized_customer_ceiling:44_460}},error:null};
     if(name==="approve_and_reserve_paid_media_operation")return{data:{operation:{id:"paid-op-1",state:"reserved"}},error:null};
     if(name==="begin_paid_media_provider_attempt")return{data:{operation:{id:"paid-op-1",state:"submitting"},attempt:{id:"attempt-1",state:"submitting"}},error:null};
@@ -190,7 +191,7 @@ test("enforced Runway route rejects an unfunded operation before provider transm
   };
   service.assertWorkpieceInWorkspace=async()=>undefined;service.assertWorkspaceRoleFromAccessToken=async()=>({userId:"11111111-1111-4111-8111-111111111111",role:"editor"});
   const request={workspace_id:"33333333-3333-4333-8333-333333333333",beat_id:"44444444-4444-4444-8444-444444444444",operation_id:"forge:broll:unfunded-enforcement-test-0001",operation_fingerprint:"a".repeat(64),source_kind:"generated",provider:"runway",final_prompt:"A slow documentary road transition",poster_required:false,confirm_spend:true,prompt_revision_id:"55555555-5555-4555-8555-555555555555",prompt_revision:1,prompt_content_hash:"b".repeat(64)};
-  await assert.rejects(()=>service.acquireBrollCandidate("22222222-2222-4222-8222-222222222222",request,{userAccessToken:"token"}),error=>error.code==="runway_funding_required"&&error.details?.transmitted===false);
+  await assert.rejects(()=>service.acquireBrollCandidate("22222222-2222-4222-8222-222222222222",request,{userAccessToken:"token"}),error=>error.code==="runway_customer_pricing_not_published"&&error.details?.transmitted===false);
   assert.equal(providerCalls,0);
 });
 

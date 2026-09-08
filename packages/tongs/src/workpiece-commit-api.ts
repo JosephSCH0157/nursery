@@ -31152,14 +31152,19 @@ export class TongsCommitService {
       });
     }
     if (input.source_kind === "generated") {
-      const spending = await authority.rpc("read_my_spending_operation", {
-        p_operation_id: input.operation_id,
-      });
-      if (!spending.error && isRecord(spending.data))
-        return {
-          ...(candidate.data as Record<string, Json>),
-          spending_receipt: spending.data as Json,
-        };
+      try {
+        const spending = await authority.rpc("read_my_spending_operation", {
+          p_operation_id: input.operation_id,
+        });
+        if (!spending.error && isRecord(spending.data))
+          return {
+            ...(candidate.data as Record<string, Json>),
+            spending_receipt: spending.data as Json,
+          };
+      } catch {
+        // Older or legacy-compatible authorities may not expose the shared-gate
+        // receipt yet. Media delivery remains valid; the next refresh retries it.
+      }
     }
     return candidate.data as Record<string, Json>;
   }

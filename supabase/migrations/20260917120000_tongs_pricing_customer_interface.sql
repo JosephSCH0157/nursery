@@ -396,6 +396,7 @@ create or replace function tongs.create_customer_runway_quote(
 ) returns jsonb language plpgsql security definer set search_path = pg_catalog as $$
 declare
   v_pricing tongs.private_pricing_revisions%rowtype;
+  v_policy tongs.private_pricing_policies%rowtype;
   v_quote tongs.customer_spending_quotes%rowtype;
   v_control tongs.paid_execution_control_revisions%rowtype;
   v_create jsonb;
@@ -411,6 +412,11 @@ begin
   v_sku := lower(p_model || ':' || p_duration_seconds::text || 's:' || p_ratio);
   select * into v_pricing from tongs._published_pricing_revision('runway', v_sku);
   if not found then raise exception 'pricing_not_configured' using errcode = 'P0001'; end if;
+  select * into v_policy from tongs.private_pricing_policies where id = v_pricing.policy_id;
+  if v_policy.scope_kind <> 'sku' or lower(coalesce(v_policy.provider, '')) <> 'runway'
+     or lower(coalesce(v_policy.sku, '')) <> v_sku then
+    raise exception 'pricing_not_configured' using errcode = 'P0001';
+  end if;
   v_create := tongs.create_shadow_spending_quote(
     p_quote_id, p_user_id, p_operation_id, 'tongs_broll_v2', p_workspace_id,
     v_pricing.id, p_operation_fingerprint,
