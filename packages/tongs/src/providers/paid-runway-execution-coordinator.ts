@@ -140,7 +140,7 @@ export class PaidRunwayExecutionCoordinator {
         p_reservation_id: input.reservationId,
         p_settlement_id: input.settlementId,
         p_settlement_key: input.settlementKey,
-        p_outcome: "billable_failure",
+        p_outcome: "nonbillable_failure",
         p_failure_class: "provider_billed_failure",
         p_actual_fulfillment_cost_micros: input.actualFulfillmentCostMicros,
         p_evidence_json: task.response,

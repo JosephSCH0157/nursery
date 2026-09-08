@@ -15,6 +15,7 @@ import {
   AI_USAGE_SUBFEATURE,
   AI_USAGE_TRIGGER,
 } from "../../../packages/tongs/src/ai-usage-taxonomy";
+import { executeOpenAiTextTransport } from "../../../packages/tongs/src/providers/openai-text-paid-boundary";
 import {
   createHammerAudioPolishRequestContext,
   handleHammerAudioPolishRequest,
@@ -1273,7 +1274,7 @@ async function runOpenAiTranscriptCleanupAssist(args: {
   const runRequest = async (model: string): Promise<Response> => {
     const upstreamTimeout = createTimeoutAbortController(OPENAI_CLEANUP_TIMEOUT_MS);
     try {
-      return await fetch("https://api.openai.com/v1/chat/completions", {
+      return await executeOpenAiTextTransport({ routeCode: "hammer.transcript_cleanup", executeLegacy: () => fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
           authorization: `Bearer ${args.apiKey}`,
@@ -1289,7 +1290,7 @@ async function runOpenAiTranscriptCleanupAssist(args: {
           ],
         }),
         signal: upstreamTimeout.controller.signal,
-      });
+      }) });
     } finally {
       upstreamTimeout.dispose();
     }
@@ -1413,7 +1414,7 @@ async function runOpenAiQuenchMetadataAssist(args: {
   const upstreamTimeout = createTimeoutAbortController(OPENAI_CLEANUP_TIMEOUT_MS);
   let upstream: Response;
   try {
-    upstream = await fetch("https://api.openai.com/v1/chat/completions", {
+    upstream = await executeOpenAiTextTransport({ routeCode: "quench.metadata", executeLegacy: () => fetch("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         authorization: `Bearer ${args.apiKey}`,
@@ -1429,7 +1430,7 @@ async function runOpenAiQuenchMetadataAssist(args: {
         ],
       }),
       signal: upstreamTimeout.controller.signal,
-    });
+    }) });
   } finally {
     upstreamTimeout.dispose();
   }

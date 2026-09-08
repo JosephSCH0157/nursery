@@ -7,6 +7,7 @@ import {
   type HammerShortsDiscoveryRequestV1,
 } from "../../../packages/contracts/hammer/shorts.contract.ts";
 import { fingerprintHammerShortsValue, resolveHammerShortCandidates, type HammerShortsOutputSegment } from "../../hammer/src/editor/hammerShortsResolver.ts";
+import { executeOpenAiTextTransport } from "../../../packages/tongs/src/providers/openai-text-paid-boundary.ts";
 
 export const HAMMER_SHORTS_DISCOVERY_ROUTE = "/api/hammer/shorts/discover";
 
@@ -73,7 +74,7 @@ export async function executeHammerShortsDiscovery(body: HammerShortsDiscoveryBo
   let providerRequestId: string | null = null;
   let failureCode = "provider_failed";
   try {
-    const response = await (dependencies.fetchImpl ?? fetch)("https://api.openai.com/v1/responses", {
+    const response = await executeOpenAiTextTransport({ routeCode: "shorts.discovery", executeLegacy: () => (dependencies.fetchImpl ?? fetch)("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: { authorization: `Bearer ${dependencies.apiKey}`, "content-type": "application/json" },
       body: JSON.stringify({
@@ -89,7 +90,7 @@ export async function executeHammerShortsDiscovery(body: HammerShortsDiscoveryBo
           },
         } } },
       }),
-    });
+    }) });
     providerPayload = await response.json().catch(() => null);
     providerRequestId = response.headers.get("x-request-id") ?? (providerPayload && typeof providerPayload === "object" && typeof (providerPayload as Record<string, unknown>).id === "string" ? (providerPayload as Record<string, string>).id : null);
     if (!response.ok) throw new Error(`provider_${response.status}`);

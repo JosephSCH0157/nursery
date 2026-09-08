@@ -152,6 +152,48 @@ begin
   return (ceil(p_amount_micros / v_increment::numeric) * v_increment)::bigint;
 end $$;
 
+create or replace function tongs.create_shadow_spending_quote(
+  p_quote_id uuid,p_user_id uuid,p_operation_id text,p_tool text,p_workspace_id uuid,
+  p_pricing_revision_id uuid,p_request_fingerprint text,p_provider_funding_summary jsonb,p_expires_at timestamptz
+) returns jsonb language plpgsql security definer set search_path=pg_catalog as $$
+declare v_revision tongs.private_pricing_revisions%rowtype; v_existing tongs.customer_spending_quotes%rowtype;
+  v_operation text:=nullif(btrim(coalesce(p_operation_id,'')),''); v_tool text:=nullif(btrim(coalesce(p_tool,'')),'');
+  v_hash text; v_price bigint; v_free jsonb;
+begin
+  perform tongs._require_pricing_service_role();
+  if p_quote_id is null or p_user_id is null or v_operation is null or length(v_operation)<8 or v_tool is null
+    or p_request_fingerprint!~'^[0-9a-f]{64}$' or jsonb_typeof(coalesce(p_provider_funding_summary,'null'::jsonb))<>'array'
+    or p_expires_at is null or p_expires_at<=now() then raise exception 'invalid shadow spending quote' using errcode='22023'; end if;
+  select * into v_revision from tongs.private_pricing_revisions where id=p_pricing_revision_id;
+  if not found then raise exception 'private pricing revision not found' using errcode='P0002'; end if;
+  if v_revision.lifecycle_state<>'review_ready' or v_revision.markup_basis_points is null or v_revision.customer_credit_units is null then
+    raise exception 'pricing_not_configured' using errcode='P0001'; end if;
+  if exists(select 1 from jsonb_array_elements(p_provider_funding_summary)item where jsonb_typeof(item)<>'object'
+    or item->>'credential_source' not in ('forge','byo_customer') or nullif(btrim(coalesce(item->>'component','')),'') is null
+    or nullif(btrim(coalesce(item->>'provider_label','')),'') is null) then raise exception 'invalid provider funding summary' using errcode='22023'; end if;
+  v_price:=tongs.round_customer_price_micros(v_revision.full_cost_ceiling_micros::numeric*(10000::numeric+v_revision.markup_basis_points)/10000::numeric,v_revision.currency);
+  v_free:='["forge_failure","provider_failure","provider_billed_failure","unknown_fault","prebilling_rejection","forge_validation_failure","persistence_failure"]'::jsonb;
+  v_hash:=encode(extensions.digest(convert_to(jsonb_build_object('quote_id',p_quote_id,'user_id',p_user_id,
+    'operation_id',v_operation,'tool',v_tool,'workspace_id',p_workspace_id,'pricing_revision_id',v_revision.id,
+    'pricing_revision',v_revision.revision,'currency',v_revision.currency,'normal_maximum_charge_micros',v_price,
+    'billable_failure_maximum_charge_micros',0,'customer_credit_units',v_revision.customer_credit_units,
+    'request_fingerprint',p_request_fingerprint,'provider_funding_summary',p_provider_funding_summary,'expires_at',p_expires_at)::text,'utf8'),'sha256'),'hex');
+  perform pg_advisory_xact_lock(hashtextextended('spending-quote:'||p_user_id::text||':'||v_operation,0));
+  select * into v_existing from tongs.customer_spending_quotes where user_id=p_user_id and operation_id=v_operation;
+  if found then
+    if v_existing.id<>p_quote_id or v_existing.request_fingerprint<>p_request_fingerprint or v_existing.pricing_revision_id<>p_pricing_revision_id then
+      raise exception 'shadow spending quote replay conflict' using errcode='23505'; end if;
+    return jsonb_build_object('quote_id',v_existing.id,'quote_hash',v_existing.quote_hash,'replay',true,'execution_authorized',false);
+  end if;
+  insert into tongs.customer_spending_quotes(id,user_id,operation_id,tool,workspace_id,pricing_revision_id,pricing_revision,currency,
+    normal_maximum_charge_micros,billable_failure_maximum_charge_micros,customer_credit_units,full_cost_ceiling_micros,
+    billable_failure_classes,free_failure_classes,included_quantity,retention_policy,provider_funding_summary,request_fingerprint,quote_hash,expires_at)
+  values(p_quote_id,p_user_id,v_operation,v_tool,p_workspace_id,v_revision.id,v_revision.revision,v_revision.currency,v_price,0,
+    v_revision.customer_credit_units,v_revision.full_cost_ceiling_micros,'[]'::jsonb,v_free,v_revision.included_quantity,v_revision.retention_policy,
+    p_provider_funding_summary,p_request_fingerprint,v_hash,p_expires_at);
+  return jsonb_build_object('quote_id',p_quote_id,'quote_hash',v_hash,'replay',false,'execution_authorized',false);
+end $$;
+
 -- New pricing revisions disclose every Forge/provider failure as free to the customer.
 -- Failure cost ceilings remain private and continue to cap Forge's supplier exposure.
 create or replace function tongs.commit_operator_pricing_revision(
@@ -206,17 +248,10 @@ begin
   v_price := tongs.round_customer_price_micros(
     v_pricing.full_cost_ceiling_micros::numeric * (10000::numeric + v_pricing.markup_basis_points)/10000::numeric,
     v_pricing.currency);
-  v_create := tongs.create_shadow_spending_quote(p_quote_id,p_user_id,p_operation_id,'runway',p_workspace_id,
-    v_pricing.id,p_operation_fingerprint,jsonb_build_array(jsonb_build_object('component','runway','funding','forge')),
+  v_create := tongs.create_shadow_spending_quote(p_quote_id,p_user_id,p_operation_id,'tongs_broll_v2',p_workspace_id,
+    v_pricing.id,p_operation_fingerprint,jsonb_build_array(jsonb_build_object('component','video_generation','provider_label','Runway','credential_source','forge')),
     p_expires_at);
-  -- The generic creator copies the immutable revision. New customer quotes are corrected in-place before acceptance only.
-  update tongs.customer_spending_quotes set
-    normal_maximum_charge_micros=v_price,
-    billable_failure_maximum_charge_micros=0,
-    billable_failure_classes='[]'::jsonb,
-    free_failure_classes='["forge_failure","provider_failure","provider_billed_failure","unknown_fault","prebilling_rejection","forge_validation_failure","persistence_failure"]'::jsonb
-  where id=p_quote_id and not exists(select 1 from tongs.customer_spending_quote_acceptances where quote_id=p_quote_id)
-  returning * into v_quote;
+  select * into v_quote from tongs.customer_spending_quotes where id=p_quote_id;
   v_funding := tongs._select_customer_funding_for_quote(p_quote_id);
   return jsonb_build_object('quote_id',v_quote.id,'operation_id',v_quote.operation_id,'currency',v_quote.currency,
     'customer_price_micros',v_quote.normal_maximum_charge_micros,'maximum_charge_micros',v_quote.normal_maximum_charge_micros,
@@ -424,6 +459,37 @@ begin
   )x);
 end $$;
 
+create or replace function tongs.read_my_spending_operation(p_operation_id text)
+returns jsonb language plpgsql stable security definer set search_path=pg_catalog as $$
+declare v_user uuid:=auth.uid(); v_quote tongs.customer_spending_quotes%rowtype; v_res tongs.funding_reservations%rowtype;
+  v_settlement tongs.funding_reservation_events%rowtype; v_relief tongs.customer_operation_reliefs%rowtype; v_label text;
+begin
+  if v_user is null then raise exception 'authentication required' using errcode='42501'; end if;
+  select * into v_quote from tongs.customer_spending_quotes where user_id=v_user and operation_id=btrim(p_operation_id);
+  if not found then raise exception 'spending operation not found' using errcode='P0002'; end if;
+  select * into v_res from tongs.funding_reservations where quote_id=v_quote.id;
+  if v_res.id is not null then
+    select * into v_settlement from tongs.funding_reservation_events where reservation_id=v_res.id and event_type='settled' order by sequence desc limit 1;
+    select * into v_relief from tongs.customer_operation_reliefs where reservation_id=v_res.id;
+  end if;
+  v_label:=case v_res.funding_source_type when 'customer_deposit' then 'Verified AI credit purchase' when 'paid_allowance' then 'Paid-plan allowance' when 'owner_budget' then 'Forge owner testing' when 'none' then 'No Forge-funded cost' else null end;
+  return jsonb_build_object('operation_id',v_quote.operation_id,'quote_id',v_quote.id,'currency',v_quote.currency,
+    'normal_maximum_charge_micros',v_quote.normal_maximum_charge_micros,'failure_maximum_charge_micros',0,
+    'failure_terms','Forge-caused, provider-caused, validation, persistence, and unknown-fault failures charge $0.',
+    'uncertain_submission_terms','Reservation remains held for bounded reconciliation; Forge will not automatically resubmit.',
+    'provider_funding_summary',v_quote.provider_funding_summary,
+    'accepted',exists(select 1 from tongs.customer_spending_quote_acceptances where quote_id=v_quote.id),
+    'reservation_state',case when v_relief.id is not null then 'customer_relieved' when v_res.id is null then null else tongs._funding_reservation_state(v_res.id) end,
+    'funding_source',v_res.funding_source_type,'funding_label',v_label,
+    'gross_customer_charge_micros',coalesce(v_settlement.customer_charge_micros,0),
+    'customer_relief_micros',coalesce(v_relief.customer_credit_micros,0),
+    'customer_charge_micros',greatest(coalesce(v_settlement.customer_charge_micros,0)-coalesce(v_relief.customer_credit_micros,0),0),
+    'credit_units',case when v_relief.id is not null then 0 else v_settlement.credit_units end,
+    'receipt_status',case when v_relief.id is not null then 'failed_customer_relieved' when v_res.id is null then 'quoted' when v_settlement.id is not null then 'settled' else tongs._funding_reservation_state(v_res.id) end,
+    'byo_notice','Charges billed directly by a customer provider credential are outside Forge refund control.',
+    'execution_authorized',false);
+end $$;
+
 -- Tables are private even from ordinary authenticated users.
 revoke all on function tongs.round_customer_price_micros(numeric,text) from public,anon,authenticated,service_role;
 grant execute on function tongs.round_customer_price_micros(numeric,text) to service_role;
@@ -442,6 +508,8 @@ revoke all on function tongs.settle_operation(uuid,uuid,text,text,text,bigint,js
 grant execute on function tongs.settle_operation(uuid,uuid,text,text,text,bigint,jsonb) to service_role;
 revoke all on function tongs.read_failure_financials(integer) from public,anon;
 grant execute on function tongs.read_failure_financials(integer) to authenticated,service_role;
+revoke all on function tongs.read_my_spending_operation(text) from public,anon;
+grant execute on function tongs.read_my_spending_operation(text) to authenticated;
 
 comment on function tongs.round_customer_price_micros(numeric,text) is 'Preserves micro precision through calculation, then rounds customer price upward to the next USD cent.';
 comment on table tongs.customer_operation_reliefs is 'Append-only customer relief and revenue reversal. Supplier reimbursement is deliberately independent.';

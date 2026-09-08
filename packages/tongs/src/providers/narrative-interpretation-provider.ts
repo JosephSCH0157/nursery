@@ -37,7 +37,7 @@ export class OpenAiNarrativeInterpretationProvider implements NarrativeInterpret
   async interpret(input:InterpretImagePromptInput):Promise<InterpretImagePromptOutput>{
     const model=input.model?.trim()||this.defaultModel;
     let response:Response;
-    try{response=await fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{authorization:`Bearer ${this.apiKey}`,"content-type":"application/json"},body:JSON.stringify({model,instructions:systemInstruction,input:JSON.stringify(input.request),text:{format:{type:"json_schema",name:"image_prompt_visual_brief",strict:true,schema:briefSchema}}})});}
+    try{response=await executeOpenAiTextTransport({routeCode:"visual.narrative_interpretation",executeLegacy:()=>fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{authorization:`Bearer ${this.apiKey}`,"content-type":"application/json"},body:JSON.stringify({model,instructions:systemInstruction,input:JSON.stringify(input.request),text:{format:{type:"json_schema",name:"image_prompt_visual_brief",strict:true,schema:briefSchema}}})})});}
     catch(error){const cause=error instanceof Error&&error.cause&&typeof error.cause==="object"?error.cause as {code?:unknown;message?:unknown}:null;const detail=typeof cause?.code==="string"?cause.code:typeof cause?.message==="string"?cause.message:null;throw new Error(`OpenAI could not be reached while creating the detailed image prompt${detail?` (${detail})`:""}. Try again; no prompt or image was lost.`);}
     const rawText=await response.text();let payload:Record<string,unknown>={};try{payload=JSON.parse(rawText) as Record<string,unknown>}catch{/* Invalid JSON is reported through the response status or missing-output checks below. */}
     if(!response.ok)throw new Error((payload.error as {message?:string}|undefined)?.message||rawText||`Interpretation failed (${response.status})`);
@@ -116,3 +116,4 @@ export function synthesizeConcreteVendorPrompt(brief:ImagePromptVisualBrief,styl
   const sections=[opening,sceneParts.join(" "),directionParts.join(" "),include.length?`Include ${include.join(", ")}.`:null,avoid.length?`Avoid ${avoid.join(", ")}.`:null,style?`Style: ${cleanPromptFragment(style)}.`:null];
   return sections.filter((value):value is string=>Boolean(value?.trim())).join("\n\n");
 }
+import { executeOpenAiTextTransport } from "./openai-text-paid-boundary.js";

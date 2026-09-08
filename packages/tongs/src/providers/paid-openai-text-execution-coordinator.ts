@@ -5,12 +5,21 @@ export type OpenAiTextGateClient = { rpc(name: string, args: Record<string, unkn
 export type OpenAiCredentialFunding = "forge" | "byo_customer";
 
 export class OpenAiTextProviderError extends Error {
+  readonly ambiguous: boolean;
+  readonly supplierCostMicros: number | null;
+  readonly evidence: Record<string, unknown>;
   constructor(
     message: string,
-    public readonly ambiguous: boolean,
-    public readonly supplierCostMicros: number | null,
-    public readonly evidence: Record<string, unknown> = {},
-  ) { super(message); this.name = "OpenAiTextProviderError"; }
+    ambiguous: boolean,
+    supplierCostMicros: number | null,
+    evidence: Record<string, unknown> = {},
+  ) {
+    super(message);
+    this.name = "OpenAiTextProviderError";
+    this.ambiguous = ambiguous;
+    this.supplierCostMicros = supplierCostMicros;
+    this.evidence = evidence;
+  }
 }
 
 export type OpenAiTextProviderResult<T> = {
@@ -146,4 +155,3 @@ export class PaidOpenAiTextExecutionCoordinator {
     });
   }
 }
-

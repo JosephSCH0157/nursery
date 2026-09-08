@@ -334,7 +334,7 @@ export class OpenAiUnifiedVisualPlanProvider {
     const model = input.model?.trim() || this.defaultModel;
     let response: Response;
     try {
-      response = await fetch("https://api.openai.com/v1/responses", {
+      response = await executeOpenAiTextTransport({ routeCode: "visual.unified_plan", executeLegacy: () => fetch("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: {
           authorization: `Bearer ${this.apiKey}`,
@@ -358,7 +358,7 @@ export class OpenAiUnifiedVisualPlanProvider {
             },
           },
         }),
-      });
+      }) });
     } catch (error) {
       const cause = error instanceof Error && error.cause && typeof error.cause === "object"
         ? error.cause as { code?: unknown; message?: unknown }
@@ -671,3 +671,4 @@ export function validateUnifiedVisualPlanScope(
       : [`${kind}:disallowed_by_generation_scope`],
   );
 }
+import { executeOpenAiTextTransport } from "./openai-text-paid-boundary.js";

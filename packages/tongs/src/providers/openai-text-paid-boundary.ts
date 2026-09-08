@@ -13,8 +13,10 @@ export type OpenAiTextRouteCode = typeof OPENAI_TEXT_ROUTE_CODES[number];
 export type OpenAiTextRolloutMode = "inactive" | "shadow" | "enforce";
 
 export class OpenAiTextBoundaryError extends Error {
-  constructor(public readonly code: "funding_context_required" | "byo_credential_required" | "pricing_not_configured") {
+  readonly code: "funding_context_required" | "byo_credential_required" | "pricing_not_configured";
+  constructor(code: "funding_context_required" | "byo_credential_required" | "pricing_not_configured") {
     super(code);
+    this.code = code;
     this.name = "OpenAiTextBoundaryError";
   }
 }
@@ -39,4 +41,3 @@ export async function executeOpenAiTextTransport<T>(input: {
   if (!input.coordinatedExecution) throw new OpenAiTextBoundaryError("funding_context_required");
   return input.coordinatedExecution();
 }
-

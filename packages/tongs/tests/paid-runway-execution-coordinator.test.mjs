@@ -77,7 +77,7 @@ test("definitive fake rejection records the disclosed free failure and releases 
   assert.equal(gate.calls.filter((call) => call.name === "settle_operation").length, 0);
 });
 
-test("fake billable provider failure uses the accepted failure settlement path", async () => {
+test("provider-billed Runway failure charges Forge but settles customer at zero", async () => {
   const gate = new FakeGate();
   const provider = new FakeRunwayBrollVideoProvider("provider_failure");
   const result = await new PaidRunwayExecutionCoordinator(gate, provider).execute(baseInput);
@@ -85,7 +85,7 @@ test("fake billable provider failure uses the accepted failure settlement path",
   assert.equal(provider.submitCount, 1);
   assert.equal(gate.calls.filter((call) => call.name === "record_provider_failure").length, 1);
   const settlement = gate.calls.find((call) => call.name === "settle_operation");
-  assert.equal(settlement.args.p_outcome, "billable_failure");
+  assert.equal(settlement.args.p_outcome, "nonbillable_failure");
   assert.equal(settlement.args.p_failure_class, "provider_billed_failure");
 });
 

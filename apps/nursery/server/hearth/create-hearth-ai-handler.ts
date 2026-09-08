@@ -19,6 +19,7 @@ import {
   type AiUsageSubfeature,
 } from "../../../../packages/tongs/src/ai-usage-taxonomy";
 import { routeForgeAiRequest } from "../../../../packages/tongs/src/ai-router";
+import { executeOpenAiTextTransport } from "../../../../packages/tongs/src/providers/openai-text-paid-boundary";
 import {
   HEARTH_AI_ROUTES,
   isHearthAiLane as isBillingMode,
@@ -2436,9 +2437,12 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
     };
   }): Promise<Response> {
     try {
-      const response = await fetch(args.request.url, {
-        ...args.request.init,
-        signal: args.request.signal,
+      const response = await executeOpenAiTextTransport({
+        routeCode: "hearth.chat_completion",
+        executeLegacy: () => fetch(args.request.url, {
+          ...args.request.init,
+          signal: args.request.signal,
+        }),
       });
 
       if (!response.ok) {
