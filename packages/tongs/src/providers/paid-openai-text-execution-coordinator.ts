@@ -210,6 +210,37 @@ export class PaidOpenAiTextExecutionCoordinator {
       }
       if (result.costCoverageComplete === false) supplierCostComplete = false;
       const boundsExceeded = totalInputUnits > input.maximumInputUnits || totalOutputUnits > input.maximumOutputUnits;
+
+      // Provider evidence is accounting evidence, not a success receipt. Record
+      // it before Forge validation or canonical persistence can fail so a paid
+      // supplier response is never lost or misreported as a zero-cost failure.
+      await this.rpc("record_openai_text_provider_capture", {
+        p_capture_id: crypto.randomUUID(),
+        p_reservation_id: input.reservationId,
+        p_capture_key: `${currentAttemptKey}:provider-capture`,
+        p_provider_request_id: result.requestId,
+        p_attempt_number: attemptNumber,
+        p_input_units: result.inputUnits,
+        p_output_units: result.outputUnits,
+        p_response_evidence_json: result.evidence ?? {},
+      });
+      await this.recordSupplierAttempt(
+        input,
+        currentAttemptKey,
+        attemptNumber,
+        result.supplierCostMicros,
+        result.supplierCostAuthoritative,
+        result.evidence ?? {},
+      );
+      if (result.supportingCostMicros !== undefined) {
+        await this.recordSupportingAttempt(
+          input,
+          currentAttemptKey,
+          result.supportingCostMicros,
+          result.supportingCostAuthoritative === true,
+          result.supportingCostEvidence ?? {},
+        );
+      }
       let validated = false;
       let persisted = false;
       let failureClass: "forge_failure" | "forge_validation_failure" | "persistence_failure" | null =
@@ -257,23 +288,6 @@ export class PaidOpenAiTextExecutionCoordinator {
         p_canonical_persistence_confirmed: persisted,
         p_evidence_json: result.evidence ?? {},
       });
-      await this.recordSupplierAttempt(
-        input,
-        currentAttemptKey,
-        attemptNumber,
-        result.supplierCostMicros,
-        result.supplierCostAuthoritative,
-        result.evidence ?? {},
-      );
-      if (result.supportingCostMicros !== undefined) {
-        await this.recordSupportingAttempt(
-          input,
-          currentAttemptKey,
-          result.supportingCostMicros,
-          result.supportingCostAuthoritative === true,
-          result.supportingCostEvidence ?? {},
-        );
-      }
       const knownFulfillmentCostMicros = knownSupplierCostMicros + knownSupportingCostMicros;
       await this.rpc("close_openai_text_failure_exposure", {
         p_reservation_id: input.reservationId,

@@ -97,6 +97,11 @@
       "import": "./dist/providers/paid-openai-text-execution-coordinator.js",
       "default": "./dist/providers/paid-openai-text-execution-coordinator.js"
     },
+    "./paid-openai-text-route-execution": {
+      "types": "./src/providers/paid-openai-text-route-execution.ts",
+      "import": "./dist/providers/paid-openai-text-route-execution.js",
+      "default": "./dist/providers/paid-openai-text-route-execution.js"
+    },
     "./runway-paid-execution-boundary": {
       "types": "./src/providers/runway-paid-execution-boundary.ts",
       "import": "./dist/providers/runway-paid-execution-boundary.js",
@@ -112,7 +117,7 @@
     "dev:commit-api": "tsc -p tsconfig.json && node ./dev/commit-api-server.mjs",
     "migrate:cloud-role-roots": "tsc -p tsconfig.json && node ./dev/migrate-cloud-role-roots.mjs",
     "test:commit-api": "tsc -p tsconfig.json && node --test tests/workpiece-commit-api.test.mjs tests/hammer-session-stabilization.test.mjs tests/hammer-history-atomic-coordinator.test.mjs tests/hammer-history-atomic-http.test.mjs",
-    "test:openai-billing": "tsc -p tsconfig.json && node --test tests/openai-text-paid-boundary.test.mjs tests/paid-openai-text-execution-coordinator.test.mjs",
+    "test:openai-billing": "tsc -p tsconfig.json && node --test tests/openai-text-paid-boundary.test.mjs tests/paid-openai-text-execution-coordinator.test.mjs tests/paid-openai-text-route-execution.test.mjs",
     "test:storage-registry": "tsc -p tsconfig.json && node --test tests/storage-registry-migration.test.mjs",
     "test:script-authority": "tsc -p tsconfig.json && node --test tests/approved-script-production-authority.test.mjs",
     "test:recording-authority": "tsc -p tsconfig.json && node --test tests/venue-neutral-recording-authority.test.mjs tests/anvil-capture-authority.test.mjs tests/recording-canonical-media-verification.test.mjs",

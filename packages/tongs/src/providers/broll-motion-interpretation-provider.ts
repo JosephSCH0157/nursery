@@ -16,7 +16,7 @@ export type BrollMotionBrief = {
   loopability: string;
 };
 
-export type InterpretBrollMotionInput = { request: Record<string, unknown>; model?: string | null };
+export type InterpretBrollMotionInput = { request: Record<string, unknown>; model?: string | null; coordinatedExecution?: <T>(execute: () => Promise<T>) => Promise<T> };
 export type InterpretBrollMotionOutput = { brief: BrollMotionBrief; rawResponse: Record<string, unknown>; providerRequestId: string | null; inputTokens: number; outputTokens: number; totalTokens: number; model: string };
 export interface BrollMotionInterpretationProvider { interpret(input: InterpretBrollMotionInput): Promise<InterpretBrollMotionOutput> }
 
@@ -37,7 +37,14 @@ export class OpenAiBrollMotionInterpretationProvider implements BrollMotionInter
   constructor(apiKey:string,defaultModel="gpt-5-mini"){if(!apiKey.trim())throw new Error("OpenAI interpretation API key is required");this.apiKey=apiKey;this.defaultModel=defaultModel;}
   async interpret(input:InterpretBrollMotionInput):Promise<InterpretBrollMotionOutput>{
     const model=input.model?.trim()||this.defaultModel;
-    const response=await executeOpenAiTextTransport({routeCode:"motion.broll_interpretation",executeLegacy:()=>fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{authorization:`Bearer ${this.apiKey}`,"content-type":"application/json"},body:JSON.stringify({model,instructions,input:JSON.stringify(input.request),text:{format:{type:"json_schema",name:"broll_motion_brief",strict:true,schema}}})})});
+    const executeLegacy=()=>fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{authorization:`Bearer ${this.apiKey}`,"content-type":"application/json"},body:JSON.stringify({model,instructions,input:JSON.stringify(input.request),text:{format:{type:"json_schema",name:"broll_motion_brief",strict:true,schema}}})});
+    let response:Response;
+    try{
+      response=await executeOpenAiTextTransport({routeCode:"motion.broll_interpretation",executeLegacy,coordinatedExecution:input.coordinatedExecution?()=>input.coordinatedExecution!(executeLegacy):undefined});
+    }catch(error){
+      if(error instanceof OpenAiTextBoundaryError||error instanceof OpenAiTextProviderError)throw error;
+      throw new OpenAiTextProviderError("OpenAI motion interpretation submission is unresolved and was not retried.",true,null,{phase:"provider_transport",route_code:"motion.broll_interpretation"});
+    }
     const rawText=await response.text();let payload:Record<string,unknown>={};try{payload=JSON.parse(rawText) as Record<string,unknown>}catch{/* Invalid JSON is reported through the response status or missing-output checks below. */}
     if(!response.ok)throw new Error((payload.error as {message?:string}|undefined)?.message||rawText||`Motion interpretation failed (${response.status})`);
     const text=outputText(payload);if(!text)throw new Error("Motion interpretation provider returned no structured output");
@@ -115,4 +122,5 @@ export function synthesizeBrollMotionPrompt(brief:BrollMotionBrief):string{
   if(ultra.length>1000)throw new Error(`Runway-ready B-roll prompt synthesis exceeded 1000 UTF-16 code units (${ultra.length}).`);
   return ultra;
 }
-import { executeOpenAiTextTransport } from "./openai-text-paid-boundary.js";
+import { OpenAiTextBoundaryError, executeOpenAiTextTransport } from "./openai-text-paid-boundary.js";
+import { OpenAiTextProviderError } from "./paid-openai-text-execution-coordinator.js";

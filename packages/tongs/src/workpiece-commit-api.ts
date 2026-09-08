@@ -60,6 +60,12 @@ import {
   type RunwaySubmissionAuthorizationInput,
 } from "./providers/runway-paid-execution-boundary.js";
 import {
+  estimateOpenAiTextDirectCostMicros,
+  executePaidOpenAiTextRoute,
+  normalizeOpenAiTextPaidExecutionHandle,
+  type OpenAiTextPaidExecutionHandle,
+} from "./providers/paid-openai-text-route-execution.js";
+import {
   coordinateHammerHistoryAtomicComponentHead,
   isProtectedHammerHistoryAtomicStagingPath,
   type HammerHistoryAtomicCoordinatorAdapter,
@@ -1573,6 +1579,7 @@ export type InterpretImageMapPromptRequest = {
   creator_direction: string;
   style: string | null;
   user_access_token?: string | null;
+  paid_execution?: OpenAiTextPaidExecutionHandle | null;
 };
 export type EditImageMapPromptRequest = {
   workspace_id: string;
@@ -2485,6 +2492,7 @@ export type InterpretBrollMotionPromptRequest = {
   operation_id: string;
   operation_fingerprint: string;
   user_access_token?: string | null;
+  paid_execution?: OpenAiTextPaidExecutionHandle | null;
 };
 export type EditBrollMotionPromptRequest = {
   workspace_id: string;
@@ -2728,6 +2736,7 @@ export type GenerateUnifiedVisualPlanRequest = {
   generation_scope: UnifiedVisualPlanGenerationScope;
   operation_id: string;
   operation_fingerprint: string;
+  paid_execution?: OpenAiTextPaidExecutionHandle | null;
 };
 export type ReconcileChatSourcesRequest = {
   workspace_id: string;
@@ -28638,6 +28647,89 @@ export class TongsCommitService {
     let providerResponse = isRecord(operation.provider_response_json)
       ? operation.provider_response_json
       : null;
+    if (input.paid_execution && !providerResponse) {
+      if (input.paid_execution.requestFingerprint !== expectedFingerprint) {
+        throw new HttpError(409, "paid_request_fingerprint_mismatch", "The accepted unified-plan quote does not match this request.");
+      }
+      if (!this.unifiedVisualPlanProvider) {
+        throw new HttpError(503, "unified_visual_plan_provider_unavailable", "Unified Visual Plan provider is not configured.");
+      }
+      const paidOutcome = await executePaidOpenAiTextRoute({
+        gate: this.supabase.schema("tongs") as unknown as import("./providers/paid-openai-text-execution-coordinator.js").OpenAiTextGateClient,
+        routeCode: "visual.unified_plan",
+        handle: input.paid_execution,
+        userId: auth.userId,
+        workspaceId: input.workspace_id,
+        workpieceId,
+        credentialSource: "forge_managed",
+        inputUnitUpperBound: new TextEncoder().encode(JSON.stringify({ scriptText, creatorDirection: readStringField(normalizedInputs, "creator_direction"), generationScope, sourceCatalog: frozenCatalog })).byteLength,
+        requestFingerprintPayload: normalizedInputs,
+        executeProvider: async (context) => {
+          const result = await this.unifiedVisualPlanProvider!.generate({
+            scriptText,
+            creatorDirection: readStringField(normalizedInputs, "creator_direction"),
+            generationScope,
+            sourceCatalog: frozenCatalog,
+            model: context.model,
+            coordinatedExecution: (execute) => execute(),
+          });
+          return {
+            value: result,
+            requestId: result.providerRequestId,
+            inputUnits: result.inputTokens,
+            outputUnits: result.outputTokens,
+            supplierCostMicros: context.credentialFunding === "forge"
+              ? estimateOpenAiTextDirectCostMicros(context, result.inputTokens, result.outputTokens)
+              : 0,
+            supplierCostAuthoritative: false,
+            supportingCostMicros: context.supportingCostCeilingMicros,
+            supportingCostAuthoritative: false,
+            costCoverageComplete: true,
+            evidence: { provider_reference: result.providerRequestId, supplier_cost_status: context.credentialFunding === "forge" ? "estimated" : "customer_direct", route_code: "visual.unified_plan" },
+            supportingCostEvidence: { allocation_kind: "accepted_fixed_supporting_allocation", component: "plan_validation_child_commits_and_readback", evidence_status: "estimated" },
+          };
+        },
+        validateResult: (result) => {
+          const normalized = arbitrateUnifiedVisualPlanCoverage(normalizeUnifiedVisualPlanContextAnchors(result.plan, scriptText), scriptText);
+          const invalid = validateUnifiedVisualPlan(normalized, scriptText, new Set(frozenCatalog.map((source) => source.source_key)));
+          const scopeInvalid = validateUnifiedVisualPlanScope(normalized, generationScope);
+          if (invalid.length || scopeInvalid.length) throw new Error(`Invalid fields: ${[...invalid, ...scopeInvalid].join(", ")}`);
+        },
+        persistCanonical: async (result) => {
+          const recorded = await authority.rpc("record_unified_visual_plan_provider_response", {
+            p_operation_id: input.operation_id,
+            p_operation_fingerprint: input.operation_fingerprint,
+            p_provider_response_json: {
+              canonical_plan: result.plan as unknown as Json,
+              raw_provider_response: result.rawResponse as unknown as Json,
+              provider_request_id: result.providerRequestId,
+              model: result.model,
+            },
+          });
+          if (recorded.error || !isRecord(recorded.data)) {
+            throw new Error(recorded.error?.message ?? "Provider response could not be persisted.");
+          }
+          // Re-enter only the canonical recovery path. The stored provider
+          // response prevents another OpenAI submission; all child authorities
+          // and final verification complete before billing settlement.
+          return this.generateUnifiedVisualPlan(
+            workpieceId,
+            { ...input, paid_execution: null },
+            options,
+          );
+        },
+      });
+      if (paidOutcome.state === "settled" || paidOutcome.state === "settled_replay") {
+        return paidOutcome.result as Record<string, Json>;
+      }
+      throw new HttpError(
+        paidOutcome.state === "submission_unknown" ? 202 : 502,
+        `paid_${paidOutcome.state}`,
+        paidOutcome.state === "submission_unknown"
+          ? "The OpenAI submission is unresolved and was not resubmitted."
+          : "Unified Visual Plan generation failed or is already in progress; the customer was not charged.",
+      );
+    }
     let plan: UnifiedVisualPlanResult;
     if (providerResponse) {
       if (!isRecord(providerResponse.canonical_plan))
@@ -31464,6 +31556,104 @@ export class TongsCommitService {
       ? operation.provider_response_json
       : null;
     let brief: BrollMotionBrief;
+    if (input.paid_execution && !providerResponse) {
+      if (input.paid_execution.requestFingerprint !== expectedFingerprint) {
+        throw new HttpError(409, "paid_request_fingerprint_mismatch", "The accepted motion-interpretation quote does not match this request.");
+      }
+      if (!this.brollMotionInterpretationProvider) {
+        throw new HttpError(503, "broll_motion_interpreter_unavailable", "B-roll motion interpretation provider is not configured");
+      }
+      const paidOutcome = await executePaidOpenAiTextRoute({
+        gate: this.supabase.schema("tongs") as unknown as import("./providers/paid-openai-text-execution-coordinator.js").OpenAiTextGateClient,
+        routeCode: "motion.broll_interpretation",
+        handle: input.paid_execution,
+        userId: auth.userId,
+        workspaceId: input.workspace_id,
+        workpieceId,
+        credentialSource: "forge_managed",
+        inputUnitUpperBound: new TextEncoder().encode(JSON.stringify(requestJson)).byteLength,
+        requestFingerprintPayload: {
+          workspace_id: input.workspace_id,
+          workpiece_id: workpieceId,
+          beat_id: input.beat_id,
+          expected_prompt_revision_id: input.expected_prompt_revision_id,
+          expected_prompt_revision: input.expected_prompt_revision,
+          creator_direction: input.creator_direction,
+          creative_input_hash: creativeHash,
+          contracts: {
+            interpretation: interpretationContract,
+            validator: validatorVersion,
+            synthesis: synthesisContract,
+          },
+        },
+        executeProvider: async (context) => {
+          const result = await this.brollMotionInterpretationProvider!.interpret({
+            request: requestJson,
+            model: context.model,
+            coordinatedExecution: (execute) => execute(),
+          });
+          return {
+            value: result,
+            requestId: result.providerRequestId,
+            inputUnits: result.inputTokens,
+            outputUnits: result.outputTokens,
+            supplierCostMicros: context.credentialFunding === "forge"
+              ? estimateOpenAiTextDirectCostMicros(context, result.inputTokens, result.outputTokens)
+              : 0,
+            supplierCostAuthoritative: false,
+            supportingCostMicros: context.supportingCostCeilingMicros,
+            supportingCostAuthoritative: false,
+            costCoverageComplete: true,
+            evidence: { provider_reference: result.providerRequestId, supplier_cost_status: context.credentialFunding === "forge" ? "estimated" : "customer_direct", route_code: "motion.broll_interpretation" },
+            supportingCostEvidence: { allocation_kind: "accepted_fixed_supporting_allocation", component: "validation_synthesis_and_tongs_persistence", evidence_status: "estimated" },
+          };
+        },
+        validateResult: (result) => {
+          const invalid = validateBrollMotionBrief(result.brief);
+          if (invalid.length) throw new Error(`Invalid fields: ${invalid.join(", ")}`);
+        },
+        persistCanonical: async (result) => {
+          const paidProviderResponse = {
+            canonical_brief: result.brief as unknown as Json,
+            raw_provider_response: result.rawResponse as unknown as Json,
+            model: result.model,
+            provider,
+          };
+          const recorded = await authority.rpc("record_broll_provider_or_upload_result", {
+            p_operation_id: input.operation_id,
+            p_operation_fingerprint: input.operation_fingerprint,
+            p_result: paidProviderResponse,
+          });
+          if (recorded.error) throw new Error(recorded.error.message);
+          const committed = await authority.rpc("commit_broll_prompt_interpretation", {
+            p_operation_id: input.operation_id,
+            p_operation_fingerprint: input.operation_fingerprint,
+            p_source_beat_revision_id: readStringField(beat, "id"),
+            p_motion_brief: result.brief,
+            p_final_prompt: synthesizeBrollMotionPrompt(result.brief),
+            p_interpretation_contract_version: interpretationContract,
+            p_validator_version: validatorVersion,
+            p_synthesis_contract_version: synthesisContract,
+            p_actor_id: auth.userId,
+          });
+          if (committed.error || !isRecord(committed.data)
+            || readStringField(committed.data, "disposition") !== "committed") {
+            throw new Error(committed.error?.message ?? "Tongs rejected motion interpretation persistence");
+          }
+          return committed.data;
+        },
+      });
+      if (paidOutcome.state === "settled" || paidOutcome.state === "settled_replay") {
+        return paidOutcome.result as Record<string, Json>;
+      }
+      throw new HttpError(
+        paidOutcome.state === "submission_unknown" ? 202 : 502,
+        `paid_${paidOutcome.state}`,
+        paidOutcome.state === "submission_unknown"
+          ? "The OpenAI submission is unresolved and was not resubmitted."
+          : "Motion interpretation failed or is already in progress; the customer was not charged.",
+      );
+    }
     if (providerResponse) {
       if (!isRecord(providerResponse.canonical_brief))
         throw new HttpError(
@@ -31805,6 +31995,127 @@ export class TongsCommitService {
       image_moment_id: input.image_moment_id,
       style: input.style,
     };
+    if (input.paid_execution && !providerResponse) {
+      if (input.paid_execution.requestFingerprint !== expectedFingerprint) {
+        throw new HttpError(
+          409,
+          "paid_request_fingerprint_mismatch",
+          "The accepted narrative-interpretation quote does not match this request.",
+        );
+      }
+      if (!this.narrativeInterpretationProvider) {
+        throw new HttpError(
+          503,
+          "image_prompt_interpreter_unavailable",
+          "Narrative interpretation provider is not configured",
+        );
+      }
+      let paidModel = "gpt-5-mini";
+      const paidOutcome = await executePaidOpenAiTextRoute({
+        gate: this.supabase.schema("tongs") as unknown as import("./providers/paid-openai-text-execution-coordinator.js").OpenAiTextGateClient,
+        routeCode: "visual.narrative_interpretation",
+        handle: input.paid_execution,
+        userId: auth.userId,
+        workspaceId: input.workspace_id,
+        workpieceId,
+        credentialSource: "forge_managed",
+        inputUnitUpperBound: new TextEncoder().encode(JSON.stringify(requestJson)).byteLength,
+        requestFingerprintPayload: {
+          workspace_id: input.workspace_id,
+          workpiece_id: workpieceId,
+          image_moment_id: input.image_moment_id,
+          image_map_revision_id: input.image_map_revision_id,
+          script_approval_id: input.script_approval_id,
+          expected_prompt_revision_id: input.expected_prompt_revision_id,
+          expected_prompt_revision: input.expected_prompt_revision,
+          source_context: input.source_context,
+          creator_direction: input.creator_direction,
+          style: input.style,
+          contracts: {
+            interpretation: normalizedInputs.interpretation_contract_version,
+            validator: normalizedInputs.validator_version,
+            synthesis: normalizedInputs.synthesis_contract_version,
+          },
+        },
+        executeProvider: async (context) => {
+          const result = await this.narrativeInterpretationProvider!.interpret({
+            request: requestJson,
+            model: context.model,
+            coordinatedExecution: (execute) => execute(),
+          });
+          paidModel = result.model;
+          return {
+            value: result,
+            requestId: result.providerRequestId,
+            inputUnits: result.inputTokens,
+            outputUnits: result.outputTokens,
+            supplierCostMicros: context.credentialFunding === "forge"
+              ? estimateOpenAiTextDirectCostMicros(context, result.inputTokens, result.outputTokens)
+              : 0,
+            supplierCostAuthoritative: false,
+            supportingCostMicros: context.supportingCostCeilingMicros,
+            supportingCostAuthoritative: false,
+            costCoverageComplete: true,
+            evidence: {
+              provider_reference: result.providerRequestId,
+              supplier_cost_status: context.credentialFunding === "forge" ? "estimated" : "customer_direct",
+              route_code: "visual.narrative_interpretation",
+            },
+            supportingCostEvidence: {
+              allocation_kind: "accepted_fixed_supporting_allocation",
+              component: "validation_and_tongs_persistence",
+              evidence_status: "estimated",
+            },
+          };
+        },
+        validateResult: (result) => {
+          const invalid = validateSubstantiveVisualBrief(result.brief);
+          if (invalid.length) throw new Error(`Invalid fields: ${invalid.join(", ")}`);
+        },
+        persistCanonical: async (result) => {
+          const paidProviderResponse = {
+            canonical_brief: result.brief as unknown as Json,
+            raw_provider_response: result.rawResponse as unknown as Json,
+            model: result.model,
+          };
+          const recorded = await authority.rpc("record_image_prompt_provider_response", {
+            p_operation_id: input.operation_id,
+            p_operation_fingerprint: input.operation_fingerprint,
+            p_provider_response_json: paidProviderResponse,
+          });
+          if (recorded.error) throw new Error(recorded.error.message);
+          const finalPrompt = synthesizeConcreteVendorPrompt(result.brief, input.style);
+          const committed = await authority.rpc("commit_image_prompt_interpretation", {
+            p_operation_id: input.operation_id,
+            p_operation_fingerprint: input.operation_fingerprint,
+            p_visual_brief_json: result.brief,
+            p_ai_synthesized_prompt: finalPrompt,
+            p_final_prompt: finalPrompt,
+            p_interpretation_contract_version: "forge.image-prompt-interpretation.v2",
+            p_validator_version: "forge.image-prompt-validator.v1",
+            p_synthesis_contract_version: "forge.image-prompt-synthesis.v3",
+            p_interpretation_model: paidModel,
+            p_interpretation_request_json: requestJson,
+            p_actor_id: auth.userId,
+          });
+          if (committed.error || !isRecord(committed.data)
+            || readStringField(committed.data, "disposition") !== "committed") {
+            throw new Error(committed.error?.message ?? "Tongs rejected narrative interpretation persistence");
+          }
+          return committed.data;
+        },
+      });
+      if (paidOutcome.state === "settled" || paidOutcome.state === "settled_replay") {
+        return paidOutcome.result as Record<string, Json>;
+      }
+      throw new HttpError(
+        paidOutcome.state === "submission_unknown" ? 202 : 502,
+        `paid_${paidOutcome.state}`,
+        paidOutcome.state === "submission_unknown"
+          ? "The OpenAI submission is unresolved and was not resubmitted."
+          : "Narrative interpretation failed or is already in progress; the customer was not charged.",
+      );
+    }
     if (providerResponse) {
       const storedBrief = providerResponse.canonical_brief;
       if (!isRecord(storedBrief))
@@ -35161,6 +35472,9 @@ export function createTongsCommitApiHandlerWithService(
         );
         const body = await parseJsonBody(request);
         const userAccessToken = requireUserAccessTokenHeader(request);
+        const paidExecution = normalizeOpenAiTextPaidExecutionHandle(body.paid_execution);
+        if (body.paid_execution != null && !paidExecution)
+          throw new HttpError(400, "invalid_paid_execution_handle", "paid_execution is invalid.");
         const source = normalizeJsonValue(body.source_context);
         if (!isRecord(source))
           throw new HttpError(
@@ -35213,6 +35527,7 @@ export function createTongsCommitApiHandlerWithService(
                 ? null
                 : normalizeNonEmptyString(body.style, "style"),
             user_access_token: userAccessToken,
+            paid_execution: paidExecution,
           },
           { userAccessToken },
         );
@@ -36076,6 +36391,9 @@ export function createTongsCommitApiHandlerWithService(
         );
         const body = await parseJsonBody(request);
         const userAccessToken = requireUserAccessTokenHeader(request);
+        const paidExecution = normalizeOpenAiTextPaidExecutionHandle(body.paid_execution);
+        if (body.paid_execution != null && !paidExecution)
+          throw new HttpError(400, "invalid_paid_execution_handle", "paid_execution is invalid.");
         const result = await service.generateUnifiedVisualPlan(
           workpieceId,
           {
@@ -36146,6 +36464,7 @@ export function createTongsCommitApiHandlerWithService(
               body.operation_fingerprint,
               "operation_fingerprint",
             ),
+            paid_execution: paidExecution,
           },
           { userAccessToken },
         );
@@ -36752,6 +37071,9 @@ export function createTongsCommitApiHandlerWithService(
         );
         const body = await parseJsonBody(request);
         const userAccessToken = requireUserAccessTokenHeader(request);
+        const paidExecution = normalizeOpenAiTextPaidExecutionHandle(body.paid_execution);
+        if (body.paid_execution != null && !paidExecution)
+          throw new HttpError(400, "invalid_paid_execution_handle", "paid_execution is invalid.");
         const result = await service.interpretBrollMotionPrompt(
           workpieceId,
           {
@@ -36781,6 +37103,7 @@ export function createTongsCommitApiHandlerWithService(
               "operation_fingerprint",
             ),
             user_access_token: userAccessToken,
+            paid_execution: paidExecution,
           },
           { userAccessToken },
         );

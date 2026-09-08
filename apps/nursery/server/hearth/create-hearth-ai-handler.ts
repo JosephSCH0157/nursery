@@ -23,6 +23,8 @@ import {
   executeOpenAiTextTransport,
   type OpenAiTextRouteCode,
 } from "../../../../packages/tongs/src/providers/openai-text-paid-boundary";
+import { fingerprintOpenAiTextPaidRequest } from "../../../../packages/tongs/src/providers/paid-openai-text-route-execution";
+import { executePaidJsonOpenAiRoute } from "../billing/paid-json-openai-route";
 import {
   HEARTH_AI_ROUTES,
   isHearthAiLane as isBillingMode,
@@ -4010,6 +4012,27 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...buildBillingSnapshot(lane),
         });
       }
+      // Search/extraction is a distinct supporting service. An accepted text
+      // quote never authorizes it implicitly. When synthesis enforcement is
+      // active, only creator-supplied links may reach this adapter until a
+      // separately priced search policy is published.
+      if (researchModeRequested && !linkModeRequested && openAiTextGate) {
+        const earlyRequirement = await openAiTextGate.rpc(
+          "read_openai_text_route_execution_requirement",
+          { p_route_code: "hearth.research_synthesis" },
+        );
+        const earlyRow = isRecord(earlyRequirement.data)
+          ? earlyRequirement.data
+          : {};
+        if (earlyRequirement.error || earlyRow.funding_context_required === true) {
+          return jsonResponse(422, {
+            ok: false,
+            error: "Research search and extraction are not included in this text authorization.",
+            code: "supporting_service_not_priced",
+            ...buildBillingSnapshot(lane),
+          });
+        }
+      }
       const researchBrief = researchModeRequested
         ? buildHearthResearchBrief({
             requestText: researchIntentText || requestText,
@@ -4344,13 +4367,14 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const paidRouteCode: OpenAiTextRouteCode = researchModeRequested
           ? "hearth.research_synthesis"
           : "hearth.chat_completion";
-        const paidScopeEligible = paidRouteCode === "hearth.chat_completion"
-          && !productionAction
+        const paidScopeEligible = !productionAction
           && !attachmentContext.includeEpisodeAttachments
           && !readinessCheckRequested
-          && !crossProjectReference.detected;
-        const actualRequestFingerprint = paidRouteCode === "hearth.chat_completion"
-          ? fingerprintPaidHearthChatRequest({
+          && !crossProjectReference.detected
+          && (paidRouteCode === "hearth.chat_completion"
+            || (paidRouteCode === "hearth.research_synthesis" && linkModeRequested && Boolean(researchResult)));
+        const paidFingerprintPayload = paidRouteCode === "hearth.chat_completion"
+          ? {
               schema: "forge.hearth.paid-chat-request.v1",
               route_code: "hearth.chat_completion",
               workspace_id: episodeContext.workspaceId,
@@ -4359,8 +4383,21 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               messages,
               user_authored_text: requestText,
               behavior: bodyRaw.behavior ?? null,
-            })
-          : null;
+            }
+          : {
+              schema: "forge.hearth.research-synthesis.paid.v1",
+              route_code: "hearth.research_synthesis",
+              workspace_id: episodeContext.workspaceId,
+              workpiece_id: episodeContext.episodeId,
+              lane: effectiveLane,
+              user_authored_text: requestText,
+              creator_supplied_sources: researchResult?.sources ?? [],
+              supporting_paid_services: [],
+              model,
+            };
+        const actualRequestFingerprint = paidRouteCode === "hearth.chat_completion"
+          ? fingerprintPaidHearthChatRequest(paidFingerprintPayload)
+          : await fingerprintOpenAiTextPaidRequest(paidFingerprintPayload);
         let paidRequirementRow: Record<string, unknown> = {};
         if (openAiTextGate) {
           const requirement = await openAiTextGate.rpc("read_openai_text_route_execution_requirement", {
@@ -4550,6 +4587,54 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             });
           }
           try {
+            if (paidRouteCode === "hearth.research_synthesis") {
+              const paidResearch = await executePaidJsonOpenAiRoute({
+                gate: openAiTextGate,
+                routeCode: "hearth.research_synthesis",
+                handle: paidExecutionHandle,
+                userId,
+                workspaceId: episodeContext.workspaceId!,
+                workpieceId: episodeContext.episodeId,
+                credentialSource: resolvedCredentials.keySource,
+                apiKey: resolvedCredentials.apiKey,
+                requestFingerprintPayload: paidFingerprintPayload,
+                providerRequestBody: (acceptedModel) => ({
+                  model: acceptedModel,
+                  messages: completionMessages,
+                }),
+                signal: upstreamAbort.signal,
+                fetchImpl: config.openAiProviderFetch,
+                validate: (providerPayload) => {
+                  const rawReply = extractAssistantReply(providerPayload);
+                  if (!rawReply) throw new Error("Research synthesis returned no usable response.");
+                  const structured = normalizeStructuredReply(rawReply) ?? {
+                    assistantText: rawReply,
+                    ops: [],
+                    scriptText: null,
+                    tagAudit: null,
+                    researchArtifact: null,
+                  };
+                  structured.assistantText = sanitizeHearthUserFacingOutput(
+                    enforceHearthEditorialHonesty({ assistantText: structured.assistantText, requestText }),
+                  );
+                  if (!structured.assistantText.trim()) throw new Error("Research synthesis was empty.");
+                  return {
+                    assistant_text: structured.assistantText,
+                    ops: structured.ops,
+                    script_text: structured.scriptText,
+                    tag_audit: structured.tagAudit,
+                    research_result: researchResult as unknown as Record<string, unknown>,
+                  };
+                },
+              });
+              return jsonResponse(200, {
+                ok: true,
+                ...paidResearch.result,
+                reply: paidResearch.result.assistant_text,
+                billing_receipt: paidResearch.receipt,
+                ...buildBillingSnapshot(lane),
+              });
+            }
             const paidCompletionMessages: ChatMessage[] = [
               {
                 role: "system",

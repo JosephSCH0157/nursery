@@ -54,8 +54,9 @@ test("settles only after bounded authorization, validation, persistence, usage, 
   assert.deepEqual(g.calls.map((call) => call.name), [
     "reserve_operation",
     "authorize_openai_text_provider_attempt",
-    "record_openai_text_usage",
+    "record_openai_text_provider_capture",
     "record_openai_text_supplier_attempt_expense",
+    "record_openai_text_usage",
     "close_openai_text_failure_exposure",
     "settle_operation",
   ]);
@@ -145,6 +146,8 @@ test("persistence failure retains usage, releases the customer, and realizes For
   const usage = g.calls.find((call) => call.name === "record_openai_text_usage");
   assert.equal(usage.args.p_result_validated, true);
   assert.equal(usage.args.p_canonical_persistence_confirmed, false);
+  assert.ok(g.calls.findIndex((call) => call.name === "record_openai_text_provider_capture")
+    < g.calls.findIndex((call) => call.name === "record_openai_text_usage"));
   assert.equal(g.calls.find((call) => call.name === "record_provider_failure").args.p_failure_class, "persistence_failure");
 });
 

@@ -17,6 +17,12 @@ import {
 } from "../../../packages/tongs/src/ai-usage-taxonomy";
 import { executeOpenAiTextTransport } from "../../../packages/tongs/src/providers/openai-text-paid-boundary";
 import {
+  normalizeOpenAiTextPaidExecutionHandle,
+  type OpenAiTextPaidExecutionHandle,
+} from "../../../packages/tongs/src/providers/paid-openai-text-route-execution";
+import type { OpenAiTextGateClient } from "../../../packages/tongs/src/providers/paid-openai-text-execution-coordinator";
+import { executePaidJsonOpenAiRoute } from "../server/billing/paid-json-openai-route";
+import {
   createHammerAudioPolishRequestContext,
   handleHammerAudioPolishRequest,
 } from "./hammer-audio-polish";
@@ -196,6 +202,7 @@ type CleanupAssistRequest = {
   workpiece_id: string;
   segments: CleanupAssistSegment[];
   segment_ids: string[];
+  paid_execution: OpenAiTextPaidExecutionHandle | null;
 };
 
 type QuenchMetadataAssistRequest = {
@@ -204,6 +211,7 @@ type QuenchMetadataAssistRequest = {
   title: string;
   description: string;
   tags: string[];
+  paid_execution: OpenAiTextPaidExecutionHandle | null;
 };
 
 type HammerTranscriptPrepErrorCode =
@@ -937,6 +945,7 @@ function normalizeCleanupAssistRequest(body: unknown): CleanupAssistRequest | nu
     workpiece_id: workpieceId,
     segments,
     segment_ids: Array.from(new Set(segmentIds)),
+    paid_execution: normalizeOpenAiTextPaidExecutionHandle(row.paid_execution),
   };
 }
 
@@ -963,6 +972,7 @@ function normalizeQuenchMetadataAssistRequest(body: unknown): QuenchMetadataAssi
     title,
     description,
     tags,
+    paid_execution: normalizeOpenAiTextPaidExecutionHandle(row.paid_execution),
   };
 }
 
@@ -1240,6 +1250,12 @@ async function runOpenAiTranscriptCleanupAssist(args: {
   apiKey: string;
   model: string;
   request: CleanupAssistRequest;
+  paid?: {
+    gate: OpenAiTextGateClient;
+    handle: OpenAiTextPaidExecutionHandle;
+    userId: string;
+    credentialSource: "forge_managed" | "user_byo" | "org_shared";
+  };
 }): Promise<{
   resultSegments: CleanupAssistSegment[];
   suggestions: Array<{
@@ -1250,6 +1266,7 @@ async function runOpenAiTranscriptCleanupAssist(args: {
     confidence: number;
     timeSavedSec: number;
   }>;
+  billingReceipt?: Record<string, unknown>;
 }> {
   const selectedSegments = args.request.segments.filter((segment) => args.request.segment_ids.includes(segment.segment_id));
   if (selectedSegments.length === 0) {
@@ -1270,6 +1287,60 @@ async function runOpenAiTranscriptCleanupAssist(args: {
       text: segment.text,
     })),
   });
+
+  if (args.paid) {
+    const paid = await executePaidJsonOpenAiRoute({
+      gate: args.paid.gate,
+      routeCode: "hammer.transcript_cleanup",
+      handle: args.paid.handle,
+      userId: args.paid.userId,
+      workspaceId: args.request.workspace_id,
+      workpieceId: args.request.workpiece_id,
+      credentialSource: args.paid.credentialSource,
+      apiKey: args.apiKey,
+      requestFingerprintPayload: {
+        schema: "forge.hammer.transcript-cleanup.paid.v1",
+        route_code: "hammer.transcript_cleanup",
+        workspace_id: args.request.workspace_id,
+        workpiece_id: args.request.workpiece_id,
+        segments: selectedSegments,
+        model: args.model,
+      },
+      providerRequestBody: (model) => ({
+        model,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      }),
+      validate: (payload) => {
+        const choices = Array.isArray(payload.choices) ? payload.choices : [];
+        const firstChoice = readJsonObject(choices[0]);
+        const message = readJsonObject(firstChoice?.message);
+        const rawContent = readChatMessageContent(message?.content);
+        if (!rawContent) throw new Error("OpenAI transcript cleanup assist returned an empty response.");
+        let parsedContent: unknown;
+        try { parsedContent = JSON.parse(rawContent); }
+        catch { throw new Error("OpenAI transcript cleanup assist returned invalid JSON."); }
+        const changes = normalizeOpenAiCleanupChanges(parsedContent);
+        if (changes.length === 0) throw new Error("OpenAI transcript cleanup assist returned no valid changes.");
+        const changesById = new Map(changes.map((change) => [change.segment_id, change.cleaned_text]));
+        const suggestions: Array<{ id: string; type: "filler_remove"; segmentId: string; description: string; confidence: number; timeSavedSec: number }> = [];
+        const resultSegments = args.request.segments.map((segment) => {
+          const cleaned = changesById.get(segment.segment_id);
+          if (!cleaned || cleaned === segment.text) return segment;
+          const timeSavedSec = estimateCleanupTimeSavedSec(segment.text, cleaned);
+          suggestions.push({ id: `ai_cleanup:${segment.segment_id}`, type: "filler_remove", segmentId: segment.segment_id, description: "AI tightened transcript wording while preserving meaning.", confidence: 0.82, timeSavedSec });
+          return { ...segment, text: cleaned };
+        });
+        if (suggestions.length === 0) throw new Error("OpenAI transcript cleanup assist produced no usable change.");
+        return { resultSegments, suggestions };
+      },
+    });
+    return { ...paid.result, billingReceipt: paid.receipt };
+  }
 
   const runRequest = async (model: string): Promise<Response> => {
     const upstreamTimeout = createTimeoutAbortController(OPENAI_CLEANUP_TIMEOUT_MS);
@@ -1396,10 +1467,17 @@ async function runOpenAiQuenchMetadataAssist(args: {
   apiKey: string;
   model: string;
   request: QuenchMetadataAssistRequest;
+  paid?: {
+    gate: OpenAiTextGateClient;
+    handle: OpenAiTextPaidExecutionHandle;
+    userId: string;
+    credentialSource: "forge_managed" | "user_byo" | "org_shared";
+  };
 }): Promise<{
   title: string;
   description: string;
   tags: string[];
+  billingReceipt?: Record<string, unknown>;
 }> {
   const systemPrompt =
     "You are a podcast release metadata assistant. Improve clarity and discoverability while staying faithful to source intent. " +
@@ -1410,6 +1488,52 @@ async function runOpenAiQuenchMetadataAssist(args: {
     description: args.request.description,
     tags: args.request.tags,
   });
+
+  if (args.paid) {
+    const paid = await executePaidJsonOpenAiRoute({
+      gate: args.paid.gate,
+      routeCode: "quench.metadata",
+      handle: args.paid.handle,
+      userId: args.paid.userId,
+      workspaceId: args.request.workspace_id,
+      workpieceId: args.request.workpiece_id,
+      credentialSource: args.paid.credentialSource,
+      apiKey: args.apiKey,
+      requestFingerprintPayload: {
+        schema: "forge.quench.metadata.paid.v1",
+        route_code: "quench.metadata",
+        workspace_id: args.request.workspace_id,
+        workpiece_id: args.request.workpiece_id,
+        title: args.request.title,
+        description: args.request.description,
+        tags: args.request.tags,
+        model: args.model,
+      },
+      providerRequestBody: (model) => ({
+        model,
+        temperature: 0.3,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+      }),
+      validate: (payload) => {
+        const choices = Array.isArray(payload.choices) ? payload.choices : [];
+        const firstChoice = readJsonObject(choices[0]);
+        const message = readJsonObject(firstChoice?.message);
+        const rawContent = readChatMessageContent(message?.content);
+        if (!rawContent) throw new Error("OpenAI Quench metadata assist returned an empty response.");
+        let parsedContent: unknown;
+        try { parsedContent = JSON.parse(rawContent); }
+        catch { throw new Error("OpenAI Quench metadata assist returned invalid JSON."); }
+        const draft = normalizeOpenAiQuenchMetadataDraft(parsedContent);
+        if (!draft) throw new Error("OpenAI Quench metadata assist returned an invalid draft payload.");
+        return draft;
+      },
+    });
+    return { ...paid.result, billingReceipt: paid.receipt };
+  }
 
   const upstreamTimeout = createTimeoutAbortController(OPENAI_CLEANUP_TIMEOUT_MS);
   let upstream: Response;
@@ -1890,7 +2014,11 @@ export function createHammerPrepMiddleware() {
           global: { headers: { Authorization: `Bearer ${accessToken}` } },
         });
         const shortsModel = readTrimmed(process.env.HAMMER_SHORTS_DISCOVERY_MODEL) ?? "gpt-5.3";
-        const result = await executeHammerShortsDiscovery(body as HammerShortsDiscoveryBody, {
+        const shortsPaidHandle = normalizeOpenAiTextPaidExecutionHandle(bodyRow?.paid_execution);
+        const result = await executeHammerShortsDiscovery({
+          ...(body as HammerShortsDiscoveryBody),
+          paid_execution: shortsPaidHandle,
+        }, {
           userClient,
           model: shortsModel,
           apiKey: textApiKey,
@@ -1899,6 +2027,15 @@ export function createHammerPrepMiddleware() {
             const accounting = buildUsageAccounting({ model: shortsModel, payload, fallbackTotalTokens: 0, billableMode: hammerTelemetryLane });
             await recordAiUsageEvent({ supabaseService, userId, lane: hammerTelemetryLane, provider: "openai", workspaceId, workpieceId, sessionId: null, feature: AI_USAGE_FEATURE.HAMMER_SHORTS_DISCOVERY, subfeature: AI_USAGE_SUBFEATURE.SHORTS_DISCOVERY, model: shortsModel, ...accounting, trigger: AI_USAGE_TRIGGER.USER, status: status === "success" ? AI_USAGE_STATUS.SUCCESS : AI_USAGE_STATUS.ERROR, actionId: readTrimmed(bodyRow?.operation_id), providerRequestId });
           },
+          ...(shortsPaidHandle
+            ? {
+                paid: {
+                  gate: supabaseService.schema("tongs") as unknown as OpenAiTextGateClient,
+                  userId,
+                  credentialSource: "forge_managed" as const,
+                },
+              }
+            : {}),
         });
         sendJson(res, result.status, result.payload);
         return;
@@ -2072,6 +2209,14 @@ export function createHammerPrepMiddleware() {
           });
           return;
         }
+        const quenchUser = supabaseService
+          ? await supabaseService.auth.getUser(userAccessToken)
+          : null;
+        const quenchUserId = quenchUser?.data.user?.id ?? null;
+        if (assistRequest.paid_execution && (!supabaseService || !quenchUserId || quenchUser?.error)) {
+          sendJson(res, 401, { ok: false, error: { message: "Authenticated server-owned funding context is required." } });
+          return;
+        }
 
         const preflight = await runQuenchMetadataPolicyPreflight({
           supabaseUrl: runtimeConfig.supabaseUrl,
@@ -2088,10 +2233,20 @@ export function createHammerPrepMiddleware() {
           apiKey: textApiKey,
           model: quenchMetadataModel,
           request: assistRequest,
+          ...(assistRequest.paid_execution && supabaseService && quenchUserId
+            ? {
+                paid: {
+                  gate: supabaseService.schema("tongs") as unknown as OpenAiTextGateClient,
+                  handle: assistRequest.paid_execution,
+                  userId: quenchUserId,
+                  credentialSource: "forge_managed" as const,
+                },
+              }
+            : {}),
         });
         sendJson(res, 200, {
           ok: true,
-          data: { draft },
+          data: { draft, ...(draft.billingReceipt ? { billing_receipt: draft.billingReceipt } : {}) },
         });
         return;
       }
@@ -2126,6 +2281,14 @@ export function createHammerPrepMiddleware() {
           });
           return;
         }
+        const cleanupUser = supabaseService
+          ? await supabaseService.auth.getUser(userAccessToken)
+          : null;
+        const cleanupUserId = cleanupUser?.data.user?.id ?? null;
+        if (cleanupRequest.paid_execution && (!supabaseService || !cleanupUserId || cleanupUser?.error)) {
+          sendJson(res, 401, { ok: false, error: { message: "Authenticated server-owned funding context is required." } });
+          return;
+        }
 
         const preflight = await runHammerTranscriptPolicyPreflight({
           supabaseUrl: runtimeConfig.supabaseUrl,
@@ -2144,6 +2307,16 @@ export function createHammerPrepMiddleware() {
           apiKey: textApiKey,
           model: cleanupModel,
           request: cleanupRequest,
+          ...(cleanupRequest.paid_execution && supabaseService && cleanupUserId
+            ? {
+                paid: {
+                  gate: supabaseService.schema("tongs") as unknown as OpenAiTextGateClient,
+                  handle: cleanupRequest.paid_execution,
+                  userId: cleanupUserId,
+                  credentialSource: "forge_managed" as const,
+                },
+              }
+            : {}),
         });
         const changedIds = new Set(assisted.suggestions.map((suggestion) => suggestion.segmentId));
         sendJson(res, 200, {
@@ -2161,6 +2334,7 @@ export function createHammerPrepMiddleware() {
                 ),
               },
             },
+            ...(assisted.billingReceipt ? { billing_receipt: assisted.billingReceipt } : {}),
           },
         });
         return;

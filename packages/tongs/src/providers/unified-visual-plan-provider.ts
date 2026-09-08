@@ -103,6 +103,7 @@ export interface UnifiedVisualPlanProvider {
     generationScope: UnifiedVisualPlanGenerationScope;
     sourceCatalog: UnifiedVisualSourceCatalogEntry[];
     model?: string | null;
+    coordinatedExecution?: <T>(execute: () => Promise<T>) => Promise<T>;
   }): Promise<UnifiedVisualPlanProviderOutput>;
 }
 const itemContext = {
@@ -330,11 +331,12 @@ export class OpenAiUnifiedVisualPlanProvider {
     generationScope: UnifiedVisualPlanGenerationScope;
     sourceCatalog: UnifiedVisualSourceCatalogEntry[];
     model?: string | null;
+    coordinatedExecution?: <T>(execute: () => Promise<T>) => Promise<T>;
   }): Promise<UnifiedVisualPlanProviderOutput> {
     const model = input.model?.trim() || this.defaultModel;
     let response: Response;
     try {
-      response = await executeOpenAiTextTransport({ routeCode: "visual.unified_plan", executeLegacy: () => fetch("https://api.openai.com/v1/responses", {
+      const executeLegacy = () => fetch("https://api.openai.com/v1/responses", {
         method: "POST",
         headers: {
           authorization: `Bearer ${this.apiKey}`,
@@ -358,8 +360,10 @@ export class OpenAiUnifiedVisualPlanProvider {
             },
           },
         }),
-      }) });
+      });
+      response = await executeOpenAiTextTransport({ routeCode: "visual.unified_plan", executeLegacy, coordinatedExecution: input.coordinatedExecution ? () => input.coordinatedExecution!(executeLegacy) : undefined });
     } catch (error) {
+      if (error instanceof OpenAiTextBoundaryError || error instanceof OpenAiTextProviderError) throw error;
       const cause = error instanceof Error && error.cause && typeof error.cause === "object"
         ? error.cause as { code?: unknown; message?: unknown }
         : null;
@@ -368,7 +372,12 @@ export class OpenAiUnifiedVisualPlanProvider {
         : typeof cause?.message === "string"
           ? cause.message
           : null;
-      throw new Error(`OpenAI could not be reached while generating the Visual Plan${detail ? ` (${detail})` : ""}. Try again; the last verified plan is unchanged.`);
+      throw new OpenAiTextProviderError(
+        `OpenAI could not be reached while generating the Visual Plan${detail ? ` (${detail})` : ""}. The submission is unresolved and was not retried; the last verified plan is unchanged.`,
+        true,
+        null,
+        { phase: "provider_transport", route_code: "visual.unified_plan" },
+      );
     }
     const rawText = await response.text();
     let payload: Record<string, unknown> = {};
@@ -671,4 +680,5 @@ export function validateUnifiedVisualPlanScope(
       : [`${kind}:disallowed_by_generation_scope`],
   );
 }
-import { executeOpenAiTextTransport } from "./openai-text-paid-boundary.js";
+import { OpenAiTextBoundaryError, executeOpenAiTextTransport } from "./openai-text-paid-boundary.js";
+import { OpenAiTextProviderError } from "./paid-openai-text-execution-coordinator.js";

@@ -11,7 +11,7 @@ export type ImagePromptVisualBrief = {
   avoid: string[];
   source_context: { before: string|null; focus: string; after: string|null };
 };
-export type InterpretImagePromptInput={request:Record<string,unknown>;model?:string|null};
+export type InterpretImagePromptInput={request:Record<string,unknown>;model?:string|null;coordinatedExecution?:<T>(execute:()=>Promise<T>)=>Promise<T>};
 export type InterpretImagePromptOutput={brief:ImagePromptVisualBrief;rawResponse:Record<string,unknown>;providerRequestId:string|null;inputTokens:number;outputTokens:number;totalTokens:number;model:string};
 export interface NarrativeInterpretationProvider{interpret(input:InterpretImagePromptInput):Promise<InterpretImagePromptOutput>}
 
@@ -37,8 +37,13 @@ export class OpenAiNarrativeInterpretationProvider implements NarrativeInterpret
   async interpret(input:InterpretImagePromptInput):Promise<InterpretImagePromptOutput>{
     const model=input.model?.trim()||this.defaultModel;
     let response:Response;
-    try{response=await executeOpenAiTextTransport({routeCode:"visual.narrative_interpretation",executeLegacy:()=>fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{authorization:`Bearer ${this.apiKey}`,"content-type":"application/json"},body:JSON.stringify({model,instructions:systemInstruction,input:JSON.stringify(input.request),text:{format:{type:"json_schema",name:"image_prompt_visual_brief",strict:true,schema:briefSchema}}})})});}
-    catch(error){const cause=error instanceof Error&&error.cause&&typeof error.cause==="object"?error.cause as {code?:unknown;message?:unknown}:null;const detail=typeof cause?.code==="string"?cause.code:typeof cause?.message==="string"?cause.message:null;throw new Error(`OpenAI could not be reached while creating the detailed image prompt${detail?` (${detail})`:""}. Try again; no prompt or image was lost.`);}
+    try{const executeLegacy=()=>fetch("https://api.openai.com/v1/responses",{method:"POST",headers:{authorization:`Bearer ${this.apiKey}`,"content-type":"application/json"},body:JSON.stringify({model,instructions:systemInstruction,input:JSON.stringify(input.request),text:{format:{type:"json_schema",name:"image_prompt_visual_brief",strict:true,schema:briefSchema}}})});response=await executeOpenAiTextTransport({routeCode:"visual.narrative_interpretation",executeLegacy,coordinatedExecution:input.coordinatedExecution?()=>input.coordinatedExecution!(executeLegacy):undefined});}
+    catch(error){
+      if(error instanceof OpenAiTextBoundaryError||error instanceof OpenAiTextProviderError)throw error;
+      const cause=error instanceof Error&&error.cause&&typeof error.cause==="object"?error.cause as {code?:unknown;message?:unknown}:null;
+      const detail=typeof cause?.code==="string"?cause.code:typeof cause?.message==="string"?cause.message:null;
+      throw new OpenAiTextProviderError(`OpenAI could not be reached while creating the detailed image prompt${detail?` (${detail})`:""}; no prompt or image was lost. The submission is unresolved and was not retried.`,true,null,{phase:"provider_transport",route_code:"visual.narrative_interpretation"});
+    }
     const rawText=await response.text();let payload:Record<string,unknown>={};try{payload=JSON.parse(rawText) as Record<string,unknown>}catch{/* Invalid JSON is reported through the response status or missing-output checks below. */}
     if(!response.ok)throw new Error((payload.error as {message?:string}|undefined)?.message||rawText||`Interpretation failed (${response.status})`);
     const text=outputText(payload);if(!text)throw new Error("Interpretation provider returned no structured output");
@@ -116,4 +121,5 @@ export function synthesizeConcreteVendorPrompt(brief:ImagePromptVisualBrief,styl
   const sections=[opening,sceneParts.join(" "),directionParts.join(" "),include.length?`Include ${include.join(", ")}.`:null,avoid.length?`Avoid ${avoid.join(", ")}.`:null,style?`Style: ${cleanPromptFragment(style)}.`:null];
   return sections.filter((value):value is string=>Boolean(value?.trim())).join("\n\n");
 }
-import { executeOpenAiTextTransport } from "./openai-text-paid-boundary.js";
+import { OpenAiTextBoundaryError, executeOpenAiTextTransport } from "./openai-text-paid-boundary.js";
+import { OpenAiTextProviderError } from "./paid-openai-text-execution-coordinator.js";
