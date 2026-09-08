@@ -41,6 +41,12 @@ export type HearthChatRequest = {
   attachment_context?: HearthAttachmentContextRequest;
   production_action?: "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack";
   production_script_version?: number;
+  /** Opaque accepted-funding handle; all monetary terms are resolved server-side. */
+  paid_execution?: {
+    operation_id: string;
+    reservation_id: string;
+    request_fingerprint: string;
+  };
 };
 
 export type HearthSttRequest = {
@@ -78,6 +84,14 @@ export type HearthChatResponse = {
   billing_mode: HearthAiLane;
   token_balance: number | null;
   credits_warning?: string;
+  billing_receipt?: {
+    operation_id: string;
+    reservation_id: string;
+    status: "settled" | "settled_replay" | "failed_released" | "submission_unknown" | "duplicate_in_progress";
+    funding_source: "customer_deposit" | "paid_allowance" | "owner_budget" | "none";
+    customer_charge_micros: number;
+    provider_request_id?: string | null;
+  };
 };
 
 export type HearthSttResponse = {
@@ -319,6 +333,20 @@ export function normalizeHearthChatRequest(value: unknown): HearthChatRequest | 
   const laneRaw = readTrimmedString(value.lane);
   const behavior = isHearthAiBehavior(behaviorRaw) ? behaviorRaw : undefined;
   const lane = isHearthAiLane(laneRaw) ? laneRaw : undefined;
+  const paidExecutionRaw = isRecord(value.paid_execution) ? value.paid_execution : null;
+  const paidOperationId = paidExecutionRaw ? readTrimmedString(paidExecutionRaw.operation_id) : null;
+  const paidReservationId = paidExecutionRaw ? readTrimmedString(paidExecutionRaw.reservation_id) : null;
+  const paidRequestFingerprint = paidExecutionRaw ? readTrimmedString(paidExecutionRaw.request_fingerprint) : null;
+  const paidExecution = paidOperationId && paidOperationId.length >= 8
+    && paidReservationId && UUID_RE.test(paidReservationId)
+    && paidRequestFingerprint && /^[0-9a-f]{64}$/i.test(paidRequestFingerprint)
+    ? {
+        operation_id: paidOperationId,
+        reservation_id: paidReservationId,
+        request_fingerprint: paidRequestFingerprint.toLowerCase(),
+      }
+    : undefined;
+  if (value.paid_execution != null && !paidExecution) return null;
 
   return {
     messages,
@@ -326,6 +354,7 @@ export function normalizeHearthChatRequest(value: unknown): HearthChatRequest | 
     ...(readTrimmedString(value.user_authored_text) ? { user_authored_text: readTrimmedString(value.user_authored_text)! } : {}),
     ...(behavior ? { behavior } : {}),
     ...(lane ? { lane } : {}),
+    ...(paidExecution ? { paid_execution: paidExecution } : {}),
   };
 }
 
@@ -404,6 +433,25 @@ export function parseHearthChatResponse(
   const creditsWarning = readTrimmedField(payload, "credits_warning") ?? undefined;
   const actualCostUsd = readNumberField(payload, "actual_cost_usd") ?? undefined;
   const billableTokens = readNumberField(payload, "billable_tokens") ?? undefined;
+  const receiptRaw = readUnknownField(payload, "billing_receipt");
+  const receipt = isRecord(receiptRaw) ? receiptRaw : null;
+  const receiptStatus = receipt ? readTrimmedField(receipt, "status") : null;
+  const receiptFunding = receipt ? readTrimmedField(receipt, "funding_source") : null;
+  const normalizedReceipt = receipt
+    && readTrimmedField(receipt, "operation_id")
+    && isUuid(readTrimmedField(receipt, "reservation_id"))
+    && ["settled", "settled_replay", "failed_released", "submission_unknown", "duplicate_in_progress"].includes(receiptStatus ?? "")
+    && ["customer_deposit", "paid_allowance", "owner_budget", "none"].includes(receiptFunding ?? "")
+    && readNumberField(receipt, "customer_charge_micros") != null
+    ? {
+        operation_id: readTrimmedField(receipt, "operation_id")!,
+        reservation_id: readTrimmedField(receipt, "reservation_id")!,
+        status: receiptStatus as NonNullable<HearthChatResponse["billing_receipt"]>["status"],
+        funding_source: receiptFunding as NonNullable<HearthChatResponse["billing_receipt"]>["funding_source"],
+        customer_charge_micros: readNumberField(receipt, "customer_charge_micros")!,
+        provider_request_id: readStringField(receipt, "provider_request_id"),
+      }
+    : null;
 
   return {
     assistant_text: assistantText,
@@ -418,6 +466,7 @@ export function parseHearthChatResponse(
     billing_mode: runtime.billingMode,
     token_balance: runtime.tokenBalance,
     ...(creditsWarning ? { credits_warning: creditsWarning } : {}),
+    ...(normalizedReceipt ? { billing_receipt: normalizedReceipt } : {}),
   };
 }
 

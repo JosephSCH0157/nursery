@@ -3,6 +3,7 @@ import path from "node:path";
 import type { HearthAiLane } from "../../../hearth/src/lib/hearth-ai-runtime-contract";
 import { FORGE_ALLOWED_CHAT_MODELS } from "./ai-pricing";
 import { resolveOpenAiImageApiKey } from "../image-runtime-config";
+import type { OpenAiTextGateClient } from "../../../../packages/tongs/src/providers/paid-openai-text-execution-coordinator";
 
 const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
 const DEFAULT_STT_BUCKET = "forge-workpieces";
@@ -70,6 +71,10 @@ export type HearthRuntimeConfig = {
   disableUserKeys: boolean;
   disableExpensiveAiActions: boolean;
   disableCdcGeneration: boolean;
+  /** Server-only dependency injection used by isolated execution-boundary tests. */
+  openAiTextGate?: OpenAiTextGateClient | null;
+  openAiProviderFetch?: typeof fetch;
+  resolveUserIdForAccessToken?: (accessToken: string) => Promise<string | null>;
 };
 
 function readBooleanEnv(name: string, defaultValue = false): boolean {

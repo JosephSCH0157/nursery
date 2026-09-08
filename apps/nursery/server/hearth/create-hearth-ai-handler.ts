@@ -69,6 +69,11 @@ import {
   FORGE_ALLOWED_CHAT_MODELS,
 } from "./ai-pricing";
 import {
+  executePaidHearthChatCompletion,
+  fingerprintPaidHearthChatRequest,
+  normalizeHearthPaidExecutionHandle,
+} from "./hearth-paid-chat-execution";
+import {
   applyAiTokenDelta as applyAiTokenDeltaShared,
   buildTranscriptionAccounting,
   buildUsageAccounting,
@@ -163,6 +168,7 @@ type ReqBody = {
   production_action?: unknown;
   production_script_version?: unknown;
   user_authored_text?: unknown;
+  paid_execution?: unknown;
 };
 
 type AttachmentContextRequest = {
@@ -2402,6 +2408,19 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           },
         })
       : null;
+  const openAiTextGate = config.openAiTextGate ?? (supabaseService
+    ? {
+        rpc: async (name: string, args: Record<string, unknown>) => {
+          const client = supabaseService.schema("tongs") as unknown as {
+            rpc: (fn: string, payload: Record<string, unknown>) => Promise<{
+              data: unknown;
+              error: { message: string } | null;
+            }>;
+          };
+          return client.rpc(name, args);
+        },
+      }
+    : null);
 
   function buildBillingSnapshot(mode: BillingMode) {
     return {
@@ -2592,6 +2611,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
   }
 
   async function resolveUserId(accessToken: string | null): Promise<string | null> {
+    if (accessToken && config.resolveUserIdForAccessToken) {
+      return config.resolveUserIdForAccessToken(accessToken);
+    }
     if (!accessToken || !supabaseService) return null;
     const { data, error } = await supabaseService.auth.getUser(accessToken);
     if (error) {
@@ -3555,6 +3577,14 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       }
 
       const bodyRaw = (await readJsonBody(request)) as ReqBody;
+      const paidExecutionHandle = normalizeHearthPaidExecutionHandle(bodyRaw.paid_execution);
+      if (bodyRaw.paid_execution != null && !paidExecutionHandle) {
+        return jsonResponse(400, {
+          ok: false,
+          error: "Invalid paid execution handle.",
+          code: "invalid_paid_execution_handle",
+        });
+      }
       const productionAction = (
         bodyRaw.production_action === "seo"
         || bodyRaw.production_action === "tags"
@@ -3843,7 +3873,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...buildBillingSnapshot(lane),
         });
       }
-      if (effectiveLane === AI_USAGE_LANE.FORGE && tokenBalance != null && tokenBalance <= 0) {
+      if (effectiveLane === AI_USAGE_LANE.FORGE && !paidExecutionHandle && tokenBalance != null && tokenBalance <= 0) {
         return jsonResponse(402, {
           ok: false,
           error: "No AI credits remaining.",
@@ -4237,6 +4267,206 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             },
           });
         };
+
+        const paidRouteCode: OpenAiTextRouteCode = researchModeRequested
+          ? "hearth.research_synthesis"
+          : "hearth.chat_completion";
+        if (openAiTextGate) {
+          const requirement = await openAiTextGate.rpc("read_openai_text_route_execution_requirement", {
+            p_route_code: paidRouteCode,
+          });
+          if (requirement.error) {
+            return jsonResponse(503, {
+              ok: false,
+              error: "Paid execution controls are unavailable.",
+              code: "paid_execution_control_unavailable",
+              ...buildBillingSnapshot(lane),
+            });
+          }
+          const requirementRow = isRecord(requirement.data) ? requirement.data : {};
+          if (requirementRow.funding_context_required === true && !paidExecutionHandle) {
+            return jsonResponse(402, {
+              ok: false,
+              error: "An accepted funded quote is required before this AI operation can run.",
+              code: "paid_funding_context_required",
+              ...buildBillingSnapshot(lane),
+            });
+          }
+        } else if (paidExecutionHandle) {
+          return jsonResponse(503, {
+            ok: false,
+            error: "Paid execution controls are unavailable.",
+            code: "paid_execution_control_unavailable",
+            ...buildBillingSnapshot(lane),
+          });
+        }
+
+        if (paidExecutionHandle) {
+          if (
+            paidRouteCode !== "hearth.chat_completion"
+            || productionAction
+            || attachmentContext.includeEpisodeAttachments
+            || readinessCheckRequested
+            || crossProjectReference.detected
+          ) {
+            return jsonResponse(422, {
+              ok: false,
+              error: "This accepted quote covers only a bounded ordinary Hearth chat completion.",
+              code: "paid_quote_scope_mismatch",
+              ...buildBillingSnapshot(lane),
+            });
+          }
+          if (!openAiTextGate || !userId) {
+            return jsonResponse(401, {
+              ok: false,
+              error: "Authentication and paid execution controls are required.",
+              code: "paid_execution_auth_required",
+              ...buildBillingSnapshot(lane),
+            });
+          }
+          const actualRequestFingerprint = fingerprintPaidHearthChatRequest({
+            schema: "forge.hearth.paid-chat-request.v1",
+            route_code: "hearth.chat_completion",
+            workspace_id: episodeContext.workspaceId,
+            workpiece_id: episodeContext.episodeId,
+            lane: effectiveLane,
+            messages,
+            user_authored_text: requestText,
+            behavior: bodyRaw.behavior ?? null,
+          });
+          if (actualRequestFingerprint !== paidExecutionHandle.requestFingerprint) {
+            return jsonResponse(409, {
+              ok: false,
+              error: "This request no longer matches the accepted quote.",
+              code: "paid_request_fingerprint_mismatch",
+              ...buildBillingSnapshot(lane),
+            });
+          }
+          try {
+            const paidCompletionMessages: ChatMessage[] = [
+              {
+                role: "system",
+                content: [
+                  "You are Hearth, a concise podcast writing collaborator.",
+                  "Answer only the creator's bounded request.",
+                  "Do not browse, call tools, purchase assets, or claim work you did not perform.",
+                  "Return plain text or the existing Hearth JSON reply shape.",
+                ].join(" "),
+              },
+              latestUserMessage ?? { role: "user", content: requestText },
+            ];
+            const paidOutcome = await executePaidHearthChatCompletion({
+              gate: openAiTextGate,
+              handle: paidExecutionHandle,
+              userId,
+              workspaceId: episodeContext.workspaceId,
+              workpieceId: episodeContext.episodeId,
+              credentialSource: resolvedCredentials.keySource,
+              apiKey: resolvedCredentials.apiKey,
+              messages: paidCompletionMessages,
+              signal: upstreamAbort.signal,
+              providerFetch: config.openAiProviderFetch,
+              validateAndNormalize: (rawReply) => {
+                const structured = normalizeStructuredReply(rawReply) ?? {
+                  assistantText: rawReply,
+                  ops: [],
+                  scriptText: null,
+                  tagAudit: null,
+                  researchArtifact: null,
+                };
+                structured.assistantText = enforceHearthEditorialHonesty({
+                  assistantText: structured.assistantText,
+                  requestText,
+                });
+                structured.assistantText = sanitizeHearthUserFacingOutput(structured.assistantText);
+                const compositionValidation = validateHearthCompositionArtifact({
+                  requestText,
+                  assistantText: structured.assistantText,
+                  ops: structured.ops,
+                });
+                if (!compositionValidation.ok) throw new Error(compositionValidation.error);
+                if (!structured.assistantText && structured.ops.length === 0) {
+                  throw new Error("Assistant returned an invalid response");
+                }
+                return {
+                  assistantText: structured.assistantText,
+                  ops: structured.ops,
+                  scriptText: structured.scriptText,
+                  tagAudit: structured.tagAudit,
+                };
+              },
+            });
+            const billingReceipt = {
+              operation_id: paidOutcome.context.operationId,
+              reservation_id: paidOutcome.context.reservationId,
+              status: paidOutcome.state,
+              funding_source: paidOutcome.context.fundingSourceType,
+              customer_charge_micros: paidOutcome.state === "settled" || paidOutcome.state === "settled_replay"
+                ? paidOutcome.customerChargeMicros
+                : 0,
+              provider_request_id: paidOutcome.state === "settled" || paidOutcome.state === "settled_replay"
+                ? paidOutcome.requestId
+                : null,
+            };
+            if (paidOutcome.state === "submission_unknown") {
+              return jsonResponse(202, {
+                ok: false,
+                error: "The provider submission outcome is unresolved. Forge will not submit it again automatically.",
+                code: "paid_submission_unknown",
+                billing_receipt: billingReceipt,
+                ...buildBillingSnapshot(lane),
+              });
+            }
+            if (paidOutcome.state === "duplicate_in_progress") {
+              return jsonResponse(409, {
+                ok: false,
+                error: "This operation is already in progress; no duplicate provider call was made.",
+                code: "paid_operation_in_progress",
+                billing_receipt: billingReceipt,
+                ...buildBillingSnapshot(lane),
+              });
+            }
+            if (paidOutcome.state === "failed_released") {
+              return jsonResponse(502, {
+                ok: false,
+                error: "The AI operation failed. The customer reservation was released with no charge.",
+                code: "paid_operation_failed_released",
+                billing_receipt: billingReceipt,
+                ...buildBillingSnapshot(lane),
+              });
+            }
+            const spent = paidOutcome.inputUnits + paidOutcome.outputUnits;
+            return jsonResponse(200, {
+              ok: true,
+              assistant_text: paidOutcome.result.assistantText,
+              reply: paidOutcome.result.assistantText,
+              ops: paidOutcome.result.ops,
+              script_text: paidOutcome.result.scriptText,
+              tag_audit: paidOutcome.result.tagAudit,
+              total_tokens: spent,
+              billable_tokens: 0,
+              credits_warning: null,
+              billing_receipt: billingReceipt,
+              ...buildBillingSnapshot(lane),
+              ...resolutionSnapshot,
+            });
+          } catch (error) {
+            if (clientAborted || upstreamAbort.signal.aborted) {
+              return new Response(null, { status: 499 });
+            }
+            const code = error instanceof Error && error.message.includes("byo_credential_required")
+              ? "byo_credential_required"
+              : "paid_execution_denied";
+            return jsonResponse(code === "byo_credential_required" ? 422 : 403, {
+              ok: false,
+              error: code === "byo_credential_required"
+                ? "The exact customer-owned OpenAI credential required by this quote is unavailable."
+                : "The accepted funding context did not authorize this provider call.",
+              code,
+              ...buildBillingSnapshot(lane),
+            });
+          }
+        }
 
         let upstream: Response;
         let usedTemperatureOverride = modelAllowsTemperatureOverride;

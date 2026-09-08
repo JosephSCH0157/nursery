@@ -32,6 +32,8 @@ export type OpenAiTextProviderResult<T> = {
   outputUnits: number;
   supplierCostMicros: number | null;
   supplierCostAuthoritative: boolean;
+  /** False while supporting/tail cost evidence is still unresolved. */
+  costCoverageComplete?: boolean;
   evidence?: Record<string, unknown>;
 };
 
@@ -52,13 +54,19 @@ export type PaidOpenAiTextExecutionInput<T> = {
   maximumOutputUnits: number;
   maximumAttempts: number;
   maximumFailureExposureMicros: number;
+  /**
+   * The server-owned execution adapter consumes a reservation that has already
+   * been accepted, reserved, and bound in one database transaction. Browser
+   * callers must never be allowed to opt into this mode directly.
+   */
+  reservationAlreadyCreated?: boolean;
   executeProvider: (attemptNumber: number) => Promise<OpenAiTextProviderResult<T>>;
   validateResult: (value: T) => Promise<void> | void;
   persistResult: (value: T) => Promise<void>;
 };
 
 export type PaidOpenAiTextExecutionResult<T> =
-  | { state: "settled"; value: T; requestId: string | null; attempts: number }
+  | { state: "settled"; value: T; requestId: string | null; attempts: number; customerChargeMicros: number }
   | { state: "failed_released"; customerChargeMicros: 0; supplierCostMicros: number | null; attempts: number }
   | { state: "submission_unknown"; customerChargeMicros: 0; attempts: number };
 
@@ -94,16 +102,22 @@ export class PaidOpenAiTextExecutionCoordinator {
     assertBoundedInteger(input.maximumOutputUnits, "maximumOutputUnits", 1, Number.MAX_SAFE_INTEGER);
     assertBoundedInteger(input.maximumFailureExposureMicros, "maximumFailureExposureMicros", 0, Number.MAX_SAFE_INTEGER);
 
-    await this.rpc("reserve_operation", {
-      p_reservation_id: input.reservationId,
-      p_quote_id: input.quoteId,
-      p_funding_source_type: input.fundingSourceType,
-      p_funding_source_id: input.fundingSourceId,
-      p_idempotency_key: input.reservationKey,
-    });
+    if (!input.reservationAlreadyCreated) {
+      if (input.fundingSourceType === "owner_budget") {
+        throw new OpenAiTextBoundaryError("funding_context_required");
+      }
+      await this.rpc("reserve_operation", {
+        p_reservation_id: input.reservationId,
+        p_quote_id: input.quoteId,
+        p_funding_source_type: input.fundingSourceType,
+        p_funding_source_id: input.fundingSourceId,
+        p_idempotency_key: input.reservationKey,
+      });
+    }
 
     let knownSupplierCostMicros = 0;
     let supplierCostComplete = true;
+    let allCostEvidenceAuthoritative = true;
     let totalInputUnits = 0;
     let totalOutputUnits = 0;
 
@@ -134,6 +148,7 @@ export class PaidOpenAiTextExecutionCoordinator {
           : new OpenAiTextProviderError(String(error), false, null);
         if (providerError.supplierCostMicros == null) supplierCostComplete = false;
         else knownSupplierCostMicros += providerError.supplierCostMicros;
+        allCostEvidenceAuthoritative = false;
         await this.recordSupplierAttempt(input, currentAttemptKey, attemptNumber, providerError.supplierCostMicros, false, providerError.evidence);
         if (providerError.ambiguous) {
           await this.rpc("close_openai_text_failure_exposure", {
@@ -178,6 +193,8 @@ export class PaidOpenAiTextExecutionCoordinator {
       totalOutputUnits += result.outputUnits;
       if (result.supplierCostMicros == null) supplierCostComplete = false;
       else knownSupplierCostMicros += result.supplierCostMicros;
+      if (!result.supplierCostAuthoritative) allCostEvidenceAuthoritative = false;
+      if (result.costCoverageComplete === false) supplierCostComplete = false;
       const boundsExceeded = totalInputUnits > input.maximumInputUnits || totalOutputUnits > input.maximumOutputUnits;
       let usable = !boundsExceeded;
       let failureReason = boundsExceeded ? "aggregate_usage_bound_exceeded" : "";
@@ -239,7 +256,7 @@ export class PaidOpenAiTextExecutionCoordinator {
       }
 
       const settleRpc = input.fundingSourceType === "owner_budget" ? "settle_owner_operation" : "settle_operation";
-      await this.rpc(settleRpc, {
+      const settlement = await this.rpc(settleRpc, {
         p_reservation_id: input.reservationId,
         p_settlement_id: input.settlementId,
         p_settlement_key: input.settlementKey,
@@ -250,12 +267,26 @@ export class PaidOpenAiTextExecutionCoordinator {
           ...result.evidence,
           provider: "openai",
           provider_request_id: result.requestId,
-          authoritative: supplierCostComplete && result.supplierCostAuthoritative,
-          cost_coverage: supplierCostComplete ? "complete" : "incomplete",
+          authoritative: supplierCostComplete && allCostEvidenceAuthoritative,
+          cost_coverage: supplierCostComplete
+            ? allCostEvidenceAuthoritative ? "confirmed" : "estimated"
+            : "incomplete",
           attempts: attemptNumber,
         },
       });
-      return { state: "settled", value: result.value, requestId: result.requestId, attempts: attemptNumber };
+      const rawCustomerCharge = settlement.customer_charge_micros;
+      const customerChargeMicros = typeof rawCustomerCharge === "number"
+        ? rawCustomerCharge
+        : typeof rawCustomerCharge === "string" ? Number(rawCustomerCharge) : 0;
+      return {
+        state: "settled",
+        value: result.value,
+        requestId: result.requestId,
+        attempts: attemptNumber,
+        customerChargeMicros: Number.isSafeInteger(customerChargeMicros) && customerChargeMicros >= 0
+          ? customerChargeMicros
+          : 0,
+      };
     }
     throw new OpenAiTextBoundaryError("funding_context_required");
   }
@@ -298,8 +329,8 @@ export class PaidOpenAiTextExecutionCoordinator {
       p_evidence_json: {
         ...evidence,
         provider: "openai",
-        authoritative: supplierCostComplete,
-        cost_coverage: supplierCostComplete ? "complete" : "incomplete",
+        authoritative: false,
+        cost_coverage: supplierCostComplete ? "estimated" : "incomplete",
       },
     });
   }

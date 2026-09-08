@@ -55,6 +55,31 @@ do $$ declare v_first jsonb; v_duplicate jsonb; v_blocked jsonb; begin
   if coalesce((v_first->>'provider_execution_authorized')::boolean,false) is not true then raise exception 'first exact bounded attempt was not authorized: %',v_first; end if;
   v_duplicate:=tongs.authorize_openai_text_provider_attempt('be000000-0000-4000-8000-000000000060','openai-proof-attempt-0001',1::smallint,20668::bigint,120,'{}');
   if coalesce((v_duplicate->>'provider_execution_authorized')::boolean,true) is not false or v_duplicate->>'reason'<>'duplicate_attempt_blocked' then raise exception 'duplicate provider attempt was not blocked: %',v_duplicate; end if;
+  if (tongs.resolve_hearth_chat_paid_execution_context(
+    'openai-proof-operation-0001','be000000-0000-4000-8000-000000000060',
+    'be000000-0000-4000-8000-000000000001','be000000-0000-4000-8000-000000000010',
+    'workpiece-openai-proof-0001',repeat('b',64)
+  )->>'reservation_state')<>'provider_attempt_shadowed' then
+    raise exception 'server-owned Hearth context did not resolve the authorized attempt';
+  end if;
+  perform tongs.persist_hearth_chat_paid_result(
+    'be000000-0000-4000-8000-000000000090','openai-proof-operation-0001',
+    'be000000-0000-4000-8000-000000000060','be000000-0000-4000-8000-000000000001',
+    'be000000-0000-4000-8000-000000000010','workpiece-openai-proof-0001',repeat('b',64),
+    'req_isolated_fake_1','gpt-5.3-chat-latest',25,7,repeat('d',64),
+    '{"assistantText":"A neutral fake-provider result.","ops":[],"scriptText":null,"tagAudit":null}'
+  );
+  if coalesce((tongs.persist_hearth_chat_paid_result(
+    'be000000-0000-4000-8000-000000000091','openai-proof-operation-0001',
+    'be000000-0000-4000-8000-000000000060','be000000-0000-4000-8000-000000000001',
+    'be000000-0000-4000-8000-000000000010','workpiece-openai-proof-0001',repeat('b',64),
+    'req_isolated_fake_1','gpt-5.3-chat-latest',25,7,repeat('d',64),
+    '{"assistantText":"A neutral fake-provider result.","ops":[],"scriptText":null,"tagAudit":null}'
+  )->>'replay')::boolean,false) is not true then raise exception 'canonical result replay was not idempotent'; end if;
+  if (tongs.read_hearth_chat_paid_result(
+    'openai-proof-operation-0001','be000000-0000-4000-8000-000000000060',
+    'be000000-0000-4000-8000-000000000001',repeat('b',64)
+  )->>'provider_request_id')<>'req_isolated_fake_1' then raise exception 'canonical result could not be read for replay'; end if;
   v_blocked:=tongs.authorize_openai_text_provider_attempt('be000000-0000-4000-8000-000000000061','openai-proof-attempt-0002',1::smallint,20668::bigint,120,'{}');
   if coalesce((v_blocked->>'provider_execution_authorized')::boolean,true) is not false or v_blocked->>'reason'<>'aggregate_failure_limit' then raise exception 'aggregate failure exposure was not blocked: %',v_blocked; end if;
   if (select mode from tongs._current_openai_text_rollout('hearth.chat_completion'))<>'halt_new' then raise exception 'aggregate cap did not halt route'; end if;
@@ -83,7 +108,8 @@ do $$ begin
   begin perform tongs.read_openai_text_enforcement_readiness(10); raise exception 'viewer read OpenAI enforcement internals'; exception when insufficient_privilege then null; end;
   if has_table_privilege('authenticated','tongs.openai_text_provider_rate_revisions','select')
     or has_table_privilege('authenticated','tongs.openai_organization_cost_buckets','select')
-    or has_table_privilege('authenticated','tongs.openai_text_failure_loss_policy_revisions','select') then
+    or has_table_privilege('authenticated','tongs.openai_text_failure_loss_policy_revisions','select')
+    or has_table_privilege('authenticated','tongs.openai_text_persisted_results','select') then
     raise exception 'OpenAI wholesale controls exposed'; end if;
 end $$;
 

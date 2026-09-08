@@ -61,6 +61,30 @@ test("settles only after bounded authorization, validation, persistence, usage, 
   ]);
 });
 
+test("server adapter consumes a pre-created owner reservation without invoking the customer reserve RPC", async () => {
+  const g = gate();
+  const result = await new PaidOpenAiTextExecutionCoordinator(g).execute(input({
+    fundingSourceType: "owner_budget",
+    fundingSourceId: "owner-budget",
+    reservationAlreadyCreated: true,
+  }));
+  assert.equal(result.state, "settled");
+  assert.equal(g.calls.some((call) => call.name === "reserve_operation"), false);
+  assert.equal(g.calls.at(-1).name, "settle_owner_operation");
+});
+
+test("owner funding cannot be routed through the customer reservation RPC", async () => {
+  const g = gate();
+  let providerCalls = 0;
+  await assert.rejects(() => new PaidOpenAiTextExecutionCoordinator(g).execute(input({
+    fundingSourceType: "owner_budget",
+    fundingSourceId: "owner-budget",
+    executeProvider: async () => { providerCalls += 1; return {}; },
+  })), /funding_context_required/);
+  assert.equal(providerCalls, 0);
+  assert.equal(g.calls.length, 0);
+});
+
 test("provider charge on failure is a Forge expense and customer charge is zero", async () => {
   const g = gate();
   const result = await new PaidOpenAiTextExecutionCoordinator(g).execute(input({

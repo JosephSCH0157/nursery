@@ -15,6 +15,7 @@ import {
   type HearthChatMessage,
   type HearthOp,
   type HearthChatRequest,
+  type HearthChatResponse,
 } from "./hearth-ai-runtime-contract";
 import type { HearthResearchResult } from "./hearth-research-contract";
 import {
@@ -53,6 +54,7 @@ export type HearthChatResult =
       runtime: HearthAiRuntimeSnapshot;
       totalTokens: number | null;
       creditsWarning?: string;
+      billingReceipt?: HearthChatResponse["billing_receipt"];
     }
   | {
       ok: false;
@@ -60,6 +62,7 @@ export type HearthChatResult =
       error: string;
       runtime: HearthAiRuntimeSnapshot;
       cancelled?: boolean;
+      billingReceipt?: HearthChatResponse["billing_receipt"];
     };
 
 export type HearthInteractionEventType =
@@ -1169,6 +1172,7 @@ export async function requestHearthChatReply(
       attachmentIds?: string[];
     };
     userAuthoredText?: string;
+    paidExecution?: HearthChatRequest["paid_execution"];
   },
 ): Promise<HearthChatResult> {
   const normalized = normalizeMessages(messages);
@@ -1219,6 +1223,7 @@ export async function requestHearthChatReply(
     },
     production_action: options?.productionAction,
     production_script_version: options?.productionScriptVersion,
+    paid_execution: options?.paidExecution,
   };
 
   let response: Response;
@@ -1261,6 +1266,7 @@ export async function requestHearthChatReply(
       status: response.status,
       error: readErrorText(payload, `Request failed (${response.status})`),
       runtime,
+      billingReceipt: parsed?.billing_receipt,
     };
   }
 
@@ -1294,5 +1300,6 @@ export async function requestHearthChatReply(
     runtime,
     totalTokens: parsed?.total_tokens ?? null,
     creditsWarning: parsed?.credits_warning ?? undefined,
+    billingReceipt: parsed?.billing_receipt,
   };
 }

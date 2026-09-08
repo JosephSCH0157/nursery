@@ -13,6 +13,7 @@ const migrations = [
   "supabase/migrations/20260917120000_tongs_pricing_customer_interface.sql",
   "supabase/migrations/20260918120000_tongs_failure_relief_openai_text_shadow.sql",
   "supabase/migrations/20260919120000_tongs_openai_text_enforcement_foundation.sql",
+  "supabase/migrations/20260920120000_tongs_hearth_chat_paid_execution.sql",
 ];
 
 function docker(args, input) {
@@ -43,6 +44,8 @@ try {
     aggregate_failure_loss_halt: "passed",
     authoritative_reconciliation_idempotency: "passed",
     private_data_isolation: "passed",
+    hearth_server_context: "passed",
+    hearth_canonical_result_persistence: "passed",
     customer_settlement: "disabled",
     openai_rollout: "inactive",
     activation_proposal: "awaiting_owner_approval",
