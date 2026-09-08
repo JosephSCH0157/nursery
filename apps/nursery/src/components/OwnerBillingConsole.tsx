@@ -29,11 +29,16 @@ type BillingConsole = {
     allowance_consumptions?: JsonRecord[]; owner_expenses?: JsonRecord[];
   }; pricing_discrepancies: JsonRecord[];
   failure_financials: JsonRecord[];
+  openai_text: {
+    routes: JsonRecord[]; activation_proposals: JsonRecord[]; failure_limit_events: JsonRecord[];
+    reconciliation: JsonRecord; customer_spending_enabled: boolean; provider_execution_globally_enabled: boolean;
+  };
 };
 type RpcClient = { rpc: (name: string, args: JsonRecord) => Promise<{ data: unknown; error: { message: string } | null }> };
 
 const client = tongsSupabase as unknown as RpcClient;
-const emptyConsole: BillingConsole = { control: {}, runway_rollout: {}, markup_rule_revisions: [], pricing_revisions: [], operations: [], funding_activity: {}, pricing_discrepancies: [], failure_financials: [] };
+const emptyOpenAiText = { routes: [], activation_proposals: [], failure_limit_events: [], reconciliation: {}, customer_spending_enabled: false, provider_execution_globally_enabled: false };
+const emptyConsole: BillingConsole = { control: {}, runway_rollout: {}, markup_rule_revisions: [], pricing_revisions: [], operations: [], funding_activity: {}, pricing_discrepancies: [], failure_financials: [], openai_text: emptyOpenAiText };
 
 function money(value: number | null | undefined, currency = "USD") {
   return value == null ? "Unavailable" : formatCurrencyMicros(value, currency);
@@ -55,6 +60,20 @@ function asConsole(value: unknown): BillingConsole {
     funding_activity: row.funding_activity ?? {},
     pricing_discrepancies: Array.isArray(row.pricing_discrepancies) ? row.pricing_discrepancies : [],
     failure_financials: Array.isArray(row.failure_financials) ? row.failure_financials : [],
+    openai_text: row.openai_text ?? emptyOpenAiText,
+  };
+}
+
+function asOpenAiTextReadiness(value: unknown): BillingConsole["openai_text"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return emptyOpenAiText;
+  const row = value as Partial<BillingConsole["openai_text"]>;
+  return {
+    routes: Array.isArray(row.routes) ? row.routes : [],
+    activation_proposals: Array.isArray(row.activation_proposals) ? row.activation_proposals : [],
+    failure_limit_events: Array.isArray(row.failure_limit_events) ? row.failure_limit_events : [],
+    reconciliation: row.reconciliation ?? {},
+    customer_spending_enabled: row.customer_spending_enabled === true,
+    provider_execution_globally_enabled: row.provider_execution_globally_enabled === true,
   };
 }
 
@@ -79,20 +98,21 @@ export default function OwnerBillingConsole() {
 
   const refresh = useCallback(async () => {
     setLoading(true); setError(null);
-    const [result, failureResult] = await Promise.all([
+    const [result, failureResult, openAiResult] = await Promise.all([
       client.rpc("read_owner_billing_console", { p_limit: 250 }),
       client.rpc("read_failure_financials", { p_limit: 250 }),
+      client.rpc("read_openai_text_enforcement_readiness", { p_limit: 250 }),
     ]);
-    if (result.error || failureResult.error) setError(result.error?.message ?? failureResult.error?.message ?? "Unable to load owner billing data.");
-    else setData({ ...asConsole(result.data), failure_financials: Array.isArray(failureResult.data) ? failureResult.data as JsonRecord[] : [] });
+    if (result.error || failureResult.error || openAiResult.error) setError(result.error?.message ?? failureResult.error?.message ?? openAiResult.error?.message ?? "Unable to load owner billing data.");
+    else setData({ ...asConsole(result.data), failure_financials: Array.isArray(failureResult.data) ? failureResult.data as JsonRecord[] : [], openai_text: asOpenAiTextReadiness(openAiResult.data) });
     setLoading(false);
   }, []);
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([client.rpc("read_owner_billing_console", { p_limit: 250 }), client.rpc("read_failure_financials", { p_limit: 250 })]).then(([result, failureResult]) => {
+    void Promise.all([client.rpc("read_owner_billing_console", { p_limit: 250 }), client.rpc("read_failure_financials", { p_limit: 250 }), client.rpc("read_openai_text_enforcement_readiness", { p_limit: 250 })]).then(([result, failureResult, openAiResult]) => {
       if (cancelled) return;
-      if (result.error || failureResult.error) setError(result.error?.message ?? failureResult.error?.message ?? "Unable to load owner billing data.");
-      else setData({ ...asConsole(result.data), failure_financials: Array.isArray(failureResult.data) ? failureResult.data as JsonRecord[] : [] });
+      if (result.error || failureResult.error || openAiResult.error) setError(result.error?.message ?? failureResult.error?.message ?? openAiResult.error?.message ?? "Unable to load owner billing data.");
+      else setData({ ...asConsole(result.data), failure_financials: Array.isArray(failureResult.data) ? failureResult.data as JsonRecord[] : [], openai_text: asOpenAiTextReadiness(openAiResult.data) });
       setLoading(false);
     });
     return () => { cancelled = true; };
@@ -166,7 +186,7 @@ export default function OwnerBillingConsole() {
     <div className="ledger-route__owner-head"><div><h3>Private pricing and financial control</h3><p className="ledger-card__hint">Platform-operator only. Markup is added to the complete cost basis; profit margin is contribution profit divided by customer revenue. A 33% markup means price = cost × 1.33 before customer-price rounding—not a 33% margin.</p></div><button type="button" onClick={() => void refresh()} disabled={loading}>Refresh</button></div>
     {error ? <div className="ledger-route__error" role="alert">{error}</div> : null}
     {notice ? <div className="ledger-route__notice" role="status">{notice}</div> : null}
-    <div className="ledger-owner-console__status"><span>Customer pricing: {data.control.pricing_activation_enabled === true ? "enabled" : "disabled"}</span><span>Customer settlement: {data.control.customer_settlement_enabled === true ? "enabled" : "disabled"}</span><span>Runway: {String(data.runway_rollout.mode ?? "unknown")}</span></div>
+    <div className="ledger-owner-console__status"><span>Customer pricing: {data.control.pricing_activation_enabled === true ? "enabled" : "disabled"}</span><span>Customer settlement: {data.control.customer_settlement_enabled === true ? "enabled" : "disabled"}</span><span>Runway: {String(data.runway_rollout.mode ?? "unknown")}</span><span>OpenAI text: {data.openai_text.routes.every((route) => route.mode === "inactive") ? "inactive" : "mixed"}</span></div>
 
     <details open className="ledger-owner-console__section"><summary>1. Versioned markup-on-cost rules</summary>
       <p className="ledger-card__hint">These private rules are server records. Saving them does not publish prices. Customer prices preserve micro precision through cost-plus calculation, then round upward to the next USD cent.</p>
@@ -190,6 +210,8 @@ export default function OwnerBillingConsole() {
     <section className="ledger-owner-console__section"><h4>Reservations and contribution reporting</h4><p className="ledger-card__hint">Missing or estimated expenses never appear as zero-cost confirmed profit.</p>{data.operations.length === 0 ? <p className="ledger-route__empty">No shared-gate operations recorded.</p> : <ul className="ledger-route__operation-list">{data.operations.map((operation) => <li key={operation.reservation_id} className="ledger-route__operation-row"><div><strong>{operation.model ? `Runway ${operation.model}` : operation.operation_id}</strong><span>{operation.funding_source_type.replaceAll("_", " ")} · {operation.reservation_state.replaceAll("_", " ")}</span><small>{operation.provider_task_id ? `Provider task ${operation.provider_task_id}` : "No provider task recorded"}</small></div><div className="ledger-route__operation-evidence"><span>Customer charge / revenue: {money(operation.recognized_revenue_micros, operation.currency)}</span><span>Reserved cost ceiling: {money(operation.reserved_wholesale_spend_micros, operation.currency)}</span><span>Provider cost: {operation.direct_provider_actual_micros == null ? operation.direct_provider_estimated_micros == null ? "Unresolved" : `${money(operation.direct_provider_estimated_micros, operation.currency)} estimated` : `${money(operation.direct_provider_actual_micros, operation.currency)} confirmed`}</span><span>Supporting cost: {operation.supporting_actual_micros == null ? "Unresolved" : `${money(operation.supporting_actual_micros, operation.currency)} confirmed`}</span><strong>Contribution profit: {operation.contribution_profit_micros == null ? `Unavailable (${operation.expense_coverage.replaceAll("_", " ")})` : money(operation.contribution_profit_micros, operation.currency)}</strong></div></li>)}</ul>}</section>
 
     <section className="ledger-owner-console__section"><h4>Failure relief and supplier exposure</h4><p className="ledger-card__hint">Customer relief is independent of supplier reimbursement. A missing or estimated supplier charge keeps contribution profit explicitly incomplete.</p>{data.failure_financials.length === 0 ? <p className="ledger-route__empty">No relieved or supplier-failure operations recorded.</p> : <ul className="ledger-route__operation-list">{data.failure_financials.map((row) => <li key={String(row.reservation_id)} className="ledger-route__operation-row"><div><strong>{String(row.operation_id)}</strong><span>{String(row.cost_coverage ?? "missing")} cost coverage · {String(row.obligation_status ?? "no supplier obligation recorded")}</span></div><div className="ledger-route__operation-evidence"><span>Gross customer charge: {money(Number(row.gross_customer_charge_micros ?? 0), String(row.currency ?? "USD"))}</span><span>Customer relief / revenue reversal: {money(Number(row.revenue_reversal_micros ?? 0), String(row.currency ?? "USD"))}</span><span>Net recognized revenue: {money(Number(row.recognized_revenue_micros ?? 0), String(row.currency ?? "USD"))}</span><span>Supplier expense: {row.supplier_expense_micros == null ? "Unresolved" : `${money(Number(row.supplier_expense_micros), String(row.currency ?? "USD"))} ${String(row.supplier_expense_status)}`}</span><span>Confirmed recovery: {money(Number(row.confirmed_supplier_recovery_micros ?? 0), String(row.currency ?? "USD"))}</span><strong>Contribution profit: {row.contribution_profit_micros == null ? "Unavailable (incomplete cost evidence)" : money(Number(row.contribution_profit_micros), String(row.currency ?? "USD"))}</strong></div></li>)}</ul>}</section>
+
+    <section className="ledger-owner-console__section"><h4>OpenAI text enforcement readiness</h4><p className="ledger-card__hint">Private exact-rate and loss-control data. A route with an unpriced supporting cost remains activation-blocked. Organization Costs evidence is authoritative only in aggregate until it is matched to an operation.</p>{data.openai_text.activation_proposals.map((proposal) => <div key={String(proposal.id)} className="ledger-owner-console__preview"><h4>Bounded activation proposal · {String(proposal.status).replaceAll("_", " ")}</h4><div className="ledger-owner-console__metrics"><span>Model<strong>{String(proposal.model)}</strong></span><span>Input / output maximum<strong>{Number(proposal.maximum_input_units).toLocaleString()} / {Number(proposal.maximum_output_units).toLocaleString()}</strong></span><span>Direct-provider ceiling<strong>{money(Number(proposal.direct_provider_ceiling_micros))}</strong></span><span>Supporting ceiling<strong>{money(Number(proposal.supporting_cost_ceiling_micros))}</strong></span><span>Total cost ceiling<strong>{money(Number(proposal.total_cost_ceiling_micros))}</strong></span><span>33% customer preview<strong>{money(Number(proposal.rounded_customer_price_micros))}</strong></span><span>Proposed owner test cap<strong>{money(Number(proposal.proposed_owner_budget_micros))}</strong></span><span>Attempts / concurrency<strong>{Number(proposal.maximum_attempts)} / 1</strong></span></div><p className="ledger-card__hint">This is a proposal only. It creates no budget, publishes no price, and cannot authorize a provider call.</p></div>)}<ul className="ledger-route__operation-list">{data.openai_text.routes.map((route) => <li key={String(route.route_code)} className="ledger-route__operation-row"><div><strong>{String(route.route_code)}</strong><span>{String(route.mode)} · {String(route.cost_coverage ?? "no active cost revision")}</span></div><div className="ledger-route__operation-evidence"><span>Direct-provider ceiling: {route.direct_provider_ceiling_micros == null ? "Not selected" : money(Number(route.direct_provider_ceiling_micros))}</span><span>Supporting ceiling: {route.supporting_cost_ceiling_micros == null ? "Unpriced — activation blocked" : money(Number(route.supporting_cost_ceiling_micros))}</span></div></li>)}</ul><p className="ledger-card__hint">Reconciliation batches: {Number(data.openai_text.reconciliation.batch_count ?? 0)} · unallocated: {Number(data.openai_text.reconciliation.unallocated_batches ?? 0)}</p></section>
 
     <section className="ledger-owner-console__section"><h4>Funding and revenue categories</h4><div className="ledger-owner-console__metrics"><span>Customer deposits<strong>{data.funding_activity.customer_deposits?.length ?? 0}</strong><small>Prepaid liability, not revenue</small></span><span>Subscription receipts<strong>{data.funding_activity.subscription_receipts?.length ?? 0}</strong><small>Separate from AI consumption</small></span><span>AI consumption revenue<strong>{(data.funding_activity.deposit_consumptions?.length ?? 0) + (data.funding_activity.allowance_consumptions?.length ?? 0)}</strong><small>Recognized once on settlement</small></span><span>Owner-funded expenses<strong>{data.funding_activity.owner_expenses?.length ?? 0}</strong><small>Zero customer revenue</small></span></div></section>
   </section>;

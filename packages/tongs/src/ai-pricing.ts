@@ -39,9 +39,12 @@ const MODEL_PRICING_USD_PER_MILLION: Record<string, ModelPricingPerMillion> = {
     cachedInputUsdPerMillion: 0.3,
   },
   "gpt-5.3": {
-    inputUsdPerMillion: 2.5,
-    outputUsdPerMillion: 15,
-    cachedInputUsdPerMillion: 0.625,
+    // Official gpt-5.3-chat-latest standard rates, checked 2026-09-08.
+    // Historical accounting evidence keeps the rate revision accepted at the time;
+    // this table is only the current estimator used for new evidence.
+    inputUsdPerMillion: 1.75,
+    outputUsdPerMillion: 14,
+    cachedInputUsdPerMillion: 0.175,
   },
   "gpt-4o-mini-transcribe": {
     inputUsdPerMillion: 1.25,

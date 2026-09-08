@@ -8,17 +8,20 @@ export class OpenAiTextProviderError extends Error {
   readonly ambiguous: boolean;
   readonly supplierCostMicros: number | null;
   readonly evidence: Record<string, unknown>;
+  readonly retryable: boolean;
   constructor(
     message: string,
     ambiguous: boolean,
     supplierCostMicros: number | null,
     evidence: Record<string, unknown> = {},
+    retryable = false,
   ) {
     super(message);
     this.name = "OpenAiTextProviderError";
     this.ambiguous = ambiguous;
     this.supplierCostMicros = supplierCostMicros;
     this.evidence = evidence;
+    this.retryable = retryable;
   }
 }
 
@@ -48,18 +51,29 @@ export type PaidOpenAiTextExecutionInput<T> = {
   maximumInputUnits: number;
   maximumOutputUnits: number;
   maximumAttempts: number;
-  executeProvider: () => Promise<OpenAiTextProviderResult<T>>;
+  maximumFailureExposureMicros: number;
+  executeProvider: (attemptNumber: number) => Promise<OpenAiTextProviderResult<T>>;
   validateResult: (value: T) => Promise<void> | void;
   persistResult: (value: T) => Promise<void>;
 };
 
 export type PaidOpenAiTextExecutionResult<T> =
-  | { state: "settled"; value: T; requestId: string | null }
-  | { state: "failed_released"; customerChargeMicros: 0; supplierCostMicros: number | null }
-  | { state: "submission_unknown"; customerChargeMicros: 0 };
+  | { state: "settled"; value: T; requestId: string | null; attempts: number }
+  | { state: "failed_released"; customerChargeMicros: 0; supplierCostMicros: number | null; attempts: number }
+  | { state: "submission_unknown"; customerChargeMicros: 0; attempts: number };
 
 function asRow(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+function assertBoundedInteger(value: number, name: string, minimum: number, maximum: number): void {
+  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
+    throw new OpenAiTextBoundaryError(name === "maximumFailureExposureMicros" ? "pricing_not_configured" : "funding_context_required");
+  }
+}
+
+function attemptKey(base: string, attemptNumber: number): string {
+  return `${base}:attempt:${attemptNumber}`;
 }
 
 export class PaidOpenAiTextExecutionCoordinator {
@@ -75,6 +89,11 @@ export class PaidOpenAiTextExecutionCoordinator {
     if (input.credentialFunding === "byo_customer" && !input.byoCredentialPresent) {
       throw new OpenAiTextBoundaryError("byo_credential_required");
     }
+    assertBoundedInteger(input.maximumAttempts, "maximumAttempts", 1, 4);
+    assertBoundedInteger(input.maximumInputUnits, "maximumInputUnits", 1, Number.MAX_SAFE_INTEGER);
+    assertBoundedInteger(input.maximumOutputUnits, "maximumOutputUnits", 1, Number.MAX_SAFE_INTEGER);
+    assertBoundedInteger(input.maximumFailureExposureMicros, "maximumFailureExposureMicros", 0, Number.MAX_SAFE_INTEGER);
+
     await this.rpc("reserve_operation", {
       p_reservation_id: input.reservationId,
       p_quote_id: input.quoteId,
@@ -82,76 +101,206 @@ export class PaidOpenAiTextExecutionCoordinator {
       p_funding_source_id: input.fundingSourceId,
       p_idempotency_key: input.reservationKey,
     });
-    const attemptRpc = input.fundingSourceType === "owner_budget" ? "begin_owner_provider_attempt" : "begin_provider_attempt";
-    const attempt = await this.rpc(attemptRpc, {
-      p_reservation_id: input.reservationId,
-      p_attempt_key: input.attemptKey,
-      p_lease_seconds: 120,
-      p_evidence_json: { provider: "openai", route_code: input.routeCode, model: input.model, maximum_attempts: input.maximumAttempts },
-    });
-    if (attempt.provider_execution_authorized !== true) throw new OpenAiTextBoundaryError("funding_context_required");
 
-    let result: OpenAiTextProviderResult<T>;
-    try {
-      result = await input.executeProvider();
-    } catch (error) {
-      const providerError = error instanceof OpenAiTextProviderError ? error : new OpenAiTextProviderError(String(error), false, null);
-      if (providerError.ambiguous) {
-        await this.rpc("mark_submission_unknown", {
+    let knownSupplierCostMicros = 0;
+    let supplierCostComplete = true;
+    let totalInputUnits = 0;
+    let totalOutputUnits = 0;
+
+    for (let attemptNumber = 1; attemptNumber <= input.maximumAttempts; attemptNumber += 1) {
+      const currentAttemptKey = attemptKey(input.attemptKey, attemptNumber);
+      const attempt = await this.rpc("authorize_openai_text_provider_attempt", {
+        p_reservation_id: input.reservationId,
+        p_attempt_key: currentAttemptKey,
+        p_attempt_number: attemptNumber,
+        p_failure_exposure_micros: input.credentialFunding === "forge" ? input.maximumFailureExposureMicros : 0,
+        p_lease_seconds: 120,
+        p_evidence_json: {
+          provider: "openai",
+          route_code: input.routeCode,
+          model: input.model,
+          maximum_attempts: input.maximumAttempts,
+          credential_funding: input.credentialFunding,
+        },
+      });
+      if (attempt.provider_execution_authorized !== true) throw new OpenAiTextBoundaryError("funding_context_required");
+
+      let result: OpenAiTextProviderResult<T>;
+      try {
+        result = await input.executeProvider(attemptNumber);
+      } catch (error) {
+        const providerError = error instanceof OpenAiTextProviderError
+          ? error
+          : new OpenAiTextProviderError(String(error), false, null);
+        if (providerError.supplierCostMicros == null) supplierCostComplete = false;
+        else knownSupplierCostMicros += providerError.supplierCostMicros;
+        await this.recordSupplierAttempt(input, currentAttemptKey, attemptNumber, providerError.supplierCostMicros, false, providerError.evidence);
+        if (providerError.ambiguous) {
+          await this.rpc("close_openai_text_failure_exposure", {
+            p_reservation_id: input.reservationId,
+            p_attempt_key: currentAttemptKey,
+            p_outcome: "unresolved",
+            p_actual_supplier_cost_micros: providerError.supplierCostMicros,
+            p_evidence_json: providerError.evidence,
+          });
+          await this.rpc("mark_submission_unknown", {
+            p_reservation_id: input.reservationId,
+            p_event_key: `${currentAttemptKey}:submission-unknown`,
+            p_attempt_key: currentAttemptKey,
+            p_evidence_json: providerError.evidence,
+          });
+          return { state: "submission_unknown", customerChargeMicros: 0, attempts: attemptNumber };
+        }
+        await this.rpc("close_openai_text_failure_exposure", {
           p_reservation_id: input.reservationId,
-          p_event_key: `${input.attemptKey}:submission-unknown`,
-          p_attempt_key: input.attemptKey,
+          p_attempt_key: currentAttemptKey,
+          p_outcome: "failure_realized",
+          p_actual_supplier_cost_micros: providerError.supplierCostMicros,
           p_evidence_json: providerError.evidence,
         });
-        return { state: "submission_unknown", customerChargeMicros: 0 };
+        await this.rpc("record_provider_failure", {
+          p_reservation_id: input.reservationId,
+          p_event_key: `${currentAttemptKey}:provider-failure`,
+          p_failure_class: "provider_failure",
+          p_evidence_json: providerError.evidence,
+        });
+        if (providerError.retryable && attemptNumber < input.maximumAttempts) continue;
+        await this.settleFailure(input, "provider_failure", knownSupplierCostMicros, supplierCostComplete, providerError.evidence);
+        return {
+          state: "failed_released",
+          customerChargeMicros: 0,
+          supplierCostMicros: supplierCostComplete ? knownSupplierCostMicros : null,
+          attempts: attemptNumber,
+        };
       }
-      await this.failAndRelease(input, "provider_failure", providerError.supplierCostMicros, providerError.evidence);
-      return { state: "failed_released", customerChargeMicros: 0, supplierCostMicros: providerError.supplierCostMicros };
-    }
 
-    if (result.inputUnits > input.maximumInputUnits || result.outputUnits > input.maximumOutputUnits) {
-      await this.failAndRelease(input, "provider_failure", result.supplierCostMicros, { ...result.evidence, reason: "usage_bound_exceeded" });
-      return { state: "failed_released", customerChargeMicros: 0, supplierCostMicros: result.supplierCostMicros };
+      totalInputUnits += result.inputUnits;
+      totalOutputUnits += result.outputUnits;
+      if (result.supplierCostMicros == null) supplierCostComplete = false;
+      else knownSupplierCostMicros += result.supplierCostMicros;
+      const boundsExceeded = totalInputUnits > input.maximumInputUnits || totalOutputUnits > input.maximumOutputUnits;
+      let usable = !boundsExceeded;
+      let failureReason = boundsExceeded ? "aggregate_usage_bound_exceeded" : "";
+      if (usable) {
+        try {
+          await input.validateResult(result.value);
+          await input.persistResult(result.value);
+        } catch (error) {
+          usable = false;
+          failureReason = "validation_or_persistence_failed";
+          result.evidence = { ...result.evidence, error: String(error) };
+        }
+      }
+      await this.rpc("record_openai_text_usage", {
+        p_evidence_id: crypto.randomUUID(),
+        p_reservation_id: input.reservationId,
+        p_evidence_key: `${currentAttemptKey}:usage`,
+        p_provider_request_id: result.requestId,
+        p_attempt_number: attemptNumber,
+        p_input_units: result.inputUnits,
+        p_output_units: result.outputUnits,
+        p_provider_reported: true,
+        p_result_validated: usable,
+        p_canonical_persistence_confirmed: usable,
+        p_evidence_json: result.evidence ?? {},
+      });
+      await this.recordSupplierAttempt(
+        input,
+        currentAttemptKey,
+        attemptNumber,
+        result.supplierCostMicros,
+        result.supplierCostAuthoritative,
+        result.evidence ?? {},
+      );
+      await this.rpc("close_openai_text_failure_exposure", {
+        p_reservation_id: input.reservationId,
+        p_attempt_key: currentAttemptKey,
+        p_outcome: usable ? "success_released" : "failure_realized",
+        p_actual_supplier_cost_micros: result.supplierCostMicros,
+        p_evidence_json: { ...result.evidence, reason: failureReason || undefined },
+      });
+      if (!usable) {
+        await this.rpc("record_provider_failure", {
+          p_reservation_id: input.reservationId,
+          p_event_key: `${currentAttemptKey}:forge-failure`,
+          p_failure_class: "forge_failure",
+          p_evidence_json: { ...result.evidence, reason: failureReason },
+        });
+        await this.settleFailure(input, "forge_failure", knownSupplierCostMicros, supplierCostComplete, {
+          ...result.evidence,
+          reason: failureReason,
+        });
+        return {
+          state: "failed_released",
+          customerChargeMicros: 0,
+          supplierCostMicros: supplierCostComplete ? knownSupplierCostMicros : null,
+          attempts: attemptNumber,
+        };
+      }
+
+      const settleRpc = input.fundingSourceType === "owner_budget" ? "settle_owner_operation" : "settle_operation";
+      await this.rpc(settleRpc, {
+        p_reservation_id: input.reservationId,
+        p_settlement_id: input.settlementId,
+        p_settlement_key: input.settlementKey,
+        p_outcome: "success",
+        p_failure_class: null,
+        p_actual_fulfillment_cost_micros: knownSupplierCostMicros,
+        p_evidence_json: {
+          ...result.evidence,
+          provider: "openai",
+          provider_request_id: result.requestId,
+          authoritative: supplierCostComplete && result.supplierCostAuthoritative,
+          cost_coverage: supplierCostComplete ? "complete" : "incomplete",
+          attempts: attemptNumber,
+        },
+      });
+      return { state: "settled", value: result.value, requestId: result.requestId, attempts: attemptNumber };
     }
-    try {
-      await input.validateResult(result.value);
-      await input.persistResult(result.value);
-    } catch (error) {
-      await this.failAndRelease(input, "forge_failure", result.supplierCostMicros, { ...result.evidence, reason: "validation_or_persistence_failed", error: String(error) });
-      return { state: "failed_released", customerChargeMicros: 0, supplierCostMicros: result.supplierCostMicros };
-    }
-    await this.rpc("record_openai_text_usage", {
-      p_evidence_id: crypto.randomUUID(), p_reservation_id: input.reservationId,
-      p_evidence_key: `${input.attemptKey}:usage`, p_provider_request_id: result.requestId,
-      p_attempt_number: 1, p_input_units: result.inputUnits, p_output_units: result.outputUnits,
-      p_provider_reported: true, p_result_validated: true, p_canonical_persistence_confirmed: true,
-      p_evidence_json: result.evidence ?? {},
-    });
-    const settleRpc = input.fundingSourceType === "owner_budget" ? "settle_owner_operation" : "settle_operation";
-    await this.rpc(settleRpc, {
-      p_reservation_id: input.reservationId, p_settlement_id: input.settlementId,
-      p_settlement_key: input.settlementKey, p_outcome: "success", p_failure_class: null,
-      p_actual_fulfillment_cost_micros: result.supplierCostMicros ?? 0,
-      p_evidence_json: { ...result.evidence, provider: "openai", provider_request_id: result.requestId,
-        authoritative: result.supplierCostAuthoritative },
-    });
-    return { state: "settled", value: result.value, requestId: result.requestId };
+    throw new OpenAiTextBoundaryError("funding_context_required");
   }
 
-  private async failAndRelease<T>(
-    input: PaidOpenAiTextExecutionInput<T>, failureClass: "provider_failure" | "forge_failure",
-    supplierCostMicros: number | null, evidence: Record<string, unknown>,
+  private async recordSupplierAttempt<T>(
+    input: PaidOpenAiTextExecutionInput<T>,
+    currentAttemptKey: string,
+    attemptNumber: number,
+    supplierCostMicros: number | null,
+    authoritative: boolean,
+    evidence: Record<string, unknown>,
   ): Promise<void> {
-    await this.rpc("record_provider_failure", {
-      p_reservation_id: input.reservationId, p_event_key: `${input.attemptKey}:${failureClass}`,
-      p_failure_class: failureClass, p_evidence_json: evidence,
+    if (input.credentialFunding !== "forge") return;
+    await this.rpc("record_openai_text_supplier_attempt_expense", {
+      p_reservation_id: input.reservationId,
+      p_attempt_key: currentAttemptKey,
+      p_attempt_number: attemptNumber,
+      p_provider_reference: typeof evidence.provider_reference === "string" ? evidence.provider_reference : null,
+      p_amount_micros: supplierCostMicros,
+      p_evidence_status: supplierCostMicros == null ? "unresolved" : authoritative ? "confirmed" : "estimated",
+      p_evidence_json: evidence,
     });
+  }
+
+  private async settleFailure<T>(
+    input: PaidOpenAiTextExecutionInput<T>,
+    failureClass: "provider_failure" | "forge_failure",
+    knownSupplierCostMicros: number,
+    supplierCostComplete: boolean,
+    evidence: Record<string, unknown>,
+  ): Promise<void> {
     const settleRpc = input.fundingSourceType === "owner_budget" ? "settle_owner_operation" : "settle_operation";
     await this.rpc(settleRpc, {
-      p_reservation_id: input.reservationId, p_settlement_id: input.settlementId,
-      p_settlement_key: input.settlementKey, p_outcome: "nonbillable_failure", p_failure_class: failureClass,
-      p_actual_fulfillment_cost_micros: supplierCostMicros ?? 0,
-      p_evidence_json: { ...evidence, provider: "openai", authoritative: supplierCostMicros != null },
+      p_reservation_id: input.reservationId,
+      p_settlement_id: input.settlementId,
+      p_settlement_key: input.settlementKey,
+      p_outcome: "nonbillable_failure",
+      p_failure_class: failureClass,
+      p_actual_fulfillment_cost_micros: knownSupplierCostMicros,
+      p_evidence_json: {
+        ...evidence,
+        provider: "openai",
+        authoritative: supplierCostComplete,
+        cost_coverage: supplierCostComplete ? "complete" : "incomplete",
+      },
     });
   }
 }

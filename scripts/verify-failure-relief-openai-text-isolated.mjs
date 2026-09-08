@@ -12,6 +12,7 @@ const files=[
  "supabase/migrations/20260916120000_tongs_runway_owner_pilot_activation.sql",
  "supabase/migrations/20260917120000_tongs_pricing_customer_interface.sql",
  "supabase/migrations/20260918120000_tongs_failure_relief_openai_text_shadow.sql",
+ "supabase/migrations/20260919120000_tongs_openai_text_enforcement_foundation.sql",
 ];
 function docker(args,input){return spawnSync("docker",args,{input,encoding:"utf8",maxBuffer:30*1024*1024});}
 function ok(result,step){if(result.status!==0)throw new Error(`${step} failed:\n${result.stderr||result.stdout}`);}
