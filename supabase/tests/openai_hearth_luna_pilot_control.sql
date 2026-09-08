@@ -85,6 +85,53 @@ end $$;
 select tongs.release_operation(
   'bd000000-0000-4000-8000-000000000032','luna-isolated-release-0001',
   'isolated proof cleanup','{}');
+
+select tongs.rearm_owner_hearth_chat_luna_pilot(
+  'bd000000-0000-4000-8000-000000000001','bd000000-0000-4000-8000-000000000020',
+  'isolated no-provider reservation replacement');
+
+select tongs.prepare_owner_hearth_chat_luna_pilot(
+  'bd000000-0000-4000-8000-000000000050','bd000000-0000-4000-8000-000000000051',
+  'bd000000-0000-4000-8000-000000000052','bd000000-0000-4000-8000-000000000001',
+  'luna-isolated-operation-0003','bd000000-0000-4000-8000-000000000010',
+  'bd000000-0000-4000-8000-000000000020','bd000000-0000-4000-8000-000000000022',
+  repeat('c',64),'luna-acceptance-0003','luna-reservation-0003',now()+interval '1 hour');
+
+-- An unresolved cost from a superseded loss-policy revision remains recorded,
+-- but must not consume this separately capped policy revision's concurrency.
+reset role;
+insert into tongs.openai_text_failure_exposure_holds(
+  id,reservation_id,route_code,attempt_key,attempt_number,loss_policy_revision_id,
+  authorized_exposure_micros,lease_expires_at
+) values (
+  'bd000000-0000-4000-8000-000000000060','bd000000-0000-4000-8000-000000000032',
+  'hearth.chat_completion','luna-old-policy-attempt-0001',1,
+  '20000000-0000-4000-8000-000000000001',20668,now()+interval '2 minutes'
+);
+insert into tongs.openai_text_failure_exposure_events(
+  id,hold_id,sequence,event_key,event_type,actual_supplier_cost_micros,evidence_json
+) values (
+  'bd000000-0000-4000-8000-000000000061','bd000000-0000-4000-8000-000000000060',
+  1,'luna-old-policy-attempt-0001:loss:failure','failure_realized',null,'{}'
+);
+set local request.jwt.claim.role='service_role';
+set local request.jwt.claim.sub='';
+set local role service_role;
+
+do $$ declare v_attempt jsonb; begin
+  v_attempt:=tongs.authorize_openai_text_provider_attempt(
+    'bd000000-0000-4000-8000-000000000052','luna-current-policy-attempt-0001',1::smallint,
+    11015::bigint,120,'{}'::jsonb);
+  if coalesce((v_attempt->>'provider_execution_authorized')::boolean,false) is not true then
+    raise exception 'superseded loss policy incorrectly blocked current pilot'; end if;
+end $$;
+
+select tongs.close_openai_text_failure_exposure(
+  'bd000000-0000-4000-8000-000000000052','luna-current-policy-attempt-0001',
+  'success_released',0,'{}');
+select tongs.release_operation(
+  'bd000000-0000-4000-8000-000000000052','luna-isolated-release-0003',
+  'isolated rearm proof cleanup','{}');
 select tongs.close_owner_hearth_chat_luna_pilot(
   'bd000000-0000-4000-8000-000000000001','bd000000-0000-4000-8000-000000000020',
   'isolated Luna closure');
