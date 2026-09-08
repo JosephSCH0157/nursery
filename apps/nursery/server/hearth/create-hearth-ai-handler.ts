@@ -19,7 +19,10 @@ import {
   type AiUsageSubfeature,
 } from "../../../../packages/tongs/src/ai-usage-taxonomy";
 import { routeForgeAiRequest } from "../../../../packages/tongs/src/ai-router";
-import { executeOpenAiTextTransport } from "../../../../packages/tongs/src/providers/openai-text-paid-boundary";
+import {
+  executeOpenAiTextTransport,
+  type OpenAiTextRouteCode,
+} from "../../../../packages/tongs/src/providers/openai-text-paid-boundary";
 import {
   HEARTH_AI_ROUTES,
   isHearthAiLane as isBillingMode,
@@ -2429,6 +2432,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
     policyReasonCode?: string | null;
     policySnapshot?: Record<string, unknown> | null;
     actionId?: string | null;
+    textRouteCode?: OpenAiTextRouteCode | null;
     isRecoverableHttpError?: (response: Response) => Promise<boolean>;
     request: {
       url: string;
@@ -2437,13 +2441,16 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
     };
   }): Promise<Response> {
     try {
-      const response = await executeOpenAiTextTransport({
-        routeCode: "hearth.chat_completion",
-        executeLegacy: () => fetch(args.request.url, {
+      const executeLegacy = () => fetch(args.request.url, {
           ...args.request.init,
           signal: args.request.signal,
-        }),
-      });
+        });
+      const response = args.textRouteCode
+        ? await executeOpenAiTextTransport({
+            routeCode: args.textRouteCode,
+            executeLegacy,
+          })
+        : await executeLegacy();
 
       if (!response.ok) {
         let isRecoverable = false;
@@ -4133,6 +4140,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             trigger: AI_USAGE_TRIGGER.USER,
             ...usageAttribution,
             actionId: chatActionId,
+            textRouteCode: researchModeRequested ? "hearth.research_synthesis" : "hearth.chat_completion",
             isRecoverableHttpError: async (response) => {
               if (!allowTemperatureOverride || response.status !== 400) return false;
               const detail = await response.text();
