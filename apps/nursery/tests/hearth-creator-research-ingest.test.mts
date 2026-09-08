@@ -254,6 +254,89 @@ test("business status requires inspected support before a creator lead becomes a
   assert.equal(hawkers?.provenanceStatus, "creator_supplied_unverified");
 });
 
+test("short structured business leads make an otherwise failed run partial without becoming verified", () => {
+  const briefFingerprint = "brief-short-business-leads";
+  const workpieceId = "church-street";
+  const parsed = parseCreatorSuppliedResearch([
+    "## Creator-supplied Church Street businesses",
+    "- Kres Chophouse",
+    "- Cucina Pizza & Bar",
+    "- The Bao Spot",
+    "- Coffee For The Soul",
+    "- Birria1983",
+    "- Crepe Delicious",
+    "- Jenny's Downtown",
+    "- The District GastroBar",
+    "",
+    "Empty storefronts and available business spaces remain numerous along Church Street.",
+    "",
+    "Source: https://www.yelp.com/biz/church-street-exchange-orlando",
+  ].join("\n"));
+  const result: HearthResearchResult = {
+    mode: "partial_retrieval",
+    runtimeStatus: "partial",
+    brief: {
+      schema: "forge.hearth.research-brief.v1",
+      workspaceId: "workspace",
+      workpieceId,
+      briefFingerprint,
+      creatorRequest: "Check which creator-supplied Church Street businesses are currently operating.",
+      episodeTitle: "Church Street",
+      goals: ["Verify current customer-facing businesses"],
+      queries: [],
+      sourcePriorities: [],
+    },
+    creatorClaims: parsed.claims,
+    sources: [{
+      sourceId: "yelp-source",
+      title: "Church Street Exchange",
+      url: "https://www.yelp.com/biz/church-street-exchange-orlando",
+      domain: "yelp.com",
+      publishedAt: null,
+      snippet: null,
+      extractedText: null,
+      extractionStatus: "failed",
+      extractionError: "Access denied.",
+      provenance: {
+        origin: "creator_url",
+        briefFingerprint,
+        inspectedAt: null,
+        inspectionStatus: "inaccessible",
+        accessFailureReason: "access_denied",
+        verifiedInCurrentRequest: false,
+      },
+    }],
+    artifact: {
+      briefFingerprint,
+      workpieceId,
+      status: "failed",
+      findings: [],
+      uncertainties: ["No current operating status could be independently verified."],
+      editorialInterpretation: [],
+    },
+    synthesis: { summary: "", keyPoints: [], uncertainties: [], coverageNote: "" },
+  };
+
+  const artifact = reconcileCreatorSuppliedResearchArtifact(result);
+  assert.equal(artifact?.status, "partial");
+  assert.deepEqual(
+    artifact?.findings.filter((finding) => finding.businessName).map((finding) => finding.businessName),
+    [
+      "Kres Chophouse",
+      "Cucina Pizza & Bar",
+      "The Bao Spot",
+      "Coffee For The Soul",
+      "Birria1983",
+      "Crepe Delicious",
+      "Jenny's Downtown",
+      "The District GastroBar",
+    ],
+  );
+  assert.ok(artifact?.findings.every((finding) => finding.status === "uncertain"));
+  assert.ok(artifact?.findings.every((finding) => finding.provenanceStatus === "creator_supplied_unverified"));
+  assert.ok(artifact?.findings.some((finding) => /Empty storefronts and available business spaces remain numerous/i.test(finding.text)));
+});
+
 test("evidence-empty failed artifacts remain failed", () => {
   const result: HearthResearchResult = {
     mode: "partial_retrieval",

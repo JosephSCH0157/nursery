@@ -62,6 +62,7 @@ import {
 } from "./hearth-research-runtime";
 import {
   buildMalformedCreatorCitationSource,
+  isSubstantiveResearchFinding,
   parseCreatorSuppliedResearch,
   reconcileCreatorSuppliedResearchArtifact,
 } from "./hearth-creator-research-ingest";
@@ -1988,7 +1989,10 @@ function validateResearchArtifact(result: HearthResearchResult): HearthResearchA
     .filter((entry) => entry.state === "inspected" && Boolean(entry.excerpt))
     .filter((entry) => inspectedSourceIds.has(entry.sourceId))
     .map((entry) => entry.sourceId));
-  const substantive = artifact.findings.filter((finding) => finding.text.trim().length >= 24 && !ANNOUNCEMENT_ONLY_RE.test(finding.text.trim()));
+  const substantive = artifact.findings.filter((finding) => (
+    isSubstantiveResearchFinding(finding)
+    && !ANNOUNCEMENT_ONLY_RE.test(finding.text.trim())
+  ));
   if (artifact.status === "failed") return substantive.length === 0 ? artifact : null;
   if (substantive.length === 0) return null;
   for (const finding of substantive) {
@@ -2146,6 +2150,11 @@ export function composeGroundedResearchAnswer(result: HearthResearchResult): str
       || finding.provenanceStatus === "inaccessible_source_only")
   )).map(renderFinding);
   const adjacentFindingLines = artifact.findings.filter((finding) => !isBusinessFinding(finding) && finding.scope === "adjacent_context").map(renderFinding);
+  const adjacentIncludesBudget = artifact.findings.some((finding) => (
+    !isBusinessFinding(finding)
+    && finding.scope === "adjacent_context"
+    && (/\$\s*\d/.test(finding.text) || /\b(?:budget|funding|cost|spending|investment)\b/i.test(finding.text))
+  ));
   const refinementLines = refinementPresentationLines(result);
   const inaccessible = result.sources.filter((source) => source.provenance?.inspectionStatus === "inaccessible");
   const inspectedSources = result.sources.filter((source) => source.provenance?.inspectionStatus === "inspected");
@@ -2169,7 +2178,7 @@ export function composeGroundedResearchAnswer(result: HearthResearchResult): str
     ...(unresolvedFindingLines.length ? ["Conflicting, unsupported, or inaccessible-source-only claims", unresolvedFindingLines.join("\n")] : []),
     ...(adjacentFindingLines.length ? [
       "Adjacent context",
-      `${adjacentFindingLines.join("\n")}\n- These adjacent figures do not establish the current subject's project budget.`,
+      `${adjacentFindingLines.join("\n")}${adjacentIncludesBudget ? "\n- These adjacent figures do not establish the current subject's project budget." : ""}`,
     ] : []),
     "Research coverage",
     `- ${result.synthesis.coverageNote || "Coverage details unavailable."}`,

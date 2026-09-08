@@ -1065,9 +1065,21 @@ export async function extractUrlToResearchSource(
 
 export function classifyResearchSourceAuthority(source: HearthResearchSource): HearthResearchSourceAuthority {
   const identity = `${source.domain ?? ""} ${source.publisher ?? ""} ${source.title ?? ""}`.toLowerCase();
+  const inspectedContent = [source.extractedText, source.transcript, source.snippet]
+    .filter(Boolean)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (
+    source.extractionStatus !== "extracted"
+    || !inspectedContent
+    || /^(?:place viewer|search viewer|map viewer|google maps|view larger map|loading)[.!]?$/i.test(inspectedContent)
+  ) return "unassessed";
+  const identityAndEvidence = `${identity} ${inspectedContent.slice(0, 600).toLowerCase()}`;
   if (/\b(?:wikipedia|wikimedia|wikiquote|britannica|encyclop(?:a)?edia)\b/.test(identity)) return "general_reference";
   if (/\.gov\b|\b(city of|county of|state of|department of|agency|commission|authority|public records?)\b/.test(identity)) return "primary_government";
   if (/\.edu\b|\b(university|college|journal|doi|peer.review|research institute)\b/.test(identity)) return "scholarly_technical";
+  if (/(?:^|\s)@?dwntwn_orlando\b|\bdowntown development board\b|\bofficial downtown orlando\b/.test(identityAndEvidence)) return "primary_institutional";
   if (/\b(official|corporation|company|foundation|association|board|operator|developer)\b/.test(identity)) return "primary_institutional";
   if (/\b(visit|tourism|lifestyle|promotion|sponsored|advertorial|generic facts)\b/.test(identity)) return "promotional_general";
   return "reputable_secondary";

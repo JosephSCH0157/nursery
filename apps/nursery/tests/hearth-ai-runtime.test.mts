@@ -2021,7 +2021,12 @@ test("creator-pasted business leads survive an emoji URL boundary and inaccessib
   const pastedResearch = [
     "## Open Church Street business leads",
     "- **Kres Chophouse** — restaurant at 17 W Church Street.",
+    "- **Cucina Pizza & Bar** — restaurant lead on Church Street.",
     "- **The Bao Spot** — restaurant lead near Church Street.",
+    "- **Coffee For The Soul** — coffee shop lead on Church Street.",
+    "- **Birria1983** — restaurant lead on Church Street.",
+    "- **Crepe Delicious** — restaurant lead on Church Street.",
+    "- **The District GastroBar** — restaurant and bar lead on Church Street.",
     "- **Hawkers** — corporate office, not a customer-facing storefront.",
     "- **Kia Center** — adjacent venue, not on the relevant corridor.",
     `[SearchViewer](${malformedSearchViewerUrl} More business listings`,
@@ -2048,9 +2053,24 @@ test("creator-pasted business leads survive an emoji URL boundary and inaccessib
             briefFingerprint: runtime.brief?.briefFingerprint,
             workpieceId: runtime.brief?.workpieceId,
             status: "failed",
-            findings: [],
-            uncertainties: ["The supplied sources could not be inspected."],
-            editorialInterpretation: [],
+            findings: [{
+              text: "The earlier Church Street project budget remains $12 million.",
+              status: "uncertain",
+              provenanceStatus: "unsupported",
+              scope: "current_subject",
+              sourceIds: [],
+            }, {
+              text: "The operating status of Kres Chophouse, Cucina Pizza & Bar, The Bao Spot, Coffee For The Soul, Birria1983, Crepe Delicious, and The District GastroBar remains unverified.",
+              status: "uncertain",
+              provenanceStatus: "unsupported",
+              scope: "current_subject",
+              sourceIds: [],
+            }],
+            uncertainties: [
+              "The operating status of Kres Chophouse, Cucina Pizza & Bar, The Bao Spot, Coffee For The Soul, Birria1983, Crepe Delicious, and The District GastroBar remains unverified.",
+              "Bizjournals and Bungalower total project budget claims remain unverified here.",
+            ],
+            editorialInterpretation: ["The unresolved project budget may affect the redevelopment argument."],
           },
         }) } }],
         usage: { total_tokens: 20 },
@@ -2078,11 +2098,102 @@ test("creator-pasted business leads survive an emoji URL boundary and inaccessib
     assert.equal(payload.research_result?.artifact?.status, "partial");
     const findings = payload.research_result?.artifact?.findings ?? [];
     assert.ok(findings.some((finding: { businessName?: string; businessStatus?: string }) => finding.businessName === "Kres Chophouse" && finding.businessStatus === "creator_supplied_unverified"));
+    assert.ok(findings.some((finding: { businessName?: string }) => finding.businessName === "Cucina Pizza & Bar"));
+    assert.ok(findings.some((finding: { businessName?: string }) => finding.businessName === "The Bao Spot"));
+    assert.ok(findings.some((finding: { businessName?: string }) => finding.businessName === "Coffee For The Soul"));
+    assert.ok(findings.some((finding: { businessName?: string }) => finding.businessName === "Birria1983"));
+    assert.ok(findings.some((finding: { businessName?: string }) => finding.businessName === "Crepe Delicious"));
+    assert.ok(findings.some((finding: { businessName?: string }) => finding.businessName === "The District GastroBar"));
     assert.ok(findings.some((finding: { businessName?: string; businessStatus?: string }) => finding.businessName === "Hawkers" && finding.businessStatus === "non_customer_facing"));
     assert.ok(findings.some((finding: { businessName?: string; businessStatus?: string }) => finding.businessName === "Kia Center" && finding.businessStatus === "adjacent_location"));
     assert.match(String(payload.assistant_text ?? ""), /Research outcome: Partial/i);
     assert.match(String(payload.assistant_text ?? ""), /Still unverified/i);
+    assert.match(String(payload.assistant_text ?? ""), /Kres Chophouse[\s\S]*Cucina Pizza & Bar[\s\S]*The Bao Spot[\s\S]*Coffee For The Soul[\s\S]*Birria1983[\s\S]*Crepe Delicious[\s\S]*The District GastroBar/i);
     assert.match(String(payload.assistant_text ?? ""), /Adjacent or not a customer-facing Church Street business/i);
+    assert.doesNotMatch(String(payload.assistant_text ?? ""), /project budget|Bizjournals and Bungalower/i);
+    assert.doesNotMatch(String(payload.assistant_text ?? ""), /redevelopment argument/i);
+    assert.doesNotMatch(String(payload.assistant_text ?? ""), /operating status of Kres Chophouse/i);
+    assert.doesNotMatch(String(payload.assistant_text ?? ""), /adjacent figures/i);
+    assert.doesNotMatch(String(payload.assistant_text ?? ""), /Research outcome: Failed/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("short creator-supplied business leads render a partial artifact when current status cannot be verified", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+  const pastedResearch = [
+    "## Creator-supplied Church Street businesses",
+    "- Kres Chophouse",
+    "- Cucina Pizza & Bar",
+    "- The Bao Spot",
+    "- Coffee For The Soul",
+    "- Birria1983",
+    "- Crepe Delicious",
+    "- Jenny's Downtown",
+    "- The District GastroBar",
+    "",
+    "Empty storefronts and available business spaces remain numerous along Church Street.",
+    "",
+    "Source: https://www.yelp.com/biz/church-street-exchange-orlando",
+  ].join("\n");
+
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url === "https://www.yelp.com/biz/church-street-exchange-orlando") {
+      return new Response("Access denied", { status: 403 });
+    }
+    if (url === "https://api.openai.com/v1/chat/completions") {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { messages?: Array<{ content?: string }> };
+      const prompt = body.messages?.[0]?.content ?? "";
+      const lines = prompt.split("\n");
+      const marker = lines.indexOf("Canonical research runtime result:");
+      const runtime = JSON.parse(lines[marker + 1] ?? "{}") as { brief?: { briefFingerprint?: string; workpieceId?: string } };
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({
+          assistantText: "No currently operating businesses could be independently verified.",
+          ops: [],
+          research_artifact: {
+            briefFingerprint: runtime.brief?.briefFingerprint,
+            workpieceId: runtime.brief?.workpieceId,
+            status: "failed",
+            findings: [],
+            uncertainties: ["No current operating status could be independently verified."],
+            editorialInterpretation: [],
+          },
+        }) } }],
+        usage: { total_tokens: 20 },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: pastedResearch }],
+        user_authored_text: pastedResearch,
+        episode_context: buildEpisodeContext({ title: "Church Street" }),
+        lane: "byo",
+      }),
+    }));
+    const payload = await response.json();
+    const findings = payload.research_result?.artifact?.findings ?? [];
+
+    assert.equal(response.status, 200);
+    assert.equal(payload.research_result?.artifact?.status, "partial");
+    assert.ok(findings.some((finding: { businessName?: string }) => finding.businessName === "Kres Chophouse"));
+    assert.ok(findings.some((finding: { businessName?: string }) => finding.businessName === "Jenny's Downtown"));
+    assert.ok(findings.some((finding: { text?: string }) => /Empty storefronts and available business spaces remain numerous/i.test(finding.text ?? "")));
+    assert.ok(findings.every((finding: { status?: string }) => finding.status === "uncertain"));
+    assert.ok(findings.every((finding: { provenanceStatus?: string }) => finding.provenanceStatus === "creator_supplied_unverified"));
+    assert.match(String(payload.assistant_text ?? ""), /Research outcome: Partial/i);
+    assert.match(String(payload.assistant_text ?? ""), /Still unverified/i);
+    assert.match(String(payload.assistant_text ?? ""), /Jenny's Downtown/i);
+    assert.match(String(payload.assistant_text ?? ""), /Empty storefronts and available business spaces remain numerous/i);
     assert.doesNotMatch(String(payload.assistant_text ?? ""), /Research outcome: Failed/i);
   } finally {
     globalThis.fetch = originalFetch;

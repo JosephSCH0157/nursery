@@ -28,6 +28,8 @@ const INCOMPLETE_TRAILING_RE = /\b(?:for|to|of|at|by|with|and|or|is|are|was|were
 const BUSINESS_RESEARCH_CONTEXT_RE = /\b(?:business(?:es)?|restaurant(?:s)?|bar(?:s)?|cafe|coffee|shop(?:s)?|storefront(?:s)?|open doors?|operating|closed|corridor)\b/i;
 const BUSINESS_LEAD_RE = /\b(?:chophouse|restaurant|pizza|bar|bao|coffee|cafe|birria|crepe|gastro|exchange|office|arena|center|centre|adventures?|tours?|travel|leisure|shop|store|market|bakery|brewery|pub|grill|kitchen|dining|rooftop|salon|studio|museum|hotel)\b/i;
 const GENERIC_BUSINESS_HEADING_RE = /^(?:open|closed|active|current|adjacent|local|downtown|church street)?\s*(?:business(?:es)?|restaurant(?:s)?|storefront(?:s)?|open doors?|leads?|sources?)\s*:?[\s-]*$/i;
+const BUSINESS_LIST_LINE_RE = /^\s*(?:\p{Extended_Pictographic}\uFE0F?\s*)?(?:(?:[-*•]|\d+[.)])\s+|\*\*|#{1,6}\s+)/u;
+const CREATOR_BUSINESS_OBSERVATION_RE = /\b(?:(?:empty|vacant)\s+storefronts?|storefront\s+vacanc(?:y|ies)|available\s+business\s+spaces?)\b/i;
 
 function countCharacter(value: string, character: "(" | ")"): number {
   return [...value].filter((entry) => entry === character).length;
@@ -90,6 +92,7 @@ function normalizeCreatorUrlToken(rawToken: string): {
 
 function cleanClaimText(value: string): string {
   return value
+    .replace(/^\s*\p{Extended_Pictographic}\uFE0F?\s*/u, "")
     .replace(/^\s*(?:[-*•]|\d+[.)])\s+/, "")
     .replace(/^\s*#{1,6}\s+/, "")
     .replace(/\[([^\]]+)\]\(/g, "$1 ")
@@ -108,7 +111,7 @@ function creatorBusinessStatus(text: string): HearthCreatorResearchClaim["busine
 }
 
 function extractBusinessName(rawLine: string, cleaned: string): string | null {
-  const emphasized = rawLine.match(/^\s*(?:(?:[-*•]|\d+[.)])\s+)?\*\*([^*]{2,160})\*\*/)?.[1]?.trim();
+  const emphasized = rawLine.match(/^\s*(?:\p{Extended_Pictographic}\uFE0F?\s*)?(?:(?:[-*•]|\d+[.)])\s+)?\*\*([^*]{2,160})\*\*/u)?.[1]?.trim();
   const candidate = emphasized
     || cleaned.split(/\s+(?:—|–|\|)\s+|:\s+|,\s+(?=\d)/, 1)[0]?.trim()
     || "";
@@ -140,11 +143,16 @@ function extractCreatorClaims(text: string, appearsTruncated: boolean): HearthCr
     if (claims.length >= 24) break;
   }
   if (BUSINESS_RESEARCH_CONTEXT_RE.test(text) || BUSINESS_LEAD_RE.test(text)) {
+    let insideBusinessList = false;
     for (const [lineIndex, rawLine] of rawLines.entries()) {
-      if (!/^\s*(?:[-*•]|\d+[.)])\s+/.test(rawLine)) continue;
+      if (/^\s*#{1,6}\s+/.test(rawLine)) {
+        insideBusinessList = BUSINESS_RESEARCH_CONTEXT_RE.test(cleanClaimText(rawLine));
+        continue;
+      }
+      if (!BUSINESS_LIST_LINE_RE.test(rawLine)) continue;
       if (appearsTruncated && lineIndex === lastNonEmptyIndex && INCOMPLETE_TRAILING_RE.test(rawLine.trim())) continue;
       const claim = cleanClaimText(rawLine);
-      if (!claim || GENERIC_BUSINESS_HEADING_RE.test(claim) || !BUSINESS_LEAD_RE.test(claim)) continue;
+      if (!claim || GENERIC_BUSINESS_HEADING_RE.test(claim) || (!insideBusinessList && !BUSINESS_LEAD_RE.test(claim))) continue;
       const businessName = extractBusinessName(rawLine, claim);
       if (!businessName) continue;
       if (claims.some((existing) => existing.text === claim)) continue;
@@ -161,6 +169,20 @@ function extractCreatorClaims(text: string, appearsTruncated: boolean): HearthCr
       });
       if (claims.length >= 24) break;
     }
+  }
+  for (const { part, lineIndex } of segments) {
+    if (claims.length >= 24) break;
+    if (appearsTruncated && lineIndex === lastNonEmptyIndex && INCOMPLETE_TRAILING_RE.test(part.trim())) continue;
+    const claim = cleanClaimText(part);
+    if (!claim || !CREATOR_BUSINESS_OBSERVATION_RE.test(claim)) continue;
+    if (claims.some((existing) => existing.text === claim)) continue;
+    claims.push({
+      claimId: `creator-claim-${claims.length + 1}`,
+      text: claim,
+      provenanceStatus: "creator_supplied_unverified",
+      scope: "current_subject",
+      sourceIds: [],
+    });
   }
   return claims;
 }
@@ -264,13 +286,65 @@ function findingMatchesCreatorClaim(
 ): boolean {
   if (claim.claimKind === "business_status" && claim.businessName) {
     const claimName = claim.businessName.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-    const findingName = (finding.businessName || finding.text).toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-    if (claimName.length >= 3 && (findingName === claimName || findingName.includes(claimName))) return true;
+    const findingName = finding.businessName?.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const findingText = finding.text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    if (claimName.length >= 3 && (
+      findingName === claimName
+      || findingText === claimName
+      || findingText.startsWith(`${claimName} `)
+    )) return true;
+    return false;
   }
   const findingMarkers = moneyClaimMarkers(finding.text);
   const claimMarkers = moneyClaimMarkers(claim.text);
-  return findingMarkers.length > 0
-    && claimMarkers.some((marker) => findingMarkers.includes(marker));
+  if (findingMarkers.length > 0 && claimMarkers.some((marker) => findingMarkers.includes(marker))) {
+    return true;
+  }
+  if (!claim.claimKind) {
+    const normalizedFinding = finding.text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    const normalizedClaim = claim.text.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+    return normalizedClaim.length >= 3 && normalizedFinding === normalizedClaim;
+  }
+  return false;
+}
+
+export function isSubstantiveResearchFinding(finding: HearthResearchFinding): boolean {
+  const textLength = finding.text.trim().length;
+  if (textLength >= 24) return true;
+  if (finding.provenanceStatus === "creator_supplied_unverified") {
+    return Boolean(finding.businessName?.trim()) || textLength >= 3;
+  }
+  if (
+    (finding.status === "verified_fact" || finding.status === "reported_claim")
+    && finding.sourceIds.length > 0
+  ) {
+    return textLength >= 3;
+  }
+  return false;
+}
+
+function isBusinessOnlyResearch(result: HearthResearchResult, claims: HearthCreatorResearchClaim[]): boolean {
+  const hasBusinessClaims = claims.some((claim) => claim.claimKind === "business_status");
+  const hasBudgetClaims = claims.some((claim) => claim.claimKind === "budget");
+  const briefText = [result.brief?.creatorRequest, ...(result.brief?.goals ?? [])].filter(Boolean).join(" ");
+  const requestsBusinessStatus = /\b(?:business(?:es)?|restaurant(?:s)?|storefront(?:s)?|open|operating|closed|customer-facing|corridor)\b/i.test(briefText);
+  const requestsBudget = /\b(?:budget|funding|cost|spend|spending|phase\s+(?:[ivx]+|\d+))\b|\$\s*\d/i.test(briefText);
+  return hasBusinessClaims && !hasBudgetClaims && requestsBusinessStatus && !requestsBudget;
+}
+
+function isBudgetOnlyText(value: string): boolean {
+  return /\b(?:project\s+budget|budget\s+(?:claim|figure|total)|funding\s+(?:package|figure|total)|phase\s+(?:[ivx]+|\d+)|capital\s+cost)\b|\$\s*\d/i.test(value);
+}
+
+function isAggregateBusinessUncertainty(value: string, claims: HearthCreatorResearchClaim[]): boolean {
+  if (!/\b(?:operating status|open status|remain(?:s)? unverified|could not verify|not verified)\b/i.test(value)) return false;
+  const normalized = value.toLowerCase();
+  const mentionedBusinesses = claims.filter((claim) => (
+    claim.claimKind === "business_status"
+    && claim.businessName
+    && normalized.includes(claim.businessName.toLowerCase())
+  )).length;
+  return mentionedBusinesses >= 2;
 }
 
 function inspectedSourcesSupportMoneyClaim(
@@ -360,7 +434,15 @@ export function reconcileCreatorSuppliedResearchArtifact(
     return null;
   }
 
-  const reconciledFindings = artifact.findings.map((finding): HearthResearchFinding => {
+  const businessOnlyResearch = isBusinessOnlyResearch(result, creatorClaims);
+  const currentRequestFindings = businessOnlyResearch
+    ? artifact.findings.filter((finding) => (
+        finding.businessName
+        || finding.businessStatus
+        || (!isBudgetOnlyText(finding.text) && !isAggregateBusinessUncertainty(finding.text, creatorClaims))
+      ))
+    : artifact.findings;
+  const reconciledFindings = currentRequestFindings.map((finding): HearthResearchFinding => {
     const matchingClaim = creatorClaims.find((claim) => findingMatchesCreatorClaim(finding, claim));
     const inspectedCitations = finding.sourceIds.filter((sourceId) => {
       const source = sourceById.get(sourceId);
@@ -450,7 +532,7 @@ export function reconcileCreatorSuppliedResearchArtifact(
     || finding.provenanceStatus === "unsupported"
     || finding.provenanceStatus === "inaccessible_source_only"
   ));
-  const hasSubstantiveFindings = reconciledFindings.some((finding) => finding.text.trim().length >= 24);
+  const hasSubstantiveFindings = reconciledFindings.some(isSubstantiveResearchFinding);
   const status = !hasSubstantiveFindings
     ? artifact.status
     : artifact.status === "failed"
@@ -459,18 +541,25 @@ export function reconcileCreatorSuppliedResearchArtifact(
       || result.creatorInputTruncated
         ? "partial"
         : artifact.status;
-  const uncertainties = [...artifact.uncertainties];
+  const uncertainties = artifact.uncertainties.filter((uncertainty) => (
+    !businessOnlyResearch
+    || (!isBudgetOnlyText(uncertainty) && !isAggregateBusinessUncertainty(uncertainty, creatorClaims))
+  ));
   if (creatorClaims.length > 0 && unresolvedCreatorClaims) {
     uncertainties.push("Creator-supplied claims are preserved as leads and remain unverified unless current-run inspected evidence supports them.");
   }
   if (result.creatorInputTruncated) {
     uncertainties.push("The creator-supplied note appears truncated; no missing ending was inferred.");
   }
+  const editorialInterpretation = artifact.editorialInterpretation.filter((interpretation) => (
+    !businessOnlyResearch || !isBudgetOnlyText(interpretation)
+  ));
 
   return {
     ...artifact,
     status,
     findings: reconciledFindings,
     uncertainties: Array.from(new Set(uncertainties)),
+    editorialInterpretation,
   };
 }

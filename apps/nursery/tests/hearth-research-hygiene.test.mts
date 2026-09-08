@@ -209,6 +209,21 @@ test("authority is domain-neutral and duplicate URLs collapse", () => {
   assert.equal(classifyResearchSourceAuthority(base), "primary_government");
   assert.equal(classifyResearchSourceAuthority({ ...base, title: "Church Street Station", publisher: "Wikimedia Foundation, Inc.", url: "https://en.wikipedia.org/wiki/Church_Street_Station", canonicalUrl: null, domain: "en.wikipedia.org" }), "general_reference");
   assert.equal(dedupeHearthResearchSources([base, { ...base, sourceId: "two", url: "https://orlando.gov/project#scope", canonicalUrl: null }]).length, 1);
+  assert.equal(classifyResearchSourceAuthority({
+    ...base,
+    title: "Place Viewer",
+    domain: "google.com",
+    url: "https://google.com/searchviewer/example",
+    extractedText: "Place Viewer",
+  }), "unassessed");
+  assert.equal(classifyResearchSourceAuthority({
+    ...base,
+    title: "Post by @dwntwn_orlando",
+    publisher: "X",
+    domain: "x.com",
+    url: "https://x.com/dwntwn_orlando/status/1",
+    extractedText: "Downtown Orlando shared a current Church Street construction and business update.",
+  }), "primary_institutional");
 });
 
 test("adjacent projects are visibly labeled instead of blended into the queried project", () => {
