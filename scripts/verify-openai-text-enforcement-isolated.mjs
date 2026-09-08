@@ -50,6 +50,7 @@ try {
   psql(readFileSync("supabase/migrations/20260923120000_tongs_customer_hearth_luna_canary.sql", "utf8"), "customer Hearth Luna canary migration");
   psql(readFileSync("supabase/migrations/20260923140000_tongs_owner_pricing_rounded_customer_ceiling.sql", "utf8"), "rounded owner customer-pricing report migration");
   psql(readFileSync("supabase/migrations/20260923150000_tongs_owner_pricing_nullable_markup_fix.sql", "utf8"), "nullable owner pricing report fix");
+  psql(readFileSync("supabase/migrations/20260923160000_tongs_owner_pricing_nullable_markup_short_circuit.sql", "utf8"), "nullable owner pricing short-circuit fix");
   psql(readFileSync("supabase/tests/customer_hearth_luna_canary.sql", "utf8"), "customer Hearth Luna canary proof");
   console.log(JSON.stringify({
     isolated_database: true,
