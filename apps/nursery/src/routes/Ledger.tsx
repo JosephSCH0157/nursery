@@ -120,8 +120,12 @@ function operationChargeLabel(operation: BillingOperation): string {
 
 function purchaseLabel(purchase: OwnerPurchaseActivity): string {
   const item = purchase.item_id.replaceAll("_", " ");
-  const kind = purchase.purchase_type === "cloud_storage" ? "Cloud storage" : "Subscription";
-  return `${kind} · ${item} · ${purchase.interval}`;
+  const kind = purchase.purchase_type === "cloud_storage"
+    ? "Cloud storage"
+    : purchase.purchase_type === "ai_credits"
+    ? "AI credits"
+    : "Subscription";
+  return purchase.purchase_type === "ai_credits" ? `${kind} · ${item}` : `${kind} · ${item} · ${purchase.interval}`;
 }
 
 export default function LedgerRoute() {

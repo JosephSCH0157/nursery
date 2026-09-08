@@ -50,6 +50,20 @@ test("Stripe fee evidence is finalized before a Live compatibility grant can be 
   assert.ok(deposit > 0 && fee > deposit && liveGrant > fee);
   assert.match(webhook, /stripe_balance_transaction/);
   assert.match(webhook, /payment_intent required for processor-fee finalization/);
+  assert.match(webhook, /Test deposit processor fee remains pending/);
+});
+
+test("Stripe Test deposits and simulated receipts are visibly isolated from Live funding", () => {
+  const subscriptions = read("apps/nursery/src/routes/Subscriptions.tsx");
+  const ledger = read("apps/nursery/src/routes/Ledger.tsx");
+  const migration = read("supabase/migrations/20260924120000_tongs_test_customer_paid_execution.sql");
+  assert.match(subscriptions, /Stripe Test funding/);
+  assert.match(subscriptions, /never eligible for a real provider call or Live revenue/);
+  assert.match(ledger, /AI credits/);
+  assert.match(migration, /execution_kind text not null check \(execution_kind = 'simulated_test'\)/);
+  assert.match(migration, /real_provider_authorized',false/);
+  assert.match(migration, /test_ai_consumption_revenue/);
+  assert.doesNotMatch(migration, /insert into tongs\.customer_deposit_consumptions/);
 });
 
 test("the migration adds no operator identity, markup value, budget, or control activation", () => {

@@ -847,30 +847,12 @@ async function fulfillAiCreditsCheckout(
     currency,
     creditUnits: tokens,
   });
-  if (!context.paymentIntentId) {
-    throw new Error("AI credits checkout is missing payment_intent required for processor-fee finalization");
-  }
-  await recordCustomerDepositProcessorFee(supabase, {
-    depositId: deposit.depositId,
-    paymentIntentId: context.paymentIntentId,
-    expectedCurrency: currency,
-  });
 
-  // Keep the pre-foundation execution balance working only for live receipts.
-  // Test-mode value remains isolated in the new accounting journal. This
-  // compatibility grant is removed when the shared spending gate is activated.
-  if (event.livemode === true) {
-    await grantAiCredits(supabase, {
-      userId: context.supabaseUserId,
-      itemId: context.itemId,
-      tokens,
-      eventId: context.eventId,
-      sessionId: context.sessionId,
-      amountTotal: context.amountTotal,
-      currency: context.currency,
-    });
-  }
-
+  // Record the durable purchase/read-model evidence before fee enrichment. A
+  // Stripe balance transaction can lag checkout completion, especially in Test
+  // mode. The deposit remains ineligible for Live execution until authoritative
+  // fee evidence exists, but a delayed fee must not leave a signed checkout
+  // looking as though the webhook never arrived.
   await upsertBillingOneTimePurchaseRecord(supabase, {
     userId: context.supabaseUserId,
     customerId: context.customerId,
@@ -896,6 +878,41 @@ async function fulfillAiCreditsCheckout(
     customerId: context.customerId,
     sessionId: context.sessionId,
   });
+
+  if (!context.paymentIntentId) {
+    throw new Error("AI credits checkout is missing payment_intent required for processor-fee finalization");
+  }
+  try {
+    await recordCustomerDepositProcessorFee(supabase, {
+      depositId: deposit.depositId,
+      paymentIntentId: context.paymentIntentId,
+      expectedCurrency: currency,
+    });
+  } catch (error) {
+    if (event.livemode) throw error;
+    console.warn("[stripe-webhook] Test deposit processor fee remains pending", {
+      eventId: event.id,
+      sessionId: context.sessionId,
+      depositId: deposit.depositId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+
+  // Keep the pre-foundation execution balance working only for live receipts.
+  // Test-mode value remains isolated in the new accounting journal. This
+  // compatibility grant is removed when the shared spending gate is activated.
+  if (event.livemode === true) {
+    await grantAiCredits(supabase, {
+      userId: context.supabaseUserId,
+      itemId: context.itemId,
+      tokens,
+      eventId: context.eventId,
+      sessionId: context.sessionId,
+      amountTotal: context.amountTotal,
+      currency: context.currency,
+    });
+  }
+
 }
 
 async function fulfillSubscriptionCheckout(

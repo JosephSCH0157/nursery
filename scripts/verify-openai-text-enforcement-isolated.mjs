@@ -38,9 +38,9 @@ function psql(sql, step) {
 try {
   ok(docker(["exec", container, "createdb", "-U", "postgres", database]), "create isolated database");
   const baseline = readFileSync("supabase/tests/billing_isolated_baseline.sql", "utf8")
-    .replace("create role anon nologin;\n", "")
-    .replace("create role authenticated nologin;\n", "")
-    .replace("create role service_role nologin bypassrls;\n", "");
+    .replace(/^create role anon nologin;\r?\n/m, "")
+    .replace(/^create role authenticated nologin;\r?\n/m, "")
+    .replace(/^create role service_role nologin bypassrls;\r?\n/m, "");
   psql(baseline, "baseline");
   for (const migration of migrations) psql(readFileSync(migration, "utf8"), migration);
   psql(readFileSync("supabase/tests/openai_text_enforcement_foundation.sql", "utf8"), "OpenAI enforcement proof");
@@ -52,6 +52,18 @@ try {
   psql(readFileSync("supabase/migrations/20260923150000_tongs_owner_pricing_nullable_markup_fix.sql", "utf8"), "nullable owner pricing report fix");
   psql(readFileSync("supabase/migrations/20260923160000_tongs_owner_pricing_nullable_markup_short_circuit.sql", "utf8"), "nullable owner pricing short-circuit fix");
   psql(readFileSync("supabase/tests/customer_hearth_luna_canary.sql", "utf8"), "customer Hearth Luna canary proof");
+  psql(`
+    create table if not exists tongs.billing_customers(
+      user_id uuid primary key references auth.users(id), stripe_customer_id text unique not null,
+      email text, customer_name text, metadata_json jsonb not null default '{}', created_at timestamptz default now(), updated_at timestamptz default now());
+    create table if not exists tongs.billing_events(
+      stripe_event_id text primary key,event_type text not null,user_id uuid,stripe_customer_id text,
+      stripe_subscription_id text,stripe_session_id text,livemode boolean,payload_json jsonb not null default '{}',processed_at timestamptz default now(),created_at timestamptz default now());
+    create or replace function tongs.read_owner_purchase_activity(p_stripe_mode text default 'test',p_limit integer default 100)
+      returns jsonb language sql stable as $$ select jsonb_build_object('contract_version','forge.owner-purchase-activity.v1','stripe_mode',p_stripe_mode,'purchases','[]'::jsonb) $$;
+  `, "isolated owner purchase read-model compatibility");
+  psql(readFileSync("supabase/migrations/20260924120000_tongs_test_customer_paid_execution.sql", "utf8"), "Stripe Test customer execution migration");
+  psql(readFileSync("supabase/tests/test_customer_paid_execution.sql", "utf8"), "Stripe Test customer execution proof");
   console.log(JSON.stringify({
     isolated_database: true,
     exact_rate_revisions: "passed",
@@ -73,6 +85,8 @@ try {
     customer_quote_acceptance_and_settlement: "passed",
     customer_test_scope_isolation: "passed",
     customer_authorization_closure: "passed",
+    stripe_test_funding_isolated: "passed",
+    simulated_test_success_replay_and_failure_relief: "passed",
   }));
 } finally {
   docker(["exec", container, "dropdb", "-U", "postgres", "--if-exists", database]);

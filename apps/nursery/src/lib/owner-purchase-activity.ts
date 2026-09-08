@@ -12,7 +12,7 @@ export type OwnerPurchaseActivity = {
   customer_email: string | null;
   customer_name: string | null;
   stripe_mode: OwnerPurchaseMode;
-  purchase_type: "subscription" | "cloud_storage";
+  purchase_type: "subscription" | "cloud_storage" | "ai_credits";
   item_id: string;
   interval: string;
   status: string;
@@ -30,14 +30,14 @@ export type OwnerPurchaseActivity = {
   allocated_revenue_micros: number;
   maximum_wholesale_spend_micros: number;
   recognized_revenue_micros: number;
-  accounting_state: "cycle_receipt_recorded" | "invoice_receipt_pending" | "checkout_recorded" | "subscription_recorded";
+  accounting_state: "cycle_receipt_recorded" | "deposit_receipt_recorded" | "invoice_receipt_pending" | "checkout_recorded" | "subscription_recorded";
   live_funding_eligible: boolean;
   signed_webhook_events: OwnerWebhookEvent[];
   observed_at: string;
 };
 
 export type OwnerPurchaseActivityResponse = {
-  contract_version: "forge.owner-purchase-activity.v1";
+  contract_version: "forge.owner-purchase-activity.v1" | "forge.owner-purchase-activity.v2";
   stripe_mode: OwnerPurchaseMode;
   purchases: OwnerPurchaseActivity[];
   contains_wholesale_costs: false;
@@ -77,6 +77,7 @@ export function formatCurrencyMicros(amountMicros: number, currency: string | nu
 
 export function ownerPurchaseAccountingLabel(purchase: OwnerPurchaseActivity): string {
   if (purchase.accounting_state === "cycle_receipt_recorded") return "Cycle receipt recorded";
+  if (purchase.accounting_state === "deposit_receipt_recorded") return "Test deposit receipt recorded";
   if (purchase.accounting_state === "invoice_receipt_pending") return "Invoice receipt pending";
   if (purchase.accounting_state === "checkout_recorded") return "Checkout recorded; invoice not identified";
   return "Subscription recorded; checkout not identified";

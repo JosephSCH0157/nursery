@@ -60,6 +60,34 @@ type AiCreditsSnapshot = {
   tokenBalance: number | null;
 };
 
+type TestBillingDeposit = {
+  deposit_id: string;
+  pack_id: string;
+  currency: string;
+  gross_amount_micros: number;
+  credit_units: number;
+  received_at: string;
+  label: "Stripe Test";
+};
+
+type TestBillingReceipt = {
+  operation_id: string;
+  customer_charge_micros: number;
+  outcome: string;
+  settled_at: string;
+  execution_kind: "simulated_test";
+};
+
+type TestBillingSnapshot = {
+  contract_version: "forge.customer-test-billing.v1";
+  stripe_mode: "test";
+  test_credit_balance: number;
+  live_provider_eligible: false;
+  live_revenue: false;
+  deposits: TestBillingDeposit[];
+  receipts: TestBillingReceipt[];
+};
+
 type ForgeProfile = {
   user_id: string;
   display_name: string | null;
@@ -706,6 +734,12 @@ async function fetchAiCreditsSnapshot(): Promise<AiCreditsSnapshot> {
   };
 }
 
+async function fetchTestBillingSnapshot(userId: string): Promise<TestBillingSnapshot> {
+  const { data, error } = await tongsBillingDb.rpc("read_customer_test_billing", { p_user_id: userId });
+  if (error) throw new Error(error.message || "Failed to load Stripe Test funding.");
+  return data as TestBillingSnapshot;
+}
+
 function buildReturnUrl(): string {
   const currentUrl = new URL(window.location.href);
   const params = new URLSearchParams(currentUrl.search);
@@ -815,6 +849,9 @@ export default function SubscriptionsRoute() {
   const [aiSnapshot, setAiSnapshot] = useState<AiCreditsSnapshot | null>(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
+  const [testBilling, setTestBilling] = useState<TestBillingSnapshot | null>(null);
+  const [testBillingLoading, setTestBillingLoading] = useState(false);
+  const [testBillingError, setTestBillingError] = useState<string | null>(null);
   const [planMessage, setPlanMessage] = useState<string | null>(null);
   const [storageMessage, setStorageMessage] = useState<string | null>(null);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
@@ -868,6 +905,25 @@ export default function SubscriptionsRoute() {
     }
   }, [user]);
 
+  const refreshTestBilling = useCallback(async () => {
+    if (!user) {
+      setTestBilling(null);
+      setTestBillingError(null);
+      setTestBillingLoading(false);
+      return;
+    }
+    setTestBillingLoading(true);
+    try {
+      setTestBilling(await fetchTestBillingSnapshot(user.id));
+      setTestBillingError(null);
+    } catch (error) {
+      setTestBilling(null);
+      setTestBillingError(error instanceof Error ? error.message : "Failed to load Stripe Test funding.");
+    } finally {
+      setTestBillingLoading(false);
+    }
+  }, [user]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -892,6 +948,9 @@ export default function SubscriptionsRoute() {
       setAiSnapshot(null);
       setAiError(null);
       setAiLoading(false);
+      setTestBilling(null);
+      setTestBillingError(null);
+      setTestBillingLoading(false);
       return () => {
         cancelled = true;
       };
@@ -918,20 +977,22 @@ export default function SubscriptionsRoute() {
 
     void refreshAccountOverview();
     void refreshAiCredits();
+    void refreshTestBilling();
 
     return () => {
       cancelled = true;
     };
-  }, [refreshAccountOverview, refreshAiCredits, user]);
+  }, [refreshAccountOverview, refreshAiCredits, refreshTestBilling, user]);
 
   useEffect(() => {
     if (checkoutStatus !== "success") return;
     const timer = window.setTimeout(() => {
       void refreshAccountOverview();
       void refreshAiCredits();
+      void refreshTestBilling();
     }, 2500);
     return () => window.clearTimeout(timer);
-  }, [checkoutStatus, refreshAccountOverview, refreshAiCredits]);
+  }, [checkoutStatus, refreshAccountOverview, refreshAiCredits, refreshTestBilling]);
 
   useEffect(() => {
     if (profileEditOpen) return;
@@ -1600,6 +1661,25 @@ export default function SubscriptionsRoute() {
               <p className="subscriptions-status subscriptions-status--info">
                 A completed Live AI Credit purchase becomes eligible for funded Runway operations only after Stripe fee evidence is recorded and a customer price is published and activated. Test receipts and legacy compatibility credits cannot fund a real provider call.
               </p>
+              <section aria-label="Stripe Test funding" className="subscriptions-status subscriptions-status--info">
+                <strong>Stripe Test funding</strong>
+                <p>
+                  {testBillingLoading
+                    ? "Loading Test activity..."
+                    : `${formatTokenBalance(testBilling?.test_credit_balance ?? 0)} Test credits · never eligible for a real provider call or Live revenue.`}
+                </p>
+                {testBillingError ? <p>Test activity unavailable: {testBillingError}</p> : null}
+                {testBilling?.deposits.map((deposit) => (
+                  <p key={deposit.deposit_id}>
+                    <strong>Test</strong> · {deposit.pack_id.replaceAll("_", " ")} · {formatTokenBalance(deposit.credit_units)} credits · {new Intl.NumberFormat("en-US", { style: "currency", currency: deposit.currency }).format(deposit.gross_amount_micros / 1_000_000)} · {new Date(deposit.received_at).toLocaleString()}
+                  </p>
+                ))}
+                {testBilling?.receipts.map((receipt) => (
+                  <p key={receipt.operation_id}>
+                    Simulated receipt · {receipt.outcome} · {(receipt.customer_charge_micros / 1_000_000).toLocaleString("en-US", { style: "currency", currency: "USD" })}
+                  </p>
+                ))}
+              </section>
               <p className="subscriptions-status subscriptions-status--info">
                 BYO usage does not consume Forge credits. BYO members still receive included monthly base credits on renewal.
               </p>
