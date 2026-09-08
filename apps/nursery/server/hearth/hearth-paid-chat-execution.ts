@@ -18,6 +18,21 @@ export type HearthPaidExecutionHandle = {
   requestFingerprint: string;
 };
 
+export type HearthSpendingQuoteAcceptance = {
+  operationId: string;
+  quoteId: string;
+  quoteHash: string;
+  requestFingerprint: string;
+};
+
+export type HearthCustomerPaidIdentifiers = {
+  operationId: string;
+  quoteId: string;
+  reservationId: string;
+  acceptanceId: string;
+  requestFingerprint: string;
+};
+
 export type PaidHearthChatResult = {
   assistantText: string;
   ops: unknown[];
@@ -136,6 +151,49 @@ export function normalizeHearthPaidExecutionHandle(value: unknown): HearthPaidEx
   const requestFingerprint = typeof row.request_fingerprint === "string" ? row.request_fingerprint.trim().toLowerCase() : "";
   if (operationId.length < 8 || !UUID_RE.test(reservationId) || !SHA256_RE.test(requestFingerprint)) return null;
   return { operationId, reservationId, requestFingerprint };
+}
+
+export function normalizeHearthSpendingQuoteAcceptance(value: unknown): HearthSpendingQuoteAcceptance | null {
+  const row = asRecord(value);
+  const operationId = typeof row.operation_id === "string" ? row.operation_id.trim() : "";
+  const quoteId = typeof row.quote_id === "string" ? row.quote_id.trim() : "";
+  const quoteHash = typeof row.quote_hash === "string" ? row.quote_hash.trim().toLowerCase() : "";
+  const requestFingerprint = typeof row.request_fingerprint === "string"
+    ? row.request_fingerprint.trim().toLowerCase()
+    : "";
+  if (operationId.length < 8 || !UUID_RE.test(quoteId) || !SHA256_RE.test(quoteHash)
+    || !SHA256_RE.test(requestFingerprint)) return null;
+  return { operationId, quoteId, quoteHash, requestFingerprint };
+}
+
+function uuidFromDigest(digest: string): string {
+  const value = digest.slice(0, 32).split("");
+  value[12] = "4";
+  value[16] = ["8", "9", "a", "b"][Number.parseInt(value[16] ?? "0", 16) % 4] ?? "8";
+  const joined = value.join("");
+  return `${joined.slice(0, 8)}-${joined.slice(8, 12)}-${joined.slice(12, 16)}-${joined.slice(16, 20)}-${joined.slice(20)}`;
+}
+
+export function deriveHearthCustomerPaidIdentifiers(args: {
+  userId: string;
+  workspaceId: string;
+  requestFingerprint: string;
+}): HearthCustomerPaidIdentifiers {
+  if (!UUID_RE.test(args.userId) || !UUID_RE.test(args.workspaceId) || !SHA256_RE.test(args.requestFingerprint)) {
+    throw new OpenAiTextBoundaryError("funding_context_required");
+  }
+  const operationDigest = crypto.createHash("sha256").update(
+    `hearth-customer-operation:${args.userId}:${args.workspaceId}:${args.requestFingerprint}`,
+  ).digest("hex");
+  const operationId = `hearth-customer-${operationDigest}`;
+  const quoteId = uuidFromDigest(crypto.createHash("sha256").update(`hearth-customer-quote:${operationId}`).digest("hex"));
+  return {
+    operationId,
+    quoteId,
+    reservationId: uuidFromDigest(crypto.createHash("sha256").update(`hearth-customer-reservation:${quoteId}`).digest("hex")),
+    acceptanceId: uuidFromDigest(crypto.createHash("sha256").update(`hearth-customer-acceptance:${quoteId}`).digest("hex")),
+    requestFingerprint: args.requestFingerprint,
+  };
 }
 
 export function fingerprintPaidHearthChatRequest(value: unknown): string {

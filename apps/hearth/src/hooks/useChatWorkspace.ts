@@ -10,6 +10,7 @@ import type {
   HearthSttResult,
   HearthSttUploadResult,
   HearthExplicitUiAction,
+  HearthCustomerBillingQuote,
   HearthOutputPreference,
   HearthTurnResult,
 } from "../lib/hearth-chat-api";
@@ -455,7 +456,13 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp 
       productionScriptVersion?: number;
       attachmentContext?: {
         includeEpisodeAttachments?: boolean;
-        attachmentIds?: string[];
+      attachmentIds?: string[];
+      };
+      spendingAcceptance?: {
+        operation_id: string;
+        quote_id: string;
+        quote_hash: string;
+        request_fingerprint: string;
       };
     },
   ) => Promise<{
@@ -468,6 +475,15 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp 
     turnResult?: HearthTurnResult;
     gate?: "clarify";
     creditsWarning?: string;
+    billingQuote?: HearthCustomerBillingQuote;
+    billingReceipt?: {
+      operation_id: string;
+      reservation_id: string;
+      status: "settled" | "settled_replay" | "failed_released" | "submission_unknown" | "duplicate_in_progress";
+      funding_source: "customer_deposit" | "paid_allowance" | "owner_budget" | "none";
+      customer_charge_micros: number;
+      provider_request_id?: string | null;
+    };
     runtime: {
       billingMode: "forge" | "byo";
     };
@@ -604,7 +620,7 @@ export function useChatWorkspaceRuntime<
       const attachmentContext = isProductionRequest
         ? { includeEpisodeAttachments: false, attachmentIds: [] }
         : args.getAttachmentContext?.() ?? undefined;
-      const result = await args.requestHearthChatReply(requestMessages, episodeContext, {
+      const requestOptions = {
         signal: controller.signal,
         userAuthoredText: rawRequestContent,
         explicitAction,
@@ -612,7 +628,35 @@ export function useChatWorkspaceRuntime<
         attachmentContext,
         productionAction: params.productionAction as "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack" | undefined,
         productionScriptVersion: params.productionScriptVersion,
-      });
+      };
+      let result = await args.requestHearthChatReply(requestMessages, episodeContext, requestOptions);
+      if (!result.ok && result.billingQuote?.fundingEligible) {
+        const quote = result.billingQuote;
+        const price = new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: quote.currency,
+        }).format(quote.maximumCustomerChargeMicros / 1_000_000);
+        const accepted = window.confirm([
+          `Hearth will charge at most ${price} to ${quote.fundingLabel}.`,
+          "Forge-caused and provider-caused failures cost you $0.",
+          "An uncertain provider submission will not be retried automatically.",
+          `This quote expires ${new Date(quote.expiresAt).toLocaleTimeString()}.`,
+          "Accept this exact price and continue?",
+        ].join("\n\n"));
+        if (!accepted) {
+          args.setChatError("The price was not accepted. No funds were reserved and no provider request was sent.");
+          return;
+        }
+        result = await args.requestHearthChatReply(requestMessages, episodeContext, {
+          ...requestOptions,
+          spendingAcceptance: {
+            operation_id: quote.operationId,
+            quote_id: quote.quoteId,
+            quote_hash: quote.quoteHash,
+            request_fingerprint: quote.requestFingerprint,
+          },
+        });
+      }
       if (!args.operationAuthority.isCurrent(operation)) return;
       args.setAiBillingMode(result.runtime.billingMode);
       if (result.runtime.billingMode === "byo") {
@@ -725,6 +769,14 @@ export function useChatWorkspaceRuntime<
 
       if (result.creditsWarning) {
         args.setAiRuntimeWarning(result.creditsWarning);
+      } else if (result.billingReceipt && ["settled", "settled_replay"].includes(result.billingReceipt.status)) {
+        const receiptPrice = new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: "USD",
+        }).format(result.billingReceipt.customer_charge_micros / 1_000_000);
+        args.setAiRuntimeWarning(
+          `${result.billingReceipt.status === "settled_replay" ? "Existing receipt" : "Receipt"}: ${receiptPrice} charged to ${result.billingReceipt.funding_source.replaceAll("_", " ")}.`,
+        );
       }
 
       const refreshedCredits = await args.refreshMyAiCredits();

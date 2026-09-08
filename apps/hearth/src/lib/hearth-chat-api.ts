@@ -47,6 +47,21 @@ export type HearthAiStatusResult =
   | { ok: true; status: number; runtime: HearthAiRuntimeSnapshot }
   | { ok: false; status: number; error: string; runtime: HearthAiRuntimeSnapshot };
 
+export type HearthCustomerBillingQuote = {
+  quoteId: string;
+  operationId: string;
+  quoteHash: string;
+  requestFingerprint: string;
+  currency: "USD";
+  maximumCustomerChargeMicros: number;
+  failureCustomerChargeMicros: 0;
+  failureTerms: string;
+  fundingEligible: boolean;
+  fundingSource: "customer_deposit" | "paid_allowance" | "none";
+  fundingLabel: string;
+  expiresAt: string;
+};
+
 export type HearthChatResult =
   | {
       ok: true;
@@ -70,8 +85,46 @@ export type HearthChatResult =
       runtime: HearthAiRuntimeSnapshot;
       cancelled?: boolean;
       billingReceipt?: HearthChatResponse["billing_receipt"];
+      billingQuote?: HearthCustomerBillingQuote;
       turnResult?: HearthTurnResult;
     };
+
+function normalizeCustomerBillingQuote(payload: unknown): HearthCustomerBillingQuote | undefined {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return undefined;
+  const envelope = payload as Record<string, unknown>;
+  const raw = envelope.billing_quote;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const quote = raw as Record<string, unknown>;
+  const quoteId = typeof quote.quote_id === "string" ? quote.quote_id.trim() : "";
+  const operationId = typeof quote.operation_id === "string" ? quote.operation_id.trim() : "";
+  const quoteHash = typeof quote.quote_hash === "string" ? quote.quote_hash.trim().toLowerCase() : "";
+  const requestFingerprint = typeof quote.request_fingerprint === "string"
+    ? quote.request_fingerprint.trim().toLowerCase()
+    : "";
+  const maximum = Number(quote.maximum_customer_charge_micros);
+  const failure = Number(quote.failure_customer_charge_micros);
+  const fundingSource = quote.funding_source;
+  const expiresAt = typeof quote.expires_at === "string" ? quote.expires_at.trim() : "";
+  if (!/^[0-9a-f-]{36}$/i.test(quoteId) || operationId.length < 8
+    || !/^[0-9a-f]{64}$/i.test(quoteHash) || !/^[0-9a-f]{64}$/i.test(requestFingerprint)
+    || quote.currency !== "USD" || !Number.isSafeInteger(maximum) || maximum < 0
+    || failure !== 0 || !["customer_deposit", "paid_allowance", "none"].includes(String(fundingSource))
+    || !expiresAt) return undefined;
+  return {
+    quoteId,
+    operationId,
+    quoteHash,
+    requestFingerprint,
+    currency: "USD",
+    maximumCustomerChargeMicros: maximum,
+    failureCustomerChargeMicros: 0,
+    failureTerms: typeof quote.failure_terms === "string" ? quote.failure_terms : "Failures caused by Forge or its provider cost you $0.",
+    fundingEligible: quote.funding_eligible === true,
+    fundingSource: fundingSource as HearthCustomerBillingQuote["fundingSource"],
+    fundingLabel: typeof quote.funding_label === "string" ? quote.funding_label : "No verified eligible funds",
+    expiresAt,
+  };
+}
 
 export type HearthInteractionEventType =
   | "chat_sent"
@@ -1183,6 +1236,7 @@ export async function requestHearthChatReply(
     explicitAction?: HearthExplicitUiAction;
     outputPreference?: HearthOutputPreference;
     paidExecution?: HearthChatRequest["paid_execution"];
+    spendingAcceptance?: HearthChatRequest["spending_acceptance"];
   },
 ): Promise<HearthChatResult> {
   const normalized = normalizeMessages(messages);
@@ -1236,6 +1290,7 @@ export async function requestHearthChatReply(
     production_action: options?.productionAction,
     production_script_version: options?.productionScriptVersion,
     paid_execution: options?.paidExecution,
+    spending_acceptance: options?.spendingAcceptance,
   };
 
   let response: Response;
@@ -1271,6 +1326,7 @@ export async function requestHearthChatReply(
 
   const parsed = parseHearthChatResponse(payload, lane);
   const runtime = parsed ? runtimeFromResponse(parsed) : readRuntimeFromPayload(payload, lane);
+  const billingQuote = normalizeCustomerBillingQuote(payload);
 
   if (!response.ok) {
     return {
@@ -1279,6 +1335,7 @@ export async function requestHearthChatReply(
       error: readErrorText(payload, `Request failed (${response.status})`),
       runtime,
       billingReceipt: parsed?.billing_receipt,
+      billingQuote,
       turnResult: parsed?.turn_result,
     };
   }

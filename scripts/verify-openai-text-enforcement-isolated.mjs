@@ -47,6 +47,8 @@ try {
   psql(readFileSync("supabase/tests/openai_hearth_owner_pilot_control.sql", "utf8"), "OpenAI owner pilot control proof");
   psql(readFileSync("supabase/tests/openai_hearth_luna_pilot_proposal.sql", "utf8"), "OpenAI Luna pilot proposal proof");
   psql(readFileSync("supabase/tests/openai_hearth_luna_pilot_control.sql", "utf8"), "OpenAI Luna pilot control proof");
+  psql(readFileSync("supabase/migrations/20260923120000_tongs_customer_hearth_luna_canary.sql", "utf8"), "customer Hearth Luna canary migration");
+  psql(readFileSync("supabase/tests/customer_hearth_luna_canary.sql", "utf8"), "customer Hearth Luna canary proof");
   console.log(JSON.stringify({
     isolated_database: true,
     exact_rate_revisions: "passed",
@@ -65,6 +67,9 @@ try {
     luna_exact_one_reservation_control: "passed",
     append_only_failure_attribution_correction: "passed",
     corrected_path_retest_control: "passed",
+    customer_quote_acceptance_and_settlement: "passed",
+    customer_test_scope_isolation: "passed",
+    customer_authorization_closure: "passed",
   }));
 } finally {
   docker(["exec", container, "dropdb", "-U", "postgres", "--if-exists", database]);

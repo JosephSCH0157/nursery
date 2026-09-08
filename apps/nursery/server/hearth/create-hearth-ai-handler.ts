@@ -81,9 +81,11 @@ import {
   FORGE_ALLOWED_CHAT_MODELS,
 } from "./ai-pricing";
 import {
+  deriveHearthCustomerPaidIdentifiers,
   executePaidHearthChatCompletion,
   fingerprintPaidHearthChatRequest,
   normalizeHearthPaidExecutionHandle,
+  normalizeHearthSpendingQuoteAcceptance,
 } from "./hearth-paid-chat-execution";
 import {
   applyAiTokenDelta as applyAiTokenDeltaShared,
@@ -184,6 +186,7 @@ type ReqBody = {
   explicit_action?: unknown;
   output_preference?: unknown;
   paid_execution?: unknown;
+  spending_acceptance?: unknown;
 };
 
 type AttachmentContextRequest = {
@@ -3544,12 +3547,27 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       }
 
       const bodyRaw = (await readJsonBody(request)) as ReqBody;
-      const paidExecutionHandle = normalizeHearthPaidExecutionHandle(bodyRaw.paid_execution);
+      let paidExecutionHandle = normalizeHearthPaidExecutionHandle(bodyRaw.paid_execution);
       if (bodyRaw.paid_execution != null && !paidExecutionHandle) {
         return jsonResponse(400, {
           ok: false,
           error: "Invalid paid execution handle.",
           code: "invalid_paid_execution_handle",
+        });
+      }
+      const spendingAcceptance = normalizeHearthSpendingQuoteAcceptance(bodyRaw.spending_acceptance);
+      if (bodyRaw.spending_acceptance != null && !spendingAcceptance) {
+        return jsonResponse(400, {
+          ok: false,
+          error: "Invalid spending quote acceptance.",
+          code: "invalid_spending_quote_acceptance",
+        });
+      }
+      if (paidExecutionHandle && spendingAcceptance) {
+        return jsonResponse(400, {
+          ok: false,
+          error: "Provide either a quote acceptance or a reserved execution handle, not both.",
+          code: "conflicting_paid_execution_context",
         });
       }
       const productionAction = (
@@ -4326,6 +4344,24 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const paidRouteCode: OpenAiTextRouteCode = researchModeRequested
           ? "hearth.research_synthesis"
           : "hearth.chat_completion";
+        const paidScopeEligible = paidRouteCode === "hearth.chat_completion"
+          && !productionAction
+          && !attachmentContext.includeEpisodeAttachments
+          && !readinessCheckRequested
+          && !crossProjectReference.detected;
+        const actualRequestFingerprint = paidRouteCode === "hearth.chat_completion"
+          ? fingerprintPaidHearthChatRequest({
+              schema: "forge.hearth.paid-chat-request.v1",
+              route_code: "hearth.chat_completion",
+              workspace_id: episodeContext.workspaceId,
+              workpiece_id: episodeContext.episodeId,
+              lane: effectiveLane,
+              messages,
+              user_authored_text: requestText,
+              behavior: bodyRaw.behavior ?? null,
+            })
+          : null;
+        let paidRequirementRow: Record<string, unknown> = {};
         if (openAiTextGate) {
           const requirement = await openAiTextGate.rpc("read_openai_text_route_execution_requirement", {
             p_route_code: paidRouteCode,
@@ -4338,16 +4374,16 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               ...buildBillingSnapshot(lane),
             });
           }
-          const requirementRow = isRecord(requirement.data) ? requirement.data : {};
-          if (requirementRow.funding_context_required === true && !paidExecutionHandle) {
-            return jsonResponse(402, {
+          paidRequirementRow = isRecord(requirement.data) ? requirement.data : {};
+          if (paidRequirementRow.mode === "halt_new") {
+            return jsonResponse(503, {
               ok: false,
-              error: "An accepted funded quote is required before this AI operation can run.",
-              code: "paid_funding_context_required",
+              error: "New paid submissions are halted while existing operations remain available for reconciliation.",
+              code: "paid_submissions_halted",
               ...buildBillingSnapshot(lane),
             });
           }
-        } else if (paidExecutionHandle) {
+        } else if (paidExecutionHandle || spendingAcceptance) {
           return jsonResponse(503, {
             ok: false,
             error: "Paid execution controls are unavailable.",
@@ -4356,14 +4392,140 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           });
         }
 
+        if (paidRequirementRow.funding_context_required === true && !paidExecutionHandle) {
+          if (!paidScopeEligible || !actualRequestFingerprint) {
+            return jsonResponse(422, {
+              ok: false,
+              error: "The published customer price covers only a bounded ordinary Hearth chat completion.",
+              code: "paid_quote_scope_mismatch",
+              ...buildBillingSnapshot(lane),
+            });
+          }
+          if (!openAiTextGate || !userId || !bearerToken || !isUuid(episodeContext.workspaceId)) {
+            return jsonResponse(401, {
+              ok: false,
+              error: "Authentication and paid execution controls are required.",
+              code: "paid_execution_auth_required",
+              ...buildBillingSnapshot(lane),
+            });
+          }
+          const identifiers = deriveHearthCustomerPaidIdentifiers({
+            userId,
+            workspaceId: episodeContext.workspaceId,
+            requestFingerprint: actualRequestFingerprint,
+          });
+          if (!spendingAcceptance) {
+            const quoted = await openAiTextGate.rpc("create_customer_hearth_chat_quote", {
+              p_quote_id: identifiers.quoteId,
+              p_user_id: userId,
+              p_operation_id: identifiers.operationId,
+              p_workspace_id: episodeContext.workspaceId,
+              p_request_fingerprint: actualRequestFingerprint,
+              p_expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+            });
+            if (quoted.error || !isRecord(quoted.data)) {
+              const unavailable = /not active|not configured|operation limit|expired/i.test(quoted.error?.message ?? "");
+              return jsonResponse(unavailable ? 409 : 503, {
+                ok: false,
+                error: unavailable
+                  ? "Customer-funded Hearth testing is not currently available for this account and workspace."
+                  : "A customer-safe Hearth quote could not be created.",
+                code: unavailable ? "hearth_customer_test_not_authorized" : "hearth_quote_unavailable",
+                ...buildBillingSnapshot(lane),
+              });
+            }
+            const quote = quoted.data;
+            const funding = isRecord(quote.funding) ? quote.funding : {};
+            const billingQuote = {
+              quote_id: quote.quote_id,
+              operation_id: quote.operation_id,
+              quote_hash: quote.quote_hash,
+              request_fingerprint: quote.request_fingerprint,
+              currency: quote.currency,
+              maximum_customer_charge_micros: quote.normal_maximum_charge_micros,
+              failure_customer_charge_micros: 0,
+              failure_terms: "Forge-caused and provider-caused failures cost you $0. Uncertain submissions are not retried automatically.",
+              funding_eligible: funding.eligible === true,
+              funding_source: typeof funding.funding_source === "string" ? funding.funding_source : "none",
+              funding_label: typeof funding.customer_label === "string" ? funding.customer_label : "No verified eligible funds",
+              included_quantity: quote.included_quantity,
+              expires_at: quote.expires_at,
+              provider_funding_summary: quote.provider_funding_summary,
+            };
+            if (funding.eligible !== true) {
+              return jsonResponse(402, {
+                ok: false,
+                error: "This account has no verified Live deposit or economically backed allowance eligible for this operation.",
+                code: "hearth_insufficient_verified_funds",
+                billing_quote: billingQuote,
+                ...buildBillingSnapshot(lane),
+              });
+            }
+            return jsonResponse(409, {
+              ok: false,
+              error: "Review and accept the maximum customer charge before Hearth uses OpenAI.",
+              code: "hearth_spending_confirmation_required",
+              billing_quote: billingQuote,
+              ...buildBillingSnapshot(lane),
+            });
+          }
+          if (spendingAcceptance.operationId !== identifiers.operationId
+            || spendingAcceptance.quoteId !== identifiers.quoteId
+            || spendingAcceptance.requestFingerprint !== actualRequestFingerprint) {
+            return jsonResponse(409, {
+              ok: false,
+              error: "This accepted quote does not match the current Hearth request.",
+              code: "paid_request_fingerprint_mismatch",
+              ...buildBillingSnapshot(lane),
+            });
+          }
+          const accepted = await callUserScopedTongsRpc({
+            accessToken: bearerToken,
+            fn: "accept_quote",
+            payload: {
+              p_quote_id: identifiers.quoteId,
+              p_acceptance_id: identifiers.acceptanceId,
+              p_acceptance_key: `hearth-customer-acceptance:${identifiers.quoteId}`,
+              p_quote_hash: spendingAcceptance.quoteHash,
+            },
+          });
+          if (!accepted.ok) {
+            const expired = /expired/i.test(accepted.error);
+            return jsonResponse(expired ? 409 : 400, {
+              ok: false,
+              error: expired
+                ? "This Hearth quote expired. Request a new quote before continuing."
+                : "The Hearth quote could not be accepted.",
+              code: expired ? "hearth_quote_expired" : "hearth_quote_acceptance_failed",
+              ...buildBillingSnapshot(lane),
+            });
+          }
+          const reserved = await openAiTextGate.rpc("reserve_customer_hearth_chat_quote", {
+            p_quote_id: identifiers.quoteId,
+            p_reservation_id: identifiers.reservationId,
+            p_idempotency_key: `hearth-customer-reservation:${identifiers.quoteId}`,
+            p_request_fingerprint: actualRequestFingerprint,
+          });
+          if (reserved.error || !isRecord(reserved.data)) {
+            const insufficient = /insufficient verified funding/i.test(reserved.error?.message ?? "");
+            return jsonResponse(insufficient ? 402 : 403, {
+              ok: false,
+              error: insufficient
+                ? "This account no longer has enough verified eligible funding for the accepted maximum charge."
+                : "The accepted Hearth quote could not authorize provider execution.",
+              code: insufficient ? "hearth_insufficient_verified_funds" : "paid_execution_denied",
+              ...buildBillingSnapshot(lane),
+            });
+          }
+          paidExecutionHandle = {
+            operationId: identifiers.operationId,
+            reservationId: identifiers.reservationId,
+            requestFingerprint: actualRequestFingerprint,
+          };
+        }
+
         if (paidExecutionHandle) {
-          if (
-            paidRouteCode !== "hearth.chat_completion"
-            || productionAction
-            || attachmentContext.includeEpisodeAttachments
-            || readinessCheckRequested
-            || crossProjectReference.detected
-          ) {
+          if (!paidScopeEligible) {
             return jsonResponse(422, {
               ok: false,
               error: "This accepted quote covers only a bounded ordinary Hearth chat completion.",
@@ -4379,16 +4541,6 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               ...buildBillingSnapshot(lane),
             });
           }
-          const actualRequestFingerprint = fingerprintPaidHearthChatRequest({
-            schema: "forge.hearth.paid-chat-request.v1",
-            route_code: "hearth.chat_completion",
-            workspace_id: episodeContext.workspaceId,
-            workpiece_id: episodeContext.episodeId,
-            lane: effectiveLane,
-            messages,
-            user_authored_text: requestText,
-            behavior: bodyRaw.behavior ?? null,
-          });
           if (actualRequestFingerprint !== paidExecutionHandle.requestFingerprint) {
             return jsonResponse(409, {
               ok: false,
@@ -4465,6 +4617,26 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 ? paidOutcome.requestId
                 : null,
             };
+            if (
+              paidOutcome.context.fundingSourceType !== "owner_budget"
+              && paidOutcome.context.fundingSourceType !== "none"
+              && paidOutcome.state !== "duplicate_in_progress"
+            ) {
+              const closed = await openAiTextGate.rpc(
+                "close_customer_paid_execution_test_authorization_for_reservation",
+                {
+                  p_reservation_id: paidOutcome.context.reservationId,
+                  p_reason: `Customer Hearth canary reached ${paidOutcome.state}; close all new reservations and preserve reconciliation.`,
+                },
+              );
+              if (closed.error) {
+                console.warn("[hearth-chat-api] customer paid test authorization closure failed", {
+                  reservationId: paidOutcome.context.reservationId,
+                  state: paidOutcome.state,
+                  error: closed.error.message,
+                });
+              }
+            }
             if (paidOutcome.state === "submission_unknown") {
               return jsonResponse(202, {
                 ok: false,

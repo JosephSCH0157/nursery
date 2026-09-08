@@ -2793,7 +2793,7 @@ export default function HearthShell({
         .map((entry) => entry.id)
         .filter((id) => !id.startsWith("temp-"));
       return {
-        includeEpisodeAttachments: true,
+        includeEpisodeAttachments: attachmentIds.length > 0,
         attachmentIds,
       };
     },

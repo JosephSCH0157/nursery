@@ -68,6 +68,13 @@ export type HearthChatRequest = {
     reservation_id: string;
     request_fingerprint: string;
   };
+  /** Exact customer acceptance of the server-issued price and request fingerprint. */
+  spending_acceptance?: {
+    operation_id: string;
+    quote_id: string;
+    quote_hash: string;
+    request_fingerprint: string;
+  };
 };
 
 export type HearthSttRequest = {
@@ -471,6 +478,26 @@ export function normalizeHearthChatRequest(value: unknown): HearthChatRequest | 
       }
     : undefined;
   if (value.paid_execution != null && !paidExecution) return null;
+  const spendingAcceptanceRaw = isRecord(value.spending_acceptance) ? value.spending_acceptance : null;
+  const acceptanceOperationId = spendingAcceptanceRaw ? readTrimmedString(spendingAcceptanceRaw.operation_id) : null;
+  const acceptanceQuoteId = spendingAcceptanceRaw ? readTrimmedString(spendingAcceptanceRaw.quote_id) : null;
+  const acceptanceQuoteHash = spendingAcceptanceRaw ? readTrimmedString(spendingAcceptanceRaw.quote_hash) : null;
+  const acceptanceRequestFingerprint = spendingAcceptanceRaw
+    ? readTrimmedString(spendingAcceptanceRaw.request_fingerprint)
+    : null;
+  const spendingAcceptance = acceptanceOperationId && acceptanceOperationId.length >= 8
+    && acceptanceQuoteId && UUID_RE.test(acceptanceQuoteId)
+    && acceptanceQuoteHash && /^[0-9a-f]{64}$/i.test(acceptanceQuoteHash)
+    && acceptanceRequestFingerprint && /^[0-9a-f]{64}$/i.test(acceptanceRequestFingerprint)
+    ? {
+        operation_id: acceptanceOperationId,
+        quote_id: acceptanceQuoteId,
+        quote_hash: acceptanceQuoteHash.toLowerCase(),
+        request_fingerprint: acceptanceRequestFingerprint.toLowerCase(),
+      }
+    : undefined;
+  if (value.spending_acceptance != null && !spendingAcceptance) return null;
+  if (paidExecution && spendingAcceptance) return null;
 
   return {
     messages,
@@ -485,6 +512,7 @@ export function normalizeHearthChatRequest(value: unknown): HearthChatRequest | 
       ? { production_script_version: value.production_script_version }
       : {}),
     ...(paidExecution ? { paid_execution: paidExecution } : {}),
+    ...(spendingAcceptance ? { spending_acceptance: spendingAcceptance } : {}),
   };
 }
 
