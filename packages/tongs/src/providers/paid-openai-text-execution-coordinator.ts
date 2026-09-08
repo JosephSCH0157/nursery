@@ -32,6 +32,10 @@ export type OpenAiTextProviderResult<T> = {
   outputUnits: number;
   supplierCostMicros: number | null;
   supplierCostAuthoritative: boolean;
+  /** Separately attributable Forge-side fulfillment work for this attempt. */
+  supportingCostMicros?: number | null;
+  supportingCostAuthoritative?: boolean;
+  supportingCostEvidence?: Record<string, unknown>;
   /** False while supporting/tail cost evidence is still unresolved. */
   costCoverageComplete?: boolean;
   evidence?: Record<string, unknown>;
@@ -120,6 +124,7 @@ export class PaidOpenAiTextExecutionCoordinator {
     }
 
     let knownSupplierCostMicros = 0;
+    let knownSupportingCostMicros = 0;
     let supplierCostComplete = true;
     let allCostEvidenceAuthoritative = true;
     let totalInputUnits = 0;
@@ -198,6 +203,11 @@ export class PaidOpenAiTextExecutionCoordinator {
       if (result.supplierCostMicros == null) supplierCostComplete = false;
       else knownSupplierCostMicros += result.supplierCostMicros;
       if (!result.supplierCostAuthoritative) allCostEvidenceAuthoritative = false;
+      if (result.supportingCostMicros === null) supplierCostComplete = false;
+      else if (result.supportingCostMicros != null) knownSupportingCostMicros += result.supportingCostMicros;
+      if (result.supportingCostMicros != null && result.supportingCostAuthoritative !== true) {
+        allCostEvidenceAuthoritative = false;
+      }
       if (result.costCoverageComplete === false) supplierCostComplete = false;
       const boundsExceeded = totalInputUnits > input.maximumInputUnits || totalOutputUnits > input.maximumOutputUnits;
       let usable = !boundsExceeded;
@@ -233,11 +243,21 @@ export class PaidOpenAiTextExecutionCoordinator {
         result.supplierCostAuthoritative,
         result.evidence ?? {},
       );
+      if (result.supportingCostMicros !== undefined) {
+        await this.recordSupportingAttempt(
+          input,
+          currentAttemptKey,
+          result.supportingCostMicros,
+          result.supportingCostAuthoritative === true,
+          result.supportingCostEvidence ?? {},
+        );
+      }
+      const knownFulfillmentCostMicros = knownSupplierCostMicros + knownSupportingCostMicros;
       await this.rpc("close_openai_text_failure_exposure", {
         p_reservation_id: input.reservationId,
         p_attempt_key: currentAttemptKey,
         p_outcome: usable ? "success_released" : "failure_realized",
-        p_actual_supplier_cost_micros: result.supplierCostMicros,
+        p_actual_supplier_cost_micros: usable ? result.supplierCostMicros : knownFulfillmentCostMicros,
         p_evidence_json: { ...result.evidence, reason: failureReason || undefined },
       });
       if (!usable) {
@@ -247,7 +267,7 @@ export class PaidOpenAiTextExecutionCoordinator {
           p_failure_class: "forge_failure",
           p_evidence_json: { ...result.evidence, reason: failureReason },
         });
-        await this.settleFailure(input, "forge_failure", knownSupplierCostMicros, supplierCostComplete, {
+        await this.settleFailure(input, "forge_failure", knownFulfillmentCostMicros, supplierCostComplete, {
           ...result.evidence,
           reason: failureReason,
         });
@@ -266,7 +286,7 @@ export class PaidOpenAiTextExecutionCoordinator {
         p_settlement_key: input.settlementKey,
         p_outcome: "success",
         p_failure_class: null,
-        p_actual_fulfillment_cost_micros: knownSupplierCostMicros,
+        p_actual_fulfillment_cost_micros: knownFulfillmentCostMicros,
         p_evidence_json: {
           ...result.evidence,
           provider: "openai",
@@ -311,6 +331,29 @@ export class PaidOpenAiTextExecutionCoordinator {
       p_provider_reference: typeof evidence.provider_reference === "string" ? evidence.provider_reference : null,
       p_amount_micros: supplierCostMicros,
       p_evidence_status: supplierCostMicros == null ? "unresolved" : authoritative ? "confirmed" : "estimated",
+      p_evidence_json: evidence,
+    });
+  }
+
+  private async recordSupportingAttempt<T>(
+    input: PaidOpenAiTextExecutionInput<T>,
+    currentAttemptKey: string,
+    supportingCostMicros: number | null,
+    authoritative: boolean,
+    evidence: Record<string, unknown>,
+  ): Promise<void> {
+    if (input.credentialFunding !== "forge") return;
+    await this.rpc("record_supplier_expense", {
+      p_expense_id: crypto.randomUUID(),
+      p_reservation_id: input.reservationId,
+      p_expense_key: `${currentAttemptKey}:supporting-expense`,
+      p_provider: "forge",
+      p_component_code: `openai.text.${input.routeCode}.supporting`,
+      p_provider_reference: null,
+      p_currency: "USD",
+      p_amount_micros: supportingCostMicros,
+      p_evidence_status: supportingCostMicros == null ? "unresolved" : authoritative ? "confirmed" : "estimated",
+      p_obligation_status: supportingCostMicros == null ? "unresolved" : "closed",
       p_evidence_json: evidence,
     });
   }
