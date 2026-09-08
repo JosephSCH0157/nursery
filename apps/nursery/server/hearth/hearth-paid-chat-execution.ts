@@ -25,6 +25,8 @@ export type PaidHearthChatResult = {
   tagAudit: Record<string, unknown> | null;
 };
 
+type HearthProviderPayload = { rawReply: string };
+
 type PaidContext = {
   operationId: string;
   reservationId: string;
@@ -232,9 +234,10 @@ export async function executePaidHearthChatCompletion(
   const providerEvidence: {
     latest: { requestId: string | null; input: number; output: number } | null;
   } = { latest: null };
+  let normalizedResult: PaidHearthChatResult | null = null;
   const providerFetch = args.providerFetch ?? fetch;
   const coordinator = new PaidOpenAiTextExecutionCoordinator(args.gate);
-  const outcome: PaidOpenAiTextExecutionResult<PaidHearthChatResult> = await coordinator.execute({
+  const outcome: PaidOpenAiTextExecutionResult<HearthProviderPayload> = await coordinator.execute({
     routeCode: "hearth.chat_completion",
     reservationId: context.reservationId,
     quoteId: context.quoteId,
@@ -285,25 +288,9 @@ export async function executePaidHearthChatCompletion(
         ? estimateDirectCostMicros(context, usage.input, usage.output)
         : 0;
       const rawReply = extractReply(payload);
-      if (!rawReply) {
-        throw new OpenAiTextProviderError("OpenAI returned no usable Hearth result", false, directCostMicros, {
-          provider_reference: providerRequestId,
-          reason: "empty_response",
-        });
-      }
-      let value: PaidHearthChatResult;
-      try {
-        value = args.validateAndNormalize(rawReply);
-      } catch (error) {
-        throw new OpenAiTextProviderError("Hearth validation rejected the provider result", false, directCostMicros, {
-          provider_reference: providerRequestId,
-          reason: "result_validation_failed",
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
       providerEvidence.latest = { requestId: providerRequestId, input: usage.input, output: usage.output };
       return {
-        value,
+        value: { rawReply },
         requestId: providerRequestId,
         inputUnits: usage.input,
         outputUnits: usage.output,
@@ -331,16 +318,21 @@ export async function executePaidHearthChatCompletion(
       };
     },
     validateResult: (value) => {
-      if (!value.assistantText.trim() && value.ops.length === 0) throw new Error("Hearth result is not usable");
+      if (!value.rawReply) throw new Error("OpenAI returned no usable Hearth result");
+      normalizedResult = args.validateAndNormalize(value.rawReply);
+      if (!normalizedResult.assistantText.trim() && normalizedResult.ops.length === 0) {
+        throw new Error("Hearth result is not usable");
+      }
     },
-    persistResult: async (value) => {
+    persistResult: async () => {
       const providerResult = providerEvidence.latest;
       if (!providerResult) throw new Error("Provider evidence missing before persistence");
+      if (!normalizedResult) throw new Error("Validated Hearth result missing before persistence");
       const resultJson = {
-        assistantText: value.assistantText,
-        ops: value.ops,
-        scriptText: value.scriptText,
-        tagAudit: value.tagAudit,
+        assistantText: normalizedResult.assistantText,
+        ops: normalizedResult.ops,
+        scriptText: normalizedResult.scriptText,
+        tagAudit: normalizedResult.tagAudit,
       };
       const resultHash = crypto.createHash("sha256").update(JSON.stringify(resultJson)).digest("hex");
       await rpc(args.gate, "persist_hearth_chat_paid_result", {
@@ -362,9 +354,10 @@ export async function executePaidHearthChatCompletion(
   });
 
   if (outcome.state === "settled") {
+    if (!normalizedResult) throw new Error("Settled Hearth operation is missing its validated result");
     return {
       state: "settled",
-      result: outcome.value,
+      result: normalizedResult,
       requestId: outcome.requestId,
       attempts: outcome.attempts,
       customerChargeMicros: outcome.customerChargeMicros,

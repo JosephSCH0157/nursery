@@ -210,18 +210,40 @@ export class PaidOpenAiTextExecutionCoordinator {
       }
       if (result.costCoverageComplete === false) supplierCostComplete = false;
       const boundsExceeded = totalInputUnits > input.maximumInputUnits || totalOutputUnits > input.maximumOutputUnits;
-      let usable = !boundsExceeded;
+      let validated = false;
+      let persisted = false;
+      let failureClass: "forge_failure" | "forge_validation_failure" | "persistence_failure" | null =
+        boundsExceeded ? "forge_failure" : null;
       let failureReason = boundsExceeded ? "aggregate_usage_bound_exceeded" : "";
-      if (usable) {
+      if (!boundsExceeded) {
         try {
           await input.validateResult(result.value);
-          await input.persistResult(result.value);
+          validated = true;
         } catch (error) {
-          usable = false;
-          failureReason = "validation_or_persistence_failed";
-          result.evidence = { ...result.evidence, error: String(error) };
+          failureClass = "forge_validation_failure";
+          failureReason = "forge_validation_failure";
+          result.evidence = {
+            ...result.evidence,
+            forge_failure_phase: "validation",
+            error: error instanceof Error ? error.message : String(error),
+          };
         }
       }
+      if (validated) {
+        try {
+          await input.persistResult(result.value);
+          persisted = true;
+        } catch (error) {
+          failureClass = "persistence_failure";
+          failureReason = "persistence_failure";
+          result.evidence = {
+            ...result.evidence,
+            forge_failure_phase: "persistence",
+            error: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+      const usable = validated && persisted;
       await this.rpc("record_openai_text_usage", {
         p_evidence_id: crypto.randomUUID(),
         p_reservation_id: input.reservationId,
@@ -231,8 +253,8 @@ export class PaidOpenAiTextExecutionCoordinator {
         p_input_units: result.inputUnits,
         p_output_units: result.outputUnits,
         p_provider_reported: true,
-        p_result_validated: usable,
-        p_canonical_persistence_confirmed: usable,
+        p_result_validated: validated,
+        p_canonical_persistence_confirmed: persisted,
         p_evidence_json: result.evidence ?? {},
       });
       await this.recordSupplierAttempt(
@@ -264,10 +286,10 @@ export class PaidOpenAiTextExecutionCoordinator {
         await this.rpc("record_provider_failure", {
           p_reservation_id: input.reservationId,
           p_event_key: `${currentAttemptKey}:forge-failure`,
-          p_failure_class: "forge_failure",
+          p_failure_class: failureClass ?? "forge_failure",
           p_evidence_json: { ...result.evidence, reason: failureReason },
         });
-        await this.settleFailure(input, "forge_failure", knownFulfillmentCostMicros, supplierCostComplete, {
+        await this.settleFailure(input, failureClass ?? "forge_failure", knownFulfillmentCostMicros, supplierCostComplete, {
           ...result.evidence,
           reason: failureReason,
         });
@@ -360,7 +382,7 @@ export class PaidOpenAiTextExecutionCoordinator {
 
   private async settleFailure<T>(
     input: PaidOpenAiTextExecutionInput<T>,
-    failureClass: "provider_failure" | "forge_failure",
+    failureClass: "provider_failure" | "forge_failure" | "forge_validation_failure" | "persistence_failure",
     knownSupplierCostMicros: number,
     supplierCostComplete: boolean,
     evidence: Record<string, unknown>,

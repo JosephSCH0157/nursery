@@ -99,9 +99,17 @@ function normalizeHearthWritingFormatText(text: string): string {
 export function isExplicitHearthOutlineRequest(text: string): boolean {
   const normalized = normalizeHearthWritingFormatText(text);
   if (!normalized) return false;
-  return /\boutline\b/.test(normalized)
-    || /\bbullet points?\b/.test(normalized)
-    || /\bbeats?\b/.test(normalized);
+  if (/\b(?:review|mention|discuss|evaluate|read|check)\b[^.!?\n]{0,40}\b(?:an?|the|this|that|my|our|your|their)\s+outline\b/.test(normalized)) {
+    return false;
+  }
+  const artifact = "(?:outline|bullet points?|beats?)";
+  const generationPatterns = [
+    new RegExp(`\\b(?:write|create|make|build|draft|produce|generate|show|give|prepare)\\b[^.!?\\n]{0,80}\\b${artifact}\\b`),
+    new RegExp(`\\b(?:i want|i need|i would like|i'd like|let(?:'s| us))\\b[^.!?\\n]{0,80}\\b${artifact}\\b`),
+    /^(?:please\s+)?outline\b/,
+    /\bturn\b[^.!?\n]{0,40}\b(?:this|that|it|these|those|notes?|ideas?)\b[^.!?\n]{0,30}\binto\b[^.!?\n]{0,20}\b(?:an?\s+)?outline\b/,
+  ];
+  return generationPatterns.some((pattern) => pattern.test(normalized));
 }
 
 export function isExplicitHearthFullScriptRequest(text: string): boolean {

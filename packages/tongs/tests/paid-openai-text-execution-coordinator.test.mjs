@@ -136,13 +136,31 @@ test("ambiguous submission stays reserved and is never retried", async () => {
   assert.equal(g.calls.filter((call) => call.name === "authorize_openai_text_provider_attempt").length, 1);
 });
 
-test("validation or persistence failure releases the customer and realizes Forge loss", async () => {
+test("persistence failure retains usage, releases the customer, and realizes Forge loss", async () => {
   const g = gate();
   const result = await new PaidOpenAiTextExecutionCoordinator(g).execute(input({ persistResult: async () => { throw new Error("write failed"); } }));
   assert.equal(result.customerChargeMicros, 0);
   const lossClose = g.calls.find((call) => call.name === "close_openai_text_failure_exposure");
   assert.equal(lossClose.args.p_outcome, "failure_realized");
-  assert.equal(g.calls.find((call) => call.name === "record_provider_failure").args.p_failure_class, "forge_failure");
+  const usage = g.calls.find((call) => call.name === "record_openai_text_usage");
+  assert.equal(usage.args.p_result_validated, true);
+  assert.equal(usage.args.p_canonical_persistence_confirmed, false);
+  assert.equal(g.calls.find((call) => call.name === "record_provider_failure").args.p_failure_class, "persistence_failure");
+});
+
+test("Forge validation failure retains provider usage and supplier expense without provider blame", async () => {
+  const g = gate();
+  const result = await new PaidOpenAiTextExecutionCoordinator(g).execute(input({
+    validateResult: async () => { throw new Error("artifact contract mismatch"); },
+  }));
+  assert.equal(result.state, "failed_released");
+  const usage = g.calls.find((call) => call.name === "record_openai_text_usage");
+  assert.equal(usage.args.p_input_units, 12);
+  assert.equal(usage.args.p_output_units, 8);
+  assert.equal(usage.args.p_result_validated, false);
+  assert.equal(usage.args.p_canonical_persistence_confirmed, false);
+  assert.equal(g.calls.filter((call) => call.name === "record_openai_text_supplier_attempt_expense").length, 1);
+  assert.equal(g.calls.find((call) => call.name === "record_provider_failure").args.p_failure_class, "forge_validation_failure");
 });
 
 test("aggregate usage limits cover all provider attempts", async () => {

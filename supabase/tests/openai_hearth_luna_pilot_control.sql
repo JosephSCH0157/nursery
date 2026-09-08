@@ -126,6 +126,33 @@ do $$ declare v_attempt jsonb; begin
     raise exception 'superseded loss policy incorrectly blocked current pilot'; end if;
 end $$;
 
+select tongs.record_provider_failure(
+  'bd000000-0000-4000-8000-000000000052','luna-misattributed-provider-failure',
+  'provider_failure','{"reason":"result_validation_failed","provider_reference":"req_fixture"}');
+do $$ declare v_event uuid; v_before bigint; v_after bigint; v_result jsonb; begin
+  select id into v_event from tongs.funding_reservation_events
+    where reservation_id='bd000000-0000-4000-8000-000000000052'
+      and event_key='luna-misattributed-provider-failure';
+  select count(*) into v_before from tongs.supplier_expenses
+    where reservation_id='bd000000-0000-4000-8000-000000000052';
+  v_result:=tongs.append_funding_failure_class_correction(
+    'bd000000-0000-4000-8000-000000000070','bd000000-0000-4000-8000-000000000052',v_event,
+    'luna-validation-correction','forge_validation_failure','isolated attribution correction',
+    'bd000000-0000-4000-8000-000000000001','{"fixture":true}');
+  perform tongs.append_funding_failure_class_correction(
+    'bd000000-0000-4000-8000-000000000070','bd000000-0000-4000-8000-000000000052',v_event,
+    'luna-validation-correction','forge_validation_failure','isolated attribution correction',
+    'bd000000-0000-4000-8000-000000000001','{"fixture":true}');
+  select count(*) into v_after from tongs.supplier_expenses
+    where reservation_id='bd000000-0000-4000-8000-000000000052';
+  if v_result->>'original_failure_class'<>'provider_failure'
+     or v_result->>'effective_failure_class'<>'forge_validation_failure'
+     or v_before<>v_after
+     or (select failure_class from tongs.funding_reservation_events where id=v_event)<>'provider_failure'
+     or (select count(*) from tongs.funding_failure_class_corrections where original_event_id=v_event)<>1 then
+    raise exception 'append-only failure correction proof failed'; end if;
+end $$;
+
 select tongs.close_openai_text_failure_exposure(
   'bd000000-0000-4000-8000-000000000052','luna-current-policy-attempt-0001',
   'success_released',0,'{}');
@@ -143,5 +170,33 @@ do $$ begin
   if (select mode from tongs._current_openai_text_rollout('hearth.chat_completion'))<>'halt_new' then
     raise exception 'Luna route not halted'; end if;
 end $$;
+
+select tongs.activate_owner_hearth_chat_luna_retest(
+  'bd000000-0000-4000-8000-000000000001','bd000000-0000-4000-8000-000000000010',
+  'bd000000-0000-4000-8000-000000000080','bd000000-0000-4000-8000-000000000022',
+  'bd000000-0000-4000-8000-000000000081',now()+interval '1 hour',
+  'bd000000-0000-4000-8000-000000000052','isolated corrected-path retest');
+select tongs.prepare_owner_hearth_chat_luna_pilot(
+  'bd000000-0000-4000-8000-000000000082','bd000000-0000-4000-8000-000000000083',
+  'bd000000-0000-4000-8000-000000000084','bd000000-0000-4000-8000-000000000001',
+  'luna-isolated-corrected-retest','bd000000-0000-4000-8000-000000000010',
+  'bd000000-0000-4000-8000-000000000080','bd000000-0000-4000-8000-000000000022',
+  repeat('d',64),'luna-retest-acceptance','luna-retest-reservation',now()+interval '30 minutes');
+do $$ declare v_attempt jsonb; begin
+  v_attempt:=tongs.authorize_openai_text_provider_attempt(
+    'bd000000-0000-4000-8000-000000000084','luna-corrected-retest-attempt',1::smallint,
+    11015::bigint,120,'{"provider":"fake"}'::jsonb);
+  if coalesce((v_attempt->>'provider_execution_authorized')::boolean,false) is not true then
+    raise exception 'corrected retest path was not authorized'; end if;
+end $$;
+select tongs.close_openai_text_failure_exposure(
+  'bd000000-0000-4000-8000-000000000084','luna-corrected-retest-attempt',
+  'success_released',0,'{"provider":"fake"}');
+select tongs.release_operation(
+  'bd000000-0000-4000-8000-000000000084','luna-corrected-retest-release',
+  'isolated corrected retest cleanup','{}');
+select tongs.close_owner_hearth_chat_luna_pilot(
+  'bd000000-0000-4000-8000-000000000001','bd000000-0000-4000-8000-000000000080',
+  'isolated corrected retest closure');
 
 rollback;

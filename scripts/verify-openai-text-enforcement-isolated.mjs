@@ -19,6 +19,7 @@ const migrations = [
   "supabase/migrations/20260922130000_tongs_openai_hearth_luna_pilot_control.sql",
   "supabase/migrations/20260922140000_tongs_openai_hearth_luna_pilot_emergency_halt.sql",
   "supabase/migrations/20260922150000_tongs_openai_loss_policy_scope_and_preprovider_rearm.sql",
+  "supabase/migrations/20260922160000_tongs_failure_class_corrections_and_luna_retest.sql",
 ];
 
 function docker(args, input) {
@@ -61,6 +62,8 @@ try {
     luna_model_metadata_access: "passed",
     luna_inactive_proposal: "awaiting_owner_approval",
     luna_exact_one_reservation_control: "passed",
+    append_only_failure_attribution_correction: "passed",
+    corrected_path_retest_control: "passed",
   }));
 } finally {
   docker(["exec", container, "dropdb", "-U", "postgres", "--if-exists", database]);

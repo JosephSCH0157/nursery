@@ -10,6 +10,12 @@ import {
 test("hearthCompositionOutput: recognizes the Church Street outline requests from creator text", () => {
   assert.equal(detectHearthCompositionRequest("show me a first draft of bullet points only"), "outline");
   assert.equal(detectHearthCompositionRequest("Let's keep this loose with a bullet outline."), "outline");
+  assert.equal(
+    detectHearthCompositionRequest("Write one neutral sentence encouraging a podcaster to review their outline before recording."),
+    null,
+  );
+  assert.equal(detectHearthCompositionRequest("Review this outline and tell me what is unclear."), null);
+  assert.equal(detectHearthCompositionRequest("Create a bullet outline for the next episode."), "outline");
 });
 
 test("hearthCompositionOutput: rejects announcement-only outline replies", () => {
