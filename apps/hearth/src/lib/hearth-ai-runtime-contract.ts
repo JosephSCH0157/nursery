@@ -3,6 +3,15 @@ import {
   normalizeHearthResearchResult,
   type HearthResearchResult,
 } from "./hearth-research-contract";
+import type {
+  HearthExplicitUiAction,
+  HearthOutputPreference,
+  HearthProductionAction,
+  HearthTurnDecision,
+  HearthTurnFailureKind,
+  HearthTurnResult,
+  HearthValidatedArtifact,
+} from "./hearth-turn-contract";
 
 export const HEARTH_AI_ROUTES = {
   chat: "/api/hearth/chat",
@@ -16,6 +25,16 @@ export const HEARTH_AI_ROUTES = {
 } as const;
 
 export type { EpisodeContext, HearthOp } from "./hearth-ai-ops";
+export type {
+  HearthExplicitUiAction,
+  HearthOutputPreference,
+  HearthProductionAction,
+  HearthTurnDecision,
+  HearthTurnFailureKind,
+  HearthTurnMode,
+  HearthTurnResult,
+  HearthValidatedArtifact,
+} from "./hearth-turn-contract";
 
 export type HearthAiLane = "forge" | "byo";
 export type HearthAiBehavior = "fast" | "careful" | "deterministic" | "creative";
@@ -36,10 +55,12 @@ export type HearthChatRequest = {
   episode_context: EpisodeContext;
   /** Creator-authored text before UI format/tone instructions are appended. */
   user_authored_text?: string;
+  explicit_action?: HearthExplicitUiAction;
+  output_preference?: HearthOutputPreference;
   behavior?: HearthAiBehavior;
   lane?: HearthAiLane;
   attachment_context?: HearthAttachmentContextRequest;
-  production_action?: "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack";
+  production_action?: HearthProductionAction;
   production_script_version?: number;
   /** Opaque accepted-funding handle; all monetary terms are resolved server-side. */
   paid_execution?: {
@@ -67,6 +88,7 @@ export type HearthAiStatusResponse = {
 };
 
 export type HearthChatResponse = {
+  turn_result: HearthTurnResult;
   assistant_text: string;
   ops: HearthOp[];
   script_text: string | null;
@@ -170,6 +192,102 @@ export function isHearthAiBehavior(value: unknown): value is HearthAiBehavior {
 
 export function isHearthChatRole(value: unknown): value is HearthChatRole {
   return value === "system" || value === "user" || value === "assistant";
+}
+
+function isHearthProductionAction(value: unknown): value is HearthProductionAction {
+  return value === "seo"
+    || value === "tags"
+    || value === "thumbnails"
+    || value === "image_beat_sheet"
+    || value === "release_prep_pack";
+}
+
+export function normalizeHearthExplicitUiAction(value: unknown): HearthExplicitUiAction | null {
+  if (!isRecord(value)) return null;
+  const kind = readTrimmedString(value.kind);
+  if (kind === "production" && isHearthProductionAction(value.action)) {
+    return { kind, action: value.action };
+  }
+  if (kind === "conversation"
+    || kind === "listening"
+    || kind === "research"
+    || kind === "generate_outline"
+    || kind === "generate_script"
+    || kind === "mutate_script"
+    || kind === "readiness_review") {
+    return { kind };
+  }
+  return null;
+}
+
+export function normalizeHearthOutputPreference(value: unknown): HearthOutputPreference | null {
+  return value === "explore_expand" || value === "full_script" || value === "bullet_outline" ? value : null;
+}
+
+export function normalizeHearthTurnDecision(value: unknown): HearthTurnDecision | null {
+  if (!isRecord(value)) return null;
+  const mode = readTrimmedString(value.mode);
+  const requestedArtifact = value.requestedArtifact == null ? null : readTrimmedString(value.requestedArtifact);
+  const retrievalScope = readTrimmedString(value.retrievalScope);
+  if (!(mode === "conversation" || mode === "listening" || mode === "research"
+    || mode === "outline_generate" || mode === "script_generate" || mode === "script_mutate"
+    || mode === "readiness_review" || mode === "production_action")) return null;
+  if (!(requestedArtifact == null || requestedArtifact === "research" || requestedArtifact === "outline"
+    || requestedArtifact === "script" || requestedArtifact === "production")) return null;
+  if (retrievalScope !== "active_episode_only" && retrievalScope !== "explicit_cross_episode") return null;
+  const reasons = Array.isArray(value.reasons)
+    ? value.reasons.map(readTrimmedString).filter((entry): entry is string => !!entry)
+    : [];
+  return {
+    mode,
+    requiresArtifact: value.requiresArtifact === true,
+    allowsMutation: value.allowsMutation === true,
+    retrievalScope,
+    requestedArtifact,
+    reasons,
+  };
+}
+
+function normalizeHearthValidatedArtifact(value: unknown): HearthValidatedArtifact | null {
+  if (!isRecord(value)) return null;
+  const kind = readTrimmedString(value.kind);
+  if (kind === "research") {
+    const research = normalizeHearthResearchResult(value.value);
+    return research ? { kind, value: research } : null;
+  }
+  if (kind === "outline" || kind === "script") {
+    const text = readTrimmedString(value.text);
+    return text ? { kind, text } : null;
+  }
+  if (kind === "production" && isHearthProductionAction(value.action) && value.value != null) {
+    return { kind, action: value.action, value: value.value };
+  }
+  return null;
+}
+
+export function normalizeHearthTurnResult(value: unknown): HearthTurnResult | null {
+  if (!isRecord(value)) return null;
+  const decision = normalizeHearthTurnDecision(value.decision);
+  const assistantMessage = readString(value.assistantMessage)?.trim() ?? "";
+  const validationRaw = isRecord(value.validation) ? value.validation : null;
+  const failureKind = validationRaw ? readTrimmedString(validationRaw.failureKind) : null;
+  const persistence = readTrimmedString(value.persistence);
+  if (!decision || !(failureKind === "none" || failureKind === "provider_failure"
+    || failureKind === "invalid_model_output" || failureKind === "identity_mismatch"
+    || failureKind === "persistence_failure")) return null;
+  if (!(persistence === "not_attempted" || persistence === "pending" || persistence === "saved" || persistence === "failed")) return null;
+  return {
+    decision,
+    assistantMessage,
+    artifact: normalizeHearthValidatedArtifact(value.artifact),
+    operations: normalizeHearthOps(value.operations),
+    validation: {
+      ok: validationRaw?.ok === true && failureKind === "none",
+      failureKind: failureKind as HearthTurnFailureKind,
+      message: validationRaw ? readString(validationRaw.message) : null,
+    },
+    persistence,
+  };
 }
 
 export function normalizeHearthChatMessage(value: unknown): HearthChatMessage | null {
@@ -333,6 +451,12 @@ export function normalizeHearthChatRequest(value: unknown): HearthChatRequest | 
   const laneRaw = readTrimmedString(value.lane);
   const behavior = isHearthAiBehavior(behaviorRaw) ? behaviorRaw : undefined;
   const lane = isHearthAiLane(laneRaw) ? laneRaw : undefined;
+  const explicitAction = normalizeHearthExplicitUiAction(value.explicit_action);
+  const outputPreference = normalizeHearthOutputPreference(value.output_preference);
+  const productionAction = isHearthProductionAction(value.production_action) ? value.production_action : undefined;
+  if (value.explicit_action != null && !explicitAction) return null;
+  if (value.output_preference != null && !outputPreference) return null;
+  if (value.production_action != null && !productionAction) return null;
   const paidExecutionRaw = isRecord(value.paid_execution) ? value.paid_execution : null;
   const paidOperationId = paidExecutionRaw ? readTrimmedString(paidExecutionRaw.operation_id) : null;
   const paidReservationId = paidExecutionRaw ? readTrimmedString(paidExecutionRaw.reservation_id) : null;
@@ -352,8 +476,14 @@ export function normalizeHearthChatRequest(value: unknown): HearthChatRequest | 
     messages,
     episode_context: episodeContext,
     ...(readTrimmedString(value.user_authored_text) ? { user_authored_text: readTrimmedString(value.user_authored_text)! } : {}),
+    ...(explicitAction ? { explicit_action: explicitAction } : {}),
+    ...(outputPreference ? { output_preference: outputPreference } : {}),
     ...(behavior ? { behavior } : {}),
     ...(lane ? { lane } : {}),
+    ...(productionAction ? { production_action: productionAction } : {}),
+    ...(typeof value.production_script_version === "number" && Number.isInteger(value.production_script_version)
+      ? { production_script_version: value.production_script_version }
+      : {}),
     ...(paidExecution ? { paid_execution: paidExecution } : {}),
   };
 }
@@ -430,6 +560,7 @@ export function parseHearthChatResponse(
   const gateRaw = readTrimmedField(payload, "gate");
   const tagAuditRaw = readUnknownField(payload, "tag_audit");
   const researchResult = normalizeHearthResearchResult(readUnknownField(payload, "research_result"));
+  const turnResult = normalizeHearthTurnResult(readUnknownField(payload, "turn_result"));
   const creditsWarning = readTrimmedField(payload, "credits_warning") ?? undefined;
   const actualCostUsd = readNumberField(payload, "actual_cost_usd") ?? undefined;
   const billableTokens = readNumberField(payload, "billable_tokens") ?? undefined;
@@ -453,7 +584,9 @@ export function parseHearthChatResponse(
       }
     : null;
 
+  if (!turnResult) return null;
   return {
+    turn_result: turnResult,
     assistant_text: assistantText,
     ops: normalizeHearthOps(readUnknownField(payload, "ops")),
     script_text: readStringField(payload, "script_text"),

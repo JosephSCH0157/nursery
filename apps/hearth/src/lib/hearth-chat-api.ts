@@ -16,6 +16,9 @@ import {
   type HearthOp,
   type HearthChatRequest,
   type HearthChatResponse,
+  type HearthExplicitUiAction,
+  type HearthOutputPreference,
+  type HearthTurnResult,
 } from "./hearth-ai-runtime-contract";
 import type { HearthResearchResult } from "./hearth-research-contract";
 import {
@@ -35,6 +38,9 @@ export type {
   HearthAiRuntimeSnapshot,
   HearthChatMessage,
   HearthChatRole,
+  HearthExplicitUiAction,
+  HearthOutputPreference,
+  HearthTurnResult,
 } from "./hearth-ai-runtime-contract";
 
 export type HearthAiStatusResult =
@@ -55,6 +61,7 @@ export type HearthChatResult =
       totalTokens: number | null;
       creditsWarning?: string;
       billingReceipt?: HearthChatResponse["billing_receipt"];
+      turnResult: HearthTurnResult;
     }
   | {
       ok: false;
@@ -63,6 +70,7 @@ export type HearthChatResult =
       runtime: HearthAiRuntimeSnapshot;
       cancelled?: boolean;
       billingReceipt?: HearthChatResponse["billing_receipt"];
+      turnResult?: HearthTurnResult;
     };
 
 export type HearthInteractionEventType =
@@ -1172,6 +1180,8 @@ export async function requestHearthChatReply(
       attachmentIds?: string[];
     };
     userAuthoredText?: string;
+    explicitAction?: HearthExplicitUiAction;
+    outputPreference?: HearthOutputPreference;
     paidExecution?: HearthChatRequest["paid_execution"];
   },
 ): Promise<HearthChatResult> {
@@ -1215,6 +1225,8 @@ export async function requestHearthChatReply(
     messages: normalized,
     episode_context: episodeContext,
     user_authored_text: options?.userAuthoredText?.trim() || undefined,
+    explicit_action: options?.explicitAction,
+    output_preference: options?.outputPreference,
     behavior: settings.behavior,
     lane,
     attachment_context: {
@@ -1267,18 +1279,24 @@ export async function requestHearthChatReply(
       error: readErrorText(payload, `Request failed (${response.status})`),
       runtime,
       billingReceipt: parsed?.billing_receipt,
+      turnResult: parsed?.turn_result,
     };
   }
 
-  const assistantText = parsed?.assistant_text ?? "";
+  if (!parsed) {
+    return {
+      ok: false,
+      status: response.status,
+      error: "Hearth returned an invalid response envelope.",
+      runtime,
+    };
+  }
+  const turnResult = parsed.turn_result;
+  const assistantText = turnResult.assistantMessage;
   const gate = parsed?.gate;
-  const rawScriptText = resolveScriptTextFromChatPayload({
-    assistantText,
-    ops: parsed?.ops ?? [],
-    scriptText: parsed?.script_text ?? undefined,
-  });
+  const rawScriptText = turnResult.artifact?.kind === "script" ? turnResult.artifact.text : undefined;
   const scriptText = normalizeScriptTextForAnvil(rawScriptText);
-  const ops = coalesceScriptTextIntoOps(parsed?.ops ?? [], scriptText);
+  const ops = coalesceScriptTextIntoOps(turnResult.operations, scriptText);
   if (!assistantText && ops.length === 0) {
     return {
       ok: false,
@@ -1295,11 +1313,12 @@ export async function requestHearthChatReply(
     ops,
     scriptText,
     tagAudit: parsed?.tag_audit ?? undefined,
-    researchResult: parsed?.research_result ?? undefined,
+    researchResult: turnResult.artifact?.kind === "research" ? turnResult.artifact.value : undefined,
     gate,
     runtime,
     totalTokens: parsed?.total_tokens ?? null,
     creditsWarning: parsed?.credits_warning ?? undefined,
     billingReceipt: parsed?.billing_receipt,
+    turnResult,
   };
 }

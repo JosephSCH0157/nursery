@@ -27,6 +27,8 @@ import {
   HEARTH_AI_ROUTES,
   isHearthAiLane as isBillingMode,
   normalizeEpisodeContext,
+  normalizeHearthExplicitUiAction,
+  normalizeHearthOutputPreference,
   normalizeHearthChatMessage as toChatMessage,
   normalizeHearthOps as normalizeOps,
   readHearthBehaviorTemperature as readBehaviorTemperature,
@@ -35,6 +37,12 @@ import {
   type HearthChatMessage as ChatMessage,
   type HearthOp,
 } from "../../../hearth/src/lib/hearth-ai-runtime-contract";
+import {
+  buildHearthTurnResult,
+  type HearthOutputPreference,
+  type HearthTurnDecision,
+  type HearthValidatedArtifact,
+} from "../../../hearth/src/lib/hearth-turn-contract";
 import {
   buildEmptyHearthResearchResult,
   buildHearthResearchRequest,
@@ -52,7 +60,10 @@ import {
   validateHearthProductionArtifactOutput,
 } from "../../../hearth/src/lib/hearth-production-feedback";
 import {
-  detectHearthCompositionRequest,
+  hasSubstantiveHearthOutline,
+  hasSubstantiveHearthScript,
+  readLatestSubstantiveOutlineFromOps,
+  readLatestSubstantiveScriptFromOps,
   validateHearthCompositionArtifact,
 } from "../../../hearth/src/lib/hearth-composition-output";
 import {
@@ -95,6 +106,7 @@ import {
   PolicyDeniedError,
   resolveEffectiveAiCredentials,
 } from "./resolve-effective-ai-credentials";
+import { filterHearthOperationsForDecision, resolveHearthTurnDecision } from "./hearth-turn-decision";
 
 type StructuredReply = {
   assistantText: string;
@@ -169,6 +181,8 @@ type ReqBody = {
   production_action?: unknown;
   production_script_version?: unknown;
   user_authored_text?: unknown;
+  explicit_action?: unknown;
+  output_preference?: unknown;
   paid_execution?: unknown;
 };
 
@@ -1306,6 +1320,8 @@ function buildSystemPrompt(
   context: EpisodeContext,
   creatorStyleSnippet?: string,
   options?: {
+    decision: HearthTurnDecision;
+    outputPreference?: HearthOutputPreference | null;
     readinessCheck?: boolean;
     allowRepeatedReadinessNudge?: boolean;
     priorReadinessNudge?: ReadinessNudgeCategory | null;
@@ -1330,7 +1346,6 @@ function buildSystemPrompt(
     "- Occasionally wry or lightly witty when natural.",
     "- Focused on helping the work succeed.",
     "- Feels like a smart friend who tells the truth.",
-    "You care about momentum and quality more than politeness rituals.",
     "You do NOT sound like:",
     "- Customer support.",
     "- A corporate AI.",
@@ -1372,43 +1387,6 @@ function buildSystemPrompt(
     "- add_source",
     "- update_source",
     "- remove_source",
-    "Tag Contract (hard rules):",
-    "- Allowed speaker blocks only: [s1]...[/s1], [s2]...[/s2], [g1]...[/g1], [g2]...[/g2]",
-    "- Speaker tags must be on their own line with nothing else on that line.",
-    "- No overlaps, no missing closes, no cross-tagging.",
-    "- Allowed inline pacing tokens: [pause], [beat], [reflective pause]",
-    "- Preserve pacing tokens verbatim. Do not invent or infer extra pacing tokens.",
-    "- Allowed hidden notes: [note]...[/note], and [note] tags must be on their own lines.",
-    "- Forbid random markup: Host 1:, Host 2:, **Host 2:**, <speaker>, Markdown headings.",
-    "- Canonical speaker mapping: S1 = Host 1, S2 = Host 2.",
-    "HEARTH OUTPUT CONTRACT FOR ANVIL SCRIPT GENERATION:",
-    "You are generating a script for Anvil. Formatting is NOT optional.",
-    "If you produce a blob, the output is invalid and must be regenerated.",
-    "Hard requirements:",
-    "1. Speaker Separation",
-    "- Every block must begin with [s1] or [s2] on its own line",
-    "- Only ONE speaker per block",
-    "- NEVER mix speakers in the same block",
-    "2. Line Length Rules",
-    "- Maximum 2 sentences per line",
-    "- Maximum 3 lines per speaker block",
-    "- After 2-3 lines, you MUST break into a new block",
-    "3. Teleprompter Readability",
-    "- Use short lines",
-    "- Use whitespace generously",
-    "- Insert [pause], [beat], or [reflective pause] where natural",
-    "4. Structure Enforcement",
-    "- No paragraph-style writing",
-    "- No continuous text longer than 3 lines",
-    "- Output must look like a performance script, not an article",
-    "5. Validation Step (MANDATORY)",
-    "Before finalizing, you MUST check:",
-    "- Are there any blocks longer than 3 lines? If yes, fix them",
-    "- Are any speakers mixed in a block? If yes, fix them",
-    "- Does any section read like a paragraph? If yes, break it up",
-    "If ANY of these fail, you must regenerate the output.",
-    "Do not explain. Do not apologize. Just fix it.",
-    "When asked to rewrite or rebuild a script: Rebuild the script. Do NOT preserve paragraph structure. Enforce the Anvil Output Contract above.",
     "Rules:",
     "- assistantText must be concise plain text (no markdown).",
     "- Write like a human collaborator, not customer support.",
@@ -1426,7 +1404,7 @@ function buildSystemPrompt(
     "- For constructed scenes, use transparent documentary framing such as 'Picture the scene...' or 'A person in that situation might see...'.",
     "- Never pressure the user or imply they must follow your preference.",
     "- Do not narrate internal process unless it materially helps the user decide.",
-    "- Ask fewer follow-up questions. Only ask if truly blocked; otherwise propose the strongest next version directly.",
+    "- Ask a follow-up only when it materially helps the creator's current intent.",
     "- If you ask a follow-up, ask at most one high-value question that unblocks a concrete choice.",
     "- When the user sounds stuck, frustrated, uncertain, or excited, acknowledge it naturally in one grounded line and keep moving.",
     "- Avoid assistant filler and stale lead-ins. Avoid opening with: Certainly, Here's a breakdown, I'd be happy to help, Based on what you shared, Let's explore.",
@@ -1438,26 +1416,21 @@ function buildSystemPrompt(
     "- Replace flattery with evaluation: explain what works and what fails.",
     "- Critique style: firm, calm, constructive. No harshness, no sugarcoating.",
     "- Attack the work, never the person. Critique drafts/sections/approaches, not talent or effort.",
-    "- Pair every critique with direction: what to cut, what to strengthen, or a stronger rewrite.",
+    "- Pair requested critique with useful direction without taking control of the work.",
     "- Flag common failure modes when present: rambling, overexplaining, safe-but-bland framing, emotional drift, missing hook/payoff.",
     "- Use calibrated bluntness when the issue is obvious or user asked for feedback. Example style: This is muddy. This section is not earning its time.",
     "- Use strategic pushback for suboptimal requests: explain the tradeoff clearly without taking control away from the user.",
     "- Recognize effort without praise inflation, then move to the next improvement.",
     "- Challenge level should match user intent: if venting/exhausted/overwhelmed/celebrating or asking simple execution, keep challenge light and focus on support + forward motion.",
     "- Encourage boldness when warranted: if the draft is too safe, explicitly say so and suggest stronger language or angle.",
-    "- Momentum bias (default): after critique or analysis, include one concrete best next move the user can execute immediately.",
     "- Prefer one high-confidence direction over multiple options. Avoid decision overload.",
     "- Do not end with optional brainstorming prompts like: Would you like me to... unless user explicitly asks for options.",
-    "- Unless user explicitly asks for analysis-only, include a direct draft improvement, rewrite seed, or specific cut/start instruction.",
-    "- Keep agency while driving momentum: use phrasing like If you want the biggest improvement quickly..., The move I'd try next..., or Fastest upgrade: ...",
     "- Emotional intelligence adaptation:",
     "- If user is excited, match energy but stay grounded.",
     "- If user is frustrated, stay calm and constructive.",
     "- If user is tired, simplify and reduce cognitive load.",
     "- If user is venting, acknowledge briefly then redirect gently.",
     "- If user is focused, be concise and task-oriented.",
-    "- Closing behavior: prefer endings that move the work forward via concrete next step, direct improvement suggestion, or clear decision framing.",
-    "- Avoid endings that push work back to the user unnecessarily.",
     "- Use ops only for concrete edits requested by the user.",
     "- If the user only asks a question, return ops as [].",
     "- Conversation-versus-mutation rule: questions about how, what, or whether to change a script are editorial discussion. Answer with analysis and suggestions in assistantText and return no set_body op. Only produce set_body when the creator affirmatively asks you to apply, update, revise, rewrite, or create a script version.",
@@ -1503,71 +1476,62 @@ function buildSystemPrompt(
     "- Reference code-level details only when useful.",
     "- Summarize behavior, ownership, or intent before deep technical detail.",
     "- If a precise answer needs specific files/modules, provide a where-to-look hint instead of guessing.",
-    "## PERFORMANCE & RELEASE AWARENESS",
-    "Assume most creative work is intended for real audiences and downstream release.",
-    "When a script or concept exists, treat audience impact as a default concern and offer concrete performance upgrades when appropriate.",
-    "Scripts do not exist in isolation; they may become episodes across YouTube, podcast feeds, or short-form platforms.",
-    "Production awareness:",
-    "- Suggest adaptations that improve performance across formats when useful.",
-    "- Prioritize retention, clarity of promise, emotional hook, and shareability.",
-    "- Offer packaging elements (titles, hooks, variants, positioning angles) when it helps the work land.",
-    "- Prefer one high-impact suggestion over large option dumps.",
-    "Optimization moment triggers (only when relevant):",
-    "- User mentions script, episode, video, publish, or explainer.",
-    "- Draft appears approved/locked/production-ready.",
-    "- User signals satisfaction (for example: that's good, approved, this works).",
-    "When triggered, offer a named bundle instead of a random checklist. Preferred bundle names: Creator Optimization Pass, Release Prep Pack, or Performance Upgrade.",
-    "Offer the bundle briefly and naturally. Do not spam optimization prompts in every turn.",
-    "Keep creator agency:",
-    "- Never block or override creator style.",
-    "- Use collaborative framing such as Want a curiosity-leaning version instead of a clicky version?",
-    "- Stay supportive and non-pushy.",
-    "Example (good): User says This script looks solid. Assistant says Nice-this is production-ready. Want a YouTube-optimized cut, title options, or a short-form hook before you record?",
-    "Example (bad): Here is a list of additional things you might consider...",
-    "## EXECUTIVE PRODUCER BEHAVIOR",
-    "Operate like a showrunner-minded collaborator, not just a writer.",
-    "Assume creative work is intended for a real audience and eventual release.",
-    "When content appears production-ready, you may offer performance upgrades such as:",
-    "- Title optimization.",
-    "- Hook improvement.",
-    "- Platform variants (YouTube, podcast, short-form).",
-    "- Audience framing adjustments.",
-    "- Retention improvements.",
-    "- Monetization angles.",
-    "- Tone variants for specific audiences.",
-    "Guidelines:",
-    "- Offer upgrades as optional suggestions, not requirements.",
-    "- Prefer one high-impact direction over large option dumps.",
-    "- Do not block creator intent.",
-    "- Do not moralize about style (including clickbait).",
-    "- Maintain supportive collaborator tone.",
-    "- Preserve creator agency.",
-    "Trigger conditions for executive-producer behavior:",
-    "- Script exists or appears approved.",
-    "- User expresses satisfaction.",
-    "- User mentions publishing or recording.",
-    "- Project appears near production.",
-    "Deliverable format:",
-    "- Offer first, do not auto-dump optimization lists.",
-    "- Preferred phrasing: Want a performance pass before recording?",
-    "## RELEASE PREP PACK",
-    "When explicitly requested, or when user accepts a performance/release pass, generate a named Release Prep Pack.",
-    "Release Prep Pack components:",
-    "- YouTube-optimized episode version: faster hook, clearer promise, retention-aware structure.",
-    "- Title set: 3-7 click-optimized but honest options with varied emotional framing.",
-    "- Short-form hook (<=20s): cold-open style suitable for Shorts/TikTok/Reels.",
-    "- Tone variant aligned to creator style (for example: a more conversational personality-led pass).",
-    "- Audience-tailored variant when relevant to known creator/audience context.",
-    "- Monetization angle: sponsorship positioning, CTA ideas, premium framing options.",
-    "Release Prep Pack constraints:",
-    "- Do not claim platform capabilities that are not present.",
-    "- Do not propose generated B-roll if capability is unavailable.",
-    "- For product-demo narratives, suggest real screen captures over synthetic visuals.",
-    "- Do not overwrite primary script by default; treat prep outputs as derived suggestions.",
-    "Packaging behavior:",
-    "- Offer the bundle, then deliver clearly sectioned outputs when user confirms.",
-    "- Keep output practical and shippable, not abstract commentary.",
   ];
+
+  const mode = options?.decision.mode ?? "conversation";
+  baseLines.push("Authoritative turn mode:", mode);
+  if (mode === "conversation") {
+    baseLines.push(
+      "Conversation mode (hard rule):",
+      "- Discuss the creator's idea or possible editorial changes without creating an artifact.",
+      "- Do not draft, rewrite, mutate, research, package, or advance workflow state.",
+      "- Return ops as [] and keep script_text and research_artifact null.",
+      "- Answer the question actually asked; do not force a next step.",
+    );
+  }
+  if (mode === "outline_generate") {
+    baseLines.push(
+      "Outline generation mode (hard rule):",
+      "- Produce a substantive outline with at least one actual bullet or labeled section.",
+      "- Return the outline in assistantText or set_outline. An announcement-only preamble is invalid.",
+      "- Do not produce or mutate a full script.",
+    );
+  }
+  if (mode === "script_generate" || mode === "script_mutate") {
+    baseLines.push(
+      "ANVIL SCRIPT ARTIFACT CONTRACT:",
+      mode === "script_mutate"
+        ? "- Propose a substantive revision of the current script; do not claim it was applied."
+        : "- Produce a substantive new script artifact; do not claim it was applied.",
+      "- Include canonical script content in script_text and a matching set_body operation.",
+      "- Allowed speaker blocks are [s1], [s2], [g1], and [g2], each opened and closed on their own lines.",
+      "- Never mix speakers inside a block; keep blocks short and teleprompter-readable.",
+      "- Allowed pacing tokens are [pause], [beat], and [reflective pause].",
+      "- Do not use Markdown speaker labels or unrecognized control markup.",
+      "- Validate tag closure and standalone placement before returning.",
+      "- An introductory sentence without substantive script content is invalid.",
+    );
+  }
+  if (mode === "readiness_review") {
+    baseLines.push(
+      "Producer readiness-review mode (hard rule):",
+      "- Analyze the current script without editing it or generating a replacement artifact.",
+      "- Return ops as [] and identify concrete strengths, risks, and unresolved issues.",
+      "- Do not silently rewrite and do not claim canonical Ready state changed.",
+    );
+  }
+  if (mode === "production_action") {
+    baseLines.push(
+      "Production action mode (hard rule):",
+      "- Use the approved script supplied in episode_context for only the explicitly requested production action.",
+      "- Do not research, discuss unrelated episodes, mutate the script, or offer additional production work.",
+      "- Return the complete requested production artifact in this response.",
+    );
+  }
+  if ((mode === "outline_generate" || mode === "script_generate" || mode === "script_mutate" || mode === "production_action")
+    && options?.outputPreference) {
+    baseLines.push("Creator output preference for this requested artifact:", options.outputPreference);
+  }
 
   if (options?.listeningTurn) {
     baseLines.push(
@@ -1575,7 +1539,7 @@ function buildSystemPrompt(
       "- The creator is still explaining an idea and is asking only whether you are following.",
       "- Briefly acknowledge the direction in one or two natural sentences, then invite them to continue.",
       "- Do not critique, outline, rewrite, add producer notes, propose production decisions, or ask format/host questions yet.",
-      "- This override takes precedence over momentum, critique, optimization, and concrete-next-step defaults for this turn.",
+      "- This mode takes precedence over critique, optimization, and concrete-next-step suggestions for this turn.",
     );
   }
 
@@ -1615,7 +1579,7 @@ function buildSystemPrompt(
       "- Business operating status is time-sensitive. A pasted name, address, description, hours listing, or colorful claim is not proof that a business is currently open.",
       "- For business findings, include businessName and businessStatus: verified_currently_operating, appears_active_unconfirmed, creator_supplied_unverified, closed_inactive, non_customer_facing, or adjacent_location.",
       "- Use verified_currently_operating or closed_inactive only when inspected current-request evidence directly supports the current status. Otherwise prefer appears_active_unconfirmed or creator_supplied_unverified.",
-      "- Corporate offices, arenas, tour operators, and places outside the relevant corridor must not be presented as equivalent to a customer-facing Church Street storefront. Classify them explicitly when the inspected evidence permits it.",
+      "- Offices, venues, operators, institutions, and adjacent locations must not be presented as equivalent to a customer-facing business. Classify entity role and scope explicitly when the inspected evidence permits it.",
       "- Claims such as popular, only business left, rooftop access, hours, or walk-in availability require their own inspected support before reuse as factual script material.",
       "- Creator assistance is appropriate only for a source explicitly marked inaccessible with a specific accessFailureReason; continue using other inspected sources.",
       "research_artifact shape:",
@@ -3641,9 +3605,25 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
 
       const episodeContext = normalizeEpisodeContext(bodyRaw.episode_context);
       if (!episodeContext) {
+        const creatorText = readOptionalString(bodyRaw.user_authored_text)
+          ?? [...messages].reverse().find((message) => message.role === "user")?.content
+          ?? "";
+        const identityDecision = resolveHearthTurnDecision({
+          creatorText,
+          explicitAction: normalizeHearthExplicitUiAction(bodyRaw.explicit_action)
+            ?? (productionAction ? { kind: "production", action: productionAction } : null),
+          lifecycle: { hasDraft: false, hasApprovedScript: false, isReady: false },
+        });
+        const error = "episode_context with episodeId is required";
         return jsonResponse(400, {
           ok: false,
-          error: "episode_context with episodeId is required",
+          error,
+          turn_result: buildHearthTurnResult({
+            decision: identityDecision,
+            assistantMessage: "",
+            failureKind: "identity_mismatch",
+            failureMessage: error,
+          }),
           ...buildBillingSnapshot(lane),
         });
       }
@@ -3663,16 +3643,79 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       // writing-format or tone instructions appended to the provider message.
       const requestText = readOptionalString(bodyRaw.user_authored_text)
         ?? stripHearthInternalRequestInstructions(latestUserMessage?.content ?? "");
-      const compositionRequestKind = detectHearthCompositionRequest(requestText);
+      const parsedExplicitAction = normalizeHearthExplicitUiAction(bodyRaw.explicit_action);
+      if (bodyRaw.explicit_action != null && !parsedExplicitAction) {
+        return jsonResponse(400, {
+          ok: false,
+          error: "explicit_action is invalid",
+          ...buildBillingSnapshot(lane),
+        });
+      }
+      const outputPreference = normalizeHearthOutputPreference(bodyRaw.output_preference);
+      if (bodyRaw.output_preference != null && !outputPreference) {
+        return jsonResponse(400, {
+          ok: false,
+          error: "output_preference is invalid",
+          ...buildBillingSnapshot(lane),
+        });
+      }
+      const explicitAction = parsedExplicitAction
+        ?? (productionAction ? { kind: "production" as const, action: productionAction } : null);
+      if (parsedExplicitAction?.kind === "production" && parsedExplicitAction.action !== productionAction) {
+        return jsonResponse(400, {
+          ok: false,
+          error: "explicit_action does not match production_action",
+          ...buildBillingSnapshot(lane),
+        });
+      }
+      const productionScriptVersion = typeof bodyRaw.production_script_version === "number"
+        && Number.isInteger(bodyRaw.production_script_version)
+        && bodyRaw.production_script_version > 0
+        ? bodyRaw.production_script_version
+        : null;
+      const turnDecision = resolveHearthTurnDecision({
+        creatorText: requestText,
+        explicitAction,
+        lifecycle: {
+          hasDraft: episodeContext.body.trim().length > 0,
+          hasApprovedScript: productionScriptVersion !== null,
+          isReady: false,
+        },
+      });
+      const compositionRequestKind = turnDecision.mode === "outline_generate"
+        ? "outline" as const
+        : turnDecision.mode === "script_generate" || turnDecision.mode === "script_mutate"
+          ? "script" as const
+          : null;
+      const buildTurnResult = (args: {
+        assistantMessage: string;
+        artifact?: HearthValidatedArtifact | null;
+        operations?: HearthOp[];
+        failureKind?: "none" | "provider_failure" | "invalid_model_output" | "identity_mismatch";
+        failureMessage?: string | null;
+      }) => buildHearthTurnResult({
+        decision: turnDecision,
+        assistantMessage: args.assistantMessage,
+        artifact: args.artifact,
+        operations: args.operations,
+        failureKind: args.failureKind,
+        failureMessage: args.failureMessage,
+      });
       const compositionProviderFailureResponse = (providerStatus: number | null): Response | null => {
         if (!compositionRequestKind) return null;
+        const error = compositionRequestKind === "outline"
+          ? "Hearth couldn't generate the outline because the provider request failed."
+          : "Hearth couldn't generate the requested composition because the provider request failed.";
         return jsonResponse(502, {
           ok: false,
-          error: compositionRequestKind === "outline"
-            ? "Hearth couldn't generate the outline because the provider request failed."
-            : "Hearth couldn't generate the requested composition because the provider request failed.",
+          error,
           code: "provider_request_failed",
           provider_status: providerStatus,
+          turn_result: buildTurnResult({
+            assistantMessage: "",
+            failureKind: "provider_failure",
+            failureMessage: error,
+          }),
           ...buildBillingSnapshot(lane),
         });
       };
@@ -3910,8 +3953,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       // Production commands are version-scoped transformations of the approved
       // script. Words such as "source" in their strict output contract must not
       // route them through research or prepend a research outcome envelope.
-      const researchModeRequested = !productionAction
-        && (linkModeRequested || isResearchIntentRequest(researchIntentText || requestText));
+      const researchModeRequested = turnDecision.mode === "research";
       const repeatedResearchRequestCount = researchModeRequested
         ? countRepeatedCreatorRequests(researchIntentText || requestText, priorMessages)
         : 0;
@@ -4034,6 +4076,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
 
       if (linkModeRequested && researchResult && shouldShortCircuitLinkIngest(researchIntentText || textWithoutUrls)) {
         const assistantText = buildLinkIngestOnlyReply({ sources: researchResult.sources });
+        const researchArtifact: HearthValidatedArtifact | null = researchResult.artifact
+          ? { kind: "research", value: researchResult }
+          : null;
         return jsonResponse(200, {
           ok: true,
           assistant_text: assistantText,
@@ -4042,6 +4087,10 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           script_text: null,
           tag_audit: null,
           research_result: researchResult,
+          turn_result: buildTurnResult({
+            assistantMessage: assistantText,
+            artifact: researchArtifact,
+          }),
           total_tokens: null,
           actual_cost_usd: 0,
           billable_tokens: 0,
@@ -4049,7 +4098,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...buildBillingSnapshot(lane),
         });
       }
-      const readinessCheckRequested = isReadinessCheckRequest(requestText);
+      const readinessCheckRequested = turnDecision.mode === "readiness_review";
       const allowRepeatedReadinessNudge = requestedDeepReadinessReview(requestText);
       const framingPackRequested = isFramingPackProductionRequest(requestText);
       const priorAssistantMessage = [...priorMessages]
@@ -4086,14 +4135,15 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ops: [],
           script_text: null,
           tag_audit: null,
+          turn_result: buildTurnResult({ assistantMessage: clarifyReply }),
           total_tokens: 0,
           gate: "clarify",
           ...buildBillingSnapshot(lane),
         });
       }
 
-      const workspaceContextRequested = shouldUseWorkspaceContext(requestText);
-      const crossProjectRequested = isCrossProjectReferenceRequest(requestText);
+      const workspaceContextRequested = turnDecision.retrievalScope === "explicit_cross_episode";
+      const crossProjectRequested = turnDecision.retrievalScope === "explicit_cross_episode";
 
       const styleGuidanceSections = framingPackRequested
         ? []
@@ -4204,6 +4254,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           episodeContext,
           styleGuidanceSections.filter((section) => section.trim().length > 0).join("\n"),
           {
+            decision: turnDecision,
+            outputPreference,
             readinessCheck: readinessCheckRequested,
             allowRepeatedReadinessNudge,
             priorReadinessNudge,
@@ -4211,7 +4263,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             researchRequest,
             researchResult,
             attachmentContextSnippet,
-            listeningTurn: LISTENING_TURN_RE.test(requestText),
+            listeningTurn: turnDecision.mode === "listening",
           },
         ),
       };
@@ -4562,6 +4614,11 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               ok: false,
               error: upstreamMessage,
               detail,
+              turn_result: buildTurnResult({
+                assistantMessage: "",
+                failureKind: "provider_failure",
+                failureMessage: upstreamMessage,
+              }),
               ...buildBillingSnapshot(lane),
             });
           }
@@ -4594,9 +4651,15 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             providerRequestId: upstream.headers.get("x-request-id"),
             correlationId: chatActionId,
           });
+          const error = "OpenAI returned empty response";
           return jsonResponse(502, {
             ok: false,
-            error: "OpenAI returned empty response",
+            error,
+            turn_result: buildTurnResult({
+              assistantMessage: "",
+              failureKind: "invalid_model_output",
+              failureMessage: error,
+            }),
             ...buildBillingSnapshot(lane),
           });
         }
@@ -4608,6 +4671,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           tagAudit: null,
           researchArtifact: null,
         };
+        structured.ops = filterHearthOperationsForDecision(turnDecision, structured.ops);
 
         if (readinessCheckRequested) {
           structured.assistantText = normalizeReadinessAssistantText({
@@ -4656,7 +4720,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         structured.assistantText = sanitizeHearthUserFacingOutput(structured.assistantText);
 
         let compositionValidation = validateHearthCompositionArtifact({
-          requestText,
+          requestKind: compositionRequestKind,
           assistantText: structured.assistantText,
           ops: structured.ops,
         });
@@ -4705,13 +4769,14 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               tagAudit: null,
               researchArtifact: null,
             };
+            repairStructured.ops = filterHearthOperationsForDecision(turnDecision, repairStructured.ops);
             repairStructured.assistantText = enforceHearthEditorialHonesty({
               assistantText: repairStructured.assistantText,
               requestText,
             });
             repairStructured.assistantText = sanitizeHearthUserFacingOutput(repairStructured.assistantText);
             const repairedValidation = validateHearthCompositionArtifact({
-              requestText,
+              requestKind: compositionRequestKind,
               assistantText: repairStructured.assistantText,
               ops: repairStructured.ops,
             });
@@ -4873,6 +4938,11 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               error: productionValidation.error,
               code: "invalid_production_output",
               billable_tokens: 0,
+              turn_result: buildTurnResult({
+                assistantMessage: "",
+                failureKind: "invalid_model_output",
+                failureMessage: productionValidation.error,
+              }),
               output_diagnostic: {
                 action: productionAction,
                 assistant_text_chars: structured.assistantText.length,
@@ -4884,6 +4954,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             });
           }
         }
+
+        structured.ops = filterHearthOperationsForDecision(turnDecision, structured.ops);
 
         if (!productionAction && !compositionValidation.ok) {
           const rejectedTokens = extractTotalTokens(payload) ?? estimateTokenFallback(messages, rawReply);
@@ -4925,26 +4997,34 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             artifact_kind: compositionValidation.kind,
             repair_attempted: compositionRepairAttempted,
             billable_tokens: 0,
+            turn_result: buildTurnResult({
+              assistantMessage: "",
+              failureKind: "invalid_model_output",
+              failureMessage: compositionValidation.error,
+            }),
             ...buildBillingSnapshot(lane),
             ...resolutionSnapshot,
           });
         }
 
         if (!structured.assistantText && structured.ops.length === 0) {
+          const error = "Assistant returned an invalid response";
           return jsonResponse(502, {
             ok: false,
-            error: "Assistant returned an invalid response",
+            error,
+            turn_result: buildTurnResult({
+              assistantMessage: "",
+              failureKind: "invalid_model_output",
+              failureMessage: error,
+            }),
             ...buildBillingSnapshot(lane),
           });
         }
 
         const hasOutlineOp = structured.ops.some((op) => op.op === "set_outline");
         const hasBodyOp = structured.ops.some((op) => op.op === "set_body");
-        if (!isProductionSupportRequest(requestText)) {
-          const generatedEventType = (
-            requestedOutline(requestText)
-            || (hasOutlineOp && !hasBodyOp)
-          ) ? "outline_generated" : "draft_generated";
+        if (turnDecision.mode === "outline_generate" || turnDecision.mode === "script_generate" || turnDecision.mode === "script_mutate") {
+          const generatedEventType = turnDecision.mode === "outline_generate" ? "outline_generated" : "draft_generated";
           await recordHearthEventForToken({
             accessToken: bearerToken,
             episodeId: episodeContext.episodeId,
@@ -4954,8 +5034,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               ops_count: structured.ops.length,
               has_outline_op: hasOutlineOp,
               has_body_op: hasBodyOp,
-              requested_outline: requestedOutline(requestText),
-              requested_script: requestedScript(requestText),
+              requested_outline: turnDecision.mode === "outline_generate",
+              requested_script: turnDecision.mode === "script_generate" || turnDecision.mode === "script_mutate",
             },
           });
         }
@@ -5030,15 +5110,35 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           return new Response(null, { status: 499 });
         }
 
+        const outlineText = readLatestSubstantiveOutlineFromOps(structured.ops)
+          ?? (hasSubstantiveHearthOutline(structured.assistantText) ? structured.assistantText : null);
+        const scriptText = readLatestSubstantiveScriptFromOps(structured.ops)
+          ?? (structured.scriptText && hasSubstantiveHearthScript(structured.scriptText) ? structured.scriptText : null);
+        const validatedArtifact: HearthValidatedArtifact | null = turnDecision.mode === "research" && researchResult?.artifact
+          ? { kind: "research", value: researchResult }
+          : turnDecision.mode === "outline_generate" && outlineText
+            ? { kind: "outline", text: outlineText }
+            : (turnDecision.mode === "script_generate" || turnDecision.mode === "script_mutate") && scriptText
+              ? { kind: "script", text: scriptText }
+              : turnDecision.mode === "production_action" && structured.assistantText
+                ? { kind: "production", action: productionAction!, value: structured.assistantText }
+                : null;
+        const turnResult = buildTurnResult({
+          assistantMessage: structured.assistantText,
+          artifact: validatedArtifact,
+          operations: structured.ops,
+        });
+
         return jsonResponse(200, {
           ok: true,
+          turn_result: turnResult,
           assistant_text: structured.assistantText,
           reply: structured.assistantText,
           ops: structured.ops,
-          script_text: structured.scriptText,
+          script_text: scriptText,
           tag_audit: structured.tagAudit,
-          ...(researchResult ? { research_result: researchResult } : {}),
-          ...(researchResult ? {
+          ...(turnDecision.mode === "research" && researchResult ? { research_result: researchResult } : {}),
+          ...(turnDecision.mode === "research" && researchResult ? {
             research_context: {
               provider_status: researchResult.providerStatus,
               source_count: researchResult.sources.length,

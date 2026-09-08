@@ -1,5 +1,3 @@
-import { HEARTH_RECORDING_READY_SCRIPT_INSTRUCTION } from "./hearth-recording-ready-script";
-
 export type HearthWritingFormat = "explore_expand" | "full_script" | "bullet_outline";
 export type HearthPreferredReadMode = "flow" | "step";
 export type HearthShortcutIntent = "outline" | "script" | null;
@@ -22,18 +20,6 @@ type ResolvedHearthWritingFormatRequest = {
 
 const HEARTH_WRITING_FORMAT_STORAGE_KEY = "hearth:writing-format:v1";
 const FALLBACK_HEARTH_WRITING_FORMAT: HearthWritingFormat = "explore_expand";
-const HEARTH_CHAT_TONE_INSTRUCTION = [
-  "Response tone:",
-  "Sound like a capable creative operations partner: professional, calm, observant, conversational, and lightly human.",
-  "Avoid robotic system phrasing, hype, therapy-style validation, and cheesy enthusiasm.",
-].join(" ");
-const HEARTH_SINGLE_PERSON_REWRITE_INSTRUCTION = [
-  "Single-person rewrite requirement:",
-  "Rewrite as one host voice, not two-person banter.",
-  "Collapse call-and-response and fake dialogue into a single narrative flow.",
-  "Convert back-and-forth jokes into narrator asides while preserving tone, humor, argument, and cadence.",
-  "Do not satisfy this by only changing speaker tags.",
-].join(" ");
 
 const HEARTH_WRITING_FORMAT_PROFILES: Record<HearthWritingFormat, HearthWritingFormatProfile> = {
   explore_expand: {
@@ -149,32 +135,6 @@ export function buildWritingFormatShortcutPrompt(format: HearthWritingFormat): s
   return getHearthWritingFormatProfile(format).shortcutPrompt;
 }
 
-function appendInstruction(requestContent: string, instruction: string): string {
-  return `${requestContent}\n\n${instruction}`;
-}
-
-function isSinglePersonRewriteRequest(requestContent: string): boolean {
-  const normalized = requestContent.replace(/\s+/g, " ").trim().toLowerCase();
-  if (!normalized) return false;
-  return (
-    /\b(single[\s-]?person|one[\s-]?person|single host|one host|solo host|single narrator|one narrator)\b/.test(normalized)
-    && /\b(script|rewrite|anvil|readable)\b/.test(normalized)
-  );
-}
-
-function appendRecordingReadyInstructionForScriptRequests(
-  requestContent: string,
-  appliedFormat: HearthWritingFormat,
-): string {
-  const withSinglePerson = isSinglePersonRewriteRequest(requestContent)
-    ? appendInstruction(requestContent, HEARTH_SINGLE_PERSON_REWRITE_INSTRUCTION)
-    : requestContent;
-
-  return appliedFormat === "full_script"
-    ? appendInstruction(withSinglePerson, HEARTH_RECORDING_READY_SCRIPT_INSTRUCTION)
-    : withSinglePerson;
-}
-
 export function resolveHearthWritingFormatRequest(args: {
   requestContent: string;
   selectedFormat: HearthWritingFormat;
@@ -184,10 +144,7 @@ export function resolveHearthWritingFormatRequest(args: {
   if (explicitFormat) {
     return {
       appliedFormat: explicitFormat,
-      requestContent: appendRecordingReadyInstructionForScriptRequests(
-        appendInstruction(args.requestContent, HEARTH_CHAT_TONE_INSTRUCTION),
-        explicitFormat,
-      ),
+      requestContent: args.requestContent,
       source: "message",
     };
   }
@@ -196,23 +153,14 @@ export function resolveHearthWritingFormatRequest(args: {
   if (shortcutFormat) {
     return {
       appliedFormat: shortcutFormat,
-      requestContent: appendRecordingReadyInstructionForScriptRequests(
-        appendInstruction(args.requestContent, HEARTH_CHAT_TONE_INSTRUCTION),
-        shortcutFormat,
-      ),
+      requestContent: args.requestContent,
       source: "shortcut",
     };
   }
 
-  const profile = getHearthWritingFormatProfile(args.selectedFormat);
   return {
     appliedFormat: args.selectedFormat,
-    requestContent: appendInstruction(
-      appendInstruction(args.requestContent, HEARTH_CHAT_TONE_INSTRUCTION),
-      profile.id === "full_script"
-        ? `${profile.defaultRequestInstruction} ${HEARTH_RECORDING_READY_SCRIPT_INSTRUCTION}`
-        : profile.defaultRequestInstruction,
-    ),
+    requestContent: args.requestContent,
     source: "default",
   };
 }

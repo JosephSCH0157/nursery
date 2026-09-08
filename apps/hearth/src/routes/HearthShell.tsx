@@ -87,10 +87,8 @@ import {
 } from "../lib/hearth-script-authoring-meta";
 import { insertVoiceTranscriptIntoScript } from "../lib/hearth-script-dictation";
 import {
-  buildHearthFormatOnlyPreview,
   confirmHearthUserEditorialTransition,
   evaluateHearthFormatOnlyPreservation,
-  formatHearthPreservationChanges,
 } from "../lib/hearth-format-only";
 import {
   parseHearthDraftConflictError,
@@ -282,7 +280,6 @@ import {
   countWords,
 } from "./hearth-shell/hearth-shell-formatting";
 import {
-  buildAssistantMessageContent,
   buildPersistedValidationMeta,
   buildProjectDraftSeed,
   buildSessionFingerprint,
@@ -296,7 +293,6 @@ import {
   isLegacyDraftScriptPlaceholder,
   isPlanningSessionEmpty,
   parsePlanningLines,
-  readLatestOutlineFromOps,
   reclassifyHearthFormatProposal,
 } from "./hearth-shell/hearth-shell-planning";
 import {
@@ -2759,11 +2755,8 @@ export default function HearthShell({
     ),
     rememberWritingFormat: (format) => rememberWritingFormat(format as HearthWritingFormat),
     buildActiveEpisodeContext,
-    detectChatIntentSignals,
     detectAiAutosaveReasonCode,
-    buildAssistantMessageContent,
     countProducerQuestions,
-    readLatestOutlineFromOps,
     cloneHearthProposalOps,
     createPendingAiProposal: (proposalArgs) => {
       const normalizedOps = normalizeAiProposalOpsForScriptIngress(proposalArgs.proposalOps);
@@ -2779,34 +2772,6 @@ export default function HearthShell({
         formatSourceBody: null,
         formatOriginalBody: null,
         formatChanges: [],
-      };
-    },
-    createPendingFormatOnlyProposal: ({ episodeContext }) => {
-      const sourceBody = episodeContext.body;
-      const preview = buildHearthFormatOnlyPreview(sourceBody);
-      if (!preview.preservation.preserved) {
-        return {
-          ok: false,
-          error: `Formatting-only preview was blocked because protected content changed: ${formatHearthPreservationChanges(preview.preservation.changes)}.`,
-        };
-      }
-      const ops: HearthOp[] = [{ op: "set_body", value: preview.formatted }];
-      return {
-        ok: true,
-        assistantText: "I created a deterministic format-only preview. Wording, punctuation, speaker identity, notes, and pacing cues are unchanged.",
-        proposal: {
-          assistantText: "Deterministic format-only preview",
-          ops,
-          originalOps: cloneHearthProposalOps(ops),
-          selected: [true],
-          context: episodeContext,
-          fromGate: false,
-          autosaveReasonCode: "format_only",
-          proposalOrigin: "format_only",
-          formatSourceBody: sourceBody,
-          formatOriginalBody: preview.formatted,
-          formatChanges: [],
-        },
       };
     },
     resolveAiLaneFromStorage,

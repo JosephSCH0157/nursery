@@ -9,6 +9,9 @@ import type {
   HearthInteractionEventType,
   HearthSttResult,
   HearthSttUploadResult,
+  HearthExplicitUiAction,
+  HearthOutputPreference,
+  HearthTurnResult,
 } from "../lib/hearth-chat-api";
 import {
   resolveBrowserSpeechRecognitionConstructor,
@@ -18,11 +21,6 @@ import {
 } from "../lib/browser-speech-contract";
 import type { HearthResearchResult } from "../lib/hearth-research-contract";
 import type { HearthOperationAuthority } from "../lib/hearth-operation-authority";
-import {
-  buildNoScriptChangesExplanation,
-  type HearthScriptMutationIntent,
-  resolveHearthScriptMutationRouting,
-} from "../lib/hearth-script-mutation";
 import type { ChatSurfaceProps } from "../views/surfaces/ChatSurface";
 
 type UseChatWorkspaceArgs = {
@@ -434,23 +432,8 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp 
   };
   rememberWritingFormat: (format: string) => void;
   buildActiveEpisodeContext: () => TEpisodeContext | null;
-  detectChatIntentSignals: (text: string) => {
-    hasDeliverable: boolean;
-    requestedOutline: boolean;
-    requestedScript: boolean;
-    explicitDraftNow: boolean;
-    scriptMutationIntent: HearthScriptMutationIntent;
-  };
   detectAiAutosaveReasonCode: (text: string) => AiAutosaveReasonCode | null;
-  buildAssistantMessageContent: (args: {
-    assistantText: string;
-    ops: THearthOp[];
-    autosaveReasonCode: AiAutosaveReasonCode | null;
-    scriptMutationRequested: boolean;
-    scriptMutationReady: boolean;
-  }) => string;
   countProducerQuestions: (text: string) => number;
-  readLatestOutlineFromOps: (ops: THearthOp[]) => string | null;
   cloneHearthProposalOps: (ops: THearthOp[]) => THearthOp[];
   createPendingAiProposal: (args: {
     assistantText: string;
@@ -459,14 +442,6 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp 
     fromGate: boolean;
     autosaveReasonCode: AiAutosaveReasonCode | null;
   }) => TPendingAiProposal;
-  createPendingFormatOnlyProposal: (args: {
-    episodeContext: TEpisodeContext;
-  }) => {
-    ok: boolean;
-    proposal?: TPendingAiProposal;
-    assistantText?: string;
-    error?: string;
-  };
   resolveAiLaneFromStorage: () => "forge" | "byo";
   requestHearthChatReply: (
     messages: HearthChatMessage[],
@@ -474,6 +449,8 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp 
     options: {
       signal: AbortSignal;
       userAuthoredText?: string;
+      explicitAction?: HearthExplicitUiAction;
+      outputPreference?: HearthOutputPreference;
       productionAction?: "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack";
       productionScriptVersion?: number;
       attachmentContext?: {
@@ -488,6 +465,7 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp 
     assistantText?: string;
     ops?: THearthOp[];
     researchResult?: HearthResearchResult;
+    turnResult?: HearthTurnResult;
     gate?: "clarify";
     creditsWarning?: string;
     runtime: {
@@ -554,8 +532,6 @@ export function useChatWorkspaceRuntime<
 
     const source = params.source ?? "typed";
     const isProductionRequest = Boolean(params.productionAction);
-    const intentSignals = args.detectChatIntentSignals(rawRequestContent);
-    const autosaveReasonCode = args.detectAiAutosaveReasonCode(rawRequestContent);
     const pendingShortcutIntent = args.pendingShortcutIntentRef.current;
     args.pendingShortcutIntentRef.current = null;
     const selectedWritingFormat = args.getSelectedWritingFormat();
@@ -566,28 +542,27 @@ export function useChatWorkspaceRuntime<
     });
     const requestContent = resolvedWritingFormat.requestContent;
     args.rememberWritingFormat(resolvedWritingFormat.appliedFormat);
+    const explicitAction: HearthExplicitUiAction | undefined = params.productionAction
+      ? { kind: "production", action: params.productionAction } as HearthExplicitUiAction
+      : pendingShortcutIntent === "outline"
+        ? { kind: "generate_outline" }
+        : pendingShortcutIntent === "script"
+          ? { kind: "generate_script" }
+          : undefined;
+    const outputPreference = resolvedWritingFormat.appliedFormat as HearthOutputPreference;
 
     args.recordInteractionEvent("chat_sent", {
       source,
       chars: rawRequestContent.length,
-      lane: intentSignals.scriptMutationIntent.kind === "format_only" ? "deterministic" : args.resolveAiLaneFromStorage(),
-      has_deliverable: intentSignals.hasDeliverable,
+      lane: args.resolveAiLaneFromStorage(),
+      has_deliverable: Boolean(explicitAction && explicitAction.kind !== "conversation"),
       production_action: params.productionAction ?? null,
       writing_format: resolvedWritingFormat.appliedFormat,
       writing_format_source: resolvedWritingFormat.source,
     });
 
-    if (!isProductionRequest) {
-      if (intentSignals.requestedOutline && pendingShortcutIntent !== "outline") {
-        args.recordInteractionEvent("user_requested_outline", { source });
-      }
-      if (intentSignals.requestedScript && pendingShortcutIntent !== "script") {
-        args.recordInteractionEvent("user_requested_script", { source });
-      }
-      if (intentSignals.explicitDraftNow) {
-        args.recordInteractionEvent("user_explicit_draft_now", { source });
-      }
-    }
+    if (explicitAction?.kind === "generate_outline") args.recordInteractionEvent("user_requested_outline", { source });
+    if (explicitAction?.kind === "generate_script") args.recordInteractionEvent("user_requested_script", { source });
 
     const gateAnswering = args.gateAwaitingAnswersRef.current;
     if (gateAnswering) {
@@ -611,40 +586,6 @@ export function useChatWorkspaceRuntime<
     args.setAiRuntimeWarning(null);
     args.setPendingAiProposal(null);
 
-    if (!isProductionRequest && intentSignals.scriptMutationIntent.kind === "format_only") {
-      const localResult = args.createPendingFormatOnlyProposal({ episodeContext });
-      if (!args.operationAuthority.isCurrent(operation)) return;
-      if (!localResult.ok || !localResult.proposal) {
-        const message = localResult.error ?? "Hearth could not create a safe formatting-only preview.";
-        args.setChatError(message);
-        args.publishForgeNotice({
-          job: "job-failed",
-          title: "Formatting-only preview blocked",
-          message,
-          severity: "error",
-        });
-        return;
-      }
-      const assistantContent = localResult.assistantText
-        ?? "I created a deterministic format-only preview. Wording, punctuation, notes, and cues are unchanged.";
-      const localAssistantMessage: HearthChatMessage = { role: "assistant", content: assistantContent };
-      args.setChatMessages((prev) => [...prev, localAssistantMessage]);
-      args.setPendingAiProposal(localResult.proposal);
-      args.recordInteractionEvent("draft_generated", {
-        source,
-        ops_count: 1,
-        proposal_origin: "format_only",
-        ai_called: false,
-      });
-      args.publishForgeNotice({
-        job: "script-completed",
-        title: "Format-only preview ready",
-        message: "Hearth formatted the current draft locally without using AI credits.",
-        severity: "success",
-      });
-      return;
-    }
-
     const lane = args.resolveAiLaneFromStorage();
     args.setAiBillingMode(lane);
     if (lane === "forge" && args.aiTokenBalance != null && args.aiTokenBalance <= 0) {
@@ -666,6 +607,8 @@ export function useChatWorkspaceRuntime<
       const result = await args.requestHearthChatReply(requestMessages, episodeContext, {
         signal: controller.signal,
         userAuthoredText: rawRequestContent,
+        explicitAction,
+        outputPreference,
         attachmentContext,
         productionAction: params.productionAction as "seo" | "tags" | "thumbnails" | "image_beat_sheet" | "release_prep_pack" | undefined,
         productionScriptVersion: params.productionScriptVersion,
@@ -690,15 +633,22 @@ export function useChatWorkspaceRuntime<
         return;
       }
 
-      const ops = result.ops ?? [];
-      const assistantText = result.assistantText ?? "";
+      const turnResult = result.turnResult;
+      if (!turnResult) {
+        args.setChatError("Hearth returned an invalid turn result.");
+        return;
+      }
+      const ops = (turnResult.operations ?? result.ops ?? []) as unknown as THearthOp[];
+      const assistantText = turnResult.assistantMessage ?? result.assistantText ?? "";
+      const decision = turnResult.decision;
+      const autosaveReasonCode = decision.mode === "outline_generate"
+        ? "ai_outline"
+        : decision.mode === "script_generate"
+          ? "ai_script"
+          : decision.mode === "script_mutate"
+            ? args.detectAiAutosaveReasonCode(rawRequestContent) ?? "ai_rewrite"
+            : null;
       args.onResearchResult?.(result.researchResult ?? null);
-      const scriptMutationRouting = resolveHearthScriptMutationRouting({
-        productionAction: Boolean(params.productionAction),
-        autosaveReasonCode,
-        ops: ops as Array<{ op: string }>,
-        intent: intentSignals.scriptMutationIntent,
-      });
 
       if (result.gate === "clarify") {
         args.gateAwaitingAnswersRef.current = true;
@@ -708,14 +658,13 @@ export function useChatWorkspaceRuntime<
         });
       }
 
-      const proposalOps = scriptMutationRouting.proposalOps as THearthOp[];
-      const assistantContent = args.buildAssistantMessageContent({
-        assistantText,
-        ops: proposalOps,
-        autosaveReasonCode,
-        scriptMutationRequested: intentSignals.scriptMutationIntent.targetsScriptBody,
-        scriptMutationReady: scriptMutationRouting.hasScriptBodyProposal,
-      });
+      const proposalOps = ops;
+      const artifactText = turnResult.artifact && (turnResult.artifact.kind === "outline" || turnResult.artifact.kind === "script")
+        ? turnResult.artifact.text.trim()
+        : "";
+      const assistantContent = artifactText && !assistantText.includes(artifactText)
+        ? `${assistantText.trim()}\n\n${artifactText}`.trim()
+        : assistantText;
       const assistantMessage: HearthChatMessage = { role: "assistant", content: assistantContent };
       args.setChatMessages((prev) => [...prev, assistantMessage]);
 
@@ -728,10 +677,10 @@ export function useChatWorkspaceRuntime<
         if (!args.operationAuthority.isCurrent(operation)) return;
       }
 
-      if (scriptMutationRouting.keepOutlineInChatOnly) {
+      if (decision.mode === "outline_generate") {
         args.recordInteractionEvent("outline_generated", {
           source,
-          has_outline: Boolean(args.readLatestOutlineFromOps(ops)),
+          has_outline: turnResult.artifact?.kind === "outline",
           ops_count: ops.length,
         });
       } else if (!params.productionAction && proposalOps.some((op) => op.op === "set_body")) {
@@ -754,16 +703,7 @@ export function useChatWorkspaceRuntime<
       if (!params.productionAction) {
         const scriptUpdated = proposalOps.some((op) => op.op === "set_body");
         const sourceAdditions = proposalOps.filter((op) => op.op === "add_source").length;
-        if (scriptMutationRouting.missingScriptBodyMutation) {
-          const message = buildNoScriptChangesExplanation(intentSignals.scriptMutationIntent);
-          args.setChatError(message);
-          args.publishForgeNotice({
-            job: "script-completed",
-            title: "No script changes made",
-            message,
-            severity: "warning",
-          });
-        } else if (scriptUpdated) {
+        if (scriptUpdated) {
           const sourceSuffix = sourceAdditions > 0
             ? ` and added ${sourceAdditions} source${sourceAdditions === 1 ? "" : "s"}`
             : "";

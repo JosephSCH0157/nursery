@@ -78,11 +78,12 @@ export function readLatestSubstantiveScriptFromOps(ops: readonly HearthOp[]): st
 }
 
 export function validateHearthCompositionArtifact(args: {
-  requestText: string;
+  requestText?: string;
+  requestKind?: HearthCompositionRequestKind | null;
   assistantText: string;
   ops: readonly HearthOp[];
 }): HearthCompositionArtifactValidation {
-  const kind = detectHearthCompositionRequest(args.requestText);
+  const kind = args.requestKind ?? detectHearthCompositionRequest(args.requestText ?? "");
   if (!kind) return { ok: true, kind: null, error: null };
 
   if (kind === "outline") {
