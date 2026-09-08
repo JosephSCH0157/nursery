@@ -38,7 +38,8 @@ function readUsage(payload: unknown): { input: number; output: number } {
 }
 
 export async function executePaidJsonOpenAiRoute<
-  TCanonical extends Record<string, unknown>,
+  TValidated extends Record<string, unknown>,
+  TCanonical extends Record<string, unknown> = TValidated,
 >(args: {
   gate: OpenAiTextGateClient;
   routeCode: Exclude<OpenAiTextRouteCode, "hearth.chat_completion">;
@@ -53,8 +54,8 @@ export async function executePaidJsonOpenAiRoute<
   providerUrl?: string;
   signal?: AbortSignal;
   fetchImpl?: typeof fetch;
-  validate: (payload: JsonObject) => TCanonical;
-  persist?: (value: TCanonical, payload: JsonObject) => Promise<TCanonical>;
+  validate: (payload: JsonObject) => TValidated;
+  persist?: (value: TValidated, payload: JsonObject) => Promise<TCanonical>;
 }): Promise<{
   result: TCanonical;
   receipt: {
@@ -66,10 +67,10 @@ export async function executePaidJsonOpenAiRoute<
     status: "settled" | "settled_replay";
   };
 }> {
-  let validated: TCanonical | null = null;
+  let validated: TValidated | null = null;
   let providerPayload: JsonObject = {};
   const bodyForBound = args.providerRequestBody("model-bound-by-accepted-quote");
-  const outcome = await executePaidOpenAiTextRoute({
+  const outcome = await executePaidOpenAiTextRoute<JsonObject, TCanonical>({
     gate: args.gate,
     routeCode: args.routeCode,
     handle: args.handle,
@@ -161,7 +162,7 @@ export async function executePaidJsonOpenAiRoute<
       if (!validated) throw new Error("validated route result missing");
       return args.persist
         ? args.persist(validated, providerPayload)
-        : validated;
+        : (validated as unknown as TCanonical);
     },
   });
   if (outcome.state !== "settled" && outcome.state !== "settled_replay") {
