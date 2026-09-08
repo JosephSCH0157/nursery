@@ -85,7 +85,11 @@ function attemptKey(base: string, attemptNumber: number): string {
 }
 
 export class PaidOpenAiTextExecutionCoordinator {
-  constructor(private readonly gate: OpenAiTextGateClient) {}
+  private readonly gate: OpenAiTextGateClient;
+
+  constructor(gate: OpenAiTextGateClient) {
+    this.gate = gate;
+  }
 
   private async rpc(name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
     const result = await this.gate.rpc(name, args);

@@ -4393,7 +4393,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                   assistantText: structured.assistantText,
                   ops: structured.ops,
                 });
-                if (!compositionValidation.ok) throw new Error(compositionValidation.error);
+                if (!compositionValidation.ok) {
+                  throw new Error(compositionValidation.error ?? "Hearth composition validation failed");
+                }
                 if (!structured.assistantText && structured.ops.length === 0) {
                   throw new Error("Assistant returned an invalid response");
                 }

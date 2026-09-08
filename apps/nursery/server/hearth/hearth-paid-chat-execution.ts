@@ -58,10 +58,22 @@ export type ExecutePaidHearthChatArgs = {
   validateAndNormalize: (rawReply: string) => PaidHearthChatResult;
 };
 
+type PaidHearthChatSettledOutcome = {
+  result: PaidHearthChatResult;
+  requestId: string | null;
+  attempts: number;
+  customerChargeMicros: number;
+  inputUnits: number;
+  outputUnits: number;
+  context: PaidContext;
+};
+
 export type PaidHearthChatExecutionOutcome =
-  | ({ state: "settled" | "settled_replay"; result: PaidHearthChatResult; requestId: string | null; attempts: number; customerChargeMicros: number; inputUnits: number; outputUnits: number; context: PaidContext })
+  | ({ state: "settled" } & PaidHearthChatSettledOutcome)
+  | ({ state: "settled_replay" } & PaidHearthChatSettledOutcome)
   | ({ state: "failed_released"; customerChargeMicros: 0; attempts: number; context: PaidContext })
-  | ({ state: "submission_unknown" | "duplicate_in_progress"; customerChargeMicros: 0; attempts: number; context: PaidContext });
+  | ({ state: "submission_unknown"; customerChargeMicros: 0; attempts: number; context: PaidContext })
+  | ({ state: "duplicate_in_progress"; customerChargeMicros: 0; attempts: number; context: PaidContext });
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -217,7 +229,9 @@ export async function executePaidHearthChatCompletion(
     return { state: "failed_released", customerChargeMicros: 0, attempts: 0, context };
   }
 
-  let lastProviderResult: { requestId: string | null; input: number; output: number } | null = null;
+  const providerEvidence: {
+    latest: { requestId: string | null; input: number; output: number } | null;
+  } = { latest: null };
   const providerFetch = args.providerFetch ?? fetch;
   const coordinator = new PaidOpenAiTextExecutionCoordinator(args.gate);
   const outcome: PaidOpenAiTextExecutionResult<PaidHearthChatResult> = await coordinator.execute({
@@ -287,7 +301,7 @@ export async function executePaidHearthChatCompletion(
           error: error instanceof Error ? error.message : String(error),
         });
       }
-      lastProviderResult = { requestId: providerRequestId, input: usage.input, output: usage.output };
+      providerEvidence.latest = { requestId: providerRequestId, input: usage.input, output: usage.output };
       return {
         value,
         requestId: providerRequestId,
@@ -309,7 +323,8 @@ export async function executePaidHearthChatCompletion(
       if (!value.assistantText.trim() && value.ops.length === 0) throw new Error("Hearth result is not usable");
     },
     persistResult: async (value) => {
-      if (!lastProviderResult) throw new Error("Provider evidence missing before persistence");
+      const providerResult = providerEvidence.latest;
+      if (!providerResult) throw new Error("Provider evidence missing before persistence");
       const resultJson = {
         assistantText: value.assistantText,
         ops: value.ops,
@@ -325,10 +340,10 @@ export async function executePaidHearthChatCompletion(
         p_workspace_id: args.workspaceId,
         p_workpiece_id: args.workpieceId,
         p_request_fingerprint: args.handle.requestFingerprint,
-        p_provider_request_id: lastProviderResult.requestId,
+        p_provider_request_id: providerResult.requestId,
         p_model: context.model,
-        p_input_units: lastProviderResult.input,
-        p_output_units: lastProviderResult.output,
+        p_input_units: providerResult.input,
+        p_output_units: providerResult.output,
         p_result_hash: resultHash,
         p_result_json: resultJson,
       });
@@ -342,8 +357,8 @@ export async function executePaidHearthChatCompletion(
       requestId: outcome.requestId,
       attempts: outcome.attempts,
       customerChargeMicros: outcome.customerChargeMicros,
-      inputUnits: lastProviderResult?.input ?? 0,
-      outputUnits: lastProviderResult?.output ?? 0,
+      inputUnits: providerEvidence.latest?.input ?? 0,
+      outputUnits: providerEvidence.latest?.output ?? 0,
       context,
     };
   }
