@@ -48,6 +48,7 @@ try {
   psql(readFileSync("supabase/tests/openai_hearth_luna_pilot_proposal.sql", "utf8"), "OpenAI Luna pilot proposal proof");
   psql(readFileSync("supabase/tests/openai_hearth_luna_pilot_control.sql", "utf8"), "OpenAI Luna pilot control proof");
   psql(readFileSync("supabase/migrations/20260923120000_tongs_customer_hearth_luna_canary.sql", "utf8"), "customer Hearth Luna canary migration");
+  psql(readFileSync("supabase/migrations/20260923140000_tongs_owner_pricing_rounded_customer_ceiling.sql", "utf8"), "rounded owner customer-pricing report migration");
   psql(readFileSync("supabase/tests/customer_hearth_luna_canary.sql", "utf8"), "customer Hearth Luna canary proof");
   console.log(JSON.stringify({
     isolated_database: true,

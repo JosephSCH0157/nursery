@@ -61,6 +61,28 @@ select tongs.activate_customer_hearth_chat_luna_test(
   'ce000000-0000-4000-8000-000000000022','10000000-0000-4000-8000-000000000010',
   'ce000000-0000-4000-8000-000000000025',now()+interval '1 hour','isolated customer canary activation');
 
+reset role;
+set local request.jwt.claim.role='authenticated';
+set local request.jwt.claim.sub='ce000000-0000-4000-8000-000000000001';
+set local role authenticated;
+do $$ declare v_preview jsonb; v_console jsonb; v_luna jsonb; begin
+  v_preview:=tongs.preview_private_price('ce000000-0000-4000-8000-000000000022');
+  v_console:=tongs.read_owner_billing_console(50);
+  select item into v_luna from jsonb_array_elements(v_console->'pricing_revisions') item
+    where item->>'pricing_revision_id'='ce000000-0000-4000-8000-000000000022';
+  if (v_preview->>'customer_price_ceiling_micros')::bigint<>20000
+     or (v_preview->>'expected_margin_micros')::bigint<>8985
+     or (v_luna->>'customer_price_ceiling_micros')::bigint<>20000
+     or (v_luna->>'expected_contribution_profit_micros')::bigint<>8985 then
+    raise exception 'owner pricing did not use the authoritative rounded customer ceiling';
+  end if;
+end $$;
+
+reset role;
+set local request.jwt.claim.role='service_role';
+set local request.jwt.claim.sub='';
+set local role service_role;
+
 select tongs.record_customer_deposit(
   'ce000000-0000-4000-8000-000000000030','ce000000-0000-4000-8000-000000000002',
   'evt_customer_canary','cs_customer_canary','pi_customer_canary',true,'customer_canary_pack',
