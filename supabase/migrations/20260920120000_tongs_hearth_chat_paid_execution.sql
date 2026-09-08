@@ -88,7 +88,7 @@ begin
   end if;
   select * into v_cost from tongs.openai_text_cost_policy_revisions where id=v_binding.cost_policy_revision_id;
   select * into v_rollout from tongs._current_openai_text_rollout(v_binding.route_code);
-  if not found or v_rollout.mode<>'enforce'
+  if v_cost.id is null or v_rollout.route_code is null or v_rollout.mode<>'enforce'
      or v_rollout.cost_policy_revision_id is distinct from v_binding.cost_policy_revision_id
      or v_cost.lifecycle_state not in ('pilot_candidate','active') or v_cost.cost_coverage<>'complete'
      or v_reservation.reserved_wholesale_spend_micros<>v_cost.full_cost_ceiling_micros then
@@ -195,7 +195,8 @@ begin
     where operation_id=btrim(p_operation_id) and reservation_id=p_reservation_id;
   select * into v_reservation from tongs.funding_reservations where id=p_reservation_id;
   select * into v_quote from tongs.customer_spending_quotes where id=v_reservation.quote_id;
-  if not found or v_binding.route_code<>'hearth.chat_completion'
+  if v_binding.operation_id is null or v_reservation.id is null or v_quote.id is null
+     or v_binding.route_code<>'hearth.chat_completion'
      or v_binding.model<>btrim(p_model) or v_reservation.user_id<>p_user_id or v_quote.user_id<>p_user_id
      or v_quote.workspace_id is distinct from p_workspace_id
      or v_quote.request_fingerprint<>p_request_fingerprint
@@ -254,7 +255,8 @@ begin
   select * into v_cost from tongs.openai_text_cost_policy_revisions where id=p_cost_policy_revision_id;
   select * into v_pricing from tongs.private_pricing_revisions where id=p_pricing_revision_id;
   select * into v_policy from tongs.private_pricing_policies where id=v_pricing.policy_id;
-  if v_cost.route_code<>'hearth.chat_completion' or v_cost.cost_coverage<>'complete'
+  if v_cost.id is null or v_pricing.id is null or v_policy.id is null
+     or v_cost.route_code<>'hearth.chat_completion' or v_cost.cost_coverage<>'complete'
      or v_cost.lifecycle_state<>'pilot_candidate' or v_cost.maximum_attempts<>1
      or v_pricing.currency<>'USD' or v_pricing.full_cost_ceiling_micros<>v_cost.full_cost_ceiling_micros
      or lower(coalesce(v_policy.provider,''))<>'openai'
@@ -328,7 +330,8 @@ begin
   select * into v_budget from tongs.owner_operating_budgets where id=p_budget_id;
   select * into v_budget_revision from tongs.owner_operating_budget_revisions
     where budget_id=p_budget_id order by revision desc limit 1;
-  if not found or v_budget_revision.status<>'active' or v_budget_revision.maximum_amount_micros<>30000
+  if v_cost.id is null or v_budget.id is null or v_budget_revision.budget_id is null
+     or v_budget_revision.status<>'active' or v_budget_revision.maximum_amount_micros<>30000
      or v_budget.environment<>'production' or v_budget.workspace_id is distinct from p_workspace_id
      or lower(coalesce(v_budget.provider,''))<>'openai'
      or lower(coalesce(v_budget.route,''))<>'hearth.chat_completion'
