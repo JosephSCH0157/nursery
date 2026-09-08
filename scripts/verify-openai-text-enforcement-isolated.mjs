@@ -16,6 +16,7 @@ const migrations = [
   "supabase/migrations/20260920120000_tongs_hearth_chat_paid_execution.sql",
   "supabase/migrations/20260921120000_tongs_openai_hearth_owner_pilot_control.sql",
   "supabase/migrations/20260922120000_tongs_openai_hearth_luna_pilot_proposal.sql",
+  "supabase/migrations/20260922130000_tongs_openai_hearth_luna_pilot_control.sql",
 ];
 
 function docker(args, input) {
@@ -41,6 +42,7 @@ try {
   psql(readFileSync("supabase/tests/openai_text_enforcement_foundation.sql", "utf8"), "OpenAI enforcement proof");
   psql(readFileSync("supabase/tests/openai_hearth_owner_pilot_control.sql", "utf8"), "OpenAI owner pilot control proof");
   psql(readFileSync("supabase/tests/openai_hearth_luna_pilot_proposal.sql", "utf8"), "OpenAI Luna pilot proposal proof");
+  psql(readFileSync("supabase/tests/openai_hearth_luna_pilot_control.sql", "utf8"), "OpenAI Luna pilot control proof");
   console.log(JSON.stringify({
     isolated_database: true,
     exact_rate_revisions: "passed",
@@ -56,6 +58,7 @@ try {
     owner_pilot_activation_and_closure: "passed",
     luna_model_metadata_access: "passed",
     luna_inactive_proposal: "awaiting_owner_approval",
+    luna_exact_one_reservation_control: "passed",
   }));
 } finally {
   docker(["exec", container, "dropdb", "-U", "postgres", "--if-exists", database]);
