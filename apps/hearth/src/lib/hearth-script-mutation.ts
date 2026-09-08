@@ -28,14 +28,35 @@ const UPDATE_OUTLINE_PATTERN = /\b(update|rewrite|revise|redo|rework|tighten)\b[
 const DRAFT_SCRIPT_PATTERN = /\b(full script|write\b|draft\b|script this|turn\b|shape\b|make\b)\b/;
 const FORMAT_ONLY_PATTERN = /(?:\breformat\b|\bformat(?:ting)?\s+only\b|\bfix\s+(?:the\s+)?line\s*breaks?\b|\bmake\s+(?:this(?:\s+(?:script|draft))?|it|the\s+(?:script|draft))\s+anvil[- ]ready\b|\bnormalize\s+(?:the\s+)?speaker\s+blocks?\b|\brepair\s+(?:the\s+)?formatting\b|\bformat\b[^.!?\n]{0,50}\bwithout\s+changing\s+(?:the\s+)?wording\b)/;
 const EDITORIAL_CHANGE_PATTERN = /(?:\b(rewrite|redo|rework|revise|edit|polish|tighten|shorten|improve|punch up|integrate|merge|fold in|replace)\b|\b(?:add|include)\b[^.!?\n]{0,40}\b(?:words?|joke|section|research|detail|example|source|fact|point|story)\b)/;
+const EXPLICIT_MUTATION_COMMAND_PATTERN = /(?:^|[.!?;]\s+)(?:okay[, ]+)?(?:please\s+|go ahead (?:and|to)\s+)?(?:update|revise|rewrite|edit|replace|rework|redo|integrate|merge|add|include|write|draft)\b[^.!?;\n]{0,80}\b(?:script|draft|outline|section|intro|opening|ending|cold open|segment|body|bullet(?:\s+points?)?|beats?)\b|\b(?:please|can you|could you|would you|i want you to|i need you to|go ahead (?:and|to))\s+(?:actually\s+)?(?:update|revise|rewrite|edit|replace|rework|redo|integrate|merge|add|include|write|draft)\b[^.!?;\n]{0,80}\b(?:script|draft|outline|section|intro|opening|ending|cold open|segment|body|bullet(?:\s+points?)?|beats?)\b/;
+const NEGATED_MUTATION_PATTERN = /\b(?:do not|don't|did not|didn't|not asking|not ask|not ready|without)\b[^.!?;,\n]{0,90}\b(?:update|change|revise|rewrite|edit|replace|rework|redo|integrate|merge|add|include|put|apply|create|write|draft|touch|modify|reformat|format|normalize|repair|fix)\b/;
+const EDITORIAL_DISCUSSION_PATTERN = /(?:\bhow\s+(?:do|can|could|should|would)\s+(?:we|i)\b[^.!?\n]{0,100}\b(?:update|change|revise|rewrite|edit|make|get|frame|move|strengthen|improve|reformat|format)\b|\bwhat\s+(?:changes?\s+)?(?:can|could|should|would)\s+(?:we|i|you)\b|\bwhat\s+would\s+you\s+(?:change|revise|rewrite|edit|move|improve)\b|\bshould\s+(?:we|i)\s+(?:move|update|change|revise|rewrite|edit)\b|\b(?:talk|discuss|conversation|brainstorm)\b[^.!?\n]{0,100}\b(?:change|changes|update|revise|rewrite|edit|script|draft|section|framing)\b)/;
+const APPLY_CHANGES_PATTERN = /\bapply\s+(?:those|these|the|that|your|proposed)\s+changes\b/;
+const CREATE_VERSION_PATTERN = /\bcreate\s+(?:a\s+)?(?:new\s+)?version\s+(?:\d+|two|three|four|five)\b/;
+const PUT_IN_SCRIPT_PATTERN = /\bput\s+(?:that|this|those|these|it)\s+(?:into|in)\s+(?:the\s+)?(?:script|draft|section|intro|opening|ending|body)\b/;
 
 function normalizeMutationText(text: string): string {
-  return text.replace(/\s+/g, " ").trim().toLowerCase();
+  return text.replace(/[‘’]/g, "'").replace(/\s+/g, " ").trim().toLowerCase();
 }
 
 export function detectHearthScriptMutationIntent(text: string): HearthScriptMutationIntent {
   const normalized = normalizeMutationText(text);
   if (!normalized) {
+    return {
+      destination: "chat",
+      kind: null,
+      targetsScriptBody: false,
+    };
+  }
+
+  const hasExplicitMutationCommand = EXPLICIT_MUTATION_COMMAND_PATTERN.test(normalized)
+    || APPLY_CHANGES_PATTERN.test(normalized)
+    || CREATE_VERSION_PATTERN.test(normalized)
+    || PUT_IN_SCRIPT_PATTERN.test(normalized);
+  if (!hasExplicitMutationCommand && (
+    NEGATED_MUTATION_PATTERN.test(normalized)
+    || EDITORIAL_DISCUSSION_PATTERN.test(normalized)
+  )) {
     return {
       destination: "chat",
       kind: null,
@@ -75,6 +96,22 @@ export function detectHearthScriptMutationIntent(text: string): HearthScriptMuta
     return {
       destination: "script_body",
       kind: "integrate",
+      targetsScriptBody: true,
+    };
+  }
+
+  if (PUT_IN_SCRIPT_PATTERN.test(normalized)) {
+    return {
+      destination: "script_body",
+      kind: "integrate",
+      targetsScriptBody: true,
+    };
+  }
+
+  if (APPLY_CHANGES_PATTERN.test(normalized) || CREATE_VERSION_PATTERN.test(normalized)) {
+    return {
+      destination: "script_body",
+      kind: "revise",
       targetsScriptBody: true,
     };
   }
@@ -134,7 +171,10 @@ export function resolveHearthScriptMutationRouting<TOp extends { op: string; val
     autosaveReasonCode: args.autosaveReasonCode,
     ops: args.ops,
   });
-  const proposalOps = keepOutlineInChatOnly ? [] : args.ops;
+  const candidateProposalOps = keepOutlineInChatOnly ? [] : args.ops;
+  const proposalOps = !args.productionAction && !args.intent.targetsScriptBody
+    ? candidateProposalOps.filter((op) => op.op !== "set_body")
+    : candidateProposalOps;
   const hasScriptBodyProposal = proposalOps.some((op) => (
     op.op === "set_body"
     && typeof op.value === "string"

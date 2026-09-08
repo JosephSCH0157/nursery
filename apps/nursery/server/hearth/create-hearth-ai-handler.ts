@@ -1464,6 +1464,8 @@ function buildSystemPrompt(
     "- Avoid endings that push work back to the user unnecessarily.",
     "- Use ops only for concrete edits requested by the user.",
     "- If the user only asks a question, return ops as [].",
+    "- Conversation-versus-mutation rule: questions about how, what, or whether to change a script are editorial discussion. Answer with analysis and suggestions in assistantText and return no set_body op. Only produce set_body when the creator affirmatively asks you to apply, update, revise, rewrite, or create a script version.",
+    "- Explicit no-edit language such as 'do not edit it yet' or 'I did not ask you to update it' always remains discussion, even when the same message mentions possible script changes.",
     "- For outline requests, prefer set_outline only and do not emit set_body unless explicitly asked for a full script.",
     "Artifact presence invariant (hard rule): Never claim that you produced an outline, script, draft, or composed material unless substantive requested content is present in this same response.",
     "- For a creator-authored outline or bullet-points request, return either a non-empty set_outline op containing actual bullets/sections or put the actual bullets/sections in assistantText. An introductory sentence alone is invalid.",

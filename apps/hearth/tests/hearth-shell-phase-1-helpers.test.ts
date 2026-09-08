@@ -250,3 +250,19 @@ test("planning helpers never render a phantom outline or script completion", () 
     scriptMutationReady: false,
   }), /- Open on the empty block/);
 });
+
+test("Church Street clarification renders editorial discussion instead of a script failure", () => {
+  const creatorText = "okay I mean I didn't ask you to actually update the script I'm having a conversation with you about how we can update the script what changes can we make to get those points across";
+  const assistantText = "The stronger move is to contrast the Canopy spending with what a rider actually finds at Church Street, then use the missing budget number as the unanswered accountability question.";
+  const signals = detectChatIntentSignals(creatorText);
+
+  assert.equal(signals.scriptMutationIntent.targetsScriptBody, false);
+  assert.equal(signals.hasDeliverable, false);
+  assert.equal(buildAssistantMessageContent({
+    assistantText,
+    ops: [],
+    autosaveReasonCode: detectAiAutosaveReasonCode(creatorText),
+    scriptMutationRequested: signals.scriptMutationIntent.targetsScriptBody,
+    scriptMutationReady: false,
+  }), assistantText);
+});

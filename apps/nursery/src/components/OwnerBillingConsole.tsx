@@ -28,11 +28,12 @@ type BillingConsole = {
     customer_deposits?: JsonRecord[]; subscription_receipts?: JsonRecord[]; deposit_consumptions?: JsonRecord[];
     allowance_consumptions?: JsonRecord[]; owner_expenses?: JsonRecord[];
   }; pricing_discrepancies: JsonRecord[];
+  failure_financials: JsonRecord[];
 };
 type RpcClient = { rpc: (name: string, args: JsonRecord) => Promise<{ data: unknown; error: { message: string } | null }> };
 
 const client = tongsSupabase as unknown as RpcClient;
-const emptyConsole: BillingConsole = { control: {}, runway_rollout: {}, markup_rule_revisions: [], pricing_revisions: [], operations: [], funding_activity: {}, pricing_discrepancies: [] };
+const emptyConsole: BillingConsole = { control: {}, runway_rollout: {}, markup_rule_revisions: [], pricing_revisions: [], operations: [], funding_activity: {}, pricing_discrepancies: [], failure_financials: [] };
 
 function money(value: number | null | undefined, currency = "USD") {
   return value == null ? "Unavailable" : formatCurrencyMicros(value, currency);
@@ -53,6 +54,7 @@ function asConsole(value: unknown): BillingConsole {
     operations: Array.isArray(row.operations) ? row.operations : [],
     funding_activity: row.funding_activity ?? {},
     pricing_discrepancies: Array.isArray(row.pricing_discrepancies) ? row.pricing_discrepancies : [],
+    failure_financials: Array.isArray(row.failure_financials) ? row.failure_financials : [],
   };
 }
 
@@ -61,7 +63,7 @@ export default function OwnerBillingConsole() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const [defaultMarkup, setDefaultMarkup] = useState("");
+  const [defaultMarkup, setDefaultMarkup] = useState("33");
   const [overrides, setOverrides] = useState<Array<{ scope: "provider" | "sku"; provider: string; sku: string; percentage: string }>>([]);
   const [changeReason, setChangeReason] = useState("");
   const [sku, setSku] = useState("gen4.5:5s:1280:720");
@@ -77,17 +79,20 @@ export default function OwnerBillingConsole() {
 
   const refresh = useCallback(async () => {
     setLoading(true); setError(null);
-    const result = await client.rpc("read_owner_billing_console", { p_limit: 250 });
-    if (result.error) setError(result.error.message);
-    else setData(asConsole(result.data));
+    const [result, failureResult] = await Promise.all([
+      client.rpc("read_owner_billing_console", { p_limit: 250 }),
+      client.rpc("read_failure_financials", { p_limit: 250 }),
+    ]);
+    if (result.error || failureResult.error) setError(result.error?.message ?? failureResult.error?.message ?? "Unable to load owner billing data.");
+    else setData({ ...asConsole(result.data), failure_financials: Array.isArray(failureResult.data) ? failureResult.data as JsonRecord[] : [] });
     setLoading(false);
   }, []);
   useEffect(() => {
     let cancelled = false;
-    void client.rpc("read_owner_billing_console", { p_limit: 250 }).then((result) => {
+    void Promise.all([client.rpc("read_owner_billing_console", { p_limit: 250 }), client.rpc("read_failure_financials", { p_limit: 250 })]).then(([result, failureResult]) => {
       if (cancelled) return;
-      if (result.error) setError(result.error.message);
-      else setData(asConsole(result.data));
+      if (result.error || failureResult.error) setError(result.error?.message ?? failureResult.error?.message ?? "Unable to load owner billing data.");
+      else setData({ ...asConsole(result.data), failure_financials: Array.isArray(failureResult.data) ? failureResult.data as JsonRecord[] : [] });
       setLoading(false);
     });
     return () => { cancelled = true; };
@@ -135,8 +140,8 @@ export default function OwnerBillingConsole() {
       p_policy_code: `runway:${sku.toLowerCase()}`, p_scope_kind: "sku", p_provider: "runway", p_sku: sku.toLowerCase(),
       p_expected_revision: existing?.revision ?? 0, p_revision_id: revisionId, p_customer_credit_units: units,
       p_currency: "USD", p_cost_components: components,
-      p_billable_failure_classes: (failure ?? 0) > 0 ? ["provider_billed_failure"] : [],
-      p_free_failure_classes: ["pre_billing_rejection", "forge_validation_failure"],
+      p_billable_failure_classes: [],
+      p_free_failure_classes: ["forge_failure", "provider_failure", "provider_billed_failure", "unknown_fault", "prebilling_rejection", "forge_validation_failure", "persistence_failure"],
       p_included_quantity: { model: sku.split(":")[0], duration_seconds: Number(sku.match(/:(\d+)s:/)?.[1] ?? 0), ratio: sku.split(":").slice(-2).join(":") },
       p_retention_policy: { kind: "included_until", duration_hours: 24 }, p_change_reason: pricingReason.trim(),
     });
@@ -158,13 +163,13 @@ export default function OwnerBillingConsole() {
   };
 
   return <section className="ledger-owner-console" aria-label="Owner billing console" data-testid="owner-billing-console">
-    <div className="ledger-route__owner-head"><div><h3>Private pricing and financial control</h3><p className="ledger-card__hint">Platform-operator only. Markup is the percentage added to cost; profit margin is contribution profit divided by customer revenue. They are not the same percentage.</p></div><button type="button" onClick={() => void refresh()} disabled={loading}>Refresh</button></div>
+    <div className="ledger-route__owner-head"><div><h3>Private pricing and financial control</h3><p className="ledger-card__hint">Platform-operator only. Markup is added to the complete cost basis; profit margin is contribution profit divided by customer revenue. A 33% markup means price = cost × 1.33 before customer-price rounding—not a 33% margin.</p></div><button type="button" onClick={() => void refresh()} disabled={loading}>Refresh</button></div>
     {error ? <div className="ledger-route__error" role="alert">{error}</div> : null}
     {notice ? <div className="ledger-route__notice" role="status">{notice}</div> : null}
     <div className="ledger-owner-console__status"><span>Customer pricing: {data.control.pricing_activation_enabled === true ? "enabled" : "disabled"}</span><span>Customer settlement: {data.control.customer_settlement_enabled === true ? "enabled" : "disabled"}</span><span>Runway: {String(data.runway_rollout.mode ?? "unknown")}</span></div>
 
     <details open className="ledger-owner-console__section"><summary>1. Versioned markup-on-cost rules</summary>
-      <p className="ledger-card__hint">These private rules are server records. Saving them does not publish prices.</p>
+      <p className="ledger-card__hint">These private rules are server records. Saving them does not publish prices. Customer prices preserve micro precision through cost-plus calculation, then round upward to the next USD cent.</p>
       <div className="ledger-owner-console__form"><label>Default markup percentage<input inputMode="decimal" value={defaultMarkup} onChange={(event) => setDefaultMarkup(event.target.value)} placeholder={latestRules ? String(latestRules.default_markup_basis_points / 100) : "No value configured"} /></label><label>Change reason<input value={changeReason} onChange={(event) => setChangeReason(event.target.value)} /></label></div>
       {overrides.map((override, index) => <div className="ledger-owner-console__override" key={index}><select value={override.scope} onChange={(event) => setOverrides((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, scope: event.target.value as "provider" | "sku" } : row))}><option value="provider">Provider override</option><option value="sku">SKU override</option></select><input value={override.provider} onChange={(event) => setOverrides((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, provider: event.target.value } : row))} placeholder="Provider" />{override.scope === "sku" ? <input value={override.sku} onChange={(event) => setOverrides((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, sku: event.target.value } : row))} placeholder="SKU" /> : null}<input inputMode="decimal" value={override.percentage} onChange={(event) => setOverrides((rows) => rows.map((row, rowIndex) => rowIndex === index ? { ...row, percentage: event.target.value } : row))} placeholder="Markup %" /><button type="button" onClick={() => setOverrides((rows) => rows.filter((_, rowIndex) => rowIndex !== index))}>Remove</button></div>)}
       <div className="ledger-owner-console__actions"><button type="button" onClick={() => setOverrides((rows) => [...rows, { scope: "provider", provider: "", sku: "", percentage: "" }])}>Add provider override</button><button type="button" onClick={() => setOverrides((rows) => [...rows, { scope: "sku", provider: "", sku: "", percentage: "" }])}>Add SKU override</button><button type="button" onClick={() => void saveMarkupRules()}>Save private rule version</button></div>
@@ -173,15 +178,18 @@ export default function OwnerBillingConsole() {
 
     <details className="ledger-owner-console__section"><summary>2. Create Runway SKU price version</summary>
       <p className="ledger-card__hint">Enter currency micros (1,000,000 = $1.00). No cost or markup is seeded by the app.</p>
-      <div className="ledger-owner-console__form"><label>Runway SKU<input value={sku} onChange={(event) => setSku(event.target.value)} /></label><label>Direct-provider ceiling<input inputMode="numeric" value={directCost} onChange={(event) => setDirectCost(event.target.value)} /></label><label>Supporting-cost ceiling<input inputMode="numeric" value={supportCost} onChange={(event) => setSupportCost(event.target.value)} /></label><label>Payment-cost allocation<input inputMode="numeric" value={paymentCost} onChange={(event) => setPaymentCost(event.target.value)} /></label><label>24-hour retention allocation<input inputMode="numeric" value={retentionCost} onChange={(event) => setRetentionCost(event.target.value)} /></label><label>Billable-failure cost ceiling<input inputMode="numeric" value={failureCost} onChange={(event) => setFailureCost(event.target.value)} /></label><label>AI credit units<input inputMode="numeric" value={creditUnits} onChange={(event) => setCreditUnits(event.target.value)} /></label><label>Change reason<input value={pricingReason} onChange={(event) => setPricingReason(event.target.value)} /></label></div>
+      <div className="ledger-owner-console__form"><label>Runway SKU<input value={sku} onChange={(event) => setSku(event.target.value)} /></label><label>Direct-provider ceiling<input inputMode="numeric" value={directCost} onChange={(event) => setDirectCost(event.target.value)} /></label><label>Supporting-cost ceiling<input inputMode="numeric" value={supportCost} onChange={(event) => setSupportCost(event.target.value)} /></label><label>Payment-cost allocation<input inputMode="numeric" value={paymentCost} onChange={(event) => setPaymentCost(event.target.value)} /></label><label>24-hour retention allocation<input inputMode="numeric" value={retentionCost} onChange={(event) => setRetentionCost(event.target.value)} /></label><label>Forge failure exposure ceiling<input inputMode="numeric" value={failureCost} onChange={(event) => setFailureCost(event.target.value)} /></label><label>AI credit units<input inputMode="numeric" value={creditUnits} onChange={(event) => setCreditUnits(event.target.value)} /></label><label>Change reason<input value={pricingReason} onChange={(event) => setPricingReason(event.target.value)} /></label></div>
+      <p className="ledger-card__hint">Forge-caused, provider-caused, validation, persistence, and unknown-fault failures charge the customer $0. Supplier charges remain Forge expenses. Uncertain submissions stay reserved for reconciliation and are never automatically resubmitted.</p>
       <button type="button" onClick={() => void createPricingVersion()}>Create version and preview</button>
     </details>
 
-    {preview ? <section className="ledger-owner-console__preview" aria-label="Private price preview"><h4>Owner-only preview</h4><div className="ledger-owner-console__metrics"><span>Full cost ceiling<strong>{money(Number(preview.full_cost_ceiling_micros ?? 0), String(preview.currency ?? "USD"))}</strong></span><span>Customer maximum<strong>{money(Number(preview.customer_price_ceiling_micros ?? 0), String(preview.currency ?? "USD"))}</strong></span><span>Markup on cost<strong>{pctFromBps(Number(preview.markup_basis_points ?? 0))}</strong></span><span>Expected contribution profit<strong>{money(Number(preview.expected_margin_micros ?? 0), String(preview.currency ?? "USD"))}</strong></span><span>Expected contribution margin<strong>{preview.expected_margin_percentage == null ? "Unavailable" : `${Number(preview.expected_margin_percentage).toFixed(2)}%`}</strong></span></div><p className="ledger-card__hint">Contribution profit excludes baseline corporate overhead. Publishing does not bypass customer-spending activation.</p></section> : null}
+    {preview ? <section className="ledger-owner-console__preview" aria-label="Private price preview"><h4>Owner-only preview</h4><div className="ledger-owner-console__metrics"><span>Full cost ceiling<strong>{money(Number(preview.full_cost_ceiling_micros ?? 0), String(preview.currency ?? "USD"))}</strong></span><span>Customer maximum<strong>{money(Number(preview.customer_price_ceiling_micros ?? 0), String(preview.currency ?? "USD"))}</strong></span><span>Failure customer maximum<strong>$0.00</strong></span><span>Markup on cost<strong>{pctFromBps(Number(preview.markup_basis_points ?? 0))}</strong></span><span>Expected contribution profit<strong>{money(Number(preview.expected_margin_micros ?? 0), String(preview.currency ?? "USD"))}</strong></span><span>Expected contribution margin<strong>{preview.expected_margin_percentage == null ? "Unavailable" : `${Number(preview.expected_margin_percentage).toFixed(2)}%`}</strong></span></div><p className="ledger-card__hint">Contribution profit excludes baseline corporate overhead. Publishing does not bypass customer-spending activation.</p></section> : null}
 
     <section className="ledger-owner-console__section"><h4>Pricing versions</h4>{data.pricing_revisions.length === 0 ? <p className="ledger-route__empty">No pricing versions exist. Production customer prices are unpublished.</p> : <ul className="ledger-route__operation-list">{data.pricing_revisions.map((revision) => <li key={revision.pricing_revision_id} className="ledger-route__operation-row"><div><strong>{revision.provider ?? "Default"} · {revision.sku ?? revision.scope_kind}</strong><span>Revision {revision.revision} · {revision.publication_state}</span><small>{revision.created_at ? new Date(revision.created_at).toLocaleString() : "Time unavailable"}</small></div><div className="ledger-route__operation-evidence"><span>Cost {money(revision.full_cost_ceiling_micros, revision.currency)}</span><span>Customer maximum {money(revision.customer_price_ceiling_micros, revision.currency)}</span><span>Markup on cost {pctFromBps(revision.markup_basis_points)}</span><span>Expected profit {money(revision.expected_contribution_profit_micros, revision.currency)} · margin {revision.expected_contribution_margin_percentage == null ? "unavailable" : `${revision.expected_contribution_margin_percentage}%`}</span><button type="button" onClick={() => void previewRevision(revision.pricing_revision_id)}>Preview</button>{revision.publication_state !== "published" ? <><label className="ledger-owner-console__approval"><input type="checkbox" checked={publishApproval === revision.pricing_revision_id} onChange={(event) => setPublishApproval(event.target.checked ? revision.pricing_revision_id : null)} />I approve this exact customer price</label><button type="button" onClick={() => void publishRevision(revision)}>Publish version</button></> : null}</div></li>)}</ul>}</section>
 
     <section className="ledger-owner-console__section"><h4>Reservations and contribution reporting</h4><p className="ledger-card__hint">Missing or estimated expenses never appear as zero-cost confirmed profit.</p>{data.operations.length === 0 ? <p className="ledger-route__empty">No shared-gate operations recorded.</p> : <ul className="ledger-route__operation-list">{data.operations.map((operation) => <li key={operation.reservation_id} className="ledger-route__operation-row"><div><strong>{operation.model ? `Runway ${operation.model}` : operation.operation_id}</strong><span>{operation.funding_source_type.replaceAll("_", " ")} · {operation.reservation_state.replaceAll("_", " ")}</span><small>{operation.provider_task_id ? `Provider task ${operation.provider_task_id}` : "No provider task recorded"}</small></div><div className="ledger-route__operation-evidence"><span>Customer charge / revenue: {money(operation.recognized_revenue_micros, operation.currency)}</span><span>Reserved cost ceiling: {money(operation.reserved_wholesale_spend_micros, operation.currency)}</span><span>Provider cost: {operation.direct_provider_actual_micros == null ? operation.direct_provider_estimated_micros == null ? "Unresolved" : `${money(operation.direct_provider_estimated_micros, operation.currency)} estimated` : `${money(operation.direct_provider_actual_micros, operation.currency)} confirmed`}</span><span>Supporting cost: {operation.supporting_actual_micros == null ? "Unresolved" : `${money(operation.supporting_actual_micros, operation.currency)} confirmed`}</span><strong>Contribution profit: {operation.contribution_profit_micros == null ? `Unavailable (${operation.expense_coverage.replaceAll("_", " ")})` : money(operation.contribution_profit_micros, operation.currency)}</strong></div></li>)}</ul>}</section>
+
+    <section className="ledger-owner-console__section"><h4>Failure relief and supplier exposure</h4><p className="ledger-card__hint">Customer relief is independent of supplier reimbursement. A missing or estimated supplier charge keeps contribution profit explicitly incomplete.</p>{data.failure_financials.length === 0 ? <p className="ledger-route__empty">No relieved or supplier-failure operations recorded.</p> : <ul className="ledger-route__operation-list">{data.failure_financials.map((row) => <li key={String(row.reservation_id)} className="ledger-route__operation-row"><div><strong>{String(row.operation_id)}</strong><span>{String(row.cost_coverage ?? "missing")} cost coverage · {String(row.obligation_status ?? "no supplier obligation recorded")}</span></div><div className="ledger-route__operation-evidence"><span>Gross customer charge: {money(Number(row.gross_customer_charge_micros ?? 0), String(row.currency ?? "USD"))}</span><span>Customer relief / revenue reversal: {money(Number(row.revenue_reversal_micros ?? 0), String(row.currency ?? "USD"))}</span><span>Net recognized revenue: {money(Number(row.recognized_revenue_micros ?? 0), String(row.currency ?? "USD"))}</span><span>Supplier expense: {row.supplier_expense_micros == null ? "Unresolved" : `${money(Number(row.supplier_expense_micros), String(row.currency ?? "USD"))} ${String(row.supplier_expense_status)}`}</span><span>Confirmed recovery: {money(Number(row.confirmed_supplier_recovery_micros ?? 0), String(row.currency ?? "USD"))}</span><strong>Contribution profit: {row.contribution_profit_micros == null ? "Unavailable (incomplete cost evidence)" : money(Number(row.contribution_profit_micros), String(row.currency ?? "USD"))}</strong></div></li>)}</ul>}</section>
 
     <section className="ledger-owner-console__section"><h4>Funding and revenue categories</h4><div className="ledger-owner-console__metrics"><span>Customer deposits<strong>{data.funding_activity.customer_deposits?.length ?? 0}</strong><small>Prepaid liability, not revenue</small></span><span>Subscription receipts<strong>{data.funding_activity.subscription_receipts?.length ?? 0}</strong><small>Separate from AI consumption</small></span><span>AI consumption revenue<strong>{(data.funding_activity.deposit_consumptions?.length ?? 0) + (data.funding_activity.allowance_consumptions?.length ?? 0)}</strong><small>Recognized once on settlement</small></span><span>Owner-funded expenses<strong>{data.funding_activity.owner_expenses?.length ?? 0}</strong><small>Zero customer revenue</small></span></div></section>
   </section>;

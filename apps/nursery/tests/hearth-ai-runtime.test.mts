@@ -2216,6 +2216,50 @@ test("createHearthAiHandler classifies creator text separately and activates lis
   }
 });
 
+test("createHearthAiHandler keeps discussion about possible script changes conversational", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+  let capturedSystemPrompt = "";
+  const firstTurn = "We still don't have the number for the actual budget for this project and the other thing is if they're going to do the canopy work under I-4 to bring people to Church Street there's no businesses at Church Street to bring them to... my point is they're spending a lot of money on a part of Orlando that is already in the past so how do we update the script to get that point across";
+  const clarification = "okay I mean I didn't ask you to actually update the script I'm having a conversation with you about how we can update the script what changes can we make to get those points across";
+  const editorialReply = "Make the budget gap the accountability question, then contrast the Canopy investment with the lack of a living destination at Church Street. That gets the point across without changing the approved script yet.";
+
+  globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as { messages?: Array<{ content?: string }> };
+    capturedSystemPrompt = body.messages?.[0]?.content ?? "";
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({ assistantText: editorialReply, ops: [], script_text: null, tag_audit: null }) } }],
+      usage: { total_tokens: 42 },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [
+          { role: "user", content: firstTurn },
+          { role: "assistant", content: "What matters most is deciding where that contrast belongs." },
+          { role: "user", content: clarification },
+        ],
+        user_authored_text: clarification,
+        episode_context: buildEpisodeContext({ title: "Church Street" }),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    assert.match(capturedSystemPrompt, /Conversation-versus-mutation rule/i);
+    const payload = await response.json();
+    assert.equal(payload.assistant_text, editorialReply);
+    assert.deepEqual(payload.ops, []);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("createHearthAiHandler acceptance prompts route to drafting flow instead of checklist gating", async () => {
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
   const originalFetch = globalThis.fetch;

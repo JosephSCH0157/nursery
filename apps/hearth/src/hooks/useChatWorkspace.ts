@@ -708,9 +708,10 @@ export function useChatWorkspaceRuntime<
         });
       }
 
+      const proposalOps = scriptMutationRouting.proposalOps as THearthOp[];
       const assistantContent = args.buildAssistantMessageContent({
         assistantText,
-        ops,
+        ops: proposalOps,
         autosaveReasonCode,
         scriptMutationRequested: intentSignals.scriptMutationIntent.targetsScriptBody,
         scriptMutationReady: scriptMutationRouting.hasScriptBodyProposal,
@@ -727,14 +728,13 @@ export function useChatWorkspaceRuntime<
         if (!args.operationAuthority.isCurrent(operation)) return;
       }
 
-      const proposalOps = scriptMutationRouting.proposalOps as THearthOp[];
       if (scriptMutationRouting.keepOutlineInChatOnly) {
         args.recordInteractionEvent("outline_generated", {
           source,
           has_outline: Boolean(args.readLatestOutlineFromOps(ops)),
           ops_count: ops.length,
         });
-      } else if (!params.productionAction && ops.some((op) => op.op === "set_body")) {
+      } else if (!params.productionAction && proposalOps.some((op) => op.op === "set_body")) {
         args.recordInteractionEvent("draft_generated", {
           source,
           ops_count: ops.length,
