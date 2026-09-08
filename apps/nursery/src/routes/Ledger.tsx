@@ -12,6 +12,7 @@ import {
 } from "../lib/owner-purchase-activity";
 import type { AppShellContext } from "./AppShell";
 import WorkspaceRequiredNotice from "./WorkspaceRequiredNotice";
+import OwnerBillingConsole from "../components/OwnerBillingConsole";
 import "./Ledger.css";
 
 type LedgerTimeRange = "today" | "7d" | "30d" | "90d";
@@ -377,6 +378,7 @@ export default function LedgerRoute() {
       </section>
 
       {ownerAccess === "operator" ? (
+        <>
         <section className="ledger-route__episodes" aria-label="Owner purchase activity">
           <div className="ledger-route__owner-head">
             <div>
@@ -425,6 +427,8 @@ export default function LedgerRoute() {
             </ul>
           )}
         </section>
+        <OwnerBillingConsole />
+        </>
       ) : null}
 
       <section className="ledger-route__episodes" aria-label="Thumbnail intelligence">

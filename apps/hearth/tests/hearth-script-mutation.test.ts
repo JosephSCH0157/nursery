@@ -78,6 +78,19 @@ test("resolveHearthScriptMutationRouting preserves body proposals for script mut
   assert.deepEqual(routing.proposalOps, [{ op: "set_body", value: body }]);
 });
 
+test("resolveHearthScriptMutationRouting rejects announcement-only body proposals", () => {
+  const routing = resolveHearthScriptMutationRouting({
+    productionAction: false,
+    autosaveReasonCode: "ai_script",
+    ops: [{ op: "set_body", value: "Here's the full script." }],
+    intent: detectHearthScriptMutationIntent("Write the full script."),
+  });
+
+  assert.equal(routing.hasScriptBodyProposal, false);
+  assert.equal(routing.missingScriptBodyMutation, true);
+  assert.deepEqual(routing.proposalOps, []);
+});
+
 test("buildNoScriptChangesExplanation stays explicit about analysis-only outcomes", () => {
   const explanation = buildNoScriptChangesExplanation(
     detectHearthScriptMutationIntent("Replace this section with something punchier."),

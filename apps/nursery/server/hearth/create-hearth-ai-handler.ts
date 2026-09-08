@@ -48,6 +48,10 @@ import {
   validateHearthProductionArtifactOutput,
 } from "../../../hearth/src/lib/hearth-production-feedback";
 import {
+  detectHearthCompositionRequest,
+  validateHearthCompositionArtifact,
+} from "../../../hearth/src/lib/hearth-composition-output";
+import {
   createHearthResearchRuntime,
   classifyResearchSourceAuthority,
   extractUrlToResearchSource,
@@ -1461,6 +1465,10 @@ function buildSystemPrompt(
     "- Use ops only for concrete edits requested by the user.",
     "- If the user only asks a question, return ops as [].",
     "- For outline requests, prefer set_outline only and do not emit set_body unless explicitly asked for a full script.",
+    "Artifact presence invariant (hard rule): Never claim that you produced an outline, script, draft, or composed material unless substantive requested content is present in this same response.",
+    "- For a creator-authored outline or bullet-points request, return either a non-empty set_outline op containing actual bullets/sections or put the actual bullets/sections in assistantText. An introductory sentence alone is invalid.",
+    "- For a creator-authored full-script or Compose request, return substantive script_text/set_body content in canonical Anvil form. An introductory sentence alone is invalid.",
+    "- If you cannot produce the requested artifact, state that generation failed or remained incomplete. Never substitute a preamble describing a nonexistent artifact.",
     "- Do not invent source ids for update/remove ops.",
     "- When proposing or returning a script body, include script_text and tag_audit.",
     "- tag_audit must briefly confirm closure, standalone tags, and no markdown/random markup.",
@@ -3541,6 +3549,19 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       // writing-format or tone instructions appended to the provider message.
       const requestText = readOptionalString(bodyRaw.user_authored_text)
         ?? stripHearthInternalRequestInstructions(latestUserMessage?.content ?? "");
+      const compositionRequestKind = detectHearthCompositionRequest(requestText);
+      const compositionProviderFailureResponse = (providerStatus: number | null): Response | null => {
+        if (!compositionRequestKind) return null;
+        return jsonResponse(502, {
+          ok: false,
+          error: compositionRequestKind === "outline"
+            ? "Hearth couldn't generate the outline because the provider request failed."
+            : "Hearth couldn't generate the requested composition because the provider request failed.",
+          code: "provider_request_failed",
+          provider_status: providerStatus,
+          ...buildBillingSnapshot(lane),
+        });
+      };
       const userId = await resolveUserId(bearerToken);
       const chatFeature = classifyChatFeature(requestText);
       const requestedReasoningEffort = isRecord(bodyRaw.behavior)
@@ -4134,6 +4155,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           if (clientAborted || upstreamAbort.signal.aborted) {
             return new Response(null, { status: 499 });
           }
+          const providerFailure = compositionProviderFailureResponse(null);
+          if (providerFailure) return providerFailure;
           throw error;
         }
 
@@ -4155,6 +4178,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               if (clientAborted || upstreamAbort.signal.aborted) {
                 return new Response(null, { status: 499 });
               }
+              const providerFailure = compositionProviderFailureResponse(null);
+              if (providerFailure) return providerFailure;
               throw error;
             }
 
@@ -4182,6 +4207,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 if (clientAborted || upstreamAbort.signal.aborted) {
                   return new Response(null, { status: 499 });
                 }
+                const providerFailure = compositionProviderFailureResponse(null);
+                if (providerFailure) return providerFailure;
                 throw error;
               }
               if (clientAborted) return new Response(null, { status: 499 });
@@ -4197,6 +4224,8 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           if (!upstream.ok) {
             const upstreamMessage = readUpstreamErrorMessage(detail) ?? "OpenAI error";
             const status = upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502;
+            const providerFailure = compositionProviderFailureResponse(upstream.status);
+            if (providerFailure) return providerFailure;
             return jsonResponse(status, {
               ok: false,
               error: upstreamMessage,
@@ -4287,6 +4316,76 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           requestText: researchIntentText || requestText,
         });
         structured.assistantText = sanitizeHearthUserFacingOutput(structured.assistantText);
+
+        let compositionValidation = validateHearthCompositionArtifact({
+          requestText,
+          assistantText: structured.assistantText,
+          ops: structured.ops,
+        });
+        let compositionRepairAttempted = false;
+        if (
+          !productionAction
+          && !compositionValidation.ok
+          && compositionRequestKind
+          && !researchModeRequested
+          && !readinessCheckRequested
+          && !crossProjectReference.detected
+        ) {
+          compositionRepairAttempted = true;
+          const repairInstruction = compositionRequestKind === "outline"
+            ? [
+                "Your prior response announced an outline but did not contain one.",
+                "Return ONLY valid JSON in the required Hearth response shape.",
+                "Include either actual bullet/section content in assistantText or a set_outline operation whose value contains actual bullets.",
+                "At least one line must begin with -, *, •, or a number, or be a clearly labeled section with substantive content.",
+                "Do not return an introductory sentence without the outline.",
+              ].join("\n")
+            : [
+                "Your prior response announced composed script material but did not contain a usable script artifact.",
+                "Return ONLY valid JSON in the required Hearth response shape.",
+                "Include substantive canonical Anvil script content in script_text and a matching set_body operation.",
+                "Do not return an introductory sentence without the script content.",
+              ].join("\n");
+          const repairMessages: ChatMessage[] = [
+            ...completionMessages,
+            { role: "assistant", content: rawReply },
+            { role: "user", content: repairInstruction },
+          ];
+          let repairUpstream: Response | null = null;
+          try {
+            repairUpstream = await callOpenAi(model, usedTemperatureOverride, repairMessages);
+          } catch {
+            repairUpstream = null;
+          }
+          if (repairUpstream?.ok) {
+            const repairPayload = (await repairUpstream.json()) as unknown;
+            const repairRawReply = extractAssistantReply(repairPayload);
+            const repairStructured = normalizeStructuredReply(repairRawReply) ?? {
+              assistantText: repairRawReply,
+              ops: [],
+              scriptText: null,
+              tagAudit: null,
+              researchArtifact: null,
+            };
+            repairStructured.assistantText = enforceHearthEditorialHonesty({
+              assistantText: repairStructured.assistantText,
+              requestText,
+            });
+            repairStructured.assistantText = sanitizeHearthUserFacingOutput(repairStructured.assistantText);
+            const repairedValidation = validateHearthCompositionArtifact({
+              requestText,
+              assistantText: repairStructured.assistantText,
+              ops: repairStructured.ops,
+            });
+            if (repairedValidation.ok) {
+              payload = repairPayload;
+              rawReply = repairRawReply;
+              structured = repairStructured;
+              compositionValidation = repairedValidation;
+              upstream = repairUpstream;
+            }
+          }
+        }
 
         if (productionAction === "seo" || productionAction === "tags" || productionAction === "thumbnails") {
           let productionValidation = validateHearthProductionArtifactOutput({
@@ -4446,6 +4545,51 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               ...resolutionSnapshot,
             });
           }
+        }
+
+        if (!productionAction && !compositionValidation.ok) {
+          const rejectedTokens = extractTotalTokens(payload) ?? estimateTokenFallback(messages, rawReply);
+          const rejectedAccounting = buildUsageAccounting({
+            model,
+            payload,
+            fallbackTotalTokens: rejectedTokens,
+            preflightEstimatedCostUsd: aiRoute.estimatedCostUsd,
+            billableMode: "non-billable",
+          });
+          await recordAiUsageEvent({
+            userId,
+            lane: effectiveLane,
+            provider: "openai",
+            workspaceId: episodeContext.workspaceId,
+            workpieceId: episodeContext.episodeId,
+            sessionId: null,
+            feature: chatFeature.feature,
+            subfeature: chatFeature.subfeature,
+            model,
+            reasoningEffort,
+            inputTokens: rejectedAccounting.inputTokens,
+            outputTokens: rejectedAccounting.outputTokens,
+            totalTokens: rejectedTokens,
+            estimatedCostUsd: rejectedAccounting.estimatedCostUsd,
+            actualCostUsd: rejectedAccounting.estimatedCostUsd,
+            billableTokens: 0,
+            trigger: AI_USAGE_TRIGGER.USER,
+            status: AI_USAGE_STATUS.ERROR,
+            ...usageAttribution,
+            actionId: chatActionId,
+            providerRequestId: upstream.headers.get("x-request-id"),
+            correlationId: chatActionId,
+          });
+          return jsonResponse(422, {
+            ok: false,
+            error: compositionValidation.error,
+            code: "invalid_composition_output",
+            artifact_kind: compositionValidation.kind,
+            repair_attempted: compositionRepairAttempted,
+            billable_tokens: 0,
+            ...buildBillingSnapshot(lane),
+            ...resolutionSnapshot,
+          });
         }
 
         if (!structured.assistantText && structured.ops.length === 0) {

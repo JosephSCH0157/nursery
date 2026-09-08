@@ -439,6 +439,8 @@ test("createHearthAiHandler sends collaborator-style system prompt to upstream m
     assert.match(capturedSystemPrompt, /No paragraph-style writing/i);
     assert.match(capturedSystemPrompt, /If ANY of these fail, you must regenerate the output/i);
     assert.match(capturedSystemPrompt, /Rebuild the script\. Do NOT preserve paragraph structure/i);
+    assert.match(capturedSystemPrompt, /Artifact presence invariant \(hard rule\)/i);
+    assert.match(capturedSystemPrompt, /An introductory sentence alone is invalid/i);
   } finally {
     globalThis.fetch = originalFetch;
   }
@@ -1170,6 +1172,143 @@ test("createHearthAiHandler bypasses clarify gate for short research asks and en
   } finally {
     globalThis.fetch = originalFetch;
     restoreResearchEnv(priorResearchEnv);
+  }
+});
+
+test("createHearthAiHandler repairs the exact Church Street phantom outline response once", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key", configuredBillingMode: "byo" }));
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    const content = calls === 1
+      ? JSON.stringify({
+          assistantText: "Here's a clean first-draft bullet set…",
+          ops: [],
+          script_text: null,
+          tag_audit: null,
+        })
+      : JSON.stringify({
+          assistantText: "Here's the first-pass outline.",
+          ops: [{
+            op: "set_outline",
+            value: "- Establish Church Street before the current redevelopment.\n- Explain what changed and why it matters.",
+          }],
+          script_text: null,
+          tag_audit: null,
+        });
+    return new Response(JSON.stringify({
+      choices: [{ message: { content } }],
+      usage: { prompt_tokens: 40, completion_tokens: 20, total_tokens: 60 },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json", "x-request-id": `req-outline-${calls}` },
+    });
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "show me a first draft of bullet points only" }],
+        user_authored_text: "show me a first draft of bullet points only",
+        episode_context: buildEpisodeContext({ title: "Church Street" }),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+    const payload = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(payload.ok, true);
+    assert.equal(calls, 2);
+    assert.match(payload.ops?.find((op: { op?: string }) => op.op === "set_outline")?.value ?? "", /Establish Church Street/);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler rejects repeated Church Street phantom outline output as validation, not gateway failure", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key", configuredBillingMode: "byo" }));
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = async () => {
+    calls += 1;
+    return new Response(JSON.stringify({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            assistantText: "Here's a clean first-draft bullet set…",
+            ops: [],
+            script_text: null,
+            tag_audit: null,
+          }),
+        },
+      }],
+      usage: { prompt_tokens: 40, completion_tokens: 8, total_tokens: 48 },
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json", "x-request-id": `req-phantom-outline-${calls}` },
+    });
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "show me a first draft of bullet points only" }],
+        user_authored_text: "show me a first draft of bullet points only",
+        episode_context: buildEpisodeContext({ title: "Church Street" }),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+    const payload = await response.json();
+
+    assert.equal(response.status, 422);
+    assert.equal(payload.ok, false);
+    assert.equal(payload.code, "invalid_composition_output");
+    assert.equal(payload.artifact_kind, "outline");
+    assert.equal(payload.repair_attempted, true);
+    assert.equal(payload.billable_tokens, 0);
+    assert.equal(calls, 2);
+    assert.match(payload.error, /No outline was created/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("createHearthAiHandler distinguishes an outline provider failure from invalid model output", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key", configuredBillingMode: "byo" }));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => new Response(JSON.stringify({ error: { message: "upstream unavailable" } }), {
+    status: 502,
+    headers: { "content-type": "application/json" },
+  });
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Let's keep this loose with a bullet outline." }],
+        user_authored_text: "Let's keep this loose with a bullet outline.",
+        episode_context: buildEpisodeContext({ title: "Church Street" }),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+    const payload = await response.json();
+
+    assert.equal(response.status, 502);
+    assert.equal(payload.ok, false);
+    assert.equal(payload.code, "provider_request_failed");
+    assert.match(payload.error, /provider request failed/i);
+    assert.equal("detail" in payload, false);
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });
 

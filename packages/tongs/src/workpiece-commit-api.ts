@@ -2464,6 +2464,8 @@ export type AcquireBrollCandidateRequest = {
   poster_required?: boolean;
   confirm_spend?: boolean;
   always_approve_ai_spend?: boolean;
+  accepted_spending_quote_id?: string | null;
+  accepted_spending_quote_hash?: string | null;
   license_json?: Json;
   provenance_json?: Json;
   reference_images?: Array<{
@@ -30209,21 +30211,168 @@ export class TongsCommitService {
         !operationFunding.sharedFundingReady
       ) {
         const halted = operationFunding.mode === "halt_new";
-        throw new HttpError(
-          halted ? 503 : 402,
-          halted
-            ? "runway_paid_submissions_halted"
-            : "runway_funding_required",
-          halted
-            ? "New Runway submissions are halted. Existing jobs can still be polled and reconciled."
-            : "A matching full-cost reservation is required before Runway can be called.",
+        if (halted)
+          throw new HttpError(
+            503,
+            "runway_paid_submissions_halted",
+            "New Runway submissions are halted. Existing jobs can still be polled and reconciled.",
+            {
+              mode: operationFunding.mode,
+              reason: operationFunding.reason,
+              reservation_id: operationFunding.reservationId,
+              transmitted: false,
+            },
+          );
+        const quoteId = uuidFromSha256(
+          await sha256Text(
+            `runway-customer-quote:${auth.userId}:${input.operation_id}:${input.operation_fingerprint}`,
+          ),
+        );
+        const reservationId = uuidFromSha256(
+          await sha256Text(`runway-customer-reservation:${quoteId}`),
+        );
+        const acceptedQuoteId = input.accepted_spending_quote_id ?? null;
+        const acceptedQuoteHash = input.accepted_spending_quote_hash ?? null;
+        if (!acceptedQuoteId || !acceptedQuoteHash) {
+          const serviceAuthority = this.supabase.schema(
+            "tongs",
+          ) as unknown as UntypedTongsSchemaClient;
+          const quoted = await serviceAuthority.rpc(
+            "create_customer_runway_quote",
+            {
+              p_quote_id: quoteId,
+              p_user_id: auth.userId,
+              p_operation_id: input.operation_id,
+              p_workspace_id: input.workspace_id,
+              p_operation_fingerprint: input.operation_fingerprint,
+              p_model: model,
+              p_duration_seconds: durationSeconds,
+              p_ratio: ratio,
+              p_expires_at: new Date(Date.now() + 10 * 60 * 1000).toISOString(),
+            },
+          );
+          if (quoted.error || !isRecord(quoted.data)) {
+            const pricingMissing = /pricing_not_configured/i.test(
+              quoted.error?.message ?? "",
+            );
+            throw new HttpError(
+              pricingMissing ? 409 : 503,
+              pricingMissing
+                ? "runway_customer_pricing_not_published"
+                : "runway_quote_unavailable",
+              pricingMissing
+                ? "Runway customer pricing has not been published. No paid request was sent."
+                : "A customer-safe Runway quote could not be created.",
+              {
+                reason: quoted.error?.message ?? "quote creation failed",
+                transmitted: false,
+              },
+            );
+          }
+          throw new HttpError(
+            409,
+            "runway_spending_confirmation_required",
+            "Review and accept the customer price before Runway generation.",
+            {
+              ...quoted.data,
+              requires_confirmation: true,
+              transmitted: false,
+            },
+          );
+        }
+        if (acceptedQuoteId !== quoteId) {
+          throw new HttpError(
+            409,
+            "runway_quote_identity_mismatch",
+            "The accepted quote does not belong to this Runway operation.",
+            { transmitted: false },
+          );
+        }
+        const acceptanceId = uuidFromSha256(
+          await sha256Text(`runway-customer-acceptance:${quoteId}`),
+        );
+        const acceptanceKey = `runway-customer-acceptance:${quoteId}`;
+        const accepted = await authority.rpc("accept_quote", {
+          p_quote_id: quoteId,
+          p_acceptance_id: acceptanceId,
+          p_acceptance_key: acceptanceKey,
+          p_quote_hash: acceptedQuoteHash,
+        });
+        if (accepted.error) {
+          const expired = /expired/i.test(accepted.error.message);
+          throw new HttpError(
+            expired ? 409 : 400,
+            expired ? "runway_quote_expired" : "runway_quote_acceptance_failed",
+            expired
+              ? "This Runway quote expired. Request a new quote before generation."
+              : "The Runway quote could not be accepted.",
+            { reason: accepted.error.message, transmitted: false },
+          );
+        }
+        const serviceAuthority = this.supabase.schema(
+          "tongs",
+        ) as unknown as UntypedTongsSchemaClient;
+        const reserved = await serviceAuthority.rpc(
+          "reserve_customer_runway_quote",
           {
-            mode: operationFunding.mode,
-            reason: operationFunding.reason,
-            reservation_id: operationFunding.reservationId,
-            transmitted: false,
+            p_quote_id: quoteId,
+            p_reservation_id: reservationId,
+            p_idempotency_key: `runway-customer-reservation:${quoteId}`,
+            p_operation_fingerprint: input.operation_fingerprint,
+            p_model: model,
+            p_duration_seconds: durationSeconds,
+            p_ratio: ratio,
           },
         );
+        if (reserved.error) {
+          const disabled = /not activated/i.test(reserved.error.message);
+          const insufficient = /insufficient verified funding/i.test(
+            reserved.error.message,
+          );
+          throw new HttpError(
+            disabled ? 409 : insufficient ? 402 : 503,
+            disabled
+              ? "runway_customer_spending_disabled"
+              : insufficient
+                ? "runway_insufficient_verified_funds"
+                : "runway_reservation_failed",
+            disabled
+              ? "Runway customer spending is not active yet. The quote was not charged."
+              : insufficient
+                ? "This account does not have enough verified eligible funds for the accepted maximum charge."
+                : "Runway funding could not be reserved.",
+            { reason: reserved.error.message, transmitted: false },
+          );
+        }
+        try {
+          operationFunding =
+            await this.runwayPaidExecutionBoundary.resolveOperationFunding({
+              operationId: input.operation_id,
+              operationFingerprint: input.operation_fingerprint,
+              userId: auth.userId,
+              workspaceId: input.workspace_id,
+              model,
+              durationSeconds,
+              ratio,
+            });
+        } catch (error) {
+          throw new HttpError(
+            503,
+            "runway_funding_boundary_unavailable",
+            "Runway cannot continue because the new reservation could not be verified.",
+            {
+              reason: error instanceof Error ? error.message : String(error),
+              transmitted: false,
+            },
+          );
+        }
+        if (!operationFunding.sharedFundingReady)
+          throw new HttpError(
+            503,
+            "runway_reservation_not_ready",
+            "The Runway reservation is not ready for provider execution.",
+            { reservation_id: reservationId, transmitted: false },
+          );
       }
       if (operationFunding.useLegacyAccounting && !creatorApproved) {
         const quote = await this.preparePaidImageQuote({
@@ -31001,6 +31150,16 @@ export class TongsCommitService {
         provider_request_id: input.provider_request_id ?? null,
         candidate_committed: true,
       });
+    }
+    if (input.source_kind === "generated") {
+      const spending = await authority.rpc("read_my_spending_operation", {
+        p_operation_id: input.operation_id,
+      });
+      if (!spending.error && isRecord(spending.data))
+        return {
+          ...(candidate.data as Record<string, Json>),
+          spending_receipt: spending.data as Json,
+        };
     }
     return candidate.data as Record<string, Json>;
   }
@@ -36468,6 +36627,20 @@ export function createTongsCommitApiHandlerWithService(
               body.always_approve_ai_spend,
               "always_approve_ai_spend",
             ),
+            accepted_spending_quote_id:
+              body.accepted_spending_quote_id == null
+                ? null
+                : normalizeUuid(
+                    body.accepted_spending_quote_id,
+                    "accepted_spending_quote_id",
+                  ),
+            accepted_spending_quote_hash:
+              body.accepted_spending_quote_hash == null
+                ? null
+                : normalizeSha256(
+                    body.accepted_spending_quote_hash,
+                    "accepted_spending_quote_hash",
+                  ),
             license_json: normalizeJsonValue(body.license_json ?? {}),
             provenance_json: normalizeJsonValue(body.provenance_json ?? {}),
           },

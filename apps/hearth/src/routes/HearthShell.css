@@ -4716,6 +4716,48 @@ details[open] > .hs-imap-collapsible-title::before {
   color: #e5e7eb;
 }
 
+.hs-broll-spending-card {
+  margin-top: 1rem;
+  padding: 1rem;
+  border: 1px solid color-mix(in srgb, var(--hs-accent, #d97706) 45%, transparent);
+  border-radius: 0.8rem;
+  background: color-mix(in srgb, var(--hs-panel, #171717) 94%, var(--hs-accent, #d97706));
+}
+
+.hs-broll-spending-card h5 {
+  margin: 0.2rem 0 0;
+}
+
+.hs-broll-spending-terms {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.65rem;
+  margin: 0.9rem 0;
+}
+
+.hs-broll-spending-terms div {
+  padding: 0.65rem;
+  border-radius: 0.55rem;
+  background: color-mix(in srgb, var(--hs-panel, #171717) 86%, white);
+}
+
+.hs-broll-spending-terms dt {
+  color: var(--hs-muted, #a3a3a3);
+  font-size: 0.75rem;
+}
+
+.hs-broll-spending-terms dd {
+  margin: 0.2rem 0 0;
+  font-weight: 700;
+}
+
+.hs-broll-spending-notice {
+  margin: 0.75rem 0;
+  padding: 0.7rem;
+  border-radius: 0.55rem;
+  background: rgba(217, 119, 6, 0.14);
+}
+
 .hs-broll-script-focus {
   margin: 10px 0;
   padding: 12px 14px;

@@ -1598,7 +1598,7 @@ export default function SubscriptionsRoute() {
               </dl>
 
               <p className="subscriptions-status subscriptions-status--info">
-                Forge credits cover text/assist flows and reference clips. Image-generation flows (thumbnails, timeline images, B-roll generation) are excluded and billed separately later.
+                A completed Live AI Credit purchase becomes eligible for funded Runway operations only after Stripe fee evidence is recorded and a customer price is published and activated. Test receipts and legacy compatibility credits cannot fund a real provider call.
               </p>
               <p className="subscriptions-status subscriptions-status--info">
                 BYO usage does not consume Forge credits. BYO members still receive included monthly base credits on renewal.

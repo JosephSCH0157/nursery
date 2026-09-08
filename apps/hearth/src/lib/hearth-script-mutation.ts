@@ -1,4 +1,5 @@
 import { shouldKeepHearthOutlineInChatOnly } from "./hearth-chat-proposal-routing";
+import { hasSubstantiveHearthScript } from "./hearth-composition-output";
 
 export type HearthChatDestination = "chat" | "script_body";
 
@@ -117,7 +118,7 @@ export function detectHearthScriptMutationIntent(text: string): HearthScriptMuta
   };
 }
 
-export function resolveHearthScriptMutationRouting<TOp extends { op: string }>(args: {
+export function resolveHearthScriptMutationRouting<TOp extends { op: string; value?: unknown }>(args: {
   productionAction: boolean;
   autosaveReasonCode: string | null;
   ops: TOp[];
@@ -134,7 +135,11 @@ export function resolveHearthScriptMutationRouting<TOp extends { op: string }>(a
     ops: args.ops,
   });
   const proposalOps = keepOutlineInChatOnly ? [] : args.ops;
-  const hasScriptBodyProposal = proposalOps.some((op) => op.op === "set_body");
+  const hasScriptBodyProposal = proposalOps.some((op) => (
+    op.op === "set_body"
+    && typeof op.value === "string"
+    && hasSubstantiveHearthScript(op.value)
+  ));
   const missingScriptBodyMutation = !args.productionAction
     && args.intent.targetsScriptBody
     && !hasScriptBodyProposal;

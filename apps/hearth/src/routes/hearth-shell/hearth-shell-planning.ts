@@ -11,6 +11,10 @@ import {
   isExplicitHearthOutlineRequest,
 } from "../../lib/hearth-writing-format";
 import {
+  hasSubstantiveHearthOutline,
+  readLatestSubstantiveOutlineFromOps,
+} from "../../lib/hearth-composition-output";
+import {
   evaluateHearthFormatOnlyPreservation,
 } from "../../lib/hearth-format-only";
 import type { ScriptValidationResult } from "@forge/shared/script-tags";
@@ -73,13 +77,7 @@ export function detectAiAutosaveReasonCode(text: string): AiAutosaveReasonCode {
 }
 
 export function readLatestOutlineFromOps(ops: HearthOp[]): string | null {
-  for (let idx = ops.length - 1; idx >= 0; idx -= 1) {
-    const op = ops[idx];
-    if (op?.op !== "set_outline") continue;
-    const outline = op.value.trim();
-    return outline.length ? outline : null;
-  }
-  return null;
+  return readLatestSubstantiveOutlineFromOps(ops);
 }
 
 export function buildAssistantMessageContent(args: {
@@ -93,11 +91,10 @@ export function buildAssistantMessageContent(args: {
   const outlineFromOps = readLatestOutlineFromOps(args.ops);
 
   if (args.scriptMutationRequested && !args.scriptMutationReady) {
-    if (assistantText) return assistantText;
     if (outlineFromOps) {
       return `No script changes made.\n\n${outlineFromOps}`;
     }
-    return "No script changes made.";
+    return "Hearth did not return usable script content. No script changes were created.";
   }
 
   if (args.autosaveReasonCode === "ai_outline") {
@@ -109,6 +106,9 @@ export function buildAssistantMessageContent(args: {
         return assistantText;
       }
       return `${assistantText}\n\n${outlineFromOps}`;
+    }
+    if (!hasSubstantiveHearthOutline(assistantText)) {
+      return "Hearth did not return a usable bullet outline. No outline was created.";
     }
   }
 

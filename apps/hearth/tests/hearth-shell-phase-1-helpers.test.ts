@@ -32,6 +32,7 @@ import {
   resolveReadyLabel,
 } from "../src/routes/hearth-shell/hearth-shell-formatting";
 import {
+  buildAssistantMessageContent,
   buildProjectDraftSeed,
   buildSessionFingerprint,
   countProducerQuestions,
@@ -217,4 +218,35 @@ test("planning helpers preserve deterministic defaults and calculations", () => 
     }] as never).startsWith("# Episode\n\n## Intro"),
     true,
   );
+});
+
+test("planning helpers never render a phantom outline or script completion", () => {
+  for (const assistantText of [
+    "Here's a clean first-draft bullet set…",
+    "Here's a loose bullet outline…",
+  ]) {
+    assert.equal(buildAssistantMessageContent({
+      assistantText,
+      ops: [],
+      autosaveReasonCode: "ai_outline",
+      scriptMutationRequested: false,
+      scriptMutationReady: false,
+    }), "Hearth did not return a usable bullet outline. No outline was created.");
+  }
+
+  assert.equal(buildAssistantMessageContent({
+    assistantText: "Here's the full script.",
+    ops: [],
+    autosaveReasonCode: "ai_script",
+    scriptMutationRequested: true,
+    scriptMutationReady: false,
+  }), "Hearth did not return usable script content. No script changes were created.");
+
+  assert.match(buildAssistantMessageContent({
+    assistantText: "Here's a loose outline.",
+    ops: [{ op: "set_outline", value: "- Open on the empty block before the crowd arrives." }],
+    autosaveReasonCode: "ai_outline",
+    scriptMutationRequested: false,
+    scriptMutationReady: false,
+  }), /- Open on the empty block/);
 });

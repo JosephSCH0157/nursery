@@ -258,3 +258,99 @@
     flex-direction: column;
   }
 }
+
+.ledger-route__notice {
+  padding: 0.7rem;
+  border: 1px solid rgba(67, 196, 115, 0.35);
+  border-radius: 0.55rem;
+  color: #baf7cf;
+  background: rgba(67, 196, 115, 0.09);
+}
+
+.ledger-owner-console {
+  display: grid;
+  gap: 1rem;
+  padding: 1rem;
+  border: 1px solid rgba(255, 179, 71, 0.3);
+  border-radius: 0.75rem;
+  background: rgba(255, 179, 71, 0.035);
+}
+
+.ledger-owner-console__status,
+.ledger-owner-console__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.ledger-owner-console__status span {
+  padding: 0.35rem 0.6rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.07);
+  font-size: 0.8rem;
+}
+
+.ledger-owner-console__section,
+.ledger-owner-console__preview {
+  padding: 0.85rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 0.65rem;
+}
+
+.ledger-owner-console__section summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.ledger-owner-console__form,
+.ledger-owner-console__metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.7rem;
+  margin: 0.8rem 0;
+}
+
+.ledger-owner-console__form label,
+.ledger-owner-console__approval {
+  display: grid;
+  gap: 0.3rem;
+  color: var(--forge-text-muted, #a4a4ad);
+  font-size: 0.8rem;
+}
+
+.ledger-owner-console__form input,
+.ledger-owner-console__override input,
+.ledger-owner-console__override select {
+  min-width: 0;
+  padding: 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 0.45rem;
+  color: inherit;
+  background: rgba(0, 0, 0, 0.22);
+}
+
+.ledger-owner-console__override {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(7rem, 1fr)) auto;
+  gap: 0.45rem;
+  margin: 0.55rem 0;
+}
+
+.ledger-owner-console__metrics span {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.65rem;
+  border-radius: 0.5rem;
+  background: rgba(255, 255, 255, 0.055);
+  color: var(--forge-text-muted, #a4a4ad);
+  font-size: 0.78rem;
+}
+
+.ledger-owner-console__metrics strong {
+  color: var(--forge-text, #f5f5f6);
+  font-size: 1rem;
+}
+
+@media (max-width: 760px) {
+  .ledger-owner-console__override { grid-template-columns: 1fr; }
+}

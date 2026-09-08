@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useRef, useState } from "react";
 import { loadImageMapCandidatePreviewDataUrl } from "../../lib/hearth-image-map-repo";
 import type { EpisodeBrollAssetCandidate, EpisodeBrollPlanBeat } from "../../lib/episode-package-v2";
 import type { ExternalGenerationProvider } from "../../lib/hearth-visual-actionability";
-import { refreshCanonicalBrollMediaUrl, type CanonicalBrollPromptState } from "../../lib/hearth-broll-v2-authority";
+import { refreshCanonicalBrollMediaUrl, type CanonicalBrollPromptState, type CustomerRunwaySpendingQuote, type CustomerRunwaySpendingReceipt } from "../../lib/hearth-broll-v2-authority";
 import { readVisualOpportunityDispositions, type VisualOpportunityDisposition } from "../../lib/hearth-visual-disposition-authority";
 import { VisualOpportunityDispositionControl } from "./VisualOpportunityDispositionControl";
 
@@ -71,6 +71,10 @@ type BrollPlanPanelProps = {
   onSaveMotionPrompt?: (finalPrompt: string) => void;
   onCreateRunwayReadyPrompt?: () => Promise<{ finalPrompt:string;lengthUtf16:number }|null>;
   onGenerateVideo?: (referenceImages: Array<{ file: File; stageLabel?: string }>) => void;
+  spendingQuote?: CustomerRunwaySpendingQuote | null;
+  spendingReceipt?: CustomerRunwaySpendingReceipt | null;
+  onAcceptSpendingQuote?: () => void;
+  onDismissSpendingQuote?: () => void;
   canonicalV2?: boolean;
 };
 
@@ -101,6 +105,10 @@ const PRIORITIES = ["primary", "supporting", "background"];
 const SHOT_TYPES = ["mixed", "wide", "medium", "close", "macro", "aerial"];
 const PLACEMENT_HINTS = ["first_occurrence", "exact_timestamp", "manual"];
 const DATA_CHART_TYPES = ["bar", "line", "area", "pie", "timeline", "stat"];
+
+function formatCurrencyMicros(micros: number, currency: string): string {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(micros / 1_000_000);
+}
 
 type CandidatePreviewState = "loading" | "ready" | "error";
 
@@ -530,6 +538,25 @@ export default function BrollPlanPanel(props: BrollPlanPanelProps) {
                   {acquisitionMode === "external" ? <><div className="hs-imap-field"><label htmlFor={`${formFieldIdPrefix}-canonical-external-url`}>Video URL</label><input id={`${formFieldIdPrefix}-canonical-external-url`} value={props.draft.sourceUrl} onChange={(event) => props.onDraftChange("sourceUrl", event.target.value)} disabled={props.disabled} placeholder="https://…/clip.mp4" /></div><button type="button" className="hs-primary-btn" onClick={props.onAttachResultFromUrl} disabled={props.disabled || !props.draft.sourceUrl.trim()}>Fetch and verify external clip</button></> : null}
                   {acquisitionMode === "stock" ? <p>Licensed stock search will appear here when Forge has a configured provider.</p> : null}
                 </div>
+                {props.spendingQuote ? <section className="hs-broll-spending-card" aria-label="Runway price confirmation" data-testid="runway-price-confirmation">
+                  <div className="hs-broll-section-heading"><div><div className="hs-imap-next-eyebrow">Price confirmation</div><h5>{formatCurrencyMicros(props.spendingQuote.normalMaximumChargeMicros, props.spendingQuote.currency)} maximum</h5></div><span className="hs-broll-revision">Expires {new Date(props.spendingQuote.expiresAt).toLocaleTimeString()}</span></div>
+                  <dl className="hs-broll-spending-terms">
+                    <div><dt>Normal maximum charge</dt><dd>{formatCurrencyMicros(props.spendingQuote.normalMaximumChargeMicros, props.spendingQuote.currency)}</dd></div>
+                    <div><dt>Billable-failure maximum</dt><dd>{formatCurrencyMicros(props.spendingQuote.billableFailureMaximumChargeMicros, props.spendingQuote.currency)}</dd></div>
+                    <div><dt>Funding source</dt><dd>{props.spendingQuote.fundingLabel}</dd></div>
+                    <div><dt>Included</dt><dd>{String(props.spendingQuote.includedQuantity.duration_seconds ?? 5)} seconds · {String(props.spendingQuote.includedQuantity.ratio ?? "1280:720")}</dd></div>
+                  </dl>
+                  <p><strong>Billable failures:</strong> {props.spendingQuote.billableFailureClasses.length ? props.spendingQuote.billableFailureClasses.join(", ").replaceAll("_", " ") : "None"}.</p>
+                  <p><strong>Free failures:</strong> {props.spendingQuote.freeFailureClasses.length ? props.spendingQuote.freeFailureClasses.join(", ").replaceAll("_", " ") : "None specified"}.</p>
+                  {!props.spendingQuote.customerSpendingEnabled ? <div className="hs-broll-spending-notice">Customer spending is disabled. You can review this quote, but Forge will not reserve funds or call Runway.</div> : !props.spendingQuote.fundingEligible ? <div className="hs-broll-spending-notice">No verified eligible funding is available for this maximum charge. Test and legacy credits cannot be used.</div> : null}
+                  <div className="hs-imap-candidate-toolbar hs-imap-candidate-toolbar-actions"><button type="button" className="hs-primary-btn" onClick={props.onAcceptSpendingQuote} disabled={props.disabled || !props.spendingQuote.customerSpendingEnabled || !props.spendingQuote.fundingEligible}>Accept price and generate</button><button type="button" onClick={props.onDismissSpendingQuote} disabled={props.disabled}>Cancel</button></div>
+                </section> : null}
+                {props.spendingReceipt ? <section className="hs-broll-spending-card" aria-label="Runway billing receipt" data-testid="runway-billing-receipt">
+                  <div className="hs-imap-next-eyebrow">Billing receipt</div>
+                  <h5>{props.spendingReceipt.customerChargeMicros == null ? "Settlement pending" : `${formatCurrencyMicros(props.spendingReceipt.customerChargeMicros, props.spendingReceipt.currency)} charged`}</h5>
+                  <p>{props.spendingReceipt.fundingLabel ?? "Funding source pending"} · {props.spendingReceipt.receiptStatus.replaceAll("_", " ")}</p>
+                  <small>Accepted ceiling: {formatCurrencyMicros(props.spendingReceipt.maximumChargeMicros, props.spendingReceipt.currency)}. A pending receipt is not a confirmed charge.</small>
+                </section> : null}
                 <input ref={uploadInputRef} type="file" accept="video/mp4,video/webm" hidden onChange={(event) => { const file = event.currentTarget.files?.[0]; if (file) props.onUploadAsset(file); event.currentTarget.value = ""; }} />
               </section>
               <div className="hs-broll-section-heading"><div><div className="hs-imap-next-eyebrow">Choose a clip</div><h5>{beatCandidates.length} candidate{beatCandidates.length === 1 ? "" : "s"}</h5></div></div>

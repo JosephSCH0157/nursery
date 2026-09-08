@@ -550,8 +550,8 @@ async function recordCustomerDepositAccounting(
     currency: string;
     creditUnits: number;
   },
-): Promise<void> {
-  await runTongsRpc(supabase, "record_customer_deposit", {
+): Promise<{ depositId: string; stripeMode: "live" | "test" }> {
+  const result = await runTongsRpc(supabase, "record_customer_deposit", {
     p_deposit_id: crypto.randomUUID(),
     p_user_id: params.userId,
     p_stripe_event_id: params.event.id,
@@ -570,6 +570,57 @@ async function recordCustomerDepositAccounting(
     p_metadata_json: {
       source: "stripe_webhook",
       event_type: params.event.type,
+    },
+  });
+  const row = result && typeof result === "object" ? result as Record<string, unknown> : null;
+  const depositId = normalizeString(row?.deposit_id);
+  const stripeMode = row?.stripe_mode === "live" || row?.stripe_mode === "test" ? row.stripe_mode : null;
+  if (!depositId || !stripeMode) {
+    throw new Error(`record_customer_deposit returned an invalid result for session=${params.sessionId}`);
+  }
+  return { depositId, stripeMode };
+}
+
+async function recordCustomerDepositProcessorFee(
+  supabase: SupabaseAdminClient,
+  params: { depositId: string; paymentIntentId: string; expectedCurrency: string },
+): Promise<void> {
+  const paymentIntent = await stripe.paymentIntents.retrieve(params.paymentIntentId, {
+    expand: ["latest_charge.balance_transaction"],
+  });
+  let charge = paymentIntent.latest_charge;
+  if (typeof charge === "string") {
+    charge = await stripe.charges.retrieve(charge, { expand: ["balance_transaction"] });
+  }
+  if (!charge || typeof charge !== "object" || "deleted" in charge) {
+    throw new Error(`Stripe processor-fee evidence is unavailable for payment_intent=${params.paymentIntentId}`);
+  }
+  let balanceTransaction = charge.balance_transaction;
+  if (typeof balanceTransaction === "string") {
+    balanceTransaction = await stripe.balanceTransactions.retrieve(balanceTransaction);
+  }
+  if (!balanceTransaction || typeof balanceTransaction !== "object") {
+    throw new Error(`Stripe balance transaction is unavailable for payment_intent=${params.paymentIntentId}`);
+  }
+  const currency = normalizeLowerString(balanceTransaction.currency);
+  if (!currency || currency !== params.expectedCurrency.toLowerCase()) {
+    throw new Error(`Stripe processor-fee currency mismatch for payment_intent=${params.paymentIntentId}`);
+  }
+  if (!Number.isSafeInteger(balanceTransaction.fee) || balanceTransaction.fee < 0) {
+    throw new Error(`Stripe processor fee is invalid for payment_intent=${params.paymentIntentId}`);
+  }
+  await runTongsRpc(supabase, "record_customer_deposit_processor_fee", {
+    p_fee_id: crypto.randomUUID(),
+    p_deposit_id: params.depositId,
+    p_provider_fee_reference: balanceTransaction.id,
+    p_fee_amount_micros: stripeMinorUnitsToCurrencyMicros(balanceTransaction.fee, currency),
+    p_recorded_at: normalizeUnixTimestampIso(balanceTransaction.created) ?? new Date().toISOString(),
+    p_evidence_json: {
+      source: "stripe_balance_transaction",
+      payment_intent_id: params.paymentIntentId,
+      charge_id: charge.id,
+      balance_transaction_id: balanceTransaction.id,
+      fee_details_count: balanceTransaction.fee_details?.length ?? 0,
     },
   });
 }
@@ -786,7 +837,7 @@ async function fulfillAiCreditsCheckout(
     },
   });
 
-  await recordCustomerDepositAccounting(supabase, {
+  const deposit = await recordCustomerDepositAccounting(supabase, {
     event,
     userId: context.supabaseUserId,
     sessionId: context.sessionId,
@@ -795,6 +846,14 @@ async function fulfillAiCreditsCheckout(
     amountTotal,
     currency,
     creditUnits: tokens,
+  });
+  if (!context.paymentIntentId) {
+    throw new Error("AI credits checkout is missing payment_intent required for processor-fee finalization");
+  }
+  await recordCustomerDepositProcessorFee(supabase, {
+    depositId: deposit.depositId,
+    paymentIntentId: context.paymentIntentId,
+    expectedCurrency: currency,
   });
 
   // Keep the pre-foundation execution balance working only for live receipts.
