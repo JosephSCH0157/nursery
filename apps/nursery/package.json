@@ -10,7 +10,7 @@
     "gen:forge-nav": "tsx scripts/generate-forge-nav.ts",
     "predev": "pnpm sync:anvil && pnpm gen:forge-nav && pnpm --filter @forge/shared build && pnpm --filter @forge/tongs build",
     "dev": "node scripts/run-vite.mjs --configLoader runner",
-    "prebuild": "pnpm sync:anvil && pnpm gen:forge-nav && pnpm --filter @forge/shared build",
+    "prebuild": "pnpm sync:anvil && pnpm gen:forge-nav && pnpm --filter @forge/shared build && pnpm --filter @forge/tongs build",
     "build": "tsc -b && node scripts/run-vite.mjs build --configLoader runner && node scripts/verify-hearth-bundle-budget.mjs",
     "verify:hearth-bundle": "node scripts/verify-hearth-bundle-budget.mjs",
     "prebuild:hammer-integration": "pnpm --filter @forge/shared build && pnpm --filter @forge/tongs build",
