@@ -2120,46 +2120,67 @@ test("creator-pasted business leads survive an emoji URL boundary and inaccessib
   }
 });
 
-test("short creator-supplied business leads render a partial artifact when current status cannot be verified", async () => {
+test("collapsed creator business records survive ingestion, evidence reconciliation, and categorized rendering", async () => {
   const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
   const originalFetch = globalThis.fetch;
   const pastedResearch = [
-    "## Creator-supplied Church Street businesses",
-    "- Kres Chophouse",
-    "- Cucina Pizza & Bar",
-    "- The Bao Spot",
-    "- Coffee For The Soul",
-    "- Birria1983",
-    "- Crepe Delicious",
-    "- Jenny's Downtown",
-    "- The District GastroBar",
-    "",
-    "Empty storefronts and available business spaces remain numerous along Church Street.",
-    "",
-    "Source: https://www.yelp.com/biz/church-street-exchange-orlando",
-  ].join("\n");
+    "🍽️ Restaurants, Cafes & BarsKres Chophouse (17 W. Church St.): The iconic upscale steakhouse anchoring the block.",
+    "Cucina Pizza & Bar (54 W. Church St. #151): Serving up standard Italian fare right in the heart of the construction zone.",
+    "The Bao Spot (54 W. Church St.): Handcrafted bao buns and rice bowls.",
+    "Coffee For The Soul (54 W. Church St. Ste 150): Casual Colombian cafe with a popular rooftop deck.",
+    "Birria1983 (54 W. Church St. Suite 141): Casual Mexican bar and grill.",
+    "Crepe Delicious Urban Cafe (Church St.): Holding down the fort during the street renovations.",
+    "Jenny's Downtown Orlando (595 W. Church St.): Southern comfort food and art gallery located further west near the venues.",
+    "The District GastroBar (534 W. Church St.): Southern-inspired fare and 1940s aesthetics further west on the block. ",
+    "[1] (https://www.instagram.com/dwntwn_orlando/), [3] (https://jennysdowntown.com/), [6] (https://www.google.com/searchviewer/10?svid=restaurant-results)🏢 ",
+    "Corporate & Professional HubsChurch Street Exchange4.6(12)Business centerClosedCentral Business District4.3 miDirectionsOperating as an office and tech event venue.",
+    "Hawkers Corporate Office4.0(5)Corporate officeClosedCentral Business District4.3 miCallDirectionsWebsiteThe national street-food chain maintains its headquarters right on the street.",
+    "Travel + Leisure Co.3.6(168)Corporate campusClosedParramore4.3 miCallDirectionsWebsiteThe mass membership and vacation travel giant operates its corporate hub here. ",
+    "[1] (https://m.yelp.com/biz/church-street-exchange-orlando), [3] (https://www.google.com/searchviewer/10?svid=attraction-results)🏟️ ",
+    "Attractions & EntertainmentKia Center4.6(16.9K)ArenaParramore4.2 miCallDirectionsWebsiteFormerly the Amway Center, anchoring the street’s massive sports and entertainment events.",
+    "American Ghost Adventures4.9(802)Tour agencyClosedCentral Business District4.4 miCallDirectionsWebsiteFamously the only business left meeting customers inside the historic, otherwise vacant Bumby Arcade block for nightly tours. ",
+    "Empty storefronts and available business spaces remain numerous while existing businesses remain hopeful that the cities renovations can revitalize the area",
+  ].join("");
 
   globalThis.fetch = async (input, init) => {
     const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
-    if (url === "https://www.yelp.com/biz/church-street-exchange-orlando") {
+    if (url === "https://m.yelp.com/biz/church-street-exchange-orlando") {
       return new Response("Access denied", { status: 403 });
+    }
+    if (url.startsWith("https://www.google.com/searchviewer/")) {
+      return new Response("Place Viewer", { status: 200, headers: { "content-type": "text/plain" } });
+    }
+    if (url === "https://www.instagram.com/dwntwn_orlando/") {
+      return new Response("<html><head><title>Downtown Orlando (@dwntwn_orlando) • Instagram photos and videos</title></head><body><main>Downtown Orlando shared a current Church Street construction and business update.</main></body></html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    }
+    if (url === "https://jennysdowntown.com/") {
+      return new Response("<html><head><title>Jenny's Downtown Orlando</title></head><body><main>Jenny's Downtown Orlando is located at 595 W. Church St.</main></body></html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
     }
     if (url === "https://api.openai.com/v1/chat/completions") {
       const body = JSON.parse(String(init?.body ?? "{}")) as { messages?: Array<{ content?: string }> };
       const prompt = body.messages?.[0]?.content ?? "";
       const lines = prompt.split("\n");
       const marker = lines.indexOf("Canonical research runtime result:");
-      const runtime = JSON.parse(lines[marker + 1] ?? "{}") as { brief?: { briefFingerprint?: string; workpieceId?: string } };
+      const runtime = JSON.parse(lines[marker + 1] ?? "{}") as {
+        brief?: { briefFingerprint?: string; workpieceId?: string };
+        sources?: Array<{ sourceId?: string; url?: string }>;
+      };
       return new Response(JSON.stringify({
         choices: [{ message: { content: JSON.stringify({
-          assistantText: "No currently operating businesses could be independently verified.",
+          assistantText: "The creator supplied a business list for inspection.",
           ops: [],
           research_artifact: {
             briefFingerprint: runtime.brief?.briefFingerprint,
             workpieceId: runtime.brief?.workpieceId,
             status: "failed",
             findings: [],
-            uncertainties: ["No current operating status could be independently verified."],
+            uncertainties: ["No other current operating status could be independently verified."],
             editorialInterpretation: [],
           },
         }) } }],
@@ -2185,15 +2206,40 @@ test("short creator-supplied business leads render a partial artifact when curre
 
     assert.equal(response.status, 200);
     assert.equal(payload.research_result?.artifact?.status, "partial");
-    assert.ok(findings.some((finding: { businessName?: string }) => finding.businessName === "Kres Chophouse"));
-    assert.ok(findings.some((finding: { businessName?: string }) => finding.businessName === "Jenny's Downtown"));
+    for (const businessName of [
+      "Kres Chophouse",
+      "Cucina Pizza & Bar",
+      "The Bao Spot",
+      "Coffee For The Soul",
+      "Birria1983",
+      "Crepe Delicious Urban Cafe",
+      "Jenny's Downtown Orlando",
+      "The District GastroBar",
+      "Church Street Exchange",
+      "Hawkers Corporate Office",
+      "Travel + Leisure Co.",
+      "Kia Center",
+      "American Ghost Adventures",
+    ]) {
+      assert.ok(findings.some((finding: { businessName?: string }) => finding.businessName === businessName), businessName);
+      assert.match(String(payload.assistant_text ?? ""), new RegExp(businessName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"));
+    }
     assert.ok(findings.some((finding: { text?: string }) => /Empty storefronts and available business spaces remain numerous/i.test(finding.text ?? "")));
-    assert.ok(findings.every((finding: { status?: string }) => finding.status === "uncertain"));
-    assert.ok(findings.every((finding: { provenanceStatus?: string }) => finding.provenanceStatus === "creator_supplied_unverified"));
+    const jennys = findings.find((finding: { businessName?: string }) => finding.businessName === "Jenny's Downtown Orlando");
+    assert.equal(jennys?.provenanceStatus, "verified_by_current_run");
+    assert.equal(jennys?.businessStatus, "appears_active_unconfirmed");
+    for (const businessName of ["Church Street Exchange", "Hawkers Corporate Office", "Travel + Leisure Co."]) {
+      assert.equal(findings.find((finding: { businessName?: string }) => finding.businessName === businessName)?.businessStatus, "non_customer_facing");
+    }
+    assert.ok(findings.filter((finding: { businessName?: string }) => finding.businessName !== "Jenny's Downtown Orlando").every((finding: { status?: string }) => finding.status === "uncertain"));
+    assert.ok(findings.filter((finding: { businessName?: string }) => finding.businessName !== "Jenny's Downtown Orlando").every((finding: { provenanceStatus?: string }) => finding.provenanceStatus === "creator_supplied_unverified"));
     assert.match(String(payload.assistant_text ?? ""), /Research outcome: Partial/i);
+    assert.match(String(payload.assistant_text ?? ""), /Appears active, but current status is not fully confirmed/i);
     assert.match(String(payload.assistant_text ?? ""), /Still unverified/i);
-    assert.match(String(payload.assistant_text ?? ""), /Jenny's Downtown/i);
+    assert.match(String(payload.assistant_text ?? ""), /Adjacent or not a customer-facing Church Street business/i);
+    assert.match(String(payload.assistant_text ?? ""), /Downtown Orlando[^\n]*primary institutional/i);
     assert.match(String(payload.assistant_text ?? ""), /Empty storefronts and available business spaces remain numerous/i);
+    assert.match(String(payload.assistant_text ?? ""), /Sources supporting a validated claim: 1/i);
     assert.doesNotMatch(String(payload.assistant_text ?? ""), /Research outcome: Failed/i);
   } finally {
     globalThis.fetch = originalFetch;

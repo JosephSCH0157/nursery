@@ -224,6 +224,13 @@ test("authority is domain-neutral and duplicate URLs collapse", () => {
     url: "https://x.com/dwntwn_orlando/status/1",
     extractedText: "Downtown Orlando shared a current Church Street construction and business update.",
   }), "primary_institutional");
+  assert.equal(classifyResearchSourceAuthority({
+    ...base,
+    title: "Downtown Orlando (@dwntwn_orlando) • Instagram photos and videos",
+    domain: "instagram.com",
+    url: "https://www.instagram.com/dwntwn_orlando/",
+    extractedText: "Downtown Orlando shared a current Church Street construction and business update.",
+  }), "primary_institutional");
 });
 
 test("adjacent projects are visibly labeled instead of blended into the queried project", () => {

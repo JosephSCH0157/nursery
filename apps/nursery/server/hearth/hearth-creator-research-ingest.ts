@@ -29,7 +29,11 @@ const BUSINESS_RESEARCH_CONTEXT_RE = /\b(?:business(?:es)?|restaurant(?:s)?|bar(
 const BUSINESS_LEAD_RE = /\b(?:chophouse|restaurant|pizza|bar|bao|coffee|cafe|birria|crepe|gastro|exchange|office|arena|center|centre|adventures?|tours?|travel|leisure|shop|store|market|bakery|brewery|pub|grill|kitchen|dining|rooftop|salon|studio|museum|hotel)\b/i;
 const GENERIC_BUSINESS_HEADING_RE = /^(?:open|closed|active|current|adjacent|local|downtown|church street)?\s*(?:business(?:es)?|restaurant(?:s)?|storefront(?:s)?|open doors?|leads?|sources?)\s*:?[\s-]*$/i;
 const BUSINESS_LIST_LINE_RE = /^\s*(?:\p{Extended_Pictographic}\uFE0F?\s*)?(?:(?:[-*•]|\d+[.)])\s+|\*\*|#{1,6}\s+)/u;
-const CREATOR_BUSINESS_OBSERVATION_RE = /\b(?:(?:empty|vacant)\s+storefronts?|storefront\s+vacanc(?:y|ies)|available\s+business\s+spaces?)\b/i;
+const DENSE_BUSINESS_HEADING_BOUNDARY_RE = /\b(?:[Rr]estaurants?\s*,\s*[Cc]afes?\s*&\s*[Bb]ars?|[Rr]estaurants?\s*&\s*[Bb]ars?|[Oo]pen [Bb]usinesses|[Bb]usiness [Ll]eads|[Cc]orporate\s*&\s*[Pp]rofessional\s+[Hh]ubs?|[Aa]ttractions?\s*&\s*[Ee]ntertainment)(?=[A-Z0-9])/g;
+const DENSE_BUSINESS_RECORD_RE = /([A-Z0-9][A-Za-z0-9'’&+.\-]*(?:[ \t]+(?:[A-Z0-9][A-Za-z0-9'’&+.\-]*|&|\+)){0,7})[ \t]*\(([^()\r\n]{2,180})\)/g;
+const DENSE_PLACE_RESULT_RE = /([A-Z][A-Za-z0-9'’&+.\-]*?(?:[ \t]+(?:[A-Z0-9][A-Za-z0-9'’&+.\-]*?|&|\+)){0,7}?)(\d\.\d)\(([\d.]+K?)\)(Business center|Corporate office|Corporate campus|Arena|Tour agency)(?=[A-Z])/g;
+const DENSE_BUSINESS_DESCRIPTOR_RE = /\b(?:\d{1,6}\s+[NSEW]\b|street|st\.?|avenue|ave\.?|road|rd\.?|boulevard|blvd\.?|drive|dr\.?|lane|ln\.?|church|downtown|corridor|storefront|office|venue|operator|restaurant|cafe|bar)\b/i;
+const CREATOR_BUSINESS_OBSERVATION_RE = /\b(?:(?:empty|vacant)\s+storefronts?|storefront\s+vacanc(?:y|ies)|available\s+business\s+spaces?)[^.!?\r\n]{0,240}[.!?]?/gi;
 
 function countCharacter(value: string, character: "(" | ")"): number {
   return [...value].filter((entry) => entry === character).length;
@@ -103,7 +107,7 @@ function cleanClaimText(value: string): string {
 }
 
 function creatorBusinessStatus(text: string): HearthCreatorResearchClaim["businessStatus"] {
-  if (/\b(?:corporate|administrative|regional)\s+office\b/i.test(text)) return "non_customer_facing";
+  if (/\b(?:business\s+center|corporate\s+(?:office|campus)|administrative\s+office|regional\s+office)\b/i.test(text)) return "non_customer_facing";
   if (/\b(?:adjacent|farther\s+(?:east|west|north|south)|not\s+on|outside|off)\b.*\b(?:corridor|church street)\b/i.test(text)) {
     return "adjacent_location";
   }
@@ -169,12 +173,64 @@ function extractCreatorClaims(text: string, appearsTruncated: boolean): HearthCr
       });
       if (claims.length >= 24) break;
     }
+
+    const denseBusinessText = text.replace(DENSE_BUSINESS_HEADING_BOUNDARY_RE, "$&\n");
+    DENSE_BUSINESS_RECORD_RE.lastIndex = 0;
+    for (const match of denseBusinessText.matchAll(DENSE_BUSINESS_RECORD_RE)) {
+      if (claims.length >= 24) break;
+      const businessName = cleanClaimText(match[1] ?? "");
+      const descriptor = cleanClaimText(match[2] ?? "");
+      if (!businessName || !descriptor || GENERIC_BUSINESS_HEADING_RE.test(businessName)) continue;
+      if (!DENSE_BUSINESS_DESCRIPTOR_RE.test(descriptor)) continue;
+      const normalizedName = businessName.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      if (claims.some((existing) => (
+        existing.claimKind === "business_status"
+        && existing.businessName?.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() === normalizedName
+      ))) continue;
+      const claim = `${businessName} (${descriptor})`;
+      const businessStatus = creatorBusinessStatus(claim);
+      claims.push({
+        claimId: `creator-claim-${claims.length + 1}`,
+        text: claim,
+        provenanceStatus: "creator_supplied_unverified",
+        scope: businessStatus === "adjacent_location" ? "adjacent_context" : "current_subject",
+        sourceIds: [],
+        claimKind: "business_status",
+        businessName,
+        businessStatus,
+      });
+    }
+
+    DENSE_PLACE_RESULT_RE.lastIndex = 0;
+    for (const match of denseBusinessText.matchAll(DENSE_PLACE_RESULT_RE)) {
+      if (claims.length >= 24) break;
+      const businessName = cleanClaimText(match[1] ?? "");
+      const placeType = cleanClaimText(match[4] ?? "");
+      if (!businessName || !placeType || GENERIC_BUSINESS_HEADING_RE.test(businessName)) continue;
+      const normalizedName = businessName.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+      if (claims.some((existing) => (
+        existing.claimKind === "business_status"
+        && existing.businessName?.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim() === normalizedName
+      ))) continue;
+      const claim = `${businessName} (${placeType})`;
+      const businessStatus = creatorBusinessStatus(claim);
+      claims.push({
+        claimId: `creator-claim-${claims.length + 1}`,
+        text: claim,
+        provenanceStatus: "creator_supplied_unverified",
+        scope: "current_subject",
+        sourceIds: [],
+        claimKind: "business_status",
+        businessName,
+        businessStatus,
+      });
+    }
   }
-  for (const { part, lineIndex } of segments) {
+  CREATOR_BUSINESS_OBSERVATION_RE.lastIndex = 0;
+  for (const match of text.matchAll(CREATOR_BUSINESS_OBSERVATION_RE)) {
     if (claims.length >= 24) break;
-    if (appearsTruncated && lineIndex === lastNonEmptyIndex && INCOMPLETE_TRAILING_RE.test(part.trim())) continue;
-    const claim = cleanClaimText(part);
-    if (!claim || !CREATOR_BUSINESS_OBSERVATION_RE.test(claim)) continue;
+    const claim = cleanClaimText(match[0] ?? "");
+    if (!claim) continue;
     if (claims.some((existing) => existing.text === claim)) continue;
     claims.push({
       claimId: `creator-claim-${claims.length + 1}`,
@@ -365,6 +421,60 @@ function inspectedSourcesSupportMoneyClaim(
   return markers.every((marker) => evidenceMarkers.has(marker));
 }
 
+function normalizeBusinessIdentity(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function findInspectedBusinessLocationSource(
+  claim: HearthCreatorResearchClaim,
+  sources: HearthResearchSource[],
+): HearthResearchSource | null {
+  if (claim.claimKind !== "business_status" || !claim.businessName) return null;
+  const businessIdentity = normalizeBusinessIdentity(claim.businessName);
+  const descriptor = claim.text.match(/\(([^)]+)\)/)?.[1] ?? "";
+  const descriptorIdentity = normalizeBusinessIdentity(descriptor);
+  const streetNumber = descriptorIdentity.match(/(?:^|\s)(\d{1,6})(?:\s|$)/)?.[1] ?? null;
+  const expectsChurchStreet = /\bchurch\b/i.test(descriptor);
+  if (!streetNumber && !expectsChurchStreet) return null;
+
+  return sources.find((source) => {
+    if (
+      source.provenance?.inspectionStatus !== "inspected"
+      || !source.provenance.verifiedInCurrentRequest
+      || source.extractionStatus !== "extracted"
+    ) return false;
+    const sourceIdentity = normalizeBusinessIdentity([
+      source.title,
+      source.publisher,
+      source.domain,
+    ].filter(Boolean).join(" "));
+    if (!sourceIdentity.includes(businessIdentity)) return false;
+    const evidenceIdentity = normalizeBusinessIdentity([
+      source.extractedText,
+      source.transcript,
+      source.snippet,
+    ].filter(Boolean).join(" "));
+    if (!evidenceIdentity || (expectsChurchStreet && !evidenceIdentity.includes("church"))) return false;
+    if (streetNumber && !new RegExp(`(?:^|\\s)${streetNumber}(?:\\s|$)`).test(evidenceIdentity)) return false;
+    return true;
+  }) ?? null;
+}
+
+function buildInspectedBusinessLocationFinding(
+  claim: HearthCreatorResearchClaim,
+  source: HearthResearchSource,
+): HearthResearchFinding {
+  return {
+    text: `The inspected source for ${claim.businessName} lists its Church Street location.`,
+    status: "verified_fact",
+    provenanceStatus: "verified_by_current_run",
+    sourceIds: [source.sourceId],
+    scope: claim.scope,
+    businessName: claim.businessName,
+    businessStatus: "appears_active_unconfirmed",
+  };
+}
+
 function formatBudgetAmount(amount: number): string {
   if (amount >= 1_000_000_000) {
     const billions = amount / 1_000_000_000;
@@ -504,6 +614,22 @@ export function reconcileCreatorSuppliedResearchArtifact(
         : {}),
     };
   });
+
+  for (const claim of creatorClaims) {
+    const source = findInspectedBusinessLocationSource(claim, result.sources);
+    if (!source) continue;
+    const matchingIndex = reconciledFindings.findIndex((finding) => findingMatchesCreatorClaim(finding, claim));
+    const inspectedFinding = buildInspectedBusinessLocationFinding(claim, source);
+    if (matchingIndex >= 0) {
+      const existing = reconciledFindings[matchingIndex];
+      if (
+        existing.status !== "verified_fact"
+        && existing.provenanceStatus !== "verified_by_current_run"
+      ) reconciledFindings[matchingIndex] = inspectedFinding;
+      continue;
+    }
+    reconciledFindings.push(inspectedFinding);
+  }
 
   for (const claim of creatorClaims) {
     if (reconciledFindings.some((finding) => findingMatchesCreatorClaim(finding, claim))) continue;

@@ -79,6 +79,54 @@ test("creator business-list bullets survive inaccessible citations as classified
   assert.equal(businesses.find((claim) => claim.businessName === "Kia Center")?.businessStatus, "adjacent_location");
 });
 
+test("creator business records survive a collapsed search-result paste without bullets or line breaks", () => {
+  const parsed = parseCreatorSuppliedResearch([
+    "🍽️ Restaurants, Cafes & BarsKres Chophouse (17 W. Church St.): The iconic upscale steakhouse anchoring the block.",
+    "Cucina Pizza & Bar (54 W. Church St. #151): Serving up standard Italian fare right in the heart of the construction zone.",
+    "The Bao Spot (54 W. Church St.): Handcrafted bao buns and rice bowls.",
+    "Coffee For The Soul (54 W. Church St. Ste 150): Casual Colombian cafe with a popular rooftop deck.",
+    "Birria1983 (54 W. Church St. Suite 141): Casual Mexican bar and grill.",
+    "Crepe Delicious Urban Cafe (Church St.): Holding down the fort during the street renovations.",
+    "Jenny's Downtown Orlando (595 W. Church St.): Southern comfort food and art gallery located further west near the venues.",
+    "The District GastroBar (534 W. Church St.): Southern-inspired fare and 1940s aesthetics further west on the block. ",
+    "[1] (https://www.instagram.com/dwntwn_orlando/), [2] (https://www.clickorlando.com/news/local/church-street-businesses/), ",
+    "[3] (https://jennysdowntown.com/), [6] (https://www.google.com/searchviewer/10?svid=restaurant-results)🏢 ",
+    "Corporate & Professional HubsChurch Street Exchange4.6(12)Business centerClosedCentral Business District4.3 miDirectionsOperating as an office and tech event venue.",
+    "Hawkers Corporate Office4.0(5)Corporate officeClosedCentral Business District4.3 miCallDirectionsWebsiteThe national street-food chain maintains its headquarters right on the street.",
+    "Travel + Leisure Co.3.6(168)Corporate campusClosedParramore4.3 miCallDirectionsWebsiteThe mass membership and vacation travel giant operates its corporate hub here. ",
+    "[1] (https://m.yelp.com/biz/church-street-exchange-orlando), [3] (https://www.google.com/searchviewer/10?svid=attraction-results)🏟️ ",
+    "Attractions & EntertainmentKia Center4.6(16.9K)ArenaParramore4.2 miCallDirectionsWebsiteFormerly the Amway Center, anchoring the street’s massive sports and entertainment events.",
+    "American Ghost Adventures4.9(802)Tour agencyClosedCentral Business District4.4 miCallDirectionsWebsiteFamously the only business left meeting customers inside the historic, otherwise vacant Bumby Arcade block for nightly tours. ",
+    "Empty storefronts and available business spaces remain numerous while existing businesses remain hopeful that the cities renovations can revitalize the area",
+  ].join(""));
+
+  assert.deepEqual(
+    parsed.claims.filter((claim) => claim.claimKind === "business_status").map((claim) => claim.businessName),
+    [
+      "Kres Chophouse",
+      "Cucina Pizza & Bar",
+      "The Bao Spot",
+      "Coffee For The Soul",
+      "Birria1983",
+      "Crepe Delicious Urban Cafe",
+      "Jenny's Downtown Orlando",
+      "The District GastroBar",
+      "Church Street Exchange",
+      "Hawkers Corporate Office",
+      "Travel + Leisure Co.",
+      "Kia Center",
+      "American Ghost Adventures",
+    ],
+  );
+  assert.ok(parsed.claims.some((claim) => /^Empty storefronts and available business spaces remain numerous/i.test(claim.text)));
+  assert.ok(parsed.claims.every((claim) => claim.provenanceStatus === "creator_supplied_unverified"));
+  for (const businessName of ["Church Street Exchange", "Hawkers Corporate Office", "Travel + Leisure Co."]) {
+    assert.equal(parsed.claims.find((claim) => claim.businessName === businessName)?.businessStatus, "non_customer_facing");
+  }
+  assert.equal(parsed.claims.find((claim) => claim.businessName === "Kia Center")?.businessStatus, "creator_supplied_unverified");
+  assert.equal(parsed.claims.find((claim) => claim.businessName === "American Ghost Adventures")?.businessStatus, "creator_supplied_unverified");
+});
+
 test("creator claims degrade a failed mixed-evidence artifact to partial without becoming verified", () => {
   const briefFingerprint = "brief-church-street";
   const workpieceId = "church-street";
