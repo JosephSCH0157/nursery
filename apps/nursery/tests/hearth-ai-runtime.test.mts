@@ -10,6 +10,7 @@ import {
 import { validateScriptTags } from "@forge/shared/script-tags";
 import hearthChatStatusFunction from "../netlify/functions/hearth-chat-status";
 import {
+  composeGroundedResearchAnswer,
   createHearthAiHandler,
   sanitizeHearthUserFacingOutput,
   shouldUseWorkspaceContext,
@@ -1885,6 +1886,320 @@ test("createHearthAiHandler treats retry live research phrasing as research inte
     assert.equal(payload.research_result?.runtimeStatus, "ok");
   } finally {
     globalThis.fetch = originalFetch;
+  }
+});
+
+test("creator-pasted Church Street research degrades per citation instead of failing the pack", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+  const fetchedUrls: string[] = [];
+  const malformedBusinessJournalUrl = "https://www.bizjournals.com/orlando/news/2026/01/01/church-street-revamp.html)The";
+  const normalizedBusinessJournalUrl = "https://www.bizjournals.com/orlando/news/2026/01/01/church-street-revamp.html";
+  const pastedResearch = [
+    "Outside research notes:",
+    "The claimed total for the Church Street festival-street project is $12 million. [City phase page](https://www.orlando.gov/News/Press-Releases/2026/Church-Street-Phase-I)Next",
+    `The Business Journal was cited for that total at ${malformedBusinessJournalUrl} article says the complete package is still being assembled.`,
+    "Phase I is reported at $5.2 million and covers street and utility work. https://www.clickorlando.com/news/local/2026/01/02/church-street-phase-one",
+    "Phase II is reported at $8 million and covers the next festival-street segment. https://www.orlandoshine.com/church-street-phase-two",
+    "A broader $220 million infrastructure package is separate context. https://bungalower.com/2026/01/03/downtown-infrastructure-package/",
+    "The $160 million downtown bond package is also adjacent funding, not automatically this project budget.",
+    "The complete festival street redesign is slated for",
+  ].join("\n");
+
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    fetchedUrls.push(url);
+    if (url === "https://www.orlando.gov/News/Press-Releases/2026/Church-Street-Phase-I") {
+      return new Response("<html><head><title>Church Street Phase I</title></head><body>Phase I has a $5.2 million budget for street and utility work.</body></html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    }
+    if (url === "https://www.clickorlando.com/news/local/2026/01/02/church-street-phase-one") {
+      return new Response("<html><head><title>Church Street reporting</title></head><body>Local reporting describes the $5.2 million first phase.</body></html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    }
+    if (url === "https://www.orlandoshine.com/church-street-phase-two") {
+      return new Response("<html><head><title>Church Street Phase II</title></head><body>The second phase is reported at $8 million.</body></html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    }
+    if (url === "https://bungalower.com/2026/01/03/downtown-infrastructure-package/") {
+      return new Response("<html><head><title>Downtown infrastructure</title></head><body>A broader $220 million infrastructure package and a $160 million downtown bond package cover projects beyond Church Street.</body></html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    }
+    if (url === normalizedBusinessJournalUrl || url === malformedBusinessJournalUrl) {
+      return new Response("Access denied", { status: 403 });
+    }
+    if (url === "https://api.openai.com/v1/chat/completions") {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { messages?: Array<{ content?: string }> };
+      const systemPrompt = body.messages?.[0]?.content ?? "";
+      const lines = systemPrompt.split("\n");
+      const marker = lines.indexOf("Canonical research runtime result:");
+      assert.ok(marker >= 0);
+      const runtime = JSON.parse(lines[marker + 1] ?? "{}") as {
+        brief?: { briefFingerprint?: string; workpieceId?: string };
+        sources?: Array<{ sourceId?: string; url?: string }>;
+      };
+      const citySourceId = runtime.sources?.find((source) => source.url?.includes("orlando.gov/News/Press-Releases"))?.sourceId;
+      assert.ok(runtime.brief?.briefFingerprint && runtime.brief.workpieceId && citySourceId);
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({
+          assistantText: "The City source supports the Phase I figure, but the total remains unresolved.",
+          ops: [],
+          script_text: null,
+          tag_audit: null,
+          research_artifact: {
+            briefFingerprint: runtime.brief.briefFingerprint,
+            workpieceId: runtime.brief.workpieceId,
+            status: "failed",
+            findings: [{
+              text: "The accessible City page identifies a $5.2 million Phase I budget for street and utility work.",
+              status: "verified_fact",
+              scope: "current_subject",
+              sourceIds: [citySourceId],
+            }],
+            uncertainties: ["The creator-supplied $12 million total is not corroborated by the accessible City page."],
+            editorialInterpretation: [],
+          },
+        }) } }],
+        usage: { total_tokens: 92 },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: pastedResearch }],
+        user_authored_text: pastedResearch,
+        episode_context: buildEpisodeContext({ title: "Church Street" }),
+        lane: "byo",
+        behavior: "careful",
+      }),
+    }));
+
+    assert.equal(response.status, 200);
+    const payload = await response.json();
+    assert.equal(fetchedUrls.includes(malformedBusinessJournalUrl), false);
+    assert.equal(fetchedUrls.includes(normalizedBusinessJournalUrl), true);
+    assert.equal(payload.research_result?.runtimeStatus, "partial");
+    assert.equal(payload.research_result?.artifact?.status, "partial");
+    assert.equal(payload.research_result?.creatorInputTruncated, true);
+    assert.ok(payload.research_result?.sources?.some((source: { url?: string; extractionStatus?: string }) => source.url?.includes("orlandoshine.com") && source.extractionStatus === "extracted"));
+    assert.ok(payload.research_result?.sources?.some((source: { url?: string; extractionStatus?: string }) => source.url?.includes("bungalower.com") && source.extractionStatus === "extracted"));
+    const findings = payload.research_result?.artifact?.findings ?? [];
+    assert.ok(findings.some((finding: { text?: string; provenanceStatus?: string }) => finding.text?.includes("$5.2 million") && finding.provenanceStatus === "verified_by_current_run"));
+    assert.ok(findings.some((finding: { text?: string; provenanceStatus?: string }) => finding.text?.includes("$12 million") && finding.provenanceStatus === "creator_supplied_unverified"));
+    assert.equal(findings.some((finding: { text?: string; status?: string }) => finding.text?.includes("$12 million") && finding.status === "verified_fact"), false);
+    assert.ok(findings.some((finding: { text?: string; provenanceStatus?: string }) => finding.provenanceStatus === "conflicting" && finding.text?.includes("$13.2 million")));
+    assert.ok(findings.filter((finding: { text?: string }) => /\$(?:160|220) million/.test(finding.text ?? "")).every((finding: { scope?: string }) => finding.scope === "adjacent_context"));
+    assert.doesNotMatch(JSON.stringify(findings), /slated for/i);
+    assert.match(String(payload.assistant_text ?? ""), /Research outcome: Partial/i);
+    assert.match(String(payload.assistant_text ?? ""), /Inspected sources: 4/i);
+    assert.match(String(payload.assistant_text ?? ""), /Sources supporting a validated claim: 1/i);
+    assert.doesNotMatch(String(payload.assistant_text ?? ""), /Research outcome: Failed/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("creator-pasted business leads survive an emoji URL boundary and inaccessible sources", async () => {
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key" }));
+  const originalFetch = globalThis.fetch;
+  const fetchedUrls: string[] = [];
+  const normalizedSearchViewerUrl = "https://www.google.com/searchviewer/church-street-businesses";
+  const malformedSearchViewerUrl = `${normalizedSearchViewerUrl})🏢`;
+  const pastedResearch = [
+    "## Open Church Street business leads",
+    "- **Kres Chophouse** — restaurant at 17 W Church Street.",
+    "- **The Bao Spot** — restaurant lead near Church Street.",
+    "- **Hawkers** — corporate office, not a customer-facing storefront.",
+    "- **Kia Center** — adjacent venue, not on the relevant corridor.",
+    `[SearchViewer](${malformedSearchViewerUrl} More business listings`,
+    "https://www.yelp.com/search?find_desc=Restaurants&find_loc=Church+Street",
+  ].join("\n");
+
+  globalThis.fetch = async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    fetchedUrls.push(url);
+    if (url === normalizedSearchViewerUrl || url.startsWith("https://www.yelp.com/search")) {
+      return new Response("Access denied", { status: 403 });
+    }
+    if (url === "https://api.openai.com/v1/chat/completions") {
+      const body = JSON.parse(String(init?.body ?? "{}")) as { messages?: Array<{ content?: string }> };
+      const prompt = body.messages?.[0]?.content ?? "";
+      const lines = prompt.split("\n");
+      const marker = lines.indexOf("Canonical research runtime result:");
+      const runtime = JSON.parse(lines[marker + 1] ?? "{}") as { brief?: { briefFingerprint?: string; workpieceId?: string } };
+      return new Response(JSON.stringify({
+        choices: [{ message: { content: JSON.stringify({
+          assistantText: "The supplied business sources were inaccessible.",
+          ops: [],
+          research_artifact: {
+            briefFingerprint: runtime.brief?.briefFingerprint,
+            workpieceId: runtime.brief?.workpieceId,
+            status: "failed",
+            findings: [],
+            uncertainties: ["The supplied sources could not be inspected."],
+            editorialInterpretation: [],
+          },
+        }) } }],
+        usage: { total_tokens: 20 },
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    throw new Error(`Unexpected fetch URL: ${url}`);
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: pastedResearch }],
+        user_authored_text: pastedResearch,
+        episode_context: buildEpisodeContext({ title: "Church Street" }),
+        lane: "byo",
+      }),
+    }));
+    const payload = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(fetchedUrls.includes(malformedSearchViewerUrl), false);
+    assert.equal(fetchedUrls.includes(`${normalizedSearchViewerUrl}%F0%9F%8F%A2`), false);
+    assert.equal(fetchedUrls.includes(normalizedSearchViewerUrl), true);
+    assert.equal(payload.research_result?.artifact?.status, "partial");
+    const findings = payload.research_result?.artifact?.findings ?? [];
+    assert.ok(findings.some((finding: { businessName?: string; businessStatus?: string }) => finding.businessName === "Kres Chophouse" && finding.businessStatus === "creator_supplied_unverified"));
+    assert.ok(findings.some((finding: { businessName?: string; businessStatus?: string }) => finding.businessName === "Hawkers" && finding.businessStatus === "non_customer_facing"));
+    assert.ok(findings.some((finding: { businessName?: string; businessStatus?: string }) => finding.businessName === "Kia Center" && finding.businessStatus === "adjacent_location"));
+    assert.match(String(payload.assistant_text ?? ""), /Research outcome: Partial/i);
+    assert.match(String(payload.assistant_text ?? ""), /Still unverified/i);
+    assert.match(String(payload.assistant_text ?? ""), /Adjacent or not a customer-facing Church Street business/i);
+    assert.doesNotMatch(String(payload.assistant_text ?? ""), /Research outcome: Failed/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("grounded research rendering separates inspected-source count from validated support", () => {
+  const briefFingerprint = "brief-source-accounting";
+  const workpieceId = "church-street";
+  const sources = Array.from({ length: 4 }, (_, index) => ({
+    sourceId: `source-${index + 1}`,
+    title: `Inspected source ${index + 1}`,
+    url: `https://example.test/source-${index + 1}`,
+    domain: "example.test",
+    publishedAt: null,
+    snippet: null,
+    extractedText: "This source was inspected but does not establish the creator-supplied total.",
+    extractionStatus: "extracted" as const,
+    extractionError: null,
+    provenance: {
+      origin: "creator_url" as const,
+      briefFingerprint,
+      inspectedAt: "2026-09-08T00:00:00.000Z",
+      inspectionStatus: "inspected" as const,
+      accessFailureReason: null,
+      verifiedInCurrentRequest: true,
+    },
+  }));
+  const answer = composeGroundedResearchAnswer({
+    mode: "retrieval_first",
+    runtimeStatus: "partial",
+    brief: {
+      schema: "forge.hearth.research-brief.v1",
+      workspaceId: "workspace",
+      workpieceId,
+      briefFingerprint,
+      creatorRequest: "Check the pasted budget claims.",
+      episodeTitle: "Church Street",
+      goals: ["Resolve the total"],
+      queries: [],
+      sourcePriorities: [],
+    },
+    creatorClaims: [{
+      claimId: "creator-claim-1",
+      text: "The claimed project total is $12 million.",
+      provenanceStatus: "creator_supplied_unverified",
+      scope: "current_subject",
+      sourceIds: [],
+    }],
+    sources,
+    artifact: {
+      briefFingerprint,
+      workpieceId,
+      status: "partial",
+      findings: [],
+      uncertainties: ["The total remains unverified."],
+      editorialInterpretation: [],
+    },
+    synthesis: {
+      summary: "",
+      keyPoints: [],
+      uncertainties: [],
+      coverageNote: "Four supplied sources were inspected.",
+    },
+  });
+
+  assert.match(answer ?? "", /Inspected sources: 4/i);
+  assert.match(answer ?? "", /Sources supporting a validated claim: 0/i);
+  assert.doesNotMatch(answer ?? "", /No cited references/i);
+});
+
+test("evidence-empty research can still return failed", async () => {
+  const priorResearchEnv = snapshotResearchEnv();
+  clearResearchEnv();
+  const handler = createHearthAiHandler(buildConfig({ textApiKey: "test-key", researchApiKey: null }));
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async (_input, init) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as { messages?: Array<{ content?: string }> };
+    const prompt = body.messages?.[0]?.content ?? "";
+    const lines = prompt.split("\n");
+    const marker = lines.indexOf("Canonical research runtime result:");
+    assert.ok(marker >= 0);
+    const runtime = JSON.parse(lines[marker + 1] ?? "{}") as { brief?: { briefFingerprint?: string; workpieceId?: string } };
+    return new Response(JSON.stringify({
+      choices: [{ message: { content: JSON.stringify({
+        assistantText: "No usable evidence was available.",
+        ops: [],
+        research_artifact: {
+          briefFingerprint: runtime.brief?.briefFingerprint,
+          workpieceId: runtime.brief?.workpieceId,
+          status: "failed",
+          findings: [],
+          uncertainties: ["No sources were available."],
+          editorialInterpretation: [],
+        },
+      }) } }],
+      usage: { total_tokens: 20 },
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+
+  try {
+    const response = await handler(new Request(`http://localhost${HEARTH_AI_ROUTES.chat}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: "Research the Church Street project budget." }],
+        user_authored_text: "Research the Church Street project budget.",
+        episode_context: buildEpisodeContext({ title: "Church Street" }),
+        lane: "byo",
+      }),
+    }));
+    const payload = await response.json();
+    assert.equal(payload.research_result?.artifact?.status, "failed");
+    assert.match(String(payload.assistant_text ?? ""), /Research outcome: Failed/i);
+  } finally {
+    globalThis.fetch = originalFetch;
+    restoreResearchEnv(priorResearchEnv);
   }
 });
 

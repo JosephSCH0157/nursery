@@ -61,6 +61,11 @@ import {
   extractUrlToResearchSource,
 } from "./hearth-research-runtime";
 import {
+  buildMalformedCreatorCitationSource,
+  parseCreatorSuppliedResearch,
+  reconcileCreatorSuppliedResearchArtifact,
+} from "./hearth-creator-research-ingest";
+import {
   FORGE_ALLOWED_CHAT_MODELS,
 } from "./ai-pricing";
 import {
@@ -524,33 +529,6 @@ function compactSpaces(text: string): string {
   return text.replace(/\s+/g, " ").trim().toLowerCase();
 }
 
-function extractUrls(input: string): string[] {
-  const raw = String(input ?? "");
-  const matches = raw.match(URL_RE) ?? [];
-  const urls: string[] = [];
-  const seen = new Set<string>();
-  for (const match of matches) {
-    const trimmed = match.replace(/[),.;:!?]+$/g, "");
-    try {
-      const url = new URL(trimmed);
-      if (url.protocol !== "http:" && url.protocol !== "https:") continue;
-      const normalized = url.toString();
-      const key = normalized.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      urls.push(normalized);
-      if (urls.length >= 4) break;
-    } catch {
-      // ignore invalid URLs
-    }
-  }
-  return urls;
-}
-
-function removeUrls(input: string): string {
-  return condenseWhitespace(String(input ?? "").replace(URL_RE, " "));
-}
-
 function stripHearthInternalRequestInstructions(input: string): string {
   const text = String(input ?? "");
   const markerPatterns = [
@@ -663,6 +641,8 @@ export function buildEpisodeContextResearchQuery(args: {
 function buildLinkOnlyResearchResult(args: {
   sources: HearthResearchSource[];
   brief: HearthResearchBrief;
+  creatorClaims: NonNullable<HearthResearchResult["creatorClaims"]>;
+  creatorInputTruncated: boolean;
 }): HearthResearchResult {
   const extracted = args.sources.filter((source) => source.extractionStatus === "extracted").length;
   const failed = args.sources.length - extracted;
@@ -673,6 +653,9 @@ function buildLinkOnlyResearchResult(args: {
   if (failed > 0) {
     uncertainties.push(`${failed} link(s) could not be fully extracted (blocked, timed out, or unsupported content type).`);
   }
+  if (args.creatorInputTruncated) {
+    uncertainties.push("The creator-supplied research note appears truncated; incomplete trailing prose was not treated as a claim.");
+  }
   return {
     mode: "retrieval_first",
     runtimeStatus: args.sources.length === 0
@@ -681,6 +664,8 @@ function buildLinkOnlyResearchResult(args: {
         ? (failed > 0 ? "partial" : "ok")
         : "partial",
     brief: args.brief,
+    creatorClaims: args.creatorClaims,
+    creatorInputTruncated: args.creatorInputTruncated,
     evidence: args.sources.map((source, index) => ({
       evidenceId: `evidence-${index + 1}`,
       briefFingerprint: args.brief.briefFingerprint,
@@ -1608,18 +1593,26 @@ function buildSystemPrompt(
       "- The serialized research brief is the only authority for research goals and evaluation criteria in this request.",
       "- Prior conversation may inform tone and continuity, but must not add research goals, claims, or sources.",
       "- Use only current-request evidence whose workpieceId and briefFingerprint match the research brief.",
+      "- creatorClaims in the runtime result are creator-supplied leads, not evidence. Preserve them, attempt corroboration, and never promote them merely because the creator supplied them.",
       "- Inspect the supplied evidence excerpts and compare sources before writing findings.",
       "- Do not claim completion unless research_artifact contains substantive findings.",
       "- For complete or partial work, return research_artifact with the exact briefFingerprint and workpieceId from the brief.",
       "- Each factual finding must name one or more sourceIds from inspected current-request evidence. Use status verified_fact, reported_claim, or uncertain.",
+      "- Use provenanceStatus verified_by_current_run only for a claim supported by cited inspected evidence; use reported_by_accessible_secondary for cited accessible reporting; otherwise use creator_supplied_unverified, conflicting, unsupported, or inaccessible_source_only as applicable.",
       "- Editorial interpretation, including a causal connection inferred only from chronology, must use status editorial_interpretation and must not masquerade as a sourced fact.",
       "- When evidence establishes only sequence, say that events coincided or that one followed the other; do not say an ownership or financial change caused decline.",
       "- Set finding scope to current_subject only when it answers the named subject in the brief. Label separate nearby projects or entities adjacent_context and never use their spending, scope, or timeline to answer for the current subject.",
       "- Return uncertainties and conflicts explicitly. Never fill a gap from background knowledge.",
-      "- If evidence is absent or unusable, return a failed artifact with no findings and say clearly that no validated findings were produced.",
+      "- One malformed, inaccessible, or paywalled citation degrades that source only. Return partial when other inspected evidence or substantive creator-supplied leads remain usable. Use failed only when no substantive artifact can be produced.",
+      "- If creatorInputTruncated is true, ignore incomplete trailing prose and do not infer its missing ending.",
+      "- Business operating status is time-sensitive. A pasted name, address, description, hours listing, or colorful claim is not proof that a business is currently open.",
+      "- For business findings, include businessName and businessStatus: verified_currently_operating, appears_active_unconfirmed, creator_supplied_unverified, closed_inactive, non_customer_facing, or adjacent_location.",
+      "- Use verified_currently_operating or closed_inactive only when inspected current-request evidence directly supports the current status. Otherwise prefer appears_active_unconfirmed or creator_supplied_unverified.",
+      "- Corporate offices, arenas, tour operators, and places outside the relevant corridor must not be presented as equivalent to a customer-facing Church Street storefront. Classify them explicitly when the inspected evidence permits it.",
+      "- Claims such as popular, only business left, rooftop access, hours, or walk-in availability require their own inspected support before reuse as factual script material.",
       "- Creator assistance is appropriate only for a source explicitly marked inaccessible with a specific accessFailureReason; continue using other inspected sources.",
       "research_artifact shape:",
-      "{\"briefFingerprint\":string,\"workpieceId\":string,\"status\":\"complete\"|\"partial\"|\"failed\",\"findings\":[{\"text\":string,\"status\":\"verified_fact\"|\"reported_claim\"|\"uncertain\"|\"editorial_interpretation\",\"scope\":\"current_subject\"|\"adjacent_context\",\"sourceIds\":string[]}],\"uncertainties\":string[],\"editorialInterpretation\":string[]}",
+      "{\"briefFingerprint\":string,\"workpieceId\":string,\"status\":\"complete\"|\"partial\"|\"failed\",\"findings\":[{\"text\":string,\"status\":\"verified_fact\"|\"reported_claim\"|\"uncertain\"|\"editorial_interpretation\",\"provenanceStatus\":\"creator_supplied_unverified\"|\"verified_by_current_run\"|\"reported_by_accessible_secondary\"|\"conflicting\"|\"unsupported\"|\"inaccessible_source_only\",\"scope\":\"current_subject\"|\"adjacent_context\",\"businessName\":string|undefined,\"businessStatus\":\"verified_currently_operating\"|\"appears_active_unconfirmed\"|\"creator_supplied_unverified\"|\"closed_inactive\"|\"non_customer_facing\"|\"adjacent_location\"|undefined,\"sourceIds\":string[]}],\"uncertainties\":string[],\"editorialInterpretation\":string[]}",
     );
     if (options.researchRequest) {
       baseLines.push(
@@ -1974,7 +1967,7 @@ const ANNOUNCEMENT_ONLY_RE = /^(?:(?:great|done|okay|all set)[,!.\s]+)?(?:here(?
 
 function validateResearchArtifact(result: HearthResearchResult): HearthResearchArtifact | null {
   const brief = result.brief;
-  const artifact = result.artifact;
+  const artifact = reconcileCreatorSuppliedResearchArtifact(result);
   if (!brief || !artifact) return null;
   if (artifact.briefFingerprint !== brief.briefFingerprint || artifact.workpieceId !== brief.workpieceId) return null;
   if ((result.evidence ?? []).some((entry) => entry.briefFingerprint !== brief.briefFingerprint || entry.workpieceId !== brief.workpieceId)) return null;
@@ -1994,6 +1987,18 @@ function validateResearchArtifact(result: HearthResearchResult): HearthResearchA
   if (substantive.length === 0) return null;
   for (const finding of substantive) {
     if (finding.status === "editorial_interpretation") continue;
+    if (
+      finding.provenanceStatus === "creator_supplied_unverified"
+      || finding.provenanceStatus === "unsupported"
+      || finding.provenanceStatus === "inaccessible_source_only"
+    ) {
+      if (finding.status !== "uncertain") return null;
+      continue;
+    }
+    if (finding.provenanceStatus === "conflicting") {
+      if (finding.status !== "uncertain" || finding.sourceIds.some((sourceId) => !result.sources.some((source) => source.sourceId === sourceId))) return null;
+      continue;
+    }
     if (finding.sourceIds.length === 0 || finding.sourceIds.some((sourceId) => !inspectedIds.has(sourceId))) return null;
   }
   const currentRetrievalIncomplete = result.runtimeStatus !== "ok"
@@ -2021,7 +2026,11 @@ function validateResearchArtifact(result: HearthResearchResult): HearthResearchA
   });
   return {
     ...artifact,
-    status: artifact.status === "complete" && (currentRetrievalIncomplete || scopedFindings.every((finding) => finding.scope === "adjacent_context")) ? "partial" : artifact.status,
+    status: artifact.status === "complete" && (
+      currentRetrievalIncomplete
+      || scopedFindings.every((finding) => finding.scope === "adjacent_context")
+      || scopedFindings.some((finding) => finding.provenanceStatus !== "verified_by_current_run" && finding.provenanceStatus !== "reported_by_accessible_secondary")
+    ) ? "partial" : artifact.status,
     findings: scopedFindings,
     editorialInterpretation: artifact.editorialInterpretation.flatMap(normalizeEditorialInterpretation),
   };
@@ -2088,23 +2097,74 @@ function refinementPresentationLines(result: HearthResearchResult): string[] {
 export function composeGroundedResearchAnswer(result: HearthResearchResult): string | null {
   const artifact = validateResearchArtifact(result);
   if (!artifact || artifact.status === "failed") return null;
-  const sourceById = new Map(result.sources.map((source) => [source.sourceId, source]));
-  const citedIds = new Set(artifact.findings.flatMap((finding) => finding.sourceIds));
   const renderFinding = (finding: HearthResearchArtifact["findings"][number]) => {
     const citations = finding.sourceIds.map((id) => `[${id}]`).join(" ");
     return `- ${finding.text}${citations ? ` ${citations}` : ""}`;
   };
-  const currentFindingLines = artifact.findings.filter((finding) => finding.scope !== "adjacent_context").map(renderFinding);
-  const adjacentFindingLines = artifact.findings.filter((finding) => finding.scope === "adjacent_context").map(renderFinding);
+  const isBusinessFinding = (finding: HearthResearchArtifact["findings"][number]) => Boolean(finding.businessStatus);
+  const verifiedOpenBusinessLines = artifact.findings.filter((finding) => (
+    finding.businessStatus === "verified_currently_operating"
+    && (finding.provenanceStatus === "verified_by_current_run" || finding.provenanceStatus === "reported_by_accessible_secondary")
+  )).map(renderFinding);
+  const appearsActiveBusinessLines = artifact.findings.filter((finding) => (
+    finding.businessStatus === "appears_active_unconfirmed"
+  )).map(renderFinding);
+  const unverifiedBusinessLines = artifact.findings.filter((finding) => (
+    finding.businessStatus === "creator_supplied_unverified"
+  )).map(renderFinding);
+  const closedBusinessLines = artifact.findings.filter((finding) => (
+    finding.businessStatus === "closed_inactive"
+    && (finding.provenanceStatus === "verified_by_current_run" || finding.provenanceStatus === "reported_by_accessible_secondary")
+  )).map(renderFinding);
+  const nonStorefrontBusinessLines = artifact.findings.filter((finding) => (
+    finding.businessStatus === "non_customer_facing" || finding.businessStatus === "adjacent_location"
+  )).map(renderFinding);
+  const validatedFindingLines = artifact.findings.filter((finding) => (
+    !isBusinessFinding(finding)
+    &&
+    finding.scope !== "adjacent_context"
+    && (finding.provenanceStatus === "verified_by_current_run" || finding.provenanceStatus === "reported_by_accessible_secondary")
+  )).map(renderFinding);
+  const creatorLeadLines = artifact.findings.filter((finding) => (
+    !isBusinessFinding(finding)
+    &&
+    finding.scope !== "adjacent_context"
+    && finding.provenanceStatus === "creator_supplied_unverified"
+  )).map(renderFinding);
+  const unresolvedFindingLines = artifact.findings.filter((finding) => (
+    !isBusinessFinding(finding)
+    &&
+    finding.scope !== "adjacent_context"
+    && (finding.provenanceStatus === "conflicting"
+      || finding.provenanceStatus === "unsupported"
+      || finding.provenanceStatus === "inaccessible_source_only")
+  )).map(renderFinding);
+  const adjacentFindingLines = artifact.findings.filter((finding) => !isBusinessFinding(finding) && finding.scope === "adjacent_context").map(renderFinding);
   const refinementLines = refinementPresentationLines(result);
   const inaccessible = result.sources.filter((source) => source.provenance?.inspectionStatus === "inaccessible");
-  const referenceLines = [...citedIds]
-    .map((sourceId) => sourceById.get(sourceId))
-    .filter((source): source is HearthResearchSource => Boolean(source))
+  const inspectedSources = result.sources.filter((source) => source.provenance?.inspectionStatus === "inspected");
+  const validatedSourceIds = new Set(artifact.findings
+    .filter((finding) => (
+      finding.provenanceStatus === "verified_by_current_run"
+      || finding.provenanceStatus === "reported_by_accessible_secondary"
+    ))
+    .flatMap((finding) => finding.sourceIds));
+  const supportingSources = inspectedSources.filter((source) => validatedSourceIds.has(source.sourceId));
+  const inspectedSourceLines = inspectedSources
     .map((source) => `- [${source.sourceId}] ${sourcePublisher(source)} — ${authorityLabel(source)} — ${source.canonicalUrl || source.url}`);
   return [
-    ...(currentFindingLines.length ? [artifact.status === "complete" ? "Validated findings" : "Validated partial findings", currentFindingLines.join("\n")] : []),
-    ...(adjacentFindingLines.length ? ["Adjacent context", adjacentFindingLines.join("\n")] : []),
+    ...(verifiedOpenBusinessLines.length ? ["Open doors I could verify", verifiedOpenBusinessLines.join("\n")] : []),
+    ...(appearsActiveBusinessLines.length ? ["Appears active, but current status is not fully confirmed", appearsActiveBusinessLines.join("\n")] : []),
+    ...(unverifiedBusinessLines.length ? ["Still unverified", unverifiedBusinessLines.join("\n")] : []),
+    ...(closedBusinessLines.length ? ["Closed or inactive", closedBusinessLines.join("\n")] : []),
+    ...(nonStorefrontBusinessLines.length ? ["Adjacent or not a customer-facing Church Street business", nonStorefrontBusinessLines.join("\n")] : []),
+    ...(validatedFindingLines.length ? [artifact.status === "complete" ? "Validated findings" : "Validated partial findings", validatedFindingLines.join("\n")] : []),
+    ...(creatorLeadLines.length ? ["Creator-supplied leads still unverified", creatorLeadLines.join("\n")] : []),
+    ...(unresolvedFindingLines.length ? ["Conflicting, unsupported, or inaccessible-source-only claims", unresolvedFindingLines.join("\n")] : []),
+    ...(adjacentFindingLines.length ? [
+      "Adjacent context",
+      `${adjacentFindingLines.join("\n")}\n- These adjacent figures do not establish the current subject's project budget.`,
+    ] : []),
     "Research coverage",
     `- ${result.synthesis.coverageNote || "Coverage details unavailable."}`,
     ...(refinementLines.length ? [
@@ -2119,8 +2179,10 @@ export function composeGroundedResearchAnswer(result: HearthResearchResult): str
     artifact.uncertainties.length ? artifact.uncertainties.map((item) => `- ${item}`).join("\n") : "- None identified in the inspected evidence.",
     "Editorial interpretation",
     artifact.editorialInterpretation.length ? artifact.editorialInterpretation.map((item) => `- ${item}`).join("\n") : "- No additional editorial interpretation.",
-    "References inspected for this request",
-    referenceLines.length ? referenceLines.join("\n") : "- No cited references.",
+    "References and source accounting",
+    `- Inspected sources: ${inspectedSources.length}\n- Sources supporting a validated claim: ${supportingSources.length}`,
+    "Inspected sources",
+    inspectedSourceLines.length ? inspectedSourceLines.join("\n") : "- None.",
     ...(inaccessible.length ? [
       "Inaccessible sources",
       inaccessible.map((source) => `- ${source.url} — ${source.provenance?.accessFailureReason || "extraction_failed"}.`).join("\n"),
@@ -3800,10 +3862,12 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       const priorMessages = typeof latestUserMessageIndex === "number"
         ? messages.filter((_, index) => index !== latestUserMessageIndex)
         : messages;
-      const urlsInRequest = extractUrls(requestText);
-      const textWithoutUrls = removeUrls(requestText);
+      const creatorResearchInput = parseCreatorSuppliedResearch(requestText);
+      const urlsInRequest = creatorResearchInput.citations
+        .flatMap((citation) => citation.normalizedUrl ? [citation.normalizedUrl] : []);
+      const textWithoutUrls = creatorResearchInput.textWithoutCitations;
       const researchIntentText = stripHearthInternalRequestInstructions(textWithoutUrls || requestText);
-      const linkModeRequested = urlsInRequest.length > 0;
+      const linkModeRequested = creatorResearchInput.citations.length > 0;
       // Production commands are version-scoped transformations of the approved
       // script. Words such as "source" in their strict output contract must not
       // route them through research or prepend a research outcome envelope.
@@ -3867,14 +3931,27 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       let researchResult: HearthResearchResult | null = null;
       if (linkModeRequested) {
         const linkSources = await Promise.all(
-          urlsInRequest.slice(0, 3).map((url, index) => extractUrlToResearchSource({
-            url,
-            sourceId: `link-${index + 1}`,
-            brief: researchBrief!,
-            signal: request.signal,
-          })),
+          creatorResearchInput.citations.map((citation, index) => (
+            citation.normalizedUrl
+              ? extractUrlToResearchSource({
+                  url: citation.normalizedUrl,
+                  sourceId: `link-${index + 1}`,
+                  brief: researchBrief!,
+                  signal: request.signal,
+                })
+              : Promise.resolve(buildMalformedCreatorCitationSource({
+                  citation,
+                  sourceId: `link-${index + 1}`,
+                  brief: researchBrief!,
+                }))
+          )),
         );
-        researchResult = buildLinkOnlyResearchResult({ sources: linkSources, brief: researchBrief! });
+        researchResult = buildLinkOnlyResearchResult({
+          sources: linkSources,
+          brief: researchBrief!,
+          creatorClaims: creatorResearchInput.claims,
+          creatorInputTruncated: creatorResearchInput.appearsTruncated,
+        });
       } else if (researchRequest && researchBrief) {
         try {
           researchResult = await researchRuntime.run({
@@ -4306,6 +4383,12 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             ...researchResult,
             artifact: structured.researchArtifact,
           };
+          const reconciledArtifact = reconcileCreatorSuppliedResearchArtifact(researchResult);
+          researchResult = {
+            ...researchResult,
+            artifact: reconciledArtifact,
+          };
+          structured.researchArtifact = reconciledArtifact;
           structured.assistantText = enforceResearchOutcomeReply({
             assistantText: structured.assistantText,
             request: researchRequest,

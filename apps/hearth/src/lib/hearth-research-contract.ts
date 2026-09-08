@@ -27,6 +27,7 @@ export type HearthResearchSourceAuthority =
   | "unassessed";
 
 export type HearthResearchAccessFailureReason =
+  | "malformed_url"
   | "authentication_required"
   | "paywall"
   | "access_denied"
@@ -71,9 +72,39 @@ export type HearthResearchEvidence = {
 export type HearthResearchFinding = {
   text: string;
   status: "verified_fact" | "reported_claim" | "uncertain" | "editorial_interpretation";
+  provenanceStatus?: HearthResearchClaimProvenanceStatus;
   sourceIds: string[];
   scope?: "current_subject" | "adjacent_context";
+  businessName?: string;
+  businessStatus?: HearthBusinessOperatingStatus;
 };
+
+export type HearthResearchClaimProvenanceStatus =
+  | "creator_supplied_unverified"
+  | "verified_by_current_run"
+  | "reported_by_accessible_secondary"
+  | "conflicting"
+  | "unsupported"
+  | "inaccessible_source_only";
+
+export type HearthCreatorResearchClaim = {
+  claimId: string;
+  text: string;
+  provenanceStatus: "creator_supplied_unverified";
+  scope: "current_subject" | "adjacent_context";
+  sourceIds: string[];
+  claimKind?: "budget" | "business_status";
+  businessName?: string;
+  businessStatus?: HearthBusinessOperatingStatus;
+};
+
+export type HearthBusinessOperatingStatus =
+  | "verified_currently_operating"
+  | "appears_active_unconfirmed"
+  | "creator_supplied_unverified"
+  | "closed_inactive"
+  | "non_customer_facing"
+  | "adjacent_location";
 
 export type HearthResearchArtifact = {
   briefFingerprint: string;
@@ -158,6 +189,8 @@ export type HearthResearchResult = {
   brief?: HearthResearchBrief;
   evidence?: HearthResearchEvidence[];
   artifact?: HearthResearchArtifact | null;
+  creatorClaims?: HearthCreatorResearchClaim[];
+  creatorInputTruncated?: boolean;
   sources: HearthResearchSource[];
   synthesis: HearthResearchSynthesis;
 };
@@ -187,7 +220,8 @@ function normalizeAuthority(value: unknown): HearthResearchSourceAuthority {
 }
 
 function normalizeAccessFailure(value: unknown): HearthResearchAccessFailureReason | null {
-  return value === "authentication_required"
+  return value === "malformed_url"
+    || value === "authentication_required"
     || value === "paywall"
     || value === "access_denied"
     || value === "timeout"
@@ -197,6 +231,17 @@ function normalizeAccessFailure(value: unknown): HearthResearchAccessFailureReas
     || value === "cancelled"
     ? value
     : null;
+}
+
+function normalizeBusinessStatus(value: unknown): HearthBusinessOperatingStatus | undefined {
+  return value === "verified_currently_operating"
+    || value === "appears_active_unconfirmed"
+    || value === "creator_supplied_unverified"
+    || value === "closed_inactive"
+    || value === "non_customer_facing"
+    || value === "adjacent_location"
+    ? value
+    : undefined;
 }
 
 export function normalizeHearthResearchBrief(value: unknown): HearthResearchBrief | null {
@@ -229,11 +274,24 @@ export function normalizeHearthResearchArtifact(value: unknown): HearthResearchA
     const text = typeof entry.text === "string" ? entry.text.trim() : "";
     const findingStatus = entry.status;
     if (!text || (findingStatus !== "verified_fact" && findingStatus !== "reported_claim" && findingStatus !== "uncertain" && findingStatus !== "editorial_interpretation")) return [];
+    const businessStatus = normalizeBusinessStatus(entry.businessStatus);
     return [{
       text,
       status: findingStatus,
+      ...(entry.provenanceStatus === "creator_supplied_unverified"
+        || entry.provenanceStatus === "verified_by_current_run"
+        || entry.provenanceStatus === "reported_by_accessible_secondary"
+        || entry.provenanceStatus === "conflicting"
+        || entry.provenanceStatus === "unsupported"
+        || entry.provenanceStatus === "inaccessible_source_only"
+        ? { provenanceStatus: entry.provenanceStatus }
+        : {}),
       sourceIds: stringArray(entry.sourceIds, 12),
       scope: entry.scope === "adjacent_context" ? "adjacent_context" : "current_subject",
+      ...(typeof entry.businessName === "string" && entry.businessName.trim()
+        ? { businessName: entry.businessName.trim().slice(0, 160) }
+        : {}),
+      ...(businessStatus ? { businessStatus } : {}),
     } satisfies HearthResearchFinding];
   }).slice(0, 24) : [];
   return {
@@ -335,6 +393,9 @@ export function normalizeHearthResearchResult(value: unknown): HearthResearchRes
   ) {
     return null;
   }
+  const normalizedProviderStatus: HearthResearchProviderStatus | null = providerStatus == null
+    ? null
+    : providerStatus;
   const normalizedSources: HearthResearchSource[] = [];
   for (const item of sources) {
     if (!isRecord(item)) continue;
@@ -490,6 +551,30 @@ export function normalizeHearthResearchResult(value: unknown): HearthResearchRes
   };
   const brief = normalizeHearthResearchBrief(value.brief);
   const normalizedArtifact = normalizeHearthResearchArtifact(value.artifact);
+  const creatorClaims: HearthCreatorResearchClaim[] = Array.isArray(value.creatorClaims)
+    ? value.creatorClaims.flatMap((entry) => {
+        if (!isRecord(entry)) return [];
+        const claimId = typeof entry.claimId === "string" ? entry.claimId.trim() : "";
+        const text = typeof entry.text === "string" ? entry.text.trim() : "";
+        if (!claimId || !text || entry.provenanceStatus !== "creator_supplied_unverified") return [];
+        const claimKind: HearthCreatorResearchClaim["claimKind"] = entry.claimKind === "budget" || entry.claimKind === "business_status"
+          ? entry.claimKind
+          : undefined;
+        const businessStatus = normalizeBusinessStatus(entry.businessStatus);
+        return [{
+          claimId,
+          text,
+          provenanceStatus: "creator_supplied_unverified" as const,
+          scope: entry.scope === "adjacent_context" ? "adjacent_context" as const : "current_subject" as const,
+          sourceIds: stringArray(entry.sourceIds, 12),
+          ...(claimKind ? { claimKind } : {}),
+          ...(typeof entry.businessName === "string" && entry.businessName.trim()
+            ? { businessName: entry.businessName.trim().slice(0, 160) }
+            : {}),
+          ...(businessStatus ? { businessStatus } : {}),
+        } satisfies HearthCreatorResearchClaim];
+      }).slice(0, 24)
+    : [];
   const normalizedEvidence: HearthResearchEvidence[] = Array.isArray(value.evidence) ? value.evidence.flatMap((entry) => {
     if (!isRecord(entry)) return [];
     const evidenceId = typeof entry.evidenceId === "string" ? entry.evidenceId.trim() : "";
@@ -522,10 +607,12 @@ export function normalizeHearthResearchResult(value: unknown): HearthResearchRes
   return {
     mode,
     runtimeStatus,
-    ...(providerStatus ? { providerStatus } : {}),
+    ...(normalizedProviderStatus ? { providerStatus: normalizedProviderStatus } : {}),
     ...(brief ? { brief } : {}),
     ...(evidence.length ? { evidence } : {}),
     ...(artifact ? { artifact } : {}),
+    ...(creatorClaims.length ? { creatorClaims } : {}),
+    ...(value.creatorInputTruncated === true ? { creatorInputTruncated: true } : {}),
     sources: normalizedSources,
     synthesis: normalizedSynthesis,
   };
