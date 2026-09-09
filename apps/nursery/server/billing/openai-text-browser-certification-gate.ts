@@ -5,7 +5,24 @@ import { OpenAiTextTestCertificationGate } from "./openai-text-test-certificatio
 
 type JsonObject = Record<string, unknown>;
 type RpcResult = { data: unknown; error: { message: string } | null };
-type SchemaClient = ReturnType<SupabaseClient<Database>["schema"]>;
+type QueryResult = {
+  data: JsonObject[] | null;
+  error: { message: string } | null;
+  count?: number | null;
+};
+type SingleQueryResult = {
+  data: JsonObject | null;
+  error: { message: string } | null;
+};
+type QueryBuilder = PromiseLike<QueryResult> & {
+  select(columns: string, options?: { count?: "exact"; head?: boolean }): QueryBuilder;
+  eq(column: string, value: unknown): QueryBuilder;
+  maybeSingle(): Promise<SingleQueryResult>;
+};
+type CertificationSchemaClient = {
+  rpc(name: string, args?: JsonObject): Promise<RpcResult>;
+  from(table: string): QueryBuilder;
+};
 
 function object(value: unknown): JsonObject {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -27,7 +44,7 @@ function text(value: unknown): string {
  */
 export class OpenAiTextBrowserCertificationGate implements OpenAiTextGateClient {
   readonly client: SupabaseClient<Database>;
-  readonly rpcClient: SchemaClient;
+  readonly rpcClient: CertificationSchemaClient;
   readonly executionGate: OpenAiTextTestCertificationGate;
   readonly batchId: string;
   readonly operatorId: string;
@@ -49,7 +66,7 @@ export class OpenAiTextBrowserCertificationGate implements OpenAiTextGateClient 
     this.client = createClient<Database>(args.supabaseUrl, args.serviceRoleKey, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
-    this.rpcClient = this.client.schema("tongs") as unknown as SchemaClient;
+    this.rpcClient = this.client.schema("tongs") as unknown as CertificationSchemaClient;
     this.executionGate = new OpenAiTextTestCertificationGate(this.client);
     this.batchId = args.batchId;
     this.operatorId = args.operatorId;
