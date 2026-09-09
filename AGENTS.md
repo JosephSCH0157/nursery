@@ -8,6 +8,30 @@ Canonical lifecycle constitution: `FORGE_SPARK_TO_ANVIL_LIFECYCLE_CANON.md`.
 
 ---
 
+## Production Deployment Policy (Canonical)
+
+The Podcaster's Forge Netlify production site is released only by the Git-backed
+deployment triggered from `main`.
+
+- Do not use `netlify deploy --prod`, artifact uploads, or equivalent Netlify API
+  calls for production deployment.
+- For an authorized release, run the required checks, fetch the remote state,
+  integrate the reviewed changes through the repository's established Git
+  workflow, and push without force.
+- If `main` has advanced, preserve and reconcile the remote changes. Never assume
+  a previously observed baseline is still current.
+- Respect branch protections and any required pull-request workflow.
+- Follow the Netlify build triggered by the exact Git commit and verify that the
+  ready, published production deployment serves that commit.
+- If the build fails, inspect the build logs, repair the verified defect, and
+  release the repair through Git again.
+- Never change site configuration to permit manual production deployment.
+
+Release records and runbooks must reference this section instead of defining a
+different production deployment path.
+
+---
+
 ## SSOT / Persistence Policy (Canonical)
 
 The Supabase database (`tongs` schema) is the canonical single source of truth (SSOT) for all persisted state: workspaces, projects, sparks, episodes/workpieces, links, approvals, credits, and any user data that must survive refresh/reload/device changes.

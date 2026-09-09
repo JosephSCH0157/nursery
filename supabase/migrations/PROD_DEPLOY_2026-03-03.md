@@ -1,5 +1,10 @@
 # Prod Migration Order (2026-03-03)
 
+Application production releases follow the canonical Git-backed Netlify policy
+in the repository-root [`AGENTS.md`](../../AGENTS.md#production-deployment-policy-canonical).
+This migration-order record does not authorize or define an alternate application
+deployment path.
+
 Apply these in timestamp order for the Adaptive Style + Org thin-slice rollout:
 
 1. `20260303103000_tongs_adaptive_style_alignment_flags_and_profile.sql`
