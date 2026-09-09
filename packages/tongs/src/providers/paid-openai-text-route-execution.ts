@@ -3,6 +3,7 @@ import {
   type OpenAiTextRouteCode,
 } from "./openai-text-paid-boundary.js";
 import {
+  OpenAiTextPostPersistenceContinuationError,
   PaidOpenAiTextExecutionCoordinator,
   type OpenAiCredentialFunding,
   type OpenAiTextGateClient,
@@ -106,6 +107,12 @@ type ExecutePaidOpenAiTextRouteArgs<TProvider, TCanonical extends Record<string,
   ) => Promise<OpenAiTextProviderResult<TProvider>>;
   validateResult: (value: TProvider) => Promise<void> | void;
   persistCanonical: (value: TProvider) => Promise<TCanonical>;
+  recoverCanonical?: () => Promise<{
+    result: TCanonical;
+    providerRequestId: string | null;
+    inputUnits: number;
+    outputUnits: number;
+  } | null>;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -319,6 +326,65 @@ export async function executePaidOpenAiTextRoute<
       context,
     };
   }
+
+  // A domain authority can commit successfully immediately before the generic
+  // paid-result or settlement write loses its response. Recover that exact
+  // domain record first and finish the economic settlement without authorizing
+  // another provider attempt or creating another domain revision.
+  if (args.recoverCanonical &&
+      (context.reservationState === "reserved" ||
+       context.reservationState === "attempt_started" ||
+       context.reservationState === "provider_attempt_shadowed")) {
+    const recovered = await args.recoverCanonical();
+    if (recovered) {
+      const resultHash = await sha256Hex(recovered.result);
+      await rpc(args.gate, "persist_openai_text_paid_result", {
+        p_result_id: crypto.randomUUID(),
+        p_route_code: args.routeCode,
+        p_operation_id: context.operationId,
+        p_reservation_id: context.reservationId,
+        p_user_id: args.userId,
+        p_workspace_id: args.workspaceId,
+        p_workpiece_id: args.workpieceId,
+        p_request_fingerprint: args.handle.requestFingerprint,
+        p_provider_request_id: recovered.providerRequestId,
+        p_model: context.model,
+        p_input_units: recovered.inputUnits,
+        p_output_units: recovered.outputUnits,
+        p_result_hash: resultHash,
+        p_result_json: recovered.result,
+      });
+      const directCostMicros = context.credentialFunding === "forge"
+        ? estimateOpenAiTextDirectCostMicros(context, recovered.inputUnits, recovered.outputUnits)
+        : 0;
+      const settleRpc = context.fundingSourceType === "owner_budget"
+        ? "settle_owner_operation"
+        : "settle_operation";
+      const settlement = asRecord(await rpc(args.gate, settleRpc, {
+        p_reservation_id: context.reservationId,
+        p_settlement_id: crypto.randomUUID(),
+        p_settlement_key: `${context.operationId}:settlement`,
+        p_outcome: "success",
+        p_failure_class: null,
+        p_actual_fulfillment_cost_micros: directCostMicros + context.supportingCostCeilingMicros,
+        p_evidence_json: {
+          provider: "openai",
+          provider_request_id: recovered.providerRequestId,
+          authoritative: false,
+          cost_coverage: "estimated",
+          recovered_after_domain_persistence: true,
+        },
+      }));
+      return {
+        state: "settled",
+        result: recovered.result,
+        requestId: recovered.providerRequestId,
+        attempts: 0,
+        customerChargeMicros: boundedInteger(settlement, "customer_charge_micros"),
+        context,
+      };
+    }
+  }
   if (context.reservationState === "submission_unknown") {
     return {
       state: "submission_unknown",
@@ -378,22 +444,29 @@ export async function executePaidOpenAiTextRoute<
       const evidence = providerEvidence;
       if (!evidence) throw new Error("provider evidence missing before persistence");
       const resultHash = await sha256Hex(canonicalResult);
-      await rpc(args.gate, "persist_openai_text_paid_result", {
-        p_result_id: crypto.randomUUID(),
-        p_route_code: args.routeCode,
-        p_operation_id: context.operationId,
-        p_reservation_id: context.reservationId,
-        p_user_id: args.userId,
-        p_workspace_id: args.workspaceId,
-        p_workpiece_id: args.workpieceId,
-        p_request_fingerprint: args.handle.requestFingerprint,
-        p_provider_request_id: evidence.requestId,
-        p_model: context.model,
-        p_input_units: evidence.inputUnits,
-        p_output_units: evidence.outputUnits,
-        p_result_hash: resultHash,
-        p_result_json: canonicalResult,
-      });
+      try {
+        await rpc(args.gate, "persist_openai_text_paid_result", {
+          p_result_id: crypto.randomUUID(),
+          p_route_code: args.routeCode,
+          p_operation_id: context.operationId,
+          p_reservation_id: context.reservationId,
+          p_user_id: args.userId,
+          p_workspace_id: args.workspaceId,
+          p_workpiece_id: args.workpieceId,
+          p_request_fingerprint: args.handle.requestFingerprint,
+          p_provider_request_id: evidence.requestId,
+          p_model: context.model,
+          p_input_units: evidence.inputUnits,
+          p_output_units: evidence.outputUnits,
+          p_result_hash: resultHash,
+          p_result_json: canonicalResult,
+        });
+      } catch (error) {
+        throw new OpenAiTextPostPersistenceContinuationError(
+          "canonical domain result persisted but billing continuation failed",
+          { cause: error },
+        );
+      }
     },
   });
 

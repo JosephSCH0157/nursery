@@ -43,7 +43,7 @@ import {
 } from "../../hammer/src/prep/hammerPrepApi";
 import { HAMMER_TRANSCRIPT_CLEANUP_ASSIST_ROUTE } from "../../hammer/src/editor/hammerTranscriptCleanupAssistApi";
 import { HAMMER_VISUAL_ASSIST_PREFLIGHT_ROUTE } from "../../hammer/src/lib/hammerVisualAssistApi";
-import { resolveHearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
+import { resolveHearthRuntimeConfig, type HearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
 import {
   buildUsageAccounting,
   buildTranscriptionAccounting,
@@ -1256,6 +1256,9 @@ async function runOpenAiTranscriptCleanupAssist(args: {
     userId: string;
     credentialSource: "forge_managed" | "user_byo" | "org_shared";
   };
+  fetchImpl?: typeof fetch;
+  persist?: (value: unknown, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  recover?: () => Promise<{ result: Record<string, unknown>; providerRequestId: string | null; inputUnits: number; outputUnits: number } | null>;
 }): Promise<{
   resultSegments: CleanupAssistSegment[];
   suggestions: Array<{
@@ -1315,6 +1318,8 @@ async function runOpenAiTranscriptCleanupAssist(args: {
           { role: "user", content: userPrompt },
         ],
       }),
+      fetchImpl: args.fetchImpl,
+      recover: args.recover,
       validate: (payload) => {
         const choices = Array.isArray(payload.choices) ? payload.choices : [];
         const firstChoice = readJsonObject(choices[0]);
@@ -1338,6 +1343,7 @@ async function runOpenAiTranscriptCleanupAssist(args: {
         if (suggestions.length === 0) throw new Error("OpenAI transcript cleanup assist produced no usable change.");
         return { resultSegments, suggestions };
       },
+      persist: args.persist,
     });
     return { ...paid.result, billingReceipt: paid.receipt };
   }
@@ -1345,7 +1351,7 @@ async function runOpenAiTranscriptCleanupAssist(args: {
   const runRequest = async (model: string): Promise<Response> => {
     const upstreamTimeout = createTimeoutAbortController(OPENAI_CLEANUP_TIMEOUT_MS);
     try {
-      return await executeOpenAiTextTransport({ routeCode: "hammer.transcript_cleanup", executeLegacy: () => fetch("https://api.openai.com/v1/chat/completions", {
+      return await executeOpenAiTextTransport({ routeCode: "hammer.transcript_cleanup", executeLegacy: () => (args.fetchImpl ?? fetch)("https://api.openai.com/v1/chat/completions", {
         method: "POST",
         headers: {
           authorization: `Bearer ${args.apiKey}`,
@@ -1473,6 +1479,9 @@ async function runOpenAiQuenchMetadataAssist(args: {
     userId: string;
     credentialSource: "forge_managed" | "user_byo" | "org_shared";
   };
+  fetchImpl?: typeof fetch;
+  persist?: (value: unknown, payload: Record<string, unknown>) => Promise<Record<string, unknown>>;
+  recover?: () => Promise<{ result: Record<string, unknown>; providerRequestId: string | null; inputUnits: number; outputUnits: number } | null>;
 }): Promise<{
   title: string;
   description: string;
@@ -1518,6 +1527,8 @@ async function runOpenAiQuenchMetadataAssist(args: {
           { role: "user", content: userPrompt },
         ],
       }),
+      fetchImpl: args.fetchImpl,
+      recover: args.recover,
       validate: (payload) => {
         const choices = Array.isArray(payload.choices) ? payload.choices : [];
         const firstChoice = readJsonObject(choices[0]);
@@ -1531,6 +1542,7 @@ async function runOpenAiQuenchMetadataAssist(args: {
         if (!draft) throw new Error("OpenAI Quench metadata assist returned an invalid draft payload.");
         return draft;
       },
+      persist: args.persist,
     });
     return { ...paid.result, billingReceipt: paid.receipt };
   }
@@ -1538,7 +1550,7 @@ async function runOpenAiQuenchMetadataAssist(args: {
   const upstreamTimeout = createTimeoutAbortController(OPENAI_CLEANUP_TIMEOUT_MS);
   let upstream: Response;
   try {
-    upstream = await executeOpenAiTextTransport({ routeCode: "quench.metadata", executeLegacy: () => fetch("https://api.openai.com/v1/chat/completions", {
+    upstream = await executeOpenAiTextTransport({ routeCode: "quench.metadata", executeLegacy: () => (args.fetchImpl ?? fetch)("https://api.openai.com/v1/chat/completions", {
       method: "POST",
       headers: {
         authorization: `Bearer ${args.apiKey}`,
@@ -1906,8 +1918,15 @@ function normalizeSegments(payload: unknown): HammerTranscriptPrepSegment[] {
   }));
 }
 
-export function createHammerPrepMiddleware() {
-  const runtimeConfig = resolveHearthRuntimeConfig();
+export type HammerPrepMiddlewareOptions = {
+  /** Server-only seams for isolated execution-boundary certification. */
+  runtimeConfig?: HearthRuntimeConfig;
+  openAiTextGate?: OpenAiTextGateClient;
+  openAiProviderFetch?: typeof fetch;
+};
+
+export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions = {}) {
+  const runtimeConfig = options.runtimeConfig ?? resolveHearthRuntimeConfig();
   const textApiKey = runtimeConfig.textApiKey ?? runtimeConfig.apiKey ?? null;
   const model = readTrimmed(process.env.HAMMER_TRANSCRIBE_MODEL) ?? DEFAULT_TRANSCRIBE_MODEL;
   const cleanupModel = readTrimmed(process.env.HAMMER_EDITORIAL_AI_MODEL) ?? "gpt-5.3";
@@ -1921,6 +1940,12 @@ export function createHammerPrepMiddleware() {
       })
     : null;
   const hammerTelemetryLane: BillingMode = AI_USAGE_LANE.FORGE;
+  const openAiTextGate = options.openAiTextGate ?? (supabaseService
+    ? supabaseService.schema("tongs") as unknown as OpenAiTextGateClient
+    : null);
+  const domainRpc = supabaseService?.schema("tongs") as unknown as {
+    rpc(name: string, args: Record<string, unknown>): Promise<{ data: unknown; error: { message?: string } | null }>;
+  } | undefined;
 
   return async function hammerPrepMiddleware(req: IncomingMessage, res: ServerResponse, next: Next) {
     try {
@@ -2027,10 +2052,22 @@ export function createHammerPrepMiddleware() {
             const accounting = buildUsageAccounting({ model: shortsModel, payload, fallbackTotalTokens: 0, billableMode: hammerTelemetryLane });
             await recordAiUsageEvent({ supabaseService, userId, lane: hammerTelemetryLane, provider: "openai", workspaceId, workpieceId, sessionId: null, feature: AI_USAGE_FEATURE.HAMMER_SHORTS_DISCOVERY, subfeature: AI_USAGE_SUBFEATURE.SHORTS_DISCOVERY, model: shortsModel, ...accounting, trigger: AI_USAGE_TRIGGER.USER, status: status === "success" ? AI_USAGE_STATUS.SUCCESS : AI_USAGE_STATUS.ERROR, actionId: readTrimmed(bodyRow?.operation_id), providerRequestId });
           },
+          fetchImpl: options.openAiProviderFetch,
+          ...(shortsPaidHandle && domainRpc ? {
+            recover: async () => {
+              const recovered = await domainRpc.rpc("read_hammer_shorts_discovery_paid_result", {
+                p_operation_id: shortsPaidHandle.operationId,
+                p_reservation_id: shortsPaidHandle.reservationId,
+              });
+              const row = readJsonObject(recovered.data);
+              if (recovered.error || !row) return null;
+              return { result: row, providerRequestId: readTrimmed(row.provider_request_id), inputUnits: Number(row.input_units ?? 0), outputUnits: Number(row.output_units ?? 0) };
+            },
+          } : {}),
           ...(shortsPaidHandle
-            ? {
+            && openAiTextGate ? {
                 paid: {
-                  gate: supabaseService.schema("tongs") as unknown as OpenAiTextGateClient,
+                  gate: openAiTextGate,
                   userId,
                   credentialSource: "forge_managed" as const,
                 },
@@ -2233,13 +2270,40 @@ export function createHammerPrepMiddleware() {
           apiKey: textApiKey,
           model: quenchMetadataModel,
           request: assistRequest,
-          ...(assistRequest.paid_execution && supabaseService && quenchUserId
+          fetchImpl: options.openAiProviderFetch,
+          ...(assistRequest.paid_execution && supabaseService && quenchUserId && openAiTextGate && domainRpc
             ? {
                 paid: {
-                  gate: supabaseService.schema("tongs") as unknown as OpenAiTextGateClient,
+                  gate: openAiTextGate,
                   handle: assistRequest.paid_execution,
                   userId: quenchUserId,
                   credentialSource: "forge_managed" as const,
+                },
+                persist: async (value: unknown, providerPayload: Record<string, unknown>) => {
+                  const usage = readJsonObject(providerPayload.usage);
+                  const persisted = await domainRpc.rpc("persist_quench_metadata_assist_result", {
+                    p_operation_id: assistRequest.paid_execution!.operationId,
+                    p_reservation_id: assistRequest.paid_execution!.reservationId,
+                    p_user_id: quenchUserId,
+                    p_workspace_id: assistRequest.workspace_id,
+                    p_workpiece_id: assistRequest.workpiece_id,
+                    p_request_fingerprint: assistRequest.paid_execution!.requestFingerprint,
+                    p_provider_request_id: readTrimmed(providerPayload.id),
+                    p_input_units: Number(usage?.input_tokens ?? usage?.prompt_tokens ?? 0),
+                    p_output_units: Number(usage?.output_tokens ?? usage?.completion_tokens ?? 0),
+                    p_result_json: value,
+                  });
+                  if (persisted.error || !readJsonObject(persisted.data)) throw new Error(persisted.error?.message ?? "Quench metadata result persistence failed.");
+                  return persisted.data as Record<string, unknown>;
+                },
+                recover: async () => {
+                  const recovered = await domainRpc.rpc("read_quench_metadata_assist_result", {
+                    p_operation_id: assistRequest.paid_execution!.operationId,
+                    p_reservation_id: assistRequest.paid_execution!.reservationId,
+                  });
+                  const row = readJsonObject(recovered.data);
+                  if (recovered.error || !row) return null;
+                  return { result: row, providerRequestId: readTrimmed(row.provider_request_id), inputUnits: Number(row.input_units ?? 0), outputUnits: Number(row.output_units ?? 0) };
                 },
               }
             : {}),
@@ -2307,13 +2371,40 @@ export function createHammerPrepMiddleware() {
           apiKey: textApiKey,
           model: cleanupModel,
           request: cleanupRequest,
-          ...(cleanupRequest.paid_execution && supabaseService && cleanupUserId
+          fetchImpl: options.openAiProviderFetch,
+          ...(cleanupRequest.paid_execution && supabaseService && cleanupUserId && openAiTextGate && domainRpc
             ? {
                 paid: {
-                  gate: supabaseService.schema("tongs") as unknown as OpenAiTextGateClient,
+                  gate: openAiTextGate,
                   handle: cleanupRequest.paid_execution,
                   userId: cleanupUserId,
                   credentialSource: "forge_managed" as const,
+                },
+                persist: async (value: unknown, providerPayload: Record<string, unknown>) => {
+                  const usage = readJsonObject(providerPayload.usage);
+                  const persisted = await domainRpc.rpc("persist_hammer_transcript_cleanup_assist_result", {
+                    p_operation_id: cleanupRequest.paid_execution!.operationId,
+                    p_reservation_id: cleanupRequest.paid_execution!.reservationId,
+                    p_user_id: cleanupUserId,
+                    p_workspace_id: cleanupRequest.workspace_id,
+                    p_workpiece_id: cleanupRequest.workpiece_id,
+                    p_request_fingerprint: cleanupRequest.paid_execution!.requestFingerprint,
+                    p_provider_request_id: readTrimmed(providerPayload.id),
+                    p_input_units: Number(usage?.input_tokens ?? usage?.prompt_tokens ?? 0),
+                    p_output_units: Number(usage?.output_tokens ?? usage?.completion_tokens ?? 0),
+                    p_result_json: value,
+                  });
+                  if (persisted.error || !readJsonObject(persisted.data)) throw new Error(persisted.error?.message ?? "Hammer cleanup result persistence failed.");
+                  return persisted.data as Record<string, unknown>;
+                },
+                recover: async () => {
+                  const recovered = await domainRpc.rpc("read_hammer_transcript_cleanup_assist_result", {
+                    p_operation_id: cleanupRequest.paid_execution!.operationId,
+                    p_reservation_id: cleanupRequest.paid_execution!.reservationId,
+                  });
+                  const row = readJsonObject(recovered.data);
+                  if (recovered.error || !row) return null;
+                  return { result: row, providerRequestId: readTrimmed(row.provider_request_id), inputUnits: Number(row.input_units ?? 0), outputUnits: Number(row.output_units ?? 0) };
                 },
               }
             : {}),

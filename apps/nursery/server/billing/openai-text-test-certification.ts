@@ -107,7 +107,13 @@ function validateRouteResult(route: CertificationRoute, value: JsonObject): void
   }
 }
 
-class CertificationGate implements OpenAiTextGateClient {
+/**
+ * Server-side adapter that maps the production billing coordinator contract to
+ * the finite Stripe Test certification ledger. It never grants real-provider
+ * authority; callers must still inject a simulated provider at the external
+ * boundary.
+ */
+export class OpenAiTextTestCertificationGate implements OpenAiTextGateClient {
   readonly rpcClient: SchemaRpc;
   constructor(client: SupabaseClient<Database>) {
     this.rpcClient = client.schema("tongs") as unknown as SchemaRpc;
@@ -119,6 +125,16 @@ class CertificationGate implements OpenAiTextGateClient {
 
   rpc(name: string, args: JsonObject): Promise<RpcResult> {
     switch (name) {
+      case "read_openai_text_route_execution_requirement":
+        return Promise.resolve({
+          data: {
+            mode: "enforce",
+            funding_context_required: true,
+            execution_kind: "simulated_test",
+            real_provider_authorized: false,
+          },
+          error: null,
+        });
       case "resolve_openai_text_paid_execution_context":
         return this.call("resolve_openai_text_test_certification_context", args);
       case "authorize_openai_text_provider_attempt":
@@ -194,7 +210,7 @@ export function createOpenAiTextTestCertificationHandler(args: {
     auth: { persistSession: false, autoRefreshToken: false },
   });
   const rpc = client.schema("tongs") as unknown as SchemaRpc;
-  const gate = new CertificationGate(client);
+  const gate = new OpenAiTextTestCertificationGate(client);
 
   return async function handle(request: Request): Promise<Response> {
     if (request.method !== "POST") return Response.json({ ok: false, error: "method_not_allowed" }, { status: 405 });

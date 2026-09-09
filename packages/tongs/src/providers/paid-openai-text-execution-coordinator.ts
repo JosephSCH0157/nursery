@@ -25,6 +25,18 @@ export class OpenAiTextProviderError extends Error {
   }
 }
 
+/**
+ * The route's canonical domain write succeeded, but a later billing or
+ * response step did not. Keep the reservation intact so a replay can recover
+ * that exact result and finish settlement without another provider call.
+ */
+export class OpenAiTextPostPersistenceContinuationError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options);
+    this.name = "OpenAiTextPostPersistenceContinuationError";
+  }
+}
+
 export type OpenAiTextProviderResult<T> = {
   value: T;
   requestId: string | null;
@@ -265,6 +277,9 @@ export class PaidOpenAiTextExecutionCoordinator {
           await input.persistResult(result.value);
           persisted = true;
         } catch (error) {
+          if (error instanceof OpenAiTextPostPersistenceContinuationError) {
+            throw error;
+          }
           failureClass = "persistence_failure";
           failureReason = "persistence_failure";
           result.evidence = {

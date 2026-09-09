@@ -41,6 +41,7 @@ export interface HammerShortsDiscoveryDependencies {
     userId: string;
     credentialSource: "forge_managed" | "user_byo" | "org_shared";
   };
+  recover?: () => Promise<{ result: Record<string, unknown>; providerRequestId: string | null; inputUnits: number; outputUnits: number } | null>;
 }
 
 function valid(body: HammerShortsDiscoveryBody): boolean {
@@ -111,6 +112,7 @@ export async function executeHammerShortsDiscovery(body: HammerShortsDiscoveryBo
         providerUrl: "https://api.openai.com/v1/responses",
         providerRequestBody,
         fetchImpl: dependencies.fetchImpl,
+        recover: dependencies.recover,
         validate: (payload) => {
           const outputText = readOutputText(payload);
           if (!outputText) throw new Error("structured_output_missing");
@@ -120,6 +122,8 @@ export async function executeHammerShortsDiscovery(body: HammerShortsDiscoveryBo
         },
         persist: async (validated, providerPayload) => {
           const providerRequestId = typeof providerPayload.id === "string" ? providerPayload.id : null;
+          const usage = providerPayload.usage && typeof providerPayload.usage === "object" && !Array.isArray(providerPayload.usage)
+            ? providerPayload.usage as Record<string, unknown> : {};
           const proposal = {
             schema_version: HAMMER_SHORTS_AI_PROPOSAL_SCHEMA,
             discovery_id: discoveryId,
@@ -128,6 +132,10 @@ export async function executeHammerShortsDiscovery(body: HammerShortsDiscoveryBo
             provider_request_id: providerRequestId,
             prompt_fingerprint: await fingerprintHammerShortsValue({ promptVersion, goal: body.goal, segments: activeSegments }),
             proposals: validated.proposals,
+            provider_usage: {
+              input_units: Number(usage.input_tokens ?? usage.prompt_tokens ?? 0),
+              output_units: Number(usage.output_tokens ?? usage.completion_tokens ?? 0),
+            },
           } as HammerShortsAiProposalV1;
           const resolved = await resolveHammerShortCandidates({ discoveryId, basisLockId: body.basis_lock_id, basisFingerprint: body.basis_fingerprint, minimumDurationSec: body.minimum_duration_sec, maximumDurationSec: body.maximum_duration_sec, proposal, outputSegments: body.output_segments });
           const completed = await authority.completeDiscovery(discoveryId, proposal as unknown as Json, resolved.candidates as unknown as Json, resolved.outcome, await fingerprintHammerShortsValue(proposal));

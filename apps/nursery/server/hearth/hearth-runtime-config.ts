@@ -4,6 +4,7 @@ import type { HearthAiLane } from "../../../hearth/src/lib/hearth-ai-runtime-con
 import { FORGE_ALLOWED_CHAT_MODELS } from "./ai-pricing";
 import { resolveOpenAiImageApiKey } from "../image-runtime-config";
 import type { OpenAiTextGateClient } from "../../../../packages/tongs/src/providers/paid-openai-text-execution-coordinator";
+import type { HearthResearchRuntime } from "./hearth-research-runtime";
 
 const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
 const DEFAULT_STT_BUCKET = "forge-workpieces";
@@ -75,6 +76,10 @@ export type HearthRuntimeConfig = {
   openAiTextGate?: OpenAiTextGateClient | null;
   openAiProviderFetch?: typeof fetch;
   resolveUserIdForAccessToken?: (accessToken: string) => Promise<string | null>;
+  /** Supplied-source-only runtime seam for isolated route certification. */
+  researchRuntime?: HearthResearchRuntime;
+  /** Blocks external extraction while retaining the real Hearth call path. */
+  researchSourceExtractor?: typeof import("./hearth-research-runtime").extractUrlToResearchSource;
 };
 
 function readBooleanEnv(name: string, defaultValue = false): boolean {

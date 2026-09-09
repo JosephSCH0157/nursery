@@ -56,6 +56,17 @@ export async function executePaidJsonOpenAiRoute<
   fetchImpl?: typeof fetch;
   validate: (payload: JsonObject) => TValidated;
   persist?: (value: TValidated, payload: JsonObject) => Promise<TCanonical>;
+  /**
+   * Reads a result already committed by the route's normal domain authority.
+   * This is used only to finish billing after a response-loss or settlement
+   * failure; it must never manufacture a result or invoke the provider.
+   */
+  recover?: () => Promise<{
+    result: TCanonical;
+    providerRequestId: string | null;
+    inputUnits: number;
+    outputUnits: number;
+  } | null>;
 }): Promise<{
   result: TCanonical;
   receipt: {
@@ -164,6 +175,7 @@ export async function executePaidJsonOpenAiRoute<
         ? args.persist(validated, providerPayload)
         : (validated as unknown as TCanonical);
     },
+    recoverCanonical: args.recover,
   });
   if (outcome.state !== "settled" && outcome.state !== "settled_replay") {
     throw new PaidJsonOpenAiRouteError(outcome.state);

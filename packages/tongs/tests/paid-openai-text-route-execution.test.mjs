@@ -148,3 +148,52 @@ test("BYO binding cannot use a Forge credential", async () => {
   await assert.rejects(() => executePaidOpenAiTextRoute(args), /byo_credential_required/);
   assert.equal(submissions, 0);
 });
+
+test("domain commit followed by billing-write loss recovers without another provider call", async () => {
+  const gate = makeGate();
+  const original = gate.rpc.bind(gate);
+  let failBillingWrite = true;
+  let reservationState = "reserved";
+  gate.rpc = async (name, rpcArgs) => {
+    if (name === "persist_openai_text_paid_result" && failBillingWrite) {
+      failBillingWrite = false;
+      return { data: null, error: { message: "simulated response loss" } };
+    }
+    const result = await original(name, rpcArgs);
+    if (name === "resolve_openai_text_paid_execution_context") result.data.reservation_state = reservationState;
+    if (name === "authorize_openai_text_provider_attempt") reservationState = "attempt_started";
+    return result;
+  };
+  const [route, good, validator] = ROUTES[0];
+  const routeArgs = await argsFor(route, good, validator, gate);
+  let providerCalls = 0;
+  let domainWrites = 0;
+  let committed = null;
+  routeArgs.executeProvider = async () => {
+    providerCalls += 1;
+    return { value: good, requestId: "req-recovery", inputUnits: 10, outputUnits: 5,
+      supplierCostMicros: 20, supplierCostAuthoritative: false };
+  };
+  routeArgs.persistCanonical = async (candidate) => {
+    domainWrites += 1;
+    committed = { route, persisted: true, value: candidate };
+    return committed;
+  };
+  routeArgs.recoverCanonical = async () => committed
+    ? { result: committed, providerRequestId: "req-recovery", inputUnits: 10, outputUnits: 5 }
+    : null;
+
+  await assert.rejects(
+    () => executePaidOpenAiTextRoute(routeArgs),
+    /canonical domain result persisted but billing continuation failed/,
+  );
+  assert.equal(gate.calls.some((call) => call.name === "record_provider_failure"), false);
+  assert.equal(gate.calls.some((call) => call.name === "settle_operation"), false);
+
+  const recovered = await executePaidOpenAiTextRoute(routeArgs);
+  assert.equal(recovered.state, "settled");
+  assert.equal(recovered.result, committed);
+  assert.equal(providerCalls, 1);
+  assert.equal(domainWrites, 1);
+  assert.equal(gate.calls.filter((call) => call.name === "settle_operation").length, 1);
+});

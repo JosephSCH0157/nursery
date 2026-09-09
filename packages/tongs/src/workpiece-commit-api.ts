@@ -65,6 +65,7 @@ import {
   normalizeOpenAiTextPaidExecutionHandle,
   type OpenAiTextPaidExecutionHandle,
 } from "./providers/paid-openai-text-route-execution.js";
+import type { OpenAiTextGateClient } from "./providers/paid-openai-text-execution-coordinator.js";
 import {
   coordinateHammerHistoryAtomicComponentHead,
   isProtectedHammerHistoryAtomicStagingPath,
@@ -2449,6 +2450,10 @@ export type TongsCommitApiOptions = {
   runwayPaidExecutionBoundary?: RunwayPaidExecutionBoundary;
   brollAcquisitionRuntime?: BrollAcquisitionRuntime;
   unifiedVisualPlanProvider?: UnifiedVisualPlanProvider;
+  narrativeInterpretationProvider?: NarrativeInterpretationProvider;
+  brollMotionInterpretationProvider?: BrollMotionInterpretationProvider;
+  /** Server-only injection for isolated billing-boundary certification. */
+  openAiTextGate?: OpenAiTextGateClient;
 };
 
 export type AcquireBrollCandidateRequest = {
@@ -9246,6 +9251,7 @@ export class TongsCommitService {
   readonly brollMotionInterpretationProvider: BrollMotionInterpretationProvider | null;
   readonly brollAcquisitionRuntime: BrollAcquisitionRuntime;
   readonly unifiedVisualPlanProvider: UnifiedVisualPlanProvider | null;
+  readonly openAiTextGate: OpenAiTextGateClient;
 
   readonly userClientFactory:
     | ((accessToken: string) => SupabaseClient<Database>)
@@ -9264,6 +9270,7 @@ export class TongsCommitService {
     brollAcquisitionRuntime: BrollAcquisitionRuntime = new LazyBrollAcquisitionRuntime(),
     unifiedVisualPlanProvider: UnifiedVisualPlanProvider | null = null,
     runwayPaidExecutionBoundary: RunwayPaidExecutionBoundary | null = null,
+    openAiTextGate?: OpenAiTextGateClient,
   ) {
     this.supabase = supabase;
     this.bucket = bucket;
@@ -9275,6 +9282,21 @@ export class TongsCommitService {
     this.brollAcquisitionRuntime = brollAcquisitionRuntime;
     this.unifiedVisualPlanProvider = unifiedVisualPlanProvider;
     this.runwayPaidExecutionBoundary = runwayPaidExecutionBoundary;
+    // Keep the default gate lazy. A large set of non-AI service tests injects
+    // deliberately minimal Supabase doubles that do not implement schema();
+    // those paths must remain usable while paid routes still fail closed if
+    // they are ever reached without a real schema client.
+    this.openAiTextGate = openAiTextGate ?? {
+      rpc: async (name, args) => {
+        const candidate = supabase as unknown as {
+          schema?: (schemaName: string) => OpenAiTextGateClient;
+        };
+        if (typeof candidate.schema !== "function") {
+          throw new Error("OpenAI text billing gate is unavailable");
+        }
+        return candidate.schema("tongs").rpc(name, args);
+      },
+    };
   }
 
   private async getCradleOrThrow(workpieceId: string): Promise<EpisodeRow> {
@@ -28641,13 +28663,14 @@ export class TongsCommitService {
       );
     if (
       readStringField(operation, "state") === "verified" &&
-      isRecord(operation.receipt_json)
+      isRecord(operation.receipt_json) &&
+      !input.paid_execution
     )
       return operation.receipt_json as Record<string, Json>;
     let providerResponse = isRecord(operation.provider_response_json)
       ? operation.provider_response_json
       : null;
-    if (input.paid_execution && !providerResponse) {
+    if (input.paid_execution) {
       if (input.paid_execution.requestFingerprint !== expectedFingerprint) {
         throw new HttpError(409, "paid_request_fingerprint_mismatch", "The accepted unified-plan quote does not match this request.");
       }
@@ -28655,7 +28678,7 @@ export class TongsCommitService {
         throw new HttpError(503, "unified_visual_plan_provider_unavailable", "Unified Visual Plan provider is not configured.");
       }
       const paidOutcome = await executePaidOpenAiTextRoute({
-        gate: this.supabase.schema("tongs") as unknown as import("./providers/paid-openai-text-execution-coordinator.js").OpenAiTextGateClient,
+        gate: this.openAiTextGate,
         routeCode: "visual.unified_plan",
         handle: input.paid_execution,
         userId: auth.userId,
@@ -28664,6 +28687,15 @@ export class TongsCommitService {
         credentialSource: "forge_managed",
         inputUnitUpperBound: new TextEncoder().encode(JSON.stringify({ scriptText, creatorDirection: readStringField(normalizedInputs, "creator_direction"), generationScope, sourceCatalog: frozenCatalog })).byteLength,
         requestFingerprintPayload: normalizedInputs,
+        recoverCanonical: async () => {
+          if (!operation || readStringField(operation, "state") !== "verified" || !isRecord(operation.receipt_json) || !providerResponse) return null;
+          return {
+            result: operation.receipt_json as Record<string, Json>,
+            providerRequestId: readStringField(providerResponse, "provider_request_id"),
+            inputUnits: Number(providerResponse.input_units ?? 0),
+            outputUnits: Number(providerResponse.output_units ?? 0),
+          };
+        },
         executeProvider: async (context) => {
           const result = await this.unifiedVisualPlanProvider!.generate({
             scriptText,
@@ -28704,6 +28736,8 @@ export class TongsCommitService {
               raw_provider_response: result.rawResponse as unknown as Json,
               provider_request_id: result.providerRequestId,
               model: result.model,
+              input_units: result.inputTokens,
+              output_units: result.outputTokens,
             },
           });
           if (recorded.error || !isRecord(recorded.data)) {
@@ -29193,7 +29227,9 @@ export class TongsCommitService {
         throw new HttpError(
           502,
           "unified_broll_commit_failed",
-          result.error?.message ?? "B-roll plan commit failed.",
+          result.error?.message ??
+            readStringField(result.data, "disposition") ??
+            "B-roll plan commit failed.",
         );
       let child = result.data.plan_revision;
       const retention = await authority.rpc(
@@ -31549,14 +31585,15 @@ export class TongsCommitService {
     if (
       operation &&
       readStringField(operation, "state") === "committed" &&
-      isRecord(operation.receipt_json)
+      isRecord(operation.receipt_json) &&
+      !input.paid_execution
     )
       return operation.receipt_json as Record<string, Json>;
     let providerResponse = isRecord(operation?.provider_response_json)
       ? operation.provider_response_json
       : null;
     let brief: BrollMotionBrief;
-    if (input.paid_execution && !providerResponse) {
+    if (input.paid_execution) {
       if (input.paid_execution.requestFingerprint !== expectedFingerprint) {
         throw new HttpError(409, "paid_request_fingerprint_mismatch", "The accepted motion-interpretation quote does not match this request.");
       }
@@ -31564,7 +31601,7 @@ export class TongsCommitService {
         throw new HttpError(503, "broll_motion_interpreter_unavailable", "B-roll motion interpretation provider is not configured");
       }
       const paidOutcome = await executePaidOpenAiTextRoute({
-        gate: this.supabase.schema("tongs") as unknown as import("./providers/paid-openai-text-execution-coordinator.js").OpenAiTextGateClient,
+        gate: this.openAiTextGate,
         routeCode: "motion.broll_interpretation",
         handle: input.paid_execution,
         userId: auth.userId,
@@ -31585,6 +31622,15 @@ export class TongsCommitService {
             validator: validatorVersion,
             synthesis: synthesisContract,
           },
+        },
+        recoverCanonical: async () => {
+          if (!operation || readStringField(operation, "state") !== "committed" || !isRecord(operation.receipt_json) || !providerResponse) return null;
+          return {
+            result: operation.receipt_json as Record<string, Json>,
+            providerRequestId: readStringField(providerResponse, "provider_request_id"),
+            inputUnits: Number(providerResponse.input_units ?? 0),
+            outputUnits: Number(providerResponse.output_units ?? 0),
+          };
         },
         executeProvider: async (context) => {
           const result = await this.brollMotionInterpretationProvider!.interpret({
@@ -31618,6 +31664,9 @@ export class TongsCommitService {
             raw_provider_response: result.rawResponse as unknown as Json,
             model: result.model,
             provider,
+            provider_request_id: result.providerRequestId,
+            input_units: result.inputTokens,
+            output_units: result.outputTokens,
           };
           const recorded = await authority.rpc("record_broll_provider_or_upload_result", {
             p_operation_id: input.operation_id,
@@ -31982,7 +32031,7 @@ export class TongsCommitService {
       ? begun.data.operation
       : null;
     const state = operation ? readStringField(operation, "state") : null;
-    if (state === "committed" && isRecord(operation?.receipt_json))
+    if (state === "committed" && isRecord(operation?.receipt_json) && !input.paid_execution)
       return operation.receipt_json as Record<string, Json>;
     let providerResponse = isRecord(operation?.provider_response_json)
       ? operation.provider_response_json
@@ -31995,7 +32044,7 @@ export class TongsCommitService {
       image_moment_id: input.image_moment_id,
       style: input.style,
     };
-    if (input.paid_execution && !providerResponse) {
+    if (input.paid_execution) {
       if (input.paid_execution.requestFingerprint !== expectedFingerprint) {
         throw new HttpError(
           409,
@@ -32012,7 +32061,7 @@ export class TongsCommitService {
       }
       let paidModel = "gpt-5-mini";
       const paidOutcome = await executePaidOpenAiTextRoute({
-        gate: this.supabase.schema("tongs") as unknown as import("./providers/paid-openai-text-execution-coordinator.js").OpenAiTextGateClient,
+        gate: this.openAiTextGate,
         routeCode: "visual.narrative_interpretation",
         handle: input.paid_execution,
         userId: auth.userId,
@@ -32036,6 +32085,15 @@ export class TongsCommitService {
             validator: normalizedInputs.validator_version,
             synthesis: normalizedInputs.synthesis_contract_version,
           },
+        },
+        recoverCanonical: async () => {
+          if (state !== "committed" || !isRecord(operation?.receipt_json) || !providerResponse) return null;
+          return {
+            result: operation.receipt_json as Record<string, Json>,
+            providerRequestId: readStringField(providerResponse, "provider_request_id"),
+            inputUnits: Number(providerResponse.input_units ?? 0),
+            outputUnits: Number(providerResponse.output_units ?? 0),
+          };
         },
         executeProvider: async (context) => {
           const result = await this.narrativeInterpretationProvider!.interpret({
@@ -32077,6 +32135,9 @@ export class TongsCommitService {
             canonical_brief: result.brief as unknown as Json,
             raw_provider_response: result.rawResponse as unknown as Json,
             model: result.model,
+            provider_request_id: result.providerRequestId,
+            input_units: result.inputTokens,
+            output_units: result.outputTokens,
           };
           const recorded = await authority.rpc("record_image_prompt_provider_response", {
             p_operation_id: input.operation_id,
@@ -34326,18 +34387,18 @@ export function createTongsCommitService(
         options.openAiImageModel?.trim() || "gpt-image-2-2026-04-21",
       )
     : null;
-  const narrativeInterpretationProvider = openAiImageApiKey
+  const narrativeInterpretationProvider = options.narrativeInterpretationProvider ?? (openAiImageApiKey
     ? new OpenAiNarrativeInterpretationProvider(
         openAiImageApiKey,
         options.openAiTextModel?.trim() || "gpt-5-mini",
       )
-    : null;
-  const brollMotionInterpretationProvider = openAiImageApiKey
+    : null);
+  const brollMotionInterpretationProvider = options.brollMotionInterpretationProvider ?? (openAiImageApiKey
     ? new OpenAiBrollMotionInterpretationProvider(
         openAiImageApiKey,
         options.openAiTextModel?.trim() || "gpt-5-mini",
       )
-    : null;
+    : null);
   const unifiedVisualPlanProvider =
     options.unifiedVisualPlanProvider ??
     (openAiImageApiKey
@@ -34372,6 +34433,7 @@ export function createTongsCommitService(
       new SupabaseRunwayPaidExecutionBoundary(
         supabase.schema("tongs") as unknown as UntypedTongsSchemaClient,
       ),
+    options.openAiTextGate,
   );
 }
 

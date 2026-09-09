@@ -2355,7 +2355,10 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
     || process.env.BRAVE_API_KEY
     || null
   );
-  const researchRuntime = createHearthResearchRuntime({ braveApiKey: researchApiKey });
+  const researchRuntime = config.researchRuntime
+    ?? createHearthResearchRuntime({ braveApiKey: researchApiKey });
+  const researchSourceExtractor = config.researchSourceExtractor
+    ?? extractUrlToResearchSource;
   const textApiKey = config.textApiKey ?? config.apiKey ?? null;
   const {
     model: configuredModel,
@@ -4049,7 +4052,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         const linkSources = await Promise.all(
           creatorResearchInput.citations.map((citation, index) => (
             citation.normalizedUrl
-              ? extractUrlToResearchSource({
+              ? researchSourceExtractor({
                   url: citation.normalizedUrl,
                   sourceId: `link-${index + 1}`,
                   brief: researchBrief!,
@@ -4604,6 +4607,42 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 }),
                 signal: upstreamAbort.signal,
                 fetchImpl: config.openAiProviderFetch,
+                persist: async (value, providerPayload) => {
+                  if (!supabaseService) throw new Error("Research synthesis persistence is unavailable.");
+                  const usage = isRecord(providerPayload.usage) ? providerPayload.usage : {};
+                  const persisted = await (supabaseService.schema("tongs") as unknown as {
+                    rpc(name: string, args: Record<string, unknown>): Promise<{ data: unknown; error: { message?: string } | null }>;
+                  }).rpc("persist_hearth_research_synthesis_result", {
+                    p_operation_id: paidExecutionHandle!.operationId,
+                    p_reservation_id: paidExecutionHandle!.reservationId,
+                    p_user_id: userId,
+                    p_workspace_id: episodeContext.workspaceId,
+                    p_workpiece_id: episodeContext.episodeId,
+                    p_request_fingerprint: paidExecutionHandle!.requestFingerprint,
+                    p_provider_request_id: readOptionalString(providerPayload.id),
+                    p_input_units: Number(usage.input_tokens ?? usage.prompt_tokens ?? 0),
+                    p_output_units: Number(usage.output_tokens ?? usage.completion_tokens ?? 0),
+                    p_result_json: value,
+                  });
+                  if (persisted.error || !isRecord(persisted.data)) throw new Error(persisted.error?.message ?? "Research synthesis persistence failed.");
+                  return persisted.data;
+                },
+                recover: async () => {
+                  if (!supabaseService) return null;
+                  const recovered = await (supabaseService.schema("tongs") as unknown as {
+                    rpc(name: string, args: Record<string, unknown>): Promise<{ data: unknown; error: { message?: string } | null }>;
+                  }).rpc("read_hearth_research_synthesis_result", {
+                    p_operation_id: paidExecutionHandle!.operationId,
+                    p_reservation_id: paidExecutionHandle!.reservationId,
+                  });
+                  if (recovered.error || !isRecord(recovered.data)) return null;
+                  return {
+                    result: recovered.data,
+                    providerRequestId: readOptionalString(recovered.data.provider_request_id),
+                    inputUnits: Number(recovered.data.input_units ?? 0),
+                    outputUnits: Number(recovered.data.output_units ?? 0),
+                  };
+                },
                 validate: (providerPayload) => {
                   const rawReply = extractAssistantReply(providerPayload);
                   if (!rawReply) throw new Error("Research synthesis returned no usable response.");
