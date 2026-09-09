@@ -1345,7 +1345,18 @@ async function runOpenAiTranscriptCleanupAssist(args: {
       },
       persist: args.persist,
     });
-    return { ...paid.result, billingReceipt: paid.receipt };
+    const result = paid.result as {
+      resultSegments: CleanupAssistSegment[];
+      suggestions: Array<{
+        id: string;
+        type: "filler_remove" | "repetition_collapse" | "fragment_merge";
+        segmentId: string;
+        description: string;
+        confidence: number;
+        timeSavedSec: number;
+      }>;
+    };
+    return { ...result, billingReceipt: paid.receipt };
   }
 
   const runRequest = async (model: string): Promise<Response> => {
@@ -1544,7 +1555,8 @@ async function runOpenAiQuenchMetadataAssist(args: {
       },
       persist: args.persist,
     });
-    return { ...paid.result, billingReceipt: paid.receipt };
+    const result = paid.result as { title: string; description: string; tags: string[] };
+    return { ...result, billingReceipt: paid.receipt };
   }
 
   const upstreamTimeout = createTimeoutAbortController(OPENAI_CLEANUP_TIMEOUT_MS);
