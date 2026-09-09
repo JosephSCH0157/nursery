@@ -72,8 +72,11 @@ type TestBillingDeposit = {
 
 type TestBillingReceipt = {
   operation_id: string;
+  route_code?: string;
   customer_charge_micros: number;
   outcome: string;
+  failure_class?: string | null;
+  certification?: boolean;
   settled_at: string;
   execution_kind: "simulated_test";
 };
@@ -1676,7 +1679,7 @@ export default function SubscriptionsRoute() {
                 ))}
                 {testBilling?.receipts.map((receipt) => (
                   <p key={receipt.operation_id}>
-                    Simulated receipt · {receipt.outcome} · {(receipt.customer_charge_micros / 1_000_000).toLocaleString("en-US", { style: "currency", currency: "USD" })}
+                    <strong>Test</strong> · {receipt.route_code ? receipt.route_code.replaceAll("_", " ") : "simulated operation"} · {receipt.outcome.replaceAll("_", " ")} · {(receipt.customer_charge_micros / 1_000_000).toLocaleString("en-US", { style: "currency", currency: "USD" })}{receipt.failure_class ? ` · ${receipt.failure_class.replaceAll("_", " ")}` : ""}
                   </p>
                 ))}
               </section>
