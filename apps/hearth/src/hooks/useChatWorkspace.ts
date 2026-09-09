@@ -636,13 +636,20 @@ export function useChatWorkspaceRuntime<
           style: "currency",
           currency: quote.currency,
         }).format(quote.maximumCustomerChargeMicros / 1_000_000);
+        const estimate = new Intl.NumberFormat("en-US", {
+          style: "currency",
+          currency: quote.currency,
+        }).format(quote.estimatedCustomerChargeMicros / 1_000_000);
         const accepted = window.confirm([
+          quote.modelDisplayName ? `Model: ${quote.modelDisplayName}` : null,
+          quote.modelTradeoffSummary,
+          `Conservative estimate: ${estimate}.`,
           `Hearth will charge at most ${price} to ${quote.fundingLabel}.`,
           "Forge-caused and provider-caused failures cost you $0.",
           "An uncertain provider submission will not be retried automatically.",
           `This quote expires ${new Date(quote.expiresAt).toLocaleTimeString()}.`,
           "Accept this exact price and continue?",
-        ].join("\n\n"));
+        ].filter(Boolean).join("\n\n"));
         if (!accepted) {
           args.setChatError("The price was not accepted. No funds were reserved and no provider request was sent.");
           return;

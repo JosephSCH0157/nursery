@@ -37,6 +37,11 @@ import {
   type WorkspaceFeaturesChangedEventDetail,
   type WorkspaceFeatures,
 } from "@hearth/lib/hearth-style-service";
+import {
+  loadOpenAiTextModelChoices,
+  saveOpenAiTextModelPreference,
+  type OpenAiTextModelChoiceSnapshot,
+} from "../../lib/hearth/openai-text-model-preference";
 
 type Props = {
   onClose: () => void;
@@ -334,6 +339,10 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
     () => readHammerTranscriptPrepNonAiMissingBehavior(),
   );
   const [transcriptPrepNotice, setTranscriptPrepNotice] = React.useState<string | null>(null);
+  const [textModelSnapshot, setTextModelSnapshot] = React.useState<OpenAiTextModelChoiceSnapshot | null>(null);
+  const [textModelLoading, setTextModelLoading] = React.useState(true);
+  const [textModelSaving, setTextModelSaving] = React.useState(false);
+  const [textModelError, setTextModelError] = React.useState<string | null>(null);
   const [accelerateModalOpen, setAccelerateModalOpen] = React.useState(false);
   const [accelerateTab, setAccelerateTab] = React.useState<AccelerateLearningTab>("upload");
   const [pendingSamples, setPendingSamples] = React.useState<PendingStyleSample[]>([]);
@@ -378,6 +387,20 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
   React.useEffect(() => {
     setAlignmentPaused(isStyleAlignmentPaused(workspaceId));
   }, [workspaceId]);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setTextModelLoading(true);
+    setTextModelError(null);
+    void loadOpenAiTextModelChoices().then((snapshot) => {
+      if (!cancelled) setTextModelSnapshot(snapshot);
+    }).catch((error: unknown) => {
+      if (!cancelled) setTextModelError(error instanceof Error ? error.message : "Unable to load model choices.");
+    }).finally(() => {
+      if (!cancelled) setTextModelLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, []);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -678,6 +701,21 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
     const next = { ...settings, defaultVisualProvider };
     setSettings(next);
     saveAiSettings(next);
+  }
+
+  async function updateTextModelPreference(value: string) {
+    if (!textModelSnapshot || textModelSaving) return;
+    setTextModelSaving(true);
+    setTextModelError(null);
+    try {
+      const kind = value === "best_available" ? "best_available" : "specific";
+      const next = await saveOpenAiTextModelPreference(kind, kind === "specific" ? value : null, textModelSnapshot.preference.revision);
+      setTextModelSnapshot({ ...textModelSnapshot, preference: next });
+    } catch (error) {
+      setTextModelError(error instanceof Error ? error.message : "Unable to save model preference.");
+    } finally {
+      setTextModelSaving(false);
+    }
   }
 
   function saveKey() {
@@ -1019,6 +1057,35 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
           </select>
           <div className="forge-ai-panel__hint">More providers later.</div>
         </div>
+      </div>
+
+      <div className="forge-ai-panel__section">
+        <div className="forge-ai-panel__label">Text model</div>
+        <div className="forge-ai-panel__row">
+          <select
+            aria-label="Preferred OpenAI text model"
+            value={textModelSnapshot?.preference.preferenceKind === "specific"
+              ? textModelSnapshot.preference.providerModelId ?? "best_available"
+              : "best_available"}
+            disabled={textModelLoading || textModelSaving}
+            onChange={(event) => void updateTextModelPreference(event.target.value)}
+          >
+            <option value="best_available">Best available</option>
+            {(textModelSnapshot?.eligibleChoices ?? []).slice(0, 5).map((model) => (
+              <option key={model.providerModelId} value={model.providerModelId}>
+                {model.displayName} — {model.tradeoffSummary}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div className="forge-ai-panel__hint">
+          {textModelLoading ? "Loading server-owned model catalog…" : textModelError ?? textModelSnapshot?.blocker ?? "Your choice is saved to your Forge account."}
+        </div>
+        {textModelSnapshot && textModelSnapshot.candidateStatus.length > 0 && textModelSnapshot.eligibleChoices.length === 0 ? (
+          <div className="forge-ai-panel__hint">
+            Candidates under verification: {textModelSnapshot.candidateStatus.map((item) => item.displayName).join(", ")}. They cannot run until availability, full costs, and pricing are approved.
+          </div>
+        ) : null}
       </div>
 
       <div className="forge-ai-panel__section">

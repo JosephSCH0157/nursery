@@ -1,5 +1,7 @@
 # OpenAI text billing boundary — wired, inactive integration
 
+> Current model catalog, official-rate evidence, exact direct ceilings, and supporting-cost blockers are in [openai-text-model-catalog-and-cost-evidence.md](./openai-text-model-catalog-and-cost-evidence.md). GPT-5.3 entries below are historical configuration, not executable recommendations.
+
 Production rollout remains `inactive`. Every marked transport now reaches the same server-owned execution adapter when enabled. The adapter cannot be replaced at runtime, and an enabled route without request-scoped accepted quote/reservation context fails closed before legacy transport. Exact provider rate and route cost-policy identities are append-only database revisions; no customer price or route is activated by the foundation migration.
 
 | Route code | Product path | Provider operation | Attempts/bounds before activation | Usable-result condition | Current state |

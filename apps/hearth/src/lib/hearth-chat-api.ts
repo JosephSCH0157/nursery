@@ -59,6 +59,11 @@ export type HearthCustomerBillingQuote = {
   fundingEligible: boolean;
   fundingSource: "customer_deposit" | "paid_allowance" | "none";
   fundingLabel: string;
+  modelDisplayName: string | null;
+  providerModelId: string | null;
+  modelTradeoffSummary: string | null;
+  catalogRevision: number | null;
+  estimatedCustomerChargeMicros: number;
   expiresAt: string;
 };
 
@@ -122,6 +127,12 @@ function normalizeCustomerBillingQuote(payload: unknown): HearthCustomerBillingQ
     fundingEligible: quote.funding_eligible === true,
     fundingSource: fundingSource as HearthCustomerBillingQuote["fundingSource"],
     fundingLabel: typeof quote.funding_label === "string" ? quote.funding_label : "No verified eligible funds",
+    modelDisplayName: typeof quote.model_display_name === "string" ? quote.model_display_name : null,
+    providerModelId: typeof quote.provider_model_id === "string" ? quote.provider_model_id : null,
+    modelTradeoffSummary: typeof quote.model_tradeoff_summary === "string" ? quote.model_tradeoff_summary : null,
+    catalogRevision: Number.isSafeInteger(Number(quote.catalog_revision)) ? Number(quote.catalog_revision) : null,
+    estimatedCustomerChargeMicros: Number.isSafeInteger(Number(quote.estimated_customer_charge_micros))
+      ? Number(quote.estimated_customer_charge_micros) : maximum,
     expiresAt,
   };
 }

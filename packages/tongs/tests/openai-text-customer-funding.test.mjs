@@ -12,14 +12,25 @@ const reservationId = "22222222-2222-4222-8222-222222222222";
 const fingerprint = "a".repeat(64);
 const quoteHash = "b".repeat(64);
 
-function makeGate(mode = "enforce") {
+function makeGate(mode = "enforce", selectedModel = "gpt-5.6-terra") {
   const calls = [];
   return {
     calls,
-    async rpc(name) {
-      calls.push(name);
+    async rpc(name, args) {
+      calls.push({ name, args });
       if (name === "read_openai_text_route_execution_requirement") return { data: { mode }, error: null };
       if (name === "read_existing_openai_text_funding_handle") return { data: {}, error: null };
+      if (name === "resolve_openai_text_model_for_quote") return { data: {
+        catalog_revision_id: "55555555-5555-4555-8555-555555555555",
+        catalog_revision: 7,
+        model_catalog_entry_id: selectedModel === "gpt-5.6-terra"
+          ? "66666666-6666-4666-8666-666666666666"
+          : "77777777-7777-4777-8777-777777777777",
+        runtime_model_id: selectedModel,
+        provider_model_id: selectedModel,
+        display_name: selectedModel === "gpt-5.6-terra" ? "GPT-5.6 Terra" : "GPT-5.6 Luna",
+        tradeoff_summary: "Server-selected exact model.",
+      }, error: null };
       if (name === "create_customer_openai_text_quote") return { data: {
         quote_id: quoteId,
         operation_id: "ordinary-operation-1",
@@ -65,7 +76,7 @@ test("inactive routes preserve the legacy path without creating a quote", async 
   const service = makeGate("inactive");
   const result = await resolveOrdinaryOpenAiTextFunding(input(service, makeGate()));
   assert.equal(result, null);
-  assert.deepEqual(service.calls, ["read_openai_text_route_execution_requirement"]);
+  assert.deepEqual(service.calls.map((call) => call.name), ["read_openai_text_route_execution_requirement"]);
 });
 
 test("enforced routes return only a customer-safe quote before acceptance", async () => {
@@ -78,7 +89,8 @@ test("enforced routes return only a customer-safe quote before acceptance", asyn
     assert.equal("markup" in error.quote, false);
     return true;
   });
-  assert.equal(service.calls.includes("reserve_customer_openai_text_quote"), false);
+  assert.equal(service.calls.some((call) => call.name === "reserve_customer_openai_text_quote"), false);
+  assert.equal(service.calls.some((call) => call.name === "resolve_openai_text_model_for_quote"), true);
 });
 
 test("an exact acceptance is atomically reserved and returned as an opaque handle", async () => {
@@ -95,8 +107,9 @@ test("an exact acceptance is atomically reserved and returned as an opaque handl
     reservationId,
     requestFingerprint: fingerprint,
   });
-  assert.equal(user.calls.filter((name) => name === "accept_quote").length, 1);
-  assert.equal(service.calls.filter((name) => name === "reserve_customer_openai_text_quote").length, 1);
+  assert.equal(user.calls.filter((call) => call.name === "accept_quote").length, 1);
+  assert.equal(service.calls.filter((call) => call.name === "reserve_customer_openai_text_quote").length, 1);
+  assert.equal(service.calls.find((call) => call.name === "create_customer_openai_text_quote").args.p_model, "gpt-5.6-terra");
 });
 
 test("changed inputs cannot use an accepted quote", async () => {
@@ -107,13 +120,13 @@ test("changed inputs cannot use an accepted quote", async () => {
     quoteHash,
     requestFingerprint: "c".repeat(64),
   })), (error) => error instanceof OpenAiTextFundingPreparationError && error.code === "quote_request_changed");
-  assert.equal(service.calls.includes("reserve_customer_openai_text_quote"), false);
+  assert.equal(service.calls.some((call) => call.name === "reserve_customer_openai_text_quote"), false);
 });
 
 test("an existing reservation is replayed without accepting or reserving again", async () => {
   const service = makeGate();
   service.rpc = async function rpc(name) {
-    this.calls.push(name);
+    this.calls.push({ name });
     if (name === "read_openai_text_route_execution_requirement") return { data: { mode: "enforce" }, error: null };
     if (name === "read_existing_openai_text_funding_handle") return { data: {
       operation_id: "ordinary-operation-1",
@@ -126,3 +139,17 @@ test("an existing reservation is replayed without accepting or reserving again",
   assert.equal(result?.reservationId, reservationId);
 });
 
+test("server model resolution is customer-visible and a changed model produces a different quote identity", async () => {
+  const terra = makeGate("enforce", "gpt-5.6-terra");
+  const luna = makeGate("enforce", "gpt-5.6-luna");
+  let terraError;
+  let lunaError;
+  await resolveOrdinaryOpenAiTextFunding(input(terra, makeGate())).catch((error) => { terraError = error; });
+  await resolveOrdinaryOpenAiTextFunding(input(luna, makeGate())).catch((error) => { lunaError = error; });
+  assert.equal(terraError.quote.modelDisplayName, "GPT-5.6 Terra");
+  assert.equal(terraError.quote.catalogRevision, 7);
+  assert.equal(lunaError.quote.modelDisplayName, "GPT-5.6 Luna");
+  const terraQuoteId = terra.calls.find((call) => call.name === "create_customer_openai_text_quote").args.p_quote_id;
+  const lunaQuoteId = luna.calls.find((call) => call.name === "create_customer_openai_text_quote").args.p_quote_id;
+  assert.notEqual(terraQuoteId, lunaQuoteId);
+});

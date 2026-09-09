@@ -31,7 +31,22 @@ export type CustomerOpenAiTextQuote = {
   fundingEligible: boolean;
   fundingSource: "customer_deposit" | "paid_allowance" | "none";
   fundingLabel: string;
+  modelDisplayName: string;
+  providerModelId: string;
+  modelTradeoffSummary: string;
+  catalogRevision: number;
+  estimatedCustomerChargeMicros: number;
   expiresAt: string;
+};
+
+type OpenAiTextModelSelection = {
+  catalogRevisionId: string;
+  catalogRevision: number;
+  modelCatalogEntryId: string;
+  runtimeModelId: string;
+  providerModelId: string;
+  displayName: string;
+  tradeoffSummary: string;
 };
 
 export class OpenAiTextQuoteRequiredError extends Error {
@@ -89,6 +104,8 @@ async function rpc(
     const lower = message.toLowerCase();
     const code = lower.includes("expired")
       ? "quote_expired"
+      : lower.includes("replay conflict") || lower.includes("request changed")
+        ? "quote_request_changed"
       : lower.includes("insufficient")
         ? "insufficient_verified_funds"
         : lower.includes("pricing_not_configured") || lower.includes("pricing is required")
@@ -97,7 +114,7 @@ async function rpc(
             ? "paid_execution_halted"
             : "funding_preparation_failed";
     throw new OpenAiTextFundingPreparationError(
-      code === "quote_expired" ? 409 : code === "insufficient_verified_funds" ? 402 : 503,
+      code === "quote_expired" || code === "quote_request_changed" ? 409 : code === "insufficient_verified_funds" ? 402 : 503,
       code,
       message,
     );
@@ -113,12 +130,12 @@ function uuidFromDigest(digest: string): string {
   return `${joined.slice(0, 8)}-${joined.slice(8, 12)}-${joined.slice(12, 16)}-${joined.slice(16, 20)}-${joined.slice(20)}`;
 }
 
-function deriveIdentifiers(routeCode: string, userId: string, operationId: string, acceptedQuoteId?: string): {
+function deriveIdentifiers(routeCode: string, userId: string, operationId: string, modelIdentity: string, acceptedQuoteId?: string): {
   quoteId: string;
   acceptanceId: string;
   reservationId: string;
 } {
-  const base = `${routeCode}:${userId}:${operationId}`;
+  const base = `${routeCode}:${userId}:${operationId}:${modelIdentity}`;
   const quoteId = acceptedQuoteId && UUID_RE.test(acceptedQuoteId)
     ? acceptedQuoteId
     : uuidFromDigest(crypto.createHash("sha256").update(
@@ -145,7 +162,26 @@ export function normalizeOpenAiTextSpendingAcceptance(
     : null;
 }
 
-function normalizeQuote(value: unknown): CustomerOpenAiTextQuote {
+function normalizeModelSelection(value: unknown): OpenAiTextModelSelection {
+  const row = object(value);
+  const selection = {
+    catalogRevisionId: string(row.catalog_revision_id),
+    catalogRevision: integer(row.catalog_revision),
+    modelCatalogEntryId: string(row.model_catalog_entry_id),
+    runtimeModelId: string(row.runtime_model_id),
+    providerModelId: string(row.provider_model_id),
+    displayName: string(row.display_name),
+    tradeoffSummary: string(row.tradeoff_summary),
+  };
+  if (!UUID_RE.test(selection.catalogRevisionId) || !UUID_RE.test(selection.modelCatalogEntryId)
+    || selection.catalogRevision < 1 || !selection.runtimeModelId || !selection.providerModelId
+    || !selection.displayName || !selection.tradeoffSummary) {
+    throw new OpenAiTextFundingPreparationError(503, "model_selection_unavailable", "No eligible model is available for this operation.");
+  }
+  return selection;
+}
+
+function normalizeQuote(value: unknown, selection: OpenAiTextModelSelection): CustomerOpenAiTextQuote {
   const row = object(value);
   const quoteId = string(row.quote_id);
   const operationId = string(row.operation_id);
@@ -173,6 +209,13 @@ function normalizeQuote(value: unknown): CustomerOpenAiTextQuote {
     fundingEligible: row.funding_eligible === true,
     fundingSource: fundingSource as CustomerOpenAiTextQuote["fundingSource"],
     fundingLabel: string(row.funding_label) || "No verified eligible funds",
+    modelDisplayName: selection.displayName,
+    providerModelId: selection.providerModelId,
+    modelTradeoffSummary: selection.tradeoffSummary,
+    catalogRevision: selection.catalogRevision,
+    // Until a measured-request estimator is approved, the only defensible
+    // customer estimate is the conservative server maximum.
+    estimatedCustomerChargeMicros: maximum,
     expiresAt,
   };
 }
@@ -215,7 +258,13 @@ export async function resolveOrdinaryOpenAiTextFunding(args: {
     return handle;
   }
 
-  const identifiers = deriveIdentifiers(args.routeCode, args.userId, args.operationId, args.acceptance?.quoteId);
+  const selection = normalizeModelSelection(await rpc(args.serviceGate, "resolve_openai_text_model_for_quote", {
+    p_user_id: args.userId,
+    p_route_code: args.routeCode,
+    p_credential_funding: args.credentialFunding,
+  }));
+  const modelIdentity = `${selection.catalogRevisionId}:${selection.modelCatalogEntryId}:${selection.providerModelId}`;
+  const identifiers = deriveIdentifiers(args.routeCode, args.userId, args.operationId, modelIdentity, args.acceptance?.quoteId);
   const quote = normalizeQuote(await rpc(args.serviceGate, "create_customer_openai_text_quote", {
     p_quote_id: identifiers.quoteId,
     p_user_id: args.userId,
@@ -224,10 +273,10 @@ export async function resolveOrdinaryOpenAiTextFunding(args: {
     p_workspace_id: args.workspaceId,
     p_workpiece_id: args.workpieceId,
     p_request_fingerprint: args.requestFingerprint,
-    p_model: args.model,
+    p_model: selection.runtimeModelId,
     p_credential_funding: args.credentialFunding,
     p_expires_at: new Date(Date.now() + Math.max(60, Math.min(args.quoteLifetimeSeconds ?? 600, 3600)) * 1000).toISOString(),
-  }));
+  }), selection);
 
   const acceptance = args.acceptance;
   if (!acceptance) throw new OpenAiTextQuoteRequiredError(quote);
@@ -259,7 +308,7 @@ export async function resolveOrdinaryOpenAiTextFunding(args: {
     p_workspace_id: args.workspaceId,
     p_workpiece_id: args.workpieceId,
     p_request_fingerprint: args.requestFingerprint,
-    p_model: args.model,
+    p_model: selection.runtimeModelId,
     p_credential_funding: args.credentialFunding,
     p_idempotency_key: `openai-text:${args.routeCode}:${quote.quoteId}`,
   }));
