@@ -27,10 +27,17 @@ test("fetches Costs and Usage with their exact grouping dimensions", async () =>
     urls.push(String(url));
     return { ok: true, async json() { return String(url).includes("/costs") ? costsPage : usagePage; } };
   };
-  const result = await collectOpenAiOrganizationEvidence({ fetchImpl, adminKey: "admin-test", periodStart: 100, periodEnd: 200 });
+  const result = await collectOpenAiOrganizationEvidence({ fetchImpl, adminKey: "admin-test", projectId: "proj", periodStart: 100, periodEnd: 200 });
   assert.equal(result.totalCostMicros, 10668);
   assert.ok(urls.some((url) => url.includes("%2Forganization%2Fcosts") === false && url.includes("/organization/costs")));
   assert.ok(urls.every((url) => url.includes("group_by=")));
+  assert.ok(urls.every((url) => url.includes("project_ids=proj")));
+  assert.deepEqual(result.rawEvidence.project_scope, ["proj"]);
+});
+
+test("rejects unscoped or overly broad historical collection", async () => {
+  await assert.rejects(collectOpenAiOrganizationEvidence({ adminKey: "admin-test", periodStart: 100, periodEnd: 200 }), /OPENAI_RECONCILIATION_PROJECT_ID_required/);
+  await assert.rejects(collectOpenAiOrganizationEvidence({ adminKey: "admin-test", projectId: "proj", periodStart: 100, periodEnd: 100 + 32 * 86400 }), /exceeds_31_days/);
 });
 
 test("records through the tongs profile without exposing the service credential", async () => {

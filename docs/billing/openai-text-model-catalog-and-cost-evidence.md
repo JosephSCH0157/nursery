@@ -50,4 +50,4 @@ The collector reads OpenAI organization Costs grouped by project, line item, and
 
 Organization/day evidence remains unmatched without a defensible request-level allocation. The new adjustment stores `confirmed amount − original estimate`; reporting applies that delta instead of adding confirmed cost as a second expense. Missing evidence remains unresolved and cannot imply zero cost or confirmed profit.
 
-Historical ingestion requires `OPENAI_ADMIN_KEY`. Forge model checks require `OPENAI_TEXT_API_KEY` or `OPENAI_API_KEY`. Neither was accessible to this release process, so no batch or model check was fabricated.
+Historical ingestion uses the isolated `OPENAI_RECONCILIATION_ADMIN_KEY`; model evidence uses `OPENAI_MODEL_EVIDENCE_API_KEY` plus `OPENAI_MODEL_EVIDENCE_PROJECT_ID`. Ordinary execution does not read those names. Neither credential was accessible to this release process, so no batch or model check was fabricated. The current credential audit, exact secure setup, subscribed-plan evidence, and inactive numeric support proposal are in [OPENAI_TEXT_EVIDENCE_AND_SUPPORT_COSTS.md](./OPENAI_TEXT_EVIDENCE_AND_SUPPORT_COSTS.md).
