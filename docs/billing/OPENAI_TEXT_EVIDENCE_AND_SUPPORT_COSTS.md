@@ -4,6 +4,8 @@ Status: 2026-09-09. This is private pricing evidence and an inactive proposal. I
 
 ## Credential-bound model visibility
 
+The protected `main` workflow run `34370224975` completed at 2026-09-09 15:27 UTC. The exact Forge project returned HTTP 200 for `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5-mini-2025-08-07`, and `gpt-5.6-luna`. The observations were persisted against catalog revision 1 with project fingerprint `1c4f12836a63aa011a002864cc6f37d482020453c39f85d43f32d4a2808b0650`. This proves project visibility only: API-parameter compatibility, route fixtures, structured-output behavior, and generation compatibility remain untested. The workflow made no generation or other billable request.
+
 The deployed trusted-runtime inventory was checked by secret **name only**. Netlify Production, Supabase Edge Function secrets, the `forge-ffmpeg` Fly app, and the checked-out server environment contain neither `OPENAI_TEXT_API_KEY`/`OPENAI_API_KEY` nor an organization-admin key name. The OpenAI text transport reads `OPENAI_TEXT_API_KEY || OPENAI_API_KEY`; therefore adding either name to Netlify would make the credential reachable by still-inactive legacy pass-through routes. This release deliberately isolates evidence collection on names that no execution path reads.
 
 `pnpm verify:openai-model-availability` now reads the five non-deprecated candidates from the server-owned draft catalog, issues only `GET /v1/models/{model}`, and writes a sanitized append-only observation tied to the catalog entry and a SHA-256 fingerprint of `OPENAI_PROJECT_ID`. It never writes or prints the key or raw provider error body. The operator console labels this evidence **project visibility**, separately from documented API support, fixture compatibility, and generation compatibility.
@@ -25,7 +27,13 @@ The current audit confirms that neither execution-key name is present in the **i
 
 ## Organization Costs and Usage reconciliation
 
-No reconciliation admin key is configured in an accessible trusted runtime, so no authoritative batch was ingested. Existing pilot expenses remain estimated/unresolved.
+The protected `main` workflow run `34370394386` collected the exact project from `2026-09-01T00:00:00Z` through `2026-09-09T15:27:45Z`. Because the end precedes the requested September 10 cutoff, this is an **incomplete September reporting period**. It ingested authoritative aggregate batch `ae608653-b19e-4cb8-865a-28a3e9db88be` with a source total of **$0.039058**. No operation-level allocation was defensible from the project/day/API-key/model aggregates, so matched cost is **$0**, the estimate-replacement adjustment is **$0**, and the unresolved source amount is **$0.039058**. Replay run `34370695200` returned the same batch ID with `replay: true`; it did not duplicate the batch or its cost.
+
+The historical `$0.490925` Forge-paid estimate remains a separate estimated/unreconciled amount. The new batch does not prove that it belongs to the same project, request set, or complete billing period. The numerical gap is **$0.451867**, but it is not an accounting adjustment and must not be booked as a recovery or correction. Request-level or invoice evidence is still required before replacing any pilot estimate.
+
+## Isolated authenticated UI evidence
+
+`openai.billing-evidence-isolation.spec.ts` exercises the real `/app/ledger` route with a generated authenticated user and deterministic workpieces in a disposable local Supabase project. The non-operator pass proves that a workspace owner cannot render the operator console, organization source totals, markup, or provider ceilings. The operator pass adds that same isolated user to `platform_operators` and proves the console renders sanitized model visibility, the aggregate source and unresolved totals, and disabled pricing and customer-settlement controls. The evidence run used a temporary Vite server on port 5188 and made no production mutation or provider call. It is intentionally separate from the production browser fixture suite.
 
 The collector requires an **organization Admin API key**, not a normal project inference key. OpenAI currently gates the Costs, Usage, and project model-permissions administration endpoints with an Admin API key; it does not provide a request-only project inference key for those organization endpoints. Restriction is therefore enforced by using a dedicated credential, a protected environment, a manual workflow, one project filter, and a 31-day maximum. Configure it without sending it through chat:
 
@@ -62,7 +70,7 @@ For each of the seven routes, the draft revision-2 proposal is:
 | Netlify request + function hosting | $0.002225 | `ceil(1 × 2/10,000 × $20/3000) + ceil(120/3600 × 1 GB × 10 credits/GB-hour × $20/3000)` | Requires a uniform server-enforced 120-second timeout and 1 GB function allocation |
 | Result egress | $0.000219 | At most 1 MiB: Netlify bandwidth replacement plus Supabase uncached egress replacement | Requires a server-enforced 1 MiB response/result ceiling; cached and uncached egress are never combined |
 | Retained DB storage | $0.000123 | At most 1 MiB for 30 days at $0.125/GB-month | Requires an approved 30-day retention/tail policy; current canonical retention is not bounded this way |
-| Persistence/database compute | unavailable | Fixed Supabase Pro/database compute allocation | Requires either approval to treat baseline as plan-funded overhead, or expected monthly operation volume plus attributable product share |
+| Persistence/database compute | unavailable | Fixed Supabase Pro/database compute allocation | Recommended classification below awaits owner approval; until then this component remains unresolved and activation-blocking |
 
 Conditional measured-variable subtotal: **$0.002567** per operation (`$0.002225 + $0.000219 + $0.000123`; validation is included). The migration stores the rounded component ceilings separately and keeps persistence unresolved, so this subtotal cannot activate pricing. (The conservative component sum in integer micros is 2,567.)
 
@@ -75,3 +83,21 @@ Owner decisions still required for a complete policy:
 - approve a bounded retention period or a recurring funded tail policy;
 - classify Supabase baseline persistence as plan-funded overhead, or provide expected monthly operation volume and attributable product share;
 - provide Postmark plan/invoice and message-volume evidence only if text operations will send attributable email.
+
+### Persistence/database-compute proposal
+
+Recommended policy: classify the fixed Supabase Pro database instance as **owner-funded baseline overhead**, not as zero cost and not as a per-operation confirmed expense. The existing operation ceiling would still include the measured storage tail and egress components above. This follows the accounting rule that baseline corporate overhead may remain in owner-only P&L while variable fulfillment costs must be quoted or plan-funded.
+
+The policy may move from `unresolved` to `plan_funded_baseline` only after the owner approves all of these controls:
+
+1. Supabase spend cap remains enabled and the fixed plan period is recorded in the private service registry.
+2. Text operations receive no authority for search, extraction, transcription, enrichment, media processing, email, or any other paid support service.
+3. The 1 MiB canonical-result ceiling and selected retention policy are enforced server-side.
+4. A capacity monitor blocks new text quotes if database compute, disk, storage, or egress leaves the included plan envelope or begins incurring an unpriced variable charge.
+5. Owner reporting keeps the $25 subscription in baseline P&L and labels operation contribution profit as excluding baseline overhead; it must never present this classification as evidence of zero database cost.
+
+If the owner instead requires full absorption into each customer operation, the versioned allocation is:
+
+`persistence allocation micros = ceil(monthly Supabase baseline micros × attributable text share basis points ÷ 10,000 ÷ conservative monthly completed-operation floor)`
+
+The attributable share and operation floor are business inputs and must be approved together. Each accepted quote freezes both inputs and the resulting integer-micro allocation. Lower realized volume does not permit a retroactive customer charge; it becomes an owner-visible variance for the next pricing revision.
