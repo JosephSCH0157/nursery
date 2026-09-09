@@ -126,7 +126,13 @@ export async function recordOpenAiOrganizationEvidence({ fetchImpl = fetch, supa
   if (!supabaseUrl || !serviceRoleKey) throw new Error("supabase_service_credentials_required");
   const response = await fetchImpl(`${supabaseUrl.replace(/\/$/, "")}/rest/v1/rpc/record_openai_organization_reconciliation`, {
     method: "POST",
-    headers: { apikey: serviceRoleKey, authorization: `Bearer ${serviceRoleKey}`, "content-type": "application/json" },
+    headers: {
+      apikey: serviceRoleKey,
+      authorization: `Bearer ${serviceRoleKey}`,
+      "content-type": "application/json",
+      "content-profile": "tongs",
+      "accept-profile": "tongs",
+    },
     body: JSON.stringify({
       p_batch_id: evidence.batchId,
       p_source_key: evidence.sourceKey,

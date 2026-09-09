@@ -3873,6 +3873,11 @@ function throwOpenAiFundingHttpError(error: unknown): never {
         funding_eligible: quote.fundingEligible,
         funding_source: quote.fundingSource,
         funding_label: quote.fundingLabel,
+        model_display_name: quote.modelDisplayName,
+        provider_model_id: quote.providerModelId,
+        model_tradeoff_summary: quote.modelTradeoffSummary,
+        catalog_revision: quote.catalogRevision,
+        estimated_customer_charge_micros: quote.estimatedCustomerChargeMicros,
         expires_at: quote.expiresAt,
       },
     });

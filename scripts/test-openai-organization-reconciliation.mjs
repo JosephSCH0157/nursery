@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { collectOpenAiOrganizationEvidence, normalizeOpenAiOrganizationEvidence } from "./lib/openai-organization-reconciliation.mjs";
+import { collectOpenAiOrganizationEvidence, normalizeOpenAiOrganizationEvidence, recordOpenAiOrganizationEvidence } from "./lib/openai-organization-reconciliation.mjs";
 
 const costsPage = {
   data: [{ start_time: 100, end_time: 200, results: [
@@ -31,4 +31,18 @@ test("fetches Costs and Usage with their exact grouping dimensions", async () =>
   assert.equal(result.totalCostMicros, 10668);
   assert.ok(urls.some((url) => url.includes("%2Forganization%2Fcosts") === false && url.includes("/organization/costs")));
   assert.ok(urls.every((url) => url.includes("group_by=")));
+});
+
+test("records through the tongs profile without exposing the service credential", async () => {
+  let request;
+  const fetchImpl = async (url, init) => {
+    request = { url, init };
+    return { ok: true, async json() { return { replay: false }; } };
+  };
+  const evidence = normalizeOpenAiOrganizationEvidence({ costsPages: [costsPage], usagePages: [usagePage], periodStart: 100, periodEnd: 200 });
+  await recordOpenAiOrganizationEvidence({ fetchImpl, supabaseUrl: "https://project.supabase.co", serviceRoleKey: "secret-test-role", evidence, periodStart: 100, periodEnd: 200 });
+  assert.equal(request.init.headers["content-profile"], "tongs");
+  assert.equal(request.init.headers["accept-profile"], "tongs");
+  assert.equal(request.url, "https://project.supabase.co/rest/v1/rpc/record_openai_organization_reconciliation");
+  assert.equal(JSON.stringify(JSON.parse(request.init.body)).includes("secret-test-role"), false);
 });

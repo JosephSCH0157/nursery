@@ -10,6 +10,11 @@ export type CustomerSpendingQuote = {
   funding_eligible: boolean;
   funding_source: string;
   funding_label: string;
+  model_display_name: string | null;
+  provider_model_id: string | null;
+  model_tradeoff_summary: string | null;
+  catalog_revision: number | null;
+  estimated_customer_charge_micros: number;
   expires_at: string;
 };
 
@@ -54,6 +59,12 @@ export function readCustomerSpendingQuote(payload: unknown): CustomerSpendingQuo
     funding_eligible: row.funding_eligible === true,
     funding_source: string(row.funding_source) || "none",
     funding_label: string(row.funding_label) || "No verified eligible funds",
+    model_display_name: string(row.model_display_name) || null,
+    provider_model_id: string(row.provider_model_id) || null,
+    model_tradeoff_summary: string(row.model_tradeoff_summary) || null,
+    catalog_revision: Number.isSafeInteger(Number(row.catalog_revision)) ? Number(row.catalog_revision) : null,
+    estimated_customer_charge_micros: Number.isSafeInteger(Number(row.estimated_customer_charge_micros))
+      ? Number(row.estimated_customer_charge_micros) : maximum,
     expires_at: expiresAt,
   };
 }
@@ -75,13 +86,19 @@ export function confirmCustomerSpendingQuote(quote: CustomerSpendingQuote): bool
     minimumFractionDigits: 2,
     maximumFractionDigits: 6,
   });
+  const estimate = (quote.estimated_customer_charge_micros / 1_000_000).toLocaleString("en-US", {
+    style: "currency", currency: quote.currency, minimumFractionDigits: 2, maximumFractionDigits: 6,
+  });
   return globalThis.confirm([
+    quote.model_display_name ? `Model: ${quote.model_display_name}` : null,
+    quote.model_tradeoff_summary || null,
+    `Conservative estimate: ${estimate}`,
     `Maximum charge: ${maximum}`,
     `Funding: ${quote.funding_label}`,
     quote.failure_terms,
     `Quote expires: ${new Date(quote.expires_at).toLocaleString()}`,
     "Continue with this exact request?",
-  ].join("\n\n"));
+  ].filter(Boolean).join("\n\n"));
 }
 
 function canonical(value: unknown): unknown {
