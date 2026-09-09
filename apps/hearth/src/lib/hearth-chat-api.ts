@@ -1244,6 +1244,7 @@ export async function requestHearthChatReply(
       attachmentIds?: string[];
     };
     userAuthoredText?: string;
+    actionId?: string;
     explicitAction?: HearthExplicitUiAction;
     outputPreference?: HearthOutputPreference;
     paidExecution?: HearthChatRequest["paid_execution"];
@@ -1287,6 +1288,7 @@ export async function requestHearthChatReply(
   }
 
   const requestPayload: HearthChatRequest = {
+    action_id: options?.actionId,
     messages: normalized,
     episode_context: episodeContext,
     user_authored_text: options?.userAuthoredText?.trim() || undefined,

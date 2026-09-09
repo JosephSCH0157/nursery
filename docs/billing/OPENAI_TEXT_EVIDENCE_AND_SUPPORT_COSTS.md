@@ -2,6 +2,8 @@
 
 Status: 2026-09-09. This is private pricing evidence and an inactive proposal. It publishes no Live price, changes no rollout mode, and authorizes no provider call.
 
+The approval-ready comparison of subscription-funded versus full-cost allocation, including exact capacity thresholds, retention rules, volume sensitivity, and route/model price tables, is in `OPENAI_TEXT_SUPPORTING_COST_DECISION.md`.
+
 ## Credential-bound model visibility
 
 The protected `main` workflow run `34370224975` completed at 2026-09-09 15:27 UTC. The exact Forge project returned HTTP 200 for `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5-mini-2025-08-07`, and `gpt-5.6-luna`. The observations were persisted against catalog revision 1 with project fingerprint `1c4f12836a63aa011a002864cc6f37d482020453c39f85d43f32d4a2808b0650`. This proves project visibility only: API-parameter compatibility, route fixtures, structured-output behavior, and generation compatibility remain untested. The workflow made no generation or other billable request.

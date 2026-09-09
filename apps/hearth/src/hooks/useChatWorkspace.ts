@@ -464,6 +464,7 @@ type UseChatWorkspaceRuntimeArgs<TPendingAiProposal, TEpisodeContext, THearthOp 
         quote_hash: string;
         request_fingerprint: string;
       };
+      actionId?: string;
     },
   ) => Promise<{
     ok: boolean;
@@ -620,8 +621,10 @@ export function useChatWorkspaceRuntime<
       const attachmentContext = isProductionRequest
         ? { includeEpisodeAttachments: false, attachmentIds: [] }
         : args.getAttachmentContext?.() ?? undefined;
+      const actionId = globalThis.crypto.randomUUID();
       const requestOptions = {
         signal: controller.signal,
+        actionId,
         userAuthoredText: rawRequestContent,
         explicitAction,
         outputPreference,
