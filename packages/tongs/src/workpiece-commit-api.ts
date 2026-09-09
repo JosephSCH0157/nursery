@@ -3589,7 +3589,13 @@ export type TongsCommitApiService = {
   generateUnifiedVisualPlan(
     workpieceId: string,
     input: GenerateUnifiedVisualPlanRequest,
-    options?: { userAccessToken?: string | null },
+    options?: {
+      userAccessToken?: string | null;
+      /** Internal only: continue from a captured provider response without
+       * resolving or re-entering the paid-provider boundary. API callers
+       * cannot set this field. */
+      skipPaidFundingResolution?: boolean;
+    },
   ): Promise<Record<string, Json>>;
   readCurrentReferenceClipPlan(
     workpieceId: string,
@@ -28427,7 +28433,10 @@ export class TongsCommitService {
   async generateUnifiedVisualPlan(
     workpieceId: string,
     input: GenerateUnifiedVisualPlanRequest,
-    options?: { userAccessToken?: string | null },
+    options?: {
+      userAccessToken?: string | null;
+      skipPaidFundingResolution?: boolean;
+    },
   ): Promise<Record<string, Json>> {
     await this.assertWorkpieceInWorkspace(workpieceId, input.workspace_id);
     const auth = await this.assertWorkspaceRoleFromAccessToken(
@@ -28646,7 +28655,7 @@ export class TongsCommitService {
         "Unified Visual Plan fingerprint does not match canonical inputs.",
         { expected_operation_fingerprint: expectedFingerprint },
       );
-    if (!input.paid_execution) {
+    if (!input.paid_execution && !options?.skipPaidFundingResolution) {
       try {
         const paidExecution = await resolveOrdinaryOpenAiTextFunding({
           routeCode: "visual.unified_plan",
@@ -28810,7 +28819,7 @@ export class TongsCommitService {
           return this.generateUnifiedVisualPlan(
             workpieceId,
             { ...input, paid_execution: null },
-            options,
+            { ...options, skipPaidFundingResolution: true },
           );
         },
       });

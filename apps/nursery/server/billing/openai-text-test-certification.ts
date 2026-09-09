@@ -135,6 +135,8 @@ export class OpenAiTextTestCertificationGate implements OpenAiTextGateClient {
           },
           error: null,
         });
+      case "read_existing_openai_text_funding_handle":
+        return this.call("read_existing_openai_text_test_certification_funding_handle", args);
       case "resolve_openai_text_paid_execution_context":
         return this.call("resolve_openai_text_test_certification_context", args);
       case "authorize_openai_text_provider_attempt":
