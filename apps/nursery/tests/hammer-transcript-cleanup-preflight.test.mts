@@ -117,6 +117,7 @@ async function runCase(caseDef: CaseDef): Promise<void> {
         "x-forge-user-authorization": "Bearer test-user-access-token",
       },
       body: JSON.stringify({
+        operation_id: `forge:test:hammer-cleanup:${caseDef.label}`,
         workspace_id: TEST_WORKSPACE_ID,
         workpiece_id: TEST_WORKPIECE_ID,
         segment_ids: ["seg_1"],

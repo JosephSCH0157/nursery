@@ -8,6 +8,7 @@ import { HAMMER_SHORTS_DURATION_RANGES } from "../../../../packages/contracts/ha
 import { tongsFetch } from "../lib/tongsFetch";
 import { fingerprintHammerShortsValue, type HammerShortsOutputSegment } from "./hammerShortsResolver";
 import { projectHammerShortArtifacts, type HammerShortTimingInterval } from "./hammerShortsProjection";
+import { confirmCustomerSpendingQuote, customerSpendingAcceptance, readCustomerSpendingQuote } from "../../../../packages/tongs/src/customer-spending-confirmation";
 
 type JsonRow = Record<string, unknown>;
 export interface HammerShortsToolBayAuthority {
@@ -21,10 +22,22 @@ export interface HammerShortsToolBayAuthority {
 }
 
 async function request(path: string, options?: { method?: string; json?: unknown }): Promise<unknown> {
-  const response = await tongsFetch(path, { method: options?.method ?? "GET", ...(typeof options?.json === "undefined" ? {} : { json: options.json }), timeoutMs: 120_000 });
-  const payload = await response.json().catch(() => null) as JsonRow | null;
-  if (!response.ok || payload?.ok !== true) throw new Error(String((payload?.error as JsonRow | undefined)?.message ?? (payload?.error as JsonRow | undefined)?.code ?? `Request failed (${response.status}).`));
-  return payload.data;
+  const requestJson = options?.json && typeof options.json === "object" && !Array.isArray(options.json)
+    ? { ...(options.json as JsonRow) }
+    : options?.json;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await tongsFetch(path, { method: options?.method ?? "GET", ...(typeof requestJson === "undefined" ? {} : { json: requestJson }), timeoutMs: 120_000 });
+    const payload = await response.json().catch(() => null) as JsonRow | null;
+    if (response.ok && payload?.ok === true) return payload.data;
+    const quote = readCustomerSpendingQuote(payload);
+    if (attempt === 0 && quote?.funding_eligible && confirmCustomerSpendingQuote(quote) && requestJson && typeof requestJson === "object" && !Array.isArray(requestJson)) {
+      (requestJson as JsonRow).spending_acceptance = customerSpendingAcceptance(quote);
+      continue;
+    }
+    const message = String((payload?.error as JsonRow | undefined)?.message ?? (payload?.error as JsonRow | undefined)?.code ?? `Request failed (${response.status}).`);
+    throw new Error(quote && !quote.funding_eligible ? `${message} ${quote.funding_label}.` : message);
+  }
+  throw new Error("The accepted Shorts quote could not be used.");
 }
 
 function candidatesFrom(value: unknown): HammerShortCandidateV1[] {

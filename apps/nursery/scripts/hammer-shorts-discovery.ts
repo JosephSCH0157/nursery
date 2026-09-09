@@ -9,6 +9,7 @@ import {
 import { fingerprintHammerShortsValue, resolveHammerShortCandidates, type HammerShortsOutputSegment } from "../../hammer/src/editor/hammerShortsResolver.ts";
 import { executeOpenAiTextTransport } from "../../../packages/tongs/src/providers/openai-text-paid-boundary.ts";
 import type { OpenAiTextPaidExecutionHandle } from "../../../packages/tongs/src/providers/paid-openai-text-route-execution.ts";
+import type { OpenAiTextSpendingAcceptance } from "../../../packages/tongs/src/providers/openai-text-customer-funding.ts";
 import type { OpenAiTextGateClient } from "../../../packages/tongs/src/providers/paid-openai-text-execution-coordinator.ts";
 import { executePaidJsonOpenAiRoute } from "../server/billing/paid-json-openai-route.ts";
 
@@ -27,6 +28,7 @@ export interface HammerShortsDiscoveryBody {
   output_segments: HammerShortsOutputSegment[];
   operation_id: string;
   paid_execution?: OpenAiTextPaidExecutionHandle | null;
+  spending_acceptance?: OpenAiTextSpendingAcceptance | null;
 }
 
 export interface HammerShortsDiscoveryDependencies {
@@ -61,21 +63,43 @@ function readOutputText(payload: unknown): string | null {
   return null;
 }
 
+export async function buildHammerShortsPaidRequestIdentity(
+  body: HammerShortsDiscoveryBody,
+  model: string,
+): Promise<{ request: HammerShortsDiscoveryRequestV1; operationFingerprint: string }> {
+  const promptVersion = "hammer.shorts.discovery.prompt.v1";
+  const contractVersion = "HammerShortsDiscoveryRequestV1";
+  const requestUnsigned = {
+    schema_version: "HammerShortsDiscoveryRequestV1" as const,
+    basis_lock_id: body.basis_lock_id,
+    basis_fingerprint: body.basis_fingerprint,
+    goal: body.goal,
+    duration_preset: body.duration_preset,
+    minimum_duration_sec: body.minimum_duration_sec,
+    maximum_duration_sec: body.maximum_duration_sec,
+    target_candidate_count: body.target_candidate_count,
+    prompt_version: promptVersion,
+    contract_version: contractVersion,
+    provider: "openai" as const,
+    model,
+  };
+  const request = {
+    ...requestUnsigned,
+    request_fingerprint: await fingerprintHammerShortsValue(requestUnsigned),
+  } satisfies HammerShortsDiscoveryRequestV1;
+  return {
+    request,
+    operationFingerprint: await fingerprintHammerShortsValue({ operation_id: body.operation_id, request }),
+  };
+}
+
 export async function executeHammerShortsDiscovery(body: HammerShortsDiscoveryBody, dependencies: HammerShortsDiscoveryDependencies): Promise<{ status: number; payload: unknown }> {
   if (!valid(body)) return { status: 400, payload: { ok: false, error: { code: "hammer_shorts_request_invalid" } } };
   const policy = await dependencies.policyPreflight();
   if (!policy.ok) return { status: policy.status || 503, payload: { ok: false, error: { code: "hammer_shorts_policy_denied", message: policy.error } } };
   const authority = new HammerShortsAuthorityClient(dependencies.userClient);
   const promptVersion = "hammer.shorts.discovery.prompt.v1";
-  const contractVersion = "HammerShortsDiscoveryRequestV1";
-  const requestUnsigned = {
-    schema_version: "HammerShortsDiscoveryRequestV1" as const, basis_lock_id: body.basis_lock_id, basis_fingerprint: body.basis_fingerprint,
-    goal: body.goal, duration_preset: body.duration_preset, minimum_duration_sec: body.minimum_duration_sec,
-    maximum_duration_sec: body.maximum_duration_sec, target_candidate_count: body.target_candidate_count,
-    prompt_version: promptVersion, contract_version: contractVersion, provider: "openai" as const, model: dependencies.model,
-  };
-  const request = { ...requestUnsigned, request_fingerprint: await fingerprintHammerShortsValue(requestUnsigned) } satisfies HammerShortsDiscoveryRequestV1;
-  const operationFingerprint = await fingerprintHammerShortsValue({ operation_id: body.operation_id, request });
+  const { request, operationFingerprint } = await buildHammerShortsPaidRequestIdentity(body, dependencies.model);
   const reserved = await authority.reserveDiscovery(request as unknown as Json, body.operation_id, operationFingerprint) as Record<string, unknown>;
   const discoveryId = String(reserved.id ?? "");
   if (!discoveryId) return { status: 502, payload: { ok: false, error: { code: "hammer_shorts_reservation_invalid" } } };

@@ -1,5 +1,6 @@
 import { getWorkpieceImageMap } from "./hearth-image-map-repo";
 import { tongsFetch } from "./tongs-fetch";
+import { confirmCustomerSpendingQuote, customerSpendingAcceptance, readCustomerSpendingQuote } from "../../../../packages/tongs/src/customer-spending-confirmation";
 
 export type CanonicalImagePromptRevision = {
   id: string;
@@ -122,9 +123,21 @@ export async function interpretCanonicalImagePrompt(args: { workpieceId: string;
   const intent = { workspace_id: args.workspaceId, workpiece_id: args.workpieceId, image_moment_id: args.imageMomentId, image_map_revision_id: authority.revisionId, script_approval_id: authority.sourceScriptApprovalId, expected_prompt_revision_id: expectedId, expected_prompt_revision: expectedRevision, source_context: args.sourceContext, creator_direction: args.creatorDirection, style: args.style, contracts };
   const fingerprint = await sha256Canonical(intent);
   const operationId = `forge:image-prompt:interpret:${fingerprint}`;
-  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/image-prompts/interpret`, { method: "POST", json: { workspace_id: args.workspaceId, image_moment_id: args.imageMomentId, image_map_revision_id: authority.revisionId, script_approval_id: authority.sourceScriptApprovalId, expected_prompt_revision_id: expectedId, expected_prompt_revision: expectedRevision, operation_id: operationId, operation_fingerprint: fingerprint, source_context: args.sourceContext, creator_direction: args.creatorDirection, style: args.style } });
-  const body = await readJson(response);
-  if (!response.ok) return apiFailure(response, body, "Tongs could not interpret this image moment.");
+  const requestBody: Record<string, unknown> = { workspace_id: args.workspaceId, image_moment_id: args.imageMomentId, image_map_revision_id: authority.revisionId, script_approval_id: authority.sourceScriptApprovalId, expected_prompt_revision_id: expectedId, expected_prompt_revision: expectedRevision, operation_id: operationId, operation_fingerprint: fingerprint, source_context: args.sourceContext, creator_direction: args.creatorDirection, style: args.style };
+  let response: Response;
+  let body: unknown;
+  for (let attempt = 0; ; attempt += 1) {
+    response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/image-prompts/interpret`, { method: "POST", json: requestBody });
+    body = await readJson(response);
+    if (response.ok) break;
+    const quote = readCustomerSpendingQuote(body);
+    if (attempt === 0 && quote?.funding_eligible && confirmCustomerSpendingQuote(quote)) {
+      requestBody.spending_acceptance = customerSpendingAcceptance(quote);
+      continue;
+    }
+    const failed = apiFailure(response, body, "Tongs could not interpret this image moment.");
+    return quote && !quote.funding_eligible && !failed.ok ? { ...failed, error: `${failed.error} ${quote.funding_label}.` } : failed;
+  }
   const revision = isRecord(body) && isRecord(body.data) ? normalizeRevision(body.data.prompt_revision) : null;
   if (!revision) return { ok: false, status: response.status, code: "invalid_prompt_commit", error: "Tongs did not return a committed image-prompt revision." };
   const readback = await readCurrentCanonicalImagePrompt({ workpieceId: args.workpieceId, workspaceId: args.workspaceId, imageMomentId: args.imageMomentId });

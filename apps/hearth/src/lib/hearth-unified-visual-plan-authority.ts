@@ -1,5 +1,6 @@
 import { resolveTongsUserAccessToken, tongsFetch } from "./tongs-fetch";
 import type { MediaMapGenerationScope } from "./hearth-media-map-conversation";
+import { confirmCustomerSpendingQuote, customerSpendingAcceptance, readCustomerSpendingQuote } from "../../../../packages/tongs/src/customer-spending-confirmation";
 
 type JsonRecord = Record<string, unknown>;
 type Result<T> = { ok: true; data: T } | { ok: false; status: number; code: string; error: string; stage: string | null };
@@ -137,14 +138,26 @@ export async function generateOrResumeUnifiedVisualPlan(args: { workspaceId: str
     operationFingerprint = await hash(inputs);
     operationId = `forge:unified-visual-plan:${operationFingerprint}`;
   }
-  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/visual-plan-v2/generate`, { method: "POST", json: {
+  const requestBody: JsonRecord = {
     workspace_id: inputs.workspace_id, script_approval_id: inputs.script_approval_id,
     expected_image_revision_id: inputs.expected_image_revision_id, expected_image_revision: inputs.expected_image_revision,
     expected_broll_revision_id: inputs.expected_broll_revision_id, expected_broll_revision: inputs.expected_broll_revision,
     expected_reference_revision_id: inputs.expected_reference_revision_id, expected_reference_revision: inputs.expected_reference_revision,
     expected_reference_visual_revision_id: inputs.expected_reference_visual_revision_id, expected_reference_visual_revision: inputs.expected_reference_visual_revision,
     creator_direction: inputs.creator_direction, generation_scope: string(inputs.generation_scope) ?? "full_media_plan", operation_id: operationId, operation_fingerprint: operationFingerprint,
-  } });
-  const value = await json(response);
-  return response.ok ? receipt(value) : failure(response, value, "Tongs could not generate the canonical Visual Plan.");
+  };
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/visual-plan-v2/generate`, { method: "POST", json: requestBody });
+    const value = await json(response);
+    if (response.ok) return receipt(value);
+    const quote = readCustomerSpendingQuote(value);
+    if (attempt === 0 && quote?.funding_eligible && confirmCustomerSpendingQuote(quote)) {
+      requestBody.spending_acceptance = customerSpendingAcceptance(quote);
+      continue;
+    }
+    const failed = failure(response, value, "Tongs could not generate the canonical Visual Plan.");
+    if (quote && !quote.funding_eligible && !failed.ok) return { ...failed, error: `${failed.error} ${quote.funding_label}.` };
+    return failed;
+  }
+  return { ok: false, status: 409, code: "quote_retry_exhausted", error: "The accepted Visual Plan quote could not be used.", stage: "billing" };
 }

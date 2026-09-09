@@ -1,5 +1,6 @@
 import type { EpisodeBrollAssetCandidate, EpisodeBrollPlan, EpisodeBrollPlanBeat } from "./episode-package-v2";
 import { resolveTongsUserAccessToken, tongsFetch } from "./tongs-fetch";
+import { confirmCustomerSpendingQuote, customerSpendingAcceptance, readCustomerSpendingQuote } from "../../../../packages/tongs/src/customer-spending-confirmation";
 
 type JsonRecord = Record<string, unknown>;
 export type CustomerRunwaySpendingQuote = {
@@ -325,10 +326,20 @@ export async function generateCanonicalBrollPrompt(args: { workspaceId: string; 
   if (!creative.ok) return creative;
   if (!record(creative.data) || string(creative.data.disposition) !== "current" || !string(creative.data.creative_input_hash)) return { ok: false, status: 409, code: string(record(creative.data) ? creative.data.disposition : null) ?? "creative_input_unavailable", error: "Tongs could not reconstruct current B-roll creative inputs." };
   const fingerprint = await canonicalHash({ workspace_id: args.workspaceId, workpiece_id: args.workpieceId, beat_id: args.beatId, expected_prompt_revision_id: args.current.revisionId, expected_prompt_revision: args.current.revision, creator_direction: args.creatorDirection, creative_input_hash: creative.data.creative_input_hash, contracts: { interpretation, validator, synthesis } });
-  const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/broll-v2/prompt-interpret`, { method: "POST", json: { workspace_id: args.workspaceId, beat_id: args.beatId, expected_prompt_revision_id: args.current.revisionId, expected_prompt_revision: args.current.revision, creator_direction: args.creatorDirection, operation_id: `forge:broll:prompt:${fingerprint}`, operation_fingerprint: fingerprint } });
-  const body = await json(response);
-  if (!response.ok) return failure(response, body, "Tongs could not generate the canonical motion prompt.");
-  return readCanonicalBrollV2({ workspaceId: args.workspaceId, workpieceId: args.workpieceId });
+  const requestBody: JsonRecord = { workspace_id: args.workspaceId, beat_id: args.beatId, expected_prompt_revision_id: args.current.revisionId, expected_prompt_revision: args.current.revision, creator_direction: args.creatorDirection, operation_id: `forge:broll:prompt:${fingerprint}`, operation_fingerprint: fingerprint };
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await tongsFetch(`/tongs/workpieces/${encodeURIComponent(args.workpieceId)}/broll-v2/prompt-interpret`, { method: "POST", json: requestBody });
+    const body = await json(response);
+    if (response.ok) return readCanonicalBrollV2({ workspaceId: args.workspaceId, workpieceId: args.workpieceId });
+    const quote = readCustomerSpendingQuote(body);
+    if (attempt === 0 && quote?.funding_eligible && confirmCustomerSpendingQuote(quote)) {
+      requestBody.spending_acceptance = customerSpendingAcceptance(quote);
+      continue;
+    }
+    const failed = failure(response, body, "Tongs could not generate the canonical motion prompt.");
+    return quote && !quote.funding_eligible && !failed.ok ? { ...failed, error: `${failed.error} ${quote.funding_label}.` } : failed;
+  }
+  return { ok: false, status: 409, code: "quote_retry_exhausted", error: "The accepted motion-prompt quote could not be used." };
 }
 
 export async function editCanonicalBrollPrompt(args: { workspaceId: string; workpieceId: string; beatId: string; finalPrompt: string; current: CanonicalBrollPromptState }): Promise<Result<CanonicalBrollV2State>> {

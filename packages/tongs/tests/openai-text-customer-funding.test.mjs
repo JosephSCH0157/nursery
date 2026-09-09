@@ -1,0 +1,128 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import {
+  OpenAiTextFundingPreparationError,
+  OpenAiTextQuoteRequiredError,
+  resolveOrdinaryOpenAiTextFunding,
+} from "../dist/providers/openai-text-customer-funding.js";
+
+const quoteId = "11111111-1111-4111-8111-111111111111";
+const reservationId = "22222222-2222-4222-8222-222222222222";
+const fingerprint = "a".repeat(64);
+const quoteHash = "b".repeat(64);
+
+function makeGate(mode = "enforce") {
+  const calls = [];
+  return {
+    calls,
+    async rpc(name) {
+      calls.push(name);
+      if (name === "read_openai_text_route_execution_requirement") return { data: { mode }, error: null };
+      if (name === "read_existing_openai_text_funding_handle") return { data: {}, error: null };
+      if (name === "create_customer_openai_text_quote") return { data: {
+        quote_id: quoteId,
+        operation_id: "ordinary-operation-1",
+        quote_hash: quoteHash,
+        request_fingerprint: fingerprint,
+        currency: "USD",
+        maximum_customer_charge_micros: 20000,
+        failure_customer_charge_micros: 0,
+        failure_terms: "Forge-caused and provider-caused failures cost you $0.",
+        funding_eligible: true,
+        funding_source: "customer_deposit",
+        funding_label: "Verified prepaid balance",
+        expires_at: new Date(Date.now() + 60_000).toISOString(),
+      }, error: null };
+      if (name === "reserve_customer_openai_text_quote") return { data: { paid_execution: {
+        operation_id: "ordinary-operation-1",
+        reservation_id: reservationId,
+        request_fingerprint: fingerprint,
+      } }, error: null };
+      if (name === "accept_quote") return { data: { accepted: true }, error: null };
+      return { data: {}, error: null };
+    },
+  };
+}
+
+function input(serviceGate, userGate, acceptance = null) {
+  return {
+    routeCode: "visual.unified_plan",
+    operationId: "ordinary-operation-1",
+    userId: "33333333-3333-4333-8333-333333333333",
+    workspaceId: "44444444-4444-4444-8444-444444444444",
+    workpieceId: "workpiece-1",
+    requestFingerprint: fingerprint,
+    model: "gpt-5-mini",
+    credentialFunding: "forge",
+    acceptance,
+    serviceGate,
+    userGate,
+  };
+}
+
+test("inactive routes preserve the legacy path without creating a quote", async () => {
+  const service = makeGate("inactive");
+  const result = await resolveOrdinaryOpenAiTextFunding(input(service, makeGate()));
+  assert.equal(result, null);
+  assert.deepEqual(service.calls, ["read_openai_text_route_execution_requirement"]);
+});
+
+test("enforced routes return only a customer-safe quote before acceptance", async () => {
+  const service = makeGate();
+  await assert.rejects(resolveOrdinaryOpenAiTextFunding(input(service, makeGate())), (error) => {
+    assert.ok(error instanceof OpenAiTextQuoteRequiredError);
+    assert.equal(error.quote.maximumCustomerChargeMicros, 20000);
+    assert.equal(error.quote.failureCustomerChargeMicros, 0);
+    assert.equal("provider_cost" in error.quote, false);
+    assert.equal("markup" in error.quote, false);
+    return true;
+  });
+  assert.equal(service.calls.includes("reserve_customer_openai_text_quote"), false);
+});
+
+test("an exact acceptance is atomically reserved and returned as an opaque handle", async () => {
+  const service = makeGate();
+  const user = makeGate();
+  const result = await resolveOrdinaryOpenAiTextFunding(input(service, user, {
+    operationId: "ordinary-operation-1",
+    quoteId,
+    quoteHash,
+    requestFingerprint: fingerprint,
+  }));
+  assert.deepEqual(result, {
+    operationId: "ordinary-operation-1",
+    reservationId,
+    requestFingerprint: fingerprint,
+  });
+  assert.equal(user.calls.filter((name) => name === "accept_quote").length, 1);
+  assert.equal(service.calls.filter((name) => name === "reserve_customer_openai_text_quote").length, 1);
+});
+
+test("changed inputs cannot use an accepted quote", async () => {
+  const service = makeGate();
+  await assert.rejects(resolveOrdinaryOpenAiTextFunding(input(service, makeGate(), {
+    operationId: "ordinary-operation-1",
+    quoteId,
+    quoteHash,
+    requestFingerprint: "c".repeat(64),
+  })), (error) => error instanceof OpenAiTextFundingPreparationError && error.code === "quote_request_changed");
+  assert.equal(service.calls.includes("reserve_customer_openai_text_quote"), false);
+});
+
+test("an existing reservation is replayed without accepting or reserving again", async () => {
+  const service = makeGate();
+  service.rpc = async function rpc(name) {
+    this.calls.push(name);
+    if (name === "read_openai_text_route_execution_requirement") return { data: { mode: "enforce" }, error: null };
+    if (name === "read_existing_openai_text_funding_handle") return { data: {
+      operation_id: "ordinary-operation-1",
+      reservation_id: reservationId,
+      request_fingerprint: fingerprint,
+    }, error: null };
+    throw new Error(`unexpected ${name}`);
+  };
+  const result = await resolveOrdinaryOpenAiTextFunding(input(service, makeGate()));
+  assert.equal(result?.reservationId, reservationId);
+});
+

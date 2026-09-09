@@ -69,6 +69,7 @@ export type PaidOpenAiTextRouteContext = {
   directProviderCeilingMicros: number;
   supportingCostCeilingMicros: number;
   inputMicrosPerMillionTokens: number;
+  cachedInputMicrosPerMillionTokens: number;
   outputMicrosPerMillionTokens: number;
   reservationState: string;
 };
@@ -194,6 +195,9 @@ function parseContext(value: unknown): PaidOpenAiTextRouteContext {
       row,
       "input_micros_per_million_tokens",
     ),
+    cachedInputMicrosPerMillionTokens: row.cached_input_micros_per_million_tokens == null
+      ? 0
+      : boundedInteger(row, "cached_input_micros_per_million_tokens"),
     outputMicrosPerMillionTokens: boundedInteger(
       row,
       "output_micros_per_million_tokens",
@@ -235,9 +239,14 @@ export function estimateOpenAiTextDirectCostMicros(
   context: PaidOpenAiTextRouteContext,
   inputUnits: number,
   outputUnits: number,
+  cachedInputUnits = 0,
 ): number {
+  if (!Number.isSafeInteger(cachedInputUnits) || cachedInputUnits < 0 || cachedInputUnits > inputUnits) {
+    throw new OpenAiTextBoundaryError("pricing_not_configured");
+  }
   const amount = Math.ceil(
-    (inputUnits * context.inputMicrosPerMillionTokens +
+    ((inputUnits - cachedInputUnits) * context.inputMicrosPerMillionTokens +
+      cachedInputUnits * context.cachedInputMicrosPerMillionTokens +
       outputUnits * context.outputMicrosPerMillionTokens) /
       1_000_000,
   );

@@ -1,6 +1,7 @@
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import type { HammerCleanupPreview } from "./hammerCleanupTools";
 import { tongsFetch } from "../lib/tongsFetch";
+import { confirmCustomerSpendingQuote, customerSpendingAcceptance, deriveCustomerOperationId, readCustomerSpendingQuote } from "../../../../packages/tongs/src/customer-spending-confirmation";
 
 export const HAMMER_TRANSCRIPT_CLEANUP_ASSIST_ROUTE = "/api/hammer/editorial/transcript-cleanup";
 
@@ -121,20 +122,33 @@ export async function requestHammerTranscriptCleanupAssist(args: {
   segments: HammerTranscriptSegment[];
   segment_ids: string[];
 }): Promise<HammerTranscriptCleanupAssistResponse> {
-  const response = await tongsFetch(HAMMER_TRANSCRIPT_CLEANUP_ASSIST_ROUTE, {
-    method: "POST",
-    json: {
-      workspace_id: args.workspace_id,
-      workpiece_id: args.workpiece_id,
-      segments: args.segments,
-      segment_ids: args.segment_ids,
-    },
-    timeoutMs: 120_000,
-  });
-
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(readErrorMessage(payload));
+  const operationPayload = {
+    workspace_id: args.workspace_id,
+    workpiece_id: args.workpiece_id,
+    segments: args.segments,
+    segment_ids: args.segment_ids,
+  };
+  const requestBody: Record<string, unknown> = {
+    ...operationPayload,
+    operation_id: await deriveCustomerOperationId("forge:hammer-transcript-cleanup", operationPayload),
+  };
+  let payload: unknown = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await tongsFetch(HAMMER_TRANSCRIPT_CLEANUP_ASSIST_ROUTE, {
+      method: "POST",
+      json: requestBody,
+      timeoutMs: 120_000,
+    });
+    payload = await response.json().catch(() => null);
+    if (response.ok) break;
+    const quote = readCustomerSpendingQuote(payload);
+    if (attempt === 0 && quote?.funding_eligible && confirmCustomerSpendingQuote(quote)) {
+      requestBody.spending_acceptance = customerSpendingAcceptance(quote);
+      continue;
+    }
+    throw new Error(quote && !quote.funding_eligible
+      ? `${readErrorMessage(payload)} ${quote.funding_label}.`
+      : readErrorMessage(payload));
   }
 
   const preview = normalizePreview(payload);

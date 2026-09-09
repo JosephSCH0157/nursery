@@ -24,6 +24,11 @@ import {
   type OpenAiTextRouteCode,
 } from "../../../../packages/tongs/src/providers/openai-text-paid-boundary";
 import { fingerprintOpenAiTextPaidRequest } from "../../../../packages/tongs/src/providers/paid-openai-text-route-execution";
+import {
+  OpenAiTextFundingPreparationError,
+  OpenAiTextQuoteRequiredError,
+  resolveOrdinaryOpenAiTextFunding,
+} from "../../../../packages/tongs/src/providers/openai-text-customer-funding";
 import { executePaidJsonOpenAiRoute } from "../billing/paid-json-openai-route";
 import {
   HEARTH_AI_ROUTES,
@@ -4449,6 +4454,67 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               ...buildBillingSnapshot(lane),
             });
           }
+          if (paidRouteCode === "hearth.research_synthesis") {
+            try {
+              paidExecutionHandle = await resolveOrdinaryOpenAiTextFunding({
+                routeCode: "hearth.research_synthesis",
+                operationId: chatActionId,
+                userId,
+                workspaceId: episodeContext.workspaceId,
+                workpieceId: episodeContext.episodeId,
+                requestFingerprint: actualRequestFingerprint,
+                model,
+                credentialFunding: resolvedCredentials.keySource === "user_byo" ? "byo_customer" : "forge",
+                acceptance: spendingAcceptance,
+                serviceGate: openAiTextGate,
+                userGate: {
+                  rpc: async (name, payload) => {
+                    const result = await callUserScopedTongsRpc({
+                      accessToken: bearerToken,
+                      fn: name,
+                      payload,
+                    });
+                    return result.ok
+                      ? { data: result.data, error: null }
+                      : { data: null, error: { message: result.error } };
+                  },
+                },
+              });
+            } catch (error) {
+              if (error instanceof OpenAiTextQuoteRequiredError) {
+                return jsonResponse(409, {
+                  ok: false,
+                  error: "Review and accept the maximum customer charge before Hearth uses OpenAI.",
+                  code: "hearth_spending_confirmation_required",
+                  billing_quote: {
+                    quote_id: error.quote.quoteId,
+                    operation_id: error.quote.operationId,
+                    quote_hash: error.quote.quoteHash,
+                    request_fingerprint: error.quote.requestFingerprint,
+                    currency: error.quote.currency,
+                    maximum_customer_charge_micros: error.quote.maximumCustomerChargeMicros,
+                    failure_customer_charge_micros: 0,
+                    failure_terms: error.quote.failureTerms,
+                    funding_eligible: error.quote.fundingEligible,
+                    funding_source: error.quote.fundingSource,
+                    funding_label: error.quote.fundingLabel,
+                    expires_at: error.quote.expiresAt,
+                  },
+                  ...buildBillingSnapshot(lane),
+                });
+              }
+              if (error instanceof OpenAiTextFundingPreparationError) {
+                return jsonResponse(error.status, {
+                  ok: false,
+                  error: error.message,
+                  code: error.code,
+                  ...error.details,
+                  ...buildBillingSnapshot(lane),
+                });
+              }
+              throw error;
+            }
+          } else {
           const identifiers = deriveHearthCustomerPaidIdentifiers({
             userId,
             workspaceId: episodeContext.workspaceId,
@@ -4562,6 +4628,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             reservationId: identifiers.reservationId,
             requestFingerprint: actualRequestFingerprint,
           };
+          }
         }
 
         if (paidExecutionHandle) {

@@ -27,12 +27,15 @@ function asObject(value: unknown): JsonObject {
     : {};
 }
 
-function readUsage(payload: unknown): { input: number; output: number } {
+function readUsage(payload: unknown): { input: number; cachedInput: number; output: number } {
   const usage = asObject(asObject(payload).usage);
   const input = Number(usage.input_tokens ?? usage.prompt_tokens ?? 0);
   const output = Number(usage.output_tokens ?? usage.completion_tokens ?? 0);
+  const inputDetails = asObject(usage.input_tokens_details ?? usage.prompt_tokens_details);
+  const cachedInput = Number(inputDetails.cached_tokens ?? 0);
   return {
     input: Number.isSafeInteger(input) && input >= 0 ? input : 0,
+    cachedInput: Number.isSafeInteger(cachedInput) && cachedInput >= 0 && cachedInput <= input ? cachedInput : 0,
     output: Number.isSafeInteger(output) && output >= 0 ? output : 0,
   };
 }
@@ -145,6 +148,7 @@ export async function executePaidJsonOpenAiRoute<
                 context,
                 usage.input,
                 usage.output,
+                usage.cachedInput,
               )
             : 0,
         supplierCostAuthoritative: false,
@@ -163,13 +167,15 @@ export async function executePaidJsonOpenAiRoute<
               ? "estimated"
               : "customer_direct",
           route_code: args.routeCode,
+          cached_input_units: usage.cachedInput,
+          reasoning_output_included: true,
         },
       };
     },
     validateResult: (payload) => {
       validated = args.validate(payload);
     },
-    persistCanonical: async (_payload) => {
+    persistCanonical: async () => {
       if (!validated) throw new Error("validated route result missing");
       return args.persist
         ? args.persist(validated, providerPayload)

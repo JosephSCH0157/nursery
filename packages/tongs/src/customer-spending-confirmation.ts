@@ -1,0 +1,102 @@
+export type CustomerSpendingQuote = {
+  quote_id: string;
+  operation_id: string;
+  quote_hash: string;
+  request_fingerprint: string;
+  currency: "USD";
+  maximum_customer_charge_micros: number;
+  failure_customer_charge_micros: 0;
+  failure_terms: string;
+  funding_eligible: boolean;
+  funding_source: string;
+  funding_label: string;
+  expires_at: string;
+};
+
+export type CustomerSpendingAcceptance = {
+  quote_id: string;
+  operation_id: string;
+  quote_hash: string;
+  request_fingerprint: string;
+};
+
+function object(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function string(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+export function readCustomerSpendingQuote(payload: unknown): CustomerSpendingQuote | null {
+  const root = object(payload);
+  const error = object(root?.error);
+  const details = object(error?.details);
+  const row = object(error?.billing_quote) ?? object(details?.billing_quote) ?? object(root?.billing_quote);
+  if (!row) return null;
+  const maximum = Number(row.maximum_customer_charge_micros);
+  const failure = Number(row.failure_customer_charge_micros);
+  const expiresAt = string(row.expires_at);
+  if (!string(row.quote_id) || !string(row.operation_id) || !string(row.quote_hash)
+    || !string(row.request_fingerprint) || row.currency !== "USD"
+    || !Number.isSafeInteger(maximum) || maximum < 0 || failure !== 0 || !expiresAt) return null;
+  return {
+    quote_id: string(row.quote_id),
+    operation_id: string(row.operation_id),
+    quote_hash: string(row.quote_hash),
+    request_fingerprint: string(row.request_fingerprint),
+    currency: "USD",
+    maximum_customer_charge_micros: maximum,
+    failure_customer_charge_micros: 0,
+    failure_terms: string(row.failure_terms) || "Forge-caused and provider-caused failures cost you $0.",
+    funding_eligible: row.funding_eligible === true,
+    funding_source: string(row.funding_source) || "none",
+    funding_label: string(row.funding_label) || "No verified eligible funds",
+    expires_at: expiresAt,
+  };
+}
+
+export function customerSpendingAcceptance(quote: CustomerSpendingQuote): CustomerSpendingAcceptance {
+  return {
+    quote_id: quote.quote_id,
+    operation_id: quote.operation_id,
+    quote_hash: quote.quote_hash,
+    request_fingerprint: quote.request_fingerprint,
+  };
+}
+
+export function confirmCustomerSpendingQuote(quote: CustomerSpendingQuote): boolean {
+  if (!quote.funding_eligible) return false;
+  const maximum = (quote.maximum_customer_charge_micros / 1_000_000).toLocaleString("en-US", {
+    style: "currency",
+    currency: quote.currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 6,
+  });
+  return globalThis.confirm([
+    `Maximum charge: ${maximum}`,
+    `Funding: ${quote.funding_label}`,
+    quote.failure_terms,
+    `Quote expires: ${new Date(quote.expires_at).toLocaleString()}`,
+    "Continue with this exact request?",
+  ].join("\n\n"));
+}
+
+function canonical(value: unknown): unknown {
+  if (value === null || typeof value === "string" || typeof value === "boolean" || typeof value === "number") return value;
+  if (Array.isArray(value)) return value.map(canonical);
+  const row = object(value);
+  if (!row) return String(value);
+  return Object.fromEntries(Object.keys(row).sort().flatMap((key) => (
+    typeof row[key] === "undefined" ? [] : [[key, canonical(row[key])]]
+  )));
+}
+
+export async function deriveCustomerOperationId(prefix: string, payload: unknown): Promise<string> {
+  const bytes = new TextEncoder().encode(JSON.stringify(canonical(payload)));
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  const fingerprint = Array.from(new Uint8Array(digest), (part) => part.toString(16).padStart(2, "0")).join("");
+  return `${prefix}:${fingerprint}`;
+}

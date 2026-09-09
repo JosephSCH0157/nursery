@@ -1,6 +1,7 @@
 import type { QuenchMetadataAssistDraft } from "@forge/quench";
 import { QUENCH_METADATA_ASSIST_ROUTE } from "@forge/quench";
 import { tongsFetch } from "../../../hammer/src/lib/tongsFetch";
+import { confirmCustomerSpendingQuote, customerSpendingAcceptance, deriveCustomerOperationId, readCustomerSpendingQuote } from "../../../../packages/tongs/src/customer-spending-confirmation";
 
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -45,21 +46,34 @@ export async function requestQuenchMetadataAssist(args: {
   description: string;
   tags: string[];
 }): Promise<QuenchMetadataAssistDraft> {
-  const response = await tongsFetch(QUENCH_METADATA_ASSIST_ROUTE, {
-    method: "POST",
-    json: {
-      workspace_id: args.workspace_id,
-      workpiece_id: args.workpiece_id,
-      title: args.title,
-      description: args.description,
-      tags: args.tags,
-    },
-    timeoutMs: 120_000,
-  });
-
-  const payload = await response.json().catch(() => null);
-  if (!response.ok) {
-    throw new Error(readErrorMessage(payload));
+  const operationPayload = {
+    workspace_id: args.workspace_id,
+    workpiece_id: args.workpiece_id,
+    title: args.title,
+    description: args.description,
+    tags: args.tags,
+  };
+  const requestBody: Record<string, unknown> = {
+    ...operationPayload,
+    operation_id: await deriveCustomerOperationId("forge:quench-metadata", operationPayload),
+  };
+  let payload: unknown = null;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const response = await tongsFetch(QUENCH_METADATA_ASSIST_ROUTE, {
+      method: "POST",
+      json: requestBody,
+      timeoutMs: 120_000,
+    });
+    payload = await response.json().catch(() => null);
+    if (response.ok) break;
+    const quote = readCustomerSpendingQuote(payload);
+    if (attempt === 0 && quote?.funding_eligible && confirmCustomerSpendingQuote(quote)) {
+      requestBody.spending_acceptance = customerSpendingAcceptance(quote);
+      continue;
+    }
+    throw new Error(quote && !quote.funding_eligible
+      ? `${readErrorMessage(payload)} ${quote.funding_label}.`
+      : readErrorMessage(payload));
   }
 
   const draft = normalizeDraft(payload);

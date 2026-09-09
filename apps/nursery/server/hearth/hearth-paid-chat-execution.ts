@@ -57,6 +57,7 @@ type PaidContext = {
   directProviderCeilingMicros: number;
   supportingCostCeilingMicros: number;
   inputMicrosPerMillionTokens: number;
+  cachedInputMicrosPerMillionTokens: number;
   outputMicrosPerMillionTokens: number;
   reservationState: string;
 };
@@ -139,6 +140,9 @@ function parseContext(value: unknown): PaidContext {
     directProviderCeilingMicros: boundedInteger(row, "direct_provider_ceiling_micros"),
     supportingCostCeilingMicros: boundedInteger(row, "supporting_cost_ceiling_micros"),
     inputMicrosPerMillionTokens: boundedInteger(row, "input_micros_per_million_tokens"),
+    cachedInputMicrosPerMillionTokens: row.cached_input_micros_per_million_tokens == null
+      ? 0
+      : boundedInteger(row, "cached_input_micros_per_million_tokens"),
     outputMicrosPerMillionTokens: boundedInteger(row, "output_micros_per_million_tokens"),
     reservationState: requiredString(row, "reservation_state"),
   };
@@ -200,12 +204,15 @@ export function fingerprintPaidHearthChatRequest(value: unknown): string {
   return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
 }
 
-function readUsage(payload: unknown): { input: number; output: number } {
+function readUsage(payload: unknown): { input: number; cachedInput: number; output: number } {
   const usage = asRecord(asRecord(payload).usage);
   const input = usage.prompt_tokens ?? usage.input_tokens ?? 0;
   const output = usage.completion_tokens ?? usage.output_tokens ?? 0;
+  const details = asRecord(usage.prompt_tokens_details ?? usage.input_tokens_details);
+  const cachedInput = details.cached_tokens ?? 0;
   return {
     input: Number.isSafeInteger(Number(input)) && Number(input) >= 0 ? Number(input) : 0,
+    cachedInput: Number.isSafeInteger(Number(cachedInput)) && Number(cachedInput) >= 0 && Number(cachedInput) <= Number(input) ? Number(cachedInput) : 0,
     output: Number.isSafeInteger(Number(output)) && Number(output) >= 0 ? Number(output) : 0,
   };
 }
@@ -217,9 +224,11 @@ function extractReply(payload: unknown): string {
   return typeof message.content === "string" ? message.content.trim() : "";
 }
 
-function estimateDirectCostMicros(context: PaidContext, input: number, output: number): number {
+function estimateDirectCostMicros(context: PaidContext, input: number, output: number, cachedInput = 0): number {
   const amount = Math.ceil(
-    (input * context.inputMicrosPerMillionTokens + output * context.outputMicrosPerMillionTokens) / 1_000_000,
+    ((input - cachedInput) * context.inputMicrosPerMillionTokens
+      + cachedInput * context.cachedInputMicrosPerMillionTokens
+      + output * context.outputMicrosPerMillionTokens) / 1_000_000,
   );
   if (!Number.isSafeInteger(amount) || amount < 0 || amount > context.directProviderCeilingMicros) {
     throw new OpenAiTextProviderError("OpenAI usage exceeded accepted direct-provider ceiling", false, amount, {
@@ -343,7 +352,7 @@ export async function executePaidHearthChatCompletion(
       const payload = await response.json() as unknown;
       const usage = readUsage(payload);
       const directCostMicros = context.credentialFunding === "forge"
-        ? estimateDirectCostMicros(context, usage.input, usage.output)
+        ? estimateDirectCostMicros(context, usage.input, usage.output, usage.cachedInput)
         : 0;
       const rawReply = extractReply(payload);
       providerEvidence.latest = { requestId: providerRequestId, input: usage.input, output: usage.output };
@@ -372,6 +381,8 @@ export async function executePaidHearthChatCompletion(
           supporting_cost_status: context.supportingCostCeilingMicros === 0 ? "not_applicable" : "estimated_allocation",
           supporting_cost_estimate_micros: context.supportingCostCeilingMicros,
           supporting_cost_ceiling_micros: context.supportingCostCeilingMicros,
+          cached_input_units: usage.cachedInput,
+          reasoning_output_included: true,
         },
       };
     },

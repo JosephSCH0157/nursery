@@ -67,6 +67,13 @@ import {
 } from "./providers/paid-openai-text-route-execution.js";
 import type { OpenAiTextGateClient } from "./providers/paid-openai-text-execution-coordinator.js";
 import {
+  OpenAiTextFundingPreparationError,
+  OpenAiTextQuoteRequiredError,
+  normalizeOpenAiTextSpendingAcceptance,
+  resolveOrdinaryOpenAiTextFunding,
+  type OpenAiTextSpendingAcceptance,
+} from "./providers/openai-text-customer-funding.js";
+import {
   coordinateHammerHistoryAtomicComponentHead,
   isProtectedHammerHistoryAtomicStagingPath,
   type HammerHistoryAtomicCoordinatorAdapter,
@@ -1581,6 +1588,7 @@ export type InterpretImageMapPromptRequest = {
   style: string | null;
   user_access_token?: string | null;
   paid_execution?: OpenAiTextPaidExecutionHandle | null;
+  spending_acceptance?: OpenAiTextSpendingAcceptance | null;
 };
 export type EditImageMapPromptRequest = {
   workspace_id: string;
@@ -2498,6 +2506,7 @@ export type InterpretBrollMotionPromptRequest = {
   operation_fingerprint: string;
   user_access_token?: string | null;
   paid_execution?: OpenAiTextPaidExecutionHandle | null;
+  spending_acceptance?: OpenAiTextSpendingAcceptance | null;
 };
 export type EditBrollMotionPromptRequest = {
   workspace_id: string;
@@ -2742,6 +2751,7 @@ export type GenerateUnifiedVisualPlanRequest = {
   operation_id: string;
   operation_fingerprint: string;
   paid_execution?: OpenAiTextPaidExecutionHandle | null;
+  spending_acceptance?: OpenAiTextSpendingAcceptance | null;
 };
 export type ReconcileChatSourcesRequest = {
   workspace_id: string;
@@ -3845,6 +3855,32 @@ class HttpError extends Error {
     this.code = code;
     this.details = details;
   }
+}
+
+function throwOpenAiFundingHttpError(error: unknown): never {
+  if (error instanceof OpenAiTextQuoteRequiredError) {
+    const quote = error.quote;
+    throw new HttpError(error.status, error.code, error.message, {
+      billing_quote: {
+        quote_id: quote.quoteId,
+        operation_id: quote.operationId,
+        quote_hash: quote.quoteHash,
+        request_fingerprint: quote.requestFingerprint,
+        currency: quote.currency,
+        maximum_customer_charge_micros: quote.maximumCustomerChargeMicros,
+        failure_customer_charge_micros: 0,
+        failure_terms: quote.failureTerms,
+        funding_eligible: quote.fundingEligible,
+        funding_source: quote.fundingSource,
+        funding_label: quote.fundingLabel,
+        expires_at: quote.expiresAt,
+      },
+    });
+  }
+  if (error instanceof OpenAiTextFundingPreparationError) {
+    throw new HttpError(error.status, error.code, error.message, error.details);
+  }
+  throw error;
 }
 
 function jsonResponse(
@@ -28605,6 +28641,26 @@ export class TongsCommitService {
         "Unified Visual Plan fingerprint does not match canonical inputs.",
         { expected_operation_fingerprint: expectedFingerprint },
       );
+    if (!input.paid_execution) {
+      try {
+        const paidExecution = await resolveOrdinaryOpenAiTextFunding({
+          routeCode: "visual.unified_plan",
+          operationId: input.operation_id,
+          userId: auth.userId,
+          workspaceId: input.workspace_id,
+          workpieceId,
+          requestFingerprint: expectedFingerprint,
+          model: "gpt-5-mini",
+          credentialFunding: "forge",
+          acceptance: input.spending_acceptance ?? null,
+          serviceGate: this.openAiTextGate,
+          userGate: authority as unknown as OpenAiTextGateClient,
+        });
+        if (paidExecution) input = { ...input, paid_execution: paidExecution };
+      } catch (error) {
+        throwOpenAiFundingHttpError(error);
+      }
+    }
     const frozenGenerationScope = readStringField(
       normalizedInputs,
       "generation_scope",
@@ -31537,6 +31593,26 @@ export class TongsCommitService {
           creative_input_hash: creativeHash,
         },
       );
+    if (!input.paid_execution) {
+      try {
+        const paidExecution = await resolveOrdinaryOpenAiTextFunding({
+          routeCode: "motion.broll_interpretation",
+          operationId: input.operation_id,
+          userId: auth.userId,
+          workspaceId: input.workspace_id,
+          workpieceId,
+          requestFingerprint: expectedFingerprint,
+          model,
+          credentialFunding: "forge",
+          acceptance: input.spending_acceptance ?? null,
+          serviceGate: this.openAiTextGate,
+          userGate: authority as unknown as OpenAiTextGateClient,
+        });
+        if (paidExecution) input = { ...input, paid_execution: paidExecution };
+      } catch (error) {
+        throwOpenAiFundingHttpError(error);
+      }
+    }
     const requestJson = {
       creative_inputs: creativeInputs,
       questions: [
@@ -32000,6 +32076,26 @@ export class TongsCommitService {
         "Interpretation operation fingerprint does not match the canonical request.",
         { expected_operation_fingerprint: expectedFingerprint },
       );
+    if (!input.paid_execution) {
+      try {
+        const paidExecution = await resolveOrdinaryOpenAiTextFunding({
+          routeCode: "visual.narrative_interpretation",
+          operationId: input.operation_id,
+          userId: auth.userId,
+          workspaceId: input.workspace_id,
+          workpieceId,
+          requestFingerprint: expectedFingerprint,
+          model: "gpt-5-mini",
+          credentialFunding: "forge",
+          acceptance: input.spending_acceptance ?? null,
+          serviceGate: this.openAiTextGate,
+          userGate: authority as unknown as OpenAiTextGateClient,
+        });
+        if (paidExecution) input = { ...input, paid_execution: paidExecution };
+      } catch (error) {
+        throwOpenAiFundingHttpError(error);
+      }
+    }
     const begun = await authority.rpc("begin_image_prompt_interpretation", {
       p_workspace_id: input.workspace_id,
       p_workpiece_id: workpieceId,
@@ -35537,6 +35633,11 @@ export function createTongsCommitApiHandlerWithService(
         const paidExecution = normalizeOpenAiTextPaidExecutionHandle(body.paid_execution);
         if (body.paid_execution != null && !paidExecution)
           throw new HttpError(400, "invalid_paid_execution_handle", "paid_execution is invalid.");
+        const spendingAcceptance = normalizeOpenAiTextSpendingAcceptance(body.spending_acceptance);
+        if (body.spending_acceptance != null && !spendingAcceptance)
+          throw new HttpError(400, "invalid_spending_acceptance", "spending_acceptance is invalid.");
+        if (paidExecution && spendingAcceptance)
+          throw new HttpError(400, "conflicting_paid_execution_context", "Provide either paid_execution or spending_acceptance, not both.");
         const source = normalizeJsonValue(body.source_context);
         if (!isRecord(source))
           throw new HttpError(
@@ -35590,6 +35691,7 @@ export function createTongsCommitApiHandlerWithService(
                 : normalizeNonEmptyString(body.style, "style"),
             user_access_token: userAccessToken,
             paid_execution: paidExecution,
+            spending_acceptance: spendingAcceptance,
           },
           { userAccessToken },
         );
@@ -36456,6 +36558,11 @@ export function createTongsCommitApiHandlerWithService(
         const paidExecution = normalizeOpenAiTextPaidExecutionHandle(body.paid_execution);
         if (body.paid_execution != null && !paidExecution)
           throw new HttpError(400, "invalid_paid_execution_handle", "paid_execution is invalid.");
+        const spendingAcceptance = normalizeOpenAiTextSpendingAcceptance(body.spending_acceptance);
+        if (body.spending_acceptance != null && !spendingAcceptance)
+          throw new HttpError(400, "invalid_spending_acceptance", "spending_acceptance is invalid.");
+        if (paidExecution && spendingAcceptance)
+          throw new HttpError(400, "conflicting_paid_execution_context", "Provide either paid_execution or spending_acceptance, not both.");
         const result = await service.generateUnifiedVisualPlan(
           workpieceId,
           {
@@ -36527,6 +36634,7 @@ export function createTongsCommitApiHandlerWithService(
               "operation_fingerprint",
             ),
             paid_execution: paidExecution,
+            spending_acceptance: spendingAcceptance,
           },
           { userAccessToken },
         );
@@ -37136,6 +37244,11 @@ export function createTongsCommitApiHandlerWithService(
         const paidExecution = normalizeOpenAiTextPaidExecutionHandle(body.paid_execution);
         if (body.paid_execution != null && !paidExecution)
           throw new HttpError(400, "invalid_paid_execution_handle", "paid_execution is invalid.");
+        const spendingAcceptance = normalizeOpenAiTextSpendingAcceptance(body.spending_acceptance);
+        if (body.spending_acceptance != null && !spendingAcceptance)
+          throw new HttpError(400, "invalid_spending_acceptance", "spending_acceptance is invalid.");
+        if (paidExecution && spendingAcceptance)
+          throw new HttpError(400, "conflicting_paid_execution_context", "Provide either paid_execution or spending_acceptance, not both.");
         const result = await service.interpretBrollMotionPrompt(
           workpieceId,
           {
@@ -37166,6 +37279,7 @@ export function createTongsCommitApiHandlerWithService(
             ),
             user_access_token: userAccessToken,
             paid_execution: paidExecution,
+            spending_acceptance: spendingAcceptance,
           },
           { userAccessToken },
         );

@@ -118,6 +118,7 @@ async function runCase(caseDef: CaseDef): Promise<void> {
         "x-forge-user-authorization": "Bearer test-user-access-token",
       },
       body: JSON.stringify({
+        operation_id: `forge:test:quench-metadata:${caseDef.label}`,
         workspace_id: TEST_WORKSPACE_ID,
         workpiece_id: TEST_WORKPIECE_ID,
         title: "Original title",

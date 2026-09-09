@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  estimateOpenAiTextDirectCostMicros,
   executePaidOpenAiTextRoute,
   fingerprintOpenAiTextPaidRequest,
 } from "../dist/providers/paid-openai-text-route-execution.js";
@@ -15,6 +16,15 @@ const ROUTES = [
   ["shorts.discovery", { data: { discovery_id: "d" }, resolution: { outcome: "candidates", rejected: [] } }, (v) => Boolean(v.data?.discovery_id) && typeof v.resolution?.outcome === "string"],
   ["quench.metadata", { title: "Episode", description: "Description", tags: ["podcast"] }, (v) => Boolean(v.title) && Boolean(v.description) && Array.isArray(v.tags)],
 ];
+
+test("cached input is priced separately without double-counting standard input", () => {
+  const cost = estimateOpenAiTextDirectCostMicros({
+    inputMicrosPerMillionTokens: 1_000_000,
+    cachedInputMicrosPerMillionTokens: 100_000,
+    outputMicrosPerMillionTokens: 2_000_000,
+  }, 1_000, 100, 400);
+  assert.equal(cost, 840);
+});
 
 function makeGate({ state = "reserved", authorize = true, stored = null } = {}) {
   const calls = [];
