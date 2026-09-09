@@ -35,8 +35,8 @@ jobs:
     env:
       OPENAI_MODEL_EVIDENCE_API_KEY: ${{ secrets.OPENAI_MODEL_EVIDENCE_API_KEY }}
       OPENAI_MODEL_EVIDENCE_PROJECT_ID: ${{ secrets.OPENAI_MODEL_EVIDENCE_PROJECT_ID }}
-      TONGS_SUPABASE_URL: ${{ secrets.TONGS_SUPABASE_URL }}
-      TONGS_SERVICE_ROLE_KEY: ${{ secrets.TONGS_SERVICE_ROLE_KEY }}
+      TONGS_SUPABASE_URL: ${{ secrets.NURSERY_SUPABASE_URL }}
+      TONGS_SERVICE_ROLE_KEY: ${{ secrets.NURSERY_SUPABASE_SERVICE_ROLE_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -56,8 +56,8 @@ jobs:
     env:
       OPENAI_RECONCILIATION_ADMIN_KEY: ${{ secrets.OPENAI_RECONCILIATION_ADMIN_KEY }}
       OPENAI_RECONCILIATION_PROJECT_ID: ${{ secrets.OPENAI_RECONCILIATION_PROJECT_ID }}
-      SUPABASE_URL: ${{ secrets.TONGS_SUPABASE_URL }}
-      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TONGS_SERVICE_ROLE_KEY }}
+      SUPABASE_URL: ${{ secrets.NURSERY_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.NURSERY_SUPABASE_SERVICE_ROLE_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
