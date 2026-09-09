@@ -4399,7 +4399,14 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               workpiece_id: episodeContext.episodeId,
               lane: effectiveLane,
               user_authored_text: requestText,
-              creator_supplied_sources: researchResult?.sources ?? [],
+              // Retrieval timestamps are observation metadata, not creator input.
+              // Excluding them keeps quote acceptance stable when the exact
+              // supplied source is re-extracted during the accepted retry.
+              creator_supplied_sources: (researchResult?.sources ?? []).map((source) => {
+                const stableSource: Record<string, unknown> = { ...source };
+                delete stableSource.retrievedAt;
+                return stableSource;
+              }),
               supporting_paid_services: [],
               model,
             };
@@ -4742,6 +4749,13 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 ok: true,
                 ...paidResearch.result,
                 reply: paidResearch.result.assistant_text,
+                turn_result: buildTurnResult({
+                  assistantMessage: String(paidResearch.result.assistant_text ?? ""),
+                  artifact: researchResult?.artifact
+                    ? { kind: "research", value: researchResult }
+                    : null,
+                  operations: normalizeOps(paidResearch.result.ops),
+                }),
                 billing_receipt: paidResearch.receipt,
                 ...buildBillingSnapshot(lane),
               });
@@ -4861,6 +4875,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               });
             }
             const spent = paidOutcome.inputUnits + paidOutcome.outputUnits;
+            const paidResearchArtifact: HearthValidatedArtifact | null = researchResult?.artifact
+              ? { kind: "research", value: researchResult }
+              : null;
             return jsonResponse(200, {
               ok: true,
               assistant_text: paidOutcome.result.assistantText,
@@ -4868,6 +4885,11 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               ops: paidOutcome.result.ops,
               script_text: paidOutcome.result.scriptText,
               tag_audit: paidOutcome.result.tagAudit,
+              turn_result: buildTurnResult({
+                assistantMessage: paidOutcome.result.assistantText,
+                artifact: paidResearchArtifact,
+                operations: normalizeOps(paidOutcome.result.ops),
+              }),
               total_tokens: spent,
               billable_tokens: 0,
               credits_warning: null,

@@ -10,6 +10,7 @@ import { createHammerPrepMiddleware } from "./scripts/mw-hammer-prep";
 import { mwAnvilWhisperApi } from "./scripts/mw-anvil-whisper-api";
 import { mwHearthChatApi } from "./scripts/mw-hearth-chat-api";
 import { createNurseryTongsMiddleware } from "./scripts/mw-tongs-commit-api";
+import { resolveOpenAiTextBrowserCertificationRuntime } from "./server/billing/openai-text-browser-certification-runtime";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -23,6 +24,7 @@ const DEV_SERVER_HOST = process.env.FORGE_VITE_HOST?.trim() || "127.0.0.1";
 const DEV_SERVER_PORT = Number(process.env.FORGE_VITE_PORT || "5173");
 const DEV_HMR_HOST = process.env.FORGE_VITE_HMR_HOST?.trim() || DEV_SERVER_HOST;
 const DEV_HMR_PORT = Number(process.env.FORGE_VITE_HMR_PORT || String(DEV_SERVER_PORT));
+const OPENAI_BROWSER_CERTIFICATION = resolveOpenAiTextBrowserCertificationRuntime();
 
 function getMimeType(filePath: string): string {
   switch (extname(filePath).toLowerCase()) {
@@ -214,11 +216,14 @@ export default defineConfig({
       name: "nursery:tongs-commit-api",
       configureServer(server) {
         server.middlewares.use(createAnvilSourceMiddleware());
-        server.middlewares.use(createNurseryTongsMiddleware({ routePrefix: "/tongs" }));
-        server.middlewares.use(mwHearthChatApi());
+        server.middlewares.use(createNurseryTongsMiddleware({
+          routePrefix: "/tongs",
+          testOnlyOptionsOverride: OPENAI_BROWSER_CERTIFICATION?.tongs,
+        }));
+        server.middlewares.use(mwHearthChatApi(OPENAI_BROWSER_CERTIFICATION?.hearth));
         server.middlewares.use(mwAnvilWhisperApi());
         server.middlewares.use(createHammerDevMediaMiddleware());
-        server.middlewares.use(createHammerPrepMiddleware());
+        server.middlewares.use(createHammerPrepMiddleware(OPENAI_BROWSER_CERTIFICATION?.hammer));
       },
     },
   ],

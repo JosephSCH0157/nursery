@@ -168,10 +168,21 @@ async function writeFetchResponse(res: ServerResponse, response: Response): Prom
   res.end(body);
 }
 
-export function createNurseryTongsMiddleware(opts?: { routePrefix?: string }) {
+export function createNurseryTongsMiddleware(opts?: {
+  routePrefix?: string;
+  /** Isolated-test seam. Production callers must leave this undefined. */
+  testOnlyOptionsOverride?: Partial<TongsCommitApiOptions>;
+}) {
   const routePrefix = (opts?.routePrefix ?? "/tongs").replace(/\/+$/, "") || "/tongs";
   const config = resolveTongsRuntimeConfig();
   const providerBoundary = resolveNurseryTongsProviderBoundary(config);
+  if (opts?.testOnlyOptionsOverride) {
+    const localApi = /^http:\/\/(127\.0\.0\.1|localhost):\d+\/?$/i.test(config.options.supabaseUrl);
+    if (process.env.NODE_ENV === "production" || !localApi) {
+      throw new Error("testOnlyOptionsOverride is restricted to an isolated local Supabase runtime");
+    }
+    providerBoundary.options = { ...providerBoundary.options, ...opts.testOnlyOptionsOverride };
+  }
   const service = config.missing.length ? null : createTongsCommitService(providerBoundary.options);
   const handler = service ? createTongsCommitApiHandlerWithService(service, config.options.apiToken) : null;
   const shortsServiceClient = config.missing.length ? null : createClient<Database>(config.options.supabaseUrl, config.options.supabaseServiceRoleKey, { auth: { persistSession: false, autoRefreshToken: false } });

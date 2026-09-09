@@ -27,8 +27,9 @@ test("Hammer fixture seeds a reusable canonical speaker-turn transcript", async 
 
 test("Hearth fixtures seed recording-valid speaker blocks", async () => {
   const source = await readFile(new URL("../scripts/browser-fixture-authority.mts", import.meta.url), "utf8");
-  assert.match(source, /const script = `\[s1\]\\n/);
+  assert.match(source, /const fixtureScript = \(label: string\) => `\[s1\]\\n/);
   assert.match(source, /\\n\[\/s1\]\\n`/);
+  assert.match(source, /const script = fixtureScript\(episode\.label\)/);
   assert.match(source, /body:\s*handoffScript/);
   assert.match(source, /hearth\/drafts\.v1\.json/);
 });

@@ -121,6 +121,16 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
   const disableTranscriptSelection = ctx.disableTranscriptSelection as () => void;
   const cutTranscriptSelection = ctx.cutTranscriptSelection as () => void;
   const tightenTranscriptSelection = ctx.tightenTranscriptSelection as () => void;
+  const cleanupPreview = ctx.cleanupPreview as null | {
+    label: string;
+    resultSegments: Array<{ segment_id: string; text: string }>;
+  };
+  const cleanupPreviewSummary = ctx.cleanupPreviewSummary as null | {
+    affectedSegments: number;
+    estimatedSecondsSaved: number;
+  };
+  const applyCleanup = ctx.applyCleanup as (preview: NonNullable<typeof cleanupPreview>) => void;
+  const setCleanupPreview = ctx.setCleanupPreview as (preview: typeof cleanupPreview) => void;
   const clearTranscriptSelection = ctx.clearTranscriptSelection as () => void;
   const hasTranscriptSelection = ctx.hasTranscriptSelection as boolean;
   const transcriptSelectionAllDisabled = ctx.transcriptSelectionAllDisabled as boolean;
@@ -982,6 +992,23 @@ export default function HammerWorkspaceShellSourceBay(props: { vm: HammerWorkspa
                           Clear Selection
                         </button>
                       </div>
+                      {cleanupPreview ? (
+                        <section className="hammer-tool-hint" aria-label="AI transcript cleanup preview">
+                          <strong>{cleanupPreview.label}</strong>
+                          <span>
+                            {cleanupPreviewSummary
+                              ? `${cleanupPreviewSummary.affectedSegments} changed segment${cleanupPreviewSummary.affectedSegments === 1 ? "" : "s"} · ${cleanupPreviewSummary.estimatedSecondsSaved.toFixed(1)}s estimated time saved`
+                              : "Review the proposed transcript cleanup before applying it."}
+                          </span>
+                          {cleanupPreview.resultSegments
+                            .filter((segment) => transcriptSelectionSegmentIdSet.has(segment.segment_id))
+                            .map((segment) => <span key={segment.segment_id}>{segment.text}</span>)}
+                          <div className="hammer-transcript-selection-actions__buttons">
+                            <button type="button" onClick={() => applyCleanup(cleanupPreview)}>Apply cleanup</button>
+                            <button type="button" onClick={() => setCleanupPreview(null)}>Discard cleanup</button>
+                          </div>
+                        </section>
+                      ) : null}
                     </section>
                     <div className="hammer-transcript-status-rail" role="status">
                       <span>{editableTranscriptSegments.length} segments</span>

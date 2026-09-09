@@ -51,6 +51,8 @@ export type HearthAttachmentContextRequest = {
 };
 
 export type HearthChatRequest = {
+  /** Stable creator operation identity, reused across quote acceptance and recovery. */
+  action_id?: string;
   messages: HearthChatMessage[];
   episode_context: EpisodeContext;
   /** Creator-authored text before UI format/tone instructions are appended. */

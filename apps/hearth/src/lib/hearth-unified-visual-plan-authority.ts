@@ -108,13 +108,17 @@ export async function readLatestUnifiedVisualPlanOperation(workspaceId: string, 
 function receipt(value: unknown): Result<UnifiedVisualPlanReceipt> {
   const row = record(value) && record(value.data) ? value.data : value;
   if (!record(row) || row.disposition !== "verified") return { ok: false, status: 502, code: "unified_visual_plan_receipt_invalid", error: "Tongs did not return an immutable verified Visual Plan receipt.", stage: "verification" };
+  const imagePlan = record(row.image_plan) ? row.image_plan : null;
+  const brollPlan = record(row.broll_plan) ? row.broll_plan : null;
+  const referenceClipPlan = record(row.reference_clip_plan) ? row.reference_clip_plan : null;
+  const referenceVisualPlan = record(row.reference_visual_plan) ? row.reference_visual_plan : null;
   const mapped: UnifiedVisualPlanReceipt = {
     disposition: "verified", operationId: string(row.operation_id) ?? "", operationFingerprint: string(row.operation_fingerprint) ?? "",
     scriptApprovalId: string(row.script_approval_id) ?? "", scriptApprovalRevision: integer(row.script_approval_revision),
-    imageMapRevisionId: string(row.image_map_revision_id) ?? "", imageMapRevision: integer(row.image_map_revision),
-    brollPlanRevisionId: string(row.broll_plan_revision_id) ?? "", brollPlanRevision: integer(row.broll_plan_revision),
-    referenceClipPlanRevisionId: string(row.reference_clip_plan_revision_id) ?? "", referenceClipPlanRevision: integer(row.reference_clip_plan_revision),
-    referenceVisualPlanRevisionId: string(row.reference_visual_plan_revision_id) ?? "", referenceVisualPlanRevision: integer(row.reference_visual_plan_revision),
+    imageMapRevisionId: string(row.image_map_revision_id) ?? string(imagePlan?.revision_id) ?? "", imageMapRevision: integer(row.image_map_revision ?? imagePlan?.revision),
+    brollPlanRevisionId: string(row.broll_plan_revision_id) ?? string(brollPlan?.revision_id) ?? "", brollPlanRevision: integer(row.broll_plan_revision ?? brollPlan?.revision),
+    referenceClipPlanRevisionId: string(row.reference_clip_plan_revision_id) ?? string(referenceClipPlan?.revision_id) ?? "", referenceClipPlanRevision: integer(row.reference_clip_plan_revision ?? referenceClipPlan?.revision),
+    referenceVisualPlanRevisionId: string(row.reference_visual_plan_revision_id) ?? string(referenceVisualPlan?.revision_id) ?? "", referenceVisualPlanRevision: integer(row.reference_visual_plan_revision ?? referenceVisualPlan?.revision),
   };
   return Object.values(mapped).some((entry) => entry === "") ? { ok: false, status: 502, code: "unified_visual_plan_receipt_incomplete", error: "The verified Visual Plan receipt omitted canonical child identities.", stage: "verification" } : { ok: true, data: mapped };
 }

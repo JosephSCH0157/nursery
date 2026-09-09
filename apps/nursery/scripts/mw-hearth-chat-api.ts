@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { HEARTH_AI_ROUTES } from "../../hearth/src/lib/hearth-ai-runtime-contract";
 import { createHearthAiHandler } from "../server/hearth/create-hearth-ai-handler";
-import { resolveHearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
+import { resolveHearthRuntimeConfig, type HearthRuntimeConfig } from "../server/hearth/hearth-runtime-config";
 import { createHearthTopicDiscoveryHandler } from "../server/hearth/hearth-topic-discovery";
 
 type Next = (err?: unknown) => void;
@@ -52,8 +52,15 @@ async function writeFetchResponse(res: ServerResponse, response: Response): Prom
   res.end(body);
 }
 
-export function mwHearthChatApi() {
-  const runtimeConfig = resolveHearthRuntimeConfig();
+export function mwHearthChatApi(testOnlyRuntimeOverride?: Partial<HearthRuntimeConfig>) {
+  const resolvedRuntimeConfig = resolveHearthRuntimeConfig();
+  if (testOnlyRuntimeOverride) {
+    const localApi = /^http:\/\/(127\.0\.0\.1|localhost):\d+\/?$/i.test(resolvedRuntimeConfig.supabaseUrl ?? "");
+    if (process.env.NODE_ENV === "production" || !localApi) {
+      throw new Error("Hearth runtime overrides are restricted to an isolated local Supabase runtime");
+    }
+  }
+  const runtimeConfig = { ...resolvedRuntimeConfig, ...testOnlyRuntimeOverride };
   const handler = createHearthAiHandler(runtimeConfig);
   const topicDiscoveryHandler = createHearthTopicDiscoveryHandler(runtimeConfig);
 
