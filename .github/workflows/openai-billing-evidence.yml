@@ -1,0 +1,79 @@
+name: OpenAI billing evidence
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Non-generating evidence operation
+        required: true
+        type: choice
+        options:
+          - model_visibility
+          - historical_reconciliation
+      period_start:
+        description: UTC ISO start (reconciliation only; maximum 31 days)
+        required: false
+        default: "2026-09-01T00:00:00Z"
+      period_end:
+        description: UTC ISO end, exclusive (reconciliation only)
+        required: false
+        default: "2026-09-10T00:00:00Z"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: openai-billing-evidence
+  cancel-in-progress: false
+
+jobs:
+  model-visibility:
+    if: inputs.operation == 'model_visibility'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: openai-billing-evidence
+    env:
+      OPENAI_MODEL_EVIDENCE_API_KEY: ${{ secrets.OPENAI_MODEL_EVIDENCE_API_KEY }}
+      OPENAI_MODEL_EVIDENCE_PROJECT_ID: ${{ secrets.OPENAI_MODEL_EVIDENCE_PROJECT_ID }}
+      TONGS_SUPABASE_URL: ${{ secrets.TONGS_SUPABASE_URL }}
+      TONGS_SERVICE_ROLE_KEY: ${{ secrets.TONGS_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Check catalog visibility without generation
+        run: pnpm verify:openai-model-availability
+
+  historical-reconciliation:
+    if: inputs.operation == 'historical_reconciliation'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: openai-billing-evidence
+    env:
+      OPENAI_RECONCILIATION_ADMIN_KEY: ${{ secrets.OPENAI_RECONCILIATION_ADMIN_KEY }}
+      OPENAI_RECONCILIATION_PROJECT_ID: ${{ secrets.OPENAI_RECONCILIATION_PROJECT_ID }}
+      SUPABASE_URL: ${{ secrets.TONGS_SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.TONGS_SERVICE_ROLE_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.20.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Validate bounded UTC window
+        shell: bash
+        run: |
+          start="$(date -u -d '${{ inputs.period_start }}' +%s)"
+          end="$(date -u -d '${{ inputs.period_end }}' +%s)"
+          test "$end" -gt "$start"
+          test "$((end-start))" -le 2678400
+          echo "OPENAI_RECONCILIATION_START_TIME=$start" >> "$GITHUB_ENV"
+          echo "OPENAI_RECONCILIATION_END_TIME=$end" >> "$GITHUB_ENV"
+      - name: Collect bounded Costs and Usage evidence
+        run: node scripts/reconcile-openai-organization-costs.mjs

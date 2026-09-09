@@ -27,7 +27,7 @@ function uuidFromHash(hash) {
 }
 
 export async function fetchOpenAiOrganizationPages({ fetchImpl = fetch, adminKey, path, parameters }) {
-  if (!adminKey) throw new Error("OPENAI_ADMIN_KEY_required");
+  if (!adminKey) throw new Error("OPENAI_RECONCILIATION_ADMIN_KEY_required");
   const pages = [];
   let page = null;
   do {
@@ -105,21 +105,26 @@ export function normalizeOpenAiOrganizationEvidence({ costsPages, usagePages, pe
   };
 }
 
-export async function collectOpenAiOrganizationEvidence({ fetchImpl = fetch, adminKey, periodStart, periodEnd }) {
+export async function collectOpenAiOrganizationEvidence({ fetchImpl = fetch, adminKey, periodStart, periodEnd, projectId }) {
   if (!Number.isSafeInteger(periodStart) || !Number.isSafeInteger(periodEnd) || periodEnd <= periodStart) {
     throw new Error("openai_reconciliation_period_invalid");
   }
+  if (periodEnd - periodStart > 31 * 24 * 60 * 60) throw new Error("openai_reconciliation_period_exceeds_31_days");
+  if (typeof projectId !== "string" || !projectId.trim()) throw new Error("OPENAI_RECONCILIATION_PROJECT_ID_required");
+  const projectIds = [projectId.trim()];
   const [costsPages, usagePages] = await Promise.all([
     fetchOpenAiOrganizationPages({
       fetchImpl, adminKey, path: "/organization/costs",
-      parameters: { start_time: periodStart, end_time: periodEnd, bucket_width: "1d", limit: 31, group_by: ["project_id", "line_item", "api_key_id"] },
+      parameters: { start_time: periodStart, end_time: periodEnd, bucket_width: "1d", limit: 31, project_ids: projectIds, group_by: ["project_id", "line_item", "api_key_id"] },
     }),
     fetchOpenAiOrganizationPages({
       fetchImpl, adminKey, path: "/organization/usage/completions",
-      parameters: { start_time: periodStart, end_time: periodEnd, bucket_width: "1d", limit: 31, group_by: ["project_id", "api_key_id", "model"] },
+      parameters: { start_time: periodStart, end_time: periodEnd, bucket_width: "1d", limit: 31, project_ids: projectIds, group_by: ["project_id", "api_key_id", "model"] },
     }),
   ]);
-  return normalizeOpenAiOrganizationEvidence({ costsPages, usagePages, periodStart, periodEnd });
+  const evidence = normalizeOpenAiOrganizationEvidence({ costsPages, usagePages, periodStart, periodEnd });
+  evidence.rawEvidence.project_scope = [projectId.trim()];
+  return evidence;
 }
 
 export async function recordOpenAiOrganizationEvidence({ fetchImpl = fetch, supabaseUrl, serviceRoleKey, evidence, periodStart, periodEnd }) {

@@ -1,29 +1,18 @@
-const key = process.env.OPENAI_TEXT_API_KEY || process.env.OPENAI_API_KEY;
-if (!key) {
-  console.error(JSON.stringify({ ok: false, blocker: "OPENAI_TEXT_API_KEY_or_OPENAI_API_KEY_required", operation: "GET /v1/models/{model}; no generation" }));
+import { verifyAndRecordOpenAiModelVisibility } from "./lib/openai-model-visibility.mjs";
+
+try {
+  const evidence = await verifyAndRecordOpenAiModelVisibility({
+    openAiKey: process.env.OPENAI_MODEL_EVIDENCE_API_KEY,
+    openAiProjectId: process.env.OPENAI_MODEL_EVIDENCE_PROJECT_ID,
+    supabaseUrl: process.env.TONGS_SUPABASE_URL || process.env.SUPABASE_URL,
+    serviceRoleKey: process.env.TONGS_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY,
+  });
+  console.log(JSON.stringify(evidence, null, 2));
+} catch (error) {
+  console.error(JSON.stringify({
+    ok: false, blocker: error instanceof Error ? error.message : "model_visibility_check_failed",
+    operation: "GET /v1/models/{model}; catalog-driven; no generation",
+    required_server_secrets: ["OPENAI_MODEL_EVIDENCE_API_KEY", "OPENAI_MODEL_EVIDENCE_PROJECT_ID", "TONGS_SUPABASE_URL", "TONGS_SERVICE_ROLE_KEY"],
+  }));
   process.exitCode = 2;
-} else {
-  const models = ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5-mini-2025-08-07", "gpt-5.6-luna", "gpt-5.3-chat-latest"];
-  const evidence = [];
-  for (const model of models) {
-    const response = await fetch(`https://api.openai.com/v1/models/${encodeURIComponent(model)}`, {
-      method: "GET",
-      headers: { authorization: `Bearer ${key}` },
-    });
-    let providerId = null;
-    if (response.ok) {
-      const body = await response.json();
-      providerId = typeof body?.id === "string" ? body.id : null;
-    } else {
-      await response.arrayBuffer();
-    }
-    evidence.push({ model, visible: response.ok && providerId === model, http_status: response.status });
-  }
-  console.log(JSON.stringify({
-    ok: evidence.every((item) => item.visible),
-    checked_at: new Date().toISOString(),
-    check_kind: "model_visibility_only",
-    generation_or_billable_request_made: false,
-    evidence,
-  }, null, 2));
 }

@@ -3,9 +3,10 @@ import { collectOpenAiOrganizationEvidence, recordOpenAiOrganizationEvidence } f
 const periodStart = Number(process.env.OPENAI_RECONCILIATION_START_TIME);
 const periodEnd = Number(process.env.OPENAI_RECONCILIATION_END_TIME);
 const evidence = await collectOpenAiOrganizationEvidence({
-  adminKey: process.env.OPENAI_ADMIN_KEY,
+  adminKey: process.env.OPENAI_RECONCILIATION_ADMIN_KEY,
   periodStart,
   periodEnd,
+  projectId: process.env.OPENAI_RECONCILIATION_PROJECT_ID,
 });
 const result = await recordOpenAiOrganizationEvidence({
   supabaseUrl: process.env.SUPABASE_URL,
