@@ -21,9 +21,8 @@ import {
   type HearthTurnResult,
 } from "./hearth-ai-runtime-contract";
 import {
-  confirmCustomerSpendingQuote,
-  customerSpendingAcceptance,
   readCustomerSpendingQuote,
+  requestCustomerSpendingAcceptance,
 } from "../../../../packages/tongs/src/customer-spending-confirmation";
 import type { HearthResearchResult } from "./hearth-research-contract";
 import {
@@ -1166,7 +1165,7 @@ export async function requestHearthSttTranscript(args: {
   headers.set("authorization", `Bearer ${accessToken}`);
 
   const actionId = createClientRequestId();
-  let spendingAcceptance: ReturnType<typeof customerSpendingAcceptance> | null = null;
+  let spendingAcceptance: ReturnType<typeof requestCustomerSpendingAcceptance> = null;
   let response: Response;
   try {
     const submit = () => fetch(HEARTH_AI_ROUTES.stt, {
@@ -1187,8 +1186,9 @@ export async function requestHearthSttTranscript(args: {
     if (response.status === 409 || response.status === 402) {
       const quotePayload = await response.clone().json().catch(() => null);
       const quote = readCustomerSpendingQuote(quotePayload);
-      if (quote?.funding_eligible && confirmCustomerSpendingQuote(quote)) {
-        spendingAcceptance = customerSpendingAcceptance(quote);
+      const acceptance = quote ? requestCustomerSpendingAcceptance(quote) : null;
+      if (acceptance) {
+        spendingAcceptance = acceptance;
         response = await submit();
       }
     }

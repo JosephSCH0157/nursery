@@ -1,6 +1,6 @@
 import { resolveTongsUserAccessToken, tongsFetch } from "./tongs-fetch";
 import type { MediaMapGenerationScope } from "./hearth-media-map-conversation";
-import { confirmCustomerSpendingQuote, customerSpendingAcceptance, readCustomerSpendingQuote } from "../../../../packages/tongs/src/customer-spending-confirmation";
+import { readCustomerSpendingQuote, requestCustomerSpendingAcceptance } from "../../../../packages/tongs/src/customer-spending-confirmation";
 
 type JsonRecord = Record<string, unknown>;
 type Result<T> = { ok: true; data: T } | { ok: false; status: number; code: string; error: string; stage: string | null };
@@ -155,8 +155,9 @@ export async function generateOrResumeUnifiedVisualPlan(args: { workspaceId: str
     const value = await json(response);
     if (response.ok) return receipt(value);
     const quote = readCustomerSpendingQuote(value);
-    if (attempt === 0 && quote?.funding_eligible && confirmCustomerSpendingQuote(quote)) {
-      requestBody.spending_acceptance = customerSpendingAcceptance(quote);
+    const acceptance = attempt === 0 && quote ? requestCustomerSpendingAcceptance(quote) : null;
+    if (acceptance) {
+      requestBody.spending_acceptance = acceptance;
       continue;
     }
     const failed = failure(response, value, "Tongs could not generate the canonical Visual Plan.");

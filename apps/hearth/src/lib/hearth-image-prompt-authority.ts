@@ -1,6 +1,6 @@
 import { getWorkpieceImageMap } from "./hearth-image-map-repo";
 import { tongsFetch } from "./tongs-fetch";
-import { confirmCustomerSpendingQuote, customerSpendingAcceptance, readCustomerSpendingQuote } from "../../../../packages/tongs/src/customer-spending-confirmation";
+import { readCustomerSpendingQuote, requestCustomerSpendingAcceptance } from "../../../../packages/tongs/src/customer-spending-confirmation";
 
 export type CanonicalImagePromptRevision = {
   id: string;
@@ -131,8 +131,9 @@ export async function interpretCanonicalImagePrompt(args: { workpieceId: string;
     body = await readJson(response);
     if (response.ok) break;
     const quote = readCustomerSpendingQuote(body);
-    if (attempt === 0 && quote?.funding_eligible && confirmCustomerSpendingQuote(quote)) {
-      requestBody.spending_acceptance = customerSpendingAcceptance(quote);
+    const acceptance = attempt === 0 && quote ? requestCustomerSpendingAcceptance(quote) : null;
+    if (acceptance) {
+      requestBody.spending_acceptance = acceptance;
       continue;
     }
     const failed = apiFailure(response, body, "Tongs could not interpret this image moment.");

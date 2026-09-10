@@ -1,7 +1,7 @@
 import type { HammerTranscriptSegment } from "../../../../packages/contracts/hammer/transcript.contract";
 import type { HammerCleanupPreview } from "./hammerCleanupTools";
 import { tongsFetch } from "../lib/tongsFetch";
-import { confirmCustomerSpendingQuote, customerSpendingAcceptance, deriveCustomerOperationId, readCustomerSpendingQuote } from "../../../../packages/tongs/src/customer-spending-confirmation";
+import { deriveCustomerOperationId, readCustomerSpendingQuote, requestCustomerSpendingAcceptance } from "../../../../packages/tongs/src/customer-spending-confirmation";
 
 export const HAMMER_TRANSCRIPT_CLEANUP_ASSIST_ROUTE = "/api/hammer/editorial/transcript-cleanup";
 
@@ -142,8 +142,9 @@ export async function requestHammerTranscriptCleanupAssist(args: {
     payload = await response.json().catch(() => null);
     if (response.ok) break;
     const quote = readCustomerSpendingQuote(payload);
-    if (attempt === 0 && quote?.funding_eligible && confirmCustomerSpendingQuote(quote)) {
-      requestBody.spending_acceptance = customerSpendingAcceptance(quote);
+    const acceptance = attempt === 0 && quote ? requestCustomerSpendingAcceptance(quote) : null;
+    if (acceptance) {
+      requestBody.spending_acceptance = acceptance;
       continue;
     }
     throw new Error(quote && !quote.funding_eligible

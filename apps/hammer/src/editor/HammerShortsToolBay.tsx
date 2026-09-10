@@ -8,7 +8,7 @@ import { HAMMER_SHORTS_DURATION_RANGES } from "../../../../packages/contracts/ha
 import { tongsFetch } from "../lib/tongsFetch";
 import { fingerprintHammerShortsValue, type HammerShortsOutputSegment } from "./hammerShortsResolver";
 import { projectHammerShortArtifacts, type HammerShortTimingInterval } from "./hammerShortsProjection";
-import { confirmCustomerSpendingQuote, customerSpendingAcceptance, readCustomerSpendingQuote } from "../../../../packages/tongs/src/customer-spending-confirmation";
+import { readCustomerSpendingQuote, requestCustomerSpendingAcceptance } from "../../../../packages/tongs/src/customer-spending-confirmation";
 
 type JsonRow = Record<string, unknown>;
 export interface HammerShortsToolBayAuthority {
@@ -30,8 +30,9 @@ async function request(path: string, options?: { method?: string; json?: unknown
     const payload = await response.json().catch(() => null) as JsonRow | null;
     if (response.ok && payload?.ok === true) return payload.data;
     const quote = readCustomerSpendingQuote(payload);
-    if (attempt === 0 && quote?.funding_eligible && confirmCustomerSpendingQuote(quote) && requestJson && typeof requestJson === "object" && !Array.isArray(requestJson)) {
-      (requestJson as JsonRow).spending_acceptance = customerSpendingAcceptance(quote);
+    const acceptance = attempt === 0 && quote ? requestCustomerSpendingAcceptance(quote) : null;
+    if (acceptance && requestJson && typeof requestJson === "object" && !Array.isArray(requestJson)) {
+      (requestJson as JsonRow).spending_acceptance = acceptance;
       continue;
     }
     const message = String((payload?.error as JsonRow | undefined)?.message ?? (payload?.error as JsonRow | undefined)?.code ?? `Request failed (${response.status}).`);

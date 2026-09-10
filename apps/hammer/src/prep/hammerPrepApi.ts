@@ -1,8 +1,7 @@
 import type { MediaKind } from "../../../../packages/contracts/hammer/media-resolver.contract";
 import {
-  confirmCustomerSpendingQuote,
-  customerSpendingAcceptance,
   readCustomerSpendingQuote,
+  requestCustomerSpendingAcceptance,
 } from "../../../../packages/tongs/src/customer-spending-confirmation";
 
 export const HAMMER_TRANSCRIPT_PREP_ROUTE = "/api/hammer/prep/transcript";
@@ -34,7 +33,7 @@ export interface HammerTranscriptPrepRequest {
   canonical_workpiece_path?: string | null;
   mime_type?: string | null;
   client_request_id?: string | null;
-  spending_acceptance?: ReturnType<typeof customerSpendingAcceptance> | null;
+  spending_acceptance?: ReturnType<typeof requestCustomerSpendingAcceptance>;
 }
 
 export interface HammerTranscriptPrepSegment {
@@ -457,8 +456,9 @@ export async function requestHammerTranscriptPrep(
     if (response.status === 409 || response.status === 402) {
       const quoted = await response.clone().json().catch(() => null);
       const quote = readCustomerSpendingQuote(quoted);
-      if (quote?.funding_eligible && confirmCustomerSpendingQuote(quote)) {
-        response = await submit({ ...effectiveRequest, spending_acceptance: customerSpendingAcceptance(quote) });
+      const acceptance = quote ? requestCustomerSpendingAcceptance(quote) : null;
+      if (acceptance) {
+        response = await submit({ ...effectiveRequest, spending_acceptance: acceptance });
       }
     }
   } catch (error) {

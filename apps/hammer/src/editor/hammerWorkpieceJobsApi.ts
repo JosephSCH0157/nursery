@@ -1,9 +1,8 @@
 import { tongsFetch } from "../lib/tongsFetch";
 import { readJsonBody } from "../lib/json";
 import {
-  confirmCustomerSpendingQuote,
-  customerSpendingAcceptance,
   readCustomerSpendingQuote,
+  requestCustomerSpendingAcceptance,
 } from "../../../../packages/tongs/src/customer-spending-confirmation";
 
 export type HammerWorkpieceJobType = "hammer_transcript_prep" | "hammer_transcript_regeneration" | "hammer_final_video_render";
@@ -113,8 +112,9 @@ export async function createWorkpieceJob(args: {
       && (args.jobType === "hammer_transcript_prep" || args.jobType === "hammer_transcript_regeneration")) {
       const quoted = await response.clone().json().catch(() => null);
       const quote = readCustomerSpendingQuote(quoted);
-      if (quote?.funding_eligible && confirmCustomerSpendingQuote(quote)) {
-        response = await submit({ ...(args.payloadJson ?? {}), spending_acceptance: customerSpendingAcceptance(quote) });
+      const acceptance = quote ? requestCustomerSpendingAcceptance(quote) : null;
+      if (acceptance) {
+        response = await submit({ ...(args.payloadJson ?? {}), spending_acceptance: acceptance });
       }
     }
   } catch (error) {

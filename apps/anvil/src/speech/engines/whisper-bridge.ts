@@ -6,9 +6,8 @@ import { getActiveAsrProfile } from "../../asr/active-profile";
 import { isSessionRecording } from "../../recording/recorderRegistry";
 import { resolveActiveWorkpieceId, resolveActiveWorkspaceId } from "../../forge/workpiece-context";
 import {
-  confirmCustomerSpendingQuote,
-  customerSpendingAcceptance,
   readCustomerSpendingQuote,
+  requestCustomerSpendingAcceptance,
 } from "../../../../../packages/tongs/src/customer-spending-confirmation";
 
 type WhisperBridgeEvent = "start" | "end" | "error" | "partial" | "final";
@@ -2191,8 +2190,9 @@ class WhisperBridgeRecognizer {
       if (response.status === 409 || response.status === 402) {
         const quoted = await response.clone().json().catch(() => null);
         const quote = readCustomerSpendingQuote(quoted);
-        if (quote?.funding_eligible && confirmCustomerSpendingQuote(quote)) {
-          form.set("spending_acceptance", JSON.stringify(customerSpendingAcceptance(quote)));
+        const acceptance = quote ? requestCustomerSpendingAcceptance(quote) : null;
+        if (acceptance) {
+          form.set("spending_acceptance", JSON.stringify(acceptance));
           response = await submit(form);
         }
       }

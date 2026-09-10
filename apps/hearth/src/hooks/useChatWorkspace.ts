@@ -23,6 +23,7 @@ import {
 import type { HearthResearchResult } from "../lib/hearth-research-contract";
 import type { HearthOperationAuthority } from "../lib/hearth-operation-authority";
 import type { ChatSurfaceProps } from "../views/surfaces/ChatSurface";
+import { requestCustomerSpendingAcceptance } from "../../../../packages/tongs/src/customer-spending-confirmation";
 
 type UseChatWorkspaceArgs = {
   chatSurfaceProps: ChatSurfaceProps;
@@ -633,38 +634,36 @@ export function useChatWorkspaceRuntime<
         productionScriptVersion: params.productionScriptVersion,
       };
       let result = await args.requestHearthChatReply(requestMessages, episodeContext, requestOptions);
-      if (!result.ok && result.billingQuote?.fundingEligible) {
+      if (!result.ok && result.billingQuote) {
         const quote = result.billingQuote;
-        const price = new Intl.NumberFormat("en-US", {
-          style: "currency",
+        const acceptance = requestCustomerSpendingAcceptance({
+          quote_id: quote.quoteId,
+          operation_id: quote.operationId,
+          quote_hash: quote.quoteHash,
+          request_fingerprint: quote.requestFingerprint,
           currency: quote.currency,
-        }).format(quote.maximumCustomerChargeMicros / 1_000_000);
-        const estimate = new Intl.NumberFormat("en-US", {
-          style: "currency",
-          currency: quote.currency,
-        }).format(quote.estimatedCustomerChargeMicros / 1_000_000);
-        const accepted = window.confirm([
-          quote.modelDisplayName ? `Model: ${quote.modelDisplayName}` : null,
-          quote.modelTradeoffSummary,
-          `Conservative estimate: ${estimate}.`,
-          `Hearth will charge at most ${price} to ${quote.fundingLabel}.`,
-          "Forge-caused and provider-caused failures cost you $0.",
-          "An uncertain provider submission will not be retried automatically.",
-          `This quote expires ${new Date(quote.expiresAt).toLocaleTimeString()}.`,
-          "Accept this exact price and continue?",
-        ].filter(Boolean).join("\n\n"));
-        if (!accepted) {
-          args.setChatError("The price was not accepted. No funds were reserved and no provider request was sent.");
+          maximum_customer_charge_micros: quote.maximumCustomerChargeMicros,
+          failure_customer_charge_micros: quote.failureCustomerChargeMicros,
+          failure_terms: quote.failureTerms,
+          funding_eligible: quote.fundingEligible,
+          funding_source: quote.fundingSource,
+          funding_label: quote.fundingLabel,
+          model_display_name: quote.modelDisplayName,
+          provider_model_id: quote.providerModelId,
+          model_tradeoff_summary: quote.modelTradeoffSummary,
+          catalog_revision: quote.catalogRevision,
+          estimated_customer_charge_micros: quote.estimatedCustomerChargeMicros,
+          expires_at: quote.expiresAt,
+        });
+        if (!acceptance) {
+          args.setChatError(quote.fundingEligible
+            ? "The price was not accepted. No funds were reserved and no provider request was sent."
+            : "Add verified Live credits, then repeat this action to receive and accept a fresh quote.");
           return;
         }
         result = await args.requestHearthChatReply(requestMessages, episodeContext, {
           ...requestOptions,
-          spendingAcceptance: {
-            operation_id: quote.operationId,
-            quote_id: quote.quoteId,
-            quote_hash: quote.quoteHash,
-            request_fingerprint: quote.requestFingerprint,
-          },
+          spendingAcceptance: acceptance,
         });
       }
       if (!args.operationAuthority.isCurrent(operation)) return;
