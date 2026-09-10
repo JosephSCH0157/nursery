@@ -106,6 +106,11 @@
       "types": "./src/providers/runway-paid-execution-boundary.ts",
       "import": "./dist/providers/runway-paid-execution-boundary.js",
       "default": "./dist/providers/runway-paid-execution-boundary.js"
+    },
+    "./restricted-beta-paid-boundary": {
+      "types": "./src/providers/restricted-beta-paid-boundary.ts",
+      "import": "./dist/providers/restricted-beta-paid-boundary.js",
+      "default": "./dist/providers/restricted-beta-paid-boundary.js"
     }
   },
   "scripts": {
@@ -117,7 +122,7 @@
     "dev:commit-api": "tsc -p tsconfig.json && node ./dev/commit-api-server.mjs",
     "migrate:cloud-role-roots": "tsc -p tsconfig.json && node ./dev/migrate-cloud-role-roots.mjs",
     "test:commit-api": "tsc -p tsconfig.json && node --test tests/workpiece-commit-api.test.mjs tests/hammer-session-stabilization.test.mjs tests/hammer-history-atomic-coordinator.test.mjs tests/hammer-history-atomic-http.test.mjs",
-    "test:openai-billing": "tsc -p tsconfig.json && node --test tests/openai-text-paid-boundary.test.mjs tests/openai-text-customer-funding.test.mjs tests/paid-openai-text-execution-coordinator.test.mjs tests/paid-openai-text-route-execution.test.mjs",
+    "test:openai-billing": "tsc -p tsconfig.json && node --test tests/openai-text-paid-boundary.test.mjs tests/openai-text-customer-funding.test.mjs tests/paid-openai-text-execution-coordinator.test.mjs tests/paid-openai-text-route-execution.test.mjs tests/restricted-beta-paid-boundary.test.mjs tests/restricted-beta-financial-policy-migration.test.mjs",
     "test:storage-registry": "tsc -p tsconfig.json && node --test tests/storage-registry-migration.test.mjs",
     "test:script-authority": "tsc -p tsconfig.json && node --test tests/approved-script-production-authority.test.mjs",
     "test:recording-authority": "tsc -p tsconfig.json && node --test tests/venue-neutral-recording-authority.test.mjs tests/anvil-capture-authority.test.mjs tests/recording-canonical-media-verification.test.mjs",
