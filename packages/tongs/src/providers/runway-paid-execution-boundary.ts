@@ -74,6 +74,11 @@ export type RunwayPaidExecutionBoundary = {
     providerTaskId: string,
     evidence: Record<string, unknown>,
   ): Promise<void>;
+  recordCanonicalSuccessForReconciliation(
+    input: RunwaySubmissionAuthorizationInput,
+    providerTaskId: string,
+    evidence: Record<string, unknown>,
+  ): Promise<void>;
 };
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -150,7 +155,7 @@ export class SupabaseRunwayPaidExecutionBoundary
   async authorizeSubmission(
     input: RunwaySubmissionAuthorizationInput,
   ): Promise<RunwaySubmissionAuthorization> {
-    const row = await this.rpc("authorize_runway_submission", {
+    const row = await this.rpc("authorize_runway_submission_with_aggregate", {
       p_operation_id: input.operationId,
       p_operation_fingerprint: input.operationFingerprint,
       p_submission_attempt_id: input.submissionAttemptId,
@@ -159,6 +164,7 @@ export class SupabaseRunwayPaidExecutionBoundary
       p_model: input.model,
       p_duration_seconds: input.durationSeconds,
       p_ratio: input.ratio,
+      p_caller_class: "interactive",
       p_evidence_json: {
         boundary: "tongs_broll_v2",
         provider: "runway",
@@ -212,6 +218,13 @@ export class SupabaseRunwayPaidExecutionBoundary
       p_attempt_key: input.submissionAttemptId,
       p_evidence_json: evidence,
     });
+    await this.reservationRpc(authorization, "record_paid_operation_aggregate_outcome", {
+      p_event_key: `${input.submissionAttemptId}:aggregate-runway-unknown`,
+      p_outcome: "ambiguous",
+      p_supplier_obligation_micros: null,
+      p_supplier_recovery_micros: null,
+      p_evidence_json: evidence,
+    });
   }
 
   async recordDefinitiveRejection(
@@ -230,6 +243,13 @@ export class SupabaseRunwayPaidExecutionBoundary
       p_reason: "definitive Runway prebilling rejection",
       p_evidence_json: evidence,
     });
+    await this.reservationRpc(authorization, "record_paid_operation_aggregate_outcome", {
+      p_event_key: `${input.submissionAttemptId}:aggregate-runway-rejection`,
+      p_outcome: "reconciled",
+      p_supplier_obligation_micros: 0,
+      p_supplier_recovery_micros: null,
+      p_evidence_json: { ...evidence, authoritative: true, transmitted: true, provider_billed: false },
+    });
   }
 
   async recordProviderFailure(
@@ -243,6 +263,38 @@ export class SupabaseRunwayPaidExecutionBoundary
       p_provider_task_id: providerTaskId,
       p_evidence_json: evidence,
     });
+    const funding = await this.resolveOperationFunding(input);
+    if (funding.reservationId) {
+      await this.rpc(
+        funding.fundingSourceType === "owner_budget"
+          ? "settle_owner_operation"
+          : "settle_operation",
+        {
+          p_reservation_id: funding.reservationId,
+          p_settlement_id: crypto.randomUUID(),
+          p_settlement_key: `${input.operationId}:runway-provider-failure-settlement`,
+          p_outcome: "nonbillable_failure",
+          p_failure_class: "provider_failure",
+          p_actual_fulfillment_cost_micros: 0,
+          p_evidence_json: {
+            ...evidence,
+            provider: "runway",
+            provider_task_id: providerTaskId,
+            authoritative: false,
+            cost_coverage: "incomplete",
+            customer_charge_micros: 0,
+          },
+        },
+      );
+      await this.rpc("record_paid_operation_aggregate_outcome", {
+        p_reservation_id: funding.reservationId,
+        p_event_key: `${input.operationId}:aggregate-runway-provider-failure`,
+        p_outcome: "failure",
+        p_supplier_obligation_micros: null,
+        p_supplier_recovery_micros: null,
+        p_evidence_json: { ...evidence, provider_task_id: providerTaskId },
+      });
+    }
   }
 
   async recordCompletionForReconciliation(
@@ -255,6 +307,28 @@ export class SupabaseRunwayPaidExecutionBoundary
       p_operation_fingerprint: input.operationFingerprint,
       p_provider_task_id: providerTaskId,
       p_evidence_json: evidence,
+    });
+  }
+
+  async recordCanonicalSuccessForReconciliation(
+    input: RunwaySubmissionAuthorizationInput,
+    providerTaskId: string,
+    evidence: Record<string, unknown>,
+  ): Promise<void> {
+    const funding = await this.resolveOperationFunding(input);
+    if (!funding.reservationId) return;
+    await this.rpc("record_paid_operation_aggregate_outcome", {
+      p_reservation_id: funding.reservationId,
+      p_event_key: `${input.operationId}:aggregate-runway-canonical-success`,
+      p_outcome: "settled_unconfirmed",
+      p_supplier_obligation_micros: null,
+      p_supplier_recovery_micros: null,
+      p_evidence_json: {
+        ...evidence,
+        provider_task_id: providerTaskId,
+        canonical_persistence_confirmed: true,
+        authoritative: false,
+      },
     });
   }
 }

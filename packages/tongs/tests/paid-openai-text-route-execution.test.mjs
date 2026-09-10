@@ -44,7 +44,10 @@ function makeGate({ state = "reserved", authorize = true, stored = null } = {}) 
           reservation_state: state,
         }, error: null };
       }
-      if (name === "authorize_openai_text_provider_attempt") {
+      if (name === "acquire_openai_text_aggregate_admission") {
+        return { data: { enforcement_enabled: false, authorized: true, reason: "aggregate_assignment_inactive" }, error: null };
+      }
+      if (name === "authorize_openai_text_provider_attempt_with_aggregate") {
         const allowed = typeof authorize === "function" ? authorize() : authorize;
         return { data: { provider_execution_authorized: allowed }, error: null };
       }
@@ -114,7 +117,7 @@ test("ambiguous submission is retained without automatic resubmission", async ()
   const result = await executePaidOpenAiTextRoute(args);
   assert.equal(result.state, "submission_unknown");
   assert.equal(submissions, 1);
-  assert.equal(gate.calls.filter((call) => call.name === "authorize_openai_text_provider_attempt").length, 1);
+  assert.equal(gate.calls.filter((call) => call.name === "authorize_openai_text_provider_attempt_with_aggregate").length, 1);
 });
 
 test("settled replay returns canonical result without provider execution or debit", async () => {
@@ -171,7 +174,7 @@ test("domain commit followed by billing-write loss recovers without another prov
     }
     const result = await original(name, rpcArgs);
     if (name === "resolve_openai_text_paid_execution_context") result.data.reservation_state = reservationState;
-    if (name === "authorize_openai_text_provider_attempt") reservationState = "attempt_started";
+    if (name === "authorize_openai_text_provider_attempt_with_aggregate") reservationState = "attempt_started";
     return result;
   };
   const [route, good, validator] = ROUTES[0];

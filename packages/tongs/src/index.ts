@@ -27,6 +27,7 @@ export * from "./providers/openai-text-paid-boundary.js";
 export * from "./providers/paid-openai-text-route-execution.js";
 export * from "./providers/paid-openai-text-execution-coordinator.js";
 export * from "./providers/restricted-beta-paid-boundary.js";
+export * from "./providers/aggregate-financial-admission.js";
 export * from "./asset-variant-resolver.js";
 export * from "./canonical-asset-authority.js";
 export * from "./publishing-destination-authority.js";

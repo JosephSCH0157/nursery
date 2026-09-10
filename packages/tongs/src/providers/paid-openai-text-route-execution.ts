@@ -9,6 +9,7 @@ import {
   type OpenAiTextGateClient,
   type OpenAiTextProviderResult,
 } from "./paid-openai-text-execution-coordinator.js";
+import type { AggregateAdmissionCallerClass } from "./aggregate-financial-admission.js";
 
 export type OpenAiTextPaidExecutionHandle = {
   operationId: string;
@@ -98,6 +99,7 @@ type ExecutePaidOpenAiTextRouteArgs<TProvider, TCanonical extends Record<string,
   workspaceId: string | null;
   workpieceId: string;
   credentialSource: OpenAiTextCredentialSource;
+  callerClass?: AggregateAdmissionCallerClass;
   /** A conservative pre-provider upper bound, normally UTF-8 request bytes. */
   inputUnitUpperBound: number;
   /** Exact canonical caller inputs (including the requested route/model). */
@@ -323,6 +325,40 @@ export async function executePaidOpenAiTextRoute<
         p_request_fingerprint: args.handle.requestFingerprint,
       }),
     );
+    const replayInputUnits = stored.input_units;
+    const replayOutputUnits = stored.output_units;
+    const replayUsageIsComplete =
+      Number.isSafeInteger(replayInputUnits) &&
+      Number(replayInputUnits) >= 0 &&
+      Number.isSafeInteger(replayOutputUnits) &&
+      Number(replayOutputUnits) >= 0;
+    const replayDirectCostMicros = context.credentialFunding === "forge" && replayUsageIsComplete
+      ? estimateOpenAiTextDirectCostMicros(
+          context,
+          Number(replayInputUnits),
+          Number(replayOutputUnits),
+        )
+      : context.credentialFunding === "forge"
+        ? null
+        : 0;
+    // Repair the aggregate side of a crash that occurred after economic
+    // settlement but before the aggregate outcome write. This event is
+    // idempotent and cannot reopen an already reconciled hold.
+    await rpc(args.gate, "record_paid_operation_aggregate_outcome", {
+      p_reservation_id: context.reservationId,
+      p_event_key: `${context.operationId}:aggregate-settled-replay`,
+      p_outcome: "settled_unconfirmed",
+      p_supplier_obligation_micros: replayDirectCostMicros == null
+        ? null
+        : replayDirectCostMicros + context.supportingCostCeilingMicros,
+      p_supplier_recovery_micros: null,
+      p_evidence_json: {
+        provider: "openai",
+        recovered_from_settled_replay: true,
+        authoritative: false,
+        usage_evidence_complete: replayUsageIsComplete,
+      },
+    });
     return {
       state: "settled_replay",
       result: asRecord(stored.result_json) as TCanonical,
@@ -384,6 +420,18 @@ export async function executePaidOpenAiTextRoute<
           recovered_after_domain_persistence: true,
         },
       }));
+      await rpc(args.gate, "record_paid_operation_aggregate_outcome", {
+        p_reservation_id: context.reservationId,
+        p_event_key: `${context.operationId}:aggregate-recovered-success`,
+        p_outcome: "settled_unconfirmed",
+        p_supplier_obligation_micros: directCostMicros + context.supportingCostCeilingMicros,
+        p_supplier_recovery_micros: null,
+        p_evidence_json: {
+          provider: "openai",
+          recovered_after_domain_persistence: true,
+          authoritative: false,
+        },
+      });
       return {
         state: "settled",
         result: recovered.result,
@@ -395,6 +443,18 @@ export async function executePaidOpenAiTextRoute<
     }
   }
   if (context.reservationState === "submission_unknown") {
+    await rpc(args.gate, "record_paid_operation_aggregate_outcome", {
+      p_reservation_id: context.reservationId,
+      p_event_key: `${context.operationId}:aggregate-unknown-replay`,
+      p_outcome: "ambiguous",
+      p_supplier_obligation_micros: null,
+      p_supplier_recovery_micros: null,
+      p_evidence_json: {
+        provider: "openai",
+        recovered_from_submission_unknown: true,
+        authoritative: false,
+      },
+    });
     return {
       state: "submission_unknown",
       customerChargeMicros: 0,
@@ -441,6 +501,8 @@ export async function executePaidOpenAiTextRoute<
     maximumOutputUnits: context.maximumOutputUnits,
     maximumAttempts: context.maximumAttempts,
     maximumFailureExposureMicros: context.maximumFailureExposureMicros,
+    aggregateCallerClass: args.callerClass ?? "interactive",
+    aggregateProviderMode: context.credentialFunding === "byo_customer" ? "byo" : "real",
     reservationAlreadyCreated: true,
     executeProvider: async (attemptNumber) => {
       const result = await args.executeProvider(context, attemptNumber);

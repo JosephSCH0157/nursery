@@ -84,7 +84,7 @@ test("Runway boundary preserves the database cutover decision and exact SKU iden
   assert.equal(result.legacyExecutionAllowed, false);
   assert.equal(result.fundingSourceType, "owner_budget");
   assert.deepEqual(calls[0], {
-    name: "authorize_runway_submission",
+    name: "authorize_runway_submission_with_aggregate",
     args: {
       p_operation_id: input.operationId,
       p_operation_fingerprint: input.operationFingerprint,
@@ -94,6 +94,7 @@ test("Runway boundary preserves the database cutover decision and exact SKU iden
       p_model: "gen4.5",
       p_duration_seconds: 5,
       p_ratio: "1280:720",
+      p_caller_class: "interactive",
       p_evidence_json: {
         boundary: "tongs_broll_v2",
         provider: "runway",
@@ -127,8 +128,10 @@ test("ambiguous and definitive failures update the same funded reservation", asy
   await boundary.recordDefinitiveRejection(authorization, input, { transmitted: true, http_status: 400 });
   assert.deepEqual(calls.map((call) => call.name), [
     "mark_submission_unknown",
+    "record_paid_operation_aggregate_outcome",
     "record_provider_failure",
     "release_operation",
+    "record_paid_operation_aggregate_outcome",
   ]);
   assert.ok(calls.every((call) => call.args.p_reservation_id === authorization.reservationId));
 });
@@ -138,6 +141,12 @@ test("completed and failed tasks are retained for cost reconciliation without es
   const boundary = new SupabaseRunwayPaidExecutionBoundary({
     async rpc(name, args) {
       calls.push({ name, args });
+      if (name === "resolve_runway_execution_funding") return { data: {
+        mode: "enforce", rollout_revision: 2, shared_funding_ready: false,
+        use_legacy_accounting: false, reason: "reconciliation_only",
+        reservation_id: "33333333-3333-4333-8333-333333333333",
+        funding_source_type: "owner_budget",
+      }, error: null };
       return { data: { recorded: true }, error: null };
     },
   });
@@ -146,6 +155,9 @@ test("completed and failed tasks are retained for cost reconciliation without es
   assert.deepEqual(calls.map((call) => call.name), [
     "record_runway_completion_for_reconciliation",
     "record_runway_failure_for_reconciliation",
+    "resolve_runway_execution_funding",
+    "settle_owner_operation",
+    "record_paid_operation_aggregate_outcome",
   ]);
   assert.ok(calls.every((call) => !("p_supporting_actual_micros" in call.args)));
 });

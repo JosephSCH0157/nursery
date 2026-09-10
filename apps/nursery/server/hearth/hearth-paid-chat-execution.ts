@@ -277,6 +277,24 @@ export async function executePaidHearthChatCompletion(
       p_user_id: args.userId,
       p_request_fingerprint: args.handle.requestFingerprint,
     }));
+    const replayInputUnits = boundedInteger(stored, "input_units");
+    const replayOutputUnits = boundedInteger(stored, "output_units");
+    const replayDirectCostMicros = context.credentialFunding === "forge"
+      ? estimateDirectCostMicros(context, replayInputUnits, replayOutputUnits)
+      : 0;
+    await rpc(args.gate, "record_paid_operation_aggregate_outcome", {
+      p_reservation_id: context.reservationId,
+      p_event_key: `${context.operationId}:aggregate-settled-replay`,
+      p_outcome: "settled_unconfirmed",
+      p_supplier_obligation_micros:
+        replayDirectCostMicros + context.supportingCostCeilingMicros,
+      p_supplier_recovery_micros: null,
+      p_evidence_json: {
+        provider: "openai",
+        recovered_from_settled_replay: true,
+        authoritative: false,
+      },
+    });
     return {
       state: "settled_replay",
       result: asRecord(stored.result_json) as PaidHearthChatResult,
@@ -289,6 +307,18 @@ export async function executePaidHearthChatCompletion(
     };
   }
   if (context.reservationState === "submission_unknown") {
+    await rpc(args.gate, "record_paid_operation_aggregate_outcome", {
+      p_reservation_id: context.reservationId,
+      p_event_key: `${context.operationId}:aggregate-unknown-replay`,
+      p_outcome: "ambiguous",
+      p_supplier_obligation_micros: null,
+      p_supplier_recovery_micros: null,
+      p_evidence_json: {
+        provider: "openai",
+        recovered_from_submission_unknown: true,
+        authoritative: false,
+      },
+    });
     return { state: "submission_unknown", customerChargeMicros: 0, attempts: 0, context };
   }
   if (context.reservationState === "provider_attempt_shadowed") {
@@ -321,6 +351,8 @@ export async function executePaidHearthChatCompletion(
     maximumOutputUnits: context.maximumOutputUnits,
     maximumAttempts: context.maximumAttempts,
     maximumFailureExposureMicros: context.maximumFailureExposureMicros,
+    aggregateCallerClass: "interactive",
+    aggregateProviderMode: context.credentialFunding === "byo_customer" ? "byo" : "real",
     reservationAlreadyCreated: true,
     executeProvider: async () => {
       let response: Response;
