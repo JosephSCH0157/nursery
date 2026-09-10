@@ -30,17 +30,18 @@ test("the real Hearth chat handler requires funding before its one fake OpenAI c
       if (name === "read_openai_text_route_execution_requirement") {
         return { data: { mode: "enforce", funding_context_required: true }, error: null };
       }
-      if (name === "resolve_hearth_chat_paid_execution_context") {
+      if (name === "resolve_hearth_chat_paid_execution_context" || name === "resolve_openai_text_paid_execution_context") {
         return {
           data: {
             operation_id: OPERATION_ID,
             reservation_id: RESERVATION_ID,
             quote_id: QUOTE_ID,
+            route_code: "hearth.chat_completion",
             funding_source_type: "owner_budget",
             funding_source_id: BUDGET_ID,
             credential_funding: "forge",
             model: "gpt-5.3-chat-latest",
-            maximum_input_units: 2000,
+            maximum_input_units: 20000,
             maximum_output_units: 512,
             maximum_attempts: 1,
             maximum_failure_exposure_micros: 20668,
@@ -53,7 +54,8 @@ test("the real Hearth chat handler requires funding before its one fake OpenAI c
           error: null,
         };
       }
-      if (name === "authorize_openai_text_provider_attempt") {
+      if (name === "authorize_openai_text_provider_attempt"
+        || name === "authorize_openai_text_provider_attempt_with_aggregate") {
         return { data: { provider_execution_authorized: true }, error: null };
       }
       if (name === "settle_owner_operation") {
@@ -85,7 +87,7 @@ test("the real Hearth chat handler requires funding before its one fake OpenAI c
       providerCalls += 1;
       const request = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
       assert.equal(request.model, "gpt-5.3-chat-latest");
-      assert.ok(gateCalls.includes("authorize_openai_text_provider_attempt"));
+      assert.ok(gateCalls.includes("authorize_openai_text_provider_attempt_with_aggregate"));
       return new Response(JSON.stringify({
         id: "chatcmpl_handler_fake",
         choices: [{ message: { content: "This is a neutral bounded answer." } }],
@@ -155,6 +157,19 @@ test("the enforced Hearth route rejects a missing funding handle before OpenAI",
         if (name === "read_openai_text_route_execution_requirement") {
           return { data: { mode: "enforce", funding_context_required: true }, error: null };
         }
+        if (name === "read_existing_openai_text_funding_handle") return { data: {}, error: null };
+        if (name === "resolve_openai_text_model_for_funding_quote") return { data: {
+          catalog_revision_id: "77777777-7777-4777-8777-777777777777", catalog_revision: 1,
+          model_catalog_entry_id: "88888888-8888-4888-8888-888888888888",
+          runtime_model_id: "gpt-5.6-luna", provider_model_id: "gpt-5.6-luna",
+          display_name: "GPT-5.6 Luna", tradeoff_summary: "Bounded test model.",
+        }, error: null };
+        if (name === "create_customer_openai_text_quote") return { data: {
+          quote_id: QUOTE_ID, operation_id: OPERATION_ID, quote_hash: "b".repeat(64),
+          request_fingerprint: "a".repeat(64), currency: "USD", maximum_customer_charge_micros: 20000,
+          failure_customer_charge_micros: 0, funding_eligible: false, funding_source: "none",
+          payer_kind: "personal", funding_label: "No verified eligible funds", expires_at: new Date(Date.now() + 60_000).toISOString(),
+        }, error: null };
         return { data: {}, error: null };
       },
     },
@@ -182,7 +197,6 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
   let providerCalls = 0;
   let reservationState = "reserved";
   let settlementCalls = 0;
-  let closureCalls = 0;
   let quoteArgs: Record<string, unknown> = {};
   let reserveArgs: Record<string, unknown> = {};
   let persistedResult: Record<string, unknown> | null = null;
@@ -191,7 +205,22 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
       if (name === "read_openai_text_route_execution_requirement") {
         return { data: { mode: "enforce", funding_context_required: true }, error: null };
       }
-      if (name === "create_customer_hearth_chat_quote") {
+      if (name === "read_existing_openai_text_funding_handle") {
+        return reservationState === "settled" ? { data: {
+          operation_id: quoteArgs.p_operation_id,
+          reservation_id: reserveArgs.p_reservation_id,
+          request_fingerprint: quoteArgs.p_request_fingerprint,
+        }, error: null } : { data: {}, error: null };
+      }
+      if (name === "resolve_openai_text_model_for_funding_quote") {
+        return { data: {
+          catalog_revision_id: "77777777-7777-4777-8777-777777777777", catalog_revision: 1,
+          model_catalog_entry_id: "88888888-8888-4888-8888-888888888888",
+          runtime_model_id: "gpt-5.6-luna", provider_model_id: "gpt-5.6-luna",
+          display_name: "GPT-5.6 Luna", tradeoff_summary: "Bounded test model.",
+        }, error: null };
+      }
+      if (name === "create_customer_openai_text_quote") {
         quoteArgs = args;
         return { data: {
           quote_id: args.p_quote_id,
@@ -199,28 +228,34 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
           quote_hash: quoteHash,
           request_fingerprint: args.p_request_fingerprint,
           currency: "USD",
-          normal_maximum_charge_micros: 20000,
-          billable_failure_maximum_charge_micros: 0,
-          funding: { eligible: true, funding_source: "customer_deposit", customer_label: "Verified AI credit purchase" },
+          maximum_customer_charge_micros: 20000,
+          failure_customer_charge_micros: 0,
+          funding_eligible: true, funding_source: "customer_deposit", payer_kind: "personal",
+          funding_label: "Verified AI credit purchase",
           included_quantity: { input_tokens: 2000, output_tokens: 512, attempts: 1 },
           expires_at: args.p_expires_at,
           provider_funding_summary: [{ component: "text_generation", provider_label: "OpenAI", credential_source: "forge" }],
         }, error: null };
       }
-      if (name === "reserve_customer_hearth_chat_quote") {
+      if (name === "reserve_customer_openai_text_quote") {
         reserveArgs = args;
-        return { data: { reservation_id: args.p_reservation_id, funding_source: "customer_deposit", state: reservationState }, error: null };
+        return { data: { paid_execution: {
+          operation_id: args.p_operation_id,
+          reservation_id: args.p_reservation_id,
+          request_fingerprint: args.p_request_fingerprint,
+        }, funding_source: "customer_deposit", reservation_state: reservationState }, error: null };
       }
-      if (name === "resolve_hearth_chat_paid_execution_context") {
+      if (name === "resolve_openai_text_paid_execution_context") {
         return { data: {
           operation_id: quoteArgs.p_operation_id,
           reservation_id: reserveArgs.p_reservation_id,
           quote_id: quoteArgs.p_quote_id,
+          route_code: "hearth.chat_completion",
           funding_source_type: "customer_deposit",
           funding_source_id: depositId,
           credential_funding: "forge",
           model: "gpt-5.6-luna",
-          maximum_input_units: 2000,
+          maximum_input_units: 20000,
           maximum_output_units: 512,
           maximum_attempts: 1,
           maximum_failure_exposure_micros: 11015,
@@ -231,7 +266,8 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
           reservation_state: reservationState,
         }, error: null };
       }
-      if (name === "authorize_openai_text_provider_attempt") {
+      if (name === "authorize_openai_text_provider_attempt"
+        || name === "authorize_openai_text_provider_attempt_with_aggregate") {
         return { data: { provider_execution_authorized: true }, error: null };
       }
       if (name === "persist_hearth_chat_paid_result") {
@@ -254,10 +290,6 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
             ops: [], scriptText: null, tagAudit: null,
           },
         }, error: null };
-      }
-      if (name === "close_customer_paid_execution_test_authorization_for_reservation") {
-        closureCalls += 1;
-        return { data: { status: "closed", replay: closureCalls > 1 }, error: null };
       }
       return { data: {}, error: null };
     },
@@ -333,7 +365,6 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
     assert.equal(settled.billing_receipt.funding_source, "customer_deposit");
     assert.equal(providerCalls, 1);
     assert.equal(settlementCalls, 1);
-    assert.equal(closureCalls, 1);
 
     const replayResponse = await handler(new Request("http://localhost/api/hearth/chat", {
       method: "POST", headers: { authorization: "Bearer fake-user-token", "content-type": "application/json" },
@@ -345,7 +376,6 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
     assert.equal(replay.billing_receipt.customer_charge_micros, 20000);
     assert.equal(providerCalls, 1);
     assert.equal(settlementCalls, 1);
-    assert.equal(closureCalls, 2);
   } finally {
     globalThis.fetch = originalFetch;
   }

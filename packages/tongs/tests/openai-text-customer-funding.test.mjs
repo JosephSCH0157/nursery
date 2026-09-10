@@ -20,7 +20,7 @@ function makeGate(mode = "enforce", selectedModel = "gpt-5.6-terra") {
       calls.push({ name, args });
       if (name === "read_openai_text_route_execution_requirement") return { data: { mode }, error: null };
       if (name === "read_existing_openai_text_funding_handle") return { data: {}, error: null };
-      if (name === "resolve_openai_text_model_for_quote") return { data: {
+      if (name === "resolve_openai_text_model_for_funding_quote") return { data: {
         catalog_revision_id: "55555555-5555-4555-8555-555555555555",
         catalog_revision: 7,
         model_catalog_entry_id: selectedModel === "gpt-5.6-terra"
@@ -90,7 +90,7 @@ test("enforced routes return only a customer-safe quote before acceptance", asyn
     return true;
   });
   assert.equal(service.calls.some((call) => call.name === "reserve_customer_openai_text_quote"), false);
-  assert.equal(service.calls.some((call) => call.name === "resolve_openai_text_model_for_quote"), true);
+  assert.equal(service.calls.some((call) => call.name === "resolve_openai_text_model_for_funding_quote"), true);
 });
 
 test("an exact acceptance is atomically reserved and returned as an opaque handle", async () => {

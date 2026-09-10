@@ -256,8 +256,12 @@ export class OpenAiTextBrowserCertificationGate implements OpenAiTextGateClient 
 
   rpc(name: string, args: JsonObject): Promise<RpcResult> {
     switch (name) {
-      case "resolve_openai_text_model_for_quote":
-        return this.call(name, args);
+      case "resolve_openai_text_model_for_funding_quote":
+        return this.call("resolve_openai_text_model_for_quote", {
+          p_user_id: args.p_user_id,
+          p_route_code: args.p_route_code,
+          p_credential_funding: args.p_credential_funding,
+        });
       case "create_customer_openai_text_quote":
         return this.createCustomerQuote(args);
       case "reserve_customer_openai_text_quote":

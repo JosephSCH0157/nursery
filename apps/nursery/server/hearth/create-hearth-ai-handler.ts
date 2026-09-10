@@ -4665,11 +4665,18 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               ...buildBillingSnapshot(lane),
             });
           }
-          if (paidRouteCode === "hearth.research_synthesis") {
+          if (paidRouteCode === "hearth.research_synthesis" || paidRouteCode === "hearth.chat_completion") {
             try {
+              const ordinaryOperationId = paidRouteCode === "hearth.chat_completion"
+                ? deriveHearthCustomerPaidIdentifiers({
+                  userId,
+                  workspaceId: episodeContext.workspaceId,
+                  requestFingerprint: actualRequestFingerprint,
+                }).operationId
+                : chatActionId;
               paidExecutionHandle = await resolveOrdinaryOpenAiTextFunding({
-                routeCode: "hearth.research_synthesis",
-                operationId: chatActionId,
+                routeCode: paidRouteCode,
+                operationId: ordinaryOperationId,
                 userId,
                 workspaceId: episodeContext.workspaceId,
                 workpieceId: episodeContext.episodeId,
@@ -4693,10 +4700,14 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               });
             } catch (error) {
               if (error instanceof OpenAiTextQuoteRequiredError) {
-                return jsonResponse(409, {
+                return jsonResponse(error.quote.fundingEligible ? 409 : 402, {
                   ok: false,
-                  error: "Review and accept the maximum customer charge before Hearth uses OpenAI.",
-                  code: "hearth_spending_confirmation_required",
+                  error: error.quote.fundingEligible
+                    ? "Review and accept the maximum customer charge before Hearth uses OpenAI."
+                    : "This funding source cannot cover the quoted operation. Choose Add Credits or another authorized payer, then request a fresh quote.",
+                  code: error.quote.fundingEligible
+                    ? "hearth_spending_confirmation_required"
+                    : "hearth_insufficient_verified_funds",
                   billing_quote: {
                     quote_id: error.quote.quoteId,
                     operation_id: error.quote.operationId,
@@ -4708,6 +4719,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                     failure_terms: error.quote.failureTerms,
                     funding_eligible: error.quote.fundingEligible,
                     funding_source: error.quote.fundingSource,
+                    payer_kind: error.quote.payerKind,
                     funding_label: error.quote.fundingLabel,
                     model_display_name: error.quote.modelDisplayName,
                     provider_model_id: error.quote.providerModelId,
@@ -5031,26 +5043,6 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 ? paidOutcome.requestId
                 : null,
             };
-            if (
-              paidOutcome.context.fundingSourceType !== "owner_budget"
-              && paidOutcome.context.fundingSourceType !== "none"
-              && paidOutcome.state !== "duplicate_in_progress"
-            ) {
-              const closed = await openAiTextGate.rpc(
-                "close_customer_paid_execution_test_authorization_for_reservation",
-                {
-                  p_reservation_id: paidOutcome.context.reservationId,
-                  p_reason: `Customer Hearth canary reached ${paidOutcome.state}; close all new reservations and preserve reconciliation.`,
-                },
-              );
-              if (closed.error) {
-                console.warn("[hearth-chat-api] customer paid test authorization closure failed", {
-                  reservationId: paidOutcome.context.reservationId,
-                  state: paidOutcome.state,
-                  error: closed.error.message,
-                });
-              }
-            }
             if (paidOutcome.state === "submission_unknown") {
               return jsonResponse(202, {
                 ok: false,

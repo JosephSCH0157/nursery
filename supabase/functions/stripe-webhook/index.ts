@@ -1175,6 +1175,48 @@ async function handleChargeRefundedEvent(
   });
 }
 
+async function handleChargeUpdatedEvent(
+  supabase: SupabaseAdminClient,
+  event: Stripe.Event,
+  charge: Stripe.Charge,
+): Promise<void> {
+  const paymentIntentId = normalizePaymentIntentId(charge.payment_intent ?? null);
+  const currency = normalizeLowerString(charge.currency);
+  if (!paymentIntentId || !currency) {
+    await recordBillingEventRecord(supabase, {
+      event,
+      customerId: normalizeCustomerId(charge.customer ?? null),
+    });
+    return;
+  }
+
+  const { data, error } = await supabase
+    .schema("tongs")
+    .from("customer_deposits")
+    .select("id,currency")
+    .eq("stripe_payment_intent_id", paymentIntentId)
+    .eq("stripe_mode", event.livemode ? "live" : "test")
+    .maybeSingle();
+  if (error) {
+    throw new Error(`Unable to resolve deposit for charge.updated: ${error.message}`);
+  }
+
+  // A charge can belong to subscriptions or another product. Only an existing
+  // canonical AI-credit deposit is eligible for this delayed fee enrichment.
+  if (data?.id) {
+    await recordCustomerDepositProcessorFee(supabase, {
+      depositId: data.id,
+      paymentIntentId,
+      expectedCurrency: data.currency || currency,
+    });
+  }
+
+  await recordBillingEventRecord(supabase, {
+    event,
+    customerId: normalizeCustomerId(charge.customer ?? null),
+  });
+}
+
 async function handleDisputeCreatedEvent(
   supabase: SupabaseAdminClient,
   event: Stripe.Event,
@@ -1269,6 +1311,12 @@ serve(async (req) => {
       case "charge.refunded": {
         const charge = event.data.object as Stripe.Charge;
         await handleChargeRefundedEvent(supabase, event, charge);
+        break;
+      }
+
+      case "charge.updated": {
+        const charge = event.data.object as Stripe.Charge;
+        await handleChargeUpdatedEvent(supabase, event, charge);
         break;
       }
 

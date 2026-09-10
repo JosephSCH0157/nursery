@@ -247,13 +247,14 @@ async function rpc(gate: OpenAiTextGateClient, name: string, args: Record<string
 export async function executePaidHearthChatCompletion(
   args: ExecutePaidHearthChatArgs,
 ): Promise<PaidHearthChatExecutionOutcome> {
-  const resolved = await rpc(args.gate, "resolve_hearth_chat_paid_execution_context", {
+  const resolved = await rpc(args.gate, "resolve_openai_text_paid_execution_context", {
     p_operation_id: args.handle.operationId,
     p_reservation_id: args.handle.reservationId,
     p_user_id: args.userId,
     p_workspace_id: args.workspaceId,
     p_workpiece_id: args.workpieceId,
     p_request_fingerprint: args.handle.requestFingerprint,
+    p_route_code: "hearth.chat_completion",
   });
   const context = parseContext(resolved);
   // UTF-8 bytes are a conservative upper bound for tokenizer units because an

@@ -1,12 +1,14 @@
 # Customer-funded creator flow
 
+> Personal owner-testing funding and the five-model lineup in this document are superseded by [`HEARTH_ACCESS_AND_FUNDING.md`](./HEARTH_ACCESS_AND_FUNDING.md). Normal customer purchasing remains canonical here.
+
 Status: implementation release prepared 2026-09-10. This release changes the customer funding read model and ordinary quote UX only. It publishes no Live price, changes no execution rollout, grants no funds, and invokes no provider.
 
 ## Checkpoint 1 — purchase and funding truth
 
 The Account & Billing `Add Credits` action calls the authenticated `create-one-time-checkout-session` Edge Function. The function accepts only a server-known one-time AI-credit catalog price, verifies the Stripe price/product pair, binds the Stripe customer and checkout metadata to the authenticated Supabase user, and creates a Stripe Checkout `payment` session. Checkout creation cannot create a deposit or grant credits.
 
-The signed `stripe-webhook` handler is the only normal purchase writer. `checkout.session.completed` must have `payment_status=paid`; it records the append-only `customer_deposit`, one-time purchase, and billing event before recording the authoritative Stripe balance-transaction fee. A Live deposit is ineligible for execution until that fee evidence exists. The old `grant_ai_credits` write remains Live-only compatibility display data and is not an eligible funding source for the shared gate. Stripe Test value stays separate.
+The signed `stripe-webhook` handler is the only normal purchase writer. `checkout.session.completed` must have `payment_status=paid`; it records the append-only `customer_deposit`, one-time purchase, and billing event before recording the authoritative Stripe balance-transaction fee. A Live deposit is ineligible for execution until that fee evidence exists. Delayed evidence is handled by signed `charge.updated` events and a bounded service-only recovery function; all three paths are idempotent. The old `grant_ai_credits` write remains Live-only compatibility display data and is not an eligible funding source for the shared gate. Stripe Test value stays separate.
 
 The new self-only `read_my_customer_funding()` contract reports, without Stripe identifiers or private pricing data:
 
@@ -77,7 +79,7 @@ These audio prices exclude Fly/local preprocessing. A source that needs probe, t
 
 ### Proposed bounded first activation
 
-The smallest already-tested Live candidate is `hearth.chat_completion` on `gpt-5.6-luna`: one attempt, 2,000/512 tokens, customer ceiling $0.02, supplier/support failure exposure $0.011015 per operation, concurrency 1, and a $0.011015 rolling 24-hour aggregate cap. Use the authenticated creator's verified Live deposit; create no owner lane or exemption. Roll back by appending `halt_new` and retaining reconciliation.
+The earlier one-operation Luna proposal was a canary, not an everyday limit. Private owner testing now uses the explicit coordinated owner-testing identity and a separately approved scoped budget described in `HEARTH_ACCESS_AND_FUNDING.md`; normal customers continue to use verified Live deposits or backed allowances. No numeric owner-session limit is approved here. Roll back by appending `halt_new` and retaining reconciliation.
 
 Before broader activation, choose a generation-compatible model for each capacity group and approve Option A or Option B plus the canonical-content tail. If one operation for every scoped route used the lowest-cost Luna/approved transcription proposals under Option B, the one-pass supplier/support exposure would be $1.412696 and the rounded customer ceilings would total $2.10. That arithmetic is capacity planning only; it is not a model recommendation or approved global limit.
 

@@ -6,6 +6,7 @@ import { resolve } from "node:path";
 const root = resolve(import.meta.dirname, "../../..");
 const checkout = readFileSync(resolve(root, "supabase/functions/create-one-time-checkout-session/index.ts"), "utf8");
 const webhook = readFileSync(resolve(root, "supabase/functions/stripe-webhook/index.ts"), "utf8");
+const recovery = readFileSync(resolve(root, "supabase/functions/recover-pending-deposit-fees/index.ts"), "utf8");
 
 test("AI-credit checkout is authenticated, catalog-bound, and cannot itself grant funds", () => {
   assert.match(checkout, /supabaseAdmin\.auth\.getUser\(\s*token/);
@@ -39,4 +40,14 @@ test("refund and dispute webhook branches reach accounting adjustments", () => {
   assert.match(webhook, /recordStripeAdjustmentAccounting/);
   assert.match(webhook, /adjustmentType: "refund"/);
   assert.match(webhook, /adjustmentType: "dispute"/);
+});
+
+test("delayed processor-fee evidence is signed, bounded, and idempotent", () => {
+  assert.match(webhook, /case "charge\.updated"/);
+  assert.match(webhook, /handleChargeUpdatedEvent/);
+  assert.match(webhook, /recordCustomerDepositProcessorFee/);
+  assert.match(recovery, /authorization.*Bearer/si);
+  assert.match(recovery, /Math\.min\(requested, 50\)/);
+  assert.match(recovery, /record_customer_deposit_processor_fee/);
+  assert.match(recovery, /read_pending_customer_deposits_for_fee_recovery/);
 });
