@@ -23,6 +23,7 @@ const migrations = [
   "20260922170000_tongs_precise_forge_failure_classes.sql",
   "20261001120000_tongs_restricted_beta_financial_policy.sql",
   "20261002120000_tongs_aggregate_paid_execution_connection.sql",
+  "20261003120000_tongs_openai_cost_reconciliation_connection.sql",
 ];
 
 function docker(args, input) {
@@ -43,6 +44,7 @@ try {
     .replace(/^create role authenticated nologin;\r?\n/m, "")
     .replace(/^create role service_role nologin bypassrls;\r?\n/m, "");
   psql(baseline, "baseline");
+  psql("create table if not exists tongs.episodes(id uuid primary key, workspace_id uuid references tongs.workspaces(id));", "domain workpiece compatibility");
   psql('create extension if not exists "uuid-ossp" with schema extensions;', "uuid v5 compatibility");
   for (const migration of migrations) {
     if (migration === "20261001120000_tongs_restricted_beta_financial_policy.sql") {
@@ -56,9 +58,30 @@ try {
         ('53500000-0000-4000-8000-000000000002','openai','gpt-5-mini','gpt-5-mini-2025-08-07',1,250000,25000,2000000,400000,128000,'https://developers.openai.com/api/docs/models/gpt-5-mini','2026-09-09',encode(extensions.digest(convert_to('isolated-mini','utf8'),'sha256'),'hex'));
       `, "isolated model-rate compatibility");
     }
+    if (migration === "20261003120000_tongs_openai_cost_reconciliation_connection.sql") {
+      psql(`
+        create table tongs.openai_supplier_expense_reconciliation_adjustments(
+          id uuid primary key,
+          supplier_expense_id uuid not null references tongs.supplier_expenses(id) on delete restrict,
+          reconciliation_batch_id uuid not null references tongs.openai_organization_reconciliation_batches(id) on delete restrict,
+          operation_allocation_id uuid not null references tongs.openai_text_operation_cost_allocations(id) on delete restrict,
+          source_key text not null unique,
+          estimated_amount_micros bigint not null check(estimated_amount_micros>=0),
+          confirmed_amount_micros bigint not null check(confirmed_amount_micros>=0),
+          adjustment_micros bigint not null,
+          currency text not null check(currency ~ '^[A-Z]{3}$'),
+          matching_method text not null check(matching_method in ('provider_request_id','documented_allocation')),
+          evidence_json jsonb not null default '{}'::jsonb check(jsonb_typeof(evidence_json)='object'),
+          created_at timestamptz not null default now(),
+          unique(supplier_expense_id,reconciliation_batch_id)
+        );
+        grant select on tongs.openai_supplier_expense_reconciliation_adjustments to service_role;
+      `, "isolated reconciliation adjustment compatibility");
+    }
     psql(readFileSync(`supabase/migrations/${migration}`, "utf8"), migration);
   }
   psql(readFileSync("supabase/tests/aggregate_paid_execution_connection.sql", "utf8"), "aggregate admission proof");
+  psql(readFileSync("supabase/tests/openai_cost_reconciliation_connection.sql", "utf8"), "OpenAI reconciliation connection proof");
   console.log(JSON.stringify({
     isolated_database: true,
     shared_runway_openai_capacity: "passed",
@@ -68,6 +91,10 @@ try {
     ambiguous_no_resubmit: "passed",
     partial_recovery_retains_capacity: "passed",
     authoritative_reconciliation_idempotency: "passed",
+    exact_aggregate_allocation_and_adjustment: "passed",
+    revised_and_overlapping_batch_safety: "passed",
+    partial_reconciliation_exposure: "passed",
+    unmatched_cost_profit_safety: "passed",
     private_operator_data: "passed",
   }));
 } finally {

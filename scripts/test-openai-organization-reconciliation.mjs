@@ -19,6 +19,8 @@ test("normalizes authoritative aggregate cost separately from token usage eviden
   assert.equal(result.costBuckets[0].amount_micros, 10668);
   assert.equal(result.usageBuckets[0].output_tokens, 512);
   assert.equal(result.rawEvidence.operation_allocation_status, "unresolved");
+  assert.equal(result.rawEvidence.matching_dimensions.request_identifier, "unavailable in organization Costs and completions Usage responses");
+  assert.equal(result.rawEvidence.certainty.provider_total, "authoritative_at_reported_aggregate_granularity");
 });
 
 test("fetches Costs and Usage with their exact grouping dimensions", async () => {
