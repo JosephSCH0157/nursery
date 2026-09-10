@@ -120,7 +120,7 @@ For every proposed model/route pair, activation still requires: exact model/API/
 
 The non-generating project check showed `gpt-6-astra`, `gpt-5.6-sol`, `gpt-5.6-terra`, and `gpt-5.6-luna` as visible. Visibility and documented API support are not generation evidence. The deprecated `gpt-5-mini-2025-08-07` snapshot and the unpinned Mini alias are excluded from this proposal.
 
-The smallest complete route/model matrix is 28 calls: each of the four visible, non-deprecated candidates against each of the seven route validators and canonical persistence paths. Every call would use a supplied local fixture, at most 2,000 uncached input tokens, at most 512 output/reasoning tokens, one attempt, concurrency one, no search/extraction/enrichment/transcription/media/email, and the original operation identity for reconciliation. No customer would be charged and an ambiguous submission would stop the matrix.
+The supported-candidate compatibility batch is 28 calls: each of the four visible, non-deprecated candidates against each of the seven route validators and canonical persistence paths. It is not a complete five-model matrix, which would require 35 calls; the seven GPT-5 Mini calls are ineligible because the exact pinned snapshot is deprecated and the alias cannot preserve accepted terms. Every eligible call would use a supplied local fixture, at most 2,000 uncached input tokens, at most 512 output/reasoning tokens, one attempt, concurrency one, no search/extraction/enrichment/transcription/media/email, and the original operation identity for reconciliation. No customer would be charged and an ambiguous submission would stop the matrix.
 
 | Candidate | Calls | Direct ceiling per call | Full failure-loss ceiling per call | Aggregate direct ceiling |
 |---|---:|---:|---:|---:|
@@ -129,6 +129,6 @@ The smallest complete route/model matrix is 28 calls: each of the four visible, 
 | GPT-5.6 Terra | 7 | $0.010144 | $0.012711 | $0.071008 |
 | GPT-5.6 Luna | 7 | $0.001015 | $0.003582 | $0.007105 |
 
-With the $0.002567 conditional support ceiling on all 28 calls, the aggregate full-cost/failure-loss ceiling is **$0.596869**, rounded to a proposed owner budget of **$0.60** with no renewal. This proposal is intentionally unexecuted. It still requires explicit paid-test approval, an owner budget, a selected supporting-cost option/tail policy, and confirmation that the 512-token output cap is sufficient for each exact route schema.
+With the $0.002567 conditional support ceiling on all 28 eligible calls, the aggregate full-cost/failure-loss ceiling is **$0.596869**, rounded to a proposed owner budget of **$0.60** with no renewal. This proposal is intentionally unexecuted and unapproved. It still requires explicit paid-test approval, an owner budget, a selected supporting-cost option/tail policy, cache-write-safe request parameters, and confirmation that the 512-token output cap is sufficient for each exact route schema. See `RESTRICTED_BETA_FINANCIAL_ENFORCEMENT_PREPARATION.md` for the complete 7×5 eligibility matrix and exact stop conditions.
 
 The authoritative but unmatched OpenAI aggregate remains **$0.039058** for the incomplete September collection period. The historical **$0.490925** remains a separate estimate. Neither amount is embedded in these forward-looking prices or treated as an adjustment.
