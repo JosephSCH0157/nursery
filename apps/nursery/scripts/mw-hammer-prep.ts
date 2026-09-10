@@ -31,6 +31,15 @@ import {
 import { fingerprintOpenAiTextPaidRequest } from "../../../packages/tongs/src/providers/paid-openai-text-route-execution";
 import { executePaidJsonOpenAiRoute } from "../server/billing/paid-json-openai-route";
 import {
+  coordinateOpenAiTranscription,
+  OpenAiTextFundingPreparationError as OpenAiTranscriptionFundingPreparationError,
+  OpenAiTextQuoteRequiredError as OpenAiTranscriptionQuoteRequiredError,
+  sha256Bytes,
+} from "../server/billing/paid-openai-transcription-route";
+import { configuredOpenAiTranscriptionMode } from "../../../packages/tongs/src/providers/openai-transcription-paid-boundary";
+import { OpenAiTextProviderError } from "../../../packages/tongs/src/providers/paid-openai-text-execution-coordinator";
+import { readOpenAiTranscriptionUsage } from "../../../packages/tongs/src/providers/paid-openai-transcription-route-execution";
+import {
   createHammerAudioPolishRequestContext,
   handleHammerAudioPolishRequest,
 } from "./hammer-audio-polish";
@@ -178,16 +187,18 @@ function buildAudioPolishProgressKey(workspaceId: string, workpieceId: string): 
   return `${workspaceId}:${workpieceId}`;
 }
 
-type NormalizedLocalRequest = HammerTranscriptPrepRequest & {
+type NormalizedLocalRequest = Omit<HammerTranscriptPrepRequest, "spending_acceptance"> & {
   local_root_abs: string;
   local_relpath: string;
+  spending_acceptance: OpenAiTextSpendingAcceptance | null;
 };
 
 type NormalizedCanonicalWorkpieceRequest = Omit<
   HammerTranscriptPrepRequest,
-  "local_root_abs" | "local_relpath" | "canonical_workpiece_path"
+  "local_root_abs" | "local_relpath" | "canonical_workpiece_path" | "spending_acceptance"
 > & {
   canonical_workpiece_path: string;
+  spending_acceptance: OpenAiTextSpendingAcceptance | null;
 };
 
 type AiPolicyResolveRow = {
@@ -833,6 +844,7 @@ function normalizeRequest(body: unknown): NormalizedLocalRequest | NormalizedCan
       local_relpath: localRelpath,
       mime_type: readTrimmed(row.mime_type),
       client_request_id: clientRequestId,
+      spending_acceptance: normalizeOpenAiTextSpendingAcceptance(row.spending_acceptance),
     };
   }
 
@@ -847,6 +859,7 @@ function normalizeRequest(body: unknown): NormalizedLocalRequest | NormalizedCan
     canonical_workpiece_path: canonicalWorkpiecePath,
     mime_type: readTrimmed(row.mime_type),
     client_request_id: clientRequestId,
+    spending_acceptance: normalizeOpenAiTextSpendingAcceptance(row.spending_acceptance),
   };
 }
 
@@ -2930,6 +2943,15 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
       const uploadMode = resolveTranscriptUploadMode(req);
       const directAcceptableForOpenAi = originalFileBytes.byteLength <= MAX_OPENAI_TRANSCRIBE_UPLOAD_BYTES
         && !originalContentType.toLowerCase().startsWith("video/");
+      const transcriptionMode = configuredOpenAiTranscriptionMode();
+      if (transcriptionMode === "halt_new") {
+        sendJson(res, 423, { ok: false, error: { code: "paid_submissions_halted", message: "New transcription submissions are halted." } });
+        return;
+      }
+      if (transcriptionMode === "enforce" && (!directAcceptableForOpenAi || uploadMode === "transcoded" || uploadMode === "compare")) {
+        sendJson(res, 503, { ok: false, error: { code: "supporting_cost_not_authorized", message: "This source requires probe/transcode work that is not included in an active transcription cost policy." } });
+        return;
+      }
       stageTimer.mark("media:upload:original:selected", {
         original_artifact_selected: true,
         original_file_path_or_id: originalSourceLabel,
@@ -3089,6 +3111,121 @@ export function createHammerPrepMiddleware(options: HammerPrepMiddlewareOptions 
           if (uploadMedia.transcodeApplied) candidates.push(transcodeCandidate);
         } else {
           candidates.push(transcodeCandidate);
+        }
+      }
+
+      if (transcriptionMode === "enforce") {
+        if (!openAiTextGate || !domainRpc || !runtimeConfig.supabaseUrl || !runtimeConfig.supabaseRpcKey) {
+          sendJson(res, 503, { ok: false, error: { code: "paid_execution_control_unavailable", message: "Transcription funding controls are unavailable." } });
+          return;
+        }
+        const selected = candidates[0];
+        if (!selected) {
+          sendJson(res, 422, { ok: false, error: { code: "INVALID_REQUEST", message: "No bounded transcription upload candidate is available." } });
+          return;
+        }
+        const sourceSha256 = sha256Bytes(originalFileBytes);
+        const requestFingerprintTerms = {
+          media_kind: request.media_kind,
+          source_label: originalSourceLabel,
+          upload_mode: uploadMode,
+          content_type: selected.contentType,
+          output: "diarized_json",
+        };
+        const userGate: OpenAiTextGateClient = {
+          rpc: async (name, args) => {
+            const response = await fetch(`${runtimeConfig.supabaseUrl}/rest/v1/rpc/${encodeURIComponent(name)}`, {
+              method: "POST",
+              headers: { apikey: runtimeConfig.supabaseRpcKey!, authorization: `Bearer ${userAccessToken}`, "content-type": "application/json" },
+              body: JSON.stringify(args),
+            });
+            const data = await response.json().catch(() => null);
+            return response.ok ? { data, error: null } : { data: null, error: { message: readTrimmed(readJsonObject(data)?.message) ?? `RPC ${name} failed` } };
+          },
+        };
+        let capturedProviderRequestId: string | null = null;
+        try {
+          const coordinated = await coordinateOpenAiTranscription({
+            routeCode: "hammer.transcript_prep",
+            userId,
+            workspaceId: request.workspace_id,
+            workpieceId: request.workpiece_id,
+            model,
+            credentialSource: "forge_managed",
+            serviceGate: openAiTextGate,
+            userGate,
+            acceptance: request.spending_acceptance ?? null,
+            source: {
+              assetRevision: "canonical_workpiece_path" in request
+                ? request.canonical_workpiece_path ?? originalSourceLabel
+                : request.local_relpath ?? originalSourceLabel,
+              sha256: sourceSha256,
+              bytes: originalFileBytes.byteLength,
+              maximumDurationSeconds: null,
+              maximumChunks: 1,
+              outputContract: "forge.hammer.diarized-transcript.v1",
+              providerInputUnitUpperBound: 16_000,
+            },
+            requestTerms: requestFingerprintTerms,
+            callerClass: "interactive",
+            executeProvider: async (context) => {
+              const form = new FormData();
+              form.set("model", context.model);
+              form.set("response_format", "diarized_json");
+              form.set("chunking_strategy", "auto");
+              form.set("file", new Blob([new Uint8Array(selected.fileBytes)], { type: selected.contentType }), path.basename(selected.sourceLabel));
+              let response: Response;
+              try {
+                response = await fetch("https://api.openai.com/v1/audio/transcriptions", { method: "POST", headers: { authorization: `Bearer ${textApiKey}` }, body: form });
+              } catch (error) {
+                throw new OpenAiTextProviderError("OpenAI transcription submission outcome is uncertain", true, null, { error: error instanceof Error ? error.message : String(error) });
+              }
+              const providerRequestId = response.headers.get("x-request-id");
+              capturedProviderRequestId = providerRequestId;
+              const raw = await response.text();
+              let payload: unknown = {};
+              try { payload = JSON.parse(raw); } catch { payload = {}; }
+              if (!response.ok) throw new OpenAiTextProviderError("OpenAI rejected the bounded transcription request", false, null, { provider_reference: providerRequestId, status: response.status, detail: raw.slice(0, 2_000) });
+              return { value: payload, requestId: providerRequestId, usage: readOpenAiTranscriptionUsage(payload), evidence: { provider_reference: providerRequestId, response_captured: true } };
+            },
+            validateResult: (payload) => { if (normalizeSegments(payload).length === 0) throw new Error("OpenAI returned no usable diarized segments"); },
+            persistCanonical: async (payload, operationId, reservationId) => {
+              const segments = normalizeSegments(payload);
+              const row = readJsonObject(payload) ?? {};
+              const text = readTrimmed(row.text) ?? segments.map((segment) => segment.text).join(" ");
+              const saved = await openAiTextGate.rpc("persist_openai_transcription_result", {
+                p_operation_id: operationId, p_reservation_id: reservationId, p_route_code: "hammer.transcript_prep",
+                p_user_id: userId, p_workspace_id: request.workspace_id, p_workpiece_id: request.workpiece_id,
+                p_source_sha256: sourceSha256, p_provider_request_id: capturedProviderRequestId,
+                p_transcript_json: { provider: "openai", model, text, segments, schema: "forge.hammer.diarized-transcript.v1" },
+              });
+              if (saved.error) throw new Error(saved.error.message);
+              return { provider: "openai", model, text, segments, schema: "forge.hammer.diarized-transcript.v1" };
+            },
+          });
+          if (coordinated.state !== "settled" && coordinated.state !== "settled_replay") {
+            sendJson(res, coordinated.state === "submission_unknown" ? 202 : 502, { ok: false, error: { code: coordinated.state, message: coordinated.state === "submission_unknown" ? "Provider submission unresolved; no automatic resubmission will occur." : "Transcription failed. Customer charge is $0." } });
+            return;
+          }
+          sendJson(res, 200, { ok: true, data: coordinated.result, billing_receipt: { operation_id: coordinated.operationId, reservation_id: coordinated.reservationId, customer_charge_micros: coordinated.customerChargeMicros } });
+          return;
+        } catch (error) {
+          if (error instanceof OpenAiTranscriptionQuoteRequiredError) {
+            sendJson(res, error.quote.fundingEligible ? 409 : 402, { ok: false, error: { code: "transcription_spending_confirmation_required", message: error.message }, billing_quote: {
+              quote_id: error.quote.quoteId, operation_id: error.quote.operationId, quote_hash: error.quote.quoteHash, request_fingerprint: error.quote.requestFingerprint,
+              currency: error.quote.currency, maximum_customer_charge_micros: error.quote.maximumCustomerChargeMicros, failure_customer_charge_micros: 0,
+              failure_terms: error.quote.failureTerms, funding_eligible: error.quote.fundingEligible, funding_source: error.quote.fundingSource,
+              funding_label: error.quote.fundingLabel, model_display_name: error.quote.modelDisplayName, provider_model_id: error.quote.providerModelId,
+              model_tradeoff_summary: error.quote.modelTradeoffSummary, catalog_revision: error.quote.catalogRevision,
+              estimated_customer_charge_micros: error.quote.estimatedCustomerChargeMicros, expires_at: error.quote.expiresAt,
+            } });
+            return;
+          }
+          if (error instanceof OpenAiTranscriptionFundingPreparationError) {
+            sendJson(res, error.status, { ok: false, error: { code: error.code, message: error.message, details: error.details } });
+            return;
+          }
+          throw error;
         }
       }
 

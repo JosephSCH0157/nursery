@@ -5,6 +5,7 @@ import {
   type OpenAiTextPaidExecutionHandle,
 } from "./paid-openai-text-route-execution.js";
 import type { OpenAiTextRouteCode } from "./openai-text-paid-boundary.js";
+import type { OpenAiTranscriptionRouteCode } from "./openai-transcription-paid-boundary.js";
 import type { OpenAiTextGateClient } from "./paid-openai-text-execution-coordinator.js";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -221,7 +222,7 @@ function normalizeQuote(value: unknown, selection: OpenAiTextModelSelection): Cu
 }
 
 export async function resolveOrdinaryOpenAiTextFunding(args: {
-  routeCode: Exclude<OpenAiTextRouteCode, "hearth.chat_completion">;
+  routeCode: Exclude<OpenAiTextRouteCode | OpenAiTranscriptionRouteCode, "hearth.chat_completion">;
   operationId: string;
   userId: string;
   workspaceId: string;
@@ -233,6 +234,14 @@ export async function resolveOrdinaryOpenAiTextFunding(args: {
   serviceGate: OpenAiTextGateClient;
   userGate: OpenAiTextGateClient;
   quoteLifetimeSeconds?: number;
+  transcriptionSource?: {
+    assetRevision: string;
+    sha256: string;
+    bytes: number;
+    maximumDurationSeconds: number | null;
+    maximumChunks: number;
+    outputContract: string;
+  };
 }): Promise<OpenAiTextPaidExecutionHandle | null> {
   const requirement = object(await rpc(args.serviceGate, "read_openai_text_route_execution_requirement", {
     p_route_code: args.routeCode,
@@ -258,14 +267,25 @@ export async function resolveOrdinaryOpenAiTextFunding(args: {
     return handle;
   }
 
-  const selection = normalizeModelSelection(await rpc(args.serviceGate, "resolve_openai_text_model_for_quote", {
+  const transcriptionRoute = args.routeCode === "hearth.speech_transcription"
+    || args.routeCode === "anvil.realtime_transcription"
+    || args.routeCode === "hammer.transcript_prep"
+    || args.routeCode === "hammer.transcript_regeneration";
+  const selection = normalizeModelSelection(await rpc(args.serviceGate, transcriptionRoute
+    ? "resolve_openai_transcription_model_for_quote"
+    : "resolve_openai_text_model_for_quote", {
     p_user_id: args.userId,
     p_route_code: args.routeCode,
     p_credential_funding: args.credentialFunding,
   }));
   const modelIdentity = `${selection.catalogRevisionId}:${selection.modelCatalogEntryId}:${selection.providerModelId}`;
   const identifiers = deriveIdentifiers(args.routeCode, args.userId, args.operationId, modelIdentity, args.acceptance?.quoteId);
-  const quote = normalizeQuote(await rpc(args.serviceGate, "create_customer_openai_text_quote", {
+  if (transcriptionRoute && !args.transcriptionSource) {
+    throw new OpenAiTextFundingPreparationError(422, "transcription_source_required", "The exact source asset and transcription bounds are required before pricing.");
+  }
+  const quote = normalizeQuote(await rpc(args.serviceGate, transcriptionRoute
+    ? "create_customer_openai_transcription_quote"
+    : "create_customer_openai_text_quote", {
     p_quote_id: identifiers.quoteId,
     p_user_id: args.userId,
     p_operation_id: args.operationId,
@@ -276,6 +296,14 @@ export async function resolveOrdinaryOpenAiTextFunding(args: {
     p_model: selection.runtimeModelId,
     p_credential_funding: args.credentialFunding,
     p_expires_at: new Date(Date.now() + Math.max(60, Math.min(args.quoteLifetimeSeconds ?? 600, 3600)) * 1000).toISOString(),
+    ...(transcriptionRoute && args.transcriptionSource ? {
+      p_source_asset_revision: args.transcriptionSource.assetRevision,
+      p_source_sha256: args.transcriptionSource.sha256,
+      p_source_bytes: args.transcriptionSource.bytes,
+      p_maximum_duration_seconds: args.transcriptionSource.maximumDurationSeconds,
+      p_maximum_chunks: args.transcriptionSource.maximumChunks,
+      p_output_contract: args.transcriptionSource.outputContract,
+    } : {}),
   }), selection);
 
   const acceptance = args.acceptance;
@@ -299,7 +327,9 @@ export async function resolveOrdinaryOpenAiTextFunding(args: {
     p_acceptance_key: `openai-text:${args.routeCode}:${quote.quoteId}`,
     p_quote_hash: quote.quoteHash,
   });
-  const reserved = object(await rpc(args.serviceGate, "reserve_customer_openai_text_quote", {
+  const reserved = object(await rpc(args.serviceGate, transcriptionRoute
+    ? "reserve_customer_openai_transcription_quote"
+    : "reserve_customer_openai_text_quote", {
     p_quote_id: quote.quoteId,
     p_reservation_id: identifiers.reservationId,
     p_user_id: args.userId,

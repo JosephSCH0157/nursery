@@ -1,5 +1,10 @@
 import { tongsFetch } from "../lib/tongsFetch";
 import { readJsonBody } from "../lib/json";
+import {
+  confirmCustomerSpendingQuote,
+  customerSpendingAcceptance,
+  readCustomerSpendingQuote,
+} from "../../../../packages/tongs/src/customer-spending-confirmation";
 
 export type HammerWorkpieceJobType = "hammer_transcript_prep" | "hammer_transcript_regeneration" | "hammer_final_video_render";
 export type HammerWorkpieceJobStatus = "queued" | "running" | "completed" | "failed" | "canceled";
@@ -99,17 +104,19 @@ export async function createWorkpieceJob(args: {
 
   let response: Response;
   try {
-    response = await tongsFetch(
+    const submit = (payloadJson?: Record<string, unknown>) => tongsFetch(
       `/tongs/workspaces/${encodeURIComponent(args.workspaceId)}/workpieces/${encodeURIComponent(args.workpieceId)}/jobs`,
-      {
-        method: "POST",
-        json: {
-          job_type: args.jobType,
-          ...(args.payloadJson ? { payload_json: args.payloadJson } : {}),
-        },
-        timeoutMs: 20_000,
-      },
+      { method: "POST", json: { job_type: args.jobType, ...(payloadJson ? { payload_json: payloadJson } : {}) }, timeoutMs: 20_000 },
     );
+    response = await submit(args.payloadJson);
+    if ((response.status === 409 || response.status === 402)
+      && (args.jobType === "hammer_transcript_prep" || args.jobType === "hammer_transcript_regeneration")) {
+      const quoted = await response.clone().json().catch(() => null);
+      const quote = readCustomerSpendingQuote(quoted);
+      if (quote?.funding_eligible && confirmCustomerSpendingQuote(quote)) {
+        response = await submit({ ...(args.payloadJson ?? {}), spending_acceptance: customerSpendingAcceptance(quote) });
+      }
+    }
   } catch (error) {
     const retryAfterMs = noteJobsFailure(backoffKey);
     return { ok: false, status: 504, error: error instanceof Error ? error.message : "Failed to create job.", retryAfterMs };

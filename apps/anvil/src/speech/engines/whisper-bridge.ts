@@ -4,6 +4,12 @@ import { resolveForgeUserAccessToken } from "../../forge/tongs-user-auth";
 import { shouldLogLevel } from "../../env/dev-log";
 import { getActiveAsrProfile } from "../../asr/active-profile";
 import { isSessionRecording } from "../../recording/recorderRegistry";
+import { resolveActiveWorkpieceId, resolveActiveWorkspaceId } from "../../forge/workpiece-context";
+import {
+  confirmCustomerSpendingQuote,
+  customerSpendingAcceptance,
+  readCustomerSpendingQuote,
+} from "../../../../../packages/tongs/src/customer-spending-confirmation";
 
 type WhisperBridgeEvent = "start" | "end" | "error" | "partial" | "final";
 type WhisperBridgeListener = (payload?: unknown) => void;
@@ -81,6 +87,7 @@ type WhisperBridgeResponse = {
   ffmpeg_fallback_attempted?: boolean;
   ffmpeg_fallback_used?: boolean;
   ffmpeg_fallback_error?: string | null;
+  billing_quote?: unknown;
 };
 
 class WhisperBridgeHttpError extends Error {
@@ -2094,6 +2101,14 @@ class WhisperBridgeRecognizer {
     form.set("asr_lane", this.asrLane);
     form.set("request_seq", String(seq));
     form.set("user_access_token", accessToken);
+    const workspaceId = resolveActiveWorkspaceId();
+    const workpieceId = resolveActiveWorkpieceId();
+    if (workspaceId) form.set("workspace_id", workspaceId);
+    if (workpieceId) form.set("workpiece_id", workpieceId);
+    form.set("source_asset_revision", `${this.readRunMeta().runKey ?? "anvil-session"}:generation:${requestGeneration}:chunk:${seq}`);
+    if (typeof durationMs === "number" && Number.isFinite(durationMs)) {
+      form.set("duration_ms", String(Math.max(0, Math.round(durationMs))));
+    }
     if (this.modelHint) {
       form.set("model_hint", this.modelHint);
     }
@@ -2149,6 +2164,14 @@ class WhisperBridgeRecognizer {
       throw new Error("whisper_stale_response");
     }
     let response: Response;
+    const submit = (body: FormData) => fetch(this.route, {
+      method: "POST",
+      headers: { "x-whisper-request-seq": String(seq) },
+      body,
+      cache: "no-store",
+      credentials: "omit",
+      signal: abortController.signal,
+    });
     try {
       const explicitHeaders: Record<string, string> = {
         "x-whisper-request-seq": String(seq),
@@ -2164,14 +2187,15 @@ class WhisperBridgeRecognizer {
           hasCookieHeader: Object.prototype.hasOwnProperty.call(explicitHeaders, "cookie"),
         });
       } catch {}
-      response = await fetch(this.route, {
-        method: "POST",
-        headers: explicitHeaders,
-        body: form,
-        cache: "no-store",
-        credentials: "omit",
-        signal: abortController.signal,
-      });
+      response = await submit(form);
+      if (response.status === 409 || response.status === 402) {
+        const quoted = await response.clone().json().catch(() => null);
+        const quote = readCustomerSpendingQuote(quoted);
+        if (quote?.funding_eligible && confirmCustomerSpendingQuote(quote)) {
+          form.set("spending_acceptance", JSON.stringify(customerSpendingAcceptance(quote)));
+          response = await submit(form);
+        }
+      }
     } finally {
       this.inFlightTranscriptionControllers.delete(abortController);
     }

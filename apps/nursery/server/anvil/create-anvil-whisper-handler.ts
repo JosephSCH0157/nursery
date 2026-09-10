@@ -31,6 +31,17 @@ import {
   transcodeToWavWithForgeFfmpeg,
   type ForgeFfmpegClientConfig,
 } from "../forge-ffmpeg-client";
+import {
+  coordinateOpenAiTranscription,
+  OpenAiTextFundingPreparationError as OpenAiTranscriptionFundingPreparationError,
+  OpenAiTextQuoteRequiredError as OpenAiTranscriptionQuoteRequiredError,
+  sha256Bytes,
+} from "../billing/paid-openai-transcription-route";
+import { configuredOpenAiTranscriptionMode } from "../../../../packages/tongs/src/providers/openai-transcription-paid-boundary";
+import { normalizeOpenAiTextPaidExecutionHandle } from "../../../../packages/tongs/src/providers/paid-openai-text-route-execution";
+import { OpenAiTextProviderError } from "../../../../packages/tongs/src/providers/paid-openai-text-execution-coordinator";
+import { normalizeOpenAiTextSpendingAcceptance } from "../../../../packages/tongs/src/providers/openai-text-customer-funding";
+import { readOpenAiTranscriptionUsage } from "../../../../packages/tongs/src/providers/paid-openai-transcription-route-execution";
 
 export const ANVIL_WHISPER_ROUTE = "/api/anvil/asr/whisper";
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
@@ -81,7 +92,15 @@ type AnvilWhisperResponse = {
   hf_request_content_type?: string | null;
   billing_status?: "deduction_applied" | "deduction_deferred";
   billing_error_code?: string | null;
+  billing_quote?: unknown;
+  billing_receipt?: unknown;
+  customer_charge_micros?: number;
 };
+
+function parseJsonField(value: FormDataEntryValue | null): unknown {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try { return JSON.parse(value); } catch { return null; }
+}
 
 function jsonResponse(status: number, obj: AnvilWhisperResponse): Response {
   return new Response(JSON.stringify(obj), {
@@ -838,6 +857,151 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
           upstreamAbort.signal.removeEventListener("abort", onParentAbort);
         }
         return { upstream, detail, message, upstreamUrl };
+      }
+
+      const transcriptionMode = configuredOpenAiTranscriptionMode();
+      if (transcriptionMode === "halt_new") {
+        return jsonResponse(423, { ok: false, text: "", error: "New transcription submissions are halted.", code: "paid_submissions_halted" });
+      }
+      if (transcriptionMode === "enforce") {
+        if (requestProvider !== "openai") {
+          return jsonResponse(503, { ok: false, text: "", error: "This ASR provider has no active coordinated cost policy.", code: "pricing_not_configured", provider: requestProvider });
+        }
+        const workspaceId = readOptionalString(formData.get("workspace_id"));
+        const workpieceId = readOptionalString(formData.get("workpiece_id"));
+        const sourceAssetRevision = readOptionalString(formData.get("source_asset_revision"));
+        const durationMs = Number(formData.get("duration_ms"));
+        if (!workspaceId || !workpieceId || !sourceAssetRevision || !userId || !userAccessToken || !supabaseService || !config.supabaseUrl || !config.supabaseServiceRoleKey) {
+          return jsonResponse(401, { ok: false, text: "", error: "Authenticated workspace and source authority are required.", code: "transcription_funding_context_required" });
+        }
+        if (Number.isFinite(durationMs) && durationMs > 2_000) {
+          return jsonResponse(413, { ok: false, text: "", error: "Audio chunk exceeds the accepted two-second operation bound.", code: "transcription_duration_bound_exceeded" });
+        }
+        const paidExecutionRaw = parseJsonField(formData.get("paid_execution"));
+        const acceptanceRaw = parseJsonField(formData.get("spending_acceptance"));
+        const paidExecution = normalizeOpenAiTextPaidExecutionHandle(paidExecutionRaw);
+        const acceptance = normalizeOpenAiTextSpendingAcceptance(acceptanceRaw);
+        if ((paidExecutionRaw != null && !paidExecution) || (acceptanceRaw != null && !acceptance)) {
+          return jsonResponse(400, { ok: false, text: "", error: "Invalid transcription funding context.", code: "invalid_paid_execution_context" });
+        }
+        const sourceBytes = new Uint8Array(await fileValue.arrayBuffer());
+        const sourceSha256 = sha256Bytes(sourceBytes);
+        const tongsServiceRpc = supabaseService.schema("tongs") as unknown as {
+          rpc(name: string, args: Record<string, unknown>): Promise<{
+            data: unknown;
+            error: { message: string } | null;
+          }>;
+        };
+        const serviceGate = {
+          rpc: async (name: string, args: Record<string, unknown>) => {
+            const result = await tongsServiceRpc.rpc(name, args);
+            return { data: result.data, error: result.error ? { message: result.error.message } : null };
+          },
+        };
+        const userGate = {
+          rpc: async (name: string, args: Record<string, unknown>) => {
+            const response = await fetch(`${config.supabaseUrl}/rest/v1/rpc/${encodeURIComponent(name)}`, {
+              method: "POST",
+              headers: {
+                apikey: config.supabaseServiceRoleKey!,
+                authorization: `Bearer ${userAccessToken}`,
+                "content-type": "application/json",
+              },
+              body: JSON.stringify(args),
+            });
+            const data = await response.json().catch(() => null);
+            return response.ok ? { data, error: null } : { data: null, error: { message: typeof data?.message === "string" ? data.message : `RPC ${name} failed` } };
+          },
+        };
+        let capturedProviderRequestId: string | null = null;
+        try {
+          const coordinated = await coordinateOpenAiTranscription({
+            routeCode: "anvil.realtime_transcription",
+            userId,
+            workspaceId,
+            workpieceId,
+            model: requestSttModel,
+            credentialSource: resolverSource === "user_byo" ? "user_byo" : "forge_managed",
+            serviceGate,
+            userGate,
+            paidExecution,
+            acceptance,
+            source: {
+              assetRevision: sourceAssetRevision,
+              sha256: sourceSha256,
+              bytes: sourceBytes.byteLength,
+              maximumDurationSeconds: Number.isFinite(durationMs) ? durationMs / 1000 : null,
+              maximumChunks: 1,
+              outputContract: "forge.anvil.asr-chunk.v1",
+              providerInputUnitUpperBound: 16_000,
+            },
+            requestTerms: { request_seq: resolvedRequestSeq, language: language ?? null, prompt: prompt ?? null, asr_lane: asrLane ?? null },
+            callerClass: "interactive",
+            executeProvider: async (context) => {
+              const providerForm = buildUpstreamForm(context.model, new Blob([sourceBytes], { type: mimeType ?? "audio/webm" }), uploadFileName, Boolean(language));
+              let response: Response;
+              try {
+                response = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+                  method: "POST",
+                  headers: { authorization: `Bearer ${effectiveApiKey}` },
+                  body: providerForm,
+                  signal: request.signal,
+                });
+              } catch (error) {
+                throw new OpenAiTextProviderError("OpenAI transcription submission outcome is uncertain", true, null, { error: error instanceof Error ? error.message : String(error) });
+              }
+              const providerRequestId = response.headers.get("x-request-id");
+              capturedProviderRequestId = providerRequestId;
+              const raw = await response.text();
+              let payload: unknown = {};
+              try { payload = JSON.parse(raw); } catch { payload = {}; }
+              if (!response.ok) throw new OpenAiTextProviderError("OpenAI rejected the bounded transcription request", false, null, { provider_reference: providerRequestId, status: response.status, detail: raw.slice(0, 2_000) });
+              return { value: payload, requestId: providerRequestId, usage: readOpenAiTranscriptionUsage(payload), evidence: { provider_reference: providerRequestId, response_captured: true } };
+            },
+            validateResult: (payload) => { if (!extractTranscriptionText(payload)) throw new Error("OpenAI returned empty transcription"); },
+            persistCanonical: async (payload, operationId, reservationId) => {
+              const text = extractTranscriptionText(payload);
+              const saved = await serviceGate.rpc("persist_openai_transcription_result", {
+                p_operation_id: operationId, p_reservation_id: reservationId, p_route_code: "anvil.realtime_transcription",
+                p_user_id: userId, p_workspace_id: workspaceId, p_workpiece_id: workpieceId, p_source_sha256: sourceSha256,
+                p_provider_request_id: capturedProviderRequestId, p_transcript_json: { text, request_seq: resolvedRequestSeq, schema: "forge.anvil.asr-chunk.v1" },
+              });
+              if (saved.error) throw new Error(saved.error.message);
+              return { text, request_seq: resolvedRequestSeq, schema: "forge.anvil.asr-chunk.v1" };
+            },
+          });
+          if (coordinated.state !== "settled" && coordinated.state !== "settled_replay") {
+            return jsonResponse(coordinated.state === "submission_unknown" ? 202 : 502, {
+              ok: false, text: "", error: coordinated.state === "submission_unknown" ? "Provider submission unresolved; no automatic resubmission will occur." : "Transcription failed. Customer charge is $0.", code: coordinated.state,
+            });
+          }
+          return jsonResponse(200, {
+            ok: true, text: typeof coordinated.result.text === "string" ? coordinated.result.text : "",
+            provider: "openai", model: requestSttModel, provider_request_id: coordinated.requestId, billing_mode: lane,
+            customer_charge_micros: coordinated.customerChargeMicros,
+            billing_receipt: { operation_id: coordinated.operationId, reservation_id: coordinated.reservationId, customer_charge_micros: coordinated.customerChargeMicros },
+          });
+        } catch (error) {
+          if (error instanceof OpenAiTranscriptionQuoteRequiredError) {
+            return jsonResponse(error.quote.fundingEligible ? 409 : 402, {
+              ok: false, text: "", error: error.message, code: "transcription_spending_confirmation_required",
+              billing_quote: {
+                quote_id: error.quote.quoteId, operation_id: error.quote.operationId, quote_hash: error.quote.quoteHash,
+                request_fingerprint: error.quote.requestFingerprint, currency: error.quote.currency,
+                maximum_customer_charge_micros: error.quote.maximumCustomerChargeMicros, failure_customer_charge_micros: 0,
+                failure_terms: error.quote.failureTerms, funding_eligible: error.quote.fundingEligible,
+                funding_source: error.quote.fundingSource, funding_label: error.quote.fundingLabel,
+                model_display_name: error.quote.modelDisplayName, provider_model_id: error.quote.providerModelId,
+                model_tradeoff_summary: error.quote.modelTradeoffSummary, catalog_revision: error.quote.catalogRevision,
+                estimated_customer_charge_micros: error.quote.estimatedCustomerChargeMicros, expires_at: error.quote.expiresAt,
+              },
+            });
+          }
+          if (error instanceof OpenAiTranscriptionFundingPreparationError) {
+            return jsonResponse(error.status, { ok: false, text: "", error: error.message, code: error.code });
+          }
+          throw error;
+        }
       }
 
       const upstreamAbort = new AbortController();

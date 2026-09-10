@@ -1,4 +1,9 @@
 import type { MediaKind } from "../../../../packages/contracts/hammer/media-resolver.contract";
+import {
+  confirmCustomerSpendingQuote,
+  customerSpendingAcceptance,
+  readCustomerSpendingQuote,
+} from "../../../../packages/tongs/src/customer-spending-confirmation";
 
 export const HAMMER_TRANSCRIPT_PREP_ROUTE = "/api/hammer/prep/transcript";
 
@@ -29,6 +34,7 @@ export interface HammerTranscriptPrepRequest {
   canonical_workpiece_path?: string | null;
   mime_type?: string | null;
   client_request_id?: string | null;
+  spending_acceptance?: ReturnType<typeof customerSpendingAcceptance> | null;
 }
 
 export interface HammerTranscriptPrepSegment {
@@ -444,12 +450,17 @@ export async function requestHammerTranscriptPrep(
         client_request_id: clientRequestId,
       });
     }
-    response = await fetch(HAMMER_TRANSCRIPT_PREP_ROUTE, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(effectiveRequest),
-      signal: abortController.signal,
+    const submit = (body: HammerTranscriptPrepRequest) => fetch(HAMMER_TRANSCRIPT_PREP_ROUTE, {
+      method: "POST", headers, body: JSON.stringify(body), signal: abortController.signal,
     });
+    response = await submit(effectiveRequest);
+    if (response.status === 409 || response.status === 402) {
+      const quoted = await response.clone().json().catch(() => null);
+      const quote = readCustomerSpendingQuote(quoted);
+      if (quote?.funding_eligible && confirmCustomerSpendingQuote(quote)) {
+        response = await submit({ ...effectiveRequest, spending_acceptance: customerSpendingAcceptance(quote) });
+      }
+    }
   } catch (error) {
     if (abortController.signal.aborted) {
       const minutes = Math.round(timeoutMs / 60_000);

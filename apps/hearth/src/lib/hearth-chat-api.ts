@@ -20,6 +20,11 @@ import {
   type HearthOutputPreference,
   type HearthTurnResult,
 } from "./hearth-ai-runtime-contract";
+import {
+  confirmCustomerSpendingQuote,
+  customerSpendingAcceptance,
+  readCustomerSpendingQuote,
+} from "../../../../packages/tongs/src/customer-spending-confirmation";
 import type { HearthResearchResult } from "./hearth-research-contract";
 import {
   AI_REASON_CODES,
@@ -1160,19 +1165,33 @@ export async function requestHearthSttTranscript(args: {
   headers.set("content-type", "application/json");
   headers.set("authorization", `Bearer ${accessToken}`);
 
+  const actionId = createClientRequestId();
+  let spendingAcceptance: ReturnType<typeof customerSpendingAcceptance> | null = null;
   let response: Response;
   try {
-    response = await fetch(HEARTH_AI_ROUTES.stt, {
+    const submit = () => fetch(HEARTH_AI_ROUTES.stt, {
       method: "POST",
       headers,
       body: JSON.stringify({
         lane,
+        action_id: actionId,
+        workspace_id: args.workspaceId ?? null,
         workpiece_id: workpieceId,
         storage_key: storageKey,
         ...(mimeType ? { mime_type: mimeType } : {}),
+        ...(spendingAcceptance ? { spending_acceptance: spendingAcceptance } : {}),
       }),
       signal: args.signal,
     });
+    response = await submit();
+    if (response.status === 409 || response.status === 402) {
+      const quotePayload = await response.clone().json().catch(() => null);
+      const quote = readCustomerSpendingQuote(quotePayload);
+      if (quote?.funding_eligible && confirmCustomerSpendingQuote(quote)) {
+        spendingAcceptance = customerSpendingAcceptance(quote);
+        response = await submit();
+      }
+    }
   } catch (error) {
     const cancelled = error instanceof DOMException && error.name === "AbortError";
     const message = cancelled

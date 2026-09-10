@@ -12,6 +12,11 @@ const usagePage = {
     { model: "gpt-5.3-chat-latest", project_id: "proj", api_key_id: "key", input_tokens: 2000, input_cached_tokens: 0, output_tokens: 512, num_model_requests: 1 },
   ] }], has_more: false, next_page: null,
 };
+const audioUsagePage = {
+  data: [{ start_time: 100, end_time: 200, results: [
+    { model: "gpt-4o-mini-transcribe", project_id: "proj", api_key_id: "key", seconds: 20, num_model_requests: 1 },
+  ] }], has_more: false, next_page: null,
+};
 
 test("normalizes authoritative aggregate cost separately from token usage evidence", () => {
   const result = normalizeOpenAiOrganizationEvidence({ costsPages: [costsPage], usagePages: [usagePage], periodStart: 100, periodEnd: 200 });
@@ -19,21 +24,27 @@ test("normalizes authoritative aggregate cost separately from token usage eviden
   assert.equal(result.costBuckets[0].amount_micros, 10668);
   assert.equal(result.usageBuckets[0].output_tokens, 512);
   assert.equal(result.rawEvidence.operation_allocation_status, "unresolved");
-  assert.equal(result.rawEvidence.matching_dimensions.request_identifier, "unavailable in organization Costs and completions Usage responses");
+  assert.equal(result.rawEvidence.matching_dimensions.request_identifier, "unavailable in organization Costs, completions Usage, and audio transcriptions Usage responses");
   assert.equal(result.rawEvidence.certainty.provider_total, "authoritative_at_reported_aggregate_granularity");
 });
 
-test("fetches Costs and Usage with their exact grouping dimensions", async () => {
+test("fetches Costs, completions Usage, and audio transcription Usage with exact grouping dimensions", async () => {
   const urls = [];
   const fetchImpl = async (url) => {
     urls.push(String(url));
-    return { ok: true, async json() { return String(url).includes("/costs") ? costsPage : usagePage; } };
+    return { ok: true, async json() {
+      if (String(url).includes("/costs")) return costsPage;
+      if (String(url).includes("/audio_transcriptions")) return audioUsagePage;
+      return usagePage;
+    } };
   };
   const result = await collectOpenAiOrganizationEvidence({ fetchImpl, adminKey: "admin-test", projectId: "proj", periodStart: 100, periodEnd: 200 });
   assert.equal(result.totalCostMicros, 10668);
   assert.ok(urls.some((url) => url.includes("%2Forganization%2Fcosts") === false && url.includes("/organization/costs")));
   assert.ok(urls.every((url) => url.includes("group_by=")));
   assert.ok(urls.every((url) => url.includes("project_ids=proj")));
+  assert.ok(urls.some((url) => url.includes("/organization/usage/audio_transcriptions")));
+  assert.equal(result.usageBuckets.find((bucket) => bucket.evidence.operation_kind === "audio_transcriptions").evidence.duration_seconds, 20);
   assert.deepEqual(result.rawEvidence.project_scope, ["proj"]);
 });
 
