@@ -23,6 +23,7 @@ function withObserveRunwayBoundary(service) {
     async recordDefinitiveRejection() {},
     async recordProviderFailure() {},
     async recordCompletionForReconciliation() {},
+    async recordCanonicalSuccessForReconciliation() {},
   };
   return service;
 }
@@ -187,7 +188,7 @@ test("enforced Runway route rejects an unfunded operation before provider transm
   service.runwayPaidExecutionBoundary={
     async resolveOperationFunding(){return{mode:"enforce",rolloutRevision:2,sharedFundingReady:false,useLegacyAccounting:false,reason:"matching full-cost funding reservation required",reservationId:null,fundingSourceType:null};},
     async authorizeSubmission(){return{mode:"enforce",rolloutRevision:2,providerExecutionAuthorized:false,legacyExecutionAllowed:false,reason:"matching full-cost funding reservation required",replay:false,reservationId:null,fundingSourceType:null};},
-    async markSubmissionUnknown(){},async recordDefinitiveRejection(){},async recordProviderFailure(){},async recordCompletionForReconciliation(){},
+    async markSubmissionUnknown(){},async recordDefinitiveRejection(){},async recordProviderFailure(){},async recordCompletionForReconciliation(){},async recordCanonicalSuccessForReconciliation(){},
   };
   service.assertWorkpieceInWorkspace=async()=>undefined;service.assertWorkspaceRoleFromAccessToken=async()=>({userId:"11111111-1111-4111-8111-111111111111",role:"editor"});
   const request={workspace_id:"33333333-3333-4333-8333-333333333333",beat_id:"44444444-4444-4444-8444-444444444444",operation_id:"forge:broll:unfunded-enforcement-test-0001",operation_fingerprint:"a".repeat(64),source_kind:"generated",provider:"runway",final_prompt:"A slow documentary road transition",poster_required:false,confirm_spend:true,prompt_revision_id:"55555555-5555-4555-8555-555555555555",prompt_revision:1,prompt_content_hash:"b".repeat(64)};
@@ -255,7 +256,7 @@ test("enforced owner-funded Runway route bypasses legacy customer-credit account
   service.runwayPaidExecutionBoundary={
     async resolveOperationFunding(){return{mode:"enforce",rolloutRevision:2,sharedFundingReady:true,useLegacyAccounting:false,reason:"matching shared funding reservation found",reservationId:"33333333-3333-4333-8333-333333333333",fundingSourceType:"owner_budget"};},
     async authorizeSubmission(){return{mode:"enforce",rolloutRevision:2,providerExecutionAuthorized:true,legacyExecutionAllowed:false,reason:"owner_budget_authorized",replay:false,reservationId:"33333333-3333-4333-8333-333333333333",fundingSourceType:"owner_budget"};},
-    async markSubmissionUnknown(){},async recordDefinitiveRejection(){},async recordProviderFailure(){},async recordCompletionForReconciliation(){},
+    async markSubmissionUnknown(){},async recordDefinitiveRejection(){},async recordProviderFailure(){},async recordCompletionForReconciliation(){},async recordCanonicalSuccessForReconciliation(){},
   };
   service.assertWorkpieceInWorkspace=async()=>undefined;service.assertWorkspaceRoleFromAccessToken=async()=>({userId:"11111111-1111-4111-8111-111111111111",role:"editor"});
   const request={workspace_id:"33333333-3333-4333-8333-333333333333",beat_id:"44444444-4444-4444-8444-444444444444",operation_id:"forge:broll:owner-funded-route-test-0001",operation_fingerprint:"a".repeat(64),source_kind:"generated",provider:"runway",final_prompt:"A slow documentary road transition",poster_required:false,confirm_spend:false,prompt_revision_id:"55555555-5555-4555-8555-555555555555",prompt_revision:1,prompt_content_hash:"b".repeat(64)};
@@ -267,16 +268,19 @@ test("generated Runway acquisition routes through paid-media authorization and s
   let providerCalls = 0;
   let boundaryAuthorizations = 0;
   let boundaryCompletions = 0;
+  let boundaryCanonicalOutcomes = 0;
+  let operationState = "pending";
+  let operationReceipt = null;
   let paidRpcCalls = [];
   const authority = { schema() { return { async rpc(name, args) {
     paidRpcCalls.push({ source: "authority", name, args });
     if (name === "assert_current_broll_prompt") return { data: { disposition: "verified", prompt_revision: { id: "55555555-5555-4555-8555-555555555555", revision: 1, content_hash: "b".repeat(64), final_prompt: "A slow documentary road transition" } }, error: null };
-    if (name === "begin_broll_operation") return { data: { disposition: "replay", operation: { state: "pending", submission_attempt_id: "attempt-1" } }, error: null };
-    if (name === "begin_broll_runway_submission") return { data: { disposition: "submitting", operation: { state: "submitting", submission_attempt_id: "attempt-1" } }, error: null };
-    if (name === "record_broll_runway_task") return { data: { disposition: "provider_submitted", operation: { state: "provider_submitted" } }, error: null };
-    if (name === "record_broll_runway_completion") return { data: { disposition: "provider_completed", operation: { state: "provider_completed" } }, error: null };
+    if (name === "begin_broll_operation") return { data: { disposition: "replay", operation: { state: operationState, submission_attempt_id: "attempt-1", provider: "runway", provider_task_id: operationState === "pending" ? null : "runway-task-durable-2", receipt_json: operationReceipt } }, error: null };
+    if (name === "begin_broll_runway_submission") { operationState = "submitting"; return { data: { disposition: "submitting", operation: { state: operationState, submission_attempt_id: "attempt-1" } }, error: null }; }
+    if (name === "record_broll_runway_task") { operationState = "provider_submitted"; return { data: { disposition: "provider_submitted", operation: { state: operationState } }, error: null }; }
+    if (name === "record_broll_runway_completion") { operationState = "provider_completed"; return { data: { disposition: "provider_completed", operation: { state: operationState } }, error: null }; }
     if (name === "record_broll_provider_or_upload_result") return { data: { disposition: "result_recorded", operation: { state: "provider_or_upload_completed" } }, error: null };
-    if (name === "commit_broll_candidate") return { data: { disposition: "committed", candidate_revision: { id: "candidate-broll-1" } }, error: null };
+    if (name === "commit_broll_candidate") { operationState = "candidate_committed"; operationReceipt = { disposition: "committed", candidate_revision: { id: "candidate-broll-1" } }; return { data: operationReceipt, error: null }; }
     if (name === "claim_broll_runway_poll") return { data: { disposition: "poll_claimed", operation: { state: "provider_submitted" } }, error: null };
     if (name === "record_broll_runway_pending") return { data: { disposition: "provider_pending", operation: { state: "provider_submitted" } }, error: null };
     if (name === "approve_and_reserve_paid_media_operation") return { data: { operation: { id: args.p_paid_media_operation_id, state: "reserved" } }, error: null };
@@ -351,6 +355,11 @@ test("generated Runway acquisition routes through paid-media authorization and s
       assert.equal(input.operationId, "forge:broll:paid-media-test-0003");
       assert.equal(providerTaskId, "runway-task-durable-2");
     },
+    async recordCanonicalSuccessForReconciliation(input, providerTaskId) {
+      boundaryCanonicalOutcomes += 1;
+      assert.equal(input.operationId, "forge:broll:paid-media-test-0003");
+      assert.equal(providerTaskId, "runway-task-durable-2");
+    },
   };
   service.assertWorkpieceInWorkspace = async () => undefined;
   service.assertWorkspaceRoleFromAccessToken = async () => ({ userId: "11111111-1111-4111-8111-111111111111", role: "editor" });
@@ -360,6 +369,7 @@ test("generated Runway acquisition routes through paid-media authorization and s
   assert.equal(providerCalls, 1);
   assert.equal(boundaryAuthorizations, 1);
   assert.equal(boundaryCompletions, 1);
+  assert.equal(boundaryCanonicalOutcomes, 1);
   assert.equal(paidRpcCalls.filter((call) => call.name === "create_paid_media_authorization_quote" && call.source === "supabase").length, 1);
   assert.equal(paidRpcCalls.filter((call) => call.name === "approve_and_reserve_paid_media_operation" && call.source === "supabase").length, 1);
   assert.equal(paidRpcCalls.filter((call) => call.name === "begin_paid_media_provider_attempt" && call.source === "supabase").length, 1);
@@ -382,6 +392,12 @@ test("generated Runway acquisition routes through paid-media authorization and s
   });
   assert.ok(!providerResultCalls[0].args.p_usage_components.some((component) => ["text_input", "cached_text_input", "image_input", "cached_image_input", "image_output"].includes(component.component_kind)));
   assert.equal(paidRpcCalls.filter((call) => call.name === "mark_paid_media_delivery" && call.source === "supabase").length, 1);
+  assert.equal(paidRpcCalls.filter((call) => call.name === "settle_paid_media_operation" && call.source === "supabase").length, 1);
+  const replay = await service.acquireBrollCandidate("22222222-2222-4222-8222-222222222222", request, { userAccessToken: "token" });
+  assert.equal(replay.disposition, "committed");
+  assert.equal(providerCalls, 1);
+  assert.equal(boundaryAuthorizations, 1);
+  assert.equal(boundaryCanonicalOutcomes, 2);
   assert.equal(paidRpcCalls.filter((call) => call.name === "settle_paid_media_operation" && call.source === "supabase").length, 1);
 });
 

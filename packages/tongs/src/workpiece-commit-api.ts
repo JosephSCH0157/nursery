@@ -30313,8 +30313,47 @@ export class TongsCommitService {
       ? begun.data.operation
       : null;
     let state = operation ? readStringField(operation, "state") : null;
-    if (state === "candidate_committed" && isRecord(operation?.receipt_json))
+    if (state === "candidate_committed" && isRecord(operation?.receipt_json)) {
+      const replayProvider = readStringField(operation, "provider");
+      const replayProviderTaskId = readStringField(
+        operation,
+        "provider_task_id",
+      );
+      if (
+        input.source_kind === "generated" &&
+        replayProvider === "runway" &&
+        replayProviderTaskId &&
+        this.runwayPaidExecutionBoundary
+      ) {
+        const replayModel = input.runway_model ?? "gen4.5";
+        if (replayModel !== "gen4.5")
+          throw new HttpError(
+            503,
+            "runway_pricing_not_configured",
+            "The persisted Runway result does not match the enforced Gen-4.5 pricing binding.",
+          );
+        await this.runwayPaidExecutionBoundary.recordCanonicalSuccessForReconciliation(
+          {
+            operationId: input.operation_id,
+            operationFingerprint: input.operation_fingerprint,
+            submissionAttemptId:
+              readStringField(operation, "submission_attempt_id") ??
+              input.operation_id,
+            userId: auth.userId,
+            workspaceId: input.workspace_id,
+            model: replayModel,
+            durationSeconds: input.duration_seconds ?? 5,
+            ratio: input.ratio ?? "1280:720",
+          },
+          replayProviderTaskId,
+          {
+            candidate_committed: true,
+            recovered_from_candidate_replay: true,
+          },
+        );
+      }
       return operation.receipt_json as Record<string, Json>;
+    }
     if (input.source_kind === "generated" && generationReferences.length) {
       const referenceReceipts: Array<Record<string, Json>> = [];
       for (const reference of generationReferences) {
@@ -31339,6 +31378,40 @@ export class TongsCommitService {
         "Canonical B-roll candidate commit was rejected.",
         candidate.data,
       );
+    if (input.provider === "runway" && input.provider_request_id) {
+      const runwayModel = input.runway_model ?? "gen4.5";
+      const runwayDurationSeconds = input.duration_seconds ?? 5;
+      const runwayRatio = input.ratio ?? "1280:720";
+      if (runwayModel !== "gen4.5")
+        throw new HttpError(
+          503,
+          "runway_pricing_not_configured",
+          "The persisted Runway result does not match the enforced Gen-4.5 pricing binding.",
+        );
+      const reconciliationInput: RunwaySubmissionAuthorizationInput =
+        runwayBoundaryInput ?? {
+          operationId: input.operation_id,
+          operationFingerprint: input.operation_fingerprint,
+          submissionAttemptId:
+            (operation
+              ? readStringField(operation, "submission_attempt_id")
+              : null) ?? input.operation_id,
+          userId: auth.userId,
+          workspaceId: input.workspace_id,
+          model: runwayModel,
+          durationSeconds: runwayDurationSeconds,
+          ratio: runwayRatio,
+        };
+      await this.runwayPaidExecutionBoundary!.recordCanonicalSuccessForReconciliation(
+        reconciliationInput,
+        input.provider_request_id,
+        {
+          candidate_committed: true,
+          candidate_id: candidate.data.candidate_id ?? null,
+          canonical_video_path: videoPath,
+        },
+      );
+    }
     if (paidContext) {
       await this.settlePaidImageDelivery(paidContext, {
         operation_id: input.operation_id,

@@ -131,6 +131,7 @@ export async function executeHammerShortsDiscovery(body: HammerShortsDiscoveryBo
         workspaceId: body.workspace_id,
         workpieceId: body.parent_workpiece_id,
         credentialSource: dependencies.paid.credentialSource,
+        callerClass: "background",
         apiKey: dependencies.apiKey,
         requestFingerprintPayload: { operation_id: body.operation_id, request },
         providerUrl: "https://api.openai.com/v1/responses",

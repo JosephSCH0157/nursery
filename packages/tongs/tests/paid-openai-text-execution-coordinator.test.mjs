@@ -9,7 +9,14 @@ function gate(overrides = {}) {
     async rpc(name, args) {
       calls.push({ name, args });
       if (overrides[name]) return overrides[name](args, calls);
-      return { data: name === "authorize_openai_text_provider_attempt" ? { provider_execution_authorized: true } : {}, error: null };
+      return {
+        data: name === "acquire_openai_text_aggregate_admission"
+          ? { enforcement_enabled: false, authorized: true, reason: "aggregate_assignment_inactive" }
+          : name === "authorize_openai_text_provider_attempt_with_aggregate"
+            ? { provider_execution_authorized: true, aggregate_enforcement_enabled: false }
+            : {},
+        error: null,
+      };
     },
   };
 }
@@ -32,6 +39,8 @@ function input(overrides = {}) {
     maximumOutputUnits: 50,
     maximumAttempts: 1,
     maximumFailureExposureMicros: 250000,
+    aggregateCallerClass: "interactive",
+    aggregateProviderMode: "real",
     executeProvider: async () => ({
       value: { text: "usable" },
       requestId: "req_1",
@@ -53,12 +62,14 @@ test("settles only after bounded authorization, validation, persistence, usage, 
   assert.equal(result.attempts, 1);
   assert.deepEqual(g.calls.map((call) => call.name), [
     "reserve_operation",
-    "authorize_openai_text_provider_attempt",
+    "acquire_openai_text_aggregate_admission",
+    "authorize_openai_text_provider_attempt_with_aggregate",
     "record_openai_text_provider_capture",
     "record_openai_text_supplier_attempt_expense",
     "record_openai_text_usage",
     "close_openai_text_failure_exposure",
     "settle_operation",
+    "record_paid_operation_aggregate_outcome",
   ]);
 });
 
@@ -71,7 +82,7 @@ test("server adapter consumes a pre-created owner reservation without invoking t
   }));
   assert.equal(result.state, "settled");
   assert.equal(g.calls.some((call) => call.name === "reserve_operation"), false);
-  assert.equal(g.calls.at(-1).name, "settle_owner_operation");
+  assert.equal(g.calls.some((call) => call.name === "settle_owner_operation"), true);
 });
 
 test("owner funding cannot be routed through the customer reservation RPC", async () => {
@@ -94,7 +105,7 @@ test("provider charge on failure is a Forge expense and customer charge is zero"
     },
   }));
   assert.deepEqual(result, { state: "failed_released", customerChargeMicros: 0, supplierCostMicros: 230000, attempts: 1 });
-  const settlement = g.calls.at(-1);
+  const settlement = g.calls.find((call) => call.name === "settle_operation");
   assert.equal(settlement.name, "settle_operation");
   assert.equal(settlement.args.p_outcome, "nonbillable_failure");
   assert.equal(settlement.args.p_actual_fulfillment_cost_micros, 230000);
@@ -116,9 +127,9 @@ test("a bounded retry obtains a fresh loss hold and settles exactly once", async
   assert.equal(result.state, "settled");
   assert.equal(result.attempts, 2);
   assert.equal(providerCalls, 2);
-  assert.equal(g.calls.filter((call) => call.name === "authorize_openai_text_provider_attempt").length, 2);
+  assert.equal(g.calls.filter((call) => call.name === "authorize_openai_text_provider_attempt_with_aggregate").length, 2);
   assert.equal(g.calls.filter((call) => call.name === "settle_operation").length, 1);
-  assert.equal(g.calls.at(-1).args.p_actual_fulfillment_cost_micros, 3000);
+  assert.equal(g.calls.find((call) => call.name === "settle_operation").args.p_actual_fulfillment_cost_micros, 3000);
 });
 
 test("ambiguous submission stays reserved and is never retried", async () => {
@@ -133,8 +144,8 @@ test("ambiguous submission stays reserved and is never retried", async () => {
   }));
   assert.equal(result.state, "submission_unknown");
   assert.equal(providerCalls, 1);
-  assert.equal(g.calls.at(-1).name, "mark_submission_unknown");
-  assert.equal(g.calls.filter((call) => call.name === "authorize_openai_text_provider_attempt").length, 1);
+  assert.equal(g.calls.some((call) => call.name === "mark_submission_unknown"), true);
+  assert.equal(g.calls.filter((call) => call.name === "authorize_openai_text_provider_attempt_with_aggregate").length, 1);
 });
 
 test("persistence failure retains usage, releases the customer, and realizes Forge loss", async () => {
@@ -180,12 +191,28 @@ test("aggregate usage limits cover all provider attempts", async () => {
 test("a denied failure-loss hold cannot reach OpenAI", async () => {
   let providerCalls = 0;
   const g = gate({
-    authorize_openai_text_provider_attempt: async () => ({ data: { provider_execution_authorized: false, reason: "aggregate_failure_limit" }, error: null }),
+    authorize_openai_text_provider_attempt_with_aggregate: async () => ({ data: { provider_execution_authorized: false, reason: "aggregate_failure_limit" }, error: null }),
   });
   await assert.rejects(() => new PaidOpenAiTextExecutionCoordinator(g).execute(input({
     executeProvider: async () => { providerCalls += 1; return {}; },
   })), /funding_context_required/);
   assert.equal(providerCalls, 0);
+});
+
+test("an enabled aggregate denial releases funding before the provider callback", async () => {
+  let providerCalls = 0;
+  const g = gate({
+    acquire_openai_text_aggregate_admission: async () => ({
+      data: { enforcement_enabled: true, authorized: false, reason: "aggregate_exposure_exhausted" },
+      error: null,
+    }),
+  });
+  await assert.rejects(() => new PaidOpenAiTextExecutionCoordinator(g).execute(input({
+    executeProvider: async () => { providerCalls += 1; return {}; },
+  })), /funding_context_required/);
+  assert.equal(providerCalls, 0);
+  assert.equal(g.calls.some((call) => call.name === "release_operation"), true);
+  assert.equal(g.calls.some((call) => call.name === "authorize_openai_text_provider_attempt_with_aggregate"), false);
 });
 
 test("BYO never falls back to Forge credentials", async () => {

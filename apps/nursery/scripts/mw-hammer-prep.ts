@@ -1379,6 +1379,7 @@ async function runOpenAiTranscriptCleanupAssist(args: {
       workspaceId: args.request.workspace_id,
       workpieceId: args.request.workpiece_id,
       credentialSource: args.paid.credentialSource,
+      callerClass: "background",
       apiKey: args.apiKey,
       requestFingerprintPayload: cleanupPaidFingerprintPayload(args.request, args.model),
       providerRequestBody: (model) => ({
@@ -1590,6 +1591,7 @@ async function runOpenAiQuenchMetadataAssist(args: {
       workspaceId: args.request.workspace_id,
       workpieceId: args.request.workpiece_id,
       credentialSource: args.paid.credentialSource,
+      callerClass: "background",
       apiKey: args.apiKey,
       requestFingerprintPayload: quenchPaidFingerprintPayload(args.request, args.model),
       providerRequestBody: (model) => ({

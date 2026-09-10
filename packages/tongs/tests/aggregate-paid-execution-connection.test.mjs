@@ -1,0 +1,75 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFile } from "node:fs/promises";
+
+const migrationUrl = new URL("../../../supabase/migrations/20261002120000_tongs_aggregate_paid_execution_connection.sql", import.meta.url);
+const coordinatorUrl = new URL("../src/providers/paid-openai-text-execution-coordinator.ts", import.meta.url);
+const runwayUrl = new URL("../src/providers/runway-paid-execution-boundary.ts", import.meta.url);
+const workpieceUrl = new URL("../src/workpiece-commit-api.ts", import.meta.url);
+
+test("all eight OpenAI text routes map to aggregate capability terms", async () => {
+  const sql = await readFile(migrationUrl, "utf8");
+  const mappings = [
+    ["hearth.chat_completion", "openai.text.hearth_chat"],
+    ["hearth.research_synthesis", "openai.text.hearth_research"],
+    ["visual.unified_plan", "openai.text.visual_unified_plan"],
+    ["visual.narrative_interpretation", "openai.text.visual_narrative"],
+    ["motion.broll_interpretation", "openai.text.motion_broll"],
+    ["hammer.transcript_cleanup", "openai.text.hammer_cleanup"],
+    ["shorts.discovery", "openai.text.shorts_discovery"],
+    ["quench.metadata", "openai.text.quench_metadata"],
+  ];
+  for (const [route, capability] of mappings) {
+    assert.match(sql, new RegExp(`when '${route.replace(".", "\\.")}' then '${capability.replaceAll(".", "\\.")}'`, "i"));
+  }
+  assert.match(sql, /exact accepted funding and complete cost policy required/i);
+  assert.match(sql, /aggregate assignment cannot precede existing OpenAI route enforcement/i);
+});
+
+test("actual OpenAI and Runway provider boundaries use transactional aggregate authorization", async () => {
+  const [coordinator, runway, workpiece] = await Promise.all([
+    readFile(coordinatorUrl, "utf8"),
+    readFile(runwayUrl, "utf8"),
+    readFile(workpieceUrl, "utf8"),
+  ]);
+  assert.match(coordinator, /authorize_openai_text_provider_attempt_with_aggregate/);
+  assert.doesNotMatch(coordinator, /this\.rpc\("authorize_openai_text_provider_attempt",/);
+  assert.match(runway, /authorize_runway_submission_with_aggregate/);
+  assert.match(workpiece, /await this\.brollVideoProvider\.submit/);
+  assert.match(workpiece, /recordCanonicalSuccessForReconciliation/);
+  assert.ok(workpiece.lastIndexOf("recordCanonicalSuccessForReconciliation") > workpiece.indexOf('rpc("commit_broll_candidate"'));
+});
+
+test("outstanding exposure is not filtered by lease expiry or hold creation window", async () => {
+  const sql = await readFile(migrationUrl, "utf8");
+  const aggregateQuery = sql.match(/select coalesce\(sum\(h\.supplier_exposure_ceiling_micros[\s\S]+?if concurrent_count>=pol\.maximum_concurrency/i)?.[0] ?? "";
+  assert.ok(aggregateQuery);
+  assert.doesNotMatch(aggregateQuery, /h\.created_at\s*>/i);
+  assert.doesNotMatch(aggregateQuery, /lease_expires_at\s*>/i);
+  assert.match(aggregateQuery, /settled_unconfirmed/);
+  assert.match(aggregateQuery, /supplier_recovery/);
+});
+
+test("migration is private and inactive by default", async () => {
+  const sql = await readFile(migrationUrl, "utf8");
+  assert.doesNotMatch(sql, /insert into tongs\.paid_execution_aggregate_assignments/i);
+  assert.match(sql, /revoke all on tongs\.%I from public,anon,authenticated,service_role/i);
+  assert.match(sql, /platform operator required/i);
+});
+
+test("ordinary and background caller files reach the aggregate-wired adapters", async () => {
+  const root = new URL("../../../", import.meta.url);
+  const files = {
+    hearth: await readFile(new URL("apps/nursery/server/hearth/create-hearth-ai-handler.ts", root), "utf8"),
+    visual: await readFile(workpieceUrl, "utf8"),
+    hammer: await readFile(new URL("apps/nursery/scripts/mw-hammer-prep.ts", root), "utf8"),
+    shorts: await readFile(new URL("apps/nursery/scripts/hammer-shorts-discovery.ts", root), "utf8"),
+  };
+  assert.match(files.hearth, /executePaidJsonOpenAiRoute\([\s\S]+?routeCode:\s*"hearth\.research_synthesis"/);
+  for (const route of ["visual.unified_plan", "visual.narrative_interpretation", "motion.broll_interpretation"]) {
+    assert.match(files.visual, new RegExp(`executePaidOpenAiTextRoute\\([\\s\\S]+?routeCode:\\s*"${route.replaceAll(".", "\\.")}"`));
+  }
+  assert.match(files.hammer, /routeCode:\s*"hammer\.transcript_cleanup"[\s\S]+?callerClass:\s*"background"/);
+  assert.match(files.hammer, /routeCode:\s*"quench\.metadata"[\s\S]+?callerClass:\s*"background"/);
+  assert.match(files.shorts, /routeCode:\s*"shorts\.discovery"[\s\S]+?callerClass:\s*"background"/);
+});

@@ -9,6 +9,7 @@ import {
   type OpenAiTextGateClient,
 } from "../../../../packages/tongs/src/providers/paid-openai-text-execution-coordinator";
 import type { OpenAiTextRouteCode } from "../../../../packages/tongs/src/providers/openai-text-paid-boundary";
+import type { AggregateAdmissionCallerClass } from "../../../../packages/tongs/src/providers/aggregate-financial-admission";
 
 type JsonObject = Record<string, unknown>;
 
@@ -51,6 +52,7 @@ export async function executePaidJsonOpenAiRoute<
   workspaceId: string;
   workpieceId: string;
   credentialSource: OpenAiTextCredentialSource;
+  callerClass?: AggregateAdmissionCallerClass;
   apiKey: string;
   requestFingerprintPayload: unknown;
   providerRequestBody: (model: string) => JsonObject;
@@ -92,6 +94,7 @@ export async function executePaidJsonOpenAiRoute<
     workspaceId: args.workspaceId,
     workpieceId: args.workpieceId,
     credentialSource: args.credentialSource,
+    callerClass: args.callerClass,
     inputUnitUpperBound: new TextEncoder().encode(JSON.stringify(bodyForBound)).byteLength,
     requestFingerprintPayload: args.requestFingerprintPayload,
     executeProvider: async (context) => {
