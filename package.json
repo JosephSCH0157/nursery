@@ -19,6 +19,7 @@
     "test:db:openai-text-enforcement": "node scripts/verify-openai-text-enforcement-isolated.mjs",
     "test:db:openai-seven-test-certification": "pnpm --filter nursery exec tsx ../../scripts/certify-openai-seven-test-adapters.mts",
     "test:db:aggregate-paid-execution": "node scripts/verify-aggregate-paid-execution-isolated.mjs",
+    "test:db:openai-cost-reconciliation": "node scripts/verify-aggregate-paid-execution-isolated.mjs",
     "test:openai-reconciliation": "node --test scripts/test-openai-organization-reconciliation.mjs scripts/test-openai-model-visibility.mjs",
     "verify:openai-model-availability": "node scripts/verify-openai-model-availability.mjs",
     "typecheck:workspace": "pnpm -r --sort --workspace-concurrency=2 typecheck",

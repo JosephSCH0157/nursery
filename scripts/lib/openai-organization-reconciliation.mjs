@@ -101,6 +101,19 @@ export function normalizeOpenAiOrganizationEvidence({ costsPages, usagePages, pe
       cost_page_count: costsPages.length,
       usage_page_count: usagePages.length,
       operation_allocation_status: "unresolved",
+      matching_dimensions: {
+        organization: "organization scoped by the Admin API credential; no organization ID is returned in these rows",
+        project: "project_id",
+        reporting_interval: "daily bucket start_time/end_time",
+        costs: ["project_id", "api_key_id", "line_item"],
+        usage: ["project_id", "api_key_id", "model", "service_tier"],
+        request_identifier: "unavailable in organization Costs and completions Usage responses",
+      },
+      certainty: {
+        provider_total: "authoritative_at_reported_aggregate_granularity",
+        operation_usage: "provider_reported_usage_or_forge_capture",
+        operation_cost: "unresolved_until_exact_aggregate_completeness_or_external_request_level_evidence",
+      },
     },
   };
 }

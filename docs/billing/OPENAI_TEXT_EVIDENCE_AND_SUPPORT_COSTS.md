@@ -29,6 +29,8 @@ The current audit confirms that neither execution-key name is present in the **i
 
 ## Organization Costs and Usage reconciliation
 
+The connected ingestion, overlap/revision rules, accounting adjustments, and aggregate-exposure lifecycle are specified in [OPENAI_COST_RECONCILIATION.md](./OPENAI_COST_RECONCILIATION.md). The collector is no longer a storage-only endpoint: an accepted batch immediately applies only defensible allocations and leaves all other costs explicitly unmatched.
+
 The protected `main` workflow run `34370394386` collected the exact project from `2026-09-01T00:00:00Z` through `2026-09-09T15:27:45Z`. Because the end precedes the requested September 10 cutoff, this is an **incomplete September reporting period**. It ingested authoritative aggregate batch `ae608653-b19e-4cb8-865a-28a3e9db88be` with a source total of **$0.039058**. No operation-level allocation was defensible from the project/day/API-key/model aggregates, so matched cost is **$0**, the estimate-replacement adjustment is **$0**, and the unresolved source amount is **$0.039058**. Replay run `34370695200` returned the same batch ID with `replay: true`; it did not duplicate the batch or its cost.
 
 The historical `$0.490925` Forge-paid estimate remains a separate estimated/unreconciled amount. The new batch does not prove that it belongs to the same project, request set, or complete billing period. The numerical gap is **$0.451867**, but it is not an accounting adjustment and must not be booked as a recovery or correction. Request-level or invoice evidence is still required before replacing any pilot estimate.
