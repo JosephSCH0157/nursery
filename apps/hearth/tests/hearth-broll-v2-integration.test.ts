@@ -56,11 +56,13 @@ assert.match(hook, /quote\.requiresConfirmation/);
 assert.doesNotMatch(hook, /unexpectedly generated media before approval/);
 assert.match(hook, /identical completed Runway result already exists/);
 assert.match(hook, /setActiveOperation\("video"\)/);
-assert.match(hook, /confirmSpend: false/);
-assert.match(hook, /confirmSpend: true/);
-assert.match(hook, /window\.confirm\(quote\.authorizationMessage/);
-assert.match(hook, /Keep this page open until the verified video and preview appear/);
-assert.match(hook, /Generation cancelled\. No Runway video was submitted and no credits were spent/);
+assert.match(hook, /setSpendingQuote\(quote\.spendingQuote\)/);
+assert.match(hook, /const acceptSpendingQuote = useCallback/);
+assert.match(hook, /spendingQuote\.customerSpendingEnabled/);
+assert.match(hook, /spendingQuote\.fundingEligible/);
+assert.match(hook, /acceptedQuote: spendingQuote/);
+assert.doesNotMatch(hook, /window\.confirm/);
+assert.match(hook, /Generation cancelled\. No reservation was created and Runway was not called/);
 assert.doesNotMatch(hook, /Checking for an existing Runway generation/);
 assert.match(hook, /setMessage\(null\)/);
 
