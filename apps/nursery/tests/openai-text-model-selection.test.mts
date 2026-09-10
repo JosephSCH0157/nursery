@@ -32,7 +32,7 @@ test("draft and deprecated catalog records cannot become executable", () => {
 });
 
 test("server resolves an exact model before quote creation and model identity changes quote identity", () => {
-  const resolveIndex = funding.indexOf('"resolve_openai_text_model_for_quote"');
+  const resolveIndex = funding.indexOf('"resolve_openai_text_model_for_funding_quote"');
   const quoteIndex = funding.indexOf('"create_customer_openai_text_quote"');
   assert.ok(resolveIndex >= 0 && quoteIndex > resolveIndex);
   assert.match(funding, /catalogRevisionId.*modelCatalogEntryId.*providerModelId/s);

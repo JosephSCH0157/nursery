@@ -1,5 +1,7 @@
 # Restricted-beta financial-enforcement preparation
 
+> Owner-testing identity, organization-shared payer authority, Test refills, and the requested GPT-5.4 Mini lineup are superseded by [`HEARTH_ACCESS_AND_FUNDING.md`](./HEARTH_ACCESS_AND_FUNDING.md). Beta enrollment remains outside the revised plan.
+
 Status: prepared, inactive, and no-spend on 2026-09-09. This release adds admission and exposure-accounting machinery but enrolls nobody, publishes no price, chooses no budget or loss allowance, and changes no existing rollout mode.
 
 ## What the restricted-beta policy changes when activated

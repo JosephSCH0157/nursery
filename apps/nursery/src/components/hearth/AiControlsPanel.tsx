@@ -42,6 +42,12 @@ import {
   saveOpenAiTextModelPreference,
   type OpenAiTextModelChoiceSnapshot,
 } from "../../lib/hearth/openai-text-model-preference";
+import {
+  loadAiFundingOptions,
+  saveAiFundingPreference,
+  type AiFundingOptions,
+  type AiFundingPayerKind,
+} from "../../lib/hearth/ai-funding-preference";
 
 type Props = {
   onClose: () => void;
@@ -343,6 +349,10 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
   const [textModelLoading, setTextModelLoading] = React.useState(true);
   const [textModelSaving, setTextModelSaving] = React.useState(false);
   const [textModelError, setTextModelError] = React.useState<string | null>(null);
+  const [fundingOptions, setFundingOptions] = React.useState<AiFundingOptions | null>(null);
+  const [fundingLoading, setFundingLoading] = React.useState(false);
+  const [fundingSaving, setFundingSaving] = React.useState(false);
+  const [fundingError, setFundingError] = React.useState<string | null>(null);
   const [accelerateModalOpen, setAccelerateModalOpen] = React.useState(false);
   const [accelerateTab, setAccelerateTab] = React.useState<AccelerateLearningTab>("upload");
   const [pendingSamples, setPendingSamples] = React.useState<PendingStyleSample[]>([]);
@@ -401,6 +411,25 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
     });
     return () => { cancelled = true; };
   }, []);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    if (!workspaceId) {
+      setFundingOptions(null);
+      setFundingError(null);
+      return () => { cancelled = true; };
+    }
+    setFundingLoading(true);
+    setFundingError(null);
+    void loadAiFundingOptions(workspaceId).then((snapshot) => {
+      if (!cancelled) setFundingOptions(snapshot);
+    }).catch((error: unknown) => {
+      if (!cancelled) setFundingError(error instanceof Error ? error.message : "Unable to load funding choices.");
+    }).finally(() => {
+      if (!cancelled) setFundingLoading(false);
+    });
+    return () => { cancelled = true; };
+  }, [workspaceId]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -715,6 +744,20 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
       setTextModelError(error instanceof Error ? error.message : "Unable to save model preference.");
     } finally {
       setTextModelSaving(false);
+    }
+  }
+
+  async function updateFundingPreference(value: AiFundingPayerKind) {
+    if (!workspaceId || fundingSaving) return;
+    setFundingSaving(true);
+    setFundingError(null);
+    try {
+      await saveAiFundingPreference(workspaceId, value);
+      setFundingOptions(await loadAiFundingOptions(workspaceId));
+    } catch (error) {
+      setFundingError(error instanceof Error ? error.message : "Unable to save funding choice.");
+    } finally {
+      setFundingSaving(false);
     }
   }
 
@@ -1058,6 +1101,32 @@ export function AiControlsPanel({ onClose, workspaceId = null, workspaceRole = n
           <div className="forge-ai-panel__hint">More providers later.</div>
         </div>
       </div>
+
+      {settings.lane === "forge" ? (
+        <div className="forge-ai-panel__section">
+          <div className="forge-ai-panel__label">Who pays for this workspace?</div>
+          <div className="forge-ai-panel__row">
+            <select
+              aria-label="AI funding account"
+              value={fundingOptions?.selectedPayer ?? "personal"}
+              disabled={!workspaceId || fundingLoading || fundingSaving}
+              onChange={(event) => void updateFundingPreference(event.target.value as AiFundingPayerKind)}
+            >
+              {(fundingOptions?.options ?? [{ kind: "personal" as const, label: "My purchased credits", available: true, requiresActiveBudget: false }]).map((option) => (
+                <option key={option.kind} value={option.kind} disabled={!option.available}>
+                  {option.label}{option.available ? "" : " — unavailable"}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="forge-ai-panel__hint">
+            {fundingLoading ? "Loading server-authorized funding choices…" : fundingError ?? "Changing the payer requires a fresh quote. Forge never switches funding sources silently."}
+          </div>
+          {fundingOptions?.selectedPayer === "owner_testing" ? (
+            <div className="forge-ai-panel__hint">Owner testing has no customer charge or revenue. Real supplier costs still require a separately configured active cap.</div>
+          ) : null}
+        </div>
+      ) : null}
 
       <div className="forge-ai-panel__section">
         <div className="forge-ai-panel__label">Text model</div>
