@@ -101,6 +101,37 @@ export function confirmCustomerSpendingQuote(quote: CustomerSpendingQuote): bool
   ].filter(Boolean).join("\n\n"));
 }
 
+/**
+ * Shared creator-facing quote decision. An ineligible quote never creates an
+ * acceptance; it only offers navigation to the normal purchase screen. The
+ * original quote is intentionally abandoned so the creator must request and
+ * accept fresh terms after funding arrives.
+ */
+export function requestCustomerSpendingAcceptance(
+  quote: CustomerSpendingQuote,
+): CustomerSpendingAcceptance | null {
+  if (quote.funding_eligible) {
+    return confirmCustomerSpendingQuote(quote)
+      ? customerSpendingAcceptance(quote)
+      : null;
+  }
+
+  const shouldOpenBilling = globalThis.confirm([
+    "This operation needs verified purchased credits or a funded paid-plan allowance.",
+    quote.funding_label,
+    "Stripe Test credits and legacy compatibility balances cannot fund a real provider call.",
+    "Open Account & Billing to add credits? You will need to retry this action and accept a fresh quote after the payment is recorded.",
+  ].join("\n\n"));
+  if (!shouldOpenBilling) return null;
+
+  const location = globalThis.location;
+  if (location && typeof location.assign === "function") {
+    const returnTo = `${location.pathname || "/"}${location.search || ""}${location.hash || ""}`;
+    location.assign(`/app/subscriptions?funding=required&return_to=${encodeURIComponent(returnTo)}`);
+  }
+  return null;
+}
+
 function canonical(value: unknown): unknown {
   if (value === null || typeof value === "string" || typeof value === "boolean" || typeof value === "number") return value;
   if (Array.isArray(value)) return value.map(canonical);

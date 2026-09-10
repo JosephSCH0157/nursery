@@ -1,6 +1,6 @@
 import type { EpisodeBrollAssetCandidate, EpisodeBrollPlan, EpisodeBrollPlanBeat } from "./episode-package-v2";
 import { resolveTongsUserAccessToken, tongsFetch } from "./tongs-fetch";
-import { confirmCustomerSpendingQuote, customerSpendingAcceptance, readCustomerSpendingQuote } from "../../../../packages/tongs/src/customer-spending-confirmation";
+import { readCustomerSpendingQuote, requestCustomerSpendingAcceptance } from "../../../../packages/tongs/src/customer-spending-confirmation";
 
 type JsonRecord = Record<string, unknown>;
 export type CustomerRunwaySpendingQuote = {
@@ -332,8 +332,9 @@ export async function generateCanonicalBrollPrompt(args: { workspaceId: string; 
     const body = await json(response);
     if (response.ok) return readCanonicalBrollV2({ workspaceId: args.workspaceId, workpieceId: args.workpieceId });
     const quote = readCustomerSpendingQuote(body);
-    if (attempt === 0 && quote?.funding_eligible && confirmCustomerSpendingQuote(quote)) {
-      requestBody.spending_acceptance = customerSpendingAcceptance(quote);
+    const acceptance = attempt === 0 && quote ? requestCustomerSpendingAcceptance(quote) : null;
+    if (acceptance) {
+      requestBody.spending_acceptance = acceptance;
       continue;
     }
     const failed = failure(response, body, "Tongs could not generate the canonical motion prompt.");

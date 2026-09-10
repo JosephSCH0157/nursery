@@ -1,7 +1,7 @@
 import type { QuenchMetadataAssistDraft } from "@forge/quench";
 import { QUENCH_METADATA_ASSIST_ROUTE } from "@forge/quench";
 import { tongsFetch } from "../../../hammer/src/lib/tongsFetch";
-import { confirmCustomerSpendingQuote, customerSpendingAcceptance, deriveCustomerOperationId, readCustomerSpendingQuote } from "../../../../packages/tongs/src/customer-spending-confirmation";
+import { deriveCustomerOperationId, readCustomerSpendingQuote, requestCustomerSpendingAcceptance } from "../../../../packages/tongs/src/customer-spending-confirmation";
 
 function readString(value: unknown): string | null {
   if (typeof value !== "string") return null;
@@ -67,8 +67,9 @@ export async function requestQuenchMetadataAssist(args: {
     payload = await response.json().catch(() => null);
     if (response.ok) break;
     const quote = readCustomerSpendingQuote(payload);
-    if (attempt === 0 && quote?.funding_eligible && confirmCustomerSpendingQuote(quote)) {
-      requestBody.spending_acceptance = customerSpendingAcceptance(quote);
+    const acceptance = attempt === 0 && quote ? requestCustomerSpendingAcceptance(quote) : null;
+    if (acceptance) {
+      requestBody.spending_acceptance = acceptance;
       continue;
     }
     throw new Error(quote && !quote.funding_eligible

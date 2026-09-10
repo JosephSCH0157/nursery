@@ -91,6 +91,35 @@ type TestBillingSnapshot = {
   receipts: TestBillingReceipt[];
 };
 
+type CustomerFundingBucket = {
+  currency?: string;
+  available_micros?: number;
+  available_credit_units?: number;
+  reserved_micros?: number;
+  reserved_credit_units?: number;
+  gross_amount_micros?: number;
+  credit_units?: number;
+  deposit_count?: number;
+  available_revenue_micros?: number;
+  available_entitlement_units?: number;
+  live_provider_eligible: boolean;
+  reason?: string;
+};
+
+type CustomerFundingSnapshot = {
+  contract_version: "forge.customer-funding.v1";
+  live_verified_purchases: CustomerFundingBucket;
+  live_pending_fee_evidence: CustomerFundingBucket;
+  paid_allowances: CustomerFundingBucket;
+  test_funding: CustomerFundingBucket;
+  legacy_unverified: CustomerFundingBucket;
+  active_reservations: {
+    reservation_count: number;
+    reserved_customer_charge_micros: number;
+    reserved_credit_units: number;
+  };
+};
+
 type ForgeProfile = {
   user_id: string;
   display_name: string | null;
@@ -485,6 +514,16 @@ function formatTokenBalance(value: number | null): string {
   return Math.max(0, Math.floor(value)).toLocaleString();
 }
 
+function formatCurrencyMicros(value: number | null | undefined, currency = "USD"): string {
+  const amount = typeof value === "number" && Number.isFinite(value) ? value : 0;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency,
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 6,
+  }).format(amount / 1_000_000);
+}
+
 function formatStatusLabel(value: string | null | undefined): string {
   const normalized = normalizeLowerString(value);
   if (!normalized) return "--";
@@ -743,6 +782,12 @@ async function fetchTestBillingSnapshot(userId: string): Promise<TestBillingSnap
   return data as TestBillingSnapshot;
 }
 
+async function fetchCustomerFundingSnapshot(): Promise<CustomerFundingSnapshot> {
+  const { data, error } = await tongsBillingDb.rpc("read_my_customer_funding");
+  if (error) throw new Error(error.message || "Failed to load eligible customer funding.");
+  return data as CustomerFundingSnapshot;
+}
+
 function buildReturnUrl(): string {
   const currentUrl = new URL(window.location.href);
   const params = new URLSearchParams(currentUrl.search);
@@ -855,6 +900,9 @@ export default function SubscriptionsRoute() {
   const [testBilling, setTestBilling] = useState<TestBillingSnapshot | null>(null);
   const [testBillingLoading, setTestBillingLoading] = useState(false);
   const [testBillingError, setTestBillingError] = useState<string | null>(null);
+  const [customerFunding, setCustomerFunding] = useState<CustomerFundingSnapshot | null>(null);
+  const [customerFundingLoading, setCustomerFundingLoading] = useState(false);
+  const [customerFundingError, setCustomerFundingError] = useState<string | null>(null);
   const [planMessage, setPlanMessage] = useState<string | null>(null);
   const [storageMessage, setStorageMessage] = useState<string | null>(null);
   const [aiMessage, setAiMessage] = useState<string | null>(null);
@@ -927,6 +975,25 @@ export default function SubscriptionsRoute() {
     }
   }, [user]);
 
+  const refreshCustomerFunding = useCallback(async () => {
+    if (!user) {
+      setCustomerFunding(null);
+      setCustomerFundingError(null);
+      setCustomerFundingLoading(false);
+      return;
+    }
+    setCustomerFundingLoading(true);
+    try {
+      setCustomerFunding(await fetchCustomerFundingSnapshot());
+      setCustomerFundingError(null);
+    } catch (error) {
+      setCustomerFunding(null);
+      setCustomerFundingError(error instanceof Error ? error.message : "Failed to load eligible customer funding.");
+    } finally {
+      setCustomerFundingLoading(false);
+    }
+  }, [user]);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -954,6 +1021,9 @@ export default function SubscriptionsRoute() {
       setTestBilling(null);
       setTestBillingError(null);
       setTestBillingLoading(false);
+      setCustomerFunding(null);
+      setCustomerFundingError(null);
+      setCustomerFundingLoading(false);
       return () => {
         cancelled = true;
       };
@@ -981,21 +1051,25 @@ export default function SubscriptionsRoute() {
     void refreshAccountOverview();
     void refreshAiCredits();
     void refreshTestBilling();
+    void refreshCustomerFunding();
 
     return () => {
       cancelled = true;
     };
-  }, [refreshAccountOverview, refreshAiCredits, refreshTestBilling, user]);
+  }, [refreshAccountOverview, refreshAiCredits, refreshCustomerFunding, refreshTestBilling, user]);
 
   useEffect(() => {
     if (checkoutStatus !== "success") return;
-    const timer = window.setTimeout(() => {
+    // Stripe redirects can beat webhook delivery. Poll the canonical read models
+    // for a bounded period; no checkout URL or browser-supplied value grants funds.
+    const timers = [2500, 5000, 10000, 20000].map((delay) => window.setTimeout(() => {
       void refreshAccountOverview();
       void refreshAiCredits();
       void refreshTestBilling();
-    }, 2500);
-    return () => window.clearTimeout(timer);
-  }, [checkoutStatus, refreshAccountOverview, refreshAiCredits, refreshTestBilling]);
+      void refreshCustomerFunding();
+    }, delay));
+    return () => timers.forEach((timer) => window.clearTimeout(timer));
+  }, [checkoutStatus, refreshAccountOverview, refreshAiCredits, refreshCustomerFunding, refreshTestBilling]);
 
   useEffect(() => {
     if (profileEditOpen) return;
@@ -1070,6 +1144,11 @@ export default function SubscriptionsRoute() {
     ? "Some billing details are still syncing. A few fields may be limited until that finishes."
     : null;
   const hasAnyCheckoutNotice = Boolean(checkoutMessage);
+  const fundingRequired = useMemo(() => new URLSearchParams(location.search).get("funding") === "required", [location.search]);
+  const fundingReturnTo = useMemo(() => {
+    const value = new URLSearchParams(location.search).get("return_to")?.trim() ?? "";
+    return value.startsWith("/") && !value.startsWith("//") ? value : null;
+  }, [location.search]);
 
   async function handlePlanCheckout(plan: PlanChoice): Promise<void> {
     if (!user || !isConfiguredPriceId(plan.priceId) || planPending || founderAccessOnly) return;
@@ -1280,6 +1359,12 @@ export default function SubscriptionsRoute() {
               }`}
             >
               {checkoutMessage}
+            </p>
+          ) : null}
+          {fundingRequired ? (
+            <p className="subscriptions-status subscriptions-status--banner subscriptions-status--info">
+              Add enough Live credits for the operation ceiling, wait for the verified balance below, then return and request a fresh quote. No earlier request will run automatically.
+              {fundingReturnTo ? <> <Link to={fundingReturnTo}>Return to your work</Link>.</> : null}
             </p>
           ) : null}
           {accountOverviewError ? (
@@ -1652,8 +1737,26 @@ export default function SubscriptionsRoute() {
 
               <dl className="subscriptions-facts subscriptions-facts--compact">
                 <div>
-                  <dt>Current balance</dt>
-                  <dd>{aiLoading ? "Loading..." : `${formatTokenBalance(aiBalance)} credits`}</dd>
+                  <dt>Verified Live purchased funds</dt>
+                  <dd>{customerFundingLoading
+                    ? "Loading..."
+                    : `${formatCurrencyMicros(customerFunding?.live_verified_purchases.available_micros)} · ${formatTokenBalance(customerFunding?.live_verified_purchases.available_credit_units ?? 0)} credits available`}</dd>
+                </div>
+                <div>
+                  <dt>Currently reserved</dt>
+                  <dd>{customerFundingLoading
+                    ? "Loading..."
+                    : `${formatCurrencyMicros(customerFunding?.active_reservations.reserved_customer_charge_micros)} · ${formatTokenBalance(customerFunding?.active_reservations.reserved_credit_units ?? 0)} credits`}</dd>
+                </div>
+                <div>
+                  <dt>Paid-plan allowance</dt>
+                  <dd>{customerFundingLoading
+                    ? "Loading..."
+                    : `${formatCurrencyMicros(customerFunding?.paid_allowances.available_revenue_micros)} · ${formatTokenBalance(customerFunding?.paid_allowances.available_entitlement_units ?? 0)} units available`}</dd>
+                </div>
+                <div>
+                  <dt>Legacy display balance</dt>
+                  <dd>{aiLoading ? "Loading..." : `${formatTokenBalance(aiBalance)} credits · not eligible for the shared Live spending gate`}</dd>
                 </div>
                 <div>
                   <dt>Billing mode</dt>
@@ -1662,8 +1765,18 @@ export default function SubscriptionsRoute() {
               </dl>
 
               <p className="subscriptions-status subscriptions-status--info">
-                A completed Live AI Credit purchase becomes eligible for funded Runway operations only after Stripe fee evidence is recorded and a customer price is published and activated. Test receipts and legacy compatibility credits cannot fund a real provider call.
+                A completed Live AI Credit purchase becomes eligible only after its signed Stripe webhook and processor-fee evidence are recorded. Published pricing and route enforcement are separate controls. Test receipts and legacy compatibility credits cannot fund a real provider call.
               </p>
+              {(customerFunding?.live_pending_fee_evidence.deposit_count ?? 0) > 0 ? (
+                <p className="subscriptions-status subscriptions-status--info" role="status">
+                  {customerFunding?.live_pending_fee_evidence.deposit_count} Live purchase(s), totaling {formatCurrencyMicros(customerFunding?.live_pending_fee_evidence.gross_amount_micros)}, are recorded but not spendable while Stripe fee evidence is pending.
+                </p>
+              ) : null}
+              {customerFundingError ? (
+                <p className="subscriptions-status subscriptions-status--error" role="alert">
+                  Eligible funding is unavailable: {customerFundingError}
+                </p>
+              ) : null}
               <section aria-label="Stripe Test funding" className="subscriptions-status subscriptions-status--info">
                 <strong>Stripe Test funding</strong>
                 <p>
