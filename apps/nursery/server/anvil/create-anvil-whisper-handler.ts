@@ -886,9 +886,15 @@ export function createAnvilWhisperHandler(config: AnvilWhisperRuntimeConfig) {
         }
         const sourceBytes = new Uint8Array(await fileValue.arrayBuffer());
         const sourceSha256 = sha256Bytes(sourceBytes);
+        const tongsServiceRpc = supabaseService.schema("tongs") as unknown as {
+          rpc(name: string, args: Record<string, unknown>): Promise<{
+            data: unknown;
+            error: { message: string } | null;
+          }>;
+        };
         const serviceGate = {
           rpc: async (name: string, args: Record<string, unknown>) => {
-            const result = await (supabaseService.schema("tongs") as any).rpc(name, args);
+            const result = await tongsServiceRpc.rpc(name, args);
             return { data: result.data, error: result.error ? { message: result.error.message } : null };
           },
         };
