@@ -10,6 +10,11 @@ import {
   type OpenAiTextProviderResult,
 } from "./paid-openai-text-execution-coordinator.js";
 import type { AggregateAdmissionCallerClass } from "./aggregate-financial-admission.js";
+import type { OpenAiTranscriptionRouteCode } from "./openai-transcription-paid-boundary.js";
+
+export type CoordinatedOpenAiRouteCode =
+  | OpenAiTextRouteCode
+  | OpenAiTranscriptionRouteCode;
 
 export type OpenAiTextPaidExecutionHandle = {
   operationId: string;
@@ -54,7 +59,7 @@ export type PaidOpenAiTextRouteContext = {
   operationId: string;
   reservationId: string;
   quoteId: string;
-  routeCode: OpenAiTextRouteCode;
+  routeCode: CoordinatedOpenAiRouteCode;
   fundingSourceType:
     | "customer_deposit"
     | "paid_allowance"
@@ -72,6 +77,8 @@ export type PaidOpenAiTextRouteContext = {
   inputMicrosPerMillionTokens: number;
   cachedInputMicrosPerMillionTokens: number;
   outputMicrosPerMillionTokens: number;
+  audioInputMicrosPerMillionTokens: number;
+  textInputMicrosPerMillionTokens: number;
   reservationState: string;
 };
 
@@ -93,7 +100,7 @@ export type PaidOpenAiTextRouteOutcome<T> =
 
 type ExecutePaidOpenAiTextRouteArgs<TProvider, TCanonical extends Record<string, unknown>> = {
   gate: OpenAiTextGateClient;
-  routeCode: Exclude<OpenAiTextRouteCode, "hearth.chat_completion">;
+  routeCode: Exclude<CoordinatedOpenAiRouteCode, "hearth.chat_completion">;
   handle: OpenAiTextPaidExecutionHandle;
   userId: string;
   workspaceId: string | null;
@@ -157,7 +164,7 @@ function boundedInteger(
 
 function parseContext(value: unknown): PaidOpenAiTextRouteContext {
   const row = asRecord(value);
-  const routeCode = requiredString(row, "route_code") as OpenAiTextRouteCode;
+  const routeCode = requiredString(row, "route_code") as CoordinatedOpenAiRouteCode;
   const fundingSourceType = requiredString(row, "funding_source_type");
   const credentialFunding = requiredString(row, "credential_funding");
   if (
@@ -204,6 +211,12 @@ function parseContext(value: unknown): PaidOpenAiTextRouteContext {
       row,
       "output_micros_per_million_tokens",
     ),
+    audioInputMicrosPerMillionTokens: row.audio_input_micros_per_million_tokens == null
+      ? boundedInteger(row, "input_micros_per_million_tokens")
+      : boundedInteger(row, "audio_input_micros_per_million_tokens"),
+    textInputMicrosPerMillionTokens: row.text_input_micros_per_million_tokens == null
+      ? boundedInteger(row, "input_micros_per_million_tokens")
+      : boundedInteger(row, "text_input_micros_per_million_tokens"),
     reservationState: requiredString(row, "reservation_state"),
   };
 }

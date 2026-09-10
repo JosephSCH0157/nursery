@@ -27,6 +27,12 @@ import {
   readHammerForgeFfmpegClientConfig,
   transcodeToWorkingWavWithForgeFfmpeg,
 } from "../../scripts/hammer-forge-ffmpeg-client";
+import { configuredOpenAiTranscriptionMode } from "../../../../packages/tongs/src/providers/openai-transcription-paid-boundary";
+import { normalizeOpenAiTextPaidExecutionHandle } from "../../../../packages/tongs/src/providers/paid-openai-text-route-execution";
+import {
+  readOpenAiTranscriptionUsage,
+} from "../../../../packages/tongs/src/providers/paid-openai-transcription-route-execution";
+import { OpenAiTextPostPersistenceContinuationError } from "../../../../packages/tongs/src/providers/paid-openai-text-execution-coordinator";
 
 type WorkpieceJobRow = Database["tongs"]["Tables"]["workpiece_jobs"]["Row"];
 
@@ -532,6 +538,13 @@ class OpenAiTranscriptionError extends Error {
   }
 }
 
+class OpenAiTranscriptionSubmissionUnknownError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OpenAiTranscriptionSubmissionUnknownError";
+  }
+}
+
 type TranscriptAudioProbeDiagnostic = {
   canonical_media_path: string;
   byte_size: number;
@@ -789,7 +802,7 @@ async function runOpenAiTranscription(args: {
   contentType: string;
   filename: string;
   timeoutMs: number;
-}): Promise<{ provider_request_id: string | null; segments: HammerTranscriptPrepSegment[]; text: string | null }> {
+}): Promise<{ provider_request_id: string | null; segments: HammerTranscriptPrepSegment[]; text: string | null; usage: ReturnType<typeof readOpenAiTranscriptionUsage> }> {
   const form = new FormData();
   form.set("model", args.model);
   form.set("response_format", "diarized_json");
@@ -818,7 +831,10 @@ async function runOpenAiTranscription(args: {
       ? payload as Record<string, unknown>
       : {};
     const transcriptText = readTrimmed(payloadRow.text) ?? segments.map((seg) => seg.text).filter(Boolean).join(" ");
-    return { provider_request_id: providerRequestId, segments, text: transcriptText || null };
+    return { provider_request_id: providerRequestId, segments, text: transcriptText || null, usage: readOpenAiTranscriptionUsage(payload) };
+  } catch (error) {
+    if (error instanceof OpenAiTranscriptionError) throw error;
+    throw new OpenAiTranscriptionSubmissionUnknownError(error instanceof Error ? error.message : String(error));
   } finally {
     clearTimeout(timeoutId);
   }
@@ -901,7 +917,7 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
   if (!textApiKey) {
     throw new Error("Missing OPENAI_TEXT_API_KEY (or OPENAI_API_KEY) in server env.");
   }
-  const model = readTrimmed(process.env.HAMMER_TRANSCRIBE_MODEL) ?? "gpt-4o-transcribe-diarize";
+  let model = readTrimmed(process.env.HAMMER_TRANSCRIBE_MODEL) ?? "gpt-4o-transcribe-diarize";
   const timeoutMs = Math.max(30_000, Math.min(60 * 60 * 1000, Number(process.env.HAMMER_OPENAI_TRANSCRIBE_TIMEOUT_MS) || 15 * 60 * 1000));
 
   const { canonical_recording: canonical, revision } = await deps.service.readHammerRecordingRevision(
@@ -915,9 +931,62 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
   if (!sourcePath) {
     throw new Error("No canonical_workpiece_path available for transcript job.");
   }
+  const transcriptionMode = configuredOpenAiTranscriptionMode();
+  const paidExecution = normalizeOpenAiTextPaidExecutionHandle(payload.paid_execution);
+  const transcriptionAuthority = readJsonObject(payload.transcription_authority);
+  const routeCode = job.job_type === "hammer_transcript_regeneration"
+    ? "hammer.transcript_regeneration"
+    : "hammer.transcript_prep";
+  const financialGate = deps.service.supabase.schema("tongs") as unknown as {
+    rpc(name: string, args: Record<string, unknown>): Promise<{ data: unknown; error: { message?: string } | null }>;
+  };
+  let paidContext: Record<string, unknown> | null = null;
+  if (transcriptionMode === "halt_new") throw new Error("paid_submissions_halted");
+  if (transcriptionMode === "enforce") {
+    if (!paidExecution || !transcriptionAuthority) throw new Error("transcription_funding_context_required");
+    if (readTrimmed(transcriptionAuthority.route_code) !== routeCode
+      || readTrimmed(transcriptionAuthority.source_asset_revision) !== revisionId
+      || readTrimmed(transcriptionAuthority.output_contract) !== "forge.hammer.diarized-transcript.v1") {
+      throw new Error("transcription_source_authority_mismatch");
+    }
+    const resolved = await financialGate.rpc("resolve_openai_text_paid_execution_context", {
+      p_route_code: routeCode,
+      p_operation_id: paidExecution.operationId,
+      p_reservation_id: paidExecution.reservationId,
+      p_user_id: job.requested_by,
+      p_workspace_id: job.workspace_id,
+      p_workpiece_id: job.workpiece_id,
+      p_request_fingerprint: paidExecution.requestFingerprint,
+    });
+    if (resolved.error || !readJsonObject(resolved.data)) throw new Error(resolved.error?.message ?? "transcription_funding_context_required");
+    paidContext = readJsonObject(resolved.data);
+    model = readTrimmed(paidContext?.model) ?? model;
+    const admission = await financialGate.rpc("acquire_openai_text_aggregate_admission", {
+      p_reservation_id: paidExecution.reservationId,
+      p_caller_class: "background",
+      p_provider_mode: "real",
+    });
+    const admissionRow = readJsonObject(admission.data);
+    if (admission.error || admissionRow?.authorized !== true) {
+      await financialGate.rpc("release_operation", {
+        p_reservation_id: paidExecution.reservationId,
+        p_release_key: `${paidExecution.operationId}:aggregate-admission-denied`,
+        p_reason: readTrimmed(admissionRow?.reason) ?? "aggregate_admission_denied",
+        p_evidence_json: { provider: "openai", route_code: routeCode, transmitted: false },
+      });
+      throw new Error(admission.error?.message ?? "aggregate_admission_denied");
+    }
+  }
   await updateJobProgressPercent(deps.service, job.id, 5);
 
   const { bytes, contentType } = await downloadWorkpieceBytes(deps.service.supabase, deps.service.bucket, job.workpiece_id, sourcePath);
+  if (transcriptionMode === "enforce" && Number(transcriptionAuthority?.source_bytes) !== bytes.byteLength) {
+    throw new Error("transcription_source_size_changed_after_acceptance");
+  }
+  if (transcriptionMode === "enforce"
+    && readTrimmed(transcriptionAuthority?.source_sha256) !== crypto.createHash("sha256").update(bytes).digest("hex")) {
+    throw new Error("transcription_source_hash_changed_after_acceptance");
+  }
   await updateJobProgressPercent(deps.service, job.id, 15);
   const originalContentType = inferContentType(sourcePath, mimeTypeHint ?? contentType);
   if (job.job_type === "hammer_transcript_regeneration") {
@@ -982,6 +1051,22 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
   let selectedUploadMedia = uploadMedia;
   let openAiResult: Awaited<ReturnType<typeof runOpenAiTranscription>>;
   let fallbackAttempted = false;
+  const attemptKey = `${paidExecution?.operationId ?? job.id}:attempt:1`;
+  if (transcriptionMode === "enforce" && paidExecution && paidContext) {
+    const authorized = await financialGate.rpc("authorize_openai_text_provider_attempt_with_aggregate", {
+      p_reservation_id: paidExecution.reservationId,
+      p_attempt_key: attemptKey,
+      p_attempt_number: 1,
+      p_caller_class: "background",
+      p_failure_exposure_micros: Number(paidContext.maximum_failure_exposure_micros),
+      p_lease_seconds: 900,
+      p_evidence_json: { provider: "openai", route_code: routeCode, model, job_id: job.id },
+    });
+    const authorizedRow = readJsonObject(authorized.data);
+    if (authorized.error || authorizedRow?.provider_execution_authorized !== true) {
+      throw new Error(authorized.error?.message ?? "transcription_provider_attempt_not_authorized");
+    }
+  }
   try {
     const firstCandidate = directAcceptableForOpenAi
       ? {
@@ -1005,7 +1090,8 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
       timeoutMs,
     });
   } catch (error) {
-    const shouldFallbackToTranscode = error instanceof OpenAiTranscriptionError
+    const shouldFallbackToTranscode = transcriptionMode !== "enforce"
+      && error instanceof OpenAiTranscriptionError
       && directAcceptableForOpenAi
       && isLikelyUnsupportedAudioUpload(error.status, error.detail);
     if (!shouldFallbackToTranscode) throw error;
@@ -1037,6 +1123,38 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
       }
       throw fallbackError;
     }
+  }
+  let estimatedSupplierCostMicros: number | null = null;
+  const supportingCostMicros = transcriptionMode === "enforce" ? Number(paidContext?.supporting_cost_ceiling_micros) : 0;
+  if (transcriptionMode === "enforce" && paidExecution && paidContext) {
+    const audioRate = Number(paidContext.audio_input_micros_per_million_tokens ?? paidContext.input_micros_per_million_tokens);
+    const textRate = Number(paidContext.text_input_micros_per_million_tokens ?? paidContext.input_micros_per_million_tokens);
+    const outputRate = Number(paidContext.output_micros_per_million_tokens);
+    if (openAiResult.usage.providerReported && [audioRate, textRate, outputRate].every(Number.isSafeInteger)) {
+      estimatedSupplierCostMicros = Math.ceil((
+        openAiResult.usage.audioInputTokens * audioRate
+        + openAiResult.usage.textInputTokens * textRate
+        + openAiResult.usage.outputTokens * outputRate
+      ) / 1_000_000);
+      if (estimatedSupplierCostMicros > Number(paidContext.direct_provider_ceiling_micros)) {
+        throw new Error("transcription_provider_cost_exceeded_accepted_ceiling");
+      }
+    }
+    const captured = await financialGate.rpc("record_openai_text_provider_capture", {
+      p_capture_id: crypto.randomUUID(), p_reservation_id: paidExecution.reservationId,
+      p_capture_key: `${attemptKey}:provider-capture`, p_provider_request_id: openAiResult.provider_request_id,
+      p_attempt_number: 1, p_input_units: openAiResult.usage.audioInputTokens + openAiResult.usage.textInputTokens,
+      p_output_units: openAiResult.usage.outputTokens,
+      p_response_evidence_json: { operation_kind: "audio_transcription", route_code: routeCode, audio_input_tokens: openAiResult.usage.audioInputTokens, text_input_tokens: openAiResult.usage.textInputTokens, output_tokens: openAiResult.usage.outputTokens, provider_reported_usage: openAiResult.usage.providerReported },
+    });
+    if (captured.error) throw new Error(captured.error.message ?? "transcription_provider_capture_failed");
+    const expensed = await financialGate.rpc("record_openai_text_supplier_attempt_expense", {
+      p_reservation_id: paidExecution.reservationId, p_attempt_key: attemptKey, p_attempt_number: 1,
+      p_provider_reference: openAiResult.provider_request_id, p_amount_micros: estimatedSupplierCostMicros,
+      p_evidence_status: estimatedSupplierCostMicros == null ? "unresolved" : "estimated",
+      p_evidence_json: { operation_kind: "audio_transcription", route_code: routeCode, authoritative: false },
+    });
+    if (expensed.error) throw new Error(expensed.error.message ?? "transcription_supplier_expense_capture_failed");
   }
   await updateJobProgressPercent(deps.service, job.id, 70);
 
@@ -1188,6 +1306,48 @@ async function runTranscriptJob(deps: RunnerDeps, job: WorkpieceJobRow): Promise
     ...(typeof result.uncertain_count_after === "number" ? { uncertain_after: result.uncertain_count_after } : {}),
   });
 
+  if (transcriptionMode === "enforce" && paidExecution) {
+    try {
+      const usageRecorded = await financialGate.rpc("record_openai_text_usage", {
+      p_evidence_id: crypto.randomUUID(), p_reservation_id: paidExecution.reservationId,
+      p_evidence_key: `${attemptKey}:usage`, p_provider_request_id: openAiResult.provider_request_id,
+      p_attempt_number: 1, p_input_units: openAiResult.usage.audioInputTokens + openAiResult.usage.textInputTokens,
+      p_output_units: openAiResult.usage.outputTokens, p_provider_reported: openAiResult.usage.providerReported,
+      p_result_validated: true, p_canonical_persistence_confirmed: true,
+      p_evidence_json: { operation_kind: "audio_transcription", route_code: routeCode, job_id: job.id },
+    });
+      if (usageRecorded.error) throw new Error(usageRecorded.error.message ?? "transcription_usage_record_failed");
+      const fulfillmentCost = estimatedSupplierCostMicros == null
+        ? supportingCostMicros
+        : estimatedSupplierCostMicros + supportingCostMicros;
+      const closed = await financialGate.rpc("close_openai_text_failure_exposure", {
+      p_reservation_id: paidExecution.reservationId, p_attempt_key: attemptKey,
+      p_outcome: "success_released", p_actual_supplier_cost_micros: estimatedSupplierCostMicros,
+      p_evidence_json: { operation_kind: "audio_transcription", route_code: routeCode, authoritative: false },
+    });
+      if (closed.error) throw new Error(closed.error.message ?? "transcription_attempt_close_failed");
+      const settled = await financialGate.rpc("settle_operation", {
+      p_reservation_id: paidExecution.reservationId,
+      p_settlement_id: crypto.createHash("sha256").update(`${paidExecution.operationId}:settlement`).digest("hex").slice(0, 8) + "-0000-4000-8000-" + crypto.createHash("sha256").update(`${paidExecution.operationId}:settlement`).digest("hex").slice(12, 24),
+      p_settlement_key: `${paidExecution.operationId}:settlement`, p_outcome: "success", p_failure_class: null,
+      p_actual_fulfillment_cost_micros: fulfillmentCost,
+      p_evidence_json: { provider: "openai", operation_kind: "audio_transcription", route_code: routeCode, provider_request_id: openAiResult.provider_request_id, authoritative: false, cost_coverage: estimatedSupplierCostMicros == null ? "incomplete" : "estimated" },
+    });
+      if (settled.error) throw new Error(settled.error.message ?? "transcription_settlement_failed");
+      const aggregated = await financialGate.rpc("record_paid_operation_aggregate_outcome", {
+      p_reservation_id: paidExecution.reservationId, p_event_key: `${attemptKey}:aggregate-success`,
+      p_outcome: "settled_unconfirmed", p_supplier_obligation_micros: estimatedSupplierCostMicros == null ? null : fulfillmentCost,
+      p_supplier_recovery_micros: null, p_evidence_json: { provider: "openai", operation_kind: "audio_transcription", route_code: routeCode, authoritative: false },
+    });
+      if (aggregated.error) throw new Error(aggregated.error.message ?? "transcription_aggregate_settlement_failed");
+    } catch (error) {
+      throw new OpenAiTextPostPersistenceContinuationError(
+        "Hammer transcript persisted but its billing continuation requires reconciliation.",
+        { cause: error },
+      );
+    }
+  }
+
   return result;
 }
 
@@ -1274,6 +1434,55 @@ async function tickRunner(deps: RunnerDeps, state: RunnerState): Promise<void> {
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const failedPayload = readJsonObject(job.payload_json) ?? {};
+      const failedHandle = normalizeOpenAiTextPaidExecutionHandle(failedPayload.paid_execution);
+      if (configuredOpenAiTranscriptionMode() === "enforce" && failedHandle) {
+        const gate = deps.service.supabase.schema("tongs") as unknown as {
+          rpc(name: string, args: Record<string, unknown>): Promise<{ data: unknown; error: { message?: string } | null }>;
+        };
+        const routeCode = job.job_type === "hammer_transcript_regeneration" ? "hammer.transcript_regeneration" : "hammer.transcript_prep";
+        const attemptKey = `${failedHandle.operationId}:attempt:1`;
+        if (error instanceof OpenAiTranscriptionSubmissionUnknownError) {
+          await gate.rpc("close_openai_text_failure_exposure", { p_reservation_id: failedHandle.reservationId, p_attempt_key: attemptKey, p_outcome: "unresolved", p_actual_supplier_cost_micros: null, p_evidence_json: { route_code: routeCode, job_id: job.id, reason: message } }).catch(() => undefined);
+          await gate.rpc("mark_submission_unknown", { p_reservation_id: failedHandle.reservationId, p_event_key: `${attemptKey}:submission-unknown`, p_attempt_key: attemptKey, p_evidence_json: { route_code: routeCode, job_id: job.id, reason: message } }).catch(() => undefined);
+          await gate.rpc("record_paid_operation_aggregate_outcome", { p_reservation_id: failedHandle.reservationId, p_event_key: `${attemptKey}:aggregate-ambiguous`, p_outcome: "ambiguous", p_supplier_obligation_micros: null, p_supplier_recovery_micros: null, p_evidence_json: { route_code: routeCode, job_id: job.id, reason: message } }).catch(() => undefined);
+        } else if (error instanceof OpenAiTextPostPersistenceContinuationError) {
+          await gate.rpc("record_paid_operation_aggregate_outcome", { p_reservation_id: failedHandle.reservationId, p_event_key: `${attemptKey}:aggregate-post-persistence-unresolved`, p_outcome: "ambiguous", p_supplier_obligation_micros: null, p_supplier_recovery_micros: null, p_evidence_json: { route_code: routeCode, job_id: job.id, reason: message, phase: "post_persistence_billing_continuation", provider_resubmission_allowed: false } }).catch(() => undefined);
+        } else {
+          const expenseReader = deps.service.supabase.schema("tongs") as unknown as {
+            from(name: string): {
+              select(columns: string): {
+                eq(column: string, value: string): {
+                  maybeSingle(): Promise<{ data: { amount_micros?: number | string | null } | null; error: { message?: string } | null }>;
+                };
+              };
+            };
+          };
+          const existingExpense = await expenseReader.from("supplier_expenses").select("amount_micros")
+            .eq("expense_key", `${attemptKey}:supplier-expense`).maybeSingle().catch(() => ({ data: null, error: null }));
+          let supplierObligationMicros: number | null = null;
+          if (existingExpense.data?.amount_micros != null) {
+            const parsed = Number(existingExpense.data.amount_micros);
+            supplierObligationMicros = Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : null;
+          } else {
+            await gate.rpc("record_openai_text_supplier_attempt_expense", {
+              p_reservation_id: failedHandle.reservationId, p_attempt_key: attemptKey, p_attempt_number: 1,
+              p_provider_reference: null, p_amount_micros: null, p_evidence_status: "unresolved",
+              p_evidence_json: { operation_kind: "audio_transcription", route_code: routeCode, job_id: job.id, reason: message, provider_charge_possible: true },
+            }).catch(() => undefined);
+          }
+          await gate.rpc("close_openai_text_failure_exposure", { p_reservation_id: failedHandle.reservationId, p_attempt_key: attemptKey, p_outcome: "failure_realized", p_actual_supplier_cost_micros: supplierObligationMicros, p_evidence_json: { route_code: routeCode, job_id: job.id, reason: message } }).catch(() => undefined);
+          await gate.rpc("record_provider_failure", { p_reservation_id: failedHandle.reservationId, p_event_key: `${attemptKey}:background-failure`, p_failure_class: error instanceof OpenAiTranscriptionError ? "provider_failure" : "forge_failure", p_evidence_json: { route_code: routeCode, job_id: job.id, reason: message } }).catch(() => undefined);
+          await gate.rpc("settle_openai_customer_failure_without_duplicate_expense", {
+            p_reservation_id: failedHandle.reservationId,
+            p_relief_id: crypto.createHash("sha256").update(`${failedHandle.operationId}:failure-settlement`).digest("hex").slice(0, 8) + "-0000-4000-8000-" + crypto.createHash("sha256").update(`${failedHandle.operationId}:failure-settlement`).digest("hex").slice(12, 24),
+            p_event_key: `${failedHandle.operationId}:failure-settlement`,
+            p_failure_class: error instanceof OpenAiTranscriptionError ? "provider_failure" : "forge_failure",
+            p_evidence_json: { provider: "openai", route_code: routeCode, customer_charge_micros: 0, supplier_obligation_status: supplierObligationMicros == null ? "preserved_unresolved" : "preserved_estimated", supplier_obligation_micros: supplierObligationMicros, reason: message },
+          }).catch(() => undefined);
+          await gate.rpc("record_paid_operation_aggregate_outcome", { p_reservation_id: failedHandle.reservationId, p_event_key: `${attemptKey}:aggregate-failure`, p_outcome: "failure", p_supplier_obligation_micros: supplierObligationMicros, p_supplier_recovery_micros: null, p_evidence_json: { route_code: routeCode, job_id: job.id, reason: message } }).catch(() => undefined);
+        }
+      }
       const transcriptPreflightDiagnostic = error instanceof TranscriptAudioPreflightError
         ? error.diagnostic
         : null;
@@ -1302,7 +1511,11 @@ async function tickRunner(deps: RunnerDeps, state: RunnerState): Promise<void> {
         lease_expires_at: null,
         heartbeat_at: new Date().toISOString(),
         progress_percent: null,
-        error_code: transcriptPreflightDiagnostic ? "AUDIO_PREFLIGHT_FAILED" : "JOB_FAILED",
+        error_code: error instanceof OpenAiTranscriptionSubmissionUnknownError
+          ? "SUBMISSION_UNKNOWN"
+          : error instanceof OpenAiTextPostPersistenceContinuationError
+            ? "BILLING_RECONCILIATION_REQUIRED"
+          : transcriptPreflightDiagnostic ? "AUDIO_PREFLIGHT_FAILED" : "JOB_FAILED",
         error_message: message,
         ...(transcriptPreflightDiagnostic
           ? {

@@ -126,3 +126,7 @@ export function resolveActiveWorkpieceId(): string | null {
   if (direct) return direct;
   return loadCachedWorkpiece(resolveWorkspaceId());
 }
+
+export function resolveActiveWorkspaceId(): string | null {
+  return resolveWorkspaceId();
+}

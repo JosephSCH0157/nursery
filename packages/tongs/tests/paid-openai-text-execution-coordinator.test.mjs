@@ -105,10 +105,12 @@ test("provider charge on failure is a Forge expense and customer charge is zero"
     },
   }));
   assert.deepEqual(result, { state: "failed_released", customerChargeMicros: 0, supplierCostMicros: 230000, attempts: 1 });
-  const settlement = g.calls.find((call) => call.name === "settle_operation");
-  assert.equal(settlement.name, "settle_operation");
-  assert.equal(settlement.args.p_outcome, "nonbillable_failure");
-  assert.equal(settlement.args.p_actual_fulfillment_cost_micros, 230000);
+  const settlement = g.calls.find((call) => call.name === "settle_openai_customer_failure_without_duplicate_expense");
+  assert.equal(settlement.name, "settle_openai_customer_failure_without_duplicate_expense");
+  assert.equal(settlement.args.p_failure_class, "provider_failure");
+  assert.equal(settlement.args.p_evidence_json.supplier_cost_micros, 230000);
+  assert.equal(g.calls.filter((call) => call.name === "record_openai_text_supplier_attempt_expense").length, 1);
+  assert.equal(g.calls.some((call) => call.name === "settle_operation"), false);
 });
 
 test("a bounded retry obtains a fresh loss hold and settles exactly once", async () => {

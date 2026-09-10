@@ -48,7 +48,15 @@ const MODEL_PRICING_USD_PER_MILLION: Record<string, ModelPricingPerMillion> = {
   },
   "gpt-4o-mini-transcribe": {
     inputUsdPerMillion: 1.25,
-    outputUsdPerMillion: 1.25,
+    outputUsdPerMillion: 5,
+  },
+  "gpt-4o-transcribe": {
+    inputUsdPerMillion: 2.5,
+    outputUsdPerMillion: 10,
+  },
+  "gpt-4o-transcribe-diarize": {
+    inputUsdPerMillion: 2.5,
+    outputUsdPerMillion: 10,
   },
   "gpt-image-1": {
     inputUsdPerMillion: 5,
@@ -83,6 +91,9 @@ function resolvePricingModel(model: string | null | undefined): string {
   if (normalized.startsWith("gpt-5.2")) return "gpt-5.2";
   if (normalized.startsWith("gpt-5.1")) return "gpt-5.1";
   if (normalized.startsWith("gpt-5")) return "gpt-5.3";
+  if (normalized.startsWith("gpt-4o-transcribe-diarize")) return "gpt-4o-transcribe-diarize";
+  if (normalized.startsWith("gpt-4o-transcribe")) return "gpt-4o-transcribe";
+  if (normalized.startsWith("gpt-4o-mini-transcribe")) return "gpt-4o-mini-transcribe";
   if (normalized.startsWith("gpt-4o-mini")) return "gpt-4o-mini";
   if (normalized.startsWith("gpt-4o")) return "gpt-4o";
   return DEFAULT_SAFE_MODEL;

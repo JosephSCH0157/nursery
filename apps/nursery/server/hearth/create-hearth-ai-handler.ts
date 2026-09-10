@@ -31,6 +31,22 @@ import {
 } from "../../../../packages/tongs/src/providers/openai-text-customer-funding";
 import { executePaidJsonOpenAiRoute } from "../billing/paid-json-openai-route";
 import {
+  coordinateOpenAiTranscription,
+  OpenAiTextFundingPreparationError as OpenAiTranscriptionFundingPreparationError,
+  OpenAiTextQuoteRequiredError as OpenAiTranscriptionQuoteRequiredError,
+  sha256Bytes,
+} from "../billing/paid-openai-transcription-route";
+import {
+  configuredOpenAiTranscriptionMode,
+  executeOpenAiTranscriptionTransport,
+} from "../../../../packages/tongs/src/providers/openai-transcription-paid-boundary";
+import {
+  normalizeOpenAiTextPaidExecutionHandle,
+} from "../../../../packages/tongs/src/providers/paid-openai-text-route-execution";
+import { OpenAiTextProviderError } from "../../../../packages/tongs/src/providers/paid-openai-text-execution-coordinator";
+import { normalizeOpenAiTextSpendingAcceptance } from "../../../../packages/tongs/src/providers/openai-text-customer-funding";
+import { readOpenAiTranscriptionUsage } from "../../../../packages/tongs/src/providers/paid-openai-transcription-route-execution";
+import {
   HEARTH_AI_ROUTES,
   isHearthAiLane as isBillingMode,
   normalizeEpisodeContext,
@@ -207,6 +223,9 @@ type SttReqBody = {
   mime_type?: unknown;
   lane?: unknown;
   action_id?: unknown;
+  workspace_id?: unknown;
+  paid_execution?: unknown;
+  spending_acceptance?: unknown;
 };
 
 type AiKeysConnectReqBody = {
@@ -215,6 +234,9 @@ type AiKeysConnectReqBody = {
   key_label?: unknown;
   provider_account_id?: unknown;
   validation_mode?: unknown;
+  workspace_id?: unknown;
+  paid_execution?: unknown;
+  spending_acceptance?: unknown;
 };
 
 type AiKeysDisconnectReqBody = {
@@ -3374,6 +3396,188 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
             error: "Audio file exceeds 10MB limit.",
             ...buildBillingSnapshot(lane),
           });
+        }
+
+        const transcriptionMode = configuredOpenAiTranscriptionMode();
+        if (transcriptionMode === "halt_new") {
+          return jsonResponse(423, {
+            ok: false,
+            error: "New transcription submissions are halted while existing operations remain available for reconciliation.",
+            code: "paid_submissions_halted",
+            ...buildBillingSnapshot(lane),
+          });
+        }
+        if (transcriptionMode === "enforce") {
+          const workspaceId = readOptionalString(bodyRaw.workspace_id);
+          if (!workspaceId || !isUuid(workspaceId) || !openAiTextGate || !bearerToken) {
+            return jsonResponse(401, {
+              ok: false,
+              error: "Authenticated workspace funding is required for transcription.",
+              code: "transcription_funding_context_required",
+              ...buildBillingSnapshot(lane),
+            });
+          }
+          const paidExecution = normalizeOpenAiTextPaidExecutionHandle(bodyRaw.paid_execution);
+          const spendingAcceptance = normalizeOpenAiTextSpendingAcceptance(bodyRaw.spending_acceptance);
+          if ((bodyRaw.paid_execution != null && !paidExecution)
+            || (bodyRaw.spending_acceptance != null && !spendingAcceptance)) {
+            return jsonResponse(400, {
+              ok: false,
+              error: "Invalid transcription funding context.",
+              code: "invalid_paid_execution_context",
+              ...buildBillingSnapshot(lane),
+            });
+          }
+          const audioBytes = new Uint8Array(await audioBlob.arrayBuffer());
+          const sourceSha256 = sha256Bytes(audioBytes);
+          let capturedProviderRequestId: string | null = null;
+          try {
+            const coordinated = await executeOpenAiTranscriptionTransport({
+              mode: transcriptionMode,
+              executeLegacy: async () => {
+                throw new Error("legacy_transcription_unreachable_in_enforce_mode");
+              },
+              coordinatedExecution: () => coordinateOpenAiTranscription({
+                routeCode: "hearth.speech_transcription",
+                userId,
+                workspaceId,
+                workpieceId,
+                model: sttModel,
+                credentialSource: resolvedCredentials.keySource === "user_byo" ? "user_byo" : "forge_managed",
+                serviceGate: openAiTextGate,
+                userGate: {
+                  rpc: async (name, payload) => {
+                    const result = await callUserScopedTongsRpc({ accessToken: bearerToken, fn: name, payload });
+                    return result.ok ? { data: result.data, error: null } : { data: null, error: { message: result.error } };
+                  },
+                },
+                paidExecution,
+                acceptance: spendingAcceptance,
+                source: {
+                  assetRevision: storageKey,
+                  sha256: sourceSha256,
+                  bytes: audioBytes.byteLength,
+                  maximumDurationSeconds: null,
+                  maximumChunks: 1,
+                  outputContract: "forge.hearth.speech-transcript.v1",
+                  providerInputUnitUpperBound: 16_000,
+                },
+                requestTerms: { mime_type: mimeType || audioBlob.type || null, action_id: sttActionId },
+                callerClass: "interactive",
+                executeProvider: async (context) => {
+                  const form = new FormData();
+                  form.set("model", context.model);
+                  form.set("file", new Blob([audioBytes], { type: mimeType || audioBlob.type || "audio/webm" }), `speech.${inferAudioExtension(mimeType || audioBlob.type || null, storageKey)}`);
+                  let upstream: Response;
+                  try {
+                    upstream = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+                      method: "POST",
+                      headers: { authorization: `Bearer ${resolvedCredentials.apiKey}` },
+                      body: form,
+                      signal: request.signal,
+                    });
+                  } catch (error) {
+                    throw new OpenAiTextProviderError("OpenAI transcription submission outcome is uncertain", true, null, {
+                      error: error instanceof Error ? error.message : String(error),
+                    });
+                  }
+                  const providerRequestId = upstream.headers.get("x-request-id");
+                  capturedProviderRequestId = providerRequestId;
+                  const raw = await upstream.text();
+                  let payload: unknown = {};
+                  try { payload = JSON.parse(raw); } catch { payload = {}; }
+                  if (!upstream.ok) {
+                    throw new OpenAiTextProviderError("OpenAI rejected the bounded transcription request", false, null, {
+                      provider_reference: providerRequestId,
+                      status: upstream.status,
+                      detail: raw.slice(0, 2_000),
+                    });
+                  }
+                  return {
+                    value: payload,
+                    requestId: providerRequestId,
+                    usage: readOpenAiTranscriptionUsage(payload),
+                    evidence: { provider_reference: providerRequestId, response_captured: true },
+                  };
+                },
+                validateResult: (payload) => {
+                  if (!extractTranscriptionText(payload)) throw new Error("OpenAI returned empty transcription");
+                },
+                persistCanonical: async (payload, operationId, reservationId) => {
+                  const text = extractTranscriptionText(payload);
+                  const persisted = await openAiTextGate.rpc("persist_openai_transcription_result", {
+                    p_operation_id: operationId,
+                    p_reservation_id: reservationId,
+                    p_route_code: "hearth.speech_transcription",
+                    p_user_id: userId,
+                    p_workspace_id: workspaceId,
+                    p_workpiece_id: workpieceId,
+                    p_source_sha256: sourceSha256,
+                    p_provider_request_id: capturedProviderRequestId,
+                    p_transcript_json: { text, schema: "forge.hearth.speech-transcript.v1" },
+                  });
+                  if (persisted.error) throw new Error(persisted.error.message);
+                  return { text, schema: "forge.hearth.speech-transcript.v1" };
+                },
+              }),
+            });
+            if (coordinated.state !== "settled" && coordinated.state !== "settled_replay") {
+              return jsonResponse(coordinated.state === "submission_unknown" ? 202 : 502, {
+                ok: false,
+                error: coordinated.state === "submission_unknown"
+                  ? "The provider submission is unresolved. Forge will not resubmit automatically."
+                  : "Transcription failed. Your customer charge is $0.",
+                code: coordinated.state,
+                ...buildBillingSnapshot(lane),
+              });
+            }
+            await supabaseService.storage.from(sttBucket).remove([storageKey]).catch(() => undefined);
+            return jsonResponse(200, {
+              ok: true,
+              text: typeof coordinated.result.text === "string" ? coordinated.result.text : "",
+              provider_request_id: coordinated.requestId,
+              customer_charge_micros: coordinated.customerChargeMicros,
+              billing_receipt: {
+                operation_id: coordinated.operationId,
+                reservation_id: coordinated.reservationId,
+                customer_charge_micros: coordinated.customerChargeMicros,
+              },
+              ...buildBillingSnapshot(lane),
+              ...resolutionSnapshot,
+            });
+          } catch (error) {
+            if (error instanceof OpenAiTranscriptionQuoteRequiredError) {
+              return jsonResponse(error.quote.fundingEligible ? 409 : 402, {
+                ok: false,
+                error: error.message,
+                code: "transcription_spending_confirmation_required",
+                billing_quote: {
+                  quote_id: error.quote.quoteId,
+                  operation_id: error.quote.operationId,
+                  quote_hash: error.quote.quoteHash,
+                  request_fingerprint: error.quote.requestFingerprint,
+                  currency: error.quote.currency,
+                  maximum_customer_charge_micros: error.quote.maximumCustomerChargeMicros,
+                  failure_customer_charge_micros: 0,
+                  failure_terms: error.quote.failureTerms,
+                  funding_eligible: error.quote.fundingEligible,
+                  funding_source: error.quote.fundingSource,
+                  funding_label: error.quote.fundingLabel,
+                  model_display_name: error.quote.modelDisplayName,
+                  provider_model_id: error.quote.providerModelId,
+                  model_tradeoff_summary: error.quote.modelTradeoffSummary,
+                  catalog_revision: error.quote.catalogRevision,
+                  estimated_customer_charge_micros: error.quote.estimatedCustomerChargeMicros,
+                  expires_at: error.quote.expiresAt,
+                },
+                ...buildBillingSnapshot(lane),
+              });
+            }
+            if (error instanceof OpenAiTranscriptionFundingPreparationError) {
+              return jsonResponse(error.status, { ok: false, error: error.message, code: error.code, ...error.details, ...buildBillingSnapshot(lane) });
+            }
+            throw error;
+          }
         }
 
         const ext = inferAudioExtension(mimeType || audioBlob.type || null, storageKey);

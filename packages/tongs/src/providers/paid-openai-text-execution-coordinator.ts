@@ -1,9 +1,10 @@
-import { OpenAiTextBoundaryError, type OpenAiTextRouteCode } from "./openai-text-paid-boundary.js";
+import { OpenAiTextBoundaryError } from "./openai-text-paid-boundary.js";
 import {
   AggregateFinancialAdmissionCoordinator,
   type AggregateAdmissionCallerClass,
   type AggregateProviderMode,
 } from "./aggregate-financial-admission.js";
+import type { CoordinatedOpenAiRouteCode } from "./paid-openai-text-route-execution.js";
 
 type RpcResult = { data: unknown; error: { message: string } | null };
 export type OpenAiTextGateClient = { rpc(name: string, args: Record<string, unknown>): Promise<RpcResult> };
@@ -59,7 +60,7 @@ export type OpenAiTextProviderResult<T> = {
 };
 
 export type PaidOpenAiTextExecutionInput<T> = {
-  routeCode: OpenAiTextRouteCode;
+  routeCode: CoordinatedOpenAiRouteCode;
   reservationId: string;
   quoteId: string;
   fundingSourceType: "customer_deposit" | "paid_allowance" | "owner_budget" | "none";
@@ -481,7 +482,23 @@ export class PaidOpenAiTextExecutionCoordinator {
     supplierCostComplete: boolean,
     evidence: Record<string, unknown>,
   ): Promise<void> {
-    const settleRpc = input.fundingSourceType === "owner_budget" ? "settle_owner_operation" : "settle_operation";
+    if (input.fundingSourceType !== "owner_budget") {
+      await this.rpc("settle_openai_customer_failure_without_duplicate_expense", {
+        p_reservation_id: input.reservationId,
+        p_relief_id: input.settlementId,
+        p_event_key: input.settlementKey,
+        p_failure_class: failureClass,
+        p_evidence_json: {
+          ...evidence,
+          provider: "openai",
+          authoritative: false,
+          cost_coverage: supplierCostComplete ? "estimated" : "incomplete",
+          supplier_cost_micros: supplierCostComplete ? knownSupplierCostMicros : null,
+        },
+      });
+      return;
+    }
+    const settleRpc = "settle_owner_operation";
     await this.rpc(settleRpc, {
       p_reservation_id: input.reservationId,
       p_settlement_id: input.settlementId,

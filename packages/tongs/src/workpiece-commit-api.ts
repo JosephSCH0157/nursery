@@ -62,6 +62,7 @@ import {
 import {
   estimateOpenAiTextDirectCostMicros,
   executePaidOpenAiTextRoute,
+  fingerprintOpenAiTextPaidRequest,
   normalizeOpenAiTextPaidExecutionHandle,
   type OpenAiTextPaidExecutionHandle,
 } from "./providers/paid-openai-text-route-execution.js";
@@ -73,6 +74,7 @@ import {
   resolveOrdinaryOpenAiTextFunding,
   type OpenAiTextSpendingAcceptance,
 } from "./providers/openai-text-customer-funding.js";
+import { configuredOpenAiTranscriptionMode } from "./providers/openai-transcription-paid-boundary.js";
 import {
   coordinateHammerHistoryAtomicComponentHead,
   isProtectedHammerHistoryAtomicStagingPath,
@@ -14961,7 +14963,7 @@ export class TongsCommitService {
       options?.userAccessToken,
     );
 
-    const payloadJson = isRecord(input.payload_json) ? input.payload_json : {};
+    let payloadJson = isRecord(input.payload_json) ? input.payload_json : {};
     let hammerPreparationAttempt: HammerPreparationAttemptRecord | null = null;
     if (input.job_type === "hammer_transcript_prep") {
       const preparationAttemptId = readStringField(
@@ -15088,6 +15090,140 @@ export class TongsCommitService {
           "Final-video rendering requires an immutable authority payload.",
           { missing },
         );
+    }
+
+    if (
+      input.job_type !== "hammer_final_video_render" &&
+      configuredOpenAiTranscriptionMode() === "enforce"
+    ) {
+      const routeCode = input.job_type === "hammer_transcript_regeneration"
+        ? "hammer.transcript_regeneration" as const
+        : "hammer.transcript_prep" as const;
+      const revisionId = readStringField(payloadJson, "revision_id");
+      if (!revisionId) {
+        throw new HttpError(422, "transcription_source_required", "A canonical recording revision is required before transcription can be priced.");
+      }
+      const current = await this.readHammerRecordingRevision(workspaceId, workpieceId, revisionId, {
+        userAccessToken: options?.userAccessToken,
+        userId: auth.userId,
+      });
+      const sourceBytes = current.canonical_recording.media_bytes;
+      if (!Number.isSafeInteger(sourceBytes) || Number(sourceBytes) <= 0) {
+        throw new HttpError(422, "transcription_source_size_unavailable", "The canonical source size is required before transcription can be priced.");
+      }
+      if (Number(sourceBytes) > 25 * 1024 * 1024) {
+        throw new HttpError(
+          503,
+          "supporting_cost_not_authorized",
+          "This source requires unpriced preprocessing before OpenAI transcription and cannot be funded yet.",
+        );
+      }
+      const sourceObject = await downloadStorageObject(
+        this.supabase,
+        this.bucket,
+        buildStorageKey(workpieceId, current.canonical_recording.media_path),
+      );
+      if (!sourceObject || sourceObject.byteLength !== Number(sourceBytes)) {
+        throw new HttpError(
+          409,
+          "transcription_source_changed",
+          "The canonical recording bytes no longer match the revision selected for pricing.",
+        );
+      }
+      const model = readStringField(payloadJson, "model")
+        ?? (typeof process !== "undefined" ? process.env.HAMMER_TRANSCRIBE_MODEL : null)
+        ?? "gpt-4o-transcribe-diarize";
+      const sourceSha256 = await sha256Hex(sourceObject);
+      const requestTerms = {
+        route_code: routeCode,
+        workspace_id: workspaceId,
+        workpiece_id: workpieceId,
+        revision_id: revisionId,
+        canonical_recording_id: current.canonical_recording.id,
+        source_sha256: sourceSha256,
+        model,
+        output_contract: "forge.hammer.diarized-transcript.v1",
+      };
+      const requestFingerprint = await fingerprintOpenAiTextPaidRequest(requestTerms);
+      const operationId = `openai-transcription:${routeCode}:${requestFingerprint}`;
+      const acceptance = normalizeOpenAiTextSpendingAcceptance(payloadJson.spending_acceptance);
+      const userClient = options?.userAccessToken && this.userClientFactory
+        ? this.userClientFactory(options.userAccessToken)
+        : null;
+      if (!userClient) {
+        throw new HttpError(401, "transcription_funding_auth_required", "Authenticated user funding authority is required before this background job can be queued.");
+      }
+      try {
+        const paidExecution = await resolveOrdinaryOpenAiTextFunding({
+          routeCode,
+          operationId,
+          userId: auth.userId,
+          workspaceId,
+          workpieceId,
+          requestFingerprint,
+          model,
+          credentialFunding: "forge",
+          acceptance,
+          serviceGate: this.openAiTextGate,
+          userGate: userClient.schema("tongs") as unknown as OpenAiTextGateClient,
+          transcriptionSource: {
+            assetRevision: revisionId,
+            sha256: sourceSha256,
+            bytes: Number(sourceBytes),
+            maximumDurationSeconds: current.canonical_recording.media_duration_ms == null
+              ? null
+              : current.canonical_recording.media_duration_ms / 1000,
+            maximumChunks: 1,
+            outputContract: "forge.hammer.diarized-transcript.v1",
+          },
+        });
+        if (!paidExecution) {
+          throw new HttpError(503, "transcription_funding_context_required", "An active exact transcription cost policy is required before this job can be queued.");
+        }
+        payloadJson = {
+          ...payloadJson,
+          paid_execution: {
+            operation_id: paidExecution.operationId,
+            reservation_id: paidExecution.reservationId,
+            request_fingerprint: paidExecution.requestFingerprint,
+          },
+          transcription_authority: {
+            route_code: routeCode,
+            source_asset_revision: revisionId,
+            source_sha256: sourceSha256,
+            source_bytes: sourceBytes,
+            output_contract: "forge.hammer.diarized-transcript.v1",
+          },
+        };
+      } catch (error) {
+        if (error instanceof OpenAiTextQuoteRequiredError) {
+          throw new HttpError(409, "transcription_spending_confirmation_required", error.message, {
+            billing_quote: {
+              quote_id: error.quote.quoteId,
+              operation_id: error.quote.operationId,
+              quote_hash: error.quote.quoteHash,
+              request_fingerprint: error.quote.requestFingerprint,
+              currency: error.quote.currency,
+              maximum_customer_charge_micros: error.quote.maximumCustomerChargeMicros,
+              failure_customer_charge_micros: 0,
+              failure_terms: error.quote.failureTerms,
+              funding_eligible: error.quote.fundingEligible,
+              funding_source: error.quote.fundingSource,
+              funding_label: error.quote.fundingLabel,
+              model_display_name: error.quote.modelDisplayName,
+              provider_model_id: error.quote.providerModelId,
+              model_tradeoff_summary: error.quote.modelTradeoffSummary,
+              catalog_revision: error.quote.catalogRevision,
+              estimated_customer_charge_micros: error.quote.estimatedCustomerChargeMicros,
+              expires_at: error.quote.expiresAt,
+            },
+          });
+        }
+        if (error instanceof OpenAiTextFundingPreparationError) {
+          throw new HttpError(error.status, error.code, error.message, error.details);
+        }
+        throw error;
+      }
     }
 
     const nowIso = new Date().toISOString();

@@ -46,7 +46,7 @@ export async function fetchOpenAiOrganizationPages({ fetchImpl = fetch, adminKey
   return pages;
 }
 
-export function normalizeOpenAiOrganizationEvidence({ costsPages, usagePages, periodStart, periodEnd }) {
+export function normalizeOpenAiOrganizationEvidence({ costsPages, usagePages, audioTranscriptionUsagePages = [], periodStart, periodEnd }) {
   const costBuckets = [];
   const usageBuckets = [];
   for (const page of costsPages) {
@@ -79,7 +79,30 @@ export function normalizeOpenAiOrganizationEvidence({ costsPages, usagePages, pe
           cached_input_tokens: nonNegativeInteger(result.input_cached_tokens, "openai_cached_input_tokens"),
           output_tokens: nonNegativeInteger(result.output_tokens, "openai_output_tokens"),
           request_count: nonNegativeInteger(result.num_model_requests, "openai_request_count"),
-          evidence: { start_time: bucket.start_time, end_time: bucket.end_time, service_tier: result.service_tier ?? null },
+          evidence: { operation_kind: "completions", start_time: bucket.start_time, end_time: bucket.end_time, service_tier: result.service_tier ?? null },
+        });
+      }
+    }
+  }
+  for (const page of audioTranscriptionUsagePages) {
+    for (const bucket of page.data) {
+      for (const result of bucket.results ?? []) {
+        const identity = ["audio_transcriptions", bucket.start_time, bucket.end_time, result.model ?? "", result.project_id ?? "", result.api_key_id ?? ""];
+        usageBuckets.push({
+          bucket_key: stableHash(identity),
+          model: result.model ?? null,
+          project_id: result.project_id ?? null,
+          api_key_id: result.api_key_id ?? null,
+          input_tokens: 0,
+          cached_input_tokens: 0,
+          output_tokens: 0,
+          request_count: nonNegativeInteger(result.num_model_requests, "openai_audio_transcription_request_count"),
+          evidence: {
+            operation_kind: "audio_transcriptions",
+            start_time: bucket.start_time,
+            end_time: bucket.end_time,
+            duration_seconds: nonNegativeInteger(result.seconds, "openai_audio_transcription_seconds"),
+          },
         });
       }
     }
@@ -96,10 +119,11 @@ export function normalizeOpenAiOrganizationEvidence({ costsPages, usagePages, pe
     costBuckets,
     usageBuckets,
     rawEvidence: {
-      source: "OpenAI organization Costs and completions Usage APIs",
+      source: "OpenAI organization Costs, completions Usage, and audio transcriptions Usage APIs",
       evidence_hash: evidenceHash,
       cost_page_count: costsPages.length,
       usage_page_count: usagePages.length,
+      audio_transcription_usage_page_count: audioTranscriptionUsagePages.length,
       operation_allocation_status: "unresolved",
       matching_dimensions: {
         organization: "organization scoped by the Admin API credential; no organization ID is returned in these rows",
@@ -107,7 +131,8 @@ export function normalizeOpenAiOrganizationEvidence({ costsPages, usagePages, pe
         reporting_interval: "daily bucket start_time/end_time",
         costs: ["project_id", "api_key_id", "line_item"],
         usage: ["project_id", "api_key_id", "model", "service_tier"],
-        request_identifier: "unavailable in organization Costs and completions Usage responses",
+        audio_transcription_usage: ["project_id", "api_key_id", "model", "reporting_interval", "duration_seconds"],
+        request_identifier: "unavailable in organization Costs, completions Usage, and audio transcriptions Usage responses",
       },
       certainty: {
         provider_total: "authoritative_at_reported_aggregate_granularity",
@@ -125,7 +150,7 @@ export async function collectOpenAiOrganizationEvidence({ fetchImpl = fetch, adm
   if (periodEnd - periodStart > 31 * 24 * 60 * 60) throw new Error("openai_reconciliation_period_exceeds_31_days");
   if (typeof projectId !== "string" || !projectId.trim()) throw new Error("OPENAI_RECONCILIATION_PROJECT_ID_required");
   const projectIds = [projectId.trim()];
-  const [costsPages, usagePages] = await Promise.all([
+  const [costsPages, usagePages, audioTranscriptionUsagePages] = await Promise.all([
     fetchOpenAiOrganizationPages({
       fetchImpl, adminKey, path: "/organization/costs",
       parameters: { start_time: periodStart, end_time: periodEnd, bucket_width: "1d", limit: 31, project_ids: projectIds, group_by: ["project_id", "line_item", "api_key_id"] },
@@ -134,8 +159,12 @@ export async function collectOpenAiOrganizationEvidence({ fetchImpl = fetch, adm
       fetchImpl, adminKey, path: "/organization/usage/completions",
       parameters: { start_time: periodStart, end_time: periodEnd, bucket_width: "1d", limit: 31, project_ids: projectIds, group_by: ["project_id", "api_key_id", "model"] },
     }),
+    fetchOpenAiOrganizationPages({
+      fetchImpl, adminKey, path: "/organization/usage/audio_transcriptions",
+      parameters: { start_time: periodStart, end_time: periodEnd, bucket_width: "1d", limit: 31, project_ids: projectIds, group_by: ["project_id", "api_key_id", "model"] },
+    }),
   ]);
-  const evidence = normalizeOpenAiOrganizationEvidence({ costsPages, usagePages, periodStart, periodEnd });
+  const evidence = normalizeOpenAiOrganizationEvidence({ costsPages, usagePages, audioTranscriptionUsagePages, periodStart, periodEnd });
   evidence.rawEvidence.project_scope = [projectId.trim()];
   return evidence;
 }
