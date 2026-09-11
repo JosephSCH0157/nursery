@@ -57,6 +57,8 @@ function readIntegerEnv(name: string): number | null {
 
 export type HearthRuntimeConfig = {
   textApiKey?: string | null;
+  /** Restricted server-only credential for the coordinated private owner Hearth path. */
+  ownerTextApiKey?: string | null;
   imageApiKey?: string | null;
   researchApiKey?: string | null;
   apiKey?: string | null;
@@ -113,6 +115,7 @@ export function resolveHearthRuntimeConfig(): HearthRuntimeConfig {
   const supabaseUrl = readEnv("TONGS_SUPABASE_URL") || readEnv("SUPABASE_URL") || null;
   const supabaseServiceRoleKey = readEnv("TONGS_SERVICE_ROLE_KEY") || readEnv("SUPABASE_SERVICE_ROLE_KEY") || null;
   const textApiKey = readEnv("OPENAI_TEXT_API_KEY") || readEnv("OPENAI_API_KEY") || null;
+  const ownerTextApiKey = readEnv("OPENAI_HEARTH_OWNER_API_KEY") || null;
   const imageApiKey = resolveOpenAiImageApiKey();
   const researchApiKey = (
     readEnv("HEARTH_RESEARCH_API_KEY")
@@ -131,6 +134,7 @@ export function resolveHearthRuntimeConfig(): HearthRuntimeConfig {
 
   return {
     textApiKey,
+    ownerTextApiKey,
     imageApiKey,
     researchApiKey,
     apiKey: textApiKey,

@@ -93,7 +93,14 @@ type PaidHearthChatSettledOutcome = {
 export type PaidHearthChatExecutionOutcome =
   | ({ state: "settled" } & PaidHearthChatSettledOutcome)
   | ({ state: "settled_replay" } & PaidHearthChatSettledOutcome)
-  | ({ state: "failed_released"; customerChargeMicros: 0; attempts: number; context: PaidContext })
+  | ({
+    state: "failed_released";
+    customerChargeMicros: 0;
+    supplierCostMicros: number | null;
+    requestId: string | null;
+    attempts: number;
+    context: PaidContext;
+  })
   | ({ state: "submission_unknown"; customerChargeMicros: 0; attempts: number; context: PaidContext })
   | ({ state: "duplicate_in_progress"; customerChargeMicros: 0; attempts: number; context: PaidContext });
 
@@ -344,7 +351,14 @@ export async function executePaidHearthChatCompletion(
     return { state: "duplicate_in_progress", customerChargeMicros: 0, attempts: 0, context };
   }
   if (context.reservationState !== "reserved") {
-    return { state: "failed_released", customerChargeMicros: 0, attempts: 0, context };
+    return {
+      state: "failed_released",
+      customerChargeMicros: 0,
+      supplierCostMicros: null,
+      requestId: null,
+      attempts: 0,
+      context,
+    };
   }
 
   const providerEvidence: {
@@ -512,5 +526,12 @@ export async function executePaidHearthChatCompletion(
   if (outcome.state === "submission_unknown") {
     return { state: "submission_unknown", customerChargeMicros: 0, attempts: outcome.attempts, context };
   }
-  return { state: "failed_released", customerChargeMicros: 0, attempts: outcome.attempts, context };
+  return {
+    state: "failed_released",
+    customerChargeMicros: 0,
+    supplierCostMicros: outcome.supplierCostMicros,
+    requestId: providerEvidence.latest?.requestId ?? null,
+    attempts: outcome.attempts,
+    context,
+  };
 }

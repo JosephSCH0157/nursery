@@ -115,6 +115,12 @@ import {
   normalizeHearthSpendingQuoteAcceptance,
 } from "./hearth-paid-chat-execution";
 import {
+  ownerHearthExecutionGate,
+  prepareOwnerHearthOperation,
+  readOwnerHearthExecutionRequirement,
+  recordOwnerCompatibilityOutcome,
+} from "./owner-hearth-paid-execution";
+import {
   applyAiTokenDelta as applyAiTokenDeltaShared,
   buildTranscriptionAccounting,
   buildUsageAccounting,
@@ -2391,6 +2397,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
   const researchSourceExtractor = config.researchSourceExtractor
     ?? extractUrlToResearchSource;
   const textApiKey = config.textApiKey ?? config.apiKey ?? null;
+  const ownerTextApiKey = config.ownerTextApiKey ?? null;
   const {
     model: configuredModel,
     sttModel,
@@ -3957,6 +3964,25 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
       const requestedModel = isRecord(bodyRaw.behavior)
         ? readOptionalString((bodyRaw.behavior as Record<string, unknown>).model)
         : null;
+      let ownerHearthRequirement: Record<string, unknown> | null = null;
+      if (lane === AI_USAGE_LANE.FORGE && turnDecision.mode !== "research"
+        && openAiTextGate && userId && isUuid(episodeContext.workspaceId)) {
+        try {
+          const requirement = await readOwnerHearthExecutionRequirement({
+            gate: openAiTextGate,
+            userId,
+            workspaceId: episodeContext.workspaceId,
+          });
+          if (requirement.owner_testing_effective === true) ownerHearthRequirement = requirement;
+        } catch {
+          return jsonResponse(503, {
+            ok: false,
+            error: "Private owner execution controls are unavailable.",
+            code: "owner_hearth_control_unavailable",
+            ...buildBillingSnapshot(lane),
+          });
+        }
+      }
       let policyDecision: AiPolicyResolveResult | null = null;
       try {
         policyDecision = await resolveRuntimeAiPolicy({
@@ -3983,7 +4009,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         resolvedCredentials = await resolveEffectiveAiCredentials({
           requestedLane: lane,
           provider: "openai",
-          forgeManagedApiKey: textApiKey,
+          forgeManagedApiKey: ownerHearthRequirement ? ownerTextApiKey : textApiKey,
           userId,
           supabaseService,
           disableUserKeys,
@@ -3993,7 +4019,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
         if (error instanceof MissingForgeKeyError) {
           return jsonResponse(500, {
             ok: false,
-            error: MISSING_OPENAI_TEXT_API_KEY_ERROR,
+            error: ownerHearthRequirement
+              ? "Private owner testing requires the isolated OPENAI_HEARTH_OWNER_API_KEY credential."
+              : MISSING_OPENAI_TEXT_API_KEY_ERROR,
             ...buildBillingSnapshot(lane),
           });
         }
@@ -4155,7 +4183,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...buildBillingSnapshot(lane),
         });
       }
-      if (effectiveLane === AI_USAGE_LANE.FORGE && !paidExecutionHandle && tokenBalance != null && tokenBalance <= 0) {
+      if (effectiveLane === AI_USAGE_LANE.FORGE && !ownerHearthRequirement && !paidExecutionHandle && tokenBalance != null && tokenBalance <= 0) {
         return jsonResponse(402, {
           ok: false,
           error: "No AI credits remaining.",
@@ -4218,7 +4246,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           ...buildBillingSnapshot(lane),
         });
       }
-      let model = aiRoute.model;
+      // The general router currently returns the legacy model union, while the
+      // owner-funded path can replace it with one exact server-approved model.
+      let model: string = aiRoute.model;
       const reasoningEffort = aiRoute.reasoning;
       if (!ALLOWED_CHAT_MODELS.has(model)) {
         return jsonResponse(503, {
@@ -4635,18 +4665,22 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           : await fingerprintOpenAiTextPaidRequest(paidFingerprintPayload);
         let paidRequirementRow: Record<string, unknown> = {};
         if (openAiTextGate) {
-          const requirement = await openAiTextGate.rpc("read_openai_text_route_execution_requirement", {
-            p_route_code: paidRouteCode,
-          });
-          if (requirement.error) {
-            return jsonResponse(503, {
-              ok: false,
-              error: "Paid execution controls are unavailable.",
-              code: "paid_execution_control_unavailable",
-              ...buildBillingSnapshot(lane),
+          if (ownerHearthRequirement && paidRouteCode === "hearth.chat_completion") {
+            paidRequirementRow = ownerHearthRequirement;
+          } else {
+            const requirement = await openAiTextGate.rpc("read_openai_text_route_execution_requirement", {
+              p_route_code: paidRouteCode,
             });
+            if (requirement.error) {
+              return jsonResponse(503, {
+                ok: false,
+                error: "Paid execution controls are unavailable.",
+                code: "paid_execution_control_unavailable",
+                ...buildBillingSnapshot(lane),
+              });
+            }
+            paidRequirementRow = isRecord(requirement.data) ? requirement.data : {};
           }
-          paidRequirementRow = isRecord(requirement.data) ? requirement.data : {};
           if (paidRequirementRow.mode === "halt_new") {
             return jsonResponse(503, {
               ok: false,
@@ -4683,6 +4717,25 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
           }
           if (paidRouteCode === "hearth.research_synthesis" || paidRouteCode === "hearth.chat_completion") {
             try {
+              if (ownerHearthRequirement && paidRouteCode === "hearth.chat_completion") {
+                const ownerPrepared = await prepareOwnerHearthOperation({
+                  gate: openAiTextGate,
+                  userId,
+                  workspaceId: episodeContext.workspaceId,
+                  workpieceId: episodeContext.episodeId,
+                  requestedProviderModelId: requestedModel,
+                  requestFingerprint: actualRequestFingerprint,
+                  buildRequest: (acceptedModel, maximumOutputTokens, maximumAttempts) =>
+                    buildBoundedHearthChatProviderRequest({
+                      messages: paidCompletionMessages,
+                      model: acceptedModel,
+                      maximumOutputTokens,
+                      maximumAttempts,
+                    }),
+                });
+                model = ownerPrepared.model;
+                paidExecutionHandle = ownerPrepared.handle;
+              } else {
               const ordinaryOperationId = paidRouteCode === "hearth.chat_completion"
                 ? deriveHearthCustomerPaidIdentifiers({
                   userId,
@@ -4728,6 +4781,7 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                   },
                 },
               });
+              }
             } catch (error) {
               if (error instanceof OpenAiTextQuoteRequiredError) {
                 const ownerBudgetRequired = !error.quote.fundingEligible && error.quote.payerKind === "owner_testing";
@@ -5014,8 +5068,10 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 ...buildBillingSnapshot(lane),
               });
             }
+            const ownerCompatibility = ownerHearthRequirement?.authorization_kind === "compatibility_batch";
+            const paidGate = ownerHearthRequirement ? ownerHearthExecutionGate(openAiTextGate) : openAiTextGate;
             const paidOutcome = await executePaidHearthChatCompletion({
-              gate: openAiTextGate,
+              gate: paidGate,
               handle: paidExecutionHandle,
               userId,
               workspaceId: episodeContext.workspaceId,
@@ -5026,6 +5082,9 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
               signal: upstreamAbort.signal,
               providerFetch: config.openAiProviderFetch,
               validateAndNormalize: (rawReply) => {
+                if (ownerCompatibility && rawReply.trim() !== "Ready.") {
+                  throw new Error("Owner compatibility response did not exactly match Ready.");
+                }
                 const structured = normalizeStructuredReply(rawReply) ?? {
                   assistantText: rawReply,
                   ops: [],
@@ -5057,6 +5116,36 @@ export function createHearthAiHandler(config: HearthRuntimeConfig) {
                 };
               },
             });
+            if (ownerCompatibility) {
+              const ownerCompatibilityStatus = paidOutcome.state === "settled" || paidOutcome.state === "settled_replay"
+                ? "passed"
+                : paidOutcome.state === "submission_unknown"
+                  ? "ambiguous"
+                  : paidOutcome.state === "failed_released"
+                    && (paidOutcome.requestId !== null || paidOutcome.supplierCostMicros !== null)
+                    ? "billed_failure"
+                    : "definitive_rejection";
+              await recordOwnerCompatibilityOutcome({
+                gate: openAiTextGate,
+                reservationId: paidOutcome.context.reservationId,
+                status: ownerCompatibilityStatus,
+                providerRequestId: paidOutcome.state === "settled" || paidOutcome.state === "settled_replay"
+                  ? paidOutcome.requestId
+                  : paidOutcome.state === "failed_released" ? paidOutcome.requestId : null,
+                estimatedSupplierExpenseMicros: paidOutcome.state === "failed_released"
+                  ? paidOutcome.supplierCostMicros
+                  : null,
+                evidence: {
+                  provider_response_captured: paidOutcome.state === "settled" || paidOutcome.state === "settled_replay",
+                  result_validated: paidOutcome.state === "settled" || paidOutcome.state === "settled_replay",
+                  canonical_result_persisted: paidOutcome.state === "settled" || paidOutcome.state === "settled_replay",
+                  operation_settled_estimated: paidOutcome.state === "settled" || paidOutcome.state === "settled_replay",
+                  provider_cost_reconciled_authoritative: false,
+                  billed_provider_failure: ownerCompatibilityStatus === "billed_failure",
+                  duplicate_replay: paidOutcome.state === "settled_replay",
+                },
+              });
+            }
             const billingReceipt = {
               operation_id: paidOutcome.context.operationId,
               reservation_id: paidOutcome.context.reservationId,

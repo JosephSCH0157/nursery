@@ -1,4 +1,13 @@
-export const FORGE_ALLOWED_CHAT_MODELS = ["gpt-5.1", "gpt-5.2", "gpt-5.3"] as const;
+export const FORGE_ALLOWED_CHAT_MODELS = [
+  "gpt-5.1",
+  "gpt-5.2",
+  "gpt-5.3",
+  "gpt-6-astra",
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.4-mini-2026-03-17",
+  "gpt-5.6-luna",
+] as const;
 
 export const FORGE_BILLING_TOKEN_USD = 18 / 1_000_000;
 

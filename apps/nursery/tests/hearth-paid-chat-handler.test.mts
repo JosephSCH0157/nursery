@@ -390,3 +390,101 @@ test("customer quote acceptance reserves, executes, settles, closes, and replays
     globalThis.fetch = originalFetch;
   }
 });
+
+test("explicit owner Hearth authority uses only the isolated credential and bypasses neither coordinator nor persistence", async () => {
+  const workspaceId = "55555555-5555-4555-8555-555555555555";
+  let prepared: Record<string, unknown> = {};
+  let providerCalls = 0;
+  const calls: string[] = [];
+  const gate = {
+    async rpc(name: string, args: Record<string, unknown>) {
+      calls.push(name);
+      if (name === "read_owner_hearth_execution_requirement") return { data: {
+        mode: "enforce", funding_context_required: true, owner_testing_effective: true,
+        authorization_kind: "creator_session", authorization_state: "dormant",
+      }, error: null };
+      if (name === "resolve_owner_hearth_model_for_operation") return { data: {
+        provider_model_id: "gpt-5.6-luna", authorization_kind: "creator_session",
+      }, error: null };
+      if (name === "prepare_owner_hearth_operation") {
+        prepared = args;
+        return { data: {
+          operation_id: args.p_operation_id,
+          reservation_id: args.p_reservation_id,
+          request_fingerprint: args.p_request_fingerprint,
+        }, error: null };
+      }
+      if (name === "resolve_owner_hearth_paid_execution_context") return { data: {
+        operation_id: prepared.p_operation_id,
+        reservation_id: prepared.p_reservation_id,
+        quote_id: prepared.p_quote_id,
+        funding_source_type: "owner_budget",
+        funding_source_id: BUDGET_ID,
+        credential_funding: "forge",
+        model: "gpt-5.6-luna",
+        maximum_input_units: 32000,
+        maximum_output_units: 8000,
+        maximum_attempts: 1,
+        maximum_failure_exposure_micros: 17459,
+        direct_provider_ceiling_micros: 16000,
+        supporting_cost_ceiling_micros: 1456,
+        input_micros_per_million_tokens: 200000,
+        cached_input_micros_per_million_tokens: 20000,
+        output_micros_per_million_tokens: 1200000,
+        reservation_state: "reserved",
+      }, error: null };
+      if (name === "acquire_owner_hearth_aggregate_admission") return { data: { enforcement_enabled: true, authorized: true }, error: null };
+      if (name === "authorize_owner_hearth_provider_attempt_with_aggregate") return { data: { provider_execution_authorized: true }, error: null };
+      if (name === "settle_owner_hearth_operation") return { data: { customer_charge_micros: 0, customer_revenue_micros: 0 }, error: null };
+      return { data: {}, error: null };
+    },
+  };
+  const handler = createHearthAiHandler({
+    textApiKey: "legacy-key-must-not-be-used",
+    ownerTextApiKey: "isolated-owner-key",
+    imageApiKey: null,
+    researchApiKey: null,
+    apiKey: "legacy-key-must-not-be-used",
+    model: "gpt-5.3",
+    sttModel: "gpt-4o-mini-transcribe",
+    configuredBillingMode: "forge",
+    initialTokenBalance: 0,
+    supabaseUrl: null,
+    supabaseServiceRoleKey: null,
+    supabaseRpcKey: null,
+    sttBucket: "forge-workpieces",
+    disableForgeLaneAi: false,
+    disableUserKeys: false,
+    disableExpensiveAiActions: false,
+    disableCdcGeneration: false,
+    openAiTextGate: gate,
+    resolveUserIdForAccessToken: async () => USER_ID,
+    openAiProviderFetch: async (_url, init) => {
+      providerCalls += 1;
+      assert.equal((init?.headers as Record<string, string>).authorization, "Bearer isolated-owner-key");
+      return new Response(JSON.stringify({
+        id: "chatcmpl_owner_fake",
+        choices: [{ message: { content: "The quiet room makes it easier to hear the story take shape." } }],
+        usage: { prompt_tokens: 35, completion_tokens: 12 },
+      }), { status: 200, headers: { "x-request-id": "req_owner_fake_1" } });
+    },
+  });
+  const response = await handler(new Request("http://localhost/api/hearth/chat", {
+    method: "POST",
+    headers: { authorization: "Bearer owner-token", "content-type": "application/json" },
+    body: JSON.stringify({
+      lane: "forge",
+      messages: [{ role: "user", content: USER_MESSAGE }],
+      user_authored_text: USER_MESSAGE,
+      attachment_context: { include_episode_attachments: false, attachment_ids: [] },
+      episode_context: { episodeId: "owner-workpiece", workspaceId, title: "", titleVariants: { A: "", B: "", C: "" }, outline: "", body: "", sources: [], sparks: [] },
+    }),
+  }));
+  const payload = await response.json() as Record<string, any>;
+  assert.equal(response.status, 200, JSON.stringify(payload));
+  assert.equal(providerCalls, 1);
+  assert.equal(payload.billing_receipt.customer_charge_micros, 0);
+  assert.ok(calls.indexOf("prepare_owner_hearth_operation") < calls.indexOf("authorize_owner_hearth_provider_attempt_with_aggregate"));
+  assert.ok(calls.indexOf("persist_hearth_chat_paid_result") < calls.indexOf("settle_owner_hearth_operation"));
+  assert.equal(calls.includes("resolve_openai_text_paid_execution_context"), false);
+});

@@ -32,6 +32,7 @@ const migrations = [
   "20261006120000_tongs_owner_org_funding_authority.sql",
   "20261006130000_tongs_openai_model_catalog_revision_2.sql",
   "20261007120000_tongs_non_spending_financial_repairs.sql",
+  "20261008120000_tongs_owner_funded_hearth_activation.sql",
 ];
 
 function docker(args, input) {
@@ -69,6 +70,7 @@ try {
   for (const migration of migrations) psql(readFileSync(`supabase/migrations/${migration}`, "utf8"), migration);
   psql(readFileSync("supabase/tests/hearth_access_funding.sql", "utf8"), "Hearth access and funding proof");
   psql(readFileSync("supabase/tests/non_spending_financial_repairs.sql", "utf8"), "non-spending financial repair proof");
+  psql(readFileSync("supabase/tests/owner_funded_hearth_activation.sql", "utf8"), "owner-funded Hearth activation proof");
   console.log(JSON.stringify({
     isolated_database: true,
     explicit_owner_identity_not_role_inheritance: "passed",
@@ -84,6 +86,10 @@ try {
     cross_revision_supplier_obligations_preserved: "passed",
     conservative_exposure_adjustment_and_halt: "passed",
     post_30_day_tail_funding_explicit: "passed",
+    isolated_owner_credential_authority: "passed",
+    exact_owner_operation_binding: "passed",
+    historical_obligation_does_not_consume_concurrency: "passed",
+    non_overlapping_owner_tail: "passed",
   }));
 } finally {
   docker(["exec", container, "dropdb", "-U", "postgres", "--if-exists", database]);
