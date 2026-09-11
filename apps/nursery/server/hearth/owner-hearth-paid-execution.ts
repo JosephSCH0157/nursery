@@ -117,7 +117,8 @@ export function ownerHearthExecutionGate(gate: OpenAiTextGateClient): OpenAiText
   return {
     rpc(name: string, args: Record<string, unknown>): Promise<RpcResult> {
       if (name === "resolve_openai_text_paid_execution_context") {
-        const { p_route_code: _routeCode, ...ownerArgs } = args;
+        const ownerArgs = { ...args };
+        delete ownerArgs.p_route_code;
         return gate.rpc(names[name], ownerArgs);
       }
       return gate.rpc(names[name] ?? name, args);
