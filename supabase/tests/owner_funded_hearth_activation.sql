@@ -61,6 +61,19 @@ do $$ begin
  exception when unique_violation then null; end;
 end $$;
 
+do $$ declare imported jsonb; replayed jsonb; begin
+ imported:=tongs.import_legacy_runway_opening_commitment(
+  '544efbb5-7b76-4c2b-a5cd-d8846ff66fec','91000000-0000-4000-8000-000000000001',750000,
+  'isolated missing-reservation opening commitment proof');
+ replayed:=tongs.import_legacy_runway_opening_commitment(
+  '544efbb5-7b76-4c2b-a5cd-d8846ff66fec','91000000-0000-4000-8000-000000000001',750000,
+  'isolated missing-reservation opening commitment proof');
+ if imported->>'reservation_id' is not null then raise exception 'missing legacy reservation was fabricated'; end if;
+ if coalesce((imported->'evidence_json'->>'funding_entitlement')::boolean,true) then
+  raise exception 'opening commitment created funding entitlement'; end if;
+ if coalesce((replayed->>'replay')::boolean,false) is not true then raise exception 'opening import replay duplicated'; end if;
+end $$;
+
 select tongs.acquire_owner_hearth_aggregate_admission(
  '91000000-0000-4000-8000-000000000033','interactive','real');
 insert into tongs.legacy_supplier_opening_commitments(id,environment,provider,commitment_key,amount_micros,status,evidence_json)

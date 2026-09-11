@@ -33,6 +33,7 @@ const migrations = [
   "20261006130000_tongs_openai_model_catalog_revision_2.sql",
   "20261007120000_tongs_non_spending_financial_repairs.sql",
   "20261008120000_tongs_owner_funded_hearth_activation.sql",
+  "20261008130000_tongs_owner_hearth_runway_commitment_repair.sql",
 ];
 
 function docker(args, input) {
