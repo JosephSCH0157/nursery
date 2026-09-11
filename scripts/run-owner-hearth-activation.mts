@@ -97,6 +97,21 @@ async function main() {
     p_reason: "Approved five-model owner Hearth compatibility batch capped at $0.09 with separate 12-month tail allocation.",
   });
 
+  const initialAudit = await call("read_owner_hearth_activation_audit", {});
+  const initialOperations = Array.isArray(initialAudit.operations)
+    ? initialAudit.operations as Array<Record<string, unknown>>
+    : [];
+  const initialResults = Array.isArray(initialAudit.compatibility_results)
+    ? initialAudit.compatibility_results as Array<Record<string, unknown>>
+    : [];
+  const existingResultByModel = new Map<string, Record<string, unknown>>();
+  for (const result of initialResults) {
+    const operation = initialOperations.find((entry) => entry.id === result.operation_authorization_id);
+    if (operation && typeof operation.provider_model_id === "string") {
+      existingResultByModel.set(operation.provider_model_id, { ...result, operation });
+    }
+  }
+
   const visibility: Array<Record<string, unknown>> = [];
   for (const model of EXACT_MODELS) {
     const response = await fetch(`https://api.openai.com/v1/models/${encodeURIComponent(model)}`, {
@@ -108,7 +123,27 @@ async function main() {
   const operations: Array<Record<string, unknown>> = [];
   const abort = new AbortController();
   for (const model of EXACT_MODELS) {
+    const recorded = existingResultByModel.get(model);
+    if (recorded) {
+      const operation = recorded.operation as Record<string, unknown>;
+      operations.push({
+        model,
+        state: "recorded_replay",
+        operation_id: operation.operation_id,
+        reservation_id: operation.reservation_id,
+        compatibility_status: recorded.status,
+        provider_request_id: recorded.provider_request_id,
+        estimated_supplier_expense_micros: recorded.estimated_supplier_expense_micros,
+        customer_charge_micros: 0,
+        customer_revenue_micros: 0,
+      });
+      continue;
+    }
     const visible = visibility.find((entry) => entry.model === model)?.visible === true;
+    const priorModelOperations = initialOperations.filter((entry) => entry.provider_model_id === model);
+    const workpieceId = priorModelOperations.length === 0
+      ? `owner-hearth-compatibility:${model}`
+      : `owner-hearth-compatibility:${model}:recovery-${priorModelOperations.length + 1}`;
     const messages = [
       { role: "system", content: SYSTEM_PROMPT },
       { role: "user", content: "Reply with exactly: Ready." },
@@ -117,7 +152,7 @@ async function main() {
       schema: "forge.owner-hearth.compatibility.v1",
       owner_user_id: OWNER_ID,
       workspace_id: WORKSPACE_ID,
-      workpiece_id: `owner-hearth-compatibility:${model}`,
+      workpiece_id: workpieceId,
       route_code: "hearth.chat_completion",
       model,
       messages,
@@ -127,7 +162,7 @@ async function main() {
       gate,
       userId: OWNER_ID,
       workspaceId: WORKSPACE_ID,
-      workpieceId: `owner-hearth-compatibility:${model}`,
+      workpieceId,
       requestedProviderModelId: model,
       requestFingerprint,
       buildRequest: (acceptedModel, maximumOutputTokens, maximumAttempts) => buildBoundedHearthChatProviderRequest({
@@ -160,7 +195,7 @@ async function main() {
       handle: prepared.handle,
       userId: OWNER_ID,
       workspaceId: WORKSPACE_ID,
-      workpieceId: `owner-hearth-compatibility:${model}`,
+      workpieceId,
       credentialSource: "forge_managed",
       apiKey,
       messages,
@@ -173,7 +208,14 @@ async function main() {
     const settled = outcome.state === "settled" || outcome.state === "settled_replay";
     const ambiguous = outcome.state === "submission_unknown";
     const supplierEvidence = await readSupplierEvidence(prepared.handle.reservationId);
-    const billedFailure = !settled && !ambiguous
+    const definitiveRelease = !settled && !ambiguous
+      ? await call("release_owner_hearth_definitive_nonbillable_rejection", {
+        p_reservation_id: prepared.handle.reservationId,
+        p_event_key: `${prepared.handle.operationId}:definitive-nonbillable-rejection`,
+      })
+      : null;
+    const definitiveRejection = definitiveRelease?.released === true;
+    const billedFailure = !settled && !ambiguous && !definitiveRejection
       && (supplierEvidence.capture !== null || supplierEvidence.expenseRows.length > 0);
     const estimatedSupplierExpenseMicros = supplierEvidence.expenseRows.length > 0
       ? supplierEvidence.estimatedExpenseMicros
@@ -182,15 +224,17 @@ async function main() {
       ? "passed"
       : ambiguous
         ? "ambiguous"
-        : billedFailure
+        : definitiveRejection
+          ? "definitive_rejection"
+          : billedFailure
           ? "billed_failure"
           : "definitive_rejection";
     await recordOwnerCompatibilityOutcome({
       gate,
       reservationId: prepared.handle.reservationId,
       status: compatibilityStatus,
-      providerRequestId: settled ? outcome.requestId : supplierEvidence.capture?.provider_request_id ?? null,
-      estimatedSupplierExpenseMicros,
+      providerRequestId: settled ? outcome.requestId : String(definitiveRelease?.provider_request_id ?? supplierEvidence.capture?.provider_request_id ?? "") || null,
+      estimatedSupplierExpenseMicros: definitiveRejection ? null : estimatedSupplierExpenseMicros,
       evidence: {
         model_visibility_confirmed: true,
         exact_ready_validated: settled,
@@ -198,6 +242,8 @@ async function main() {
         operation_settled_estimated: settled,
         provider_cost_reconciled_authoritative: false,
         billed_provider_failure: billedFailure,
+        definitive_nonbillable_rejection: definitiveRejection,
+        provider_cost_reconciled_authoritative: false,
         supplier_evidence_incomplete: supplierEvidence.hasUnresolvedExpense,
         supplier_expense_components: supplierEvidence.expenseRows.map((row) => row.component_code),
         serialized_body_sha256: prepared.boundedRequest.serializedBodySha256,
@@ -210,17 +256,17 @@ async function main() {
       operation_id: prepared.handle.operationId,
       reservation_id: prepared.handle.reservationId,
       compatibility_status: compatibilityStatus,
-      provider_request_id: settled ? outcome.requestId : supplierEvidence.capture?.provider_request_id ?? null,
+      provider_request_id: settled ? outcome.requestId : String(definitiveRelease?.provider_request_id ?? supplierEvidence.capture?.provider_request_id ?? "") || null,
       input_units: settled ? outcome.inputUnits : null,
       output_units: settled ? outcome.outputUnits : null,
-      estimated_supplier_expense_micros: estimatedSupplierExpenseMicros,
+      estimated_supplier_expense_micros: definitiveRejection ? null : estimatedSupplierExpenseMicros,
       customer_charge_micros: 0,
       customer_revenue_micros: 0,
     });
     if (ambiguous) break;
   }
 
-  const allPassed = operations.length === 5 && operations.every((operation) => operation.state === "settled" || operation.state === "settled_replay");
+  const allPassed = operations.length === 5 && operations.every((operation) => operation.compatibility_status === "passed");
   let session: Record<string, unknown> | null = null;
   if (allPassed) {
     session = await call("finalize_owner_hearth_compatibility_batch", {
@@ -229,6 +275,12 @@ async function main() {
       p_session_authorization_id: SESSION_AUTHORIZATION_ID,
       p_session_budget_id: SESSION_BUDGET_ID,
       p_reason: "All five exact models passed the approved coordinated compatibility batch; create dormant no-renewal owner session.",
+    });
+  } else if (operations.length === 5 && operations.every((operation) => operation.compatibility_status !== "ambiguous")) {
+    session = await call("close_owner_hearth_unsuccessful_compatibility_batch", {
+      p_authorization_id: AUTHORIZATION_ID,
+      p_operator_user_id: OWNER_ID,
+      p_reason: "The five-model compatibility authorization completed without five successful compatible results; close new admission without creating an owner session.",
     });
   }
   const audit = await call("read_owner_hearth_activation_audit", {});

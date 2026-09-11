@@ -35,6 +35,7 @@ const migrations = [
   "20261008120000_tongs_owner_funded_hearth_activation.sql",
   "20261008130000_tongs_owner_hearth_runway_commitment_repair.sql",
   "20261008140000_tongs_owner_hearth_attempt_signature_repair.sql",
+  "20261008150000_tongs_owner_hearth_definitive_rejection_recovery.sql",
 ];
 
 function docker(args, input) {
