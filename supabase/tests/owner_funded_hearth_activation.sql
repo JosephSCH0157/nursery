@@ -76,6 +76,9 @@ end $$;
 
 select tongs.acquire_owner_hearth_aggregate_admission(
  '91000000-0000-4000-8000-000000000033','interactive','real');
+select tongs.authorize_owner_hearth_provider_attempt_with_aggregate(
+ '91000000-0000-4000-8000-000000000033','owner-hearth-isolated-attempt',1::smallint,
+ 'interactive',30919,120,'{"provider":"openai","provider_submission_count":0}');
 insert into tongs.legacy_supplier_opening_commitments(id,environment,provider,commitment_key,amount_micros,status,evidence_json)
 values('91000000-0000-4000-8000-000000000050','production','runway','isolated-runway-opening',750000,'unresolved','{"funding_entitlement":false}');
 do $$ declare commitment bigint; concurrency bigint; policy_id uuid; begin
@@ -107,6 +110,77 @@ do $$ begin
  if exists(select 1 from tongs.customer_spending_quotes where id='91000000-0000-4000-8000-000000000031'
    and (normal_maximum_charge_micros<>0 or billable_failure_maximum_charge_micros<>0)) then
   raise exception 'owner activation created customer charge'; end if;
+end $$;
+
+-- A quote released before provider submission may be replaced without using
+-- one of the five provider-attempt slots. This is the recovery required when
+-- aggregate admission rejects before the provider boundary.
+select tongs.prepare_owner_hearth_operation(
+ '91000000-0000-4000-8000-000000000070','91000000-0000-4000-8000-000000000071',
+ '91000000-0000-4000-8000-000000000072','91000000-0000-4000-8000-000000000073',
+ '91000000-0000-4000-8000-000000000001','91000000-0000-4000-8000-000000000010','compat-sol-released',
+ 'owner-hearth-isolated-operation-sol-released','gpt-5.6-sol',repeat('c',64),repeat('d',64),386,300,16,386,512,1::smallint,
+ 'openai-json-o200k-byte-ceiling-v1','o200k_base-js-tiktoken-1.0.21',now()+interval '10 minutes');
+select tongs.release_operation(
+ '91000000-0000-4000-8000-000000000073','owner-hearth-sol-preprovider-release',
+ 'aggregate admission was unavailable before provider submission','{"transmitted":false,"provider_submission_count":0}'::jsonb);
+select tongs.prepare_owner_hearth_operation(
+ '91000000-0000-4000-8000-000000000074','91000000-0000-4000-8000-000000000075',
+ '91000000-0000-4000-8000-000000000076','91000000-0000-4000-8000-000000000077',
+ '91000000-0000-4000-8000-000000000001','91000000-0000-4000-8000-000000000010','compat-sol-recovery',
+ 'owner-hearth-isolated-operation-sol-recovery','gpt-5.6-sol',repeat('e',64),repeat('f',64),386,300,16,386,512,1::smallint,
+ 'openai-json-o200k-byte-ceiling-v1','o200k_base-js-tiktoken-1.0.21',now()+interval '10 minutes');
+
+select tongs.acquire_owner_hearth_aggregate_admission(
+ '91000000-0000-4000-8000-000000000077','interactive','real');
+select tongs.authorize_owner_hearth_provider_attempt_with_aggregate(
+ '91000000-0000-4000-8000-000000000077','owner-hearth-isolated-sol-attempt',1::smallint,
+ 'interactive',13243,120,'{"provider":"openai","provider_submission_count":0}');
+select tongs.record_openai_text_supplier_attempt_expense(
+ '91000000-0000-4000-8000-000000000077','owner-hearth-isolated-sol-attempt',1::smallint,
+ 'req_test_credit_exhausted',null,'unresolved',
+ '{"provider_reference":"req_test_credit_exhausted","status":429,"detail":"{\"error\":{\"code\":\"credit_balance_exhausted\",\"type\":\"credit_balance_exhausted\"}}"}'::jsonb);
+select tongs.close_openai_text_failure_exposure(
+ '91000000-0000-4000-8000-000000000077','owner-hearth-isolated-sol-attempt','failure_realized',null,
+ '{"provider_reference":"req_test_credit_exhausted","status":429}'::jsonb);
+select tongs.record_provider_failure(
+ '91000000-0000-4000-8000-000000000077','owner-hearth-isolated-sol-provider-failure','provider_failure',
+ '{"provider_reference":"req_test_credit_exhausted","status":429,"detail":"{\"error\":{\"code\":\"credit_balance_exhausted\",\"type\":\"credit_balance_exhausted\"}}"}'::jsonb);
+select tongs.settle_owner_hearth_operation(
+ '91000000-0000-4000-8000-000000000077','91000000-0000-4000-8000-000000000078',
+ 'owner-hearth-isolated-sol-settlement','nonbillable_failure','provider_failure',0,
+ '{"authoritative":false,"cost_coverage":"incomplete"}'::jsonb);
+select tongs.record_paid_operation_aggregate_outcome(
+ '91000000-0000-4000-8000-000000000077','owner-hearth-isolated-sol-aggregate-failure','failure',null,null,
+ '{"provider_reference":"req_test_credit_exhausted","status":429,"authoritative":false}'::jsonb);
+select tongs.release_owner_hearth_definitive_nonbillable_rejection(
+ '91000000-0000-4000-8000-000000000077','owner-hearth-isolated-sol-definitive-rejection');
+select tongs.record_owner_hearth_compatibility_result(
+ '91000000-0000-4000-8000-000000000077','owner-hearth-isolated-sol-original-result','billed_failure',
+ 'req_test_credit_exhausted',0,null,'{"authoritative":false,"classification":"original"}'::jsonb);
+select tongs.correct_owner_hearth_nonbillable_result(
+ '91000000-0000-4000-8000-000000000077','owner-hearth-isolated-sol-correction');
+
+do $$ declare aggregate_state text; failure_state text; begin
+ select e.event_type into aggregate_state from tongs.paid_operation_aggregate_bindings b
+ join lateral(select event_type from tongs.restricted_beta_exposure_events x where x.hold_id=b.hold_id order by sequence desc limit 1)e on true
+ where b.reservation_id='91000000-0000-4000-8000-000000000077';
+ select e.event_type into failure_state from tongs.openai_text_failure_exposure_holds h
+ join lateral(select event_type from tongs.openai_text_failure_exposure_events x where x.hold_id=h.id order by sequence desc limit 1)e on true
+ where h.reservation_id='91000000-0000-4000-8000-000000000077';
+ if aggregate_state<>'released' or failure_state<>'success_released' then
+  raise exception 'definitive nonbillable rejection did not release capacity: %, %',aggregate_state,failure_state; end if;
+ if exists(select 1 from tongs.owner_operating_budget_consumptions where reservation_id='91000000-0000-4000-8000-000000000077') then
+  raise exception 'definitive nonbillable rejection consumed owner budget'; end if;
+ if not exists(select 1 from tongs.supplier_expenses where reservation_id='91000000-0000-4000-8000-000000000077'
+   and evidence_status='unresolved' and amount_micros is null) then
+  raise exception 'original unresolved supplier evidence was not preserved'; end if;
+ if not exists(select 1 from tongs.owner_hearth_compatibility_result_corrections c
+   join tongs.owner_hearth_compatibility_results r on r.id=c.compatibility_result_id
+   join tongs.owner_hearth_operation_authorizations o on o.id=r.operation_authorization_id
+   where o.reservation_id='91000000-0000-4000-8000-000000000077'
+     and c.original_status='billed_failure' and c.corrected_status='definitive_rejection') then
+  raise exception 'append-only compatibility correction was not recorded'; end if;
 end $$;
 
 rollback;
