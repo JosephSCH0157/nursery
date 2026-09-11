@@ -183,4 +183,39 @@ do $$ declare aggregate_state text; failure_state text; begin
   raise exception 'append-only compatibility correction was not recorded'; end if;
 end $$;
 
+-- A fresh compatibility batch reuses the existing non-overlapping tail
+-- authorization and creates only a new capped execution budget.
+insert into tongs.owner_hearth_authorization_events(
+ id,authorization_id,sequence,event_key,state,reason,evidence_json
+)
+select '91000000-0000-4000-8000-000000000089',a.id,
+ (select coalesce(max(sequence),0)+1 from tongs.owner_hearth_authorization_events e where e.authorization_id=a.id),
+ 'owner-hearth-isolated-prior-closed','closed','isolated retry predecessor closed','{"test_only":true}'::jsonb
+from tongs.owner_hearth_authorizations a where a.id='91000000-0000-4000-8000-000000000020';
+
+select tongs.activate_owner_hearth_compatibility_retry(
+ '91000000-0000-4000-8000-000000000001','91000000-0000-4000-8000-000000000010',
+ '91000000-0000-4000-8000-000000000001','91000000-0000-4000-8000-000000000020',
+ '91000000-0000-4000-8000-000000000090','91000000-0000-4000-8000-000000000091',
+ '91000000-0000-4000-8000-000000000022','isolated fresh compatibility retry');
+select tongs.activate_owner_hearth_compatibility_retry(
+ '91000000-0000-4000-8000-000000000001','91000000-0000-4000-8000-000000000010',
+ '91000000-0000-4000-8000-000000000001','91000000-0000-4000-8000-000000000020',
+ '91000000-0000-4000-8000-000000000090','91000000-0000-4000-8000-000000000091',
+ '91000000-0000-4000-8000-000000000022','isolated fresh compatibility retry replay');
+
+do $$ declare latest_state text; begin
+ select e.state into latest_state from tongs.owner_hearth_authorization_events e
+ where e.authorization_id='91000000-0000-4000-8000-000000000090' order by e.sequence desc limit 1;
+ if latest_state<>'active'
+    or (select count(*) from tongs.owner_hearth_model_terms where authorization_id='91000000-0000-4000-8000-000000000090')<>5
+    or (select count(*) from tongs.owner_hearth_tail_authorizations where owner_user_id='91000000-0000-4000-8000-000000000001'
+      and workspace_id='91000000-0000-4000-8000-000000000010')<>1
+    or (select maximum_amount_micros from tongs.owner_operating_budget_revisions
+      where budget_id='91000000-0000-4000-8000-000000000091' order by revision desc limit 1)<>90000 then
+  raise exception 'fresh compatibility retry did not preserve the exact cap and single tail allocation'; end if;
+ if exists(select 1 from tongs.owner_hearth_authorizations where authorization_kind='creator_session') then
+  raise exception 'retry created the conditional owner session before compatibility passed'; end if;
+end $$;
+
 rollback;

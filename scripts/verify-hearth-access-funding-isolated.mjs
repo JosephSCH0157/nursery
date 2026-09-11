@@ -38,6 +38,7 @@ const migrations = [
   "20261008150000_tongs_owner_hearth_definitive_rejection_recovery.sql",
   "20261008160000_tongs_owner_hearth_compatibility_result_corrections.sql",
   "20261008170000_tongs_owner_hearth_compatibility_rpc_alias.sql",
+  "20261008180000_tongs_owner_hearth_fresh_compatibility_retry.sql",
 ];
 
 function docker(args, input) {

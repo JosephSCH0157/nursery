@@ -14,11 +14,15 @@ import {
 const OWNER_ID = "42c3de1d-bd24-41fe-abd9-640f17518b2c";
 const WORKSPACE_ID = "494c2ae5-9037-4208-b898-fab4898ab430";
 const RUNWAY_RESERVATION_ID = "544efbb5-7b76-4c2b-a5cd-d8846ff66fec";
-const AUTHORIZATION_ID = "95d2e49d-4084-4f3a-a371-a65f5a1ff006";
-const BUDGET_ID = "69b4dd4f-a4e5-4891-b1a7-6fbb5080f925";
+const PRIOR_AUTHORIZATION_ID = "95d2e49d-4084-4f3a-a371-a65f5a1ff006";
+const AUTHORIZATION_ID = "3891fcec-c589-427f-9517-4ac46bd4e695";
+const BUDGET_ID = "77ce1c2f-3b34-430d-b5dd-411bdeffc1b8";
 const TAIL_AUTHORIZATION_ID = "45e583bd-df82-4a55-8f18-04bb79235747";
 const SESSION_AUTHORIZATION_ID = "43712011-b8ba-4387-848f-0180cd16389d";
 const SESSION_BUDGET_ID = "46eaf314-527e-4b9a-a62e-e2e7715c9051";
+const OPENAI_ORGANIZATION_ID = "org-M9AuhWvVFuGxXTGTsv33dc7X";
+const OPENAI_PROJECT_ID = "proj_ZuYi36uhWk4Xu8zEYs0PmI2H";
+const OPENAI_CHAT_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
 const EXACT_MODELS = [
   "gpt-6-astra",
   "gpt-5.6-sol",
@@ -47,6 +51,20 @@ function gateFrom(client: ReturnType<typeof createClient>) {
       const result = await client.schema("tongs").rpc(name as never, args as never);
       return { data: result.data, error: result.error ? { message: result.error.message } : null };
     },
+  };
+}
+
+function projectScopedOpenAiFetch(apiKey: string): typeof fetch {
+  return async (input, init) => {
+    const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+    if (url !== OPENAI_CHAT_COMPLETIONS_URL || (init?.method ?? "GET").toUpperCase() !== "POST") {
+      throw new Error("owner compatibility provider transport rejected an unexpected destination or method");
+    }
+    const headers = new Headers(init?.headers);
+    headers.set("authorization", `Bearer ${apiKey}`);
+    headers.set("openai-organization", OPENAI_ORGANIZATION_ID);
+    headers.set("openai-project", OPENAI_PROJECT_ID);
+    return fetch(url, { ...init, headers });
   };
 }
 
@@ -87,19 +105,21 @@ async function main() {
     p_amount_micros: 750_000,
     p_reason: "Preserve unresolved September 2026 owner Runway pilot ceiling without creating entitlement or duplicate expense.",
   });
-  await call("activate_owner_hearth_compatibility_package", {
+  await call("activate_owner_hearth_compatibility_retry", {
     p_owner_user_id: OWNER_ID,
     p_workspace_id: WORKSPACE_ID,
     p_operator_user_id: OWNER_ID,
+    p_prior_authorization_id: PRIOR_AUTHORIZATION_ID,
     p_authorization_id: AUTHORIZATION_ID,
     p_budget_id: BUDGET_ID,
     p_tail_authorization_id: TAIL_AUTHORIZATION_ID,
-    p_reason: "Approved five-model owner Hearth compatibility batch capped at $0.09 with separate 12-month tail allocation.",
+    p_reason: "Approved fresh five-model owner Hearth compatibility batch capped at $0.09; reuse the existing separate 12-month tail allocation.",
   });
 
   const initialAudit = await call("read_owner_hearth_activation_audit", {});
   const initialOperations = Array.isArray(initialAudit.operations)
-    ? initialAudit.operations as Array<Record<string, unknown>>
+    ? (initialAudit.operations as Array<Record<string, unknown>>)
+      .filter((entry) => entry.authorization_id === AUTHORIZATION_ID)
     : [];
   const initialResults = Array.isArray(initialAudit.compatibility_results)
     ? initialAudit.compatibility_results as Array<Record<string, unknown>>
@@ -115,7 +135,11 @@ async function main() {
   const visibility: Array<Record<string, unknown>> = [];
   for (const model of EXACT_MODELS) {
     const response = await fetch(`https://api.openai.com/v1/models/${encodeURIComponent(model)}`, {
-      headers: { authorization: `Bearer ${apiKey}` },
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        "openai-organization": OPENAI_ORGANIZATION_ID,
+        "openai-project": OPENAI_PROJECT_ID,
+      },
     });
     visibility.push({ model, visible: response.ok, status: response.status, request_id: response.headers.get("x-request-id") });
   }
@@ -210,6 +234,7 @@ async function main() {
       apiKey,
       messages,
       signal: abort.signal,
+      providerFetch: projectScopedOpenAiFetch(apiKey),
       validateAndNormalize(rawReply) {
         if (rawReply.trim() !== "Ready.") throw new Error("compatibility response must be exactly Ready.");
         return { assistantText: "Ready.", ops: [], scriptText: null, tagAudit: null };
@@ -250,12 +275,14 @@ async function main() {
         exact_ready_validated: settled,
         canonical_persistence_confirmed: settled,
         operation_settled_estimated: settled,
-        provider_cost_reconciled_authoritative: false,
         billed_provider_failure: billedFailure,
         definitive_nonbillable_rejection: definitiveRejection,
         provider_cost_reconciled_authoritative: false,
         supplier_evidence_incomplete: supplierEvidence.hasUnresolvedExpense,
         supplier_expense_components: supplierEvidence.expenseRows.map((row) => row.component_code),
+        provider_destination: OPENAI_CHAT_COMPLETIONS_URL,
+        openai_organization_id: OPENAI_ORGANIZATION_ID,
+        openai_project_id: OPENAI_PROJECT_ID,
         serialized_body_sha256: prepared.boundedRequest.serializedBodySha256,
         bounded_input_tokens: prepared.boundedRequest.boundedInputTokens,
       },
